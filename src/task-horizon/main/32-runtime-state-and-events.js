@@ -1214,6 +1214,7 @@
 });
             if (__tmTaskMutationState.log.length > 120) __tmTaskMutationState.log.splice(0, __tmTaskMutationState.log.length - 120);
         } catch (e) {}
+        try { __tmMarkMobileCloseSyncDirtyForTaskMutation(normalized); } catch (e) {}
         Array.from(__tmTaskMutationState.listeners).forEach((handler) => {
             try { handler(normalized); } catch (e) {}
         });

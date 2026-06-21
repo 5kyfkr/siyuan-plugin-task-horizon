@@ -2427,6 +2427,20 @@
     }
 }
 
+.tm-modal.tm-semantic-date-confirm-modal:not(.tm-modal--dock) {
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    box-sizing: border-box;
+}
+
+.tm-modal.tm-semantic-date-confirm-modal:not(.tm-modal--dock) .tm-box {
+    max-width: calc(100% - 24px);
+    max-height: calc(100% - 24px);
+    border-radius: 10px;
+    box-sizing: border-box;
+}
+
 /* 容器查询：处理中间档位，先隐藏文档/规则/分组区，保留后部视图与按钮 */
 @container tm-modal (max-width: 1024px) {
     .tm-modal:not(.tm-modal--dock) .tm-header-selectors {
@@ -8933,6 +8947,15 @@ select.tm-btn-secondary {
     background-size: 18px 18px;
     touch-action: none;
     user-select: none;
+}
+
+.tm-task-detail-whiteboard-outline-scroll::-webkit-scrollbar:horizontal {
+    height: 0;
+}
+
+.tm-task-detail-whiteboard-outline-scroll::-webkit-scrollbar-thumb:horizontal,
+.tm-task-detail-whiteboard-outline-scroll::-webkit-scrollbar-track:horizontal {
+    display: none;
 }
 
 .tm-task-detail-whiteboard-outline-scroll.can-pan {

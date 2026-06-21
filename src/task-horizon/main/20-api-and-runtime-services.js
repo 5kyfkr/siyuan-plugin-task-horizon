@@ -4192,6 +4192,15 @@
         // 外部事务更新的脏标记（文档页编辑/新建任务后用于切回页签静默刷新）
         externalTaskTxDirty: false,
         lastExternalTaskTxTime: 0,
+        externalTaskTxQuietUntil: 0,
+        externalTaskTxQuietReason: '',
+        __tmMobileCloseSyncArmed: false,
+        __tmMobileCloseSyncDirty: false,
+        __tmMobileCloseSyncDirtyAt: 0,
+        __tmMobileCloseSyncDirtyReason: '',
+        __tmMobileCloseSyncInFlight: false,
+        __tmMobileCloseSyncLastAttemptAt: 0,
+        __tmMobileCloseSyncLastSyncedAt: 0,
         inheritedSubtaskPatchQueuedIds: {},
         // 刚插入但 SQL 索引可能尚未返回的任务，短暂保活避免刷新后闪现消失
         pendingInsertedTasks: {},
@@ -4325,6 +4334,127 @@
         applying: false,
         keydownHandler: null,
     };
+
+    function __tmIsMobileCloseSyncRuntime() {
+        try {
+            if (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient()) return true;
+        } catch (e) {}
+        try {
+            if (globalThis.__tmHost?.isMobileRuntime?.()) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmIsSiyuanSyncEnabledForMobileClose() {
+        try {
+            return window?.siyuan?.config?.sync?.enabled === true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmArmMobileCloseSyncDirtyTracker() {
+        try {
+            if (state.__tmMobileCloseSyncArmed) return true;
+            state.__tmMobileCloseSyncArmed = true;
+            state.__tmMobileCloseSyncDirty = false;
+            state.__tmMobileCloseSyncDirtyAt = 0;
+            state.__tmMobileCloseSyncDirtyReason = '';
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmMarkMobileCloseSyncDirty(reason = '') {
+        try {
+            if (!state.__tmMobileCloseSyncArmed) return false;
+            if (!__tmIsMobileCloseSyncRuntime()) return false;
+            state.__tmMobileCloseSyncDirty = true;
+            state.__tmMobileCloseSyncDirtyAt = Date.now();
+            const text = String(reason || '').trim();
+            if (text) state.__tmMobileCloseSyncDirtyReason = text;
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmMarkMobileCloseSyncDirtyForTaskMutation(mutation = {}) {
+        try {
+            const phase = String(mutation?.phase || '').trim();
+            if (phase !== 'commit') return false;
+            const type = String(mutation?.type || '').trim();
+            if (!type) return false;
+            const patchTypes = new Set(['taskPatch', 'attrPatch', 'contentPatch', 'setDone']);
+            const structuralTypes = new Set(['commitTaskId', 'createTaskInDoc', 'createSubtask', 'createSibling', 'moveTask', 'deleteTask']);
+            if (patchTypes.has(type)) {
+                const patch = (mutation?.patch && typeof mutation.patch === 'object') ? mutation.patch : {};
+                if (!Object.keys(patch).length) return false;
+                return __tmMarkMobileCloseSyncDirty(`task-${type}`);
+            }
+            if (structuralTypes.has(type)) return __tmMarkMobileCloseSyncDirty(`task-${type}`);
+        } catch (e) {}
+        return false;
+    }
+
+    async function __tmFlushMobileCloseSyncPendingStores() {
+        const jobs = [];
+        try {
+            if ((SettingsStore?.saveDirty || SettingsStore?.saveTimer || SettingsStore?.saving) && typeof SettingsStore.saveNow === 'function') {
+                jobs.push(Promise.resolve(SettingsStore.saveNow()).catch(() => null));
+            }
+        } catch (e) {}
+        try {
+            if ((MetaStore?.saveTimer || MetaStore?.saving) && typeof MetaStore.saveNow === 'function') {
+                jobs.push(Promise.resolve(MetaStore.saveNow()).catch(() => null));
+            }
+        } catch (e) {}
+        try {
+            if ((WhiteboardStore?.saveDirty || WhiteboardStore?.saveTimer || WhiteboardStore?.saving) && typeof WhiteboardStore.saveNow === 'function') {
+                jobs.push(Promise.resolve(WhiteboardStore.saveNow()).catch(() => null));
+            }
+        } catch (e) {}
+        if (!jobs.length) return;
+        try { await Promise.all(jobs); } catch (e) {}
+    }
+
+    function __tmIsMobileCloseSyncResultOk(result) {
+        if (result == null) return false;
+        if (typeof result !== 'object') return true;
+        if (Number(result.code) === 0) return true;
+        return !Object.prototype.hasOwnProperty.call(result, 'code');
+    }
+
+    function __tmSyncOnMobileCloseIfDirty(reason = 'mobile-close') {
+        try {
+            if (!__tmIsMobileCloseSyncRuntime()) return false;
+            if (!__tmIsSiyuanSyncEnabledForMobileClose()) return false;
+            if (state.__tmMobileCloseSyncInFlight) return false;
+            const now = Date.now();
+            const lastAttemptAt = Number(state.__tmMobileCloseSyncLastAttemptAt) || 0;
+            if (lastAttemptAt > 0 && now - lastAttemptAt < 1200) return false;
+            state.__tmMobileCloseSyncInFlight = true;
+            state.__tmMobileCloseSyncLastAttemptAt = now;
+            Promise.resolve().then(async () => {
+                await __tmFlushMobileCloseSyncPendingStores();
+                if (!state.__tmMobileCloseSyncDirty) return;
+                if (!__tmIsSiyuanSyncEnabledForMobileClose()) return;
+                const result = await globalThis.__tmHost?.postKernel?.('/api/sync/performSync', {});
+                if (__tmIsMobileCloseSyncResultOk(result)) {
+                    state.__tmMobileCloseSyncDirty = false;
+                    state.__tmMobileCloseSyncDirtyReason = '';
+                    state.__tmMobileCloseSyncLastSyncedAt = Date.now();
+                }
+            }).catch(() => null).finally(() => {
+                try { state.__tmMobileCloseSyncInFlight = false; } catch (e) {}
+            });
+            return true;
+        } catch (e) {
+            try { state.__tmMobileCloseSyncInFlight = false; } catch (e2) {}
+            return false;
+        }
+    }
 
     function __tmNormalizeQueueTaskValue(field, value) {
         const key = String(field || '').trim();
@@ -9139,13 +9269,13 @@ const wait = !!options.wait;
         const startCount = list.filter((item) => !!String(item?.startDateValue || '').trim()).length;
         const completionCount = list.filter((item) => !!String(item?.completionValue || '').trim()).length;
         const modal = document.createElement('div');
-        modal.className = 'tm-modal';
+        modal.className = 'tm-modal tm-semantic-date-confirm-modal';
         modal.style.cssText = scopedToManager
             ? 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:200002;'
             : 'z-index:200002;';
         const box = document.createElement('div');
         box.className = 'tm-box';
-        box.style.cssText = 'width:min(920px,94vw);height:min(82vh,760px);display:flex;flex-direction:column;';
+        box.style.cssText = 'width:min(920px,calc(100% - 24px));max-width:94vw;height:min(82vh,calc(100% - 24px),760px);display:flex;flex-direction:column;';
         box.innerHTML = `
             <div class="tm-header" style="padding:12px 16px;border-bottom:1px solid var(--tm-border-color);">
                 <div style="font-size:16px;font-weight:600;">语义日期识别确认</div>
@@ -15288,6 +15418,8 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmTomatoAssociationChangedHandler = null;
     let __tmTomatoFocusModeChangedHandler = null;
     let __tmTomatoFocusEndedHandler = null;
+    let __tmTomatoHistoryUpdatedHandler = null;
+    let __tmTomatoHistoryVersion = 0;
     let __tmPinnedListenerAdded = false;
     let __tmQuickAddGlobalClickHandler = null;
     let __tmCalendarScheduleUpdatedHandler = null;
@@ -15487,6 +15619,10 @@ __tmPushStatusDebug('apply-status:start', {
             currentRuleName: String(currentRule?.name || '').trim(),
             currentDocId: activeDocId,
             currentDocName: docName,
+            tomatoIntegrationEnabled: !!SettingsStore.data.enableTomatoIntegration,
+            tomatoHistoryVersion: __tmTomatoHistoryVersion,
+            durationFormat: String(SettingsStore.data.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours',
+            calendarFirstDay: Number(SettingsStore.data.calendarFirstDay) === 0 ? 0 : 1,
             aiEnabled: __tmIsAiFeatureEnabled(),
             isDockHost: __tmIsDockHost(),
             isMobileDevice: __tmIsMobileDevice(),
@@ -16746,10 +16882,17 @@ refreshOk = false;
                 if (state.modal && document.body.contains(state.modal)) render();
             } catch (e) {}
         };
+        __tmTomatoHistoryUpdatedHandler = () => {
+            try {
+                __tmTomatoHistoryVersion += 1;
+                if (state.homepageOpen) __tmScheduleHomepageRefresh('tomato-history-updated', 96);
+            } catch (e) {}
+        };
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:association-cleared', __tmTomatoAssociationHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:association-changed', __tmTomatoAssociationChangedHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-mode-changed', __tmTomatoFocusModeChangedHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-ended', __tmTomatoFocusEndedHandler); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:history-updated', __tmTomatoHistoryUpdatedHandler); } catch (e) {}
         globalThis.__taskHorizonOnTomatoAssociationChanged = (detail) => {
             try { __tmTomatoAssociationChangedHandler({ detail }); } catch (e) {}
         };

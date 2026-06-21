@@ -957,6 +957,7 @@
             event.stopPropagation();
             event.preventDefault();
         }
+        try { __tmSyncOnMobileCloseIfDirty('topbar-close'); } catch (e) {}
         state.openToken = (Number(state.openToken) || 0) + 1;
         try { __tmHideMobileMenu(); } catch (e) {}
         try {

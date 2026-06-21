@@ -1604,12 +1604,108 @@
         showSettings();
     };
 
-    window.createNotebookGroup = async function() {
-        await __tmRefreshNotebookCache(true);
-        const notebooks = (Array.isArray(state.notebooks) ? state.notebooks : []).map((item) => ({
+    const __TM_INITIAL_NOTEBOOK_GROUP_IMPORT_PROMPTED_KEY = 'tm_initial_notebook_group_import_prompted';
+
+    function __tmCreateDocGroupId(usedIds, index = 0) {
+        const used = usedIds instanceof Set ? usedIds : new Set();
+        const base = `g_${Date.now()}_${Math.max(0, Number(index) || 0) + 1}`;
+        let id = base;
+        let suffix = 1;
+        while (used.has(id)) {
+            suffix += 1;
+            id = `${base}_${suffix}`;
+        }
+        used.add(id);
+        return id;
+    }
+
+    function __tmGetNotebookGroupImportNotebookOptions() {
+        return (Array.isArray(state.notebooks) ? state.notebooks : []).map((item) => ({
             value: String(item?.id || item?.box || '').trim(),
             label: String(item?.name || item?.title || '').trim() || String(item?.id || item?.box || '').trim()
         })).filter((item) => item.value);
+    }
+
+    async function __tmImportAllNotebooksAsDocGroups(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        await __tmRefreshNotebookCache(true);
+        const notebooks = __tmGetNotebookGroupImportNotebookOptions();
+        if (notebooks.length === 0) {
+            if (opts.showHints !== false) hint('⚠ 未找到可用笔记本', 'warning');
+            return { imported: 0, total: 0, groups: [] };
+        }
+
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups.slice() : [];
+        const usedIds = new Set(groups.map((group) => String(group?.id || '').trim()).filter(Boolean));
+        const existingNotebookIds = new Set(groups.map((group) => String(group?.notebookId || '').trim()).filter(Boolean));
+        const importedGroups = [];
+
+        notebooks.forEach((item, index) => {
+            const notebookId = String(item.value || '').trim();
+            if (!notebookId || existingNotebookIds.has(notebookId)) return;
+            existingNotebookIds.add(notebookId);
+            importedGroups.push({
+                id: __tmCreateDocGroupId(usedIds, index),
+                name: __tmGetNotebookDisplayName(notebookId, item.label),
+                notebookId,
+                docs: [],
+                calendarSearchOptimization: { enabled: false, days: 90 }
+            });
+        });
+
+        if (importedGroups.length === 0) {
+            if (opts.showHints !== false) hint('⚠ 所有笔记本已在分组中', 'warning');
+            return { imported: 0, total: notebooks.length, groups: [] };
+        }
+
+        await SettingsStore.updateDocGroups(groups.concat(importedGroups));
+        try { __tmDocExpandCache?.clear?.(); } catch (e) {}
+        try { window.__tmInvalidateDocScopeCache?.(); } catch (e) {}
+        try { window.__tmCalendarDocsToGroupCache = null; } catch (e) {}
+        if (opts.refreshSettings !== false && state.settingsModal && document.body.contains(state.settingsModal)) {
+            showSettings();
+        }
+        return { imported: importedGroups.length, total: notebooks.length, groups: importedGroups };
+    }
+
+    async function __tmPromptInitialNotebookGroupImportIfNeeded() {
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        if (groups.some((group) => String(group?.id || '').trim())) return false;
+        if (Storage.get(__TM_INITIAL_NOTEBOOK_GROUP_IMPORT_PROMPTED_KEY, false)) return false;
+        if (state.__tmInitialNotebookGroupImportPromptPromise) {
+            return await state.__tmInitialNotebookGroupImportPromptPromise;
+        }
+
+        const task = Promise.resolve().then(async () => {
+            const freshGroups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+            if (freshGroups.some((group) => String(group?.id || '').trim())) return false;
+            if (typeof showConfirm !== 'function') return false;
+            const ok = await showConfirm(
+                '初始化文档分组',
+                '当前还没有任何文档分组，是否读取所有笔记本并自动创建分组？后续可在文档分组设置中调整或删除。'
+            );
+            Storage.set(__TM_INITIAL_NOTEBOOK_GROUP_IMPORT_PROMPTED_KEY, true);
+            if (!ok) return false;
+            const result = await __tmImportAllNotebooksAsDocGroups({
+                refreshSettings: false,
+                showHints: false
+            });
+            if (result.imported > 0) {
+                hint(`✅ 已导入 ${result.imported} 个笔记本分组`, 'success');
+                return true;
+            }
+            hint('⚠ 未找到可导入的笔记本', 'warning');
+            return false;
+        }).finally(() => {
+            state.__tmInitialNotebookGroupImportPromptPromise = null;
+        });
+        state.__tmInitialNotebookGroupImportPromptPromise = task;
+        return await task;
+    }
+
+    window.createNotebookGroup = async function() {
+        await __tmRefreshNotebookCache(true);
+        const notebooks = __tmGetNotebookGroupImportNotebookOptions();
         if (notebooks.length === 0) {
             hint('⚠ 未找到可用笔记本', 'warning');
             return;

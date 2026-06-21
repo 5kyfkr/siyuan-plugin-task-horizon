@@ -164,13 +164,18 @@
         const directEntryByDocId = new Map(entries.map((entry) => [String(entry?.id || '').trim(), entry]).filter(([id]) => !!id));
         const expanded = activeGroup ? __tmExpandDocTabCustomGroup(activeGroup, docs) : new Map();
         const activeGroupName = String(activeGroup?.name || '').trim() || '未命名页签组';
-        const activeGroupMembers = activeGroup
-            ? docs.filter((doc) => expanded.has(String(doc?.id || '').trim()))
-            : [];
         const activeGroupColor = activeGroup && typeof __tmGetDocTabCustomGroupColor === 'function'
-            ? __tmGetDocTabCustomGroupColor(activeGroup, activeGroupMembers)
+            ? __tmGetDocTabCustomGroupColor(activeGroup)
             : 'var(--tm-primary-color)';
         const activeGroupHasCustomColor = !!__tmNormalizeHexColor(activeGroup?.color || activeGroup?.tabColor || activeGroup?.bgColor, '');
+        const previousBox = modal.querySelector('.tm-doc-tab-group-settings-box');
+        const previousActiveGroupId = String(previousBox?.getAttribute?.('data-tm-doc-tab-settings-active-group-id') || '').trim();
+        const shouldRestoreScroll = !previousActiveGroupId || previousActiveGroupId === activeGroupId;
+        const previousScroll = shouldRestoreScroll ? {
+            sidebarTop: Number(modal.querySelector('.tm-doc-tab-group-settings-sidebar')?.scrollTop) || 0,
+            mainTop: Number(modal.querySelector('.tm-doc-tab-group-settings-main')?.scrollTop) || 0,
+            listTop: Number(modal.querySelector('.tm-doc-tab-group-settings-list')?.scrollTop) || 0,
+        } : null;
         const groupsHtml = groups.length ? groups.map((group) => {
             const gid = String(group?.id || '').trim();
             if (!gid) return '';
@@ -263,7 +268,7 @@
         ` : '';
 
         modal.innerHTML = `
-            <div class="tm-box tm-doc-tab-group-settings-box" onclick="event.stopPropagation()">
+            <div class="tm-box tm-doc-tab-group-settings-box" data-tm-doc-tab-settings-active-group-id="${esc(activeGroupId)}" onclick="event.stopPropagation()">
                 <div class="tm-header">
                     <div>
                         <div style="font-size:18px;font-weight:700;color:var(--tm-text-color);">页签分组设置</div>
@@ -578,6 +583,21 @@
                 </style>
             </div>
         `;
+        if (previousScroll) {
+            const restoreScroll = () => {
+                const restore = (selector, top) => {
+                    const el = modal.querySelector(selector);
+                    if (!(el instanceof HTMLElement)) return;
+                    const maxTop = Math.max(0, (Number(el.scrollHeight) || 0) - (Number(el.clientHeight) || 0));
+                    el.scrollTop = Math.max(0, Math.min(Number(top) || 0, maxTop));
+                };
+                restore('.tm-doc-tab-group-settings-sidebar', previousScroll.sidebarTop);
+                restore('.tm-doc-tab-group-settings-main', previousScroll.mainTop);
+                restore('.tm-doc-tab-group-settings-list', previousScroll.listTop);
+            };
+            try { requestAnimationFrame(restoreScroll); } catch (e) { try { restoreScroll(); } catch (e2) {} }
+            try { setTimeout(restoreScroll, 0); } catch (e) {}
+        }
     }
 
     window.tmCreateDocTabCustomGroupWithDoc = async function(docId) {
@@ -730,12 +750,7 @@
             hint('⚠ 当前文档分组下未找到该页签组', 'warning');
             return;
         }
-        const docs = __tmGetDocTabCustomGroupSettingsDocs();
-        const expanded = __tmExpandDocTabCustomGroup(group, docs);
-        const members = docs.filter((doc) => expanded.has(String(doc?.id || '').trim()));
-        const initial = typeof __tmGetDocTabCustomGroupColor === 'function'
-            ? __tmGetDocTabCustomGroupColor(group, members)
-            : 'var(--tm-primary-color)';
+        const initial = __tmNormalizeHexColor(group.color || group.tabColor || group.bgColor, '#3b82f6') || '#3b82f6';
         __tmOpenColorPickerDialog('页签组颜色', initial, async (next) => {
             const color = __tmNormalizeHexColor(next, '');
             if (!color) return;
@@ -770,7 +785,12 @@
         const group = __tmFindEditableDocTabCustomGroup(groups, gid);
         if (!group) return;
         const name = String(group.name || '').trim() || '未命名页签组';
-        if (!confirm(`确定要删除页签组“${name}”吗？`)) return;
+        if (typeof showConfirm !== 'function') {
+            hint('⚠ 删除确认弹窗不可用，请刷新后重试', 'warning');
+            return;
+        }
+        const ok = await showConfirm('删除页签组', `确定要删除页签组“${name}”吗？`);
+        if (!ok) return;
         if (typeof __tmParseDocTabCustomGroupActiveId === 'function' && __tmParseDocTabCustomGroupActiveId(state.activeDocId) === gid) {
             state.activeDocId = 'all';
         }

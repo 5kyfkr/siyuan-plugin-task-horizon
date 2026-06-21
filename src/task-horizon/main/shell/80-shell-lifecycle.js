@@ -339,6 +339,7 @@ if (shouldMarkDirty) {
             observeBreadcrumb();
         }
         try { __tmBootstrapCalendarBackgroundRefresh(0); } catch (e) {}
+        try { __tmArmMobileCloseSyncDirtyTracker(); } catch (e) {}
     }
 
     async function __tmEnsureTabOpened(maxWaitMs = 1500) {
@@ -612,6 +613,12 @@ if (shouldMarkDirty) {
             try { __tmListenTomatoAssociationCleared(); } catch (e) {}
         }
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
+
+        try {
+            if (typeof __tmPromptInitialNotebookGroupImportIfNeeded === 'function') {
+                await __tmPromptInitialNotebookGroupImportIfNeeded();
+            }
+        } catch (e) {}
 
         // 检查是否至少有一个分组包含文档
         const hasDocs = await checkAnyGroupHasDocs();
@@ -1026,6 +1033,10 @@ if (shouldMarkDirty) {
             if (__tmTomatoFocusEndedHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:focus-ended', __tmTomatoFocusEndedHandler);
                 __tmTomatoFocusEndedHandler = null;
+            }
+            if (__tmTomatoHistoryUpdatedHandler) {
+                globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:history-updated', __tmTomatoHistoryUpdatedHandler);
+                __tmTomatoHistoryUpdatedHandler = null;
             }
         } catch (e) {}
         try {

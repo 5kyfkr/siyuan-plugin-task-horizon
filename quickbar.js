@@ -1647,6 +1647,7 @@
                 white-space: nowrap;
                 overflow: visible;
                 max-width: min(92vw, 980px);
+                box-sizing: border-box;
             }
             .sy-custom-props-floatbar__row {
                 display: flex;
@@ -1689,6 +1690,7 @@
                 cursor: pointer;
                 user-select: none;
                 transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+                box-sizing: border-box;
             }
             .sy-custom-props-floatbar__prop:hover {
                 background: var(--b3-theme-background);
@@ -1793,7 +1795,9 @@
                 line-height: 1.35;
             }
             .sy-custom-props-floatbar__prop--icon-only {
+                flex: 0 0 26px;
                 width: 26px;
+                min-width: 26px;
                 padding: 0;
                 justify-content: center;
             }
@@ -2389,6 +2393,9 @@
                 user-select: none;
                 transition: background-color 0.2s, border-color 0.2s, color 0.2s;
                 padding: 0;
+                box-sizing: border-box;
+                flex: 0 0 26px;
+                min-width: 26px;
             }
             .sy-custom-props-floatbar__action .qb-icon {
                 display: inline-flex;
@@ -2411,7 +2418,9 @@
                 line-height: 1;
             }
             .sy-custom-props-floatbar__action.is-wide {
+                flex: 0 0 auto;
                 width: auto;
+                min-width: 26px;
                 padding: 0 6px;
                 gap: 4px;
             }
@@ -2433,6 +2442,10 @@
                     overflow-y: hidden;
                     -webkit-overflow-scrolling: touch;
                     scrollbar-width: thin;
+                }
+                .sy-custom-props-floatbar__row--main > .sy-custom-props-floatbar__prop,
+                .sy-custom-props-floatbar__row--main > .sy-custom-props-floatbar__action {
+                    flex: 0 0 auto;
                 }
                 .sy-custom-props-floatbar__prop--remark {
                     max-width: min(72vw, 360px);

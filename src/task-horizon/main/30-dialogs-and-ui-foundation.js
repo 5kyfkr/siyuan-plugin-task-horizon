@@ -1197,18 +1197,10 @@
         return groups;
     }
 
-    function __tmGetDocTabCustomGroupColor(group, members = []) {
+    function __tmGetDocTabCustomGroupColor(group) {
         const source = (group && typeof group === 'object') ? group : {};
         const explicit = __tmNormalizeHexColor(source.color || source.tabColor || source.bgColor, '');
         if (explicit) return explicit;
-        const memberList = Array.isArray(members) ? members : [];
-        const memberDocId = String((memberList.find((doc) => String(doc?.id || '').trim()) || {})?.id || '').trim();
-        const entryList = Array.isArray(source.entries) ? source.entries : [];
-        const entryDocId = String((entryList.find((entry) => String(entry?.id || '').trim()) || {})?.id || '').trim();
-        const docId = memberDocId || entryDocId;
-        if (docId && typeof __tmGetDocColorHex === 'function') {
-            return __tmGetDocColorHex(docId, __tmIsDarkMode());
-        }
         return 'var(--tm-primary-color)';
     }
 
@@ -3165,6 +3157,21 @@ return Number(state.contextInteractionQuietUntil || 0);
                 source: sourceLabel,
             };
         }
+        try {
+            const txQuietWait = (typeof __tmGetExternalTaskTxQuietWaitMs === 'function')
+                ? __tmGetExternalTaskTxQuietWaitMs(96)
+                : 0;
+            if (txQuietWait > 0 && /(?:ws-main|calendar-tx|task-tx-refresh)/.test(sourceLabel)) {
+                return {
+                    allowRun: false,
+                    parkUntilVisible: false,
+                    parkUntilScrollIdle: false,
+                    reason: 'external-tx-burst',
+                    waitMs: Math.max(120, Number(txQuietWait) || 120),
+                    source: sourceLabel,
+                };
+            }
+        } catch (e) {}
         const delayMeta = __tmGetEnterAutoRefreshDelayMeta(sourceLabel);
         if (delayMeta.shouldDelay) {
             const delayReason = String(delayMeta.reason || '').trim() || 'context-quiet';
@@ -11428,8 +11435,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         allBtn.type = 'button';
         allBtn.className = `tm-doc-tab tm-doc-tab--custom-group-menu-item ${aggregateActive ? 'active' : ''}`;
         const groupColor = typeof __tmGetDocTabCustomGroupColor === 'function'
-            ? __tmGetDocTabCustomGroupColor(group, members)
-            : __tmGetDocColorHex(members[0]?.id || gid, __tmIsDarkMode());
+            ? __tmGetDocTabCustomGroupColor(group)
+            : 'var(--tm-primary-color)';
         allBtn.style.cssText = `
             display:flex;
             align-items:center;

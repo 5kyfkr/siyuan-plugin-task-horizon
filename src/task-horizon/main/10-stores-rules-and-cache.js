@@ -5845,6 +5845,7 @@
         loaded: false,
         saving: false,
         saveTimer: null,
+        lastFingerprint: __tmGetSettingsFieldFingerprint(Storage.get('tm_meta_cache', {}) || {}),
 
         async load() {
             if (this.loaded) return;
@@ -5866,6 +5867,7 @@
                             if (json && typeof json === 'object' && Object.keys(json).length > 0) {
                                 this.data = json;
                                 Storage.set('tm_meta_cache', this.data);
+                                this.lastFingerprint = __tmGetSettingsFieldFingerprint(this.data || {});
                                 this.loaded = true;
                                 return;
                             }
@@ -5877,6 +5879,7 @@
             }
 
             // 云端没有数据，使用本地缓存（已在初始化时加载）
+            this.lastFingerprint = __tmGetSettingsFieldFingerprint(this.data || {});
             this.loaded = true;
         },
 
@@ -6031,7 +6034,9 @@
                 });
                 nextPatch.customFieldValues = mergedCustomValues;
             }
-            this.data[id] = { ...prev, ...nextPatch };
+            const next = { ...prev, ...nextPatch };
+            if (__tmGetSettingsFieldFingerprint(next) === __tmGetSettingsFieldFingerprint(prev)) return;
+            this.data[id] = next;
             this.scheduleSave();
         },
 
@@ -6058,6 +6063,7 @@
         async saveNow() {
             if (this.saving) return;
             this.saving = true;
+            const prevFingerprint = String(this.lastFingerprint || '');
             try {
                 Storage.set('tm_meta_cache', this.data || {});
                 const formDir = new FormData();
@@ -6069,7 +6075,12 @@
                 form.append('path', META_FILE_PATH);
                 form.append('isDir', 'false');
                 form.append('file', new Blob([JSON.stringify(this.data || {}, null, 2)], { type: 'application/json' }));
-                await fetch('/api/file/putFile', { method: 'POST', body: form });
+                const metaPutRes = await fetch('/api/file/putFile', { method: 'POST', body: form });
+                const nextFingerprint = __tmGetSettingsFieldFingerprint(this.data || {});
+                if (metaPutRes && metaPutRes.ok && nextFingerprint !== prevFingerprint) {
+                    this.lastFingerprint = nextFingerprint;
+                    try { __tmMarkMobileCloseSyncDirty('meta-save'); } catch (e) {}
+                }
             } catch (e) {} finally {
                 this.saving = false;
             }
@@ -6642,6 +6653,7 @@
         savePromise: null,
         savePromiseResolve: null,
         savePromiseReject: null,
+        suppressMobileCloseSyncDirty: false,
         loadedWhiteboardStateVersion: 0,
         lastWhiteboardFingerprint: '',
         loadedDocGroupUpdatedAt: 0,
@@ -6825,7 +6837,7 @@
                                     this.loaded = true;
                                     try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-local-newer'); } catch (e) {}
                                     if (migratedLegacyTopbarDefaults) {
-                                        try { await this.save(); } catch (e) {}
+                                        try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
                                     }
                                     return;
                                 }
@@ -7212,7 +7224,7 @@
                                 this.loaded = true;
                                 try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-cloud'); } catch (e) {}
                                 if (migratedLegacyTopbarDefaults || restoredLocalSettingFields.length > 0) {
-                                    try { await this.save(); } catch (e) {}
+                                    try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
                                 }
                                 return;
                             }
@@ -7232,7 +7244,7 @@
             this.loaded = true;
             try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-fallback'); } catch (e) {}
             if (migratedLegacyTopbarDefaults) {
-                try { await this.save(); } catch (e) {}
+                try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
             }
         },
 
@@ -8310,7 +8322,9 @@
             this.data.whiteboardAllTabsDocOrderByGroup = wbAllTabsOrder;
         },
 
-        async save() {
+        async save(options = {}) {
+            const opts = (options && typeof options === 'object') ? options : {};
+            if (opts.suppressMobileCloseSyncDirty === true) this.suppressMobileCloseSyncDirty = true;
             this.saveDirty = true;
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             if (!this.savePromise) {
@@ -8339,6 +8353,8 @@
             if (!this.saveDirty) return this.savePromise || undefined;
             this.saving = true;
             this.saveDirty = false;
+            const suppressMobileCloseSyncDirty = !!this.suppressMobileCloseSyncDirty;
+            this.suppressMobileCloseSyncDirty = false;
             try {
                 const prevWhiteboardFingerprint = String(this.lastWhiteboardFingerprint || '');
                 const whiteboardChangedLocal = __tmGetWhiteboardSettingsFingerprint(this.data) !== prevWhiteboardFingerprint;
@@ -8485,6 +8501,16 @@
 
                 const settingsPutRes = await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
                 const settingsPutOk = !!(settingsPutRes && settingsPutRes.ok);
+                const localSettingsChangedForMobileCloseSync = !!(
+                    (settingsFieldChange?.changedKeys instanceof Set && settingsFieldChange.changedKeys.size > 0)
+                    || whiteboardChangedLocal
+                    || docGroupChangedLocal
+                    || customFieldDefsChangedLocal
+                    || collapseChangedLocal
+                );
+                if (settingsPutOk && localSettingsChangedForMobileCloseSync && !suppressMobileCloseSyncDirty) {
+                    try { __tmMarkMobileCloseSyncDirty('settings-save'); } catch (e) {}
+                }
                 if (shouldTouchWhiteboardDataFile && settingsPutOk) {
                     try {
                         if (WhiteboardStore && !WhiteboardStore.loaded) await WhiteboardStore.load?.();
@@ -8739,7 +8765,10 @@
                 formData.append('path', WHITEBOARD_DATA_FILE_PATH);
                 formData.append('isDir', 'false');
                 formData.append('file', new Blob([JSON.stringify(this.data || { version: 0, cards: {}, links: [] }, null, 2)], { type: 'application/json' }));
-                await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
+                const whiteboardPutRes = await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
+                if (fingerprintChangedLocal && whiteboardPutRes && whiteboardPutRes.ok) {
+                    try { __tmMarkMobileCloseSyncDirty('whiteboard-save'); } catch (e) {}
+                }
             } catch (e) {
             } finally {
                 this.saving = false;
@@ -9937,6 +9966,12 @@
     let __tmTxTaskRefreshInFlight = false;
     let __tmWsTaskTxBatchTimer = null;
     let __tmWsTaskTxBatch = null;
+    const __tmExternalTaskTxBurstState = {
+        timestamps: [],
+        quietUntil: 0,
+        lastTargetCount: 0,
+        lastSource: '',
+    };
     let __tmTaskSnapshotSaveTimer = null;
     let __tmTaskSnapshotSaveInFlight = false;
     let __tmTaskSnapshotStoreCache = null;
@@ -12686,6 +12721,57 @@
         return Math.max(16, Math.min(1900, Math.ceil(wait) + pad));
     }
 
+    function __tmGetTxTargetCountForBurst(targets = {}) {
+        const docIds = targets?.docIds instanceof Set ? targets.docIds : new Set(targets?.docIds || []);
+        const blockIds = targets?.blockIds instanceof Set ? targets.blockIds : new Set(targets?.blockIds || []);
+        const insertedBlockIds = targets?.insertedBlockIds instanceof Set ? targets.insertedBlockIds : new Set(targets?.insertedBlockIds || []);
+        return Math.max(0, docIds.size + blockIds.size + insertedBlockIds.size);
+    }
+
+    function __tmRecordExternalTaskTxBurst(targets = {}, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const now = Date.now();
+        const windowMs = 1800;
+        const list = Array.isArray(__tmExternalTaskTxBurstState.timestamps)
+            ? __tmExternalTaskTxBurstState.timestamps
+            : [];
+        const recent = list.filter((ts) => now - (Number(ts) || 0) <= windowMs);
+        recent.push(now);
+        __tmExternalTaskTxBurstState.timestamps = recent;
+        const targetCount = __tmGetTxTargetCountForBurst(targets);
+        const burst = recent.length >= 7 || targetCount >= 28;
+        if (burst) {
+            const extraMs = targetCount >= 120 ? 2600 : (targetCount >= 48 ? 1900 : 1300);
+            __tmExternalTaskTxBurstState.quietUntil = Math.max(
+                Number(__tmExternalTaskTxBurstState.quietUntil) || 0,
+                now + extraMs
+            );
+            __tmExternalTaskTxBurstState.lastTargetCount = targetCount;
+            __tmExternalTaskTxBurstState.lastSource = String(opts.source || '').trim() || 'ws-main';
+            try { state.externalTaskTxQuietUntil = __tmExternalTaskTxBurstState.quietUntil; } catch (e) {}
+            try { state.externalTaskTxQuietReason = 'ws-main-burst'; } catch (e) {}
+            try { globalThis.__tmTaskHorizonExternalTxQuietUntil = __tmExternalTaskTxBurstState.quietUntil; } catch (e) {}
+        }
+        return {
+            burst,
+            eventCount: recent.length,
+            targetCount,
+            waitMs: __tmGetExternalTaskTxQuietWaitMs(0),
+        };
+    }
+
+    function __tmGetExternalTaskTxQuietWaitMs(paddingMs = 96) {
+        const now = Date.now();
+        let until = 0;
+        try { until = Math.max(until, Number(__tmExternalTaskTxBurstState.quietUntil) || 0); } catch (e) {}
+        try { until = Math.max(until, Number(state.externalTaskTxQuietUntil) || 0); } catch (e) {}
+        try { until = Math.max(until, Number(globalThis.__tmTaskHorizonExternalTxQuietUntil) || 0); } catch (e) {}
+        const wait = until - now;
+        if (!(wait > 0)) return 0;
+        const pad = Number.isFinite(Number(paddingMs)) ? Math.max(0, Math.min(240, Math.round(Number(paddingMs)))) : 96;
+        return Math.max(120, Math.min(3600, Math.ceil(wait) + pad));
+    }
+
     function __tmScheduleIdleTask(task, timeout = 180) {
         const run = () => {
             const waitMs = __tmGetHighPriorityInteractionWaitMs();
@@ -13139,12 +13225,16 @@
             const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
                 ? __tmGetHighPriorityInteractionWaitMs(48)
                 : 0;
-            if (interactionWait > 0) {
+            const txQuietWait = (typeof __tmGetExternalTaskTxQuietWaitMs === 'function')
+                ? __tmGetExternalTaskTxQuietWaitMs(160)
+                : 0;
+            const waitMs = Math.max(Number(interactionWait) || 0, Number(txQuietWait) || 0);
+            if (waitMs > 0) {
                 if (!__tmTaskIndexPrewarmState.timer) {
                     __tmTaskIndexPrewarmState.timer = setTimeout(() => {
                         __tmTaskIndexPrewarmState.timer = null;
                         __tmRunTaskIndexPrewarm().catch(() => null);
-                    }, interactionWait);
+                    }, waitMs);
                 }
                 return false;
             }
@@ -13181,6 +13271,20 @@
                 await __tmMergeTaskIndexEntries(nextEntries);
             };
             for (let i = 0; i < staleIds.length; i += chunkSize) {
+                try {
+                    const txQuietWait = (typeof __tmGetExternalTaskTxQuietWaitMs === 'function')
+                        ? __tmGetExternalTaskTxQuietWaitMs(160)
+                        : 0;
+                    if (txQuietWait > 0) {
+                        if (!__tmTaskIndexPrewarmState.timer) {
+                            __tmTaskIndexPrewarmState.timer = setTimeout(() => {
+                                __tmTaskIndexPrewarmState.timer = null;
+                                __tmRunTaskIndexPrewarm().catch(() => null);
+                            }, txQuietWait);
+                        }
+                        break;
+                    }
+                } catch (e) {}
                 const chunk = staleIds.slice(i, i + chunkSize);
                 if (!chunk.length) continue;
                 try {
@@ -15066,15 +15170,22 @@
         targets.docIds.forEach((docId) => __tmWsTaskTxBatch.docIds.add(docId));
         targets.blockIds.forEach((blockId) => __tmWsTaskTxBatch.blockIds.add(blockId));
         targets.insertedBlockIds.forEach((blockId) => __tmWsTaskTxBatch.insertedBlockIds.add(blockId));
-        const nextDelayMs = (opts.forceImmediate === true || opts.force === true)
+        const forceNow = opts.forceImmediate === true || opts.force === true;
+        let quietWaitMs = 0;
+        if (!forceNow) {
+            try { quietWaitMs = Number(__tmGetExternalTaskTxQuietWaitMs(96)) || 0; } catch (e) { quietWaitMs = 0; }
+        }
+        const nextDelayMs = forceNow
             ? 0
-            : Math.max(0, Number(opts.delayMs ?? 80) || 80);
-        __tmWsTaskTxBatch.delayMs = Math.min(Number(__tmWsTaskTxBatch.delayMs ?? 80), nextDelayMs);
-        __tmWsTaskTxBatch.forceImmediate = __tmWsTaskTxBatch.forceImmediate || opts.forceImmediate === true || opts.force === true;
+            : Math.max(0, Number(opts.delayMs ?? 80) || 80, quietWaitMs);
+        __tmWsTaskTxBatch.delayMs = quietWaitMs > 0
+            ? Math.max(Number(__tmWsTaskTxBatch.delayMs ?? 80), nextDelayMs)
+            : Math.min(Number(__tmWsTaskTxBatch.delayMs ?? 80), nextDelayMs);
+        __tmWsTaskTxBatch.forceImmediate = __tmWsTaskTxBatch.forceImmediate || forceNow;
         const source = String(opts.source || '').trim();
         if (source) __tmWsTaskTxBatch.source = source;
         if (__tmWsTaskTxBatchTimer) return true;
-        const flushDelayMs = Math.max(0, Number(opts.flushDelayMs ?? 16) || 16);
+        const flushDelayMs = Math.max(0, Number(opts.flushDelayMs ?? 16) || 16, quietWaitMs > 0 ? Math.min(240, quietWaitMs) : 0);
         __tmWsTaskTxBatchTimer = setTimeout(() => {
             __tmWsTaskTxBatchTimer = null;
             const batch = __tmWsTaskTxBatch;
@@ -15143,6 +15254,20 @@
         const pendingDocIds = pendingTargets.docIds;
         const pendingBlockIds = pendingTargets.blockIds;
         if (!state.externalTaskTxDirty && pendingDocIds.length === 0 && pendingBlockIds.length === 0) return;
+        if (!forceImmediate) {
+            let quietWaitMs = 0;
+            try { quietWaitMs = Number(__tmGetExternalTaskTxQuietWaitMs(96)) || 0; } catch (e) { quietWaitMs = 0; }
+            if (quietWaitMs > 0) {
+                try {
+                    if (__tmTxTaskRefreshTimer) clearTimeout(__tmTxTaskRefreshTimer);
+                } catch (e) {}
+                __tmTxTaskRefreshTimer = setTimeout(() => {
+                    __tmTxTaskRefreshTimer = null;
+                    __tmFlushTaskIncrementalRefreshFromTx(opts).catch(() => {});
+                }, quietWaitMs);
+                return;
+            }
+        }
         const retryMeta0 = __tmGetTxRefreshRetryMeta(sourceLabel, retryOptions);
         if (!retryMeta0.allowRun) {
             if (retryMeta0.parkUntilScrollIdle) {
@@ -15290,6 +15415,7 @@
                 const docIds = txTargets.docIds;
                 const blockIds = txTargets.blockIds;
                 const insertedBlockIds = txTargets.insertedBlockIds;
+                try { __tmRecordExternalTaskTxBurst(txTargets, { source: 'ws-main', cmd }); } catch (e) {}
                 const hasTxTargets = (docIds && docIds.size > 0) || (blockIds && blockIds.size > 0);
                 const suppressLocalTimeTx = __tmShouldSuppressLocalTimeTx(msg);
                 const suppressLocalDoneTx = !suppressLocalTimeTx && __tmShouldSuppressLocalDoneTx(msg);

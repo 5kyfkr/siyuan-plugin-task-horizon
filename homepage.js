@@ -7,16 +7,147 @@
         rangeDays: 30,
         profile: "desktop",
         clickHandler: null,
+        documentClickHandler: null,
         resizeObserver: null,
         resizeHost: null,
         resizeRaf: 0,
+        heatmapLayoutRaf: 0,
         settleUntil: 0,
         settleTimer: 0,
+        focusState: { status: "idle", key: "", records: [], settings: null, unavailable: false },
+        focusLoadSeq: 0,
+        selectedFocusTaskId: "",
+        focusDateOffset: 0,
+        focusTaskListMode: "day",
+        focusRecentDays: 90,
+        focusDayPage: 0,
+        focusTaskPopoverOpen: false,
+        focusCalendar: { open: false, monthKey: "", status: "idle", key: "", records: [], loadSeq: 0 },
+        homepageSettingsOpen: false,
     };
+    const FOCUS_HISTORY_LOAD_DAYS = 90;
+    const HOMEPAGE_MODULE_ORDER_STORAGE_KEY = "tm_homepage_module_order";
+    const HOMEPAGE_MODULE_LAYOUT_STORAGE_KEY = "tm_homepage_module_layout";
+    const HOMEPAGE_MODULE_DEFS = Object.freeze([
+        { id: "overview", label: "任务概览", desc: "任务状态、完成摘要", wide: true },
+        { id: "focus", label: "专注统计", desc: "番茄联动开启时展示", wide: true },
+        { id: "trend", label: "完成趋势", desc: "最近完成曲线", wide: true },
+        { id: "heatmap", label: "完成热力图", desc: "按月展示近一年完成情况", wide: false },
+        { id: "distribution", label: "任务分布", desc: "未完成任务分布", wide: false },
+        { id: "recent", label: "最近完成", desc: "最近 6 条完成记录", wide: false },
+        { id: "risk", label: "风险提醒", desc: "逾期与临期任务", wide: false },
+    ]);
+    const HOMEPAGE_DEFAULT_MODULE_ORDER = Object.freeze(HOMEPAGE_MODULE_DEFS.map((item) => item.id));
+    const HOMEPAGE_MODULE_DEF_BY_ID = HOMEPAGE_MODULE_DEFS.reduce((map, item) => {
+        map[item.id] = item;
+        return map;
+    }, {});
     let homepageTaskMetaAttrKeySettingsRaw = null;
     let homepageTaskMetaAttrKeySettingsCache = {};
     let homepageTaskMetaAttrAliasSettingsRaw = null;
     let homepageTaskMetaAttrAliasSettingsCache = {};
+
+    function normalizeHomepageModuleOrder(value) {
+        const raw = Array.isArray(value) ? value : [];
+        const out = [];
+        raw.forEach((item) => {
+            const id = String(item || "").trim();
+            if (id && HOMEPAGE_MODULE_DEF_BY_ID[id] && !out.includes(id)) out.push(id);
+        });
+        HOMEPAGE_DEFAULT_MODULE_ORDER.forEach((id) => {
+            if (!out.includes(id)) out.push(id);
+        });
+        return out;
+    }
+
+    function readHomepageModuleOrder() {
+        let raw = "";
+        try { raw = String(localStorage.getItem(HOMEPAGE_MODULE_ORDER_STORAGE_KEY) || ""); } catch (e) {}
+        if (!raw.trim()) return normalizeHomepageModuleOrder(null);
+        try {
+            return normalizeHomepageModuleOrder(JSON.parse(raw));
+        } catch (e) {
+            return normalizeHomepageModuleOrder(null);
+        }
+    }
+
+    function saveHomepageModuleOrder(order) {
+        const normalized = normalizeHomepageModuleOrder(order);
+        try { localStorage.setItem(HOMEPAGE_MODULE_ORDER_STORAGE_KEY, JSON.stringify(normalized)); } catch (e) {}
+        return normalized;
+    }
+
+    function resetHomepageModuleOrder() {
+        try { localStorage.removeItem(HOMEPAGE_MODULE_ORDER_STORAGE_KEY); } catch (e) {}
+        try { localStorage.removeItem(HOMEPAGE_MODULE_LAYOUT_STORAGE_KEY); } catch (e) {}
+        return normalizeHomepageModuleOrder(null);
+    }
+
+    function moveHomepageModule(moduleId, delta) {
+        const id = String(moduleId || "").trim();
+        const step = Math.max(-1, Math.min(1, Math.round(Number(delta) || 0)));
+        if (!id || !step) return readHomepageModuleOrder();
+        const order = readHomepageModuleOrder();
+        const index = order.indexOf(id);
+        const nextIndex = Math.max(0, Math.min(order.length - 1, index + step));
+        if (index < 0 || index === nextIndex) return order;
+        const next = order.slice();
+        const [item] = next.splice(index, 1);
+        next.splice(nextIndex, 0, item);
+        return saveHomepageModuleOrder(next);
+    }
+
+    function normalizeHomepageModuleLayout(value) {
+        const source = (value && typeof value === "object" && !Array.isArray(value)) ? value : {};
+        return {
+            focus: String(source.focus || "wide").trim() === "narrow" ? "narrow" : "wide",
+            trend: String(source.trend || "wide").trim() === "narrow" ? "narrow" : "wide",
+        };
+    }
+
+    function readHomepageModuleLayout() {
+        let raw = "";
+        try { raw = String(localStorage.getItem(HOMEPAGE_MODULE_LAYOUT_STORAGE_KEY) || ""); } catch (e) {}
+        if (!raw.trim()) return normalizeHomepageModuleLayout(null);
+        try {
+            return normalizeHomepageModuleLayout(JSON.parse(raw));
+        } catch (e) {
+            return normalizeHomepageModuleLayout(null);
+        }
+    }
+
+    function saveHomepageModuleLayout(layout) {
+        const normalized = normalizeHomepageModuleLayout(layout);
+        try { localStorage.setItem(HOMEPAGE_MODULE_LAYOUT_STORAGE_KEY, JSON.stringify(normalized)); } catch (e) {}
+        return normalized;
+    }
+
+    function setHomepageTrendLayout(value) {
+        const nextValue = String(value || "").trim() === "narrow" ? "narrow" : "wide";
+        const layout = readHomepageModuleLayout();
+        return saveHomepageModuleLayout({ ...layout, trend: nextValue });
+    }
+
+    function setHomepageFocusLayout(value) {
+        const nextValue = String(value || "").trim() === "narrow" ? "narrow" : "wide";
+        const layout = readHomepageModuleLayout();
+        return saveHomepageModuleLayout({ ...layout, focus: nextValue });
+    }
+
+    function getHomepageTrendLayout() {
+        return readHomepageModuleLayout().trend;
+    }
+
+    function getHomepageFocusLayout() {
+        return readHomepageModuleLayout().focus;
+    }
+
+    function isHomepageModuleWide(id) {
+        const key = String(id || "").trim();
+        if (key === "focus") return getHomepageFocusLayout() !== "narrow";
+        if (key === "trend") return getHomepageTrendLayout() !== "narrow";
+        return HOMEPAGE_MODULE_DEF_BY_ID[key]?.wide === true;
+    }
 
     function readHomepageTaskMetaAttrSettingsObject(storageKey, kind) {
         let raw = "";
@@ -148,10 +279,13 @@
     --tm-home-shadow: var(--shadow-sm, 0 8px 20px rgba(15, 23, 42, 0.045));
     --tm-home-gap: 16px;
     --tm-home-card-radius: calc(var(--radius, 10px) + 2px);
-    --tm-home-card-padding: 15px 16px;
+    --tm-home-card-padding-x: 16px;
+    --tm-home-card-padding-y: 15px;
+    --tm-home-card-padding: var(--tm-home-card-padding-y) var(--tm-home-card-padding-x);
     --tm-home-trend-height: 190px;
     --tm-home-heatmap-cell: 16px;
     --tm-home-heatmap-gap: 5px;
+    --tm-home-heatmap-edge-inset: 0px;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -244,6 +378,212 @@
     gap: 10px;
 }
 
+.tm-homepage-settings {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.tm-homepage-settings-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--tm-home-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--tm-home-surface) 86%, var(--tm-home-surface-alt) 14%);
+    color: var(--tm-home-text-muted);
+    cursor: pointer;
+    transition:
+        background-color 180ms ease,
+        border-color 180ms ease,
+        color 180ms ease,
+        box-shadow 180ms ease;
+}
+
+.tm-homepage-settings-btn:hover,
+.tm-homepage-settings-btn.is-active {
+    background: var(--tm-home-hover);
+    border-color: color-mix(in srgb, var(--tm-home-accent) 22%, var(--tm-home-border));
+    color: var(--tm-home-accent);
+}
+
+.tm-homepage-settings-btn:focus-visible,
+.tm-homepage-module-order-btn:focus-visible,
+.tm-homepage-module-reset-btn:focus-visible,
+.tm-homepage-module-layout-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--tm-home-accent-ring);
+}
+
+.tm-homepage-settings-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.tm-homepage-settings-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 30;
+    width: min(330px, calc(100vw - 32px));
+    padding: 10px;
+    border: 1px solid var(--tm-home-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--tm-home-surface) 96%, var(--tm-home-bg) 4%);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.16);
+    box-sizing: border-box;
+}
+
+.tm-homepage-settings-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.tm-homepage-settings-title {
+    font-size: 12px;
+    line-height: 1.35;
+    font-weight: 800;
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-module-reset-btn {
+    height: 26px;
+    padding: 0 9px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--tm-home-surface-alt) 76%, transparent);
+    color: var(--tm-home-text-muted);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.tm-homepage-module-reset-btn:hover {
+    background: var(--tm-home-hover);
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-module-order-list {
+    display: grid;
+    gap: 6px;
+}
+
+.tm-homepage-module-order-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--tm-home-surface-alt) 70%, transparent);
+}
+
+.tm-homepage-module-order-main {
+    min-width: 0;
+}
+
+.tm-homepage-module-order-label {
+    font-size: 12px;
+    line-height: 1.35;
+    font-weight: 800;
+    color: var(--tm-home-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tm-homepage-module-order-desc {
+    margin-top: 2px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--tm-home-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tm-homepage-module-layout-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex: 0 0 auto;
+    padding: 3px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--tm-home-surface) 82%, transparent);
+}
+
+.tm-homepage-module-layout-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 22px;
+    min-width: 38px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--tm-home-text-muted);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.tm-homepage-module-layout-btn:hover {
+    background: var(--tm-home-hover);
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-module-layout-btn.is-active {
+    background: var(--tm-home-accent-soft);
+    color: var(--tm-home-accent);
+    box-shadow: 0 0 0 1px var(--tm-home-accent-ring);
+}
+
+.tm-homepage-module-order-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.tm-homepage-module-order-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--tm-home-surface) 82%, transparent);
+    color: var(--tm-home-text);
+    font-size: 14px;
+    line-height: 1;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.tm-homepage-module-order-btn:hover {
+    background: var(--tm-home-hover);
+    border-color: color-mix(in srgb, var(--tm-home-accent) 18%, var(--tm-home-border));
+}
+
+.tm-homepage-module-order-btn:disabled {
+    cursor: default;
+    opacity: 0.36;
+}
+
 .tm-homepage-range-switch {
     display: inline-flex;
     align-items: center;
@@ -294,14 +634,64 @@
 .tm-homepage-hero-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
+    align-items: stretch;
     gap: var(--tm-home-gap);
+    width: 100%;
+}
+
+.tm-homepage-module-flow {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: auto;
+    align-items: stretch;
+    column-gap: var(--tm-home-gap);
+    row-gap: var(--tm-home-gap);
+    min-width: 0;
+}
+
+.tm-homepage-module {
+    display: flex;
+    align-self: stretch;
+    min-width: 0;
+    min-height: 0;
+}
+
+.tm-homepage-module > .tm-homepage-card,
+.tm-homepage-module > [data-tm-home-trend-slot],
+.tm-homepage-module > [data-tm-home-focus-slot] {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+.tm-homepage-module > .tm-homepage-hero-grid {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+.tm-homepage-module > [data-tm-home-trend-slot] > .tm-homepage-card,
+.tm-homepage-module > [data-tm-home-focus-slot] > .tm-homepage-card {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+.tm-homepage-module--wide {
+    grid-column: 1 / -1;
 }
 
 .tm-homepage-hero-grid > .tm-homepage-card {
-    align-self: start;
+    align-self: stretch;
     min-height: 0;
-    height: auto;
+    height: 100%;
 }
 
 .tm-homepage-card--overview,
@@ -309,6 +699,7 @@
 .tm-homepage-card--trend {
     display: flex;
     flex-direction: column;
+    min-height: 0;
 }
 
 .tm-homepage-card.tm-homepage-card--overview {
@@ -603,6 +994,9 @@
 .tm-homepage-card {
     position: relative;
     overflow: hidden;
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 0;
     padding: var(--tm-home-card-padding);
     background: color-mix(in srgb, var(--tm-home-surface) 94%, var(--tm-home-bg) 6%);
     transform: translateY(0);
@@ -654,14 +1048,15 @@
 
 .tm-homepage-card.tm-homepage-card--trend {
     gap: 10px;
+    height: 100%;
+    min-height: 0;
     background: color-mix(in srgb, var(--tm-home-surface) 98%, var(--tm-home-bg) 2%);
 }
 
 .tm-homepage-trend-head {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: flex-start;
-    gap: 10px;
+    position: relative;
+    display: block;
+    min-width: 0;
 }
 
 .tm-homepage-trend-head-main {
@@ -672,6 +1067,8 @@
 
 .tm-homepage-trend-title-group {
     min-width: 0;
+    min-height: 32px;
+    padding-right: 142px;
 }
 
 .tm-homepage-trend-summary {
@@ -715,11 +1112,25 @@
 }
 
 .tm-homepage-trend-head .tm-homepage-range-switch {
-    align-self: start;
+    position: absolute;
+    top: 0;
+    right: 0;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 9px;
+}
+
+.tm-homepage-trend-head .tm-homepage-range-btn {
+    min-width: 40px;
+    height: 26px;
+    padding: 0 7px;
+    border-radius: 7px;
+    font-size: 11px;
 }
 
 .tm-homepage-trend-wrap {
-    height: var(--tm-home-trend-height);
+    flex: 1 1 var(--tm-home-trend-height);
+    min-height: var(--tm-home-trend-height);
     position: relative;
     box-sizing: border-box;
     border: 1px solid var(--tm-home-border-soft);
@@ -733,12 +1144,22 @@
 }
 
 .tm-homepage-trend-scroll {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
     overflow: hidden;
 }
 
 .tm-homepage-trend-scroll-inner {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0;
     width: 100%;
     min-width: 0;
+    min-height: 0;
+    height: 100%;
 }
 
 .tm-homepage-trend-svg {
@@ -812,6 +1233,7 @@
     display: grid;
     grid-template-columns: repeat(var(--tm-home-trend-days, 15), minmax(0, 1fr));
     gap: 3px;
+    flex: 0 0 auto;
 }
 
 .tm-homepage-trend-axis-item {
@@ -847,48 +1269,817 @@
     opacity: 0;
 }
 
-.tm-homepage-middle-grid,
-.tm-homepage-bottom-grid {
+.tm-homepage-card.tm-homepage-card--focus {
+    --tm-home-focus-list-height: 232px;
+    --tm-home-focus-panel-min-height: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+    min-height: 0;
+    overflow: visible;
+    background: color-mix(in srgb, var(--tm-home-surface) 97%, var(--tm-home-bg) 3%);
+}
+
+.tm-homepage-focus-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--tm-home-gap);
+    align-items: stretch;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+}
+
+.tm-homepage-focus-panel {
+    min-width: 0;
+    min-height: var(--tm-home-focus-panel-min-height);
+    height: 100%;
+    padding: 12px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: calc(var(--tm-home-card-radius) - 2px);
+    box-sizing: border-box;
+    background: color-mix(in srgb, var(--tm-home-surface-alt) 82%, var(--tm-home-surface) 18%);
+}
+
+[data-tm-home-focus-recent-slot] {
+    min-width: 0;
+    height: 100%;
+}
+
+.tm-homepage-card--focus.is-narrow [data-tm-home-focus-recent-slot] {
+    display: none;
+}
+
+.tm-homepage-focus-panel--placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tm-homepage-focus-today {
+    align-self: stretch;
+    min-height: 0;
+    position: relative;
+}
+
+.tm-homepage-focus-today-layout {
+    display: grid;
+    grid-template-columns: minmax(176px, 1.22fr) minmax(118px, 0.78fr);
+    align-items: stretch;
+    gap: 12px;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+.tm-homepage-focus-day-metrics {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 10px;
+    min-height: 100%;
+    min-width: 0;
+}
+
+.tm-homepage-focus-calendar-wrap {
+    align-self: start;
+    min-width: 0;
+}
+
+.tm-homepage-focus-day-summary-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+}
+
+.tm-homepage-focus-day-summary-head .tm-homepage-focus-total {
+    justify-content: flex-end;
+    flex: 0 0 auto;
+}
+
+.tm-homepage-focus-day-nav {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr) 30px;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.tm-homepage-focus-day-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--tm-home-surface) 84%, transparent);
+    color: var(--tm-home-text);
+    font-size: 17px;
+    line-height: 1;
+    font-weight: 800;
+    cursor: pointer;
+    transition:
+        background-color 180ms ease,
+        border-color 180ms ease,
+        color 180ms ease,
+        box-shadow 180ms ease;
+}
+
+.tm-homepage-focus-day-btn:hover {
+    background: var(--tm-home-hover);
+    border-color: color-mix(in srgb, var(--tm-home-accent) 18%, var(--tm-home-border));
+}
+
+.tm-homepage-focus-day-btn:disabled {
+    cursor: default;
+    opacity: 0.36;
+    background: color-mix(in srgb, var(--tm-home-surface) 62%, transparent);
+}
+
+.tm-homepage-focus-day-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--tm-home-accent-ring);
+}
+
+.tm-homepage-focus-day-label {
+    border: none;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+    min-width: 0;
+    padding: 2px 4px;
+    border-radius: 8px;
+    text-align: center;
+    color: inherit;
+}
+
+.tm-homepage-focus-day-label:hover {
+    background: color-mix(in srgb, var(--tm-home-hover) 56%, transparent);
+}
+
+.tm-homepage-focus-day-label:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--tm-home-accent-ring);
+}
+
+.tm-homepage-focus-day-title {
+    font-size: 12px;
+    line-height: 1.25;
+    font-weight: 800;
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-focus-day-date {
+    margin-top: 2px;
+    font-size: 11px;
+    line-height: 1.25;
+    font-weight: 700;
+    color: var(--tm-home-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tm-homepage-focus-calendar-popover {
+    position: static;
+    width: 100%;
+    padding: 7px;
+    border: 1px solid color-mix(in srgb, var(--tm-home-accent) 18%, var(--tm-home-border));
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--tm-home-surface) 96%, var(--tm-home-bg) 4%);
+    box-shadow: none;
+    box-sizing: border-box;
+}
+
+.tm-homepage-focus-calendar-head {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) 24px;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.tm-homepage-focus-calendar-head .tm-homepage-focus-day-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    font-size: 15px;
+}
+
+.tm-homepage-focus-calendar-month {
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.3;
+    font-weight: 800;
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-focus-calendar-week,
+.tm-homepage-focus-calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 3px;
+}
+
+.tm-homepage-focus-calendar-week {
+    margin-bottom: 4px;
+}
+
+.tm-homepage-focus-calendar-week span {
+    min-width: 0;
+    text-align: center;
+    font-size: 10px;
+    line-height: 1.2;
+    font-weight: 700;
+    color: var(--tm-home-text-muted);
+}
+
+.tm-homepage-focus-calendar-day {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+    aspect-ratio: 1;
+    min-height: 21px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--tm-home-surface-alt) 70%, transparent);
+    color: var(--tm-home-text-muted);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 800;
+    cursor: pointer;
+    transition:
+        border-color 160ms ease,
+        box-shadow 160ms ease,
+        color 160ms ease,
+        transform 160ms ease;
+}
+
+.tm-homepage-focus-calendar-day:hover {
+    border-color: color-mix(in srgb, var(--tm-home-accent) 46%, var(--tm-home-border));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tm-home-accent) 28%, transparent), 0 2px 8px rgba(15, 23, 42, 0.08);
+    color: var(--tm-home-text);
+    transform: translateY(-1px);
+}
+
+.tm-homepage-focus-calendar-day.is-empty {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.tm-homepage-focus-calendar-day.is-future {
+    cursor: default;
+    opacity: 0.28;
+    pointer-events: none;
+}
+
+.tm-homepage-focus-calendar-day.has-focus {
+    color: var(--tm-home-text);
+    border-color: color-mix(in srgb, var(--tm-home-accent) 14%, var(--tm-home-border));
+}
+
+.tm-homepage-focus-calendar-day.is-l1 { background: color-mix(in srgb, var(--tm-home-accent) 10%, var(--tm-home-surface)); }
+.tm-homepage-focus-calendar-day.is-l2 { background: color-mix(in srgb, var(--tm-home-accent) 18%, var(--tm-home-surface)); }
+.tm-homepage-focus-calendar-day.is-l3 { background: color-mix(in srgb, var(--tm-home-accent) 28%, var(--tm-home-surface)); }
+.tm-homepage-focus-calendar-day.is-l4 {
+    background: color-mix(in srgb, var(--tm-home-accent) 42%, var(--tm-home-surface));
+    color: color-mix(in srgb, var(--tm-home-text) 92%, white 8%);
+}
+
+.tm-homepage-focus-calendar-day.is-selected {
+    border-color: var(--tm-home-accent);
+    box-shadow: inset 0 0 0 1px var(--tm-home-accent), 0 0 0 2px var(--tm-home-accent-ring);
+}
+
+.tm-homepage-focus-calendar-loading {
+    min-height: 150px;
+}
+
+.tm-homepage-focus-total {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+
+.tm-homepage-focus-total-value {
+    font-size: 36px;
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: 0;
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-focus-total-unit {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--tm-home-text-muted);
+    white-space: nowrap;
+}
+
+.tm-homepage-focus-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.tm-homepage-focus-day-metrics .tm-homepage-focus-stat-grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(0, 1fr);
+}
+
+.tm-homepage-focus-day-metrics .tm-homepage-focus-empty {
+    min-height: 0;
+    height: 100%;
+}
+
+.tm-homepage-focus-recent > .tm-homepage-focus-empty {
+    flex: 1 1 auto;
+}
+
+.tm-homepage-focus-stat {
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: calc(var(--tm-home-card-radius) - 4px);
+    background: color-mix(in srgb, var(--tm-home-surface) 74%, transparent);
+}
+
+.tm-homepage-focus-stat-label {
+    font-size: 11px;
+    line-height: 1.3;
+    font-weight: 700;
+    color: var(--tm-home-text-muted);
+}
+
+.tm-homepage-focus-stat-value {
+    margin-top: 5px;
+    font-size: 18px;
+    line-height: 1;
+    font-weight: 800;
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-focus-progress {
+    display: grid;
+    gap: 7px;
+    min-width: 0;
+}
+
+.tm-homepage-focus-progress-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+    font-size: 11px;
+    line-height: 1.3;
+    font-weight: 700;
+    color: var(--tm-home-text-muted);
+}
+
+.tm-homepage-focus-progress-value {
+    color: var(--tm-home-text);
+    white-space: nowrap;
+}
+
+.tm-homepage-focus-progress-track {
+    height: 10px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--tm-home-border) 64%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+.tm-homepage-focus-progress-bar {
+    display: block;
+    height: 100%;
+    width: var(--tm-home-focus-progress, 0%);
+    max-width: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--tm-home-accent-soft-2), var(--tm-home-accent));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.16);
+}
+
+.tm-homepage-focus-recent {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: 100%;
+}
+
+.tm-homepage-focus-recent-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+}
+
+.tm-homepage-focus-recent-title {
+    font-size: 12px;
+    line-height: 1.3;
+    font-weight: 800;
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-focus-recent-range {
+    font-size: 11px;
+    line-height: 1.3;
+    font-weight: 700;
+    color: var(--tm-home-text-muted);
+    white-space: nowrap;
+}
+
+.tm-homepage-focus-recent-side {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.tm-homepage-focus-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--tm-home-surface) 82%, transparent);
+    color: var(--tm-home-text-muted);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 800;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.tm-homepage-focus-mode-btn:hover {
+    background: var(--tm-home-hover);
+    border-color: color-mix(in srgb, var(--tm-home-accent) 18%, var(--tm-home-border));
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-focus-mode-btn.is-active {
+    color: var(--tm-home-accent);
+    border-color: color-mix(in srgb, var(--tm-home-accent) 24%, var(--tm-home-border));
+    background: var(--tm-home-accent-soft);
+}
+
+.tm-homepage-focus-mode-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--tm-home-accent-ring);
+}
+
+.tm-homepage-focus-page-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.tm-homepage-focus-page-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--tm-home-surface) 84%, transparent);
+    color: var(--tm-home-text);
+    font-size: 14px;
+    line-height: 1;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.tm-homepage-focus-page-btn:hover {
+    background: var(--tm-home-hover);
+    border-color: color-mix(in srgb, var(--tm-home-accent) 18%, var(--tm-home-border));
+}
+
+.tm-homepage-focus-page-btn:disabled {
+    cursor: default;
+    opacity: 0.36;
+}
+
+.tm-homepage-focus-page-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--tm-home-accent-ring);
+}
+
+.tm-homepage-focus-page-count {
+    min-width: 30px;
+    text-align: center;
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 700;
+    color: var(--tm-home-text-muted);
+    white-space: nowrap;
+}
+
+.tm-homepage-focus-task-popover {
+    position: absolute;
+    z-index: 22;
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    max-height: min(328px, calc(100% - 28px));
+    padding: 12px;
+    border: 1px solid color-mix(in srgb, var(--tm-home-accent) 20%, var(--tm-home-border));
+    border-radius: calc(var(--tm-home-card-radius) - 1px);
+    background: color-mix(in srgb, var(--tm-home-surface) 98%, var(--tm-home-bg) 2%);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.16), 0 0 0 1px color-mix(in srgb, var(--tm-home-accent) 8%, transparent);
+    box-sizing: border-box;
+}
+
+.tm-homepage-focus-task-popover-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+}
+
+.tm-homepage-focus-task-popover-title {
+    font-size: 12px;
+    line-height: 1.3;
+    font-weight: 800;
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-focus-task-popover-date {
+    margin-top: 2px;
+    font-size: 11px;
+    line-height: 1.3;
+    font-weight: 700;
+    color: var(--tm-home-text-muted);
+}
+
+.tm-homepage-focus-task-popover-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+    flex: 0 0 auto;
+}
+
+.tm-homepage-focus-task-popover-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--tm-home-surface-alt) 80%, transparent);
+    color: var(--tm-home-text-muted);
+    font-size: 16px;
+    line-height: 1;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.tm-homepage-focus-task-popover-close:hover {
+    background: var(--tm-home-hover);
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-focus-task-popover-close:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--tm-home-accent-ring);
+}
+
+.tm-homepage-focus-task-popover .tm-homepage-focus-list {
+    min-height: 0;
+    overflow: auto;
+    padding-right: 2px;
+}
+
+.tm-homepage-focus-task-popover .tm-homepage-focus-empty {
+    min-height: 112px;
+}
+
+.tm-homepage-focus-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: var(--tm-home-focus-list-height);
+}
+
+.tm-homepage-focus-task {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 42px;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--tm-home-surface) 72%, transparent);
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition:
+        background-color 180ms ease,
+        box-shadow 180ms ease,
+        filter 180ms ease;
+}
+
+.tm-homepage-focus-task:hover {
+    background: color-mix(in srgb, var(--tm-home-hover) 74%, var(--tm-home-surface) 26%);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tm-home-accent) 14%, transparent);
+    filter: saturate(1.03);
+}
+
+.tm-homepage-focus-task.is-selected {
+    background: color-mix(in srgb, var(--tm-home-accent) 9%, var(--tm-home-surface));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tm-home-accent) 22%, var(--tm-home-border));
+}
+
+.tm-homepage-focus-task:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--tm-home-accent-ring);
+}
+
+.tm-homepage-focus-task-main {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.tm-homepage-focus-task-title {
+    font-size: 13px;
+    line-height: 1.35;
+    font-weight: 700;
+    color: var(--tm-home-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tm-homepage-focus-task-meta {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--tm-home-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tm-homepage-focus-task-side {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.tm-homepage-focus-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 0 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.tm-homepage-focus-pill {
+    color: var(--tm-home-accent);
+    background: var(--tm-home-accent-soft);
+}
+
+.tm-homepage-focus-pill.is-empty {
+    color: var(--tm-home-text-muted);
+    background: var(--tm-home-surface-alt);
+}
+
+.tm-homepage-focus-empty,
+.tm-homepage-focus-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 128px;
+    padding: 14px;
+    border: 1px dashed var(--tm-home-border-soft);
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--tm-home-text-muted);
+    background: var(--tm-home-surface-alt);
 }
 
 #tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-header {
     animation: tm-home-fade-up 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-card.tm-homepage-card--trend {
-    animation: tm-home-fade-up 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
-    animation-delay: 120ms;
-}
-
-#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-hero-grid > .tm-homepage-card,
-#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-middle-grid > .tm-homepage-card,
-#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-bottom-grid > .tm-homepage-card {
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-module {
     animation: tm-home-fade-up 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-hero-grid > .tm-homepage-card--overview { animation-delay: 90ms; }
-#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-hero-grid > .tm-homepage-card--summary { animation-delay: 130ms; }
-#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-middle-grid > .tm-homepage-card:nth-child(1) { animation-delay: 180ms; }
-#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-middle-grid > .tm-homepage-card:nth-child(2) { animation-delay: 230ms; }
-#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-bottom-grid > .tm-homepage-card:nth-child(1) { animation-delay: 260ms; }
-#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-bottom-grid > .tm-homepage-card:nth-child(2) { animation-delay: 310ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-module:nth-child(1) { animation-delay: 90ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-module:nth-child(2) { animation-delay: 140ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-module:nth-child(3) { animation-delay: 190ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-module:nth-child(4) { animation-delay: 240ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-module:nth-child(5) { animation-delay: 290ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-module:nth-child(6) { animation-delay: 340ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-module:nth-child(7) { animation-delay: 390ms; }
+
+.tm-homepage-card.tm-homepage-card--heatmap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.tm-homepage-card--heatmap .tm-homepage-card-head {
+    flex: 0 0 auto;
+}
+
+.tm-homepage-card--heatmap .tm-homepage-heatmap-shell {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.tm-homepage-card--heatmap .tm-homepage-heatmap-grid {
+    flex: 1 1 auto;
+    align-items: stretch;
+    justify-content: flex-end;
+    gap: var(--tm-home-heatmap-gap);
+    min-height: 0;
+}
+
+.tm-homepage-card--heatmap .tm-homepage-heatmap-month {
+    flex: 0 0 auto;
+    min-width: 0;
+    min-height: 0;
+}
+
+.tm-homepage-card--heatmap .tm-homepage-heatmap-month-grid {
+    flex: 1 1 auto;
+    grid-template-columns: repeat(var(--tm-home-heatmap-month-cols), var(--tm-home-heatmap-cell));
+    grid-template-rows: repeat(var(--tm-home-heatmap-month-rows, 8), var(--tm-home-heatmap-cell));
+    align-content: start;
+    justify-content: start;
+    align-items: start;
+    justify-items: start;
+    min-height: 0;
+}
+
+.tm-homepage-card--heatmap .tm-homepage-chart-empty {
+    flex: 1 1 auto;
+}
 
 .tm-homepage-heatmap-grid {
     display: flex;
     flex-wrap: nowrap;
-    gap: calc(var(--tm-home-heatmap-gap) * 2);
+    gap: var(--tm-home-heatmap-gap);
     align-items: start;
-    justify-content: space-between;
+    justify-content: flex-end;
     min-width: 0;
 }
 
 .tm-homepage-heatmap-shell {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 14px;
+    box-sizing: border-box;
+}
+
+.tm-homepage-card--heatmap .tm-homepage-heatmap-shell::before {
+    content: "";
+    position: absolute;
+    z-index: 3;
+    top: 0;
+    bottom: 0;
+    left: calc(-1 * var(--tm-home-card-padding-x));
+    width: calc(var(--tm-home-card-padding-x) + var(--tm-home-heatmap-edge-inset));
+    background: color-mix(in srgb, var(--tm-home-surface) 94%, var(--tm-home-bg) 6%);
+    pointer-events: none;
 }
 
 .tm-homepage-heatmap-month {
@@ -1140,55 +2331,85 @@
     grid-template-columns: 1fr;
 }
 
-.tm-homepage--dock .tm-homepage-middle-grid,
-.tm-homepage--dock .tm-homepage-bottom-grid {
+.tm-homepage--dock .tm-homepage-module-flow {
     grid-template-columns: 1fr;
+}
+
+.tm-homepage--dock .tm-homepage-module--wide {
+    grid-column: auto;
+}
+
+.tm-homepage--dock .tm-homepage-focus-grid,
+.tm-homepage-card--focus.is-narrow .tm-homepage-focus-grid {
+    grid-template-columns: 1fr;
+}
+
+.tm-homepage--dock .tm-homepage-focus-today-layout,
+.tm-homepage-card--focus.is-narrow .tm-homepage-focus-today-layout {
+    grid-template-columns: minmax(150px, 1.12fr) minmax(108px, 0.88fr);
+    gap: 10px;
 }
 
 .tm-homepage--mobile {
     --tm-home-gap: 12px;
-    --tm-home-card-padding: 12px 14px;
+    --tm-home-card-padding-x: 14px;
+    --tm-home-card-padding-y: 12px;
     --tm-home-trend-height: 156px;
     --tm-home-heatmap-cell: 13px;
     --tm-home-heatmap-gap: 4px;
     padding: 12px;
 }
 
+.tm-homepage--mobile .tm-homepage-card.tm-homepage-card--focus {
+    --tm-home-focus-list-height: 314px;
+    --tm-home-focus-panel-min-height: 374px;
+}
+
 .tm-homepage--mobile .tm-homepage-header {
-    flex-direction: column;
-    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
 }
 
 .tm-homepage--mobile .tm-homepage-toolbar {
-    width: 100%;
+    width: auto;
+    justify-content: flex-end;
 }
 
-.tm-homepage--mobile .tm-homepage-range-btn {
-    flex: 1 1 0;
-    min-width: 0;
-    height: 34px;
+.tm-homepage--mobile .tm-homepage-settings {
+    width: auto;
+    flex-direction: column;
+    align-items: flex-end;
 }
 
-.tm-homepage--mobile .tm-homepage-card--trend .tm-homepage-card-head {
-    display: grid;
-    grid-template-columns: 1fr;
-    align-items: stretch;
-    gap: 8px;
+.tm-homepage--mobile .tm-homepage-settings-btn {
+    align-self: flex-end;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-head-main {
+.tm-homepage--mobile .tm-homepage-settings-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: min(330px, calc(100vw - 32px));
+    box-shadow: none;
+}
+
+.tm-homepage--mobile .tm-homepage-trend-head-main,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-head-main {
     display: grid;
     gap: 6px;
     min-width: 0;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-summary {
+.tm-homepage--mobile .tm-homepage-trend-summary,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-summary {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 4px 10px;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-stat {
+.tm-homepage--mobile .tm-homepage-trend-stat,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-stat {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -1202,29 +2423,34 @@
     white-space: normal;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-stat:last-child {
+.tm-homepage--mobile .tm-homepage-trend-stat:last-child,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-stat:last-child {
     border-right: none;
     padding-right: 0;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-stat:first-child {
+.tm-homepage--mobile .tm-homepage-trend-stat:first-child,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-stat:first-child {
     padding-left: 0;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-stat-label {
+.tm-homepage--mobile .tm-homepage-trend-stat-label,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-stat-label {
     grid-area: label;
     align-self: center;
     line-height: 1.1;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-stat-value {
+.tm-homepage--mobile .tm-homepage-trend-stat-value,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-stat-value {
     grid-area: value;
     justify-self: end;
     align-self: center;
     line-height: 1;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-stat-note {
+.tm-homepage--mobile .tm-homepage-trend-stat-note,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-stat-note {
     grid-area: note;
     white-space: nowrap;
     overflow: hidden;
@@ -1232,21 +2458,90 @@
     padding-top: 1px;
 }
 
-.tm-homepage--mobile .tm-homepage-card--trend .tm-homepage-range-switch {
-    width: 100%;
-    justify-content: space-between;
-    margin-left: 0;
-    align-self: stretch;
-}
-
-.tm-homepage--mobile .tm-homepage-card--trend .tm-homepage-range-btn {
-    min-width: 46px;
-    height: 30px;
-    padding: 0 8px;
-}
-
 .tm-homepage--mobile .tm-homepage-hero-grid {
     grid-template-columns: 1fr;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-today-layout {
+    grid-template-columns: minmax(150px, 1.12fr) minmax(108px, 0.88fr);
+    gap: 10px;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-total-value {
+    font-size: 32px;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-stat-grid {
+    gap: 7px;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-stat {
+    padding: 8px 9px;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-task {
+    grid-template-columns: minmax(0, 1fr) max-content;
+    align-items: center;
+    gap: 8px;
+    min-height: 58px;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-task-title,
+.tm-homepage--mobile .tm-homepage-focus-task-meta {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-break: break-word;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-task-side {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    min-width: max-content;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-pill {
+    flex: 0 0 auto;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-recent-side {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-task-popover {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    max-height: calc(100% - 20px);
+    padding: 10px;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-task-popover-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-task-popover-actions {
+    justify-content: space-between;
+    width: 100%;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-calendar-popover {
+    position: static;
+    width: 100%;
+    margin-top: 0;
+    transform: none;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-calendar-day {
+    min-height: 26px;
 }
 
 .tm-homepage--mobile .tm-homepage-overview-stats {
@@ -1370,9 +2665,12 @@
     align-self: flex-start;
 }
 
-.tm-homepage--mobile .tm-homepage-middle-grid,
-.tm-homepage--mobile .tm-homepage-bottom-grid {
+.tm-homepage--mobile .tm-homepage-module-flow {
     grid-template-columns: 1fr;
+}
+
+.tm-homepage--mobile .tm-homepage-module--wide {
+    grid-column: auto;
 }
 
 .tm-homepage--mobile .tm-homepage-summary-main-value {
@@ -1387,20 +2685,24 @@
     font-size: 15px;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-wrap {
+.tm-homepage--mobile .tm-homepage-trend-wrap,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-wrap {
     padding: 6px 6px 4px;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-axis {
+.tm-homepage--mobile .tm-homepage-trend-axis,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-axis {
     gap: 2px;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-axis-value {
+.tm-homepage--mobile .tm-homepage-trend-axis-value,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-axis-value {
     min-height: 10px;
     font-size: 9px;
 }
 
-.tm-homepage--mobile .tm-homepage-trend-axis-date {
+.tm-homepage--mobile .tm-homepage-trend-axis-date,
+.tm-homepage-card--trend.is-narrow .tm-homepage-trend-axis-date {
     font-size: 9px;
 }
 
@@ -1443,17 +2745,6 @@
 }
 
 @media (max-width: 420px) {
-    .tm-homepage--mobile .tm-homepage-card--trend .tm-homepage-card-head {
-        grid-template-columns: 1fr;
-        align-items: stretch;
-    }
-
-    .tm-homepage--mobile .tm-homepage-card--trend .tm-homepage-range-switch {
-        width: 100%;
-        justify-content: space-between;
-        margin-left: 0;
-    }
-
     .tm-homepage--mobile .tm-homepage-overview-stat {
         padding-left: 7px;
         padding-right: 7px;
@@ -1483,14 +2774,22 @@
     .tm-homepage--mobile .tm-homepage-summary-row-number {
         font-size: 30px;
     }
+
+    .tm-homepage--mobile .tm-homepage-focus-stat-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tm-homepage--mobile .tm-homepage-focus-progress-meta,
+    .tm-homepage--mobile .tm-homepage-focus-recent-head {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .tm-homepage-header,
-    .tm-homepage-hero-grid > .tm-homepage-card,
-    .tm-homepage-middle-grid > .tm-homepage-card,
-    .tm-homepage-bottom-grid > .tm-homepage-card,
-    .tm-homepage-card--trend {
+    .tm-homepage-module {
         animation: none !important;
     }
 
@@ -1629,6 +2928,635 @@
         const num = Number(value) || 0;
         const rounded = Math.round(num * 10) / 10;
         return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    }
+
+    const TOMATO_SETTINGS_PATHS = Object.freeze([
+        "/data/storage/petal/siyuan-plugin-docktomato/tomato-settings.json",
+        "/data/storage/tomato-settings.json",
+    ]);
+
+    function parseDateTime(value) {
+        if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+        const raw = String(value || "").trim();
+        if (!raw) return null;
+        const dt = new Date(raw);
+        return Number.isNaN(dt.getTime()) ? null : dt;
+    }
+
+    function addLocalDays(date, deltaDays) {
+        const base = date instanceof Date ? new Date(date.getTime()) : new Date();
+        base.setDate(base.getDate() + (Number(deltaDays) || 0));
+        return base;
+    }
+
+    function getLocalDayStart(key) {
+        const normalized = normalizeDateKey(key);
+        const day = buildDateFromKey(normalized) || new Date();
+        return new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0);
+    }
+
+    function buildFocusWindow(ctx, rangeDays = runtime.focusRecentDays) {
+        const todayKey = normalizeDateKey(ctx?.todayKey) || formatDateKey(new Date());
+        const todayStart = getLocalDayStart(todayKey);
+        const todayEnd = addLocalDays(todayStart, 1);
+        const days = Math.max(1, Math.min(90, Math.round(Number(rangeDays) || FOCUS_HISTORY_LOAD_DAYS)));
+        const focusDateOffset = Math.min(0, Math.round(toNumber(runtime.focusDateOffset, 0)));
+        const focusDayStart = addLocalDays(todayStart, focusDateOffset);
+        const focusDayEnd = addLocalDays(focusDayStart, 1);
+        return {
+            todayKey,
+            todayStart,
+            todayEnd,
+            focusDateOffset,
+            focusDateKey: formatDateKey(focusDayStart),
+            focusDayStart,
+            focusDayEnd,
+            rangeStart: addLocalDays(todayStart, -(days - 1)),
+            rangeEnd: todayEnd,
+            rangeDays: days,
+        };
+    }
+
+    function normalizeMonthKey(value) {
+        const raw = String(value || "").trim();
+        const direct = raw.match(/^(\d{4})-(\d{2})$/);
+        if (direct) return `${direct[1]}-${direct[2]}`;
+        const key = normalizeDateKey(raw);
+        return key ? key.slice(0, 7) : "";
+    }
+
+    function getMonthBounds(monthKey) {
+        const normalized = normalizeMonthKey(monthKey) || formatDateKey(new Date()).slice(0, 7);
+        const m = normalized.match(/^(\d{4})-(\d{2})$/);
+        const start = m
+            ? new Date(Number(m[1]), Number(m[2]) - 1, 1, 0, 0, 0, 0)
+            : new Date(new Date().getFullYear(), new Date().getMonth(), 1, 0, 0, 0, 0);
+        const end = new Date(start.getFullYear(), start.getMonth() + 1, 1, 0, 0, 0, 0);
+        return {
+            key: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`,
+            start,
+            end,
+        };
+    }
+
+    function shiftMonthKey(monthKey, deltaMonths) {
+        const bounds = getMonthBounds(monthKey);
+        const dt = new Date(bounds.start.getFullYear(), bounds.start.getMonth() + (Number(deltaMonths) || 0), 1, 0, 0, 0, 0);
+        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+    }
+
+    function formatMonthLabel(monthKey) {
+        const bounds = getMonthBounds(monthKey);
+        return `${bounds.start.getFullYear()}年${bounds.start.getMonth() + 1}月`;
+    }
+
+    function normalizeCalendarFirstDay(value) {
+        return Number(value) === 0 ? 0 : 1;
+    }
+
+    function readStoredCalendarFirstDay() {
+        try {
+            const raw = localStorage.getItem("tm_calendar_first_day");
+            if (raw !== null) return normalizeCalendarFirstDay(JSON.parse(raw));
+        } catch (e) {}
+        return 1;
+    }
+
+    function getCalendarFirstDay(ctx) {
+        if (ctx && Object.prototype.hasOwnProperty.call(ctx, "calendarFirstDay")) {
+            return normalizeCalendarFirstDay(ctx.calendarFirstDay);
+        }
+        return readStoredCalendarFirstDay();
+    }
+
+    function getCalendarWeekLabels(firstDay) {
+        const labels = ["日", "一", "二", "三", "四", "五", "六"];
+        const start = normalizeCalendarFirstDay(firstDay);
+        return labels.slice(start).concat(labels.slice(0, start));
+    }
+
+    function getSelectedFocusDateKey(ctx) {
+        return buildFocusWindow(ctx, runtime.focusRecentDays).focusDateKey;
+    }
+
+    function getFocusDateOffsetForKey(ctx, key) {
+        const todayKey = normalizeDateKey(ctx?.todayKey) || formatDateKey(new Date());
+        const targetKey = normalizeDateKey(key) || todayKey;
+        if (dayDiff(todayKey, targetKey) > 0) return 0;
+        return Math.min(0, dayDiff(todayKey, targetKey));
+    }
+
+    function setFocusDateByKey(ctx, key) {
+        runtime.focusDateOffset = getFocusDateOffsetForKey(ctx, key);
+        runtime.focusTaskListMode = "day";
+        runtime.focusDayPage = 0;
+        return getSelectedFocusDateKey(ctx);
+    }
+
+    function shouldRenderFocusSection(ctx) {
+        return ctx?.tomatoIntegrationEnabled === true;
+    }
+
+    function buildFocusLoadKey(ctx) {
+        if (!shouldRenderFocusSection(ctx)) return "";
+        const win = buildFocusWindow(ctx, FOCUS_HISTORY_LOAD_DAYS);
+        const version = Math.max(0, Math.round(toNumber(ctx?.tomatoHistoryVersion, 0)));
+        return `${win.rangeDays}:${win.rangeStart.toISOString()}:${win.rangeEnd.toISOString()}:d${win.focusDateKey}:v${version}`;
+    }
+
+    function normalizeTomatoUserSettings(settings) {
+        const source = (settings && typeof settings === "object" && !Array.isArray(settings)) ? settings : {};
+        const target = Math.max(1, Math.min(1440, Math.round(toNumber(source.dailyFocusTargetMinutes, 180))));
+        return {
+            dailyFocusTargetMinutes: target,
+            showHoursInTimerFormat: source?.main?.showHoursInTimerFormat === true || source.showHoursInTimerFormat === true,
+        };
+    }
+
+    function isTomatoSettingsLike(value) {
+        return !!(value && typeof value === "object" && !Array.isArray(value)
+            && (Object.prototype.hasOwnProperty.call(value, "main")
+                || Object.prototype.hasOwnProperty.call(value, "dailyFocusTargetMinutes")
+                || Object.prototype.hasOwnProperty.call(value, "showBreakRecords")));
+    }
+
+    function parseTomatoSettingsText(text) {
+        const raw = String(text || "").trim();
+        if (!raw) return null;
+        try {
+            const parsed = JSON.parse(raw);
+            return isTomatoSettingsLike(parsed) ? parsed : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function readTomatoSettingsFromLocalStorage() {
+        try {
+            return parseTomatoSettingsText(localStorage.getItem("tomato-user-settings") || "");
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function readTomatoSettingsFile(path) {
+        try {
+            const response = await fetch("/api/file/getFile", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path }),
+            });
+            if (!response.ok) return null;
+            return parseTomatoSettingsText(await response.text());
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function loadTomatoUserSettings() {
+        for (const path of TOMATO_SETTINGS_PATHS) {
+            const fileSettings = await readTomatoSettingsFile(path);
+            if (fileSettings) return normalizeTomatoUserSettings(fileSettings);
+        }
+        const localSettings = readTomatoSettingsFromLocalStorage();
+        return normalizeTomatoUserSettings(localSettings);
+    }
+
+    async function loadTomatoHistoryRecords(start, end) {
+        const api = globalThis.__dockTomato?.history?.loadRange;
+        if (typeof api !== "function") return { records: [], unavailable: true };
+        try {
+            const records = await api.call(globalThis.__dockTomato.history, start.toISOString(), end.toISOString());
+            return { records: Array.isArray(records) ? records : [], unavailable: false };
+        } catch (e) {
+            return { records: [], unavailable: true };
+        }
+    }
+
+    async function loadTomatoFocusPayload(ctx) {
+        const win = buildFocusWindow(ctx, FOCUS_HISTORY_LOAD_DAYS);
+        const historyStart = new Date(Math.min(win.rangeStart.getTime(), win.focusDayStart.getTime()));
+        const historyEnd = new Date(Math.max(win.rangeEnd.getTime(), win.focusDayEnd.getTime()));
+        const [settings, history] = await Promise.all([
+            loadTomatoUserSettings(),
+            loadTomatoHistoryRecords(historyStart, historyEnd),
+        ]);
+        return {
+            records: history.records || [],
+            settings,
+            unavailable: history.unavailable === true,
+        };
+    }
+
+    function buildFocusCalendarKey(ctx, monthKey) {
+        const month = getMonthBounds(monthKey).key;
+        const version = Math.max(0, Math.round(toNumber(ctx?.tomatoHistoryVersion, 0)));
+        return `${month}:v${version}`;
+    }
+
+    function mergeFocusRecords(baseRecords, nextRecords) {
+        const out = [];
+        const seen = new Set();
+        const push = (record) => {
+            if (!record || typeof record !== "object") return;
+            const key = [
+                String(record?.start || "").trim(),
+                String(record?.end || "").trim(),
+                String(record?.mode || "").trim(),
+                String(record?.sessionId || "").trim(),
+                String(record?.taskBlockId || "").trim(),
+                String(record?.databaseBlockId || "").trim(),
+                String(record?.timestamp || "").trim(),
+            ].join("|");
+            if (seen.has(key)) return;
+            seen.add(key);
+            out.push(record);
+        };
+        (Array.isArray(baseRecords) ? baseRecords : []).forEach(push);
+        (Array.isArray(nextRecords) ? nextRecords : []).forEach(push);
+        return out;
+    }
+
+    function ensureFocusCalendarLoaded(ctx, monthKey = "") {
+        if (!shouldRenderFocusSection(ctx)) return false;
+        const month = getMonthBounds(monthKey || runtime.focusCalendar?.monthKey || getSelectedFocusDateKey(ctx).slice(0, 7));
+        const key = buildFocusCalendarKey(ctx, month.key);
+        const current = runtime.focusCalendar && typeof runtime.focusCalendar === "object" ? runtime.focusCalendar : {};
+        runtime.focusCalendar = {
+            open: current.open === true,
+            monthKey: month.key,
+            status: current.status || "idle",
+            key: current.key || "",
+            records: Array.isArray(current.records) ? current.records : [],
+            loadSeq: Math.max(0, Math.round(toNumber(current.loadSeq, 0))),
+        };
+        if (runtime.focusCalendar.key === key && (runtime.focusCalendar.status === "loading" || runtime.focusCalendar.status === "loaded")) return true;
+        const seq = runtime.focusCalendar.loadSeq + 1;
+        runtime.focusCalendar = {
+            ...runtime.focusCalendar,
+            status: "loading",
+            key,
+            loadSeq: seq,
+            records: [],
+        };
+        loadTomatoHistoryRecords(month.start, month.end)
+            .then((payload) => {
+                if (runtime.focusCalendar?.loadSeq !== seq) return;
+                const records = Array.isArray(payload?.records) ? payload.records : [];
+                runtime.focusCalendar = {
+                    ...runtime.focusCalendar,
+                    status: payload?.unavailable ? "error" : "loaded",
+                    records,
+                };
+                if (runtime.focusState && runtime.focusState.status === "loaded") {
+                    runtime.focusState = {
+                        ...runtime.focusState,
+                        records: mergeFocusRecords(runtime.focusState.records || [], records),
+                    };
+                }
+                updateFocusDaySlots();
+            })
+            .catch(() => {
+                if (runtime.focusCalendar?.loadSeq !== seq) return;
+                runtime.focusCalendar = {
+                    ...runtime.focusCalendar,
+                    status: "error",
+                    records: [],
+                };
+                updateFocusTodaySlot();
+            });
+        return true;
+    }
+
+    function isFocusHistoryRecord(record) {
+        const mode = String(record?.mode || "").trim();
+        return mode === "countdown" || mode === "stopwatch";
+    }
+
+    function getHistoryRecordRange(record) {
+        const start = parseDateTime(record?.start);
+        const end = parseDateTime(record?.end);
+        if (!(start instanceof Date) || !(end instanceof Date)) return null;
+        if (end.getTime() <= start.getTime()) return null;
+        return { start, end };
+    }
+
+    function getHistoryRecordOverlapSeconds(record, start, end) {
+        const range = getHistoryRecordRange(record);
+        if (!range) return 0;
+        const left = Math.max(range.start.getTime(), start.getTime());
+        const right = Math.min(range.end.getTime(), end.getTime());
+        if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return 0;
+        return Math.max(0, Math.round((right - left) / 1000));
+    }
+
+    function getHistoryRecordEndMs(record, fallbackEnd = null) {
+        const range = getHistoryRecordRange(record);
+        const endMs = range?.end?.getTime?.() || toNumber(record?.timestamp, 0);
+        const fallbackMs = fallbackEnd instanceof Date ? fallbackEnd.getTime() : 0;
+        const ms = Number.isFinite(endMs) && endMs > 0 ? endMs : fallbackMs;
+        return fallbackMs > 0 ? Math.min(ms, fallbackMs) : ms;
+    }
+
+    function getHistoryRecordSessionKey(record) {
+        return String(record?.sessionId || record?.session_id || "").trim()
+            || [
+                String(record?.start || "").trim(),
+                String(record?.end || "").trim(),
+                String(record?.taskBlockId || record?.databaseBlockId || "").trim(),
+                String(record?.mode || "").trim(),
+            ].join("|");
+    }
+
+    function getHistoryRecordTaskIds(record) {
+        const ids = [];
+        const push = (value) => {
+            const id = String(value || "").trim();
+            if (id && !ids.includes(id)) ids.push(id);
+        };
+        push(record?.taskBlockId);
+        push(record?.databaseBlockId);
+        push(record?.blockId);
+        push(record?.taskId);
+        return ids;
+    }
+
+    function getTaskCandidateIds(task) {
+        const ids = [];
+        const push = (value) => {
+            const id = String(value || "").trim();
+            if (id && !ids.includes(id)) ids.push(id);
+        };
+        push(task?.id);
+        push(task?.blockId);
+        push(task?.block_id);
+        push(task?.attrHostId);
+        push(task?.attr_host_id);
+        push(task?.taskId);
+        push(task?.task_id);
+        push(task?.nodeId);
+        push(task?.node_id);
+        push(task?.databaseBlockId);
+        push(task?.database_block_id);
+        return ids;
+    }
+
+    function buildFocusTaskIndex(tasks) {
+        const map = new Map();
+        flattenTasks(tasks || []).forEach((task) => {
+            getTaskCandidateIds(task).forEach((id) => {
+                if (!map.has(id)) map.set(id, task);
+            });
+        });
+        return map;
+    }
+
+    function buildFocusDayMap(ctx, records, monthKey) {
+        const month = getMonthBounds(monthKey);
+        const taskIndex = buildFocusTaskIndex(ctx?.tasks || []);
+        const daySeconds = new Map();
+        const days = [];
+        for (let dt = new Date(month.start.getTime()); dt < month.end; dt = addLocalDays(dt, 1)) {
+            const key = formatDateKey(dt);
+            days.push(key);
+            daySeconds.set(key, 0);
+        }
+        (Array.isArray(records) ? records : []).forEach((record) => {
+            if (!isFocusHistoryRecord(record)) return;
+            const historyIds = getHistoryRecordTaskIds(record);
+            let task = null;
+            for (const id of historyIds) {
+                task = taskIndex.get(id);
+                if (task) break;
+            }
+            if (!task) return;
+            days.forEach((key) => {
+                const start = getLocalDayStart(key);
+                const end = addLocalDays(start, 1);
+                const sec = getHistoryRecordOverlapSeconds(record, start, end);
+                if (sec > 0) daySeconds.set(key, (daySeconds.get(key) || 0) + sec);
+            });
+        });
+        const maxMinutes = Math.max(0, ...Array.from(daySeconds.values(), (sec) => sec / 60));
+        const out = new Map();
+        daySeconds.forEach((sec, key) => {
+            const minutes = sec / 60;
+            const level = minutes > 0 && maxMinutes > 0
+                ? Math.max(1, Math.min(4, Math.ceil((minutes / maxMinutes) * 4)))
+                : 0;
+            out.set(key, { seconds: sec, minutes, level });
+        });
+        return out;
+    }
+
+    function parsePositiveNumber(value) {
+        const raw = String(value ?? "").trim();
+        if (!raw) return 0;
+        const direct = Number(raw);
+        if (Number.isFinite(direct) && direct > 0) return direct;
+        const matched = raw.match(/\d+(?:\.\d+)?/);
+        const parsed = matched ? Number(matched[0]) : 0;
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    }
+
+    function parseTaskDurationMinutes(task, ctx) {
+        const raw = String(task?.duration ?? task?.custom_duration ?? "").trim();
+        if (!raw) return 0;
+        const fmt = String(ctx?.durationFormat || "hours").trim() === "minutes" ? "minutes" : "hours";
+        const numericToMinutes = (num) => {
+            if (!Number.isFinite(num) || num <= 0) return 0;
+            return fmt === "minutes" ? num : num * 60;
+        };
+        if (/^\d+(?:\.\d+)?$/.test(raw)) return numericToMinutes(Number(raw));
+        let total = 0;
+        let matched = false;
+        const re = /(\d+(?:\.\d+)?)\s*(day|days|d|hour|hours|h|小时|hr|hrs|minute|minutes|min|m|分钟)/ig;
+        let match;
+        while ((match = re.exec(raw))) {
+            const num = Number(match[1]);
+            const unit = String(match[2] || "").toLowerCase();
+            if (!Number.isFinite(num) || num <= 0) continue;
+            matched = true;
+            if (unit === "day" || unit === "days" || unit === "d") total += num * 1440;
+            else if (unit === "hour" || unit === "hours" || unit === "h" || unit === "hr" || unit === "hrs" || unit === "小时") total += num * 60;
+            else total += num;
+        }
+        if (matched) return total;
+        return numericToMinutes(Number.parseFloat(raw));
+    }
+
+    function formatFocusHoursValue(minutes) {
+        const hours = Math.max(0, toNumber(minutes, 0)) / 60;
+        const rounded = Math.round(hours * 10) / 10;
+        return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    }
+
+    function formatFocusHoursText(minutes) {
+        return `${formatFocusHoursValue(minutes)} 小时`;
+    }
+
+    function secondsToDisplayMinutes(seconds) {
+        const sec = Math.max(0, toNumber(seconds, 0));
+        if (sec <= 0) return 0;
+        return Math.max(1, Math.round(sec / 60));
+    }
+
+    function formatRecentFocusTime(ms, todayKey) {
+        const num = Number(ms);
+        if (!Number.isFinite(num) || num <= 0) return "时间未知";
+        const dt = new Date(num);
+        if (Number.isNaN(dt.getTime())) return "时间未知";
+        const clock = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+        const key = formatDateKey(dt);
+        if (key === todayKey) return `今天 ${clock}`;
+        if (key === shiftDateKey(todayKey, -1)) return `昨天 ${clock}`;
+        return `${dt.getMonth() + 1}/${dt.getDate()} ${clock}`;
+    }
+
+    function formatFocusDateTitle(focusDate) {
+        if (focusDate?.isToday) return "今日专注";
+        return "当日专注";
+    }
+
+    function formatFocusDateText(key) {
+        const normalized = normalizeDateKey(key);
+        return normalized ? formatListDate(normalized) : "日期未知";
+    }
+
+    function buildFocusTaskPlan(task, group, ctx) {
+        const actualPomodoros = Math.max(0, group?.pomodoroSessions instanceof Set ? group.pomodoroSessions.size : 0);
+        const actualMinutes = Math.max(0, secondsToDisplayMinutes(group?.totalSec || 0));
+        const estimateTomatoes = parsePositiveNumber(task?.tomatoEstimateCount ?? task?.tomato_estimate_count);
+        if (estimateTomatoes > 0) {
+            const estimate = Number.isInteger(estimateTomatoes) ? String(estimateTomatoes) : String(Math.round(estimateTomatoes * 10) / 10);
+            return { text: `${actualPomodoros} / ${estimate} 番茄`, empty: false };
+        }
+        const estimateMinutes = parseTaskDurationMinutes(task, ctx);
+        if (estimateMinutes > 0) {
+            return {
+                text: `${actualMinutes} / ${Math.round(estimateMinutes)} 分钟`,
+                empty: false,
+            };
+        }
+        if (actualMinutes > 0) return { text: `${actualMinutes} / 0 分钟`, empty: false };
+        return { text: "未填预估", empty: true };
+    }
+
+    function buildFocusStats(ctx, records, settings) {
+        const win = buildFocusWindow(ctx, runtime.focusRecentDays);
+        const safeSettings = normalizeTomatoUserSettings(settings);
+        const targetMinutes = safeSettings.dailyFocusTargetMinutes;
+        const todayPomodoroSessions = new Set();
+        const taskIndex = buildFocusTaskIndex(ctx?.tasks || []);
+        const groups = new Map();
+        const dayGroups = new Map();
+        let totalTodaySec = 0;
+        let countdownTodaySec = 0;
+        let stopwatchTodaySec = 0;
+        let distractionCount = 0;
+        const addGroupRecord = (map, task, record, seconds, lastFallback) => {
+            if (!(map instanceof Map) || !task || seconds <= 0) return;
+            const historyIds = getHistoryRecordTaskIds(record);
+            const taskIds = getTaskCandidateIds(task);
+            const openId = String(task?.id || taskIds[0] || historyIds[0] || "").trim();
+            if (!openId) return;
+            let group = map.get(openId);
+            if (!group) {
+                group = {
+                    id: openId,
+                    task,
+                    totalSec: 0,
+                    lastMs: 0,
+                    pomodoroSessions: new Set(),
+                };
+                map.set(openId, group);
+            }
+            group.totalSec += seconds;
+            group.lastMs = Math.max(group.lastMs, getHistoryRecordEndMs(record, lastFallback));
+            if (String(record?.mode || "").trim() === "countdown") {
+                group.pomodoroSessions.add(getHistoryRecordSessionKey(record));
+            }
+        };
+
+        (Array.isArray(records) ? records : []).forEach((record) => {
+            if (!isFocusHistoryRecord(record)) return;
+            const historyIds = getHistoryRecordTaskIds(record);
+            let task = null;
+            for (const id of historyIds) {
+                task = taskIndex.get(id);
+                if (task) break;
+            }
+            if (!task) return;
+            const todaySec = getHistoryRecordOverlapSeconds(record, win.focusDayStart, win.focusDayEnd);
+            if (todaySec > 0) {
+                totalTodaySec += todaySec;
+                if (String(record?.mode || "").trim() === "countdown") {
+                    countdownTodaySec += todaySec;
+                    todayPomodoroSessions.add(getHistoryRecordSessionKey(record));
+                } else {
+                    stopwatchTodaySec += todaySec;
+                }
+                distractionCount += Math.max(0, Math.round(toNumber(record?.distractionCount, 0)));
+                addGroupRecord(dayGroups, task, record, todaySec, win.focusDayEnd);
+            }
+
+            const rangeSec = getHistoryRecordOverlapSeconds(record, win.rangeStart, win.rangeEnd);
+            if (rangeSec <= 0) return;
+            addGroupRecord(groups, task, record, rangeSec, win.rangeEnd);
+        });
+
+        const mapFocusGroupItems = (map) => Array.from(map.values())
+            .map((group) => {
+                const plan = buildFocusTaskPlan(group.task, group, ctx);
+                return {
+                    id: group.id,
+                    title: resolveTaskTitle(group.task),
+                    doc: resolveTaskDoc(group.task),
+                    lastText: formatRecentFocusTime(group.lastMs, win.todayKey),
+                    lastMs: group.lastMs,
+                    planText: plan.text,
+                    planEmpty: plan.empty,
+                    totalSec: group.totalSec,
+                };
+            })
+            .sort((a, b) => {
+                if (b.lastMs !== a.lastMs) return b.lastMs - a.lastMs;
+                return b.totalSec - a.totalSec;
+            });
+        const recentItems = mapFocusGroupItems(groups).slice(0, 5);
+        const dayAllItems = mapFocusGroupItems(dayGroups);
+        const dayPageSize = 5;
+        const dayTotalPages = Math.max(1, Math.ceil(dayAllItems.length / dayPageSize));
+        const dayPage = Math.max(0, Math.min(dayTotalPages - 1, Math.round(toNumber(runtime.focusDayPage, 0))));
+        if (Math.round(toNumber(runtime.focusDayPage, 0)) !== dayPage) runtime.focusDayPage = dayPage;
+        const dayItems = dayAllItems.slice(dayPage * dayPageSize, (dayPage + 1) * dayPageSize);
+
+        const totalTodayMinutes = totalTodaySec / 60;
+        return {
+            rangeDays: win.rangeDays,
+            focusDate: {
+                key: win.focusDateKey,
+                offset: win.focusDateOffset,
+                isToday: win.focusDateOffset === 0,
+                canGoNext: win.focusDateOffset < 0,
+            },
+            today: {
+                totalMinutes: totalTodayMinutes,
+                countdownMinutes: countdownTodaySec / 60,
+                stopwatchMinutes: stopwatchTodaySec / 60,
+                pomodoroCount: todayPomodoroSessions.size,
+                distractionCount,
+                targetMinutes,
+                progressPct: targetMinutes > 0 ? Math.min(100, Math.round((totalTodayMinutes / targetMinutes) * 100)) : 0,
+            },
+            taskListMode: runtime.focusTaskListMode === "day" ? "day" : "recent",
+            dayItems,
+            dayTotalItems: dayAllItems.length,
+            dayPage,
+            dayPageSize,
+            dayTotalPages,
+            recentItems,
+        };
     }
 
     function flattenTasks(items, out = [], seen = new Set()) {
@@ -1796,6 +3724,7 @@
             containerWidth,
             contentWidth,
             trendWidth: Math.max(360, contentWidth - 16),
+            trendNarrowWidth: Math.max(320, doubleCardWidth),
             heatmapWidth: doubleCardWidth,
         };
     }
@@ -1856,16 +3785,11 @@
             doneMap.set(key, (doneMap.get(key) || 0) + 1);
         });
 
-        const layout = getLayoutMetrics(ctx, profile);
         const maxCount = Math.max(1, ...Array.from(doneMap.values(), (value) => Number(value) || 0));
         const cellSize = profile === "mobile" ? 14 : (profile === "dock" ? 16 : 17);
         const gapSize = profile === "mobile" ? 5 : 6;
         const monthCols = profile === "mobile" ? 3 : 4;
-        const monthBlockWidth = (cellSize * monthCols) + (gapSize * (monthCols - 1));
-        const monthGap = gapSize * 2;
-        const fitMonths = Math.max(1, Math.floor((layout.heatmapWidth + monthGap) / (monthBlockWidth + monthGap)));
-        const minMonths = profile === "mobile" ? 3 : 4;
-        const monthCount = Math.max(minMonths, Math.min(12, fitMonths));
+        const monthCount = 12;
         const today = buildDateFromKey(todayKey) || new Date();
         let maxVisibleDays = 1;
         for (let offset = monthCount - 1; offset >= 0; offset -= 1) {
@@ -2227,11 +4151,70 @@
         `;
     }
 
-    function buildTrendSvg(trend, ctx, profile) {
+    function renderHomepageSettings() {
+        const order = readHomepageModuleOrder();
+        const open = runtime.homepageSettingsOpen === true;
+        return `
+            <div class="tm-homepage-settings">
+                <button type="button" class="tm-homepage-settings-btn ${open ? "is-active" : ""}" data-tm-home-settings-toggle="1" aria-label="主页模块排序" aria-expanded="${open ? "true" : "false"}">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+                        <path d="M128,76a52,52,0,1,0,52,52A52.06,52.06,0,0,0,128,76Zm0,80a28,28,0,1,1,28-28A28,28,0,0,1,128,156Zm113.86-49.57A12,12,0,0,0,236,98.34L208.21,82.49l-.11-31.31a12,12,0,0,0-4.25-9.12,116,116,0,0,0-38-21.41,12,12,0,0,0-9.68.89L128,37.27,99.83,21.53a12,12,0,0,0-9.7-.9,116.06,116.06,0,0,0-38,21.47,12,12,0,0,0-4.24,9.1l-.14,31.34L20,98.35a12,12,0,0,0-5.85,8.11,110.7,110.7,0,0,0,0,43.11A12,12,0,0,0,20,157.66l27.82,15.85.11,31.31a12,12,0,0,0,4.25,9.12,116,116,0,0,0,38,21.41,12,12,0,0,0,9.68-.89L128,218.73l28.14,15.74a12,12,0,0,0,9.7.9,116.06,116.06,0,0,0,38-21.47,12,12,0,0,0,4.24-9.1l.14-31.34,27.81-15.81a12,12,0,0,0,5.85-8.11A110.7,110.7,0,0,0,241.86,106.43Zm-22.63,33.18-26.88,15.28a11.94,11.94,0,0,0-4.55,4.59c-.54,1-1.11,1.93-1.7,2.88a12,12,0,0,0-1.83,6.31L184.13,199a91.83,91.83,0,0,1-21.07,11.87l-27.15-15.19a12,12,0,0,0-5.86-1.53h-.29c-1.14,0-2.3,0-3.44,0a12.08,12.08,0,0,0-6.14,1.51L93,210.82A92.27,92.27,0,0,1,71.88,199l-.11-30.24a12,12,0,0,0-1.83-6.32c-.58-.94-1.16-1.91-1.7-2.88A11.92,11.92,0,0,0,63.7,155L36.8,139.63a86.53,86.53,0,0,1,0-23.24l26.88-15.28a12,12,0,0,0,4.55-4.58c.54-1,1.11-1.94,1.7-2.89a12,12,0,0,0,1.83-6.31L71.87,57A91.83,91.83,0,0,1,92.94,45.17l27.15,15.19a11.92,11.92,0,0,0,6.15,1.52c1.14,0,2.3,0,3.44,0a12.08,12.08,0,0,0,6.14-1.51L163,45.18A92.27,92.27,0,0,1,184.12,57l.11,30.24a12,12,0,0,0,1.83,6.32c.58.94,1.16,1.91,1.7,2.88A11.92,11.92,0,0,0,192.3,101l26.9,15.33A86.53,86.53,0,0,1,219.23,139.61Z"></path>
+                    </svg>
+                </button>
+                ${open ? `
+                    <div class="tm-homepage-settings-panel" role="dialog" aria-label="主页模块排序设置">
+                        <div class="tm-homepage-settings-head">
+                            <div class="tm-homepage-settings-title">模块排序</div>
+                            <button type="button" class="tm-homepage-module-reset-btn" data-tm-home-module-reset="1">重置</button>
+                        </div>
+                        <div class="tm-homepage-module-order-list">
+                            ${order.map((id, index) => {
+                                const def = HOMEPAGE_MODULE_DEF_BY_ID[id];
+                                if (!def) return "";
+                                const supportsLayout = id === "trend" || id === "focus";
+                                const moduleLayout = id === "trend" ? getHomepageTrendLayout() : (id === "focus" ? getHomepageFocusLayout() : "");
+                                const layoutSwitch = supportsLayout ? `
+                                    <div class="tm-homepage-module-layout-switch" aria-label="${esc(`${def.label}布局`)}">
+                                        <button type="button" class="tm-homepage-module-layout-btn ${moduleLayout !== "narrow" ? "is-active" : ""}" data-tm-home-module-id="${esc(id)}" data-tm-home-module-layout="wide">宽版</button>
+                                        <button type="button" class="tm-homepage-module-layout-btn ${moduleLayout === "narrow" ? "is-active" : ""}" data-tm-home-module-id="${esc(id)}" data-tm-home-module-layout="narrow">窄版</button>
+                                    </div>
+                                ` : "";
+                                return `
+                                    <div class="tm-homepage-module-order-item">
+                                        <div class="tm-homepage-module-order-main">
+                                            <div class="tm-homepage-module-order-label">${esc(def.label)}</div>
+                                            <div class="tm-homepage-module-order-desc">${esc(def.desc)}</div>
+                                        </div>
+                                        <div class="tm-homepage-module-order-actions">
+                                            ${layoutSwitch}
+                                            <button type="button" class="tm-homepage-module-order-btn" data-tm-home-module-id="${esc(id)}" data-tm-home-module-move="-1" aria-label="${esc(`上移${def.label}`)}" ${index <= 0 ? "disabled" : ""}>↑</button>
+                                            <button type="button" class="tm-homepage-module-order-btn" data-tm-home-module-id="${esc(id)}" data-tm-home-module-move="1" aria-label="${esc(`下移${def.label}`)}" ${index >= order.length - 1 ? "disabled" : ""}>↓</button>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join("")}
+                        </div>
+                    </div>
+                ` : ""}
+            </div>
+        `;
+    }
+
+    function updateHomepageSettingsSlot() {
+        if (!(runtime.root instanceof HTMLElement)) return false;
+        const slot = runtime.root.querySelector("[data-tm-home-settings-slot]");
+        if (!(slot instanceof HTMLElement)) return false;
+        slot.innerHTML = renderHomepageSettings();
+        return true;
+    }
+
+    function buildTrendSvg(trend, ctx, profile, layout = "wide") {
         const rawPoints = Array.isArray(trend?.points) ? trend.points : [];
         if (!rawPoints.length) return `<div class="tm-homepage-chart-empty">暂无趋势数据</div>`;
         const points = rawPoints.slice();
-        const width = Math.max(360, Math.round(getLayoutMetrics(ctx, profile).trendWidth));
+        const metrics = getLayoutMetrics(ctx, profile);
+        const isNarrow = String(layout || "").trim() === "narrow";
+        const width = Math.max(isNarrow ? 320 : 360, Math.round(isNarrow ? metrics.trendNarrowWidth : metrics.trendWidth));
         const height = profile === "mobile" ? 142 : (profile === "dock" ? 156 : 170);
         const padding = { top: 14, right: 12, bottom: 8, left: 12 };
         const innerW = width - padding.left - padding.right;
@@ -2458,7 +4441,425 @@
         `;
     }
 
-    function renderTrendCard(ctx, profile, overview) {
+    function renderFocusLoadingCard(text, layout = getHomepageFocusLayout()) {
+        const dayScope = Math.min(0, Math.round(toNumber(runtime.focusDateOffset, 0))) === 0 ? "今日当前范围" : "当日当前范围";
+        const message = esc(text || "正在读取番茄历史...");
+        const isNarrow = String(layout || "").trim() === "narrow";
+        return `
+            <section class="tm-homepage-card tm-homepage-card--focus ${isNarrow ? "is-narrow" : ""}">
+                <div class="tm-homepage-card-head">
+                    <div>
+                        <div class="tm-homepage-card-title">专注统计</div>
+                        <div class="tm-homepage-card-desc">${isNarrow ? dayScope : `${dayScope} · 最近专注近 90 天`}</div>
+                    </div>
+                </div>
+                <div class="tm-homepage-focus-grid">
+                    <article class="tm-homepage-focus-panel tm-homepage-focus-panel--placeholder">
+                        <div class="tm-homepage-focus-loading">${message}</div>
+                    </article>
+                    ${isNarrow ? "" : `<article class="tm-homepage-focus-panel tm-homepage-focus-panel--placeholder">
+                        <div class="tm-homepage-focus-loading">${message}</div>
+                    </article>`}
+                </div>
+            </section>
+        `;
+    }
+
+    function renderFocusCalendar(stats) {
+        const focusDate = stats?.focusDate || {};
+        const ctx = runtime.ctx && typeof runtime.ctx === "object" ? runtime.ctx : {};
+        const selectedKey = normalizeDateKey(focusDate.key) || getSelectedFocusDateKey(ctx);
+        const month = getMonthBounds(runtime.focusCalendar?.monthKey || selectedKey.slice(0, 7));
+        const todayKey = normalizeDateKey(ctx?.todayKey) || formatDateKey(new Date());
+        const isCurrentMonth = month.key >= todayKey.slice(0, 7);
+        const status = String(runtime.focusCalendar?.status || "idle");
+        const records = (status === "loaded" && runtime.focusCalendar?.key === buildFocusCalendarKey(ctx, month.key))
+            ? (Array.isArray(runtime.focusCalendar?.records) ? runtime.focusCalendar.records : [])
+            : [];
+        const dayMap = buildFocusDayMap(ctx, records, month.key);
+        const calendarFirstDay = getCalendarFirstDay(ctx);
+        const weekLabels = getCalendarWeekLabels(calendarFirstDay);
+        const firstWeekday = (month.start.getDay() - calendarFirstDay + 7) % 7;
+        const daysInMonth = Math.round((month.end.getTime() - month.start.getTime()) / 86400000);
+        const cells = [];
+        for (let i = 0; i < firstWeekday; i += 1) cells.push(`<span class="tm-homepage-focus-calendar-day is-empty"></span>`);
+        for (let day = 1; day <= daysInMonth; day += 1) {
+            const key = formatDateKey(new Date(month.start.getFullYear(), month.start.getMonth(), day, 12, 0, 0, 0));
+            const meta = dayMap.get(key) || { minutes: 0, level: 0 };
+            const isSelected = key === selectedKey;
+            const isFuture = dayDiff(todayKey, key) > 0;
+            const minutes = Math.round(toNumber(meta.minutes, 0));
+            const level = Math.max(0, Math.min(4, Math.round(toNumber(meta.level, 0))));
+            const cls = [
+                "tm-homepage-focus-calendar-day",
+                level > 0 ? "has-focus" : "",
+                level > 0 ? `is-l${level}` : "",
+                isSelected ? "is-selected" : "",
+                isFuture ? "is-future" : "",
+            ].filter(Boolean).join(" ");
+            cells.push(`
+                <button type="button" class="${cls}" data-tm-home-focus-calendar-date="${esc(key)}" title="${esc(minutes > 0 ? `${key} · 专注 ${minutes} 分钟` : `${key} · 暂无专注记录`)}">
+                    ${day}
+                </button>
+            `);
+        }
+        const body = status === "loading" || status === "idle"
+            ? `<div class="tm-homepage-focus-empty tm-homepage-focus-calendar-loading">正在读取本月专注记录...</div>`
+            : (status === "error"
+                ? `<div class="tm-homepage-focus-empty tm-homepage-focus-calendar-loading">本月专注记录暂不可用。</div>`
+                : `
+                    <div class="tm-homepage-focus-calendar-week">
+                        ${weekLabels.map((label) => `<span>${esc(label)}</span>`).join("")}
+                    </div>
+                    <div class="tm-homepage-focus-calendar-grid">${cells.join("")}</div>
+                `);
+        return `
+            <div class="tm-homepage-focus-calendar-popover">
+                <div class="tm-homepage-focus-calendar-head">
+                    <button type="button" class="tm-homepage-focus-day-btn" data-tm-home-focus-calendar-month="-1" aria-label="查看上个月">&lsaquo;</button>
+                    <div class="tm-homepage-focus-calendar-month">${esc(formatMonthLabel(month.key))}</div>
+                    <button type="button" class="tm-homepage-focus-day-btn" data-tm-home-focus-calendar-month="1" aria-label="查看下个月" ${isCurrentMonth ? "disabled" : ""}>&rsaquo;</button>
+                </div>
+                ${body}
+            </div>
+        `;
+    }
+
+    function renderTodayFocusPanel(stats) {
+        const today = stats?.today || {};
+        const focusDate = stats?.focusDate || {};
+        const dayHead = (totalMinutes = 0) => `
+            <div class="tm-homepage-focus-day-summary-head">
+                <div>
+                    <div class="tm-homepage-focus-day-title">${esc(formatFocusDateTitle(focusDate))}</div>
+                    <div class="tm-homepage-focus-day-date">${esc(formatFocusDateText(focusDate.key))}</div>
+                </div>
+                <div class="tm-homepage-focus-total">
+                    <span class="tm-homepage-focus-total-value">${esc(formatFocusHoursValue(totalMinutes || 0))}</span>
+                    <span class="tm-homepage-focus-total-unit">小时</span>
+                </div>
+            </div>
+        `;
+        const hasTodayData = toNumber(today.totalMinutes, 0) > 0
+            || toNumber(today.countdownMinutes, 0) > 0
+            || toNumber(today.stopwatchMinutes, 0) > 0
+            || toNumber(today.pomodoroCount, 0) > 0;
+        if (!hasTodayData) {
+            return `
+                <article class="tm-homepage-focus-panel tm-homepage-focus-today" data-tm-home-focus-today-slot>
+                    <div class="tm-homepage-focus-today-layout">
+                        <div class="tm-homepage-focus-calendar-wrap">${renderFocusCalendar(stats)}</div>
+                        <div class="tm-homepage-focus-day-metrics">
+                            ${dayHead(0)}
+                            <div class="tm-homepage-focus-empty">暂无专注数据</div>
+                        </div>
+                    </div>
+                </article>
+            `;
+        }
+        const progressPct = Math.max(0, Math.min(100, Math.round(toNumber(today.progressPct, 0))));
+        const items = [
+            { label: "番茄", value: `${Math.max(0, Math.round(toNumber(today.pomodoroCount, 0)))}` },
+            { label: "正计时", value: formatFocusHoursText(today.stopwatchMinutes || 0) },
+            { label: "分心", value: `${Math.max(0, Math.round(toNumber(today.distractionCount, 0)))}` },
+        ];
+        return `
+            <article class="tm-homepage-focus-panel tm-homepage-focus-today" data-tm-home-focus-today-slot>
+                <div class="tm-homepage-focus-today-layout">
+                    <div class="tm-homepage-focus-calendar-wrap">${renderFocusCalendar(stats)}</div>
+                    <div class="tm-homepage-focus-day-metrics">
+                        ${dayHead(today.totalMinutes || 0)}
+                        <div class="tm-homepage-focus-progress" style="--tm-home-focus-progress:${progressPct}%;">
+                            <div class="tm-homepage-focus-progress-meta">
+                                <span>目标 ${esc(formatFocusHoursText(today.targetMinutes || 0))}</span>
+                                <span class="tm-homepage-focus-progress-value">${progressPct}%</span>
+                            </div>
+                            <div class="tm-homepage-focus-progress-track" aria-label="${esc(`今日专注目标完成 ${progressPct}%`)}">
+                                <span class="tm-homepage-focus-progress-bar"></span>
+                            </div>
+                        </div>
+                        <div class="tm-homepage-focus-stat-grid">
+                            ${items.map((item) => `
+                                <div class="tm-homepage-focus-stat">
+                                    <div class="tm-homepage-focus-stat-label">${esc(item.label)}</div>
+                                    <div class="tm-homepage-focus-stat-value">${esc(item.value)}</div>
+                                </div>
+                            `).join("")}
+                        </div>
+                    </div>
+                </div>
+            </article>
+        `;
+    }
+
+    function renderFocusTaskListContent(items, emptyText) {
+        const list = Array.isArray(items) ? items : [];
+        return list.length ? `
+            <div class="tm-homepage-focus-list">
+                ${list.map((item) => {
+                    const selected = String(item.id || "").trim() && String(item.id || "").trim() === String(runtime.selectedFocusTaskId || "").trim();
+                    return `
+                        <button type="button" class="tm-homepage-focus-task ${selected ? "is-selected" : ""}" data-tm-home-focus-task="${esc(item.id || "")}" data-tm-home-open-task="${esc(item.id || "")}">
+                            <span class="tm-homepage-focus-task-main">
+                                <span class="tm-homepage-focus-task-title">${esc(item.title || "未命名任务")}</span>
+                                <span class="tm-homepage-focus-task-meta">${esc(item.doc || "未命名文档")} · ${esc(item.lastText || "时间未知")}</span>
+                            </span>
+                            <span class="tm-homepage-focus-task-side">
+                                <span class="tm-homepage-focus-pill ${item.planEmpty ? "is-empty" : ""}">${esc(item.planText || "未填预估")}</span>
+                            </span>
+                        </button>
+                    `;
+                }).join("")}
+            </div>
+        ` : `<div class="tm-homepage-focus-empty">${esc(emptyText)}</div>`;
+    }
+
+    function renderFocusTaskPopover(stats) {
+        if (getHomepageFocusLayout() !== "narrow" || runtime.focusTaskPopoverOpen !== true) return "";
+        const page = Math.max(0, Math.round(toNumber(stats?.dayPage, 0)));
+        const totalPages = Math.max(1, Math.round(toNumber(stats?.dayTotalPages, 1)));
+        const pager = totalPages > 1 ? `
+            <div class="tm-homepage-focus-page-nav" aria-label="当日专注任务分页">
+                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="-1" aria-label="上一页当日专注任务" ${page <= 0 ? "disabled" : ""}>&lsaquo;</button>
+                <span class="tm-homepage-focus-page-count">${esc(`${page + 1}/${totalPages}`)}</span>
+                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="1" aria-label="下一页当日专注任务" ${page >= totalPages - 1 ? "disabled" : ""}>&rsaquo;</button>
+            </div>
+        ` : "";
+        return `
+            <div class="tm-homepage-focus-task-popover" data-tm-home-focus-task-popover>
+                <div class="tm-homepage-focus-task-popover-head">
+                    <div>
+                        <div class="tm-homepage-focus-task-popover-title">当日专注任务</div>
+                        <div class="tm-homepage-focus-task-popover-date">${esc(formatFocusDateText(stats?.focusDate?.key))}</div>
+                    </div>
+                    <div class="tm-homepage-focus-task-popover-actions">
+                        ${pager}
+                        <button type="button" class="tm-homepage-focus-task-popover-close" data-tm-home-focus-task-popover-close="1" aria-label="关闭当日专注任务">&times;</button>
+                    </div>
+                </div>
+                ${renderFocusTaskListContent(stats?.dayItems, "这一天当前范围暂无专注记录。")}
+            </div>
+        `;
+    }
+
+    function renderRecentFocusPanel(stats) {
+        const isDayMode = stats?.taskListMode === "day";
+        const items = isDayMode
+            ? (Array.isArray(stats?.dayItems) ? stats.dayItems : [])
+            : (Array.isArray(stats?.recentItems) ? stats.recentItems : []);
+        const title = isDayMode ? "当日专注任务" : "最近专注任务";
+        const hint = isDayMode ? "跟随左侧选中日期" : "跟随当前页签，按最近结束时间排序";
+        const range = isDayMode ? formatFocusDateText(stats?.focusDate?.key) : `近 ${Number(stats?.rangeDays) || runtime.focusRecentDays} 天`;
+        const emptyText = isDayMode ? "这一天当前范围暂无专注记录。" : "当前范围暂无专注记录。";
+        const page = Math.max(0, Math.round(toNumber(stats?.dayPage, 0)));
+        const totalPages = Math.max(1, Math.round(toNumber(stats?.dayTotalPages, 1)));
+        const pager = isDayMode && totalPages > 1 ? `
+            <div class="tm-homepage-focus-page-nav" aria-label="当日专注任务分页">
+                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="-1" aria-label="上一页当日专注任务" ${page <= 0 ? "disabled" : ""}>&lsaquo;</button>
+                <span class="tm-homepage-focus-page-count">${esc(`${page + 1}/${totalPages}`)}</span>
+                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="1" aria-label="下一页当日专注任务" ${page >= totalPages - 1 ? "disabled" : ""}>&rsaquo;</button>
+            </div>
+        ` : "";
+        const modeButton = isDayMode
+            ? `<button type="button" class="tm-homepage-focus-mode-btn" data-tm-home-focus-mode="recent">最近专注</button>`
+            : `<button type="button" class="tm-homepage-focus-mode-btn" data-tm-home-focus-mode="day">当日任务</button>`;
+        return `
+            <article class="tm-homepage-focus-panel tm-homepage-focus-recent">
+                <div class="tm-homepage-focus-recent-head">
+                    <div>
+                        <div class="tm-homepage-focus-recent-title">${esc(title)}</div>
+                        <div class="tm-homepage-card-desc">${esc(hint)}</div>
+                    </div>
+                    <div class="tm-homepage-focus-recent-side">
+                        <div class="tm-homepage-focus-recent-range">${esc(range)}</div>
+                        ${modeButton}
+                        ${pager}
+                    </div>
+                </div>
+                ${renderFocusTaskListContent(items, emptyText)}
+            </article>
+        `;
+    }
+
+    function renderFocusSection(ctx, profile) {
+        if (!shouldRenderFocusSection(ctx)) return "";
+        const layout = getHomepageFocusLayout();
+        const isNarrow = layout === "narrow";
+        const expectedKey = buildFocusLoadKey(ctx);
+        const state = runtime.focusState && typeof runtime.focusState === "object" ? runtime.focusState : {};
+        const matches = String(state.key || "") === expectedKey;
+        if (!matches || state.status === "idle" || state.status === "loading") {
+            return renderFocusLoadingCard("正在读取番茄历史...", layout);
+        }
+        if (state.status === "error") {
+            return renderFocusLoadingCard("番茄钟历史暂不可用。", layout);
+        }
+        const stats = buildFocusStats(ctx, state.records || [], state.settings || null);
+        const dayScope = stats?.focusDate?.isToday ? "今日当前范围" : "当日当前范围";
+        return `
+            <section class="tm-homepage-card tm-homepage-card--focus ${isNarrow ? "is-narrow" : ""}">
+                <div class="tm-homepage-card-head">
+                    <div>
+                        <div class="tm-homepage-card-title">专注统计</div>
+                        <div class="tm-homepage-card-desc">${isNarrow ? dayScope : `${dayScope} · 最近专注近 90 天`}</div>
+                    </div>
+                </div>
+                <div class="tm-homepage-focus-grid">
+                    ${renderTodayFocusPanel(stats)}
+                    ${isNarrow ? "" : `<div data-tm-home-focus-recent-slot>${renderRecentFocusPanel(stats)}</div>`}
+                </div>
+                ${isNarrow ? renderFocusTaskPopover(stats) : ""}
+            </section>
+        `;
+    }
+
+    function renderFocusSlot(ctx, profile) {
+        if (!shouldRenderFocusSection(ctx)) return "";
+        return `<div data-tm-home-focus-slot>${renderFocusSection(ctx, profile)}</div>`;
+    }
+
+    function syncHomepageHeatmapLayout() {
+        if (!(runtime.root instanceof HTMLElement)) return false;
+        if (resolveProfile(runtime.ctx || {}) !== "desktop") return false;
+        let updated = false;
+        runtime.root.querySelectorAll(".tm-homepage-card--heatmap").forEach((card) => {
+            if (!(card instanceof HTMLElement)) return;
+            const shell = card.querySelector(".tm-homepage-heatmap-shell");
+            const monthGrids = Array.from(card.querySelectorAll(".tm-homepage-heatmap-month-grid"))
+                .filter((item) => item instanceof HTMLElement);
+            if (!(shell instanceof HTMLElement) || !monthGrids.length) return;
+            const firstGrid = monthGrids[0];
+            const styles = getComputedStyle(shell);
+            const cellSize = Math.max(1, Number.parseFloat(styles.getPropertyValue("--tm-home-heatmap-cell")) || 17);
+            const gapSize = Math.max(0, Number.parseFloat(styles.getPropertyValue("--tm-home-heatmap-gap")) || 6);
+            const baseCols = Math.max(1, Math.round(Number.parseFloat(styles.getPropertyValue("--tm-home-heatmap-month-cols")) || 4));
+            const availableHeight = Math.max(0, Math.round(firstGrid.getBoundingClientRect().height || 0));
+            if (!availableHeight) return;
+            const maxCellCount = Math.max(1, ...monthGrids.map((grid) => grid.querySelectorAll(".tm-homepage-heatmap-cell:not(.tm-homepage-heatmap-cell--placeholder)").length || 1));
+            const baseRows = Math.max(1, Math.ceil(maxCellCount / baseCols));
+            const fitRows = Math.max(1, Math.floor((availableHeight + gapSize) / (cellSize + gapSize)));
+            const rows = Math.max(baseRows, Math.min(fitRows, maxCellCount, 18));
+            monthGrids.forEach((grid) => {
+                const cellCount = Math.max(1, grid.querySelectorAll(".tm-homepage-heatmap-cell:not(.tm-homepage-heatmap-cell--placeholder)").length || 1);
+                const cols = Math.max(1, Math.ceil(cellCount / rows));
+                if (grid.style.getPropertyValue("--tm-home-heatmap-month-rows") !== String(rows)) {
+                    grid.style.setProperty("--tm-home-heatmap-month-rows", String(rows));
+                    updated = true;
+                }
+                if (grid.style.getPropertyValue("--tm-home-heatmap-month-cols") !== String(cols)) {
+                    grid.style.setProperty("--tm-home-heatmap-month-cols", String(cols));
+                    updated = true;
+                }
+            });
+        });
+        return updated;
+    }
+
+    function scheduleHomepageHeatmapLayoutSync() {
+        if (!(runtime.root instanceof HTMLElement)) return false;
+        if (runtime.heatmapLayoutRaf) {
+            try { cancelAnimationFrame(runtime.heatmapLayoutRaf); } catch (e) {}
+            runtime.heatmapLayoutRaf = 0;
+        }
+        runtime.heatmapLayoutRaf = requestAnimationFrame(() => {
+            runtime.heatmapLayoutRaf = 0;
+            syncHomepageHeatmapLayout();
+        });
+        return true;
+    }
+
+    function updateFocusSlot() {
+        if (!(runtime.root instanceof HTMLElement)) return false;
+        const slot = runtime.root.querySelector("[data-tm-home-focus-slot]");
+        if (!(slot instanceof HTMLElement)) return false;
+        const ctx = runtime.ctx && typeof runtime.ctx === "object" ? runtime.ctx : {};
+        runtime.profile = resolveProfile(ctx);
+        slot.innerHTML = renderFocusSection(ctx, runtime.profile);
+        scheduleHomepageHeatmapLayoutSync();
+        return true;
+    }
+
+    function syncFocusStateForCurrentDate(ctx, records = []) {
+        const state = runtime.focusState && typeof runtime.focusState === "object" ? runtime.focusState : {};
+        const mergedRecords = mergeFocusRecords(state.records || [], records);
+        if (!mergedRecords.length && state.status !== "loaded") return false;
+        runtime.focusState = {
+            ...state,
+            status: "loaded",
+            key: buildFocusLoadKey(ctx),
+            records: mergedRecords,
+        };
+        return true;
+    }
+
+    function buildLoadedFocusStats(ctx) {
+        const state = runtime.focusState && typeof runtime.focusState === "object" ? runtime.focusState : {};
+        const expectedKey = buildFocusLoadKey(ctx);
+        if (String(state.key || "") !== expectedKey || state.status !== "loaded") return null;
+        return buildFocusStats(ctx, state.records || [], state.settings || null);
+    }
+
+    function updateFocusTodaySlot() {
+        if (!(runtime.root instanceof HTMLElement)) return false;
+        const slot = runtime.root.querySelector("[data-tm-home-focus-today-slot]");
+        if (!(slot instanceof HTMLElement)) return false;
+        const ctx = runtime.ctx && typeof runtime.ctx === "object" ? runtime.ctx : {};
+        const stats = buildLoadedFocusStats(ctx);
+        if (!stats) return false;
+        slot.outerHTML = renderTodayFocusPanel(stats);
+        scheduleHomepageHeatmapLayoutSync();
+        return true;
+    }
+
+    function updateFocusRecentSlot() {
+        if (!(runtime.root instanceof HTMLElement)) return false;
+        const slot = runtime.root.querySelector("[data-tm-home-focus-recent-slot]");
+        if (!(slot instanceof HTMLElement)) return false;
+        const ctx = runtime.ctx && typeof runtime.ctx === "object" ? runtime.ctx : {};
+        const stats = buildLoadedFocusStats(ctx);
+        if (!stats) return false;
+        slot.innerHTML = renderRecentFocusPanel(stats);
+        scheduleHomepageHeatmapLayoutSync();
+        return true;
+    }
+
+    function updateFocusDaySlots() {
+        const todayUpdated = updateFocusTodaySlot();
+        const recentUpdated = updateFocusRecentSlot();
+        return todayUpdated || recentUpdated;
+    }
+
+    function ensureFocusStatsLoaded(ctx) {
+        if (!shouldRenderFocusSection(ctx)) return false;
+        const key = buildFocusLoadKey(ctx);
+        if (!key) return false;
+        const state = runtime.focusState && typeof runtime.focusState === "object" ? runtime.focusState : {};
+        if (String(state.key || "") === key && (state.status === "loading" || state.status === "loaded")) return true;
+        const seq = ++runtime.focusLoadSeq;
+        runtime.focusState = { status: "loading", key, records: [], settings: null, unavailable: false };
+        loadTomatoFocusPayload(ctx)
+            .then((payload) => {
+                if (seq !== runtime.focusLoadSeq) return;
+                if (!(runtime.root instanceof HTMLElement)) return;
+                runtime.focusState = {
+                    status: payload?.unavailable ? "error" : "loaded",
+                    key,
+                    records: Array.isArray(payload?.records) ? payload.records : [],
+                    settings: payload?.settings || null,
+                    unavailable: payload?.unavailable === true,
+                };
+                ensureFocusCalendarLoaded(ctx, getSelectedFocusDateKey(ctx).slice(0, 7));
+                updateFocusSlot();
+            })
+            .catch(() => {
+                if (seq !== runtime.focusLoadSeq) return;
+                runtime.focusState = { status: "error", key, records: [], settings: null, unavailable: true };
+                updateFocusSlot();
+            });
+        return true;
+    }
+
+    function renderTrendCard(ctx, profile, overview, layout = "wide") {
         const summary = buildTrendSummary(overview?.trend);
         const stats = [
             { label: "最近", value: summary.last.value, note: summary.last.label || "暂无" },
@@ -2466,7 +4867,7 @@
             { label: "日均", value: formatMetricValue(summary.average), note: `近 ${summary.pointCount || 0} 天` },
         ];
         return `
-            <section class="tm-homepage-card tm-homepage-card--trend">
+            <section class="tm-homepage-card tm-homepage-card--trend ${String(layout || "").trim() === "narrow" ? "is-narrow" : ""}">
                 <div class="tm-homepage-card-head tm-homepage-trend-head">
                     <div class="tm-homepage-trend-head-main">
                         <div class="tm-homepage-trend-title-group">
@@ -2487,7 +4888,7 @@
                 </div>
                 <div class="tm-homepage-trend-scroll">
                     <div class="tm-homepage-trend-scroll-inner">
-                        <div class="tm-homepage-trend-wrap">${buildTrendSvg(overview.trend, ctx, profile)}</div>
+                        <div class="tm-homepage-trend-wrap">${buildTrendSvg(overview.trend, ctx, profile, layout)}</div>
                         ${renderTrendAxis(overview?.trend)}
                     </div>
                 </div>
@@ -2504,6 +4905,87 @@
         `;
     }
 
+    function wrapHomepageModule(id, content) {
+        const def = HOMEPAGE_MODULE_DEF_BY_ID[id];
+        const html = String(content || "").trim();
+        if (!def || !html) return "";
+        const wide = isHomepageModuleWide(id);
+        return `
+            <div class="tm-homepage-module ${wide ? "tm-homepage-module--wide" : ""}" data-tm-home-module="${esc(id)}">
+                ${html}
+            </div>
+        `;
+    }
+
+    function renderHomepageModule(id, ctx, profile, overview) {
+        switch (id) {
+            case "overview":
+                return wrapHomepageModule(id, renderHeroSection(overview));
+            case "focus":
+                return wrapHomepageModule(id, renderFocusSlot(ctx, profile));
+            case "trend":
+                return wrapHomepageModule(id, `<div data-tm-home-trend-slot>${renderTrendCard(ctx, profile, overview, getHomepageTrendLayout())}</div>`);
+            case "heatmap":
+                return wrapHomepageModule(id, `
+                    <section class="tm-homepage-card tm-homepage-card--heatmap">
+                        <div class="tm-homepage-card-head">
+                            <div>
+                                <div class="tm-homepage-card-title">完成热力图</div>
+                                <div class="tm-homepage-card-desc">按月展示当前范围近一年的完成情况</div>
+                            </div>
+                            ${renderHeatmapLegend()}
+                        </div>
+                        ${renderHeatmap(overview.heatmap)}
+                    </section>
+                `);
+            case "distribution":
+                return wrapHomepageModule(id, `
+                    <section class="tm-homepage-card">
+                        <div class="tm-homepage-card-head">
+                            <div>
+                                <div class="tm-homepage-card-title">${esc(overview.distribution?.title || "分布")}</div>
+                                <div class="tm-homepage-card-desc">当前范围内未完成任务分布</div>
+                            </div>
+                        </div>
+                        ${renderDistribution(overview.distribution)}
+                    </section>
+                `);
+            case "recent":
+                return wrapHomepageModule(id, `
+                    <section class="tm-homepage-card">
+                        <div class="tm-homepage-card-head">
+                            <div>
+                                <div class="tm-homepage-card-title">最近完成</div>
+                                <div class="tm-homepage-card-desc">保留最近 6 条完成记录</div>
+                            </div>
+                        </div>
+                        ${renderTaskList(overview.recentDone, "当前范围内还没有完成记录。", "done")}
+                    </section>
+                `);
+            case "risk":
+                return wrapHomepageModule(id, `
+                    <section class="tm-homepage-card">
+                        <div class="tm-homepage-card-head">
+                            <div>
+                                <div class="tm-homepage-card-title">风险提醒</div>
+                                <div class="tm-homepage-card-desc">逾期优先，其次展示 7 天内到期项</div>
+                            </div>
+                        </div>
+                        ${renderTaskList(overview.riskList, "当前没有需要优先处理的风险任务。", "risk")}
+                    </section>
+                `);
+            default:
+                return "";
+        }
+    }
+
+    function renderHomepageModules(ctx, profile, overview) {
+        return readHomepageModuleOrder()
+            .map((id) => renderHomepageModule(id, ctx, profile, overview))
+            .filter(Boolean)
+            .join("");
+    }
+
     function renderShell(ctx, profile, overview) {
         return `
             <div class="tm-homepage-shell tm-homepage--${profile}">
@@ -2513,49 +4995,10 @@
                             <h2 class="tm-homepage-title">${esc(overview.title || "主页")}</h2>
                             <p class="tm-homepage-subtitle" data-tm-home-subtitle>${esc(overview.subtitle)}</p>
                         </div>
+                        <div class="tm-homepage-toolbar" data-tm-home-settings-slot>${renderHomepageSettings()}</div>
                     </header>
-                    ${renderHeroSection(overview)}
-                    <div data-tm-home-trend-slot>${renderTrendCard(ctx, profile, overview)}</div>
-                    <div class="tm-homepage-middle-grid">
-                        <section class="tm-homepage-card">
-                            <div class="tm-homepage-card-head">
-                                <div>
-                                    <div class="tm-homepage-card-title">完成热力图</div>
-                                    <div class="tm-homepage-card-desc">按月展示当前范围内的完成情况</div>
-                                </div>
-                                ${renderHeatmapLegend()}
-                            </div>
-                            ${renderHeatmap(overview.heatmap)}
-                        </section>
-                        <section class="tm-homepage-card">
-                            <div class="tm-homepage-card-head">
-                                <div>
-                                    <div class="tm-homepage-card-title">${esc(overview.distribution?.title || "分布")}</div>
-                                    <div class="tm-homepage-card-desc">当前范围内未完成任务分布</div>
-                                </div>
-                            </div>
-                            ${renderDistribution(overview.distribution)}
-                        </section>
-                    </div>
-                    <div class="tm-homepage-bottom-grid">
-                        <section class="tm-homepage-card">
-                            <div class="tm-homepage-card-head">
-                                <div>
-                                    <div class="tm-homepage-card-title">最近完成</div>
-                                    <div class="tm-homepage-card-desc">保留最近 6 条完成记录</div>
-                                </div>
-                            </div>
-                            ${renderTaskList(overview.recentDone, "当前范围内还没有完成记录。", "done")}
-                        </section>
-                        <section class="tm-homepage-card">
-                            <div class="tm-homepage-card-head">
-                                <div>
-                                    <div class="tm-homepage-card-title">风险提醒</div>
-                                    <div class="tm-homepage-card-desc">逾期优先，其次展示 7 天内到期项</div>
-                                </div>
-                            </div>
-                            ${renderTaskList(overview.riskList, "当前没有需要优先处理的风险任务。", "risk")}
-                        </section>
+                    <div class="tm-homepage-module-flow">
+                        ${renderHomepageModules(ctx, profile, overview)}
                     </div>
                 </div>
             </div>
@@ -2567,7 +5010,10 @@
         const ctx = runtime.ctx && typeof runtime.ctx === "object" ? runtime.ctx : {};
         runtime.profile = resolveProfile(ctx);
         runtime.root.dataset.tmHomepageProfile = runtime.profile;
+        ensureFocusCalendarLoaded(ctx, getSelectedFocusDateKey(ctx).slice(0, 7));
         runtime.root.innerHTML = renderShell(ctx, runtime.profile, buildOverview(ctx));
+        scheduleHomepageHeatmapLayoutSync();
+        ensureFocusStatsLoaded(ctx);
         return true;
     }
 
@@ -2581,7 +5027,10 @@
         if (subtitleEl instanceof HTMLElement) subtitleEl.textContent = String(overview.subtitle || "");
         const trendSlot = runtime.root.querySelector("[data-tm-home-trend-slot]");
         if (trendSlot instanceof HTMLElement) {
-            trendSlot.innerHTML = renderTrendCard(ctx, runtime.profile, overview);
+            trendSlot.innerHTML = renderTrendCard(ctx, runtime.profile, overview, getHomepageTrendLayout());
+            ensureFocusCalendarLoaded(ctx, getSelectedFocusDateKey(ctx).slice(0, 7));
+            updateFocusSlot();
+            ensureFocusStatsLoaded(ctx);
             return true;
         }
         return doRender();
@@ -2607,9 +5056,69 @@
         if (runtime.clickHandler) {
             try { runtime.root.removeEventListener("click", runtime.clickHandler); } catch (e) {}
         }
+        if (runtime.documentClickHandler) {
+            try { document.removeEventListener("click", runtime.documentClickHandler); } catch (e) {}
+        }
         runtime.clickHandler = (event) => {
-            const target = event?.target instanceof Element ? event.target.closest("[data-tm-home-range],[data-tm-home-open-task]") : null;
+            const source = event?.target instanceof Element ? event.target : null;
+            if (source && runtime.focusTaskPopoverOpen === true && !source.closest(".tm-homepage-focus-task-popover,[data-tm-home-focus-calendar-date]")) {
+                runtime.focusTaskPopoverOpen = false;
+                updateFocusSlot();
+            }
+            if (source && runtime.focusCalendar?.open === true && !source.closest(".tm-homepage-focus-calendar-popover,[data-tm-home-focus-calendar-toggle]")) {
+                runtime.focusCalendar = {
+                    ...(runtime.focusCalendar || {}),
+                    open: false,
+                };
+                updateFocusTodaySlot();
+            }
+            if (source && runtime.homepageSettingsOpen === true && !source.closest(".tm-homepage-settings")) {
+                runtime.homepageSettingsOpen = false;
+                updateHomepageSettingsSlot();
+            }
+            const target = source ? source.closest("[data-tm-home-range],[data-tm-home-open-task],[data-tm-home-focus-task],[data-tm-home-focus-day],[data-tm-home-focus-day-page],[data-tm-home-focus-mode],[data-tm-home-focus-task-popover-close],[data-tm-home-focus-calendar-toggle],[data-tm-home-focus-calendar-month],[data-tm-home-focus-calendar-date],[data-tm-home-settings-toggle],[data-tm-home-module-layout],[data-tm-home-module-move],[data-tm-home-module-reset]") : null;
             if (!(target instanceof Element)) return;
+            const focusTaskPopoverClose = String(target.getAttribute("data-tm-home-focus-task-popover-close") || "").trim();
+            if (focusTaskPopoverClose) {
+                runtime.focusTaskPopoverOpen = false;
+                updateFocusSlot();
+                return;
+            }
+            const settingsToggle = String(target.getAttribute("data-tm-home-settings-toggle") || "").trim();
+            if (settingsToggle) {
+                runtime.homepageSettingsOpen = runtime.homepageSettingsOpen !== true;
+                if (!updateHomepageSettingsSlot()) doRender();
+                return;
+            }
+            const moduleLayout = String(target.getAttribute("data-tm-home-module-layout") || "").trim();
+            if (moduleLayout) {
+                const moduleId = String(target.getAttribute("data-tm-home-module-id") || "").trim();
+                if (moduleId === "trend") {
+                    setHomepageTrendLayout(moduleLayout);
+                    runtime.homepageSettingsOpen = true;
+                    doRender();
+                } else if (moduleId === "focus") {
+                    setHomepageFocusLayout(moduleLayout);
+                    if (String(moduleLayout || "").trim() !== "narrow") runtime.focusTaskPopoverOpen = false;
+                    runtime.homepageSettingsOpen = true;
+                    doRender();
+                }
+                return;
+            }
+            const moduleMove = String(target.getAttribute("data-tm-home-module-move") || "").trim();
+            if (moduleMove) {
+                moveHomepageModule(target.getAttribute("data-tm-home-module-id"), Number(moduleMove) || 0);
+                runtime.homepageSettingsOpen = true;
+                doRender();
+                return;
+            }
+            const moduleReset = String(target.getAttribute("data-tm-home-module-reset") || "").trim();
+            if (moduleReset) {
+                resetHomepageModuleOrder();
+                runtime.homepageSettingsOpen = true;
+                doRender();
+                return;
+            }
             const nextRange = String(target.getAttribute("data-tm-home-range") || "").trim();
             if (nextRange) {
                 const days = Math.max(7, Math.min(90, Number(nextRange) || 30));
@@ -2619,10 +5128,132 @@
                 }
                 return;
             }
+            const focusMode = String(target.getAttribute("data-tm-home-focus-mode") || "").trim();
+            if (focusMode) {
+                if (focusMode === "recent") {
+                    runtime.focusTaskListMode = "recent";
+                    runtime.focusDayPage = 0;
+                    if (!updateFocusRecentSlot()) updateFocusSlot();
+                    ensureFocusStatsLoaded(runtime.ctx || {});
+                } else if (focusMode === "day") {
+                    runtime.focusTaskListMode = "day";
+                    runtime.focusDayPage = 0;
+                    if (!updateFocusRecentSlot()) updateFocusSlot();
+                }
+                return;
+            }
+            const calendarToggle = String(target.getAttribute("data-tm-home-focus-calendar-toggle") || "").trim();
+            if (calendarToggle) {
+                const ctx = runtime.ctx || {};
+                const selectedKey = getSelectedFocusDateKey(ctx);
+                const nextOpen = runtime.focusCalendar?.open !== true;
+                runtime.focusCalendar = {
+                    ...(runtime.focusCalendar || {}),
+                    open: nextOpen,
+                    monthKey: normalizeMonthKey(runtime.focusCalendar?.monthKey || selectedKey.slice(0, 7)) || selectedKey.slice(0, 7),
+                };
+                if (!updateFocusTodaySlot()) updateFocusSlot();
+                if (nextOpen) ensureFocusCalendarLoaded(ctx, runtime.focusCalendar.monthKey);
+                return;
+            }
+            const calendarMonthDelta = String(target.getAttribute("data-tm-home-focus-calendar-month") || "").trim();
+            if (calendarMonthDelta) {
+                const ctx = runtime.ctx || {};
+                const delta = Math.max(-1, Math.min(1, Math.round(Number(calendarMonthDelta) || 0)));
+                if (delta !== 0) {
+                    const selectedKey = getSelectedFocusDateKey(ctx);
+                    const currentMonth = normalizeMonthKey(runtime.focusCalendar?.monthKey || selectedKey.slice(0, 7)) || selectedKey.slice(0, 7);
+                    const nextMonth = shiftMonthKey(currentMonth, delta);
+                    runtime.focusCalendar = {
+                        ...(runtime.focusCalendar || {}),
+                        monthKey: nextMonth,
+                    };
+                    ensureFocusCalendarLoaded(ctx, nextMonth);
+                    if (!updateFocusTodaySlot()) updateFocusSlot();
+                }
+                return;
+            }
+            const calendarDate = String(target.getAttribute("data-tm-home-focus-calendar-date") || "").trim();
+            if (calendarDate) {
+                const ctx = runtime.ctx || {};
+                const selectedKey = setFocusDateByKey(ctx, calendarDate);
+                const isNarrowFocus = getHomepageFocusLayout() === "narrow";
+                runtime.focusTaskPopoverOpen = isNarrowFocus;
+                runtime.focusCalendar = {
+                    ...(runtime.focusCalendar || {}),
+                    open: false,
+                    monthKey: selectedKey.slice(0, 7),
+                };
+                syncFocusStateForCurrentDate(ctx, runtime.focusCalendar?.records || []);
+                if (isNarrowFocus) {
+                    updateFocusSlot();
+                } else if (!updateFocusDaySlots()) {
+                    updateFocusSlot();
+                }
+                ensureFocusStatsLoaded(ctx);
+                return;
+            }
+            const focusDayDelta = String(target.getAttribute("data-tm-home-focus-day") || "").trim();
+            if (focusDayDelta) {
+                const delta = Math.max(-1, Math.min(1, Math.round(Number(focusDayDelta) || 0)));
+                if (delta !== 0) {
+                    runtime.focusDateOffset = Math.min(0, Math.round(toNumber(runtime.focusDateOffset, 0)) + delta);
+                    runtime.focusTaskListMode = "day";
+                    runtime.focusDayPage = 0;
+                    const ctx = runtime.ctx || {};
+                    const selectedKey = getSelectedFocusDateKey(ctx);
+                    runtime.focusCalendar = {
+                        ...(runtime.focusCalendar || {}),
+                        open: false,
+                        monthKey: selectedKey.slice(0, 7),
+                    };
+                    syncFocusStateForCurrentDate(ctx, runtime.focusCalendar?.records || []);
+                    ensureFocusCalendarLoaded(ctx, selectedKey.slice(0, 7));
+                    if (!updateFocusDaySlots()) updateFocusSlot();
+                    ensureFocusStatsLoaded(ctx);
+                }
+                return;
+            }
+            const focusDayPageDelta = String(target.getAttribute("data-tm-home-focus-day-page") || "").trim();
+            if (focusDayPageDelta) {
+                const delta = Math.max(-1, Math.min(1, Math.round(Number(focusDayPageDelta) || 0)));
+                if (delta !== 0) {
+                    runtime.focusTaskListMode = "day";
+                    runtime.focusDayPage = Math.max(0, Math.round(toNumber(runtime.focusDayPage, 0)) + delta);
+                    if (!updateFocusRecentSlot()) updateFocusSlot();
+                }
+                return;
+            }
+            const focusTaskId = String(target.getAttribute("data-tm-home-focus-task") || "").trim();
+            if (focusTaskId) {
+                runtime.selectedFocusTaskId = focusTaskId;
+                if (!updateFocusRecentSlot()) updateFocusSlot();
+            }
             const taskId = String(target.getAttribute("data-tm-home-open-task") || "").trim();
             if (taskId && typeof runtime.ctx?.onOpenTask === "function") runtime.ctx.onOpenTask(taskId);
         };
         runtime.root.addEventListener("click", runtime.clickHandler);
+        runtime.documentClickHandler = (event) => {
+            if (!(runtime.root instanceof HTMLElement)) return;
+            const source = event?.target instanceof Element ? event.target : null;
+            if (!source) return;
+            if (runtime.focusTaskPopoverOpen === true && !source.closest(".tm-homepage-focus-task-popover,[data-tm-home-focus-calendar-date]")) {
+                runtime.focusTaskPopoverOpen = false;
+                updateFocusSlot();
+            }
+            if (runtime.focusCalendar?.open === true && !source.closest(".tm-homepage-focus-calendar-popover,[data-tm-home-focus-calendar-toggle]")) {
+                runtime.focusCalendar = {
+                    ...(runtime.focusCalendar || {}),
+                    open: false,
+                };
+                updateFocusTodaySlot();
+            }
+            if (runtime.homepageSettingsOpen === true && !source.closest(".tm-homepage-settings")) {
+                runtime.homepageSettingsOpen = false;
+                updateHomepageSettingsSlot();
+            }
+        };
+        document.addEventListener("click", runtime.documentClickHandler);
     }
 
     function bindResizeObserver() {
@@ -2647,6 +5278,7 @@
                     containerWidth: nextWidth,
                     containerHeight: nextHeight,
                 };
+                scheduleHomepageHeatmapLayoutSync();
                 if (resolveProfile(runtime.ctx) !== prevProfile || Math.abs(nextWidth - prevWidth) > 8) {
                     if (Date.now() < Number(runtime.settleUntil || 0)) {
                         scheduleSettledRender();
@@ -2664,6 +5296,10 @@
             try { cancelAnimationFrame(runtime.resizeRaf); } catch (e) {}
             runtime.resizeRaf = 0;
         }
+        if (runtime.heatmapLayoutRaf) {
+            try { cancelAnimationFrame(runtime.heatmapLayoutRaf); } catch (e) {}
+            runtime.heatmapLayoutRaf = 0;
+        }
         if (runtime.settleTimer) {
             try { clearTimeout(runtime.settleTimer); } catch (e) {}
             runtime.settleTimer = 0;
@@ -2672,10 +5308,24 @@
         runtime.resizeObserver = null;
         runtime.resizeHost = null;
         runtime.settleUntil = 0;
+        runtime.focusLoadSeq += 1;
+        runtime.focusState = { status: "idle", key: "", records: [], settings: null, unavailable: false };
+        runtime.selectedFocusTaskId = "";
+        runtime.focusDateOffset = 0;
+        runtime.focusTaskListMode = "day";
+        runtime.focusRecentDays = 90;
+        runtime.focusDayPage = 0;
+        runtime.focusTaskPopoverOpen = false;
+        runtime.focusCalendar = { open: false, monthKey: "", status: "idle", key: "", records: [], loadSeq: 0 };
+        runtime.homepageSettingsOpen = false;
         if (runtime.root instanceof HTMLElement && runtime.clickHandler) {
             try { runtime.root.removeEventListener("click", runtime.clickHandler); } catch (e) {}
         }
         runtime.clickHandler = null;
+        if (runtime.documentClickHandler) {
+            try { document.removeEventListener("click", runtime.documentClickHandler); } catch (e) {}
+        }
+        runtime.documentClickHandler = null;
         if (runtime.root instanceof HTMLElement) {
             try { delete runtime.root.dataset.tmHomepageAnimate; } catch (e) {}
             try { runtime.root.innerHTML = ""; } catch (e) {}

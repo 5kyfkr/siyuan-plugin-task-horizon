@@ -861,26 +861,21 @@ return;
                             const members = Array.isArray(entry?.members) ? entry.members : [];
                             const isActive = !!entry?.active;
                             const isAggregateActive = !!entry?.aggregateActive;
-                            const activeMember = entry?.activeMember || null;
-                            const primaryDoc = activeMember || members[0] || null;
-                            const primaryDocId = String(primaryDoc?.id || '').trim();
                             const groupNameText = String(entry?.name || group.name || '').trim() || '未命名页签组';
-                            const activeName = activeMember ? __tmGetDocDisplayName(activeMember, activeMember.name || '未命名文档') : '';
                             const label = groupNameText;
                             const c = typeof __tmGetDocTabCustomGroupColor === 'function'
-                                ? __tmGetDocTabCustomGroupColor(group, members)
-                                : (primaryDocId ? __tmGetDocColorHex(primaryDocId, __tmIsDarkMode()) : 'var(--tm-primary-color)');
+                                ? __tmGetDocTabCustomGroupColor(group)
+                                : 'var(--tm-primary-color)';
                             const tip = members.length
-                                ? `${groupNameText} ｜ 点击查看组内全部任务 ｜ ${members.length} 个页签${isAggregateActive ? ' ｜ 当前：组内全部' : (activeName ? ` ｜ 当前：${activeName}` : '')}`
+                                ? `${groupNameText} ｜ 点击查看组内全部任务 ｜ ${members.length} 个页签${isAggregateActive ? ' ｜ 当前：组内全部' : ''}`
                                 : `${groupNameText} ｜ 当前没有可显示页签`;
-                            const iconHtml = primaryDoc ? __tmRenderDocIcon(primaryDoc, { size: 14 }) : '';
                             return `<div class="tm-doc-tab tm-doc-tab--custom-group ${isActive ? 'active' : ''}"
                                 data-tm-doc-tab-group-id="${esc(groupId)}"
                                 style="--tm-doc-color:${esc(c)};--tm-doc-tab-group-color:${esc(c)}"
                                 onclick="tmHandleDocTabCustomGroupClick(event, '${escSq(groupId)}')"
                                 oncontextmenu="tmShowDocTabCustomGroupAllContextMenu(event, '${escSq(groupId)}')"
                                 ${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}>
-                                <div class="tm-doc-tab-text">${iconHtml}<span class="tm-doc-tab-label">${esc(label)}</span><button type="button" class="tm-doc-tab-group-caret" onclick="tmShowDocTabCustomGroupMenu(event, '${escSq(groupId)}')" aria-label="展开页签组" aria-expanded="false">${__tmRenderLucideIcon('caret-right', '', { size: 12 })}</button></div>
+                                <div class="tm-doc-tab-text"><span class="tm-doc-tab-label">${esc(label)}</span><button type="button" class="tm-doc-tab-group-caret" onclick="tmShowDocTabCustomGroupMenu(event, '${escSq(groupId)}')" aria-label="展开页签组" aria-expanded="false">${__tmRenderLucideIcon('caret-right', '', { size: 12 })}</button></div>
                             </div>`;
                         }).join('')}
                         ${docTabsToRender.map(doc => {
