@@ -24,10 +24,10 @@
         focusTaskPopoverOpen: false,
         focusCalendar: { open: false, monthKey: "", status: "idle", key: "", records: [], loadSeq: 0 },
         homepageSettingsOpen: false,
+        homepageSettings: { status: "idle", loadSeq: 0, saveSeq: 0, data: null },
     };
     const FOCUS_HISTORY_LOAD_DAYS = 90;
-    const HOMEPAGE_MODULE_ORDER_STORAGE_KEY = "tm_homepage_module_order";
-    const HOMEPAGE_MODULE_LAYOUT_STORAGE_KEY = "tm_homepage_module_layout";
+    const HOMEPAGE_SETTINGS_DATA_KEY = "homepage-settings.json";
     const HOMEPAGE_MODULE_DEFS = Object.freeze([
         { id: "overview", label: "任务概览", desc: "任务状态、完成摘要", wide: true },
         { id: "focus", label: "专注统计", desc: "番茄联动开启时展示", wide: true },
@@ -60,27 +60,75 @@
         return out;
     }
 
-    function readHomepageModuleOrder() {
-        let raw = "";
-        try { raw = String(localStorage.getItem(HOMEPAGE_MODULE_ORDER_STORAGE_KEY) || ""); } catch (e) {}
-        if (!raw.trim()) return normalizeHomepageModuleOrder(null);
-        try {
-            return normalizeHomepageModuleOrder(JSON.parse(raw));
-        } catch (e) {
-            return normalizeHomepageModuleOrder(null);
+    function normalizeHomepageSettings(value) {
+        let source = value;
+        if (typeof source === "string" && source.trim()) {
+            try { source = JSON.parse(source); } catch (e) { source = null; }
         }
+        source = (source && typeof source === "object" && !Array.isArray(source)) ? source : {};
+        return {
+            moduleOrder: normalizeHomepageModuleOrder(source.moduleOrder),
+            moduleLayout: normalizeHomepageModuleLayout(source.moduleLayout),
+        };
     }
 
-    function saveHomepageModuleOrder(order) {
-        const normalized = normalizeHomepageModuleOrder(order);
-        try { localStorage.setItem(HOMEPAGE_MODULE_ORDER_STORAGE_KEY, JSON.stringify(normalized)); } catch (e) {}
+    function getHomepageSettingsData() {
+        const current = runtime.homepageSettings?.data;
+        if (current && typeof current === "object") return normalizeHomepageSettings(current);
+        const normalized = normalizeHomepageSettings(null);
+        runtime.homepageSettings = {
+            ...(runtime.homepageSettings || {}),
+            data: normalized,
+        };
         return normalized;
     }
 
+    function readHomepageModuleOrder() {
+        return getHomepageSettingsData().moduleOrder;
+    }
+
+    function persistHomepageSettings(data) {
+        const host = globalThis.__tmHost;
+        if (!host || typeof host.saveData !== "function") return false;
+        const saveSeq = (Number(runtime.homepageSettings?.saveSeq) || 0) + 1;
+        runtime.homepageSettings = {
+            ...(runtime.homepageSettings || {}),
+            saveSeq,
+            savingSeq: saveSeq,
+        };
+        try {
+            Promise.resolve(host.saveData(HOMEPAGE_SETTINGS_DATA_KEY, normalizeHomepageSettings(data))).then(() => {
+                const current = runtime.homepageSettings || {};
+                if (Number(current.savingSeq) === saveSeq) {
+                    runtime.homepageSettings = { ...current, savingSeq: 0 };
+                }
+            }).catch(() => null);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function saveHomepageSettings(nextSettings) {
+        const normalized = normalizeHomepageSettings(nextSettings);
+        runtime.homepageSettings = {
+            ...(runtime.homepageSettings || {}),
+            status: "loaded",
+            data: normalized,
+        };
+        persistHomepageSettings(normalized);
+        return normalized;
+    }
+
+    function saveHomepageModuleOrder(order) {
+        return saveHomepageSettings({
+            ...getHomepageSettingsData(),
+            moduleOrder: normalizeHomepageModuleOrder(order),
+        }).moduleOrder;
+    }
+
     function resetHomepageModuleOrder() {
-        try { localStorage.removeItem(HOMEPAGE_MODULE_ORDER_STORAGE_KEY); } catch (e) {}
-        try { localStorage.removeItem(HOMEPAGE_MODULE_LAYOUT_STORAGE_KEY); } catch (e) {}
-        return normalizeHomepageModuleOrder(null);
+        return saveHomepageSettings(null).moduleOrder;
     }
 
     function moveHomepageModule(moduleId, delta) {
@@ -106,20 +154,14 @@
     }
 
     function readHomepageModuleLayout() {
-        let raw = "";
-        try { raw = String(localStorage.getItem(HOMEPAGE_MODULE_LAYOUT_STORAGE_KEY) || ""); } catch (e) {}
-        if (!raw.trim()) return normalizeHomepageModuleLayout(null);
-        try {
-            return normalizeHomepageModuleLayout(JSON.parse(raw));
-        } catch (e) {
-            return normalizeHomepageModuleLayout(null);
-        }
+        return getHomepageSettingsData().moduleLayout;
     }
 
     function saveHomepageModuleLayout(layout) {
-        const normalized = normalizeHomepageModuleLayout(layout);
-        try { localStorage.setItem(HOMEPAGE_MODULE_LAYOUT_STORAGE_KEY, JSON.stringify(normalized)); } catch (e) {}
-        return normalized;
+        return saveHomepageSettings({
+            ...getHomepageSettingsData(),
+            moduleLayout: normalizeHomepageModuleLayout(layout),
+        }).moduleLayout;
     }
 
     function setHomepageTrendLayout(value) {
@@ -147,6 +189,62 @@
         if (key === "focus") return getHomepageFocusLayout() !== "narrow";
         if (key === "trend") return getHomepageTrendLayout() !== "narrow";
         return HOMEPAGE_MODULE_DEF_BY_ID[key]?.wide === true;
+    }
+
+    function ensureHomepageSettingsLoaded(force = false) {
+        const state = runtime.homepageSettings || {};
+        if (!force && (state.status === "loading" || state.status === "loaded")) return false;
+        const host = globalThis.__tmHost;
+        if (!host || typeof host.loadData !== "function") {
+            runtime.homepageSettings = {
+                ...state,
+                status: "loaded",
+                data: getHomepageSettingsData(),
+            };
+            return false;
+        }
+        const loadSeq = (Number(state.loadSeq) || 0) + 1;
+        const saveSeq = Number(state.saveSeq) || 0;
+        runtime.homepageSettings = {
+            ...state,
+            status: "loading",
+            loadSeq,
+            data: getHomepageSettingsData(),
+        };
+        try {
+            Promise.resolve(host.loadData(HOMEPAGE_SETTINGS_DATA_KEY, null)).then((data) => {
+                const current = runtime.homepageSettings || {};
+                if (Number(current.loadSeq) !== loadSeq) return;
+                if ((Number(current.saveSeq) || 0) !== saveSeq || Number(current.savingSeq) > 0) {
+                    runtime.homepageSettings = { ...current, status: "loaded" };
+                    return;
+                }
+                const normalized = normalizeHomepageSettings(data);
+                runtime.homepageSettings = {
+                    ...current,
+                    status: "loaded",
+                    data: normalized,
+                };
+                if (runtime.root instanceof HTMLElement) doRender();
+            }).catch(() => {
+                const current = runtime.homepageSettings || {};
+                if (Number(current.loadSeq) === loadSeq) {
+                    runtime.homepageSettings = {
+                        ...current,
+                        status: "loaded",
+                        data: getHomepageSettingsData(),
+                    };
+                }
+            });
+            return true;
+        } catch (e) {
+            runtime.homepageSettings = {
+                ...(runtime.homepageSettings || {}),
+                status: "loaded",
+                data: getHomepageSettingsData(),
+            };
+            return false;
+        }
     }
 
     function readHomepageTaskMetaAttrSettingsObject(storageKey, kind) {
@@ -1569,6 +1667,7 @@
 }
 
 .tm-homepage-focus-total-value {
+    min-width: 0;
     font-size: 36px;
     line-height: 1;
     font-weight: 800;
@@ -2472,8 +2571,23 @@
     gap: 10px;
 }
 
+.tm-homepage--mobile .tm-homepage-focus-day-summary-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+}
+
+.tm-homepage--mobile .tm-homepage-focus-day-summary-head .tm-homepage-focus-total {
+    justify-content: flex-start;
+    width: 100%;
+}
+
 .tm-homepage--mobile .tm-homepage-focus-total-value {
-    font-size: 32px;
+    font-size: clamp(26px, 8.2vw, 32px);
+}
+
+.tm-homepage--mobile .tm-homepage-focus-total-unit {
+    font-size: 12px;
 }
 
 .tm-homepage--mobile .tm-homepage-focus-stat-grid {
@@ -5349,6 +5463,7 @@
         };
         const animateOnMount = runtime.ctx?.animateOnMount !== false;
         try { runtime.root.dataset.tmHomepageAnimate = animateOnMount ? "1" : "0"; } catch (e) {}
+        ensureHomepageSettingsLoaded(true);
         doRender();
         if (animateOnMount) {
             try {
