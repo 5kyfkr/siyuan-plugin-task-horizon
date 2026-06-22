@@ -6312,6 +6312,7 @@
             taskContentWrapMaxLines: 3,
             taskRemarkWrapMaxLines: 2,
             parentTaskNameBoldEnabled: true,
+            taskCheckboxCircleStyleEnabled: false,
             docTabsAutoHideEnabled: true,
             docTabProcrastinationTintEnabled: true,
             enableQuickbar: true,
@@ -6913,6 +6914,7 @@
                                 if (typeof cloudData.taskContentWrapMaxLines === 'number') this.data.taskContentWrapMaxLines = cloudData.taskContentWrapMaxLines;
                                 if (typeof cloudData.taskRemarkWrapMaxLines === 'number') this.data.taskRemarkWrapMaxLines = cloudData.taskRemarkWrapMaxLines;
                                 if (typeof cloudData.parentTaskNameBoldEnabled === 'boolean') this.data.parentTaskNameBoldEnabled = cloudData.parentTaskNameBoldEnabled;
+                                if (typeof cloudData.taskCheckboxCircleStyleEnabled === 'boolean') this.data.taskCheckboxCircleStyleEnabled = cloudData.taskCheckboxCircleStyleEnabled;
                                 if (typeof cloudData.docTabsAutoHideEnabled === 'boolean') this.data.docTabsAutoHideEnabled = cloudData.docTabsAutoHideEnabled;
                                 if (typeof cloudData.docTabsArchiveButtonPosition === 'string') this.data.docTabsArchiveButtonPosition = String(cloudData.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
                                 if (typeof cloudData.docTabProcrastinationTintEnabled === 'boolean') this.data.docTabProcrastinationTintEnabled = cloudData.docTabProcrastinationTintEnabled;
@@ -7396,6 +7398,7 @@
             this.data.taskContentWrapMaxLines = Number(Storage.get('tm_task_content_wrap_max_lines', this.data.taskContentWrapMaxLines));
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
             this.data.parentTaskNameBoldEnabled = Storage.get('tm_parent_task_name_bold_enabled', this.data.parentTaskNameBoldEnabled);
+            this.data.taskCheckboxCircleStyleEnabled = !!Storage.get('tm_task_checkbox_circle_style_enabled', this.data.taskCheckboxCircleStyleEnabled);
             this.data.docTabsAutoHideEnabled = !!Storage.get('tm_doc_tabs_auto_hide_enabled', this.data.docTabsAutoHideEnabled);
             this.data.docTabProcrastinationTintEnabled = Storage.get('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled) !== false;
             this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
@@ -7829,6 +7832,7 @@
             Storage.set('tm_task_content_wrap_max_lines', Number(this.data.taskContentWrapMaxLines) || 3);
             Storage.set('tm_task_remark_wrap_max_lines', Number(this.data.taskRemarkWrapMaxLines) || 2);
             Storage.set('tm_parent_task_name_bold_enabled', this.data.parentTaskNameBoldEnabled !== false);
+            Storage.set('tm_task_checkbox_circle_style_enabled', !!this.data.taskCheckboxCircleStyleEnabled);
             Storage.set('tm_doc_tabs_auto_hide_enabled', !!this.data.docTabsAutoHideEnabled);
             Storage.set('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled !== false);
             Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
@@ -8130,6 +8134,7 @@
             this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
             this.data.taskAutoWrapEnabled = this.data.taskAutoWrapEnabled !== false;
             this.data.parentTaskNameBoldEnabled = this.data.parentTaskNameBoldEnabled !== false;
+            this.data.taskCheckboxCircleStyleEnabled = !!this.data.taskCheckboxCircleStyleEnabled;
             this.data.docTabsAutoHideEnabled = !!this.data.docTabsAutoHideEnabled;
             this.data.docTabsArchiveButtonPosition = String(this.data.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
             this.data.docTabProcrastinationTintEnabled = this.data.docTabProcrastinationTintEnabled !== false;

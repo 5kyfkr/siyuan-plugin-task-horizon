@@ -315,6 +315,7 @@ return;
         const docTabsCollapsed = !docTabsCanMultirow || state.docTabsCollapsed !== false;
         const docTabsAutoHide = SettingsStore.data.docTabsAutoHideEnabled === true;
         const docTabsHidden = docTabsAutoHide ? state.docTabsAutoVisible !== true : !!state.docTabsHidden;
+        const taskCheckboxCircleStyleEnabled = SettingsStore.data.taskCheckboxCircleStyleEnabled === true;
         const docTabsClass = [
             docTabsHidden ? 'tm-doc-tabs--hidden' : '',
             docTabsAutoHide ? 'tm-doc-tabs--auto-hide' : '',
@@ -391,7 +392,8 @@ return;
             + (isDockHost ? ' tm-modal--dock' : '')
             + (docTabsAutoHide ? ' tm-modal--doc-tabs-auto-hide' : '')
             + (docTabsAutoHide && docTabsHidden ? ' tm-modal--doc-tabs-auto-hidden' : '')
-            + (docTabsAutoHide && !docTabsHidden ? ' tm-modal--doc-tabs-auto-visible' : '');
+            + (docTabsAutoHide && !docTabsHidden ? ' tm-modal--doc-tabs-auto-visible' : '')
+            + (taskCheckboxCircleStyleEnabled ? ' tm-modal--task-checkbox-circle' : '');
         try { state.modal.setAttribute('data-task-horizon-shell', '1'); } catch (e) {}
         try {
             const wrapCfg = __tmGetWrapConfig();

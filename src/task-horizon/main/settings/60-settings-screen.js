@@ -28,6 +28,7 @@
         { tab: 'appearance', title: '列设置', desc: '显示、排序、宽度和自定义列' },
         { tab: 'appearance', section: 'columns', key: 'appearance-task-meta-attr-migration', title: '高级：内置字段属性名与迁移', desc: '自定义开始日期、截止日期、重要性、状态、完成时间等内置字段属性名，并可选择迁移旧任务字段' },
         { tab: 'appearance', title: '页签栏', desc: '归档入口位置' },
+        { tab: 'appearance', title: '任务复选框', desc: '使用圆形任务复选框样式' },
         { tab: 'appearance', title: '配色', desc: '调整主题、看板、时间轴和顶栏颜色' },
         { tab: 'calendar', title: '日历', desc: '日历视图与日程相关设置' },
         { tab: 'ai', title: 'AI 接入', desc: '供应商、API Key、Base URL、模型、温度、超时和上下文模式' },
@@ -1287,6 +1288,14 @@
                                     <option value="before-all" ${String(SettingsStore.data.docTabsArchiveButtonPosition || '') === 'before-all' ? 'selected' : ''}>全部页签前左侧</option>
                                     <option value="after-docs" ${String(SettingsStore.data.docTabsArchiveButtonPosition || '') === 'before-all' ? '' : 'selected'}>文档页签后</option>
                                 </select>`
+                            )}
+                        </div>
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '任务复选框', '使用圆形任务复选框样式')}>
+                            <div style="font-weight: 600; margin-bottom: 12px;">☑️ 任务复选框</div>
+                            ${renderSingleSwitchSetting(
+                                '圆形任务复选框',
+                                '使用圆形任务复选框样式',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskCheckboxCircleStyleEnabled ? 'checked' : ''} onchange="updateTaskCheckboxCircleStyleEnabled(this.checked)">`
                             )}
                         </div>
                         <div class="tm-settings-panel" style="margin-bottom:0;" ${__tmSettingsSearchAttrs('appearance', '配色', '调整主题、看板、时间轴和顶栏颜色')}>

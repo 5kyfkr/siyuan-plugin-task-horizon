@@ -1413,7 +1413,9 @@
         return `<span class="tm-doc-tab-tree-guide" aria-hidden="true">${list.map((part) => `<span class="tm-doc-tab-tree-guide-seg is-${part}"></span>`).join('')}</span>`;
     }
 
-    function __tmSortDocTabCustomGroupMembersForMenu(members, extraDocs = []) {
+    function __tmSortDocTabCustomGroupMembersForMenu(members, extraDocs = [], options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const currentGroupId = String(opts.currentGroupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const source = (Array.isArray(members) ? members : [])
             .map((doc, index) => {
                 const id = String(doc?.id || '').trim();
@@ -1495,6 +1497,27 @@
             }
             return a.index - b.index;
         });
+        const pinnedIds = typeof __tmGetDocPinnedIdsForGroup === 'function'
+            ? __tmGetDocPinnedIdsForGroup(currentGroupId)
+            : [];
+        if (pinnedIds.length) {
+            const pinnedRank = new Map();
+            pinnedIds.forEach((id, index) => {
+                const did = String(id || '').trim();
+                if (did && !pinnedRank.has(did)) pinnedRank.set(did, index);
+            });
+            decorated.forEach((item, index) => {
+                item.__tmDocTabGroupTreeSortIndex = index;
+            });
+            decorated.sort((a, b) => {
+                const ar = pinnedRank.has(a.id) ? pinnedRank.get(a.id) : -1;
+                const br = pinnedRank.has(b.id) ? pinnedRank.get(b.id) : -1;
+                if (ar >= 0 && br >= 0 && ar !== br) return ar - br;
+                if (ar >= 0 && br < 0) return -1;
+                if (ar < 0 && br >= 0) return 1;
+                return (a.__tmDocTabGroupTreeSortIndex || 0) - (b.__tmDocTabGroupTreeSortIndex || 0);
+            });
+        }
         const depthById = new Map();
         const getDepth = (item) => {
             if (depthById.has(item.id)) return depthById.get(item.id);
@@ -1582,7 +1605,7 @@
             const docId = String(doc?.id || '').trim();
             if (!docId || !expanded.has(docId)) return;
             if (globalNewTaskDocId && docId === globalNewTaskDocId && opts.includeSpecialNewTaskDoc !== true) return;
-            if (opts.includePinned !== true && __tmIsDocPinnedInGroup(docId, currentGroupId)) return;
+            if (opts.includePinned === false && __tmIsDocPinnedInGroup(docId, currentGroupId)) return;
             out.add(docId);
         });
         return out;
@@ -1625,7 +1648,6 @@
             docs.forEach((doc) => {
                 const relation = expanded.get(doc.id);
                 if (!relation) return;
-                if (__tmIsDocPinnedInGroup(doc.id, currentGroupId)) return;
                 members.push({
                     ...doc,
                     __tmDocTabGroupRelation: relation
@@ -2155,7 +2177,6 @@
         const did = String(docId || '').trim();
         if (!did || did === 'all' || __tmIsDocTabCustomGroupActiveId(did)) return null;
         const currentGroupId = String(groupId || 'all').trim() || 'all';
-        if (__tmIsDocPinnedInGroup(did, currentGroupId)) return null;
         const globalNewTaskDocId = String(SettingsStore?.data?.newTaskDocId || '').trim();
         if (globalNewTaskDocId && did === globalNewTaskDocId) return null;
         const docs = __tmSortDocEntriesForTabs(state?.taskTree || [], currentGroupId)
@@ -10937,6 +10958,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const docCustomProfile = __tmGetStoredDocViewProfile(id);
         const docTabGroupProfileMatch = __tmGetDocTabCustomGroupViewProfileMatchForDoc(id, pinGroupId);
         const docTabGroupProfile = docTabGroupProfileMatch?.profile || null;
+        const docTabGroupPinTarget = !!docTabGroupProfileMatch?.groupId;
         const groupCustomProfile = __tmGetStoredGroupViewProfile(pinGroupId);
         const defaultProfile = __tmGetViewProfilesStore().global;
         const currentProfile = docCustomProfile || docTabGroupProfile || groupCustomProfile || defaultProfile;
@@ -11001,8 +11023,17 @@ return Number(state.contextInteractionQuietUntil || 0);
             window.tmOpenViewProfileConfigModal?.('doc', id);
         }));
         if (!isOtherBlocksTab) {
-            menu.appendChild(item(__tmRenderContextMenuLabel('pin', pinnedInGroup ? '取消钉住' : '钉住到最左侧'), async () => {
-                await __tmSetDocPinnedForGroup(id, !pinnedInGroup, pinGroupId);
+            const nextPinned = !pinnedInGroup;
+            const pinLabel = pinnedInGroup
+                ? '取消钉住'
+                : (docTabGroupPinTarget ? '钉住到页签组最前' : '钉住到页签栏最前');
+            menu.appendChild(item(__tmRenderContextMenuLabel('pin', pinLabel), async () => {
+                await __tmSetDocPinnedForGroup(id, nextPinned, pinGroupId);
+                try {
+                    hint(nextPinned
+                        ? (docTabGroupPinTarget ? '✅ 已钉住到页签组最前' : '✅ 已钉住到页签栏最前')
+                        : '✅ 已取消钉住', 'success');
+                } catch (e) {}
                 await loadSelectedDocuments();
             }));
             menu.appendChild(item(__tmRenderContextMenuLabel('eye-off', '排除当前文档'), async () => {
@@ -11474,7 +11505,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         };
         allRow.appendChild(allBtn);
         list.appendChild(allRow);
-        const menuMembers = __tmSortDocTabCustomGroupMembersForMenu(members, visibleDocs);
+        const menuMembers = __tmSortDocTabCustomGroupMembersForMenu(members, visibleDocs, { currentGroupId });
         menuMembers.forEach((doc) => {
             const docId = String(doc?.id || '').trim();
             if (!docId) return;

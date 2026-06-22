@@ -86,16 +86,20 @@
             .some((member) => String(member?.id || '').trim() === id);
     }
 
-    function __tmHintPinnedDocTabCustomGroupHidden(docId, groupId, actionText = '已加入页签组') {
+    function __tmHintPinnedDocTabCustomGroupPlacement(docId, groupId, actionText = '已加入页签组') {
         const id = String(docId || '').trim();
         const gid = String(groupId || '').trim();
         if (!id || !gid || typeof __tmIsDocPinnedInGroup !== 'function') return false;
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         if (!__tmIsDocPinnedInGroup(id, currentGroupId)) return false;
-        if (__tmIsDocShownInDocTabCustomGroupCurrentTabBar(id, gid)) return false;
+        const docShown = __tmIsDocShownInDocTabCustomGroupCurrentTabBar(id, gid);
         const groupShown = __tmIsDocTabCustomGroupShownInCurrentTabBar(gid);
         try {
-            hint(`⚠ ${actionText}，但该页签已钉住。请取消钉住该页签，${groupShown ? '它才会进入页签组' : '页签组才会显示并收纳它'}`, 'warning');
+            const suffix = docShown
+                ? '会在页签组内排到最前'
+                : (groupShown ? '当前筛选恢复显示后会在页签组内排到最前' : '页签组显示后会在组内排到最前');
+            const isExisting = /^该文档已/.test(actionText);
+            hint(`${isExisting ? 'ℹ' : '✅'} ${actionText}，该页签已钉住，${suffix}`, isExisting ? 'info' : 'success');
         } catch (e) {}
         return true;
     }
@@ -129,7 +133,7 @@
             })
             .filter(Boolean);
         return typeof __tmSortDocTabCustomGroupMembersForMenu === 'function'
-            ? __tmSortDocTabCustomGroupMembersForMenu(docs, rawDocs)
+            ? __tmSortDocTabCustomGroupMembersForMenu(docs, rawDocs, { currentGroupId })
             : docs;
     }
 
@@ -226,7 +230,7 @@
                                 <span title="${esc(docName)}">${esc(docName)}</span>
                                 ${directEntry ? '<em>直接加入</em>' : ''}
                                 ${inherited ? `<em>由 ${esc(inheritedFromName || '上级文档')} 带入</em>` : ''}
-                                ${pinned ? '<em>已钉住</em>' : ''}
+                                ${pinned ? '<em>已钉住，组内靠前</em>' : ''}
                             </div>
                             <div class="tm-doc-tab-group-settings-doc-sub">
                                 ${childDocsInCurrentTabs.length
@@ -625,7 +629,7 @@
         groups.push(group);
         state.docTabCustomGroupSettingsActiveGroupId = group.id;
         await __tmSaveDocTabCustomGroups(groups);
-        const warned = __tmHintPinnedDocTabCustomGroupHidden(id, group.id, `已新建页签组“${groupName}”`);
+        const warned = __tmHintPinnedDocTabCustomGroupPlacement(id, group.id, `已新建页签组“${groupName}”`);
         if (!warned) hint(`✅ 已新建页签组“${groupName}”`, 'success');
         return group;
     };
@@ -668,13 +672,13 @@
         if (existing) {
             existing.includeChildren = !!(existing.includeChildren || includeChildren);
             await __tmSaveDocTabCustomGroups(groups);
-            const warned = __tmHintPinnedDocTabCustomGroupHidden(id, gid, `该文档已在“${group.name || '未命名页签组'}”中`);
+            const warned = __tmHintPinnedDocTabCustomGroupPlacement(id, gid, `该文档已在“${group.name || '未命名页签组'}”中`);
             if (!warned) hint(`ℹ 该文档已在“${group.name || '未命名页签组'}”中`, 'info');
             return true;
         }
         group.entries.push({ id, includeChildren: !!includeChildren });
         await __tmSaveDocTabCustomGroups(groups);
-        const warned = __tmHintPinnedDocTabCustomGroupHidden(id, gid, `已添加到页签组“${group.name || '未命名页签组'}”`);
+        const warned = __tmHintPinnedDocTabCustomGroupPlacement(id, gid, `已添加到页签组“${group.name || '未命名页签组'}”`);
         if (!warned) hint(`✅ 已添加到页签组“${group.name || '未命名页签组'}”`, 'success');
         return true;
     };
@@ -830,7 +834,7 @@
             : group.entries.length !== before;
         await __tmSaveDocTabCustomGroups(groups, { refreshSettings: true });
         if (changed) {
-            const warned = included ? __tmHintPinnedDocTabCustomGroupHidden(id, gid, '已加入页签组') : false;
+            const warned = included ? __tmHintPinnedDocTabCustomGroupPlacement(id, gid, '已加入页签组') : false;
             if (!warned) {
                 try { hint(included ? '✅ 已加入页签组' : '✅ 已移出页签组', 'success'); } catch (e) {}
             }
@@ -1501,6 +1505,14 @@
     window.updateTaskDoneDelightEnabled = async function(enabled) {
         SettingsStore.data.taskDoneDelightEnabled = !!enabled;
         await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateTaskCheckboxCircleStyleEnabled = async function(enabled) {
+        const next = !!enabled;
+        SettingsStore.data.taskCheckboxCircleStyleEnabled = next;
+        await SettingsStore.save();
+        try { state.modal?.classList?.toggle('tm-modal--task-checkbox-circle', next); } catch (e) {}
         showSettings();
     };
 

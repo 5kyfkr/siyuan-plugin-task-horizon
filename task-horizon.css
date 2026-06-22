@@ -14716,6 +14716,95 @@ th[data-col] {
     cursor: not-allowed;
 }
 
+.tm-modal input.tm-task-checkbox[type="checkbox"] {
+    -webkit-mask: none;
+    mask: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+    border-radius: 4px;
+    border-color: var(--tm-checklist-checkbox-color, #a9afb8);
+    background: var(--tm-bg-color);
+    background-color: var(--tm-bg-color);
+}
+
+.tm-modal input.tm-task-checkbox[type="checkbox"]:checked {
+    background: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 18%, var(--tm-bg-color));
+    background-color: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 18%, var(--tm-bg-color));
+}
+
+.tm-modal input.tm-task-checkbox[type="checkbox"]:not(.tm-task-checkbox--delight) {
+    animation: none;
+}
+
+.tm-modal--task-checkbox-circle {
+    --tm-circle-checkbox-size: 16px;
+    --tm-circle-checkbox-slot-size: var(--tm-checkbox-size, 14px);
+}
+
+.tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"] {
+    --tm-task-checkbox-mark-left: 50%;
+    --tm-task-checkbox-mark-top: 47%;
+    --tm-task-checkbox-mark-width: calc(var(--tm-circle-checkbox-size, 16px) * 0.22);
+    --tm-task-checkbox-mark-height: calc(var(--tm-circle-checkbox-size, 16px) * 0.43);
+    width: var(--tm-circle-checkbox-size, 16px);
+    height: var(--tm-circle-checkbox-size, 16px);
+    border-radius: 999px;
+}
+
+.tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked {
+    background: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 92%, var(--tm-bg-color));
+    background-color: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 92%, var(--tm-bg-color));
+}
+
+.tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked::after {
+    border-right-color: var(--primary-foreground, #f8fafc);
+    border-bottom-color: var(--primary-foreground, #f8fafc);
+    transform: translate(-50%, -50%) rotate(45deg);
+    transform-origin: 50% 50%;
+}
+
+.tm-modal--task-checkbox-circle .tm-task-checkbox-wrap,
+.tm-modal--task-checkbox-circle .tm-task-leading {
+    width: var(--tm-circle-checkbox-slot-size, 14px);
+    min-width: var(--tm-circle-checkbox-slot-size, 14px);
+    height: var(--tm-circle-checkbox-slot-size, 14px);
+    flex-basis: var(--tm-circle-checkbox-slot-size, 14px);
+}
+
+.tm-modal--task-checkbox-circle .tm-task-leading-ring {
+    left: calc(var(--tm-circle-checkbox-slot-size, 14px) / 2);
+}
+
+.tm-modal--task-checkbox-circle .tm-checklist-leading .tm-task-leading-ring {
+    left: calc(var(--tm-circle-checkbox-slot-size, 14px) / 2);
+    top: calc(3px + var(--tm-circle-checkbox-slot-size, 14px) / 2);
+}
+
+.tm-modal--task-checkbox-circle .tm-checklist-pane--compact .tm-checklist-leading .tm-task-leading-ring {
+    left: calc(var(--tm-checklist-checkbox-left) + var(--tm-circle-checkbox-slot-size, 14px) / 2);
+}
+
+.tm-modal--task-checkbox-circle .tm-kanban-card-head .tm-task-checkbox,
+.tm-modal--task-checkbox-circle .tm-kanban-subtask-row-main .tm-task-checkbox,
+.tm-modal--task-checkbox-circle .tm-whiteboard-card-head .tm-task-checkbox {
+    margin-top: 1px;
+}
+
+.tm-modal--task-checkbox-circle .tm-kanban-card-head .tm-task-checkbox-wrap--collapsed .tm-task-leading-ring,
+.tm-modal--task-checkbox-circle .tm-kanban-subtask-row-main .tm-task-checkbox-wrap--collapsed .tm-task-leading-ring,
+.tm-modal--task-checkbox-circle .tm-whiteboard-card-head .tm-task-checkbox-wrap--collapsed .tm-task-leading-ring {
+    top: calc(50% + 1px);
+}
+
+.tm-modal--task-checkbox-circle .tm-checklist-leading .tm-task-leading-ring {
+    background: transparent;
+    box-shadow: none;
+}
+
+.tm-modal--task-checkbox-circle .tm-task-checkbox.tm-task-checkbox--delight:checked::after {
+    animation-name: tm-task-checkbox-delight-mark-circle;
+}
+
 .tm-task-checkbox.tm-task-checkbox--delight {
     animation: tm-task-checkbox-delight-pop 0.42s cubic-bezier(0.22, 1, 0.36, 1);
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-success-color)) 0%, transparent);
@@ -14761,6 +14850,17 @@ th[data-col] {
     100% {
         opacity: 1;
         transform: rotate(42deg) scale(1);
+    }
+}
+
+@keyframes tm-task-checkbox-delight-mark-circle {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(45deg) scale(0.55);
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(45deg) scale(1);
     }
 }
 
