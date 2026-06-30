@@ -2565,9 +2565,10 @@
         return window.tmSetKanbanBoardMode(m === 'heading' ? 'heading' : 'status', ev);
     };
 
-    window.tmSetWhiteboardAllTabsLayoutMode = async function(mode, ev) {
+    window.tmSetWhiteboardAllTabsLayoutMode = async function(mode, ev, options = {}) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
+        const opts = (options && typeof options === 'object') ? options : {};
         const next = __tmNormalizeWhiteboardAllTabsLayoutMode(mode);
         const prev = __tmGetWhiteboardAllTabsLayoutMode();
         if (next === prev) return;
@@ -2576,7 +2577,10 @@
         try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
         render();
-        try { hint(next === 'stream' ? '✅ 已切换到卡片流' : '✅ 已切换到白板', 'success'); } catch (e) {}
+        const labelMap = { global: '全局白板', board: '文档框白板', stream: '卡片流' };
+        if (opts.silent !== true) {
+            try { hint(`✅ 已切换到${labelMap[next] || '白板'}`, 'success'); } catch (e) {}
+        }
     };
 
     window.tmSetWhiteboardLayoutModeFromMobileMenu = async function(mode, ev) {
@@ -2594,7 +2598,8 @@
         if (needSwitchAllTabs) {
             await window.tmSwitchDoc('all');
             if (next === prev) {
-                try { hint(next === 'stream' ? '✅ 已切换到卡片流' : '✅ 已切换到白板', 'success'); } catch (e) {}
+                const labelMap = { global: '全局白板', board: '文档框白板', stream: '卡片流' };
+                try { hint(`✅ 已切换到${labelMap[next] || '白板'}`, 'success'); } catch (e) {}
                 try { window.tmHideMobileMenu?.(); } catch (e) {}
                 return;
             }

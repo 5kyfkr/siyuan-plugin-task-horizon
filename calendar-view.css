@@ -569,21 +569,32 @@
 .tm-calendar-nav-master-check,
 .tm-calendar-filter-item input[type="checkbox"] {
     --tm-cal-nav-check-size: 14px;
-    appearance: none;
-    -webkit-appearance: none;
-    width: var(--tm-cal-nav-check-size);
-    height: var(--tm-cal-nav-check-size);
-    min-width: var(--tm-cal-nav-check-size);
-    flex: 0 0 var(--tm-cal-nav-check-size);
-    margin: 0;
-    box-sizing: border-box;
+    -webkit-mask: none !important;
+    mask: none !important;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    width: var(--tm-cal-nav-check-size) !important;
+    height: var(--tm-cal-nav-check-size) !important;
+    min-width: var(--tm-cal-nav-check-size) !important;
+    flex: 0 0 var(--tm-cal-nav-check-size) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
     border-radius: 4px;
-    border: 1px solid var(--tm-ui-border, var(--border, var(--tm-border-color)));
-    background: var(--tm-ui-input, var(--input, var(--tm-bg-color)));
-    display: inline-grid;
+    border: 1px solid var(--tm-ui-border, var(--border, var(--tm-border-color))) !important;
+    background: var(--tm-ui-input, var(--input, var(--tm-bg-color))) !important;
+    background-color: var(--tm-ui-input, var(--input, var(--tm-bg-color))) !important;
+    background-image: none !important;
+    display: inline-grid !important;
     place-content: center;
     vertical-align: middle;
     cursor: pointer;
+    top: 0 !important;
+    transform: none !important;
+    transform-origin: center !important;
+    animation: none !important;
     transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
 
@@ -677,8 +688,10 @@
 .tm-calendar-nav-check:checked,
 .tm-calendar-nav-master-check:checked,
 .tm-calendar-filter-item input[type="checkbox"]:checked {
-    border-color: color-mix(in srgb, var(--tm-ui-primary, var(--tm-primary-color)) 64%, transparent);
-    background: var(--tm-ui-primary, var(--tm-primary-color));
+    border-color: color-mix(in srgb, var(--tm-ui-primary, var(--tm-primary-color)) 64%, transparent) !important;
+    background: var(--tm-ui-primary, var(--tm-primary-color)) !important;
+    background-color: var(--tm-ui-primary, var(--tm-primary-color)) !important;
+    background-image: none !important;
 }
 
 .tm-calendar-nav-check:checked + .tm-calendar-nav-check-ui,
@@ -1102,6 +1115,48 @@
 .tm-cal-task-check {
     flex: none;
     margin-top: 2px;
+}
+
+:where(.tm-calendar-task-page-list, #tmCalendarSideDockTimeline) input.tm-task-checkbox[type="checkbox"],
+body > .fc-7V.tm-fc-external-mirror-source input.tm-task-checkbox[type="checkbox"] {
+    -webkit-mask: none !important;
+    mask: none !important;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    width: var(--tm-checkbox-size, 14px) !important;
+    height: var(--tm-checkbox-size, 14px) !important;
+    min-width: var(--tm-checkbox-size, 14px) !important;
+    max-width: var(--tm-checkbox-size, 14px) !important;
+    min-height: var(--tm-checkbox-size, 14px) !important;
+    max-height: var(--tm-checkbox-size, 14px) !important;
+    flex-shrink: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    position: relative !important;
+    top: auto !important;
+    border: 2px solid var(--tm-checklist-checkbox-color, #a9afb8) !important;
+    border-radius: 4px !important;
+    background: var(--tm-bg-color) !important;
+    background-color: var(--tm-bg-color) !important;
+    background-image: none !important;
+    transform: none !important;
+    transform-origin: center !important;
+    animation: none !important;
+}
+
+:where(.tm-calendar-task-page-list, #tmCalendarSideDockTimeline) input.tm-task-checkbox[type="checkbox"]:checked,
+body > .fc-7V.tm-fc-external-mirror-source input.tm-task-checkbox[type="checkbox"]:checked {
+    background: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 18%, var(--tm-bg-color)) !important;
+    background-color: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 18%, var(--tm-bg-color)) !important;
+    background-image: none !important;
+}
+
+.tm-calendar-task-page-list .tm-checklist-pane--compact .tm-checklist-leading input.tm-task-checkbox[type="checkbox"]:not(.tm-task-checkbox--delight) {
+    position: absolute !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
 }
 
 .tm-cal-task-main {
@@ -6360,32 +6415,40 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     --tm-cal-checkbox-mark-top: 2px;
     --tm-cal-checkbox-mark-width: 4px;
     --tm-cal-checkbox-mark-height: 7px;
+    -webkit-mask: none !important;
+    mask: none !important;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
     appearance: none !important;
     -webkit-appearance: none !important;
     display: block !important;
     width: var(--tm-cal-checkbox-size) !important;
     height: var(--tm-cal-checkbox-size) !important;
-    min-width: var(--tm-cal-checkbox-size);
-    max-width: var(--tm-cal-checkbox-size);
-    min-height: var(--tm-cal-checkbox-size);
-    max-height: var(--tm-cal-checkbox-size);
-    flex: 0 0 var(--tm-cal-checkbox-size);
+    min-width: var(--tm-cal-checkbox-size) !important;
+    max-width: var(--tm-cal-checkbox-size) !important;
+    min-height: var(--tm-cal-checkbox-size) !important;
+    max-height: var(--tm-cal-checkbox-size) !important;
+    flex: 0 0 var(--tm-cal-checkbox-size) !important;
     align-self: center !important;
     margin: 0 !important;
     padding: 0 !important;
     font-size: 0 !important;
     line-height: 0 !important;
     vertical-align: top;
-    box-sizing: border-box;
-    background-clip: padding-box;
+    box-sizing: border-box !important;
+    background-clip: padding-box !important;
     position: relative !important;
     top: 0 !important;
     transform: none !important;
+    transform-origin: center !important;
     border-radius: 3px;
     border: 0 !important;
     background: color-mix(in srgb, var(--tm-cal-schedule-bg, var(--tm-bg-color, #fff)) 78%, var(--tm-cal-checkbox-color) 22%) !important;
+    background-color: color-mix(in srgb, var(--tm-cal-schedule-bg, var(--tm-bg-color, #fff)) 78%, var(--tm-cal-checkbox-color) 22%) !important;
+    background-image: none !important;
     box-shadow: none;
     cursor: pointer;
+    animation: none !important;
     transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
 
@@ -6402,6 +6465,8 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .fc .tm-cal-task-event-check:checked {
     border-color: transparent !important;
     background: color-mix(in srgb, var(--tm-cal-schedule-bg, var(--tm-bg-color, #fff)) 62%, var(--tm-cal-checkbox-color) 38%) !important;
+    background-color: color-mix(in srgb, var(--tm-cal-schedule-bg, var(--tm-bg-color, #fff)) 62%, var(--tm-cal-checkbox-color) 38%) !important;
+    background-image: none !important;
     box-shadow: none !important;
 }
 
@@ -7216,6 +7281,10 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     --tm-cal-checkbox-mark-top: 2px;
     --tm-cal-checkbox-mark-width: 4px;
     --tm-cal-checkbox-mark-height: 7px;
+    -webkit-mask: none !important;
+    mask: none !important;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
     appearance: none !important;
     -webkit-appearance: none !important;
     display: block !important;
@@ -7236,9 +7305,12 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     border: 0 !important;
     border-radius: 3px !important;
     background: color-mix(in srgb, var(--tm-cal-schedule-bg, var(--tm-bg-color, #fff)) 78%, var(--tm-cal-checkbox-color) 22%) !important;
+    background-color: color-mix(in srgb, var(--tm-cal-schedule-bg, var(--tm-bg-color, #fff)) 78%, var(--tm-cal-checkbox-color) 22%) !important;
+    background-image: none !important;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tm-cal-checkbox-color) 34%, transparent) !important;
     box-sizing: border-box !important;
     cursor: pointer;
+    animation: none !important;
 }
 
 .fc-popover .fc-event:is(.fc-daygrid-event[data-tm-cal-source], .tm-cal-allday-soft-event):not(.tm-cal-month-timed-event) .tm-cal-task-event-check:hover {
@@ -7247,6 +7319,8 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 
 .fc-popover .fc-event:is(.fc-daygrid-event[data-tm-cal-source], .tm-cal-allday-soft-event):not(.tm-cal-month-timed-event) .tm-cal-task-event-check:checked {
     background: color-mix(in srgb, var(--tm-cal-schedule-bg, var(--tm-bg-color, #fff)) 62%, var(--tm-cal-checkbox-color) 38%) !important;
+    background-color: color-mix(in srgb, var(--tm-cal-schedule-bg, var(--tm-bg-color, #fff)) 62%, var(--tm-cal-checkbox-color) 38%) !important;
+    background-image: none !important;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tm-cal-checkbox-color) 46%, transparent) !important;
 }
 
@@ -7799,7 +7873,22 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     --tm-cal-list-time-font-weight: 400;
 }
 
+:is(.tm-calendar-host .fc, .tm-calendar-host.fc) :is(.fc-list, .fc-listMonth-view, .fc-listWeek-view, .fc-listDay-view, .fc-listYear-view),
+:is(.tm-calendar-host .fc, .tm-calendar-host.fc) :is(.fc-list, .fc-listMonth-view, .fc-listWeek-view, .fc-listDay-view, .fc-listYear-view) [role="list"],
+:is(.tm-calendar-host .fc, .tm-calendar-host.fc) :is(.fc-list, .fc-listMonth-view, .fc-listWeek-view, .fc-listDay-view, .fc-listYear-view) [role="list"][aria-label="Events"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+}
+
 :is(.tm-calendar-host .fc, .tm-calendar-host.fc) .fc-list-event[data-tm-cal-source] {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+    box-sizing: border-box !important;
     height: auto !important;
     min-height: 30px !important;
     max-height: none !important;
@@ -7821,8 +7910,11 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 :is(.tm-calendar-host .fc, .tm-calendar-host.fc) .fc-list-event[data-tm-cal-source] :is(.fc-list-event-main, .fc-event-main) {
     display: flex !important;
     align-items: center !important;
+    width: 100% !important;
     min-width: 0 !important;
     max-width: 100% !important;
+    flex: 1 1 auto !important;
+    box-sizing: border-box !important;
     min-height: var(--tm-cal-list-event-min-height, 28px) !important;
     height: auto !important;
     max-height: none !important;
@@ -7836,6 +7928,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     width: 100% !important;
     min-width: 0 !important;
     max-width: 100% !important;
+    flex: 1 1 auto !important;
     min-height: var(--tm-cal-list-event-min-height, 28px) !important;
     height: auto !important;
     max-height: none !important;

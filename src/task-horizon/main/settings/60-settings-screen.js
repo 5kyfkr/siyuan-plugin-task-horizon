@@ -1641,7 +1641,7 @@
                         <div style="margin-bottom:10px;">
                             ${renderSingleFieldSetting(
                                 'Dock 及移动端紧凑右侧字段',
-                                '控制 Dock 侧边栏、移动端清单紧凑视图，以及日历视图侧边栏任务清单里任务右侧显示哪些信息。默认显示截止日期和状态标签。',
+                                '控制 Dock 侧边栏、移动端清单紧凑视图，以及日历视图侧边栏任务清单里任务右侧显示哪些信息。默认显示截止日期和状态标签，二级标题仅在任务有所属标题时显示。',
                                 (() => {
                                     const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.dockChecklistCompactMetaFields));
                                     const customFieldOptions = __tmGetCustomFieldDefs()
@@ -1660,7 +1660,7 @@
                         </div>
                         ${renderSingleFieldSetting(
                             '桌面端紧凑右侧字段',
-                            '控制桌面端清单紧凑视图里任务右侧显示哪些信息。默认显示截止日期和状态标签，文档名仅在全部页签下显示。',
+                            '控制桌面端清单紧凑视图里任务右侧显示哪些信息。默认显示截止日期和状态标签，文档名仅在全部页签下显示，二级标题仅在任务有所属标题时显示。',
                             (() => {
                                 const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.desktopChecklistCompactMetaFields));
                                     const customFieldOptions = __tmGetCustomFieldDefs()

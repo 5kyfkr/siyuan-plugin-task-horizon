@@ -33,6 +33,116 @@
         }, 180);
     }
 
+    function __tmGetWhiteboardGlobalBodyFromElement(el) {
+        const node = el instanceof Element ? el : null;
+        const body = node?.closest?.('.tm-whiteboard-doc-body[data-tm-whiteboard-scope="global"]');
+        return body instanceof HTMLElement ? body : null;
+    }
+
+    function __tmGetWhiteboardGlobalCanvasBody() {
+        try {
+            const body = state.modal?.querySelector?.('.tm-whiteboard-doc-body[data-tm-whiteboard-scope="global"]');
+            return body instanceof HTMLElement ? body : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmIsWhiteboardGlobalElement(el) {
+        return !!__tmGetWhiteboardGlobalBodyFromElement(el);
+    }
+
+    function __tmWhiteboardDebugElementLabel(el) {
+        return '';
+    }
+
+    function __tmWhiteboardDebugEventInfo(ev) {
+        return null;
+    }
+
+    function __tmWhiteboardDebugLog(name, detail = {}) {
+    }
+
+    function __tmWhiteboardDebugLogThrottled(key, delayMs, name, detail = {}) {
+    }
+
+    function __tmGetWhiteboardNoteStorage(noteId = '') {
+        const id = String(noteId || '').trim();
+        if (typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive()) {
+            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const board = __tmGetWhiteboardGlobalBoardState(groupId);
+            const notes = Array.isArray(board?.notes) ? [...board.notes] : [];
+            if (!id || notes.some((n) => String(n?.id || '').trim() === id)) {
+                return { scope: 'global', groupId, board, notes };
+            }
+        }
+        return {
+            scope: 'doc',
+            groupId: '',
+            board: null,
+            notes: Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [],
+        };
+    }
+
+    function __tmSaveWhiteboardNotesToStorage(storage, notes, opts = {}) {
+        const st = (storage && typeof storage === 'object') ? storage : {};
+        const list = Array.isArray(notes) ? notes : [];
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        if (String(st.scope || '').trim() === 'global') {
+            __tmPatchWhiteboardGlobalBoardState(st.groupId || '', { notes: list }, { keepEmpty: true, persist: o.persist });
+            return;
+        }
+        SettingsStore.data.whiteboardNotes = list;
+        try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.persist) {
+            try { SettingsStore.save(); } catch (e) {}
+        }
+    }
+
+    function __tmGetWhiteboardNoteById(noteId) {
+        const storage = __tmGetWhiteboardNoteStorage(noteId);
+        const id = String(noteId || '').trim();
+        const note = storage.notes.find((n) => String(n?.id || '').trim() === id);
+        return { storage, note };
+    }
+
+    function __tmSetGlobalWhiteboardNodePlacement(taskId, docId, x, y, opts = {}) {
+        const id = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        const xx = Number(x);
+        const yy = Number(y);
+        if (!id || !did || !Number.isFinite(xx) || !Number.isFinite(yy)) return;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+        const board = __tmGetWhiteboardGlobalBoardState(groupId);
+        const nodePos = (board?.nodePos && typeof board.nodePos === 'object') ? { ...board.nodePos } : {};
+        const placedTaskIds = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? { ...board.placedTaskIds } : {};
+        const prev = nodePos[id];
+        const manual = (typeof o.manual === 'boolean')
+            ? o.manual
+            : !!(prev && typeof prev === 'object' && prev.manual === true);
+        nodePos[id] = { docId: did, x: Math.round(xx), y: Math.round(yy), manual, updatedAt: String(Date.now()) };
+        placedTaskIds[id] = true;
+        __tmPatchWhiteboardGlobalBoardState(groupId, { nodePos, placedTaskIds }, { keepEmpty: true, persist: o.persist });
+    }
+
+    function __tmSetGlobalWhiteboardChildDetached(taskId, detached, parentTaskId = '', opts = {}) {
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+        const board = __tmGetWhiteboardGlobalBoardState(groupId);
+        const detachedChildren = (board?.detachedChildren && typeof board.detachedChildren === 'object') ? { ...board.detachedChildren } : {};
+        if (detached) {
+            const pid = String(parentTaskId || __tmResolveWhiteboardTaskParentId(id) || '').trim();
+            detachedChildren[id] = { detached: true, manual: true, updatedAt: String(Date.now()), parentTaskId: pid };
+        } else {
+            delete detachedChildren[id];
+        }
+        __tmPatchWhiteboardGlobalBoardState(groupId, { detachedChildren }, { keepEmpty: true, persist: o.persist });
+    }
+
     window.tmWhiteboardSetDone = function(taskId, checked, ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         const tid = String(taskId || '').trim();
@@ -199,6 +309,9 @@
         if (allView) {
             try {
                 viewport.querySelectorAll('.tm-whiteboard-doc[data-doc-id]').forEach((el) => {
+                    const isGlobalDoc = String(el.getAttribute('data-tm-whiteboard-scope') || '').trim() === 'global'
+                        || !!el.classList?.contains?.('tm-whiteboard-doc--global');
+                    if (isGlobalDoc) return;
                     const rect = __tmMeasureWhiteboardNavigatorWorldRect(el, viewportRect, view);
                     if (!rect) return;
                     const docId = String(el.getAttribute('data-doc-id') || '').trim();
@@ -637,7 +750,7 @@
         return true;
     }
 
-    window.tmJumpToWhiteboardTask = async function(taskId, ev) {
+    window.tmJumpToWhiteboardTask = async function(taskId, ev, options = {}) {
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
         const id = String(taskId || '').trim();
@@ -646,19 +759,29 @@
             try { hint('⏳ 任务正在写入，完成后可跳转到白板', 'info'); } catch (e) {}
             return false;
         }
-        const location = __tmResolveWhiteboardTaskLocation(id);
+        const opts = (options && typeof options === 'object') ? options : {};
+        const location = __tmResolveWhiteboardTaskLocation(id, { scope: opts.scope });
         if (!location) {
             try { hint('⚠ 该任务不在白板上', 'warning'); } catch (e) {}
             return false;
         }
         const docId = String(location.docId || '').trim();
         const targetTaskId = String(location.targetTaskId || location.taskId || id).trim();
+        const scope = String(location.scope || '').trim();
         if (!docId || !targetTaskId) return false;
         try {
             if (String(state.viewMode || '').trim() !== 'whiteboard') {
                 window.tmSwitchViewMode?.('whiteboard');
             }
-            if (String(state.activeDocId || 'all').trim() !== docId) {
+            if (scope === 'global') {
+                if (typeof window.tmSetWhiteboardAllTabsLayoutMode === 'function'
+                    && __tmGetWhiteboardAllTabsLayoutMode() !== 'global') {
+                    await window.tmSetWhiteboardAllTabsLayoutMode('global', null, { silent: true });
+                }
+                if (String(state.activeDocId || 'all').trim() !== 'all') {
+                    await window.tmSwitchDoc?.('all');
+                }
+            } else if (String(state.activeDocId || 'all').trim() !== docId) {
                 await window.tmSwitchDoc?.(docId);
             }
         } catch (e) {}
@@ -669,13 +792,18 @@
             const maxWaitMs = 4500;
             const isWhiteboardReady = () => {
                 if (String(state.viewMode || '').trim() !== 'whiteboard') return false;
-                if (String(state.activeDocId || 'all').trim() !== docId) return false;
+                if (scope === 'global') {
+                    if (String(state.activeDocId || 'all').trim() !== 'all') return false;
+                    if (__tmGetWhiteboardAllTabsLayoutMode() !== 'global') return false;
+                } else if (String(state.activeDocId || 'all').trim() !== docId) return false;
                 const modal = state.modal instanceof Element ? state.modal : null;
                 const viewport = modal?.querySelector?.('#tmWhiteboardViewport');
                 const body = modal?.querySelector?.('#tmWhiteboardBody');
                 if (!(viewport instanceof HTMLElement) || !(body instanceof HTMLElement)) return false;
                 try {
-                    const docBody = body.querySelector(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(docId)}"]`);
+                    const docBody = scope === 'global'
+                        ? body.querySelector('.tm-whiteboard-doc-body[data-tm-whiteboard-scope="global"]')
+                        : body.querySelector(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(docId)}"]`);
                     return docBody instanceof HTMLElement;
                 } catch (e) {
                     return false;
@@ -745,6 +873,11 @@
                 if (fallback instanceof HTMLElement) docBody = fallback;
             } catch (e) {}
         }
+        if (!(docBody instanceof HTMLElement) && !hint
+            && typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
+            && __tmIsWhiteboardGlobalCanvasActive()) {
+            docBody = __tmGetWhiteboardGlobalCanvasBody();
+        }
         if (!(docBody instanceof HTMLElement)) return null;
         const docId = String(docBody.getAttribute('data-doc-id') || '').trim();
         if (!docId) return null;
@@ -772,6 +905,11 @@
                 if (fallback instanceof HTMLElement) docBody = fallback;
             } catch (e) {}
         }
+        if (!(docBody instanceof HTMLElement) && !hint
+            && typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
+            && __tmIsWhiteboardGlobalCanvasActive()) {
+            docBody = __tmGetWhiteboardGlobalCanvasBody();
+        }
         if (!(docBody instanceof HTMLElement)) return null;
         const docId = String(docBody.getAttribute('data-doc-id') || '').trim();
         if (!docId) return null;
@@ -791,14 +929,22 @@
         const hint = String(docIdHint || '').trim();
         const onDocDragOver = (ev) => {
             __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, hint);
+            __tmWhiteboardDebugLogThrottled('pool-global-dragover', 800, 'pool:document-dragover', {
+                docIdHint: hint,
+                lastLocal: state.whiteboardLastBoardLocal,
+                event: __tmWhiteboardDebugEventInfo(ev),
+            });
         };
         const onDocDrop = () => {
+            __tmWhiteboardDebugLog('pool:document-drop-tracker-end', { docIdHint: hint, lastLocal: state.whiteboardLastBoardLocal });
             __tmStopWhiteboardPoolGlobalTracking();
         };
         const onDocDragEnd = () => {
+            __tmWhiteboardDebugLog('pool:document-dragend-tracker-end', { docIdHint: hint, lastLocal: state.whiteboardLastBoardLocal });
             __tmStopWhiteboardPoolGlobalTracking();
         };
         state.whiteboardPoolGlobalTracker = { onDocDragOver, onDocDrop, onDocDragEnd };
+        __tmWhiteboardDebugLog('pool:global-tracker-start', { docIdHint: hint });
         try { document.addEventListener('dragover', onDocDragOver, true); } catch (e) {}
         try { document.addEventListener('drop', onDocDrop, true); } catch (e) {}
         try { document.addEventListener('dragend', onDocDragEnd, true); } catch (e) {}
@@ -1177,22 +1323,57 @@
     };
 
     window.tmWhiteboardViewportMouseDown = function(ev) {
-        if (state.viewMode !== 'whiteboard') return;
+        if (state.viewMode !== 'whiteboard') {
+            __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'viewMode', event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         const pType = String(ev?.pointerType || '').toLowerCase();
-        if (pType === 'touch') return;
-        if (Number(ev?.button) !== 0) return;
+        if (pType === 'touch') {
+            __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'touch-pointer', event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
+        if (Number(ev?.button) !== 0) {
+            __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'non-left-button', event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         const panMode = tool === 'pan';
         const selectMode = tool === 'select';
         const target = ev?.target;
         const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
-        if (!(viewport instanceof HTMLElement)) return;
+        if (!(viewport instanceof HTMLElement)) {
+            __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'missing-viewport', event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
+        __tmWhiteboardDebugLog('viewport:pointerdown', {
+            panMode,
+            selectMode,
+            global: typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive(),
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
         if (target && target.closest) {
             if (panMode) {
-                if (target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-doc-head')) return;
+                const blocked = target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-doc-head');
+                if (blocked) {
+                    __tmWhiteboardDebugLog('viewport:pointerdown-skip', {
+                        reason: 'pan-blocked-target',
+                        blockedBy: __tmWhiteboardDebugElementLabel(blocked),
+                        event: __tmWhiteboardDebugEventInfo(ev),
+                    });
+                    return;
+                }
             } else if (selectMode) {
-                if (target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-edge,.tm-whiteboard-link-tools,.tm-whiteboard-pool-item,.tm-whiteboard-doc-resize,.tm-whiteboard-doc-head,input,button,select,textarea,label,a')) return;
+                const blocked = target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-edge,.tm-whiteboard-link-tools,.tm-whiteboard-pool-item,.tm-whiteboard-doc-resize,.tm-whiteboard-doc-head,input,button,select,textarea,label,a');
+                if (blocked) {
+                    __tmWhiteboardDebugLog('viewport:pointerdown-skip', {
+                        reason: 'select-blocked-target',
+                        blockedBy: __tmWhiteboardDebugElementLabel(blocked),
+                        event: __tmWhiteboardDebugEventInfo(ev),
+                    });
+                    return;
+                }
             } else {
+                __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'tool-not-pan-or-select', event: __tmWhiteboardDebugEventInfo(ev) });
                 return;
             }
         }
@@ -1341,7 +1522,10 @@
             return;
         }
 
-        if (!panMode) return;
+        if (!panMode) {
+            __tmWhiteboardDebugLog('viewport:pan-skip', { reason: 'not-pan-mode', event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         try {
             const old = state.whiteboardPanSession;
             if (old && typeof old.cleanup === 'function') old.cleanup();
@@ -1355,7 +1539,13 @@
             startX: v0.x,
             startY: v0.y,
             pointerId: hasPointerId ? pointerId : null,
+            debugMoveCount: 0,
         };
+        __tmWhiteboardDebugLog('viewport:pan-start', {
+            view: { x: Number(v0.x) || 0, y: Number(v0.y) || 0, zoom: Number(v0.zoom) || 1 },
+            pointerId: hasPointerId ? pointerId : null,
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
         try { viewport.classList.add('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
         if (hasPointerId && typeof viewport.setPointerCapture === 'function') {
             try { viewport.setPointerCapture(pointerId); } catch (e) {}
@@ -1372,6 +1562,16 @@
             const dy = (Number(e2?.clientY) || 0) - s.startClientY;
             __tmSetWhiteboardView({ x: s.startX + dx, y: s.startY + dy }, { persist: false });
             __tmApplyWhiteboardTransform();
+            s.debugMoveCount = (Number(s.debugMoveCount) || 0) + 1;
+            if (s.debugMoveCount === 1 || s.debugMoveCount % 15 === 0) {
+                __tmWhiteboardDebugLog('viewport:pan-move', {
+                    moveCount: s.debugMoveCount,
+                    dx: Math.round(dx),
+                    dy: Math.round(dy),
+                    nextView: { x: Math.round(s.startX + dx), y: Math.round(s.startY + dy) },
+                    event: __tmWhiteboardDebugEventInfo(e2),
+                });
+            }
         };
         const onUp = (e2) => {
             const s = state.whiteboardPanSession;
@@ -1389,6 +1589,11 @@
                 try { viewport.releasePointerCapture(pointerId); } catch (e) {}
             }
             try { viewport.classList.remove('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
+            __tmWhiteboardDebugLog('viewport:pan-end', {
+                hadSession: !!s,
+                moveCount: Number(s?.debugMoveCount) || 0,
+                event: __tmWhiteboardDebugEventInfo(e2),
+            });
             state.whiteboardPanSession = null;
             __tmScheduleWhiteboardViewSave();
         };
@@ -1408,21 +1613,12 @@
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         if (tool !== 'pan' && tool !== 'select') return;
         if (Number(ev?.button) !== 0) return;
+        try { __tmCalendarFloatingDragEnd(); } catch (e) {}
         const id = String(taskId || '').trim();
         const did = String(docId || '').trim();
         if (!id || !did) return;
         const target = ev?.target;
-        const multiTaskIds0 = Array.isArray(state.whiteboardMultiSelectedTaskIds)
-            ? state.whiteboardMultiSelectedTaskIds.map((x) => String(x || '').trim()).filter(Boolean)
-            : [];
-        const multiNoteIds0 = Array.isArray(state.whiteboardMultiSelectedNoteIds)
-            ? state.whiteboardMultiSelectedNoteIds.map((x) => String(x || '').trim()).filter(Boolean)
-            : [];
-        const inMulti = multiTaskIds0.includes(id);
-        const multiCount = multiTaskIds0.length + multiNoteIds0.length;
-        const hitContent = !!(target && target.closest && target.closest('.tm-task-content-clickable,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip'));
-        if (target && target.closest && target.closest('.tm-task-link-dot,.tm-task-checkbox,.tm-btn,input,button,select,textarea,label,a')) return;
-        if (hitContent && !(multiCount > 1 && inMulti)) return;
+        if (target && target.closest && target.closest('.tm-task-link-dot,input,select,textarea,[contenteditable="true"]')) return;
         const multiTaskIds = Array.isArray(state.whiteboardMultiSelectedTaskIds)
             ? state.whiteboardMultiSelectedTaskIds.map((x) => String(x || '').trim()).filter(Boolean)
             : [];
@@ -1444,7 +1640,7 @@
                 const y0 = Number.isFinite(sy) ? sy : Number((cardEl.style.top || '').replace('px', '')) || 0;
                 const tdid = String(cardEl.getAttribute('data-doc-id') || '').trim();
                 if (!tdid) return null;
-                return { kind: 'task', id: tid, did: tdid, el: cardEl, x0, y0 };
+                return { kind: 'task', id: tid, did: tdid, el: cardEl, x0, y0, global: __tmIsWhiteboardGlobalElement(cardEl) };
             }).filter(Boolean);
             const noteItems = uniqNoteIds.map((nid) => {
                 const noteEl = state.modal?.querySelector?.(`.tm-whiteboard-note[data-note-id="${CSS.escape(nid)}"]`);
@@ -1453,7 +1649,7 @@
                 const y0 = Number((noteEl.style.top || '').replace('px', '')) || 0;
                 const ndid = String(noteEl.getAttribute('data-doc-id') || '').trim();
                 if (!ndid) return null;
-                return { kind: 'note', id: nid, did: ndid, el: noteEl, x0, y0 };
+                return { kind: 'note', id: nid, did: ndid, el: noteEl, x0, y0, global: __tmIsWhiteboardGlobalElement(noteEl) };
             }).filter(Boolean);
             groupDragItems = taskItems.concat(noteItems);
         }
@@ -1471,6 +1667,7 @@
         }
         const card = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : (target?.closest?.('.tm-whiteboard-node') || null);
         if (!(card instanceof HTMLElement)) return;
+        const isGlobalCard = __tmIsWhiteboardGlobalElement(card);
         const isSubNode = card.classList.contains('tm-whiteboard-node--sub');
         const startX = Number(card.dataset?.x);
         const startY = Number(card.dataset?.y);
@@ -1479,11 +1676,14 @@
         const zoom = __tmGetWhiteboardView().zoom || 1;
         const sx = Number(ev?.clientX) || 0;
         const sy = Number(ev?.clientY) || 0;
-        state.whiteboardNodeDrag = { id, did, x0, y0, sx, sy, card, isSubNode, detached: false, group: useGroupDrag ? groupDragItems : null };
+        state.whiteboardNodeDrag = { id, did, x0, y0, sx, sy, card, isSubNode, detached: false, global: isGlobalCard, group: useGroupDrag ? groupDragItems : null, moved: false };
         const onMove = (e2) => {
             try { e2?.preventDefault?.(); } catch (e) {}
             const d = state.whiteboardNodeDrag;
             if (!d) return;
+            const dxClient = (Number(e2?.clientX) || 0) - d.sx;
+            const dyClient = (Number(e2?.clientY) || 0) - d.sy;
+            if (!d.moved && (dxClient * dxClient + dyClient * dyClient) > 16) d.moved = true;
             if (Array.isArray(d.group) && d.group.length > 1) {
                 const dx = ((Number(e2?.clientX) || 0) - d.sx) / (zoom || 1);
                 const dy = ((Number(e2?.clientY) || 0) - d.sy) / (zoom || 1);
@@ -1496,8 +1696,12 @@
                     if (g.kind === 'task') {
                         g.el.dataset.x = String(nx);
                         g.el.dataset.y = String(ny);
-                        __tmSetWhiteboardNodePos(g.id, g.did, nx, ny, { persist: false, manual: true });
-                        __tmSetWhiteboardTaskPlaced(g.id, true, { persist: false });
+                        if (g.global) {
+                            __tmSetGlobalWhiteboardNodePlacement(g.id, g.did, nx, ny, { persist: false, manual: true });
+                        } else {
+                            __tmSetWhiteboardNodePos(g.id, g.did, nx, ny, { persist: false, manual: true });
+                            __tmSetWhiteboardTaskPlaced(g.id, true, { persist: false });
+                        }
                     }
                 });
                 __tmScheduleWhiteboardEdgeRedraw();
@@ -1517,9 +1721,14 @@
                 const ny0 = Math.round((Number(p?.localY) || 24) - anchorY);
                 const dTask = state.flatTasks?.[String(d.id || '').trim()];
                 const dParentId = String(dTask?.parentTaskId || '').trim();
-                __tmSetWhiteboardChildDetached(d.id, true, dParentId);
-                __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
-                __tmSetWhiteboardNodePos(d.id, d.did, nx0, ny0, { persist: false, manual: true });
+                if (d.global) {
+                    __tmSetGlobalWhiteboardChildDetached(d.id, true, dParentId);
+                    __tmSetGlobalWhiteboardNodePlacement(d.id, d.did, nx0, ny0, { persist: false, manual: true });
+                } else {
+                    __tmSetWhiteboardChildDetached(d.id, true, dParentId);
+                    __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
+                    __tmSetWhiteboardNodePos(d.id, d.did, nx0, ny0, { persist: false, manual: true });
+                }
                 state.whiteboardSelectedTaskId = d.id;
                 state.whiteboardNodeDrag = null;
                 render();
@@ -1535,6 +1744,8 @@
                         card: nextCard,
                         isSubNode: false,
                         detached: true,
+                        global: d.global,
+                        moved: true,
                     };
                 }
                 return;
@@ -1547,8 +1758,12 @@
             d.card.style.top = `${ny}px`;
             d.card.dataset.x = String(nx);
             d.card.dataset.y = String(ny);
-            __tmSetWhiteboardNodePos(d.id, d.did, nx, ny, { persist: false, manual: true });
-            __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
+            if (d.global) {
+                __tmSetGlobalWhiteboardNodePlacement(d.id, d.did, nx, ny, { persist: false, manual: true });
+            } else {
+                __tmSetWhiteboardNodePos(d.id, d.did, nx, ny, { persist: false, manual: true });
+                __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
+            }
             __tmScheduleWhiteboardEdgeRedraw();
         };
         const onUp = (eUp) => {
@@ -1559,23 +1774,35 @@
             try { document.removeEventListener('pointercancel', onUp, true); } catch (e) {}
             const d = state.whiteboardNodeDrag;
             state.whiteboardNodeDrag = null;
+            if (d?.moved) {
+                __tmSuppressNextWhiteboardCardClick(d.card, 700);
+            }
             if (d && Array.isArray(d.group) && d.group.length > 1) {
-                const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
                 const allView = !(state.activeDocId && state.activeDocId !== 'all');
                 const now = String(Date.now());
+                const globalStorage = (d.group || []).some((g) => g?.kind === 'note' && g.global)
+                    ? __tmGetWhiteboardNoteStorage()
+                    : null;
+                const notes = globalStorage
+                    ? [...globalStorage.notes]
+                    : (Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : []);
                 d.group.forEach((g) => {
                     if (!g || g.kind !== 'note' || !(g.el instanceof HTMLElement)) return;
                     const nx = Number((g.el.style.left || '').replace('px', '')) || Number(g.x0 || 0);
                     const ny = Number((g.el.style.top || '').replace('px', '')) || Number(g.y0 || 0);
                     const idx = notes.findIndex((n) => String(n?.id || '').trim() === String(g.id || '').trim());
                     if (idx < 0) return;
-                    const offX = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetX) || 0) : 0;
-                    const offY = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetY) || 0) : 0;
+                    const offX = (allView && !g.global) ? (Number(g.el.parentElement?.dataset?.frameOffsetX) || 0) : 0;
+                    const offY = (allView && !g.global) ? (Number(g.el.parentElement?.dataset?.frameOffsetY) || 0) : 0;
                     notes[idx] = { ...(notes[idx] || {}), docId: g.did, x: Math.round(nx - offX), y: Math.round(ny - offY), updatedAt: now };
                 });
-                SettingsStore.data.whiteboardNotes = notes;
-                try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-                try { SettingsStore.syncToLocal(); } catch (e) {}
+                if (globalStorage) {
+                    __tmSaveWhiteboardNotesToStorage(globalStorage, notes);
+                } else {
+                    SettingsStore.data.whiteboardNotes = notes;
+                    try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
+                    try { SettingsStore.syncToLocal(); } catch (e) {}
+                }
             }
             if (d && !d.isSubNode && !(Array.isArray(d.group) && d.group.length > 1)) {
                 const task = state.flatTasks?.[String(d.id || '').trim()];
@@ -1586,8 +1813,13 @@
                     try { hit = document.elementFromPoint(Number(eUp?.clientX) || 0, Number(eUp?.clientY) || 0); } catch (e) {}
                     const parentNode = hit?.closest?.(`.tm-whiteboard-node[data-task-id="${CSS.escape(parentId)}"]`);
                     if (parentNode instanceof Element) {
-                        __tmSetWhiteboardChildDetached(d.id, false);
-                        __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
+                        if (d.global) {
+                            __tmSetGlobalWhiteboardChildDetached(d.id, false);
+                            __tmSetGlobalWhiteboardNodePlacement(d.id, d.did, d.x0, d.y0, { persist: false, manual: true });
+                        } else {
+                            __tmSetWhiteboardChildDetached(d.id, false);
+                            __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
+                        }
                         try { SettingsStore.save(); } catch (e) {}
                         render();
                         return;
@@ -1669,6 +1901,7 @@
     window.tmWhiteboardCardPointerDown = function(ev, taskId, docId) {
         if (state.viewMode !== 'whiteboard') return;
         if (String(ev?.pointerType || '') !== 'touch') return;
+        try { __tmCalendarFloatingDragEnd(); } catch (e) {}
         state.whiteboardSuppressSyntheticMouseUntil = Date.now() + 900;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         if (tool !== 'pan' && tool !== 'select') return;
@@ -1784,8 +2017,29 @@
         try { ev?.stopPropagation?.(); } catch (e) {}
         const id = String(taskId || '').trim();
         if (!id) return;
+        const eventEl = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+        const cardEl = (eventEl?.closest?.('.tm-whiteboard-node') instanceof HTMLElement)
+            ? eventEl.closest('.tm-whiteboard-node')
+            : state.modal?.querySelector?.(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
+        const isGlobalCard = __tmIsWhiteboardGlobalElement(cardEl);
         const ids = __tmWhiteboardCollectTaskTreeIds(id, { includeRoot: true, includeDetached: false, includeSnapshotTree: true });
-        ids.forEach((tid) => __tmSetWhiteboardTaskPlaced(tid, false, { persist: false }));
+        if (isGlobalCard) {
+            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const board = __tmGetWhiteboardGlobalBoardState(groupId);
+            const nodePos = (board?.nodePos && typeof board.nodePos === 'object') ? { ...board.nodePos } : {};
+            const placedTaskIds = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? { ...board.placedTaskIds } : {};
+            const detachedChildren = (board?.detachedChildren && typeof board.detachedChildren === 'object') ? { ...board.detachedChildren } : {};
+            ids.forEach((tid) => {
+                const key = String(tid || '').trim();
+                if (!key) return;
+                delete nodePos[key];
+                delete placedTaskIds[key];
+                delete detachedChildren[key];
+            });
+            __tmPatchWhiteboardGlobalBoardState(groupId, { nodePos, placedTaskIds, detachedChildren }, { keepEmpty: true });
+        } else {
+            ids.forEach((tid) => __tmSetWhiteboardTaskPlaced(tid, false, { persist: false }));
+        }
         const snapshotIds = ids.filter((tid) => {
             const k = String(tid || '').trim();
             if (!k) return false;
@@ -1794,12 +2048,14 @@
         });
         __tmDeleteWhiteboardSnapshotTasks(snapshotIds);
         const idSet = new Set(ids.map((x) => String(x || '').trim()).filter(Boolean));
-        const links = __tmGetManualTaskLinks().filter((x) => {
-            const from = String(x?.from || '').trim();
-            const to = String(x?.to || '').trim();
-            return !idSet.has(from) && !idSet.has(to);
-        });
-        __tmSetManualTaskLinks(links);
+        if (!isGlobalCard) {
+            const links = __tmGetManualTaskLinks().filter((x) => {
+                const from = String(x?.from || '').trim();
+                const to = String(x?.to || '').trim();
+                return !idSet.has(from) && !idSet.has(to);
+            });
+            __tmSetManualTaskLinks(links);
+        }
         if (idSet.has(String(state.whiteboardSelectedTaskId || '').trim())) state.whiteboardSelectedTaskId = '';
         try { await SettingsStore.save(); } catch (e) {}
         render();
@@ -1869,7 +2125,8 @@
     async function __tmUpdateWhiteboardNoteStyle(noteId, patch = {}) {
         const id = String(noteId || '').trim();
         if (!id) return false;
-        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+        const storage = __tmGetWhiteboardNoteStorage(id);
+        const notes = Array.isArray(storage.notes) ? [...storage.notes] : [];
         const idx = notes.findIndex((n) => String(n?.id || '').trim() === id);
         if (idx < 0) return false;
         const cur = notes[idx] && typeof notes[idx] === 'object' ? notes[idx] : {};
@@ -1901,9 +2158,7 @@
         }
         next.updatedAt = String(Date.now());
         notes[idx] = next;
-        SettingsStore.data.whiteboardNotes = notes;
-        try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        __tmSaveWhiteboardNotesToStorage(storage, notes);
         try { await SettingsStore.save(); } catch (e) {}
         return true;
     }
@@ -1912,8 +2167,7 @@
         try { ev?.stopPropagation?.(); } catch (e) {}
         const id = String(noteId || '').trim();
         if (!id) return;
-        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
-        const note = notes.find((n) => String(n?.id || '').trim() === id);
+        const note = __tmGetWhiteboardNoteById(id).note;
         const cur = __tmNormalizeWhiteboardNoteFontSize(note?.fontSize);
         const d = Number(delta);
         const next = __tmNormalizeWhiteboardNoteFontSize(cur + (Number.isFinite(d) ? d : 0));
@@ -1947,8 +2201,7 @@
         try { ev?.stopPropagation?.(); } catch (e) {}
         const id = String(noteId || '').trim();
         if (!id) return;
-        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
-        const note = notes.find((n) => String(n?.id || '').trim() === id);
+        const note = __tmGetWhiteboardNoteById(id).note;
         const next = !__tmNormalizeWhiteboardNoteBold(note?.bold);
         const ok = await __tmUpdateWhiteboardNoteStyle(id, { bold: next });
         if (!ok) return;
@@ -1960,11 +2213,10 @@
         try { ev?.stopPropagation?.(); } catch (e) {}
         const id = String(noteId || '').trim();
         if (!id) return;
-        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
-        SettingsStore.data.whiteboardNotes = notes.filter((n) => String(n?.id || '').trim() !== id);
+        const storage = __tmGetWhiteboardNoteStorage(id);
+        const notes = Array.isArray(storage.notes) ? storage.notes : [];
+        __tmSaveWhiteboardNotesToStorage(storage, notes.filter((n) => String(n?.id || '').trim() !== id));
         if (String(state.whiteboardSelectedNoteId || '').trim() === id) state.whiteboardSelectedNoteId = '';
-        try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-        try { SettingsStore.syncToLocal(); } catch (e) {}
         try { await SettingsStore.save(); } catch (e) {}
         render();
     };
@@ -1975,15 +2227,31 @@
         const noteIds = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedNoteIds) ? state.whiteboardMultiSelectedNoteIds : []).map((x) => String(x || '').trim()).filter(Boolean)));
         const linkKeys = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedLinkKeys) ? state.whiteboardMultiSelectedLinkKeys : []).map((x) => String(x || '').trim()).filter(Boolean)));
         if (!taskIds.length && !noteIds.length && !linkKeys.length) return;
+        const isGlobalSelection = typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive();
         const allTaskIds = new Set();
         taskIds.forEach((id) => {
             __tmWhiteboardCollectTaskTreeIds(id, { includeRoot: true, includeDetached: false, includeSnapshotTree: true })
                 .forEach((tid) => allTaskIds.add(String(tid || '').trim()));
         });
-        allTaskIds.forEach((tid) => {
-            if (!tid) return;
-            __tmSetWhiteboardTaskPlaced(tid, false, { persist: false });
-        });
+        if (isGlobalSelection) {
+            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const board = __tmGetWhiteboardGlobalBoardState(groupId);
+            const nodePos = (board?.nodePos && typeof board.nodePos === 'object') ? { ...board.nodePos } : {};
+            const placedTaskIds = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? { ...board.placedTaskIds } : {};
+            const detachedChildren = (board?.detachedChildren && typeof board.detachedChildren === 'object') ? { ...board.detachedChildren } : {};
+            allTaskIds.forEach((tid) => {
+                if (!tid) return;
+                delete nodePos[tid];
+                delete placedTaskIds[tid];
+                delete detachedChildren[tid];
+            });
+            __tmPatchWhiteboardGlobalBoardState(groupId, { nodePos, placedTaskIds, detachedChildren }, { keepEmpty: true });
+        } else {
+            allTaskIds.forEach((tid) => {
+                if (!tid) return;
+                __tmSetWhiteboardTaskPlaced(tid, false, { persist: false });
+            });
+        }
         const snapshotIds = Array.from(allTaskIds).filter((tid) => {
             const k = String(tid || '').trim();
             if (!k) return false;
@@ -1991,7 +2259,7 @@
             return !!__tmGetWhiteboardCardSnapshot(k);
         });
         __tmDeleteWhiteboardSnapshotTasks(snapshotIds);
-        if (allTaskIds.size) {
+        if (allTaskIds.size && !isGlobalSelection) {
             const links = __tmGetManualTaskLinks().filter((x) => {
                 const from = String(x?.from || '').trim();
                 const to = String(x?.to || '').trim();
@@ -2001,6 +2269,17 @@
         }
         if (linkKeys.length) {
             const selectedSet = new Set(linkKeys);
+            const globalCanvasDocId = typeof __tmGetWhiteboardGlobalCanvasDocId === 'function'
+                ? __tmGetWhiteboardGlobalCanvasDocId()
+                : '__tm_global_whiteboard__';
+            const hasGlobalSelectedLinks = linkKeys.some((key) => String(key || '').startsWith(`${globalCanvasDocId}::`));
+            if (hasGlobalSelectedLinks && typeof __tmGetWhiteboardGlobalTaskLinks === 'function' && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
+                const globalLinks = __tmGetWhiteboardGlobalTaskLinks().filter((x) => {
+                    const key = `${globalCanvasDocId}::${String(x?.id || '').trim()}`;
+                    return !selectedSet.has(key);
+                });
+                __tmSetWhiteboardGlobalTaskLinks(globalLinks, '', { keepEmpty: true });
+            }
             const links = __tmGetManualTaskLinks().filter((x) => {
                 const key = `${String(x?.docId || '').trim()}::${String(x?.id || '').trim()}`;
                 return !selectedSet.has(key);
@@ -2009,9 +2288,9 @@
         }
         if (noteIds.length) {
             const noteSet = new Set(noteIds);
-            const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
-            SettingsStore.data.whiteboardNotes = notes.filter((n) => !noteSet.has(String(n?.id || '').trim()));
-            try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
+            const storage = isGlobalSelection ? __tmGetWhiteboardNoteStorage() : { scope: 'doc', notes: Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [] };
+            const notes = Array.isArray(storage.notes) ? storage.notes : [];
+            __tmSaveWhiteboardNotesToStorage(storage, notes.filter((n) => !noteSet.has(String(n?.id || '').trim())));
         }
         state.whiteboardSelectedTaskId = '';
         state.whiteboardSelectedNoteId = '';
@@ -2095,6 +2374,48 @@
             return rows.flatMap((r) => r);
         };
 
+        const isGlobalAutoConnect = typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
+            && __tmIsWhiteboardGlobalCanvasActive()
+            && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
+            && typeof __tmSetWhiteboardGlobalTaskLinks === 'function';
+        if (isGlobalAutoConnect) {
+            const ordered = buildRowsOrder(items);
+            const manual = __tmGetWhiteboardGlobalTaskLinks();
+            let added = 0;
+            let skipped = 0;
+            for (let i = 1; i < ordered.length; i++) {
+                const prev = ordered[i - 1] || {};
+                const cur = ordered[i] || {};
+                const fromId = String(prev.id || '').trim();
+                const toId = String(cur.id || '').trim();
+                if (!fromId || !toId || fromId === toId) continue;
+                const exists = manual.some((x) => String(x?.from || '') === fromId && String(x?.to || '') === toId);
+                if (exists) {
+                    skipped++;
+                    continue;
+                }
+                manual.push({
+                    id: `global_link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    from: fromId,
+                    to: toId,
+                    fromDocId: String(prev.docId || '').trim(),
+                    toDocId: String(cur.docId || '').trim(),
+                    createdAt: String(Date.now()),
+                });
+                added++;
+            }
+            if (!added) {
+                try { hint('ℹ 未新增连线（可能已存在）', 'info'); } catch (e) {}
+                return;
+            }
+            __tmSetWhiteboardGlobalTaskLinks(manual, '', { keepEmpty: true });
+            try { await SettingsStore.save(); } catch (e) {}
+            try { hint(`✅ 已新增 ${added} 条连线${skipped ? `（跳过 ${skipped} 条）` : ''}`, 'success'); } catch (e) {}
+            __tmScheduleWhiteboardEdgeRedraw();
+            render();
+            return;
+        }
+
         const manual = __tmGetManualTaskLinks();
         let added = 0;
         let skipped = 0;
@@ -2156,8 +2477,7 @@
         const id = String(noteId || '').trim();
         const did = String(docId || '').trim();
         if (!id || !did) return;
-        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
-        const note = notes.find((n) => String(n?.id || '').trim() === id);
+        const { note } = __tmGetWhiteboardNoteById(id);
         if (!note) return;
         const eventEl = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
         const noteEl = (eventEl?.closest?.('.tm-whiteboard-note') instanceof HTMLElement)
@@ -2174,8 +2494,9 @@
         state.whiteboardSelectedLinkDocId = '';
         __tmScheduleWhiteboardEdgeRedraw();
         const allView = !(state.activeDocId && state.activeDocId !== 'all');
-        const offX = allView ? (Number(docBody.dataset?.frameOffsetX) || 0) : 0;
-        const offY = allView ? (Number(docBody.dataset?.frameOffsetY) || 0) : 0;
+        const isGlobalNote = __tmIsWhiteboardGlobalElement(docBody);
+        const offX = (allView && !isGlobalNote) ? (Number(docBody.dataset?.frameOffsetX) || 0) : 0;
+        const offY = (allView && !isGlobalNote) ? (Number(docBody.dataset?.frameOffsetY) || 0) : 0;
         let x = (Number.isFinite(Number(note?.x)) ? Number(note.x) : 24) + offX;
         let y = (Number.isFinite(Number(note?.y)) ? Number(note.y) : 24) + offY;
         try {
@@ -2263,7 +2584,7 @@
                 const ty0 = Number.isFinite(sy0) ? sy0 : Number((cardEl.style.top || '').replace('px', '')) || 0;
                 const tdid = String(cardEl.getAttribute('data-doc-id') || '').trim();
                 if (!tdid) return null;
-                return { kind: 'task', id: tid, did: tdid, el: cardEl, x0: tx0, y0: ty0 };
+                return { kind: 'task', id: tid, did: tdid, el: cardEl, x0: tx0, y0: ty0, global: __tmIsWhiteboardGlobalElement(cardEl) };
             }).filter(Boolean);
             const noteItems = uniqNoteIds.map((nid) => {
                 const nEl = state.modal?.querySelector?.(`.tm-whiteboard-note[data-note-id="${CSS.escape(nid)}"]`);
@@ -2272,7 +2593,7 @@
                 const ny0 = Number((nEl.style.top || '').replace('px', '')) || 0;
                 const ndid = String(nEl.getAttribute('data-doc-id') || '').trim();
                 if (!ndid) return null;
-                return { kind: 'note', id: nid, did: ndid, el: nEl, x0: nx0, y0: ny0 };
+                return { kind: 'note', id: nid, did: ndid, el: nEl, x0: nx0, y0: ny0, global: __tmIsWhiteboardGlobalElement(nEl) };
             }).filter(Boolean);
             groupDragItems = taskItems.concat(noteItems);
         }
@@ -2313,8 +2634,12 @@
                     if (g.kind === 'task') {
                         g.el.dataset.x = String(nx);
                         g.el.dataset.y = String(ny);
-                        __tmSetWhiteboardNodePos(g.id, g.did, nx, ny, { persist: false, manual: true });
-                        __tmSetWhiteboardTaskPlaced(g.id, true, { persist: false });
+                        if (g.global) {
+                            __tmSetGlobalWhiteboardNodePlacement(g.id, g.did, nx, ny, { persist: false, manual: true });
+                        } else {
+                            __tmSetWhiteboardNodePos(g.id, g.did, nx, ny, { persist: false, manual: true });
+                            __tmSetWhiteboardTaskPlaced(g.id, true, { persist: false });
+                        }
                     }
                 });
                 __tmScheduleWhiteboardEdgeRedraw();
@@ -2338,38 +2663,49 @@
                 return;
             }
             if (Array.isArray(d.group) && d.group.length > 1) {
-                const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
                 const allView = !(state.activeDocId && state.activeDocId !== 'all');
                 const now = String(Date.now());
+                const globalStorage = (d.group || []).some((g) => g?.kind === 'note' && g.global)
+                    ? __tmGetWhiteboardNoteStorage()
+                    : null;
+                const notes = globalStorage
+                    ? [...globalStorage.notes]
+                    : (Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : []);
                 d.group.forEach((g) => {
                     if (!g || g.kind !== 'note' || !(g.el instanceof HTMLElement)) return;
                     const nx = Number((g.el.style.left || '').replace('px', '')) || Number(g.x0 || 0);
                     const ny = Number((g.el.style.top || '').replace('px', '')) || Number(g.y0 || 0);
                     const idx = notes.findIndex((n) => String(n?.id || '').trim() === String(g.id || '').trim());
                     if (idx < 0) return;
-                    const offX = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetX) || 0) : 0;
-                    const offY = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetY) || 0) : 0;
+                    const offX = (allView && !g.global) ? (Number(g.el.parentElement?.dataset?.frameOffsetX) || 0) : 0;
+                    const offY = (allView && !g.global) ? (Number(g.el.parentElement?.dataset?.frameOffsetY) || 0) : 0;
                     notes[idx] = { ...(notes[idx] || {}), docId: g.did, x: Math.round(nx - offX), y: Math.round(ny - offY), updatedAt: now };
                 });
-                SettingsStore.data.whiteboardNotes = notes;
-                try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-                try { SettingsStore.syncToLocal(); } catch (e) {}
+                if (globalStorage) {
+                    __tmSaveWhiteboardNotesToStorage(globalStorage, notes);
+                } else {
+                    SettingsStore.data.whiteboardNotes = notes;
+                    try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
+                    try { SettingsStore.syncToLocal(); } catch (e) {}
+                }
                 try { await SettingsStore.save(); } catch (e) {}
                 render();
                 return;
             }
             const nx = Number(d.noteEl.style.left.replace('px', '')) || d.x0;
             const ny = Number(d.noteEl.style.top.replace('px', '')) || d.y0;
-            const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
-            const idx = notes.findIndex((n) => String(n?.id || '').trim() === d.id);
-            if (idx >= 0) {
-                const allView = !(state.activeDocId && state.activeDocId !== 'all');
-                const offX = allView ? (Number(d.noteEl.parentElement?.dataset?.frameOffsetX) || 0) : 0;
-                const offY = allView ? (Number(d.noteEl.parentElement?.dataset?.frameOffsetY) || 0) : 0;
-                notes[idx] = { ...(notes[idx] || {}), docId: d.did, x: Math.round(nx - offX), y: Math.round(ny - offY), updatedAt: String(Date.now()) };
-                SettingsStore.data.whiteboardNotes = notes;
-                try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-                try { SettingsStore.syncToLocal(); } catch (e) {}
+            const allView = !(state.activeDocId && state.activeDocId !== 'all');
+            const isGlobalNote = __tmIsWhiteboardGlobalElement(d.noteEl);
+            const storage = isGlobalNote
+                ? __tmGetWhiteboardNoteStorage(d.id)
+                : { scope: 'doc', notes: Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [] };
+            const targetNotes = Array.isArray(storage.notes) ? [...storage.notes] : [];
+            const targetIdx = targetNotes.findIndex((n) => String(n?.id || '').trim() === d.id);
+            if (targetIdx >= 0) {
+                const offX = (allView && !isGlobalNote) ? (Number(d.noteEl.parentElement?.dataset?.frameOffsetX) || 0) : 0;
+                const offY = (allView && !isGlobalNote) ? (Number(d.noteEl.parentElement?.dataset?.frameOffsetY) || 0) : 0;
+                targetNotes[targetIdx] = { ...(targetNotes[targetIdx] || {}), docId: d.did, x: Math.round(nx - offX), y: Math.round(ny - offY), updatedAt: String(Date.now()) };
+                __tmSaveWhiteboardNotesToStorage(storage, targetNotes);
                 try { await SettingsStore.save(); } catch (e) {}
             }
             render();
@@ -2390,8 +2726,7 @@
         const handle = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
         const noteEl = (handle && handle.closest('.tm-whiteboard-note')) || (ev?.target?.closest?.('.tm-whiteboard-note'));
         if (!(noteEl instanceof HTMLElement)) return;
-        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
-        const note = notes.find((n) => String(n?.id || '').trim() === id);
+        const note = __tmGetWhiteboardNoteById(id).note;
         const startFont = __tmNormalizeWhiteboardNoteFontSize(note?.fontSize);
         const sx = Number(ev?.clientX) || 0;
         const sy = Number(ev?.clientY) || 0;
@@ -2515,9 +2850,13 @@
         if (!did || !Number.isFinite(x) || !Number.isFinite(y)) return;
         if (!title && !text) return;
         const allView = !(state.activeDocId && state.activeDocId !== 'all');
-        const sx = Math.round(x - (allView ? ox : 0));
-        const sy = Math.round(y - (allView ? oy : 0));
-        const notes0 = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+        const isGlobalNote = !!st?.globalBoard;
+        const sx = Math.round(x - ((allView && !isGlobalNote) ? ox : 0));
+        const sy = Math.round(y - ((allView && !isGlobalNote) ? oy : 0));
+        const storage = isGlobalNote
+            ? __tmGetWhiteboardNoteStorage(noteId)
+            : { scope: 'doc', notes: Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [] };
+        const notes0 = Array.isArray(storage.notes) ? [...storage.notes] : [];
         const now = String(Date.now());
         if (noteId) {
             const idx = notes0.findIndex((n) => String(n?.id || '').trim() === noteId);
@@ -2534,9 +2873,7 @@
                 y: sy,
                 updatedAt: now,
             };
-            SettingsStore.data.whiteboardNotes = notes0;
-            try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-            try { SettingsStore.syncToLocal(); } catch (e) {}
+            __tmSaveWhiteboardNotesToStorage(storage, notes0);
             try { await SettingsStore.save(); } catch (e) {}
             render();
             return;
@@ -2554,9 +2891,7 @@
             createdAt: now,
             updatedAt: now,
         });
-        SettingsStore.data.whiteboardNotes = notes0;
-        try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        __tmSaveWhiteboardNotesToStorage(storage, notes0);
         try { await SettingsStore.save(); } catch (e) {}
         render();
     }
@@ -2586,9 +2921,13 @@
         if (!o.save) return;
         if (!did || !Number.isFinite(x) || !Number.isFinite(y)) return;
         const allView = !(state.activeDocId && state.activeDocId !== 'all');
-        const sx = Math.round(x - (allView ? ox : 0));
-        const sy = Math.round(y - (allView ? oy : 0));
-        const notes0 = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+        const isGlobalNote = !!st?.globalBoard;
+        const sx = Math.round(x - ((allView && !isGlobalNote) ? ox : 0));
+        const sy = Math.round(y - ((allView && !isGlobalNote) ? oy : 0));
+        const storage = isGlobalNote
+            ? __tmGetWhiteboardNoteStorage(noteId)
+            : { scope: 'doc', notes: Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [] };
+        const notes0 = Array.isArray(storage.notes) ? [...storage.notes] : [];
         if (noteId) {
             const idx = notes0.findIndex((n) => String(n?.id || '').trim() === noteId);
             if (idx < 0 || !value) return;
@@ -2603,15 +2942,13 @@
                 bold: bd,
                 updatedAt: String(Date.now()),
             };
-            SettingsStore.data.whiteboardNotes = notes0;
-            try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-            try { SettingsStore.syncToLocal(); } catch (e) {}
+            __tmSaveWhiteboardNotesToStorage(storage, notes0);
             try { await SettingsStore.save(); } catch (e) {}
             render();
             return;
         }
         if (!value) return;
-        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+        const notes = notes0;
         notes.push({
             id: `note_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             docId: did,
@@ -2623,9 +2960,7 @@
             bold: bd,
             createdAt: String(Date.now()),
         });
-        SettingsStore.data.whiteboardNotes = notes;
-        try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        __tmSaveWhiteboardNotesToStorage(storage, notes);
         try { await SettingsStore.save(); } catch (e) {}
         render();
     }
@@ -2690,6 +3025,7 @@
             fontSize: fs0,
             color: c0,
             bold: bd0,
+            globalBoard: __tmIsWhiteboardGlobalElement(bodyEl),
         };
     }
 
@@ -2813,6 +3149,7 @@
             offsetY: Number(o.offsetY) || 0,
             theme: initialTheme,
             width: initialWidth,
+            globalBoard: __tmIsWhiteboardGlobalElement(bodyEl),
         };
         syncTextHeight();
         try { titleInput?.focus?.(); } catch (e) {}
@@ -2821,7 +3158,6 @@
 
     window.tmWhiteboardDocClick = async function(ev, docId) {
         const allView = !(state.activeDocId && state.activeDocId !== 'all');
-        if (allView) return;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         if (tool !== 'text' && tool !== 'sticky') return;
         const target = ev?.target;
@@ -2831,6 +3167,8 @@
         const docBody = target?.closest?.('.tm-whiteboard-doc-body[data-doc-id]')
             || state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(did)}"]`);
         if (!(docBody instanceof HTMLElement)) return;
+        const isGlobalBody = __tmIsWhiteboardGlobalElement(docBody);
+        if (allView && !isGlobalBody) return;
         const p = __tmResolveWhiteboardPointerInfo(ev, did);
         const localX = Number.isFinite(Number(p?.localX)) ? Number(p.localX) : 24;
         const localY = Number.isFinite(Number(p?.localY)) ? Number(p.localY) : 24;
@@ -3101,13 +3439,30 @@
     }
 
     window.tmWhiteboardPoolItemMouseDown = function(ev, taskId, docId, locked) {
-        if (Number(ev?.button) !== 0) return;
+        if (Number(ev?.button) !== 0) {
+            __tmWhiteboardDebugLog('pool:mousedown-skip', { reason: 'non-left-button', taskId: String(taskId || ''), docId: String(docId || ''), event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
+        try { __tmCalendarFloatingDragEnd(); } catch (e) {}
         const target = ev?.target;
-        if (target && target.closest && target.closest('.tm-task-checkbox,.tm-task-content-clickable,.tm-whiteboard-pool-toggle,.tm-btn,input,button,select,textarea,label,a')) return;
+        const inPoolTitle = !!(target && target.closest && target.closest('.tm-whiteboard-pool-item-title'));
+        const interactiveSelector = inPoolTitle
+            ? '.tm-task-checkbox,.tm-whiteboard-pool-toggle,.tm-btn,input,button,select,textarea,label,a'
+            : '.tm-task-checkbox,.tm-task-content-clickable,.tm-whiteboard-pool-toggle,.tm-btn,input,button,select,textarea,label,a';
+        if (target && target.closest && target.closest(interactiveSelector)) {
+            __tmWhiteboardDebugLog('pool:mousedown-skip', { reason: 'interactive-target', taskId: String(taskId || ''), docId: String(docId || ''), event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         const id = String(taskId || '').trim();
-        if (!id) return;
+        if (!id) {
+            __tmWhiteboardDebugLog('pool:mousedown-skip', { reason: 'missing-task-id', docId: String(docId || ''), event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         const isLocked = !!locked;
-        if (isLocked) return;
+        if (isLocked) {
+            __tmWhiteboardDebugLog('pool:mousedown-skip', { reason: 'locked', taskId: id, docId: String(docId || ''), event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         try { ev?.stopPropagation?.(); } catch (e) {}
         const current = Array.isArray(state.whiteboardPoolSelectedTaskIds) ? state.whiteboardPoolSelectedTaskIds : [];
         const set = new Set(current.map((x) => String(x || '').trim()).filter(Boolean));
@@ -3123,24 +3478,46 @@
             }
         }
         state.whiteboardPoolSelectedTaskIds = Array.from(set);
-        render();
+        __tmWhiteboardDebugLog('pool:mousedown', {
+            taskId: id,
+            docId: String(docId || ''),
+            selectedTaskIds: state.whiteboardPoolSelectedTaskIds,
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
     };
 
     window.tmWhiteboardPoolH2DragStart = function(ev, docId, h2Label) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { __tmCalendarFloatingDragEnd(); } catch (e) {}
         const did = String(docId || '').trim();
         const h2 = String(h2Label || '').trim();
         const el = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
-        if (!did || !h2 || !(el instanceof HTMLElement)) return;
+        __tmWhiteboardDebugLog('pool-h2:dragstart', {
+            docId: did,
+            h2,
+            hasCurrentTarget: el instanceof HTMLElement,
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
+        if (!did || !h2 || !(el instanceof HTMLElement)) {
+            __tmWhiteboardDebugLog('pool-h2:dragstart-skip', { reason: 'missing-doc-h2-or-target', docId: did, h2, event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         const rawIds = String(el.getAttribute('data-task-ids') || '').trim();
         let taskIds = rawIds ? rawIds.split(',').map((x) => String(x || '').trim()).filter(Boolean) : [];
-        if (!taskIds.length) return;
+        if (!taskIds.length) {
+            __tmWhiteboardDebugLog('pool-h2:dragstart-skip', { reason: 'empty-task-ids', docId: did, h2, rawIds, event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         const canDrag = (tid) => {
             const node = state.modal?.querySelector?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(String(tid || '').trim())}"]`);
             if (!(node instanceof HTMLElement)) return false;
             return String(node.getAttribute('draggable') || '').toLowerCase() !== 'false';
         };
         taskIds = taskIds.filter((tid) => canDrag(tid));
-        if (!taskIds.length) return;
+        if (!taskIds.length) {
+            __tmWhiteboardDebugLog('pool-h2:dragstart-skip', { reason: 'all-task-ids-not-draggable', docId: did, h2, rawIds, event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         state.whiteboardPoolSelectedTaskIds = taskIds.slice();
         state.draggingTaskId = taskIds[0];
         state.whiteboardPoolDragStart = {
@@ -3159,7 +3536,6 @@
             });
             const payload = JSON.stringify({ type: 'tm-whiteboard-pool-h2', taskIds: taskIds.slice(), docId: did, h2, taskDocIds });
             ev.dataTransfer.effectAllowed = 'move';
-            ev.dataTransfer.setData('application/x-tm-task-id', taskIds[0]);
             ev.dataTransfer.setData('application/x-tm-whiteboard-pool', payload);
             ev.dataTransfer.setData('text/plain', payload);
             __tmCleanupWhiteboardPoolDragGhost();
@@ -3168,19 +3544,30 @@
                 try { ev.dataTransfer.setDragImage(dragGhost, 12, 12); } catch (e) {}
             }
         } catch (e) {}
-        try {
-            const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
-                ? window.tmCalendarGetTaskDragMeta(taskIds[0])
-                : null;
-            __tmCalendarFloatingDragStart(taskIds[0], meta, ev);
-        } catch (e) {}
+        __tmWhiteboardDebugLog('pool-h2:payload-set', {
+            docId: did,
+            h2,
+            taskIds,
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
         __tmStartWhiteboardPoolGlobalTracking(String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
     };
 
     window.tmWhiteboardPoolDragStart = function(ev, taskId, docId) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { __tmCalendarFloatingDragEnd(); } catch (e) {}
         const id = String(taskId || '').trim();
         const did = String(docId || '').trim();
-        if (!id || !did) return;
+        __tmWhiteboardDebugLog('pool:dragstart', {
+            taskId: id,
+            docId: did,
+            selectedTaskIds: Array.isArray(state.whiteboardPoolSelectedTaskIds) ? state.whiteboardPoolSelectedTaskIds : [],
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
+        if (!id || !did) {
+            __tmWhiteboardDebugLog('pool:dragstart-skip', { reason: 'missing-task-or-doc', taskId: id, docId: did, event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         const selected0 = Array.isArray(state.whiteboardPoolSelectedTaskIds) ? state.whiteboardPoolSelectedTaskIds : [];
         const selectedSet = new Set(selected0.map((x) => String(x || '').trim()).filter(Boolean));
         let dragTaskIds = selectedSet.has(id) ? Array.from(selectedSet) : [id];
@@ -3194,6 +3581,12 @@
         if (!dragTaskIds.includes(id)) dragTaskIds.unshift(id);
         dragTaskIds = Array.from(new Set(dragTaskIds));
         if (!dragTaskIds.length) dragTaskIds = [id];
+        __tmWhiteboardDebugLog('pool:dragstart-resolved', {
+            taskId: id,
+            docId: did,
+            dragTaskIds,
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
         state.whiteboardPoolSelectedTaskIds = dragTaskIds.slice();
         state.draggingTaskId = dragTaskIds[0] || id;
         state.whiteboardPoolDragStart = {
@@ -3211,7 +3604,6 @@
             });
             const payload = JSON.stringify({ type: 'tm-whiteboard-pool', taskId: id, taskIds: dragTaskIds, docId: did, taskDocIds });
             ev.dataTransfer.effectAllowed = 'move';
-            ev.dataTransfer.setData('application/x-tm-task-id', dragTaskIds[0] || id);
             ev.dataTransfer.setData('application/x-tm-whiteboard-pool', payload);
             ev.dataTransfer.setData('text/plain', payload);
             __tmCleanupWhiteboardPoolDragGhost();
@@ -3222,12 +3614,12 @@
                 try { ev.dataTransfer.setDragImage(dragGhost, 12, 12); } catch (e) {}
             }
         } catch (e) {}
-        try {
-            const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
-                ? window.tmCalendarGetTaskDragMeta(dragTaskIds[0] || id)
-                : null;
-            __tmCalendarFloatingDragStart(dragTaskIds[0] || id, meta, ev);
-        } catch (e) {}
+        __tmWhiteboardDebugLog('pool:payload-set', {
+            taskId: id,
+            docId: did,
+            dragTaskIds,
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
         __tmStartWhiteboardPoolGlobalTracking(String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
     };
 
@@ -3236,6 +3628,10 @@
     };
 
     window.tmWhiteboardPoolDragEnd = function() {
+        __tmWhiteboardDebugLog('pool:dragend', {
+            draggingTaskId: String(state.draggingTaskId || ''),
+            poolDragStart: state.whiteboardPoolDragStart,
+        });
         state.draggingTaskId = '';
         try { __tmCalendarFloatingDragEnd(); } catch (e) {}
         __tmStopWhiteboardPoolGlobalTracking();
@@ -3247,8 +3643,15 @@
 
     window.tmWhiteboardBoardDragOver = function(ev) {
         try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
         const info = __tmResolveWhiteboardPointerInfo(ev, String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''))
             || __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
+        __tmWhiteboardDebugLogThrottled('board-dragover', 500, 'board:dragover', {
+            docIdHint: String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''),
+            pointerInfo: info,
+            lastLocal: state.whiteboardLastBoardLocal,
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
         const docId = String(info?.docId || state.whiteboardLinkFromDocId || '').trim();
         if (info && 'clientX' in info) {
             state.whiteboardLastBoardPointer = {
@@ -3311,6 +3714,11 @@
     }
 
     window.tmWhiteboardBoardDrop = async function(ev, docIdHint) {
+        __tmWhiteboardDebugLog('board:drop-start', {
+            docIdHint: String(docIdHint || ''),
+            lastLocal: state.whiteboardLastBoardLocal,
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
         try {
@@ -3336,16 +3744,36 @@
             }
         } catch (e) {}
         let payload = null;
+        let rawPayload = '';
         try {
             const raw = ev?.dataTransfer?.getData?.('application/x-tm-whiteboard-pool') || ev?.dataTransfer?.getData?.('text/plain');
+            rawPayload = String(raw || '');
             if (raw) payload = JSON.parse(raw);
-        } catch (e) {}
+        } catch (e) {
+            __tmWhiteboardDebugLog('board:drop-payload-parse-error', {
+                message: e?.message || String(e),
+                rawPayloadPreview: rawPayload.slice(0, 180),
+                event: __tmWhiteboardDebugEventInfo(ev),
+            });
+        }
         const payloadType = String(payload?.type || '').trim();
-        if (payloadType !== 'tm-whiteboard-pool' && payloadType !== 'tm-whiteboard-pool-h2') return;
+        __tmWhiteboardDebugLog('board:drop-payload', {
+            payloadType,
+            rawPayloadPreview: rawPayload.slice(0, 180),
+            payload,
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
+        if (payloadType !== 'tm-whiteboard-pool' && payloadType !== 'tm-whiteboard-pool-h2') {
+            __tmWhiteboardDebugLog('board:drop-skip', { reason: 'unsupported-payload', payloadType, event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         const taskIds = Array.isArray(payload?.taskIds)
             ? payload.taskIds.map((x) => String(x || '').trim()).filter(Boolean)
             : [String(payload?.taskId || '').trim()].filter(Boolean);
-        if (!taskIds.length) return;
+        if (!taskIds.length) {
+            __tmWhiteboardDebugLog('board:drop-skip', { reason: 'empty-task-ids', payload, event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         const taskIdsSorted = (() => {
             const ids = taskIds.slice();
             try {
@@ -3385,24 +3813,92 @@
         if (!docId) {
             docId = String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : '').trim();
         }
-        if (!docId) return;
+        if (!docId) {
+            const globalBody = __tmGetWhiteboardGlobalCanvasBody();
+            docId = String(globalBody?.getAttribute?.('data-doc-id') || '').trim();
+        }
+        if (!docId) {
+            __tmWhiteboardDebugLog('board:drop-skip', { reason: 'missing-drop-doc-id', payload, lastLocal: state.whiteboardLastBoardLocal, event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
+        const activeDocIdForDrop = String(state.activeDocId || '').trim();
+        let isAllTabsDrop = !(activeDocIdForDrop && activeDocIdForDrop !== 'all');
+        try {
+            const customGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
+                ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocIdForDrop, {
+                    currentGroupId: SettingsStore?.data?.currentGroupId,
+                    docs: state.taskTree || []
+                })
+                : null;
+            if (customGroupDocIds instanceof Set && customGroupDocIds.size > 0) isAllTabsDrop = true;
+        } catch (e) {}
         const globalCollectDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
-        const docBody = state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(docId)}"]`);
-        if (!(viewport instanceof HTMLElement) || !(docBody instanceof HTMLElement)) return;
+        let dropDocBody = state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(docId)}"]`);
+        if (!(dropDocBody instanceof HTMLElement)
+            && typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
+            && __tmIsWhiteboardGlobalCanvasActive()) {
+            dropDocBody = __tmGetWhiteboardGlobalCanvasBody();
+        }
+        if (!(viewport instanceof HTMLElement) || !(dropDocBody instanceof HTMLElement)) {
+            __tmWhiteboardDebugLog('board:drop-skip', {
+                reason: !(viewport instanceof HTMLElement) ? 'missing-viewport' : 'missing-drop-doc-body',
+                docId,
+                isGlobalCanvasActive: typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive(),
+                event: __tmWhiteboardDebugEventInfo(ev),
+            });
+            return;
+        }
+        const isGlobalDrop = String(dropDocBody.getAttribute('data-tm-whiteboard-scope') || '').trim() === 'global';
+        __tmWhiteboardDebugLog('board:drop-target', {
+            docId,
+            isGlobalDrop,
+            dropDocBody: __tmWhiteboardDebugElementLabel(dropDocBody),
+            activeDocIdForDrop,
+            isAllTabsDrop,
+            taskIdsSorted,
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
+        const globalBoardGroupId = isGlobalDrop ? __tmGetWhiteboardGlobalBoardGroupId() : '';
+        const globalBoardState = isGlobalDrop ? __tmGetWhiteboardGlobalBoardState(globalBoardGroupId) : null;
+        const globalNodePos = isGlobalDrop
+            ? { ...((globalBoardState?.nodePos && typeof globalBoardState.nodePos === 'object') ? globalBoardState.nodePos : {}) }
+            : null;
+        const globalPlacedTaskIds = isGlobalDrop
+            ? { ...((globalBoardState?.placedTaskIds && typeof globalBoardState.placedTaskIds === 'object') ? globalBoardState.placedTaskIds : {}) }
+            : null;
         // 使用固定锚点，避免卡片尺寸变化（父子结构展开）影响落点体感。
         const anchorX = 18;
         const anchorY = 16;
         const local = __tmResolveWhiteboardDropLocalPoint(ev, docId);
-        const docRect = docBody.getBoundingClientRect();
         const zoom = Math.max(0.01, Number(__tmGetWhiteboardView()?.zoom) || 1);
-        const fallbackX = (docRect.width > 0 ? (docRect.width * 0.5) : 220) / zoom;
-        const fallbackY = (docRect.height > 0 ? (docRect.height * 0.5) : 140) / zoom;
-        const nx0 = Math.round((Number(local?.x) || fallbackX) - anchorX);
-        const ny = Math.round((Number(local?.y) || fallbackY) - anchorY);
+        const resolveDocBody = (targetDocId) => {
+            const did = String(targetDocId || '').trim();
+            if (!did) return null;
+            try {
+                const el = state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(did)}"]`);
+                return el instanceof HTMLElement ? el : null;
+            } catch (e) {
+                return null;
+            }
+        };
+        const getOriginForDocBody = (targetBody) => {
+            const body = targetBody instanceof HTMLElement ? targetBody : dropDocBody;
+            const rect = body.getBoundingClientRect();
+            const fallbackX = (rect.width > 0 ? (rect.width * 0.5) : 220) / zoom;
+            const fallbackY = (rect.height > 0 ? (rect.height * 0.5) : 140) / zoom;
+            const baseX = Number.isFinite(Number(local?.x)) ? Number(local.x) : fallbackX;
+            const baseY = Number.isFinite(Number(local?.y)) ? Number(local.y) : fallbackY;
+            return {
+                x: Math.round(baseX - anchorX),
+                y: Math.round(baseY - anchorY),
+            };
+        };
         const stepX = 320;
         let movedAcrossDoc = false;
         const placed = [];
+        const placedDocs = [];
+        const placedCountByDoc = new Map();
         for (let i = 0; i < taskIdsSorted.length; i++) {
             const taskId = String(taskIdsSorted[i] || '').trim();
             if (!taskId) continue;
@@ -3410,11 +3906,13 @@
             const payloadDocId = String(payload?.docId || '').trim();
             const cardDoc = taskDocFromPayload || String(__tmGetTaskDocIdById(taskId) || '').trim() || payloadDocId;
             if (!cardDoc) continue;
-            const cardDocName = String((state.allDocuments || []).find(d => String(d?.id || '').trim() === cardDoc)?.name || '').trim();
-            const sourceIsInbox = /inbox/i.test(cardDocName) || /收件箱|收集箱|收件/.test(cardDocName);
-            const sourceIsGlobalCollect = !!globalCollectDocId && cardDoc === globalCollectDocId;
-            if (cardDoc !== docId && !sourceIsInbox && !sourceIsGlobalCollect) continue;
-            if (cardDoc !== docId) {
+            let placeDocId = isGlobalDrop ? cardDoc : (isAllTabsDrop ? cardDoc : docId);
+            if (!placeDocId) continue;
+            if (!isGlobalDrop && !isAllTabsDrop && cardDoc !== docId) {
+                const cardDocName = String((state.allDocuments || []).find(d => String(d?.id || '').trim() === cardDoc)?.name || '').trim();
+                const sourceIsInbox = /inbox/i.test(cardDocName) || /收件箱|收集箱|收件/.test(cardDocName);
+                const sourceIsGlobalCollect = !!globalCollectDocId && cardDoc === globalCollectDocId;
+                if (!sourceIsInbox && !sourceIsGlobalCollect) continue;
                 try {
                     const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
                     if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
@@ -3436,38 +3934,79 @@
                     continue;
                 }
             }
-            try {
-                __tmWhiteboardCollectTaskTreeIds(taskId, { includeRoot: false, includeDetached: true, includeSnapshotTree: true })
-                    .forEach((cid) => {
-                        __tmSetWhiteboardChildDetached(cid, false);
-                        __tmSetWhiteboardTaskPlaced(cid, false, { persist: false });
-                    });
-            } catch (e) {}
-            const nx = nx0 + (i * stepX);
-            __tmSetWhiteboardNodePos(taskId, docId, nx, ny, { persist: false, manual: true });
-            __tmSetWhiteboardTaskPlaced(taskId, true, { persist: false });
+            const placeDocBody = isGlobalDrop ? dropDocBody : resolveDocBody(placeDocId);
+            if (!(placeDocBody instanceof HTMLElement)) continue;
+            if (!isGlobalDrop) {
+                try {
+                    __tmWhiteboardCollectTaskTreeIds(taskId, { includeRoot: false, includeDetached: true, includeSnapshotTree: true })
+                        .forEach((cid) => {
+                            __tmSetWhiteboardChildDetached(cid, false);
+                            __tmSetWhiteboardTaskPlaced(cid, false, { persist: false });
+                        });
+                } catch (e) {}
+            }
+            const origin = getOriginForDocBody(placeDocBody);
+            const countKey = isGlobalDrop ? '__global__' : placeDocId;
+            const placedIndex = Number(placedCountByDoc.get(countKey)) || 0;
+            placedCountByDoc.set(countKey, placedIndex + 1);
+            const nx = origin.x + (placedIndex * stepX);
+            const ny = origin.y;
+            if (isGlobalDrop) {
+                globalNodePos[taskId] = { docId: placeDocId, x: nx, y: ny, updatedAt: String(Date.now()), manual: true };
+                globalPlacedTaskIds[taskId] = true;
+            } else {
+                __tmSetWhiteboardNodePos(taskId, placeDocId, nx, ny, { persist: false, manual: true });
+                __tmSetWhiteboardTaskPlaced(taskId, true, { persist: false });
+            }
             try {
                 const t = state.flatTasks?.[taskId];
                 if (t) __tmUpsertWhiteboardTaskSnapshot(t, { persist: true });
             } catch (e) {}
             placed.push(taskId);
+            if (!placedDocs.includes(placeDocId)) placedDocs.push(placeDocId);
         }
-        if (!placed.length) return;
+        if (!placed.length) {
+            __tmWhiteboardDebugLog('board:drop-skip', {
+                reason: 'no-placed-tasks',
+                taskIdsSorted,
+                docId,
+                isGlobalDrop,
+                placedDocs,
+                event: __tmWhiteboardDebugEventInfo(ev),
+            });
+            return;
+        }
         if (h2Title) {
-            const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+            const h2DocFromPayload = String(payload?.docId || '').trim();
+            const h2DocId = isGlobalDrop
+                ? (h2DocFromPayload || placedDocs[0] || '')
+                : ((isAllTabsDrop && h2DocFromPayload && resolveDocBody(h2DocFromPayload))
+                ? h2DocFromPayload
+                : (placedDocs[0] || docId));
+            const h2Body = isGlobalDrop ? dropDocBody : resolveDocBody(h2DocId);
+            const h2Origin = getOriginForDocBody(h2Body || dropDocBody);
+            const notes = isGlobalDrop
+                ? (Array.isArray(globalBoardState?.notes) ? [...globalBoardState.notes] : [])
+                : (Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : []);
             notes.push({
                 id: `note_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-                docId,
+                docId: h2DocId,
                 text: h2Title,
-                x: nx0,
-                y: Math.max(0, ny - 75),
+                x: h2Origin.x,
+                y: Math.max(0, h2Origin.y - 75),
                 fontSize: 30,
                 bold: true,
                 color: '',
                 createdAt: String(Date.now()),
             });
-            SettingsStore.data.whiteboardNotes = notes;
-            try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
+            if (isGlobalDrop) {
+                try { __tmPatchWhiteboardGlobalBoardState(globalBoardGroupId, { notes, nodePos: globalNodePos, placedTaskIds: globalPlacedTaskIds }, { keepEmpty: true }); } catch (e) {}
+            } else {
+                SettingsStore.data.whiteboardNotes = notes;
+                try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
+            }
+        } else if (isGlobalDrop) {
+            try { __tmPatchWhiteboardGlobalBoardState(globalBoardGroupId, { nodePos: globalNodePos, placedTaskIds: globalPlacedTaskIds }, { keepEmpty: true }); } catch (e) {}
         }
         if (placed.length > 1) {
             state.whiteboardSelectedTaskId = '';
@@ -3489,6 +4028,13 @@
         state.whiteboardLastBoardLocal = null;
         state.whiteboardLastBoardPointer = null;
         try { await SettingsStore.save(); } catch (e) {}
+        __tmWhiteboardDebugLog('board:drop-placed', {
+            placed,
+            placedDocs,
+            isGlobalDrop,
+            movedAcrossDoc,
+            h2Title,
+        });
         if (movedAcrossDoc) {
             try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'whiteboard-pool-drop-move' }); } catch (e) { render(); }
         } else {
@@ -3578,6 +4124,19 @@
             } catch (e) {}
             const docId = String(docBody.getAttribute('data-doc-id') || '').trim();
             if (!docId) return;
+            const isGlobalBody = String(docBody.getAttribute('data-tm-whiteboard-scope') || '').trim() === 'global';
+            const globalCanvasDocId = typeof __tmGetWhiteboardGlobalCanvasDocId === 'function'
+                ? __tmGetWhiteboardGlobalCanvasDocId()
+                : '__tm_global_whiteboard__';
+            const visibleTaskIds = new Set();
+            if (isGlobalBody) {
+                try {
+                    docBody.querySelectorAll('.tm-whiteboard-node[data-task-id]').forEach((el) => {
+                        const tid = String(el?.getAttribute?.('data-task-id') || '').trim();
+                        if (tid) visibleTaskIds.add(tid);
+                    });
+                } catch (e) {}
+            }
             const svg = docBody.querySelector('.tm-whiteboard-edges');
             if (!(svg instanceof SVGElement)) return;
             const width = Math.max(Math.ceil(docBody.scrollWidth), Math.ceil(docBody.clientWidth), 1);
@@ -3586,7 +4145,13 @@
             try { svg.setAttribute('height', String(height)); } catch (e) {}
             try { svg.setAttribute('viewBox', `0 0 ${width} ${height}`); } catch (e) {}
 
-            const links = __tmGetAllTaskLinks({ docId, includeAuto: false });
+            const links = isGlobalBody && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
+                ? __tmGetWhiteboardGlobalTaskLinks().filter((link) => {
+                    const from = String(link?.from || '').trim();
+                    const to = String(link?.to || '').trim();
+                    return !!from && !!to && visibleTaskIds.has(from) && visibleTaskIds.has(to);
+                })
+                : __tmGetAllTaskLinks({ docId, includeAuto: false });
             const rootRect = docBody.getBoundingClientRect();
             const zoom = Math.max(0.01, Number(__tmGetWhiteboardView()?.zoom) || 1);
             const getLocalCenter = (el) => {
@@ -3824,11 +4389,20 @@
             const multiSelectedLinkSet = new Set((Array.isArray(state.whiteboardMultiSelectedLinkKeys) ? state.whiteboardMultiSelectedLinkKeys : []).map((x) => String(x || '').trim()).filter(Boolean));
             let selectedToolPos = null;
             const paths = links.map((link) => {
+                const linkDocId = isGlobalBody && link?.global
+                    ? globalCanvasDocId
+                    : (String(link?.docId || docId).trim() || docId);
                 const from = getPt(link.from, 'from');
                 const to = getPt(link.to, 'to');
                 if (!from || !to) return '';
-                const fromProxy = __tmFindWhiteboardCollapsedProxyTaskId(link.from, docId);
-                const toProxy = __tmFindWhiteboardCollapsedProxyTaskId(link.to, docId);
+                const fromProxyDocId = isGlobalBody
+                    ? (String(link?.fromDocId || __tmGetTaskDocIdById(link.from) || '').trim() || docId)
+                    : docId;
+                const toProxyDocId = isGlobalBody
+                    ? (String(link?.toDocId || __tmGetTaskDocIdById(link.to) || '').trim() || docId)
+                    : docId;
+                const fromProxy = __tmFindWhiteboardCollapsedProxyTaskId(link.from, fromProxyDocId);
+                const toProxy = __tmFindWhiteboardCollapsedProxyTaskId(link.to, toProxyDocId);
                 const routed = buildAvoidPath(
                     from,
                     to,
@@ -3838,14 +4412,14 @@
                 const d = routed.d;
                 const isSelected = link.manual
                     && selectedLinkId
-                    && selectedLinkDocId === docId
+                    && selectedLinkDocId === linkDocId
                     && String(link.id || '').trim() === selectedLinkId;
-                const linkKey = `${docId}::${String(link.id || '').trim()}`;
+                const linkKey = `${linkDocId}::${String(link.id || '').trim()}`;
                 const cls = link.manual
                     ? `tm-whiteboard-edge tm-whiteboard-edge--manual${isSelected ? ' tm-whiteboard-edge--selected' : ''}${multiSelectedLinkSet.has(linkKey) ? ' tm-whiteboard-multi-selected' : ''}`
                     : 'tm-whiteboard-edge tm-whiteboard-edge--auto';
                 const idEsc = String(link.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                const docEsc = String(docId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const docEsc = String(linkDocId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 const click = link.manual ? `onclick="tmWhiteboardSelectLink('${idEsc}', '${docEsc}', event)"` : '';
                 if (isSelected) {
                     const pts = Array.isArray(routed.pts) && routed.pts.length >= 2 ? routed.pts : [from, to];
@@ -3854,14 +4428,17 @@
                     const my = mp.y;
                     selectedToolPos = { x: mx, y: my };
                 }
-                const dataAttrs = link.manual ? ` data-link-id="${esc(String(link.id || ''))}" data-doc-id="${esc(String(docId || ''))}"` : '';
+                const dataAttrs = link.manual ? ` data-link-id="${esc(String(link.id || ''))}" data-doc-id="${esc(String(linkDocId || ''))}"` : '';
                 return `<path class="${cls}" d="${d}" marker-end="url(#${esc(markerIdOut)})"${dataAttrs} ${click}></path>`;
             }).join('');
             let previewPath = '';
             const fromTaskId = String(state.whiteboardLinkFromTaskId || '').trim();
             const fromDocId = String(state.whiteboardLinkFromDocId || '').trim();
             const preview = state.whiteboardLinkPreview && typeof state.whiteboardLinkPreview === 'object' ? state.whiteboardLinkPreview : null;
-            if (fromTaskId && fromDocId === docId && preview) {
+            const shouldRenderPreview = isGlobalBody
+                ? (fromTaskId && visibleTaskIds.has(fromTaskId))
+                : (fromTaskId && fromDocId === docId);
+            if (shouldRenderPreview && preview) {
                 const from = getPt(fromTaskId, 'from');
                 if (from) {
                     let tx = NaN;
@@ -3882,9 +4459,13 @@
                         }
                     }
                     if (Number.isFinite(tx) && Number.isFinite(ty)) {
-                        const fromProxy = __tmFindWhiteboardCollapsedProxyTaskId(fromTaskId, docId);
+                        const fromProxyDocId = isGlobalBody ? (fromDocId || docId) : docId;
+                        const fromProxy = __tmFindWhiteboardCollapsedProxyTaskId(fromTaskId, fromProxyDocId);
                         const targetTaskId = String(preview.targetTaskId || '').trim();
-                        const toProxy = targetTaskId ? __tmFindWhiteboardCollapsedProxyTaskId(targetTaskId, docId) : '';
+                        const toProxyDocId = isGlobalBody
+                            ? (String(preview.targetDocId || __tmGetTaskDocIdById(targetTaskId) || '').trim() || docId)
+                            : docId;
+                        const toProxy = targetTaskId ? __tmFindWhiteboardCollapsedProxyTaskId(targetTaskId, toProxyDocId) : '';
                         const d = buildAvoidPath(
                             from,
                             { x: tx, y: ty },
@@ -3896,7 +4477,8 @@
                 }
             }
             svg.innerHTML = defs + paths + previewPath;
-            if (selectedToolPos && selectedLinkId && selectedLinkDocId === docId) {
+            const selectedToolDocId = isGlobalBody ? globalCanvasDocId : docId;
+            if (selectedToolPos && selectedLinkId && selectedLinkDocId === selectedToolDocId) {
                 try {
                     const tools = document.createElement('div');
                     tools.className = 'tm-whiteboard-link-tools';
@@ -4048,6 +4630,8 @@
         };
         const onMove = (e2) => {
             if (!samePointer(e2)) return;
+            try { e2?.preventDefault?.(); } catch (e) {}
+            try { e2?.stopPropagation?.(); } catch (e) {}
             const x = Number(e2?.clientX) || sx;
             const y = Number(e2?.clientY) || sy;
             if (!session.moved) {
@@ -4059,6 +4643,8 @@
         };
         const onUp = async (e2) => {
             if (!samePointer(e2)) return;
+            try { e2?.preventDefault?.(); } catch (e) {}
+            try { e2?.stopPropagation?.(); } catch (e) {}
             __tmClearTaskLinkPointerFallback();
             if (session.dragStarted) return;
             if (session.moved && session.hoverTaskId) {
@@ -4085,6 +4671,9 @@
     }
 
     window.tmTaskLinkDotPressStart = function(ev, taskId, docId) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.stopImmediatePropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
         state.whiteboardLinkPress = {
             taskId: String(taskId || '').trim(),
             docId: String(docId || '').trim(),
@@ -4103,6 +4692,7 @@
 
     window.tmTaskLinkDotDragStart = function(ev, taskId, docId) {
         try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.stopImmediatePropagation?.(); } catch (e) {}
         const fb = state.whiteboardLinkPointerFallback;
         if (fb && typeof fb === 'object') {
             fb.dragStarted = true;
@@ -4128,6 +4718,7 @@
     window.tmTaskLinkDotDragOver = function(ev) {
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.stopImmediatePropagation?.(); } catch (e) {}
         const target = ev?.currentTarget instanceof Element ? ev.currentTarget : (ev?.target?.closest?.('.tm-task-link-dot') || null);
         const taskId = String(target?.closest?.('.tm-whiteboard-node,[data-id]')?.getAttribute?.('data-task-id') || target?.closest?.('.tm-gantt-row')?.getAttribute?.('data-id') || '').trim();
         const docId = String(target?.closest?.('.tm-whiteboard-node')?.getAttribute?.('data-doc-id') || target?.closest?.('.tm-gantt-row')?.getAttribute?.('data-doc-id') || '').trim();
@@ -4166,6 +4757,7 @@
 
     window.tmTaskLinkDotDragEnd = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.stopImmediatePropagation?.(); } catch (e) {}
         __tmClearTaskLinkPointerFallback();
         __tmResetLinkDragState();
         __tmScheduleWhiteboardEdgeRedraw();
@@ -4174,6 +4766,7 @@
     window.tmTaskLinkDotDrop = async function(ev, targetTaskId, targetDocId) {
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.stopImmediatePropagation?.(); } catch (e) {}
         const toId = String(targetTaskId || '').trim();
         let fromId = '';
         let fromDocId = '';
@@ -4194,6 +4787,58 @@
             __tmResetLinkDragState();
             __tmScheduleWhiteboardEdgeRedraw();
             return;
+        }
+        let globalBody = null;
+        try {
+            const eventNode = ev?.currentTarget instanceof Element
+                ? ev.currentTarget
+                : (ev?.target instanceof Element ? ev.target : null);
+            globalBody = __tmGetWhiteboardGlobalBodyFromElement(eventNode);
+        } catch (e) {}
+        if (!globalBody && typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive()) {
+            const body = __tmGetWhiteboardGlobalCanvasBody();
+            try {
+                if (body?.querySelector?.(`.tm-whiteboard-node[data-task-id="${CSS.escape(toId)}"]`)) {
+                    globalBody = body;
+                }
+            } catch (e) {}
+        }
+        if (globalBody && typeof __tmGetWhiteboardGlobalTaskLinks === 'function' && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
+            let fromDocIdForGlobal = fromDocId;
+            let toDocIdForGlobal = toDocId;
+            let hasFromNode = false;
+            let hasToNode = false;
+            try {
+                const fromNode = globalBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(fromId)}"]`);
+                const toNode = globalBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(toId)}"]`);
+                hasFromNode = fromNode instanceof Element;
+                hasToNode = toNode instanceof Element;
+                fromDocIdForGlobal = String(fromNode?.getAttribute?.('data-doc-id') || fromDocIdForGlobal || '').trim();
+                toDocIdForGlobal = String(toNode?.getAttribute?.('data-doc-id') || toDocIdForGlobal || '').trim();
+            } catch (e) {}
+            if (hasFromNode && hasToNode) {
+                const manual = __tmGetWhiteboardGlobalTaskLinks();
+                const exists = manual.some(x => String(x?.from || '') === fromId && String(x?.to || '') === toId);
+                if (exists) {
+                    hint('ℹ 该连线已存在', 'info');
+                    __tmResetLinkDragState();
+                    __tmScheduleWhiteboardEdgeRedraw();
+                    return;
+                }
+                manual.push({
+                    id: `global_link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    from: fromId,
+                    to: toId,
+                    fromDocId: fromDocIdForGlobal,
+                    toDocId: toDocIdForGlobal,
+                    createdAt: String(Date.now()),
+                });
+                __tmSetWhiteboardGlobalTaskLinks(manual, '', { keepEmpty: true });
+                try { await SettingsStore.save(); } catch (e) {}
+                __tmResetLinkDragState();
+                render();
+                return;
+            }
         }
         const check = __tmCanLinkTasks(fromId, toId);
         if (!check.ok) {
@@ -4228,8 +4873,18 @@
         try { ev?.stopPropagation?.(); } catch (e) {}
         const id = String(linkId || '').trim();
         if (!id) return;
-        const manual = __tmGetManualTaskLinks().filter(x => String(x?.id || '').trim() !== id);
-        __tmSetManualTaskLinks(manual);
+        const globalCanvasDocId = typeof __tmGetWhiteboardGlobalCanvasDocId === 'function'
+            ? __tmGetWhiteboardGlobalCanvasDocId()
+            : '__tm_global_whiteboard__';
+        if (String(state.whiteboardSelectedLinkDocId || '').trim() === globalCanvasDocId
+            && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
+            && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
+            const links = __tmGetWhiteboardGlobalTaskLinks().filter(x => String(x?.id || '').trim() !== id);
+            __tmSetWhiteboardGlobalTaskLinks(links, '', { keepEmpty: true });
+        } else {
+            const manual = __tmGetManualTaskLinks().filter(x => String(x?.id || '').trim() !== id);
+            __tmSetManualTaskLinks(manual);
+        }
         if (String(state.whiteboardSelectedLinkId || '').trim() === id) {
             state.whiteboardSelectedLinkId = '';
             state.whiteboardSelectedLinkDocId = '';
@@ -4334,8 +4989,24 @@
         if (!id) return;
         const pid = __tmResolveWhiteboardTaskParentId(id);
         if (!pid) return;
-        __tmSetWhiteboardChildDetached(id, false);
-        __tmSetWhiteboardTaskPlaced(id, false, { persist: false });
+        const eventEl = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+        const cardEl = (eventEl?.closest?.('.tm-whiteboard-node') instanceof HTMLElement)
+            ? eventEl.closest('.tm-whiteboard-node')
+            : state.modal?.querySelector?.(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
+        if (__tmIsWhiteboardGlobalElement(cardEl)) {
+            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const board = __tmGetWhiteboardGlobalBoardState(groupId);
+            const nodePos = (board?.nodePos && typeof board.nodePos === 'object') ? { ...board.nodePos } : {};
+            const placedTaskIds = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? { ...board.placedTaskIds } : {};
+            const detachedChildren = (board?.detachedChildren && typeof board.detachedChildren === 'object') ? { ...board.detachedChildren } : {};
+            delete nodePos[id];
+            delete placedTaskIds[id];
+            delete detachedChildren[id];
+            __tmPatchWhiteboardGlobalBoardState(groupId, { nodePos, placedTaskIds, detachedChildren }, { keepEmpty: true });
+        } else {
+            __tmSetWhiteboardChildDetached(id, false);
+            __tmSetWhiteboardTaskPlaced(id, false, { persist: false });
+        }
         try { await SettingsStore.save(); } catch (e) {}
         render();
     };
@@ -4399,7 +5070,13 @@
     window.tmWhiteboardClearLinks = async function() {
         const ok = confirm('确认清空所有手动连线？');
         if (!ok) return;
-        __tmSetManualTaskLinks([]);
+        if (typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
+            && __tmIsWhiteboardGlobalCanvasActive()
+            && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
+            __tmSetWhiteboardGlobalTaskLinks([], '', { keepEmpty: true });
+        } else {
+            __tmSetManualTaskLinks([]);
+        }
         state.whiteboardSelectedLinkId = '';
         state.whiteboardSelectedLinkDocId = '';
         state.whiteboardMultiSelectedLinkKeys = [];

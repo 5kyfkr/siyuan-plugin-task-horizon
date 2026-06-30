@@ -519,7 +519,6 @@ return;
                 action: `tmSetKanbanBoardMode('time')`
             }
         ];
-
         const {
             renderMode,
             mainBodyHtml,
@@ -576,6 +575,32 @@ return;
             isDesktopNarrow,
             mountEl: __tmMountEl,
         });
+        const whiteboardLayoutLabelMap = { global: '全局白板', board: '文档框', stream: '卡片流' };
+        const buildWhiteboardLayoutMenuOptions = (modeValue, fromMobileMenu = false) => {
+            const mode = __tmNormalizeWhiteboardAllTabsLayoutMode(modeValue);
+            return [
+                {
+                    value: 'global',
+                    label: whiteboardLayoutLabelMap.global,
+                    selected: mode === 'global',
+                    action: fromMobileMenu ? `tmSetWhiteboardLayoutModeFromMobileMenu('global')` : `tmSetWhiteboardAllTabsLayoutMode('global')`
+                },
+                {
+                    value: 'board',
+                    label: whiteboardLayoutLabelMap.board,
+                    selected: mode === 'board',
+                    action: fromMobileMenu ? `tmSetWhiteboardLayoutModeFromMobileMenu('board')` : `tmSetWhiteboardAllTabsLayoutMode('board')`
+                },
+                {
+                    value: 'stream',
+                    label: whiteboardLayoutLabelMap.stream,
+                    selected: mode === 'stream',
+                    action: fromMobileMenu ? `tmSetWhiteboardLayoutModeFromMobileMenu('stream')` : `tmSetWhiteboardAllTabsLayoutMode('stream')`
+                }
+            ];
+        };
+        const whiteboardLayoutMenuOptions = buildWhiteboardLayoutMenuOptions(whiteboardAllTabsLayoutMode, false);
+        const whiteboardMobileLayoutMenuOptions = buildWhiteboardLayoutMenuOptions(whiteboardMobileMenuLayoutMode, true);
         const showCalendarSidebarMobileTopbarToggle = !!(renderMode === 'calendar' && (isMobile || isRuntimeMobile || hostUsesMobileUI));
         const showCalendarSidebarCompactToggle = !!(renderMode === 'calendar'
             && !showCalendarSidebarMobileTopbarToggle
@@ -676,10 +701,7 @@ return;
                         ${renderMode === 'kanban' ? `
                             ${__tmRenderTopbarSelect({ id: 'tmTopbarKanbanModeSelect', label: '看板模式', options: kanbanModeMenuOptions, className: 'tm-kanban-mode-select tm-topbar-select--narrow', tooltip: '切换看板模式' })}
                         ` : showWhiteboardAllTabsModeToggle ? `
-                            <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="白板模式">
-                                <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardAllTabsLayoutMode !== 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardAllTabsLayoutMode !== 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardAllTabsLayoutMode('board', event)" role="tab" aria-selected="${whiteboardAllTabsLayoutMode !== 'stream' ? 'true' : 'false'}"${__tmBuildTooltipAttrs('白板', { side: 'bottom', ariaLabel: false })}>白板</button>
-                                <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardAllTabsLayoutMode === 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardAllTabsLayoutMode === 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardAllTabsLayoutMode('stream', event)" role="tab" aria-selected="${whiteboardAllTabsLayoutMode === 'stream' ? 'true' : 'false'}"${__tmBuildTooltipAttrs('卡片流', { side: 'bottom', ariaLabel: false })}>卡片流</button>
-                            </div>
+                            ${__tmRenderTopbarSelect({ id: 'tmTopbarWhiteboardLayoutSelect', label: '白板模式', options: whiteboardLayoutMenuOptions, className: 'tm-kanban-mode-select tm-topbar-select--narrow', tooltip: '切换白板模式' })}
                         ` : ''}
                         ${showTopbarTimelineToolbar ? `
                             ${timelineCompactToolbarGroupHtml}
@@ -719,12 +741,9 @@ return;
                                 </div>
                                 ` : ''}
                                 ${showWhiteboardMobileLayoutModeToggle ? `
-                                <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
-                                    <span style="color:var(--tm-text-color);">白板模式${showWhiteboardAllTabsModeToggle ? '' : '（切到全部页签）'}:</span>
-                                    <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="白板模式" style="width:100%;">
-                                        <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardMobileMenuLayoutMode !== 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardMobileMenuLayoutMode !== 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardLayoutModeFromMobileMenu('board', event)" role="tab" aria-selected="${whiteboardMobileMenuLayoutMode !== 'stream' ? 'true' : 'false'}" style="flex:1;line-height:30px;">白板</button>
-                                        <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardMobileMenuLayoutMode === 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardMobileMenuLayoutMode === 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardLayoutModeFromMobileMenu('stream', event)" role="tab" aria-selected="${whiteboardMobileMenuLayoutMode === 'stream' ? 'true' : 'false'}" style="flex:1;line-height:30px;">卡片流</button>
-                                    </div>
+                                <div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
+                                    <span class="tm-mobile-menu-label" style="color:var(--tm-text-color);width:60px;">白板:</span>
+                                    ${__tmRenderTopbarSelect({ id: 'tmMobileWhiteboardLayoutSelect', label: '白板模式', options: whiteboardMobileLayoutMenuOptions, style: 'flex:1;' })}
                                 </div>
                                 ` : ''}
                                 ${showInlineDocGroupQuickSelect ? '' : `<div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">

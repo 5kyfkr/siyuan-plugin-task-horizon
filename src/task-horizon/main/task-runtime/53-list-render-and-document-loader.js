@@ -3493,7 +3493,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 }
 
         const protectedFlowRankMap = new Map();
-        const forceHeadingContext = opts.forceHeadingContext === true;
+        const forceHeadingContext = opts.forceHeadingContext === true
+            || (typeof __tmShouldLoadCompactChecklistHeadingContext === 'function'
+                && __tmShouldLoadCompactChecklistHeadingContext());
         const protectedHeadingContextMap = new Map();
         if ((forceDocFlowOrder || forceHeadingContext) && flatTasks.length > 0) {
             try {

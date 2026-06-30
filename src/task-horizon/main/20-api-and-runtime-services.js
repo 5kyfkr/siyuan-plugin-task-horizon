@@ -1604,9 +1604,7 @@
         async getTaskById(id) {
             const tid = String(id || '').trim();
             if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(tid)) return null;
-            const attrNamesSql = __tmBuildTaskInlineAttrNamesSql('                            ');
-            const attrAggregateSql = __tmBuildTaskInlineAttrAggregateSql('                        ');
-            const legacyCompat = SettingsStore.data?.legacyWin7CompatMode === true;
+            const attrScalarSelectSql = __tmBuildTaskInlineAttrScalarSelectSql('task.id', '                    ');
             const compatTaskAliasTypeCondition = (alias) => `${alias}.type = 'i'`;
             const sql = `
                 SELECT
@@ -1616,7 +1614,12 @@
                     task.parent_id,
                     task.path as block_path,
                     task.sort as block_sort,
-                    parent_list.type as parent_list_type,
+                    (
+                        SELECT parent_list.type
+                        FROM blocks parent_list
+                        WHERE parent_list.id = task.parent_id
+                        LIMIT 1
+                    ) as parent_list_type,
                     (
                         SELECT COUNT(*)
                         FROM blocks siblings
@@ -1624,45 +1627,36 @@
                           AND ${compatTaskAliasTypeCondition('siblings')}
                           AND siblings.subtype = 't'
                     ) as parent_list_task_count,
-                    parent_task.id as parent_task_id,
+                    (
+                        SELECT parent_task.id
+                        FROM blocks parent_task
+                        WHERE parent_task.id = (
+                            SELECT parent_list.parent_id
+                            FROM blocks parent_list
+                            WHERE parent_list.id = task.parent_id
+                            LIMIT 1
+                        )
+                          AND ${compatTaskAliasTypeCondition('parent_task')}
+                          AND parent_task.subtype = 't'
+                        LIMIT 1
+                    ) as parent_task_id,
                     task.root_id,
                     task.created,
                     task.updated,
-                    doc.content as doc_name,
-                    doc.hpath as doc_path,
-                    attr.custom_priority,
-                    attr.duration,
-                    attr.remark,
-                    attr.start_date,
-                    attr.completion_time,
-                    attr.task_complete_at,
-                    attr.milestone,
-                    attr.custom_time,
-                    attr.custom_status,
-                    attr.pinned,
-                    attr.custom_all_day_bottom,
-                    attr.repeat_rule,
-                    attr.repeat_state,
-                    attr.repeat_history,
-                    attr.tomato_minutes,
-                    attr.tomato_hours,
-                    attr.tomato_count,
-                    attr.tomato_estimate_count
+                    (
+                        SELECT doc.content
+                        FROM blocks doc
+                        WHERE doc.id = task.root_id
+                        LIMIT 1
+                    ) as doc_name,
+                    (
+                        SELECT doc.hpath
+                        FROM blocks doc
+                        WHERE doc.id = task.root_id
+                        LIMIT 1
+                    ) as doc_path,
+                    ${attrScalarSelectSql}
                 FROM blocks AS task
-                INNER JOIN blocks AS doc ON task.root_id = doc.id
-                LEFT JOIN blocks AS parent_list ON parent_list.id = task.parent_id
-                LEFT JOIN blocks AS parent_task ON parent_task.id = parent_list.parent_id AND ${compatTaskAliasTypeCondition('parent_task')} AND parent_task.subtype = 't'
-                LEFT JOIN (
-                    SELECT
-                        a.block_id,
-                        ${attrAggregateSql}
-                    FROM attributes a
-                    WHERE a.block_id = '${tid}'
-                      AND a.name IN (
-                            ${attrNamesSql}
-                      )
-                    GROUP BY a.block_id
-                ) AS attr ON attr.block_id = task.id
                 WHERE task.id = '${tid}'
                 LIMIT 1
             `;
@@ -18025,6 +18019,7 @@ refreshOk = false;
 
     function __tmNormalizeWhiteboardAllTabsLayoutMode(mode) {
         const m = String(mode || '').trim().toLowerCase();
+        if (m === 'global') return 'global';
         return m === 'stream' ? 'stream' : 'board';
     }
 
@@ -19119,6 +19114,7 @@ refreshOk = false;
 
     const __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS = Object.freeze([
         { key: 'docName', label: '文档名' },
+        { key: 'h2', label: '二级标题' },
         { key: 'startDate', label: '开始时间' },
         { key: 'completionTime', label: '截止日期' },
         { key: 'remainingTime', label: '剩余时间' },
@@ -19197,6 +19193,14 @@ refreshOk = false;
             return __tmNormalizeCompactChecklistMetaFields(SettingsStore?.data?.dockChecklistCompactMetaFields);
         }
         return __tmNormalizeCompactChecklistMetaFields(SettingsStore?.data?.desktopChecklistCompactMetaFields);
+    };
+
+    const __tmShouldLoadCompactChecklistHeadingContext = () => {
+        const viewMode = String(state?.viewMode || '').trim();
+        const isCalendarSidebarChecklist = state.__tmCalendarSidebarChecklistRender === true || __tmHasCalendarSidebarChecklist(state.modal);
+        if (viewMode !== 'checklist' && !isCalendarSidebarChecklist) return false;
+        if (!SettingsStore?.data?.checklistCompactMode) return false;
+        return __tmNormalizeCompactChecklistMetaFields(__tmGetCompactChecklistMetaFieldsForCurrentHost(), []).includes('h2');
     };
 
     const __tmShouldShowCompactChecklistDocName = () => {

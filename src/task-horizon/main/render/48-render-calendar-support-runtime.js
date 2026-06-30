@@ -1159,8 +1159,30 @@
         return __tmIsRuntimeMobileClient() || __tmHostUsesMobileUI();
     }
 
+    function __tmIsWhiteboardFloatingMiniSource(el) {
+        const node = el instanceof Element ? el : null;
+        if (!node) return false;
+        return !!node.closest?.([
+            '.tm-whiteboard-pool-item',
+            '.tm-whiteboard-pool-h2',
+            '.tm-whiteboard-node',
+            '.tm-whiteboard-stream-task-head',
+            '.tm-whiteboard-stream-task-node',
+            '.tm-whiteboard-doc-body',
+            '.tm-whiteboard-sidebar',
+            '.tm-whiteboard-layout',
+            '.tm-body--whiteboard',
+        ].join(','));
+    }
+
     function __tmCalendarFloatingDragStart(taskId, meta, ev, opts = {}) {
         if (__tmShouldSuppressCalendarFloatingMiniPanel()) return false;
+        const sourceEl = ev?.target instanceof Element
+            ? ev.target
+            : (ev?.currentTarget instanceof Element ? ev.currentTarget : null);
+        const currentEl = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
+        if (__tmIsWhiteboardFloatingMiniSource(sourceEl) || __tmIsWhiteboardFloatingMiniSource(currentEl)) return false;
+        if (state.whiteboardPoolDragStart || state.whiteboardNodeDrag) return false;
         const id = String(taskId || '').trim();
         if (!id) return false;
         const calendar = globalThis.__tmCalendar;

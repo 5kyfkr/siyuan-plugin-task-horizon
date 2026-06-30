@@ -392,6 +392,9 @@
                 const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all')
                     || (typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(state.activeDocId));
                 const showCompactDocName = checklistCompact && isAllTabsView && compactChecklistMetaFieldSet.has('docName') && !!task.docName;
+                const compactHeadingText = checklistCompact && compactChecklistMetaFieldSet.has('h2')
+                    ? __tmNormalizeHeadingText(task.h2)
+                    : '';
                 const showCompactStartDate = checklistCompact && compactChecklistMetaFieldSet.has('startDate') && !!task.startDate;
                 const showCompactCompletionTime = checklistCompact && compactChecklistMetaFieldSet.has('completionTime') && !!task.completionTime;
                 const compactRemainingTimeInfo = checklistCompact && compactChecklistMetaFieldSet.has('remainingTime')
@@ -434,6 +437,7 @@
                 if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip">子任务 ${completedChildren}/${totalChildren}</span>`);
                 const compactMetaParts = [];
                 if (showCompactDocName) compactMetaParts.push(`<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>`);
+                if (compactHeadingText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-h2" title="${esc(compactHeadingText)}">${esc(compactHeadingText)}</span>`);
                 if (showCompactStartDate) compactMetaParts.push(`<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start" data-tm-task-time-field="startDateCompact">${esc(__tmFormatTaskCardDateValueFromValue(task.startDate))}</span>`);
                 if (showCompactCompletionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion${__tmIsTaskCardDateOverdue(task, completedTodayKey) ? ' tm-checklist-meta-compact-date--overdue' : ''}" data-tm-task-time-field="completionTimeCompact">${esc(__tmFormatTaskCardDateValueFromValue(task.completionTime))}</span>`);
                 if (showCompactRemainingTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-remaining" data-tm-task-time-field="remainingTimeCompact" title="${esc(compactRemainingTimeLabel)}">${compactRemainingTimeHtml}</span>`);

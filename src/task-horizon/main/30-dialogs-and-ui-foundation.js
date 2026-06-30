@@ -14026,9 +14026,28 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
     };
 
+    function __tmIsWhiteboardTaskDragSource(el) {
+        const node = el instanceof Element ? el : null;
+        if (!node) return false;
+        return !!node.closest?.([
+            '.tm-whiteboard-pool-item[data-task-id]',
+            '.tm-whiteboard-pool-h2',
+            '.tm-whiteboard-node[data-task-id]',
+            '.tm-whiteboard-stream-task-head[data-task-id]',
+            '.tm-whiteboard-stream-task-node[data-task-id]',
+            '.tm-whiteboard-doc-body',
+            '.tm-whiteboard-sidebar',
+            '.tm-whiteboard-layout',
+            '.tm-body--whiteboard',
+        ].join(','));
+    }
+
     window.tmDragTaskStart = function(ev, taskId) {
         const id = String(taskId || '').trim();
         if (!id) return;
+        const targetEl = ev?.target instanceof Element ? ev.target : null;
+        const sourceEl = ev?.currentTarget instanceof Element ? ev.currentTarget : targetEl;
+        if (__tmIsWhiteboardTaskDragSource(sourceEl) || __tmIsWhiteboardTaskDragSource(targetEl)) return;
         if (__tmIsMultiSelectActive()) {
             try { ev?.preventDefault?.(); } catch (e) {}
             try { ev?.stopPropagation?.(); } catch (e) {}
@@ -14065,7 +14084,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             ev.dataTransfer.setData('text/plain', id);
         } catch (e) {}
         try {
-            const sourceEl = ev?.currentTarget instanceof Element ? ev.currentTarget : (ev?.target instanceof Element ? ev.target : null);
             const shouldSuppressFloatingMini = !!sourceEl?.closest?.('.tm-calendar-sidebar, [data-tm-cal-role="task-page-list"], [data-tm-cal-role="task-list"], .tm-cal-task[data-task-id]');
             if (!shouldSuppressFloatingMini) {
                 __tmCalendarFloatingDragStart(id, meta, ev);

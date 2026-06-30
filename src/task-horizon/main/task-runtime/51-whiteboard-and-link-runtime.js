@@ -540,32 +540,42 @@
     function __tmBuildWhiteboardTaskOutlineModel(taskId, options = {}) {
         const id = String(taskId || '').trim();
         if (!id) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
         try {
             if (typeof __tmIsOptimisticTempTaskId === 'function' && __tmIsOptimisticTempTaskId(id)) return null;
         } catch (e) {}
         const location = typeof __tmResolveWhiteboardTaskLocation === 'function'
-            ? __tmResolveWhiteboardTaskLocation(id)
+            ? __tmResolveWhiteboardTaskLocation(id, { scope: opts.scope })
             : null;
         if (!location) return null;
         const docId = String(location.docId || '').trim();
         if (!docId) return null;
-        const opts = (options && typeof options === 'object') ? options : {};
+        const outlineScope = String(location.scope || opts.scope || '').trim() || 'board';
+        const isGlobalOutline = outlineScope === 'global';
         const requestedMaxNodes = Number(opts.maxNodes);
         const maxNodes = Number.isFinite(requestedMaxNodes) && requestedMaxNodes > 0
             ? Math.max(4, Math.round(requestedMaxNodes))
             : Infinity;
-        const allLinks = __tmGetAllTaskLinks({ docId, includeAuto: false });
+        const allLinks = isGlobalOutline && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
+            ? __tmGetWhiteboardGlobalTaskLinks(String(location.groupId || '').trim())
+            : __tmGetAllTaskLinks({ docId, includeAuto: false });
 
         const taskById = new Map();
-        const addTask = (tid) => {
+        const resolveTaskDocId = (taskLike, tid, fallbackDocId = '') => {
+            const key = String(tid || taskLike?.id || '').trim();
+            return String(taskLike?.root_id || taskLike?.docId || __tmGetTaskDocIdById(key) || fallbackDocId || docId).trim() || docId;
+        };
+        const addTask = (tid, docIdHint = '') => {
             const key = String(tid || '').trim();
             if (!key) return null;
             if (taskById.has(key)) return taskById.get(key);
-            const taskLike = __tmGetWhiteboardOutlineTaskLike(key, docId);
+            const hint = isGlobalOutline ? String(docIdHint || '').trim() : docId;
+            let taskLike = __tmGetWhiteboardOutlineTaskLike(key, hint);
+            if (!taskLike && isGlobalOutline) taskLike = __tmGetWhiteboardOutlineTaskLike(key, '');
             if (taskLike) taskById.set(key, taskLike);
             return taskLike;
         };
-        const currentTaskLike = addTask(id);
+        const currentTaskLike = addTask(id, docId);
         if (!currentTaskLike) return null;
         const buildSingleNodeModel = () => {
             const padX = Math.max(6, Math.min(24, Number(opts.padX) || 10));
@@ -578,9 +588,10 @@
             const contentW = Math.max(nodeW, availableWidth > 0 ? availableWidth - padX * 2 : 0);
             const width = Math.ceil(contentW + padX * 2);
             const height = Math.ceil(Math.max(80, nodeH + padY * 2));
+            const nodeDocId = resolveTaskDocId(currentTaskLike, id, docId);
             const node = {
                 id,
-                docId,
+                docId: nodeDocId,
                 title: __tmGetWhiteboardOutlineTaskTitle(currentTaskLike, id),
                 done: __tmIsWhiteboardOutlineTaskDone(currentTaskLike),
                 current: true,
@@ -594,6 +605,7 @@
             return {
                 taskId: id,
                 docId,
+                scope: outlineScope,
                 location,
                 width,
                 height,
@@ -614,12 +626,20 @@
             const from = String(link?.from || '').trim();
             const to = String(link?.to || '').trim();
             if (!from || !to || from === to) return;
-            if (!addTask(from) || !addTask(to)) return;
+            const fromDocId = String(link?.fromDocId || __tmGetTaskDocIdById(from) || '').trim();
+            const toDocId = String(link?.toDocId || __tmGetTaskDocIdById(to) || '').trim();
+            const fromTask = addTask(from, fromDocId);
+            const toTask = addTask(to, toDocId);
+            if (!fromTask || !toTask) return;
             const normalized = {
                 id: String(link?.id || `outline_${docId}_${from}_${to}_${index}`).trim(),
                 from,
                 to,
-                docId,
+                docId: isGlobalOutline && typeof __tmGetWhiteboardGlobalCanvasDocId === 'function'
+                    ? __tmGetWhiteboardGlobalCanvasDocId()
+                    : docId,
+                fromDocId: resolveTaskDocId(fromTask, from, fromDocId || docId),
+                toDocId: resolveTaskDocId(toTask, to, toDocId || docId),
             };
             links.push(normalized);
             if (!out.has(from)) out.set(from, []);
@@ -640,7 +660,7 @@
             const key = String(tid || '').trim();
             if (orderById.has(key)) return Number(orderById.get(key));
             if (linkOrder.has(key)) return 100000 + Number(linkOrder.get(key));
-            const taskLike = taskById.get(key) || __tmGetWhiteboardOutlineTaskLike(key, docId);
+            const taskLike = taskById.get(key) || __tmGetWhiteboardOutlineTaskLike(key, isGlobalOutline ? '' : docId);
             const created = __tmTaskCreatedOrderValue(taskLike);
             return Number.isFinite(created) ? 200000 + created : 999999999;
         };
@@ -760,7 +780,7 @@
                 nodeRectById.set(tid, rect);
                 nodeModels.push({
                     id: tid,
-                    docId,
+                    docId: resolveTaskDocId(taskLike, tid, docId),
                     title: __tmGetWhiteboardOutlineTaskTitle(taskLike, tid),
                     done: __tmIsWhiteboardOutlineTaskDone(taskLike),
                     current: tid === id,
@@ -780,6 +800,7 @@
         return {
             taskId: id,
             docId,
+            scope: outlineScope,
             location,
             width,
             height,
@@ -1012,6 +1033,109 @@
         }
     }
 
+    function __tmGetWhiteboardGlobalBoardGroupId(groupId = '') {
+        return String(groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+    }
+
+    function __tmGetWhiteboardGlobalBoardsByGroupMap() {
+        return __tmNormalizeWhiteboardGlobalBoardsByGroupMap(SettingsStore.data.whiteboardGlobalBoardsByGroup);
+    }
+
+    function __tmGetWhiteboardGlobalBoardState(groupId = '') {
+        const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
+        const map = __tmGetWhiteboardGlobalBoardsByGroupMap();
+        return __tmNormalizeWhiteboardGlobalBoardState(map[gid] || {});
+    }
+
+    function __tmSetWhiteboardGlobalBoardState(groupId, boardState, opts = {}) {
+        const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const board = __tmNormalizeWhiteboardGlobalBoardState(boardState || {});
+        const next = { ...__tmGetWhiteboardGlobalBoardsByGroupMap() };
+        const hasContent = __tmIsPlainObjectWithKeys(board.nodePos)
+            || __tmIsPlainObjectWithKeys(board.placedTaskIds)
+            || __tmIsPlainObjectWithKeys(board.detachedChildren)
+            || (Array.isArray(board.notes) && board.notes.length > 0)
+            || (Array.isArray(board.links) && board.links.length > 0);
+        if (hasContent || o.keepEmpty === true) next[gid] = board;
+        else delete next[gid];
+        SettingsStore.data.whiteboardGlobalBoardsByGroup = next;
+        if (WhiteboardStore.loaded) {
+            try {
+                WhiteboardStore.data.globalBoardsByGroup = __tmNormalizeWhiteboardGlobalBoardsByGroupMap(next);
+                WhiteboardStore.scheduleSave();
+            } catch (e) {}
+        }
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.persist) {
+            try { SettingsStore.save(); } catch (e) {}
+        }
+    }
+
+    function __tmPatchWhiteboardGlobalBoardState(groupId, patch, opts = {}) {
+        const current = __tmGetWhiteboardGlobalBoardState(groupId);
+        const next = { ...current, ...((patch && typeof patch === 'object') ? patch : {}) };
+        __tmSetWhiteboardGlobalBoardState(groupId, next, opts);
+        return next;
+    }
+
+    function __tmGetWhiteboardGlobalCanvasDocId() {
+        return '__tm_global_whiteboard__';
+    }
+
+    function __tmGetWhiteboardGlobalTaskLinks(groupId = '') {
+        const board = __tmGetWhiteboardGlobalBoardState(groupId);
+        const links = Array.isArray(board?.links) ? board.links : [];
+        const out = [];
+        const seen = new Set();
+        links.forEach((link, index) => {
+            const item = (link && typeof link === 'object') ? link : {};
+            const from = String(item.from || '').trim();
+            const to = String(item.to || '').trim();
+            if (!from || !to || from === to) return;
+            const key = `${from}->${to}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            out.push({
+                id: String(item.id || '').trim() || `global_link_${from}_${to}_${index}`,
+                from,
+                to,
+                fromDocId: String(item.fromDocId || __tmGetTaskDocIdById(from) || '').trim(),
+                toDocId: String(item.toDocId || __tmGetTaskDocIdById(to) || '').trim(),
+                docId: __tmGetWhiteboardGlobalCanvasDocId(),
+                createdAt: String(item.createdAt || '').trim() || String(Date.now()),
+                manual: true,
+                global: true,
+            });
+        });
+        return out;
+    }
+
+    function __tmSetWhiteboardGlobalTaskLinks(nextLinks, groupId = '', opts = {}) {
+        const list = Array.isArray(nextLinks) ? nextLinks : [];
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const normalized = [];
+        const seen = new Set();
+        list.forEach((link, index) => {
+            const item = (link && typeof link === 'object') ? link : {};
+            const from = String(item.from || '').trim();
+            const to = String(item.to || '').trim();
+            if (!from || !to || from === to) return;
+            const key = `${from}->${to}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            normalized.push({
+                id: String(item.id || '').trim() || `global_link_${from}_${to}_${index}`,
+                from,
+                to,
+                fromDocId: String(item.fromDocId || __tmGetTaskDocIdById(from) || '').trim(),
+                toDocId: String(item.toDocId || __tmGetTaskDocIdById(to) || '').trim(),
+                createdAt: String(item.createdAt || '').trim() || String(Date.now()),
+            });
+        });
+        __tmPatchWhiteboardGlobalBoardState(groupId, { links: normalized }, { keepEmpty: true, persist: o.persist });
+    }
+
     function __tmClearWhiteboardAllTabsDocDragMarkers() {
         try {
             state.modal?.querySelectorAll?.('.tm-whiteboard-stream-doc--drag-before,.tm-whiteboard-stream-doc--drag-after,.tm-whiteboard-stream-doc--dragging')?.forEach?.((el) => {
@@ -1020,10 +1144,22 @@
         } catch (e) {}
     }
 
+    function __tmIsWhiteboardGlobalCanvasActive() {
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        return state.viewMode === 'whiteboard'
+            && activeDocId === 'all'
+            && __tmGetWhiteboardAllTabsLayoutMode() === 'global';
+    }
+
     function __tmGetWhiteboardView() {
-        const raw = (SettingsStore.data.whiteboardView && typeof SettingsStore.data.whiteboardView === 'object')
+        const rawGlobal = __tmIsWhiteboardGlobalCanvasActive()
+            ? __tmGetWhiteboardGlobalBoardState().view
+            : null;
+        const raw = (rawGlobal && typeof rawGlobal === 'object')
+            ? rawGlobal
+            : ((SettingsStore.data.whiteboardView && typeof SettingsStore.data.whiteboardView === 'object')
             ? SettingsStore.data.whiteboardView
-            : {};
+            : {});
         const x = Number(raw.x);
         const y = Number(raw.y);
         const zoom = Number(raw.zoom);
@@ -1042,6 +1178,10 @@
         const y = Number.isFinite(Number(p.y)) ? Number(p.y) : prev.y;
         const zoom0 = Number.isFinite(Number(p.zoom)) ? Number(p.zoom) : prev.zoom;
         const zoom = Math.max(0.35, Math.min(2.5, zoom0));
+        if (__tmIsWhiteboardGlobalCanvasActive()) {
+            __tmPatchWhiteboardGlobalBoardState('', { view: { x, y, zoom } }, { keepEmpty: true, persist: o.persist });
+            return;
+        }
         SettingsStore.data.whiteboardView = { x, y, zoom };
         try { SettingsStore.syncToLocal(); } catch (e) {}
         if (o.persist) {
@@ -1137,14 +1277,122 @@
         }
     }
 
-    function __tmResolveWhiteboardTaskLocation(taskId) {
+    function __tmResolveWhiteboardTaskLocation(taskId, options = {}) {
         const id = String(taskId || '').trim();
         if (!id) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const requestedScope = String(opts.scope || '').trim();
         const task = state.flatTasks?.[id] || null;
         const snapshot = __tmGetWhiteboardCardSnapshot(id);
         if (!task && !snapshot) return null;
         const docId = String(task?.root_id || task?.docId || __tmGetTaskDocIdById(id) || snapshot?.docId || '').trim();
         if (!docId) return null;
+        let globalLocation = undefined;
+        const getGlobalLocation = () => {
+            if (globalLocation !== undefined) return globalLocation;
+            globalLocation = null;
+            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const board = __tmGetWhiteboardGlobalBoardState(groupId);
+            const placedMap0 = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? board.placedTaskIds : {};
+            const detachedMap0 = (board?.detachedChildren && typeof board.detachedChildren === 'object') ? board.detachedChildren : {};
+            if (!__tmIsPlainObjectWithKeys(placedMap0)) return globalLocation;
+            const showDoneTasks0 = !!SettingsStore.data.whiteboardShowDone;
+            const getTaskLike0 = (tid) => {
+                const key = String(tid || '').trim();
+                if (!key) return null;
+                const live = state.flatTasks?.[key];
+                if (live && typeof live === 'object') return live;
+                const snap = __tmGetWhiteboardCardSnapshot(key);
+                if (!snap || typeof snap !== 'object') return null;
+                return {
+                    id: key,
+                    root_id: String(snap.docId || '').trim(),
+                    docId: String(snap.docId || '').trim(),
+                    parentTaskId: String(snap.parentTaskId || '').trim(),
+                    done: !!snap.done,
+                };
+            };
+            const resolveParentId0 = (tid) => {
+                const key = String(tid || '').trim();
+                if (!key) return '';
+                const liveParent = String(state.flatTasks?.[key]?.parentTaskId || '').trim();
+                if (liveParent) return liveParent;
+                const detachedParent = String(detachedMap0?.[key]?.parentTaskId || '').trim();
+                if (detachedParent) return detachedParent;
+                return String(__tmGetWhiteboardCardSnapshot(key)?.parentTaskId || '').trim();
+            };
+            const path0 = [id];
+            let cur0 = id;
+            const seen0 = new Set();
+            while (cur0 && !seen0.has(cur0)) {
+                seen0.add(cur0);
+                const parentId0 = resolveParentId0(cur0);
+                if (!parentId0) break;
+                const parentDocId0 = String(__tmGetTaskDocIdById(parentId0) || __tmGetWhiteboardCardSnapshot(parentId0)?.docId || '').trim();
+                if (parentDocId0 && parentDocId0 !== docId) break;
+                const detachedItem = detachedMap0?.[cur0];
+                if (detachedItem && typeof detachedItem === 'object' && detachedItem.detached === true) break;
+                path0.push(parentId0);
+                cur0 = parentId0;
+            }
+            let rootPlacedIndex0 = -1;
+            path0.forEach((tid, index) => {
+                const key = String(tid || '').trim();
+                if (placedMap0[key]) rootPlacedIndex0 = index;
+            });
+            if (rootPlacedIndex0 < 0) return globalLocation;
+            const rootPlacedId0 = String(path0[rootPlacedIndex0] || '').trim();
+            if (!rootPlacedId0) return globalLocation;
+            const collapsed0 = __tmKanbanGetCollapsedSet();
+            if (rootPlacedId0 === id) {
+                globalLocation = { taskId: id, docId, targetTaskId: id, scope: 'global', groupId };
+                return globalLocation;
+            }
+            const renderPath0 = path0.slice(0, rootPlacedIndex0 + 1).reverse();
+            let visibleTargetId0 = rootPlacedId0;
+            let inheritedHideCompleted0 = false;
+            for (let i = 1; i < renderPath0.length; i += 1) {
+                const parentId0 = String(renderPath0[i - 1] || '').trim();
+                const childId0 = String(renderPath0[i] || '').trim();
+                if (!parentId0 || !childId0) break;
+                if (collapsed0.has(parentId0)) {
+                    globalLocation = { taskId: id, docId, targetTaskId: parentId0, scope: 'global', groupId };
+                    return globalLocation;
+                }
+                const parentTask0 = getTaskLike0(parentId0);
+                const childTask0 = getTaskLike0(childId0);
+                if (!parentTask0 || !childTask0 || (!showDoneTasks0 && !!childTask0?.done)) {
+                    globalLocation = { taskId: id, docId, targetTaskId: visibleTargetId0, scope: 'global', groupId };
+                    return globalLocation;
+                }
+                let keepChild0 = true;
+                try {
+                    keepChild0 = __tmShouldKeepChildTaskVisible(parentTask0, childTask0, inheritedHideCompleted0);
+                } catch (e) {
+                    keepChild0 = !(inheritedHideCompleted0 || state.showCompletedTasks !== true) || !childTask0?.done;
+                }
+                if (!keepChild0) {
+                    globalLocation = { taskId: id, docId, targetTaskId: visibleTargetId0, scope: 'global', groupId };
+                    return globalLocation;
+                }
+                visibleTargetId0 = childId0;
+                try {
+                    inheritedHideCompleted0 = __tmResolveHideCompletedDescendantsFlag(parentTask0, inheritedHideCompleted0);
+                } catch (e) {
+                    inheritedHideCompleted0 = inheritedHideCompleted0 || state.showCompletedTasks !== true;
+                }
+            }
+            globalLocation = { taskId: id, docId, targetTaskId: id, scope: 'global', groupId };
+            return globalLocation;
+        };
+        if (requestedScope === 'global') return getGlobalLocation();
+        const preferGlobal = requestedScope !== 'board'
+            && typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
+            && __tmIsWhiteboardGlobalCanvasActive();
+        if (preferGlobal) {
+            const loc = getGlobalLocation();
+            if (loc) return loc;
+        }
         const placedMap = __tmGetWhiteboardPlacedTaskMap();
         const showDoneTasks = !!SettingsStore.data.whiteboardShowDone;
         const filteredVisibleIds = new Set();
@@ -1200,7 +1448,7 @@
             const key = String(tid || '').trim();
             if (placedMap[key] && isWhiteboardTaskVisible(key)) rootPlacedIndex = index;
         });
-        if (rootPlacedIndex < 0) return null;
+        if (rootPlacedIndex < 0) return requestedScope === 'board' ? null : getGlobalLocation();
         const rootPlacedId = String(path[rootPlacedIndex] || '').trim();
         if (rootPlacedId === id) return { taskId: id, docId, targetTaskId: id };
         const collapsed = __tmKanbanGetCollapsedSet();
@@ -9395,11 +9643,15 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 ? `<span class="tm-task-detail-subtask-count">${doneKids}/${totalKids}</span>`
                 : '';
             const childrenHtml = kids.map((child) => renderNode(child, depth + 1)).join('');
+            const checkboxExtraClass = [
+                GlobalLock.isLocked() ? 'tm-operating' : '',
+                SettingsStore.data.taskCheckboxCircleStyleEnabled === true ? 'tm-task-checkbox--circle' : '',
+            ].filter(Boolean).join(' ');
             return `
                 <div class="tm-task-detail-subtask${childrenHtml ? ' tm-task-detail-subtask--has-children' : ''}" style="--tm-task-detail-depth:${depth};">
                     <div class="tm-task-detail-subtask-row" data-tm-detail-subtask-menu="${esc(tid)}">
                         <div class="tm-task-detail-subtask-main">
-                            ${__tmRenderTaskCheckbox(tid, viewTask, { checked: viewTask?.done, extraClass: GlobalLock.isLocked() ? 'tm-operating' : '', stopMouseDown: true, stopClick: true, priority: canonicalPriority })}
+                            ${__tmRenderTaskCheckbox(tid, viewTask, { checked: viewTask?.done, extraClass: checkboxExtraClass, stopMouseDown: true, stopClick: true, priority: canonicalPriority })}
                             <textarea class="tm-task-detail-subtask-title${viewTask?.done ? ' is-done' : ''}" data-tm-detail-subtask-content="${esc(tid)}" rows="1" ${readOnly ? 'readonly' : ''} title="${readOnly ? '其他块内容请回原文档编辑' : '直接编辑子任务内容'}">${esc(String(viewTask?.content || '').trim() || '')}</textarea>
                         </div>
                         <div class="tm-task-detail-subtask-trailing">

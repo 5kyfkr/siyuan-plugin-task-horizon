@@ -4352,6 +4352,7 @@
         'whiteboardDocFrameSize',
         'whiteboardAllTabsLayoutMode',
         'whiteboardAllTabsDocOrderByGroup',
+        'whiteboardGlobalBoardsByGroup',
         'whiteboardSequenceMode',
     ]);
 
@@ -4597,6 +4598,62 @@
         return out;
     }
 
+    function __tmNormalizeWhiteboardGlobalLinkArray(input) {
+        const list = Array.isArray(input) ? input : [];
+        return list.map((item, index) => {
+            const link = (item && typeof item === 'object') ? item : {};
+            const from = String(link.from || '').trim();
+            const to = String(link.to || '').trim();
+            if (!from || !to || from === to) return null;
+            const createdAt = String(link.createdAt || '').trim() || String(Date.now());
+            const idRaw = String(link.id || '').trim();
+            const id = idRaw || `global_link_${from}_${to}_${index}`;
+            return {
+                id,
+                from,
+                to,
+                fromDocId: String(link.fromDocId || '').trim(),
+                toDocId: String(link.toDocId || '').trim(),
+                createdAt,
+                manual: true,
+            };
+        }).filter(Boolean);
+    }
+
+    function __tmNormalizeWhiteboardGlobalBoardState(input) {
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const viewRaw = (raw.view && typeof raw.view === 'object' && !Array.isArray(raw.view)) ? raw.view : {};
+        const view = {
+            x: Number.isFinite(Number(viewRaw.x)) ? Number(viewRaw.x) : 64,
+            y: Number.isFinite(Number(viewRaw.y)) ? Number(viewRaw.y) : 40,
+            zoom: Number.isFinite(Number(viewRaw.zoom)) ? Math.max(0.35, Math.min(2.5, Number(viewRaw.zoom))) : 1,
+        };
+        return {
+            nodePos: __tmNormalizeWhiteboardNodePosMap(raw.nodePos || raw.whiteboardNodePos),
+            placedTaskIds: __tmNormalizeWhiteboardPlacedTaskIds(raw.placedTaskIds || raw.whiteboardPlacedTaskIds),
+            notes: __tmNormalizeWhiteboardNoteArray(raw.notes || raw.whiteboardNotes),
+            links: __tmNormalizeWhiteboardGlobalLinkArray(raw.links || raw.whiteboardLinks),
+            detachedChildren: __tmNormalizeWhiteboardDetachedChildrenMap(raw.detachedChildren || raw.whiteboardDetachedChildren),
+            view,
+        };
+    }
+
+    function __tmNormalizeWhiteboardGlobalBoardsByGroupMap(input) {
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const out = {};
+        Object.keys(raw).forEach((k) => {
+            const gid = String(k || '').trim() || 'all';
+            const board = __tmNormalizeWhiteboardGlobalBoardState(raw[k]);
+            const hasContent = __tmIsPlainObjectWithKeys(board.nodePos)
+                || __tmIsPlainObjectWithKeys(board.placedTaskIds)
+                || __tmIsPlainObjectWithKeys(board.detachedChildren)
+                || (Array.isArray(board.notes) && board.notes.length > 0)
+                || (Array.isArray(board.links) && board.links.length > 0);
+            if (hasContent || gid === 'all') out[gid] = board;
+        });
+        return out;
+    }
+
     function __tmIsPlainObjectWithKeys(value) {
         return !!(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0);
     }
@@ -4619,6 +4676,7 @@
             whiteboardDocFrameSize: __tmNormalizeWhiteboardDocFrameSizeMap(src.whiteboardDocFrameSize),
             whiteboardAllTabsLayoutMode: String(src.whiteboardAllTabsLayoutMode || 'board').trim() || 'board',
             whiteboardAllTabsDocOrderByGroup: __tmNormalizeWhiteboardAllTabsDocOrderMap(src.whiteboardAllTabsDocOrderByGroup),
+            whiteboardGlobalBoardsByGroup: __tmNormalizeWhiteboardGlobalBoardsByGroupMap(src.whiteboardGlobalBoardsByGroup),
             whiteboardSequenceMode: !!src.whiteboardSequenceMode,
         };
     }
@@ -4641,6 +4699,7 @@
             state.whiteboardPlacedTaskIds,
             state.whiteboardDocFrameSize,
             state.whiteboardAllTabsDocOrderByGroup,
+            state.whiteboardGlobalBoardsByGroup,
         ].some((item) => item && typeof item === 'object' && !Array.isArray(item) && Object.keys(item).length > 0);
     }
 
@@ -4653,7 +4712,8 @@
             || Object.prototype.hasOwnProperty.call(src, 'whiteboardNodePos')
             || Object.prototype.hasOwnProperty.call(src, 'whiteboardPlacedTaskIds')
             || Object.prototype.hasOwnProperty.call(src, 'whiteboardDocFrameSize')
-            || Object.prototype.hasOwnProperty.call(src, 'whiteboardAllTabsDocOrderByGroup');
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardAllTabsDocOrderByGroup')
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardGlobalBoardsByGroup');
     }
 
     function __tmShouldUseRemoteWhiteboardSettings(remoteData, localData, loadedVersion = 0, localChanged = false) {
@@ -4756,6 +4816,7 @@
             notes: __tmNormalizeWhiteboardNoteArray(raw.notes || raw.whiteboardNotes),
             docFrameSize: __tmNormalizeWhiteboardDocFrameSizeMap(raw.docFrameSize || raw.whiteboardDocFrameSize),
             allTabsDocOrderByGroup: __tmNormalizeWhiteboardAllTabsDocOrderMap(raw.allTabsDocOrderByGroup || raw.whiteboardAllTabsDocOrderByGroup),
+            globalBoardsByGroup: __tmNormalizeWhiteboardGlobalBoardsByGroupMap(raw.globalBoardsByGroup || raw.whiteboardGlobalBoardsByGroup),
         };
         const updatedAt = String(raw.updatedAt || '').trim();
         if (updatedAt) out.updatedAt = updatedAt;
@@ -4774,6 +4835,7 @@
             notes: settings.whiteboardNotes,
             docFrameSize: settings.whiteboardDocFrameSize,
             allTabsDocOrderByGroup: settings.whiteboardAllTabsDocOrderByGroup,
+            globalBoardsByGroup: settings.whiteboardGlobalBoardsByGroup,
         });
     }
 
@@ -4790,6 +4852,7 @@
         if ((!hasField('notes', 'whiteboardNotes') || rawVersion <= 0) && !next.notes.length && settings.whiteboardNotes.length) next.notes = settings.whiteboardNotes;
         if ((!hasField('docFrameSize', 'whiteboardDocFrameSize') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.docFrameSize) && __tmIsPlainObjectWithKeys(settings.whiteboardDocFrameSize)) next.docFrameSize = settings.whiteboardDocFrameSize;
         if ((!hasField('allTabsDocOrderByGroup', 'whiteboardAllTabsDocOrderByGroup') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.allTabsDocOrderByGroup) && __tmIsPlainObjectWithKeys(settings.whiteboardAllTabsDocOrderByGroup)) next.allTabsDocOrderByGroup = settings.whiteboardAllTabsDocOrderByGroup;
+        if ((!hasField('globalBoardsByGroup', 'whiteboardGlobalBoardsByGroup') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.globalBoardsByGroup) && __tmIsPlainObjectWithKeys(settings.whiteboardGlobalBoardsByGroup)) next.globalBoardsByGroup = settings.whiteboardGlobalBoardsByGroup;
         return __tmNormalizeWhiteboardStoreData(next);
     }
 
@@ -4803,6 +4866,7 @@
         target.whiteboardNotes = state.notes;
         target.whiteboardDocFrameSize = state.docFrameSize;
         target.whiteboardAllTabsDocOrderByGroup = state.allTabsDocOrderByGroup;
+        target.whiteboardGlobalBoardsByGroup = state.globalBoardsByGroup;
         target.whiteboardStateVersion = Math.max(
             __tmParseVersionNumber(target.whiteboardStateVersion),
             __tmParseVersionNumber(state.version)
@@ -4829,7 +4893,8 @@
             || __tmIsPlainObjectWithKeys(state.detachedChildren)
             || (Array.isArray(state.notes) && state.notes.length > 0)
             || __tmIsPlainObjectWithKeys(state.docFrameSize)
-            || __tmIsPlainObjectWithKeys(state.allTabsDocOrderByGroup);
+            || __tmIsPlainObjectWithKeys(state.allTabsDocOrderByGroup)
+            || __tmIsPlainObjectWithKeys(state.globalBoardsByGroup);
     }
 
     function __tmHasWhiteboardStorePayload(data) {
@@ -4843,7 +4908,8 @@
             || Object.prototype.hasOwnProperty.call(src, 'detachedChildren')
             || Object.prototype.hasOwnProperty.call(src, 'notes')
             || Object.prototype.hasOwnProperty.call(src, 'docFrameSize')
-            || Object.prototype.hasOwnProperty.call(src, 'allTabsDocOrderByGroup');
+            || Object.prototype.hasOwnProperty.call(src, 'allTabsDocOrderByGroup')
+            || Object.prototype.hasOwnProperty.call(src, 'globalBoardsByGroup');
     }
 
     function __tmShouldUseRemoteWhiteboardStoreData(remoteData, localData, loadedVersion = 0, localChanged = false) {
@@ -6543,6 +6609,7 @@
             whiteboardDocFrameSize: {},
             whiteboardAllTabsLayoutMode: 'board',
             whiteboardAllTabsDocOrderByGroup: {},
+            whiteboardGlobalBoardsByGroup: {},
             whiteboardSequenceMode: false,
             collapseAllIncludesGroups: false,
             serverSyncOnManualRefresh: false,
@@ -7588,6 +7655,7 @@
             this.data.whiteboardDocFrameSize = Storage.get('tm_whiteboard_doc_frame_size', this.data.whiteboardDocFrameSize) || {};
             this.data.whiteboardAllTabsLayoutMode = Storage.get('tm_whiteboard_all_tabs_layout_mode', this.data.whiteboardAllTabsLayoutMode);
             this.data.whiteboardAllTabsDocOrderByGroup = Storage.get('tm_whiteboard_all_tabs_doc_order_by_group', this.data.whiteboardAllTabsDocOrderByGroup) || {};
+            this.data.whiteboardGlobalBoardsByGroup = Storage.get('tm_whiteboard_global_boards_by_group', this.data.whiteboardGlobalBoardsByGroup) || {};
             this.data.whiteboardSequenceMode = Storage.get('tm_whiteboard_sequence_mode', this.data.whiteboardSequenceMode);
             this.data.docColorMap = Storage.get('tm_doc_color_map', this.data.docColorMap) || {};
             this.data.docColorSeed = Storage.get('tm_doc_color_seed', this.data.docColorSeed);
@@ -8031,6 +8099,7 @@
             Storage.set('tm_whiteboard_doc_frame_size', this.data.whiteboardDocFrameSize || {});
             Storage.set('tm_whiteboard_all_tabs_layout_mode', __tmNormalizeWhiteboardAllTabsLayoutMode(this.data.whiteboardAllTabsLayoutMode));
             Storage.set('tm_whiteboard_all_tabs_doc_order_by_group', this.data.whiteboardAllTabsDocOrderByGroup || {});
+            Storage.set('tm_whiteboard_global_boards_by_group', this.data.whiteboardGlobalBoardsByGroup || {});
             Storage.set('tm_whiteboard_sequence_mode', !!this.data.whiteboardSequenceMode);
             Storage.set('tm_doc_color_map', this.data.docColorMap || {});
             Storage.set('tm_doc_color_seed', Number(this.data.docColorSeed) || 1);
@@ -8375,6 +8444,7 @@
                 if (nextIds.length > 0) wbAllTabsOrder[gid] = nextIds;
             });
             this.data.whiteboardAllTabsDocOrderByGroup = wbAllTabsOrder;
+            this.data.whiteboardGlobalBoardsByGroup = __tmNormalizeWhiteboardGlobalBoardsByGroupMap(this.data.whiteboardGlobalBoardsByGroup);
         },
 
         async save(options = {}) {
@@ -8521,6 +8591,7 @@
                     'whiteboardPlacedTaskIds',
                     'whiteboardDocFrameSize',
                     'whiteboardAllTabsDocOrderByGroup',
+                    'whiteboardGlobalBoardsByGroup',
                 ].some((key) => settingsFieldChange.changedKeys.has(key));
                 if (collapseChangedLocal) {
                     this.data.collapseStateUpdatedAt = Date.now();
@@ -8643,7 +8714,29 @@
 
         // 便捷方法：更新文档分组
         async updateDocGroups(groups) {
-            this.data.docGroups = (Array.isArray(groups) ? groups : []).map((group) => __tmNormalizeDocGroupConfig(group, this.data.docDefaultColorScheme)).filter(Boolean);
+            const prevIds = new Set((Array.isArray(this.data.docGroups) ? this.data.docGroups : [])
+                .map((group) => String(group?.id || '').trim())
+                .filter(Boolean));
+            const nextGroups = (Array.isArray(groups) ? groups : []).map((group) => __tmNormalizeDocGroupConfig(group, this.data.docDefaultColorScheme)).filter(Boolean);
+            const nextIds = new Set(nextGroups.map((group) => String(group?.id || '').trim()).filter(Boolean));
+            const removedIds = Array.from(prevIds).filter((id) => id && id !== 'all' && !nextIds.has(id));
+            this.data.docGroups = nextGroups;
+            if (removedIds.length) {
+                const cleanMap = (value) => {
+                    const map = (value && typeof value === 'object' && !Array.isArray(value)) ? { ...value } : {};
+                    removedIds.forEach((id) => { delete map[id]; });
+                    return map;
+                };
+                this.data.whiteboardGlobalBoardsByGroup = cleanMap(this.data.whiteboardGlobalBoardsByGroup);
+                this.data.whiteboardAllTabsDocOrderByGroup = cleanMap(this.data.whiteboardAllTabsDocOrderByGroup);
+                if (WhiteboardStore?.loaded) {
+                    try {
+                        WhiteboardStore.data.globalBoardsByGroup = cleanMap(WhiteboardStore.data?.globalBoardsByGroup);
+                        WhiteboardStore.data.allTabsDocOrderByGroup = cleanMap(WhiteboardStore.data?.allTabsDocOrderByGroup);
+                        WhiteboardStore.scheduleSave();
+                    } catch (e) {}
+                }
+            }
             await this.save();
         },
 
@@ -11173,6 +11266,26 @@
                     return `MAX(CASE WHEN a.name = '${String(names[0] || '').replace(/'/g, "''")}' THEN a.value ELSE NULL END) AS ${spec.alias}`;
                 }
                 return `NULL AS ${spec.alias}`;
+            })
+            .filter(Boolean)
+            .join(`,\n${pad}`);
+    }
+
+    function __tmBuildTaskInlineAttrScalarSelectSql(blockExpr = 'task.id', indent = '                        ') {
+        const pad = (typeof indent === 'string' && indent.length > 0) ? indent : '                        ';
+        const targetExpr = String(blockExpr || '').trim() || 'task.id';
+        return __tmGetTaskInlineAttrSpecs()
+            .map((spec) => {
+                if (!spec?.alias) return '';
+                if (!spec.enabled) return `NULL AS ${spec.alias}`;
+                const names = (Array.isArray(spec.names) ? spec.names : [spec.name])
+                    .map((name) => String(name || '').trim())
+                    .filter(Boolean);
+                if (!names.length) return `NULL AS ${spec.alias}`;
+                const parts = names.map((name) => `MAX(CASE WHEN a.name = '${String(name || '').replace(/'/g, "''")}' THEN a.value ELSE NULL END)`);
+                const expr = parts.length > 1 ? `COALESCE(${parts.join(', ')})` : parts[0];
+                const nameList = names.map((name) => `'${String(name || '').replace(/'/g, "''")}'`).join(', ');
+                return `(SELECT ${expr} FROM attributes a WHERE a.block_id = ${targetExpr} AND a.name IN (${nameList})) AS ${spec.alias}`;
             })
             .filter(Boolean)
             .join(`,\n${pad}`);
@@ -14347,10 +14460,13 @@
         const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'
             ? __tmGetKanbanBoardMode() === 'heading'
             : !!SettingsStore.data.kanbanHeadingGroupMode;
+        const compactMetaNeedsH2 = typeof __tmShouldLoadCompactChecklistHeadingContext === 'function'
+            && __tmShouldLoadCompactChecklistHeadingContext();
         const needH2 = colOrder0.includes('h2')
             || normalizedRuleSorts0.some((item) => String(item?.field || '').trim() === 'h2')
             || docHeadingSubgroupActive
-            || kanbanHeadingGroupingActive;
+            || kanbanHeadingGroupingActive
+            || compactMetaNeedsH2;
         const customFieldLoadPlan0 = __tmCollectCustomFieldLoadPlan({
             viewMode,
             colOrder: colOrder0,

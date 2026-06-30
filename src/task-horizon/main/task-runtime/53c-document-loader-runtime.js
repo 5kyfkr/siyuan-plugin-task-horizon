@@ -1774,10 +1774,13 @@
                 const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'
                     ? __tmGetKanbanBoardMode() === 'heading'
                     : !!SettingsStore.data.kanbanHeadingGroupMode;
+                const compactMetaNeedsH2 = typeof __tmShouldLoadCompactChecklistHeadingContext === 'function'
+                    && __tmShouldLoadCompactChecklistHeadingContext();
                 const needH2 = colOrder0.includes('h2')
                     || normalizedRuleSorts0.some(s => String(s?.field || '').trim() === 'h2')
                     || docHeadingSubgroupActive
-                    || kanbanHeadingGroupingActive;
+                    || kanbanHeadingGroupingActive
+                    || compactMetaNeedsH2;
                 const ruleNeedsH2Sort = Array.isArray(rule0?.sort) && rule0.sort.some(s => String(s?.field || '').trim() === 'h2');
                 const normalizeStartTime = Date.now();
                 const normalizeMetrics = {

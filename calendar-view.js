@@ -858,8 +858,31 @@
 
     function shouldSuppressFloatingMiniForOfficialExternalDrag(sourceEl) {
         const source = sourceEl instanceof Element ? sourceEl : null;
+        if (shouldSuppressFloatingMiniForWhiteboardSource(source)) return true;
         if (!source) return false;
         return !!source.closest?.('.tm-calendar-sidebar, [data-tm-cal-role="task-page-list"], [data-tm-cal-role="task-list"], .tm-cal-task[data-task-id]');
+    }
+
+    function shouldSuppressFloatingMiniForWhiteboardSource(sourceEl = null) {
+        const source = sourceEl instanceof Element ? sourceEl : null;
+        if (source?.closest?.([
+            '.tm-whiteboard-pool-item',
+            '.tm-whiteboard-pool-h2',
+            '.tm-whiteboard-node',
+            '.tm-whiteboard-stream-task-head',
+            '.tm-whiteboard-stream-task-node',
+            '.tm-whiteboard-doc-body',
+            '.tm-whiteboard-sidebar',
+            '.tm-whiteboard-layout',
+            '.tm-body--whiteboard',
+        ].join(','))) return true;
+        try {
+            if (globalThis.__tmRuntimeState?.isViewMode?.('whiteboard') === true) return true;
+        } catch (e) {}
+        try {
+            if (document.querySelector?.('.tm-modal .tm-body--whiteboard, .tm-body--whiteboard')) return true;
+        } catch (e) {}
+        return false;
     }
 
     function suppressTaskClickAfterCalendarExternalDrag(ms = 420) {
@@ -4845,15 +4868,32 @@
         if (!el || !el.classList.contains('fc-list-event')) return false;
         try {
             el.style.setProperty('--tm-cal-list-stripe-width', '4px');
+            el.style.setProperty('display', 'block', 'important');
+            el.style.setProperty('width', '100%', 'important');
+            el.style.setProperty('max-width', '100%', 'important');
+            el.style.setProperty('min-width', '0', 'important');
+            el.style.setProperty('flex', '1 1 auto', 'important');
+            el.style.setProperty('box-sizing', 'border-box', 'important');
             el.style.setProperty('padding-left', 'var(--tm-cal-list-stripe-width, 4px)', 'important');
             el.style.setProperty('background-size', 'var(--tm-cal-list-stripe-width, 4px) 100%, 100% 100%', 'important');
+            const parentList = el.closest?.('[role="list"]');
+            if (parentList instanceof HTMLElement) {
+                parentList.style.setProperty('width', '100%', 'important');
+                parentList.style.setProperty('max-width', '100%', 'important');
+                parentList.style.setProperty('min-width', '0', 'important');
+                parentList.style.setProperty('flex', '1 1 auto', 'important');
+                parentList.style.setProperty('box-sizing', 'border-box', 'important');
+            }
             el.querySelectorAll?.('.fc-list-event-main, .fc-event-main').forEach?.((node) => {
                 if (!(node instanceof HTMLElement)) return;
                 node.style.setProperty('display', 'flex', 'important');
                 node.style.setProperty('align-items', 'center', 'important');
+                node.style.setProperty('width', '100%', 'important');
                 node.style.setProperty('padding', '0', 'important');
                 node.style.setProperty('min-width', '0', 'important');
                 node.style.setProperty('max-width', '100%', 'important');
+                node.style.setProperty('flex', '1 1 auto', 'important');
+                node.style.setProperty('box-sizing', 'border-box', 'important');
             });
             el.querySelectorAll?.('.tm-cal-task-event, .tm-cal-schedule-list-content').forEach?.((node) => {
                 applyCalendarListEventContentLayout(node);
@@ -9820,6 +9860,15 @@
 
     function showFloatingMiniCalendar(opts) {
         const options = (opts && typeof opts === 'object') ? opts : {};
+        let pointTarget = options.target instanceof Element ? options.target : null;
+        if (!pointTarget) {
+            try {
+                const x = Number(options.clientX);
+                const y = Number(options.clientY);
+                if (Number.isFinite(x) && Number.isFinite(y)) pointTarget = document.elementFromPoint(x, y);
+            } catch (e) {}
+        }
+        if (shouldSuppressFloatingMiniForWhiteboardSource(pointTarget)) return false;
         const taskId = String(options.taskId || options.dragTaskId || '').trim();
         let meta = (options.meta && typeof options.meta === 'object') ? options.meta : null;
         if (!meta && taskId && typeof window.tmCalendarGetTaskDragMeta === 'function') {

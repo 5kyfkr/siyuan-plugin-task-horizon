@@ -1814,17 +1814,46 @@
         `;
     }
 
+    function __tmBuildTaskDetailWhiteboardOutlineScopeSelectHtml(options, activeScope) {
+        const items = Array.isArray(options) ? options : [];
+        if (items.length <= 1) return '';
+        const current = String(activeScope || '').trim();
+        const currentItem = items.find((item) => String(item?.value || '').trim() === current) || items[0] || {};
+        const currentLabel = String(currentItem?.label || currentItem?.value || current || '').trim();
+        return `
+            <div class="tm-task-detail-whiteboard-outline-scope-select" data-tm-detail-whiteboard-outline-scope-select data-value="${esc(current)}">
+                <button type="button" class="bc-btn bc-btn--sm tm-task-detail-whiteboard-outline-scope-trigger" data-tm-detail-whiteboard-outline-scope-trigger aria-haspopup="listbox" aria-expanded="false" title="切换白板路径">
+                    <span class="tm-task-detail-whiteboard-outline-scope-trigger__label" data-tm-detail-whiteboard-outline-scope-label>${esc(currentLabel)}</span>
+                    <span class="tm-task-detail-whiteboard-outline-scope-trigger__chevron" aria-hidden="true">${__tmRenderLucideIcon('caret-down', '', { size: 12 })}</span>
+                </button>
+                <div class="bc-select-menu tm-task-detail-whiteboard-outline-scope-menu" data-tm-detail-whiteboard-outline-scope-menu role="listbox" aria-label="切换白板路径" hidden>
+                    ${items.map((item) => {
+                    const value = String(item?.value || '').trim();
+                    const label = String(item?.label || value).trim();
+                    if (!value) return '';
+                    const selected = value === current;
+                    return `<button class="bc-select-option tm-task-detail-whiteboard-outline-scope-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-detail-whiteboard-outline-scope-option data-value="${esc(value)}" data-label="${esc(label)}"><span>${esc(label)}</span><span class="bc-select-option__check" aria-hidden="true">✓</span></button>`;
+                }).join('')}
+                </div>
+            </div>
+        `;
+    }
+
     function __tmBuildTaskDetailWhiteboardOutlineHtml(model, detailTip, options = {}) {
         const item = (model && typeof model === 'object') ? model : null;
         if (!item || !Array.isArray(item.nodes) || !item.nodes.length) return '';
+        const opts = (options && typeof options === 'object') ? options : {};
         const total = Math.max(0, Number(item.stats?.total || item.nodes.length) || 0);
         const done = Math.max(0, Math.min(total, Number(item.stats?.done || 0) || 0));
         const outlineLabel = '\u767d\u677f\u8def\u5f84';
+        const activeScope = String(item.scope || item.location?.scope || '').trim() || 'board';
+        const scopeSelectHtml = __tmBuildTaskDetailWhiteboardOutlineScopeSelectHtml(opts.scopeOptions, activeScope);
         return `
             <div class="tm-task-detail-whiteboard-outline" data-tm-detail-whiteboard-outline-section>
                 <div class="tm-task-detail-section-head">
                     <div class="tm-task-detail-section-title">${esc(outlineLabel)}</div>
                     <div class="tm-task-detail-section-tools">
+                        ${scopeSelectHtml}
                         <span class="tm-task-detail-section-count" data-tm-detail-whiteboard-outline-count>${esc(`${done}/${total}`)}</span>
                     </div>
                 </div>
@@ -2124,6 +2153,9 @@
         const embedded = !!opts.embedded;
         const floating = !!opts.floating;
         const closeable = !!opts.closeable;
+        const circleCheckboxClass = SettingsStore.data.taskCheckboxCircleStyleEnabled === true
+            ? ' tm-task-detail--task-checkbox-circle'
+            : '';
         const useCompactHeaderActions = embedded;
         const detailTip = (label, tipOpts = {}) => __tmBuildTooltipAttrs(label, {
             side: 'bottom',
@@ -2154,7 +2186,7 @@
                 </div>
             `;
         return `
-            <div class="${embedded ? 'tm-checklist-detail-card' : 'tm-task-detail'} tm-task-detail-shell tm-task-detail-shell--note" data-tm-detail-mode="${embedded ? 'embedded-note' : 'standalone-note'}" role="dialog" aria-modal="${embedded ? 'false' : 'true'}">
+            <div class="${embedded ? 'tm-checklist-detail-card' : 'tm-task-detail'} tm-task-detail-shell tm-task-detail-shell--note${circleCheckboxClass}" data-tm-detail-mode="${embedded ? 'embedded-note' : 'standalone-note'}" role="dialog" aria-modal="${embedded ? 'false' : 'true'}">
                 <div class="tm-task-detail-header tm-task-detail-header--note">
                     <div class="tm-task-detail-header-top">
                         ${locationHtml}
@@ -4799,8 +4831,35 @@
         const buildWhiteboardOutlineModelForPopover = (tid, popover = activeInlinePopover) => {
             const id = String(tid || '').trim();
             if (!id || typeof __tmBuildWhiteboardTaskOutlineModel !== 'function') return null;
+            const scope = popover instanceof HTMLElement
+                ? String(popover.getAttribute('data-tm-whiteboard-outline-scope') || '').trim()
+                : '';
             return __tmBuildWhiteboardTaskOutlineModel(id, {
                 availableWidth: getWhiteboardOutlineAvailableWidth(popover),
+                scope,
+            });
+        };
+        const buildWhiteboardOutlineScopeOptions = (tid, activeScope = '') => {
+            const id = String(tid || '').trim();
+            if (!id || typeof __tmBuildWhiteboardTaskOutlineModel !== 'function') return [];
+            const out = [];
+            const add = (scope, label) => {
+                const model = __tmBuildWhiteboardTaskOutlineModel(id, { scope, maxNodes: 4 });
+                if (model) out.push({ value: scope, label });
+            };
+            add('global', '全局白板');
+            add('board', '文档框白板');
+            const current = String(activeScope || '').trim();
+            if (current && !out.some((item) => item.value === current)) {
+                out.unshift({ value: current, label: current === 'global' ? '全局白板' : '文档框白板' });
+            }
+            return out;
+        };
+        const renderWhiteboardOutlineHtmlForPopover = (model, tid) => {
+            const activeScope = String(model?.scope || model?.location?.scope || '').trim() || 'board';
+            return __tmBuildTaskDetailWhiteboardOutlineHtml(model, buildDetailTip, {
+                popover: true,
+                scopeOptions: buildWhiteboardOutlineScopeOptions(tid, activeScope),
             });
         };
         const centerWhiteboardOutlineCurrentNode = (popover = activeInlinePopover) => {
@@ -4885,7 +4944,9 @@
                 return false;
             }
             targetPopover.setAttribute('data-tm-whiteboard-outline-popover-for', tid);
-            targetPopover.innerHTML = __tmBuildTaskDetailWhiteboardOutlineHtml(model, buildDetailTip, { popover: true });
+            const modelScope = String(model?.scope || model?.location?.scope || '').trim() || 'board';
+            targetPopover.setAttribute('data-tm-whiteboard-outline-scope', modelScope);
+            targetPopover.innerHTML = renderWhiteboardOutlineHtmlForPopover(model, tid);
             positionInlinePopover();
             syncWhiteboardOutlinePopoverFloatingTooltips(targetPopover);
             syncWhiteboardOutlinePanState(targetPopover);
@@ -4921,7 +4982,8 @@
             popover.setAttribute('role', 'dialog');
             popover.setAttribute('aria-label', '\u767d\u677f\u8def\u5f84');
             popover.setAttribute('data-tm-whiteboard-outline-popover-for', tid);
-            popover.innerHTML = __tmBuildTaskDetailWhiteboardOutlineHtml(model, buildDetailTip, { popover: true });
+            popover.setAttribute('data-tm-whiteboard-outline-scope', String(model?.scope || model?.location?.scope || '').trim() || 'board');
+            popover.innerHTML = renderWhiteboardOutlineHtmlForPopover(model, tid);
             document.body.appendChild(popover);
             activeInlinePopover = popover;
             activeInlinePopoverTrigger = trigger;
@@ -4929,7 +4991,8 @@
             const fittedModel = buildWhiteboardOutlineModelForPopover(tid, popover);
             if (fittedModel) {
                 model = fittedModel;
-                popover.innerHTML = __tmBuildTaskDetailWhiteboardOutlineHtml(model, buildDetailTip, { popover: true });
+                popover.setAttribute('data-tm-whiteboard-outline-scope', String(model?.scope || model?.location?.scope || '').trim() || 'board');
+                popover.innerHTML = renderWhiteboardOutlineHtmlForPopover(model, tid);
             }
             try { trigger.classList.add('is-open'); } catch (e) {}
             try { trigger.setAttribute('aria-expanded', 'true'); } catch (e) {}
@@ -4966,6 +5029,51 @@
                     try { ev.stopPropagation(); } catch (e) {}
                     return;
                 }
+                const closeScopeMenus = (exceptRoot = null) => {
+                    try {
+                        popover.querySelectorAll('[data-tm-detail-whiteboard-outline-scope-select]').forEach((rootEl) => {
+                            if (!(rootEl instanceof HTMLElement) || rootEl === exceptRoot) return;
+                            const menuEl = rootEl.querySelector('[data-tm-detail-whiteboard-outline-scope-menu]');
+                            const triggerEl = rootEl.querySelector('[data-tm-detail-whiteboard-outline-scope-trigger]');
+                            if (menuEl instanceof HTMLElement) {
+                                menuEl.hidden = true;
+                                menuEl.style.display = 'none';
+                            }
+                            if (triggerEl instanceof HTMLElement) triggerEl.setAttribute('aria-expanded', 'false');
+                        });
+                    } catch (e) {}
+                };
+                const scopeRoot = target?.closest?.('[data-tm-detail-whiteboard-outline-scope-select]');
+                if (scopeRoot instanceof HTMLElement && popover.contains(scopeRoot)) {
+                    const menu = scopeRoot.querySelector('[data-tm-detail-whiteboard-outline-scope-menu]');
+                    const trigger = scopeRoot.querySelector('[data-tm-detail-whiteboard-outline-scope-trigger]');
+                    const option = target?.closest?.('[data-tm-detail-whiteboard-outline-scope-option]');
+                    const triggerHit = target?.closest?.('[data-tm-detail-whiteboard-outline-scope-trigger]');
+                    if (triggerHit instanceof HTMLElement && triggerHit === trigger && menu instanceof HTMLElement) {
+                        try { ev.preventDefault(); } catch (e) {}
+                        try { ev.stopPropagation(); } catch (e) {}
+                        const nextOpen = !!menu.hidden;
+                        closeScopeMenus(scopeRoot);
+                        menu.hidden = !nextOpen;
+                        menu.style.display = nextOpen ? 'flex' : 'none';
+                        trigger.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+                        return;
+                    }
+                    if (option instanceof HTMLElement && menu instanceof HTMLElement && trigger instanceof HTMLElement) {
+                        try { ev.preventDefault(); } catch (e) {}
+                        try { ev.stopPropagation(); } catch (e) {}
+                        const nextScope = String(option.getAttribute('data-value') || '').trim();
+                        if (!nextScope) return;
+                        menu.hidden = true;
+                        menu.style.display = 'none';
+                        trigger.setAttribute('aria-expanded', 'false');
+                        popover.setAttribute('data-tm-whiteboard-outline-scope', nextScope);
+                        refreshWhiteboardOutlinePopover(popover, { closeIfMissing: false, centerCurrent: true });
+                        return;
+                    }
+                } else {
+                    closeScopeMenus();
+                }
                 const node = target?.closest?.('[data-tm-detail-whiteboard-outline-node]');
                 if (!(node instanceof HTMLElement) || !popover.contains(node)) return;
                 if (node.dataset.tmSuppressNextClick === 'true') {
@@ -4977,15 +5085,32 @@
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
                 const nodeTaskId = String(node.getAttribute('data-task-id') || '').trim();
-                const jumped = await window.tmJumpToWhiteboardTask?.(nodeTaskId || getBoundTaskId() || taskId, ev);
+                const scope = String(popover.getAttribute('data-tm-whiteboard-outline-scope') || '').trim();
+                const jumped = await window.tmJumpToWhiteboardTask?.(nodeTaskId || getBoundTaskId() || taskId, ev, { scope });
                 if (jumped === false) return;
                 closeInlinePopover(false, 'whiteboard-outline-node-jump');
                 const keepChecklistSideDetailOpen = embedded && String(root.id || '').trim() === 'tmChecklistDetailPanel';
                 if (!keepChecklistSideDetailOpen) await close();
             });
             on(popover, 'keydown', async (ev) => {
-                if (String(ev.key || '') !== 'Enter' && String(ev.key || '') !== ' ') return;
+                const key = String(ev.key || '');
                 const target = ev.target instanceof Element ? ev.target : null;
+                const scopeRoot = target?.closest?.('[data-tm-detail-whiteboard-outline-scope-select]');
+                if (scopeRoot instanceof HTMLElement && popover.contains(scopeRoot) && key === 'Escape') {
+                    const menu = scopeRoot.querySelector('[data-tm-detail-whiteboard-outline-scope-menu]');
+                    const trigger = scopeRoot.querySelector('[data-tm-detail-whiteboard-outline-scope-trigger]');
+                    if (menu instanceof HTMLElement) {
+                        try { ev.preventDefault(); } catch (e) {}
+                        menu.hidden = true;
+                        menu.style.display = 'none';
+                    }
+                    if (trigger instanceof HTMLElement) {
+                        trigger.setAttribute('aria-expanded', 'false');
+                        try { trigger.focus(); } catch (e) {}
+                    }
+                    return;
+                }
+                if (String(ev.key || '') !== 'Enter' && String(ev.key || '') !== ' ') return;
                 if (isWhiteboardOutlineCheckboxTarget(target)) return;
                 const node = target?.closest?.('[data-tm-detail-whiteboard-outline-node]');
                 if (!(node instanceof HTMLElement) || !popover.contains(node)) return;
