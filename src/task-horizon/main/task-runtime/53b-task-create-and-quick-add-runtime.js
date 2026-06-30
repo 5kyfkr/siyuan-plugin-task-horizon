@@ -3520,6 +3520,22 @@
         }
     };
 
+    let __tmQuickbarScheduledRefreshTimer = 0;
+
+    globalThis.__taskHorizonScheduleQuickbarRefresh = (options = {}) => {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const waitMs = Math.max(40, Math.min(180, Number(opts.delayMs) || 80));
+        if (__tmQuickbarScheduledRefreshTimer) {
+            try { clearTimeout(__tmQuickbarScheduledRefreshTimer); } catch (e) {}
+            __tmQuickbarScheduledRefreshTimer = 0;
+        }
+        __tmQuickbarScheduledRefreshTimer = setTimeout(() => {
+            __tmQuickbarScheduledRefreshTimer = 0;
+            try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
+        }, waitMs);
+        return true;
+    };
+
     // 注册全局刷新回调，供悬浮条调用
     globalThis.__taskHorizonRefresh = () => {
         try {
@@ -3546,6 +3562,21 @@
                     }
                 } catch (e) {}
                 try { __tmModifiedTaskIds.clear(); } catch (e) {}
+                return;
+            }
+            const runtimeMobile = globalThis.__tmRuntimeHost?.getInfo?.()?.runtimeMobileClient ?? __tmIsRuntimeMobileClient();
+            if (runtimeMobile) {
+                try {
+                    modifiedIds.forEach((taskId) => {
+                        try { __tmMarkQuickbarModifiedTask(taskId); } catch (e) {}
+                    });
+                } catch (e) {}
+                try { __tmModifiedTaskIds.clear(); } catch (e) {}
+                try {
+                    if (typeof __tmScheduleMaybeAutoRefreshOnEnter === 'function') {
+                        __tmScheduleMaybeAutoRefreshOnEnter('quickbar-refresh-hidden-mobile');
+                    }
+                } catch (e) {}
                 return;
             }
             // 不可见时再退回静默就地刷新，避免切回页面后数据过旧。

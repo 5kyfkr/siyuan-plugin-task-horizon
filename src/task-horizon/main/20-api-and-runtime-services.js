@@ -707,7 +707,7 @@
                 const plain = text.replace(/\s+/g, ' ').trim();
                 return plain ? [{ text: plain, linked: false }] : [];
             }
-            text = text.replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
+            text = text.replace(/<span\b[^>]*>([\s\S]*?)<\/span>/gi, '$1');
             text = text.replace(/\{\:\s*[^}]*\}/g, '');
             text = text.replace(/<[^>]+>/g, '');
             const pattern = /\(\(([0-9]{14}-[A-Za-z0-9]+)(?:\s+(['"])([\s\S]*?)\2)?\)\)|\[\[([^\]]+)\]\]|\[([^\]]+)\]\((?:[^)(]+|\([^)]*\))*\)/g;
@@ -4169,6 +4169,10 @@
         currentRule: null,
         filterRules: [],  // 从 SettingsStore 加载
         searchKeyword: '',
+        searchBarOpen: false,
+        searchBarFocusAfterRender: false,
+        searchBarSelectAfterRender: true,
+        searchBarLiveSearchTimer: 0,
         activeDocId: 'all',
 
         // 操作状态
@@ -6741,6 +6745,60 @@ onBlockInserted: (info) => {
         }
     }
 
+    function __tmRefreshQueuedStructuralProjection(op, detail = {}) {
+        try {
+            if (typeof __tmRefreshAffectedDocsIncrementally !== 'function') return false;
+            const type = String(op?.type || '').trim();
+            const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+            const extra = (detail && typeof detail === 'object') ? detail : {};
+            const docIds = new Set();
+            const blockIds = new Set();
+            const addDoc = (value) => {
+                const id = String(value || '').trim();
+                if (id) docIds.add(id);
+            };
+            const addBlock = (value) => {
+                const id = String(value || '').trim();
+                if (id) blockIds.add(id);
+            };
+
+            [
+                extra.docId,
+                data.docId,
+                data.targetDocId,
+                op?.docId,
+                data.snapshot?.docId,
+                data.snapshot?.task?.docId,
+                data.snapshot?.task?.root_id,
+            ].forEach(addDoc);
+            [
+                extra.taskId,
+                extra.realId,
+                data.taskId,
+                data.sourceTaskId,
+                data.insertedTaskId,
+                data.snapshot?.taskId,
+                data.snapshot?.task?.id,
+            ].forEach(addBlock);
+            if (type === 'createTaskInDoc' || type === 'createSubtask' || type === 'createSibling') {
+                addBlock(extra.effectiveTaskId);
+                addBlock(data.tempId);
+            }
+            if (!docIds.size && !blockIds.size) return false;
+            Promise.resolve(__tmRefreshAffectedDocsIncrementally({
+                docIds: Array.from(docIds),
+                blockIds: Array.from(blockIds),
+                withFilters: true,
+                forcePositionRank: true,
+                reason: `queue-${type || 'structural'}-position-reconcile`,
+                deferIfDetailBusy: true,
+            })).catch(() => null);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function __tmCommitQueuedOp(op, result) {
         const type = String(op?.type || '').trim();
         if (result && typeof result === 'object' && result.skipped === true) {
@@ -6853,6 +6911,12 @@ onBlockInserted: (info) => {
                     return;
                 }
             }
+            __tmRefreshQueuedStructuralProjection(op, {
+                taskId: effectiveTaskId,
+                realId,
+                effectiveTaskId,
+                docId: String(op?.data?.docId || op?.docId || '').trim(),
+            });
             return;
         }
         if (type === 'moveTask') {
@@ -6866,10 +6930,16 @@ onBlockInserted: (info) => {
                 taskId: String(op?.data?.taskId || '').trim(),
                 applyLocal: false,
             });
+            __tmRefreshQueuedStructuralProjection(op, {
+                taskId: String(op?.data?.taskId || '').trim(),
+            });
             return;
         }
         if (type === 'deleteTask') {
             __tmPublishQueuedOpMutation(op, 'commit', { applyLocal: false });
+            __tmRefreshQueuedStructuralProjection(op, {
+                taskId: String(op?.data?.taskId || '').trim(),
+            });
             return;
         }
         if (type === 'attrPatch' || type === 'setDone') {
@@ -7912,6 +7982,13 @@ const wait = !!options.wait;
                     else delete nextValues[fieldId];
                 });
                 target.customFieldValues = nextValues;
+                return;
+            }
+            if (key === 'attachments') {
+                const currentPaths = __tmGetTaskAttachmentPaths(target);
+                const currentMeta = __tmGetTaskAttachmentMetaMap(target);
+                const nextMeta = __tmBuildTaskAttachmentMetaForPaths(value, currentPaths, currentMeta);
+                __tmApplyTaskAttachmentPathsToTask(target, value, { meta: nextMeta, attrsLoaded: true });
                 return;
             }
             if (key === 'done') {
@@ -9727,12 +9804,101 @@ const wait = !!options.wait;
         return touched;
     }
 
+    function __tmEscapeSearchHighlightRegex(value) {
+        return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function __tmClearSearchHighlights(container = state.modal) {
+        const root = container instanceof Element ? container : null;
+        if (!root) return false;
+        let touched = false;
+        try {
+            root.querySelectorAll('mark.tm-search-highlight').forEach((mark) => {
+                const parent = mark.parentNode;
+                if (!parent) return;
+                parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+                try { parent.normalize(); } catch (e) {}
+                touched = true;
+            });
+        } catch (e) {}
+        return touched;
+    }
+
+    function __tmShouldSkipSearchHighlightTextNode(node) {
+        const parent = node?.parentElement || null;
+        if (!parent) return true;
+        if (!String(node.nodeValue || '').trim()) return true;
+        if (parent.closest?.('mark.tm-search-highlight')) return true;
+        if (parent.closest?.('script, style, textarea, input, button, svg')) return true;
+        if (parent.closest?.('.tm-lucide-emoji, .tm-inline-icon, .tm-recurring-instance-badge, .tm-completed-today-badge, .tm-task-attachment-emoji, [data-tm-no-search-highlight]')) return true;
+        return false;
+    }
+
+    function __tmApplySearchHighlightToTextNode(node, pattern) {
+        const text = String(node.nodeValue || '');
+        if (!text) return false;
+        pattern.lastIndex = 0;
+        if (!pattern.test(text)) return false;
+        pattern.lastIndex = 0;
+        const frag = document.createDocumentFragment();
+        let cursor = 0;
+        let match = null;
+        while ((match = pattern.exec(text))) {
+            const index = match.index;
+            const value = match[0];
+            if (!value) {
+                pattern.lastIndex += 1;
+                continue;
+            }
+            if (index > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, index)));
+            const mark = document.createElement('mark');
+            mark.className = 'tm-search-highlight';
+            mark.textContent = value;
+            frag.appendChild(mark);
+            cursor = index + value.length;
+        }
+        if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)));
+        node.parentNode?.replaceChild(frag, node);
+        return true;
+    }
+
+    function __tmApplySearchHighlights(container = state.modal, keyword = state.searchKeyword, options = {}) {
+        const root = container instanceof Element ? container : null;
+        if (!root) return false;
+        __tmClearSearchHighlights(root);
+        const query = String(keyword || '').trim();
+        if (!query) return false;
+        const selector = String(options?.selector || '.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title, .tm-kanban-card-title-inline, .tm-cal-task-event-title-text, .tm-gantt-bar__title').trim();
+        const source = __tmEscapeSearchHighlightRegex(query);
+        if (!source) return false;
+        const pattern = new RegExp(source, 'gi');
+        const textNodeFilter = (typeof NodeFilter !== 'undefined' && NodeFilter.SHOW_TEXT) ? NodeFilter.SHOW_TEXT : 4;
+        let touched = false;
+        try {
+            root.querySelectorAll(selector).forEach((el) => {
+                const walker = document.createTreeWalker(el, textNodeFilter);
+                const nodes = [];
+                let node = walker.nextNode();
+                while (node) {
+                    if (!__tmShouldSkipSearchHighlightTextNode(node)) nodes.push(node);
+                    node = walker.nextNode();
+                }
+                nodes.forEach((textNode) => {
+                    touched = __tmApplySearchHighlightToTextNode(textNode, pattern) || touched;
+                });
+            });
+        } catch (e) {}
+        return touched;
+    }
+
     try {
         globalThis.__tmResolveTaskTitleOpacity = __tmResolveTaskTitleOpacity;
         globalThis.__tmResolveTaskTitleVisual = __tmResolveTaskTitleVisual;
         globalThis.__tmBuildTaskTitleOpacityStyle = __tmBuildTaskTitleOpacityStyle;
         globalThis.__tmApplyTaskTitleOpacityToElement = __tmApplyTaskTitleOpacityToElement;
         globalThis.__tmApplyTaskTitleOpacityInContainer = __tmApplyTaskTitleOpacityInContainer;
+        globalThis.__tmClearSearchHighlights = __tmClearSearchHighlights;
+        globalThis.__tmApplySearchHighlights = __tmApplySearchHighlights;
         globalThis.__tmDoesTaskDomTargetBelongToTask = __tmDoesTaskDomTargetBelongToTask;
     } catch (e) {}
 
@@ -11604,6 +11770,7 @@ const wait = !!options.wait;
             viewModeInitialized: state.viewModeInitialized === true,
             currentRule: state.currentRule == null ? null : String(state.currentRule || ''),
             searchKeyword: String(state.searchKeyword || ''),
+            searchBarOpen: !!state.searchBarOpen,
             activeDocId: String(state.activeDocId || 'all').trim() || 'all',
             detailTaskId: String(state.detailTaskId || ''),
             checklistDetailSheetOpen: !!state.checklistDetailSheetOpen,
@@ -11636,6 +11803,8 @@ const wait = !!options.wait;
         state.viewModeInitialized = snap.viewModeInitialized === true;
         state.currentRule = snap.currentRule == null ? null : String(snap.currentRule || '');
         state.searchKeyword = String(snap.searchKeyword || '');
+        state.searchBarOpen = !!state.searchBarOpen || snap.searchBarOpen === true;
+        state.searchBarFocusAfterRender = false;
         state.activeDocId = String(snap.activeDocId || 'all').trim() || 'all';
         state.detailTaskId = String(snap.detailTaskId || '');
         state.checklistDetailSheetOpen = !!snap.checklistDetailSheetOpen;
@@ -15418,6 +15587,7 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmTomatoAssociationChangedHandler = null;
     let __tmTomatoFocusModeChangedHandler = null;
     let __tmTomatoFocusEndedHandler = null;
+    let __tmTomatoFocusRestoredHandler = null;
     let __tmTomatoHistoryUpdatedHandler = null;
     let __tmTomatoHistoryVersion = 0;
     let __tmPinnedListenerAdded = false;
@@ -16185,9 +16355,19 @@ async function __tmRefreshAfterWake(reason) {
             globalThis.__taskHorizonMarkModified?.(relayTaskId);
             
         } catch (e2) {}
-        setTimeout(() => {
-            try { globalThis.__taskHorizonRefresh?.(); } catch (e2) {}
-        }, 0);
+        const scheduled = typeof globalThis.__taskHorizonScheduleQuickbarRefresh === 'function'
+            ? globalThis.__taskHorizonScheduleQuickbarRefresh({
+                source: 'quickbar-relay',
+                taskId: relayTaskId,
+                attrHostId: relayAttrHostId,
+                attrKey: relayAttrKey,
+            })
+            : false;
+        if (!scheduled) {
+            setTimeout(() => {
+                try { globalThis.__taskHorizonRefresh?.(); } catch (e2) {}
+            }, 0);
+        }
         return true;
     }
 
@@ -16882,6 +17062,17 @@ refreshOk = false;
                 if (state.modal && document.body.contains(state.modal)) render();
             } catch (e) {}
         };
+        __tmTomatoFocusRestoredHandler = (event) => {
+            try {
+                const source = String(event?.detail?.source || '').trim();
+                if (!['task-horizon', 'block-menu', 'database-menu'].includes(source)) return;
+                const focusTaskId = String(event?.detail?.taskBlockId || event?.detail?.databaseBlockId || '').trim();
+                if (!focusTaskId) return;
+                state.timerFocusTaskId = focusTaskId;
+                __tmClearTomatoFocusRowClasses();
+                if (state.modal && document.body.contains(state.modal)) render();
+            } catch (e) {}
+        };
         __tmTomatoHistoryUpdatedHandler = () => {
             try {
                 __tmTomatoHistoryVersion += 1;
@@ -16892,6 +17083,7 @@ refreshOk = false;
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:association-changed', __tmTomatoAssociationChangedHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-mode-changed', __tmTomatoFocusModeChangedHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-ended', __tmTomatoFocusEndedHandler); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-restored', __tmTomatoFocusRestoredHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:history-updated', __tmTomatoHistoryUpdatedHandler); } catch (e) {}
         globalThis.__taskHorizonOnTomatoAssociationChanged = (detail) => {
             try { __tmTomatoAssociationChangedHandler({ detail }); } catch (e) {}
@@ -16904,6 +17096,9 @@ refreshOk = false;
         };
         globalThis.__taskHorizonOnTomatoFocusEnded = (detail) => {
             try { __tmTomatoFocusEndedHandler({ detail }); } catch (e) {}
+        };
+        globalThis.__taskHorizonOnTomatoFocusRestored = (detail) => {
+            try { __tmTomatoFocusRestoredHandler({ detail }); } catch (e) {}
         };
         __tmTomatoAssociationListenerAdded = true;
     }
@@ -17800,7 +17995,7 @@ refreshOk = false;
         if (!text) return '';
         text = text.replace(/^#{1,6}\s+/, '').trim();
         text = text.replace(/\s*\{\:\s*[^}]*\}\s*$/, '').trim();
-        text = text.replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
+        text = text.replace(/<span\b[^>]*>([\s\S]*?)<\/span>/gi, '$1');
         text = text.replace(/<[^>]+>/g, '');
         text = text.replace(/\[\[([^\]]+)\]\]/g, '$1');
         text = text.replace(/\[([^\]]+)\]\((?:[^)(]+|\([^)]*\))*\)/g, '$1');
@@ -18306,7 +18501,7 @@ refreshOk = false;
             .replace(/<s\b[^>]*>([\s\S]*?)<\/s>/gi, '~~$1~~')
             .replace(/<strike\b[^>]*>([\s\S]*?)<\/strike>/gi, '~~$1~~')
             .replace(/<mark\b[^>]*>([\s\S]*?)<\/mark>/gi, '==$1==');
-        text = text.replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
+        text = text.replace(/<span\b[^>]*>([\s\S]*?)<\/span>/gi, '$1');
         text = text.replace(/\{\:\s*[^}]*\}/g, '');
         text = text.replace(/<[^>]+>/g, '');
         return text.replace(/\s+/g, ' ').trim();
@@ -18463,7 +18658,7 @@ refreshOk = false;
 
     const __tmShouldUseCustomTouchTaskDrag = () => {
         const kind = __tmGetRuntimeClientKind();
-        return kind === 'mobile-browser' || kind === 'android-app';
+        return kind !== 'desktop-browser';
     };
 
     const __tmResolveNavigationTopWindow = (isDockHost = __tmIsDockHost()) => {

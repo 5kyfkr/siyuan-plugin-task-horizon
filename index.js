@@ -9,8 +9,12 @@ const AI_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/ai.js`;
 const HOMEPAGE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/homepage.js`;
 const QUICKBAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/quickbar.js`;
 const XLSX_VENDOR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/vendor/xlsx.full.min.js`;
-const FULLCALENDAR_MIN_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/index.global.min.js`;
-const FULLCALENDAR_ZH_LOCALE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/locales/zh-cn.global.min.js`;
+const FULLCALENDAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/fullcalendar.global.js`;
+const FULLCALENDAR_LOCALES_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/locales-all/global.js`;
+const FULLCALENDAR_FORMA_THEME_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/themes/forma/global.js`;
+const FULLCALENDAR_SKELETON_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/skeleton.css`;
+const FULLCALENDAR_FORMA_THEME_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/themes/forma/theme.css`;
+const FULLCALENDAR_FORMA_BASECOAT_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/themes/forma/palettes/basecoat.css`;
 const BASECOAT_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/basecoat/basecoat.js`;
 const BASECOAT_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/basecoat/basecoat.css`;
 const CALENDAR_VIEW_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.js`;
@@ -20,6 +24,7 @@ const TAB_TYPE = "task-horizon";
 const TAB_TITLE = "任务管理器";
 const COMMAND_OPEN_QUICK_ADD_TASK_WINDOW = "openQuickAddTaskWindow";
 const ICON_ID = "iconTaskHorizon";
+const WINDOW_TOPBAR_ATTR = "data-task-horizon-window-topbar";
 const CUSTOM_TAB_ID = PLUGIN_ID + TAB_TYPE;
 const TASK_DOCK_TYPE = "::task-horizon-dock";
 const TASK_DOCK_TITLE = "任务侧栏";
@@ -83,7 +88,24 @@ const getSiyuanRuntimeBackend = () => {
     return "";
 };
 
+const isSiyuanConfigMobile = () => {
+    try {
+        if (globalThis?.siyuan?.config?.isMobile === true) return true;
+    } catch (e) {}
+    try {
+        if (window?.siyuan?.config?.isMobile === true) return true;
+    } catch (e) {}
+    return false;
+};
+
 const hasOfficialMobileRuntimeSignal = () => {
+    try {
+        if (isSiyuanConfigMobile()) return true;
+    } catch (e) {}
+    try {
+        const backend = getSiyuanRuntimeBackend();
+        if (MOBILE_RUNTIME_CONTAINERS.has(backend)) return true;
+    } catch (e) {}
     try {
         if (globalThis?.JSAndroid) return true;
     } catch (e) {}
@@ -109,12 +131,6 @@ const isMobileBrowserViewport = () => {
     try {
         const ua = String(navigator?.userAgent || "");
         if (/Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua)) return true;
-    } catch (e) {}
-    try {
-        const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
-        const width = Number(window?.innerWidth) || 0;
-        const coarse = !!window?.matchMedia?.("(pointer: coarse)")?.matches;
-        if ((coarse || maxTouchPoints > 0) && width > 0 && width <= 900) return true;
     } catch (e) {}
     return false;
 };
@@ -727,8 +743,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this.registerCommands();
         await loadScriptText(QUICKBAR_SCRIPT_PATH, "quickbar.js");
         await loadStyleText(BASECOAT_CSS_PATH, "basecoat/basecoat.css");
-        await loadScriptText(FULLCALENDAR_MIN_SCRIPT_PATH, "fullcalendar/index.global.min.js");
-        await loadScriptText(FULLCALENDAR_ZH_LOCALE_SCRIPT_PATH, "fullcalendar/locales/zh-cn.global.min.js");
+        await loadStyleText(FULLCALENDAR_SKELETON_CSS_PATH, "fullcalendar/skeleton.css");
+        await loadStyleText(FULLCALENDAR_FORMA_THEME_CSS_PATH, "fullcalendar/themes/forma/theme.css");
+        await loadStyleText(FULLCALENDAR_FORMA_BASECOAT_CSS_PATH, "fullcalendar/themes/forma/palettes/basecoat.css");
+        await loadScriptText(FULLCALENDAR_SCRIPT_PATH, "fullcalendar/fullcalendar.global.js");
+        await loadScriptText(FULLCALENDAR_FORMA_THEME_SCRIPT_PATH, "fullcalendar/themes/forma/global.js");
+        await loadScriptText(FULLCALENDAR_LOCALES_SCRIPT_PATH, "fullcalendar/locales-all/global.js");
         await loadScriptText(CALENDAR_VIEW_SCRIPT_PATH, "calendar-view.js");
         await loadStyleText(CALENDAR_VIEW_CSS_PATH, "calendar-view.css");
         this.mountExistingTabs();
@@ -1050,6 +1070,101 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         return this.openTaskHorizonTab();
     }
 
+    getWindowTopBarLookupSelector() {
+        return `[${WINDOW_TOPBAR_ATTR}="1"], [aria-label="${TAB_TITLE}"], [title="${TAB_TITLE}"]`;
+    }
+
+    windowTopBarElementHasTaskIcon(element) {
+        if (!(element instanceof HTMLElement)) return false;
+        try {
+            if (element.querySelector?.(`use[href="#${ICON_ID}"]`)) return true;
+        } catch (e) {}
+        try {
+            return String(element.innerHTML || "").includes(ICON_ID);
+        } catch (e) {}
+        return false;
+    }
+
+    isWindowTopBarElement(element) {
+        if (!(element instanceof HTMLElement)) return false;
+        if (element === this._taskWindowTopBarElement) return true;
+        try {
+            if (Array.isArray(this.topBarIcons) && this.topBarIcons.includes(element)) return true;
+        } catch (e) {}
+        try {
+            if (element.getAttribute(WINDOW_TOPBAR_ATTR) === "1") {
+                return this.windowTopBarElementHasTaskIcon(element);
+            }
+        } catch (e) {}
+        const label = String(element.getAttribute("aria-label") || element.getAttribute("title") || "").trim();
+        if (label !== TAB_TITLE) return false;
+        if (element.closest?.(".layout-tab-bar, .layout-tab-bar__item, .layout-tab-container, .tm-modal")) return false;
+        return this.windowTopBarElementHasTaskIcon(element);
+    }
+
+    findWindowTopBarElements() {
+        const entries = [];
+        const seen = new Set();
+        const push = (element) => {
+            if (!(element instanceof HTMLElement) || seen.has(element) || !this.isWindowTopBarElement(element)) return;
+            seen.add(element);
+            entries.push(element);
+        };
+        try {
+            if (this._taskWindowTopBarElement instanceof HTMLElement && document.contains(this._taskWindowTopBarElement)) {
+                push(this._taskWindowTopBarElement);
+            }
+        } catch (e) {}
+        try {
+            if (Array.isArray(this.topBarIcons)) {
+                this.topBarIcons.forEach((element) => push(element));
+            }
+        } catch (e) {}
+        try {
+            Array.from(document.querySelectorAll(this.getWindowTopBarLookupSelector())).forEach((element) => push(element));
+        } catch (e) {}
+        return entries;
+    }
+
+    markWindowTopBarElement(element) {
+        if (!(element instanceof HTMLElement)) return null;
+        try { element.setAttribute(WINDOW_TOPBAR_ATTR, "1"); } catch (e) {}
+        try { if (!element.getAttribute("aria-label")) element.setAttribute("aria-label", TAB_TITLE); } catch (e) {}
+        try { if (!element.getAttribute("title")) element.setAttribute("title", TAB_TITLE); } catch (e) {}
+        return element;
+    }
+
+    removeWindowTopBarElement(element) {
+        if (!(element instanceof HTMLElement)) return;
+        try {
+            if (Array.isArray(this.topBarIcons)) {
+                let idx = this.topBarIcons.indexOf(element);
+                while (idx >= 0) {
+                    this.topBarIcons.splice(idx, 1);
+                    idx = this.topBarIcons.indexOf(element);
+                }
+            }
+        } catch (e) {}
+        try { element.remove(); } catch (e) {}
+    }
+
+    reconcileWindowTopBarElements(removeDuplicates = true) {
+        const entries = this.findWindowTopBarElements();
+        const keeper = entries.includes(this._taskWindowTopBarElement)
+            ? this._taskWindowTopBarElement
+            : (entries[0] || null);
+        if (keeper instanceof HTMLElement) {
+            this.markWindowTopBarElement(keeper);
+        }
+        if (removeDuplicates) {
+            entries.forEach((element) => {
+                if (element !== keeper) this.removeWindowTopBarElement(element);
+            });
+        }
+        this._taskWindowTopBarElement = keeper instanceof HTMLElement ? keeper : null;
+        return this._taskWindowTopBarElement;
+    }
+
     syncWindowTopBar() {
         try { globalThis.__taskHorizonSyncWindowTopBar = this.syncWindowTopBar.bind(this); } catch (e) {}
         if (this.isRuntimeMobileClient()) {
@@ -1068,7 +1183,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     ensureWindowTopBar() {
         if (typeof this.addTopBar !== "function") return false;
-        if (this._taskWindowTopBarElement instanceof HTMLElement && document.contains(this._taskWindowTopBarElement)) {
+        const existing = this.reconcileWindowTopBarElements(true);
+        if (existing instanceof HTMLElement && document.contains(existing)) {
             return true;
         }
         try {
@@ -1080,7 +1196,9 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     try { this.openFromWindowTopBar(); } catch (e) {}
                 },
             }) || null;
-            return this._taskWindowTopBarElement instanceof HTMLElement;
+            this.markWindowTopBarElement(this._taskWindowTopBarElement);
+            const reconciled = this.reconcileWindowTopBarElements(true);
+            return reconciled instanceof HTMLElement && document.contains(reconciled);
         } catch (e) {
             this._taskWindowTopBarElement = null;
             return false;
@@ -1089,11 +1207,11 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     removeWindowTopBar() {
         try {
-            if (this._taskWindowTopBarElement instanceof HTMLElement) {
-                const idx = Array.isArray(this.topBarIcons) ? this.topBarIcons.indexOf(this._taskWindowTopBarElement) : -1;
-                if (idx >= 0) this.topBarIcons.splice(idx, 1);
-                this._taskWindowTopBarElement.remove();
+            const entries = this.findWindowTopBarElements();
+            if (this._taskWindowTopBarElement instanceof HTMLElement && !entries.includes(this._taskWindowTopBarElement)) {
+                entries.push(this._taskWindowTopBarElement);
             }
+            entries.forEach((element) => this.removeWindowTopBarElement(element));
         } catch (e) {}
         this._taskWindowTopBarElement = null;
     }

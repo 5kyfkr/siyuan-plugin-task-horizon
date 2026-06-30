@@ -2993,14 +2993,24 @@
                     attrHostId: hostId || taskId,
                     attrKey: key,
                 });
-                setTimeout(() => {
-                    pushTaskHorizonDebug('refresh', 'quickbar-dispatch:refresh-fire', {
+                const scheduled = typeof globalThis.__taskHorizonScheduleQuickbarRefresh === 'function'
+                    ? globalThis.__taskHorizonScheduleQuickbarRefresh({
+                        source: 'quickbar-dispatch',
                         taskId: taskId || hostId,
                         attrHostId: hostId || taskId,
                         attrKey: key,
-                    });
-                    try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
-                }, 0);
+                    })
+                    : false;
+                if (!scheduled) {
+                    setTimeout(() => {
+                        pushTaskHorizonDebug('refresh', 'quickbar-dispatch:refresh-fire', {
+                            taskId: taskId || hostId,
+                            attrHostId: hostId || taskId,
+                            attrKey: key,
+                        });
+                        try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
+                    }, 0);
+                }
             } catch (e) {}
         }
 
@@ -3052,7 +3062,7 @@
             if (!text) return '任务';
             text = text.replace(/^[\s>*-]*\[[xX ]\]\s*/, '').trim();
             text = text.replace(/\{\:\s*[^}]*\}/g, '');
-            text = text.replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
+            text = text.replace(/<span\b[^>]*>([\s\S]*?)<\/span>/gi, '$1');
             text = text.replace(/<[^>]+>/g, '');
             text = text.replace(/\s{2,}/g, ' ').trim();
             return text || '任务';
@@ -4947,15 +4957,18 @@
                 Promise.resolve(window.tmOpenTaskTimeHub(blockIdAtOpen, anchorEl, {
                     activeField,
                     source: 'quickbar',
+                    refresh: false,
+                    broadcast: false,
                     onChange: async (payload = {}) => {
                         const patch = (payload?.patch && typeof payload.patch === 'object') ? payload.patch : {};
                         const nextProps = {};
-                        if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
-                            nextProps['custom-start-date'] = String(patch.startDate || '').trim();
-                        }
-                        if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
-                            nextProps['custom-completion-time'] = String(patch.completionTime || '').trim();
-                        }
+                        const addChangedDateProp = (key, value) => {
+                            const nextValue = String(value || '').trim();
+                            const prevValue = String(currentProps?.[key] || '').trim();
+                            if (nextValue !== prevValue) nextProps[key] = nextValue;
+                        };
+                        if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) addChangedDateProp('custom-start-date', patch.startDate);
+                        if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) addChangedDateProp('custom-completion-time', patch.completionTime);
                         if (!Object.keys(nextProps).length) return;
                         if (String(currentBlockId || '').trim() === blockIdAtOpen) {
                             currentProps = { ...currentProps, ...nextProps };

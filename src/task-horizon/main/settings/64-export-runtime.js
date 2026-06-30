@@ -83,6 +83,8 @@
         'calendarEnabled',
         'calendarLinkDockTomato',
         'calendarInitialView',
+        'calendarInitialViewDesktop',
+        'calendarInitialViewMobile',
         'calendarFirstDay',
         'calendarMonthAggregate',
         'calendarMonthAdaptiveRowHeight',

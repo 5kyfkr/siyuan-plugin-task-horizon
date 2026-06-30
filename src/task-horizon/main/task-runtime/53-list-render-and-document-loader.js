@@ -4065,6 +4065,13 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             } catch (e) {}
         }
         try {
+            task = await __tmEnsureTaskDetailFieldAttrs(task, {
+                taskId: tid,
+                source: shouldFreshenDetailOpen ? 'fresh-detail-open' : 'task-detail-open',
+                force: true,
+            }) || task;
+        } catch (e) {}
+        try {
             task = __tmCacheTaskInState(task, {
                 docNameFallback: task.doc_name || task.docName || '未命名文档'
             }) || task;
@@ -4095,7 +4102,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 
         const overlay = document.createElement('div');
         overlay.id = 'tm-task-detail-overlay';
-        overlay.className = 'tm-task-detail-overlay';
+        overlay.className = 'tm-task-detail-overlay'
+            + (SettingsStore.data.taskCheckboxCircleStyleEnabled === true ? ' tm-task-detail--task-checkbox-circle' : '');
 
         try {
             __tmPushDetailDebug('detail-rebuild-html', {
@@ -4829,7 +4837,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         text = text.replace(/\\([\\`*_{}\[\]()#+\-.!~>+=])/g, (match, ch) => stashEscaped(ch));
         text = text.replace(/\{\:\s*[^}]*\}/g, '');
         text = text.replace(/<br\s*\/?>/gi, ' ');
-        text = text.replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
+        text = text.replace(/<span\b[^>]*>([\s\S]*?)<\/span>/gi, '$1');
         text = text.replace(/<(?:strong|b|em|i|u|del|s|strike|mark|code|kbd|sup|sub)\b[^>]*>([\s\S]*?)<\/(?:strong|b|em|i|u|del|s|strike|mark|code|kbd|sup|sub)>/gi, '$1');
         text = text.replace(/<[^>]+>/g, '');
         text = text.replace(/\(\(([0-9]{14}-[A-Za-z0-9]+)(?:\s+(['"])([\s\S]*?)\2)?\)\)/g, (match, id, quote, label) => String(label || id || '').trim());
@@ -4971,16 +4979,17 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const timer = globalThis.__tomatoTimer;
         const startCountdown = timer?.startCountdown;
         const startPomodoro = timer?.startPomodoro;
+        const timerFocusRestoreOptions = { source: 'task-horizon' };
         if (typeof startCountdown === 'function') {
             state.timerFocusTaskId = resolvedId;
             try { render(); } catch (e) {}
-            startCountdown(resolvedId, taskName, 30);
+            startCountdown(resolvedId, taskName, 30, timerFocusRestoreOptions);
             return;
         }
         if (typeof startPomodoro === 'function') {
             state.timerFocusTaskId = resolvedId;
             try { render(); } catch (e) {}
-            startPomodoro(resolvedId, taskName, 30);
+            startPomodoro(resolvedId, taskName, 30, timerFocusRestoreOptions);
             return;
         }
         hint('⚠ 未检测到番茄计时功能，请确认番茄插件已启用', 'warning');
@@ -5244,14 +5253,15 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 hint('⚠ 未找到可关联的任务块', 'warning');
                 return;
             }
+            const timerFocusRestoreOptions = { source: 'task-horizon' };
             state.timerFocusTaskId = timerTaskId;
             render();
             if (mode === 'stopwatch') {
                 const startFromTaskBlock = timer?.startFromTaskBlock;
                 const startStopwatch = timer?.startStopwatch;
                 let p = null;
-                if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, 0, 'stopwatch');
-                else if (typeof startStopwatch === 'function') p = startStopwatch(timerTaskId, timerTaskName);
+                if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, 0, 'stopwatch', timerFocusRestoreOptions);
+                else if (typeof startStopwatch === 'function') p = startStopwatch(timerTaskId, timerTaskName, timerFocusRestoreOptions);
                 else {
                     hint('⚠ 未检测到正计时功能，请确认番茄插件已启用', 'warning');
                     return;
@@ -5267,8 +5277,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             const startFromTaskBlock = timer?.startFromTaskBlock;
             const startCountdown = timer?.startCountdown;
             let p = null;
-            if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, safeMin, 'countdown');
-            else if (typeof startCountdown === 'function') p = startCountdown(timerTaskId, timerTaskName, safeMin);
+            if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, safeMin, 'countdown', timerFocusRestoreOptions);
+            else if (typeof startCountdown === 'function') p = startCountdown(timerTaskId, timerTaskName, safeMin, timerFocusRestoreOptions);
             else {
                 tmStartPomodoro(timerTaskId);
                 return;
@@ -5327,7 +5337,6 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                             source: 'context-menu-completion-time',
                             placement: 'right',
                             contextDate: true,
-                            closeOnDateCommit: true,
                             scheduleTabLabel: '时间段',
                             onClose: () => {
                                 try { btn.classList.remove('is-open'); } catch (e2) {}

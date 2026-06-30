@@ -437,6 +437,7 @@
                 return false;
             };
             const kanbanKeepSubtasksAttached = SettingsStore.data.kanbanPreventSubtaskSeparation === true;
+            const hasKanbanSearchKeyword = !!String(state.searchKeyword || '').trim();
             const filteredBase = filteredRaw.filter((task) => {
                 if (!task || typeof task !== 'object') return false;
                 if (!state.showCompletedTasks && !!task.done) return false;
@@ -449,7 +450,7 @@
                     const id = String(task?.id || '').trim();
                     if (id) filteredById.set(id, task);
                 });
-                let hasInjectedDescendant = false;
+                let hasInjectedAttachedTask = false;
                 const shouldInjectAttachedTask = (task) => {
                     if (!task || typeof task !== 'object') return false;
                     if (!state.showCompletedTasks && !!task.done) return false;
@@ -459,34 +460,52 @@
                     if (!isAllTabsView && activeDocId && docId && docId !== activeDocId) return false;
                     return true;
                 };
-                const injectDescendantTask = (task) => {
+                const injectAttachedTask = (task) => {
                     const id = String(task?.id || '').trim();
                     if (!id || filteredById.has(id)) return false;
                     if (!shouldInjectAttachedTask(task)) return false;
                     filteredById.set(id, task);
-                    hasInjectedDescendant = true;
+                    hasInjectedAttachedTask = true;
                     return true;
                 };
-                let descendantFrontier = filteredBase
-                    .map((task) => String(task?.id || '').trim())
-                    .filter(Boolean);
-                const visitedDescendantParentIds = new Set(descendantFrontier);
-                for (let depth = 0; depth < 8 && descendantFrontier.length > 0; depth++) {
-                    const nextFrontier = [];
-                    descendantFrontier.forEach((parentId) => {
-                        getKanbanChildTasksByParentId(parentId).forEach((child) => {
-                            const childId = String(child?.id || '').trim();
-                            if (!childId) return;
-                            injectDescendantTask(child);
-                            if (!visitedDescendantParentIds.has(childId)) {
-                                visitedDescendantParentIds.add(childId);
-                                nextFrontier.push(childId);
-                            }
+                if (hasKanbanSearchKeyword) {
+                    let ancestorFrontier = filteredBase.slice();
+                    const visitedAncestorIds = new Set(filteredBase.map((task) => String(task?.id || '').trim()).filter(Boolean));
+                    for (let depth = 0; depth < 8 && ancestorFrontier.length > 0; depth++) {
+                        const nextFrontier = [];
+                        ancestorFrontier.forEach((task) => {
+                            const parentId = getKanbanParentTaskId(task);
+                            if (!parentId || visitedAncestorIds.has(parentId)) return;
+                            visitedAncestorIds.add(parentId);
+                            const parent = getRawKanbanTaskById(parentId);
+                            if (!parent) return;
+                            injectAttachedTask(parent);
+                            nextFrontier.push(parent);
                         });
-                    });
-                    descendantFrontier = nextFrontier;
+                        ancestorFrontier = nextFrontier;
+                    }
+                } else {
+                    let descendantFrontier = filteredBase
+                        .map((task) => String(task?.id || '').trim())
+                        .filter(Boolean);
+                    const visitedDescendantParentIds = new Set(descendantFrontier);
+                    for (let depth = 0; depth < 8 && descendantFrontier.length > 0; depth++) {
+                        const nextFrontier = [];
+                        descendantFrontier.forEach((parentId) => {
+                            getKanbanChildTasksByParentId(parentId).forEach((child) => {
+                                const childId = String(child?.id || '').trim();
+                                if (!childId) return;
+                                injectAttachedTask(child);
+                                if (!visitedDescendantParentIds.has(childId)) {
+                                    visitedDescendantParentIds.add(childId);
+                                    nextFrontier.push(childId);
+                                }
+                            });
+                        });
+                        descendantFrontier = nextFrontier;
+                    }
                 }
-                if (hasInjectedDescendant) {
+                if (hasInjectedAttachedTask) {
                     filtered = Array.from(filteredById.values());
                 }
             }
@@ -2004,8 +2023,8 @@
         const bodyAnimClass = String(opts.bodyAnimClass || '');
         const __tmRenderCalendarBodyHtml = () => {
             return `
-                <div class="tm-body tm-body--calendar${bodyAnimClass}" style="display:flex;flex-direction:column;min-height:0;">
-                    <div id="tmCalendarRoot" style="flex:1;min-height:0;"></div>
+                <div class="tm-body tm-body--calendar${bodyAnimClass}">
+                    <div id="tmCalendarRoot" class="tm-calendar-root"></div>
                 </div>
             `;
         };

@@ -22,6 +22,44 @@
         return '';
     }
 
+    function __tmTaskTimeHubShortcutDate(kind, baseValue = '') {
+        const key = String(kind || '').trim();
+        const parsed = String(__tmNormalizeDateOnly(baseValue) || '').trim();
+        const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(parsed);
+        const base = matched
+            ? new Date(Number(matched[1]), Number(matched[2]) - 1, Number(matched[3]), 12, 0, 0, 0)
+            : new Date();
+        if (!matched) base.setHours(12, 0, 0, 0);
+        if (key === 'tomorrow') base.setDate(base.getDate() + 1);
+        else if (key === 'next-week') base.setDate(base.getDate() + 7);
+        else if (key === 'next-month') {
+            const target = new Date(base.getFullYear(), base.getMonth() + 1, 1, 12, 0, 0, 0);
+            const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+            target.setDate(Math.min(base.getDate(), lastDay));
+            return __tmNormalizeDateOnly(target);
+        }
+        return __tmNormalizeDateOnly(base);
+    }
+
+    function __tmRenderTaskTimeHubQuickDatesHtml(activeValue = '') {
+        const current = __tmNormalizeDateOnly(activeValue);
+        const shortcuts = [
+            ['today', '今天', 'sun'],
+            ['tomorrow', '明天', 'sun-horizon'],
+            ['next-week', '下周', 'calendar-plus'],
+            ['next-month', '下月', 'calendar-star'],
+        ];
+        return `<div class="tm-task-time-hub__quick-dates" role="toolbar" aria-label="快速设置日期">
+            ${shortcuts.map(([key, label, icon]) => {
+                const value = __tmTaskTimeHubShortcutDate(key, activeValue);
+                const active = current && value === current;
+                return `<button type="button" class="tm-task-time-hub__quick-date${active ? ' is-active' : ''}" data-tm-time-hub-quick-date="${esc(value)}" aria-label="${esc(label)}" aria-pressed="${active ? 'true' : 'false'}" title="${esc(label)} ${esc(value)}">
+                    ${__tmTaskDetailTimeHubIcon(icon, 'tm-task-time-hub__quick-date-icon', 16)}
+                </button>`;
+            }).join('')}
+        </div>`;
+    }
+
     function __tmRenderTaskDetailPhosphorIcon(iconName, size = 18) {
         const name = String(iconName || '').trim();
         if (!name) return '';
@@ -327,6 +365,135 @@
         return null;
     }
 
+    async function __tmEnsureTaskDetailFieldAttrs(taskLike, options = {}) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!task) return taskLike || null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const tid = String(opts.taskId || task.id || '').trim();
+        const shouldForce = opts.force === true;
+        const queuedPatch = (() => {
+            try {
+                if (!tid || typeof __tmBuildQueuedTaskFieldPatchMap !== 'function') return null;
+                const patchMap = __tmBuildQueuedTaskFieldPatchMap({ statuses: ['queued', 'running'] });
+                const patch = patchMap instanceof Map ? patchMap.get(tid) : null;
+                return (patch && typeof patch === 'object' && !Array.isArray(patch) && Object.keys(patch).length)
+                    ? patch
+                    : null;
+            } catch (e) {
+                return null;
+            }
+        })();
+        const hasQueuedPatch = !!queuedPatch;
+        try {
+            if (!shouldForce
+                && !hasQueuedPatch
+                && typeof __tmHasTaskAttachmentAttrSnapshot === 'function'
+                && __tmHasTaskAttachmentAttrSnapshot(task)) {
+                return task;
+            }
+        } catch (e) {}
+        try {
+            if (typeof __tmApplyTaskAttrHostOverrides === 'function') {
+                await __tmApplyTaskAttrHostOverrides([task], {
+                    preferExistingSelf: shouldForce ? false : true,
+                    applyBlankSelfAttrs: shouldForce,
+                });
+            }
+        } catch (e) {}
+        if (queuedPatch) {
+            try {
+                if (typeof __tmApplyQueuedTaskFieldPatchToTask === 'function') {
+                    __tmApplyQueuedTaskFieldPatchToTask(task, queuedPatch);
+                }
+            } catch (e) {}
+        }
+        if (tid) {
+            try {
+                if (typeof __tmCacheTaskInState === 'function') {
+                    return __tmCacheTaskInState(task, {
+                        docNameFallback: task.doc_name || task.docName || '未命名文档',
+                    }) || task;
+                }
+            } catch (e) {}
+        }
+        return task;
+    }
+
+    async function __tmEnsureTaskDetailAttachmentAttrs(taskLike, options = {}) {
+        return await __tmEnsureTaskDetailFieldAttrs(taskLike, options);
+    }
+
+    const __tmTaskDetailFieldAttrHydrateMarks = new Map();
+
+    function __tmBuildTaskDetailFieldAttrSignature(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const read = (value) => String(value ?? '').trim();
+        let attachments = [];
+        try { attachments = __tmGetTaskAttachmentPaths(task); } catch (e) { attachments = []; }
+        return JSON.stringify({
+            customStatus: read(task.customStatus || task.custom_status),
+            priority: read(task.priority || task.custom_priority),
+            startDate: read(task.startDate || task.start_date),
+            completionTime: read(task.completionTime || task.completion_time),
+            taskCompleteAt: read(task.taskCompleteAt || task.task_complete_at),
+            duration: read(task.duration || task.custom_duration),
+            tomatoEstimateCount: read(task.tomatoEstimateCount || task.tomato_estimate_count),
+            tomatoCount: read(task.tomatoCount || task.tomato_count),
+            pinned: !!(task.pinned === true || task.pinned === 1 || task.pinned === '1' || read(task.custom_pinned) === '1'),
+            remark: String(task.remark ?? task.custom_remark ?? ''),
+            repeatRule: read(task.repeatRule || task.repeat_rule),
+            repeatState: read(task.repeatState || task.repeat_state),
+            attachments,
+        });
+    }
+
+    function __tmScheduleTaskDetailFieldAttrHydration(taskId, taskLike, options = {}) {
+        const tid = String(taskId || taskLike?.id || '').trim();
+        if (!tid || typeof __tmEnsureTaskDetailFieldAttrs !== 'function') return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const source = String(opts.source || 'visible-detail-field-attrs').trim() || 'visible-detail-field-attrs';
+        const mode = String(opts.mode || '').trim();
+        const key = `${mode || 'detail'}:${tid}:${source}`;
+        const now = Date.now();
+        const last = Number(__tmTaskDetailFieldAttrHydrateMarks.get(key) || 0);
+        if (opts.force !== true && now - last < 2500) return false;
+        __tmTaskDetailFieldAttrHydrateMarks.set(key, now);
+        if (__tmTaskDetailFieldAttrHydrateMarks.size > 160) {
+            const oldestKey = __tmTaskDetailFieldAttrHydrateMarks.keys().next().value;
+            if (oldestKey !== undefined) __tmTaskDetailFieldAttrHydrateMarks.delete(oldestKey);
+        }
+        Promise.resolve().then(async () => {
+            const task = (taskLike && typeof taskLike === 'object')
+                ? taskLike
+                : (__tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true }) || null);
+            if (!task) return;
+            const before = __tmBuildTaskDetailFieldAttrSignature(task);
+            const hydrated = await __tmEnsureTaskDetailFieldAttrs(task, {
+                taskId: tid,
+                source,
+                force: true,
+            }) || task;
+            const after = __tmBuildTaskDetailFieldAttrSignature(hydrated);
+            if (before === after) return;
+            const modal = opts.modal instanceof Element ? opts.modal : state.modal;
+            if (mode === 'checklist') {
+                if (!__tmAreTaskDetailIdsEquivalent(state.detailTaskId, tid)) return;
+                try { __tmRefreshChecklistSelectionInPlace(modal, `${source}:hydrated`, { forceRebuild: true }); } catch (e) {}
+                return;
+            }
+            if (mode === 'task-sheet') {
+                if (!__tmAreTaskDetailIdsEquivalent(state.detailTaskId, tid)) return;
+                try { __tmRefreshTaskDetailSheetInPlace(modal, `${source}:hydrated`, { forceRebuild: true }); } catch (e) {}
+                return;
+            }
+            if (mode === 'kanban') {
+                if (!__tmAreTaskDetailIdsEquivalent(state.kanbanDetailTaskId, tid)) return;
+                try { __tmRefreshKanbanDetailInPlace(modal, { source: `${source}:hydrated`, schedulePosition: false }); } catch (e) {}
+            }
+        }).catch(() => null);
+        return true;
+    }
+
     function __tmShouldDismissTaskTimeHubEditor(popover, editorKey, target) {
         if (!(popover instanceof HTMLElement) || !(target instanceof Element)) return false;
         const activeEditor = String(editorKey || '').trim();
@@ -493,7 +660,7 @@
         text = text
             .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
             .replace(/\{\:\s*[^}]*\}/g, '')
-            .replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '')
+            .replace(/<span\b[^>]*>([\s\S]*?)<\/span>/gi, '$1')
             .replace(/<[^>]+>/g, '')
             .replace(/\s{2,}/g, ' ')
             .trim();
@@ -674,8 +841,6 @@
         const hideSchedule = opts.hideSchedule === true || draftMode;
         const hideRepeat = opts.hideRepeat === true || draftMode;
         const scheduleTabLabel = String(opts.scheduleTabLabel || '日程').trim() || '日程';
-        const closeOnDateCommit = opts.closeOnDateCommit === true
-            || (opts.closeOnDateCommit !== false && String(opts.source || '').trim() === 'kanban-card');
 
         const todayKey = __tmNormalizeDateOnly(new Date());
         const pad2 = (n) => String(n).padStart(2, '0');
@@ -1075,6 +1240,7 @@
                 ${hubState.tab === 'date' ? `
                     <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
+                        ${__tmRenderTaskTimeHubQuickDatesHtml(readTaskDate(hubState.activeField))}
                         ${renderCalendarHtml()}
                         ${renderMonthEditorHtml()}
                         ${(() => {
@@ -1169,18 +1335,12 @@
             const key = value ? normalizeDate(value) : '';
             await updateDatePatch({ [field]: key }, 'task-time-hub-date');
             render();
-            if (closeOnDateCommit) {
-                __tmCloseStandaloneTaskTimeHub('date-commit', { immediate: true });
-            }
         };
         const updateDateRange = async (left, right) => {
             const range = sortDateRange(left, right);
             await updateDatePatch({ startDate: range.start, completionTime: range.end }, 'task-time-hub-range');
             hubState.activeField = 'completionTime';
             render();
-            if (closeOnDateCommit) {
-                __tmCloseStandaloneTaskTimeHub('date-range-commit', { immediate: true });
-            }
         };
         const applyRepeatType = async (type) => {
             if (hideRepeat) return;
@@ -1304,6 +1464,14 @@
                 try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {}
                 const field = String(clearBtn.getAttribute('data-tm-time-hub-clear-date') || '').trim();
                 if (field === 'startDate' || field === 'completionTime') await updateDateField(field, '');
+                return;
+            }
+            const quickDateBtn = target.closest('[data-tm-time-hub-quick-date]');
+            if (quickDateBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                if (quickDateBtn.disabled || quickDateBtn.getAttribute('aria-disabled') === 'true') return;
+                const key = normalizeDate(quickDateBtn.getAttribute('data-tm-time-hub-quick-date') || '');
+                if (key) await updateDateField(hubState.activeField, key);
                 return;
             }
             const monthStepBtn = target.closest('[data-tm-time-hub-year-step]');
@@ -1703,6 +1871,9 @@
         const embedded = !!opts.embedded;
         const floating = !!opts.floating;
         const closeable = !!opts.closeable;
+        const circleCheckboxClass = SettingsStore.data.taskCheckboxCircleStyleEnabled === true
+            ? ' tm-task-detail--task-checkbox-circle'
+            : '';
         const useCompactHeaderActions = embedded;
         const detailTip = (label, tipOpts = {}) => __tmBuildTooltipAttrs(label, {
             side: 'bottom',
@@ -1869,7 +2040,7 @@
                 </div>
             `;
         return `
-            <div class="${embedded ? 'tm-checklist-detail-card' : 'tm-task-detail'} tm-task-detail-shell" data-tm-detail-mode="${embedded ? 'embedded' : 'standalone'}" role="dialog" aria-modal="${embedded ? 'false' : 'true'}">
+            <div class="${embedded ? 'tm-checklist-detail-card' : 'tm-task-detail'} tm-task-detail-shell${circleCheckboxClass}" data-tm-detail-mode="${embedded ? 'embedded' : 'standalone'}" role="dialog" aria-modal="${embedded ? 'false' : 'true'}">
                 <div class="tm-task-detail-header">
                     <div class="tm-task-detail-header-top">
                         ${locationHtml}
@@ -5376,6 +5547,7 @@
                     ${hubState.tab === 'date' ? `
                         <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
+                        ${__tmRenderTaskTimeHubQuickDatesHtml(readHiddenInputValue(hubState.activeField))}
                         ${renderCalendarHtml()}
                         ${renderMonthEditorHtml()}
                         ${(() => {
@@ -5697,6 +5869,14 @@
                     try { ev.stopPropagation(); } catch (e) {}
                     const field = String(clearBtn.getAttribute('data-tm-time-hub-clear-date') || '').trim();
                     if (field === 'startDate' || field === 'completionTime') await updateDateField(field, '');
+                    return;
+                }
+                const quickDateBtn = target.closest('[data-tm-time-hub-quick-date]');
+                if (quickDateBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    if (quickDateBtn.disabled || quickDateBtn.getAttribute('aria-disabled') === 'true') return;
+                    const key = __tmNormalizeDateOnly(quickDateBtn.getAttribute('data-tm-time-hub-quick-date') || '');
+                    if (key) await updateDateField(hubState.activeField, key);
                     return;
                 }
                 const monthStepBtn = target.closest('[data-tm-time-hub-year-step]');
@@ -8150,9 +8330,19 @@ return true;
         try { __tmRemoveElementsById('tm-task-detail-overlay'); } catch (e) {}
         try { __tmClearKanbanDetailForTaskSheet(modal); } catch (e) {}
         const source = String(opts.source || '').trim() || 'task-detail-sheet-open';
+        let openingTask = __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true }) || null;
+        if (openingTask) {
+            try {
+                openingTask = await __tmEnsureTaskDetailFieldAttrs(openingTask, {
+                    taskId: tid,
+                    source,
+                    force: true,
+                }) || openingTask;
+            } catch (e) {}
+        }
         let refreshed = __tmRefreshTaskDetailSheetInPlace(modal, source);
         if (!refreshed) {
-            const task = __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true }) || null;
+            const task = openingTask || __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true }) || null;
             if (task && __tmEnsureTaskDetailSheetMounted(modal, task, tid, source)) {
                 refreshed = __tmRefreshTaskDetailSheetInPlace(modal, `${source}:mounted`);
             }

@@ -4156,10 +4156,73 @@ return false;
         return openFallback();
     }
 
+    function __tmAreTaskAttachmentPathListsEqual(left, right) {
+        const a = __tmNormalizeTaskAttachmentPaths(left);
+        const b = __tmNormalizeTaskAttachmentPaths(right);
+        return a.length === b.length && a.every((item, index) => item === b[index]);
+    }
+
+    function __tmGetQueuedTaskAttachmentPatchPaths(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid || typeof __tmBuildQueuedTaskFieldPatchMap !== 'function') return null;
+        try {
+            const patchMap = __tmBuildQueuedTaskFieldPatchMap({ statuses: ['queued', 'running'] });
+            const patch = patchMap instanceof Map ? patchMap.get(tid) : null;
+            if (!patch || typeof patch !== 'object' || !Object.prototype.hasOwnProperty.call(patch, 'attachments')) return null;
+            return __tmNormalizeTaskAttachmentPaths(patch.attachments);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmGetCurrentTaskAttachmentPatchBase(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return [];
+        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || state.flatTasks?.[tid]
+            || state.pendingInsertedTasks?.[tid]
+            || null;
+        return __tmGetTaskAttachmentPaths(task || {});
+    }
+
+    function __tmReconcileQueuedTaskAttachmentPaths(taskId, nextPaths, options = {}) {
+        const requested = __tmNormalizeTaskAttachmentPaths(nextPaths);
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.reconcileQueuedAttachments === false) return requested;
+        const queued = __tmGetQueuedTaskAttachmentPatchPaths(taskId);
+        if (!Array.isArray(queued)) return requested;
+        if (__tmAreTaskAttachmentPathListsEqual(queued, requested)) return requested;
+        const observed = Array.isArray(opts.currentPaths)
+            ? __tmNormalizeTaskAttachmentPaths(opts.currentPaths)
+            : __tmGetCurrentTaskAttachmentPatchBase(taskId);
+        if (__tmAreTaskAttachmentPathListsEqual(queued, observed)) return requested;
+
+        const observedSet = new Set(observed);
+        const requestedSet = new Set(requested);
+        const queuedSet = new Set(queued);
+        const sameMembersAsObserved = observed.length === requested.length
+            && observed.every((path) => requestedSet.has(path))
+            && requested.every((path) => observedSet.has(path));
+        if (sameMembersAsObserved) {
+            return __tmNormalizeTaskAttachmentPaths([
+                ...requested.filter((path) => queuedSet.has(path)),
+                ...queued.filter((path) => !requestedSet.has(path)),
+            ]);
+        }
+
+        const removedSet = new Set(observed.filter((path) => !requestedSet.has(path)));
+        const added = requested.filter((path) => !observedSet.has(path));
+        const merged = queued.filter((path) => !removedSet.has(path));
+        added.forEach((path) => {
+            if (!merged.includes(path)) merged.push(path);
+        });
+        return __tmNormalizeTaskAttachmentPaths(merged);
+    }
+
     async function __tmUpdateTaskAttachmentsField(taskId, nextPaths, options = {}) {
         const tid = String(taskId || '').trim();
         if (!tid) return false;
-        const normalizedPaths = __tmNormalizeTaskAttachmentPaths(nextPaths);
+        const normalizedPaths = __tmReconcileQueuedTaskAttachmentPaths(tid, nextPaths, options);
         const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
         if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
         return await patchTask(tid, { attachments: normalizedPaths }, {

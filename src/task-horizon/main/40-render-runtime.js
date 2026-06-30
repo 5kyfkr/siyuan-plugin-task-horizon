@@ -292,7 +292,18 @@ return;
                 return shouldShowByTaskState;
             })
             .filter(doc => !globalNewTaskDocId || doc.id !== globalNewTaskDocId);
-        const docTabGroupedView = __tmBuildDocTabGroupedView(visibleDocs, { currentGroupId, activeDocId });
+        const docTabGroupedView = __tmBuildDocTabGroupedView(visibleDocs, {
+            currentGroupId,
+            activeDocId,
+            allDocsForTabs: docsForTabs,
+            currentRule,
+            archiveMode: docTabsArchiveMode,
+            filteredDocIdSet,
+            filterRule: docTabsFilterRule,
+            hasContentFilter,
+            docStateCache: docTaskStateCache,
+            globalNewTaskDocId,
+        });
         const customTabGroups = Array.isArray(docTabGroupedView?.groups) ? docTabGroupedView.groups : [];
         const docTabsToRender = Array.isArray(docTabGroupedView?.normalDocs) ? docTabGroupedView.normalDocs : visibleDocs;
         const archivedDocCount = docsForTabs.filter((doc) => __tmGetDocTaskStateForTabs(doc, docTaskStateCache).isArchived).length;
@@ -729,7 +740,7 @@ return;
                                     ${__tmRenderTopbarSelect({ id: 'tmMobileGroupModeSelect', label: '分组', options: groupModeMenuOptions, style: 'flex:1;' })}
                                 </div>
                                 <div style="display:flex; gap:10px; align-items:center;">
-                                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal()" style="flex:1; padding: 6px;">
+                                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
                                         <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('search')}<span>搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}</span></span>
                                     </button>
                                 </div>
@@ -1961,6 +1972,7 @@ return;
                 ` : ''}
             </div>
         `;
+        try { globalThis.__tmApplySearchHighlights?.(state.modal, state.searchKeyword); } catch (e) {}
         try { if (renderMode === 'kanban' && typeof __tmNormalizeKanbanDetailFloatHost === 'function') __tmNormalizeKanbanDetailFloatHost(state.modal); } catch (e) {}
         try { __tmBindPluginHostGestureIsolation(state.modal); } catch (e) {}
         try { __tmBindChecklistSheetTouchFallback(state.modal); } catch (e) {}
@@ -1974,6 +1986,13 @@ return;
             __tmPruneMountedManagerShells(finalMountRoot, keepMountedShell);
         } catch (e) {}
         finalMountRoot.appendChild(state.modal);
+        try { window.__tmSyncInlineSearchBarPortal?.(); } catch (e) {}
+        if (state.searchBarFocusAfterRender) {
+            state.searchBarFocusAfterRender = false;
+            const selectSearchText = state.searchBarSelectAfterRender !== false;
+            state.searchBarSelectAfterRender = true;
+            try { window.__tmFocusInlineSearchBar?.({ selectText: selectSearchText }); } catch (e) {}
+        }
         try { if (renderMode === 'kanban') __tmScheduleKanbanBottomNavAvoidance(state.modal); } catch (e) {}
         rememberViewDomRenderSignature();
         try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
@@ -2027,6 +2046,13 @@ return;
                             window.tmTaskDetailSheetClose?.();
                         }
                     });
+                    try {
+                        if (typeof __tmScheduleTaskDetailFieldAttrHydration === 'function') __tmScheduleTaskDetailFieldAttrHydration(selectedId, selectedTask, {
+                            modal: state.modal,
+                            mode: 'task-sheet',
+                            source: 'render-task-detail-sheet-post-bind',
+                        });
+                    } catch (e) {}
                 }
             }
         } catch (e) {}
@@ -2052,7 +2078,29 @@ return;
                             if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'detail-close')) render();
                         }
                     });
-}
+                    try {
+                        if (typeof __tmScheduleTaskDetailFieldAttrHydration === 'function') __tmScheduleTaskDetailFieldAttrHydration(selectedId, selectedTask, {
+                            modal: state.modal,
+                            mode: 'checklist',
+                            source: 'render-checklist-post-bind',
+                        });
+                    } catch (e) {}
+                }
+            }
+        } catch (e) {}
+        try {
+            if (renderMode === 'kanban') {
+                const selectedId = String(state.kanbanDetailTaskId || '').trim();
+                const selectedTask = selectedId
+                    ? (globalThis.__tmRuntimeState?.getFlatTaskById?.(selectedId) || state.flatTasks?.[selectedId] || null)
+                    : null;
+                if (selectedTask) {
+                    if (typeof __tmScheduleTaskDetailFieldAttrHydration === 'function') __tmScheduleTaskDetailFieldAttrHydration(selectedId, selectedTask, {
+                        modal: state.modal,
+                        mode: 'kanban',
+                        source: 'render-kanban-detail-post-bind',
+                    });
+                }
             }
         } catch (e) {}
         const bindDeferredTaskNameMarks = () => {
@@ -2086,8 +2134,7 @@ return;
                         try { requestAnimationFrame(() => requestAnimationFrame(apply)); } catch (e2) {}
                         try { setTimeout(apply, 0); } catch (e2) {}
                     };
-                    const mountCalendar = (deferredMount = false) => {
-                        const startedAt = Date.now();
+                    const mountCalendar = (attempt = 0) => {
                         if (!SettingsStore.data.calendarEnabled) {
                             el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历视图已关闭，可在设置 → 日历中开启。</div>`;
                         } else if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.mount === 'function') {
@@ -2098,13 +2145,27 @@ return;
                                 restoreCalendarScrollAfterMount();
                             }
                         } else {
-                            el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块未加载。</div>`;
+                            if (attempt < 80) {
+                                if (attempt === 0) {
+                                    el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块加载中...</div>`;
+                                }
+                                try {
+                                    setTimeout(() => {
+                                        try {
+                                            if (!el.isConnected || (state.modal && !state.modal.contains(el))) return;
+                                            mountCalendar(attempt + 1);
+                                        } catch (e2) {}
+                                    }, attempt < 8 ? 80 : 160);
+                                } catch (e2) {}
+                            } else {
+                                el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块未加载。</div>`;
+                            }
                         }
                     };
                     if (!SettingsStore.data.calendarEnabled) {
                         el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历视图已关闭，可在设置 → 日历中开启。</div>`;
                     } else {
-                        mountCalendar(false);
+                        mountCalendar(0);
                     }
                 }
             }
@@ -2948,10 +3009,12 @@ return;
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!modal) return;
         try {
-            const cols = modal.querySelectorAll('.tm-kanban-col.tm-kanban-col--dragover, .tm-kanban-col.tm-kanban-col--drop-forbidden');
-            cols.forEach(el => { try { el.classList.remove('tm-kanban-col--dragover', 'tm-kanban-col--drop-forbidden'); } catch (e) {} });
+            const els = modal.querySelectorAll('.tm-kanban-col.tm-kanban-col--dragover, .tm-kanban-col.tm-kanban-col--drop-forbidden, .tm-kanban-group-title.tm-kanban-group-title--dragover');
+            els.forEach(el => { try { el.classList.remove('tm-kanban-col--dragover', 'tm-kanban-col--drop-forbidden', 'tm-kanban-group-title--dragover'); } catch (e) {} });
         } catch (e) {}
     }
+
+    try { globalThis.__tmKanbanClearDragOver = __tmKanbanClearDragOver; } catch (e) {}
 
     function __tmBuildKanbanTimeDropTarget(timeKey) {
         const key = String(timeKey || '').trim();
@@ -3608,6 +3671,7 @@ return;
     };
 
     window.tmKanbanDragEnd = function(ev, id) {
+        try { globalThis.__tmSuppressTaskPointerClickAfterDrag?.(420); } catch (e) {}
         try { ev.currentTarget?.classList?.remove?.('tm-kanban-card--dragging'); } catch (e) {}
         try {
             const sourceEl = state.__tmKanbanDragSourceEl;
@@ -3828,7 +3892,7 @@ return;
         ghost.style.maxWidth = ghost.style.width;
         ghost.style.zIndex = '200160';
         ghost.style.pointerEvents = 'none';
-        ghost.style.opacity = '0.96';
+        ghost.style.opacity = '0.4';
         ghost.style.transform = `translate(${Math.round(rect.left)}px, ${Math.round(rect.top)}px)`;
         ghost.style.boxShadow = '0 12px 30px rgba(0,0,0,0.18)';
         ghost.style.contain = 'none';
@@ -7552,14 +7616,15 @@ return;
         const runTaskTimer = async (minutes, mode = 'countdown') => {
             const timerTaskId = tid;
             const timerTaskName = String(taskName || '其他块').trim() || '其他块';
+            const timerFocusRestoreOptions = { source: 'task-horizon' };
             state.timerFocusTaskId = timerTaskId;
             render();
             if (mode === 'stopwatch') {
                 const startFromTaskBlock = timer?.startFromTaskBlock;
                 const startStopwatch = timer?.startStopwatch;
                 let p = null;
-                if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, 0, 'stopwatch');
-                else if (typeof startStopwatch === 'function') p = startStopwatch(timerTaskId, timerTaskName);
+                if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, 0, 'stopwatch', timerFocusRestoreOptions);
+                else if (typeof startStopwatch === 'function') p = startStopwatch(timerTaskId, timerTaskName, timerFocusRestoreOptions);
                 else {
                     hint('⚠ 未检测到正计时功能，请确认番茄插件已启用', 'warning');
                     return;
@@ -7575,8 +7640,8 @@ return;
             const startFromTaskBlock = timer?.startFromTaskBlock;
             const startCountdown = timer?.startCountdown;
             let p = null;
-            if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, safeMin, 'countdown');
-            else if (typeof startCountdown === 'function') p = startCountdown(timerTaskId, timerTaskName, safeMin);
+            if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, safeMin, 'countdown', timerFocusRestoreOptions);
+            else if (typeof startCountdown === 'function') p = startCountdown(timerTaskId, timerTaskName, safeMin, timerFocusRestoreOptions);
             else {
                 await tmStartPomodoro(timerTaskId);
                 return;

@@ -1136,9 +1136,20 @@
             }
             try { __tmMarkQuickbarModifiedTask(taskId); } catch (e) {}
             try { globalThis.__taskHorizonMarkModified?.(taskId); } catch (e) {}
-            setTimeout(() => {
-                try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
-            }, 0);
+            const scheduled = typeof globalThis.__taskHorizonScheduleQuickbarRefresh === 'function'
+                ? globalThis.__taskHorizonScheduleQuickbarRefresh({
+                    source: 'quickbar-bridge',
+                    taskId,
+                    requestedTaskId,
+                    attrHostId: attrHostId || taskId,
+                    attrKey,
+                })
+                : false;
+            if (!scheduled) {
+                setTimeout(() => {
+                    try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
+                }, 0);
+            }
             return true;
         },
         markModified(taskId = '') {

@@ -5898,22 +5898,26 @@
             const taskId = String(task?.id || '').trim();
             const allowVisibleDateFallback = __tmHasPendingVisibleDatePersistence(taskId);
             const allowCustomStatusFallback = __tmHasPendingTaskFieldPersistence(taskId, ['customStatus']);
+            const loadedMetaAttrFields = (task.__tmTaskMetaAttrFieldsLoaded && typeof task.__tmTaskMetaAttrFieldsLoaded === 'object')
+                ? task.__tmTaskMetaAttrFieldsLoaded
+                : ((task.taskMetaAttrFieldsLoaded && typeof task.taskMetaAttrFieldsLoaded === 'object') ? task.taskMetaAttrFieldsLoaded : {});
+            const hasLoadedMetaAttrField = (field) => loadedMetaAttrFields[String(field || '').trim()] === true;
 
             // 对于从数据库查询的字段，如果数据库已有有效值，则优先使用数据库的值
             // 这样可以确保悬浮条修改后，切换页签时能获取到最新数据
             // 注意：数据库返回的字段名是 custom_priority, custom_status 等，会被规范化为 priority, customStatus
-            const dbHasPriority = isValidValue(task.priority) || isValidValue(task.custom_priority);
-            const dbHasPinned = isValidValue(task.pinned);
-            const dbHasAllDayBottom = isValidValue(task.allDayBottom) || isValidValue(task.custom_all_day_bottom);
-            const dbHasMilestone = isValidValue(task.milestone);
-            const dbHasDuration = isValidValue(task.duration);
+            const dbHasPriority = hasLoadedMetaAttrField('priority') || isValidValue(task.priority) || isValidValue(task.custom_priority);
+            const dbHasPinned = hasLoadedMetaAttrField('pinned') || isValidValue(task.pinned);
+            const dbHasAllDayBottom = hasLoadedMetaAttrField('allDayBottom') || isValidValue(task.allDayBottom) || isValidValue(task.custom_all_day_bottom);
+            const dbHasMilestone = hasLoadedMetaAttrField('milestone') || isValidValue(task.milestone);
+            const dbHasDuration = hasLoadedMetaAttrField('duration') || isValidValue(task.duration);
             const dbHasTomatoEstimateCount = isValidValue(task.tomatoEstimateCount) || isValidValue(task.tomato_estimate_count);
             const dbHasTomatoCount = isValidValue(task.tomatoCount) || isValidValue(task.tomato_count);
-            const dbHasRemark = isValidValue(task.remark);
-            const dbHasCompletionTime = isValidValue(task.completionTime) || isValidValue(task.completion_time);
-            const dbHasTaskCompleteAt = isValidValue(task.taskCompleteAt) || isValidValue(task.task_complete_at);
-            const dbHasCustomTime = isValidValue(task.customTime) || isValidValue(task.custom_time);
-            const dbHasCustomStatus = isValidValue(task.customStatus) || isValidValue(task.custom_status);
+            const dbHasRemark = hasLoadedMetaAttrField('remark') || isValidValue(task.remark);
+            const dbHasCompletionTime = hasLoadedMetaAttrField('completionTime') || isValidValue(task.completionTime) || isValidValue(task.completion_time);
+            const dbHasTaskCompleteAt = hasLoadedMetaAttrField('taskCompleteAt') || isValidValue(task.taskCompleteAt) || isValidValue(task.task_complete_at);
+            const dbHasCustomTime = hasLoadedMetaAttrField('customTime') || isValidValue(task.customTime) || isValidValue(task.custom_time);
+            const dbHasCustomStatus = hasLoadedMetaAttrField('customStatus') || isValidValue(task.customStatus) || isValidValue(task.custom_status);
             const dbHasRepeatRule = isValidValue(task.repeat_rule)
                 || isValidValue(task?.[__TM_TASK_REPEAT_RULE_ATTR])
                 || (typeof task.repeatRule === 'string' && isValidValue(task.repeatRule));
@@ -6243,6 +6247,35 @@
         return __tmNormalizeSubtaskInheritedPatch(patch);
     }
 
+    const __TM_CALENDAR_INITIAL_VIEW_VALUES = new Set([
+        'timeGridDay',
+        'timeGrid3Day',
+        'timeGridWorkdays',
+        'timeGridWeek',
+        'dayGridMonth',
+    ]);
+
+    function __tmNormalizeCalendarInitialView(value, fallback = 'timeGridWeek') {
+        const clean = (input) => {
+            let raw = String(input ?? '').trim();
+            if (!raw) return '';
+            try {
+                if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+                    const parsed = JSON.parse(raw);
+                    raw = String(parsed ?? '').trim();
+                }
+            } catch (e) {
+                raw = raw.replace(/^['"]|['"]$/g, '').trim();
+            }
+            return raw;
+        };
+        const raw = clean(value);
+        if (__TM_CALENDAR_INITIAL_VIEW_VALUES.has(raw)) return raw;
+        const fb = clean(fallback);
+        if (__TM_CALENDAR_INITIAL_VIEW_VALUES.has(fb)) return fb;
+        return 'timeGridWeek';
+    }
+
     // 设置存储（使用云端同步存储，支持跨设备同步）
     const SettingsStore = {
         data: {
@@ -6366,6 +6399,8 @@
             calendarEnabled: true,
             calendarLinkDockTomato: true,
             calendarInitialView: 'timeGridWeek',
+            calendarInitialViewDesktop: 'timeGridWeek',
+            calendarInitialViewMobile: 'timeGridDay',
             calendarFirstDay: 1,
             calendarMonthAggregate: true,
             calendarMonthAdaptiveRowHeight: true,
@@ -6964,7 +6999,11 @@
                                 if (typeof cloudData.tomatoEstimateAttrKey === 'string') this.data.tomatoEstimateAttrKey = cloudData.tomatoEstimateAttrKey;
                                 if (typeof cloudData.calendarEnabled === 'boolean') this.data.calendarEnabled = cloudData.calendarEnabled;
                                 if (typeof cloudData.calendarLinkDockTomato === 'boolean') this.data.calendarLinkDockTomato = cloudData.calendarLinkDockTomato;
-                                if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = cloudData.calendarInitialView;
+                                if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = __tmNormalizeCalendarInitialView(cloudData.calendarInitialView, this.data.calendarInitialView);
+                                if (typeof cloudData.calendarInitialViewDesktop === 'string') {
+                                    this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(cloudData.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
+                                }
+                                if (typeof cloudData.calendarInitialViewMobile === 'string') this.data.calendarInitialViewMobile = __tmNormalizeCalendarInitialView(cloudData.calendarInitialViewMobile, 'timeGridDay');
                                 if (typeof cloudData.calendarFirstDay === 'number') this.data.calendarFirstDay = cloudData.calendarFirstDay;
                                 if (typeof cloudData.calendarMonthAggregate === 'boolean') this.data.calendarMonthAggregate = cloudData.calendarMonthAggregate;
                                 if (typeof cloudData.calendarMonthAdaptiveRowHeight === 'boolean') this.data.calendarMonthAdaptiveRowHeight = cloudData.calendarMonthAdaptiveRowHeight;
@@ -7419,7 +7458,13 @@
             this.data.tomatoEstimateAttrKey = Storage.get('tm_tomato_estimate_attr_key', this.data.tomatoEstimateAttrKey);
             this.data.calendarEnabled = Storage.get('tm_calendar_enabled', this.data.calendarEnabled);
             this.data.calendarLinkDockTomato = Storage.get('tm_calendar_link_docktomato', this.data.calendarLinkDockTomato);
-            this.data.calendarInitialView = Storage.get('tm_calendar_initial_view', this.data.calendarInitialView);
+            this.data.calendarInitialView = __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view', this.data.calendarInitialView), this.data.calendarInitialView);
+            this.data.calendarInitialViewDesktop = Storage.has('tm_calendar_initial_view_desktop')
+                ? __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view_desktop', this.data.calendarInitialViewDesktop), this.data.calendarInitialView || 'timeGridWeek')
+                : __tmNormalizeCalendarInitialView(this.data.calendarInitialViewDesktop, 'timeGridWeek');
+            this.data.calendarInitialViewMobile = Storage.has('tm_calendar_initial_view_mobile')
+                ? __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view_mobile', this.data.calendarInitialViewMobile), 'timeGridDay')
+                : __tmNormalizeCalendarInitialView(this.data.calendarInitialViewMobile, 'timeGridDay');
             this.data.calendarFirstDay = Number(Storage.get('tm_calendar_first_day', this.data.calendarFirstDay));
             this.data.calendarMonthAggregate = Storage.get('tm_calendar_month_aggregate', this.data.calendarMonthAggregate);
             this.data.calendarMonthAdaptiveRowHeight = !!Storage.get('tm_calendar_month_adaptive_row_height', this.data.calendarMonthAdaptiveRowHeight);
@@ -7853,7 +7898,12 @@
             Storage.set('tm_tomato_estimate_attr_key', String(this.data.tomatoEstimateAttrKey || '').trim());
             Storage.set('tm_calendar_enabled', !!this.data.calendarEnabled);
             Storage.set('tm_calendar_link_docktomato', !!this.data.calendarLinkDockTomato);
-            Storage.set('tm_calendar_initial_view', String(this.data.calendarInitialView || 'timeGridWeek').trim() || 'timeGridWeek');
+            this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
+            this.data.calendarInitialViewMobile = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewMobile, 'timeGridDay');
+            this.data.calendarInitialView = this.data.calendarInitialViewDesktop;
+            Storage.set('tm_calendar_initial_view', this.data.calendarInitialView);
+            Storage.set('tm_calendar_initial_view_desktop', this.data.calendarInitialViewDesktop);
+            Storage.set('tm_calendar_initial_view_mobile', this.data.calendarInitialViewMobile);
             Storage.set('tm_calendar_first_day', Number(this.data.calendarFirstDay) === 0 ? 0 : 1);
             Storage.set('tm_calendar_month_aggregate', !!this.data.calendarMonthAggregate);
             Storage.set('tm_calendar_month_adaptive_row_height', !!this.data.calendarMonthAdaptiveRowHeight);
@@ -11303,11 +11353,27 @@
             }
             return shouldApply(...candidates);
         };
+        let loadedMetaAttrFields = null;
+        const markMetaAttrFieldLoaded = (field) => {
+            const key = String(field || '').trim();
+            if (!key) return;
+            if (!loadedMetaAttrFields) {
+                loadedMetaAttrFields = (target.__tmTaskMetaAttrFieldsLoaded && typeof target.__tmTaskMetaAttrFieldsLoaded === 'object')
+                    ? { ...target.__tmTaskMetaAttrFieldsLoaded }
+                    : {};
+            }
+            loadedMetaAttrFields[key] = true;
+        };
         __TM_TASK_META_ATTR_FIELDS.forEach((def) => {
             const entry = __tmReadTaskMetaAttrEntry(row, def.field);
             if (!entry.found) return;
+            markMetaAttrFieldLoaded(def.field);
             __tmApplyTaskMetaAttrValueToTask(target, def.field, entry.value, opts);
         });
+        if (loadedMetaAttrFields) {
+            target.__tmTaskMetaAttrFieldsLoaded = loadedMetaAttrFields;
+            target.taskMetaAttrFieldsLoaded = loadedMetaAttrFields;
+        }
         if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_REPEAT_RULE_ATTR)) {
             const value = String(row[__TM_TASK_REPEAT_RULE_ATTR] ?? '');
             if (shouldApply(target.repeatRule, target.repeat_rule, target[__TM_TASK_REPEAT_RULE_ATTR])) {
@@ -11374,9 +11440,10 @@
         return target;
     }
 
-    async function __tmApplyTaskAttrHostOverrides(tasks) {
+    async function __tmApplyTaskAttrHostOverrides(tasks, options = {}) {
         const list = Array.isArray(tasks) ? tasks.filter((task) => task && typeof task === 'object') : [];
         if (!list.length) return list;
+        const opts = (options && typeof options === 'object') ? options : {};
         await __tmPopulateTaskAttrHostIds(list);
         const taskIds = [];
         const hostIds = [];
@@ -11403,6 +11470,8 @@
         const shouldApplySelfRow = (row) => {
             if (!row || typeof row !== 'object') return false;
             if (__tmHasTaskMetaAttrRowValues(row)) return true;
+            if (opts.applyBlankSelfAttrs === true
+                && Object.keys(row).some((key) => __tmIsTaskMetaAttrKey(key))) return true;
             if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_ATTACHMENT_META_ATTR)) return true;
             return Object.keys(row).some((key) => __tmIsTaskAttachmentAttrKey(key));
         };
@@ -11412,7 +11481,7 @@
             const selfRow = taskId ? rowMap.get(taskId) : null;
             if (shouldApplySelfRow(selfRow)) {
                 __tmApplyTaskMetaAttrRow(task, selfRow, {
-                    preferExisting: true,
+                    preferExisting: opts.preferExistingSelf !== false,
                     preferExistingVisibleDates: true,
                     preserveExistingVisibleDatesOnBlank: true,
                 });
@@ -14248,10 +14317,13 @@
         if (!state.modal || !document.body.contains(state.modal)) return false;
         if (viewMode === 'calendar' && opts.allowCalendar !== true) return false;
         try { await __tmFlushSqlTransactionsSafe('doc-incremental-refresh'); } catch (e) {}
-        try {
-            const taskBlockOk = await __tmRefreshAffectedTaskBlocksIncrementally(opts);
-            if (taskBlockOk) return true;
-        } catch (e) {}
+        const forcePositionRank = opts.forcePositionRank === true;
+        if (!forcePositionRank) {
+            try {
+                const taskBlockOk = await __tmRefreshAffectedTaskBlocksIncrementally(opts);
+                if (taskBlockOk) return true;
+            } catch (e) {}
+        }
         const docIds = await __tmResolveIncrementalRefreshDocIds(targets.docIds, targets.blockIds, {
             allowUnloadedDocIds: opts.allowUnloadedDocIds === true,
         });
@@ -14269,7 +14341,7 @@
         const normalizedRuleSorts0 = __tmGetNormalizedRuleSorts(rule0);
         const isUngroup = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
         const ruleNeedsFlowRank = normalizedRuleSorts0.some((item) => String(item?.field || '').trim() === 'docSeq');
-        const needFlowRank = !!ruleNeedsFlowRank || (!__tmRuleHasExplicitSort(rule0) && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled));
+        const needFlowRank = forcePositionRank || !!ruleNeedsFlowRank || (!__tmRuleHasExplicitSort(rule0) && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled));
         const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
         const docHeadingSubgroupActive = !!state.groupByDocName && SettingsStore.data.docH2SubgroupEnabled !== false;
         const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'

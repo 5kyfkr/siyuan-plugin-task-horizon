@@ -2655,6 +2655,135 @@
     min-height: 0;
 }
 
+.tm-inline-searchbar {
+    position: absolute;
+    top: 8px;
+    left: 0;
+    right: 0;
+    z-index: 47;
+    display: flex;
+    justify-content: center;
+    padding: 0 12px;
+    background: transparent;
+    pointer-events: none;
+}
+
+.tm-inline-searchbar--portal {
+    position: fixed;
+    top: var(--tm-inline-searchbar-top, 80px);
+    left: var(--tm-inline-searchbar-left, 0px);
+    right: auto;
+    width: var(--tm-inline-searchbar-width, 100vw);
+    padding: 0 12px;
+}
+
+.tm-inline-searchbar__inner {
+    pointer-events: auto;
+    width: min(calc(100% - 8px), 400px);
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 8px;
+    border: 1px solid var(--b3-border-color);
+    background: var(--b3-theme-background);
+    box-shadow: var(--b3-dialog-shadow);
+    box-sizing: border-box;
+}
+
+.tm-inline-searchbar__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    color: var(--tm-secondary-text);
+    flex: 0 0 auto;
+}
+
+.tm-inline-searchbar__icon-svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+}
+
+.tm-inline-searchbar__input {
+    flex: 1 1 auto;
+    min-width: 120px;
+    height: 26px;
+    min-height: 26px;
+    padding: 0 8px;
+    border-radius: 6px;
+    border: 1px solid var(--b3-border-color);
+    background: var(--b3-theme-surface);
+    color: var(--b3-theme-on-surface);
+    font-size: 13px;
+    line-height: 26px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.tm-inline-searchbar__input:focus {
+    border-color: color-mix(in srgb, var(--b3-theme-primary) 56%, var(--b3-border-color));
+    background: var(--b3-theme-background);
+}
+
+.tm-inline-searchbar__btn {
+    width: 26px !important;
+    min-width: 26px !important;
+    height: 26px !important;
+    min-height: 26px !important;
+    padding: 0 !important;
+    border-radius: 6px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 1px solid var(--b3-border-color) !important;
+    background: var(--b3-theme-surface) !important;
+    color: var(--b3-theme-on-surface) !important;
+    box-shadow: none !important;
+    transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s;
+}
+
+.tm-inline-searchbar__btn:hover {
+    background: var(--b3-theme-background) !important;
+    border-color: var(--b3-theme-primary) !important;
+    color: var(--b3-theme-primary) !important;
+}
+
+.tm-modal.tm-modal--mobile .tm-inline-searchbar,
+.tm-modal.tm-modal--dock .tm-inline-searchbar {
+    padding: 0 10px;
+}
+
+.tm-modal.tm-modal--mobile .tm-inline-searchbar__inner,
+.tm-modal.tm-modal--dock .tm-inline-searchbar__inner {
+    width: 100%;
+    max-width: 100%;
+}
+
+@media (max-width: 460px) {
+    .tm-inline-searchbar {
+        padding-left: 8px;
+        padding-right: 8px;
+    }
+
+    .tm-inline-searchbar__inner {
+        width: 100%;
+    }
+}
+
+.tm-search-highlight {
+    padding: 0 2px;
+    border-radius: 3px;
+    background: oklch(0.86 0.14 92 / 0.42);
+    box-shadow: inset 0 0 0 1px oklch(0.74 0.14 84 / 0.24);
+    color: inherit;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
 .tm-multi-bulkbar {
     position: absolute;
     left: 14px;
@@ -6499,7 +6628,7 @@ select.tm-btn-secondary {
 }
 
 .tm-kanban-card-title {
-    font-size: calc(var(--tm-font-size) - 2px);
+    font-size: calc(var(--tm-font-size) - 1px);
     line-height: 1.35;
     margin-bottom: 8px;
     word-break: break-word;
@@ -6510,7 +6639,7 @@ select.tm-btn-secondary {
 }
 
 .tm-kanban-card-title-inline {
-    font-size: calc(var(--tm-font-size) - 2px);
+    font-size: calc(var(--tm-font-size) - 1px);
     line-height: 1.25;
     word-break: break-word;
     overflow: hidden;
@@ -7171,7 +7300,7 @@ select.tm-btn-secondary {
 .tm-kanban--clean .tm-kanban-card-title-inline {
     flex: 0 1 auto;
     width: 100%;
-    font-size: calc(var(--tm-font-size) - 2px);
+    font-size: calc(var(--tm-font-size) - 1px);
     line-height: 1.35;
 }
 
@@ -7516,7 +7645,7 @@ select.tm-btn-secondary {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: calc(var(--tm-font-size) - 2px);
+    font-size: calc(var(--tm-font-size) - 1px);
     line-height: 1.35;
     color: var(--card-foreground);
 }
@@ -8623,17 +8752,27 @@ select.tm-btn-secondary {
 }
 
 .tm-task-detail-subtask-main {
+    --tm-task-detail-subtask-title-border-top: 1px;
+    --tm-task-detail-subtask-title-padding-top: 4px;
+    --tm-task-detail-subtask-title-line-height: 20px;
+    --tm-task-detail-subtask-checkbox-size: var(--tm-checkbox-size, 14px);
+    --tm-task-detail-subtask-checkbox-offset: max(0px, calc(var(--tm-task-detail-subtask-title-border-top) + var(--tm-task-detail-subtask-title-padding-top) + (var(--tm-task-detail-subtask-title-line-height) - var(--tm-task-detail-subtask-checkbox-size)) / 2));
     flex: 1 1 auto;
     min-width: 0;
     display: flex;
     align-items: flex-start;
-    gap: 6px;
+    gap: 2px;
 }
 
 .tm-task-detail-subtask-main .tm-task-checkbox {
-    margin-top: 8px;
+    margin-top: var(--tm-task-detail-subtask-checkbox-offset);
     flex: 0 0 auto;
     align-self: flex-start;
+}
+
+.tm-modal--task-checkbox-circle .tm-task-detail-subtask-main,
+.tm-task-detail--task-checkbox-circle .tm-task-detail-subtask-main {
+    --tm-task-detail-subtask-checkbox-size: var(--tm-circle-checkbox-size, 16px);
 }
 
 .tm-task-detail-subtask-title {
@@ -8734,6 +8873,13 @@ select.tm-btn-secondary {
     border: 1px dashed color-mix(in srgb, var(--tm-primary-color) 42%, var(--tm-input-border));
     flex: 0 0 auto;
     align-self: center;
+}
+
+.tm-modal--task-checkbox-circle .tm-task-detail-subtask-draft-marker,
+.tm-task-detail--task-checkbox-circle .tm-task-detail-subtask-draft-marker {
+    width: var(--tm-circle-checkbox-size, 16px);
+    height: var(--tm-circle-checkbox-size, 16px);
+    border-radius: 999px;
 }
 
 .tm-task-detail-remark,
@@ -10282,6 +10428,50 @@ select.tm-btn-secondary {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 6px;
+}
+
+.tm-task-time-hub__quick-dates {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+    width: min(286px, 100%);
+    margin: 0 auto;
+}
+
+.tm-task-time-hub__quick-date {
+    min-width: 0;
+    min-height: 30px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: calc(var(--radius) - 1px);
+    background: transparent;
+    color: var(--tm-secondary-text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    cursor: pointer;
+    transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.tm-task-time-hub__quick-date-icon {
+    width: 20px;
+    height: 20px;
+    display: block;
+}
+
+.tm-task-time-hub__quick-date:hover,
+.tm-task-time-hub__quick-date:focus-visible {
+    outline: none;
+    color: var(--tm-primary-color);
+    border-color: color-mix(in srgb, var(--tm-primary-color) 28%, transparent);
+    background: color-mix(in srgb, var(--tm-primary-color) 9%, var(--tm-card-bg) 91%);
+}
+
+.tm-task-time-hub__quick-date.is-active {
+    color: var(--tm-primary-color);
+    border-color: color-mix(in srgb, var(--tm-primary-color) 36%, transparent);
+    background: color-mix(in srgb, var(--tm-primary-color) 12%, var(--tm-card-bg) 88%);
 }
 
 .tm-task-time-hub__date-card {
@@ -12106,6 +12296,7 @@ select.tm-btn-secondary {
 
 .tm-checklist-pane--compact.tm-checklist-pane--wrap .tm-checklist-title {
     align-items: flex-start;
+    line-height: 1.32;
     white-space: normal;
     word-break: break-word;
     overflow-wrap: anywhere;
@@ -14736,12 +14927,14 @@ th[data-col] {
     animation: none;
 }
 
-.tm-modal--task-checkbox-circle {
+.tm-modal--task-checkbox-circle,
+.tm-task-detail--task-checkbox-circle {
     --tm-circle-checkbox-size: 16px;
     --tm-circle-checkbox-slot-size: var(--tm-checkbox-size, 14px);
 }
 
-.tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"] {
+.tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"],
+.tm-task-detail--task-checkbox-circle input.tm-task-checkbox[type="checkbox"] {
     --tm-task-checkbox-mark-left: 50%;
     --tm-task-checkbox-mark-top: 47%;
     --tm-task-checkbox-mark-width: calc(var(--tm-circle-checkbox-size, 16px) * 0.22);
@@ -14751,12 +14944,14 @@ th[data-col] {
     border-radius: 999px;
 }
 
-.tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked {
+.tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked,
+.tm-task-detail--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked {
     background: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 92%, var(--tm-bg-color));
     background-color: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 92%, var(--tm-bg-color));
 }
 
-.tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked::after {
+.tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked::after,
+.tm-task-detail--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked::after {
     border-right-color: var(--primary-foreground, #f8fafc);
     border-bottom-color: var(--primary-foreground, #f8fafc);
     transform: translate(-50%, -50%) rotate(45deg);
@@ -14784,16 +14979,41 @@ th[data-col] {
     left: calc(var(--tm-checklist-checkbox-left) + var(--tm-circle-checkbox-slot-size, 14px) / 2);
 }
 
+.tm-modal--task-checkbox-circle .tm-kanban-card-head,
+.tm-modal--task-checkbox-circle .tm-kanban-subtask-row-main,
+.tm-modal--task-checkbox-circle .tm-whiteboard-card-head {
+    --tm-card-circle-checkbox-title-font-size: calc(var(--tm-font-size) - 1px);
+    --tm-card-circle-checkbox-title-line-height: 1.25;
+    --tm-card-circle-checkbox-offset: max(0px, calc((var(--tm-card-circle-checkbox-title-font-size) * var(--tm-card-circle-checkbox-title-line-height) - var(--tm-circle-checkbox-size, 16px)) / 2));
+}
+
+.tm-modal--task-checkbox-circle .tm-kanban--clean .tm-kanban-card-head,
+.tm-modal--task-checkbox-circle .tm-kanban--clean .tm-kanban-subtask-row-main,
+.tm-modal--task-checkbox-circle .tm-whiteboard.tm-kanban--clean .tm-whiteboard-card-head {
+    --tm-card-circle-checkbox-title-line-height: 1.35;
+}
+
+.tm-modal--task-checkbox-circle .tm-kanban-card-head .tm-task-checkbox-wrap,
+.tm-modal--task-checkbox-circle .tm-kanban-subtask-row-main .tm-task-checkbox-wrap,
+.tm-modal--task-checkbox-circle .tm-whiteboard-card-head .tm-task-checkbox-wrap {
+    --tm-circle-checkbox-slot-size: var(--tm-circle-checkbox-size, 16px);
+    width: var(--tm-circle-checkbox-size, 16px);
+    min-width: var(--tm-circle-checkbox-size, 16px);
+    height: var(--tm-circle-checkbox-size, 16px);
+    flex-basis: var(--tm-circle-checkbox-size, 16px);
+    margin-top: var(--tm-card-circle-checkbox-offset);
+}
+
 .tm-modal--task-checkbox-circle .tm-kanban-card-head .tm-task-checkbox,
 .tm-modal--task-checkbox-circle .tm-kanban-subtask-row-main .tm-task-checkbox,
 .tm-modal--task-checkbox-circle .tm-whiteboard-card-head .tm-task-checkbox {
-    margin-top: 1px;
+    margin-top: 0;
 }
 
 .tm-modal--task-checkbox-circle .tm-kanban-card-head .tm-task-checkbox-wrap--collapsed .tm-task-leading-ring,
 .tm-modal--task-checkbox-circle .tm-kanban-subtask-row-main .tm-task-checkbox-wrap--collapsed .tm-task-leading-ring,
 .tm-modal--task-checkbox-circle .tm-whiteboard-card-head .tm-task-checkbox-wrap--collapsed .tm-task-leading-ring {
-    top: calc(50% + 1px);
+    top: 50%;
 }
 
 .tm-modal--task-checkbox-circle .tm-checklist-leading .tm-task-leading-ring {
@@ -14801,7 +15021,8 @@ th[data-col] {
     box-shadow: none;
 }
 
-.tm-modal--task-checkbox-circle .tm-task-checkbox.tm-task-checkbox--delight:checked::after {
+.tm-modal--task-checkbox-circle .tm-task-checkbox.tm-task-checkbox--delight:checked::after,
+.tm-task-detail--task-checkbox-circle .tm-task-checkbox.tm-task-checkbox--delight:checked::after {
     animation-name: tm-task-checkbox-delight-mark-circle;
 }
 

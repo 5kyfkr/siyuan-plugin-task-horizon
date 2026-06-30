@@ -56,18 +56,37 @@
                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-calendar-dock-nav-btn--icon" onclick="tmCalendarDockShiftDay(1)">${__tmRenderLucideIcon('chevron-right')}</button>
                 </div>
             </div>
-            <div id="tmCalendarSideDockTimeline" style="flex:1 1 auto;min-height:0;"></div>
+            <div id="tmCalendarSideDockTimeline" class="tm-calendar-side-dock-timeline"></div>
         `;
     }
 
-    function __tmCalendarDockMount() {
+    function __tmCalendarDockMount(attempt = 0, mountToken = '') {
         const root = state.modal?.querySelector?.('#tmCalendarSideDockPanel');
         if (!(root instanceof HTMLElement)) return;
-        root.innerHTML = __tmCalendarDockBuildPanelHtml();
-        const timelineRoot = root.querySelector('#tmCalendarSideDockTimeline');
+        const token = mountToken || `${Date.now()}:${Math.random()}`;
+        if (!mountToken) state.calendarSideDockMountToken = token;
+        let timelineRoot = root.querySelector('#tmCalendarSideDockTimeline');
+        if (!(timelineRoot instanceof HTMLElement) || attempt <= 0) {
+            root.innerHTML = __tmCalendarDockBuildPanelHtml();
+            timelineRoot = root.querySelector('#tmCalendarSideDockTimeline');
+        }
         if (!(timelineRoot instanceof HTMLElement)) return;
         if (!globalThis.__tmCalendar || typeof globalThis.__tmCalendar.mountSideDayTimeline !== 'function') {
-            timelineRoot.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块未加载。</div>`;
+            timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历模块加载中...</div>`;
+            if (attempt < 80) {
+                try {
+                    setTimeout(() => {
+                        try {
+                            if (state.calendarSideDockMountToken !== token) return;
+                            if (!root.isConnected || (state.modal && !state.modal.contains(root))) return;
+                            if (!__tmShouldShowCalendarSideDock()) return;
+                            __tmCalendarDockMount(attempt + 1, token);
+                        } catch (e2) {}
+                    }, attempt < 8 ? 80 : 160);
+                } catch (e) {}
+            } else {
+                timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历模块未加载。</div>`;
+            }
             return;
         }
         const dragHost = (() => {
@@ -90,13 +109,14 @@
                     || null;
             },
             dragHost: dragHost || state.modal,
-            enableExternalDrag: false,
+            enableExternalDrag: true,
             allowInactiveFullLoad: true,
         });
         if (!ok) {
-            timelineRoot.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败。</div>`;
+            timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历初始化失败。</div>`;
             return;
         }
+        if (state.calendarSideDockMountToken === token) state.calendarSideDockMountToken = '';
         try {
             requestAnimationFrame(() => {
                 try { globalThis.__tmCalendar?.refreshSideDayLayout?.(); } catch (e) {}

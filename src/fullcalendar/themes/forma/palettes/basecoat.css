@@ -1,0 +1,64 @@
+:root {
+  --fc-forma-primary: var(--primary, var(--tm-ui-primary, #2563eb));
+  --fc-forma-primary-over: color-mix(in srgb, var(--fc-forma-primary) 88%, var(--foreground, #111827) 12%);
+  --fc-forma-primary-down: color-mix(in srgb, var(--fc-forma-primary) 76%, var(--foreground, #111827) 24%);
+  --fc-forma-primary-foreground: var(--primary-foreground, var(--tm-ui-primary-foreground, #ffffff));
+  --fc-forma-event: var(--tm-primary-color, var(--fc-forma-primary));
+  --fc-forma-event-contrast: var(--fc-forma-primary-foreground);
+  --fc-forma-background-event: var(--fc-forma-primary);
+  --fc-forma-highlight: color-mix(in srgb, var(--fc-forma-primary) 24%, transparent);
+  --fc-forma-background: var(--background, var(--tm-ui-background, #ffffff));
+  --fc-forma-faint: color-mix(in srgb, var(--foreground, #111827) 5%, transparent);
+  --fc-forma-muted: color-mix(in srgb, var(--foreground, #111827) 9%, transparent);
+  --fc-forma-strong: color-mix(in srgb, var(--foreground, #111827) 14%, transparent);
+  --fc-forma-stronger: color-mix(in srgb, var(--foreground, #111827) 20%, transparent);
+  --fc-forma-strongest: color-mix(in srgb, var(--foreground, #111827) 26%, transparent);
+  --fc-forma-foreground: var(--foreground, var(--tm-ui-foreground, #111827));
+  --fc-forma-faint-foreground: color-mix(in srgb, var(--foreground, #111827) 42%, var(--background, #ffffff) 58%);
+  --fc-forma-muted-foreground: var(--muted-foreground, var(--tm-ui-muted-foreground, rgba(17, 24, 39, 0.72)));
+  --fc-forma-border: var(--border, var(--tm-ui-border, rgba(17, 24, 39, 0.16)));
+  --fc-forma-muted-border: color-mix(in srgb, var(--fc-forma-border) 72%, transparent);
+  --fc-forma-strong-border: color-mix(in srgb, var(--fc-forma-border) 68%, var(--foreground, #111827) 32%);
+  --fc-forma-ring-color: var(--ring, var(--tm-ui-ring, rgba(37, 99, 235, 0.24)));
+}
+
+.tm-calendar-wrap,
+.tm-calendar-host,
+#tmCalendarSideDockTimeline {
+  --fc-forma-primary: var(--primary, var(--tm-ui-primary, var(--tm-primary-color, #2563eb)));
+  --fc-forma-primary-over: color-mix(in srgb, var(--fc-forma-primary) 88%, var(--foreground, var(--tm-text-color, #111827)) 12%);
+  --fc-forma-primary-down: color-mix(in srgb, var(--fc-forma-primary) 76%, var(--foreground, var(--tm-text-color, #111827)) 24%);
+  --fc-forma-primary-foreground: var(--primary-foreground, var(--tm-ui-primary-foreground, #ffffff));
+  --fc-forma-event: var(--tm-primary-color, var(--fc-forma-primary));
+  --fc-forma-event-contrast: var(--fc-forma-primary-foreground);
+  --fc-forma-background-event: var(--fc-forma-primary);
+  --fc-forma-highlight: color-mix(in srgb, var(--fc-forma-primary) 22%, transparent);
+  --fc-forma-background: var(--background, var(--tm-ui-background, var(--tm-bg-color, #ffffff)));
+  --fc-forma-faint: color-mix(in srgb, var(--foreground, var(--tm-text-color, #111827)) 5%, transparent);
+  --fc-forma-muted: color-mix(in srgb, var(--foreground, var(--tm-text-color, #111827)) 9%, transparent);
+  --fc-forma-strong: color-mix(in srgb, var(--foreground, var(--tm-text-color, #111827)) 14%, transparent);
+  --fc-forma-stronger: color-mix(in srgb, var(--foreground, var(--tm-text-color, #111827)) 20%, transparent);
+  --fc-forma-strongest: color-mix(in srgb, var(--foreground, var(--tm-text-color, #111827)) 26%, transparent);
+  --fc-forma-foreground: var(--foreground, var(--tm-ui-foreground, var(--tm-text-color, #111827)));
+  --fc-forma-faint-foreground: color-mix(in srgb, var(--foreground, var(--tm-text-color, #111827)) 42%, var(--background, var(--tm-bg-color, #ffffff)) 58%);
+  --fc-forma-muted-foreground: var(--muted-foreground, var(--tm-ui-muted-foreground, var(--tm-secondary-text, rgba(17, 24, 39, 0.72))));
+  --fc-forma-border: var(--border, var(--tm-ui-border, var(--tm-border-color, rgba(17, 24, 39, 0.16))));
+  --fc-forma-muted-border: color-mix(in srgb, var(--fc-forma-border) 72%, transparent);
+  --fc-forma-strong-border: color-mix(in srgb, var(--fc-forma-border) 68%, var(--foreground, var(--tm-text-color, #111827)) 32%);
+  --fc-forma-ring-color: var(--ring, var(--tm-ui-ring, color-mix(in srgb, var(--fc-forma-primary) 24%, transparent)));
+}
+
+[data-theme-mode="dark"] .tm-calendar-wrap,
+[data-theme-mode="dark"] .tm-calendar-host,
+[data-theme-mode="dark"] #tmCalendarSideDockTimeline {
+  --fc-forma-primary-over: color-mix(in srgb, var(--fc-forma-primary) 82%, var(--foreground, var(--tm-text-color, #e5e7eb)) 18%);
+  --fc-forma-primary-down: color-mix(in srgb, var(--fc-forma-primary) 72%, var(--foreground, var(--tm-text-color, #e5e7eb)) 28%);
+  --fc-forma-highlight: color-mix(in srgb, var(--fc-forma-primary) 30%, transparent);
+  --fc-forma-faint: color-mix(in srgb, var(--foreground, var(--tm-text-color, #e5e7eb)) 6%, transparent);
+  --fc-forma-muted: color-mix(in srgb, var(--foreground, var(--tm-text-color, #e5e7eb)) 10%, transparent);
+  --fc-forma-strong: color-mix(in srgb, var(--foreground, var(--tm-text-color, #e5e7eb)) 16%, transparent);
+  --fc-forma-stronger: color-mix(in srgb, var(--foreground, var(--tm-text-color, #e5e7eb)) 22%, transparent);
+  --fc-forma-strongest: color-mix(in srgb, var(--foreground, var(--tm-text-color, #e5e7eb)) 30%, transparent);
+  --fc-forma-faint-foreground: color-mix(in srgb, var(--foreground, var(--tm-text-color, #e5e7eb)) 44%, var(--background, var(--tm-bg-color, #1f2937)) 56%);
+  --fc-forma-strong-border: color-mix(in srgb, var(--fc-forma-border) 64%, var(--foreground, var(--tm-text-color, #e5e7eb)) 36%);
+}

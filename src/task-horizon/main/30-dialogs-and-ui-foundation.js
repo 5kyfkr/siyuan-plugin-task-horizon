@@ -1628,21 +1628,195 @@
         }).filter(Boolean);
     }
 
+    let __tmDocTabCustomGroupMetaWarmupPromise = null;
+    let __tmDocTabCustomGroupMetaWarmupKey = '';
+
+    function __tmDocTabCustomGroupsNeedChildExpansion(groups) {
+        return (Array.isArray(groups) ? groups : []).some((group) => {
+            const normalized = __tmNormalizeDocTabCustomGroups([group])[0];
+            return (Array.isArray(normalized?.entries) ? normalized.entries : [])
+                .some((entry) => entry?.includeChildren === true);
+        });
+    }
+
+    function __tmBuildDocTabGroupedViewDocEntry(doc, metaMap = null) {
+        const source = (doc && typeof doc === 'object') ? doc : { id: doc };
+        const id = String(source?.id || '').trim();
+        if (!id) return null;
+        const meta = metaMap instanceof Map ? (metaMap.get(id) || {}) : {};
+        const merged = { ...meta, ...source };
+        return {
+            ...merged,
+            id,
+            name: String(source.name || meta.name || meta.content || '').trim() || '未命名文档',
+            alias: __tmNormalizeDocAliasValue(source.alias ?? meta.alias),
+            icon: __tmNormalizeDocIconValue(source.icon ?? meta.icon),
+            path: __tmNormalizeDocTabGroupPath(source.path || source.hpath || meta.path || meta.hpath || ''),
+            hpath: __tmNormalizeDocTabGroupPath(source.hpath || source.path || meta.hpath || meta.path || ''),
+            notebook: String(source.notebook || source.box || meta.notebook || meta.box || '').trim(),
+            created: String(source.created || meta.created || '').trim(),
+            updated: String(source.updated || meta.updated || '').trim(),
+            sort: __tmPickDocTabGroupSortValue(source.sort, source.blockSort, source.block_sort, meta.sort, meta.blockSort, meta.block_sort)
+        };
+    }
+
+    function __tmGetDocTabCustomGroupMetaFetchedAt() {
+        try { return Number(__tmAllDocumentsFetchedAt) || 0; } catch (e) {}
+        return 0;
+    }
+
+    function __tmShouldWarmDocTabCustomGroupChildMeta(groups, docs) {
+        if (!__tmDocTabCustomGroupsNeedChildExpansion(groups)) return false;
+        const fetchedAt = __tmGetDocTabCustomGroupMetaFetchedAt();
+        const hasFetchedDocs = !!(Array.isArray(state?.allDocuments) && state.allDocuments.length > 0 && fetchedAt > 0);
+        if (!hasFetchedDocs) return true;
+        const metaMap = __tmBuildDocTabGroupDocMetaMap(docs);
+        return (Array.isArray(groups) ? groups : []).some((group) => {
+            const normalized = __tmNormalizeDocTabCustomGroups([group])[0];
+            return (Array.isArray(normalized?.entries) ? normalized.entries : []).some((entry) => {
+                if (entry?.includeChildren !== true) return false;
+                const docId = String(entry?.id || '').trim();
+                if (!docId) return false;
+                const parent = metaMap.get(docId);
+                return !__tmNormalizeDocTabGroupPath(parent?.path || parent?.hpath || '');
+            });
+        });
+    }
+
+    function __tmScheduleDocTabCustomGroupMetaWarmup(groups, docs, options = {}) {
+        if (!__tmShouldWarmDocTabCustomGroupChildMeta(groups, docs)) return;
+        if (__tmDocTabCustomGroupMetaWarmupPromise) return;
+        const currentGroupId = String(options?.currentGroupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const fetchedAtBefore = __tmGetDocTabCustomGroupMetaFetchedAt();
+        const docCountBefore = Array.isArray(state?.allDocuments) ? state.allDocuments.length : 0;
+        const groupIds = (Array.isArray(groups) ? groups : [])
+            .map((group) => String(group?.id || '').trim())
+            .filter(Boolean)
+            .join(',');
+        const key = [
+            currentGroupId,
+            groupIds,
+            (Array.isArray(docs) ? docs : []).map((doc) => String(doc?.id || '').trim()).filter(Boolean).join(','),
+            fetchedAtBefore,
+            docCountBefore
+        ].join('|');
+        if (__tmDocTabCustomGroupMetaWarmupKey === key) return;
+        __tmDocTabCustomGroupMetaWarmupKey = key;
+        __tmDocTabCustomGroupMetaWarmupPromise = Promise.resolve()
+            .then(async () => {
+                if (typeof __tmEnsureAllDocumentsLoaded !== 'function') return [];
+                return await __tmEnsureAllDocumentsLoaded(false);
+            })
+            .then(() => {
+                const fetchedAtAfter = __tmGetDocTabCustomGroupMetaFetchedAt();
+                const docCountAfter = Array.isArray(state?.allDocuments) ? state.allDocuments.length : 0;
+                if (fetchedAtAfter === fetchedAtBefore && docCountAfter === docCountBefore) return;
+                const hasLiveModal = globalThis.__tmRuntimeState?.hasLiveModal?.()
+                    ?? (state?.modal && document.body.contains(state.modal));
+                if (!hasLiveModal) return;
+                try {
+                    __tmScheduleRender({ withFilters: false, reason: 'doc-tab-custom-group-meta-ready' });
+                } catch (e) {
+                    try { render(); } catch (e2) {}
+                }
+            })
+            .catch(() => null)
+            .finally(() => {
+                __tmDocTabCustomGroupMetaWarmupPromise = null;
+            });
+    }
+
+    function __tmDocTabCustomGroupShouldShowDocInTabs(doc, options = {}) {
+        const docId = String(doc?.id || '').trim();
+        if (!docId) return false;
+        const globalNewTaskDocId = String(options?.globalNewTaskDocId ?? SettingsStore?.data?.newTaskDocId ?? '').trim();
+        if (globalNewTaskDocId && docId === globalNewTaskDocId) return false;
+        const activeDocId = String(options?.activeDocId || state?.activeDocId || '').trim();
+        if (docId && activeDocId && activeDocId !== 'all' && docId === activeDocId) return true;
+        const archiveMode = options?.archiveMode === undefined
+            ? state?.docTabsArchiveMode === true
+            : options.archiveMode === true;
+        const currentRule = Object.prototype.hasOwnProperty.call(options, 'currentRule')
+            ? options.currentRule
+            : (typeof __tmGetCurrentRule === 'function' ? __tmGetCurrentRule() : null);
+        const docStateCache = options?.docStateCache instanceof Map ? options.docStateCache : null;
+        const shouldShowByTaskState = __tmDocShouldShowInDocTabs(doc, {
+            rule: currentRule,
+            archiveMode,
+            docStateCache
+        });
+        if (!shouldShowByTaskState) return false;
+        const filteredDocIdSet = options?.filteredDocIdSet instanceof Set
+            ? options.filteredDocIdSet
+            : new Set((Array.isArray(state?.filteredDocIdsForTabs) ? state.filteredDocIdsForTabs : [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean));
+        const filterRule = options?.filterRule || __tmGetArchiveModeFilterRule(currentRule, archiveMode);
+        const hasContentFilter = typeof options?.hasContentFilter === 'boolean'
+            ? options.hasContentFilter
+            : __tmHasActiveDocTabContentFilter(filterRule);
+        if (filteredDocIdSet.size || hasContentFilter) return filteredDocIdSet.has(docId);
+        return true;
+    }
+
+    function __tmAugmentDocTabGroupedViewDocs(docs, groups, options = {}) {
+        const list = Array.isArray(docs) ? docs : [];
+        if (!__tmDocTabCustomGroupsNeedChildExpansion(groups)) return list;
+        __tmScheduleDocTabCustomGroupMetaWarmup(groups, list, options);
+        const currentGroupId = String(options?.currentGroupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const sortedCandidates = Array.isArray(options?.allDocsForTabs)
+            ? options.allDocsForTabs
+            : __tmSortDocEntriesForTabs(state?.taskTree || [], currentGroupId);
+        const metaMap = __tmBuildDocTabGroupDocMetaMap([...list, ...sortedCandidates]);
+        const docsById = new Map();
+        list.forEach((doc) => {
+            const entry = __tmBuildDocTabGroupedViewDocEntry(doc, metaMap);
+            if (entry) docsById.set(entry.id, entry);
+        });
+        const candidateDocs = (Array.isArray(sortedCandidates) ? sortedCandidates : [])
+            .map((doc) => __tmBuildDocTabGroupedViewDocEntry(doc, metaMap))
+            .filter((doc) => !!doc?.id);
+        if (!candidateDocs.length) return Array.from(docsById.values());
+        const expansionSource = [...candidateDocs, ...Array.from(docsById.values())];
+        (Array.isArray(groups) ? groups : []).forEach((group) => {
+            const expanded = __tmExpandDocTabCustomGroup(group, expansionSource);
+            if (!expanded.size) return;
+            candidateDocs.forEach((doc) => {
+                if (!expanded.has(doc.id) || docsById.has(doc.id)) return;
+                if (!__tmDocTabCustomGroupShouldShowDocInTabs(doc, options)) return;
+                docsById.set(doc.id, doc);
+            });
+        });
+        const ordered = [];
+        const seen = new Set();
+        candidateDocs.forEach((doc) => {
+            if (!docsById.has(doc.id) || seen.has(doc.id)) return;
+            seen.add(doc.id);
+            ordered.push(docsById.get(doc.id));
+        });
+        list.forEach((doc) => {
+            const id = String(doc?.id || '').trim();
+            if (!id || seen.has(id) || !docsById.has(id)) return;
+            seen.add(id);
+            ordered.push(docsById.get(id));
+        });
+        return ordered;
+    }
+
     function __tmBuildDocTabGroupedView(visibleDocs, options = {}) {
-        const docs = (Array.isArray(visibleDocs) ? visibleDocs : [])
-            .map((doc) => ({
-                ...(doc && typeof doc === 'object' ? doc : {}),
-                id: String((doc && typeof doc === 'object' ? doc.id : doc) || '').trim()
-            }))
-            .filter((doc) => !!doc.id);
-        const docById = new Map(docs.map((doc) => [doc.id, doc]));
+        let docs = (Array.isArray(visibleDocs) ? visibleDocs : [])
+            .map((doc) => __tmBuildDocTabGroupedViewDocEntry(doc))
+            .filter((doc) => !!doc?.id);
         const currentGroupId = String(options?.currentGroupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const activeDocId = String(options?.activeDocId || state?.activeDocId || '').trim();
         const activeGroupId = __tmParseDocTabCustomGroupActiveId(activeDocId);
         const membershipsByDocId = new Map();
         const groups = [];
+        const scopedGroups = __tmGetDocTabCustomGroupsForDocGroup(currentGroupId);
+        docs = __tmAugmentDocTabGroupedViewDocs(docs, scopedGroups, { ...options, currentGroupId, activeDocId });
+        const docById = new Map(docs.map((doc) => [doc.id, doc]));
 
-        __tmGetDocTabCustomGroupsForDocGroup(currentGroupId).forEach((group) => {
+        scopedGroups.forEach((group) => {
             const expanded = __tmExpandDocTabCustomGroup(group, docs);
             const members = [];
             docs.forEach((doc) => {
@@ -6235,6 +6409,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             hint('⚠ 未找到可关联的任务块', 'warning');
             return;
         }
+        const timerFocusRestoreOptions = { source: 'task-horizon' };
         state.timerFocusTaskId = timerTaskId;
         try { render(); } catch (e) {}
         if (mode === 'stopwatch') {
@@ -6242,9 +6417,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             const startStopwatch = timer?.startStopwatch;
             let p = null;
             if (typeof startFromTaskBlock === 'function') {
-                p = startFromTaskBlock(timerTaskId, timerTaskName, 0, 'stopwatch');
+                p = startFromTaskBlock(timerTaskId, timerTaskName, 0, 'stopwatch', timerFocusRestoreOptions);
             } else if (typeof startStopwatch === 'function') {
-                p = startStopwatch(timerTaskId, timerTaskName);
+                p = startStopwatch(timerTaskId, timerTaskName, timerFocusRestoreOptions);
             } else {
                 hint('⚠ 未检测到正计时功能，请确认番茄插件已启用', 'warning');
                 return;
@@ -6262,9 +6437,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         const startCountdown = timer?.startCountdown;
         let p = null;
         if (typeof startFromTaskBlock === 'function') {
-            p = startFromTaskBlock(timerTaskId, timerTaskName, safeMin, 'countdown');
+            p = startFromTaskBlock(timerTaskId, timerTaskName, safeMin, 'countdown', timerFocusRestoreOptions);
         } else if (typeof startCountdown === 'function') {
-            p = startCountdown(timerTaskId, timerTaskName, safeMin);
+            p = startCountdown(timerTaskId, timerTaskName, safeMin, timerFocusRestoreOptions);
         } else {
             await tmStartPomodoro(timerTaskId);
             return;
@@ -9667,6 +9842,12 @@ return Number(state.contextInteractionQuietUntil || 0);
             ? event.currentTarget
             : (event?.target instanceof Element ? event.target.closest('[data-tm-doc-tab-group-id]') : null);
         const isActiveTab = !!(tabEl instanceof HTMLElement && tabEl.classList.contains('active'));
+        if (__tmIsDocTabCustomGroupMenuOpen(gid)) {
+            try { event?.preventDefault?.(); } catch (e) {}
+            try { event?.stopPropagation?.(); } catch (e) {}
+            __tmHideDocTabMenu();
+            return;
+        }
         if (isActiveTab || __tmParseDocTabCustomGroupActiveId(state.activeDocId) === gid) {
             try { event?.preventDefault?.(); } catch (e) {}
             try { event?.stopPropagation?.(); } catch (e) {}
@@ -10110,6 +10291,17 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (menu) menu.remove();
         __tmSetDocTabCustomGroupCaretOpen(null);
         __tmClearDocTabMenuOutsideCloseHandler('docTabSwitcherMenuCloseHandler');
+    }
+
+    function __tmGetOpenDocTabCustomGroupMenuId() {
+        const menu = document.getElementById('tm-doc-tab-switcher-menu');
+        if (!(menu instanceof HTMLElement)) return '';
+        return String(menu.getAttribute('data-tm-doc-tab-custom-group-id') || '').trim();
+    }
+
+    function __tmIsDocTabCustomGroupMenuOpen(groupId) {
+        const gid = String(groupId || '').trim();
+        return !!gid && __tmGetOpenDocTabCustomGroupMenuId() === gid;
     }
 
     function __tmHideDocTabMenu() {
@@ -11426,6 +11618,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         const menu = document.createElement('div');
         menu.id = 'tm-doc-tab-switcher-menu';
+        menu.setAttribute('data-tm-doc-tab-custom-group-id', gid);
         menu.className = 'tm-popup-menu bc-dropdown-menu';
         menu.style.cssText = `
             position: fixed;
@@ -11642,7 +11835,12 @@ return Number(state.contextInteractionQuietUntil || 0);
     window.tmShowDocTabCustomGroupMenu = function(event, groupId) {
         try { event?.preventDefault?.(); } catch (e) {}
         try { event?.stopPropagation?.(); } catch (e) {}
+        if (__tmIsDocTabCustomGroupMenuOpen(groupId)) {
+            __tmHideDocTabMenu();
+            return false;
+        }
         __tmShowDocTabCustomGroupMenuAt(groupId, event?.clientX, event?.clientY, event);
+        return false;
     };
 
     window.tmShowDocTabsBlankContextMenu = function(event) {
@@ -12287,49 +12485,235 @@ return Number(state.contextInteractionQuietUntil || 0);
         } catch (e) {}
     }
 
-    // 搜索弹窗
-    window.tmShowSearchModal = function() {
-        const modal = document.createElement('div');
-        modal.className = 'tm-modal';
-        modal.style.zIndex = '200001';
-        modal.innerHTML = `
-            <div class="tm-box" style="width: 500px; height: auto; max-height: 80vh; position: relative;">
-                <div class="tm-header">
-                    <div style="font-size: 18px; font-weight: bold; color: var(--tm-text-color);">🔍 搜索任务</div>
-                    <button class="tm-btn tm-btn-gray" onclick="window.__tmCloseSearchModal?.()">关闭</button>
-                </div>
-                <div style="padding: 20px;">
-                    <input type="text" id="tmPopupSearchInput" class="tm-input"
-                           placeholder="输入关键词搜索..."
-                           value="${esc(String(state.searchKeyword || ''))}"
-                           style="width: 100%; margin-bottom: 15px; font-size: 16px; padding: 8px;">
-                    <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                         <button class="tm-btn tm-btn-secondary" onclick="tmSearch(''); window.__tmCloseSearchModal?.()">清除搜索</button>
-                         <button class="tm-btn tm-btn-primary" onclick="tmSearch(document.getElementById('tmPopupSearchInput').value); window.__tmCloseSearchModal?.()">搜索</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
-        state.__searchUnstack = __tmModalStackBind(() => window.__tmCloseSearchModal?.());
-        window.__tmCloseSearchModal = function() {
-            state.__searchUnstack?.();
-            state.__searchUnstack = null;
-            try { modal.remove(); } catch (e) {}
+    function __tmGetInlineSearchInput() {
+        return state.modal?.querySelector?.('#tmInlineSearchInput') || document.getElementById('tmInlineSearchInput');
+    }
+
+    function __tmCancelInlineSearchLiveTimer() {
+        try {
+            if (state.searchBarLiveSearchTimer) {
+                clearTimeout(state.searchBarLiveSearchTimer);
+            }
+        } catch (e) {}
+        state.searchBarLiveSearchTimer = 0;
+    }
+
+    function __tmPositionInlineSearchBarPortal() {
+        const bar = document.getElementById('tmInlineSearchbarPortal');
+        if (!(bar instanceof HTMLElement)) return false;
+        const stage = state.modal?.querySelector?.('.tm-main-stage')
+            || state.modal?.querySelector?.('.tm-body')
+            || state.modal;
+        if (!(stage instanceof HTMLElement) || !document.body.contains(stage)) {
+            return false;
+        }
+        try {
+            const rect = stage.getBoundingClientRect();
+            const left = Math.max(0, Math.round(Number(rect.left) || 0));
+            const top = Math.max(0, Math.round((Number(rect.top) || 0) + 8));
+            const width = Math.max(0, Math.round(Number(rect.width) || 0));
+            if (width <= 0) {
+                return true;
+            }
+            bar.style.setProperty('--tm-inline-searchbar-left', `${left}px`);
+            bar.style.setProperty('--tm-inline-searchbar-top', `${top}px`);
+            bar.style.setProperty('--tm-inline-searchbar-width', `${width}px`);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmBindInlineSearchBarPortalPositionEvents() {
+        if (state.searchBarPortalPositionHandler) return;
+        const handler = () => {
+            if (!state.searchBarOpen) return;
+            try { __tmPositionInlineSearchBarPortal(); } catch (e) {}
         };
-        setTimeout(() => modal.querySelector('input').focus(), 50);
-        const input = modal.querySelector('input');
-        input.onkeyup = (e) => {
-            if (e.key === 'Enter') {
-                tmSearch(input.value);
-                window.__tmCloseSearchModal?.();
+        state.searchBarPortalPositionHandler = handler;
+        try { window.addEventListener('resize', handler, { passive: true }); } catch (e) {}
+        try { document.addEventListener('scroll', handler, true); } catch (e) {}
+    }
+
+    function __tmUnbindInlineSearchBarPortalPositionEvents() {
+        const handler = state.searchBarPortalPositionHandler;
+        if (!handler) return;
+        try { window.removeEventListener('resize', handler); } catch (e) {}
+        try { document.removeEventListener('scroll', handler, true); } catch (e) {}
+        state.searchBarPortalPositionHandler = null;
+    }
+
+    function __tmBuildInlineSearchBarPortalHtml(value) {
+        return `
+            <form class="tm-inline-searchbar__inner" onsubmit="return tmApplyInlineSearch(event)">
+                <input
+                    id="tmInlineSearchInput"
+                    class="tm-inline-searchbar__input"
+                    type="search"
+                    value="${esc(String(value || ''))}"
+                    placeholder="搜索任务"
+                    autocomplete="off"
+                    spellcheck="false"
+                    aria-label="搜索任务"
+                    oninput="tmInputInlineSearch(event)"
+                    onkeydown="return tmHandleInlineSearchKeydown(event)"
+                >
+                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon" type="submit"${__tmBuildTooltipAttrs('搜索', { side: 'bottom' })}>
+                    <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('search', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
+                </button>
+                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon" type="button" onclick="tmClearInlineSearch(event)"${__tmBuildTooltipAttrs('清除搜索', { side: 'bottom' })}>
+                    <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('x-circle', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
+                </button>
+                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon" type="button" onclick="tmCloseInlineSearch(event)"${__tmBuildTooltipAttrs('关闭搜索条', { side: 'bottom' })}>
+                    <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('x', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
+                </button>
+            </form>
+        `;
+    }
+
+    function __tmRemoveInlineSearchBarPortal() {
+        __tmCancelInlineSearchLiveTimer();
+        __tmUnbindInlineSearchBarPortalPositionEvents();
+        try { document.getElementById('tmInlineSearchbarPortal')?.remove?.(); } catch (e) {}
+    }
+    try { window.__tmRemoveInlineSearchBarPortal = __tmRemoveInlineSearchBarPortal; } catch (e) {}
+
+    window.__tmSyncInlineSearchBarPortal = function(options = {}) {
+        if (!state.searchBarOpen) {
+            __tmRemoveInlineSearchBarPortal();
+            return null;
+        }
+        if (!(state.modal instanceof HTMLElement) || !document.body.contains(state.modal)) {
+            __tmRemoveInlineSearchBarPortal();
+            return null;
+        }
+        let bar = document.getElementById('tmInlineSearchbarPortal');
+        if (!(bar instanceof HTMLElement)) {
+            bar = document.createElement('div');
+            bar.id = 'tmInlineSearchbarPortal';
+            bar.className = 'tm-inline-searchbar tm-inline-searchbar--portal';
+            bar.setAttribute('role', 'search');
+            bar.innerHTML = __tmBuildInlineSearchBarPortalHtml(state.searchKeyword);
+            document.body.appendChild(bar);
+        }
+        const input = bar.querySelector('#tmInlineSearchInput');
+        if (input instanceof HTMLInputElement && document.activeElement !== input && options?.syncValue !== false) {
+            try { input.value = String(state.searchKeyword || ''); } catch (e) {}
+        }
+        __tmBindInlineSearchBarPortalPositionEvents();
+        __tmPositionInlineSearchBarPortal();
+        if (options?.focus === true) {
+            window.__tmFocusInlineSearchBar?.({ selectText: options?.selectText !== false });
+        }
+        return bar;
+    };
+
+    window.__tmFocusInlineSearchBar = function(options = {}) {
+        const selectText = options?.selectText !== false;
+        const focus = () => {
+            const input = __tmGetInlineSearchInput();
+            if (!(input instanceof HTMLInputElement)) return;
+            try { input.focus({ preventScroll: true }); } catch (e) { try { input.focus(); } catch (e2) {} }
+            if (selectText) {
+                try { input.select(); } catch (e) {}
             }
         };
+        try {
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(() => requestAnimationFrame(focus));
+                return;
+            }
+        } catch (e) {}
+        setTimeout(focus, 0);
+    };
+
+    // 搜索条
+    window.tmShowSearchModal = function() {
+        state.searchBarOpen = true;
+        state.searchBarFocusAfterRender = true;
+        state.searchBarSelectAfterRender = true;
+        try { state.__searchUnstack?.(); } catch (e) {}
+        state.__searchUnstack = null;
+        window.__tmSyncInlineSearchBarPortal?.({ focus: true, selectText: true });
+    };
+
+    window.tmApplyInlineSearch = function(event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        __tmCancelInlineSearchLiveTimer();
+        const input = __tmGetInlineSearchInput();
+        const keyword = input instanceof HTMLInputElement ? input.value : '';
+        state.searchBarOpen = true;
+        state.searchBarFocusAfterRender = false;
+        state.searchBarSelectAfterRender = false;
+        window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
+        tmSearch(keyword);
+        return false;
+    };
+
+    window.tmInputInlineSearch = function(event) {
+        const input = event?.target instanceof HTMLInputElement ? event.target : __tmGetInlineSearchInput();
+        const keyword = input instanceof HTMLInputElement ? input.value : '';
+        state.searchBarOpen = true;
+        __tmCancelInlineSearchLiveTimer();
+        state.searchBarLiveSearchTimer = setTimeout(() => {
+            state.searchBarLiveSearchTimer = 0;
+            state.searchBarFocusAfterRender = false;
+            state.searchBarSelectAfterRender = false;
+            window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
+            tmSearch(keyword);
+        }, 120);
+    };
+
+    window.tmClearInlineSearch = function(event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        __tmCancelInlineSearchLiveTimer();
+        const input = __tmGetInlineSearchInput();
+        if (input instanceof HTMLInputElement) {
+            try { input.value = ''; } catch (e) {}
+        }
+        state.searchBarOpen = true;
+        state.searchBarFocusAfterRender = false;
+        state.searchBarSelectAfterRender = false;
+        window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
+        tmSearch('');
+        return false;
+    };
+
+    window.tmCloseInlineSearch = function(event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        __tmCancelInlineSearchLiveTimer();
+        state.searchKeyword = '';
+        state.searchBarOpen = false;
+        state.searchBarFocusAfterRender = false;
+        state.searchBarSelectAfterRender = true;
+        try { state.__searchUnstack?.(); } catch (e) {}
+        state.__searchUnstack = null;
+        __tmRemoveInlineSearchBarPortal();
+        __tmScheduleRender({ withFilters: true, reason: 'close-search-bar' });
+        return false;
+    };
+
+    window.__tmCloseSearchModal = function() {
+        return window.tmCloseInlineSearch?.();
+    };
+
+    window.tmHandleInlineSearchKeydown = function(event) {
+        if (event?.key === 'Escape') {
+            return window.tmCloseInlineSearch?.(event);
+        }
+        return true;
     };
 
     window.tmSearch = function(keyword) {
         const next = String(keyword || '').trim();
         state.searchKeyword = next;
+        if (next) {
+            state.searchBarOpen = true;
+            window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
+        }
         __tmScheduleRender({ withFilters: true });
     };
 
@@ -12965,6 +13349,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             });
         } catch (e) {}
     }
+
+    try { globalThis.__tmClearTaskRowDropIndicators = __tmClearTaskRowDropIndicators; } catch (e) {}
 
     function __tmApplyTaskRowDropIndicator(row, kind) {
         const el = row instanceof HTMLElement ? row : null;
@@ -13689,6 +14075,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.tmDragTaskEnd = function() {
+        try { __tmSuppressDockPointerTaskClick(420); } catch (e) {}
         state.draggingTaskId = '';
         try { __tmClearDocTabDropTarget(); } catch (e) {}
         try { __tmClearTaskRowDropIndicators(); } catch (e) {}
@@ -13721,6 +14108,13 @@ return Number(state.contextInteractionQuietUntil || 0);
             sourceEl: resolvedKanbanDrag?.cardEl instanceof HTMLElement ? resolvedKanbanDrag.cardEl : candidate,
             sourceType: isKanban ? 'kanban' : 'task',
         };
+    }
+
+    function __tmShouldLetFullCalendarHandleExternalDrag(sourceEl) {
+        const source = sourceEl instanceof Element ? sourceEl : null;
+        if (!source?.closest?.('[data-tm-fc-external-drag-host="1"]')) return false;
+        if (source.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]')) return false;
+        return true;
     }
 
     function __tmBuildDockPointerTaskDragPayload(taskId, meta) {
@@ -13775,8 +14169,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         };
     }
 
-    function __tmBuildDockPointerTaskGhost(taskId, sourceEl, payload, clientX, clientY) {
+    function __tmBuildDockPointerTaskGhost(taskId, sourceEl, payload, clientX, clientY, options = {}) {
         if (!(sourceEl instanceof HTMLElement)) return null;
+        const centerOnPointer = options?.centerOnPointer === true;
         const rect = sourceEl.getBoundingClientRect();
         const resolvedTaskId = String(taskId || '').trim();
         const title = String(
@@ -13826,6 +14221,17 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         try { document.body.appendChild(ghost); } catch (e) { return null; }
         const width = Math.max(180, Math.min(320, Math.round(rect.width || sourceEl.offsetWidth || 240)));
+        if (centerOnPointer) {
+            let ghostRect = null;
+            try { ghostRect = ghost.getBoundingClientRect(); } catch (e) { ghostRect = null; }
+            const actualWidth = Math.max(1, Math.round(Number(ghostRect?.width || width) || width));
+            const actualHeight = Math.max(1, Math.round(Number(ghostRect?.height || rect.height || sourceEl.offsetHeight || 44) || 44));
+            return {
+                ghost,
+                offsetX: Math.round(actualWidth / 2),
+                offsetY: Math.round(actualHeight / 2),
+            };
+        }
         const clamp0 = (n, min, max) => Math.max(min, Math.min(max, n));
         const offsetX = clamp0((Number(clientX) || rect.left) - rect.left, 18, Math.max(18, width - 18));
         const offsetY = clamp0((Number(clientY) || rect.top) - rect.top, 12, Math.max(12, Math.round(Math.max(44, rect.height || sourceEl.offsetHeight || 44)) - 12));
@@ -13846,6 +14252,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.dockTaskPointerSuppressClickUntil = Math.max(Number(state.dockTaskPointerSuppressClickUntil || 0), until);
         return until;
     }
+
+    try { globalThis.__tmSuppressTaskPointerClickAfterDrag = __tmSuppressDockPointerTaskClick; } catch (e) {}
 
     function __tmConsumeDockPointerSuppressedClick(event) {
         if (Number(state.dockTaskPointerSuppressClickUntil || 0) <= Date.now()) return false;
@@ -13874,6 +14282,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (!__tmDockPointerTaskDragIsEnabled()) return;
             const source = __tmResolveDockPointerTaskDragSource(ev?.target);
             if (!source) return;
+            if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
+                return;
+            }
             try { ev.preventDefault(); } catch (e) {}
             try { ev.stopPropagation(); } catch (e) {}
         }, { capture: true, signal: abort.signal });
@@ -13896,6 +14307,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (pointerType === 'touch') return;
             const source = __tmResolveDockPointerTaskDragSource(ev?.target);
             if (!source) return;
+            if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
+                return;
+            }
 
             try { state.dockTaskPointerGestureCleanup?.(); } catch (e) {}
 
@@ -13960,6 +14374,20 @@ return Number(state.contextInteractionQuietUntil || 0);
             };
             const syncHover = () => {
                 const pointTarget = resolvePointTarget(lastX, lastY);
+                const sideInfo = globalThis.__tmCalendar?.updateSideDayCalendarDragPreview?.({
+                    taskId,
+                    payload,
+                    clientX: lastX,
+                    clientY: lastY,
+                    target: pointTarget || sourceEl,
+                });
+                if (sideInfo?.overSideDay) {
+                    try { __tmCalendarFloatingDragEnd(); } catch (e) {}
+                    clearDocHover();
+                    clearKanbanHover();
+                    clearTaskRowHover();
+                    return;
+                }
                 const floatingInfo = __tmCalendarFloatingDragMove({
                     clientX: lastX,
                     clientY: lastY,
@@ -14054,6 +14482,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 clearDocHover();
                 clearKanbanHover();
                 clearTaskRowHover();
+                try { globalThis.__tmCalendar?.clearSideDayCalendarDragPreview?.(); } catch (e) {}
                 try { __tmSetCalendarSideDockDragHidden(false); } catch (e) {}
                 try { __tmCalendarFloatingDragEnd(); } catch (e) {}
                 if (String(state.draggingTaskId || '').trim() === taskId) state.draggingTaskId = '';
@@ -14230,10 +14659,19 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         if (t?.closest?.('button,input,select,textarea,a,.tm-task-content-clickable,.tm-tree-toggle,.tm-col-resize,.tm-cell-editable,.tm-status-cell')) return;
         if (globalThis.__tmRuntimeState?.isViewMode?.('checklist') ?? (String(state.viewMode || '').trim() === 'checklist')) {
-            const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
-            const docId = String(task?.root_id || task?.docId || '').trim();
+            let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
             state.detailTaskId = id;
+            try {
+                if (task && typeof __tmEnsureTaskDetailFieldAttrs === 'function') {
+                    task = await __tmEnsureTaskDetailFieldAttrs(task, {
+                        taskId: id,
+                        source: 'checklist-row-click',
+                        force: true,
+                    }) || task;
+                }
+            } catch (e) {}
             if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'row-click')) render();
+            const docId = String(task?.root_id || task?.docId || '').trim();
             if (docId) {
                 try { Promise.resolve(__tmWarmKanbanDocHeadings([docId], { force: true })).catch(() => null); } catch (e) {}
             }
@@ -14256,13 +14694,22 @@ return Number(state.contextInteractionQuietUntil || 0);
             __tmToggleTaskMultiSelection(id);
             return;
         }
-        const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
-        const docId = String(task?.root_id || task?.docId || '').trim();
+        let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
         state.detailTaskId = id;
         state.checklistDetailDismissed = false;
         if (__tmChecklistUseSheetMode(state.modal)) state.checklistDetailSheetOpen = true;
+        try {
+            if (task && typeof __tmEnsureTaskDetailFieldAttrs === 'function') {
+                task = await __tmEnsureTaskDetailFieldAttrs(task, {
+                    taskId: id,
+                    source: 'checklist-select',
+                    force: true,
+                }) || task;
+            }
+        } catch (e) {}
         const refreshed = __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-select');
         if (!refreshed) render();
+        const docId = String(task?.root_id || task?.docId || '').trim();
         if (docId) {
             try { Promise.resolve(__tmWarmKanbanDocHeadings([docId], { force: true })).catch(() => null); } catch (e) {}
         }
@@ -14278,10 +14725,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         const id = String(taskId || '').trim();
         if (!id) return null;
         const sourceEl = ev?.currentTarget instanceof HTMLElement
-            ? ev.currentTarget.closest('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]')
-            : (ev?.target instanceof Element ? ev.target.closest('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') : null);
+            ? ev.currentTarget.closest('.tm-checklist-item[data-id], .tm-cal-task[data-task-id], .tm-cal-task[data-id], #tmTaskTable tbody tr[data-id]')
+            : (ev?.target instanceof Element ? ev.target.closest('.tm-checklist-item[data-id], .tm-cal-task[data-task-id], .tm-cal-task[data-id], #tmTaskTable tbody tr[data-id]') : null);
         if (!(sourceEl instanceof HTMLElement)) return null;
-        const sourceType = String(sourceEl.tagName || '').toUpperCase() === 'TR' ? 'table' : 'checklist';
+        const sourceType = String(sourceEl.tagName || '').toUpperCase() === 'TR'
+            ? 'table'
+            : (sourceEl.classList.contains('tm-cal-task') && !sourceEl.classList.contains('tm-checklist-item') ? 'calendar' : 'checklist');
         return { taskId: id, sourceEl, sourceType };
     }
 
@@ -14293,6 +14742,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         try { ev?.preventDefault?.(); } catch (e) {}
         const source = __tmResolveTouchTaskDragSource(ev, taskId);
         if (!source) return false;
+        if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
+            return false;
+        }
         const target = ev?.target;
         const sourceType = String(source.sourceType || 'checklist').trim() || 'checklist';
         const blockedSelector = sourceType === 'table'
@@ -14475,6 +14927,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
             try { __tmSetCalendarSideDockDragHidden(false); } catch (e) {}
             clearTaskRowHover();
+            try { globalThis.__tmCalendar?.clearSideDayCalendarDragPreview?.(); } catch (e) {}
             try { __tmCalendarFloatingDragEnd(); } catch (e) {}
             if (String(state.draggingTaskId || '').trim() === id) state.draggingTaskId = '';
             try { document.body.style.userSelect = ''; } catch (e) {}
@@ -14491,12 +14944,15 @@ return Number(state.contextInteractionQuietUntil || 0);
             dragStartY = lastY;
             capturePointer();
             state.draggingTaskId = id;
+            if (sourceEl.closest('.tm-calendar-sidebar')) {
+                try { globalThis.__tmCalendar?.closeSidebar?.(); } catch (e) {}
+            }
             try { __tmSetCalendarSideDockDragHidden(true); } catch (e) {}
             try {
                 document.body.style.userSelect = 'none';
                 document.body.style.cursor = 'grabbing';
             } catch (e) {}
-            ghostMeta = __tmBuildDockPointerTaskGhost(id, sourceEl, payload, lastX, lastY);
+            ghostMeta = __tmBuildDockPointerTaskGhost(id, sourceEl, payload, lastX, lastY, { centerOnPointer: true });
             if (shouldRevealFloatingMiniImmediately) {
                 try { startFloatingMini(); } catch (e) {}
             }
@@ -14504,6 +14960,20 @@ return Number(state.contextInteractionQuietUntil || 0);
         const updateDrag = (x, y) => {
             if (!dragging) return;
             __tmPlaceDockPointerTaskGhost(ghostMeta, x, y);
+            const pointTargetForSide = resolvePointTarget(x, y) || sourceEl;
+            const sideInfo = globalThis.__tmCalendar?.updateSideDayCalendarDragPreview?.({
+                taskId: id,
+                payload,
+                clientX: x,
+                clientY: y,
+                target: pointTargetForSide,
+            });
+            if (sideInfo?.overSideDay) {
+                try { __tmCalendarFloatingDragEnd(); } catch (e) {}
+                floatingMiniVisible = false;
+                clearTaskRowHover();
+                return;
+            }
             if (!floatingMiniVisible && shouldRevealFloatingMiniImmediately) {
                 try { startFloatingMini(); } catch (e) {}
             } else if (!floatingMiniVisible) {
@@ -14593,10 +15063,11 @@ return Number(state.contextInteractionQuietUntil || 0);
         const finalizeDrag = async () => {
             cancelLongPress();
             cancelFloatingMiniStart();
+            let handled = false;
             try {
                 if (dragging) {
                     const pointTarget = resolvePointTarget(lastX, lastY) || sourceEl;
-                    const handled = await globalThis.__tmCalendar?.finalizeFloatingMiniCalendarTouchDrop?.({
+                    handled = await globalThis.__tmCalendar?.finalizeFloatingMiniCalendarTouchDrop?.({
                         taskId: id,
                         clientX: lastX,
                         clientY: lastY,
@@ -14618,6 +15089,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                                 target: pointTarget || docHeadingGroupEl,
                                 currentTarget: docHeadingGroupEl,
                             });
+                            handled = true;
                         } else {
                         const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTarget);
                         if (timeGroupEl instanceof HTMLElement) {
@@ -14633,6 +15105,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                                 target: pointTarget || timeGroupEl,
                                 currentTarget: timeGroupEl,
                             }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
+                            handled = true;
                         } else {
                             const taskRowEl = pointTarget?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
                             if (taskRowEl instanceof HTMLElement) {
@@ -14649,6 +15122,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                                     target: taskRowEl,
                                     currentTarget: taskRowEl,
                                 }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                                handled = true;
                             }
                         }
                         }
@@ -14741,8 +15215,12 @@ return Number(state.contextInteractionQuietUntil || 0);
     }
 
     window.tmTaskTouchDragStart = function(ev, taskId) {
-        try { ev?.stopPropagation?.(); } catch (e) {}
-        try { __tmStartTouchTaskDrag(ev, taskId); } catch (e) {}
+        let handled = false;
+        try { handled = __tmStartTouchTaskDrag(ev, taskId) === true; } catch (e) { handled = false; }
+        if (handled) {
+            try { ev?.stopPropagation?.(); } catch (e) {}
+        }
+        return handled;
     };
 
     window.tmChecklistTitleClick = function(taskId, ev) {
@@ -15916,6 +16394,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     __tmPhosphorBoldPaths['sun'] = 'M116,36V20a12,12,0,0,1,24,0V36a12,12,0,0,1-24,0Zm80,92a68,68,0,1,1-68-68A68.07,68.07,0,0,1,196,128Zm-24,0a44,44,0,1,0-44,44A44.05,44.05,0,0,0,172,128ZM51.51,68.49a12,12,0,1,0,17-17l-12-12a12,12,0,0,0-17,17Zm0,119-12,12a12,12,0,0,0,17,17l12-12a12,12,0,1,0-17-17ZM196,72a12,12,0,0,0,8.49-3.51l12-12a12,12,0,0,0-17-17l-12,12A12,12,0,0,0,196,72Zm8.49,115.51a12,12,0,0,0-17,17l12,12a12,12,0,0,0,17-17ZM48,128a12,12,0,0,0-12-12H20a12,12,0,0,0,0,24H36A12,12,0,0,0,48,128Zm80,80a12,12,0,0,0-12,12v16a12,12,0,0,0,24,0V220A12,12,0,0,0,128,208Zm108-92H220a12,12,0,0,0,0,24h16a12,12,0,0,0,0-24Z';
     __tmPhosphorBoldPaths['sun-horizon'] = 'M240,148H203.89c.07-1.33.11-2.66.11-4a76,76,0,0,0-152,0c0,1.34,0,2.67.11,4H16a12,12,0,0,0,0,24H240a12,12,0,0,0,0-24ZM76,144a52,52,0,0,1,104,0c0,1.34-.07,2.67-.17,4H76.17C76.07,146.67,76,145.34,76,144Zm144,56a12,12,0,0,1-12,12H48a12,12,0,0,1,0-24H208A12,12,0,0,1,220,200ZM12.62,92.21a12,12,0,0,1,15.17-7.59l12,4a12,12,0,1,1-7.58,22.77l-12-4A12,12,0,0,1,12.62,92.21Zm56-48.41a12,12,0,1,1,22.76-7.59l4,12A12,12,0,1,1,72.62,55.8Zm140,60a12,12,0,0,1,7.59-15.18l12-4a12,12,0,0,1,7.58,22.77l-12,4a12,12,0,0,1-15.17-7.59Zm-48-55.59,4-12a12,12,0,1,1,22.76,7.59l-4,12a12,12,0,1,1-22.76-7.59Z';
     __tmPhosphorBoldPaths['calendar-plus'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Zm112-52a12,12,0,0,1-12,12H140v12a12,12,0,0,1-24,0V164H104a12,12,0,0,1,0-24h12V128a12,12,0,0,1,24,0v12h12A12,12,0,0,1,164,152Z';
+    __tmPhosphorBoldPaths['calendar-star'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28Zm-4,176H52V52H68a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16Zm-27.08-94.35-27.42-2.12L139,83.25a12,12,0,0,0-22,0L106.5,107.53l-27.42,2.12a12,12,0,0,0-6.72,21.22l20.58,17-6.25,25.26a12,12,0,0,0,17.73,13.22L128,172.46l23.58,13.88a12,12,0,0,0,17.73-13.22l-6.25-25.26,20.58-17a12,12,0,0,0-6.72-21.22Zm-35,24.51a12,12,0,0,0-4,12.13l1.21,4.89-5.07-3a12.06,12.06,0,0,0-12.18,0l-5.07,3,1.21-4.89a12,12,0,0,0-4-12.13l-3.47-2.87,5-.39a12,12,0,0,0,10.09-7.21l2.33-5.4,2.33,5.4a12,12,0,0,0,10.09,7.21l5,.39Z';
     __tmPhosphorBoldPaths['calendar-dots'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Zm92-76a16,16,0,1,1-16-16A16,16,0,0,1,144,128Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,192,128ZM96,176a16,16,0,1,1-16-16A16,16,0,0,1,96,176Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,144,176Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,192,176Z';
     __tmPhosphorBoldPaths['calendar-x'] = 'M160.49,136.49,145,152l15.52,15.51a12,12,0,0,1-17,17L128,169l-15.51,15.52a12,12,0,0,1-17-17L111,152,95.51,136.49a12,12,0,1,1,17-17L128,135l15.51-15.52a12,12,0,1,1,17,17ZM228,48V208a20,20,0,0,1-20,20H48a20,20,0,0,1-20-20V48A20,20,0,0,1,48,28H68V24a12,12,0,0,1,24,0v4h72V24a12,12,0,0,1,24,0v4h20A20,20,0,0,1,228,48ZM52,52V76H204V52H188a12,12,0,0,1-24,0H92a12,12,0,0,1-24,0ZM204,204V100H52V204Z';
     __tmPhosphorBoldPaths['arrow-up'] = 'M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z';

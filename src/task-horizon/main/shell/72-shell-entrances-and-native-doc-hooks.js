@@ -232,6 +232,8 @@
     /**
      * 注册顶栏图标
      */
+    const __TM_TOPBAR_ENTRY_ATTR = 'data-task-horizon-topbar';
+
     function __tmSetUseIcon(root, iconId) {
         if (!root) return false;
         const use = root.querySelector?.('use');
@@ -250,6 +252,21 @@
         } catch (e) {
             return false;
         }
+    }
+
+    function __tmMarkManagedTopBarEntry(el) {
+        if (!(el instanceof HTMLElement)) return null;
+        try { el.setAttribute(__TM_TOPBAR_ENTRY_ATTR, '1'); } catch (e) {}
+        try { if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', '任务管理器'); } catch (e) {}
+        try { if (!el.getAttribute('title')) el.setAttribute('title', '任务管理器'); } catch (e) {}
+        try { __tmSetUseIcon(el, 'iconTaskHorizon'); } catch (e) {}
+        return el;
+    }
+
+    function __tmResetTopBarRegistrationState() {
+        try { delete globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]; } catch (e) {}
+        __tmTopBarAdded = false;
+        __tmTopBarEl = null;
     }
 
     function __tmIsTaskHorizonTabHeaderEl(el) {
@@ -388,31 +405,24 @@
     }
 
     function __tmGetManagedTopBarLookupSelector() {
+        const markedSelector = `[${__TM_TOPBAR_ENTRY_ATTR}="1"]`;
         return __tmIsMobileTopBarRegistrationHost()
-            ? '[aria-label="任务管理器"], [aria-label="任务管理"], [title="任务管理器"], [title="任务管理"]'
-            : '[aria-label="任务管理器"], [aria-label="任务管理"]';
+            ? `${markedSelector}, [aria-label="任务管理器"], [aria-label="任务管理"], [title="任务管理器"], [title="任务管理"]`
+            : `${markedSelector}, [aria-label="任务管理器"], [aria-label="任务管理"]`;
     }
 
     function __tmIsManagedTopBarEntry(el) {
         if (!(el instanceof Element)) return false;
         if (__tmTopBarEl instanceof Element && el === __tmTopBarEl) return true;
+        if (el.closest?.('.layout-tab-bar, .layout-tab-bar__item, .layout-tab-container, .layout-tab-bar .item, .fn__flex-column[data-type="wnd"], .tm-modal')) return false;
+        const marked = String(el.getAttribute?.(__TM_TOPBAR_ENTRY_ATTR) || '').trim() === '1';
         const label = String(
             __tmIsMobileTopBarRegistrationHost()
                 ? (el.getAttribute?.('aria-label') || el.getAttribute?.('title') || '')
                 : (el.getAttribute?.('aria-label') || '')
         ).trim();
-        if (label !== '任务管理器' && label !== '任务管理') return false;
-        if (el.closest?.('.layout-tab-bar, .layout-tab-bar__item, .layout-tab-container, .layout-tab-bar .item, .fn__flex-column[data-type="wnd"], .tm-modal')) return false;
-        if (__tmElementContainsTaskHorizonIcon(el)) return true;
-        if (el.closest?.('#toolbar, .toolbar, .toolbar__item, .topbar, .b3-menu, .b3-menu__item')) return true;
-        if (el.closest?.('#toolbar, .toolbar, .toolbar__item, .topbar')) return true;
-        try {
-            const owner = el.closest?.('[id], [class]') || el;
-            const ownerId = String(owner?.id || '').trim();
-            const ownerCls = String(owner?.className?.baseVal || owner?.className || '').trim();
-            return /(toolbar|topbar|menu)/i.test(`${ownerId} ${ownerCls}`);
-        } catch (e) {}
-        return false;
+        if (!marked && label !== '任务管理器' && label !== '任务管理') return false;
+        return __tmElementContainsTaskHorizonIcon(el);
     }
 
     function __tmResolveManagedTopBarEntry(sourceEl) {
@@ -456,6 +466,7 @@
         const keeper = (__tmTopBarEl instanceof Element && entries.includes(__tmTopBarEl))
             ? __tmTopBarEl
             : entries[0];
+        __tmMarkManagedTopBarEntry(keeper);
         if (allowRemoval) {
             entries.forEach((el) => {
                 if (!(el instanceof Element) || el === keeper) return;
@@ -502,33 +513,40 @@
             return;
         }
         if (isMobileTopBarHost && globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]) {
-            __tmTopBarAdded = true;
-            try { __tmBindMobileTopBarDocumentCapture(); } catch (e) {}
             try {
                 const exists = __tmDeduplicateTopBarEntries(true);
-                if (exists) __tmBindTopBarClickCapture(exists);
-            } catch (e) {}
-            return;
-        }
-        if (__tmTopBarAdded) {
-            if (isMobileTopBarHost) {
-                try { __tmBindMobileTopBarDocumentCapture(); } catch (e) {}
-                try {
-                    const exists = __tmDeduplicateTopBarEntries(true);
-                    if (exists) __tmBindTopBarClickCapture(exists);
-                } catch (e) {}
-                return;
-            }
-            try {
-                const exists = __tmDeduplicateTopBarEntries(false);
                 if (exists) {
-                    __tmSetUseIcon(exists, 'iconTaskHorizon');
+                    __tmTopBarAdded = true;
+                    try { __tmBindMobileTopBarDocumentCapture(); } catch (e2) {}
                     __tmBindTopBarClickCapture(exists);
                     return;
                 }
             } catch (e) {}
-            __tmTopBarAdded = false;
-            __tmTopBarEl = null;
+            __tmResetTopBarRegistrationState();
+        }
+        if (__tmTopBarAdded) {
+            if (isMobileTopBarHost) {
+                try {
+                    const exists = __tmDeduplicateTopBarEntries(true);
+                    if (exists) {
+                        try { __tmBindMobileTopBarDocumentCapture(); } catch (e2) {}
+                        __tmBindTopBarClickCapture(exists);
+                        return;
+                    }
+                } catch (e) {}
+                __tmResetTopBarRegistrationState();
+            } else {
+                try {
+                    const exists = __tmDeduplicateTopBarEntries(false);
+                    if (exists) {
+                        __tmSetUseIcon(exists, 'iconTaskHorizon');
+                        __tmBindTopBarClickCapture(exists);
+                        return;
+                    }
+                } catch (e) {}
+                __tmTopBarAdded = false;
+                __tmTopBarEl = null;
+            }
         }
         // 尝试通过全局插件实例添加
         const pluginInstance = globalThis.__taskHorizonPluginInstance || globalThis.__tomatoPluginInstance;
@@ -540,7 +558,7 @@
             // 我们可以检查 aria-label 或 title
             const exists = __tmDeduplicateTopBarEntries(isMobileTopBarHost);
             if (exists) {
-                __tmSetUseIcon(exists, 'iconTaskHorizon');
+                __tmMarkManagedTopBarEntry(exists);
                 if (isMobileTopBarHost) {
                     try { __tmBindMobileTopBarDocumentCapture(); } catch (e) {}
                 }
@@ -560,10 +578,12 @@
                     try { __tmOpenManagerFromTopbarEntry(); } catch (e) {}
                 }
             });
+            __tmMarkManagedTopBarEntry(topBarEl);
+            const managedTopBarEl = __tmDeduplicateTopBarEntries(isMobileTopBarHost) || topBarEl;
             if (isMobileTopBarHost) {
                 try { __tmBindMobileTopBarDocumentCapture(); } catch (e) {}
             }
-            try { __tmBindTopBarClickCapture(topBarEl || __tmDeduplicateTopBarEntries(isMobileTopBarHost)); } catch (e) {}
+            try { __tmBindTopBarClickCapture(managedTopBarEl); } catch (e) {}
             __tmTopBarAdded = true;
             if (isMobileTopBarHost) {
                 try { globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY] = true; } catch (e) {}
@@ -586,12 +606,16 @@
             const mobileTopbarHost = __tmIsMobileTopBarRegistrationHost();
             const shouldDocTopbar = __tmShouldShowDocTopbarButton();
             const shouldWindowTopbar = __tmShouldShowWindowTopbarIcon();
+            const topbarEntries = __tmGetTopBarEntries();
+            const liveTopbarIcon = topbarEntries.some((el) => el instanceof Element && document.body.contains(el));
             const signature = [
                 shouldDocTopbar ? 1 : 0,
                 liveBreadcrumbBtn ? 1 : 0,
                 mobileTopbarHost ? 1 : 0,
                 shouldWindowTopbar ? 1 : 0,
                 __tmTopBarAdded ? 1 : 0,
+                liveTopbarIcon ? 1 : 0,
+                topbarEntries.length,
             ].join('|');
             if (signature && signature === String(__tmShellEntrancesLastSignature || '')) return;
             __tmShellEntrancesLastSignature = signature;
@@ -1120,6 +1144,19 @@
     function __tmResolveNativeDocTaskToggleBlockId(target) {
         try {
             const toggle = globalThis.__tmCompat?.findTaskCheckboxAction?.(target) || null;
+            if (!(toggle instanceof Element) || !toggle.closest('.protyle')) return '';
+            return __tmResolveNativeDocTaskBlockId(toggle);
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmResolveNativeDocTaskToggleBlockIdFromEventTarget(target) {
+        try {
+            if (__tmIsNativeDocCheckboxSyncExcludedTarget(target)) return '';
+            const node = __tmResolveNativeDocEventElement(target);
+            if (!(node instanceof Element) || !node.closest) return '';
+            const toggle = node.closest('.protyle-action--task');
             if (!(toggle instanceof Element) || !toggle.closest('.protyle')) return '';
             return __tmResolveNativeDocTaskBlockId(toggle);
         } catch (e) {
@@ -1990,7 +2027,7 @@
                 if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
                     && __tmIsTaskDetailNoteViewLocalEventTarget(event.target)) return;
             } catch (e) {}
-            const blockId = __tmResolveNativeDocTaskToggleBlockId(event.target);
+            const blockId = __tmResolveNativeDocTaskToggleBlockIdFromEventTarget(event.target);
             if (!blockId) return;
             __tmScheduleNativeDocCheckboxStatusSync(blockId);
         };

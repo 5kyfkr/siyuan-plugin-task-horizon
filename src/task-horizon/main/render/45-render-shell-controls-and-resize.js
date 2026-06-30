@@ -1035,6 +1035,10 @@
         } catch (e) {}
         try { __tmUnbindMobileViewportAutoRefresh(); } catch (e) {}
         __tmClearTimelineTodayIndicatorTimer();
+        try {
+            state.searchBarOpen = false;
+            window.__tmRemoveInlineSearchBarPortal?.();
+        } catch (e) {}
 
         // 强制移除所有可能的模态框（防御性编程）
         const modals = document.querySelectorAll('.tm-modal, .tm-settings-modal, .tm-rules-modal, .tm-prompt-modal');

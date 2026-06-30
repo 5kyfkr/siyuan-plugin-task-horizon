@@ -180,16 +180,24 @@
             mainTop: Number(modal.querySelector('.tm-doc-tab-group-settings-main')?.scrollTop) || 0,
             listTop: Number(modal.querySelector('.tm-doc-tab-group-settings-list')?.scrollTop) || 0,
         } : null;
-        const groupsHtml = groups.length ? groups.map((group) => {
+        const groupsHtml = groups.length ? groups.map((group, index) => {
             const gid = String(group?.id || '').trim();
             if (!gid) return '';
             const name = String(group?.name || '').trim() || '未命名页签组';
             const count = Array.isArray(group?.entries) ? group.entries.length : 0;
+            const isFirst = index <= 0;
+            const isLast = index >= groups.length - 1;
             return `
-                <button type="button" class="tm-doc-tab-group-settings-group${gid === activeGroupId ? ' is-active' : ''}" onclick="tmSelectDocTabCustomGroupSettingsGroup('${escSq(gid)}')">
-                    <span>${esc(name)}</span>
-                    <small>${count}</small>
-                </button>
+                <div class="tm-doc-tab-group-settings-group-row">
+                    <button type="button" class="tm-doc-tab-group-settings-group${gid === activeGroupId ? ' is-active' : ''}" onclick="tmSelectDocTabCustomGroupSettingsGroup('${escSq(gid)}')">
+                        <span>${esc(name)}</span>
+                        <small>${count}</small>
+                    </button>
+                    <div class="tm-doc-tab-group-settings-sort">
+                        <button type="button" class="tm-doc-tab-group-settings-sort-btn" onclick="tmMoveDocTabCustomGroup('${escSq(gid)}', -1, event)" title="上移" aria-label="${esc(`上移页签组：${name}`)}" ${isFirst ? 'disabled' : ''}>${__tmRenderLucideIcon('arrow-up', '', { size: 12 })}</button>
+                        <button type="button" class="tm-doc-tab-group-settings-sort-btn" onclick="tmMoveDocTabCustomGroup('${escSq(gid)}', 1, event)" title="下移" aria-label="${esc(`下移页签组：${name}`)}" ${isLast ? 'disabled' : ''}>${__tmRenderLucideIcon('arrow-down', '', { size: 12 })}</button>
+                    </div>
+                </div>
             `;
         }).join('') : `
             <div class="tm-doc-tab-group-settings-empty">暂无页签组</div>
@@ -337,6 +345,13 @@
                         flex-direction: column;
                         gap: 6px;
                     }
+                    .tm-doc-tab-group-settings-group-row {
+                        display: grid;
+                        grid-template-columns: minmax(0, 1fr) auto;
+                        align-items: stretch;
+                        gap: 6px;
+                        min-width: 0;
+                    }
                     .tm-doc-tab-group-settings-group {
                         border: 1px solid var(--tm-border-color);
                         background: var(--tm-bg-color);
@@ -364,6 +379,37 @@
                     .tm-doc-tab-group-settings-group.is-active {
                         border-color: var(--tm-primary-color);
                         box-shadow: inset 0 0 0 1px var(--tm-primary-color);
+                    }
+                    .tm-doc-tab-group-settings-sort {
+                        display: flex;
+                        align-items: stretch;
+                        gap: 4px;
+                    }
+                    .tm-doc-tab-group-settings-sort-btn {
+                        width: 28px;
+                        min-width: 28px;
+                        border: 1px solid var(--tm-border-color);
+                        border-radius: 6px;
+                        background: var(--tm-bg-color);
+                        color: var(--tm-secondary-text);
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 0;
+                        cursor: pointer;
+                    }
+                    .tm-doc-tab-group-settings-sort-btn:hover:not(:disabled) {
+                        background: var(--tm-hover-bg);
+                        color: var(--tm-text-color);
+                    }
+                    .tm-doc-tab-group-settings-sort-btn:disabled {
+                        cursor: not-allowed;
+                        opacity: 0.42;
+                    }
+                    .tm-doc-tab-group-settings-sort-btn svg {
+                        width: 12px;
+                        height: 12px;
+                        display: block;
                     }
                     .tm-doc-tab-group-settings-main {
                         min-width: 0;
@@ -809,6 +855,43 @@
         const gid = String(groupId || '').trim();
         state.docTabCustomGroupSettingsActiveGroupId = gid;
         __tmRenderDocTabCustomGroupSettingsModal();
+    };
+
+    window.tmMoveDocTabCustomGroup = async function(groupId, direction, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const gid = String(groupId || '').trim();
+        const step = Number(direction) < 0 ? -1 : 1;
+        if (!gid) return false;
+        const groups = __tmGetDocTabCustomGroups();
+        const currentScopeId = __tmGetCurrentDocTabCustomGroupScopeId();
+        const scopedIds = groups
+            .filter((group) => __tmIsDocTabCustomGroupInScope(group, currentScopeId))
+            .map((group) => String(group?.id || '').trim())
+            .filter(Boolean);
+        const scopedIndex = scopedIds.indexOf(gid);
+        if (scopedIndex < 0) {
+            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            return false;
+        }
+        const targetScopedIndex = scopedIndex + step;
+        if (targetScopedIndex < 0 || targetScopedIndex >= scopedIds.length) return false;
+        const targetId = scopedIds[targetScopedIndex];
+        if (!targetId || targetId === gid) return false;
+        const scopedGroups = groups.filter((group) => __tmIsDocTabCustomGroupInScope(group, currentScopeId));
+        const [moved] = scopedGroups.splice(scopedIndex, 1);
+        scopedGroups.splice(targetScopedIndex, 0, moved);
+        let nextScopedIndex = 0;
+        const nextGroups = groups.map((group) => {
+            if (!__tmIsDocTabCustomGroupInScope(group, currentScopeId)) return group;
+            const nextGroup = scopedGroups[nextScopedIndex];
+            nextScopedIndex += 1;
+            return nextGroup || group;
+        });
+        state.docTabCustomGroupSettingsActiveGroupId = gid;
+        await __tmSaveDocTabCustomGroups(nextGroups, { refreshSettings: true });
+        hint('✅ 页签组排序已更新', 'success');
+        return true;
     };
 
     window.tmToggleDocTabCustomGroupDocIncluded = async function(groupId, docId, included) {
@@ -1513,6 +1596,8 @@
         SettingsStore.data.taskCheckboxCircleStyleEnabled = next;
         await SettingsStore.save();
         try { state.modal?.classList?.toggle('tm-modal--task-checkbox-circle', next); } catch (e) {}
+        try { document.querySelectorAll('.tm-task-detail-shell').forEach(el => el.classList?.toggle?.('tm-task-detail--task-checkbox-circle', next)); } catch (e) {}
+        try { document.getElementById('tm-task-detail-overlay')?.classList?.toggle('tm-task-detail--task-checkbox-circle', next); } catch (e) {}
         showSettings();
     };
 
