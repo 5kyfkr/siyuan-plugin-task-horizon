@@ -5814,10 +5814,16 @@
     function applyCalendarVisibleSlotRange(calendar, settings) {
         if (!calendar) return false;
         const range = getCalendarVisibleSlotRange(settings || getSettings());
+        try { calendar.setOption('slotHeaderInterval', getCalendarSlotHeaderInterval(range)); } catch (e) {}
         try { calendar.setOption('slotMinTime', range.slotMinTime); } catch (e) {}
         try { calendar.setOption('slotMaxTime', range.slotMaxTime); } catch (e) {}
         try { applyCalendarSlotMinHeightOption(calendar, settings); } catch (e) {}
         return true;
+    }
+
+    function getCalendarSlotHeaderInterval(visibleRange) {
+        const startMinutes = parseCalendarTimeToMinutes(visibleRange?.slotMinTime || visibleRange?.start);
+        return Number.isFinite(startMinutes) && Math.round(startMinutes) % 60 !== 0 ? '00:30:00' : '01:00:00';
     }
 
     function applyCalendarSlotMinHeightOption(calendar, settings) {
@@ -5836,8 +5842,8 @@
             slotDuration: '00:30:00',
             slotMinHeight: getCalendarHalfHourSlotHeight(nextSettings),
             eventMinHeight: getCalendarTimeGridEventMinHeight(nextSettings),
-            // Keep 30-minute slots marked as minor so CSS can render them dashed.
-            slotHeaderInterval: '01:00:00',
+            // Half-hour starts need half-hour label containers so the following hour labels can render.
+            slotHeaderInterval: getCalendarSlotHeaderInterval(visibleRange),
             slotMinTime: visibleRange.slotMinTime,
             slotMaxTime: visibleRange.slotMaxTime,
             slotHeaderContent: (arg) => {
@@ -6951,7 +6957,20 @@
                 changed = true;
             }
         };
-        const labels = Array.from(rootEl.querySelectorAll('.fc-timegrid-slots td.fc-timegrid-slot-label[data-time]'));
+        const findLabelFrame = (label) => {
+            if (!(label instanceof HTMLElement)) return null;
+            return label.querySelector(':scope > .fc-timegrid-slot-label-frame')
+                || label.querySelector('.fc-timegrid-slot-label-frame');
+        };
+        const findLabelCushion = (label, frame) => {
+            if (frame instanceof HTMLElement && frame.classList.contains('fc-timegrid-slot-label-cushion')) return frame;
+            return frame?.querySelector?.(':scope > .fc-timegrid-slot-label-cushion')
+                || frame?.querySelector?.('.fc-timegrid-slot-label-cushion')
+                || label?.querySelector?.(':scope > .fc-timegrid-slot-label-cushion')
+                || label?.querySelector?.('.fc-timegrid-slot-label-cushion')
+                || null;
+        };
+        const labels = Array.from(rootEl.querySelectorAll('.fc-timegrid-slot-label[data-time]'));
         for (const label of labels) {
             if (!(label instanceof HTMLElement)) continue;
             const time = parseDataTime(label);
@@ -6962,14 +6981,14 @@
             setClass(label, 'fc-timegrid-slot-minor', isHalfHour);
             setClass(label, 'fc-scrollgrid-shrink', isHour);
             if (isHour) {
-                let frame = label.querySelector(':scope > .fc-timegrid-slot-label-frame');
+                let frame = findLabelFrame(label);
                 if (!(frame instanceof HTMLElement)) {
                     frame = document.createElement('div');
                     frame.className = 'fc-timegrid-slot-label-frame fc-scrollgrid-shrink-frame';
                     label.replaceChildren(frame);
                     changed = true;
                 }
-                let cushion = frame.querySelector(':scope > .fc-timegrid-slot-label-cushion');
+                let cushion = findLabelCushion(label, frame);
                 if (!(cushion instanceof HTMLElement)) {
                     cushion = document.createElement('div');
                     cushion.className = 'fc-timegrid-slot-label-cushion fc-scrollgrid-shrink-cushion';
@@ -6981,12 +7000,17 @@
                     cushion.textContent = text;
                     changed = true;
                 }
-            } else if (label.textContent) {
-                label.textContent = '';
-                changed = true;
+            } else {
+                const frame = findLabelFrame(label);
+                const cushion = findLabelCushion(label, frame);
+                const textNode = cushion instanceof HTMLElement ? cushion : label;
+                if (textNode.textContent) {
+                    textNode.textContent = '';
+                    changed = true;
+                }
             }
         }
-        rootEl.querySelectorAll('.fc-timegrid-slots td.fc-timegrid-slot-lane[data-time]').forEach((lane) => {
+        rootEl.querySelectorAll('.fc-timegrid-slot-lane[data-time]').forEach((lane) => {
             if (!(lane instanceof HTMLElement)) return;
             const time = parseDataTime(lane);
             if (!time) return;
@@ -21411,7 +21435,7 @@
         const preferredInitialView = (() => {
             const sessionView = String(state._lastViewType || '').trim();
             if (sessionView && MAIN_CALENDAR_ALLOWED_VIEWS.has(sessionView)) return sessionView;
-            return isMobileDevice
+            return (isMobileDevice || isDockHost)
                 ? normalizeMainCalendarViewType(s.initialViewMobile, 'timeGridDay')
                 : normalizeMainCalendarViewType(s.initialViewDesktop, 'timeGridWeek');
         })();
@@ -23083,7 +23107,7 @@
                     <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarInitialViewDesktop">${desktopInitialViewOptions}</select>
                 </div>
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">移动端默认视图</div>
+                    <div class="tm-calendar-settings-label">移动端/Dock侧边栏默认视图</div>
                     <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarInitialViewMobile">${mobileInitialViewOptions}</select>
                 </div>
                 <div class="tm-calendar-settings-row">

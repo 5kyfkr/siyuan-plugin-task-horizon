@@ -8938,12 +8938,22 @@
             const t = (task && typeof task === 'object') ? task : {};
             const id = String(t.id || '').trim();
             const docId = String(t.root_id || t.docId || '').trim();
-            const content = String(t.content || '').trim();
-            if (!id || !docId || !content) return false;
             const cards = (this.data.cards && typeof this.data.cards === 'object' && !Array.isArray(this.data.cards))
                 ? this.data.cards
                 : {};
             const prev = cards[id] || {};
+            const isPlaceholderContent = (value) => {
+                const text = String(value || '').trim();
+                return !text || text === '(无内容)' || text === '无内容';
+            };
+            const rawContent = String(t.content || '').trim();
+            const rawContentFallback = String(t.raw_content || '').trim();
+            const content = !isPlaceholderContent(rawContent)
+                ? rawContent
+                : (!isPlaceholderContent(rawContentFallback)
+                    ? rawContentFallback
+                    : String(prev.content || '').trim());
+            if (!id || !docId || !content) return false;
             const next = {
                 id,
                 docId,

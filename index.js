@@ -66,46 +66,7 @@ const readWindowTopbarEnabled = () => {
     return readLocalJson(key, true) !== false;
 };
 
-const MOBILE_RUNTIME_CONTAINERS = new Set(["android", "ios", "harmony"]);
-
-const getSiyuanRuntimeBackend = () => {
-    try {
-        const container = globalThis?.siyuan?.config?.system?.container;
-        if (typeof container === "string" && container.trim()) return container.trim().toLowerCase();
-    } catch (e) {}
-    try {
-        const container = window?.siyuan?.config?.system?.container;
-        if (typeof container === "string" && container.trim()) return container.trim().toLowerCase();
-    } catch (e) {}
-    try {
-        const os = globalThis?.siyuan?.config?.system?.os;
-        if (typeof os === "string" && os.trim()) return os.trim().toLowerCase();
-    } catch (e) {}
-    try {
-        const os = window?.siyuan?.config?.system?.os;
-        if (typeof os === "string" && os.trim()) return os.trim().toLowerCase();
-    } catch (e) {}
-    return "";
-};
-
-const isSiyuanConfigMobile = () => {
-    try {
-        if (globalThis?.siyuan?.config?.isMobile === true) return true;
-    } catch (e) {}
-    try {
-        if (window?.siyuan?.config?.isMobile === true) return true;
-    } catch (e) {}
-    return false;
-};
-
 const hasOfficialMobileRuntimeSignal = () => {
-    try {
-        if (isSiyuanConfigMobile()) return true;
-    } catch (e) {}
-    try {
-        const backend = getSiyuanRuntimeBackend();
-        if (MOBILE_RUNTIME_CONTAINERS.has(backend)) return true;
-    } catch (e) {}
     try {
         if (globalThis?.JSAndroid) return true;
     } catch (e) {}
@@ -132,6 +93,12 @@ const isMobileBrowserViewport = () => {
         const ua = String(navigator?.userAgent || "");
         if (/Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua)) return true;
     } catch (e) {}
+    try {
+        const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
+        const width = Number(window?.innerWidth) || 0;
+        const coarse = !!window?.matchMedia?.("(pointer: coarse)")?.matches;
+        if ((coarse || maxTouchPoints > 0) && width > 0 && width <= 900) return true;
+    } catch (e) {}
     return false;
 };
 
@@ -151,8 +118,7 @@ const getRuntimeClientKind = () => {
 };
 
 const isRuntimeMobileClient = () => {
-    if (hasOfficialMobileRuntimeSignal()) return true;
-    return isMobileBrowserViewport();
+    return getRuntimeClientKind() !== "desktop-browser";
 };
 
 const findDockTabPath = (node, type, path = []) => {

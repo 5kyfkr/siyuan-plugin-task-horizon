@@ -1439,6 +1439,7 @@
             const navigatorReadyAttr = (!navigatorHidden && state.whiteboardNavigatorModel) ? ' data-tm-ready="1"' : '';
             const sidebarToggleLabel = sidebarCollapsed ? '展开侧栏' : '折叠侧栏';
             const sidebarToggleGlyph = sidebarCollapsed ? '☰' : '⟨';
+            const whiteboardPluginFullscreen = !!state.whiteboardPluginFullscreen;
             const renderWhiteboardToolbarButton = ({ label, icon, onclick, active = false, pressed = null }) => {
                 const cls = `tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-toolbar-btn${active ? ' tm-whiteboard-toolbar-btn--active' : ''}`;
                 const ariaPressed = pressed == null ? '' : ` aria-pressed="${pressed ? 'true' : 'false'}"`;
@@ -1481,6 +1482,7 @@
                                     ${renderWhiteboardToolbarButton({ label: '便利贴模式', icon: 'note-pencil', onclick: "tmWhiteboardSetTool('sticky')", active: whiteboardTool === 'sticky', pressed: whiteboardTool === 'sticky' })}
                                     ${renderWhiteboardToolbarButton({ label: '缩小画布', icon: 'minus', onclick: 'tmWhiteboardZoomOut()' })}
                                     ${renderWhiteboardToolbarButton({ label: '放大画布', icon: 'plus', onclick: 'tmWhiteboardZoomIn()' })}
+                                    ${renderWhiteboardToolbarButton({ label: whiteboardPluginFullscreen ? '退出插件全屏' : '插件内全屏', icon: whiteboardPluginFullscreen ? 'corners-in' : 'corners-out', onclick: 'tmWhiteboardTogglePluginFullscreen(event)', active: whiteboardPluginFullscreen, pressed: whiteboardPluginFullscreen })}
                                     ${renderWhiteboardToolbarButton({ label: '重置视图', icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView()' })}
                                     ${renderWhiteboardToolbarButton({ label: '清空手动连线', icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks()' })}
                                 </div>

@@ -318,6 +318,75 @@
         return rawId;
     }
 
+    function __tmIsTaskDetailWhiteboardSnapshotTask(task) {
+        return !!(task && typeof task === 'object' && (task.__tmWhiteboardSnapshot === true || task.__tmGhost === true));
+    }
+
+    function __tmIsTaskDetailPlaceholderTitle(value) {
+        const text = String(value || '').trim();
+        return !text || text === '(无内容)' || text === '无内容';
+    }
+
+    function __tmBuildTaskDetailWhiteboardSnapshotTask(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return null;
+        let snap = null;
+        try {
+            snap = typeof __tmGetWhiteboardCardSnapshot === 'function'
+                ? __tmGetWhiteboardCardSnapshot(id)
+                : null;
+        } catch (e) {
+            snap = null;
+        }
+        if (!(snap && typeof snap === 'object')) {
+            try { snap = WhiteboardStore.getTask(id); } catch (e) { snap = null; }
+        }
+        if (!(snap && typeof snap === 'object')) return null;
+        const docId = String(snap.docId || '').trim();
+        const content = String(snap.content || '').trim();
+        if (!docId || !content) return null;
+        const doc = (Array.isArray(state.taskTree) ? state.taskTree : [])
+            .find((item) => String(item?.id || '').trim() === docId);
+        const docName = String(doc?.name || '').trim() || '未命名文档';
+        const done = !!snap.done;
+        return {
+            id,
+            markdown: `- [${done ? 'x' : ' '}] ${content}`,
+            raw_content: content,
+            content,
+            done,
+            root_id: docId,
+            docId,
+            doc_name: docName,
+            docName,
+            parentTaskId: String(snap.parentTaskId || '').trim(),
+            parent_task_id: String(snap.parentTaskId || '').trim(),
+            h2: String(snap.h2 || '').trim(),
+            h2Name: String(snap.h2 || '').trim(),
+            h2Id: String(snap.h2Id || '').trim(),
+            h2Path: String(snap.h2Path || '').trim(),
+            h2Sort: Number(snap.h2Sort),
+            h2Created: String(snap.h2Created || '').trim(),
+            h2Rank: Number(snap.h2Rank),
+            headingLevel: String(snap.headingLevel || SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2',
+            startDate: String(snap.startDate || '').trim(),
+            start_date: String(snap.startDate || '').trim(),
+            completionTime: String(snap.completionTime || '').trim(),
+            completion_time: String(snap.completionTime || '').trim(),
+            snapshot: true,
+            __tmGhost: true,
+            __tmWhiteboardSnapshot: true,
+        };
+    }
+
+    function __tmPreferWhiteboardSnapshotForPlaceholderTask(task, taskId, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.includeWhiteboard !== true || !(task && typeof task === 'object')) return task || null;
+        if (!__tmIsTaskDetailPlaceholderTitle(task.content) || !__tmIsTaskDetailPlaceholderTitle(task.raw_content)) return task;
+        const snapTask = __tmBuildTaskDetailWhiteboardSnapshotTask(taskId);
+        return snapTask || task;
+    }
+
     function __tmGetTaskDetailTaskById(taskId, options = {}) {
         const rawId = String(taskId || '').trim();
         if (!rawId) return null;
@@ -352,17 +421,23 @@
                 || state.flatTasks?.[id]
                 || state.pendingInsertedTasks?.[id]
                 || null;
-            if (task && typeof task === 'object') return mergeCalendarTask(task, id);
+            if (task && typeof task === 'object') {
+                return mergeCalendarTask(__tmPreferWhiteboardSnapshotForPlaceholderTask(task, id, opts), id);
+            }
         }
         for (const id of aliases) {
             const task = mergeCalendarTask(null, id);
-            if (task && typeof task === 'object') return task;
+            if (task && typeof task === 'object') return __tmPreferWhiteboardSnapshotForPlaceholderTask(task, id, opts);
         }
         if (opts.includeWhiteboard === true) {
             for (const id of aliases) {
                 try {
-                    const task = __tmTaskStateKernel.getTask(id) || null;
+                    const task = __tmPreferWhiteboardSnapshotForPlaceholderTask(__tmTaskStateKernel.getTask(id) || null, id, opts);
                     if (task && typeof task === 'object') return mergeCalendarTask(task, id);
+                } catch (e) {}
+                try {
+                    const task = __tmBuildTaskDetailWhiteboardSnapshotTask(id);
+                    if (task && typeof task === 'object') return task;
                 } catch (e) {}
             }
         }
@@ -372,6 +447,7 @@
     async function __tmEnsureTaskDetailFieldAttrs(taskLike, options = {}) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
         if (!task) return taskLike || null;
+        if (__tmIsTaskDetailWhiteboardSnapshotTask(task)) return task;
         const opts = (options && typeof options === 'object') ? options : {};
         const tid = String(opts.taskId || task.id || '').trim();
         const shouldForce = opts.force === true;
@@ -1939,6 +2015,7 @@
             ...((tipOpts && typeof tipOpts === 'object') ? tipOpts : {})
         });
         const isOtherBlock = __tmIsCollectedOtherBlockTask(task);
+        const isSnapshotTask = __tmIsTaskDetailWhiteboardSnapshotTask(task);
         const statusOptions = __tmGetTaskDetailStatusOptions();
         const curStatus = __tmResolveTaskStatusId(task, statusOptions);
         const curStatusOption = statusOptions.find((o) => o.id === curStatus) || { id: curStatus, name: curStatus || '待办', color: '#757575' };
@@ -2010,6 +2087,10 @@
             const fallback = String(task?.content || '').trim();
             return cleanDetailTitle(fallback, fallback);
         })();
+        const titleReadonly = isOtherBlock || isSnapshotTask;
+        const titleReadonlyTip = isOtherBlock
+            ? '其他块内容请回原文档编辑'
+            : (isSnapshotTask ? '快照任务，源任务已删除' : '');
         const docName = String(task?.docName || task?.doc_name || '').trim();
         const docId = String(task?.root_id || task?.docId || '').trim();
         const headingName = __tmNormalizeHeadingText(task?.h2 || task?.h2Name);
@@ -2106,7 +2187,7 @@
                         ${headerActionsHtml}
                     </div>
                     <div class="tm-task-detail-header-main">
-                        <textarea class="tm-task-detail-title-input" data-tm-detail="content" ${isOtherBlock ? 'readonly' : ''} title="${isOtherBlock ? '其他块内容请回原文档编辑' : ''}" rows="1">${esc(titleValue)}</textarea>
+                        <textarea class="tm-task-detail-title-input" data-tm-detail="content" ${titleReadonly ? 'readonly' : ''} title="${esc(titleReadonlyTip)}" rows="1">${esc(titleValue)}</textarea>
                     </div>
                 </div>
 
@@ -2606,6 +2687,10 @@
             if (fallback && typeof fallback === 'object') {
                 const fallbackId = String(fallback.id || '').trim();
                 if (!tid || !fallbackId || __tmAreTaskDetailIdsEquivalent(fallbackId, tid) || __tmAreTaskDetailIdsEquivalent(fallbackId, resolvedTid)) {
+                    if (__tmIsTaskDetailWhiteboardSnapshotTask(fallback)) {
+                        try { root.__tmTaskDetailTask = fallback; } catch (e) {}
+                        return fallback;
+                    }
                     const rebound = __tmCacheTaskInState(fallback, {
                         docNameFallback: fallback.doc_name || fallback.docName || '未命名文档'
                     }) || fallback;

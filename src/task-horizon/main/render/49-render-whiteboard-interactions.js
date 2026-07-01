@@ -4956,6 +4956,64 @@
         try { await SettingsStore.save(); } catch (e) {}
     };
 
+    function __tmRefreshWhiteboardAfterFullscreenToggle() {
+        const run = () => {
+            try { __tmApplyWhiteboardTransform(); } catch (e) {}
+            try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
+            try { __tmScheduleWhiteboardNavigatorUpdate(); } catch (e) {}
+        };
+        try { run(); } catch (e) {}
+        try { requestAnimationFrame(() => requestAnimationFrame(run)); } catch (e) {}
+        try { setTimeout(run, 120); } catch (e) {}
+    }
+
+    function __tmSyncWhiteboardFullscreenShell() {
+        const modal = state.modal instanceof HTMLElement ? state.modal : null;
+        if (modal) {
+            try { modal.classList.toggle('tm-modal--whiteboard-fullscreen', !!state.whiteboardPluginFullscreen); } catch (e) {}
+        }
+        __tmRefreshWhiteboardAfterFullscreenToggle();
+    }
+
+    window.tmWhiteboardExitFullscreen = function(source) {
+        state.whiteboardPluginFullscreen = false;
+        __tmSyncWhiteboardFullscreenShell();
+        if (String(state.viewMode || '').trim() === 'whiteboard') {
+            try { render(); } catch (e) {}
+        }
+    };
+
+    window.tmWhiteboardTogglePluginFullscreen = function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        if (String(state.viewMode || '').trim() !== 'whiteboard') return;
+        if (__tmIsWhiteboardAllTabsStreamMode()) return;
+        if (state.whiteboardPluginFullscreen) {
+            window.tmWhiteboardExitFullscreen('plugin-toggle');
+            return;
+        }
+        state.whiteboardPluginFullscreen = true;
+        __tmSyncWhiteboardFullscreenShell();
+        try { render(); } catch (e) {}
+    };
+
+    try {
+        const prevKeydown = window.__tmWhiteboardFullscreenKeydownHandler;
+        if (typeof prevKeydown === 'function') {
+            try { globalThis.__tmRuntimeEvents?.off?.(document, 'keydown', prevKeydown, false); } catch (e) {}
+            try { document.removeEventListener('keydown', prevKeydown, false); } catch (e) {}
+        }
+        const onWhiteboardFullscreenKeydown = (ev) => {
+            if (String(ev?.key || '') !== 'Escape') return;
+            if (!state.whiteboardPluginFullscreen) return;
+            if (String(state.viewMode || '').trim() !== 'whiteboard') return;
+            try { ev.preventDefault(); } catch (e) {}
+            window.tmWhiteboardExitFullscreen('escape');
+        };
+        window.__tmWhiteboardFullscreenKeydownHandler = onWhiteboardFullscreenKeydown;
+        try { globalThis.__tmRuntimeEvents?.on?.(document, 'keydown', onWhiteboardFullscreenKeydown, false); } catch (e) { document.addEventListener('keydown', onWhiteboardFullscreenKeydown, false); }
+    } catch (e) {}
+
     window.tmTimelineToggleSidebar = async function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         const next = !SettingsStore.data.timelineSidebarCollapsed;
@@ -5170,5 +5228,3 @@
         __tmKanbanPersistCollapsed();
         render();
     };
-
-

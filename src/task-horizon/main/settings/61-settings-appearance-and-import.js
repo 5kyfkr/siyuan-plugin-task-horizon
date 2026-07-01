@@ -943,6 +943,20 @@
         };
     }
 
+    function __tmTickTickParseTagsCell(value) {
+        const source = String(value || '').trim();
+        if (!source) return [];
+        const out = [];
+        const seen = new Set();
+        source.split(/\s*[,，]\s*/).forEach((item) => {
+            const tag = String(item || '').trim();
+            if (!tag || seen.has(tag)) return;
+            seen.add(tag);
+            out.push(tag);
+        });
+        return out;
+    }
+
     function __tmTickTickMapPriority(value) {
         const raw = __tmTickTickParseNumericField(value);
         if (raw >= 5) return 'high';
@@ -975,6 +989,16 @@
         let pendingTasks = 0;
         let completedTasks = 0;
         let archivedTasks = 0;
+        const tagNames = [];
+        const tagSeen = new Set();
+        const rememberTags = (tags) => {
+            (Array.isArray(tags) ? tags : []).forEach((tag) => {
+                const name = String(tag || '').trim();
+                if (!name || tagSeen.has(name)) return;
+                tagSeen.add(name);
+                tagNames.push(name);
+            });
+        };
         for (let i = headerRowIndex + 1; i < rows.length; i += 1) {
             const row = Array.isArray(rows[i]) ? rows[i] : [];
             if (!row.some((cell) => String(cell || '').trim())) continue;
@@ -1011,6 +1035,8 @@
                 };
             const sourceTaskId = getCell(row, ['taskId', 'Task ID']);
             const parentSourceId = getCell(row, ['parentId', 'Parent ID']);
+            const tags = __tmTickTickParseTagsCell(getCell(row, 'Tags'));
+            rememberTags(tags);
             entries.push({
                 internalId: sourceTaskId || `__row_${i}`,
                 sourceTaskId,
@@ -1028,6 +1054,7 @@
                 completionTime: __tmTickTickParseDateOnly(getCell(row, ['Due Date', 'DueDate']), timezone, { floating }),
                 remark: checklistInfo.remark,
                 inlineSubtasks: checklistInfo.inlineSubtasks,
+                tags,
                 children: [],
             });
         }
@@ -1071,6 +1098,7 @@
                     startDate: '',
                     completionTime: '',
                     remark: '',
+                    tags: [],
                     children: [],
                 }))
                 .filter((item) => item.title);
@@ -1083,6 +1111,7 @@
                 startDate: String(entry.startDate || '').trim(),
                 completionTime: String(entry.completionTime || '').trim(),
                 remark: String(entry.remark || '').trim(),
+                tags: Array.isArray(entry.tags) ? entry.tags.slice() : [],
                 children: inlineChildren.concat(explicitChildren),
                 headingName: String(entry.headingName || '').trim(),
                 docName: String(entry.docName || '').trim() || '未命名清单',
@@ -1162,7 +1191,9 @@
                 skippedOtherStatus,
                 skippedBlankTitle,
                 orphanSubtasks,
+                tagCount: tagNames.length,
             },
+            tagNames,
             options: importOptions,
         };
     }
@@ -1180,8 +1211,60 @@
         if (Number(summary.skippedOtherStatus) > 0) extra.push(`其他状态 ${Number(summary.skippedOtherStatus) || 0} 条`);
         if (Number(summary.skippedBlankTitle) > 0) extra.push(`空标题 ${Number(summary.skippedBlankTitle)} 条`);
         if (Number(summary.orphanSubtasks) > 0) extra.push(`找不到父任务的子任务 ${Number(summary.orphanSubtasks)} 条，已按根任务导入`);
+        if (Number(summary.tagCount) > 0) extra.push(`标签 ${Number(summary.tagCount) || 0} 个，将新建“标签”多选列`);
         if (opts.fileName) extra.unshift(`文件：${String(opts.fileName || '').trim()}`);
         return extra.join('；');
+    }
+
+    async function __tmCreateTickTickTagsCustomField(tagNames) {
+        const names = (Array.isArray(tagNames) ? tagNames : [])
+            .map((item) => String(item || '').trim())
+            .filter(Boolean);
+        if (!names.length) return null;
+        await __tmEnsureSettingsLoaded();
+        const currentDefs = __tmGetCustomFieldDefs();
+        const existingIds = new Set(currentDefs.map((field) => String(field?.id || '').trim()).filter(Boolean));
+        const existingAttrKeys = new Set(currentDefs.map((field) => {
+            const fieldId = String(field?.id || '').trim() || 'field';
+            return __tmNormalizeCustomFieldAttrName(field?.attrKey || fieldId || field?.name || 'field', fieldId);
+        }).filter(Boolean));
+        const uniqueToken = (baseValue, seen) => {
+            const base = String(baseValue || '').trim() || 'ticktick-tags';
+            let next = base;
+            let dedupe = 2;
+            while (seen.has(next)) {
+                next = `${base}-${dedupe}`;
+                dedupe += 1;
+            }
+            seen.add(next);
+            return next;
+        };
+        const fieldId = uniqueToken(__tmNormalizeCustomFieldId('ticktick-tags', 'ticktick-tags'), existingIds);
+        const attrKey = uniqueToken(__tmNormalizeCustomFieldAttrName(fieldId, fieldId), existingAttrKeys);
+        const optionSeen = new Set();
+        const optionByName = new Map();
+        const options = names.map((name, index) => {
+            const baseOptionId = __tmNormalizeCustomFieldId(name, `tag-${index + 1}`);
+            const optionId = uniqueToken(baseOptionId, optionSeen);
+            optionByName.set(name, optionId);
+            return {
+                id: optionId,
+                name,
+                color: __tmGetCustomFieldPresetColor(index),
+            };
+        });
+        const field = {
+            id: fieldId,
+            name: '标签',
+            attrKey,
+            type: 'multi',
+            options,
+            enabled: true,
+        };
+        SettingsStore.data.customFieldDefs = currentDefs.concat([field]);
+        SettingsStore.normalizeColumns();
+        await SettingsStore.save();
+        return { field, fieldId, optionByName };
     }
 
     function __tmTickTickSanitizeDocName(name) {
@@ -1449,6 +1532,18 @@
         if (task?.startDate) patch.startDate = String(task.startDate).trim();
         if (task?.completionTime) patch.completionTime = String(task.completionTime).trim();
         if (task?.remark) patch.remark = String(task.remark).trim();
+        const tagsField = opts.tagsField && typeof opts.tagsField === 'object' ? opts.tagsField : null;
+        const tagsFieldId = String(tagsField?.fieldId || '').trim();
+        const tagOptionByName = tagsField?.optionByName instanceof Map ? tagsField.optionByName : null;
+        const tagOptionIds = tagsFieldId && tagOptionByName
+            ? (Array.isArray(task?.tags) ? task.tags : [])
+                .map((name) => tagOptionByName.get(String(name || '').trim()) || '')
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)
+            : [];
+        if (tagsFieldId && tagOptionIds.length) {
+            patch.customFieldValues = { [tagsFieldId]: Array.from(new Set(tagOptionIds)) };
+        }
         if (task?.done === true) {
             const doneStatusPatch = __tmBuildCheckboxStatusPatch(task, true);
             if (doneStatusPatch && typeof doneStatusPatch === 'object') Object.assign(patch, doneStatusPatch);
@@ -1481,30 +1576,55 @@
     async function __tmAttachNotebookToCurrentGroupForImport(notebookId) {
         const nextNotebookId = String(notebookId || '').trim();
         if (!nextNotebookId) return { attached: false, reason: 'no-notebook', groupId: '' };
+        const clearImportGroupCaches = () => {
+            try { __tmDocExpandCache.clear(); } catch (e) {}
+            try { __tmResolvedDocIdsCache = null; } catch (e) {}
+            try { __tmResolvedDocIdsPromise = null; } catch (e) {}
+            try { window.__tmInvalidateDocScopeCache?.(); } catch (e) {}
+            try { window.__tmCalendarDocsToGroupCache = null; } catch (e) {}
+        };
+        const refreshImportGroupSelects = (groupId) => {
+            try { window.tmRefreshDocGroupTopbarSelects?.(groupId); } catch (e) {}
+        };
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups.slice() : [];
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
-        if (currentGroupId === 'all') return { attached: false, reason: 'all-group', groupId: '' };
-        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
-        const idx = groups.findIndex((group) => String(group?.id || '').trim() === currentGroupId);
-        if (idx < 0) return { attached: false, reason: 'group-missing', groupId: currentGroupId };
-        const group = groups[idx] || {};
-        const prevNotebookId = String(group?.notebookId || '').trim();
-        if (prevNotebookId === nextNotebookId) {
-            return { attached: true, changed: false, reason: 'same-notebook', groupId: currentGroupId };
+        const existingIdx = groups.findIndex((group) => String(group?.notebookId || '').trim() === nextNotebookId);
+        if (existingIdx >= 0) {
+            const groupId = String(groups[existingIdx]?.id || '').trim();
+            if (groupId) {
+                if (groupId !== currentGroupId) await SettingsStore.updateCurrentGroupId(groupId);
+                clearImportGroupCaches();
+                refreshImportGroupSelects(groupId);
+                return {
+                    attached: true,
+                    changed: groupId !== currentGroupId,
+                    created: false,
+                    reason: groupId === currentGroupId ? 'same-notebook' : 'existing-notebook-group',
+                    groupId,
+                };
+            }
         }
-        groups[idx] = {
-            ...group,
+        const usedIds = new Set(groups.map((group) => String(group?.id || '').trim()).filter(Boolean));
+        const baseId = `g_${Date.now()}_import`;
+        let groupId = baseId;
+        let dedupe = 2;
+        while (usedIds.has(groupId)) {
+            groupId = `${baseId}_${dedupe}`;
+            dedupe += 1;
+        }
+        const notebookName = __tmGetNotebookDisplayName(nextNotebookId, nextNotebookId);
+        const nextGroup = {
+            id: groupId,
+            name: notebookName,
             notebookId: nextNotebookId,
+            docs: [],
+            calendarSearchOptimization: { enabled: false, days: 90 }
         };
-        await SettingsStore.updateDocGroups(groups);
-        try { __tmDocExpandCache.clear(); } catch (e) {}
-        try { __tmResolvedDocIdsCache = null; } catch (e) {}
-        try { __tmResolvedDocIdsPromise = null; } catch (e) {}
-        return {
-            attached: true,
-            changed: prevNotebookId !== nextNotebookId,
-            reason: prevNotebookId ? 'replaced-notebook' : 'set-notebook',
-            groupId: currentGroupId,
-        };
+        await SettingsStore.updateDocGroups(groups.concat([nextGroup]));
+        await SettingsStore.updateCurrentGroupId(groupId);
+        clearImportGroupCaches();
+        refreshImportGroupSelects(groupId);
+        return { attached: true, changed: true, created: true, reason: 'created-notebook-group', groupId };
     }
 
     async function __tmImportTickTickModel(model, notebookId, options = {}) {
@@ -1519,6 +1639,14 @@
         if (!docs.length) throw new Error('没有可导入的任务');
         await __tmEnsureSettingsLoaded();
         await MetaStore.load();
+        __tmThrowIfTickTickImportCancelled({ shouldCancel });
+        let tagsField = null;
+        if (Array.isArray(model?.tagNames) && model.tagNames.length > 0) {
+            if (onProgress) {
+                try { onProgress({ current: '正在创建“标签”多选列...' }); } catch (e) {}
+            }
+            tagsField = await __tmCreateTickTickTagsCustomField(model.tagNames);
+        }
         const createdDocIds = [];
         const summary = { docs: 0, headings: 0, tasks: 0, subtasks: 0 };
         let progressState = {
@@ -1587,6 +1715,7 @@
                 await __tmImportTickTickTaskNode(task, docId, summary, 0, {
                     onProgress: emitProgress,
                     currentDocName,
+                    tagsField,
                     shouldCancel,
                 });
             }
@@ -1622,6 +1751,7 @@
                         onProgress: emitProgress,
                         currentDocName,
                         currentHeadingName: headingName,
+                        tagsField,
                         shouldCancel,
                     });
                 }
@@ -1689,7 +1819,7 @@
 
         const desc = document.createElement('div');
         desc.style.cssText = 'padding: 2px 0 10px; color: var(--tm-secondary-text); font-size: 13px; line-height: 1.7;';
-        desc.textContent = '按 List Name 创建文档，按 Column Name 创建二级标题，Title 创建任务，Start Date / Due Date 写入开始日期和截止日期，Priority 映射重要性；可选择是否导入 Status=1 的已完成任务和 Status=2 的归档任务，并按文档并行写入。';
+        desc.textContent = '按 List Name 创建文档，按 Column Name 创建二级标题，Title 创建任务，Start Date / Due Date 写入开始日期和截止日期，Priority 映射重要性；Tags 会新建“标签”多选列；可选择是否导入 Status=1 的已完成任务和 Status=2 的归档任务，并按文档并行写入。';
         box.appendChild(desc);
 
         const notebookRow = document.createElement('label');
@@ -1928,9 +2058,11 @@
                 removeFromStack();
                 try { modal.remove(); } catch (e) {}
                 const attach = result?.groupAttach;
-                const attachText = attach?.attached
-                    ? '，并已将导入笔记本绑定到当前分组'
-                    : '';
+                const attachText = attach?.created
+                    ? '，并已新建并切换到导入笔记本分组'
+                    : (attach?.reason === 'existing-notebook-group'
+                        ? '，并已切换到导入笔记本分组'
+                        : (attach?.attached ? '，并已将导入笔记本绑定到当前分组' : ''));
                 hint(`✅ 滴答 CSV 导入完成：新建 ${Number(result?.summary?.docs) || 0} 个文档，导入 ${Number(result?.summary?.tasks) || 0} 条任务${attachText}`, 'success');
                 if (state.settingsModal && document.body.contains(state.settingsModal)) {
                     try { showSettings(); } catch (e) {}
@@ -2133,4 +2265,3 @@
             }
         }
     };
-

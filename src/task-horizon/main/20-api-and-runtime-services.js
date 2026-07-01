@@ -4268,6 +4268,7 @@
         whiteboardNoteEditor: null,
         whiteboardEdgeRafId: 0,
         whiteboardNavigatorRafId: 0,
+        whiteboardPluginFullscreen: false,
         whiteboardNavigatorModel: null,
         whiteboardNavigatorDrag: null,
         whiteboardPanSession: null,
@@ -4895,6 +4896,41 @@
         return __tmRecordQueuedCreateOpInserted(op, taskId, { insertedId, recovered: true });
     }
 
+    function __tmNormalizeCreateTaskCustomFieldValues(input, options = {}) {
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        if (!Object.keys(source).length) return {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const defs = Array.isArray(opts.customFieldDefs) ? opts.customFieldDefs : __tmGetCustomFieldDefs();
+        const out = {};
+        defs.forEach((field) => {
+            const fieldId = String(field?.id || '').trim();
+            if (!fieldId || field?.enabled === false) return;
+            if (!Object.prototype.hasOwnProperty.call(source, fieldId)) return;
+            const type = String(field?.type || '').trim() === 'multi' ? 'multi' : (String(field?.type || '').trim() === 'text' ? 'text' : 'single');
+            if (type === 'text' && opts.includeText !== true) return;
+            if (type !== 'text') {
+                const optionIds = new Set((Array.isArray(field?.options) ? field.options : [])
+                    .map((item) => String(item?.id || '').trim())
+                    .filter(Boolean));
+                if (!optionIds.size) return;
+                const normalized = __tmNormalizeCustomFieldValue(field, source[fieldId]);
+                if (type === 'multi') {
+                    const values = (Array.isArray(normalized) ? normalized : [])
+                        .map((item) => String(item || '').trim())
+                        .filter((item, index, list) => item && optionIds.has(item) && list.indexOf(item) === index);
+                    if (values.length) out[fieldId] = values;
+                    return;
+                }
+                const value = String(normalized || '').trim();
+                if (value && optionIds.has(value)) out[fieldId] = value;
+                return;
+            }
+            const value = String(__tmNormalizeCustomFieldValue(field, source[fieldId]) || '').trim();
+            if (value) out[fieldId] = value;
+        });
+        return out;
+    }
+
     function __tmBuildCreateTaskInDocAttrPatchFromPayload(payload) {
         const data = (payload && typeof payload === 'object') ? payload : {};
         const patch = {};
@@ -4924,6 +4960,8 @@
                 if (ok) patch.customStatus = st0;
             } catch (e) {}
         }
+        const customFieldValues = __tmNormalizeCreateTaskCustomFieldValues(data.customFieldValues);
+        if (Object.keys(customFieldValues).length) patch.customFieldValues = customFieldValues;
         return patch;
     }
 
@@ -18560,6 +18598,9 @@ refreshOk = false;
 
     const __tmHasOfficialMobileRuntimeSignal = () => {
         try {
+            if (String(globalThis.__taskHorizonRuntimeClientKind || '').trim() === 'desktop-browser') return false;
+        } catch (e) {}
+        try {
             if (globalThis.__taskHorizonPluginIsNativeMobile !== undefined) return !!globalThis.__taskHorizonPluginIsNativeMobile;
         } catch (e) {}
         try {
@@ -18614,13 +18655,12 @@ refreshOk = false;
     };
 
     const __tmIsRuntimeMobileClient = () => {
-        try {
-            if (globalThis.__taskHorizonPluginIsMobile !== undefined) return !!globalThis.__taskHorizonPluginIsMobile;
-        } catch (e) {}
         return __tmGetRuntimeClientKind() !== 'desktop-browser';
     };
 
-    const __tmIsNativeMobileRuntimeClient = () => __tmHasOfficialMobileRuntimeSignal();
+    const __tmIsNativeMobileRuntimeClient = () => (
+        __tmGetRuntimeClientKind() !== 'desktop-browser' && __tmHasOfficialMobileRuntimeSignal()
+    );
 
     const __tmIsMobileDevice = () => {
         if (__tmHostUsesMobileUI()) return true;

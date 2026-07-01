@@ -1252,6 +1252,14 @@ if (shouldMarkDirty) {
         try { globalThis.__tmCalendar?.cleanup?.(); } catch (e) {}
         try { delete globalThis.__tmCalendar; } catch (e) {}
         try { __tmUnbindMobileViewportAutoRefresh(); } catch (e) {}
+        try {
+            const fullscreenKeydown = window.__tmWhiteboardFullscreenKeydownHandler;
+            if (typeof fullscreenKeydown === 'function') {
+                try { globalThis.__tmRuntimeEvents?.off?.(document, 'keydown', fullscreenKeydown, false); } catch (e2) {}
+                try { document.removeEventListener('keydown', fullscreenKeydown, false); } catch (e2) {}
+            }
+            window.__tmWhiteboardFullscreenKeydownHandler = null;
+        } catch (e) {}
         try { state.dockTaskPointerGestureCleanup?.(); } catch (e) {}
         try { state.dockTaskPointerDragAbort?.abort?.(); } catch (e) {}
         try { state.multiSelectPointerGestureCleanup?.(); } catch (e) {}
@@ -1529,4 +1537,3 @@ if (shouldMarkDirty) {
             } catch (e4) {}
         });
     };
-

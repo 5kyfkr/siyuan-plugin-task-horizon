@@ -51,6 +51,11 @@ return;
         if (!isTimelineView) __tmClearTimelineTodayIndicatorTimer();
         const useSoftSwap = isViewSwitchAnim;
         const currentRenderMode = state.attachmentLibraryOpen ? 'attachments' : (state.homepageOpen ? 'home' : (String(state.viewMode || 'list').trim() || 'list'));
+        try {
+            if (state.whiteboardPluginFullscreen && (currentRenderMode !== 'whiteboard' || __tmIsWhiteboardAllTabsStreamMode())) {
+                state.whiteboardPluginFullscreen = false;
+            }
+        } catch (e) {}
         const isSnapshotFirstRenderFastPath = !!state.__tmSnapshotFirstRenderLimitMode;
         const deferSnapshotLayoutWork = (fn, delayMs = 0) => {
             if (typeof fn !== 'function') return false;
@@ -404,6 +409,7 @@ return;
             + (docTabsAutoHide ? ' tm-modal--doc-tabs-auto-hide' : '')
             + (docTabsAutoHide && docTabsHidden ? ' tm-modal--doc-tabs-auto-hidden' : '')
             + (docTabsAutoHide && !docTabsHidden ? ' tm-modal--doc-tabs-auto-visible' : '')
+            + (currentRenderMode === 'whiteboard' && state.whiteboardPluginFullscreen ? ' tm-modal--whiteboard-fullscreen' : '')
             + (taskCheckboxCircleStyleEnabled ? ' tm-modal--task-checkbox-circle' : '');
         try { state.modal.setAttribute('data-task-horizon-shell', '1'); } catch (e) {}
         try {
@@ -1997,7 +2003,9 @@ return;
         try { __tmBindChecklistSheetTouchFallback(state.modal); } catch (e) {}
         try { if (renderMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         try { if (renderMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
-        const finalMountRoot = nextMountRoot || __tmGetMountRoot();
+        const finalMountRoot = (renderMode === 'whiteboard' && state.whiteboardPluginFullscreen && !isDockHost)
+            ? document.body
+            : (nextMountRoot || __tmGetMountRoot());
         try {
             const keepMountedShell = (useSoftSwap && prevModalEl instanceof HTMLElement && prevModalEl.parentElement === finalMountRoot)
                 ? prevModalEl

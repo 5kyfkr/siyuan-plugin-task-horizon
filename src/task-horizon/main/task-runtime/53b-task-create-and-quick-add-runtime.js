@@ -1299,6 +1299,35 @@
         };
     }
 
+    function __tmGetQuickAddVisibleOptionCustomFieldDefs() {
+        const defs = __tmGetCustomFieldDefs().filter((field) => {
+            const type = String(field?.type || '').trim();
+            return field?.enabled !== false
+                && type !== 'text'
+                && Array.isArray(field?.options)
+                && field.options.some((option) => String(option?.id || '').trim());
+        });
+        if (!defs.length) return [];
+        const order = Array.isArray(SettingsStore?.data?.columnOrder)
+            ? SettingsStore.data.columnOrder
+            : __tmGetDefaultColumnOrder();
+        const visibleKeys = new Set(
+            (Array.isArray(order) ? order : [])
+                .map((key) => String(key || '').trim())
+                .filter(Boolean)
+        );
+        if (!visibleKeys.size) return [];
+        return defs.filter((field) => visibleKeys.has(__tmBuildCustomFieldColumnKey(field?.id)));
+    }
+
+    function __tmNormalizeQuickAddCustomFieldValues(input) {
+        const fields = __tmGetQuickAddVisibleOptionCustomFieldDefs();
+        if (typeof __tmNormalizeCreateTaskCustomFieldValues === 'function') {
+            return __tmNormalizeCreateTaskCustomFieldValues(input, { customFieldDefs: fields });
+        }
+        return {};
+    }
+
     function __tmApplyOptimisticDocTask(payload = {}) {
         const docId = String(payload.docId || '').trim();
         const tempId = String(payload.tempId || '').trim();
@@ -1323,6 +1352,9 @@
         const initialMarker = requestedStatusOption
             ? __tmNormalizeTaskStatusMarker(requestedStatusOption.marker, __tmGuessStatusOptionDefaultMarker(requestedStatusOption))
             : ' ';
+        const customFieldValues = typeof __tmNormalizeCreateTaskCustomFieldValues === 'function'
+            ? __tmNormalizeCreateTaskCustomFieldValues(payload.customFieldValues)
+            : {};
         const nextTask = {
             id: tempId,
             clientId,
@@ -1339,6 +1371,7 @@
             completionTime: String(payload.completionTime || '').trim(),
             customTime: '',
             customStatus: String(payload.customStatus || '').trim(),
+            customFieldValues,
             taskMarker: initialMarker,
             task_marker: initialMarker,
             docName,
@@ -2426,7 +2459,7 @@
         return rolledBack;
     }
 
-    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, atTop, appendToBottom, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
+    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, customFieldValues, atTop, appendToBottom, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
         const parentDocId = String(docId || '').trim();
         const text = String(content || '').trim();
         if (!parentDocId) throw new Error('未设置文档');
@@ -2488,6 +2521,10 @@
             const ok = statusOptions.some(o => String(o?.id || '').trim() === st0);
             if (ok) patch.customStatus = st0;
         }
+        const normalizedCustomFieldValues = typeof __tmNormalizeCreateTaskCustomFieldValues === 'function'
+            ? __tmNormalizeCreateTaskCustomFieldValues(customFieldValues)
+            : {};
+        if (Object.keys(normalizedCustomFieldValues).length) patch.customFieldValues = normalizedCustomFieldValues;
         const headingPatch = {
             h2: __tmNormalizeHeadingText(targetHeading || h2 || ''),
             h2Id: String(targetHeadingId || h2Id || '').trim(),
@@ -2523,6 +2560,7 @@
             completionTime: patch.completionTime || '',
             customTime: '',
             customStatus: patch.customStatus || '',
+            customFieldValues: patch.customFieldValues ? { ...patch.customFieldValues } : {},
             taskMarker: initialMarker,
             task_marker: initialMarker,
             docName,
@@ -3636,6 +3674,162 @@
         state.quickAdd = null;
     };
 
+    function __tmBuildQuickAddCustomFieldButtonHtml(field, value) {
+        const fieldId = String(field?.id || '').trim();
+        if (!fieldId) return '';
+        const fieldName = String(field?.name || fieldId).trim() || fieldId;
+        const isMulti = String(field?.type || '').trim() === 'multi';
+        const displayHtml = __tmBuildCustomFieldDisplayHtml(field, value, {
+            emptyText: '未设置',
+            maxTags: isMulti ? 2 : 1,
+        });
+        return `
+            <button class="tm-btn tm-btn-secondary"
+                    type="button"
+                    data-tm-quick-add-custom-field="${esc(fieldId)}"
+                    onclick="tmQuickAddOpenCustomFieldPicker('${escSq(fieldId)}', event)"
+                    style="padding:6px 10px;font-size:13px;display:flex;align-items:center;gap:6px;max-width:180px;min-width:0;">
+                <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fieldName)}</span>
+                <span style="display:inline-flex;align-items:center;gap:3px;min-width:0;overflow:hidden;">${displayHtml}</span>
+            </button>
+        `;
+    }
+
+    function __tmRenderQuickAddCustomFields() {
+        const wrap = document.getElementById('tmQuickAddCustomFields');
+        if (!wrap) return;
+        const qa = state.quickAdd;
+        const fields = __tmGetQuickAddVisibleOptionCustomFieldDefs();
+        if (!qa || !fields.length) {
+            wrap.innerHTML = '';
+            wrap.style.display = 'none';
+            return;
+        }
+        qa.customFieldValues = __tmNormalizeQuickAddCustomFieldValues(qa.customFieldValues || {});
+        wrap.innerHTML = fields.map((field) => {
+            const fieldId = String(field?.id || '').trim();
+            return __tmBuildQuickAddCustomFieldButtonHtml(field, qa.customFieldValues?.[fieldId]);
+        }).join('');
+        wrap.style.display = wrap.innerHTML.trim() ? 'flex' : 'none';
+    }
+
+    window.tmQuickAddOpenCustomFieldPicker = function(fieldId, ev) {
+        const qa = state.quickAdd;
+        const fid = String(fieldId || '').trim();
+        const field = __tmGetQuickAddVisibleOptionCustomFieldDefs()
+            .find((item) => String(item?.id || '').trim() === fid);
+        const escapedFieldId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+            ? CSS.escape(fid)
+            : fid.replace(/["\\]/g, '\\$&');
+        const btn = ev?.currentTarget instanceof HTMLElement
+            ? ev.currentTarget
+            : document.querySelector(`[data-tm-quick-add-custom-field="${escapedFieldId}"]`);
+        try {
+            ev?.preventDefault?.();
+            ev?.stopPropagation?.();
+        } catch (e) {}
+        if (!qa || !field || !(btn instanceof HTMLElement)) return;
+        const isMulti = String(field?.type || '').trim() === 'multi';
+        const current = __tmNormalizeCustomFieldValue(field, qa.customFieldValues?.[fid]);
+        const draft = new Set(Array.isArray(current) ? current : (String(current || '').trim() ? [String(current || '').trim()] : []));
+        const syncQuickAddValue = () => {
+            if (!qa.customFieldValues || typeof qa.customFieldValues !== 'object' || Array.isArray(qa.customFieldValues)) {
+                qa.customFieldValues = {};
+            }
+            if (isMulti) {
+                const values = Array.from(draft).filter(Boolean);
+                if (values.length) qa.customFieldValues[fid] = values;
+                else delete qa.customFieldValues[fid];
+            } else {
+                const value = Array.from(draft)[0] || '';
+                if (value) qa.customFieldValues[fid] = value;
+                else delete qa.customFieldValues[fid];
+            }
+            qa.customFieldValues = __tmNormalizeQuickAddCustomFieldValues(qa.customFieldValues);
+            window.tmQuickAddRenderMeta?.();
+        };
+        __tmOpenInlineEditor(btn, ({ editor, close }) => {
+            try { editor.classList.add('tm-custom-field-inline-editor'); } catch (e) {}
+            editor.style.zIndex = '100020';
+            editor.style.minWidth = '0';
+            editor.style.width = 'auto';
+            editor.style.maxWidth = `${Math.max(180, Math.min(260, (window.innerWidth || 320) - 24))}px`;
+            editor.style.padding = '6px';
+            const wrap = document.createElement('div');
+            wrap.style.display = 'flex';
+            wrap.style.flexDirection = 'column';
+            wrap.style.gap = '4px';
+            const title = document.createElement('div');
+            title.style.cssText = 'font-size:12px;color:var(--tm-secondary-text);padding:0 2px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+            title.textContent = String(field?.name || fid || '自定义列').trim() || '自定义列';
+            wrap.appendChild(title);
+            const list = document.createElement('div');
+            list.style.display = 'flex';
+            list.style.flexDirection = 'column';
+            list.style.gap = '3px';
+            wrap.appendChild(list);
+            const renderOptions = () => {
+                list.innerHTML = '';
+                (Array.isArray(field?.options) ? field.options : []).forEach((opt) => {
+                    const optionId = String(opt?.id || '').trim();
+                    if (!optionId) return;
+                    const optionBtn = document.createElement('button');
+                    optionBtn.type = 'button';
+                    optionBtn.className = 'tm-status-option-btn tm-custom-field-inline-option';
+                    optionBtn.style.fontSize = '12px';
+                    optionBtn.style.textAlign = 'left';
+                    optionBtn.style.width = '100%';
+                    optionBtn.setAttribute('data-selected', draft.has(optionId) ? 'true' : 'false');
+                    const chip = document.createElement('span');
+                    chip.className = 'tm-status-tag tm-custom-field-inline-chip';
+                    chip.style.cssText = __tmBuildStatusChipStyle(opt?.color || '#9ca3af');
+                    chip.textContent = `${String(opt?.name || optionId).trim() || optionId}${draft.has(optionId) ? '  ✓' : ''}`;
+                    optionBtn.appendChild(chip);
+                    optionBtn.onclick = () => {
+                        if (isMulti) {
+                            if (draft.has(optionId)) draft.delete(optionId);
+                            else draft.add(optionId);
+                            syncQuickAddValue();
+                            renderOptions();
+                            return;
+                        }
+                        draft.clear();
+                        draft.add(optionId);
+                        syncQuickAddValue();
+                        close();
+                    };
+                    list.appendChild(optionBtn);
+                });
+            };
+            renderOptions();
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display:flex;gap:4px;justify-content:flex-end;padding-top:2px;';
+            const clearBtn = document.createElement('button');
+            clearBtn.type = 'button';
+            clearBtn.className = 'tm-btn tm-btn-gray';
+            clearBtn.style.cssText = 'padding:3px 8px;font-size:12px;';
+            clearBtn.textContent = '清空';
+            clearBtn.onclick = () => {
+                draft.clear();
+                syncQuickAddValue();
+                if (isMulti) renderOptions();
+                else close();
+            };
+            actions.appendChild(clearBtn);
+            if (isMulti) {
+                const doneBtn = document.createElement('button');
+                doneBtn.type = 'button';
+                doneBtn.className = 'tm-btn tm-btn-primary';
+                doneBtn.style.cssText = 'padding:3px 8px;font-size:12px;';
+                doneBtn.textContent = '完成';
+                doneBtn.onclick = () => close();
+                actions.appendChild(doneBtn);
+            }
+            wrap.appendChild(actions);
+            editor.appendChild(wrap);
+        });
+    };
+
     window.tmQuickAddOpen = async function() {
         if (state.quickAddModal) {
             state.__quickAddUnstack?.();
@@ -3671,6 +3865,7 @@
             startDate: '',
             completionTime: '',
             openReminderAfterCreate: false,
+            customFieldValues: {},
         };
 
         const modal = document.createElement('div');
@@ -3724,6 +3919,8 @@
                         <button id="tmQuickAddReminderBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddToggleReminder()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
                             ⏰ <span>提醒</span>
                         </button>
+
+                        <div id="tmQuickAddCustomFields" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;min-width:0;"></div>
                     </div>
 
                     <div style="display:flex; justify-content:flex-end; flex:0 0 auto; margin-left:auto; min-width:max-content;">
@@ -3898,6 +4095,7 @@
                 reminderBtn.innerHTML = `⏰ <span>${active ? '提醒: 开' : '提醒'}</span>`;
                 reminderBtn.disabled = !enabled;
             }
+            __tmRenderQuickAddCustomFields();
         } catch (e) {}
     };
 
@@ -4366,12 +4564,15 @@
         })();
         qa.startDate = startDate;
         qa.completionTime = completionTime;
+        const customFieldValues = __tmNormalizeQuickAddCustomFieldValues(qa.customFieldValues || {});
+        qa.customFieldValues = customFieldValues;
         state.quickAddSubmitting = true;
         const payload = {
             docId: qa.docId,
             docMode: qa.docMode,
             priority: qa.priority,
             customStatus: qa.customStatus,
+            customFieldValues,
             startDate,
             completionTime,
             openReminderAfterCreate: !!qa.openReminderAfterCreate,
@@ -4456,6 +4657,7 @@
                         content,
                         priority: payload.priority,
                         customStatus: payload.customStatus,
+                        customFieldValues: payload.customFieldValues,
                         startDate: payload.startDate,
                         completionTime: payload.completionTime,
                         atTop: false,

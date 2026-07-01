@@ -2160,6 +2160,51 @@
     max-height: none;
 }
 
+.tm-modal.tm-modal--whiteboard-fullscreen {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    z-index: 100002 !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    background: var(--tm-bg-color) !important;
+    overflow: hidden !important;
+}
+
+.tm-modal.tm-modal--dock.tm-modal--whiteboard-fullscreen {
+    position: relative !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 0 !important;
+    background: transparent !important;
+}
+
+.tm-modal.tm-modal--whiteboard-fullscreen .tm-box {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+}
+
+.tm-modal.tm-modal--whiteboard-fullscreen .tm-body.tm-body--whiteboard {
+    max-height: none !important;
+}
+
+.tm-modal.tm-modal--whiteboard-fullscreen .tm-filter-rule-bar,
+.tm-modal.tm-modal--whiteboard-fullscreen .tm-doc-tabs,
+.tm-modal.tm-modal--whiteboard-fullscreen .tm-mobile-bottom-viewbar {
+    display: none !important;
+}
+
+.tm-modal.tm-modal--whiteboard-fullscreen .tm-main-stage {
+    --tm-view-bottom-inset: 0px !important;
+}
+
 [data-tm-host-mode="dock"],
 [data-tm-host-mode="tab"],
 [data-tm-host-mode="dock"] .tm-modal,
