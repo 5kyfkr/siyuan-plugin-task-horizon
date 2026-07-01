@@ -3773,7 +3773,7 @@ return;
                 : (el0?.querySelector?.('.tm-kanban-group-title') || null);
             el?.classList?.remove?.('tm-kanban-group-title--dragover');
         } catch (e) {}
-        try { window.tmKanbanDrop(ev); } catch (e) {}
+        try { return window.tmKanbanDrop(ev); } catch (e) {}
     };
 
     function __tmIsPointOverCalendarSideDock(clientX, clientY, target) {
@@ -3804,13 +3804,14 @@ return;
         const y = Number(clientY);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
         if (__tmIsPointOverCalendarSideDock(x, y, target)) return false;
-        const edge = 48;
+        const horizontalEdge = 48;
+        const verticalEdge = 20;
         const speed = 18;
-        const verticalBand = edge + 16;
+        const verticalBand = verticalEdge;
         if (y < rect.top - verticalBand || y > rect.bottom + verticalBand) return false;
 
-        const dx = x < rect.left + edge ? -speed : x > rect.right - edge ? speed : 0;
-        const dy = y < rect.top + edge ? -speed : y > rect.bottom - edge ? speed : 0;
+        const dx = x < rect.left + horizontalEdge ? -speed : x > rect.right - horizontalEdge ? speed : 0;
+        const dy = y < rect.top + verticalEdge ? -speed : y > rect.bottom - verticalEdge ? speed : 0;
         if (!dx && !dy) return false;
 
         const prevTs = Number(state.__tmKanbanAutoScrollTs) || 0;

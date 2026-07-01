@@ -88,6 +88,10 @@
         return String(task?.rootId || task?.root_id || task?.docId || '').trim();
     }
 
+    function __tmGetTaskDetailRemarkRaw(task) {
+        return String(task?.remark ?? task?.custom_remark ?? task?.customRemark ?? '');
+    }
+
     function __tmGetTaskDetailDisplayTitle(task) {
         const stripTaskSyntax = (input) => String(input || '')
             .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
@@ -371,6 +375,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const tid = String(opts.taskId || task.id || '').trim();
         const shouldForce = opts.force === true;
+        const beforeRemark = __tmGetTaskDetailRemarkRaw(task);
         const queuedPatch = (() => {
             try {
                 if (!tid || typeof __tmBuildQueuedTaskFieldPatchMap !== 'function') return null;
@@ -407,16 +412,29 @@
                 }
             } catch (e) {}
         }
+        let resolvedTask = task;
         if (tid) {
             try {
                 if (typeof __tmCacheTaskInState === 'function') {
-                    return __tmCacheTaskInState(task, {
+                    resolvedTask = __tmCacheTaskInState(task, {
                         docNameFallback: task.doc_name || task.docName || '未命名文档',
                     }) || task;
                 }
             } catch (e) {}
         }
-        return task;
+        if (tid) {
+            try {
+                const afterRemark = __tmGetTaskDetailRemarkRaw(resolvedTask);
+                if (beforeRemark !== afterRemark && typeof __tmRefreshTaskFieldsAcrossViews === 'function') {
+                    __tmRefreshTaskFieldsAcrossViews(tid, { remark: true }, {
+                        reason: `${String(opts.source || 'detail-field-attrs').trim() || 'detail-field-attrs'}:remark`,
+                        fallback: false,
+                        skipDetailPatch: true,
+                    });
+                }
+            } catch (e) {}
+        }
+        return resolvedTask;
     }
 
     async function __tmEnsureTaskDetailAttachmentAttrs(taskLike, options = {}) {
@@ -475,6 +493,18 @@
             }) || task;
             const after = __tmBuildTaskDetailFieldAttrSignature(hydrated);
             if (before === after) return;
+            try {
+                const beforeState = JSON.parse(before || '{}');
+                const afterState = JSON.parse(after || '{}');
+                if (String(beforeState?.remark ?? '') !== String(afterState?.remark ?? '')
+                    && typeof __tmRefreshTaskFieldsAcrossViews === 'function') {
+                    __tmRefreshTaskFieldsAcrossViews(tid, { remark: true }, {
+                        reason: `${source}:hydrated-remark`,
+                        fallback: false,
+                        skipDetailPatch: true,
+                    });
+                }
+            } catch (e) {}
             const modal = opts.modal instanceof Element ? opts.modal : state.modal;
             if (mode === 'checklist') {
                 if (!__tmAreTaskDetailIdsEquivalent(state.detailTaskId, tid)) return;
@@ -1939,7 +1969,7 @@
         const durationValue = String(task?.duration || '').trim();
         const tomatoEstimateValue = __tmGetTaskTomatoEstimateCount(task);
         const focusSummaryValue = __tmGetTaskTomatoSummaryText(task);
-        const remarkValue = __tmNormalizeRemarkMarkdown(task?.remark || '');
+        const remarkValue = __tmNormalizeRemarkMarkdown(__tmGetTaskDetailRemarkRaw(task));
         const whiteboardOutlineTaskId = String(task?.id || '').trim();
         const whiteboardOutlineModel = (typeof __tmBuildWhiteboardTaskOutlineModel === 'function')
             ? __tmBuildWhiteboardTaskOutlineModel(whiteboardOutlineTaskId)
@@ -3574,7 +3604,7 @@
             const currentEnd = String(task0.completionTime || task0.completion_time || '').trim();
             const currentDuration = String(task0.duration || '').trim();
             const currentTomatoEstimateCount = __tmGetTaskTomatoEstimateCount(task0);
-            const currentRemark = __tmNormalizeRemarkMarkdown(task0.remark || '');
+            const currentRemark = __tmNormalizeRemarkMarkdown(__tmGetTaskDetailRemarkRaw(task0));
 
             const metaPatch = {};
             const timePatch = {};
@@ -7611,7 +7641,7 @@
                 try { setTimeout(() => ensureRemarkVisibleOnMobile(), 320); } catch (e) {}
             };
             const syncRemarkHeight = () => syncAutoHeight(remarkTextarea, 80);
-            try { syncRemarkSavedState(root.__tmTaskDetailTask?.remark || ''); } catch (e) {}
+            try { syncRemarkSavedState(__tmGetTaskDetailRemarkRaw(root.__tmTaskDetailTask)); } catch (e) {}
             const syncRemarkPreview = (force = false) => {
                 if (!force && remarkShell.classList.contains('is-editing') && __tmIsMobileDevice()) return;
                 remarkPreview.innerHTML = __tmRenderRemarkMarkdown(remarkTextarea.value || '');
@@ -7785,7 +7815,7 @@
                 remarkPendingInputScrollSnapshot = null;
                 syncRemarkHeight();
                 syncRemarkPreview(true);
-                syncRemarkSavedState(root.__tmTaskDetailTask?.remark || '');
+                syncRemarkSavedState(__tmGetTaskDetailRemarkRaw(root.__tmTaskDetailTask));
             });
             if (remarkToolbarToggle instanceof HTMLButtonElement) {
                 on(remarkToolbarToggle, 'mousedown', (ev) => {
@@ -8015,7 +8045,7 @@
             taskCompleteAt: __tmResolveTaskCompletedAtRaw(taskLike),
             duration: String(taskLike?.duration || '').trim(),
             pinned: !!(taskLike?.pinned === true || taskLike?.pinned === '1' || taskLike?.pinned === 1 || String(taskLike?.custom_pinned || '').trim() === '1'),
-            remark: String(taskLike?.remark || ''),
+            remark: __tmGetTaskDetailRemarkRaw(taskLike),
             customSig,
             sheetOpen: !!opts.sheetOpen,
             dismissed: !!opts.dismissed,
@@ -8703,7 +8733,7 @@ return true;
         }
 
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'remark')) {
-            const remarkValue = __tmNormalizeRemarkMarkdown(task?.remark || '');
+            const remarkValue = __tmNormalizeRemarkMarkdown(__tmGetTaskDetailRemarkRaw(task));
             const textarea = panel.querySelector('textarea[data-tm-detail="remark"]');
             const isDraftActive = typeof __tmIsTaskDetailRemarkDraftActive === 'function'
                 ? __tmIsTaskDetailRemarkDraftActive(panel)

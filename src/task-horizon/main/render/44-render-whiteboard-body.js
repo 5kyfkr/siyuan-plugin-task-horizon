@@ -795,6 +795,7 @@
                                         ${subtaskToggleControlHtml}
                                     </div>
                                 </div>
+                                ${remarkHtml}
                                 ${nestedSubtasksHtml}
                             </div>
                         `;

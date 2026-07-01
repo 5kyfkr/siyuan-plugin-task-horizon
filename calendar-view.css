@@ -3,7 +3,7 @@
 .tm-calendar-host,
 #tmCalendarSideDockTimeline {
     --tm-cal-slot-half-hour-height: 29px;
-    --tm-cal-timegrid-event-min-height: 30px;
+    --tm-cal-timegrid-event-min-height: 28px;
     --tm-cal-allday-event-height: 19px;
     --tm-cal-month-min-row-height: 78px;
     --tm-cal-month-event-line-height: 19px;
@@ -4333,17 +4333,6 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     box-sizing: border-box !important;
 }
 
-.tm-calendar-host .fc .fc-timegrid-event[data-tm-cal-source="schedule"],
-#tmCalendarSideDockTimeline .fc .fc-timegrid-event[data-tm-cal-source="taskdate"],
-.tm-calendar-host .fc .fc-timegrid-event[data-tm-cal-source="taskdate"],
-#tmCalendarSideDockTimeline .fc .fc-timegrid-event[data-tm-cal-source="schedule"],
-.tm-calendar-host .fc .fc-timegrid-event.tm-cal-schedule-event,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-event.tm-cal-schedule-event {
-    left: 0 !important;
-    right: 0 !important;
-    width: auto !important;
-}
-
 .tm-calendar-host .fc .fc-event:not(.fc-timegrid-event)[data-tm-cal-source="schedule"] .fc-event-main,
 #tmCalendarSideDockTimeline .fc .fc-event:not(.fc-timegrid-event)[data-tm-cal-source="schedule"] .fc-event-main,
 .tm-calendar-host .fc .fc-event:not(.fc-timegrid-event)[data-tm-cal-source="schedule"] .fc-event-main-frame,
@@ -4849,7 +4838,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 
 .tm-calendar-host.fc .fc-timegrid-event[data-tm-cal-source],
 #tmCalendarSideDockTimeline.fc .fc-timegrid-event[data-tm-cal-source] {
-    min-height: 30px !important;
+    min-height: var(--tm-cal-timegrid-event-min-height, 28px) !important;
 }
 
 .tm-calendar-host.fc .fc-timegrid-event[data-tm-cal-source] .fc-event-main,

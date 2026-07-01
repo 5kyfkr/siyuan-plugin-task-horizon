@@ -22,6 +22,7 @@
     "main/render/39-render-doc-group-sync-and-refresh.js",
     "main/render/41-render-scene-context.js",
     "main/40-render-runtime.js",
+    "main/41-external-task-drag-routing.js",
     "main/task-runtime/50-task-model-and-repeat-utils.js",
     "main/task-runtime/51-whiteboard-and-link-runtime.js",
     "main/task-runtime/52-task-detail-runtime.js",

@@ -226,7 +226,10 @@
     }
 
     function __tmRenderTaskCardRemark(task) {
-        const text = String(task?.remark || '').trim();
+        const raw = task?.remark ?? task?.custom_remark ?? task?.customRemark ?? '';
+        const text = typeof __tmNormalizeRemarkMarkdown === 'function'
+            ? __tmNormalizeRemarkMarkdown(raw)
+            : String(raw || '').replace(/\r\n?/g, '\n').trim();
         if (!text) return '';
         return `<div class="tm-task-card-remark" title="${esc(text)}">${esc(text)}</div>`;
     }
@@ -1445,4 +1448,3 @@
     let __tmWhiteboardCardSnapshotCache = null;
     let __tmWhiteboardCardSnapshotCacheTime = 0;
     const __tmWhiteboardCardSnapshotCacheTTL = 5000; // 缓存5秒
-

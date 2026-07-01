@@ -893,31 +893,6 @@
         } catch (e) {}
     }
 
-    function buildCalendarExternalTaskSyntheticTransfer(payload) {
-        const safePayload = (payload && typeof payload === 'object') ? payload : {};
-        const taskId = String(safePayload.taskId || safePayload.id || '').trim();
-        const json = JSON.stringify({
-            id: taskId,
-            title: String(safePayload.title || taskId || '任务').trim() || '任务',
-            durationMin: Number(safePayload.durationMin) || 60,
-            calendarId: String(safePayload.calendarId || 'default').trim() || 'default',
-            startDate: String(safePayload.startDate || '').trim(),
-            completionTime: String(safePayload.completionTime || '').trim(),
-        });
-        return {
-            dropEffect: 'move',
-            effectAllowed: 'move',
-            getData(type) {
-                const key = String(type || '').trim();
-                if (key === 'application/x-tm-task-id' || key === 'text/plain') return taskId;
-                if (key === 'application/x-tm-task') return json;
-                return '';
-            },
-            setData() {},
-            setDragImage() {},
-        };
-    }
-
     function getCalendarExternalDragTopElement(x, y) {
         const xp = Number(x);
         const yp = Number(y);
@@ -945,15 +920,8 @@
     }
 
     function clearOfficialExternalTaskDragIndicators() {
-        try { globalThis.__tmClearTaskRowDropIndicators?.(); } catch (e) {}
-        try { window.__tmClearTaskRowDropIndicators?.(); } catch (e) {}
-        try { globalThis.__tmKanbanClearDragOver?.(); } catch (e) {}
-        try { window.__tmKanbanClearDragOver?.(); } catch (e) {}
-        try {
-            document.querySelectorAll?.('.tm-doc-tab.is-drop-target')?.forEach?.((el) => {
-                try { el.classList.remove('is-drop-target'); } catch (e) {}
-            });
-        } catch (e) {}
+        try { globalThis.__tmClearExternalTaskDragIndicators?.(); } catch (e) {}
+        try { if (window !== globalThis) window.__tmClearExternalTaskDragIndicators?.(); } catch (e) {}
     }
 
     function isOfficialExternalTaskScrollableY(el) {
@@ -999,8 +967,9 @@
         const y = Number(clientY);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
         if (target?.closest?.('.tm-calendar-host, .tm-calendar-side-dock, .tm-calendar-side-dock-resizer, #tmCalendarSideDockPanel, #tmCalendarSideDockTimeline')) return null;
-        const edge = 56;
-        const outerBand = 28;
+        const edge = 20;
+        const horizontalOuterBand = 28;
+        const verticalOuterBand = 0;
         const maxSpeed = 18;
         for (const item of collectOfficialExternalTaskAutoScrollCandidates(target)) {
             const el = item?.el;
@@ -1008,8 +977,8 @@
             let rect = null;
             try { rect = el.getBoundingClientRect(); } catch (e) { rect = null; }
             if (!rect || !(rect.width > 0 && rect.height > 0)) continue;
-            if (x < rect.left - outerBand || x > rect.right + outerBand) continue;
-            if (y < rect.top - outerBand || y > rect.bottom + outerBand) continue;
+            if (x < rect.left - horizontalOuterBand || x > rect.right + horizontalOuterBand) continue;
+            if (y < rect.top - verticalOuterBand || y > rect.bottom + verticalOuterBand) continue;
             const topDistance = y - rect.top;
             const bottomDistance = rect.bottom - y;
             let dy = 0;
@@ -1123,78 +1092,20 @@
             updateOfficialExternalTaskAutoScroll(safePayload, { clientX: x, clientY: y }, target);
         }
 
-        const syntheticTransfer = buildCalendarExternalTaskSyntheticTransfer(safePayload);
-        const makeEvent = (currentTarget) => ({
-            preventDefault() {},
-            stopPropagation() {},
-            clientX: x,
-            clientY: y,
-            dataTransfer: syntheticTransfer,
-            target,
-            currentTarget,
-        });
-
-        const docTabEl = target.closest?.('.tm-doc-tab') || null;
-        if (docTabEl instanceof Element) {
-            clearOfficialExternalTaskDragIndicators();
-            try { window.tmDocTabDragOver?.(makeEvent(docTabEl)); } catch (e) {}
-            return true;
-        }
-
-        const docHeadingGroupEl = target.closest?.('.tm-checklist-group[data-tm-doc-heading-drop-kind], #tmTaskTable tbody tr.tm-group-row[data-tm-doc-heading-drop-kind]') || null;
-        if (docHeadingGroupEl instanceof HTMLElement) {
-            clearOfficialExternalTaskDragIndicators();
-            try { window.tmDocHeadingGroupDragOver?.(makeEvent(docHeadingGroupEl)); } catch (e) {}
-            return true;
-        }
-
-        const timeGroupEl = target.closest?.('.tm-checklist-group[data-group-kind="time"], #tmTaskTable tbody tr.tm-group-row[data-group-kind="time"]') || null;
-        if (timeGroupEl instanceof HTMLElement) {
-            clearOfficialExternalTaskDragIndicators();
-            try {
-                window.tmTimeGroupDragOver?.(
-                    makeEvent(timeGroupEl),
-                    String(timeGroupEl.getAttribute('data-group-key') || '').trim(),
-                );
-            } catch (e) {}
-            return true;
-        }
-
-        const taskRowEl = target.closest?.('.tm-checklist-item[data-id], .tm-cal-task[data-task-id], .tm-cal-task[data-id], #tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id], .tm-task-drop-gap[data-target-task-id]') || null;
-        if (taskRowEl instanceof HTMLElement) {
-            const targetId = String(
-                taskRowEl.getAttribute('data-id')
-                || taskRowEl.getAttribute('data-task-id')
-                || taskRowEl.getAttribute('data-target-task-id')
-                || ''
-            ).trim();
-            const overrideKind = String(
-                taskRowEl.getAttribute('data-drop-kind')
-                || target.closest?.('[data-drop-kind]')?.getAttribute?.('data-drop-kind')
-                || ''
-            ).trim();
-            clearOfficialExternalTaskDragIndicators();
-            try { window.tmTaskRowDragOver?.(makeEvent(taskRowEl), targetId, overrideKind); } catch (e) {}
-            return true;
-        }
-
-        const kanbanGroupEl = target.closest?.('.tm-kanban-group-title, .tm-kanban-group') || null;
-        if (kanbanGroupEl instanceof Element) {
-            clearOfficialExternalTaskDragIndicators();
-            try { window.tmKanbanGroupDragOver?.(makeEvent(kanbanGroupEl)); } catch (e) {}
-            return true;
-        }
-
-        const kanbanDropEl = target.closest?.('[data-tm-kb-drop-kind], .tm-kanban-col') || null;
-        if (kanbanDropEl instanceof Element) {
-            clearOfficialExternalTaskDragIndicators();
-            try { window.tmKanbanDragOver?.(makeEvent(kanbanDropEl)); } catch (e) {}
-            try { window.__tmKanbanAutoScrollByPoint?.(x, y, target); } catch (e) {}
-            return true;
-        }
-
-        clearOfficialExternalTaskDragIndicators();
-        return false;
+        let handled = false;
+        try {
+            const handler = globalThis.__tmHandleExternalTaskDragOver || window.__tmHandleExternalTaskDragOver;
+            handled = handler?.({
+                taskId: safePayload.taskId,
+                payload: safePayload,
+                clientX: x,
+                clientY: y,
+                target,
+                source: 'calendar-official-external',
+            }) === true;
+        } catch (e) {}
+        if (!handled) clearOfficialExternalTaskDragIndicators();
+        return handled;
     }
 
     async function finalizeOfficialExternalTaskDragDrop(payload, point = {}) {
@@ -1212,41 +1123,20 @@
             return false;
         }
 
-        const syntheticTransfer = buildCalendarExternalTaskSyntheticTransfer(safePayload);
-        const makeEvent = (currentTarget) => ({
-            preventDefault() {},
-            stopPropagation() {},
-            clientX: x,
-            clientY: y,
-            dataTransfer: syntheticTransfer,
-            target,
-            currentTarget,
-        });
-        const taskRowEl = target.closest?.('.tm-checklist-item[data-id], .tm-cal-task[data-task-id], .tm-cal-task[data-id], #tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id], .tm-task-drop-gap[data-target-task-id]') || null;
-        if (!(taskRowEl instanceof HTMLElement)) {
-            return false;
-        }
-        const targetId = String(
-            taskRowEl.getAttribute('data-id')
-            || taskRowEl.getAttribute('data-task-id')
-            || taskRowEl.getAttribute('data-target-task-id')
-            || ''
-        ).trim();
-        const overrideKind = String(
-            taskRowEl.getAttribute('data-drop-kind')
-            || target.closest?.('[data-drop-kind]')?.getAttribute?.('data-drop-kind')
-            || ''
-        ).trim();
-        const dropKey = `${safePayload.taskId}|${targetId}|${overrideKind}`;
-        const lastDrop = state.externalDragPreview.officialLastRowDrop || null;
-        const now = Date.now();
-        if (lastDrop?.key === dropKey && (now - Number(lastDrop.at || 0)) < 700) {
-            return false;
-        }
-        state.externalDragPreview.officialLastRowDrop = { key: dropKey, at: now };
         stopOfficialExternalTaskAutoScroll();
-        await window.tmTaskRowDrop?.(makeEvent(taskRowEl), targetId, overrideKind);
-        return true;
+        try {
+            const handler = globalThis.__tmHandleExternalTaskDrop || window.__tmHandleExternalTaskDrop;
+            const result = handler?.({
+                taskId: safePayload.taskId,
+                payload: safePayload,
+                clientX: x,
+                clientY: y,
+                target,
+                source: 'calendar-official-external',
+            });
+            return result && typeof result.then === 'function' ? (await result) === true : result === true;
+        } catch (e) {}
+        return false;
     }
 
     function shouldFinalizeOfficialExternalTaskDragEnd(ev) {
@@ -3582,6 +3472,7 @@
     function applyScheduleEventColorVars(eventEl, color) {
         const el = eventEl instanceof Element ? eventEl : null;
         if (!el) return;
+        const isTimedEvent = isTimeGridTimedEventElement(el);
         const accent = String(color || '').trim() || 'var(--tm-primary-color)';
         const done = el.classList.contains('tm-cal-event--done');
         const softColors = getScheduleEventSoftColorVars(accent, done);
@@ -3605,11 +3496,13 @@
             if (!applyTimeGridTimedEventInset(el)) applyCalendarEventStripeFill(el, 4);
         } catch (e) {}
         try { el.style.setProperty('display', 'block', 'important'); } catch (e) {}
-        try { el.style.setProperty('width', '100%', 'important'); } catch (e) {}
         try { el.style.setProperty('min-width', '0', 'important'); } catch (e) {}
         try { el.style.setProperty('box-sizing', 'border-box', 'important'); } catch (e) {}
-        try { el.style.setProperty('margin-left', '0', 'important'); } catch (e) {}
-        try { el.style.setProperty('margin-right', '0', 'important'); } catch (e) {}
+        if (!isTimedEvent) {
+            try { el.style.setProperty('width', '100%', 'important'); } catch (e) {}
+            try { el.style.setProperty('margin-left', '0', 'important'); } catch (e) {}
+            try { el.style.setProperty('margin-right', '0', 'important'); } catch (e) {}
+        }
         try { applyCalendarEventDoneBorderTone(el, el.classList.contains('tm-cal-event--done')); } catch (e) {}
         try { el.style.setProperty('border-radius', '5px', 'important'); } catch (e) {}
         try { el.style.setProperty('outline', 'none', 'important'); } catch (e) {}
@@ -5929,18 +5822,20 @@
 
     function applyCalendarSlotMinHeightOption(calendar, settings) {
         if (!calendar) return false;
-        const slotHeight = getCalendarHalfHourSlotHeight(settings || getSettings());
+        const nextSettings = settings || getSettings();
+        const slotHeight = getCalendarHalfHourSlotHeight(nextSettings);
         try { calendar.setOption('slotMinHeight', slotHeight); } catch (e) {}
-        try { calendar.setOption('eventMinHeight', CALENDAR_TIMEGRID_EVENT_MIN_HEIGHT); } catch (e) {}
+        try { calendar.setOption('eventMinHeight', getCalendarTimeGridEventMinHeight(nextSettings)); } catch (e) {}
         return true;
     }
 
     function getTimeGridSlotLayoutOptions(settings) {
-        const visibleRange = getCalendarVisibleSlotRange(settings || getSettings());
+        const nextSettings = settings || getSettings();
+        const visibleRange = getCalendarVisibleSlotRange(nextSettings);
         return {
             slotDuration: '00:30:00',
-            slotMinHeight: getCalendarHalfHourSlotHeight(settings || getSettings()),
-            eventMinHeight: CALENDAR_TIMEGRID_EVENT_MIN_HEIGHT,
+            slotMinHeight: getCalendarHalfHourSlotHeight(nextSettings),
+            eventMinHeight: getCalendarTimeGridEventMinHeight(nextSettings),
             // Keep 30-minute slots marked as minor so CSS can render them dashed.
             slotHeaderInterval: '01:00:00',
             slotMinTime: visibleRange.slotMinTime,
@@ -6041,6 +5936,14 @@
         const source = (settings && typeof settings === 'object') ? settings : getSettings();
         const mode = normalizeCalendarHourSlotHeightMode(source?.hourSlotHeightMode || source?.calendarHourSlotHeightMode);
         return SIDE_DAY_HALF_HOUR_SLOT_HEIGHT + (CALENDAR_HOUR_SLOT_HEIGHT_DELTA_MAP[mode] / 2);
+    }
+
+    function getCalendarTimeGridEventMinHeight(settings) {
+        const slotHeight = getCalendarHalfHourSlotHeight(settings || getSettings());
+        // FullCalendar uses eventMinHeight-expanded verticals for lane collision.
+        // Keep the minimum below a 30-minute slot so adjacent half-hour events do not split lanes.
+        const slotBound = Math.max(1, Math.floor(slotHeight) - 1);
+        return Math.max(1, Math.min(CALENDAR_TIMEGRID_EVENT_MIN_HEIGHT, slotBound));
     }
 
     function applyCalendarSlotHeightStyle(rootEl, settings) {

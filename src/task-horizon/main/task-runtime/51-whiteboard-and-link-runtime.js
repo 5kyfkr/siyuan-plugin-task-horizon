@@ -5527,6 +5527,32 @@ return false;
         return touched;
     }
 
+    function __tmUpdateTaskCardRemarkNodeInDOM(card, task, view) {
+        const root = card instanceof HTMLElement ? card : null;
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!(root instanceof HTMLElement) || !taskLike) return false;
+        const enabled = __tmTaskCardFieldEnabled(view, 'remark');
+        const nextRemark = enabled ? __tmRenderTaskCardRemark(taskLike) : '';
+        let remarkEl = root.querySelector(':scope > .tm-task-card-remark');
+        if (!(remarkEl instanceof HTMLElement)) remarkEl = root.querySelector('.tm-task-card-remark');
+        root.classList.toggle('tm-kanban-card--has-remark', !!nextRemark);
+        if (!nextRemark) {
+            if (remarkEl instanceof HTMLElement) {
+                remarkEl.remove();
+                return true;
+            }
+            return false;
+        }
+        if (remarkEl instanceof HTMLElement) {
+            remarkEl.outerHTML = nextRemark;
+            return true;
+        }
+        const beforeSubtasks = root.querySelector(':scope > .tm-kanban-subtasks');
+        if (beforeSubtasks instanceof HTMLElement) beforeSubtasks.insertAdjacentHTML('beforebegin', nextRemark);
+        else root.insertAdjacentHTML('beforeend', nextRemark);
+        return true;
+    }
+
     const __tmViewControllers = {
         list: {
             findRow(taskId) {
@@ -5754,17 +5780,7 @@ return false;
                     if (title instanceof HTMLElement) touched = !!__tmApplyTaskTitleOpacityToElement(title, task) || touched;
                 }
                 if (Object.prototype.hasOwnProperty.call(patch, 'remark')) {
-                    const nextRemark = __tmRenderTaskCardRemark(task);
-                    let remarkEl = card.querySelector('.tm-task-card-remark');
-                    card.classList.toggle('tm-kanban-card--has-remark', !!nextRemark);
-                    if (nextRemark) {
-                        if (remarkEl instanceof HTMLElement) remarkEl.outerHTML = nextRemark;
-                        else card.insertAdjacentHTML('beforeend', nextRemark);
-                        touched = true;
-                    } else if (remarkEl instanceof HTMLElement) {
-                        remarkEl.remove();
-                        touched = true;
-                    }
+                    touched = !!__tmUpdateTaskCardRemarkNodeInDOM(card, task, 'kanban') || touched;
                 }
                 return touched;
             },
@@ -5836,6 +5852,9 @@ return false;
                         touched = !!__tmUpdateWhiteboardTaskTimeInDOM(tid) || touched;
                     }
                     if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmApplyTaskTitleOpacityInContainer(node, task) || touched;
+                    if (Object.prototype.hasOwnProperty.call(patch, 'remark') && node.classList.contains('tm-whiteboard-node')) {
+                        touched = !!__tmUpdateTaskCardRemarkNodeInDOM(node, task, 'whiteboard') || touched;
+                    }
                 });
                 return touched;
             },
