@@ -338,6 +338,12 @@ return ok;
         }
         const card = state.modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(id)}"]`);
         if (!(card instanceof HTMLElement)) return false;
+        try {
+            if (typeof __tmSyncTaskCardMetaChipsInDOM === 'function'
+                && __tmSyncTaskCardMetaChipsInDOM(card, taskForRender, 'kanban')) {
+                return true;
+            }
+        } catch (e) {}
         let touched = false;
         const cardFields = (() => {
             try { return new Set(__tmGetTaskCardFieldList('kanban')); } catch (e) { return new Set(); }
@@ -406,13 +412,23 @@ return ok;
         const cardFields = (() => {
             try { return new Set(__tmGetTaskCardFieldList('whiteboard')); } catch (e) { return new Set(); }
         })();
+        try {
+            if (typeof __tmSyncTaskCardMetaChipsInDOM === 'function') {
+                let synced = false;
+                state.modal.querySelectorAll(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`).forEach((node) => {
+                    if (!(node instanceof HTMLElement)) return;
+                    synced = !!__tmSyncTaskCardMetaChipsInDOM(node, task, 'whiteboard') || synced;
+                });
+                if (synced) return true;
+            }
+        } catch (e) {}
         const dateShouldExist = cardFields.has('date') && __tmShouldRenderTaskCardDate(task);
         if (dateNodes.length) {
             if (!dateShouldExist) return false;
         } else if (dateShouldExist) {
             return false;
         }
-        const text = __tmGetTaskCardDateValue(task) || '日期';
+        const text = __tmFormatTaskCardDateValue(task) || '日期';
         const focusHtml = __tmGetTaskTomatoSummaryHtml(task);
         dateNodes.forEach((node) => {
             if (!(node instanceof HTMLElement)) return;
@@ -640,4 +656,3 @@ if ((syncResult.needsMainRefresh && isCalendarView) || syncResult.needsSideRefre
     }
 
     __tmBindTaskDateFollowUpdatedRefresh();
-

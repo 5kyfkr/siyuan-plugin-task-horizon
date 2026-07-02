@@ -5490,6 +5490,7 @@
         try { delete globalThis.tmAiAnalyzeDocumentSmart; } catch (e) {}
         try { delete globalThis.tmAiPlanDocumentSchedule; } catch (e) {}
         try { delete globalThis.tmAiPlanTaskSchedule; } catch (e) {}
+        try { delete globalThis.tmAiOpenSummary; } catch (e) {}
         try { delete globalThis.tmAiOpenChat; } catch (e) {}
         try { delete globalThis.tmAiShowHistory; } catch (e) {}
         try { delete globalThis.tmAiMountSidebar; } catch (e) {}

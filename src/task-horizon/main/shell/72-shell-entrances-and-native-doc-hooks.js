@@ -1086,6 +1086,8 @@
     }
 
     const __TM_NATIVE_DOC_CHECKBOX_SYNC_DELAY_MS = 260;
+    const __TM_NATIVE_DOC_CHECKBOX_PREVIOUS_STATE_TTL_MS = 5000;
+    const __tmNativeDocCheckboxPreviousStateMap = new Map();
 
     function __tmResolveNativeDocEventElement(target) {
         try {
@@ -1206,6 +1208,104 @@
         const items = globalThis.__tmCompat?.findTaskListItemsByIds?.(blockIds) || [];
         return (Array.isArray(items) ? items : [])
             .filter((item) => item instanceof Element && !__tmIsNativeDocCheckboxSyncExcludedTarget(item));
+    }
+
+    function __tmReadNativeDocCheckboxTaskSnapshot(blockId) {
+        const rawId = String(blockId || '').trim();
+        if (!rawId) return { taskId: '', status: '', taskCompleteAt: '' };
+        let taskId = rawId;
+        let task = null;
+        try {
+            const binding = typeof __tmResolveLocalTaskBindingFromAnyBlockId === 'function'
+                ? __tmResolveLocalTaskBindingFromAnyBlockId(rawId)
+                : null;
+            const boundTaskId = String(binding?.taskId || '').trim();
+            if (boundTaskId) taskId = boundTaskId;
+            task = binding?.task || null;
+        } catch (e) {
+            task = null;
+        }
+        try {
+            task = task
+                || globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
+                || globalThis.__tmRuntimeState?.getFlatTaskById?.(taskId)
+                || globalThis.__tmRuntimeState?.getPendingTaskById?.(taskId)
+                || state.flatTasks?.[taskId]
+                || state.pendingInsertedTasks?.[taskId]
+                || null;
+        } catch (e) {}
+        return {
+            taskId,
+            status: String(task?.customStatus || task?.custom_status || '').trim(),
+            taskCompleteAt: __tmNormalizeTaskCompleteAtValue(task?.taskCompleteAt || task?.task_complete_at || ''),
+        };
+    }
+
+    function __tmRememberNativeDocCheckboxPreviousState(blockId, options = {}) {
+        const rawId = String(blockId || '').trim();
+        if (!rawId) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const now = Date.now();
+        const hasExplicitPreviousDone = typeof opts.previousDone === 'boolean';
+        let existing = null;
+        try {
+            existing = __tmNativeDocCheckboxPreviousStateMap.get(rawId) || null;
+            if (existing && Number(existing.expiresAt || 0) <= now) existing = null;
+            if (existing && !hasExplicitPreviousDone) return existing;
+        } catch (e) {}
+        const previousDone = hasExplicitPreviousDone
+            ? opts.previousDone
+            : __tmReadNativeDocTaskDoneFromDom(rawId);
+        if (previousDone === null) return null;
+        const snapshot = existing || __tmReadNativeDocCheckboxTaskSnapshot(rawId);
+        const entry = {
+            blockId: rawId,
+            taskId: String(snapshot.taskId || rawId).trim() || rawId,
+            previousDone: !!previousDone,
+            status: String(snapshot.status || '').trim(),
+            taskCompleteAt: String(snapshot.taskCompleteAt || '').trim(),
+            source: String(opts.source || '').trim(),
+            expiresAt: now + __TM_NATIVE_DOC_CHECKBOX_PREVIOUS_STATE_TTL_MS,
+        };
+        try {
+            __tmNativeDocCheckboxPreviousStateMap.set(rawId, entry);
+            if (entry.taskId && entry.taskId !== rawId) __tmNativeDocCheckboxPreviousStateMap.set(entry.taskId, entry);
+            if (__tmNativeDocCheckboxPreviousStateMap.size > 600) {
+                const oldestKey = __tmNativeDocCheckboxPreviousStateMap.keys().next().value;
+                if (oldestKey !== undefined) __tmNativeDocCheckboxPreviousStateMap.delete(oldestKey);
+            }
+        } catch (e) {}
+        return entry;
+    }
+
+    function __tmConsumeNativeDocCheckboxPreviousState(blockIds) {
+        const ids = Array.from(new Set((Array.isArray(blockIds) ? blockIds : [blockIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (!ids.length) return null;
+        const now = Date.now();
+        let hit = null;
+        ids.some((id) => {
+            try {
+                const entry = __tmNativeDocCheckboxPreviousStateMap.get(id);
+                if (!entry) return false;
+                if (Number(entry.expiresAt || 0) <= now) {
+                    __tmNativeDocCheckboxPreviousStateMap.delete(id);
+                    return false;
+                }
+                hit = entry;
+                return true;
+            } catch (e) {
+                return false;
+            }
+        });
+        if (!hit) return null;
+        try {
+            ids.forEach((id) => __tmNativeDocCheckboxPreviousStateMap.delete(id));
+            if (hit.blockId) __tmNativeDocCheckboxPreviousStateMap.delete(hit.blockId);
+            if (hit.taskId) __tmNativeDocCheckboxPreviousStateMap.delete(hit.taskId);
+        } catch (e) {}
+        return hit;
     }
 
     function __tmMirrorNativeDocTaskStatusAttr(blockIds, customStatus) {
@@ -1393,16 +1493,20 @@
         const rawId = String(blockId || '').trim();
         const tid = String(taskId || '').trim();
         const expectedStatus = String(attrPatch?.customStatus || '').trim();
-        const expectedCompleteAt = __tmNormalizeTaskCompleteAtValue(attrPatch?.taskCompleteAt || '');
+        const hasExpectedCompleteAtPatch = !!(attrPatch && typeof attrPatch === 'object'
+            && Object.prototype.hasOwnProperty.call(attrPatch, 'taskCompleteAt'));
+        const expectedCompleteAt = hasExpectedCompleteAtPatch
+            ? __tmNormalizeTaskCompleteAtValue(attrPatch?.taskCompleteAt || '')
+            : '';
         const done = !!expectedDone;
-        if (!rawId || !tid || (!expectedStatus && !expectedCompleteAt) || !__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
+        if (!rawId || !tid || (!expectedStatus && !hasExpectedCompleteAtPatch) || !__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
         const domDone = __tmReadNativeDocTaskDoneFromDom(rawId);
         const beforeAttrs = await __tmReadDocCheckboxBlockAttrs(tid);
         const beforeStatus = String(beforeAttrs?.status || '').trim();
         const beforeCompleteAt = String(beforeAttrs?.taskCompleteAt || '').trim();
         if (!__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
         const statusMatchedBefore = !expectedStatus || beforeStatus === expectedStatus;
-        const completeAtMatchedBefore = !expectedCompleteAt || beforeCompleteAt === expectedCompleteAt;
+        const completeAtMatchedBefore = !hasExpectedCompleteAtPatch || beforeCompleteAt === expectedCompleteAt;
         if (domDone !== done || (statusMatchedBefore && completeAtMatchedBefore)) return false;
         if (expectedStatus) __tmMirrorNativeDocTaskStatusAttr([rawId, tid], expectedStatus);
         const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
@@ -1432,11 +1536,13 @@
         __tmNativeDocCheckboxReconcileTimers.set(rawId, timers);
     }
 
-    function __tmApplyNativeDocCheckboxLocalState(taskId, done, statusValue = '', taskLike = null, taskCompleteAtValue = '') {
+    function __tmApplyNativeDocCheckboxLocalState(taskId, done, statusValue = '', taskLike = null, taskCompleteAtValue = '', options = {}) {
         const tid = String(taskId || '').trim();
         const nextDone = !!done;
         const nextStatus = String(statusValue || '').trim();
         const nextTaskCompleteAt = __tmNormalizeTaskCompleteAtValue(taskCompleteAtValue);
+        const opts = (options && typeof options === 'object') ? options : {};
+        const shouldSyncTaskCompleteAt = opts.syncTaskCompleteAt === true || !!nextTaskCompleteAt;
         const nextMarker = nextDone ? 'X' : ' ';
         if (!tid) return false;
         const taskForRetention = taskLike
@@ -1464,7 +1570,7 @@
                     liveTask.customStatus = nextStatus;
                     liveTask.custom_status = nextStatus;
                 }
-                if (nextTaskCompleteAt) {
+                if (shouldSyncTaskCompleteAt) {
                     liveTask.taskCompleteAt = nextTaskCompleteAt;
                     liveTask.task_complete_at = nextTaskCompleteAt;
                 }
@@ -1478,7 +1584,7 @@
                     pendingTask.customStatus = nextStatus;
                     pendingTask.custom_status = nextStatus;
                 }
-                if (nextTaskCompleteAt) {
+                if (shouldSyncTaskCompleteAt) {
                     pendingTask.taskCompleteAt = nextTaskCompleteAt;
                     pendingTask.task_complete_at = nextTaskCompleteAt;
                 }
@@ -1505,7 +1611,7 @@
             metaPatch.taskMarker = nextMarker;
             metaPatch.markdown = String((globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid])?.markdown || '').trim();
             if (nextStatus) metaPatch.customStatus = nextStatus;
-            if (nextTaskCompleteAt) metaPatch.taskCompleteAt = nextTaskCompleteAt;
+            if (shouldSyncTaskCompleteAt) metaPatch.taskCompleteAt = nextTaskCompleteAt;
             MetaStore.set(tid, metaPatch);
             try {
                 __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, metaPatch, {
@@ -1624,6 +1730,7 @@
         try { taskId = await __tmResolveTaskIdFromAnyBlockId(rawId); } catch (e) { taskId = ''; }
         const tid = String(taskId || rawId || '').trim();
         if (!tid) return false;
+        const previousState = __tmConsumeNativeDocCheckboxPreviousState([rawId, tid]);
         const insertedSync = __tmConsumeNativeDocCheckboxInsertedBlock(rawId) || __tmConsumeNativeDocCheckboxInsertedBlock(tid);
 
         let task = null;
@@ -1655,9 +1762,14 @@
         const expectedStatus = String(__tmResolveCheckboxLinkedStatusId(!!domDone, statusOptions) || '').trim();
         const currentStatus = String(task.customStatus || '').trim();
         const currentTaskCompleteAt = String(task.taskCompleteAt || task.task_complete_at || '').trim();
-        const taskDoneBefore = !!task.done;
+        const hasPreviousState = !!(previousState && typeof previousState.previousDone === 'boolean');
+        const previousStatus = String(previousState?.status || '').trim();
+        const previousTaskCompleteAt = String(previousState?.taskCompleteAt || '').trim();
+        const taskDoneBefore = hasPreviousState ? !!previousState.previousDone : !!task.done;
         const currentStatusDoneBefore = currentStatus ? __tmDoesStatusIdResolveToDone(currentStatus, statusOptions) : false;
-        const effectiveTaskDoneBefore = taskDoneBefore || currentStatusDoneBefore;
+        const previousStatusDoneBefore = previousStatus ? __tmDoesStatusIdResolveToDone(previousStatus, statusOptions) : false;
+        const statusDoneBefore = hasPreviousState ? false : currentStatusDoneBefore;
+        const effectiveTaskDoneBefore = taskDoneBefore || statusDoneBefore;
         const ignoredSync = __tmConsumeNativeDocCheckboxStatusSyncIgnore(rawId, !!domDone);
         if (ignoredSync) {
             const preservedStatus = String(ignoredSync.expectedStatus || currentStatus || '').trim();
@@ -1699,16 +1811,20 @@
         const persistedStatusBefore = String(persistedAttrsBefore?.status || '').trim();
         const persistedTaskCompleteAtBefore = String(persistedAttrsBefore?.taskCompleteAt || '').trim();
         const persistedStatusDoneBefore = persistedStatusBefore ? __tmDoesStatusIdResolveToDone(persistedStatusBefore, statusOptions) : false;
-        const persistedDoneBefore = persistedStatusBefore
-            ? persistedStatusDoneBefore
-            : (!!domDone && !!persistedTaskCompleteAtBefore);
+        const persistedDoneBefore = hasPreviousState
+            ? false
+            : (persistedStatusBefore ? persistedStatusDoneBefore : (!!domDone && !!persistedTaskCompleteAtBefore));
         const wasDoneBefore = effectiveTaskDoneBefore || persistedDoneBefore;
         const shouldDispatchTaskReward = !!SettingsStore?.data?.enablePointsRewardIntegration && !insertedSync && !wasDoneBefore && !!domDone && !__tmUndoState?.applying;
         const taskRewardPriorityScore = shouldDispatchTaskReward
             ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(task, { force: true })) || 0))
             : 0;
         const shouldApplyExpectedStatus = __tmShouldApplyUndoneStatusFallback(task, expectedStatus, currentStatus, persistedStatusBefore, statusOptions, !!domDone);
-        const targetStatus = String(shouldApplyExpectedStatus ? expectedStatus : (persistedStatusBefore || currentStatus || '')).trim();
+        let targetStatus = String(shouldApplyExpectedStatus ? expectedStatus : (persistedStatusBefore || currentStatus || '')).trim();
+        const targetStatusMatchesDomDone = targetStatus ? (__tmDoesStatusIdResolveToDone(targetStatus, statusOptions) === !!domDone) : false;
+        if (expectedStatus && (!targetStatus || !targetStatusMatchesDomDone)) {
+            targetStatus = expectedStatus;
+        }
         __tmPushStatusDebug('checkbox-sync:decision', {
             blockId: rawId,
             taskId: tid,
@@ -1717,35 +1833,51 @@
             currentStatus,
             persistedStatusBefore,
             shouldApplyExpectedStatus,
+            targetStatusMatchesDomDone,
             targetStatus,
             taskDoneBefore,
             currentStatusDoneBefore,
+            previousStatusDoneBefore,
             persistedStatusDoneBefore,
             persistedDoneBefore,
             wasDoneBefore,
             insertedSync,
+            previousState: previousState ? {
+                previousDone: previousState.previousDone === true,
+                status: previousStatus,
+                taskCompleteAt: previousTaskCompleteAt,
+                source: String(previousState.source || '').trim(),
+            } : null,
             currentTaskCompleteAt,
             persistedTaskCompleteAtBefore,
         }, [rawId, tid, __tmGetTaskAttrHostId(task)], { force: true });
         const shouldPersistStatus = !!targetStatus && persistedStatusBefore !== targetStatus;
         const shouldSyncLocalStatus = !!targetStatus && currentStatus !== targetStatus;
         const statusPatch = shouldPersistStatus ? { customStatus: targetStatus } : (shouldSyncLocalStatus ? { customStatus: targetStatus } : null);
-        const completeAtPatch = (!!domDone && !wasDoneBefore) ? __tmBuildTaskCompleteAtPatch() : null;
+        const shouldClearTaskCompleteAt = !domDone && !!(persistedTaskCompleteAtBefore || currentTaskCompleteAt || previousTaskCompleteAt);
+        const completeAtPatch = (!!domDone && !wasDoneBefore)
+            ? __tmBuildTaskCompleteAtPatch()
+            : (shouldClearTaskCompleteAt ? { taskCompleteAt: '' } : null);
+        const hasCompleteAtPatch = !!(completeAtPatch && typeof completeAtPatch === 'object'
+            && Object.prototype.hasOwnProperty.call(completeAtPatch, 'taskCompleteAt'));
         const attrPatch = {
             ...((statusPatch && typeof statusPatch === 'object') ? statusPatch : {}),
             ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
         };
         const resolvedTaskCompleteAt = String(
-            (completeAtPatch && typeof completeAtPatch === 'object' ? completeAtPatch.taskCompleteAt : '')
-            || persistedTaskCompleteAtBefore
-            || currentTaskCompleteAt
-            || ''
+            hasCompleteAtPatch
+                ? completeAtPatch.taskCompleteAt
+                : (persistedTaskCompleteAtBefore || currentTaskCompleteAt || '')
         ).trim();
-        const buildViewPatch = (statusValue, taskCompleteAtValue) => ({
-            done: !!domDone,
-            ...(statusValue ? { customStatus: statusValue } : {}),
-            ...(taskCompleteAtValue ? { taskCompleteAt: taskCompleteAtValue } : {}),
-        });
+        const buildViewPatch = (statusValue, taskCompleteAtValue, options = {}) => {
+            const viewOpts = (options && typeof options === 'object') ? options : {};
+            const shouldIncludeTaskCompleteAt = viewOpts.syncTaskCompleteAt === true || !!taskCompleteAtValue;
+            return {
+                done: !!domDone,
+                ...(statusValue ? { customStatus: statusValue } : {}),
+                ...(shouldIncludeTaskCompleteAt ? { taskCompleteAt: String(taskCompleteAtValue || '').trim() } : {}),
+            };
+        };
         if (Object.keys(attrPatch).length === 0) {
             const resolvedStatus = String(targetStatus || expectedStatus || persistedStatusBefore || currentStatus || '').trim();
             const viewPatch = buildViewPatch(resolvedStatus, resolvedTaskCompleteAt);
@@ -1834,14 +1966,15 @@
             });
             if (targetStatus) persistedStatus = targetStatus;
             if (completeAtPatch && Object.keys(completeAtPatch).length > 0) {
-                persistedTaskCompleteAt = String(completeAtPatch.taskCompleteAt || persistedTaskCompleteAt || '').trim();
+                persistedTaskCompleteAt = hasCompleteAtPatch
+                    ? String(completeAtPatch.taskCompleteAt || '').trim()
+                    : String(persistedTaskCompleteAt || '').trim();
             }
         }
         const finalTaskCompleteAt = String(
-            (completeAtPatch && typeof completeAtPatch === 'object' ? completeAtPatch.taskCompleteAt : '')
-            || persistedTaskCompleteAt
-            || resolvedTaskCompleteAt
-            || ''
+            hasCompleteAtPatch
+                ? completeAtPatch.taskCompleteAt
+                : (persistedTaskCompleteAt || resolvedTaskCompleteAt || '')
         ).trim();
         try {
             __tmApplyAttrPatchLocally(tid, attrPatch, {
@@ -1851,14 +1984,18 @@
             });
             if (statusPatch) __tmMirrorDocCheckboxStatusPatch(tid, statusPatch);
         } catch (e) {}
-        __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, targetStatus, task, finalTaskCompleteAt);
+        __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, targetStatus, task, finalTaskCompleteAt, {
+            syncTaskCompleteAt: hasCompleteAtPatch,
+        });
         try {
             const docId = String(task.root_id || task.docId || '').trim();
             if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
         } catch (e) {}
         try {
             if (typeof __tmIsPluginVisibleNow === 'function' && __tmIsPluginVisibleNow()) {
-                const viewPatch = buildViewPatch(targetStatus, finalTaskCompleteAt);
+                const viewPatch = buildViewPatch(targetStatus, finalTaskCompleteAt, {
+                    syncTaskCompleteAt: hasCompleteAtPatch,
+                });
                 __tmRefreshTaskFieldsAcrossViews(tid, viewPatch, {
                     withFilters: true,
                     reason: 'native-doc-checkbox-sync',
@@ -2029,6 +2166,9 @@
             } catch (e) {}
             const blockId = __tmResolveNativeDocTaskToggleBlockIdFromEventTarget(event.target);
             if (!blockId) return;
+            __tmRememberNativeDocCheckboxPreviousState(blockId, {
+                source: `native-doc-checkbox-${String(event.type || 'event').trim() || 'event'}`,
+            });
             __tmScheduleNativeDocCheckboxStatusSync(blockId);
         };
 
@@ -2045,6 +2185,12 @@
                     } catch (e) {}
                     const blockId = __tmResolveNativeDocTaskBlockId(target);
                     if (blockId) {
+                        if (typeof options?.previousDone === 'boolean') {
+                            __tmRememberNativeDocCheckboxPreviousState(blockId, {
+                                previousDone: options.previousDone,
+                                source: String(options.source || 'native-doc-checkbox-mutation').trim() || 'native-doc-checkbox-mutation',
+                            });
+                        }
                         touched.add(blockId);
                         if (options?.inserted === true) inserted.add(blockId);
                     }
@@ -2065,6 +2211,8 @@
                             const newDone = !!targetEl.classList?.contains?.('protyle-task--done');
                             if (oldDone === newDone) return;
                             if (!(targetEl.matches?.('.protyle-action--task, [data-type="NodeListItem"], .li[data-node-id]') || targetEl.closest?.('.protyle-action--task, [data-type="NodeListItem"], .li[data-node-id]'))) return;
+                            collect(targetEl, { previousDone: oldDone, source: 'native-doc-checkbox-mutation-class' });
+                            return;
                         } else if (attrName === 'href' || attrName === 'xlink:href') {
                             if (!(targetEl.matches?.('use') || targetEl.closest?.('.protyle-action--task'))) return;
                             const oldHref = String(mutation?.oldValue || '').trim();
@@ -2072,11 +2220,14 @@
                             const newDone = __tmReadNativeDocCheckboxIconDoneState(targetEl);
                             if (oldDone === null && newDone === null) return;
                             if (oldDone === newDone) return;
+                            collect(targetEl, {
+                                previousDone: oldDone,
+                                source: 'native-doc-checkbox-mutation-icon',
+                            });
+                            return;
                         } else {
                             return;
                         }
-                        collect(targetEl);
-                        return;
                     }
                     if (type === 'childList') {
                         try {
@@ -2114,4 +2265,3 @@
             });
         } catch (e) {}
     }
-

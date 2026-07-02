@@ -22,14 +22,10 @@
         return '';
     }
 
-    function __tmTaskTimeHubShortcutDate(kind, baseValue = '') {
+    function __tmTaskTimeHubShortcutDate(kind) {
         const key = String(kind || '').trim();
-        const parsed = String(__tmNormalizeDateOnly(baseValue) || '').trim();
-        const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(parsed);
-        const base = matched
-            ? new Date(Number(matched[1]), Number(matched[2]) - 1, Number(matched[3]), 12, 0, 0, 0)
-            : new Date();
-        if (!matched) base.setHours(12, 0, 0, 0);
+        const base = new Date();
+        base.setHours(12, 0, 0, 0);
         if (key === 'tomorrow') base.setDate(base.getDate() + 1);
         else if (key === 'next-week') base.setDate(base.getDate() + 7);
         else if (key === 'next-month') {
@@ -51,7 +47,7 @@
         ];
         return `<div class="tm-task-time-hub__quick-dates" role="toolbar" aria-label="快速设置日期">
             ${shortcuts.map(([key, label, icon]) => {
-                const value = __tmTaskTimeHubShortcutDate(key, activeValue);
+                const value = __tmTaskTimeHubShortcutDate(key);
                 const active = current && value === current;
                 return `<button type="button" class="tm-task-time-hub__quick-date${active ? ' is-active' : ''}" data-tm-time-hub-quick-date="${esc(value)}" aria-label="${esc(label)}" aria-pressed="${active ? 'true' : 'false'}" title="${esc(label)} ${esc(value)}">
                     ${__tmTaskDetailTimeHubIcon(icon, 'tm-task-time-hub__quick-date-icon', 16)}

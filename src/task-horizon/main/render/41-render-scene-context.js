@@ -44,6 +44,7 @@
         const __tmRenderWhiteboardBodyHtml = (renderOptions = {}) => __tmBuildRenderSceneWhiteboardBodyHtml({
             bodyAnimClass: __tmGetBodyAnimClassForRender(renderOptions),
             isMobile,
+            isDockHost,
         });
 
         state.renderChecklistBodyHtml = __tmRenderChecklistBodyHtml;

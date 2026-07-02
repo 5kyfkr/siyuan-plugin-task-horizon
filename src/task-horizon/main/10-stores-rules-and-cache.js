@@ -6596,6 +6596,7 @@
             whiteboardDetachedChildren: {},
             whiteboardNotes: [],
             whiteboardTool: 'pan',
+            whiteboardNoteDefaultFontSize: 20,
             whiteboardSidebarCollapsed: false,
             whiteboardSidebarWidth: 300,
             whiteboardShowDone: false,
@@ -6992,6 +6993,7 @@
                                 if (typeof cloudData.kanbanHeadingGroupMode === 'boolean') this.data.kanbanHeadingGroupMode = cloudData.kanbanHeadingGroupMode;
                                 if (typeof cloudData.whiteboardAllTabsCardMinWidth === 'number') this.data.whiteboardAllTabsCardMinWidth = cloudData.whiteboardAllTabsCardMinWidth;
                                 if (typeof cloudData.whiteboardStreamMobileTwoColumns === 'boolean') this.data.whiteboardStreamMobileTwoColumns = cloudData.whiteboardStreamMobileTwoColumns;
+                                if (typeof cloudData.whiteboardNoteDefaultFontSize === 'number') this.data.whiteboardNoteDefaultFontSize = cloudData.whiteboardNoteDefaultFontSize;
                                 if (typeof cloudData.docH2SubgroupEnabled === 'boolean') this.data.docH2SubgroupEnabled = cloudData.docH2SubgroupEnabled;
                                 if (typeof cloudData.groupByTaskName === 'boolean') this.data.groupByTaskName = cloudData.groupByTaskName;
                                 if (typeof cloudData.groupMode === 'string') this.data.groupMode = cloudData.groupMode;
@@ -7234,6 +7236,7 @@
                                 if (typeof cloudData.enableGroupTaskBgByGroupColor === 'boolean') this.data.enableGroupTaskBgByGroupColor = cloudData.enableGroupTaskBgByGroupColor;
                                 if (typeof cloudData.whiteboardAutoConnectByCreated === 'boolean') this.data.whiteboardAutoConnectByCreated = cloudData.whiteboardAutoConnectByCreated;
                                 if (typeof cloudData.whiteboardTool === 'string') this.data.whiteboardTool = cloudData.whiteboardTool;
+                                if (typeof cloudData.whiteboardNoteDefaultFontSize === 'number') this.data.whiteboardNoteDefaultFontSize = cloudData.whiteboardNoteDefaultFontSize;
                                 if (typeof cloudData.whiteboardSidebarCollapsed === 'boolean') this.data.whiteboardSidebarCollapsed = cloudData.whiteboardSidebarCollapsed;
                                 if (typeof cloudData.whiteboardSidebarWidth === 'number') this.data.whiteboardSidebarWidth = cloudData.whiteboardSidebarWidth;
                                 if (typeof cloudData.whiteboardShowDone === 'boolean') this.data.whiteboardShowDone = cloudData.whiteboardShowDone;
@@ -7641,6 +7644,7 @@
             this.data.whiteboardDetachedChildren = Storage.get('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren) || {};
             this.data.whiteboardNotes = Storage.get('tm_whiteboard_notes', this.data.whiteboardNotes) || [];
             this.data.whiteboardTool = Storage.get('tm_whiteboard_tool', this.data.whiteboardTool);
+            this.data.whiteboardNoteDefaultFontSize = Storage.get('tm_whiteboard_note_default_font_size', this.data.whiteboardNoteDefaultFontSize);
             this.data.whiteboardSidebarCollapsed = Storage.get('tm_whiteboard_sidebar_collapsed', this.data.whiteboardSidebarCollapsed);
             this.data.whiteboardSidebarWidth = Storage.get('tm_whiteboard_sidebar_width', this.data.whiteboardSidebarWidth);
             this.data.whiteboardShowDone = Storage.get('tm_whiteboard_show_done', this.data.whiteboardShowDone);
@@ -8085,6 +8089,10 @@
             Storage.set('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren || {});
             Storage.set('tm_whiteboard_notes', this.data.whiteboardNotes || []);
             Storage.set('tm_whiteboard_tool', String(this.data.whiteboardTool || 'pan').trim() || 'pan');
+            {
+                const n = Number(this.data.whiteboardNoteDefaultFontSize);
+                Storage.set('tm_whiteboard_note_default_font_size', Number.isFinite(n) ? Math.max(10, Math.min(40, Math.round(n))) : 20);
+            }
             Storage.set('tm_whiteboard_sidebar_collapsed', !!this.data.whiteboardSidebarCollapsed);
             Storage.set('tm_whiteboard_sidebar_width', Number(this.data.whiteboardSidebarWidth) || 300);
             Storage.set('tm_whiteboard_show_done', !!this.data.whiteboardShowDone);
@@ -8388,6 +8396,8 @@
             this.data.whiteboardNotes = Array.isArray(this.data.whiteboardNotes) ? this.data.whiteboardNotes : [];
             const wbTool = String(this.data.whiteboardTool || 'pan').trim();
             this.data.whiteboardTool = (wbTool === 'select' || wbTool === 'text' || wbTool === 'sticky' || wbTool === 'pan') ? wbTool : 'pan';
+            const wbNoteDefaultFontSize = Number(this.data.whiteboardNoteDefaultFontSize);
+            this.data.whiteboardNoteDefaultFontSize = Number.isFinite(wbNoteDefaultFontSize) ? Math.max(10, Math.min(40, Math.round(wbNoteDefaultFontSize))) : 20;
             this.data.whiteboardSidebarCollapsed = !!this.data.whiteboardSidebarCollapsed;
             const wbSidebarWidth = Number(this.data.whiteboardSidebarWidth);
             this.data.whiteboardSidebarWidth = Number.isFinite(wbSidebarWidth) ? Math.max(220, Math.min(520, Math.round(wbSidebarWidth))) : 300;
@@ -12969,22 +12979,90 @@
         return Math.max(120, Math.min(3600, Math.ceil(wait) + pad));
     }
 
+    let __tmRuntimeCleanupRequested = false;
+    const __tmIdleTaskTimeoutHandles = new Set();
+    const __tmIdleTaskIdleHandles = new Set();
+
+    function __tmMarkRuntimeCleanupRequested() {
+        __tmRuntimeCleanupRequested = true;
+        try {
+            __tmIdleTaskTimeoutHandles.forEach((timer) => {
+                try { clearTimeout(timer); } catch (e) {}
+            });
+            __tmIdleTaskTimeoutHandles.clear();
+        } catch (e) {}
+        try {
+            if (typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {
+                __tmIdleTaskIdleHandles.forEach((handle) => {
+                    try { window.cancelIdleCallback(handle); } catch (e) {}
+                });
+            }
+            __tmIdleTaskIdleHandles.clear();
+        } catch (e) {}
+    }
+
+    function __tmCancelBackgroundStorageTimers() {
+        try {
+            if (__tmDocScopeCacheSaveTimer) {
+                clearTimeout(__tmDocScopeCacheSaveTimer);
+                __tmDocScopeCacheSaveTimer = null;
+            }
+        } catch (e) {}
+        try {
+            if (__tmTaskIndexSaveTimer) {
+                clearTimeout(__tmTaskIndexSaveTimer);
+                __tmTaskIndexSaveTimer = null;
+            }
+        } catch (e) {}
+        try {
+            if (__tmTaskSnapshotSaveTimer) {
+                clearTimeout(__tmTaskSnapshotSaveTimer);
+                __tmTaskSnapshotSaveTimer = null;
+            }
+        } catch (e) {}
+        try {
+            if (__tmWsTaskTxBatchTimer) {
+                clearTimeout(__tmWsTaskTxBatchTimer);
+                __tmWsTaskTxBatchTimer = null;
+            }
+            __tmWsTaskTxBatch = null;
+        } catch (e) {}
+    }
+
     function __tmScheduleIdleTask(task, timeout = 180) {
+        if (__tmRuntimeCleanupRequested) return;
         const run = () => {
+            if (__tmRuntimeCleanupRequested) return;
             const waitMs = __tmGetHighPriorityInteractionWaitMs();
             if (waitMs > 0) {
-                try { setTimeout(run, waitMs); } catch (e) {}
+                try {
+                    const retryTimer = setTimeout(() => {
+                        __tmIdleTaskTimeoutHandles.delete(retryTimer);
+                        run();
+                    }, waitMs);
+                    __tmIdleTaskTimeoutHandles.add(retryTimer);
+                } catch (e) {}
                 return;
             }
             Promise.resolve().then(task).catch(() => null);
         };
         try {
             if (typeof window !== 'undefined' && window && typeof window.requestIdleCallback === 'function') {
-                window.requestIdleCallback(() => { run(); }, { timeout: Math.max(0, Number(timeout) || 0) });
+                const idleHandle = window.requestIdleCallback(() => {
+                    __tmIdleTaskIdleHandles.delete(idleHandle);
+                    run();
+                }, { timeout: Math.max(0, Number(timeout) || 0) });
+                __tmIdleTaskIdleHandles.add(idleHandle);
                 return;
             }
         } catch (e) {}
-        setTimeout(() => { run(); }, 0);
+        try {
+            const timer = setTimeout(() => {
+                __tmIdleTaskTimeoutHandles.delete(timer);
+                run();
+            }, 0);
+            __tmIdleTaskTimeoutHandles.add(timer);
+        } catch (e) {}
     }
 
     function __tmGetInitialLoadBudget(options = {}) {

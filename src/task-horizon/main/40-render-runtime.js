@@ -229,7 +229,7 @@ return;
         if (prevModalSnapshot) {
             try {
                 if (prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot')) {
-                    globalThis.__tmCalendar?.unmount?.();
+                    globalThis.__tmCalendar?.unmount?.({ preserveRootHtml: !!(keepMountSnapshot || useSoftSwap) });
                 }
             } catch (e) {}
             if (!useSoftSwap) {
@@ -412,6 +412,7 @@ return;
             + (currentRenderMode === 'whiteboard' && state.whiteboardPluginFullscreen ? ' tm-modal--whiteboard-fullscreen' : '')
             + (taskCheckboxCircleStyleEnabled ? ' tm-modal--task-checkbox-circle' : '');
         try { state.modal.setAttribute('data-task-horizon-shell', '1'); } catch (e) {}
+        try { state.modal.setAttribute('data-tm-render-mode', currentRenderMode); } catch (e) {}
         try {
             const wrapCfg = __tmGetWrapConfig();
             state.modal.classList.toggle('tm-modal--task-wrap', !!wrapCfg.enabled);
@@ -2685,6 +2686,17 @@ return;
                 } else if (isWhiteboard) {
                     const sidebar = state.modal.querySelector('.tm-whiteboard-sidebar');
                     const body = state.modal.querySelector('#tmWhiteboardBody');
+                    const focusWhiteboardPoolSearch = () => {
+                        if (!state.whiteboardPoolSearchFocusAfterRender) return;
+                        state.whiteboardPoolSearchFocusAfterRender = false;
+                        try {
+                            const input = state.modal?.querySelector?.('#tmWhiteboardPoolSearchInput');
+                            if (!(input instanceof HTMLInputElement)) return;
+                            input.focus({ preventScroll: true });
+                            const len = String(input.value || '').length;
+                            input.setSelectionRange(len, len);
+                        } catch (e) {}
+                    };
                     const apply = () => {
                         try { if (sidebar) sidebar.scrollTop = wbSidebarTop; } catch (e) {}
                         try {
@@ -2695,7 +2707,9 @@ return;
                         } catch (e) {}
                     };
                     apply();
+                    focusWhiteboardPoolSearch();
                     requestAnimationFrame(() => requestAnimationFrame(apply));
+                    requestAnimationFrame(() => requestAnimationFrame(focusWhiteboardPoolSearch));
                     requestAnimationFrame(() => requestAnimationFrame(() => {
                         runFlipAnimationAfterRender();
                         try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}

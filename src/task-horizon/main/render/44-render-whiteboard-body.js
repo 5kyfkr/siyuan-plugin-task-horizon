@@ -2,6 +2,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const bodyAnimClass = String(opts.bodyAnimClass || '');
         const isMobile = !!opts.isMobile;
+        const isDockHost = !!opts.isDockHost;
 
         const __tmRenderWhiteboardBodyHtml = () => {
             const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
@@ -15,7 +16,7 @@
             const todayKey = __tmNormalizeDateOnly(new Date());
             const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
             const tomatoFocusModeEnabled = tomatoFocusTaskId ? __tmIsTomatoFocusModeEnabled() : false;
-            const showDoneTasks = !!SettingsStore.data.whiteboardShowDone;
+            const showDoneTasks = !!state.showCompletedTasks;
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
             const statusOptions = statusOptionsRaw
                 .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim() }))
@@ -72,6 +73,15 @@
                 if (id) whiteboardDirectChildStatsMemo.set(id, stats);
                 return stats;
             };
+            const isWhiteboardTaskDone = (task) => {
+                try {
+                    return typeof __tmIsTaskDoneEffective === 'function'
+                        ? !!__tmIsTaskDoneEffective(task, statusOptions)
+                        : !!task?.done;
+                } catch (e) {
+                    return !!task?.done;
+                }
+            };
 
             const activeDocId = String(state.activeDocId || '').trim();
             const activeDocTabCustomGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
@@ -105,7 +115,7 @@
                 const docId = String(taskLike?.root_id || taskLike?.docId || '').trim();
                 const id = String(taskLike?.id || '').trim();
                 if (!docId || !id || !docIdSet.has(docId)) return;
-                if (!showDoneTasks && !!taskLike?.done) return;
+                if (!showDoneTasks && isWhiteboardTaskDone(taskLike)) return;
                 if (!byDoc.has(docId)) byDoc.set(docId, []);
                 const list = byDoc.get(docId);
                 if (list.some(x => String(x?.id || '').trim() === id)) return;
@@ -442,8 +452,6 @@
                     if (!tid || !placedMap[tid]) return;
                     const pos = posMap?.[tid];
                     const posDocId = String(pos?.docId || '').trim();
-                    if (!posDocId || (!isGlobalCanvasDoc && posDocId !== docId) || (isGlobalCanvasDoc && !sourceDocSetForCanvas.has(posDocId))) return;
-                    if (seenDocTask.has(tid)) return;
                     const taskObj = state.flatTasks?.[tid] || (snapMap?.[tid] ? {
                         id: tid,
                         content: String(snapMap[tid]?.content || '').trim() || '(无内容)',
@@ -457,6 +465,19 @@
                         __tmGhost: true,
                     } : null);
                     if (!taskObj) return;
+                    const taskDocId = String(taskObj?.root_id || taskObj?.docId || posDocId).trim();
+                    let effectivePosDocId = posDocId;
+                    if (isGlobalCanvasDoc && taskDocId && pos && typeof pos === 'object' && taskDocId !== posDocId) {
+                        posMap[tid] = {
+                            ...pos,
+                            docId: taskDocId,
+                            updatedAt: String(Date.now()),
+                        };
+                        effectivePosDocId = taskDocId;
+                        posDirty = true;
+                    }
+                    if (!effectivePosDocId || (!isGlobalCanvasDoc && effectivePosDocId !== docId)) return;
+                    if (seenDocTask.has(tid)) return;
                     seenDocTask.add(tid);
                     docTasks.push(taskObj);
                 });
@@ -830,7 +851,7 @@
                 orderedRoots.forEach((rid) => {
                     const p = posMap[rid];
                     const posDocId = String(p?.docId || '').trim();
-                    if (!p || (!isGlobalCanvasDoc && posDocId !== docId) || (isGlobalCanvasDoc && !sourceDocSetForCanvas.has(posDocId))) return;
+                    if (!p || (!isGlobalCanvasDoc && posDocId !== docId)) return;
                     const x = Number(p.x);
                     const y = Number(p.y);
                     if (Number.isFinite(x)) maxX = Math.max(maxX, x);
@@ -1119,7 +1140,7 @@
                     const collapsed = childIds.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
                     const toggleHtml = childIds.length
                         ? `<button class="tm-whiteboard-pool-toggle${collapsed ? ' tm-whiteboard-pool-toggle--collapsed' : ''}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" title="${collapsed ? '展开子任务' : '折叠子任务'}">${__tmRenderToggleIcon(10, 0, 'tm-whiteboard-pool-toggle-icon', `transform:translate(-50%, -50%) rotate(${collapsed ? 0 : 90}deg);`)}</button>`
-                        : '<span style="display:inline-block;width:16px;height:14px;"></span>';
+                        : '<span class="tm-whiteboard-pool-toggle-spacer" aria-hidden="true"></span>';
                     const indent = Math.max(0, Math.min(10, Number(depth) || 0)) * 16;
                     const doneCls = task?.done ? ' tm-whiteboard-pool-item--done' : '';
                     const parentCls = childIds.length ? ' tm-whiteboard-pool-item--parent' : '';
@@ -1227,7 +1248,7 @@
                                     const collapsed = childIds.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
                                     const toggleHtml = childIds.length
                                         ? `<button class="tm-whiteboard-pool-toggle${collapsed ? ' tm-whiteboard-pool-toggle--collapsed' : ''}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" title="${collapsed ? '展开子任务' : '折叠子任务'}">${__tmRenderToggleIcon(10, 0, 'tm-whiteboard-pool-toggle-icon', `transform:translate(-50%, -50%) rotate(${collapsed ? 0 : 90}deg);`)}</button>`
-                                        : '<span style="display:inline-block;width:16px;height:14px;"></span>';
+                                        : '<span class="tm-whiteboard-pool-toggle-spacer" aria-hidden="true"></span>';
                                     const indent = Math.max(0, Math.min(10, Number(depth) || 0)) * 16;
                                     const doneCls = task?.done ? ' tm-whiteboard-pool-item--done' : '';
                                     const parentCls = childIds.length ? ' tm-whiteboard-pool-item--parent' : '';
@@ -1328,6 +1349,144 @@
                     </section>
                 `;
             };
+            const whiteboardPoolSearchOpen = !!state.whiteboardPoolSearchOpen;
+            const whiteboardPoolSearchKeyword = String(state.whiteboardPoolSearchKeyword || '').trim();
+            const poolSearchDocRankMap = new Map(selectedDocIds.map((id, idx) => [String(id || '').trim(), idx]));
+            const poolSearchTaskMap = new Map();
+            selectedDocIds.forEach((docIdRaw) => {
+                const docId = String(docIdRaw || '').trim();
+                if (!docId) return;
+                (byDoc.get(docId) || []).forEach((task) => {
+                    const id = String(task?.id || '').trim();
+                    if (!id || task?.__tmGhost || poolSearchTaskMap.has(id)) return;
+                    poolSearchTaskMap.set(id, { ...(task || {}), __tmSearchDocId: docId });
+                });
+            });
+            Object.keys(placedMap || {}).forEach((taskId) => {
+                const id = String(taskId || '').trim();
+                if (!id || !placedMap[id] || poolSearchTaskMap.has(id)) return;
+                const posDocId = String(posMap?.[id]?.docId || '').trim();
+                const live = state.flatTasks?.[id];
+                if (!live || typeof live !== 'object') return;
+                const docId = String(live?.root_id || live?.docId || posDocId).trim();
+                if (!docId) return;
+                if (!isGlobalBoardMode && !docIdSet.has(docId)) return;
+                const task = live;
+                if (!task || (!showDoneTasks && isWhiteboardTaskDone(task))) return;
+                poolSearchTaskMap.set(id, { ...(task || {}), __tmSearchDocId: docId });
+            });
+            const getPoolSearchTaskLike = (taskId) => {
+                const id = String(taskId || '').trim();
+                if (!id) return null;
+                const live = state.flatTasks?.[id];
+                if (live && typeof live === 'object') return live;
+                const fromSearch = poolSearchTaskMap.get(id);
+                if (fromSearch && typeof fromSearch === 'object') return fromSearch;
+                const snap = snapMap?.[id];
+                if (!snap || typeof snap !== 'object') return null;
+                return {
+                    id,
+                    root_id: String(snap.docId || '').trim(),
+                    docId: String(snap.docId || '').trim(),
+                    parentTaskId: String(snap.parentTaskId || '').trim(),
+                    done: !!snap.done,
+                };
+            };
+            const isPoolSearchTaskOnWhiteboard = (taskId) => {
+                let cur = String(taskId || '').trim();
+                if (!cur) return false;
+                if (placedMap[cur]) return true;
+                const seen = new Set();
+                while (cur && !seen.has(cur)) {
+                    seen.add(cur);
+                    if (isDetachedTask(cur)) return false;
+                    const task = getPoolSearchTaskLike(cur);
+                    const pid = String(task?.parentTaskId || '').trim();
+                    if (!pid) return false;
+                    if (placedMap[pid]) return true;
+                    cur = pid;
+                }
+                return false;
+            };
+            const getPoolSearchText = (task) => {
+                const docId = String(task?.__tmSearchDocId || task?.root_id || task?.docId || '').trim();
+                return [
+                    task?.content,
+                    task?.markdown,
+                    task?.remark,
+                    task?.custom_remark,
+                    task?.h2,
+                    task?.h2Path,
+                    docNameById.get(docId) || '',
+                ].map((x) => String(x || '')).join('\n').toLowerCase();
+            };
+            const buildWhiteboardPoolSearchResults = (keywordRaw = '') => {
+                const query = String(keywordRaw || '').trim().toLowerCase();
+                return query ? Array.from(poolSearchTaskMap.values())
+                    .filter((task) => showDoneTasks || !isWhiteboardTaskDone(task))
+                    .filter((task) => getPoolSearchText(task).includes(query))
+                    .sort((a, b) => {
+                        const ad = String(a?.__tmSearchDocId || a?.root_id || a?.docId || '').trim();
+                        const bd = String(b?.__tmSearchDocId || b?.root_id || b?.docId || '').trim();
+                        const ar = poolSearchDocRankMap.has(ad) ? poolSearchDocRankMap.get(ad) : 999999;
+                        const br = poolSearchDocRankMap.has(bd) ? poolSearchDocRankMap.get(bd) : 999999;
+                        if (ar !== br) return ar - br;
+                        const ao = getOrder(a?.id);
+                        const bo = getOrder(b?.id);
+                        if (ao !== bo) return ao - bo;
+                        return __tmCompareTasksByDocFlow(a, b);
+                    })
+                    : [];
+            };
+            const renderWhiteboardPoolSearchResults = (keywordRaw = '') => {
+                const keyword = String(keywordRaw || '').trim();
+                const poolSearchResults = buildWhiteboardPoolSearchResults(keyword);
+                if (!keyword) {
+                    return `<div class="tm-whiteboard-pool-empty">输入关键词搜索任务</div>`;
+                }
+                if (!poolSearchResults.length) {
+                    return `<div class="tm-whiteboard-pool-empty">没有匹配任务</div>`;
+                }
+                return `
+                    <section class="tm-whiteboard-pool-doc tm-whiteboard-pool-search-results">
+                        <header class="tm-whiteboard-pool-doc-head">搜索结果 · ${poolSearchResults.length}</header>
+                        <div class="tm-whiteboard-pool-list">
+                            ${poolSearchResults.map((task) => {
+                                const tid = String(task?.id || '').trim();
+                                if (!tid) return '';
+                                const docId = String(task?.__tmSearchDocId || task?.root_id || task?.docId || '').trim();
+                                const placed = isPoolSearchTaskOnWhiteboard(tid);
+                                const selectedCls = poolSelectedSet.has(tid) ? ' tm-whiteboard-pool-item--selected' : '';
+                                const taskDone = isWhiteboardTaskDone(task);
+                                const doneCls = taskDone ? ' tm-whiteboard-pool-item--done' : '';
+                                const placedCls = placed ? ' tm-whiteboard-pool-item--placed' : '';
+                                const draggableAttr = placed ? 'false' : 'true';
+                                const blockedPressAttr = placed ? ' onpointerdown="tmWhiteboardPoolSearchPressGuard(event)" onmousedown="tmWhiteboardPoolSearchPressGuard(event)"' : '';
+                                const mouseDownAttr = placed ? '' : ` onmousedown="tmWhiteboardPoolItemMouseDown(event, '${escSq(tid)}', '${escSq(docId)}', false)"`;
+                                const blockedDragStartAttr = ' ondragstart="event.preventDefault();event.stopPropagation();return false"';
+                                const dragStartAttr = placed ? blockedDragStartAttr : ` ondragstart="tmWhiteboardPoolDragStart(event, '${escSq(tid)}', '${escSq(docId)}')"`;
+                                const dragEndAttr = placed ? '' : ' ondragend="tmWhiteboardPoolDragEnd(event)"';
+                                const titleDragAttr = placed
+                                    ? ` draggable="false"${blockedDragStartAttr}`
+                                    : ` draggable="true"${mouseDownAttr} ondragstart="tmWhiteboardPoolDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmWhiteboardPoolDragEnd(event)"`;
+                                const contentDragAttr = placed
+                                    ? ` draggable="false"${blockedDragStartAttr}`
+                                    : ` draggable="true"${mouseDownAttr} ondragstart="tmWhiteboardPoolDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmWhiteboardPoolDragEnd(event)"`;
+                                const itemTitle = placed ? '点击定位白板卡片' : '点击跳转原文档，拖动到白板';
+                                return `
+                                    <div class="tm-whiteboard-pool-item tm-whiteboard-pool-search-item${doneCls}${placedCls}${selectedCls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}" data-tm-pool-search-result="1" data-tm-pool-placed="${placed ? '1' : '0'}" draggable="${draggableAttr}" onclick="tmWhiteboardSearchResultClick('${escSq(tid)}', event)"${blockedPressAttr}${mouseDownAttr}${dragStartAttr}${dragEndAttr} title="${esc(itemTitle)}">
+                                        ${__tmRenderTaskCheckboxWrap(tid, task, { checked: taskDone, stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)` })}
+                                        <span class="tm-whiteboard-pool-item-prefix" title="${esc(docNameById.get(docId) || '未知文档')}">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 12 })}</span>
+                                        <span class="tm-whiteboard-pool-item-title"${titleDragAttr}><span class="tm-task-content-clickable"${contentDragAttr}${__tmBuildTooltipAttrs(String(task?.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
+                                        <span class="tm-badge tm-badge--count tm-whiteboard-pool-search-status${placed ? ' tm-whiteboard-pool-search-status--placed' : ''}">${placed ? '已在白板' : '未加入'}</span>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </section>
+                `;
+            };
+            state.__tmRenderWhiteboardPoolSearchResultsHtml = () => renderWhiteboardPoolSearchResults(state.whiteboardPoolSearchKeyword);
             let poolHtml = '';
             if (poolGroupMode === 'doc') {
                 poolHtml = poolDocDataList.map((docData) => renderWhiteboardPoolDocSection(docData)).join('');
@@ -1405,6 +1564,9 @@
                     })
                     : '';
             }
+            const poolContentHtml = whiteboardPoolSearchOpen
+                ? renderWhiteboardPoolSearchResults(whiteboardPoolSearchKeyword)
+                : (poolHtml || `<div class="tm-whiteboard-pool-empty">当前没有可拖出的任务</div>`);
 
             let whiteboardLayoutStateDirty = false;
             if (posDirty) {
@@ -1432,36 +1594,59 @@
 
             const whiteboardTool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
             const viewportPanClass = whiteboardTool === 'pan' ? ' tm-whiteboard-viewport--tool-pan' : '';
-            const sidebarCollapsed = !!SettingsStore.data.whiteboardSidebarCollapsed;
+            const compactSidebarHost = !!(isMobile || isDockHost);
+            if (compactSidebarHost && typeof state.whiteboardCompactSidebarCollapsed !== 'boolean') {
+                state.whiteboardCompactSidebarCollapsed = true;
+            }
+            const sidebarCollapsed = compactSidebarHost
+                ? state.whiteboardCompactSidebarCollapsed !== false
+                : !!SettingsStore.data.whiteboardSidebarCollapsed;
             const sidebarWidth = Math.max(220, Math.min(520, Math.round(Number(SettingsStore.data.whiteboardSidebarWidth) || 300)));
             const layoutClass = sidebarCollapsed ? ' tm-whiteboard-layout--sidebar-collapsed' : '';
             const navigatorHidden = !!SettingsStore.data.whiteboardNavigatorHidden;
             const navigatorReadyAttr = (!navigatorHidden && state.whiteboardNavigatorModel) ? ' data-tm-ready="1"' : '';
             const sidebarToggleLabel = sidebarCollapsed ? '展开侧栏' : '折叠侧栏';
             const sidebarToggleGlyph = sidebarCollapsed ? '☰' : '⟨';
+            const compactSidebarToggleHtml = compactSidebarHost
+                ? `<button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-sidebar-title-toggle" onclick="tmWhiteboardToggleSidebar(event)"${__tmBuildTooltipAttrs('折叠任务池', { side: 'bottom' })}>⟨</button>`
+                : '';
             const whiteboardPluginFullscreen = !!state.whiteboardPluginFullscreen;
             const renderWhiteboardToolbarButton = ({ label, icon, onclick, active = false, pressed = null }) => {
                 const cls = `tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-toolbar-btn${active ? ' tm-whiteboard-toolbar-btn--active' : ''}`;
                 const ariaPressed = pressed == null ? '' : ` aria-pressed="${pressed ? 'true' : 'false'}"`;
                 return `<button type="button" class="${cls}" onclick="${onclick}"${ariaPressed}${__tmBuildTooltipAttrs(label, { side: 'top' })}>${__tmPhosphorBoldSvg(icon, { size: 16, className: 'tm-whiteboard-toolbar-btn__icon' })}</button>`;
             };
+            const poolSearchBarHtml = whiteboardPoolSearchOpen ? `
+                <div class="tm-whiteboard-pool-searchbar" role="search">
+                    <input id="tmWhiteboardPoolSearchInput" class="b3-text-field tm-whiteboard-pool-searchbar__input" type="search" value="${esc(whiteboardPoolSearchKeyword)}" placeholder="搜索任务池" autocomplete="off" spellcheck="false" aria-label="搜索任务池" oncompositionstart="tmWhiteboardPoolSearchCompositionStart(event)" oncompositionend="tmWhiteboardPoolSearchCompositionEnd(event)" oninput="tmWhiteboardPoolSearchInput(event)" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" onkeydown="if(event.key==='Escape'){tmWhiteboardTogglePoolSearch(event)}">
+                    <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-searchbar__btn" onclick="tmWhiteboardClearPoolSearch(event)"${__tmBuildTooltipAttrs('清空搜索', { side: 'bottom' })}>${__tmPhosphorBoldSvg('x-circle', { size: 15, className: 'tm-whiteboard-pool-searchbar__btn-icon' })}</button>
+                    <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-searchbar__btn" onclick="tmWhiteboardTogglePoolSearch(event)"${__tmBuildTooltipAttrs('关闭搜索', { side: 'bottom' })}>${__tmPhosphorBoldSvg('x', { size: 15, className: 'tm-whiteboard-pool-searchbar__btn-icon' })}</button>
+                </div>
+            ` : '';
             return `
                 <div class="tm-body tm-body--whiteboard${bodyAnimClass}" id="tmWhiteboardBody">
                     <div class="tm-whiteboard-layout${layoutClass}" style="--tm-wb-sidebar-width:${sidebarWidth}px;">
                         <aside class="tm-whiteboard-sidebar">
                             <div class="tm-whiteboard-sidebar-title-row">
-                                <div class="tm-whiteboard-sidebar-title">任务池</div>
-                                <label class="tm-whiteboard-sidebar-switch" title="显示已完成任务">
-                                    <input type="checkbox" ${showDoneTasks ? 'checked' : ''} onchange="tmWhiteboardToggleShowDone(this.checked)">
-                                    <span>已完成</span>
-                                </label>
+                                <div class="tm-whiteboard-sidebar-title-wrap">
+                                    ${compactSidebarToggleHtml}
+                                    <div class="tm-whiteboard-sidebar-title">任务池</div>
+                                </div>
+                                <div class="tm-whiteboard-sidebar-actions">
+                                    <label class="tm-whiteboard-sidebar-switch" title="显示已完成任务">
+                                        <input type="checkbox" ${showDoneTasks ? 'checked' : ''} onchange="tmWhiteboardToggleShowDone(this.checked)">
+                                        <span>已完成</span>
+                                    </label>
+                                    <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-search-toggle${whiteboardPoolSearchOpen ? ' tm-whiteboard-pool-search-toggle--active' : ''}" onclick="tmWhiteboardTogglePoolSearch(event)" aria-pressed="${whiteboardPoolSearchOpen ? 'true' : 'false'}"${__tmBuildTooltipAttrs(whiteboardPoolSearchOpen ? '关闭搜索' : '搜索任务池', { side: 'bottom' })}>${__tmPhosphorBoldSvg('magnifying-glass', { size: 15, className: 'tm-whiteboard-pool-search-toggle__icon' })}</button>
+                                </div>
                             </div>
-                            ${poolHtml || `<div style="color:var(--tm-secondary-text);font-size:12px;">当前没有可拖出的任务</div>`}
+                            ${poolSearchBarHtml}
+                            <div id="tmWhiteboardPoolContent">${poolContentHtml}</div>
                         </aside>
                         <div class="tm-whiteboard-sidebar-resizer" onmousedown="tmStartWhiteboardSidebarResize(event)" title="拖拽调整侧栏宽度"></div>
                         <div class="tm-whiteboard-main">
                             <button class="tm-btn tm-btn-info tm-whiteboard-sidebar-toggle" onclick="tmWhiteboardToggleSidebar(event)" title="${sidebarToggleLabel}">${sidebarToggleGlyph}</button>
-                            <div id="tmWhiteboardViewport" class="tm-whiteboard-viewport${viewportPanClass}" onpointerdown="tmWhiteboardViewportMouseDown(event)" onclick="tmWhiteboardBoardClick(event)" ondblclick="tmWhiteboardBoardDblClick(event)" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event)">
+                            <div id="tmWhiteboardViewport" class="tm-whiteboard-viewport${viewportPanClass}" onpointerdown="tmWhiteboardViewportMouseDown(event)" oncontextmenu="return tmWhiteboardViewportContextMenu(event)" onclick="tmWhiteboardBoardClick(event)" ondblclick="tmWhiteboardBoardDblClick(event)" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event)">
                                 <div id="tmWhiteboardWorld" class="tm-whiteboard-world" style="transform:translate(${view.x}px, ${view.y}px) scale(${view.zoom});">
                                     <div class="tm-whiteboard tm-kanban--clean${isKanbanCompact ? ' tm-kanban--compact' : ''}">
                                         ${docsHtml || `<div style="padding:18px;color:var(--tm-secondary-text);">暂无任务可用于白板视图</div>`}
@@ -1482,7 +1667,7 @@
                                     ${renderWhiteboardToolbarButton({ label: '便利贴模式', icon: 'note-pencil', onclick: "tmWhiteboardSetTool('sticky')", active: whiteboardTool === 'sticky', pressed: whiteboardTool === 'sticky' })}
                                     ${renderWhiteboardToolbarButton({ label: '缩小画布', icon: 'minus', onclick: 'tmWhiteboardZoomOut()' })}
                                     ${renderWhiteboardToolbarButton({ label: '放大画布', icon: 'plus', onclick: 'tmWhiteboardZoomIn()' })}
-                                    ${renderWhiteboardToolbarButton({ label: whiteboardPluginFullscreen ? '退出插件全屏' : '插件内全屏', icon: whiteboardPluginFullscreen ? 'corners-in' : 'corners-out', onclick: 'tmWhiteboardTogglePluginFullscreen(event)', active: whiteboardPluginFullscreen, pressed: whiteboardPluginFullscreen })}
+                                    ${renderWhiteboardToolbarButton({ label: whiteboardPluginFullscreen ? '退出全屏' : '全屏', icon: whiteboardPluginFullscreen ? 'corners-in' : 'corners-out', onclick: 'tmWhiteboardTogglePluginFullscreen(event)', active: whiteboardPluginFullscreen, pressed: whiteboardPluginFullscreen })}
                                     ${renderWhiteboardToolbarButton({ label: '重置视图', icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView()' })}
                                     ${renderWhiteboardToolbarButton({ label: '清空手动连线', icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks()' })}
                                 </div>

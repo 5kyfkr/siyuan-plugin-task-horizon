@@ -484,6 +484,58 @@ if (shouldMarkDirty) {
         return false;
     }
 
+    function __tmReadCurrentViewMode() {
+        try {
+            return globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+        } catch (e) {}
+        return String(state.viewMode || '').trim();
+    }
+
+    function __tmScheduleCalendarDefaultViewForCurrentHost(reason) {
+        try {
+            const currentMode = String(__tmReadCurrentViewMode() || '').trim();
+            if (currentMode !== 'calendar') {
+                return false;
+            }
+            const api = globalThis.__tmCalendar;
+            if (!api || typeof api.scheduleDefaultViewForCurrentHost !== 'function') {
+                return false;
+            }
+            const scheduled = api.scheduleDefaultViewForCurrentHost({
+                reason: String(reason || 'host-switch').trim() || 'host-switch',
+            }) === true;
+            return scheduled;
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmGetExpectedManagerRenderMode() {
+        try {
+            if (state.attachmentLibraryOpen) return 'attachments';
+            if (state.homepageOpen) return 'home';
+            return String(state.viewMode || 'list').trim() || 'list';
+        } catch (e) {}
+        return 'list';
+    }
+
+    function __tmReadManagerModalRenderMode(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : null;
+        if (!modal) return '';
+        try {
+            const explicit = String(modal.getAttribute?.('data-tm-render-mode') || '').trim();
+            if (explicit) return explicit;
+        } catch (e) {}
+        try {
+            if (modal.querySelector?.('.tm-body.tm-body--list')) return 'list';
+            if (modal.querySelector?.('.tm-body.tm-body--checklist')) return 'checklist';
+            if (modal.querySelector?.('.tm-body.tm-body--timeline')) return 'timeline';
+            if (modal.querySelector?.('.tm-body.tm-body--kanban')) return 'kanban';
+            if (modal.querySelector?.('.tm-body.tm-body--calendar')) return 'calendar';
+            if (modal.querySelector?.('.tm-body.tm-body--whiteboard')) return 'whiteboard';
+        } catch (e) {}
+        return '';
+    }
+
     async function openManager(options) {
         const token = globalThis.__tmRuntimeState?.nextOpenToken?.() ?? (() => {
             state.openToken = (Number(state.openToken) || 0) + 1;
@@ -519,31 +571,51 @@ if (shouldMarkDirty) {
             ensureDesktopTab: shouldEnsureDesktopTab ? 1 : 0,
         });
         await __tmEnsureSettingsLoaded();
+        let forceRenderForHostHandoff = false;
         try {
             const allow = new Set(['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard']);
             const isMobileDevice = __tmIsMobileDevice();
             const preserve = !!(options && options.preserveViewMode);
             const current = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
-            if (preserve && state.viewModeInitialized === true && allow.has(current)) {
-                state.viewMode = __tmGetSafeViewMode(current);
+            const preserveByHostHandoff = state.__tmPreserveViewModeOnNextOpen === true;
+            forceRenderForHostHandoff = preserveByHostHandoff;
+            const hasLiveManagerView = state.viewModeInitialized === true
+                || !!(state.modal && document.body.contains(state.modal))
+                || preserveByHostHandoff;
+            let nextViewMode = '';
+            if (preserve && hasLiveManagerView && allow.has(current)) {
+                nextViewMode = __tmGetSafeViewMode(current);
             } else {
-                state.viewMode = __tmGetConfiguredDefaultViewMode(isMobileDevice);
+                nextViewMode = __tmGetConfiguredDefaultViewMode(isMobileDevice);
             }
+            state.viewMode = nextViewMode;
             state.viewModeInitialized = true;
+            state.__tmPreserveViewModeOnNextOpen = false;
         } catch (e) {
+            try { state.__tmPreserveViewModeOnNextOpen = false; } catch (e2) {}
             state.viewMode = 'list';
             state.viewModeInitialized = true;
         }
 
         // 仅在必要时重渲染，避免页签切换返回时闪烁和滚动位置丢失
         try {
-            try { __tmTryReattachExistingModalToMount(__tmMountEl || document.body); } catch (e) {}
+            if (!forceRenderForHostHandoff) {
+                try { __tmTryReattachExistingModalToMount(__tmMountEl || document.body); } catch (e) {}
+            }
             const modalEl = state.modal;
             const currentMount = __tmMountEl || document.body;
             try { __tmPruneMountedManagerShells(currentMount, modalEl instanceof HTMLElement ? modalEl : null); } catch (e) {}
             const mounted = !!(modalEl && modalEl instanceof HTMLElement && document.body.contains(modalEl));
             const inCurrentMount = !!(currentMount && modalEl && modalEl.parentElement === currentMount);
-            reusedExistingModal = mounted && inCurrentMount;
+            reusedExistingModal = !forceRenderForHostHandoff && mounted && inCurrentMount;
+            const renderedMode = __tmReadManagerModalRenderMode(modalEl);
+            const expectedRenderMode = __tmGetExpectedManagerRenderMode();
+            if (reusedExistingModal && renderedMode && expectedRenderMode && renderedMode !== expectedRenderMode) {
+                reusedExistingModal = false;
+            }
+            if (reusedExistingModal) {
+                try { __tmScheduleCalendarDefaultViewForCurrentHost('open-manager-reuse-host'); } catch (e) {}
+            }
             if (!reusedExistingModal) {
                 try { render(); } catch (e) {
                     console.error('[OpenManager] Render failed:', e);
@@ -743,7 +815,9 @@ if (shouldMarkDirty) {
         }
         try {
             state.activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-            await __tmApplyCurrentContextViewProfile();
+            await __tmApplyCurrentContextViewProfile({
+                applyDefaultViewMode: !forceRenderForHostHandoff,
+            });
         } catch (e) {}
         __tmPerfTraceMark(perfTrace, 'open:load-dispatched', {
             viewMode: globalThis.__tmRuntimeState?.getViewMode?.('list') || String(state.viewMode || '').trim() || 'list',
@@ -806,6 +880,8 @@ if (shouldMarkDirty) {
 
     // 插件卸载清理
     function __tmCleanup() {
+        try { __tmMarkRuntimeCleanupRequested?.(); } catch (e) {}
+        try { __tmCancelBackgroundStorageTimers?.(); } catch (e) {}
         try { globalThis.__tmHomepage?.unmount?.(); } catch (e) {}
         try {
             if (__tmModalStackEscHandler) {
@@ -1017,6 +1093,181 @@ if (shouldMarkDirty) {
         } catch (e) {}
         try { __tmClearTimelineTodayIndicatorTimer(); } catch (e) {}
         try { __tmSetInlineLoading(false); } catch (e) {}
+        try {
+            if (__tmHomepageRefreshTimer) {
+                clearTimeout(__tmHomepageRefreshTimer);
+                __tmHomepageRefreshTimer = 0;
+            }
+        } catch (e) {}
+        try {
+            if (__tmQuickbarScheduledRefreshTimer) {
+                clearTimeout(__tmQuickbarScheduledRefreshTimer);
+                __tmQuickbarScheduledRefreshTimer = 0;
+            }
+        } catch (e) {}
+        try {
+            [
+                'floatingTooltipGuardTimer',
+                'floatingTooltipHideTimer',
+                'mobileViewportRefreshTimer',
+                'uiInlineLoadingTimer',
+                '__tmSilentCacheVerifyTimer',
+                'searchBarLiveSearchTimer',
+                'viewRefreshTimer',
+                'listAutoLoadMoreHydrateTimer',
+                'scrollDeferredRefreshTimer',
+                '__docTopbarSelectSyncTimer',
+                'mobileBottomViewbarSwitchingTimer',
+                'mobileBottomViewbarTimer',
+                'mobileBottomViewSwitchTimer',
+                'mobileMenuCloseTimer',
+                '__tmKanbanDateProjectionRefreshTimer',
+                'whiteboardNoteClickTimer',
+                'whiteboardPoolSearchRenderTimer',
+                'settingsSearchHighlightTimer',
+                '__tmChecklistProjectionRefreshTimer',
+                'busyDetailViewRefreshTimer',
+                'listProjectionRefreshTimer',
+                '__tmChecklistOptimisticSubtaskFlushTimer',
+                'desktopMenuCloseTimer',
+                'ganttContextMenuCloseBindTimer',
+                'docTabLongPressTimer',
+                'docTabsAutoHideHoverTimer',
+                'allDocTabLongPressTimer',
+                'topbarManagerIconLongPressTimer',
+            ].forEach((key) => {
+                try {
+                    const timer = state?.[key];
+                    if (timer) clearTimeout(timer);
+                    if (state) state[key] = 0;
+                } catch (e2) {}
+            });
+            [
+                '__tmCollapseRafId',
+                'tableResponsiveResizeRaf',
+                '__tmKanbanMomentumRaf',
+                'whiteboardEdgeRafId',
+                'whiteboardNavigatorRafId',
+            ].forEach((key) => {
+                try {
+                    const rafId = Number(state?.[key]) || 0;
+                    if (rafId) cancelAnimationFrame(rafId);
+                    if (state) state[key] = 0;
+                } catch (e2) {}
+            });
+            [
+                'topbarOverflowTooltipResizeObserver',
+                'tableResponsiveResizeObserver',
+            ].forEach((key) => {
+                try {
+                    state?.[key]?.disconnect?.();
+                    if (state) state[key] = null;
+                } catch (e2) {}
+            });
+            if (state) {
+                state.viewRefreshPending = null;
+                state.busyDetailViewRefreshPending = null;
+                state.listProjectionRefreshPending = null;
+                state.__tmChecklistProjectionRefreshPending = null;
+                state.__tmKanbanDateProjectionRefreshPending = null;
+                state.__tmChecklistOptimisticSubtaskRefreshPending = null;
+                state.__tmChecklistOptimisticSubtaskRefreshQueued = false;
+                state.__tmSilentCacheVerifyInFlight = false;
+            }
+        } catch (e) {}
+        try {
+            const roots = [
+                state.modal,
+                state.settingsModal,
+                state.rulesModal,
+                state.priorityModal,
+                state.semanticDateConfirmModal,
+            ].filter((root) => root instanceof Element);
+            const observerKeys = [
+                '__tmKanbanBottomNavAvoidanceResizeObserver',
+                '__tmChecklistScrollResizeObserver',
+                '__tmTableScrollResizeObserver',
+                '__tmDocTabsOverflowResizeObserver',
+                '__tmWhiteboardNavigatorResizeObserver',
+            ];
+            const timerKeys = [
+                '__tmKanbanBottomNavAvoidanceRecheckTimer',
+                '__tmKanbanSnapSettleTimer',
+                '__tmKanbanWheelResetTimer',
+                '__tmKanbanStartupDeferredTimer',
+                '__tmKanbanBoardNavStartupDeferredTimer',
+                '__tmChecklistScrollFxTimer',
+                '__tmChecklistScrollStateTimer',
+                '__tmTableScrollFxTimer',
+                '__tmTableScrollStateTimer',
+                '__tmActiveTimer',
+                '__tmDeferredCellEditTimer',
+            ];
+            const rafKeys = [
+                '__tmKanbanBottomNavAvoidanceRaf',
+                '__tmKanbanSnapAnimRaf',
+                '__tmKanbanScrollLeftRaf',
+                '__tmKanbanBoardNavSyncRaf',
+                '__tmChecklistScrollFxRaf',
+                '__tmTableScrollFxRaf',
+                '__tmMobileTimelineGroupShiftRaf',
+            ];
+            const listenerKeys = [
+                ['__tmAutoLoadMoreScrollHandler', 'scroll'],
+                ['__tmDocTabScrollHandler', 'scroll'],
+                ['__tmDocTabVerticalWheelHandler', 'wheel'],
+                ['__tmDocTabWheelHandler', 'wheel'],
+                ['__tmBottomViewbarWheelHandler', 'wheel'],
+                ['__tmHorizontalWheelHandler', 'wheel'],
+                ['__tmVerticalWheelHandler', 'wheel'],
+            ];
+            const cleanupNode = (node) => {
+                if (!(node instanceof Element)) return;
+                observerKeys.forEach((key) => {
+                    try {
+                        node[key]?.disconnect?.();
+                        node[key] = null;
+                    } catch (e2) {}
+                });
+                timerKeys.forEach((key) => {
+                    try {
+                        const timer = node[key];
+                        if (timer) clearTimeout(timer);
+                        node[key] = 0;
+                    } catch (e2) {}
+                });
+                try {
+                    const bootTimer = node.__tmKanbanBootTimer;
+                    if (bootTimer) {
+                        if (String(node.__tmKanbanBootTimerType || '') === 'idle' && typeof cancelIdleCallback === 'function') {
+                            cancelIdleCallback(bootTimer);
+                        } else {
+                            clearTimeout(bootTimer);
+                        }
+                    }
+                    node.__tmKanbanBootTimer = 0;
+                    node.__tmKanbanBootTimerType = '';
+                } catch (e2) {}
+                rafKeys.forEach((key) => {
+                    try {
+                        const rafId = Number(node[key]) || 0;
+                        if (rafId) cancelAnimationFrame(rafId);
+                        node[key] = 0;
+                    } catch (e2) {}
+                });
+                listenerKeys.forEach(([key, eventName]) => {
+                    try {
+                        const handler = node[key];
+                        if (typeof handler === 'function') node.removeEventListener(eventName, handler);
+                        node[key] = null;
+                    } catch (e2) {}
+                });
+            };
+            roots.forEach((root) => {
+                cleanupNode(root);
+                try { root.querySelectorAll?.('*')?.forEach?.(cleanupNode); } catch (e2) {}
+            });
+        } catch (e) {}
         try {
             if (__tmTomatoAssociationHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:association-cleared', __tmTomatoAssociationHandler);
@@ -1512,9 +1763,17 @@ if (shouldMarkDirty) {
             if (el instanceof Element) __tmClearKeepaliveSnapshots(el);
         } catch (e) {}
         __tmSetMount(el);
-        const reusedModal = (() => {
+        const forceRenderForHostHandoff = state.__tmPreserveViewModeOnNextOpen === true;
+        let reusedModal = (() => {
+            if (forceRenderForHostHandoff) return false;
             try { return __tmTryReattachExistingModalToMount(el); } catch (e) { return false; }
         })();
+        const liveModalForReuseCheck = globalThis.__tmRuntimeState?.getModal?.() || state.modal;
+        const renderedModeForReuse = __tmReadManagerModalRenderMode(liveModalForReuseCheck);
+        const expectedModeForReuse = __tmGetExpectedManagerRenderMode();
+        if (reusedModal && renderedModeForReuse && expectedModeForReuse && renderedModeForReuse !== expectedModeForReuse) {
+            reusedModal = false;
+        }
         if (reusedModal) {
             try {
                 const liveModal = globalThis.__tmRuntimeState?.getModal?.() || state.modal;
@@ -1523,6 +1782,7 @@ if (shouldMarkDirty) {
                     try { __tmScheduleTodayScheduledTaskNameMarksRefresh(liveModal, true); } catch (e) {}
                 }
             } catch (e) {}
+            try { __tmScheduleCalendarDefaultViewForCurrentHost('task-horizon-mount-reattach'); } catch (e) {}
             return;
         }
         openManager({ skipEnsureTabOpened: true, preserveViewMode: true }).catch((e) => {

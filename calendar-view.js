@@ -396,6 +396,9 @@
         deviceScheduleAbort: null,
         isMobileDevice: false,
         isDockHost: false,
+        mainCalendarHostSignature: '',
+        mainCalendarDefaultViewSyncRaf: 0,
+        mainCalendarDefaultViewSyncSeq: 0,
         sidebarOpen: false,
         mobileDragCloseTimer: null,
         sidebarColorMenuCloseHandler: null,
@@ -2770,6 +2773,63 @@
         if (!(today instanceof Date)) return base;
         if (formatDateKey(base) !== formatDateKey(today)) return base;
         return getAligned3DayTodayStart(settings) || base;
+    }
+
+    function readMainCalendarHostMeta(rootEl, datasetKey, attrName, includeClosest = false) {
+        const read = (el) => {
+            try {
+                if (!(el instanceof Element)) return '';
+                const fromDataset = String(el.dataset?.[datasetKey] || '').trim();
+                if (fromDataset) return fromDataset;
+                return String(el.getAttribute?.(attrName) || '').trim();
+            } catch (e) {
+                return '';
+            }
+        };
+        const local = read(rootEl);
+        if (local) return local;
+        if (includeClosest) {
+            try {
+                const closest = rootEl instanceof Element ? rootEl.closest?.(`[${attrName}]`) : null;
+                const fromClosest = read(closest);
+                if (fromClosest) return fromClosest;
+            } catch (e) {}
+        }
+        try {
+            return read(document.body);
+        } catch (e) {}
+        return '';
+    }
+
+    function getMainCalendarHostDefaultMeta(rootEl = null, fallback = {}) {
+        const root = rootEl instanceof Element ? rootEl : (state.rootEl instanceof Element ? state.rootEl : state.calendarEl);
+        const hostMode = readMainCalendarHostMeta(root, 'tmHostMode', 'data-tm-host-mode', true);
+        const uiMode = readMainCalendarHostMeta(root, 'tmUiMode', 'data-tm-ui-mode', true);
+        const isDockHost = hostMode ? hostMode === 'dock' : fallback.isDockHost === true;
+        const isMobileDevice = uiMode
+            ? uiMode === 'mobile'
+            : (fallback.isMobileDevice === true || !!globalThis.__taskHorizonPluginIsMobile || isLikelyMobileRuntime());
+        const defaultScope = (isMobileDevice || isDockHost) ? 'mobile-dock' : 'desktop-tab';
+        const hostKey = isDockHost ? 'dock' : (isMobileDevice ? 'mobile' : 'tab');
+        return {
+            isMobileDevice: !!isMobileDevice,
+            isDockHost: !!isDockHost,
+            defaultScope,
+            hostSignature: `${defaultScope}:${hostKey}`,
+        };
+    }
+
+    function getMainCalendarDefaultViewForHost(settings, meta) {
+        const s = settings || getSettings();
+        return String(meta?.defaultScope || '').trim() === 'mobile-dock'
+            ? normalizeMainCalendarViewType(s.initialViewMobile, 'timeGridDay')
+            : normalizeMainCalendarViewType(s.initialViewDesktop, 'timeGridWeek');
+    }
+
+    function resolveMainCalendarDefaultAnchorDate(viewType, settings) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return resolveMainCalendarAnchorDate(today, viewType, settings || getSettings()) || today;
     }
 
     function realignMainCalendar3DayTodayRange(calendar, settings) {
@@ -21082,6 +21142,150 @@
         }
     }
 
+    function logMainCalendarHostDefault(event, detail = {}) {}
+
+    function applyMainCalendarDefaultViewForCurrentHost(options = {}) {
+        const calendar = state.calendar;
+        if (!calendar) {
+            logMainCalendarHostDefault('calendar-host-default:apply-skip-no-calendar', {
+                reason: String(options?.reason || '').trim(),
+            });
+            return false;
+        }
+        const meta = getMainCalendarHostDefaultMeta(state.rootEl || state.calendarEl, {
+            isMobileDevice: state.isMobileDevice,
+            isDockHost: state.isDockHost,
+        });
+        const nextSignature = String(meta.hostSignature || '').trim();
+        const prevSignature = String(state.mainCalendarHostSignature || '').trim();
+        if (options?.force !== true && nextSignature && prevSignature === nextSignature) {
+            logMainCalendarHostDefault('calendar-host-default:apply-skip-same-host', {
+                reason: String(options?.reason || '').trim(),
+                prevSignature,
+                nextSignature,
+                currentCalendarView: String(calendar?.view?.type || '').trim(),
+            });
+            return false;
+        }
+
+        const settings = getSettings();
+        const nextView = getMainCalendarDefaultViewForHost(settings, meta);
+        const targetDate = resolveMainCalendarDefaultAnchorDate(nextView, settings);
+        if (!MAIN_CALENDAR_ALLOWED_VIEWS.has(nextView) || !(targetDate instanceof Date)) {
+            logMainCalendarHostDefault('calendar-host-default:apply-skip-invalid-target', {
+                reason: String(options?.reason || '').trim(),
+                prevSignature,
+                nextSignature,
+                nextView,
+            });
+            return false;
+        }
+
+        state.isMobileDevice = !!meta.isMobileDevice;
+        state.isDockHost = !!meta.isDockHost;
+        state.mainCalendarHostSignature = nextSignature;
+        logMainCalendarHostDefault('calendar-host-default:apply-start', {
+            reason: String(options?.reason || '').trim(),
+            prevSignature,
+            nextSignature,
+            nextView,
+            targetDate: formatDateKey(targetDate),
+            currentCalendarView: String(calendar?.view?.type || '').trim(),
+            currentCalendarDate: formatDateKey(calendar?.getDate?.()),
+        });
+
+        try {
+            const currentView = String(calendar?.view?.type || '').trim();
+            const currentDate = normalizeDateOnly(calendar?.getDate?.());
+            if (currentView === nextView
+                && currentDate instanceof Date
+                && formatDateKey(currentDate) === formatDateKey(targetDate)) {
+                state._lastViewType = nextView;
+                logMainCalendarHostDefault('calendar-host-default:apply-skip-already-target', {
+                    reason: String(options?.reason || '').trim(),
+                    nextSignature,
+                    nextView,
+                    targetDate: formatDateKey(targetDate),
+                });
+                return false;
+            }
+        } catch (e) {}
+
+        try { clearTimeGridAutoCenterState('main'); } catch (e) {}
+        try {
+            seedMainCalendarCurrentTimeScrollTime(calendar, state.calendarEl, settings, {
+                viewType: nextView,
+                targetDate,
+                reason: String(options?.reason || 'host-default-view').trim() || 'host-default-view',
+            });
+        } catch (e) {}
+        try {
+            if (state.calendarAdapter?.changeView?.(nextView, targetDate) !== true) calendar.changeView(nextView, targetDate);
+            state._lastViewType = nextView;
+            logMainCalendarHostDefault('calendar-host-default:apply-commit', {
+                reason: String(options?.reason || '').trim(),
+                nextSignature,
+                nextView,
+                targetDate: formatDateKey(targetDate),
+            });
+            return true;
+        } catch (e) {}
+        logMainCalendarHostDefault('calendar-host-default:apply-error', {
+            reason: String(options?.reason || '').trim(),
+            nextSignature,
+            nextView,
+        });
+        return false;
+    }
+
+    function scheduleDefaultViewForCurrentHost(options = {}) {
+        if (!state.calendar) {
+            logMainCalendarHostDefault('calendar-host-default:schedule-skip-no-calendar', {
+                reason: String(options?.reason || '').trim(),
+            });
+            return false;
+        }
+        try {
+            const meta = getMainCalendarHostDefaultMeta(state.rootEl || state.calendarEl, {
+                isMobileDevice: state.isMobileDevice,
+                isDockHost: state.isDockHost,
+            });
+            const nextSignature = String(meta.hostSignature || '').trim();
+            const prevSignature = String(state.mainCalendarHostSignature || '').trim();
+            if (options?.force !== true && nextSignature && prevSignature === nextSignature) {
+                logMainCalendarHostDefault('calendar-host-default:schedule-skip-same-host', {
+                    reason: String(options?.reason || '').trim(),
+                    prevSignature,
+                    nextSignature,
+                    currentCalendarView: String(state.calendar?.view?.type || '').trim(),
+                });
+                return false;
+            }
+            logMainCalendarHostDefault('calendar-host-default:schedule-start', {
+                reason: String(options?.reason || '').trim(),
+                prevSignature,
+                nextSignature,
+                currentCalendarView: String(state.calendar?.view?.type || '').trim(),
+            });
+        } catch (e) {}
+        const seq = ++state.mainCalendarDefaultViewSyncSeq;
+        if (state.mainCalendarDefaultViewSyncRaf) {
+            try { cancelAnimationFrame(state.mainCalendarDefaultViewSyncRaf); } catch (e) {}
+            state.mainCalendarDefaultViewSyncRaf = 0;
+        }
+        const run = () => {
+            state.mainCalendarDefaultViewSyncRaf = 0;
+            if (seq !== state.mainCalendarDefaultViewSyncSeq) return;
+            try { applyMainCalendarDefaultViewForCurrentHost(options); } catch (e) {}
+        };
+        try {
+            state.mainCalendarDefaultViewSyncRaf = requestAnimationFrame(run);
+        } catch (e) {
+            try { Promise.resolve().then(run).catch(() => null); } catch (e2) {}
+        }
+        return true;
+    }
+
     function refreshInPlace(options) {
         const opt = (options && typeof options === 'object') ? options : {};
         const wrap = state.wrapEl;
@@ -21252,7 +21456,9 @@
     function mount(rootEl, opts) {
         if (!rootEl || !(rootEl instanceof Element)) return false;
         if (!globalThis.FullCalendar || !globalThis.FullCalendar.Calendar) return false;
-        unmount();
+        const prevRootEl = state.rootEl instanceof HTMLElement ? state.rootEl : null;
+        unmount({ preserveRootHtml: !!(prevRootEl && prevRootEl !== rootEl) });
+        try { rootEl.innerHTML = ''; } catch (e) {}
 
         try { ensureFcCompactAllDayStyle(); } catch (e) {}
         state.mounted = true;
@@ -21432,13 +21638,27 @@
                 ...(detail && typeof detail === 'object' ? detail : {}),
             });
         };
+        const hostDefaultMeta = getMainCalendarHostDefaultMeta(rootEl, { isMobileDevice, isDockHost });
+        const previousHostSignature = String(state.mainCalendarHostSignature || '').trim();
+        const currentHostSignature = String(hostDefaultMeta.hostSignature || '').trim();
+        const shouldUseHostDefaultInitialView = state.opts?.resetToHostDefault === true
+            || !!(previousHostSignature && currentHostSignature && previousHostSignature !== currentHostSignature);
         const preferredInitialView = (() => {
             const sessionView = String(state._lastViewType || '').trim();
-            if (sessionView && MAIN_CALENDAR_ALLOWED_VIEWS.has(sessionView)) return sessionView;
-            return (isMobileDevice || isDockHost)
-                ? normalizeMainCalendarViewType(s.initialViewMobile, 'timeGridDay')
-                : normalizeMainCalendarViewType(s.initialViewDesktop, 'timeGridWeek');
+            if (!shouldUseHostDefaultInitialView && sessionView && MAIN_CALENDAR_ALLOWED_VIEWS.has(sessionView)) return sessionView;
+            return getMainCalendarDefaultViewForHost(s, hostDefaultMeta);
         })();
+        state.mainCalendarHostSignature = currentHostSignature;
+        logMainCalendarHostDefault('calendar-mount:initial-view', {
+            previousHostSignature,
+            currentHostSignature,
+            shouldUseHostDefaultInitialView,
+            lastViewType: String(state._lastViewType || '').trim(),
+            preferredInitialView,
+            isMobileDevice: !!isMobileDevice,
+            isDockHost: !!isDockHost,
+            resetToHostDefault: state.opts?.resetToHostDefault === true,
+        });
         const preferredInitialDate = (() => {
             const explicit = parseDateOnly(state.opts?.date || state.opts?.initialDate);
             if (explicit) return resolveMainCalendarAnchorDate(explicit, preferredInitialView, s) || explicit;
@@ -22879,9 +23099,17 @@
         return true;
     }
 
-    function unmount() {
+    function unmount(options = {}) {
         closeModal();
         try { clearTimeGridAutoCenterState('main'); } catch (e) {}
+        const preserveRootHtml = options?.preserveRootHtml === true;
+        const preservedRootEl = preserveRootHtml && state.rootEl instanceof HTMLElement ? state.rootEl : null;
+        let preservedRootHtml = '';
+        if (state.mainCalendarDefaultViewSyncRaf) {
+            try { cancelAnimationFrame(state.mainCalendarDefaultViewSyncRaf); } catch (e) {}
+            state.mainCalendarDefaultViewSyncRaf = 0;
+        }
+        state.mainCalendarDefaultViewSyncSeq = (Number(state.mainCalendarDefaultViewSyncSeq) || 0) + 1;
         if (state.rootEl instanceof HTMLElement) {
             try { state.rootEl.classList.remove('tm-calendar-root--month-view'); } catch (e) {}
             try { state.rootEl.classList.remove('tm-calendar-root--month-fit'); } catch (e) {}
@@ -23005,6 +23233,9 @@
             try { clearTimeout(state.tomatoRefetchTimer); } catch (e) {}
             state.tomatoRefetchTimer = null;
         }
+        if (preservedRootEl) {
+            try { preservedRootHtml = preservedRootEl.innerHTML || ''; } catch (e) { preservedRootHtml = ''; }
+        }
         if (state.calendarAdapter) {
             try { state.calendarAdapter.destroy(); } catch (e) {}
         } else if (state.calendar) {
@@ -23048,7 +23279,9 @@
             state.sidebarColorMenuCloseHandler = null;
         }
         if (state.rootEl) {
-            try { state.rootEl.innerHTML = ''; } catch (e) {}
+            try {
+                state.rootEl.innerHTML = (preservedRootEl === state.rootEl && preservedRootHtml) ? preservedRootHtml : '';
+            } catch (e) {}
         }
         state.mounted = false;
         state.rootEl = null;
@@ -24086,6 +24319,7 @@
         setScheduleAllDayBottomById,
         reassignScheduleLinkedTask,
         setSettingsStore,
+        scheduleDefaultViewForCurrentHost,
         requestRefresh: scheduleCalendarRefresh,
         refreshInPlace,
         syncTaskDatePatchInPlace,

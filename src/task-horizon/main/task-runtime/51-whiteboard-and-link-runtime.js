@@ -5553,6 +5553,140 @@ return false;
         return true;
     }
 
+    const __TM_TASK_CARD_META_CHIP_PATCH_KEYS = Object.freeze([
+        'priority',
+        'customStatus',
+        'done',
+        'startDate',
+        'completionTime',
+        'duration',
+        'customTime',
+        'tomatoEstimateCount',
+        'tomatoCount',
+        'tomatoMinutes',
+        'tomatoHours',
+    ]);
+
+    function __tmDoesPatchAffectTaskCardMetaChips(patch = {}) {
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        return __TM_TASK_CARD_META_CHIP_PATCH_KEYS.some((key) => Object.prototype.hasOwnProperty.call(nextPatch, key));
+    }
+
+    function __tmIsManagedTaskCardMetaChip(node) {
+        if (!(node instanceof HTMLElement)) return false;
+        if (node.classList.contains('tm-kanban-priority-chip')) return true;
+        if (node.classList.contains('tm-status-tag')) return true;
+        const field = String(node.getAttribute('data-tm-task-time-field') || '').trim();
+        return field === 'date'
+            || field === 'tomatoSummary'
+            || field === 'tomatoEstimateCount'
+            || field === 'tomatoCount';
+    }
+
+    function __tmBuildTaskCardManagedMetaChipsHtml(task, view, rootEl = null) {
+        const taskLike = (task && typeof task === 'object') ? task : {};
+        const viewKey = String(view || '').trim() === 'whiteboard' ? 'whiteboard' : 'kanban';
+        const root = rootEl instanceof HTMLElement ? rootEl : null;
+        const tid = String(taskLike.id || taskLike.blockId || root?.getAttribute?.('data-id') || root?.getAttribute?.('data-task-id') || '').trim();
+        const editableWhiteboard = viewKey !== 'whiteboard'
+            || !(root?.classList?.contains?.('tm-whiteboard-card--ghost') || taskLike.__tmGhost);
+        const metaParts = [];
+
+        if (__tmTaskCardFieldEnabled(viewKey, 'priority') && __tmShouldRenderTaskCardPriority(taskLike)) {
+            const style = __tmBuildPriorityChipStyle(taskLike?.priority);
+            if (viewKey === 'whiteboard') {
+                metaParts.push(`<span class="tm-kanban-priority-chip" style="${style};cursor:${editableWhiteboard ? 'pointer' : 'default'};" ${editableWhiteboard ? `onclick="tmWhiteboardEditPriority('${escSq(tid)}', this, event)"` : ''}>${__tmRenderPriorityJira(taskLike?.priority, false)}</span>`);
+            } else {
+                metaParts.push(`<span class="tm-kanban-priority-chip" style="${style}" onclick="tmPickPriority('${escSq(tid)}', this, event)">${__tmRenderPriorityJira(taskLike?.priority, false)}</span>`);
+            }
+        }
+
+        if (__tmTaskCardFieldEnabled(viewKey, 'status') && __tmShouldRenderTaskCardStatus(taskLike)) {
+            const opt = __tmResolveTaskStatusDisplayOption(taskLike, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
+                fallbackColor: taskLike?.done ? '#9e9e9e' : '#757575',
+                fallbackName: taskLike?.done ? '完成' : '待办',
+            });
+            const style = __tmBuildStatusChipStyle(opt.color || '#757575');
+            const label = esc(String(opt.name || opt.id || (taskLike?.done ? '完成' : '')).trim());
+            if (taskLike?.done) {
+                metaParts.push(`<span class="tm-status-tag" style="${style};cursor:default;">${label || esc('完成')}</span>`);
+            } else if (viewKey === 'whiteboard') {
+                metaParts.push(`<span class="tm-status-tag" style="${style};cursor:${editableWhiteboard ? 'pointer' : 'default'};" ${editableWhiteboard ? `onclick="tmWhiteboardEditStatus('${escSq(tid)}', this, event)"` : ''}>${label}</span>`);
+            } else {
+                metaParts.push(`<span class="tm-status-tag" style="${style}" onclick="tmKanbanOpenStatusSelect('${escSq(tid)}', this, event)">${label}</span>`);
+            }
+        }
+
+        if (__tmTaskCardFieldEnabled(viewKey, 'date') && __tmShouldRenderTaskCardDate(taskLike)) {
+            const dateValue = __tmGetTaskCardDateValue(taskLike);
+            const dateText = dateValue ? __tmFormatTaskCardDateValue(taskLike) : '';
+            const dateChipClass = `${dateValue ? ' tm-kanban-chip--date-has-value' : ' tm-kanban-chip--date-empty'}${__tmIsTaskCardDateOverdue(taskLike) ? ' tm-kanban-chip--date-overdue' : ''}`;
+            if (viewKey === 'whiteboard') {
+                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" style="cursor:${editableWhiteboard ? 'pointer' : 'default'};" ${editableWhiteboard ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableWhiteboard ? '点击选择日期' : ''}">${esc(dateText || '日期')}</span>`);
+            } else {
+                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${escSq(tid)}', event)" title="点击选择日期">${esc(dateText || '日期')}</span>`);
+            }
+        }
+
+        if (__tmTaskCardFieldEnabled(viewKey, 'tomatoSummary')) {
+            const text = __tmGetTaskTomatoSummaryText(taskLike);
+            if (text) {
+                const clickAttr = viewKey === 'whiteboard'
+                    ? (editableWhiteboard ? `onclick="tmEditFocusSummaryInline('${escSq(tid)}', this)"` : '')
+                    : `onclick="tmEditFocusSummaryInline('${escSq(tid)}', this)"`;
+                const styleAttr = viewKey === 'whiteboard' ? ` style="cursor:${editableWhiteboard ? 'pointer' : 'default'};"` : '';
+                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary"${styleAttr} ${clickAttr} title="时长与番茄">${__tmGetTaskTomatoSummaryHtml(taskLike)}</span>`);
+            }
+        }
+        if (__tmTaskCardFieldEnabled(viewKey, 'tomatoEstimateCount')) {
+            const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(taskLike));
+            if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoEstimateCount">${esc(text)}</span>`);
+        }
+        if (__tmTaskCardFieldEnabled(viewKey, 'tomatoCount')) {
+            const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(taskLike));
+            if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoCount">${__tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(taskLike))}</span>`);
+        }
+        return metaParts.join('');
+    }
+
+    function __tmSyncTaskCardMetaChipsInDOM(card, task, view) {
+        const root = card instanceof HTMLElement ? card : null;
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!(root instanceof HTMLElement) || !taskLike) return false;
+        if (!root.classList.contains('tm-kanban-card') && !root.classList.contains('tm-whiteboard-node')) return false;
+        const isSub = root.classList.contains('tm-kanban-card--sub')
+            || root.classList.contains('tm-whiteboard-subcard')
+            || root.classList.contains('tm-whiteboard-node--sub');
+        const metaSelector = isSub
+            ? ':scope > .tm-kanban-subtask-row-main .tm-kanban-subtask-meta'
+            : ':scope > .tm-kanban-card-top .tm-kanban-card-meta';
+        const hostSelector = isSub
+            ? ':scope > .tm-kanban-subtask-row-main .tm-kanban-subtask-text'
+            : ':scope > .tm-kanban-card-top .tm-kanban-card-text';
+        let meta = root.querySelector(metaSelector);
+        const preservedNodes = (meta instanceof HTMLElement)
+            ? Array.from(meta.children || []).filter((node) => node instanceof HTMLElement && !__tmIsManagedTaskCardMetaChip(node))
+            : [];
+        const managedHtml = __tmBuildTaskCardManagedMetaChipsHtml(taskLike, view, root);
+        if (!managedHtml && preservedNodes.length === 0) {
+            if (meta instanceof HTMLElement) meta.remove();
+            return true;
+        }
+        if (!(meta instanceof HTMLElement)) {
+            const host = root.querySelector(hostSelector);
+            if (!(host instanceof HTMLElement)) return false;
+            meta = document.createElement('div');
+            meta.className = isSub ? 'tm-kanban-subtask-meta' : 'tm-kanban-card-meta';
+            host.appendChild(meta);
+        }
+        meta.replaceChildren();
+        if (managedHtml) meta.insertAdjacentHTML('beforeend', managedHtml);
+        preservedNodes.forEach((node) => {
+            try { meta.appendChild(node); } catch (e) {}
+        });
+        return true;
+    }
+
     const __tmViewControllers = {
         list: {
             findRow(taskId) {
@@ -5724,56 +5858,10 @@ return false;
                     if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
                     const title = card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-kanban-card-title-inline');
                     if (title instanceof HTMLElement) title.classList.toggle('tm-task-done', !!task.done);
-                    const chip = card.querySelector(':scope > .tm-kanban-card-meta .tm-status-tag');
-                    const shouldRenderStatus = __tmTaskCardFieldEnabled('kanban', 'status') && __tmShouldRenderTaskCardStatus(task);
-                    if (!(chip instanceof HTMLElement)) {
-                        if (shouldRenderStatus) return false;
-                    } else if (!shouldRenderStatus) {
-                        return false;
-                    } else {
-                        const opt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
-                            fallbackColor: task?.done ? '#9e9e9e' : '#757575',
-                            fallbackName: task?.done ? '完成' : '待办',
-                        });
-                        chip.setAttribute('style', __tmBuildStatusChipStyle(opt.color));
-                        chip.textContent = String(opt.name || opt.id || '').trim();
-                    }
                     touched = true;
                 }
-                if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
-                    const chip = card.querySelector(':scope > .tm-kanban-card-meta .tm-kanban-priority-chip');
-                    const shouldRenderPriority = __tmTaskCardFieldEnabled('kanban', 'priority') && __tmShouldRenderTaskCardPriority(task);
-                    if (!(chip instanceof HTMLElement)) {
-                        if (shouldRenderPriority) return false;
-                    } else if (!shouldRenderPriority) {
-                        return false;
-                    }
-                    if (chip instanceof HTMLElement) {
-                        chip.setAttribute('style', __tmBuildPriorityChipStyle(task?.priority));
-                        chip.innerHTML = __tmRenderPriorityJira(task?.priority, false);
-                        touched = true;
-                    }
-                }
-                if (Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
-                    const chip = card.querySelector(':scope > .tm-kanban-card-meta .tm-status-tag');
-                    const shouldRenderStatus = __tmTaskCardFieldEnabled('kanban', 'status') && __tmShouldRenderTaskCardStatus(task);
-                    if (!(chip instanceof HTMLElement)) {
-                        if (shouldRenderStatus) return false;
-                    } else if (!shouldRenderStatus) {
-                        return false;
-                    }
-                    if (chip instanceof HTMLElement) {
-                        const opt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
-                            fallbackColor: task?.done ? '#9e9e9e' : '#757575',
-                            fallbackName: task?.done ? '完成' : '待办',
-                        });
-                        chip.setAttribute('style', __tmBuildStatusChipStyle(opt.color));
-                        chip.textContent = String(opt.name || opt.id || '').trim();
-                        touched = true;
-                    }
-                }
-                if (Object.prototype.hasOwnProperty.call(patch, 'completionTime') || Object.prototype.hasOwnProperty.call(patch, 'startDate') || Object.prototype.hasOwnProperty.call(patch, 'duration') || Object.prototype.hasOwnProperty.call(patch, 'tomatoEstimateCount') || Object.prototype.hasOwnProperty.call(patch, 'tomatoCount') || Object.prototype.hasOwnProperty.call(patch, 'tomatoMinutes') || Object.prototype.hasOwnProperty.call(patch, 'tomatoHours')) {
-                    touched = !!__tmUpdateKanbanTaskTimeInDOM(tid) || touched;
+                if (__tmDoesPatchAffectTaskCardMetaChips(patch)) {
+                    touched = !!__tmSyncTaskCardMetaChipsInDOM(card, task, 'kanban') || touched;
                 }
                 if (__tmDoesPatchAffectPriorityScore(patch)) {
                     const title = card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-kanban-card-title-inline');
@@ -5809,47 +5897,8 @@ return false;
                         if (title instanceof HTMLElement) title.classList.toggle('tm-task-done', !!task.done);
                         touched = true;
                     }
-                    if (Object.prototype.hasOwnProperty.call(patch, 'done')
-                        || Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
-                        if (node.classList.contains('tm-whiteboard-node')) {
-                            let meta = node.classList.contains('tm-whiteboard-subcard')
-                                ? node.querySelector(':scope > .tm-kanban-subtask-row-main .tm-kanban-subtask-meta')
-                                : node.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-meta');
-                            const chip = meta?.querySelector?.(':scope > .tm-status-tag');
-                            const shouldRenderStatus = __tmTaskCardFieldEnabled('whiteboard', 'status') && __tmShouldRenderTaskCardStatus(task);
-                            if (!(meta instanceof HTMLElement) && shouldRenderStatus) {
-                                const text = node.classList.contains('tm-whiteboard-subcard')
-                                    ? node.querySelector(':scope > .tm-kanban-subtask-row-main .tm-kanban-subtask-text')
-                                    : node.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-text');
-                                if (text instanceof HTMLElement) {
-                                    meta = document.createElement('div');
-                                    meta.className = node.classList.contains('tm-whiteboard-subcard') ? 'tm-kanban-subtask-meta' : 'tm-kanban-card-meta';
-                                    text.appendChild(meta);
-                                }
-                            }
-                            if (chip instanceof HTMLElement && !shouldRenderStatus) {
-                                chip.remove();
-                                touched = true;
-                            } else if (meta instanceof HTMLElement && shouldRenderStatus) {
-                                const opt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
-                                    fallbackColor: task?.done ? '#9e9e9e' : '#757575',
-                                    fallbackName: task?.done ? '完成' : '待办',
-                                });
-                                const targetChip = chip instanceof HTMLElement ? chip : document.createElement('span');
-                                if (!(chip instanceof HTMLElement)) {
-                                    targetChip.className = 'tm-status-tag';
-                                    meta.appendChild(targetChip);
-                                }
-                                targetChip.setAttribute('style', `${__tmBuildStatusChipStyle(opt.color || '#757575')};cursor:${task?.done ? 'default' : 'pointer'};`);
-                                if (task?.done) targetChip.removeAttribute('onclick');
-                                else targetChip.setAttribute('onclick', `tmWhiteboardEditStatus('${escSq(tid)}', this, event)`);
-                                targetChip.textContent = String(opt.name || opt.id || '').trim();
-                                touched = true;
-                            }
-                        }
-                    }
-                    if (Object.prototype.hasOwnProperty.call(patch, 'completionTime') || Object.prototype.hasOwnProperty.call(patch, 'startDate') || Object.prototype.hasOwnProperty.call(patch, 'duration') || Object.prototype.hasOwnProperty.call(patch, 'tomatoEstimateCount') || Object.prototype.hasOwnProperty.call(patch, 'tomatoCount') || Object.prototype.hasOwnProperty.call(patch, 'tomatoMinutes') || Object.prototype.hasOwnProperty.call(patch, 'tomatoHours')) {
-                        touched = !!__tmUpdateWhiteboardTaskTimeInDOM(tid) || touched;
+                    if (__tmDoesPatchAffectTaskCardMetaChips(patch)) {
+                        touched = !!__tmSyncTaskCardMetaChipsInDOM(node, task, 'whiteboard') || touched;
                     }
                     if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmApplyTaskTitleOpacityInContainer(node, task) || touched;
                     if (Object.prototype.hasOwnProperty.call(patch, 'remark') && node.classList.contains('tm-whiteboard-node')) {

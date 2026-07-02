@@ -143,6 +143,25 @@
         __tmPatchWhiteboardGlobalBoardState(groupId, { detachedChildren }, { keepEmpty: true, persist: o.persist });
     }
 
+    async function __tmResolveWhiteboardGlobalCreateTarget() {
+        const configured = String(SettingsStore.data.newTaskDocId || '').trim();
+        if (!configured) {
+            try { hint('⚠ 请前往常规设置配置默认新建文档', 'warning'); } catch (e) {}
+            return null;
+        }
+        if (configured !== '__dailyNote__') return { mode: 'doc', docId: configured };
+        let notebook = String(SettingsStore.data.newTaskDailyNoteNotebookId || '').trim();
+        if (!notebook) {
+            try { await __tmRefreshNotebookCache(); } catch (e) {}
+            notebook = String(SettingsStore.data.newTaskDailyNoteNotebookId || '').trim();
+        }
+        if (!notebook) {
+            try { hint('⚠ 请前往常规设置配置今天日记默认笔记本', 'warning'); } catch (e) {}
+            return null;
+        }
+        return { mode: 'dailyNote', notebook };
+    }
+
     window.tmWhiteboardSetDone = function(taskId, checked, ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         const tid = String(taskId || '').trim();
@@ -855,6 +874,185 @@
         });
     };
 
+    function __tmFindAnyWhiteboardTaskNode(taskId, docId = '') {
+        const tid = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        if (!tid) return null;
+        try {
+            const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+            if (!(body instanceof Element)) return null;
+            const taskSelector = `.tm-whiteboard-node[data-task-id="${CSS.escape(tid)}"]`;
+            const selector = did ? `${taskSelector}[data-doc-id="${CSS.escape(did)}"]` : taskSelector;
+            const node = body.querySelector(selector);
+            return node instanceof HTMLElement ? node : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmFocusWhiteboardTaskNode(node, taskId) {
+        if (!(node instanceof HTMLElement)) return false;
+        const id = String(taskId || node.getAttribute('data-task-id') || '').trim();
+        if (!id) return false;
+        try { __tmClearWhiteboardMultiSelection(); } catch (e) {}
+        state.whiteboardSelectedTaskId = id;
+        state.whiteboardSelectedNoteId = '';
+        state.whiteboardSelectedLinkId = '';
+        state.whiteboardSelectedLinkDocId = '';
+        try { __tmApplyWhiteboardCardSelectionDom(id); } catch (e) {}
+        const centered = __tmCenterWhiteboardNodeInViewport(node, { minZoom: 1 });
+        try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
+        try { __tmScheduleWhiteboardNavigatorUpdate(); } catch (e) {}
+        return !!centered;
+    }
+
+    function __tmClearWhiteboardPoolSearchRenderTimer() {
+        const timer = state.whiteboardPoolSearchRenderTimer;
+        if (timer) {
+            try { clearTimeout(timer); } catch (e) {}
+        }
+        state.whiteboardPoolSearchRenderTimer = 0;
+    }
+
+    function __tmReadWhiteboardPoolSearchInputValue(inputHint = null) {
+        const input = inputHint instanceof HTMLInputElement
+            ? inputHint
+            : state.modal?.querySelector?.('#tmWhiteboardPoolSearchInput');
+        return input instanceof HTMLInputElement ? String(input.value || '') : String(state.whiteboardPoolSearchKeyword || '');
+    }
+
+    function __tmRefreshWhiteboardPoolSearchResultsOnly() {
+        const container = state.modal?.querySelector?.('#tmWhiteboardPoolContent');
+        const renderResults = state.__tmRenderWhiteboardPoolSearchResultsHtml;
+        if (!(container instanceof HTMLElement) || typeof renderResults !== 'function') {
+            try { render(); } catch (e) {}
+            return;
+        }
+        try {
+            container.innerHTML = renderResults();
+        } catch (e) {
+            try { render(); } catch (e2) {}
+        }
+    }
+
+    function __tmScheduleWhiteboardPoolSearchRender(delay = 140, options = {}) {
+        __tmClearWhiteboardPoolSearchRenderTimer();
+        state.whiteboardPoolSearchRenderTimer = setTimeout(() => {
+            state.whiteboardPoolSearchRenderTimer = 0;
+            if (!state.whiteboardPoolSearchOpen) return;
+            const force = !!options.force;
+            const elapsed = Date.now() - (Number(state.whiteboardPoolSearchLastInputAt) || 0);
+            if (state.whiteboardPoolSearchComposing && !force && elapsed < 500) {
+                __tmScheduleWhiteboardPoolSearchRender(120);
+                return;
+            }
+            if (elapsed >= 500) state.whiteboardPoolSearchComposing = false;
+            state.whiteboardPoolSearchKeyword = __tmReadWhiteboardPoolSearchInputValue(options.input);
+            state.whiteboardPoolSearchFocusAfterRender = true;
+            __tmRefreshWhiteboardPoolSearchResultsOnly();
+        }, Math.max(0, Number(delay) || 0));
+    }
+
+    window.tmWhiteboardTogglePoolSearch = function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const next = !state.whiteboardPoolSearchOpen;
+        state.whiteboardPoolSearchOpen = next;
+        __tmClearWhiteboardPoolSearchRenderTimer();
+        if (!next) {
+            state.whiteboardPoolSearchKeyword = '';
+            state.whiteboardPoolSearchFocusAfterRender = false;
+            state.whiteboardPoolSearchComposing = false;
+        } else {
+            state.whiteboardPoolSearchFocusAfterRender = true;
+        }
+        try { render(); } catch (e) {}
+    };
+
+    window.tmWhiteboardPoolSearchInput = function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const input = ev?.target instanceof HTMLInputElement ? ev.target : null;
+        state.whiteboardPoolSearchOpen = true;
+        state.whiteboardPoolSearchLastInputAt = Date.now();
+        const nextKeyword = String(input?.value || '');
+        if (ev?.isComposing || state.whiteboardPoolSearchComposing) {
+            __tmScheduleWhiteboardPoolSearchRender(220, { input });
+            return;
+        }
+        if (String(state.whiteboardPoolSearchKeyword || '') === nextKeyword) {
+            __tmScheduleWhiteboardPoolSearchRender(140, { input });
+            return;
+        }
+        state.whiteboardPoolSearchKeyword = nextKeyword;
+        __tmScheduleWhiteboardPoolSearchRender(140, { input });
+    };
+
+    window.tmWhiteboardPoolSearchCompositionStart = function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        __tmClearWhiteboardPoolSearchRenderTimer();
+        state.whiteboardPoolSearchComposing = true;
+        state.whiteboardPoolSearchLastInputAt = Date.now();
+    };
+
+    window.tmWhiteboardPoolSearchCompositionEnd = function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const input = ev?.target instanceof HTMLInputElement ? ev.target : null;
+        state.whiteboardPoolSearchComposing = false;
+        state.whiteboardPoolSearchOpen = true;
+        state.whiteboardPoolSearchLastInputAt = Date.now();
+        setTimeout(() => {
+            const nextKeyword = String(input?.value || '');
+            if (String(state.whiteboardPoolSearchKeyword || '') !== nextKeyword) {
+                state.whiteboardPoolSearchKeyword = nextKeyword;
+            }
+            __tmScheduleWhiteboardPoolSearchRender(40, { force: true, input });
+        }, 0);
+    };
+
+    window.tmWhiteboardClearPoolSearch = function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        __tmClearWhiteboardPoolSearchRenderTimer();
+        state.whiteboardPoolSearchOpen = true;
+        state.whiteboardPoolSearchKeyword = '';
+        state.whiteboardPoolSearchComposing = false;
+        state.whiteboardPoolSearchFocusAfterRender = true;
+        try {
+            const input = state.modal?.querySelector?.('#tmWhiteboardPoolSearchInput');
+            if (input instanceof HTMLInputElement) input.value = '';
+        } catch (e) {}
+        __tmRefreshWhiteboardPoolSearchResultsOnly();
+    };
+
+    window.tmWhiteboardSearchResultClick = async function(taskId, ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(taskId || '').trim();
+        if (!id) return false;
+        const targetEl = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+        const docId = String(targetEl?.getAttribute?.('data-doc-id') || '').trim();
+        const directNode = __tmFindAnyWhiteboardTaskNode(id, docId) || __tmFindAnyWhiteboardTaskNode(id);
+        if (directNode) {
+            const ok = __tmFocusWhiteboardTaskNode(directNode, id);
+            if (ok) {
+                try { hint('✅ 已跳转到白板卡片', 'success'); } catch (e) {}
+                return true;
+            }
+        }
+        let hasWhiteboardLocation = false;
+        try {
+            hasWhiteboardLocation = !!(typeof __tmResolveWhiteboardTaskLocation === 'function' && __tmResolveWhiteboardTaskLocation(id));
+        } catch (e) {
+            hasWhiteboardLocation = false;
+        }
+        if (hasWhiteboardLocation && typeof window.tmJumpToWhiteboardTask === 'function') {
+            const jumped = await window.tmJumpToWhiteboardTask(id, ev);
+            if (jumped) return true;
+        }
+        if (typeof window.tmJumpToTask === 'function') return await window.tmJumpToTask(id, ev);
+        return false;
+    };
+
     function __tmResolveWhiteboardPointerInfo(ev, docIdHint = '') {
         const hint = String(docIdHint || '').trim();
         let cx = Number(ev?.clientX);
@@ -1332,13 +1530,15 @@
             __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'touch-pointer', event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
-        if (Number(ev?.button) !== 0) {
-            __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'non-left-button', event: __tmWhiteboardDebugEventInfo(ev) });
+        const button = Number(ev?.button);
+        const rightButtonPan = button === 2;
+        if (button !== 0 && !rightButtonPan) {
+            __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'unsupported-button', event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
-        const panMode = tool === 'pan';
-        const selectMode = tool === 'select';
+        const panMode = rightButtonPan || tool === 'pan';
+        const selectMode = !rightButtonPan && tool === 'select';
         const target = ev?.target;
         const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
         if (!(viewport instanceof HTMLElement)) {
@@ -1348,6 +1548,7 @@
         __tmWhiteboardDebugLog('viewport:pointerdown', {
             panMode,
             selectMode,
+            rightButtonPan,
             global: typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive(),
             event: __tmWhiteboardDebugEventInfo(ev),
         });
@@ -1539,11 +1740,14 @@
             startX: v0.x,
             startY: v0.y,
             pointerId: hasPointerId ? pointerId : null,
+            rightButtonPan,
             debugMoveCount: 0,
         };
+        if (rightButtonPan) state.whiteboardSuppressViewportContextMenuUntil = Date.now() + 1200;
         __tmWhiteboardDebugLog('viewport:pan-start', {
             view: { x: Number(v0.x) || 0, y: Number(v0.y) || 0, zoom: Number(v0.zoom) || 1 },
             pointerId: hasPointerId ? pointerId : null,
+            rightButtonPan,
             event: __tmWhiteboardDebugEventInfo(ev),
         });
         try { viewport.classList.add('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
@@ -1605,6 +1809,13 @@
         try { document.addEventListener('pointercancel', onUp, true); } catch (e) {}
         try { window.addEventListener('blur', onUp, true); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
+    };
+
+    window.tmWhiteboardViewportContextMenu = function(ev) {
+        if (Date.now() > (Number(state.whiteboardSuppressViewportContextMenuUntil) || 0)) return true;
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        return false;
     };
 
     window.tmWhiteboardCardMouseDown = function(ev, taskId, docId) {
@@ -2985,7 +3196,7 @@
         const fs0 = __tmNormalizeWhiteboardNoteFontSize(o.fontSize);
         const bd0 = __tmNormalizeWhiteboardNoteBold(o.bold);
         if (c0) input.style.color = c0;
-        input.style.fontSize = `${fs0}px`;
+        input.style.fontSize = '16px';
         input.style.fontWeight = bd0 ? '700' : '400';
         input.placeholder = '输入文字，Enter保存，Esc取消';
         input.value = initialText;
@@ -3176,7 +3387,9 @@
             __tmOpenWhiteboardStickyEditor(docBody, did, localX, localY);
             return;
         }
-        __tmOpenWhiteboardNoteEditor(docBody, did, localX, localY);
+        __tmOpenWhiteboardNoteEditor(docBody, did, localX, localY, {
+            fontSize: SettingsStore.data.whiteboardNoteDefaultFontSize,
+        });
     };
 
     window.tmWhiteboardBoardClick = async function(ev) {
@@ -3230,14 +3443,29 @@
 
     window.tmWhiteboardBoardDblClick = async function(ev) {
         const allView = !(state.activeDocId && state.activeDocId !== 'all');
-        if (allView) return;
+        const isGlobalCanvas = allView
+            && typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
+            && __tmIsWhiteboardGlobalCanvasActive();
+        if (allView && !isGlobalCanvas) return;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         if (tool === 'text' || tool === 'sticky') return;
         const target = ev?.target;
         if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-edge,.tm-whiteboard-doc-resize,.tm-whiteboard-link-tools,.tm-whiteboard-multi-tools,input,button,select,textarea,label,a')) return;
-        const did = String(state.activeDocId || '').trim();
-        if (!did || did === 'all') return;
-        const point = __tmResolveWhiteboardPointerInfo(ev, did);
+        let globalCreateTarget = null;
+        let did = '';
+        try {
+            if (isGlobalCanvas) {
+                globalCreateTarget = await __tmResolveWhiteboardGlobalCreateTarget();
+                if (!globalCreateTarget) return;
+            } else {
+                did = String(state.activeDocId || '').trim();
+            }
+        } catch (e) {
+            try { hint(`❌ 新建失败: ${e?.message || String(e)}`, 'error'); } catch (e2) {}
+            return;
+        }
+        if (!isGlobalCanvas && (!did || did === 'all')) return;
+        const point = __tmResolveWhiteboardPointerInfo(ev, isGlobalCanvas ? '' : did);
         const localX = Number.isFinite(Number(point?.localX)) ? Number(point.localX) : 24;
         const localY = Number.isFinite(Number(point?.localY)) ? Number(point.localY) : 56;
         const newContent = await (async () => {
@@ -3292,6 +3520,15 @@
         })();
         if (!newContent) return;
         try {
+            if (isGlobalCanvas) {
+                if (globalCreateTarget?.mode === 'dailyNote') {
+                    did = String(await API.createDailyNote(globalCreateTarget.notebook) || '').trim();
+                    if (!did) throw new Error('获取日记文档失败');
+                } else {
+                    did = String(globalCreateTarget?.docId || '').trim();
+                }
+                if (!did || did === 'all') throw new Error('默认新建文档无效');
+            }
             const createTaskInDoc = globalThis.__tmRequireTaskOutbox?.('createTaskInDoc');
             if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
             const createdTaskId = await createTaskInDoc({
@@ -3303,12 +3540,28 @@
                 skipOptimisticFilterWork: true,
             }, { wait: false });
             if (!createdTaskId) throw new Error('任务创建失败');
-            __tmSetWhiteboardTaskPlaced(createdTaskId, true, { persist: false });
-            __tmSetWhiteboardNodePos(createdTaskId, did, localX, localY, { manual: true, persist: false });
+            if (isGlobalCanvas) {
+                try {
+                    __tmUpsertWhiteboardTaskSnapshot({
+                        id: createdTaskId,
+                        root_id: did,
+                        docId: did,
+                        content: newContent,
+                        done: false,
+                    });
+                } catch (e) {}
+                __tmSetGlobalWhiteboardNodePlacement(createdTaskId, did, localX, localY, { manual: true, persist: false });
+            } else {
+                __tmSetWhiteboardTaskPlaced(createdTaskId, true, { persist: false });
+                __tmSetWhiteboardNodePos(createdTaskId, did, localX, localY, { manual: true, persist: false });
+            }
             try { SettingsStore.syncToLocal(); } catch (e) {}
             try { SettingsStore.save(); } catch (e) {}
             state.whiteboardSelectedTaskId = createdTaskId;
             __tmApplyWhiteboardCardSelectionDom(createdTaskId);
+            if (isGlobalCanvas) {
+                try { render(); } catch (e) {}
+            }
             try {
                 __tmScheduleViewRefresh({
                     mode: 'current',
@@ -3336,7 +3589,13 @@
         if (!item) return null;
         const o = (opts && typeof opts === 'object') ? opts : {};
         const useSelf = !!o.useSelf;
-        const node = useSelf ? item : (item.parentElement instanceof HTMLElement ? item.parentElement : item);
+        const poolItem = item.classList?.contains?.('tm-whiteboard-pool-item')
+            ? item
+            : (item.closest?.('.tm-whiteboard-pool-item') instanceof HTMLElement ? item.closest('.tm-whiteboard-pool-item') : null);
+        const nodeWrap = poolItem?.parentElement instanceof HTMLElement && poolItem.parentElement.classList?.contains?.('tm-whiteboard-pool-node')
+            ? poolItem.parentElement
+            : poolItem;
+        const node = useSelf ? item : (nodeWrap instanceof HTMLElement ? nodeWrap : (item.parentElement instanceof HTMLElement ? item.parentElement : item));
         let ghost = null;
         try { ghost = node.cloneNode(true); } catch (e) { ghost = null; }
         if (!(ghost instanceof HTMLElement)) return null;
@@ -3351,6 +3610,165 @@
         state.whiteboardPoolDragGhostEl = ghost;
         return ghost;
     }
+
+    function __tmIsWhiteboardPoolItemDraggable(el) {
+        if (!(el instanceof HTMLElement)) return false;
+        const isSearchResult = String(el.getAttribute('data-tm-pool-search-result') || '').trim() === '1';
+        if (isSearchResult) {
+            return String(el.getAttribute('data-tm-pool-placed') || '').trim() !== '1';
+        }
+        if (el.classList?.contains?.('tm-whiteboard-pool-item--locked')) return false;
+        if (String(el.getAttribute('draggable') || '').toLowerCase() === 'false') {
+            return !!el.querySelector?.('[draggable="true"]');
+        }
+        return String(el.getAttribute('draggable') || '').toLowerCase() !== 'false';
+    }
+
+    function __tmIsWhiteboardPoolDragEventSourceAllowed(ev, sourceItem) {
+        if (!(sourceItem instanceof HTMLElement)) return false;
+        const isSearchResult = String(sourceItem.getAttribute('data-tm-pool-search-result') || '').trim() === '1';
+        if (isSearchResult) return __tmIsWhiteboardPoolItemDraggable(sourceItem);
+        if (__tmIsWhiteboardPoolItemDraggable(sourceItem)) return true;
+        if (sourceItem.classList?.contains?.('tm-whiteboard-pool-item--locked')) return false;
+        const candidates = [ev?.target, ev?.currentTarget].filter((el) => el instanceof HTMLElement);
+        return candidates.some((el) => {
+            const dragEl = el.matches?.('[draggable="true"]')
+                ? el
+                : el.closest?.('[draggable="true"]');
+            if (!(dragEl instanceof HTMLElement)) return false;
+            return sourceItem.contains(dragEl);
+        });
+    }
+
+    function __tmFindWhiteboardPoolItemElement(taskId, opts = {}) {
+        const id = String(taskId || '').trim();
+        if (!id) return null;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const requireDraggable = !!o.requireDraggable;
+        const preferredEl = o.preferredEl instanceof HTMLElement ? o.preferredEl : null;
+        const preferredItem = preferredEl?.classList?.contains?.('tm-whiteboard-pool-item')
+            ? preferredEl
+            : (preferredEl?.closest?.('.tm-whiteboard-pool-item[data-task-id]') instanceof HTMLElement ? preferredEl.closest('.tm-whiteboard-pool-item[data-task-id]') : null);
+        if (preferredItem instanceof HTMLElement
+            && String(preferredItem.getAttribute('data-task-id') || '').trim() === id
+            && (!requireDraggable || __tmIsWhiteboardPoolItemDraggable(preferredItem))) {
+            return preferredItem;
+        }
+        try {
+            const nodes = state.modal?.querySelectorAll?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(id)}"]`) || [];
+            for (const node of Array.from(nodes)) {
+                if (node instanceof HTMLElement && (!requireDraggable || __tmIsWhiteboardPoolItemDraggable(node))) return node;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function __tmGetWhiteboardPoolEventItem(ev, taskId = '') {
+        const id = String(taskId || '').trim();
+        const fromCurrent = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+        const fromTarget = ev?.target instanceof HTMLElement ? ev.target : null;
+        const candidates = [fromCurrent, fromTarget]
+            .map((el) => {
+                if (!(el instanceof HTMLElement)) return null;
+                if (el.classList?.contains?.('tm-whiteboard-pool-item')) return el;
+                const item = el.closest?.('.tm-whiteboard-pool-item[data-task-id]');
+                return item instanceof HTMLElement ? item : null;
+            })
+            .filter(Boolean);
+        for (const item of candidates) {
+            if (!id || String(item.getAttribute('data-task-id') || '').trim() === id) return item;
+        }
+        return null;
+    }
+
+    function __tmIsPlacedWhiteboardPoolSearchEvent(ev) {
+        const target = ev?.target instanceof Element ? ev.target : null;
+        const item = target?.closest?.('.tm-whiteboard-pool-search-item[data-tm-pool-search-result="1"]');
+        return item instanceof HTMLElement && String(item.getAttribute('data-tm-pool-placed') || '').trim() === '1'
+            ? item
+            : null;
+    }
+
+    window.tmWhiteboardPoolSearchPressGuard = function(ev) {
+        const item = __tmIsPlacedWhiteboardPoolSearchEvent(ev);
+        if (!(item instanceof HTMLElement)) return;
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.stopImmediatePropagation?.(); } catch (e) {}
+        __tmWhiteboardDebugLog('pool-search:press-guard', {
+            taskId: String(item.getAttribute('data-task-id') || '').trim(),
+            docId: String(item.getAttribute('data-doc-id') || '').trim(),
+            item: __tmWhiteboardDebugElementLabel(item),
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
+    };
+
+    try {
+        const prevSearchDragGuard = window.__tmWhiteboardPoolSearchDragGuard;
+        if (typeof prevSearchDragGuard === 'function') {
+            try { document.removeEventListener('dragstart', prevSearchDragGuard, true); } catch (e) {}
+        }
+        const whiteboardPoolSearchDragGuard = (ev) => {
+            const target = ev?.target instanceof Element ? ev.target : null;
+            const item = target?.closest?.('.tm-whiteboard-pool-search-item[data-tm-pool-search-result="1"]');
+            if (!(item instanceof HTMLElement)) return;
+            const taskId = String(item.getAttribute('data-task-id') || '').trim();
+            const docId = String(item.getAttribute('data-doc-id') || '').trim();
+            const placed = String(item.getAttribute('data-tm-pool-placed') || '').trim() === '1';
+            __tmWhiteboardDebugLog('pool-search:dragstart-guard', {
+                taskId,
+                docId,
+                placed,
+                item: __tmWhiteboardDebugElementLabel(item),
+                event: __tmWhiteboardDebugEventInfo(ev),
+            });
+            if (!placed) return;
+            try { ev.preventDefault(); } catch (e) {}
+            try { ev.stopPropagation(); } catch (e) {}
+            try { ev.stopImmediatePropagation(); } catch (e) {}
+            try { ev.dataTransfer.effectAllowed = 'none'; } catch (e) {}
+            try { ev.dataTransfer.dropEffect = 'none'; } catch (e) {}
+            try { ev.dataTransfer.clearData(); } catch (e) {}
+            state.draggingTaskId = '';
+            state.whiteboardPoolDragStart = null;
+            __tmWhiteboardDebugLog('pool-search:dragstart-blocked', {
+                reason: 'already-placed-search-result',
+                taskId,
+                docId,
+                item: __tmWhiteboardDebugElementLabel(item),
+                event: __tmWhiteboardDebugEventInfo(ev),
+            });
+            return false;
+        };
+        window.__tmWhiteboardPoolSearchDragGuard = whiteboardPoolSearchDragGuard;
+        document.addEventListener('dragstart', whiteboardPoolSearchDragGuard, true);
+    } catch (e) {}
+
+    try {
+        const prevSearchPressGuard = window.__tmWhiteboardPoolSearchPressCaptureGuard;
+        if (typeof prevSearchPressGuard === 'function') {
+            try { document.removeEventListener('pointerdown', prevSearchPressGuard, true); } catch (e) {}
+            try { document.removeEventListener('mousedown', prevSearchPressGuard, true); } catch (e) {}
+        }
+        const whiteboardPoolSearchPressCaptureGuard = (ev) => {
+            const item = __tmIsPlacedWhiteboardPoolSearchEvent(ev);
+            if (!(item instanceof HTMLElement)) return;
+            try { item.setAttribute('draggable', 'false'); } catch (e) {}
+            try {
+                item.querySelectorAll?.('[draggable="true"]').forEach((el) => {
+                    try { el.setAttribute('draggable', 'false'); } catch (e2) {}
+                });
+            } catch (e) {}
+            __tmWhiteboardDebugLog('pool-search:press-capture-guard', {
+                taskId: String(item.getAttribute('data-task-id') || '').trim(),
+                docId: String(item.getAttribute('data-doc-id') || '').trim(),
+                item: __tmWhiteboardDebugElementLabel(item),
+                event: __tmWhiteboardDebugEventInfo(ev),
+            });
+        };
+        window.__tmWhiteboardPoolSearchPressCaptureGuard = whiteboardPoolSearchPressCaptureGuard;
+        document.addEventListener('pointerdown', whiteboardPoolSearchPressCaptureGuard, true);
+        document.addEventListener('mousedown', whiteboardPoolSearchPressCaptureGuard, true);
+    } catch (e) {}
 
     function __tmBuildWhiteboardPoolH2DragGhost(h2El, taskIds) {
         const titleEl = h2El instanceof HTMLElement ? h2El : null;
@@ -3381,7 +3799,7 @@
         const pool = state.modal?.querySelector?.('.tm-whiteboard-sidebar');
         ids.forEach((tid) => {
             try {
-                const src = pool?.querySelector?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(tid)}"]`);
+                const src = __tmFindWhiteboardPoolItemElement(tid, { requireDraggable: true }) || pool?.querySelector?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(tid)}"]`);
                 if (!(src instanceof HTMLElement)) return;
                 const clone = src.cloneNode(true);
                 if (!(clone instanceof HTMLElement)) return;
@@ -3416,7 +3834,7 @@
         const pickIds = ids.slice(0, maxPreview);
         pickIds.forEach((tid) => {
             try {
-                const src = pool?.querySelector?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(tid)}"]`);
+                const src = __tmFindWhiteboardPoolItemElement(tid, { requireDraggable: true }) || pool?.querySelector?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(tid)}"]`);
                 if (!(src instanceof HTMLElement)) return;
                 const clone = src.cloneNode(true);
                 if (!(clone instanceof HTMLElement)) return;
@@ -3509,9 +3927,7 @@
             return;
         }
         const canDrag = (tid) => {
-            const node = state.modal?.querySelector?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(String(tid || '').trim())}"]`);
-            if (!(node instanceof HTMLElement)) return false;
-            return String(node.getAttribute('draggable') || '').toLowerCase() !== 'false';
+            return !!__tmFindWhiteboardPoolItemElement(tid, { requireDraggable: true });
         };
         taskIds = taskIds.filter((tid) => canDrag(tid));
         if (!taskIds.length) {
@@ -3572,15 +3988,41 @@
         const selectedSet = new Set(selected0.map((x) => String(x || '').trim()).filter(Boolean));
         let dragTaskIds = selectedSet.has(id) ? Array.from(selectedSet) : [id];
         if (!dragTaskIds.length) dragTaskIds = [id];
+        const sourceItem = __tmGetWhiteboardPoolEventItem(ev, id);
+        __tmWhiteboardDebugLog('pool:dragstart-source', {
+            taskId: id,
+            docId: did,
+            sourceItem: __tmWhiteboardDebugElementLabel(sourceItem),
+            sourceIsSearchResult: sourceItem instanceof HTMLElement ? String(sourceItem.getAttribute('data-tm-pool-search-result') || '').trim() : '',
+            sourcePlaced: sourceItem instanceof HTMLElement ? String(sourceItem.getAttribute('data-tm-pool-placed') || '').trim() : '',
+            sourceDraggableAttr: sourceItem instanceof HTMLElement ? String(sourceItem.getAttribute('draggable') || '').trim() : '',
+            sourceComputedDraggable: __tmIsWhiteboardPoolItemDraggable(sourceItem),
+            sourceEventAllowed: __tmIsWhiteboardPoolDragEventSourceAllowed(ev, sourceItem),
+            selectedTaskIds: Array.from(selectedSet),
+            initialDragTaskIds: dragTaskIds.slice(),
+            event: __tmWhiteboardDebugEventInfo(ev),
+        });
+        const sourceEventAllowed = __tmIsWhiteboardPoolDragEventSourceAllowed(ev, sourceItem);
+        if (!(sourceItem instanceof HTMLElement) || !sourceEventAllowed) {
+            try { ev?.preventDefault?.(); } catch (e) {}
+            state.draggingTaskId = '';
+            state.whiteboardPoolDragStart = null;
+            __tmWhiteboardDebugLog('pool:dragstart-skip', { reason: 'source-not-draggable', taskId: id, docId: did, event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         const canDrag = (tid) => {
-            const el = state.modal?.querySelector?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(String(tid || '').trim())}"]`);
-            if (!(el instanceof HTMLElement)) return false;
-            return String(el.getAttribute('draggable') || '').toLowerCase() !== 'false';
+            if (String(tid || '').trim() === id) return sourceEventAllowed;
+            return !!__tmFindWhiteboardPoolItemElement(tid, { requireDraggable: true });
         };
         dragTaskIds = dragTaskIds.filter((tid) => canDrag(tid));
-        if (!dragTaskIds.includes(id)) dragTaskIds.unshift(id);
         dragTaskIds = Array.from(new Set(dragTaskIds));
-        if (!dragTaskIds.length) dragTaskIds = [id];
+        if (!dragTaskIds.includes(id) || !dragTaskIds.length) {
+            try { ev?.preventDefault?.(); } catch (e) {}
+            state.draggingTaskId = '';
+            state.whiteboardPoolDragStart = null;
+            __tmWhiteboardDebugLog('pool:dragstart-skip', { reason: 'no-draggable-task-ids', taskId: id, docId: did, dragTaskIds, event: __tmWhiteboardDebugEventInfo(ev) });
+            return;
+        }
         __tmWhiteboardDebugLog('pool:dragstart-resolved', {
             taskId: id,
             docId: did,
@@ -4936,10 +5378,27 @@
         render();
     };
 
+    function __tmIsWhiteboardCompactSidebarHost() {
+        const modal = state.modal instanceof HTMLElement ? state.modal : null;
+        if (!modal) return false;
+        return modal.classList.contains('tm-modal--mobile')
+            || modal.classList.contains('tm-modal--runtime-mobile')
+            || modal.classList.contains('tm-modal--host-mobile-ui')
+            || modal.classList.contains('tm-modal--dock');
+    }
+
     window.tmWhiteboardToggleSidebar = async function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
-        const next = !SettingsStore.data.whiteboardSidebarCollapsed;
-        SettingsStore.data.whiteboardSidebarCollapsed = next;
+        const compactHost = __tmIsWhiteboardCompactSidebarHost();
+        const current = compactHost
+            ? state.whiteboardCompactSidebarCollapsed !== false
+            : !!SettingsStore.data.whiteboardSidebarCollapsed;
+        const next = !current;
+        if (compactHost) {
+            state.whiteboardCompactSidebarCollapsed = next;
+        } else {
+            SettingsStore.data.whiteboardSidebarCollapsed = next;
+        }
         const body = state.modal?.querySelector?.('#tmWhiteboardBody');
         const layout = body?.querySelector?.('.tm-whiteboard-layout');
         const btn = body?.querySelector?.('.tm-whiteboard-sidebar-toggle');
@@ -4953,7 +5412,9 @@
             } catch (e) {}
         }
         if (!layout || !btn) render();
-        try { await SettingsStore.save(); } catch (e) {}
+        if (!compactHost) {
+            try { await SettingsStore.save(); } catch (e) {}
+        }
     };
 
     function __tmRefreshWhiteboardAfterFullscreenToggle() {
@@ -5036,8 +5497,17 @@
     };
 
     window.tmWhiteboardToggleShowDone = async function(enabled) {
-        SettingsStore.data.whiteboardShowDone = !!enabled;
+        if (typeof window.tmToggleShowCompletedTasks === 'function') {
+            return window.tmToggleShowCompletedTasks(!!enabled);
+        }
+        try { __tmSetShowCompletedTasksInSettings(!!enabled, SettingsStore.data); } catch (e) {
+            SettingsStore.data.showCompletedTasks = !!enabled;
+            SettingsStore.data.excludeCompletedTasks = !SettingsStore.data.showCompletedTasks;
+        }
+        state.showCompletedTasks = !!SettingsStore.data.showCompletedTasks;
+        state.excludeCompletedTasks = !state.showCompletedTasks;
         try { await SettingsStore.save(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
         render();
     };
 

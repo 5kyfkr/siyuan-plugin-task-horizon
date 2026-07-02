@@ -2080,6 +2080,13 @@
         }
     };
 
+    window.updateWhiteboardNoteDefaultFontSize = async function(value) {
+        const n = Number(value);
+        SettingsStore.data.whiteboardNoteDefaultFontSize = Number.isFinite(n) ? Math.max(10, Math.min(40, Math.round(n))) : 20;
+        await SettingsStore.save();
+        showSettings();
+    };
+
     window.updateKanbanFillColumns = async function(enabled) {
         SettingsStore.data.kanbanFillColumns = !!enabled;
         await SettingsStore.save();

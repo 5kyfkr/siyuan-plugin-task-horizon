@@ -2310,54 +2310,14 @@
             const excludeIDs = Array.isArray(opts.excludeIDs)
                 ? opts.excludeIDs.map((item) => String(item || '').trim()).filter(Boolean)
                 : [];
-            const res = await this.call('/api/filetree/searchDocs', {
-                k: query,
-                flashcard: false,
-                excludeIDs,
-            });
-            if (res.code !== 0) throw new Error(res.msg || '搜索文档失败');
             const limit = Number.isFinite(Number(opts.limit))
                 ? Math.max(1, Math.min(200, Math.floor(Number(opts.limit))))
                 : 60;
-            const uniqueRows = [];
-            const seen = new Set();
-            (Array.isArray(res.data) ? res.data : []).forEach((item) => {
-                const box = String(item?.box || '').trim();
-                const path = String(item?.path || '').trim();
-                const hPath = String(item?.hPath || '').trim();
-                if (!box || !path || path === '/' || !hPath) return;
-                const key = `${box}::${path}`;
-                if (seen.has(key)) return;
-                seen.add(key);
-                uniqueRows.push({ box, path, hPath });
-            });
-            const pickedRows = uniqueRows.slice(0, limit);
-            if (!pickedRows.length) return [];
-            const where = pickedRows
-                .map((item) => `(box = '${item.box.replace(/'/g, "''")}' AND path = '${item.path.replace(/'/g, "''")}')`)
-                .join(' OR ');
-            const sql = `
-                SELECT id, box, path, hpath, content
-                FROM blocks
-                WHERE type = 'd' AND (${where})
-                LIMIT ${Math.max(1, pickedRows.length)}
-            `;
-            const docRes = await this.call('/api/query/sql', { stmt: sql });
-            if (docRes.code !== 0) throw new Error(docRes.msg || '解析文档失败');
-            const docMap = new Map();
-            (Array.isArray(docRes.data) ? docRes.data : []).forEach((row) => {
-                const box = String(row?.box || '').trim();
-                const path = String(row?.path || '').trim();
-                const id = String(row?.id || '').trim();
-                if (!box || !path || !id) return;
-                docMap.set(`${box}::${path}`, row);
-            });
-            return pickedRows.map((item) => {
-                const row = docMap.get(`${item.box}::${item.path}`);
+            const formatRows = (rows) => (Array.isArray(rows) ? rows : []).map((row) => {
                 const id = String(row?.id || '').trim();
                 if (!id) return null;
                 const name = String(row?.content || '').trim() || '未命名文档';
-                const displayPath = item.hPath || String(row?.hpath || '').trim() || name;
+                const displayPath = String(row?.hpath || row?.hPath || '').trim() || name;
                 try {
                     __tmPrimeTaskAttachmentBlockMeta({
                         id,
@@ -2375,6 +2335,52 @@
                     hPath: displayPath,
                 };
             }).filter(Boolean);
+
+            const escapeSql = (value) => String(value || '').replace(/'/g, "''");
+            const escapeLike = (value) => escapeSql(value).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+            const keywords = query.split(/\s+/).map((item) => item.trim()).filter(Boolean);
+            if (!keywords.length) return [];
+            const keywordCondition = keywords.map((item) => {
+                const exact = escapeSql(item);
+                const like = escapeLike(item);
+                return `(
+                    d.id = '${exact}'
+                    OR d.id LIKE '%${like}%' ESCAPE '\\'
+                    OR d.content LIKE '%${like}%' ESCAPE '\\'
+                    OR d.hpath LIKE '%${like}%' ESCAPE '\\'
+                    OR COALESCE(attr.alias, '') LIKE '%${like}%' ESCAPE '\\'
+                )`;
+            }).join(' AND ');
+            const excludeCondition = excludeIDs.length
+                ? ' AND ' + excludeIDs.map((item) => {
+                    const exact = escapeSql(item);
+                    const like = escapeLike(item);
+                    return `(d.id != '${exact}' AND d.path NOT LIKE '%${like}%' ESCAPE '\\')`;
+                }).join(' AND ')
+                : '';
+            const sql = `
+                SELECT
+                    d.id,
+                    d.box,
+                    d.path,
+                    d.hpath,
+                    d.content,
+                    COALESCE(attr.alias, '') as alias
+                FROM blocks d
+                LEFT JOIN (
+                    SELECT block_id, MAX(value) as alias
+                    FROM attributes
+                    WHERE name = 'alias'
+                    GROUP BY block_id
+                ) attr ON attr.block_id = d.id
+                WHERE d.type = 'd'
+                    AND (${keywordCondition})${excludeCondition}
+                ORDER BY d.hpath COLLATE NOCASE, d.content COLLATE NOCASE, d.id
+                LIMIT ${limit}
+            `;
+            const docRes = await this.call('/api/query/sql', { stmt: sql });
+            if (docRes.code !== 0) throw new Error(docRes.msg || '搜索文档失败');
+            return formatRows(docRes.data);
         },
 
         async uploadAssets(files, options = {}) {
@@ -4277,7 +4283,14 @@
         whiteboardMarqueeSession: null,
         whiteboardSuppressClickUntil: 0,
         whiteboardPoolSelectedTaskIds: [],
+        whiteboardPoolSearchOpen: false,
+        whiteboardPoolSearchKeyword: '',
+        whiteboardPoolSearchFocusAfterRender: false,
+        whiteboardPoolSearchComposing: false,
+        whiteboardPoolSearchRenderTimer: 0,
+        whiteboardPoolSearchLastInputAt: 0,
         whiteboardPoolDragGhostEl: null,
+        whiteboardCompactSidebarCollapsed: null,
         whiteboardAllTabsDocDragId: '',
         whiteboardAllTabsVisibleDocIds: [],
         whiteboardAllTabsBaseDocIds: [],
@@ -11589,6 +11602,11 @@ const wait = !!options.wait;
         if (el && !document.body.contains(el)) {
             // if element not attached yet, still allow mount
         }
+        const hasLiveManagerView = !!(state.viewModeInitialized === true
+            || (state.modal && document.body.contains(state.modal)));
+        if (prevHostKey && nextHostKey && nextHostKey !== prevHostKey && hasLiveManagerView) {
+            try { state.__tmPreserveViewModeOnNextOpen = true; } catch (e) {}
+        }
         __tmMountEl = el || null;
         if (nextHostKey && nextHostKey !== prevHostKey) {
             try { __tmRestoreHostSessionState(nextHostKey); } catch (e) {}
@@ -11798,8 +11816,6 @@ const wait = !!options.wait;
         const key = String(hostKey || '').trim();
         if (!key) return;
         __tmHostUiState[key] = {
-            viewMode: String(state.viewMode || 'list').trim() || 'list',
-            viewModeInitialized: state.viewModeInitialized === true,
             currentRule: state.currentRule == null ? null : String(state.currentRule || ''),
             searchKeyword: String(state.searchKeyword || ''),
             searchBarOpen: !!state.searchBarOpen,
@@ -11831,8 +11847,6 @@ const wait = !!options.wait;
         if (!key) return;
         const snap = __tmHostUiState[key];
         if (!snap || typeof snap !== 'object') return;
-        state.viewMode = String(snap.viewMode || state.viewMode || 'list').trim() || 'list';
-        state.viewModeInitialized = snap.viewModeInitialized === true;
         state.currentRule = snap.currentRule == null ? null : String(snap.currentRule || '');
         state.searchKeyword = String(snap.searchKeyword || '');
         state.searchBarOpen = !!state.searchBarOpen || snap.searchBarOpen === true;
@@ -14982,8 +14996,43 @@ __tmPushStatusDebug('apply-status:start', {
 
         let markerResult = null;
         let rewardAttrHostId = String(__tmGetTaskAttrHostId(task) || context.persistId).trim();
-        const shouldStampTaskCompleteAt = nextDone && !prevDone;
-        const completeAtPatch = shouldStampTaskCompleteAt ? __tmBuildTaskCompleteAtPatch() : null;
+        let previousTaskCompleteAt = '';
+        try {
+            const meta = MetaStore.get(context.persistId) || {};
+            previousTaskCompleteAt = __tmNormalizeTaskCompleteAtValue(
+                task?.taskCompleteAt
+                || task?.task_complete_at
+                || meta?.taskCompleteAt
+                || meta?.task_complete_at
+                || ''
+            );
+        } catch (e) {}
+        const hasExplicitTaskCompleteAtPatch = Object.prototype.hasOwnProperty.call(opts, 'taskCompleteAt');
+        const shouldStampTaskCompleteAt = !hasExplicitTaskCompleteAtPatch && nextDone && !prevDone;
+        const shouldClearTaskCompleteAt = !hasExplicitTaskCompleteAtPatch && prevDone && !nextDone;
+        if (shouldClearTaskCompleteAt && !previousTaskCompleteAt && typeof __tmReadDocCheckboxBlockAttrs === 'function') {
+            try {
+                const persistedAttrs = await __tmReadDocCheckboxBlockAttrs(context.persistId);
+                previousTaskCompleteAt = __tmNormalizeTaskCompleteAtValue(persistedAttrs?.taskCompleteAt || '');
+            } catch (e) {}
+        }
+        const completeAtPatch = hasExplicitTaskCompleteAtPatch
+            ? { taskCompleteAt: __tmNormalizeTaskCompleteAtValue(opts.taskCompleteAt || '') }
+            : (shouldStampTaskCompleteAt
+                ? __tmBuildTaskCompleteAtPatch()
+                : (shouldClearTaskCompleteAt ? { taskCompleteAt: '' } : null));
+        const hasCompleteAtPatch = !!(completeAtPatch && typeof completeAtPatch === 'object'
+            && Object.prototype.hasOwnProperty.call(completeAtPatch, 'taskCompleteAt'));
+        const statusResultPatch = {
+            customStatus: nextStatusId,
+            done: nextDone,
+            ...(hasCompleteAtPatch ? { taskCompleteAt: completeAtPatch.taskCompleteAt } : {}),
+        };
+        const statusInversePatch = {
+            customStatus: prevStatusId,
+            done: prevDone,
+            ...(hasCompleteAtPatch ? { taskCompleteAt: previousTaskCompleteAt } : {}),
+        };
         const persistPatch = {
             customStatus: nextStatusId,
             ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
@@ -15086,11 +15135,7 @@ __tmPushStatusDebug('apply-status:start', {
                 else __tmInvalidateAllSqlCaches();
             } catch (e) {}
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
-            const settledPatch = {
-                customStatus: nextStatusId,
-                done: nextDone,
-                ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
-            };
+            const settledPatch = { ...statusResultPatch };
             if (opts.refresh !== false) {
                 try {
                     __tmRefreshTaskFieldsAcrossViews(context.persistId, settledPatch, {
@@ -15151,8 +15196,8 @@ __tmPushStatusDebug('apply-status:start', {
                     type: 'taskStatus',
                     taskId: context.persistId,
                     requestedTaskId: context.requestedId,
-                    patch: { customStatus: nextStatusId, done: nextDone },
-                    inversePatch: { customStatus: prevStatusId, done: prevDone },
+                    patch: statusResultPatch,
+                    inversePatch: statusInversePatch,
                     label: __tmGetUndoLabel(opts.label, '状态'),
                     source: String(opts.source || '').trim(),
                 });
@@ -15168,8 +15213,8 @@ __tmPushStatusDebug('apply-status:start', {
                 changed: true,
                 taskId: context.persistId,
                 requestedTaskId: context.requestedId,
-                patch: { customStatus: nextStatusId, done: nextDone },
-                inversePatch: { customStatus: prevStatusId, done: prevDone },
+                patch: statusResultPatch,
+                inversePatch: statusInversePatch,
             };
         });
     }
@@ -15227,7 +15272,7 @@ __tmPushStatusDebug('apply-status:start', {
                 });
             } else if (record.type === 'taskStatus') {
                 const targetStatusId = String(record.inversePatch?.customStatus || '').trim();
-                await __tmApplyTaskStatus(record.taskId || record.requestedTaskId, targetStatusId, {
+                const statusUndoOptions = {
                     recordUndo: false,
                     refresh: true,
                     refreshCalendar: true,
@@ -15235,7 +15280,11 @@ __tmPushStatusDebug('apply-status:start', {
                     hard: false,
                     suppressHint: true,
                     source: 'undo',
-                });
+                };
+                if (record.inversePatch && Object.prototype.hasOwnProperty.call(record.inversePatch, 'taskCompleteAt')) {
+                    statusUndoOptions.taskCompleteAt = record.inversePatch.taskCompleteAt;
+                }
+                await __tmApplyTaskStatus(record.taskId || record.requestedTaskId, targetStatusId, statusUndoOptions);
             } else {
                 throw new Error(`未支持的撤销类型: ${record.type || 'unknown'}`);
             }

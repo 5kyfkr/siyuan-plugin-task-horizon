@@ -362,6 +362,7 @@
     window.tmSwitchViewMode = function(mode) {
         const next = __tmGetSafeViewMode(mode);
         const prev = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+        state.viewModeInitialized = true;
         if (state.homepageOpen) {
             state.homepageOpen = false;
             try { __tmInvalidateHomepageMount(); } catch (e) {}
