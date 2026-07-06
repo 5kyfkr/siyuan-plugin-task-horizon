@@ -623,7 +623,7 @@ if ((syncResult.needsMainRefresh && isCalendarView) || syncResult.needsSideRefre
 
     function __tmBindTaskDateFollowUpdatedRefresh() {
         try {
-            if (window.__tmTaskDateFollowUpdatedRefreshBound) return;
+            if (window.__tmTaskDateFollowUpdatedRefreshBound && typeof window.__tmTaskDateFollowUpdatedRefreshHandler === 'function') return;
             window.__tmTaskDateFollowUpdatedRefreshBound = true;
             const onTaskDateFollowUpdated = (event) => {
                 const detail = (event?.detail && typeof event.detail === 'object') ? event.detail : {};
@@ -651,6 +651,7 @@ if ((syncResult.needsMainRefresh && isCalendarView) || syncResult.needsSideRefre
                     } catch (e) {}
                 }
             };
+            window.__tmTaskDateFollowUpdatedRefreshHandler = onTaskDateFollowUpdated;
             globalThis.__tmRuntimeEvents?.on?.(window, 'tm:task-date-follow-updated', onTaskDateFollowUpdated);
         } catch (e) {}
     }

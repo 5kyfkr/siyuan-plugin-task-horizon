@@ -180,6 +180,8 @@
     let inlineMetaNeedSyncBlocks = true;
     let quickbarTaskMetaAttrKeySettingsCache = null;
     let quickbarTaskMetaAttrAliasSettingsCache = null;
+    let quickbarDirectTaskListItemsCache = new WeakMap();
+    let quickbarTaskBindingCache = new WeakMap();
     let inlineMetaMutationTimer = null;
     let inlineMetaMutationHasStructural = false;
     let inlineMetaMutationLastFireTs = 0;
@@ -224,6 +226,9 @@
     let inlineMetaActiveTargetsCacheValue = false;
     let inlineMetaPendingForceRefresh = false;
     let inlineMetaHostPointerDownHandler = null;
+    let inlineMetaLastInvalidHostPruneAt = 0;
+    let inlineMetaInvalidHostPruneCursor = 0;
+    let inlineMetaLastRuntimePruneAt = 0;
     let quickbarAttrHostMigrationTimer = 0;
     let quickbarAttrHostMigrationRunning = false;
     let quickbarAttrHostDragActive = false;
@@ -1129,6 +1134,51 @@
         return !!node?.querySelector?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]');
     }
 
+    function touchInlineMetaHost(host, now = Date.now()) {
+        if (!(host instanceof HTMLElement)) return;
+        try { host.dataset.inlineTouchedAt = String(Math.max(0, Number(now) || Date.now())); } catch (e) {}
+    }
+
+    function cleanupInlineMetaHostParent(host, parent = null, layoutParent = null) {
+        const directParent = parent || host?.parentElement || null;
+        const layoutHostParent = layoutParent || host?.__tmQuickbarInlineLayoutParent || directParent?.closest?.('.sy-custom-props-inline-parent') || null;
+        try {
+            if (directParent?.classList?.contains('sy-custom-props-inline-parent')
+                && !hasInlineMetaInBlockHost(directParent)) {
+                directParent.classList.remove('sy-custom-props-inline-parent');
+            }
+        } catch (e) {}
+        try {
+            if (layoutHostParent?.classList?.contains('sy-custom-props-inline-parent')
+                && !hasInlineMetaInBlockHost(layoutHostParent)) {
+                layoutHostParent.classList.remove('sy-custom-props-inline-parent');
+            }
+        } catch (e) {}
+    }
+
+    function removeInlineMetaHostNode(host, clearLayout = true) {
+        if (!(host instanceof Element)) return false;
+        const ids = new Set();
+        const pushId = (value) => {
+            const id = String(value || '').trim();
+            if (id) ids.add(id);
+        };
+        pushId(host?.dataset?.blockId);
+        pushId(host?.dataset?.taskId);
+        pushId(host?.dataset?.attrHostId);
+        const parent = host.parentElement || null;
+        const layoutParent = host.__tmQuickbarInlineLayoutParent || parent?.closest?.('.sy-custom-props-inline-parent') || null;
+        try { host.remove(); } catch (e) {}
+        cleanupInlineMetaHostParent(host, parent, layoutParent);
+        ids.forEach((id) => {
+            try { inlineMetaMissingHostSeenAt.delete(id); } catch (e) {}
+            if (clearLayout) {
+                try { inlineMetaLayoutCache.delete(id); } catch (e) {}
+            }
+        });
+        return true;
+    }
+
     function removeInlineMetaHostByTaskId(taskId, placement = '') {
         const id = String(taskId || '').trim();
         const expectedPlacement = String(placement || '').trim();
@@ -1143,23 +1193,7 @@
         if (expectedPlacement) {
             hosts = hosts.filter((host) => String(host?.dataset?.inlinePlacement || '').trim() === expectedPlacement);
         }
-        hosts.forEach((host) => {
-            const parent = host?.parentElement || null;
-            const layoutParent = host?.__tmQuickbarInlineLayoutParent || parent?.closest?.('.sy-custom-props-inline-parent') || null;
-            try { host.remove(); } catch (e) {}
-            try {
-                if (parent?.classList?.contains('sy-custom-props-inline-parent')
-                    && !hasInlineMetaInBlockHost(parent)) {
-                    parent.classList.remove('sy-custom-props-inline-parent');
-                }
-            } catch (e) {}
-            try {
-                if (layoutParent?.classList?.contains('sy-custom-props-inline-parent')
-                    && !hasInlineMetaInBlockHost(layoutParent)) {
-                    layoutParent.classList.remove('sy-custom-props-inline-parent');
-                }
-            } catch (e) {}
-        });
+        hosts.forEach((host) => removeInlineMetaHostNode(host, true));
         try { inlineMetaMissingHostSeenAt.delete(id); } catch (e) {}
         try { inlineMetaLayoutCache.delete(id); } catch (e) {}
         invalidateInlineMetaActiveTargetsCache();
@@ -1208,6 +1242,22 @@
     }
 
     const QUICKBAR_INLINE_RENDER_BATCH_LIMIT = 6;
+    const QUICKBAR_INLINE_INVALID_HOST_PRUNE_INTERVAL_MS = 3200;
+    const QUICKBAR_INLINE_INVALID_HOST_PRUNE_FORCE_INTERVAL_MS = 1800;
+    const QUICKBAR_INLINE_INVALID_HOST_PRUNE_DEEP_INTERVAL_MS = 900;
+    const QUICKBAR_INLINE_INVALID_HOST_PRUNE_VISIT_LIMIT = 600;
+    const QUICKBAR_INLINE_INVALID_HOST_PRUNE_SLOW_LIMIT = 80;
+    const QUICKBAR_INLINE_INVALID_HOST_PRUNE_TIME_BUDGET_MS = 10;
+    const QUICKBAR_TASK_BINDING_CACHE_TTL_MS = 400;
+    const QUICKBAR_INLINE_CACHE_TTL_MS = 8 * 60 * 1000;
+    const QUICKBAR_INLINE_CACHE_SOFT_LIMIT = 520;
+    const QUICKBAR_INLINE_LAYOUT_CACHE_SOFT_LIMIT = 520;
+    const QUICKBAR_INLINE_DOM_HOST_SOFT_LIMIT = 520;
+    const QUICKBAR_INLINE_DOM_HOST_HARD_LIMIT = 900;
+    const QUICKBAR_INLINE_INACTIVE_HOST_TTL_MS = 45 * 1000;
+    const QUICKBAR_INLINE_MISC_CACHE_TTL_MS = 2 * 60 * 1000;
+    const QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT = 360;
+    const QUICKBAR_INLINE_RUNTIME_PRUNE_INTERVAL_MS = 5000;
 
     function getListSubtype(el) {
         return String(el?.getAttribute?.('data-subtype') || el?.dataset?.subtype || '').trim().toLowerCase();
@@ -1332,14 +1382,40 @@
             return subtype === 't';
         }
 
+        function readQuickbarElementNodeId(el) {
+            return String(el?.dataset?.nodeId || el?.getAttribute?.('data-node-id') || '').trim();
+        }
+
+        function getQuickbarListItemsCacheSig(listEl) {
+            if (!(listEl instanceof Element)) return '';
+            const children = listEl.children || [];
+            const first = children.length ? children[0] : null;
+            const last = children.length ? children[children.length - 1] : null;
+            return [
+                readQuickbarElementNodeId(listEl),
+                children.length,
+                readQuickbarElementNodeId(first),
+                readQuickbarElementNodeId(last),
+                String(listEl.getAttribute?.('data-subtype') || listEl.dataset?.subtype || '').trim().toLowerCase()
+            ].join('|');
+        }
+
         function getQuickbarDirectTaskListItems(listEl) {
             if (!isQuickbarTaskListElement(listEl)) return [];
-            return Array.from(listEl.children || []).filter((child) => {
+            const now = Date.now();
+            const sig = getQuickbarListItemsCacheSig(listEl);
+            const cached = quickbarDirectTaskListItemsCache.get(listEl);
+            if (cached && (now - Number(cached.ts || 0)) < QUICKBAR_TASK_BINDING_CACHE_TTL_MS && cached.sig === sig) {
+                return Array.isArray(cached.items) ? cached.items.slice() : [];
+            }
+            const items = Array.from(listEl.children || []).filter((child) => {
                 if (!(child instanceof Element)) return false;
                 if (!child.matches?.('.li,[data-type="NodeListItem"]')) return false;
-                if (!String(child?.dataset?.nodeId || child?.getAttribute?.('data-node-id') || '').trim()) return false;
+                if (!readQuickbarElementNodeId(child)) return false;
                 return isTaskBlockElement(child);
             });
+            quickbarDirectTaskListItemsCache.set(listEl, { ts: now, sig, items });
+            return items.slice();
         }
 
         function getQuickbarSiblingTaskListElement(listEl, direction = 'next') {
@@ -1356,7 +1432,68 @@
             return !!(getQuickbarSiblingTaskListElement(listEl, 'prev') || getQuickbarSiblingTaskListElement(listEl, 'next'));
         }
 
+        function cloneQuickbarTaskBinding(binding) {
+            return {
+                taskId: String(binding?.taskId || '').trim(),
+                attrHostId: String(binding?.attrHostId || binding?.taskId || '').trim(),
+                parentListId: String(binding?.parentListId || '').trim(),
+                attrHostState: String(binding?.attrHostState || '').trim(),
+                attrHostMigrationSourceId: String(binding?.attrHostMigrationSourceId || '').trim(),
+                parentListTaskCount: Number(binding?.parentListTaskCount || 0),
+                parentListHasAdjacentTaskList: !!binding?.parentListHasAdjacentTaskList,
+            };
+        }
+
+        function getQuickbarTaskBindingCacheSig(blockEl) {
+            if (!(blockEl instanceof Element)) return '';
+            const li = blockEl.matches?.('.li,[data-type="NodeListItem"]')
+                ? blockEl
+                : blockEl.closest?.('.li,[data-type="NodeListItem"]');
+            const list = blockEl.matches?.('.list,[data-type="NodeList"]')
+                ? blockEl
+                : (li?.parentElement instanceof Element && li.parentElement.matches?.('.list,[data-type="NodeList"]') ? li.parentElement : blockEl.closest?.('.list,[data-type="NodeList"]'));
+            return [
+                readQuickbarElementNodeId(blockEl),
+                readQuickbarElementNodeId(li),
+                readQuickbarElementNodeId(list),
+                list?.children?.length || 0,
+                readQuickbarElementNodeId(list?.previousElementSibling),
+                readQuickbarElementNodeId(list?.nextElementSibling),
+                String(list?.getAttribute?.('data-subtype') || list?.dataset?.subtype || '').trim().toLowerCase()
+            ].join('|');
+        }
+
+        function readQuickbarTaskBindingCache(blockEl) {
+            if (!(blockEl instanceof Element) || !blockEl.isConnected) return null;
+            const cached = quickbarTaskBindingCache.get(blockEl);
+            if (!cached) return null;
+            if ((Date.now() - Number(cached.ts || 0)) >= QUICKBAR_TASK_BINDING_CACHE_TTL_MS) return null;
+            const sig = getQuickbarTaskBindingCacheSig(blockEl);
+            if (cached.sig !== sig) return null;
+            return cloneQuickbarTaskBinding(cached.binding);
+        }
+
+        function writeQuickbarTaskBindingCache(blockEl, binding) {
+            const normalized = cloneQuickbarTaskBinding(binding);
+            if (blockEl instanceof Element && blockEl.isConnected) {
+                quickbarTaskBindingCache.set(blockEl, {
+                    ts: Date.now(),
+                    sig: getQuickbarTaskBindingCacheSig(blockEl),
+                    binding: normalized
+                });
+            }
+            return cloneQuickbarTaskBinding(normalized);
+        }
+
+        function clearQuickbarTaskBindingCaches() {
+            quickbarDirectTaskListItemsCache = new WeakMap();
+            quickbarTaskBindingCache = new WeakMap();
+        }
+
         function resolveTaskBindingFromBlockEl(blockEl) {
+            if (!blockEl) return { taskId: '', attrHostId: '' };
+            const cachedBinding = readQuickbarTaskBindingCache(blockEl);
+            if (cachedBinding) return cachedBinding;
             const readId = (el) => String(el?.dataset?.nodeId || el?.getAttribute?.('data-node-id') || '').trim();
             const resolveTaskBindingFromTaskLi = (taskLi) => {
                 if (!taskLi || !(taskLi instanceof Element)) return null;
@@ -1410,14 +1547,21 @@
                 if (inner && readId(inner) && isTaskBlockElement(inner)) return inner;
                 return null;
             };
-            if (!blockEl) return { taskId: '', attrHostId: '' };
+            let result = null;
             const selfTaskLi = pickTaskLi(blockEl);
-            if (selfTaskLi) return resolveTaskBindingFromTaskLi(selfTaskLi) || { taskId: '', attrHostId: '' };
-            const id0 = readId(blockEl);
-            if (id0 && isTaskBlockElement(blockEl)) return { taskId: id0, attrHostId: id0 };
-            const p = blockEl.closest?.('[data-node-id]');
-            const fallbackId = readId(p) || id0;
-            return { taskId: fallbackId, attrHostId: fallbackId };
+            if (selfTaskLi) {
+                result = resolveTaskBindingFromTaskLi(selfTaskLi) || { taskId: '', attrHostId: '' };
+            } else {
+                const id0 = readId(blockEl);
+                if (id0 && isTaskBlockElement(blockEl)) {
+                    result = { taskId: id0, attrHostId: id0 };
+                } else {
+                    const p = blockEl.closest?.('[data-node-id]');
+                    const fallbackId = readId(p) || id0;
+                    result = { taskId: fallbackId, attrHostId: fallbackId };
+                }
+            }
+            return writeQuickbarTaskBindingCache(blockEl, result);
         }
 
         function resolveTaskNodeIdForDetail(blockEl) {
@@ -1716,11 +1860,13 @@
     const __tmQBOnAttrHostDragStartCapture = () => {
         quickbarAttrHostDragActive = true;
         quickbarAttrHostLastDragAt = Date.now();
+        try { clearQuickbarTaskBindingCaches(); } catch (e) {}
     };
     const __tmQBOnAttrHostDragEndCapture = () => {
         quickbarAttrHostDragActive = false;
         quickbarAttrHostLastDragAt = Date.now();
         quickbarAttrHostLastStructuralAt = Date.now();
+        try { clearQuickbarTaskBindingCaches(); } catch (e) {}
         try { quickbarAttrHostMigrationScheduler?.('drag-end'); } catch (e) {}
     };
     document.addEventListener('dragstart', __tmQBOnAttrHostDragStartCapture, true);
@@ -5252,6 +5398,7 @@
             if (!id) return;
             inlineMetaCache.set(id, props && typeof props === 'object' ? props : normalizeCustomProps());
             inlineMetaCacheTs.set(id, Date.now());
+            pruneInlineMetaRuntimeCaches(false);
         }
 
         function deleteInlineMetaCache(taskId) {
@@ -7206,6 +7353,7 @@
                     invalidateInlineMetaActiveTargetsCache();
                 }
                 bindInlineHostPointerHandler(host, blockEl);
+                touchInlineMetaHost(host);
                 host.__tmQuickbarInlineLayoutParent = layoutParent;
                 const movedHost = host.parentElement !== nativeMount.parent || (nativeMount.before && host.nextSibling !== nativeMount.before);
                 if (nativeMount.before && host.nextSibling !== nativeMount.before) nativeMount.parent.insertBefore(host, nativeMount.before);
@@ -7229,13 +7377,13 @@
                     });
                 }
                 try {
-                    document.querySelectorAll(`.sy-custom-props-inline-layer .sy-custom-props-inline-host[data-block-id="${CSS.escape(blockId)}"]`).forEach((node) => node.remove());
+                    document.querySelectorAll(`.sy-custom-props-inline-layer .sy-custom-props-inline-host[data-block-id="${CSS.escape(blockId)}"]`).forEach((node) => removeInlineMetaHostNode(node, true));
                 } catch (e) {}
                 return host;
             }
             removeInlineMetaHostByTaskId(blockId, 'in-block');
             try {
-                blockEl.querySelectorAll?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((node) => node.remove());
+                blockEl.querySelectorAll?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((node) => removeInlineMetaHostNode(node, true));
                 blockEl.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((node) => {
                     if (!hasInlineMetaInBlockHost(node)) {
                         node.classList.remove('sy-custom-props-inline-parent');
@@ -7256,6 +7404,7 @@
                 layer.appendChild(host);
             }
             bindInlineHostPointerHandler(host, blockEl);
+            touchInlineMetaHost(host);
             return host;
         }
 
@@ -7435,6 +7584,237 @@
             return ids;
         }
 
+        function collectInlineMetaRetainIds(extraBlocks = []) {
+            const ids = new Set();
+            const pushId = (value) => {
+                const id = String(value || '').trim();
+                if (id) ids.add(id);
+            };
+            pushId(currentBlockId);
+            pushId(currentTaskId);
+            try { inlineMetaRenderQueueIds.forEach(pushId); } catch (e) {}
+            try { inlineMetaRenderActiveIds.forEach(pushId); } catch (e) {}
+            try {
+                (Array.isArray(extraBlocks) ? extraBlocks : []).forEach((blockEl) => {
+                    collectInlineMetaOwnerIds(blockEl).forEach(pushId);
+                });
+            } catch (e) {}
+            try {
+                inlineMetaVisibleTaskBlocks.forEach((blockEl, blockId) => {
+                    pushId(blockId);
+                    collectInlineMetaOwnerIds(blockEl).forEach(pushId);
+                });
+            } catch (e) {}
+            try {
+                document.querySelectorAll('.sy-custom-props-inline-host[data-block-id]').forEach((host) => {
+                    pushId(host?.dataset?.blockId);
+                    pushId(host?.dataset?.taskId);
+                    pushId(host?.dataset?.attrHostId);
+                });
+            } catch (e) {}
+            return ids;
+        }
+
+        function pruneInlineMetaPropsCache(now, retainIds) {
+            try {
+                Array.from(inlineMetaCache.keys()).forEach((id) => {
+                    const key = String(id || '').trim();
+                    if (!key) {
+                        inlineMetaCache.delete(id);
+                        return;
+                    }
+                    if (retainIds?.has(key)) return;
+                    const ts = Number(inlineMetaCacheTs.get(key) || 0);
+                    if (!ts || (now - ts) > QUICKBAR_INLINE_CACHE_TTL_MS) {
+                        inlineMetaCache.delete(key);
+                        inlineMetaCacheTs.delete(key);
+                    }
+                });
+                inlineMetaCacheTs.forEach((_, id) => {
+                    if (!inlineMetaCache.has(id)) inlineMetaCacheTs.delete(id);
+                });
+                if (inlineMetaCache.size <= QUICKBAR_INLINE_CACHE_SOFT_LIMIT) return;
+                const entries = Array.from(inlineMetaCache.keys())
+                    .map((id) => String(id || '').trim())
+                    .filter((id) => id && !retainIds?.has(id))
+                    .map((id) => ({ id, ts: Number(inlineMetaCacheTs.get(id) || 0) || 0 }))
+                    .sort((a, b) => a.ts - b.ts);
+                for (let i = 0; inlineMetaCache.size > QUICKBAR_INLINE_CACHE_SOFT_LIMIT && i < entries.length; i += 1) {
+                    inlineMetaCache.delete(entries[i].id);
+                    inlineMetaCacheTs.delete(entries[i].id);
+                }
+            } catch (e) {}
+        }
+
+        function pruneInlineMetaLayoutRuntimeCache(now, retainIds) {
+            try {
+                inlineMetaLayoutCache.forEach((entry, id) => {
+                    const key = String(id || '').trim();
+                    if (!key) {
+                        inlineMetaLayoutCache.delete(id);
+                        return;
+                    }
+                    if (retainIds?.has(key)) return;
+                    const ts = Number(entry?.ts || 0);
+                    if (!ts || (now - ts) > QUICKBAR_INLINE_CACHE_TTL_MS) {
+                        inlineMetaLayoutCache.delete(key);
+                    }
+                });
+                if (inlineMetaLayoutCache.size <= QUICKBAR_INLINE_LAYOUT_CACHE_SOFT_LIMIT) return;
+                const entries = Array.from(inlineMetaLayoutCache.entries())
+                    .map(([id, entry]) => ({ id: String(id || '').trim(), ts: Number(entry?.ts || 0) || 0 }))
+                    .filter((entry) => entry.id && !retainIds?.has(entry.id))
+                    .sort((a, b) => a.ts - b.ts);
+                for (let i = 0; inlineMetaLayoutCache.size > QUICKBAR_INLINE_LAYOUT_CACHE_SOFT_LIMIT && i < entries.length; i += 1) {
+                    inlineMetaLayoutCache.delete(entries[i].id);
+                }
+            } catch (e) {}
+        }
+
+        function pruneInlineMetaTimestampMap(map, now, maxAgeMs, limit, retainIds = null) {
+            if (!(map instanceof Map)) return;
+            try {
+                map.forEach((value, id) => {
+                    const key = String(id || '').trim();
+                    if (!key) {
+                        map.delete(id);
+                        return;
+                    }
+                    if (retainIds?.has(key)) return;
+                    const ts = Number(value || 0);
+                    if (!ts || (now - ts) > maxAgeMs) map.delete(key);
+                });
+                if (map.size <= limit) return;
+                const entries = Array.from(map.entries())
+                    .map(([id, value]) => ({ id: String(id || '').trim(), ts: Number(value || 0) || 0 }))
+                    .filter((entry) => entry.id && !retainIds?.has(entry.id))
+                    .sort((a, b) => a.ts - b.ts);
+                for (let i = 0; map.size > limit && i < entries.length; i += 1) {
+                    map.delete(entries[i].id);
+                }
+            } catch (e) {}
+        }
+
+        function pruneInlineMetaOptimisticPatches(now, retainIds) {
+            try {
+                inlineMetaOptimisticPatches.forEach((entry, id) => {
+                    const key = String(id || '').trim();
+                    if (!key) {
+                        inlineMetaOptimisticPatches.delete(id);
+                        return;
+                    }
+                    const expiresAt = Number(entry?.expiresAt || 0);
+                    if (!expiresAt || expiresAt <= now) inlineMetaOptimisticPatches.delete(key);
+                });
+                if (inlineMetaOptimisticPatches.size <= QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT) return;
+                const entries = Array.from(inlineMetaOptimisticPatches.entries())
+                    .map(([id, entry]) => ({ id: String(id || '').trim(), ts: Number(entry?.expiresAt || 0) || 0 }))
+                    .filter((entry) => entry.id && !retainIds?.has(entry.id))
+                    .sort((a, b) => a.ts - b.ts);
+                for (let i = 0; inlineMetaOptimisticPatches.size > QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT && i < entries.length; i += 1) {
+                    inlineMetaOptimisticPatches.delete(entries[i].id);
+                }
+            } catch (e) {}
+        }
+
+        function pruneInlineMetaNativeHostSuppression(now, retainIds) {
+            try {
+                inlineMetaNativeHostSuppressedUntil.forEach((until, id) => {
+                    const key = String(id || '').trim();
+                    if (!key) {
+                        inlineMetaNativeHostSuppressedUntil.delete(id);
+                        return;
+                    }
+                    if (Number(until || 0) <= now) inlineMetaNativeHostSuppressedUntil.delete(key);
+                });
+                if (inlineMetaNativeHostSuppressedUntil.size <= QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT) return;
+                const entries = Array.from(inlineMetaNativeHostSuppressedUntil.entries())
+                    .map(([id, until]) => ({ id: String(id || '').trim(), ts: Number(until || 0) || 0 }))
+                    .filter((entry) => entry.id && !retainIds?.has(entry.id))
+                    .sort((a, b) => a.ts - b.ts);
+                for (let i = 0; inlineMetaNativeHostSuppressedUntil.size > QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT && i < entries.length; i += 1) {
+                    inlineMetaNativeHostSuppressedUntil.delete(entries[i].id);
+                }
+            } catch (e) {}
+        }
+
+        function pruneInlineMetaRuntimeCaches(force = false, extraRetainBlocks = []) {
+            const now = Date.now();
+            if (!force && (now - Number(inlineMetaLastRuntimePruneAt || 0)) < QUICKBAR_INLINE_RUNTIME_PRUNE_INTERVAL_MS) return;
+            inlineMetaLastRuntimePruneAt = now;
+            const retainIds = collectInlineMetaRetainIds(extraRetainBlocks);
+            pruneInlineMetaPropsCache(now, retainIds);
+            pruneInlineMetaLayoutRuntimeCache(now, retainIds);
+            pruneInlineMetaOptimisticPatches(now, retainIds);
+            pruneInlineMetaNativeHostSuppression(now, retainIds);
+            pruneInlineMetaTimestampMap(inlineMetaMissingHostSeenAt, now, QUICKBAR_INLINE_MISC_CACHE_TTL_MS, QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT, retainIds);
+            pruneInlineMetaTimestampMap(quickbarAttrHostMigrationSeenAt, now, QUICKBAR_INLINE_MISC_CACHE_TTL_MS, QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT, retainIds);
+        }
+
+        function clearInlineMetaRuntimeCaches() {
+            try { inlineMetaCache.clear(); } catch (e) {}
+            try { inlineMetaCacheTs.clear(); } catch (e) {}
+            try { inlineMetaOptimisticPatches.clear(); } catch (e) {}
+            try { inlineMetaLayoutCache.clear(); } catch (e) {}
+            try { inlineMetaPropsInflight.clear(); } catch (e) {}
+            try { inlineMetaMissingHostSeenAt.clear(); } catch (e) {}
+            try { inlineMetaNativeHostSuppressedUntil.clear(); } catch (e) {}
+            try { quickbarAttrHostMigrationSeenAt.clear(); } catch (e) {}
+            try { quickbarAttrHostDragSnapshots.clear(); } catch (e) {}
+            inlineMetaLastRuntimePruneAt = 0;
+            inlineMetaScopeDocIds = null;
+            inlineMetaScopeDocIdsTs = 0;
+            inlineMetaScopeDocIdsPromise = null;
+            inlineMetaActiveTargetsCacheTs = 0;
+            inlineMetaActiveTargetsCacheValue = false;
+        }
+
+        function getQuickbarInlineStats() {
+            let hosts = [];
+            let layers = [];
+            let parents = [];
+            let protyles = [];
+            try { hosts = Array.from(document.querySelectorAll('.sy-custom-props-inline-host')); } catch (e) { hosts = []; }
+            try { layers = Array.from(document.querySelectorAll('.sy-custom-props-inline-layer')); } catch (e) { layers = []; }
+            try { parents = Array.from(document.querySelectorAll('.sy-custom-props-inline-parent')); } catch (e) { parents = []; }
+            try { protyles = Array.from(document.querySelectorAll('.protyle')); } catch (e) { protyles = []; }
+            const inBlockHosts = hosts.filter((host) => String(host?.dataset?.inlinePlacement || '').trim() === 'in-block');
+            const overlayHosts = hosts.filter((host) => String(host?.dataset?.inlinePlacement || '').trim() === 'overlay' || host?.closest?.('.sy-custom-props-inline-layer'));
+            const readyHosts = hosts.filter((host) => host?.classList?.contains('is-ready'));
+            const activeRoots = new Set(inlineMetaObservedRoots);
+            const activeHostCount = hosts.filter((host) => {
+                const protyle = host?.closest?.('.protyle');
+                return !!(protyle && activeRoots.has(protyle));
+            }).length;
+            return {
+                enabled: isInlineMetaEnabled(),
+                started: !!inlineMetaStarted,
+                hosts: hosts.length,
+                inBlockHosts: inBlockHosts.length,
+                overlayHosts: overlayHosts.length,
+                readyHosts: readyHosts.length,
+                activeHostCount,
+                layers: layers.length,
+                inlineParents: parents.length,
+                protyles: protyles.length,
+                observedRoots: inlineMetaObservedRoots.length,
+                observedBlocks: inlineMetaObservedTaskBlocks.size,
+                visibleBlocks: inlineMetaVisibleTaskBlocks.size,
+                renderQueue: inlineMetaRenderQueue.length,
+                renderQueueIds: inlineMetaRenderQueueIds.size,
+                renderActiveIds: inlineMetaRenderActiveIds.size,
+                propsCache: inlineMetaCache.size,
+                propsCacheTs: inlineMetaCacheTs.size,
+                layoutCache: inlineMetaLayoutCache.size,
+                propsInflight: inlineMetaPropsInflight.size,
+                optimisticPatches: inlineMetaOptimisticPatches.size,
+                missingHostSeen: inlineMetaMissingHostSeenAt.size,
+                nativeHostSuppressed: inlineMetaNativeHostSuppressedUntil.size,
+                migrationSeen: quickbarAttrHostMigrationSeenAt.size,
+                dragSnapshots: quickbarAttrHostDragSnapshots.size,
+            };
+        }
+
         function applyInlineMetaStructuralInvalidation(topmostAffected = null) {
             if (topmostAffected instanceof Element) {
                 try {
@@ -7525,51 +7905,154 @@
             (keepBlocks || []).forEach((blockEl) => {
                 collectInlineMetaOwnerIds(blockEl).forEach((id) => keepIds.add(id));
             });
-            // Only evict hosts in protyles we're actively observing. Hosts in
-            // hidden tabs (their protyle filtered out of observe-roots) stay
-            // intact so a switch back doesn't paint blank.
+            // Evict hosts outside the keep zone in active protyles. Hidden
+            // tabs get a short grace window, then participate once the DOM
+            // budget is exceeded so long browsing sessions don't retain one
+            // chip node for every task the user has ever scrolled past.
             const activeProtyles = new Set(inlineMetaObservedRoots);
             try {
-                document.querySelectorAll('.sy-custom-props-inline-host').forEach((host) => {
+                const now = Date.now();
+                let removed = 0;
+                const hosts = Array.from(document.querySelectorAll('.sy-custom-props-inline-host'));
+                const shouldPruneInactiveHosts = hosts.length > QUICKBAR_INLINE_DOM_HOST_SOFT_LIMIT;
+                const removeHost = (host) => {
+                    if (removeInlineMetaHostNode(host, true)) removed += 1;
+                };
+                hosts.forEach((host) => {
+                    if (!(host instanceof HTMLElement)) return;
                     const owner = String(host?.dataset?.blockId || '').trim();
                     if (!owner || keepIds.has(owner)) return;
-                    if (QUICKBAR_INLINE_USE_NATIVE_HOST && String(host?.dataset?.inlinePlacement || '').trim() === 'in-block') return;
                     const protyleEl = host.closest?.('.protyle');
-                    if (!protyleEl || !activeProtyles.has(protyleEl)) return;
-                    try { host.remove(); } catch (e) {}
-                    try { inlineMetaLayoutCache.delete(owner); } catch (e2) {}
+                    const activeProtyleHost = !!(protyleEl && activeProtyles.has(protyleEl));
+                    const touchedAt = Number(host?.dataset?.inlineTouchedAt || 0);
+                    const hostAgeMs = touchedAt ? (now - touchedAt) : Number.POSITIVE_INFINITY;
+                    if (!activeProtyleHost) {
+                        if (!shouldPruneInactiveHosts) return;
+                        if (hostAgeMs < QUICKBAR_INLINE_INACTIVE_HOST_TTL_MS && hosts.length <= QUICKBAR_INLINE_DOM_HOST_HARD_LIMIT) return;
+                    }
+                    if (String(host?.dataset?.inlinePlacement || '').trim() === 'in-block') {
+                        const blockEl = host.__tmQuickbarInlineBlockEl
+                            || getTaskBlockElementFromTarget(host)
+                            || host.closest?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
+                        if (blockEl && isInlineMetaEditingBlock(blockEl)) return;
+                    }
+                    removeHost(host);
                 });
+                let liveHostCount = hosts.length - removed;
+                if (liveHostCount > QUICKBAR_INLINE_DOM_HOST_HARD_LIMIT) {
+                    const candidates = Array.from(document.querySelectorAll('.sy-custom-props-inline-host[data-block-id]'))
+                        .filter((host) => {
+                            if (!(host instanceof HTMLElement)) return false;
+                            const owner = String(host?.dataset?.blockId || '').trim();
+                            if (!owner || keepIds.has(owner)) return false;
+                            const blockEl = host.__tmQuickbarInlineBlockEl
+                                || getTaskBlockElementFromTarget(host)
+                                || host.closest?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
+                            if (String(host?.dataset?.inlinePlacement || '').trim() === 'in-block' && blockEl && isInlineMetaEditingBlock(blockEl)) return false;
+                            return true;
+                        })
+                        .sort((a, b) => (Number(a?.dataset?.inlineTouchedAt || 0) || 0) - (Number(b?.dataset?.inlineTouchedAt || 0) || 0));
+                    for (let i = 0; liveHostCount > QUICKBAR_INLINE_DOM_HOST_SOFT_LIMIT && i < candidates.length; i += 1) {
+                        const beforeRemoved = removed;
+                        removeHost(candidates[i]);
+                        if (removed > beforeRemoved) liveHostCount -= 1;
+                    }
+                }
+                if (removed > 0) invalidateInlineMetaActiveTargetsCache();
             } catch (e) {}
+            pruneInlineMetaRuntimeCaches(false, keepBlocks);
+        }
+
+        function getInlineMetaNow() {
+            try {
+                if (typeof performance !== 'undefined' && typeof performance.now === 'function') return performance.now();
+            } catch (e) {}
+            return Date.now();
+        }
+
+        function isInlineMetaNativeHostLocallyAnchored(host, owner, hostTaskId) {
+            if (!(host instanceof HTMLElement)) return false;
+            if (String(host?.dataset?.inlinePlacement || '').trim() !== 'in-block') return false;
+            const parent = host.parentElement;
+            if (!(parent instanceof Element) || !parent.classList?.contains('protyle-attr')) return false;
+            const blockEl = host.closest?.('.li[data-node-id], [data-type="NodeListItem"][data-node-id]');
+            if (!(blockEl instanceof Element) || !blockEl.contains(host)) return false;
+            const blockId = String(blockEl?.dataset?.nodeId || blockEl?.getAttribute?.('data-node-id') || '').trim();
+            if (!blockId) return false;
+            return blockId === owner || blockId === hostTaskId;
         }
 
         function pruneInlineMetaInvalidHosts(reason = '') {
             if (isInlineMetaScrollSettling()) return 0;
             const now = Date.now();
+            const reasonKey = String(reason || '').trim();
+            const hasRecentStructuralChange = quickbarAttrHostDragActive
+                || (now - Number(quickbarAttrHostLastStructuralAt || 0)) < 5000
+                || (now - Number(quickbarAttrHostLastDragAt || 0)) < 2500;
+            const shouldDeepValidateNativeHosts = hasRecentStructuralChange
+                || reasonKey === 'structural-change'
+                || reasonKey === 'attr-write'
+                || reasonKey === 'drag-end';
+            const minInterval = shouldDeepValidateNativeHosts
+                ? QUICKBAR_INLINE_INVALID_HOST_PRUNE_DEEP_INTERVAL_MS
+                : (reasonKey === 'render-force'
+                    ? QUICKBAR_INLINE_INVALID_HOST_PRUNE_FORCE_INTERVAL_MS
+                    : QUICKBAR_INLINE_INVALID_HOST_PRUNE_INTERVAL_MS);
+            if ((now - Number(inlineMetaLastInvalidHostPruneAt || 0)) < minInterval) return 0;
+            inlineMetaLastInvalidHostPruneAt = now;
             const activeProtyles = new Set(inlineMetaObservedRoots);
             let removed = 0;
             try {
-                document.querySelectorAll('.sy-custom-props-inline-host[data-block-id]').forEach((host) => {
-                    if (!(host instanceof HTMLElement)) return;
+                const hosts = Array.from(document.querySelectorAll('.sy-custom-props-inline-host[data-block-id]'));
+                const total = hosts.length;
+                if (!total) {
+                    inlineMetaInvalidHostPruneCursor = 0;
+                    return 0;
+                }
+                const startIndex = inlineMetaInvalidHostPruneCursor >= 0 && inlineMetaInvalidHostPruneCursor < total
+                    ? inlineMetaInvalidHostPruneCursor
+                    : 0;
+                const deadline = getInlineMetaNow() + QUICKBAR_INLINE_INVALID_HOST_PRUNE_TIME_BUDGET_MS;
+                let visited = 0;
+                let slowChecks = 0;
+                let reachedBudget = false;
+                for (let offset = 0; offset < total; offset += 1) {
+                    const index = (startIndex + offset) % total;
+                    const host = hosts[index];
+                    visited += 1;
+                    if (visited > QUICKBAR_INLINE_INVALID_HOST_PRUNE_VISIT_LIMIT
+                        || (visited > 1 && (visited % 64) === 0 && getInlineMetaNow() >= deadline)) {
+                        reachedBudget = true;
+                        break;
+                    }
+                    if (!(host instanceof HTMLElement)) continue;
                     const owner = String(host.dataset.blockId || '').trim();
-                    if (!owner) return;
+                    if (!owner) continue;
                     const protyleEl = host.closest?.('.protyle');
-                    if (protyleEl && inlineMetaProtyleVisibility.get(protyleEl) === false) return;
-                    if (protyleEl && activeProtyles.size && !activeProtyles.has(protyleEl)) return;
+                    if (protyleEl && inlineMetaProtyleVisibility.get(protyleEl) === false) continue;
+                    if (protyleEl && activeProtyles.size && !activeProtyles.has(protyleEl)) continue;
                     const hostTaskId = String(host.dataset.taskId || '').trim();
                     const hostAttrHostId = String(host.dataset.attrHostId || '').trim();
                     const expectedHostId = hostAttrHostId || owner;
+                    if (!shouldDeepValidateNativeHosts && isInlineMetaNativeHostLocallyAnchored(host, owner, hostTaskId)) {
+                        inlineMetaMissingHostSeenAt.delete(owner);
+                        continue;
+                    }
+                    if (slowChecks >= QUICKBAR_INLINE_INVALID_HOST_PRUNE_SLOW_LIMIT || getInlineMetaNow() >= deadline) {
+                        reachedBudget = true;
+                        break;
+                    }
+                    slowChecks += 1;
                     const liveResolved = resolveQuickbarBindingForHostIds(hostTaskId, expectedHostId, owner);
                     const blockEl = liveResolved?.blockEl || null;
                     if (!blockEl) {
                         const firstSeenAt = Number(inlineMetaMissingHostSeenAt.get(owner) || 0);
                         if (!firstSeenAt) {
                             inlineMetaMissingHostSeenAt.set(owner, now);
-                            return;
+                            continue;
                         }
-                        if ((now - firstSeenAt) < 900) return;
-                        try { host.remove(); } catch (e2) {}
-                        inlineMetaMissingHostSeenAt.delete(owner);
-                        inlineMetaLayoutCache.delete(owner);
+                        if ((now - firstSeenAt) < 900) continue;
+                        removeInlineMetaHostNode(host, true);
                         inlineMetaVisibleTaskBlocks.delete(owner);
                         inlineMetaObservedTaskBlocks.delete(owner);
                         if (hostTaskId) {
@@ -7584,7 +8067,7 @@
                             attrHostId: hostAttrHostId,
                             missingForMs: now - firstSeenAt,
                         });
-                        return;
+                        continue;
                     }
                     inlineMetaMissingHostSeenAt.delete(owner);
                     const liveTaskId = String(liveResolved?.taskId || liveResolved?.binding?.taskId || '').trim();
@@ -7602,11 +8085,10 @@
                             liveTaskId,
                             liveAttrHostId,
                         });
-                        return;
+                        continue;
                     }
-                    if (!bindingChanged && !sourceChanged) return;
-                    try { host.remove(); } catch (e2) {}
-                    inlineMetaLayoutCache.delete(owner);
+                    if (!bindingChanged && !sourceChanged) continue;
+                    removeInlineMetaHostNode(host, true);
                     inlineMetaVisibleTaskBlocks.delete(owner);
                     removed += 1;
                     pushQuickbarInlineSyncLog('stale-host-prune', {
@@ -7619,7 +8101,10 @@
                         bindingChanged,
                         sourceChanged,
                     });
-                });
+                }
+                inlineMetaInvalidHostPruneCursor = reachedBudget && total
+                    ? (startIndex + visited) % total
+                    : 0;
             } catch (e) {}
             if (removed > 0) invalidateInlineMetaActiveTargetsCache();
             return removed;
@@ -8151,6 +8636,7 @@
                 });
                 inlineMetaNeedSyncBlocks = true;
                 if (hasStructuralChange && !inlineMetaScrolling) {
+                    try { clearQuickbarTaskBindingCaches(); } catch (e) {}
                     quickbarAttrHostLastStructuralAt = Date.now();
                     try { quickbarAttrHostMigrationScheduler?.('structural-change'); } catch (e) {}
                     if (Date.now() >= inlineMetaRecentScrollUntil) {
@@ -8381,6 +8867,7 @@
                 host.style.maxWidth = maxWidth;
                 host.classList.add('is-ready');
                 inlineMetaLayoutCache.set(taskId, {
+                    ts: Date.now(),
                     textSig,
                     widthSig,
                     viewportSig,
@@ -8541,7 +9028,7 @@
                     host.style.top = topPx;
                     host.style.maxWidth = maxWidthPx;
                     host.classList.add('is-ready');
-                    inlineMetaLayoutCache.set(taskId, { textSig, widthSig, viewportSig, html: layoutHtml, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
+                    inlineMetaLayoutCache.set(taskId, { ts: Date.now(), textSig, widthSig, viewportSig, html: layoutHtml, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
                     return true;
                 }
                 // Same preservation as the failure paths above:
@@ -8563,7 +9050,7 @@
             host.style.top = topPx;
             host.style.maxWidth = maxWidthPx;
             host.classList.add('is-ready');
-            inlineMetaLayoutCache.set(taskId, { textSig, widthSig, viewportSig, html: layoutHtml, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
+            inlineMetaLayoutCache.set(taskId, { ts: Date.now(), textSig, widthSig, viewportSig, html: layoutHtml, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
             inlineMetaOccupiedRects.push(candidateRect);
             return true;
         }
@@ -9111,6 +9598,10 @@
             inlineMetaProtyleVisibility = new WeakMap();
             inlineMetaNativeHostSuppressedUntil.clear();
             inlineMetaIsComposing = false;
+            inlineMetaLastInvalidHostPruneAt = 0;
+            inlineMetaInvalidHostPruneCursor = 0;
+            try { clearQuickbarTaskBindingCaches(); } catch (e) {}
+            try { clearInlineMetaRuntimeCaches(); } catch (e) {}
             setInlineMetaScrolling(false);
             removeInlineMetaNodes();
         }
@@ -9506,6 +9997,9 @@
                 }
             } catch (e) {}
         };
+        globalThis.__taskHorizonQuickbarInlineStats = () => {
+            try { return getQuickbarInlineStats(); } catch (e) { return null; }
+        };
 
         globalThis.__taskHorizonQuickbarCleanup = () => {
             quickbarDisposed = true;
@@ -9544,6 +10038,7 @@
             try { delete globalThis.__taskHorizonQuickbarToggle; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarRefreshInline; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarRefresh; } catch (e) {}
+            try { delete globalThis.__taskHorizonQuickbarInlineStats; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarCleanup; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}
         };

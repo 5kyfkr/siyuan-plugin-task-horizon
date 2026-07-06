@@ -18662,6 +18662,7 @@ refreshOk = false;
     function __tmPrepareTaskContentInlineSource(input) {
         let text = String(input || '').trim();
         if (!text) return '';
+        text = __tmStripTaskHeadingMarkdownSyntax(text);
         text = text
             .replace(/<strong\b[^>]*>([\s\S]*?)<\/strong>/gi, '**$1**')
             .replace(/<b\b[^>]*>([\s\S]*?)<\/b>/gi, '**$1**')
@@ -18676,6 +18677,14 @@ refreshOk = false;
         text = text.replace(/\{\:\s*[^}]*\}/g, '');
         text = text.replace(/<[^>]+>/g, '');
         return text.replace(/\s+/g, ' ').trim();
+    }
+
+    function __tmStripTaskHeadingMarkdownSyntax(input) {
+        const text = String(input || '').trim();
+        if (!text || /^\\#/.test(text)) return text;
+        const stripped = text.replace(/^#{1,6}(?:\s+|$)/, '').trim();
+        if (stripped === text) return text;
+        return stripped.replace(/\s+#{1,}\s*$/, '').trim();
     }
 
     function __tmRenderTaskContentInlineHtml(input) {

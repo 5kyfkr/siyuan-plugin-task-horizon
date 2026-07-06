@@ -1030,6 +1030,12 @@ if (shouldMarkDirty) {
             try {
                 if (__tmIsMobileTopBarRegistrationHost?.()) __tmRemoveTopBarIcon();
             } catch (e2) {}
+            try {
+                if (__tmTopBarDocumentCaptureHandler) {
+                    globalThis.__tmRuntimeEvents?.off?.(document, 'click', __tmTopBarDocumentCaptureHandler, true);
+                    __tmTopBarDocumentCaptureHandler = null;
+                }
+            } catch (e2) {}
             try { delete globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]; } catch (e2) {}
             __tmTopBarEl = null;
             __tmTopBarClickInFlight = false;
@@ -1269,6 +1275,19 @@ if (shouldMarkDirty) {
             });
         } catch (e) {}
         try {
+            const dragGuard = window.__tmWhiteboardPoolSearchDragGuard;
+            if (typeof dragGuard === 'function') {
+                document.removeEventListener('dragstart', dragGuard, true);
+            }
+            const pressGuard = window.__tmWhiteboardPoolSearchPressCaptureGuard;
+            if (typeof pressGuard === 'function') {
+                document.removeEventListener('pointerdown', pressGuard, true);
+                document.removeEventListener('mousedown', pressGuard, true);
+            }
+            try { delete window.__tmWhiteboardPoolSearchDragGuard; } catch (e2) { window.__tmWhiteboardPoolSearchDragGuard = undefined; }
+            try { delete window.__tmWhiteboardPoolSearchPressCaptureGuard; } catch (e2) { window.__tmWhiteboardPoolSearchPressCaptureGuard = undefined; }
+        } catch (e) {}
+        try {
             if (__tmTomatoAssociationHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:association-cleared', __tmTomatoAssociationHandler);
                 __tmTomatoAssociationHandler = null;
@@ -1305,6 +1324,22 @@ if (shouldMarkDirty) {
             }
             __tmTomatoOriginalTimerFns = null;
             __tmTomatoTimerHooked = false;
+        } catch (e) {}
+        try {
+            const procrastinationHandler = globalThis.__tmProcrastinationScheduleUpdatedHandler;
+            if (typeof procrastinationHandler === 'function') {
+                window.removeEventListener('tm:calendar-schedule-updated', procrastinationHandler);
+            }
+            try { delete globalThis.__tmProcrastinationScheduleUpdatedHandler; } catch (e2) { globalThis.__tmProcrastinationScheduleUpdatedHandler = undefined; }
+        } catch (e) {}
+        try {
+            const taskDateFollowHandler = window.__tmTaskDateFollowUpdatedRefreshHandler;
+            if (typeof taskDateFollowHandler === 'function') {
+                globalThis.__tmRuntimeEvents?.off?.(window, 'tm:task-date-follow-updated', taskDateFollowHandler);
+                window.removeEventListener('tm:task-date-follow-updated', taskDateFollowHandler);
+            }
+            try { delete window.__tmTaskDateFollowUpdatedRefreshHandler; } catch (e2) { window.__tmTaskDateFollowUpdatedRefreshHandler = undefined; }
+            try { delete window.__tmTaskDateFollowUpdatedRefreshBound; } catch (e2) { window.__tmTaskDateFollowUpdatedRefreshBound = false; }
         } catch (e) {}
         try {
             if (globalThis.__taskHorizonOnTomatoAssociationChanged) delete globalThis.__taskHorizonOnTomatoAssociationChanged;
