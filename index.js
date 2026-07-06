@@ -30,6 +30,7 @@ const TASK_DOCK_TYPE = "::task-horizon-dock";
 const TASK_DOCK_TITLE = "任务侧栏";
 const TASK_DOCK_ROOT_ATTR = "data-task-horizon-dock-root";
 const TASK_DOCK_SNAPSHOT_ATTR = "data-task-horizon-dock-snapshot";
+const RESOURCE_FETCH_TIMEOUT_MS = 12000;
 const DOCK_VIEW_IDS = new Set(["list", "checklist", "timeline", "kanban", "calendar", "whiteboard"]);
 
 const ICON_SYMBOL = `<symbol id="${ICON_ID}" viewBox="0 0 24 24">
@@ -211,14 +212,34 @@ const getDockHostsByType = (type) => {
     }
 };
 
-const fetchText = async (url, data) => {
-    const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data || {}),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
+const fetchText = async (url, data, timeoutMs = RESOURCE_FETCH_TIMEOUT_MS) => {
+    let controller = null;
+    let timer = null;
+    try {
+        if (typeof AbortController === "function" && Number(timeoutMs) > 0) {
+            controller = new AbortController();
+            timer = setTimeout(() => {
+                try { controller.abort(); } catch (e) {}
+            }, Math.max(1000, Number(timeoutMs) || RESOURCE_FETCH_TIMEOUT_MS));
+        }
+        const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data || {}),
+            signal: controller?.signal,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.text();
+    } catch (e) {
+        if (String(e?.name || "") === "AbortError") {
+            throw new Error(`HTTP request timeout: ${url}`);
+        }
+        throw e;
+    } finally {
+        if (timer) {
+            try { clearTimeout(timer); } catch (e) {}
+        }
+    }
 };
 
 const unwrapGetFileText = (raw) => {
@@ -249,6 +270,19 @@ const unwrapGetFileText = (raw) => {
 const __tmResourceTextCache = new Map();
 const __tmResourceTextInflight = new Map();
 const __tmDeferredScriptLoaders = new Map();
+
+const hasTaskMainRuntime = () => {
+    try {
+        return typeof globalThis.__taskHorizonMount === "function";
+    } catch (e) {
+        return false;
+    }
+};
+
+const resetStaleTaskMainRuntimeFlag = () => {
+    if (hasTaskMainRuntime()) return;
+    try { delete globalThis.__TaskHorizonLoaded; } catch (e) {}
+};
 
 const clearPluginResourceTextCache = () => {
     try { __tmResourceTextCache.clear(); } catch (e) {}
@@ -550,15 +584,25 @@ const loadTaskDevManifestScripts = async () => {
 };
 
 const ensureTaskMainLoaded = async () => {
+    if (hasTaskMainRuntime()) return true;
+    resetStaleTaskMainRuntimeFlag();
     const devLoad = await loadTaskDevManifestScripts();
     if (devLoad.status === "loaded") {
-        console.info("[task-horizon] loaded task main from src/task-horizon manifest", devLoad.scripts);
-        return true;
+        if (hasTaskMainRuntime()) {
+            return true;
+        }
+        console.error("[task-horizon] task dev main loaded but runtime mount is unavailable", devLoad.scripts);
+        resetStaleTaskMainRuntimeFlag();
     }
-    if (devLoad.status === "missing") {
-        return await loadScriptText(TASK_SCRIPT_PATH, "task.js");
+    const bundledLoaded = await loadScriptText(TASK_SCRIPT_PATH, "task.js");
+    if (bundledLoaded) {
+        if (hasTaskMainRuntime()) return true;
+        console.error("[task-horizon] task.js loaded but runtime mount is unavailable");
+        resetStaleTaskMainRuntimeFlag();
     }
-    console.error("[task-horizon] task main load aborted; skip task.js fallback to avoid duplicate runtime");
+    if (devLoad.status !== "missing" && !bundledLoaded) {
+        console.error("[task-horizon] task main load failed; dev manifest and task.js fallback are unavailable");
+    }
     return false;
 };
 
@@ -668,6 +712,9 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._mountToken = mountToken;
         this._mountExistingTabsStopped = false;
         this._mountExistingTabsTimer = null;
+        this._taskPostMainAssetsLoaded = false;
+        this._taskPostMainAssetsLoading = null;
+        this._taskMainRuntimeRecoveryTimer = null;
         this._taskWindowTopBarLayoutReady = false;
         globalThis.__taskHorizonPluginApp = this.app;
         globalThis.__taskHorizonPluginInstance = this;
@@ -688,8 +735,15 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonEnsureAiModuleLoaded = () => ensureDeferredScriptText("ai", AI_SCRIPT_PATH, "ai.js", hasAiRuntime);
         globalThis.__taskHorizonEnsureHomepageModuleLoaded = () => ensureDeferredScriptText("homepage", HOMEPAGE_SCRIPT_PATH, "homepage.js", () => !!globalThis.__tmHomepage?.loaded);
         globalThis.__taskHorizonEnsureXlsxModuleLoaded = () => ensureDeferredScriptText("xlsx", XLSX_VENDOR_SCRIPT_PATH, "vendor/xlsx.full.min.js", hasXlsxRuntime);
-        globalThis.__taskHorizonPluginManifest = await loadPluginManifest(this);
+        globalThis.__taskHorizonPluginManifest = normalizePluginManifest(this?.manifest);
+        Promise.resolve(loadPluginManifest(this)).then((manifest) => {
+            if (String(globalThis.__taskHorizonMountToken || "") !== mountToken) return;
+            globalThis.__taskHorizonPluginManifest = manifest;
+        }).catch(() => null);
         try { this.addIcons(ICON_SYMBOL); } catch (e) {}
+        try {
+            if (!runtimeMobile && readWindowTopbarEnabled()) this.ensureWindowTopBar();
+        } catch (e) {}
         this.ensureCustomTab();
         this.initTaskDock();
         this.suppressTaskDockOnMobile();
@@ -705,20 +759,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         await loadStyleText(TASK_MAIN_STYLE_PATH, "task-horizon.css");
         await loadScriptText(BASECOAT_SCRIPT_PATH, "basecoat/basecoat.js");
         const mainLoaded = await ensureTaskMainLoaded();
-        if (!mainLoaded) return;
-        this.registerCommands();
-        await loadScriptText(QUICKBAR_SCRIPT_PATH, "quickbar.js");
-        await loadStyleText(BASECOAT_CSS_PATH, "basecoat/basecoat.css");
-        await loadStyleText(FULLCALENDAR_SKELETON_CSS_PATH, "fullcalendar/skeleton.css");
-        await loadStyleText(FULLCALENDAR_FORMA_THEME_CSS_PATH, "fullcalendar/themes/forma/theme.css");
-        await loadStyleText(FULLCALENDAR_FORMA_BASECOAT_CSS_PATH, "fullcalendar/themes/forma/palettes/basecoat.css");
-        await loadScriptText(FULLCALENDAR_SCRIPT_PATH, "fullcalendar/fullcalendar.global.js");
-        await loadScriptText(FULLCALENDAR_FORMA_THEME_SCRIPT_PATH, "fullcalendar/themes/forma/global.js");
-        await loadScriptText(FULLCALENDAR_LOCALES_SCRIPT_PATH, "fullcalendar/locales-all/global.js");
-        await loadScriptText(CALENDAR_VIEW_SCRIPT_PATH, "calendar-view.js");
-        await loadStyleText(CALENDAR_VIEW_CSS_PATH, "calendar-view.css");
-        this.mountExistingTabs();
-        this.scheduleTaskDockRecovery("post-load", { delayMs: 60 });
+        if (mainLoaded) {
+            await this.activateTaskMainRuntime("post-load");
+        } else {
+            console.warn("[task-horizon] task main runtime is not ready; scheduling recovery");
+            this.scheduleTaskMainRuntimeRecovery("post-load", { delayMs: 300 });
+        }
         this.addIcons(`
             <symbol id="iconTaskCancelled" viewBox="0 0 32 32">
                 <path d="M28.444 0h-24.889c-1.956 0-3.556 1.6-3.556 3.556v24.889c0 1.956 1.6 3.556 3.556 3.556h24.889c1.956 0 3.556-1.6 3.556-3.556v-24.889c0-1.956-1.6-3.556-3.556-3.556zM28.444 28.445h-24.889v-24.889h24.889v24.889z"></path>
@@ -743,6 +789,97 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             },
         });
         this._commandsRegistered = true;
+    }
+
+    async loadTaskHorizonPostMainAssets() {
+        if (this._taskPostMainAssetsLoaded) return true;
+        if (this._taskPostMainAssetsLoading) return await this._taskPostMainAssetsLoading;
+        this._taskPostMainAssetsLoading = Promise.resolve().then(async () => {
+            await loadScriptText(BASECOAT_SCRIPT_PATH, "basecoat/basecoat.js");
+            await loadScriptText(QUICKBAR_SCRIPT_PATH, "quickbar.js");
+            await loadStyleText(BASECOAT_CSS_PATH, "basecoat/basecoat.css");
+            await loadStyleText(FULLCALENDAR_SKELETON_CSS_PATH, "fullcalendar/skeleton.css");
+            await loadStyleText(FULLCALENDAR_FORMA_THEME_CSS_PATH, "fullcalendar/themes/forma/theme.css");
+            await loadStyleText(FULLCALENDAR_FORMA_BASECOAT_CSS_PATH, "fullcalendar/themes/forma/palettes/basecoat.css");
+            await loadScriptText(FULLCALENDAR_SCRIPT_PATH, "fullcalendar/fullcalendar.global.js");
+            await loadScriptText(FULLCALENDAR_FORMA_THEME_SCRIPT_PATH, "fullcalendar/themes/forma/global.js");
+            await loadScriptText(FULLCALENDAR_LOCALES_SCRIPT_PATH, "fullcalendar/locales-all/global.js");
+            await loadScriptText(CALENDAR_VIEW_SCRIPT_PATH, "calendar-view.js");
+            await loadStyleText(CALENDAR_VIEW_CSS_PATH, "calendar-view.css");
+            this._taskPostMainAssetsLoaded = true;
+            return true;
+        }).finally(() => {
+            this._taskPostMainAssetsLoading = null;
+        });
+        return await this._taskPostMainAssetsLoading;
+    }
+
+    async activateTaskMainRuntime(reason = "manual") {
+        this.cancelTaskMainRuntimeRecovery();
+        this.registerCommands();
+        await this.loadTaskHorizonPostMainAssets();
+        this.mountExistingTabs(this.isRuntimeMobileClient() ? 7000 : 5000);
+        if (!this.isRuntimeMobileClient()) {
+            const dockElement = this.resolveTaskDockElement();
+            if (dockElement instanceof HTMLElement) {
+                this.reloadTaskDockFrame();
+            } else {
+                this.scheduleTaskDockRecovery(`runtime-ready:${reason}`, { delayMs: 80 });
+            }
+        }
+    }
+
+    cancelTaskMainRuntimeRecovery() {
+        try {
+            if (this._taskMainRuntimeRecoveryTimer) {
+                clearTimeout(this._taskMainRuntimeRecoveryTimer);
+                this._taskMainRuntimeRecoveryTimer = null;
+            }
+        } catch (e) {}
+    }
+
+    scheduleTaskMainRuntimeRecovery(reason = "manual", options = {}) {
+        if (hasTaskMainRuntime()) {
+            Promise.resolve(this.activateTaskMainRuntime(reason)).catch((e) => {
+                console.error("[task-horizon] activate recovered runtime failed", e);
+            });
+            return true;
+        }
+        if (this._taskMainRuntimeRecoveryTimer) return true;
+        const attempt = Math.max(0, Number(options?.attempt) || 0);
+        const maxAttempts = Math.max(1, Number(options?.maxAttempts) || 10);
+        if (attempt >= maxAttempts) {
+            console.error("[task-horizon] task main runtime recovery gave up", reason);
+            return false;
+        }
+        const delayMs = Math.max(120, Number(options?.delayMs) || (attempt === 0 ? 300 : Math.min(8000, 500 * (2 ** Math.min(attempt, 4)))));
+        this._taskMainRuntimeRecoveryTimer = setTimeout(() => {
+            this._taskMainRuntimeRecoveryTimer = null;
+            Promise.resolve().then(async () => {
+                if (hasTaskMainRuntime()) {
+                    await this.activateTaskMainRuntime(`recovered:${reason}`);
+                    return;
+                }
+                const loaded = await ensureTaskMainLoaded();
+                if (loaded && hasTaskMainRuntime()) {
+                    await this.activateTaskMainRuntime(`recovered:${reason}`);
+                    return;
+                }
+                this.scheduleTaskMainRuntimeRecovery(reason, {
+                    attempt: attempt + 1,
+                    maxAttempts,
+                    delayMs: Math.min(10000, Math.round(delayMs * 1.7)),
+                });
+            }).catch((e) => {
+                console.error("[task-horizon] task main runtime recovery failed", e);
+                this.scheduleTaskMainRuntimeRecovery(reason, {
+                    attempt: attempt + 1,
+                    maxAttempts,
+                    delayMs: Math.min(10000, Math.round(delayMs * 1.7)),
+                });
+            });
+        }, delayMs);
+        return true;
     }
 
     ensureCustomTab() {
@@ -970,6 +1107,9 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             return;
         }
         this.ensureCustomTab();
+        if (!hasTaskMainRuntime()) {
+            this.scheduleTaskMainRuntimeRecovery("open-tab", { delayMs: 120 });
+        }
         if (this.focusExistingTaskHorizonTab()) {
             Promise.resolve().then(() => this.remountBestTaskHorizonTab()).catch(() => null);
             return;
@@ -1539,6 +1679,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         const mountFn = globalThis.__taskHorizonMount;
         if (typeof mountFn !== "function") {
             this.renderTaskDockNotice(element, "任务 Dock 加载中", "正在等待任务管理器入口挂载。");
+            this.scheduleTaskMainRuntimeRecovery(String(options?.reason || "mount-waiting"), { delayMs: 180 });
             if (!fromRecovery) {
                 this.scheduleTaskDockRecovery(String(options?.reason || "mount-waiting"));
             }
@@ -1593,6 +1734,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 this._mountExistingTabsTimer = null;
             }
         } catch (e) {}
+        try { this.cancelTaskMainRuntimeRecovery(); } catch (e) {}
         try {
             if (Array.isArray(this._taskDockMobileSuppressTimers)) {
                 this._taskDockMobileSuppressTimers.forEach((timer) => {
@@ -1617,6 +1759,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { globalThis.__TaskManagerCleanup?.(); } catch (e) {}
         try { globalThis.__taskHorizonAiCleanup?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarCleanup?.(); } catch (e) {}
+        try { globalThis.__tmLicenseCleanup?.(); } catch (e) {}
         try { globalThis.tmClose?.(); } catch (e) {}
 
         try {
@@ -1656,6 +1799,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__tmHost; } catch (e) {}
         try { delete globalThis.__tmCompat; } catch (e) {}
         try { delete globalThis.__tmCaps; } catch (e) {}
+        try { delete globalThis.__tmLicenseCleanup; } catch (e) {}
         try { delete globalThis.__tmRuntimeHost; } catch (e) {}
         try { delete globalThis.__tmViewPolicy; } catch (e) {}
         try { delete globalThis.__tmRuntimeState; } catch (e) {}
@@ -1677,6 +1821,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try {
             const paths = [
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-settings.json",
+                "/data/storage/petal/siyuan-plugin-task-horizon/task-license.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-meta.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-snapshot.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-conversations.json",

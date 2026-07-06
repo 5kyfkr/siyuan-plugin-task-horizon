@@ -4,6 +4,7 @@
     "main/05-siyuan-host-adapter.js",
     "main/06-siyuan-compat-adapter.js",
     "main/07-siyuan-capabilities.js",
+    "main/08-license-runtime.js",
     "main/10-stores-rules-and-cache.js",
     "main/20-api-and-runtime-services.js",
     "main/30-dialogs-and-ui-foundation.js",

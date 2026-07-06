@@ -1782,9 +1782,9 @@ return finish(false, 'noop');
             if (type === 'l') {
                 let taskIds = [];
                 try { taskIds = await API.getTaskIdsInList(rowId); } catch (e) { taskIds = []; }
-                if (taskIds.length === 1) {
+                if (taskIds.length >= 1) {
                     const taskId = String(taskIds[0] || '').trim();
-                    if (taskId) return { taskId, attrHostId: rowId, task: null };
+                    if (taskId) return { taskId, attrHostId: taskIds.length === 1 ? rowId : taskId, task: null };
                 }
             }
             const parentId = String(row.parent_id || '').trim();
@@ -2383,7 +2383,10 @@ return finish(false, 'noop');
             ? !!opts.previousDone
             : !!(task?.done);
         const shouldStampTaskCompleteAt = targetDone && !taskWasDone;
-        const completeAtPatch = shouldStampTaskCompleteAt ? __tmBuildTaskCompleteAtPatch() : null;
+        const shouldClearTaskCompleteAt = !targetDone && taskWasDone;
+        const completeAtPatch = shouldStampTaskCompleteAt
+            ? __tmBuildTaskCompleteAtPatch()
+            : (shouldClearTaskCompleteAt ? { taskCompleteAt: '' } : null);
         const touchPatch = {
             ...((statusPatch && typeof statusPatch === 'object') ? statusPatch : {}),
             ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
@@ -2733,10 +2736,12 @@ return finish(false, 'noop');
                 remark: task.remark || '',
                 completionTime: task.completionTime || '',
                 customTime: task.customTime || '',
-                customStatus: task.customStatus || '',
+                customStatus: Object.prototype.hasOwnProperty.call(touchPatch || {}, 'customStatus')
+                    ? String(touchPatch.customStatus || '').trim()
+                    : (task.customStatus || ''),
                 done: actualDone,
                 content: task.content,
-                ...((actualDone && completeAtPatch) ? completeAtPatch : {}),
+                ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
             });
 
             // 更新本地状态
@@ -2745,7 +2750,12 @@ return finish(false, 'noop');
             task.taskMarker = actualMarker;
             task.task_marker = actualMarker;
             try { task.markdown = __tmBuildTaskMarkdownWithMarker(task, actualMarker); } catch (e) {}
-            if (actualDone && completeAtPatch) {
+            if (Object.prototype.hasOwnProperty.call(touchPatch || {}, 'customStatus')) {
+                task.customStatus = String(touchPatch.customStatus || '').trim();
+                task.custom_status = task.customStatus;
+            }
+            if (completeAtPatch && typeof completeAtPatch === 'object'
+                && Object.prototype.hasOwnProperty.call(completeAtPatch, 'taskCompleteAt')) {
                 task.taskCompleteAt = String(completeAtPatch.taskCompleteAt || '').trim();
                 task.task_complete_at = task.taskCompleteAt;
             }
@@ -3109,6 +3119,8 @@ return finish(false, 'noop');
             if (completeAtPatch && typeof completeAtPatch === 'object') {
                 Object.assign(optimisticPatch, completeAtPatch);
             }
+        } else if (!targetDone && originalDone) {
+            optimisticPatch.taskCompleteAt = '';
         }
         const inversePatch = __tmCaptureTaskPatchInverse(tid, optimisticPatch);
         if (!Object.prototype.hasOwnProperty.call(inversePatch, 'done')) inversePatch.done = originalDone;
@@ -5575,13 +5587,19 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         }
         if (__tmIsAiFeatureEnabled()) {
             menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('bot', 'AI'), () => [
-                createItem(__tmRenderContextMenuLabel('bot', '优化任务名称'), () => {
+                createItem(__tmRenderContextMenuLabel('bot', '优化任务名称'), async () => {
+                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-optimize-task-name', 'AI 优化任务名称')) return;
+                    if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
                     try { globalThis.tmAiOptimizeTaskName?.(taskId); } catch (e) {}
                 }),
-                createItem(__tmRenderContextMenuLabel('bot', '编辑字段'), () => {
+                createItem(__tmRenderContextMenuLabel('bot', '编辑字段'), async () => {
+                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-edit-task-fields', 'AI 编辑字段')) return;
+                    if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
                     try { globalThis.tmAiEditTask?.(taskId); } catch (e) {}
                 }),
-                createItem(__tmRenderContextMenuLabel('bot', '安排日程'), () => {
+                createItem(__tmRenderContextMenuLabel('bot', '安排日程'), async () => {
+                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-plan-task-schedule', 'AI 安排日程')) return;
+                    if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
                     try { globalThis.tmAiPlanTaskSchedule?.(taskId); } catch (e) {}
                 }),
             ]));

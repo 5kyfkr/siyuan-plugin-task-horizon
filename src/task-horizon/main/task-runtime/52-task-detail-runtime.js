@@ -3595,6 +3595,7 @@
             if (toggle instanceof HTMLElement && root.contains(toggle)) {
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
+                if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-detail-locate', '任务详情白板反向定位')) return;
                 openWhiteboardOutlinePopover(toggle);
                 return;
             }
@@ -3603,6 +3604,7 @@
             if (isWhiteboardOutlineCheckboxTarget(target)) return;
             try { ev.preventDefault(); } catch (e) {}
             try { ev.stopPropagation(); } catch (e) {}
+            if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-detail-locate', '任务详情白板反向定位')) return;
             const nodeTaskId = String(node.getAttribute('data-task-id') || '').trim();
             const jumped = await window.tmJumpToWhiteboardTask?.(nodeTaskId || getBoundTaskId() || taskId, ev);
             const keepChecklistSideDetailOpen = embedded && String(root.id || '').trim() === 'tmChecklistDetailPanel';
@@ -5195,6 +5197,7 @@
                 }
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
+                if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-detail-locate', '任务详情白板反向定位')) return;
                 const nodeTaskId = String(node.getAttribute('data-task-id') || '').trim();
                 const scope = String(popover.getAttribute('data-tm-whiteboard-outline-scope') || '').trim();
                 const jumped = await window.tmJumpToWhiteboardTask?.(nodeTaskId || getBoundTaskId() || taskId, ev, { scope });

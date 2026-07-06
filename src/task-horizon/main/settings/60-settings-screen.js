@@ -8,6 +8,7 @@
         rules: '规则管理',
         quadrant: '四象限',
         priority: '优先级算法',
+        benefits: '功能权益',
         about: '关于'
     });
     const TM_SETTINGS_SEARCH_MAIN_GROUPS = Object.freeze([
@@ -43,6 +44,8 @@
         { tab: 'quadrant', title: '四象限', desc: '按重要性和截止日期自动分配象限' },
         { tab: 'quadrant', title: '四象限分组规则', desc: '配置四象限规则' },
         { tab: 'priority', title: '优先级算法', desc: '配置任务优先级评分权重和规则' },
+        { tab: 'benefits', title: '功能权益', desc: '查看全功能试用、年付、永久权益和付款说明' },
+        { tab: 'benefits', title: '付款说明', desc: '提供用户名，或通过 QQ 群和邮件提供付款信息' },
         { tab: 'about', title: '关于', desc: '版本、设备识别和诊断信息' },
         { tab: 'about', title: '复制诊断', desc: '复制设备识别诊断报告' }
     ]);
@@ -568,6 +571,7 @@
         if (state.settingsActiveTab === 'rules') activeTab = 'rules';
         if (state.settingsActiveTab === 'quadrant') activeTab = 'quadrant';
         if (state.settingsActiveTab === 'priority') activeTab = 'priority';
+        if (state.settingsActiveTab === 'benefits') activeTab = 'benefits';
         if (state.settingsActiveTab === 'about') activeTab = 'about';
         if (state.settingsActiveTab === 'rule_editor') activeTab = 'rule_editor';
         const settingsSearchEnabled = __tmShouldRenderSettingsSearch(activeTab);
@@ -587,6 +591,13 @@
                     <div class="${className}">
                         <button class="tm-btn tm-btn-secondary" data-tm-action="closeSettings">关闭</button>
                         <button class="tm-btn tm-btn-success" onclick="tmCopyDeviceRecognitionReport()">复制诊断</button>
+                    </div>
+                `;
+            }
+            if (activeTab === 'benefits') {
+                return `
+                    <div class="${className}">
+                        <button class="tm-btn tm-btn-secondary" data-tm-action="closeSettings">关闭</button>
                     </div>
                 `;
             }
@@ -1259,6 +1270,7 @@
                             <button class="tm-settings-nav-btn ${activeTab === 'rules' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="rules">📋 规则管理</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'quadrant' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="quadrant">📊 四象限</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'priority' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="priority">⚙️ 优先级算法</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'benefits' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="benefits">💎 功能权益</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'about' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="about">ℹ️ 关于</button>
                             ` : `
                             <button class="tm-settings-nav-btn is-active">${state.editingRule ? '✏️ 编辑规则' : '🆕 新建规则'}</button>
@@ -1345,6 +1357,10 @@
 
                     ${activeTab === 'about' ? `
                         ${__tmRenderAboutSettingsPanel()}
+                    ` : ''}
+
+                    ${activeTab === 'benefits' ? `
+                        ${typeof __tmRenderBenefitsSettingsPanel === 'function' ? __tmRenderBenefitsSettingsPanel() : ''}
                     ` : ''}
 
                     ${activeTab === 'quadrant' ? `

@@ -757,6 +757,7 @@
         const target = ev?.target instanceof Element ? ev.target : null;
         const sourceEl = target?.closest?.(CALENDAR_EXTERNAL_DRAG_SOURCE_SELECTOR);
         if (!(sourceEl instanceof HTMLElement)) return;
+        const blockedByMultiSelect = __tmCalendarShouldBlockExternalTaskDragForMultiSelect(sourceEl);
         prepareFullCalendarExternalMirrorSourceClasses(sourceEl);
         try { sourceEl.__tmFcRestoreNativeDraggable?.(); } catch (e) {}
         const prev = sourceEl.getAttribute('draggable');
@@ -774,9 +775,17 @@
         try { window.addEventListener('pointercancel', restoreOnce, { once: true, capture: true }); } catch (e) {}
         try { window.addEventListener('mouseup', restoreOnce, { once: true, capture: true }); } catch (e) {}
         try { window.addEventListener('blur', restoreOnce, { once: true }); } catch (e) {}
+        if (blockedByMultiSelect) {
+            try { ev?.preventDefault?.(); } catch (e) {}
+            try { ev?.stopImmediatePropagation?.(); } catch (e) {}
+            try { ev?.stopPropagation?.(); } catch (e) {}
+        }
     }
 
     function acceptFullCalendarExternalTaskDrag(el) {
+        if (__tmCalendarShouldBlockExternalTaskDragForMultiSelect(el)) {
+            return false;
+        }
         if (CALENDAR_EXTERNAL_DRAG_FULLCALENDAR_ONLY) return true;
         return !!el?.closest?.(CALENDAR_EXTERNAL_DRAG_SOURCE_SELECTOR);
     }
@@ -1151,9 +1160,14 @@
         const target = ev?.target instanceof Element ? ev.target : null;
         const sourceEl = target?.closest?.(CALENDAR_EXTERNAL_DRAG_SOURCE_SELECTOR) || null;
         if (!sourceEl) return false;
+        if (__tmCalendarShouldBlockExternalTaskDragForMultiSelect(sourceEl)) {
+            return false;
+        }
         rememberCalendarExternalDragClientPoint(ev);
         prepareFullCalendarExternalMirrorSourceClasses(sourceEl);
-        if (sourceEl.closest?.('[data-tm-fc-external-drag-host="1"]')) return true;
+        if (sourceEl.closest?.('[data-tm-fc-external-drag-host="1"]')) {
+            return true;
+        }
         return ensureFullCalendarExternalDragHostForSource(sourceEl);
     }
 
@@ -1202,7 +1216,9 @@
         beginOfficialFloatingMini(payload, sourceEl = null, options = {}) {
             const safePayload = this.resolvePayload({ payload }, state.sideDay?.resolveTask);
             if (!safePayload?.taskId) return false;
-            if (shouldSuppressFloatingMiniForOfficialExternalDrag(sourceEl)) return false;
+            if (shouldSuppressFloatingMiniForOfficialExternalDrag(sourceEl)) {
+                return false;
+            }
             const point = resolveCalendarExternalDragSeedPoint(sourceEl);
             const shown = showFloatingMiniCalendar({
                 taskId: safePayload.taskId,
@@ -1605,6 +1621,44 @@
     }
 
     try { globalThis.__tmCalendarDebugLog = __tmCalendarDebugLog; } catch (e) {}
+
+    function __tmCalendarGetMultiSelectDomCount() {
+        try {
+            return document.querySelectorAll('.tm-task-row--multi-selected, .tm-checklist-item--multi-selected, .tm-kanban-card--multi-selected, .tm-task-multi-selected, .tm-whiteboard-multi-selected').length;
+        } catch (e) {}
+        return 0;
+    }
+
+    function __tmCalendarIsMultiSelectSupportedSource(sourceEl) {
+        const source = sourceEl instanceof Element ? sourceEl : null;
+        const mode = (() => {
+            try { return String(globalThis.__tmRuntimeState?.getViewMode?.() || '').trim(); } catch (e) { return ''; }
+        })();
+        if (mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'whiteboard') return true;
+        if (!source) return false;
+        return !!source.closest?.([
+            '.tm-checklist-items',
+            '#tmTaskTable tbody',
+            '#tmTimelineLeftTable tbody',
+            '.tm-body.tm-body--kanban',
+            '.tm-whiteboard-body',
+            '.tm-whiteboard-stream',
+            '.tm-whiteboard-pool',
+        ].join(','));
+    }
+
+    function __tmCalendarShouldBlockExternalTaskDragForMultiSelect(sourceEl) {
+        const source = sourceEl instanceof Element ? sourceEl : null;
+        if (!__tmCalendarIsMultiSelectSupportedSource(source)) return false;
+        try {
+            if (source?.closest?.('.tm-task-row--multi-selected, .tm-checklist-item--multi-selected, .tm-kanban-card--multi-selected, .tm-task-multi-selected, .tm-whiteboard-multi-selected')) return true;
+        } catch (e) {}
+        if (__tmCalendarGetMultiSelectDomCount() > 0) return true;
+        try {
+            if (document.querySelector('.tm-multi-bulkbar')) return true;
+        } catch (e) {}
+        return false;
+    }
 
     function __tmCreateNodeListStamp(nodes) {
         const list = Array.isArray(nodes) ? nodes : Array.from(nodes || []);
@@ -6186,8 +6240,10 @@
                 setImportant(parent, 'display', 'flex');
                 setImportant(parent, 'flex-direction', 'column');
                 setImportant(parent, 'flex', '0 0 auto');
-                setImportant(parent, 'height', 'auto');
-                setImportant(parent, 'min-height', '0');
+                if (!parent.classList.contains('fc-daygrid-day-frame')) {
+                    setImportant(parent, 'height', 'auto');
+                    setImportant(parent, 'min-height', '0');
+                }
                 setImportant(parent, 'justify-content', 'flex-start');
                 setImportant(parent, 'align-items', 'stretch');
                 setImportant(parent, 'box-sizing', 'border-box');
@@ -8260,9 +8316,13 @@
     function bindTaskDraggable(wrap, settings) {
         destroyTaskDraggable();
         const Draggable = resolveFullCalendarExternalDraggableCtor();
-        if (typeof Draggable !== 'function') return;
+        if (typeof Draggable !== 'function') {
+            return;
+        }
         const root = (wrap instanceof Element) ? wrap : (state.wrapEl instanceof Element ? state.wrapEl : null);
-        if (!(root instanceof Element)) return;
+        if (!(root instanceof Element)) {
+            return;
+        }
         const hosts = [];
         const panelHost = root.querySelector('[data-tm-cal-role="task-list"]');
         const compactPageHost = root.querySelector('[data-tm-cal-role="task-page-list"]');
@@ -8271,7 +8331,9 @@
         if (compactPageHost instanceof Element && compactPageHost !== panelHost) hosts.push({ el: compactPageHost, kind: 'list' });
         if (tableHost instanceof Element && tableHost !== panelHost && tableHost !== compactPageHost) hosts.push({ el: tableHost, kind: 'table' });
         state.taskListEl = hosts[0]?.el || null;
-        if (!hosts.length) return;
+        if (!hosts.length) {
+            return;
+        }
         const dragAbort = new AbortController();
         state.taskDraggableAbort = dragAbort;
         state.taskDraggableHosts = hosts.map((item) => item.el).filter((el) => el instanceof Element);
@@ -8291,6 +8353,10 @@
                     itemSelector: (kind === 'table' || isTableBody) ? 'tr[data-id]' : '.tm-cal-task, .tm-checklist-item[data-id]',
                     appendTo: document.body,
                     eventData: (el) => {
+                        if (__tmCalendarShouldBlockExternalTaskDragForMultiSelect(el)) {
+                            calendarExternalDragPreviewController.clear({ stopPointerMonitor: true });
+                            return { create: false };
+                        }
                         prepareFullCalendarExternalMirrorSourceClasses(el);
                         try {
                             if (el?.closest?.('.tm-calendar-sidebar') && shouldAutoHideSidebarOnTaskDrag()) {
@@ -16491,8 +16557,12 @@
         try { state.sideDay.draggable?.destroy?.(); } catch (e) {}
         state.sideDay.draggable = null;
         state.sideDay.dragHost = null;
-        if (!(host instanceof HTMLElement)) return false;
-        if (typeof Draggable !== 'function') return false;
+        if (!(host instanceof HTMLElement)) {
+            return false;
+        }
+        if (typeof Draggable !== 'function') {
+            return false;
+        }
         const itemSelector = 'tr[data-id], .tm-cal-task[data-task-id], .tm-checklist-item[data-id], .tm-kanban-card[data-id], .tm-whiteboard-node[data-task-id], .tm-whiteboard-stream-task-head[data-task-id], .tm-whiteboard-stream-task-node[data-task-id], .tm-whiteboard-pool-item[data-task-id]';
         const resolver = typeof resolveTask === 'function' ? resolveTask : null;
         const externalDragAbort = new AbortController();
@@ -16508,6 +16578,10 @@
                 itemSelector,
                 appendTo: document.body,
                 eventData: (el) => {
+                    if (__tmCalendarShouldBlockExternalTaskDragForMultiSelect(el)) {
+                        calendarExternalDragPreviewController.clear({ stopPointerMonitor: true });
+                        return { create: false };
+                    }
                     prepareFullCalendarExternalMirrorSourceClasses(el);
                     const id = String(
                         el?.getAttribute?.('data-id')

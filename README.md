@@ -79,12 +79,28 @@
     <a href="https://ld246.com/member/ming883" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">ming883</a>
     <a href="https://ld246.com/member/jidenanian" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">jidenanian</a>
     <a href="https://ld246.com/member/Auroenix" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Auroenix</a>
-    <a href="https://ld246.com/member/Vicjoo" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Vicjoo</a>
+    <a href="https://ld246.com/member/vicjoo" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Vicjoo</a>
     <a href="https://ld246.com/member/zero10" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">zero10</a>
   </div>
 </div>
 
 # 更新记录
+
+## 2.7.0更新内容 7/6
+- **新增：功能权益与付费计划**
+  - 设置页新增“功能权益”入口，可查看当前授权状态、到期时间、绑定的用户名或设备码，并支持复制授权标识、输入激活码和清除授权
+  - 新增全功能试用、全功能年付、全功能永久三种方案展示，激活码采用离线验证，基础清单、看板、表格、日历、时间轴和基础白板能力仍可完整使用
+  - 免费版目前仅限制以下功能使用：AI 工作台、AI 优化任务名称、AI 编辑字段、AI 安排日程，以及白板便签 / 白板任务池搜索 / 白板详情定位
+- **优化：任务属性写入逻辑及Quickbar加载**
+  - 任务完成 / 取消完成时统一同步 `taskCompleteAt`、状态和完成标记，减少插件视图、Quickbar 常驻字段、原生文档复选框之间状态不同步的问题
+  - 任务块属性宿主增加更新时间戳和迁移逻辑，拖拽、缩进、列表结构变化后会把状态、日期、自定义字段等属性迁移到新的宿主块
+- 优化：顶栏入口加载稳定性
+  - 插件启动时会先恢复顶栏入口，再加载主运行时；当开发清单或打包脚本加载异常时，会自动回退和重试，减少同步重载后顶栏图标消失的问题
+- 修复：开启“已完成任务不分组”后，看板的标题分组 / 时间分组仍显示已完成列或分组不一致的问题
+- 修复：日历边框线颜色在 Dock 侧边栏日历中没有完整覆盖的问题，半小时刻度和时间轴边线会继续跟随插件边框色
+- 修复：多选模式下点击任务可能同时触发拖拽到日历的问题，批量选择时会阻止 FullCalendar 外部拖拽和悬浮镜像
+- 修复：任务常驻字段在删除任务、拖拽移动任务或原生列表结构变化后，可能残留在旧块或显示到错误任务上的问题
+- 修复：日历月视图第一行日期格子过窄时，日期行可能被挤掉的问题
 
 ## 2.6.9更新内容 7/2
 - **新增：白板任务池搜索**

@@ -482,7 +482,7 @@ return ok;
                 background: opts.background === true,
                 skipFlush: opts.skipFlush,
                 attrTargetId: String(opts.attrTargetId || '').trim(),
-                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 renderOptimistic: opts.renderOptimistic !== false,
 });
@@ -502,7 +502,7 @@ return ok;
                 background: opts.background === true,
                 skipFlush: opts.skipFlush,
                 attrTargetId: String(opts.attrTargetId || '').trim(),
-                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 renderOptimistic: opts.renderOptimistic !== false,
 });

@@ -310,7 +310,8 @@
             const boardMode = __tmGetKanbanBoardMode();
             const headingMode = boardMode === 'heading';
             const timeBoardMode = boardMode === 'time';
-            const showDoneCol = (headingMode || timeBoardMode) && !!state.showCompletedTasks && !!SettingsStore.data.kanbanShowDoneColumn;
+            const completedTasksInlineInGroups = SettingsStore.data.completedTasksInlineInGroups === true;
+            const showDoneCol = !completedTasksInlineInGroups && (headingMode || timeBoardMode) && !!state.showCompletedTasks && !!SettingsStore.data.kanbanShowDoneColumn;
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
             const statusOptions = __tmGetStatusOptions(statusOptionsRaw)
                 .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim(), marker: o?.marker }))
@@ -1234,7 +1235,7 @@
                 let roots = list0.filter(t => {
                     return !getNearestMappedAncestorId(t);
                 });
-                const headingDoneTailEnabled = headingMode && !isDoneCol;
+                const headingDoneTailEnabled = headingMode && !isDoneCol && !completedTasksInlineInGroups;
                 const doneRootSplit = headingDoneTailEnabled
                     ? __tmSplitTasksByDoneState(roots)
                     : { active: roots, done: [] };

@@ -1473,7 +1473,7 @@
                 skipTaskIndexPersist,
                 skipInteractionGate: opts.background === true || opts.skipInteractionGate === true,
                 attrTargetId,
-                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 recordUndo: recordBackgroundUndo ? false : opts.recordUndo !== false,
                 renderOptimistic: opts.renderOptimistic !== false,

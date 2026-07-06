@@ -193,6 +193,7 @@
 
     function __tmShouldShowAiSidebar() {
         if (!__tmIsAiFeatureEnabled()) return false;
+        if (typeof window.tmLicenseHasFeature === 'function' && !window.tmLicenseHasFeature('pro')) return false;
         if (!SettingsStore.data.aiSideDockEnabled) return false;
         if (state.homepageOpen) return true;
         const mode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
@@ -249,6 +250,7 @@
 
     window.tmToggleAiSideDock = async function(enabled) {
         const next = (typeof enabled === 'boolean') ? enabled : !SettingsStore.data.aiSideDockEnabled;
+        if (next && typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-workbench', 'AI 工作台')) return false;
         SettingsStore.data.aiSideDockEnabled = !!next;
         try { await SettingsStore.save(); } catch (e) {}
         if (!next) {
@@ -274,6 +276,7 @@
     };
 
     window.tmOpenAiSidebar = async function(payload) {
+        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-workbench', 'AI 工作台')) return false;
         if (SettingsStore.data.aiSideDockEnabled !== true) {
             SettingsStore.data.aiSideDockEnabled = true;
             try { await SettingsStore.save(); } catch (e) {}

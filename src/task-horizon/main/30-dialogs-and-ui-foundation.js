@@ -6603,17 +6603,29 @@ return Number(state.contextInteractionQuietUntil || 0);
             actions.push({
                 label: 'AI 优化任务名称',
                 icon: 'bot',
-                run: async () => { try { await globalThis.tmAiOptimizeTaskName?.(tid); } catch (e) {} }
+                run: async () => {
+                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-optimize-task-name', 'AI 优化任务名称')) return;
+                    if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
+                    try { await globalThis.tmAiOptimizeTaskName?.(tid); } catch (e) {}
+                }
             });
             actions.push({
                 label: 'AI 编辑字段',
                 icon: 'bot',
-                run: async () => { try { await globalThis.tmAiEditTask?.(tid); } catch (e) {} }
+                run: async () => {
+                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-edit-task-fields', 'AI 编辑字段')) return;
+                    if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
+                    try { await globalThis.tmAiEditTask?.(tid); } catch (e) {}
+                }
             });
             actions.push({
                 label: 'AI 安排日程',
                 icon: 'bot',
-                run: async () => { try { await globalThis.tmAiPlanTaskSchedule?.(tid); } catch (e) {} }
+                run: async () => {
+                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-plan-task-schedule', 'AI 安排日程')) return;
+                    if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
+                    try { await globalThis.tmAiPlanTaskSchedule?.(tid); } catch (e) {}
+                }
             });
         }
 
@@ -14300,6 +14312,12 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (!__tmDockPointerTaskDragIsEnabled()) return;
             const source = __tmResolveDockPointerTaskDragSource(ev?.target);
             if (!source) return;
+            if (__tmIsMultiSelectActive()) {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                state.draggingTaskId = '';
+                return;
+            }
             if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
                 return;
             }
@@ -14320,6 +14338,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         modal.addEventListener('pointerdown', (ev) => {
             if (!__tmDockPointerTaskDragIsEnabled()) return;
             if (globalThis.__tmRuntimeState?.isViewMode?.('calendar') ?? (String(state.viewMode || '').trim() === 'calendar')) return;
+            if (__tmIsMultiSelectActive()) {
+                return;
+            }
             if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
             const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
             if (pointerType === 'touch') return;
@@ -14754,7 +14775,9 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function __tmStartTouchTaskDrag(ev, taskId) {
         if (!__tmShouldUseCustomTouchTaskDrag()) return false;
-        if (__tmIsMultiSelectActive()) return false;
+        if (__tmIsMultiSelectActive()) {
+            return false;
+        }
         if (!__tmIsTouchLikeChecklistPointer(ev)) return false;
         if (ev && typeof ev.button === 'number' && ev.button !== 0) return false;
         try { ev?.preventDefault?.(); } catch (e) {}

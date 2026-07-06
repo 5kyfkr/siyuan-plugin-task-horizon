@@ -71,6 +71,8 @@
         } else if (tab === 'priority') {
             state.priorityScoreDraft = state.priorityScoreDraft || __tmEnsurePriorityDraft();
             state.settingsActiveTab = 'priority';
+        } else if (tab === 'benefits') {
+            state.settingsActiveTab = 'benefits';
         } else if (tab === 'about') {
             state.settingsActiveTab = 'about';
         } else {

@@ -14689,6 +14689,22 @@ th[data-col] {
     padding-bottom: 0;
 }
 
+.tm-body:not(.tm-body--timeline) .tm-table td.tm-task-content-cell {
+    position: relative;
+}
+
+.tm-body:not(.tm-body--timeline) .tm-table td.tm-task-content-cell > .tm-task-cell {
+    min-height: var(--tm-row-height);
+    height: 100%;
+    max-height: none;
+    position: static;
+}
+
+.tm-body:not(.tm-body--timeline) .tm-table td.tm-task-content-cell > .tm-task-cell > .tm-tree-guides {
+    inset: -1px auto -1px 6px;
+    width: calc(100% - 12px);
+}
+
 .tm-task-text {
     flex: 1 1 auto;
     min-width: 0;

@@ -1755,7 +1755,7 @@ return;
                         bottom: 0;
                         left: 2px;
                         width: 1px;
-                        background: var(--tm-border-color);
+                        background: var(--tm-calendar-grid-border-color, var(--tm-border-color));
                         opacity: .65;
                     }
                     .tm-calendar-side-dock-resizer:hover::after {
@@ -5048,7 +5048,9 @@ return;
 
     window.tmKanbanCardPointerDown = function(ev, id) {
         if (state.viewMode !== 'kanban') return;
-        if (__tmIsMultiSelectActive('kanban')) return;
+        if (__tmIsMultiSelectActive('kanban')) {
+            return;
+        }
         if (!__tmIsKanbanTouchPointer(ev)) return;
         if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
         try { ev.stopPropagation?.(); } catch (e) {}
@@ -7477,13 +7479,43 @@ return;
             : (globalThis.__tmRuntimeState?.getFlatTaskById?.(String(taskOrId || '').trim()) || state.flatTasks?.[String(taskOrId || '').trim()]);
         const tid = String(task?.id || taskOrId || '').trim();
         if (!task || !tid || !__tmIsCollectedOtherBlockTask(task)) return false;
+        const previousDone = !!task.done;
         const nextDone = !!done;
+        const completeAtPatch = nextDone && !previousDone
+            ? __tmBuildTaskCompleteAtPatch()
+            : (!nextDone && previousDone ? { taskCompleteAt: '' } : null);
         task.done = nextDone;
+        if (completeAtPatch && Object.prototype.hasOwnProperty.call(completeAtPatch, 'taskCompleteAt')) {
+            task.taskCompleteAt = String(completeAtPatch.taskCompleteAt || '').trim();
+            task.task_complete_at = task.taskCompleteAt;
+        }
         try {
             if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
             state.doneOverrides[tid] = nextDone;
         } catch (e) {}
-        try { MetaStore.set(tid, { done: nextDone }); } catch (e) {}
+        try {
+            MetaStore.set(tid, {
+                done: nextDone,
+                ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
+            });
+        } catch (e) {}
+        if (completeAtPatch && typeof completeAtPatch === 'object' && Object.keys(completeAtPatch).length > 0) {
+            try {
+                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                if (typeof patchTask === 'function') {
+                    void patchTask(tid, completeAtPatch, {
+                        background: true,
+                        wait: false,
+                        skipFlush: false,
+                        source: 'other-block-done-complete-at',
+                        skipInteractionGate: true,
+                        skipViewRefresh: true,
+                        skipOptimisticRefresh: true,
+                        skipSettledRefresh: true,
+                    }).catch(() => null);
+                }
+            } catch (e) {}
+        }
         try { await MetaStore.saveNow?.(); } catch (e) {}
         try { recalcStats(); } catch (e) {}
         try { applyFilters(); } catch (e) {}

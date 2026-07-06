@@ -2138,7 +2138,9 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-wrap .fc td.fc-timegrid-slot-label,
 .tm-calendar-wrap .fc td.fc-timegrid-slot-lane,
 #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-label,
-#tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-lane {
+#tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-lane,
+#tmCalendarSideDockTimeline.fc td.fc-timegrid-slot-label,
+#tmCalendarSideDockTimeline.fc td.fc-timegrid-slot-lane {
     position: relative;
     height: var(--tm-calendar-half-hour-slot-height, 29px);
     min-height: var(--tm-calendar-half-hour-slot-height, 29px);
@@ -2152,14 +2154,19 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 
 .tm-calendar-wrap .fc .fc-scrollgrid col:first-child,
 #tmCalendarSideDockTimeline .fc .fc-scrollgrid col:first-child,
+#tmCalendarSideDockTimeline.fc .fc-scrollgrid col:first-child,
 .tm-calendar-wrap .fc .fc-scrollgrid-section > td:first-child,
 .tm-calendar-wrap .fc .fc-scrollgrid-section > th:first-child,
 #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > td:first-child,
 #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > th:first-child,
+#tmCalendarSideDockTimeline.fc .fc-scrollgrid-section > td:first-child,
+#tmCalendarSideDockTimeline.fc .fc-scrollgrid-section > th:first-child,
 .tm-calendar-wrap .fc td.fc-timegrid-slot-label,
 .tm-calendar-wrap .fc .fc-timegrid-axis,
 #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-label,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-axis {
+#tmCalendarSideDockTimeline .fc .fc-timegrid-axis,
+#tmCalendarSideDockTimeline.fc td.fc-timegrid-slot-label,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-axis {
     width: 40px !important;
     min-width: 40px !important;
     max-width: 40px !important;
@@ -2168,7 +2175,9 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-wrap .fc .fc-timegrid-slot,
 .tm-calendar-wrap .fc .fc-timegrid-slot td,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-slot,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-slot td {
+#tmCalendarSideDockTimeline .fc .fc-timegrid-slot td,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slot,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slot td {
     height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
     min-height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
     border-top-style: solid !important;
@@ -2183,7 +2192,9 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-wrap .fc .fc-timegrid-slots tr,
 .tm-calendar-wrap .fc .fc-timegrid-slots td,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-slots tr,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-slots td {
+#tmCalendarSideDockTimeline .fc .fc-timegrid-slots td,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slots tr,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slots td {
     height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
     min-height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
     border-top-style: solid !important;
@@ -2204,20 +2215,27 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 #tmCalendarSideDockTimeline .fc .fc-timegrid-cols,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-cols table,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-slots,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-slots table {
+#tmCalendarSideDockTimeline .fc .fc-timegrid-slots table,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-body,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-cols,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-cols table,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slots,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slots table {
     height: var(--tm-calendar-timegrid-content-height, auto) !important;
     min-height: var(--tm-calendar-timegrid-content-height, 0px) !important;
 }
 
 .tm-calendar-host .fc .fc-timegrid-body,
 .tm-calendar-wrap .fc .fc-timegrid-body,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-body {
+#tmCalendarSideDockTimeline .fc .fc-timegrid-body,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-body {
     margin-bottom: var(--tm-view-bottom-inset, 0px);
 }
 
 .tm-calendar-host .fc .fc-timegrid-body::after,
 .tm-calendar-wrap .fc .fc-timegrid-body::after,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-body::after {
+#tmCalendarSideDockTimeline .fc .fc-timegrid-body::after,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-body::after {
     content: "";
     display: block;
     width: 100%;
@@ -2228,7 +2246,9 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-wrap .fc td.fc-timegrid-slot-label::before,
 .tm-calendar-wrap .fc td.fc-timegrid-slot-lane::before,
 #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-label::before,
-#tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-lane::before {
+#tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-lane::before,
+#tmCalendarSideDockTimeline.fc td.fc-timegrid-slot-label::before,
+#tmCalendarSideDockTimeline.fc td.fc-timegrid-slot-lane::before {
     content: '';
     position: absolute;
     left: 0;
@@ -2244,7 +2264,9 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-wrap .fc td.fc-timegrid-slot-label.fc-timegrid-slot-minor::before,
 .tm-calendar-wrap .fc td.fc-timegrid-slot-lane.fc-timegrid-slot-minor::before,
 #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-label.fc-timegrid-slot-minor::before,
-#tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-lane.fc-timegrid-slot-minor::before {
+#tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-lane.fc-timegrid-slot-minor::before,
+#tmCalendarSideDockTimeline.fc td.fc-timegrid-slot-label.fc-timegrid-slot-minor::before,
+#tmCalendarSideDockTimeline.fc td.fc-timegrid-slot-lane.fc-timegrid-slot-minor::before {
     background-color: transparent;
     background-image: repeating-linear-gradient(to right, var(--fc-border-color) 0, var(--fc-border-color) 4px, transparent 4px, transparent 8px);
     z-index: 3;
@@ -2257,19 +2279,26 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-wrap .fc .fc-scrollgrid-section > th,
 #tmCalendarSideDockTimeline .fc tr,
 #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > td,
-#tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > th {
+#tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > th,
+#tmCalendarSideDockTimeline.fc tr,
+#tmCalendarSideDockTimeline.fc .fc-scrollgrid-section > td,
+#tmCalendarSideDockTimeline.fc .fc-scrollgrid-section > th {
     border-bottom: 0 !important;
     border-top: 0 !important;
 }
 
 .tm-calendar-wrap .fc .fc-timegrid-slot-lane,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-slot-lane {
+#tmCalendarSideDockTimeline .fc .fc-timegrid-slot-lane,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slot-lane {
     border-bottom: 0 !important;
 }
 
 #tmCalendarSideDockTimeline .fc .fc-timegrid-slot-lane,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-slot-label,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-slot-frame {
+#tmCalendarSideDockTimeline .fc .fc-timegrid-slot-frame,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slot-lane,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slot-label,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slot-frame {
     height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
     min-height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
 }
@@ -2279,7 +2308,10 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-wrap .fc .fc-timegrid-slot.fc-timegrid-slot-lane.fc-timegrid-slot-minor,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-slot-minor,
 #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-minor,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-slot.fc-timegrid-slot-lane.fc-timegrid-slot-minor {
+#tmCalendarSideDockTimeline .fc .fc-timegrid-slot.fc-timegrid-slot-lane.fc-timegrid-slot-minor,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slot-minor,
+#tmCalendarSideDockTimeline.fc td.fc-timegrid-slot-minor,
+#tmCalendarSideDockTimeline.fc .fc-timegrid-slot.fc-timegrid-slot-lane.fc-timegrid-slot-minor {
     border-top-style: dashed !important;
     border-top-width: 1px !important;
     border-top-color: var(--tm-calendar-grid-border-soft-color, var(--fc-border-color)) !important;
@@ -5498,7 +5530,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     flex-direction: column !important;
     flex: 0 0 auto !important;
     height: var(--tm-calendar-month-fit-row-height, auto) !important;
-    min-height: 0 !important;
+    min-height: var(--tm-calendar-month-day-min-height, 0px) !important;
     justify-content: flex-start !important;
     align-items: stretch !important;
     box-sizing: border-box !important;
@@ -5554,7 +5586,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     flex-direction: column !important;
     flex: 0 0 auto !important;
     height: var(--tm-calendar-month-fit-row-height, auto) !important;
-    min-height: 0 !important;
+    min-height: var(--tm-calendar-month-day-min-height, 0px) !important;
     justify-content: flex-start !important;
     align-items: stretch !important;
     box-sizing: border-box !important;

@@ -118,6 +118,7 @@
     const __TM_CUSTOM_FIELD_COLUMN_PREFIX = 'cf:';
     const __TM_TASK_ATTACHMENT_ATTR_PREFIX = 'custom-data-assets-th-';
     const __TM_TASK_ATTACHMENT_META_ATTR = 'custom-data-assets-th-meta';
+    const __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR = 'custom-task-horizon-attr-host-updated-at';
     const __TM_TASK_ATTACHMENT_BLOCK_PREFIX = 'block:';
     const __TM_TASK_ATTACHMENT_BLOCK_ID_PATTERN = /^[0-9]{14}-[A-Za-z0-9]+$/;
     const __TM_TASK_ATTACHMENT_DETAIL_COLLAPSE_COUNT = 6;
@@ -10198,24 +10199,28 @@
             return { resolved: true, attrHostId: tid, useParentHost: false, parentId };
         }
         if (shape.parentType === 'l' && Number.isFinite(shape.siblingTaskCount)) {
-            const useParentHost = shape.siblingTaskCount === 1;
-            return {
-                resolved: true,
-                attrHostId: useParentHost ? parentId : tid,
-                useParentHost,
-                parentId,
-            };
+            if (shape.siblingTaskCount === 1) {
+                return {
+                    resolved: true,
+                    attrHostId: parentId,
+                    useParentHost: true,
+                    parentId,
+                    firstTaskId: tid,
+                };
+            }
+            return { resolved: true, attrHostId: tid, useParentHost: false, parentId };
         }
         return { resolved: false, attrHostId: '', useParentHost: false, parentId };
     }
 
-    function __tmRememberAttrHostParentResolution(parentId, useParentHost, nowTs = Date.now()) {
+    function __tmRememberAttrHostParentResolution(parentId, firstTaskId = '', nowTs = Date.now()) {
         const pid = String(parentId || '').trim();
         if (!pid) return;
         try {
             __tmAttrHostParentResolutionCache.set(pid, {
                 t: Number(nowTs) || Date.now(),
-                useParentHost: useParentHost === true,
+                firstTaskId: String(firstTaskId || '').trim(),
+                useParentHost: !!String(firstTaskId || '').trim(),
             });
             if (__tmAttrHostParentResolutionCache.size > 2400) {
                 const oldestKey = __tmAttrHostParentResolutionCache.keys().next().value;
@@ -10231,7 +10236,10 @@
         const resolvedFromShape = __tmResolveTaskAttrHostIdFromParentShape(tid, parentId, source);
         if (resolvedFromShape.resolved) {
             if (/^[0-9]+-[a-zA-Z0-9]+$/.test(resolvedFromShape.parentId)) {
-                __tmRememberAttrHostParentResolution(resolvedFromShape.parentId, resolvedFromShape.useParentHost === true);
+                __tmRememberAttrHostParentResolution(
+                    resolvedFromShape.parentId,
+                    resolvedFromShape.useParentHost === true ? (resolvedFromShape.firstTaskId || tid) : ''
+                );
             }
             return resolvedFromShape.attrHostId || tid;
         }
@@ -10241,8 +10249,8 @@
         try {
             const cached = __tmAttrHostParentResolutionCache.get(parentId);
             if (cached && (nowTs - Number(cached.t || 0)) < cacheTtlMs) {
-                if (cached.useParentHost === true) return parentId;
-                return tid;
+                const firstTaskId = String(cached.firstTaskId || '').trim();
+                return cached.useParentHost === true && firstTaskId && firstTaskId === tid ? parentId : tid;
             }
         } catch (e) {}
         let parentRow = null;
@@ -10257,17 +10265,17 @@
             __tmRememberAttrHostParentResolution(parentId, false, nowTs);
             return tid;
         }
-        let taskCount = 0;
+        let taskIds = [];
         try {
-            const taskCountMap = await __tmQueryTaskSiblingCountsByParentIds([parentId]);
-            taskCount = Number(taskCountMap.get(parentId) || 0);
+            const rows = await API.getTaskIdsInList(parentId, { preferDom: true });
+            taskIds = Array.isArray(rows) ? rows.map((item) => String(item || '').trim()).filter(Boolean) : [];
         } catch (e) {
-            taskCount = 0;
+            taskIds = [];
         }
-        const useParentHost = taskCount === 1;
-        __tmRememberAttrHostParentResolution(parentId, useParentHost, nowTs);
-        if (useParentHost) return parentId;
-        return tid;
+        const firstTaskId = String(taskIds[0] || '').trim();
+        const useParentHost = taskIds.length === 1 && firstTaskId === tid;
+        __tmRememberAttrHostParentResolution(parentId, useParentHost ? firstTaskId : '', nowTs);
+        return useParentHost ? parentId : tid;
     }
 
     function __tmIsVisibleDateAttrKey(key) {
@@ -11315,6 +11323,7 @@
         return Array.from(new Set(__tmGetTaskInlineAttrSpecs()
             .filter((spec) => spec && spec.enabled)
             .flatMap((spec) => Array.isArray(spec.names) ? spec.names : [spec.name])
+            .concat([__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR])
             .map((name) => String(name || '').trim())
             .filter(Boolean)));
     }
@@ -11379,12 +11388,43 @@
         return countMap;
     }
 
+    async function __tmQueryFirstTaskIdsByParentIds(parentIds) {
+        const safeParentIds = Array.from(new Set((Array.isArray(parentIds) ? parentIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => /^[0-9]+-[a-zA-Z0-9]+$/.test(id))));
+        const firstMap = new Map();
+        if (!safeParentIds.length) return firstMap;
+        const chunkSize = 400;
+        for (let i = 0; i < safeParentIds.length; i += chunkSize) {
+            const chunk = safeParentIds.slice(i, i + chunkSize);
+            if (!chunk.length) continue;
+            const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+            const sql = `
+                SELECT parent_id, id
+                FROM blocks
+                WHERE parent_id IN (${idList})
+                  AND type = 'i'
+                  AND subtype = 't'
+                ORDER BY parent_id ASC, sort ASC, created ASC, id ASC
+            `;
+            const res = await API.call('/api/query/sql', { stmt: sql });
+            if (res.code !== 0 || !Array.isArray(res.data)) continue;
+            res.data.forEach((row) => {
+                const parentId = String(row?.parent_id || '').trim();
+                const taskId = String(row?.id || '').trim();
+                if (!parentId || !taskId || firstMap.has(parentId)) return;
+                firstMap.set(parentId, taskId);
+            });
+        }
+        return firstMap;
+    }
+
     async function __tmPopulateTaskAttrHostIds(tasks) {
         const list = Array.isArray(tasks) ? tasks.filter((task) => task && typeof task === 'object') : [];
         if (!list.length) return list;
         const nowTs = Date.now();
         const cacheTtlMs = 20000;
-        const parentHostMap = new Map();
+        const parentFirstTaskIdMap = new Map();
         const unresolvedParentIds = [];
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
@@ -11396,13 +11436,14 @@
                 return;
             }
             if (resolvedFromShape.resolved) {
-                parentHostMap.set(parentId, resolvedFromShape.useParentHost === true);
-                __tmRememberAttrHostParentResolution(parentId, resolvedFromShape.useParentHost === true, nowTs);
+                const firstTaskId = resolvedFromShape.useParentHost === true ? (resolvedFromShape.firstTaskId || taskId) : '';
+                parentFirstTaskIdMap.set(parentId, firstTaskId);
+                __tmRememberAttrHostParentResolution(parentId, firstTaskId, nowTs);
                 return;
             }
             const cached = __tmAttrHostParentResolutionCache.get(parentId);
             if (cached && (nowTs - Number(cached.t || 0)) < cacheTtlMs) {
-                parentHostMap.set(parentId, cached.useParentHost === true);
+                parentFirstTaskIdMap.set(parentId, cached.useParentHost === true ? String(cached.firstTaskId || '').trim() : '');
                 return;
             }
             unresolvedParentIds.push(parentId);
@@ -11427,23 +11468,27 @@
                 const parentType = String(row?.type || '').trim().toLowerCase();
                 if (parentType === 'l') listTaskParentIds.push(parentId);
             });
+            const firstTaskIdMap = listTaskParentIds.length
+                ? await __tmQueryFirstTaskIdsByParentIds(listTaskParentIds)
+                : new Map();
             const taskCountMap = listTaskParentIds.length
                 ? await __tmQueryTaskSiblingCountsByParentIds(listTaskParentIds)
                 : new Map();
             pendingParentIds.forEach((parentId) => {
                 const parentRow = parentMap.get(parentId);
                 const parentType = String(parentRow?.type || '').trim().toLowerCase();
-                const useParentHost = parentType === 'l'
-                    && Number(taskCountMap.get(parentId) || 0) === 1;
-                parentHostMap.set(parentId, useParentHost);
-                __tmRememberAttrHostParentResolution(parentId, useParentHost, nowTs);
+                const firstTaskId = parentType === 'l' ? String(firstTaskIdMap.get(parentId) || '').trim() : '';
+                const taskCount = Number(taskCountMap.get(parentId) || 0);
+                const useParentHost = parentType === 'l' && taskCount === 1 && !!firstTaskId;
+                parentFirstTaskIdMap.set(parentId, useParentHost ? firstTaskId : '');
+                __tmRememberAttrHostParentResolution(parentId, useParentHost ? firstTaskId : '', nowTs);
             });
         }
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
             const parentId = String(task?.parent_id || '').trim();
             let attrHostId = taskId;
-            if (parentId && parentHostMap.get(parentId) === true) {
+            if (parentId && String(parentFirstTaskIdMap.get(parentId) || '').trim() === taskId) {
                 attrHostId = parentId;
             }
             task.attrHostId = attrHostId || taskId;
@@ -11608,17 +11653,48 @@
             if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_ATTACHMENT_META_ATTR)) return true;
             return Object.keys(row).some((key) => __tmIsTaskAttachmentAttrKey(key));
         };
+        const resolveStatusDoneState = (statusId) => {
+            const value = String(statusId || '').trim();
+            if (!value) return null;
+            try {
+                if (typeof __tmDoesStatusIdResolveToDone === 'function') return !!__tmDoesStatusIdResolveToDone(value);
+            } catch (e) {}
+            if (value === 'done' || value === '__done__') return true;
+            if (value === 'todo') return false;
+            return null;
+        };
+        const resolveTaskMarkerDoneState = (task) => {
+            if (Object.prototype.hasOwnProperty.call(task || {}, 'done')) return !!task.done;
+            const marker = String(task?.taskMarker || task?.task_marker || '').trim();
+            if (!marker) return null;
+            try {
+                if (typeof __tmIsTaskMarkerDone === 'function') return !!__tmIsTaskMarkerDone(marker);
+            } catch (e) {}
+            return marker !== ' ';
+        };
+        const applyTaskStateFieldsFromRow = (task, row, statusDoneState = null) => {
+            if (!task || !row || typeof row !== 'object') return;
+            const statusValue = __tmReadTaskMetaAttrValue(row, 'customStatus').trim();
+            if (statusValue) {
+                task.customStatus = statusValue;
+                task.custom_status = statusValue;
+            }
+            const completeAtValue = __tmReadTaskMetaAttrValue(row, 'taskCompleteAt').trim();
+            if (completeAtValue || statusDoneState === false) {
+                task.taskCompleteAt = statusDoneState === false ? '' : completeAtValue;
+                task.task_complete_at = task.taskCompleteAt;
+            }
+        };
+        const readAttrHostUpdatedAt = (row) => {
+            if (!row || typeof row !== 'object') return 0;
+            const value = Number(row[__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR] || 0);
+            return Number.isFinite(value) ? value : 0;
+        };
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
             const parentId = String(task?.parent_id || '').trim();
             const selfRow = taskId ? rowMap.get(taskId) : null;
-            if (shouldApplySelfRow(selfRow)) {
-                __tmApplyTaskMetaAttrRow(task, selfRow, {
-                    preferExisting: opts.preferExistingSelf !== false,
-                    preferExistingVisibleDates: true,
-                    preserveExistingVisibleDatesOnBlank: true,
-                });
-            }
+            const selfStatusBeforeHost = selfRow ? __tmReadTaskMetaAttrValue(selfRow, 'customStatus').trim() : '';
             let hostId = String(task?.attrHostId || task?.attr_host_id || taskId).trim();
             let hostRow = (hostId && hostId !== taskId) ? rowMap.get(hostId) : null;
             const parentRow = (parentId && parentId !== taskId) ? rowMap.get(parentId) : null;
@@ -11628,8 +11704,111 @@
                 task.attrHostId = hostId;
                 task.attr_host_id = hostId;
             }
-            if (!hostId || hostId === taskId || !hostRow) {
+            if ((!hostId || hostId === taskId) && shouldApplySelfRow(selfRow)) {
+                __tmApplyTaskMetaAttrRow(task, selfRow, {
+                    preferExisting: opts.preferExistingSelf !== false,
+                    preferExistingVisibleDates: true,
+                    preserveExistingVisibleDatesOnBlank: true,
+                });
+            }
+            if (!hostId || hostId === taskId) {
                 return;
+            }
+            if (!hostRow) {
+                const selfHasAttrHostTimestamp = readAttrHostUpdatedAt(selfRow) > 0;
+                if (shouldApplySelfRow(selfRow) || selfHasAttrHostTimestamp) {
+                    if (shouldApplySelfRow(selfRow)) {
+                        __tmApplyTaskMetaAttrRow(task, selfRow, {
+                            preferExisting: opts.preferExistingSelf !== false,
+                            preferExistingVisibleDates: true,
+                            preserveExistingVisibleDatesOnBlank: true,
+                        });
+                    }
+                    task.__tmPreferSelfAttrHostValues = true;
+                    task.__tmPreferSelfAttrHostId = hostId;
+                    __tmPushAttrHostReadLog('legacy-source-rescue', {
+                        taskId,
+                        hostId,
+                        reason: selfHasAttrHostTimestamp ? 'host-row-missing-with-task-timestamp' : 'host-row-missing',
+                        taskUpdatedAt: readAttrHostUpdatedAt(selfRow),
+                        hostUpdatedAt: 0,
+                        taskStatus: selfStatusBeforeHost,
+                    });
+                }
+                return;
+            }
+            const hostRowHasValues = shouldApplySelfRow(hostRow);
+            if (!hostRowHasValues && shouldApplySelfRow(selfRow)) {
+                __tmApplyTaskMetaAttrRow(task, selfRow, {
+                    preferExisting: opts.preferExistingSelf !== false,
+                    preferExistingVisibleDates: true,
+                    preserveExistingVisibleDatesOnBlank: true,
+                });
+                task.__tmPreferSelfAttrHostValues = true;
+                task.__tmPreferSelfAttrHostId = hostId;
+                __tmPushAttrHostReadLog('legacy-source-rescue', {
+                    taskId,
+                    hostId,
+                    reason: 'host-row-empty',
+                    taskUpdatedAt: readAttrHostUpdatedAt(selfRow),
+                    hostUpdatedAt: readAttrHostUpdatedAt(hostRow),
+                    taskStatus: selfStatusBeforeHost,
+                });
+                return;
+            }
+            const hostStatusBeforeApply = __tmReadTaskMetaAttrValue(hostRow, 'customStatus').trim();
+            const markerDoneState = resolveTaskMarkerDoneState(task);
+            const selfStatusDoneState = resolveStatusDoneState(selfStatusBeforeHost);
+            const hostStatusDoneState = resolveStatusDoneState(hostStatusBeforeApply);
+            const selfUpdatedAt = readAttrHostUpdatedAt(selfRow);
+            const hostUpdatedAt = readAttrHostUpdatedAt(hostRow);
+            const selfNewerThanHost = selfUpdatedAt > 0 && selfUpdatedAt > hostUpdatedAt;
+            const shouldPreferSelfByMarker = markerDoneState !== null
+                && selfStatusBeforeHost
+                && selfStatusDoneState !== null
+                && selfStatusDoneState === markerDoneState
+                && hostStatusBeforeApply
+                && hostStatusDoneState !== null
+                && hostStatusDoneState !== markerDoneState;
+            const shouldPreferSelfState = false;
+            const shouldPreferSelfHostValues = false;
+            if (selfStatusBeforeHost && (selfNewerThanHost || shouldPreferSelfByMarker)) {
+                __tmPushAttrHostReadLog('legacy-source-conflict-keep-host', {
+                    taskId,
+                    hostId,
+                    reason: selfNewerThanHost ? 'task-newer' : 'marker-conflict',
+                    taskUpdatedAt: selfUpdatedAt,
+                    hostUpdatedAt,
+                    taskStatus: selfStatusBeforeHost,
+                    hostStatus: hostStatusBeforeApply,
+                    markerDone: markerDoneState,
+                    taskStatusDone: selfStatusDoneState,
+                    hostStatusDone: hostStatusDoneState,
+                });
+            } else if (selfStatusBeforeHost && hostStatusBeforeApply && selfStatusBeforeHost !== hostStatusBeforeApply) {
+                __tmPushAttrHostReadLog('prefer-host-conflict', {
+                    taskId,
+                    hostId,
+                    reason: hostUpdatedAt > selfUpdatedAt ? 'host-newer' : 'no-newer-signal',
+                    taskUpdatedAt: selfUpdatedAt,
+                    hostUpdatedAt,
+                    taskStatus: selfStatusBeforeHost,
+                    hostStatus: hostStatusBeforeApply,
+                    markerDone: markerDoneState,
+                    taskStatusDone: selfStatusDoneState,
+                    hostStatusDone: hostStatusDoneState,
+                });
+            } else if (selfStatusBeforeHost && !hostStatusBeforeApply) {
+                __tmPushAttrHostReadLog('task-only-status', {
+                    taskId,
+                    hostId,
+                    reason: 'host-status-empty',
+                    taskUpdatedAt: selfUpdatedAt,
+                    hostUpdatedAt,
+                    taskStatus: selfStatusBeforeHost,
+                    markerDone: markerDoneState,
+                    taskStatusDone: selfStatusDoneState,
+                });
             }
             const shouldLogStatus = false;
             const beforeStatus = shouldLogStatus ? String(task?.customStatus || task?.custom_status || '').trim() : '';
@@ -11639,6 +11818,13 @@
                 preferExistingVisibleDates: true,
                 preserveExistingVisibleDatesOnBlank: true,
             });
+            if (shouldPreferSelfHostValues) {
+                task.__tmPreferSelfAttrHostValues = true;
+                task.__tmPreferSelfAttrHostId = hostId;
+            }
+            if (shouldPreferSelfState) {
+                applyTaskStateFieldsFromRow(task, selfRow, selfStatusDoneState);
+            }
             if (shouldLogStatus) {
                 __tmPushStatusDebug('attr-host-override', {
                     taskId,
@@ -11856,7 +12042,8 @@
             const hostId = String(task?.attrHostId || task?.attr_host_id || tid).trim();
             const hostValues = hostId ? hostValueMap.get(hostId) : null;
             const hostHasValues = !!(hostValues && typeof hostValues === 'object' && Object.keys(hostValues).length > 0);
-            if (hostId && hostId !== tid && !hostHasValues && tid) selfFallbackTaskIds.add(tid);
+            const preferSelfHostValues = task?.__tmPreferSelfAttrHostValues === true;
+            if (hostId && hostId !== tid && tid && (!hostHasValues || preferSelfHostValues)) selfFallbackTaskIds.add(tid);
         });
         const selfResult = selfFallbackTaskIds.size > 0
             ? await __tmQueryCustomFieldAttrRowsByTaskIds(Array.from(selfFallbackTaskIds), opts)
@@ -11887,6 +12074,8 @@
             const tid = String(task?.id || '').trim();
             const hostId = String(task?.attrHostId || task?.attr_host_id || tid).trim();
             const hostValues = hostId ? hostValueMap.get(hostId) : null;
+            const preferSelfHostValues = task?.__tmPreferSelfAttrHostValues === true;
+            const hostHasValues = !!(hostValues && typeof hostValues === 'object' && Object.keys(hostValues).length > 0);
             const markLoadedFields = () => {
                 if (loadedAllFields) {
                     task.__tmLoadedAllCustomFields = true;
@@ -11898,13 +12087,19 @@
                     task.__tmLoadedCustomFieldIds = Array.from(new Set(loadedFieldIds.concat(requestedFieldIds))).sort();
                 }
             };
+            const selfValues = tid ? selfValueMap.get(tid) : null;
+            if (preferSelfHostValues && selfValues && typeof selfValues === 'object' && Object.keys(selfValues).length > 0) {
+                applyResolvedRawValues(task, selfValues);
+                selfAssignedCount += 1;
+                markLoadedFields();
+                return;
+            }
             if (hostId && hostId !== tid && hostValues && typeof hostValues === 'object' && Object.keys(hostValues).length > 0) {
                 applyResolvedRawValues(task, hostValues);
                 hostAssignedCount += 1;
                 markLoadedFields();
                 return;
             }
-            const selfValues = tid ? selfValueMap.get(tid) : null;
             applyResolvedRawValues(
                 task,
                 (selfValues && typeof selfValues === 'object')
@@ -12373,6 +12568,10 @@
 
     function __tmPushStatusDebug(tag, payload = {}) {
         return __tmPushDebugChannel('status', tag, payload);
+    }
+
+    function __tmPushAttrHostReadLog(tag, payload = {}) {
+        return null;
     }
 
     function __tmDescribeDebugElement(element) {
@@ -14483,13 +14682,15 @@
         list.forEach((item) => {
             const taskId = String(item?.task?.id || item?.taskId || '').trim();
             const patch = (item?.patch && typeof item.patch === 'object' && !Array.isArray(item.patch)) ? item.patch : {};
-            if (!taskId || !Object.keys(patch).length || state.inheritedSubtaskPatchQueuedIds?.[taskId]) return;
+            const attrTargetId = String(item.attrHostId || item.attr_host_id || item?.task?.attrHostId || item?.task?.attr_host_id || opts.attrTargetId || '').trim();
+            const queueKey = `${taskId}:${attrTargetId || taskId}`;
+            if (!taskId || !Object.keys(patch).length || state.inheritedSubtaskPatchQueuedIds?.[queueKey]) return;
             try {
-                state.inheritedSubtaskPatchQueuedIds[taskId] = now;
+                state.inheritedSubtaskPatchQueuedIds[queueKey] = now;
                 __tmQueueAttrPatch(taskId, patch, {
                     docId: String(item.docId || item?.task?.root_id || item?.task?.docId || opts.docId || '').trim(),
                     source: String(opts.source || 'quickbar-subtask-inherit-attrs').trim() || 'quickbar-subtask-inherit-attrs',
-                    attrTargetId: String(item.attrHostId || item.attr_host_id || item?.task?.attrHostId || item?.task?.attr_host_id || opts.attrTargetId || '').trim(),
+                    attrTargetId,
                     background: true,
                     skipInteractionGate: true,
                     mirrorTaskAttrs: false,
@@ -14502,7 +14703,7 @@
                 }).catch(() => null);
                 count += 1;
             } catch (e) {
-                try { delete state.inheritedSubtaskPatchQueuedIds[taskId]; } catch (e2) {}
+                try { delete state.inheritedSubtaskPatchQueuedIds[queueKey]; } catch (e2) {}
             }
         });
         return count;

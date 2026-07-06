@@ -3802,6 +3802,10 @@
             || field === 'customTime';
     }
 
+    function __tmPushAttrHostWriteLog(tag, payload = {}) {
+        return null;
+    }
+
     async function __tmPersistMetaAndAttrsKernel(id, patch, options = {}) {
         if (!id || !patch || typeof patch !== 'object') return false;
         const opts = (options && typeof options === 'object') ? options : {};
@@ -3886,17 +3890,25 @@
             previousAttachmentMeta,
             previousAttachmentSlotCount,
         });
-        const attrKeys = Object.keys(attrs);
+        let attrKeys = Object.keys(attrs);
         if (attrKeys.length === 0) {
             return true;
         }
+        const hostUpdatedAtAttr = typeof __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR !== 'undefined'
+            ? __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR
+            : 'custom-task-horizon-attr-host-updated-at';
+        if (opts.stampTaskAttrHostUpdatedAt !== false && !Object.prototype.hasOwnProperty.call(attrs, hostUpdatedAtAttr)) {
+            attrs[hostUpdatedAtAttr] = String(Date.now());
+            attrKeys = Object.keys(attrs);
+        }
         const statusAttrKey = typeof __tmGetTaskMetaAttrKey === 'function' ? __tmGetTaskMetaAttrKey('customStatus') : 'custom-status';
         const hasStatusAttr = Object.prototype.hasOwnProperty.call(attrs, statusAttrKey) || Object.prototype.hasOwnProperty.call(patch, 'customStatus');
+        const shouldLogAttrHostWrite = Object.prototype.hasOwnProperty.call(attrs, hostUpdatedAtAttr);
         const allTaskReadMirrorAttrs = __tmBuildTaskReadMirrorAttrs(attrs);
         const hasSyncTaskReadMirrorAttr = Object.keys(allTaskReadMirrorAttrs).some((key) => __tmShouldSyncTaskReadMirrorAttr(key));
-        const shouldMirrorAllTaskReadAttrs = opts.mirrorTaskAttrs !== false && opts.background !== true && opts.queued !== true;
+        const shouldMirrorAllTaskReadAttrs = opts.mirrorTaskAttrs === true;
         const taskReadMirrorAttrs = {};
-        if (opts.mirrorTaskAttrs !== false && (shouldMirrorAllTaskReadAttrs || hasSyncTaskReadMirrorAttr)) {
+        if (opts.mirrorTaskAttrs === true && (shouldMirrorAllTaskReadAttrs || hasSyncTaskReadMirrorAttr)) {
             Object.entries(allTaskReadMirrorAttrs).forEach(([key, value]) => {
                 if (shouldMirrorAllTaskReadAttrs || __tmShouldSyncTaskReadMirrorAttr(key)) {
                     taskReadMirrorAttrs[key] = value;
@@ -3905,6 +3917,18 @@
         }
         const shouldSyncTaskReadMirrorAttrs = Object.keys(taskReadMirrorAttrs).some((key) => __tmShouldSyncTaskReadMirrorAttr(key));
         const hasTaskReadMirrorAttrs = Object.keys(taskReadMirrorAttrs).length > 0;
+        if (shouldLogAttrHostWrite) {
+            __tmPushAttrHostWriteLog('start', {
+                taskId: String(id || '').trim(),
+                attrTargetId,
+                source: String(opts.source || '').trim(),
+                patch: { ...patch },
+                attrs: { ...attrs },
+                touchMetaStore: opts.touchMetaStore !== false,
+                skipFlush: opts.skipFlush === true,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
+            });
+        }
         if (hasStatusAttr) {
             __tmPushStatusDebug('attrs-kernel:start', {
                 taskId: String(id || '').trim(),
@@ -3937,12 +3961,26 @@
                             if (opts.syncMirrorTaskAttrs === true) {
                             }
                             await __tmBackendAdapter.setAttrs(mirrorTargetId, mirrorAttrs);
+                            __tmPushAttrHostWriteLog('mirror-success', {
+                                taskId: String(id || '').trim(),
+                                primaryAttrTargetId: attrTargetId,
+                                mirrorTargetId,
+                                source: String(opts.source || '').trim(),
+                                attrs: { ...mirrorAttrs },
+                            });
                             if (opts.syncMirrorTaskAttrs === true) {
                             }
                         } catch (e) {
+                            __tmPushAttrHostWriteLog('mirror-error', {
+                                taskId: String(id || '').trim(),
+                                primaryAttrTargetId: attrTargetId,
+                                mirrorTargetId,
+                                source: String(opts.source || '').trim(),
+                                error: String(e?.message || e || ''),
+                            });
                         }
                     };
-                    if (opts.syncMirrorTaskAttrs === true || shouldSyncTaskReadMirrorAttrs) {
+                    if (opts.syncMirrorTaskAttrs === true || shouldMirrorAllTaskReadAttrs || shouldSyncTaskReadMirrorAttrs) {
                         await runMirrorSetAttrs();
                     } else {
                         deferredMirrorSetAttrs = () => {
@@ -3980,6 +4018,15 @@
                         attrs: { ...attrs },
                     }, [id, attrTargetId], { force: true });
                 }
+                if (shouldLogAttrHostWrite) {
+                    __tmPushAttrHostWriteLog('success', {
+                        taskId: String(id || '').trim(),
+                        attrTargetId,
+                        source: String(opts.source || '').trim(),
+                        attempt,
+                        attrs: { ...attrs },
+                    });
+                }
                 return true;
             } catch (e) {
                 lastErr = e;
@@ -3991,6 +4038,15 @@
                         attempt: i + 1,
                         error: String(e?.message || e || ''),
                     }, [id, attrTargetId], { force: true });
+                }
+                if (shouldLogAttrHostWrite) {
+                    __tmPushAttrHostWriteLog('error', {
+                        taskId: String(id || '').trim(),
+                        attrTargetId,
+                        source: String(opts.source || '').trim(),
+                        attempt: i + 1,
+                        error: String(e?.message || e || ''),
+                    });
                 }
                 await new Promise(r => setTimeout(r, retryDelayMs));
             }
@@ -4026,7 +4082,7 @@
                 skipFlush: opts.skipFlush === true,
                 background: opts.background === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
-                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 renderOptimistic: opts.renderOptimistic !== false,
                 withFilters: optimisticProjectionRefresh,
                 skipSnapshotPersist: opts.skipSnapshotPersist === true,
@@ -4062,7 +4118,7 @@
                 docId: opts.docId,
                 source: opts.source,
                 attrTargetId: opts.attrTargetId,
-                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 renderOptimistic: opts.renderOptimistic !== false && opts.background !== true,
                 withFilters: opts.withFilters !== false,
                 skipSnapshotPersist: opts.skipSnapshotPersist === true,
@@ -6008,7 +6064,7 @@
                 docId,
                 skipSnapshotPersist: op?.data?.skipSnapshotPersist === true,
                 skipTaskIndexPersist: op?.data?.skipTaskIndexPersist === true,
-                mirrorTaskAttrs: op?.data?.mirrorTaskAttrs !== false,
+                mirrorTaskAttrs: op?.data?.mirrorTaskAttrs === true,
                 attrTargetId: String(op?.data?.attrTargetId || '').trim(),
                 previousAttachmentPaths: Array.isArray(op?.data?.previousAttachmentPaths) ? op.data.previousAttachmentPaths : undefined,
                 previousAttachmentMeta: op?.data?.previousAttachmentMeta,
@@ -6033,7 +6089,7 @@
                 background: op?.data?.background === true,
                 skipFlush: op?.data?.skipFlush === true,
                 attrTargetId: String(op?.data?.attrTargetId || '').trim(),
-                mirrorTaskAttrs: op?.data?.mirrorTaskAttrs !== false,
+                mirrorTaskAttrs: op?.data?.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: op?.data?.syncMirrorTaskAttrs === true,
                 inlineQueuedPersist: op?.data?.inlineQueuedPersist === true
                     && op?.data?.background !== true
@@ -7901,6 +7957,9 @@ const wait = !!options.wait;
             }
             if (type === 'setDone') {
                 const patch = {};
+                if (op?.data?.patch && typeof op.data.patch === 'object' && !Array.isArray(op.data.patch)) {
+                    Object.assign(patch, op.data.patch);
+                }
                 if (Object.prototype.hasOwnProperty.call(op?.data || {}, 'done')) {
                     patch.done = !!op.data.done;
                 }
@@ -14335,6 +14394,17 @@ if (opts.refresh === false) return;
         }
     }
 
+    async function __tmDoesBlockIdExist(blockId) {
+        const id = String(blockId || '').trim();
+        if (!id) return false;
+        try {
+            const rows = await API.getBlocksByIds([id]);
+            return Array.isArray(rows) && rows.some((row) => String(row?.id || '').trim() === id);
+        } catch (e) {
+            return false;
+        }
+    }
+
     async function __tmApplyTaskMetaPatchWithUndo(taskId, patch, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
@@ -14366,7 +14436,22 @@ if (opts.refresh === false) return;
             throw new Error('未找到任务');
         }
         const inversePatch = __tmCaptureTaskPatchInverse(context.persistId, nextPatch);
-        const effectiveAttrTargetId = explicitAttrTargetId || context.attrHostId;
+        let effectiveAttrTargetId = explicitAttrTargetId || context.attrHostId;
+        if (effectiveAttrTargetId && effectiveAttrTargetId !== context.persistId) {
+            const targetExists = await __tmDoesBlockIdExist(effectiveAttrTargetId);
+            if (!targetExists) {
+                try {
+                    __tmPushAttrHostWriteLog('stale-target-fallback', {
+                        requestedTaskId: context.requestedId,
+                        persistId: context.persistId,
+                        staleAttrTargetId: effectiveAttrTargetId,
+                        fallbackAttrTargetId: context.persistId,
+                        source: String(opts.source || '').trim(),
+                    });
+                } catch (e) {}
+                effectiveAttrTargetId = context.persistId;
+            }
+        }
         const localAttrSuppressionIds = Array.from(new Set([
             context.requestedId,
             context.persistId,
@@ -14434,7 +14519,7 @@ if (hasStatusPatch) {
                 skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
                 inlineQueuedPersist: opts.inlineQueuedPersist === true,
-                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 previousAttachmentPaths: opts.previousAttachmentPaths,
                 previousAttachmentMeta: opts.previousAttachmentMeta,
@@ -14882,6 +14967,7 @@ if (hasStatusPatch) {
 
     async function __tmApplyTaskStatus(taskId, statusId, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        const explicitAttrTargetId = String(opts.attrTargetId || '').trim();
         const statusOptions = __tmGetStatusOptions();
         const fallbackStatusId = __tmGetDefaultUndoneStatusId(statusOptions);
         const requestedStatusId = String(statusId || '').trim() || fallbackStatusId;
@@ -14983,12 +15069,13 @@ __tmPushStatusDebug('apply-status:start', {
                 broadcast: opts.broadcast !== false,
                 recordUndo: opts.recordUndo !== false,
                 broadcastTaskId: opts.broadcastTaskId || context.requestedId || context.persistId,
+                attrTargetId: explicitAttrTargetId,
                 skipNoopCheck: true,
                 queued: opts.queued === true || opts.wait === false || (opts.forceImmediate !== true && opts.background !== false),
                 background: opts.background === true || opts.wait === false || (opts.forceImmediate !== true && opts.background !== false),
                 wait: opts.wait === true ? true : false,
                 skipFlush: opts.skipFlush,
-                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 inlineQueuedPersist: opts.inlineQueuedPersist === true,
             });
@@ -15049,8 +15136,10 @@ __tmPushStatusDebug('apply-status:start', {
                 __tmMarkNativeDocCheckboxStatusSyncIgnored(suppressionIds, nextStatusId, nextMarker, 1600);
                 markerResult = await __tmUpdateTaskListItemMarkerWithFallback(context.persistId, nextMarker);
                 const markerAnchorId = String(markerResult?.id || context.persistId).trim() || context.persistId;
-                let attrTargetId = '';
-                try { attrTargetId = await __tmResolveTaskAttrHostIdFromAnyBlockId(markerAnchorId); } catch (e) { attrTargetId = ''; }
+                let attrTargetId = explicitAttrTargetId;
+                if (!attrTargetId) {
+                    try { attrTargetId = await __tmResolveTaskAttrHostIdFromAnyBlockId(markerAnchorId); } catch (e) { attrTargetId = ''; }
+                }
                 if (!attrTargetId) {
                     try {
                         const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(context.persistId)
@@ -15076,7 +15165,7 @@ __tmPushStatusDebug('apply-status:start', {
                     wait: opts.wait === true ? true : false,
                     skipFlush: opts.skipFlush,
                     source: String(opts.source || 'task-status').trim() || 'task-status',
-                    mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                    mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                     syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                     saveMetaNow: false,
                     docId: context.docId,
@@ -18981,6 +19070,512 @@ refreshOk = false;
             <div style="padding:8px 10px;border-bottom:1px solid var(--tm-border-color);font-size:12px;color:var(--tm-text-color);word-break:break-all;">${esc(__tmFormatDiagnosticValue(value))}</div>
         `).join('');
     }
+
+    const TM_BENEFITS_PAYMENT_IMAGES = Object.freeze({
+        wechat: '/data/plugins/siyuan-plugin-task-horizon/src/payment/wechat.png',
+        alipay: '/data/plugins/siyuan-plugin-task-horizon/src/payment/alipay.png',
+    });
+    let __tmBenefitsQrLoadSeq = 0;
+
+    function __tmGetBenefitsAuthInfo() {
+        try {
+            if (typeof window.tmGetLicenseAuthInfo === 'function') return window.tmGetLicenseAuthInfo() || {};
+        } catch (e) {}
+        return {};
+    }
+
+    function __tmGetBenefitsLicenseState() {
+        try {
+            if (typeof window.tmGetLicenseState === 'function') return window.tmGetLicenseState() || {};
+        } catch (e) {}
+        return {};
+    }
+
+    function __tmRenderBenefitsFeatureRows(rows) {
+        return rows.map(([feature, free, trial, yearly, lifetime]) => `
+            <div class="tm-benefits-row" role="row">
+                <div class="tm-benefits-cell tm-benefits-feature" role="cell">${esc(feature)}</div>
+                <div class="tm-benefits-cell" role="cell" data-label="免费版">${esc(free)}</div>
+                <div class="tm-benefits-cell is-yes" role="cell" data-label="全功能试用">${esc(trial)}</div>
+                <div class="tm-benefits-cell is-yes" role="cell" data-label="全功能年付">${esc(yearly)}</div>
+                <div class="tm-benefits-cell is-yes" role="cell" data-label="全功能永久">${esc(lifetime)}</div>
+            </div>
+        `).join('');
+    }
+
+    function __tmRenderBenefitsSettingsPanel() {
+        const auth = __tmGetBenefitsAuthInfo();
+        const license = __tmGetBenefitsLicenseState();
+        const subject = String(auth?.subject || license?.currentSubject || '').trim();
+        const accountText = subject || '未读取到';
+        const accountKindText = auth?.loggedIn ? '用户名' : (String(auth?.kind || '') === 'device' ? '设备码' : '用户名/设备码');
+        const statusText = license?.statusText || license?.label || '免费版';
+        const active = license?.active === true;
+        const statusColor = active ? 'var(--tm-success-color)' : 'var(--tm-secondary-text)';
+        const expiryText = license?.plan === 'lifetime'
+            ? '永久'
+            : (String(license?.expiresAt || '').trim() || (active ? '未读取到' : '未激活'));
+        const featureRows = [
+            ['清单、看板、表格、日历、时间轴', '完整可用', '完整可用', '完整可用', '完整可用'],
+            ['基础任务创建、编辑、筛选', '完整可用', '完整可用', '完整可用', '完整可用'],
+            ['白板基础与全局白板', '完整可用', '完整可用', '完整可用', '完整可用'],
+            ['白板便签/任务池搜索/详情定位', '不包含', '可用', '可用', '可用'],
+            ['AI 工作台与任务 AI 操作', '不包含', '可用', '可用', '可用'],
+            ['离线激活', '不需要', '用户名或设备', '用户名或设备', '用户名或设备'],
+            ['维护支持', '常规', '常规', '优先响应', '优先响应'],
+        ];
+        const advancedItems = [
+            ['白板增强', '全局白板继续可用。全功能限制便签工具、任务详情里的白板反向显示定位、任务池搜索。'],
+            ['AI 辅助', 'AI 设置页可见可配置。全功能限制 AI 工作台和任务 AI 操作，包含优化任务名称、编辑字段、安排日程等能力。'],
+        ];
+        return `
+            <style>
+                .tm-benefits-wrap{display:flex;flex-direction:column;gap:12px;}
+                .tm-benefits-license{display:grid;grid-template-columns:minmax(140px,.55fr) minmax(220px,1fr) auto;gap:12px;align-items:center;padding:14px;border:1px solid var(--tm-border-color);border-radius:12px;background:var(--tm-card-bg);}
+                .tm-benefits-label{font-size:12px;color:var(--tm-secondary-text);font-weight:700;margin-bottom:5px;}
+                .tm-benefits-license strong{display:block;color:var(--tm-text-color);font-size:18px;line-height:1.25;}
+                .tm-benefits-badge{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:999px;background:var(--tm-rule-group-bg);color:${statusColor};font-size:12px;font-weight:800;}
+                .tm-benefits-account{display:flex;gap:8px;align-items:center;min-width:0;}
+                .tm-benefits-account code{flex:1;min-width:0;padding:8px 10px;border:1px solid var(--tm-border-color);border-radius:9px;background:var(--tm-sidebar-bg);color:var(--tm-text-color);word-break:break-all;}
+                .tm-benefits-plans{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+                .tm-benefits-plan{display:flex;min-height:168px;flex-direction:column;justify-content:space-between;gap:12px;padding:15px;border:1px solid var(--tm-border-color);border-radius:12px;background:var(--tm-card-bg);}
+                .tm-benefits-plan.is-featured{border-color:color-mix(in srgb,var(--tm-primary-color) 48%,var(--tm-border-color));box-shadow:0 14px 34px color-mix(in srgb,var(--tm-text-color) 8%,transparent);}
+                .tm-benefits-plan.is-featured .tm-benefits-tag{background:color-mix(in srgb,var(--tm-primary-color) 12%,var(--tm-card-bg));color:var(--tm-primary-color);}
+                .tm-benefits-plan.is-featured .tm-benefits-price strong{color:var(--tm-primary-color);}
+                .tm-benefits-plan-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
+                .tm-benefits-plan h3{margin:0;font-size:18px;line-height:1.25;color:var(--tm-text-color);}
+                .tm-benefits-tag{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:999px;background:var(--tm-rule-group-bg);color:var(--tm-secondary-text);font-size:12px;font-weight:800;white-space:nowrap;}
+                .tm-benefits-price{display:flex;align-items:baseline;gap:4px;margin:7px 0 5px;color:var(--tm-text-color);}
+                .tm-benefits-price strong{font-size:27px;line-height:1;}
+                .tm-benefits-price span{font-size:13px;color:var(--tm-secondary-text);}
+                .tm-benefits-price del{display:inline-flex;align-items:baseline;gap:4px;margin-right:8px;color:var(--tm-secondary-text);text-decoration-thickness:2px;}
+                .tm-benefits-plan.is-featured .tm-benefits-price del strong{color:var(--tm-secondary-text);}
+                .tm-benefits-plan p{margin:0;color:var(--tm-secondary-text);font-size:13px;line-height:1.65;}
+                .tm-benefits-matrix{overflow:hidden;border:1px solid var(--tm-border-color);border-radius:12px;background:var(--tm-card-bg);}
+                .tm-benefits-section-title{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:14px 16px 0;}
+                .tm-benefits-section-title h3{margin:0;font-size:16px;line-height:1.25;color:var(--tm-text-color);}
+                .tm-benefits-section-title p{margin:0;color:var(--tm-secondary-text);font-size:12px;line-height:1.6;}
+                .tm-benefits-grid{padding:10px 16px 14px;}
+                .tm-benefits-row{display:grid;grid-template-columns:1.28fr repeat(4,minmax(86px,1fr));border-bottom:1px solid var(--tm-border-color);}
+                .tm-benefits-row:last-child{border-bottom:0;}
+                .tm-benefits-row.is-head{color:var(--tm-secondary-text);font-size:12px;font-weight:800;}
+                .tm-benefits-cell{min-width:0;padding:8px 7px;font-size:12px;color:var(--tm-text-color);line-height:1.55;}
+                .tm-benefits-feature{font-weight:800;}
+                .tm-benefits-cell.is-yes{color:var(--tm-success-color);font-weight:800;}
+                .tm-benefits-advanced{border-top:1px solid var(--tm-border-color);padding:0 16px 14px;}
+                .tm-benefits-advanced h4{margin:12px 0 6px;font-size:14px;color:var(--tm-text-color);}
+                .tm-benefits-advanced-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:18px;}
+                .tm-benefits-advanced-item{display:grid;grid-template-columns:94px minmax(0,1fr);gap:10px;padding:8px 0;border-top:1px solid var(--tm-border-color);}
+                .tm-benefits-advanced-item strong{color:var(--tm-text-color);font-size:13px;}
+                .tm-benefits-advanced-item span{color:var(--tm-secondary-text);font-size:12px;line-height:1.65;}
+                .tm-benefits-flow{padding:14px 16px;border:1px solid var(--tm-border-color);border-radius:12px;background:var(--tm-card-bg);}
+                .tm-benefits-flow h3{margin:0 0 10px;font-size:16px;color:var(--tm-text-color);}
+                .tm-benefits-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+                .tm-benefits-step{padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-sidebar-bg);}
+                .tm-benefits-step strong{display:block;margin-bottom:6px;color:var(--tm-text-color);font-size:13px;}
+                .tm-benefits-step p{margin:0;color:var(--tm-secondary-text);font-size:12px;line-height:1.6;}
+                .tm-benefits-dialog{width:min(720px,calc(100% - 28px));border:1px solid var(--tm-border-color);border-radius:14px;padding:0;background:var(--tm-card-bg);color:var(--tm-text-color);box-shadow:0 18px 46px rgba(0,0,0,.18);}
+                .tm-benefits-dialog::backdrop{background:rgba(0,0,0,.36);}
+                .tm-benefits-dialog-body{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:16px;padding:18px;}
+                .tm-benefits-dialog.is-no-qr .tm-benefits-dialog-body,.tm-benefits-dialog-body.is-single{grid-template-columns:1fr;}
+                .tm-benefits-dialog h3{margin:0 0 8px;font-size:20px;color:var(--tm-text-color);}
+                .tm-benefits-dialog p{margin:0 0 12px;color:var(--tm-secondary-text);font-size:13px;line-height:1.7;}
+                .tm-benefits-note{display:grid;gap:7px;padding:11px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-sidebar-bg);}
+                .tm-benefits-note[hidden]{display:none!important;}
+                .tm-benefits-note code{word-break:break-all;color:var(--tm-text-color);}
+                .tm-benefits-qr{display:grid;gap:9px;}
+                .tm-benefits-qr[hidden]{display:none!important;}
+                .tm-benefits-pay-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+                .tm-benefits-pay-tab{height:36px;border:1px solid var(--tm-border-color);border-radius:9px;background:var(--tm-sidebar-bg);color:var(--tm-text-color);font-weight:800;cursor:pointer;}
+                .tm-benefits-pay-tab.is-active{border-color:var(--tm-primary-color);color:var(--tm-primary-color);background:color-mix(in srgb,var(--tm-primary-color) 10%,var(--tm-card-bg));}
+                .tm-benefits-qr-box{display:grid;place-items:center;min-height:236px;border:1px solid var(--tm-border-color);border-radius:12px;background:var(--tm-sidebar-bg);padding:12px;}
+                .tm-benefits-qr-box img{width:min(100%,210px);height:auto;border-radius:8px;}
+                .tm-benefits-dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:0 18px 18px;flex-wrap:wrap;}
+                .tm-benefits-license-input{width:100%;min-height:112px;resize:vertical;padding:9px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;}
+                @media (max-width: 820px){
+                    .tm-benefits-license,.tm-benefits-plans,.tm-benefits-steps,.tm-benefits-dialog-body{grid-template-columns:1fr;}
+                    .tm-benefits-plan{min-height:auto;}
+                    .tm-benefits-dialog-body{gap:12px;}
+                }
+                @media (max-width: 620px){
+                    .tm-benefits-license,.tm-benefits-plan,.tm-benefits-flow{padding:12px;}
+                    .tm-benefits-account{flex-direction:column;align-items:stretch;}
+                    .tm-benefits-license .tm-btn,.tm-benefits-plan .tm-btn,.tm-benefits-dialog-actions .tm-btn{width:100%;}
+                    .tm-benefits-section-title{display:block;padding:12px 12px 0;}
+                    .tm-benefits-section-title p{margin-top:4px;}
+                    .tm-benefits-grid{padding:8px 12px 12px;}
+                    .tm-benefits-row{display:block;padding:7px 0;}
+                    .tm-benefits-row.is-head{display:none;}
+                    .tm-benefits-cell{display:flex;justify-content:space-between;gap:12px;padding:5px 0;}
+                    .tm-benefits-feature{display:block;padding-bottom:7px;font-size:13px;}
+                    .tm-benefits-cell:not(.tm-benefits-feature)::before{content:attr(data-label);color:var(--tm-secondary-text);font-weight:700;}
+                    .tm-benefits-advanced{padding:0 12px 12px;}
+                    .tm-benefits-advanced-list,.tm-benefits-advanced-item{grid-template-columns:1fr;}
+                    .tm-benefits-advanced-item{gap:4px;}
+                    .tm-benefits-dialog-actions{flex-direction:column;}
+                }
+            </style>
+            <div class="tm-benefits-wrap">
+                <div class="tm-benefits-license" ${__tmSettingsSearchAttrs ? __tmSettingsSearchAttrs('benefits', '功能权益', '查看授权状态、套餐和付款说明') : ''}>
+                    <div>
+                        <div class="tm-benefits-label">当前授权</div>
+                        <strong>${esc(statusText)}</strong>
+                        <div style="margin-top:6px;font-size:12px;color:var(--tm-secondary-text);">到期：${esc(expiryText)}</div>
+                    </div>
+                    <div>
+                        <div class="tm-benefits-label">付款时请提供以下用户名</div>
+                        <div class="tm-benefits-account">
+                            <code id="tmBenefitsAccountValue">${esc(accountText)}</code>
+                            <button class="tm-btn tm-btn-secondary" type="button" onclick="tmCopyBenefitsSubject()">复制</button>
+                        </div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-top:6px;">无法在付款备注提供时，可将${esc(accountKindText)}和付款截图发送至 729373125@qq.com。</div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">
+                        <span class="tm-benefits-badge">${esc(active ? '已激活' : '未激活')}</span>
+                        <button class="tm-btn tm-btn-primary" type="button" onclick="tmOpenBenefitsActivationDialog()">输入激活码</button>
+                    </div>
+                </div>
+
+                <div class="tm-benefits-plans">
+                    <div class="tm-benefits-plan">
+                        <div>
+                            <div class="tm-benefits-plan-head">
+                                <h3>全功能试用</h3>
+                                <span class="tm-benefits-tag">30 天</span>
+                            </div>
+                            <div class="tm-benefits-price"><strong>免费</strong><span>领取试用码</span></div>
+                            <p>无需付款，用于确认账号绑定、离线激活和高级能力是否适合你的工作流。</p>
+                        </div>
+                        <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('trial')">领取试用</button>
+                    </div>
+                    <div class="tm-benefits-plan">
+                        <div>
+                            <div class="tm-benefits-plan-head">
+                                <h3>全功能年付</h3>
+                                <span class="tm-benefits-tag">灵活</span>
+                            </div>
+                            <div class="tm-benefits-price"><strong>38</strong><span>元 / 年</span></div>
+                            <p>低成本解锁一年全功能，适合先稳定使用一段时间，再决定是否长期买断。</p>
+                        </div>
+                        <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('yearly')">扫码付款</button>
+                    </div>
+                    <div class="tm-benefits-plan is-featured">
+                        <div>
+                            <div class="tm-benefits-plan-head">
+                                <h3>全功能永久</h3>
+                                <span class="tm-benefits-tag">早鸟推荐</span>
+                            </div>
+                            <div class="tm-benefits-price"><del><strong>98</strong><span>元</span></del><strong>50</strong><span>元</span></div>
+                            <p>限时早鸟至 2026年7月31日，一次付费获得当前插件全功能永久授权，适合把本插件作为主力任务系统的用户。已捐助达到 50 元可直接联系获取激活码，未达到的补齐差额即可。</p>
+                        </div>
+                        <button class="tm-btn tm-btn-primary" type="button" onclick="tmOpenBenefitsPaymentDialog('lifetime')">扫码付款</button>
+                    </div>
+                </div>
+
+                <div class="tm-benefits-matrix">
+                    <div class="tm-benefits-section-title">
+                        <h3>功能区别</h3>
+                        <p>清单、看板、表格、日历、时间轴当前都是完整功能；当前限制主要面向白板增强和 AI。</p>
+                    </div>
+                    <div class="tm-benefits-grid" role="table" aria-label="功能权益">
+                        <div class="tm-benefits-row is-head" role="row">
+                            <div class="tm-benefits-cell tm-benefits-feature" role="columnheader">功能</div>
+                            <div class="tm-benefits-cell" role="columnheader">免费版</div>
+                            <div class="tm-benefits-cell" role="columnheader">全功能试用</div>
+                            <div class="tm-benefits-cell" role="columnheader">全功能年付</div>
+                            <div class="tm-benefits-cell" role="columnheader">全功能永久</div>
+                        </div>
+                        ${__tmRenderBenefitsFeatureRows(featureRows)}
+                    </div>
+                    <div class="tm-benefits-advanced">
+                        <h4>付费高级能力示例</h4>
+                        <div class="tm-benefits-advanced-list">
+                            ${advancedItems.map(([title, desc]) => `
+                                <div class="tm-benefits-advanced-item">
+                                    <strong>${esc(title)}</strong>
+                                    <span>${esc(desc)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tm-benefits-flow">
+                    <h3>付款和发码流程</h3>
+                    <div class="tm-benefits-steps">
+                        <div class="tm-benefits-step"><strong>1. 选择方案</strong><p>点击全功能年付或全功能永久，弹出微信和支付宝收款码。</p></div>
+                        <div class="tm-benefits-step"><strong>2. 扫码转账</strong><p>付款时请提供上方用户名，无法在付款备注提供时保留截图。</p></div>
+                        <div class="tm-benefits-step"><strong>3. 提供信息</strong><p>加入 QQ 群 758666272，或发送邮件至 729373125@qq.com，提供用户名和付款截图。</p></div>
+                        <div class="tm-benefits-step"><strong>4. 获取激活码</strong><p>收到激活码后回到本页粘贴激活。</p></div>
+                    </div>
+                </div>
+            </div>
+
+            <dialog class="tm-benefits-dialog" id="tmBenefitsActivationDialog" aria-labelledby="tmBenefitsActivationTitle">
+                <div class="tm-benefits-dialog-body is-single">
+                    <div>
+                        <h3 id="tmBenefitsActivationTitle">输入激活码</h3>
+                        <p>粘贴收到的激活码后点击激活。</p>
+                        <textarea id="tmLicenseCodeInput" class="tm-benefits-license-input" rows="5" spellcheck="false"></textarea>
+                    </div>
+                </div>
+                <div class="tm-benefits-dialog-actions">
+                    <button class="tm-btn tm-btn-secondary" type="button" onclick="tmClearBenefitsActivationInput()">清空</button>
+                    <button class="tm-btn tm-btn-primary" type="button" onclick="tmActivateBenefitsLicense()">激活</button>
+                    ${active ? '<button class="tm-btn tm-btn-danger" type="button" onclick="tmClearBenefitsLicense()">清除授权</button>' : ''}
+                    <button class="tm-btn tm-btn-gray" type="button" onclick="tmCloseBenefitsActivationDialog()">关闭</button>
+                </div>
+            </dialog>
+
+            <dialog class="tm-benefits-dialog" id="tmBenefitsPaymentDialog" aria-labelledby="tmBenefitsPaymentTitle">
+                <div class="tm-benefits-dialog-body">
+                    <div>
+                        <h3 id="tmBenefitsPaymentTitle">全功能年付授权</h3>
+                        <p id="tmBenefitsPaymentSummary">扫码转账后，付款时请提供以下用户名；无法在付款备注提供时，请通过 QQ 群或邮件提供付款信息。</p>
+                        <div class="tm-benefits-note" id="tmBenefitsPaymentNote">
+                            <span class="tm-benefits-label">付款时请提供以下用户名</span>
+                            <code id="tmBenefitsPaymentAccount">${esc(accountText)}</code>
+                            <span id="tmBenefitsPaymentInstruction" style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;">付款时提供用户名，或发送至 729373125@qq.com：用户名 + 付款截图</span>
+                        </div>
+                    </div>
+                    <div class="tm-benefits-qr" id="tmBenefitsPaymentQr">
+                        <div class="tm-benefits-pay-tabs" role="tablist" aria-label="付款方式">
+                            <button class="tm-benefits-pay-tab is-active" type="button" onclick="tmSwitchBenefitsPaymentMethod('wechat')">微信</button>
+                            <button class="tm-benefits-pay-tab" type="button" onclick="tmSwitchBenefitsPaymentMethod('alipay')">支付宝</button>
+                        </div>
+                        <div class="tm-benefits-qr-box">
+                            <img id="tmBenefitsPaymentQrImage" alt="微信收款码">
+                        </div>
+                    </div>
+                </div>
+                <div class="tm-benefits-dialog-actions">
+                    <button class="tm-btn tm-btn-secondary" type="button" onclick="tmCopyBenefitsSubject()">复制用户名</button>
+                    <button class="tm-btn tm-btn-gray" type="button" onclick="tmCloseBenefitsPaymentDialog()">关闭</button>
+                </div>
+            </dialog>
+        `;
+    }
+
+    async function __tmCopyBenefitsText(text) {
+        const value = String(text || '').trim();
+        if (!value) return false;
+        try {
+            if (navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(value);
+                return true;
+            }
+        } catch (e) {}
+        try {
+            const textarea = document.createElement('textarea');
+            textarea.value = value;
+            textarea.setAttribute('readonly', 'readonly');
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            const ok = document.execCommand('copy');
+            textarea.remove();
+            return !!ok;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function __tmLoadBenefitsPaymentQrImage(method) {
+        const payMethod = String(method || '').trim() === 'alipay' ? 'alipay' : 'wechat';
+        const path = TM_BENEFITS_PAYMENT_IMAGES[payMethod] || TM_BENEFITS_PAYMENT_IMAGES.wechat;
+        const image = document.getElementById('tmBenefitsPaymentQrImage');
+        if (!(image instanceof HTMLImageElement)) return false;
+        const seq = ++__tmBenefitsQrLoadSeq;
+        image.alt = payMethod === 'alipay' ? '支付宝收款码' : '微信收款码';
+        image.style.opacity = '0.45';
+        try {
+            const res = await fetch('/api/file/getFile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            if (!blob || !blob.size) throw new Error('empty image');
+            if (seq !== __tmBenefitsQrLoadSeq) return false;
+            const oldUrl = String(image.dataset.tmObjectUrl || '').trim();
+            if (oldUrl) {
+                try { URL.revokeObjectURL(oldUrl); } catch (e) {}
+            }
+            const url = URL.createObjectURL(blob);
+            image.dataset.tmObjectUrl = url;
+            image.src = url;
+            image.style.opacity = '';
+            return true;
+        } catch (e) {
+            if (seq === __tmBenefitsQrLoadSeq) {
+                image.removeAttribute('src');
+                image.style.opacity = '';
+                image.alt = `${payMethod === 'alipay' ? '支付宝' : '微信'}收款码加载失败`;
+                try { console.warn('[task-horizon] load payment QR failed', path, e); } catch (e2) {}
+            }
+            return false;
+        }
+    }
+
+    window.tmCopyBenefitsSubject = async function() {
+        const auth = __tmGetBenefitsAuthInfo();
+        const value = String(auth?.subject || document.getElementById('tmBenefitsAccountValue')?.textContent || '').trim();
+        const ok = await __tmCopyBenefitsText(value);
+        try { hint(ok ? '✅ 用户名/设备码已复制' : '⚠️ 未读取到可复制内容', ok ? 'success' : 'warning'); } catch (e) {}
+        return ok;
+    };
+
+    window.tmOpenBenefitsActivationDialog = function() {
+        const dialog = document.getElementById('tmBenefitsActivationDialog');
+        if (!(dialog instanceof HTMLDialogElement)) return false;
+        try {
+            if (typeof dialog.showModal === 'function') dialog.showModal();
+            else dialog.setAttribute('open', 'open');
+            requestAnimationFrame(() => {
+                try { document.getElementById('tmLicenseCodeInput')?.focus?.(); } catch (e) {}
+            });
+            return true;
+        } catch (e) {
+            try { dialog.setAttribute('open', 'open'); } catch (e2) {}
+            return false;
+        }
+    };
+
+    window.tmCloseBenefitsActivationDialog = function() {
+        const dialog = document.getElementById('tmBenefitsActivationDialog');
+        if (!dialog) return false;
+        try {
+            if (typeof dialog.close === 'function') dialog.close();
+            else dialog.removeAttribute('open');
+            return true;
+        } catch (e) {
+            try { dialog.removeAttribute('open'); } catch (e2) {}
+            return false;
+        }
+    };
+
+    window.tmClearBenefitsActivationInput = function() {
+        const input = document.getElementById('tmLicenseCodeInput');
+        if (input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) input.value = '';
+    };
+
+    window.tmActivateBenefitsLicense = async function() {
+        if (typeof window.tmActivateLicenseFromSettings !== 'function') {
+            try { hint('⚠️ 当前环境未加载激活逻辑', 'warning'); } catch (e) {}
+            return false;
+        }
+        const ok = await window.tmActivateLicenseFromSettings();
+        if (ok) {
+            try { window.tmCloseBenefitsActivationDialog(); } catch (e) {}
+        }
+        return ok;
+    };
+
+    window.tmClearBenefitsLicense = async function() {
+        if (typeof window.tmClearLicenseFromSettings !== 'function') {
+            try { hint('⚠️ 当前环境未加载授权清除逻辑', 'warning'); } catch (e) {}
+            return false;
+        }
+        const ok = await window.tmClearLicenseFromSettings();
+        if (ok) {
+            try { window.tmCloseBenefitsActivationDialog(); } catch (e) {}
+        }
+        return ok;
+    };
+
+    window.tmSwitchBenefitsPaymentMethod = function(method) {
+        const payMethod = String(method || '').trim() === 'alipay' ? 'alipay' : 'wechat';
+        document.querySelectorAll('.tm-benefits-pay-tab').forEach((button) => {
+            if (button instanceof HTMLElement) {
+                const text = String(button.textContent || '');
+                button.classList.toggle('is-active', (payMethod === 'alipay' && text.includes('支付宝')) || (payMethod === 'wechat' && text.includes('微信')));
+            }
+        });
+        void __tmLoadBenefitsPaymentQrImage(payMethod);
+    };
+
+    window.tmOpenBenefitsPaymentDialog = function(plan) {
+        const planKey = String(plan || '').trim();
+        const auth = __tmGetBenefitsAuthInfo();
+        const account = String(auth?.subject || document.getElementById('tmBenefitsAccountValue')?.textContent || '当前用户名').trim();
+        const plans = {
+            trial: {
+                title: '全功能试用授权',
+                summary: '试用码无需付款，请加入 QQ 群 758666272，或发送邮件至 729373125@qq.com 领取。',
+                instruction: '发送：用户名 + 全功能试用',
+                hideQr: true,
+                hideNote: true,
+            },
+            yearly: {
+                title: '全功能年付授权',
+                summary: '扫码转账 38 元后，付款时请提供以下用户名；无法在付款备注提供时，请通过 QQ 群或邮件提供付款信息。',
+                instruction: '付款时提供用户名，或发送至 729373125@qq.com：用户名 + 付款截图',
+                hideQr: false,
+                hideNote: false,
+            },
+            lifetime: {
+                title: '全功能永久授权',
+                summary: '限时早鸟至 2026年7月31日。已捐助达到 50 元可直接联系获取激活码，未达到的补齐差额即可；付款时请提供以下用户名。',
+                instruction: '付款时提供用户名，或发送至 729373125@qq.com：用户名 + 付款截图',
+                hideQr: false,
+                hideNote: false,
+            },
+        };
+        const meta = plans[planKey] || plans.yearly;
+        const dialog = document.getElementById('tmBenefitsPaymentDialog');
+        if (!(dialog instanceof HTMLDialogElement)) return false;
+        const title = document.getElementById('tmBenefitsPaymentTitle');
+        const summary = document.getElementById('tmBenefitsPaymentSummary');
+        const accountEl = document.getElementById('tmBenefitsPaymentAccount');
+        const instruction = document.getElementById('tmBenefitsPaymentInstruction');
+        const note = document.getElementById('tmBenefitsPaymentNote');
+        const qr = document.getElementById('tmBenefitsPaymentQr');
+        if (title) title.textContent = meta.title;
+        if (summary) summary.textContent = meta.summary;
+        if (accountEl) accountEl.textContent = account || '当前用户名';
+        if (instruction) instruction.textContent = meta.instruction;
+        if (note instanceof HTMLElement) note.hidden = !!meta.hideNote;
+        if (qr instanceof HTMLElement) qr.hidden = !!meta.hideQr;
+        dialog.classList.toggle('is-no-qr', !!meta.hideQr);
+        if (meta.hideQr) {
+            __tmBenefitsQrLoadSeq += 1;
+            const image = document.getElementById('tmBenefitsPaymentQrImage');
+            if (image instanceof HTMLImageElement) {
+                const oldUrl = String(image.dataset.tmObjectUrl || '').trim();
+                if (oldUrl) {
+                    try { URL.revokeObjectURL(oldUrl); } catch (e) {}
+                    delete image.dataset.tmObjectUrl;
+                }
+                image.removeAttribute('src');
+            }
+        } else {
+            try { window.tmSwitchBenefitsPaymentMethod('wechat'); } catch (e) {}
+        }
+        try {
+            if (typeof dialog.showModal === 'function') dialog.showModal();
+            else dialog.setAttribute('open', 'open');
+            return true;
+        } catch (e) {
+            try { dialog.setAttribute('open', 'open'); } catch (e2) {}
+            return false;
+        }
+    };
+
+    window.tmCloseBenefitsPaymentDialog = function() {
+        const dialog = document.getElementById('tmBenefitsPaymentDialog');
+        if (!dialog) return false;
+        try {
+            if (typeof dialog.close === 'function') dialog.close();
+            else dialog.removeAttribute('open');
+            return true;
+        } catch (e) {
+            try { dialog.removeAttribute('open'); } catch (e2) {}
+            return false;
+        }
+    };
 
     function __tmRenderAboutSettingsPanel() {
         const snapshot = __tmBuildDeviceRecognitionSnapshot();

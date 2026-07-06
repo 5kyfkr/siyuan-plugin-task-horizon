@@ -160,7 +160,7 @@
                         wait: false,
                         docId: String(opts.docId || '').trim(),
                         skipFlush: opts.skipFlush === true,
-                        mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                        mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                     });
                     return true;
                 } catch (e) {

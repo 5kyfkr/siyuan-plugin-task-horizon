@@ -957,6 +957,7 @@
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
         const next = !state.whiteboardPoolSearchOpen;
+        if (next && typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', '白板任务池搜索')) return;
         state.whiteboardPoolSearchOpen = next;
         __tmClearWhiteboardPoolSearchRenderTimer();
         if (!next) {
@@ -971,6 +972,10 @@
 
     window.tmWhiteboardPoolSearchInput = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
+        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', '白板任务池搜索')) {
+            try { if (ev?.target instanceof HTMLInputElement) ev.target.value = ''; } catch (e) {}
+            return;
+        }
         const input = ev?.target instanceof HTMLInputElement ? ev.target : null;
         state.whiteboardPoolSearchOpen = true;
         state.whiteboardPoolSearchLastInputAt = Date.now();
@@ -989,6 +994,7 @@
 
     window.tmWhiteboardPoolSearchCompositionStart = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
+        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', '白板任务池搜索')) return;
         __tmClearWhiteboardPoolSearchRenderTimer();
         state.whiteboardPoolSearchComposing = true;
         state.whiteboardPoolSearchLastInputAt = Date.now();
@@ -996,6 +1002,10 @@
 
     window.tmWhiteboardPoolSearchCompositionEnd = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
+        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', '白板任务池搜索')) {
+            try { if (ev?.target instanceof HTMLInputElement) ev.target.value = ''; } catch (e) {}
+            return;
+        }
         const input = ev?.target instanceof HTMLInputElement ? ev.target : null;
         state.whiteboardPoolSearchComposing = false;
         state.whiteboardPoolSearchOpen = true;
@@ -3384,6 +3394,7 @@
         const localX = Number.isFinite(Number(p?.localX)) ? Number(p.localX) : 24;
         const localY = Number.isFinite(Number(p?.localY)) ? Number(p.localY) : 24;
         if (tool === 'sticky') {
+            if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-sticky', '白板便签工具')) return;
             __tmOpenWhiteboardStickyEditor(docBody, did, localX, localY);
             return;
         }
@@ -5486,6 +5497,7 @@
     window.tmWhiteboardSetTool = async function(tool) {
         const t = String(tool || 'pan').trim();
         const next = (t === 'select' || t === 'text' || t === 'sticky' || t === 'pan') ? t : 'pan';
+        if (next === 'sticky' && typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-sticky', '白板便签工具')) return;
         const currentEditorKind = String(state.whiteboardNoteEditor?.kind || '').trim();
         if (next !== 'text' || currentEditorKind === 'sticky') {
             try { await __tmCloseWhiteboardNoteEditor({ save: true }); } catch (e) {}

@@ -1087,7 +1087,15 @@
 
     const __TM_NATIVE_DOC_CHECKBOX_SYNC_DELAY_MS = 260;
     const __TM_NATIVE_DOC_CHECKBOX_PREVIOUS_STATE_TTL_MS = 5000;
+    const __TM_NATIVE_DOC_CHECKBOX_RECENT_SYNC_SKIP_MS = 8000;
+    const __TM_NATIVE_DOC_CHECKBOX_STRUCTURAL_EMPTY_STATUS_GRACE_MS = 5000;
     const __tmNativeDocCheckboxPreviousStateMap = new Map();
+    const __tmNativeDocCheckboxLastSyncedStateMap = new Map();
+    const __tmNativeDocCheckboxStructuralChangeAtMap = new Map();
+
+    function __tmPushNativeDocCheckboxTrace(tag, payload = {}) {
+        return null;
+    }
 
     function __tmResolveNativeDocEventElement(target) {
         try {
@@ -1189,6 +1197,53 @@
         const scopedItems = __tmFindNativeDocTaskListItemsByIds([rawId]);
         const listItem = scopedItems[0] || null;
         return listItem instanceof Element ? __tmReadNativeDocTaskDoneFromListItem(listItem) : null;
+    }
+
+    function __tmMarkNativeDocCheckboxSyncedState(blockIds, done) {
+        if (typeof done !== 'boolean') return;
+        const ids = Array.from(new Set((Array.isArray(blockIds) ? blockIds : [blockIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (!ids.length) return;
+        try {
+            const entry = {
+                done: !!done,
+                at: Date.now(),
+            };
+            ids.forEach((id) => __tmNativeDocCheckboxLastSyncedStateMap.set(id, entry));
+            while (__tmNativeDocCheckboxLastSyncedStateMap.size > 600) {
+                const oldestKey = __tmNativeDocCheckboxLastSyncedStateMap.keys().next().value;
+                if (oldestKey === undefined) break;
+                __tmNativeDocCheckboxLastSyncedStateMap.delete(oldestKey);
+            }
+        } catch (e) {}
+    }
+
+    function __tmShouldSkipNativeDocCheckboxDirtyRerun(blockId) {
+        const rawId = String(blockId || '').trim();
+        if (!rawId) return false;
+        try {
+            const entry = __tmNativeDocCheckboxLastSyncedStateMap.get(rawId);
+            if (!entry || typeof entry.done !== 'boolean') return false;
+            if ((Date.now() - Number(entry.at || 0)) > __TM_NATIVE_DOC_CHECKBOX_RECENT_SYNC_SKIP_MS) return false;
+            const currentDone = __tmReadNativeDocTaskDoneFromDom(rawId);
+            return typeof currentDone === 'boolean' && currentDone === entry.done;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmWasNativeDocCheckboxRecentlySynced(blockId, done) {
+        const rawId = String(blockId || '').trim();
+        if (!rawId || typeof done !== 'boolean') return false;
+        try {
+            const entry = __tmNativeDocCheckboxLastSyncedStateMap.get(rawId);
+            if (!entry || typeof entry.done !== 'boolean') return false;
+            if ((Date.now() - Number(entry.at || 0)) > __TM_NATIVE_DOC_CHECKBOX_RECENT_SYNC_SKIP_MS) return false;
+            return entry.done === !!done;
+        } catch (e) {
+            return false;
+        }
     }
 
     function __tmReadNativeDocCheckboxIconDoneState(target) {
@@ -1405,6 +1460,47 @@
         } catch (e) {}
     }
 
+    function __tmMarkNativeDocCheckboxStructuralChange(blockIds) {
+        const ids = Array.from(new Set((Array.isArray(blockIds) ? blockIds : [blockIds]).map((item) => String(item || '').trim()).filter(Boolean)));
+        if (!ids.length) return;
+        const now = Date.now();
+        try {
+            ids.forEach((rawId) => __tmNativeDocCheckboxStructuralChangeAtMap.set(rawId, now));
+            if (__tmNativeDocCheckboxStructuralChangeAtMap.size > 600) {
+                for (const [key, ts] of __tmNativeDocCheckboxStructuralChangeAtMap.entries()) {
+                    if ((now - Number(ts || 0)) > __TM_NATIVE_DOC_CHECKBOX_STRUCTURAL_EMPTY_STATUS_GRACE_MS) {
+                        __tmNativeDocCheckboxStructuralChangeAtMap.delete(key);
+                    }
+                }
+            }
+        } catch (e) {}
+    }
+
+    function __tmHasRecentNativeDocCheckboxStructuralChange(blockIds) {
+        const ids = Array.from(new Set((Array.isArray(blockIds) ? blockIds : [blockIds]).map((item) => String(item || '').trim()).filter(Boolean)));
+        const now = Date.now();
+        try {
+            if (typeof globalThis.__taskHorizonQuickbarHasRecentAttrHostStructuralChange === 'function'
+                && globalThis.__taskHorizonQuickbarHasRecentAttrHostStructuralChange(__TM_NATIVE_DOC_CHECKBOX_STRUCTURAL_EMPTY_STATUS_GRACE_MS)) {
+                return true;
+            }
+        } catch (e) {}
+        if (!ids.length) return false;
+        try {
+            return ids.some((rawId) => {
+                const ts = Number(__tmNativeDocCheckboxStructuralChangeAtMap.get(rawId) || 0);
+                if (!ts) return false;
+                if ((now - ts) > __TM_NATIVE_DOC_CHECKBOX_STRUCTURAL_EMPTY_STATUS_GRACE_MS) {
+                    __tmNativeDocCheckboxStructuralChangeAtMap.delete(rawId);
+                    return false;
+                }
+                return true;
+            });
+        } catch (e) {
+            return false;
+        }
+    }
+
     function __tmConsumeNativeDocCheckboxInsertedBlock(blockId) {
         const rawId = String(blockId || '').trim();
         if (!rawId) return false;
@@ -1426,6 +1522,66 @@
         } catch (e) {
             return false;
         }
+    }
+
+    function __tmResolveNativeDocCheckboxAttrHostIdFromDom(blockId, taskId = '') {
+        const rawId = String(blockId || '').trim();
+        const tid = String(taskId || '').trim();
+        if (!rawId || typeof document === 'undefined') return '';
+        const readId = (el) => String(el?.dataset?.nodeId || el?.getAttribute?.('data-node-id') || '').trim();
+        const isTaskList = (el) => {
+            if (!(el instanceof Element)) return false;
+            if (!el.matches?.('.list,[data-type="NodeList"]')) return false;
+            const subtype = String(el.getAttribute?.('data-subtype') || el.dataset?.subtype || '').trim().toLowerCase();
+            return subtype === 't';
+        };
+        const directTaskItems = (listEl) => {
+            if (!(listEl instanceof Element) || !isTaskList(listEl)) return [];
+            return Array.from(listEl.children || []).filter((child) => {
+                if (!(child instanceof Element)) return false;
+                if (!child.matches?.('.li,[data-type="NodeListItem"]')) return false;
+                return !!readId(child);
+            });
+        };
+        const siblingTaskList = (listEl, direction = 'next') => {
+            if (!(listEl instanceof Element)) return null;
+            let sibling = direction === 'prev' ? listEl.previousElementSibling : listEl.nextElementSibling;
+            while (sibling instanceof Element && !readId(sibling)) {
+                sibling = direction === 'prev' ? sibling.previousElementSibling : sibling.nextElementSibling;
+            }
+            if (!isTaskList(sibling)) return null;
+            return directTaskItems(sibling).length ? sibling : null;
+        };
+        const hasAdjacentTaskList = (listEl) => !!(siblingTaskList(listEl, 'prev') || siblingTaskList(listEl, 'next'));
+        let el = null;
+        try {
+            const escId = globalThis.CSS?.escape ? globalThis.CSS.escape(rawId) : rawId.replace(/["\\]/g, '\\$&');
+            el = document.querySelector?.(`[data-node-id="${escId}"]`) || null;
+        } catch (e) {
+            el = null;
+        }
+        if (!(el instanceof Element)) return '';
+        if (el.matches?.('.list,[data-type="NodeList"]')) {
+            const listId = readId(el);
+            const taskItems = directTaskItems(el);
+            const firstTaskId = readId(taskItems[0]);
+            if (listId && taskItems.length <= 1 && !hasAdjacentTaskList(el) && (!tid || !firstTaskId || firstTaskId === tid)) return listId;
+            if (firstTaskId && (!tid || firstTaskId === tid)) return firstTaskId;
+            return '';
+        }
+        const taskLi = el.matches?.('.li,[data-type="NodeListItem"]')
+            ? el
+            : el.closest?.('.li,[data-type="NodeListItem"]');
+        const taskLiId = readId(taskLi);
+        if (!taskLiId) return '';
+        const parentList = taskLi?.parentElement instanceof Element && taskLi.parentElement.matches?.('.list,[data-type="NodeList"]')
+            ? taskLi.parentElement
+            : null;
+        const parentListId = readId(parentList);
+        const firstTask = directTaskItems(parentList)[0] || null;
+        const siblingTasks = directTaskItems(parentList);
+        if (parentListId && siblingTasks.length === 1 && firstTask === taskLi && !hasAdjacentTaskList(parentList)) return parentListId;
+        return taskLiId;
     }
 
     function __tmMirrorDocCheckboxStatusPatch(taskId, patch) {
@@ -1489,9 +1645,10 @@
         }
     }
 
-    async function __tmReconcileNativeDocCheckboxStatus(blockId, taskId, attrPatch, expectedDone, syncVersion = 0) {
+    async function __tmReconcileNativeDocCheckboxStatus(blockId, taskId, attrPatch, expectedDone, syncVersion = 0, options = {}) {
         const rawId = String(blockId || '').trim();
         const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
         const expectedStatus = String(attrPatch?.customStatus || '').trim();
         const hasExpectedCompleteAtPatch = !!(attrPatch && typeof attrPatch === 'object'
             && Object.prototype.hasOwnProperty.call(attrPatch, 'taskCompleteAt'));
@@ -1500,15 +1657,22 @@
             : '';
         const done = !!expectedDone;
         if (!rawId || !tid || (!expectedStatus && !hasExpectedCompleteAtPatch) || !__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
+        let attrTargetId = String(opts.attrTargetId || '').trim();
+        if (!attrTargetId) {
+            try { attrTargetId = __tmResolveNativeDocCheckboxAttrHostIdFromDom(rawId, tid); } catch (e) { attrTargetId = ''; }
+        }
+        if (!attrTargetId) {
+            try { attrTargetId = await __tmResolveTaskAttrHostIdFromAnyBlockId(rawId); } catch (e) { attrTargetId = ''; }
+        }
         const domDone = __tmReadNativeDocTaskDoneFromDom(rawId);
-        const beforeAttrs = await __tmReadDocCheckboxBlockAttrs(tid);
+        const beforeAttrs = await __tmReadDocCheckboxBlockAttrs(attrTargetId || tid);
         const beforeStatus = String(beforeAttrs?.status || '').trim();
         const beforeCompleteAt = String(beforeAttrs?.taskCompleteAt || '').trim();
         if (!__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
         const statusMatchedBefore = !expectedStatus || beforeStatus === expectedStatus;
         const completeAtMatchedBefore = !hasExpectedCompleteAtPatch || beforeCompleteAt === expectedCompleteAt;
         if (domDone !== done || (statusMatchedBefore && completeAtMatchedBefore)) return false;
-        if (expectedStatus) __tmMirrorNativeDocTaskStatusAttr([rawId, tid], expectedStatus);
+        if (expectedStatus) __tmMirrorNativeDocTaskStatusAttr([rawId, tid, attrTargetId], expectedStatus);
         const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
         if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
         await patchTask(tid, attrPatch, {
@@ -1520,18 +1684,23 @@
             reason: 'native-doc-checkbox-reconcile',
             label: '文档任务状态',
             saveMetaNow: false,
+            attrTargetId,
+            mirrorTaskAttrs: false,
+            skipNoopCheck: true,
         });
+        try { globalThis.__taskHorizonQuickbarScheduleAttrHostMigration?.('native-checkbox-reconcile'); } catch (e) {}
         return true;
     }
 
-    function __tmScheduleNativeDocCheckboxStatusReconcile(blockId, taskId, attrPatch, expectedDone, syncVersion) {
+    function __tmScheduleNativeDocCheckboxStatusReconcile(blockId, taskId, attrPatch, expectedDone, syncVersion, options = {}) {
         const rawId = String(blockId || '').trim();
         const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
         if (!rawId || !tid || !attrPatch || typeof attrPatch !== 'object') return;
         __tmClearNativeDocCheckboxReconcileTimers(rawId);
         const timers = [260, 900].map((delayMs) => setTimeout(() => {
             if (!__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return;
-            __tmReconcileNativeDocCheckboxStatus(rawId, tid, attrPatch, expectedDone, syncVersion).catch(() => null);
+            __tmReconcileNativeDocCheckboxStatus(rawId, tid, attrPatch, expectedDone, syncVersion, opts).catch(() => null);
         }, delayMs));
         __tmNativeDocCheckboxReconcileTimers.set(rawId, timers);
     }
@@ -1720,6 +1889,13 @@
 
         const domDone = __tmReadNativeDocTaskDoneFromDom(rawId);
         if (domDone === null) return false;
+        if (__tmWasNativeDocCheckboxRecentlySynced(rawId, !!domDone)) {
+            __tmPushNativeDocCheckboxTrace('sync-skip-recent-raw', {
+                blockId: rawId,
+                domDone: !!domDone,
+            });
+            return true;
+        }
         __tmPushStatusDebug('checkbox-sync:start', {
             blockId: rawId,
             domDone: !!domDone,
@@ -1746,11 +1922,38 @@
         }
         if (!task || typeof task !== 'object') return false;
         try { normalizeTaskFields(task, String(task.doc_name || task.docName || '').trim()); } catch (e) {}
+        let checkboxAttrTargetId = '';
+        try { checkboxAttrTargetId = __tmResolveNativeDocCheckboxAttrHostIdFromDom(rawId, tid); } catch (e) { checkboxAttrTargetId = ''; }
+        if (!checkboxAttrTargetId) {
+            try { checkboxAttrTargetId = await __tmResolveTaskAttrHostIdFromAnyBlockId(rawId); } catch (e) { checkboxAttrTargetId = ''; }
+        }
+        if (!checkboxAttrTargetId) checkboxAttrTargetId = String(__tmGetTaskAttrHostId(task) || '').trim();
+        if (__tmWasNativeDocCheckboxRecentlySynced(tid, !!domDone)
+            || __tmWasNativeDocCheckboxRecentlySynced(checkboxAttrTargetId, !!domDone)) {
+            __tmMarkNativeDocCheckboxSyncedState([rawId, tid, checkboxAttrTargetId], !!domDone);
+            __tmPushNativeDocCheckboxTrace('sync-skip-recent-alias', {
+                blockId: rawId,
+                taskId: tid,
+                attrTargetId: checkboxAttrTargetId,
+                domDone: !!domDone,
+            });
+            return true;
+        }
+        __tmMarkNativeDocCheckboxSyncedState([rawId, tid, checkboxAttrTargetId], !!domDone);
+        __tmPushNativeDocCheckboxTrace('sync-resolved', {
+            blockId: rawId,
+            taskId: tid,
+            attrTargetId: checkboxAttrTargetId,
+            domDone: !!domDone,
+            currentStatus: String(task.customStatus || '').trim(),
+            insertedSync,
+        });
         try { __tmMarkLocalDoneTxSuppressionForTask(task, [rawId, tid], 1800); } catch (e) {}
         __tmPushStatusDebug('checkbox-sync:task-resolved', {
             blockId: rawId,
             taskId: tid,
-            attrHostId: __tmGetTaskAttrHostId(task),
+            attrHostId: checkboxAttrTargetId || __tmGetTaskAttrHostId(task),
+            checkboxAttrTargetId,
             currentStatus: String(task.customStatus || '').trim(),
             currentDone: !!task.done,
             domDone: !!domDone,
@@ -1795,7 +1998,7 @@
                 try {
                     await __tmSettleTomatoAfterTaskDone(tid, {
                         blockId: rawId,
-                        attrHostId: __tmGetTaskAttrHostId(task),
+                        attrHostId: checkboxAttrTargetId || __tmGetTaskAttrHostId(task),
                         task,
                         source: 'native-doc-checkbox-sync',
                     });
@@ -1805,11 +2008,39 @@
                 try { void globalThis.__tmMaybeAutoCompleteParentAfterSubtaskDone?.(tid, { source: 'native-doc-checkbox-sync' }).catch(() => null); } catch (e) {}
             }
             try { __tmScheduleNativeDocCheckboxDetailRefresh(tid, task, { source: 'native-doc-checkbox-sync' }); } catch (e) {}
+            __tmMarkNativeDocCheckboxSyncedState([rawId, tid, checkboxAttrTargetId], !!domDone);
             return true;
         }
-        const persistedAttrsBefore = await __tmReadDocCheckboxBlockAttrs(tid);
+        const persistedAttrsBefore = await __tmReadDocCheckboxBlockAttrs(checkboxAttrTargetId || rawId || tid);
         const persistedStatusBefore = String(persistedAttrsBefore?.status || '').trim();
         const persistedTaskCompleteAtBefore = String(persistedAttrsBefore?.taskCompleteAt || '').trim();
+        const recentStructuralEmptyStatus = !domDone
+            && !hasPreviousState
+            && !currentStatus
+            && !persistedStatusBefore
+            && !!expectedStatus
+            && __tmHasRecentNativeDocCheckboxStructuralChange([rawId, tid, checkboxAttrTargetId]);
+        if (recentStructuralEmptyStatus) {
+            __tmPushNativeDocCheckboxTrace('sync-skip-structural-empty-status', {
+                blockId: rawId,
+                taskId: tid,
+                attrTargetId: checkboxAttrTargetId,
+                domDone: !!domDone,
+                expectedStatus,
+                insertedSync,
+            });
+            __tmPushStatusDebug('checkbox-sync:skip-structural-empty-status', {
+                blockId: rawId,
+                taskId: tid,
+                attrTargetId: checkboxAttrTargetId,
+                expectedStatus,
+                insertedSync,
+            }, [rawId, tid, checkboxAttrTargetId], { force: true });
+            try { globalThis.__taskHorizonQuickbarScheduleAttrHostMigration?.('native-checkbox-structural-empty-status'); } catch (e) {}
+            try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+            __tmMarkNativeDocCheckboxSyncedState([rawId, tid, checkboxAttrTargetId], !!domDone);
+            return true;
+        }
         const persistedStatusDoneBefore = persistedStatusBefore ? __tmDoesStatusIdResolveToDone(persistedStatusBefore, statusOptions) : false;
         const persistedDoneBefore = hasPreviousState
             ? false
@@ -1902,7 +2133,7 @@
                 try {
                     await __tmSettleTomatoAfterTaskDone(tid, {
                         blockId: rawId,
-                        attrHostId: __tmGetTaskAttrHostId(task),
+                        attrHostId: checkboxAttrTargetId || __tmGetTaskAttrHostId(task),
                         task,
                         source: 'native-doc-checkbox-sync',
                     });
@@ -1916,7 +2147,7 @@
                 try {
                     __tmDispatchTaskCompletedForReward(task, {
                         taskId: tid,
-                        attrHostId: __tmGetTaskAttrHostId(task) || rawId || tid,
+                        attrHostId: checkboxAttrTargetId || __tmGetTaskAttrHostId(task) || rawId || tid,
                         priorityScore: taskRewardPriorityScore,
                         completedAt: resolvedTaskCompleteAt || __tmNowInChinaTimezoneIso(),
                         source: 'native-doc-checkbox-sync',
@@ -1942,28 +2173,55 @@
                 resolvedStatus,
                 resolvedTaskCompleteAt,
             }, [rawId, tid, __tmGetTaskAttrHostId(task)], { force: true });
+            __tmMarkNativeDocCheckboxSyncedState([rawId, tid, checkboxAttrTargetId], !!domDone);
             return true;
         }
 
         let persistedStatus = persistedStatusBefore;
         let persistedTaskCompleteAt = persistedTaskCompleteAtBefore;
+        let didQueueAttrPatch = false;
         if (shouldPersistStatus || !!(completeAtPatch && Object.keys(completeAtPatch).length > 0)) {
             const mirroredStatus = String(attrPatch.customStatus || '').trim();
-            if (mirroredStatus) __tmMirrorNativeDocTaskStatusAttr([rawId, tid], mirroredStatus);
+            if (mirroredStatus) __tmMirrorNativeDocTaskStatusAttr([rawId, tid, checkboxAttrTargetId], mirroredStatus);
             const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
             if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-            void patchTask(tid, attrPatch, {
-                background: true,
-                wait: false,
-                skipFlush: true,
-                skipInteractionGate: true,
-                source: 'native-doc-checkbox-sync',
-                reason: 'native-doc-checkbox-sync',
-                label: '文档任务状态',
-                saveMetaNow: false,
-            }).catch((error) => {
+            try {
+                const schedulePersistReconcile = () => {
+                    try {
+                        __tmScheduleNativeDocCheckboxStatusReconcile(rawId, tid, attrPatch, !!domDone, syncVersion, {
+                            attrTargetId: checkboxAttrTargetId,
+                        });
+                    } catch (e) {}
+                };
+                const handlePersistError = (error) => {
+                    try { globalThis.__tmReportTaskOutboxFailure?.(error, { action: '同步文档任务状态' }); } catch (e) {}
+                    schedulePersistReconcile();
+                };
+                const handlePersistResult = (result) => {
+                    if (result === false) schedulePersistReconcile();
+                };
+                const request = patchTask(tid, attrPatch, {
+                    background: true,
+                    wait: false,
+                    skipFlush: true,
+                    skipInteractionGate: true,
+                    source: 'native-doc-checkbox-sync',
+                    reason: 'native-doc-checkbox-sync',
+                    label: '文档任务状态',
+                    saveMetaNow: false,
+                    attrTargetId: checkboxAttrTargetId,
+                    mirrorTaskAttrs: false,
+                    skipNoopCheck: true,
+                    onPending: (promise) => {
+                        try { Promise.resolve(promise).catch(handlePersistError); } catch (e) {}
+                    },
+                });
+                didQueueAttrPatch = true;
+                try { globalThis.__taskHorizonQuickbarScheduleAttrHostMigration?.('native-checkbox'); } catch (e) {}
+                try { Promise.resolve(request).then(handlePersistResult, handlePersistError); } catch (e) {}
+            } catch (error) {
                 try { globalThis.__tmReportTaskOutboxFailure?.(error, { action: '同步文档任务状态' }); } catch (e) {}
-            });
+            }
             if (targetStatus) persistedStatus = targetStatus;
             if (completeAtPatch && Object.keys(completeAtPatch).length > 0) {
                 persistedTaskCompleteAt = hasCompleteAtPatch
@@ -2007,16 +2265,16 @@
         try {
             __tmDispatchTaskAttrPatchUpdated(rawId, attrPatch, {
                 resolvedTaskId: tid,
+                attrHostId: checkboxAttrTargetId || __tmGetTaskAttrHostId(task) || rawId || tid,
                 source: 'native-doc-checkbox-sync',
             });
         } catch (e) {}
-        try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
         if (domDone) {
             try {
                 await __tmSettleTomatoAfterTaskDone(tid, {
                     blockId: rawId,
-                    attrHostId: __tmGetTaskAttrHostId(task),
+                    attrHostId: checkboxAttrTargetId || __tmGetTaskAttrHostId(task),
                     task,
                     source: 'native-doc-checkbox-sync',
                 });
@@ -2030,7 +2288,7 @@
             try {
                 __tmDispatchTaskCompletedForReward(task, {
                     taskId: tid,
-                    attrHostId: __tmGetTaskAttrHostId(task) || rawId || tid,
+                    attrHostId: checkboxAttrTargetId || __tmGetTaskAttrHostId(task) || rawId || tid,
                     priorityScore: taskRewardPriorityScore,
                     completedAt: finalTaskCompleteAt || __tmNowInChinaTimezoneIso(),
                     source: 'native-doc-checkbox-sync',
@@ -2052,13 +2310,19 @@
         __tmPushStatusDebug('checkbox-sync:end', {
             blockId: rawId,
             taskId: tid,
+            attrTargetId: checkboxAttrTargetId,
             attrPatch,
             persistedStatus,
             persistedTaskCompleteAt,
             finalTaskCompleteAt,
             targetStatus,
         }, [rawId, tid, __tmGetTaskAttrHostId(task)], { force: true });
-        __tmScheduleNativeDocCheckboxStatusReconcile(rawId, tid, attrPatch, !!domDone, syncVersion);
+        if (!didQueueAttrPatch) {
+            __tmScheduleNativeDocCheckboxStatusReconcile(rawId, tid, attrPatch, !!domDone, syncVersion, {
+                attrTargetId: checkboxAttrTargetId,
+            });
+        }
+        __tmMarkNativeDocCheckboxSyncedState([rawId, tid, checkboxAttrTargetId], !!domDone);
         return true;
     }
 
@@ -2076,7 +2340,13 @@
                         __tmNativeDocCheckboxSyncDirtyIds.delete(nextBlockId);
                     } catch (e) {}
                     try {
-                        await __tmSyncNativeDocCheckboxLinkedStatus(nextBlockId);
+                        let syncResult = false;
+                        __tmPushNativeDocCheckboxTrace('run-start', { blockId: nextBlockId });
+                        try {
+                            syncResult = await __tmSyncNativeDocCheckboxLinkedStatus(nextBlockId);
+                        } finally {
+                            __tmPushNativeDocCheckboxTrace('run-end', { blockId: nextBlockId, result: syncResult === true });
+                        }
                     } catch (e) {}
                     finally {
                         let shouldRerun = false;
@@ -2084,10 +2354,17 @@
                             shouldRerun = __tmNativeDocCheckboxSyncDirtyIds.has(nextBlockId);
                             __tmNativeDocCheckboxSyncRunningIds.delete(nextBlockId);
                             __tmNativeDocCheckboxSyncDirtyIds.delete(nextBlockId);
+                            if (shouldRerun && __tmShouldSkipNativeDocCheckboxDirtyRerun(nextBlockId)) {
+                                __tmPushNativeDocCheckboxTrace('rerun-skip-recent', { blockId: nextBlockId });
+                                shouldRerun = false;
+                            }
                         } catch (e) {
                             shouldRerun = false;
                         }
-                        if (shouldRerun) __tmEnqueueNativeDocCheckboxStatusSync(nextBlockId);
+                        if (shouldRerun) {
+                            __tmPushNativeDocCheckboxTrace('rerun-enqueue', { blockId: nextBlockId });
+                            __tmEnqueueNativeDocCheckboxStatusSync(nextBlockId);
+                        }
                     }
                 }
             } finally {
@@ -2112,12 +2389,26 @@
         try {
             if (__tmNativeDocCheckboxSyncRunningIds.has(rawId)) {
                 __tmNativeDocCheckboxSyncDirtyIds.add(rawId);
+                __tmPushNativeDocCheckboxTrace('enqueue-dirty', {
+                    blockId: rawId,
+                    queueLength: __tmNativeDocCheckboxSyncQueue.length,
+                });
                 return;
             }
-            if (__tmNativeDocCheckboxSyncQueuedIds.has(rawId)) return;
+            if (__tmNativeDocCheckboxSyncQueuedIds.has(rawId)) {
+                __tmPushNativeDocCheckboxTrace('enqueue-skip-queued', {
+                    blockId: rawId,
+                    queueLength: __tmNativeDocCheckboxSyncQueue.length,
+                });
+                return;
+            }
             __tmNativeDocCheckboxSyncQueuedIds.add(rawId);
         } catch (e) {}
         __tmNativeDocCheckboxSyncQueue.push(rawId);
+        __tmPushNativeDocCheckboxTrace('enqueue', {
+            blockId: rawId,
+            queueLength: __tmNativeDocCheckboxSyncQueue.length,
+        });
         __tmDrainNativeDocCheckboxSyncQueue();
     }
 
@@ -2125,7 +2416,22 @@
         const rawId = String(blockId || '').trim();
         if (!rawId) return;
         try {
+            const domDone = __tmReadNativeDocTaskDoneFromDom(rawId);
+            if (typeof domDone === 'boolean' && __tmWasNativeDocCheckboxRecentlySynced(rawId, domDone)) {
+                __tmPushNativeDocCheckboxTrace('schedule-skip-recent', {
+                    blockId: rawId,
+                    domDone,
+                });
+                return;
+            }
+        } catch (e) {}
+        try {
             __tmNativeDocCheckboxPendingBatch.set(rawId, ++__tmNativeDocCheckboxBatchSeq);
+            __tmPushNativeDocCheckboxTrace('schedule', {
+                blockId: rawId,
+                batchSeq: __tmNativeDocCheckboxBatchSeq,
+                pendingCount: __tmNativeDocCheckboxPendingBatch.size,
+            });
         } catch (e) {}
         try {
             if (__tmNativeDocCheckboxBatchTimer) clearTimeout(__tmNativeDocCheckboxBatchTimer);
@@ -2178,6 +2484,7 @@
             __tmNativeDocCheckboxSyncObserver = new MutationObserver((mutations) => {
                 const touched = new Set();
                 const inserted = new Set();
+                const structural = new Set();
                 const collect = (target, options = {}) => {
                     try {
                         if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
@@ -2193,7 +2500,16 @@
                         }
                         touched.add(blockId);
                         if (options?.inserted === true) inserted.add(blockId);
+                        if (options?.structural === true) structural.add(blockId);
                     }
+                };
+                const markStructural = (target) => {
+                    try {
+                        if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
+                            && __tmIsTaskDetailNoteViewLocalEventTarget(target)) return;
+                    } catch (e) {}
+                    const blockId = __tmResolveNativeDocTaskBlockId(target);
+                    if (blockId) structural.add(blockId);
                 };
                 (Array.isArray(mutations) ? mutations : []).forEach((mutation) => {
                     const target = mutation?.target;
@@ -2234,6 +2550,7 @@
                             if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
                                 && __tmIsTaskDetailNoteViewLocalEventTarget(target)) return;
                         } catch (e) {}
+                        markStructural(target);
                         try {
                             (Array.from(mutation?.addedNodes || [])).forEach((node) => {
                                 const el = node instanceof Element ? node : null;
@@ -2247,12 +2564,23 @@
                                 const iconDone = __tmReadNativeDocCheckboxIconDoneState(useEl);
                                 const hasCheckboxInput = !!(el?.matches?.('input[type="checkbox"]') || el?.querySelector?.('input[type="checkbox"]'));
                                 if (iconDone !== null || hasCheckboxInput) {
-                                    collect(el, { inserted: __tmIsNativeDocTaskBlockInsertionElement(el) });
+                                    collect(el, {
+                                        inserted: __tmIsNativeDocTaskBlockInsertionElement(el),
+                                        structural: true,
+                                    });
                                 }
+                            });
+                        } catch (e) {}
+                        try {
+                            (Array.from(mutation?.removedNodes || [])).forEach((node) => {
+                                const el = node instanceof Element ? node : null;
+                                if (!el) return;
+                                markStructural(el);
                             });
                         } catch (e) {}
                     }
                 });
+                structural.forEach((blockId) => __tmMarkNativeDocCheckboxStructuralChange(blockId));
                 inserted.forEach((blockId) => __tmMarkNativeDocCheckboxInsertedBlocks(blockId));
                 touched.forEach((blockId) => __tmScheduleNativeDocCheckboxStatusSync(blockId));
             });
