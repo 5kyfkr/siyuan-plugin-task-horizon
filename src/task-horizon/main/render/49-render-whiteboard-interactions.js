@@ -2771,7 +2771,9 @@
         const target = ev?.target;
         if (target && target.closest && target.closest('.tm-whiteboard-frame,.tm-whiteboard-frame-tools,.tm-btn,input,button,select,textarea,label,a')) return false;
         if (!__tmRequireWhiteboardFrameFeature()) return false;
-        const start = __tmResolveWhiteboardCreatePointerInfo(ev, '');
+        const activeDocId = String(state.activeDocId || '').trim();
+        const singleDocCanvas = !!activeDocId && activeDocId !== 'all';
+        const start = __tmResolveWhiteboardCreatePointerInfo(ev, singleDocCanvas ? activeDocId : '');
         if (!start) return false;
         let docBody = start.body;
         if (!(docBody instanceof HTMLElement)) return false;
@@ -2785,7 +2787,7 @@
         draft.style.setProperty('--tm-whiteboard-frame-bg', '#dbeafe');
         draft.innerHTML = '<div class="tm-whiteboard-frame-title">分组</div>';
         try { docBody.appendChild(draft); } catch (e) {}
-        const allowNegativeRect = __tmIsWhiteboardGlobalElement(docBody);
+        const allowNegativeRect = singleDocCanvas || __tmIsWhiteboardGlobalElement(docBody);
         const resolveRect = (clientX, clientY, opts = {}) => {
             const p = __tmResolveWhiteboardCreatePointerInfo({ clientX, clientY }, start.docId)
                 || __tmResolveWhiteboardPointerInfo({ clientX, clientY }, start.docId)
