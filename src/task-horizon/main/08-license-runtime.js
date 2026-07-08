@@ -668,7 +668,7 @@
             __tmLicenseNotify(result.message || '激活失败', 'error');
             return false;
         }
-        __tmLicenseNotify(`已激活：${result.state?.label || 'Pro'}`, 'success');
+        __tmLicenseNotify(`感谢您的支持，已成功激活：${result.state?.label || 'Pro'}`, 'success');
         __tmLicenseRefreshSettingsUi();
         return true;
     };

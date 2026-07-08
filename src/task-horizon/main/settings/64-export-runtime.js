@@ -50,6 +50,7 @@
         'newTaskDocId',
         'newTaskDailyNoteNotebookId',
         'newTaskDailyNoteAppendToBottom',
+        'deleteTaskRemovesWhiteboardCards',
         'quickAddRecentDocs',
         'docColorMap',
         'docColorSeed',

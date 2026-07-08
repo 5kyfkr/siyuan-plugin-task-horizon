@@ -520,14 +520,14 @@ return ok;
     function __tmRefreshTaskTimeAcrossViews(taskId, options = {}) {
         const tid = String(taskId || '').trim();
         if (!tid) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const patch = (opts.patch && typeof opts.patch === 'object') ? opts.patch : {};
         const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
             || state.flatTasks?.[tid]
             || state.pendingInsertedTasks?.[tid]
             || null;
         if (!task) return false;
-        const opts = (options && typeof options === 'object') ? options : {};
         const viewMode = String(state.viewMode || '').trim();
-        const patch = (opts.patch && typeof opts.patch === 'object') ? opts.patch : {};
         const hasCalendarDatePatch = Object.prototype.hasOwnProperty.call(patch, 'startDate')
             || Object.prototype.hasOwnProperty.call(patch, 'completionTime');
         const isKanbanTimeBoard = (() => {

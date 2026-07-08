@@ -9859,6 +9859,9 @@
             await window.tmUpdateTaskDates(id, { completionTime: normalizedDateKey }, {
                 source: 'floating-mini-taskdate-save',
                 immediateProjectionRefresh: true,
+                wait: true,
+                skipFlush: false,
+                syncMirrorTaskAttrs: true,
             });
             try {
                 scheduleCalendarRefresh({

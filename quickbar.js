@@ -154,7 +154,12 @@
     const QUICKBAR_INLINE_OPTIMISTIC_PATCH_TTL_MS = 6000;
     const QUICKBAR_INLINE_USE_NATIVE_HOST = true;
     let inlineMetaLayoutCache = new Map();
+    let inlineMetaLayoutRevision = 0;
     let inlineMetaObserver = null;
+    let inlineMetaResizeObserver = null;
+    let inlineMetaResizeTimer = 0;
+    let inlineMetaResizeLastRenderAt = 0;
+    let inlineMetaResizeObservedWidths = new WeakMap();
     let inlineMetaObservedRoots = [];
     let inlineMetaProtyleHints = new Set();
     let inlineMetaStarted = false;
@@ -165,8 +170,12 @@
     let inlineMetaRenderQueue = [];
     let inlineMetaRenderQueueIds = new Set();
     let inlineMetaRenderActiveIds = new Set();
+    let inlineMetaPrefetchQueue = [];
+    let inlineMetaPrefetchQueuedIds = new Set();
+    let inlineMetaPrefetchActiveCount = 0;
     let inlineMetaInteractUntil = 0;
     let inlineMetaScrollHandler = null;
+    let inlineMetaPreScrollHandler = null;
     let inlineMetaRafId = 0;
     let inlineMetaPositionRafId = 0;
     let inlineMetaLayer = null;
@@ -190,6 +199,9 @@
     let inlineMetaScrollDirection = 0;
     let inlineMetaLastScrollPos = 0;
     let inlineMetaRecentScrollUntil = 0;
+    let inlineMetaStructuralSettleUntil = 0;
+    let inlineMetaStructuralRenderTimer = 0;
+    let inlineMetaRecentStructuralUntil = 0;
     let inlineMetaDeferredPruneTimer = 0;
     let inlineMetaDeferredStructural = false;
     let inlineMetaDeferredStructuralAnchor = null;
@@ -229,6 +241,8 @@
     let inlineMetaLastInvalidHostPruneAt = 0;
     let inlineMetaInvalidHostPruneCursor = 0;
     let inlineMetaLastRuntimePruneAt = 0;
+    let inlineMetaSourceHostDedupeSeenAt = new Map();
+    let inlineMetaRuntimeDateRevalidateSeenAt = new Map();
     let quickbarAttrHostMigrationTimer = 0;
     let quickbarAttrHostMigrationRunning = false;
     let quickbarAttrHostDragActive = false;
@@ -236,8 +250,10 @@
     let quickbarAttrHostLastStructuralAt = 0;
     let quickbarAttrHostMigrationScheduler = null;
     const quickbarAttrHostMigrationSeenAt = new Map();
+    const quickbarAttrHostMirrorSyncSeenAt = new Map();
     const quickbarAttrHostDragSnapshots = new Map();
     const QUICKBAR_ATTR_HOST_DRAG_SNAPSHOT_TTL_MS = 90000;
+    const QUICKBAR_ATTR_HOST_DRAG_RECENT_TTL_MS = 6000;
     const QUICKBAR_SUBTASK_INHERIT_NOTICE_TTL_MS = 5000;
     const QUICKBAR_SUBTASK_INHERIT_MIN_AGE_MS = 3000;
     const QUICKBAR_SUBTASK_INHERIT_RETRY_DELAY_MS = 4200;
@@ -849,6 +865,26 @@
         inlineMetaRenderQueue = [];
         inlineMetaRenderQueueIds.clear();
         inlineMetaRenderActiveIds.clear();
+        inlineMetaPrefetchQueue = [];
+        inlineMetaPrefetchQueuedIds.clear();
+    }
+
+    function bumpInlineMetaLayoutRevision(options = {}) {
+        inlineMetaLayoutRevision = (Number(inlineMetaLayoutRevision || 0) + 1) % 1000000;
+        if (options?.resetCursor === true) inlineMetaRenderCursor = 0;
+    }
+
+    function scheduleInlineMetaResizeLayoutRefresh() {
+        if (!inlineMetaStarted || !isInlineMetaEnabled()) return;
+        bumpInlineMetaLayoutRevision();
+        if (inlineMetaResizeTimer) return;
+        const now = Date.now();
+        const delay = Math.max(0, 80 - (now - Number(inlineMetaResizeLastRenderAt || 0)));
+        inlineMetaResizeTimer = setTimeout(() => {
+            inlineMetaResizeTimer = 0;
+            inlineMetaResizeLastRenderAt = Date.now();
+            try { requestInlineMetaRender(false); } catch (e) {}
+        }, delay);
     }
 
     function scheduleInlineMetaWake(forceRefresh = true, options = {}) {
@@ -874,13 +910,31 @@
         }, delayMs);
     }
 
-    function hasInlineMetaReadyHosts() {
-        // Scan across every layer, not just `inlineMetaLayer` (which only
-        // tracks the last-set protyle). In split-view / dock-plus-tab
-        // setups this is the difference between detecting one protyle's
-        // ready hosts and detecting any.
+    function queryInlineMetaHostsInObservedRoots(selector) {
+        const query = String(selector || '').trim();
+        if (!query) return [];
+        const roots = inlineMetaObservedRoots.length ? inlineMetaObservedRoots : getInlineMetaObserveRoots();
+        const scopedRoots = roots.filter((root) => root instanceof Element && root.isConnected);
+        const seen = new WeakSet();
+        const hosts = [];
+        const addHost = (host) => {
+            if (!(host instanceof Element) || seen.has(host)) return;
+            seen.add(host);
+            hosts.push(host);
+        };
         try {
-            return document.querySelectorAll('.sy-custom-props-inline-host.is-ready').length > 0;
+            if (scopedRoots.length) {
+                scopedRoots.forEach((root) => root.querySelectorAll?.(query).forEach(addHost));
+                return hosts;
+            }
+            document.querySelectorAll(query).forEach(addHost);
+        } catch (e) {}
+        return hosts;
+    }
+
+    function hasInlineMetaReadyHosts() {
+        try {
+            return queryInlineMetaHostsInObservedRoots('.sy-custom-props-inline-host.is-ready').length > 0;
         } catch (e) {
             return false;
         }
@@ -895,7 +949,7 @@
         // peer block has rendered successfully (hasInlineMetaReadyHosts
         // alone returns true and short-circuits the retry).
         try {
-            return document.querySelectorAll('.sy-custom-props-inline-host:not(.is-ready)').length > 0;
+            return queryInlineMetaHostsInObservedRoots('.sy-custom-props-inline-host:not(.is-ready)').length > 0;
         } catch (e) {
             return false;
         }
@@ -1199,6 +1253,62 @@
         invalidateInlineMetaActiveTargetsCache();
     }
 
+    function shouldRunInlineMetaSourceHostDedupe(sourceTaskId, keepAttrHostId, ttlMs = QUICKBAR_INLINE_SOURCE_DEDUPE_TTL_MS) {
+        const sourceId = String(sourceTaskId || '').trim();
+        const keepId = String(keepAttrHostId || '').trim();
+        if (!sourceId || !keepId) return false;
+        const now = Date.now();
+        const key = `${sourceId}:${keepId}`;
+        const lastSeenAt = Number(inlineMetaSourceHostDedupeSeenAt.get(key) || 0);
+        const safeTtl = Math.max(300, Number(ttlMs) || QUICKBAR_INLINE_SOURCE_DEDUPE_TTL_MS);
+        if (lastSeenAt && (now - lastSeenAt) < safeTtl) return false;
+        inlineMetaSourceHostDedupeSeenAt.set(key, now);
+        if (inlineMetaSourceHostDedupeSeenAt.size > 300) {
+            inlineMetaSourceHostDedupeSeenAt.forEach((ts, seenKey) => {
+                if ((now - Number(ts || 0)) > safeTtl * 4) inlineMetaSourceHostDedupeSeenAt.delete(seenKey);
+            });
+        }
+        return true;
+    }
+
+    function removeInlineMetaHostsBySourceTaskId(sourceTaskId, keepAttrHostId = '', placement = '') {
+        const id = String(sourceTaskId || '').trim();
+        const keepId = String(keepAttrHostId || '').trim();
+        const expectedPlacement = String(placement || '').trim();
+        if (!id) return 0;
+        const hosts = [];
+        const seen = new WeakSet();
+        const pushHost = (host) => {
+            if (!(host instanceof Element) || seen.has(host)) return;
+            seen.add(host);
+            hosts.push(host);
+        };
+        try {
+            document.querySelectorAll(`.sy-custom-props-inline-host[data-task-id="${CSS.escape(id)}"]`).forEach(pushHost);
+        } catch (e) {
+            document.querySelectorAll('.sy-custom-props-inline-host[data-task-id]').forEach((host) => {
+                if (String(host?.dataset?.taskId || '').trim() === id) pushHost(host);
+            });
+        }
+        try {
+            document.querySelectorAll(`.sy-custom-props-inline-host[data-block-id="${CSS.escape(id)}"]`).forEach(pushHost);
+        } catch (e) {
+            document.querySelectorAll('.sy-custom-props-inline-host[data-block-id]').forEach((host) => {
+                if (String(host?.dataset?.blockId || '').trim() === id) pushHost(host);
+            });
+        }
+        let removed = 0;
+        hosts.forEach((host) => {
+            if (expectedPlacement && String(host?.dataset?.inlinePlacement || '').trim() !== expectedPlacement) return;
+            const hostId = String(host?.dataset?.blockId || '').trim();
+            const attrHostId = String(host?.dataset?.attrHostId || '').trim();
+            if (keepId && (hostId === keepId || attrHostId === keepId)) return;
+            if (removeInlineMetaHostNode(host, true)) removed += 1;
+        });
+        if (removed > 0) invalidateInlineMetaActiveTargetsCache();
+        return removed;
+    }
+
     function esc(value) {
         return String(value == null ? '' : value)
             .replace(/&/g, '&amp;')
@@ -1232,7 +1342,7 @@
     function isInlineMetaEnabled() {
         const cfg = getQuickbarInlineSettings();
         if (!cfg.enabled) return false;
-        if (isMobileDevice() && !cfg.showOnMobile) return false;
+        if (isInlineMetaMobileSuppressedDevice() && !cfg.showOnMobile) return false;
         return true;
     }
 
@@ -1241,7 +1351,10 @@
         return Array.isArray(settings?.fields) && settings.fields.includes('taskCompleteAt');
     }
 
-    const QUICKBAR_INLINE_RENDER_BATCH_LIMIT = 6;
+    const QUICKBAR_INLINE_RENDER_BATCH_LIMIT = 10;
+    const QUICKBAR_INLINE_PREFETCH_CONCURRENCY = 4;
+    const QUICKBAR_INLINE_PREFETCH_QUEUE_LIMIT = 160;
+    const QUICKBAR_INLINE_SOURCE_DEDUPE_TTL_MS = 2400;
     const QUICKBAR_INLINE_INVALID_HOST_PRUNE_INTERVAL_MS = 3200;
     const QUICKBAR_INLINE_INVALID_HOST_PRUNE_FORCE_INTERVAL_MS = 1800;
     const QUICKBAR_INLINE_INVALID_HOST_PRUNE_DEEP_INTERVAL_MS = 900;
@@ -1806,6 +1919,20 @@
         return false;
     }
 
+    function isInlineMetaMobileSuppressedDevice() {
+        if (hasOfficialMobileRuntimeSignal()) return true;
+        try {
+            if (navigator?.userAgentData?.mobile === true) return true;
+        } catch (e) {}
+        try {
+            const ua = String(navigator?.userAgent || '');
+            const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
+            if (/Mobile|Android|iPhone|iPad|iPod|HarmonyOS/i.test(ua)) return true;
+            if (/Macintosh/i.test(ua) && maxTouchPoints > 1) return true;
+        } catch (e) {}
+        return false;
+    }
+
     function isMobileDevice() {
         if (hasOfficialMobileRuntimeSignal()) return true;
         return isMobileBrowserViewport();
@@ -1943,7 +2070,7 @@
                 ? taskBlock.parentElement
                 : taskBlock.closest?.('.list,[data-type="NodeList"]');
             taskList?.querySelectorAll?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((node) => {
-                try { node.remove(); } catch (e2) {}
+                removeInlineMetaHostNode(node, true);
             });
             taskList?.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((node) => {
                 if (!hasInlineMetaInBlockHost(node)) {
@@ -2847,11 +2974,13 @@
                 visibility: hidden;
                 opacity: 0;
                 pointer-events: none;
+                transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 140ms;
             }
             .sy-custom-props-inline-host.is-ready {
                 visibility: visible;
                 opacity: 1;
                 pointer-events: auto;
+                transition-delay: 0s, 0s;
             }
             .sy-custom-props-inline-host.is-wrap {
                 flex-wrap: wrap;
@@ -2995,6 +3124,11 @@
             }
             .sy-custom-props-inline-layer.is-scrolling .sy-custom-props-inline-host {
                 transition: none !important;
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .sy-custom-props-inline-host {
+                    transition: none;
+                }
             }
         `.trim();
         document.head.appendChild(style);
@@ -3746,15 +3880,22 @@
             } catch (e) {}
         }
 
-        function hasQuickbarAttrHostDragSnapshots() {
-            pruneQuickbarAttrHostDragSnapshots();
-            return quickbarAttrHostDragSnapshots.size > 0;
+        function hasQuickbarAttrHostDragSnapshots(maxAgeMs = 0) {
+            const now = Date.now();
+            pruneQuickbarAttrHostDragSnapshots(now);
+            const maxAge = Math.max(0, Number(maxAgeMs) || 0);
+            if (!maxAge) return quickbarAttrHostDragSnapshots.size > 0;
+            for (const entry of quickbarAttrHostDragSnapshots.values()) {
+                const ts = Number(entry?.ts || 0);
+                if (ts && now - ts <= maxAge) return true;
+            }
+            return false;
         }
 
         function hasRecentQuickbarAttrHostStructuralChange(ttlMs = 5000) {
             const ttl = Math.max(300, Number(ttlMs) || 5000);
             return quickbarAttrHostDragActive
-                || hasQuickbarAttrHostDragSnapshots()
+                || hasQuickbarAttrHostDragSnapshots(Math.min(ttl, QUICKBAR_ATTR_HOST_DRAG_RECENT_TTL_MS))
                 || (Date.now() - Number(quickbarAttrHostLastStructuralAt || 0)) < ttl;
         }
 
@@ -3764,13 +3905,20 @@
                 || (Date.now() - Number(quickbarAttrHostLastDragAt || 0)) < ttl;
         }
 
-        function getQuickbarAttrHostDragSnapshot(taskId, attrHostId) {
+        function getQuickbarAttrHostDragSnapshot(taskId, attrHostId, maxAgeMs = QUICKBAR_ATTR_HOST_DRAG_RECENT_TTL_MS) {
             const id = String(taskId || '').trim();
             const hostId = String(attrHostId || '').trim();
             if (!id || !hostId) return null;
-            pruneQuickbarAttrHostDragSnapshots();
+            const now = Date.now();
+            pruneQuickbarAttrHostDragSnapshots(now);
             const entry = quickbarAttrHostDragSnapshots.get(id);
             if (entry && typeof entry === 'object') {
+                const ts = Number(entry?.ts || 0);
+                const maxAge = Math.max(0, Number(maxAgeMs) || 0);
+                if (maxAge && (!ts || now - ts > maxAge)) {
+                    quickbarAttrHostDragSnapshots.delete(id);
+                    return null;
+                }
                 const sourceHostId = String(entry.sourceHostId || '').trim();
                 const attrs = entry.attrs && typeof entry.attrs === 'object' ? entry.attrs : null;
                 if (sourceHostId && sourceHostId !== hostId && attrs) return entry;
@@ -3889,6 +4037,35 @@
             return null;
         }
 
+        function quickbarPerfNow() {
+            try {
+                if (typeof performance !== 'undefined' && typeof performance.now === 'function') return performance.now();
+            } catch (e) {}
+            return Date.now();
+        }
+
+        function pushQuickbarPerfProbe(tag, payload = {}, options = {}) {
+            return null;
+        }
+
+        function describeQuickbarPerfElement(el) {
+            if (!(el instanceof Element)) return null;
+            const block = el.closest?.('[data-node-id]');
+            const holder = el.closest?.('[data-doc-id],[data-root-id]');
+            const protyle = el.closest?.('.protyle');
+            const cls = typeof el.className === 'string' ? el.className.trim() : '';
+            return {
+                targetTag: String(el.tagName || '').toLowerCase(),
+                targetClass: cls ? cls.slice(0, 120) : '',
+                targetType: String(el.getAttribute?.('data-type') || ''),
+                blockId: String(block?.getAttribute?.('data-node-id') || ''),
+                blockType: String(block?.getAttribute?.('data-type') || ''),
+                docId: String(holder?.getAttribute?.('data-doc-id') || ''),
+                rootId: String(holder?.getAttribute?.('data-root-id') || ''),
+                protyleFocused: !!protyle?.classList?.contains('protyle--focus'),
+            };
+        }
+
         function isQuickbarAttrHostManagedAttrKey(key) {
             const k = String(key || '').trim();
             if (!k || k === 'custom-task-horizon-attr-host-updated-at') return false;
@@ -3977,6 +4154,8 @@
         }
 
         async function runQuickbarAttrHostMigrationScan(reason = '') {
+            pruneQuickbarAttrHostDragSnapshots();
+            return;
             if (quickbarDisposed || quickbarAttrHostMigrationRunning) return;
             const hasDragSnapshots = hasQuickbarAttrHostDragSnapshots();
             const settleMs = hasDragSnapshots ? 280 : 1200;
@@ -4148,7 +4327,7 @@
         function scheduleQuickbarAttrHostMigrationScan(reason = '') {
             if (quickbarDisposed) return false;
             if (quickbarAttrHostMigrationTimer) clearTimeout(quickbarAttrHostMigrationTimer);
-            const delay = quickbarAttrHostDragActive ? 700 : (hasQuickbarAttrHostDragSnapshots() ? 220 : 1500);
+            const delay = quickbarAttrHostDragActive ? 700 : (hasQuickbarAttrHostDragSnapshots(QUICKBAR_ATTR_HOST_DRAG_RECENT_TTL_MS) ? 220 : 1500);
             quickbarAttrHostMigrationTimer = setTimeout(() => {
                 quickbarAttrHostMigrationTimer = 0;
                 runQuickbarAttrHostMigrationScan(reason).catch(() => null);
@@ -4173,8 +4352,13 @@
             const normalizedValue = isTomatoCountKey
                 ? normalizeTomatoCountValue(value)
                 : value;
+            let saveBinding = null;
+            try { saveBinding = resolveQuickbarAttrBindingFromBlockId(id); } catch (e) { saveBinding = null; }
+            const apiTaskId = String(saveBinding?.taskId || resolveCurrentTaskId() || id).trim() || id;
+            const attrTargetHintId = String(saveBinding?.attrHostId || id).trim() || id;
             pushTaskHorizonDebug('refresh', 'quickbar-save:start', {
-                taskId: id,
+                taskId: apiTaskId,
+                attrHostId: attrTargetHintId,
                 attrKey: key,
                 displayAttrKey: displayKey,
                 value: normalizedValue == null ? '' : String(normalizedValue),
@@ -4187,7 +4371,7 @@
                     try {
                         const nextStatus = value == null ? '' : String(value);
                         suppressTaskHorizonMobileTopbarOpen();
-                        const apiResult = await applier(id, nextStatus, {
+                        const apiResult = await applier(apiTaskId, nextStatus, {
                             source: 'quickbar-status',
                             label: String(options?.label || '状态'),
                             refresh: false,
@@ -4195,15 +4379,14 @@
                             withFilters: false,
                             broadcast: false,
                             recordUndo: true,
-                            attrTargetId: id,
-                            mirrorTaskAttrs: false,
+                            attrTargetId: attrTargetHintId,
                         });
                         const result = {
                             success: true,
                             changed: true,
                             viaSharedApi: true,
-                            taskId: String(apiResult?.taskId || apiResult?.id || id).trim() || id,
-                            requestedTaskId: String(apiResult?.requestedTaskId || id).trim() || id,
+                            taskId: String(apiResult?.taskId || apiResult?.id || apiTaskId).trim() || apiTaskId,
+                            requestedTaskId: String(apiResult?.requestedTaskId || apiTaskId).trim() || apiTaskId,
                             value: nextStatus,
                             patch: (apiResult?.patch && typeof apiResult.patch === 'object') ? apiResult.patch : null,
                         };
@@ -4228,21 +4411,20 @@
                 if (typeof updater === 'function') {
                     try {
                         suppressTaskHorizonMobileTopbarOpen();
-                        const apiResult = await updater(id, displayKey === 'custom-start-date'
+                        const apiResult = await updater(apiTaskId, displayKey === 'custom-start-date'
                             ? { startDate: value == null ? '' : String(value) }
                             : { completionTime: value == null ? '' : String(value) }, {
                             refresh: false,
                             broadcast: false,
-                            attrTargetId: id,
-                            mirrorTaskAttrs: false,
+                            attrTargetId: attrTargetHintId,
                         });
                         const nextValue = value == null ? '' : String(value);
                         const result = {
                             success: true,
                             changed: true,
                             viaSharedApi: true,
-                            taskId: String(apiResult?.taskId || apiResult?.id || id).trim() || id,
-                            requestedTaskId: String(apiResult?.requestedTaskId || id).trim() || id,
+                            taskId: String(apiResult?.taskId || apiResult?.id || apiTaskId).trim() || apiTaskId,
+                            requestedTaskId: String(apiResult?.requestedTaskId || apiTaskId).trim() || apiTaskId,
                             value: nextValue,
                         };
                         pushTaskHorizonDebug('refresh', 'quickbar-save:end', {
@@ -4267,7 +4449,7 @@
                     const nextValue = normalizedValue == null ? '' : String(normalizedValue);
                     suppressTaskHorizonMobileTopbarOpen();
                     const apiAttrKey = displayKey || requestedKey || key;
-                    const apiResult = await genericApplier(id, apiAttrKey, nextValue, {
+                    const apiResult = await genericApplier(apiTaskId, apiAttrKey, nextValue, {
                         source: 'quickbar-attr',
                         label: String(options?.label || ''),
                         refresh: false,
@@ -4275,16 +4457,15 @@
                         withFilters: false,
                         broadcast: false,
                         recordUndo: false,
-                        attrTargetId: id,
-                        mirrorTaskAttrs: false,
+                        attrTargetId: attrTargetHintId,
                         skipNoopCheck: options?.skipNoopCheck === true,
                     });
                     const result = {
                         success: true,
                         changed: true,
                         viaSharedApi: true,
-                        taskId: String(apiResult?.taskId || apiResult?.id || id).trim() || id,
-                        requestedTaskId: String(apiResult?.requestedTaskId || id).trim() || id,
+                        taskId: String(apiResult?.taskId || apiResult?.id || apiTaskId).trim() || apiTaskId,
+                        requestedTaskId: String(apiResult?.requestedTaskId || apiTaskId).trim() || apiTaskId,
                         value: nextValue,
                     };
                     pushTaskHorizonDebug('refresh', 'quickbar-save:end', {
@@ -4304,12 +4485,11 @@
             }
             const fallbackAttrs = { [key]: normalizedValue };
             const result = await setBlockCustomAttrs(id, fallbackAttrs);
-            const mirrorTaskId = String(resolveCurrentTaskId() || '').trim();
             const finalResult = {
                 success: !!result?.success,
                 changed: !!result?.success,
                 viaSharedApi: false,
-                taskId: mirrorTaskId || id,
+                taskId: apiTaskId || id,
                 requestedTaskId: id,
                 value: normalizedValue == null ? '' : String(normalizedValue),
             };
@@ -4509,23 +4689,28 @@
             const displayKey = normalizeTaskHorizonAttrKeyForDisplay(requestedKey) || requestedKey || key;
             if (!id || !key) return { success: false, viaSharedApi: false };
             const rawValue = value == null ? '' : String(value);
+            let saveBinding = null;
+            try { saveBinding = resolveQuickbarAttrBindingFromBlockId(id); } catch (e) { saveBinding = null; }
+            const apiTaskId = String(saveBinding?.taskId || resolveCurrentTaskId() || id).trim() || id;
+            const attrTargetHintId = String(saveBinding?.attrHostId || id).trim() || id;
             const sharedApi = getTaskHorizonSharedApi();
             const genericApplier = sharedApi?.applyTaskAttrUpdateWithUndo;
             if (typeof genericApplier === 'function') {
                 try {
                     suppressTaskHorizonMobileTopbarOpen();
-                    const apiResult = await genericApplier(id, displayKey, rawValue, {
+                    const apiResult = await genericApplier(apiTaskId, displayKey, rawValue, {
                         source: 'quickbar-raw-attr',
                         label: String(options?.label || ''),
                         refresh: false,
                         silent: true,
+                        attrTargetId: attrTargetHintId,
                     });
                     if (apiResult !== false) {
                         return {
                             success: true,
                             viaSharedApi: true,
-                            taskId: String(apiResult?.taskId || apiResult?.id || id).trim() || id,
-                            requestedTaskId: String(apiResult?.requestedTaskId || id).trim() || id,
+                            taskId: String(apiResult?.taskId || apiResult?.id || apiTaskId).trim() || apiTaskId,
+                            requestedTaskId: String(apiResult?.requestedTaskId || apiTaskId).trim() || apiTaskId,
                             value: rawValue,
                         };
                     }
@@ -4920,6 +5105,45 @@
             return { taskId: id, attrHostId: id };
         }
 
+        function scheduleQuickbarState3ParentMirrorSync(binding, primaryAttrs, parentAttrs) {
+            const info = (binding && typeof binding === 'object') ? binding : null;
+            const taskId = String(info?.taskId || '').trim();
+            const primaryId = String(info?.attrHostId || taskId).trim();
+            const parentId = String(info?.parentListId || '').trim();
+            const state = String(info?.attrHostState || '').trim();
+            if (!info || state !== 'state3-list-item' || !taskId || !parentId || primaryId !== taskId || parentId === taskId) return;
+            const source = (primaryAttrs && typeof primaryAttrs === 'object') ? primaryAttrs : {};
+            const mirror = (parentAttrs && typeof parentAttrs === 'object') ? parentAttrs : {};
+            const hasManagedValue = (attrs) => Object.entries(attrs || {}).some(([attrKey, value]) => {
+                const key = String(attrKey || '').trim();
+                if (!key || key === 'custom-task-horizon-attr-host-updated-at' || key === 'custom-task-horizon-attr-host-owner') return false;
+                return isQuickbarAttrHostManagedAttrKey(key) && String(value ?? '').trim() !== '';
+            });
+            const owner = String(mirror?.['custom-task-horizon-attr-host-owner'] || '').trim();
+            const sourceHasManagedValues = hasManagedValue(source);
+            if (owner === taskId && !sourceHasManagedValues) return;
+            if (!owner && !sourceHasManagedValues) return;
+            const keys = new Set(Object.keys(mirror).concat(Object.keys(source)));
+            const patch = {};
+            keys.forEach((attrKey) => {
+                const key = String(attrKey || '').trim();
+                if (!key || key === 'custom-task-horizon-attr-host-updated-at' || key === 'custom-task-horizon-attr-host-owner') return;
+                if (!isQuickbarAttrHostManagedAttrKey(key)) return;
+                const nextValue = Object.prototype.hasOwnProperty.call(source, key) ? String(source[key] ?? '') : '';
+                const prevValue = Object.prototype.hasOwnProperty.call(mirror, key) ? String(mirror[key] ?? '') : '';
+                if (prevValue !== nextValue) patch[key] = nextValue;
+            });
+            if (!Object.keys(patch).length && owner === taskId) return;
+            const now = Date.now();
+            const syncKey = `${taskId}:${parentId}`;
+            const last = Number(quickbarAttrHostMirrorSyncSeenAt.get(syncKey) || 0);
+            if (last && now - last < 3000) return;
+            patch['custom-task-horizon-attr-host-updated-at'] = String(now);
+            patch['custom-task-horizon-attr-host-owner'] = taskId;
+            quickbarAttrHostMirrorSyncSeenAt.set(syncKey, now);
+            setBlockCustomAttrs(parentId, patch).catch(() => null);
+        }
+
         async function getMergedTaskCustomAttrs(blockId, options = {}) {
             const id = String(blockId || '').trim();
             if (!id) return {};
@@ -4932,7 +5156,69 @@
             const taskId = String(binding?.taskId || id).trim() || id;
             const attrHostId = String(binding?.attrHostId || taskId || id).trim() || taskId || id;
             const hostAttrs = await getBlockCustomAttrs(attrHostId || taskId || id);
-            const attrs = { ...((hostAttrs && typeof hostAttrs === 'object') ? hostAttrs : {}) };
+            const attrs = {};
+            const mirrorIds = [];
+            const state = String(binding?.attrHostState || '').trim();
+            if (state === 'state1-parent' && taskId && taskId !== attrHostId) mirrorIds.push(taskId);
+            if (state === 'state3-list-item' && binding?.parentListId && String(binding.parentListId).trim() !== attrHostId) mirrorIds.push(String(binding.parentListId).trim());
+            const hostHasManagedValues = Object.entries(hostAttrs || {}).some(([hostKey, hostValue]) => {
+                if (!isQuickbarAttrHostManagedAttrKey(hostKey)) return false;
+                return String(hostValue ?? '').trim() !== '';
+            });
+            const backfillAttrs = {};
+            let state1MirrorAttrs = null;
+            let ignoreHostAttrsForDisplay = false;
+            for (const mirrorId of Array.from(new Set(mirrorIds.filter(Boolean)))) {
+                const mirrorAttrs = await getBlockCustomAttrs(mirrorId);
+                if (state === 'state1-parent' && mirrorId === taskId) state1MirrorAttrs = mirrorAttrs || {};
+                if (state === 'state3-list-item' && mirrorId !== taskId) {
+                    scheduleQuickbarState3ParentMirrorSync(binding, hostAttrs, mirrorAttrs);
+                    continue;
+                }
+                const owner = String(mirrorAttrs?.['custom-task-horizon-attr-host-owner'] || '').trim();
+                if (mirrorId !== taskId && (owner !== taskId)) continue;
+                Object.entries(mirrorAttrs || {}).forEach(([mirrorKey, mirrorValue]) => {
+                    if (mirrorKey === 'custom-task-horizon-attr-host-updated-at' || mirrorKey === 'custom-task-horizon-attr-host-owner') return;
+                    if (!isQuickbarAttrHostManagedAttrKey(mirrorKey)) return;
+                    if (String(mirrorValue ?? '').trim() === '') return;
+                    attrs[mirrorKey] = mirrorValue;
+                    if (state === 'state1-parent' && mirrorId === taskId) backfillAttrs[mirrorKey] = String(mirrorValue ?? '');
+                });
+            }
+            if (state === 'state1-parent') {
+                const hostOwner = String(hostAttrs?.['custom-task-horizon-attr-host-owner'] || '').trim();
+                if (hostOwner && hostOwner !== taskId) {
+                    ignoreHostAttrsForDisplay = true;
+                    attrs.__tmQuickbarHasAttrHostStatus = true;
+                    attrs.__tmQuickbarSkipStatusSnapshot = true;
+                    const source = (state1MirrorAttrs && typeof state1MirrorAttrs === 'object') ? state1MirrorAttrs : {};
+                    const patch = {};
+                    const keys = new Set(Object.keys(hostAttrs || {}).concat(Object.keys(source)));
+                    keys.forEach((attrKey) => {
+                        const key = String(attrKey || '').trim();
+                        if (!key || key === 'custom-task-horizon-attr-host-updated-at' || key === 'custom-task-horizon-attr-host-owner') return;
+                        if (!isQuickbarAttrHostManagedAttrKey(key)) return;
+                        const nextValue = Object.prototype.hasOwnProperty.call(source, key) ? String(source[key] ?? '') : '';
+                        const prevValue = Object.prototype.hasOwnProperty.call(hostAttrs || {}, key) ? String(hostAttrs[key] ?? '') : '';
+                        attrs[key] = nextValue;
+                        if (prevValue !== nextValue) patch[key] = nextValue;
+                    });
+                    if (!Object.prototype.hasOwnProperty.call(attrs, 'custom-status')) attrs['custom-status'] = '';
+                    if (Object.keys(patch).length) {
+                        patch['custom-task-horizon-attr-host-updated-at'] = String(Date.now());
+                        patch['custom-task-horizon-attr-host-owner'] = taskId;
+                        setBlockCustomAttrs(attrHostId, patch).catch(() => null);
+                    }
+                } else if (!hostHasManagedValues && Object.keys(backfillAttrs).length) {
+                const patch = {
+                    ...backfillAttrs,
+                    'custom-task-horizon-attr-host-updated-at': String(Date.now()),
+                    'custom-task-horizon-attr-host-owner': taskId,
+                };
+                setBlockCustomAttrs(attrHostId, patch).catch(() => null);
+                }
+            }
+            if (!ignoreHostAttrsForDisplay) Object.assign(attrs, (hostAttrs && typeof hostAttrs === 'object') ? hostAttrs : {});
             const hostStatus = readQuickbarTaskMetaAttrValue(attrs, 'customStatus', '').trim();
             if (hostStatus) attrs.__tmQuickbarHasAttrHostStatus = true;
             if (Object.keys(attrs).some((key) => isQuickbarAttrHostManagedAttrKey(key) && String(attrs[key] ?? '').trim() !== '')) {
@@ -5178,10 +5464,14 @@
         }
 
         async function getTaskCustomProps(blockId, forceRefresh = false, options = {}) {
+            const perfStartTs = quickbarPerfNow();
             const opts = (options && typeof options === 'object') ? options : {};
             const id = String(blockId || '').trim();
             if (!id) return normalizeCustomProps();
-            if (!forceRefresh && !opts.includeRemark && !opts.skipAttrFallback && inlineMetaCache.has(id)) {
+            const bypassCacheForAttrHostChange = quickbarAttrHostDragActive
+                || hasRecentQuickbarAttrHostDragChange(2500)
+                || hasQuickbarAttrHostDragSnapshots(QUICKBAR_ATTR_HOST_DRAG_RECENT_TTL_MS);
+            if (!forceRefresh && !bypassCacheForAttrHostChange && !opts.includeRemark && !opts.skipAttrFallback && inlineMetaCache.has(id)) {
                 const cached = inlineMetaCache.get(id);
                 return cached;
             }
@@ -5251,6 +5541,9 @@
                     if (attrs?.__tmQuickbarHasManagedAttrHostAttrs === true) {
                         props.__tmQuickbarHasManagedAttrHostAttrs = true;
                     }
+                    if (attrs?.__tmQuickbarSkipStatusSnapshot === true) {
+                        props.__tmQuickbarSkipStatusSnapshot = true;
+                    }
                 }
             }
             if (props && opts.skipAttrFallback !== true && !mergedAttrHostAttrs
@@ -5267,6 +5560,9 @@
                         }
                         if (attrs?.__tmQuickbarHasManagedAttrHostAttrs === true) {
                             props.__tmQuickbarHasManagedAttrHostAttrs = true;
+                        }
+                        if (attrs?.__tmQuickbarSkipStatusSnapshot === true) {
+                            props.__tmQuickbarSkipStatusSnapshot = true;
                         }
                     }
                 } catch (e) {}
@@ -5301,6 +5597,13 @@
                     transitionReason = hasRecentQuickbarAttrHostStructuralChange(5000)
                         ? 'structural-source'
                         : 'legacy-source-rescue';
+                }
+                if (transitionAttrs && String(binding?.attrHostState || '').trim() === 'state3-list-item') {
+                    const owner = String(transitionAttrs?.['custom-task-horizon-attr-host-owner'] || '').trim();
+                    if (String(sourceId || '').trim() === String(binding?.parentListId || '').trim() && owner !== taskId) {
+                        transitionAttrs = null;
+                        transitionReason = '';
+                    }
                 }
                 const transitionKeys = getQuickbarAttrHostMigrationKeys(transitionAttrs || {});
                 if (transitionKeys.length) {
@@ -5338,7 +5641,14 @@
                     statusSnapshotId = String(binding?.attrHostId || binding?.taskId || id).trim() || id;
                 } catch (e) {}
                 const statusSnapshot = await getManagedTaskStatusSnapshot(statusSnapshotId);
-                if (statusSnapshot && typeof statusSnapshot === 'object') {
+                if (props.__tmQuickbarSkipStatusSnapshot === true) {
+                    pushQuickbarAttrHostReadLog('status-snapshot-skip', {
+                        taskId: statusSnapshotTaskId || id,
+                        hostId: statusSnapshotId,
+                        reason: 'invalid-attr-host-owner',
+                        propsStatus: String(props['custom-status'] || '').trim(),
+                    });
+                } else if (statusSnapshot && typeof statusSnapshot === 'object') {
                     const statusValue = String(statusSnapshot.value || '').trim();
                     if (statusValue) {
                         const snapshotDone = isQuickbarDoneStatusValue(statusValue);
@@ -5390,6 +5700,18 @@
                 props = applyInlineMetaOptimisticPatch(props, [id], 'getTaskCustomProps');
             }
             setInlineMetaCache(id, props);
+            const perfDuration = quickbarPerfNow() - perfStartTs;
+            if (perfDuration > 40 || (bypassCacheForAttrHostChange && perfDuration > 12)) {
+                pushQuickbarPerfProbe('props-read', {
+                    blockId: id,
+                    durationMs: Math.round(perfDuration),
+                    bypassCacheForAttrHostChange,
+                    forceRefresh: !!forceRefresh,
+                    includeRemark: opts.includeRemark === true,
+                    skipAttrFallback: opts.skipAttrFallback === true,
+                    cacheSize: inlineMetaCache.size,
+                }, { throttleMs: 800 });
+            }
             return props;
         }
 
@@ -5617,14 +5939,47 @@
             return p;
         }
 
-        function prefetchInlineMetaProps(blocks, maxCount = 220) {
-            const list = Array.isArray(blocks) ? blocks : [];
-            for (let i = 0; i < list.length && i < maxCount; i += 1) {
-                const blockId = String(resolveTaskAttrNodeIdForDetail(list[i]) || list[i]?.dataset?.nodeId || '').trim();
+        function drainInlineMetaPrefetchQueue() {
+            if (!inlineMetaStarted || !isInlineMetaEnabled()) {
+                inlineMetaPrefetchQueue = [];
+                inlineMetaPrefetchQueuedIds.clear();
+                inlineMetaPrefetchActiveCount = 0;
+                return;
+            }
+            while (inlineMetaPrefetchActiveCount < QUICKBAR_INLINE_PREFETCH_CONCURRENCY && inlineMetaPrefetchQueue.length) {
+                const item = inlineMetaPrefetchQueue.shift();
+                const blockId = String(item?.blockId || '').trim();
+                inlineMetaPrefetchQueuedIds.delete(blockId);
                 if (!blockId) continue;
                 if (inlineMetaCache.has(blockId) || inlineMetaPropsInflight.has(blockId)) continue;
-                Promise.resolve(ensureTaskPropsReady(blockId, false)).catch(() => null);
+                inlineMetaPrefetchActiveCount += 1;
+                Promise.resolve(ensureTaskPropsReady(blockId, false, { blockEl: item.blockEl || null }))
+                    .catch(() => null)
+                    .finally(() => {
+                        inlineMetaPrefetchActiveCount = Math.max(0, inlineMetaPrefetchActiveCount - 1);
+                        if (inlineMetaPrefetchQueue.length) drainInlineMetaPrefetchQueue();
+                    });
             }
+        }
+
+        function prefetchInlineMetaProps(blocks, maxCount = 120) {
+            const list = Array.isArray(blocks) ? blocks : [];
+            let queued = 0;
+            for (let i = 0; i < list.length && queued < maxCount; i += 1) {
+                const blockEl = list[i];
+                const blockId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
+                if (!blockId) continue;
+                if (inlineMetaCache.has(blockId) || inlineMetaPropsInflight.has(blockId) || inlineMetaPrefetchQueuedIds.has(blockId)) continue;
+                inlineMetaPrefetchQueuedIds.add(blockId);
+                inlineMetaPrefetchQueue.push({ blockId, blockEl });
+                queued += 1;
+                if (inlineMetaPrefetchQueue.length > QUICKBAR_INLINE_PREFETCH_QUEUE_LIMIT) {
+                    const dropped = inlineMetaPrefetchQueue.shift();
+                    const droppedId = String(dropped?.blockId || '').trim();
+                    if (droppedId) inlineMetaPrefetchQueuedIds.delete(droppedId);
+                }
+            }
+            drainInlineMetaPrefetchQueue();
         }
 
         function renderInlineMetaHtml(cfg, props, blockEl = null) {
@@ -6959,7 +7314,8 @@
 
             if (!blockIdAtOpen) return;
 
-            Promise.resolve(refreshBlockAttrs(blockIdAtOpen, true))
+            const hasCachedPropsAtOpen = inlineMetaCache.has(blockIdAtOpen);
+            Promise.resolve(refreshBlockAttrs(blockIdAtOpen, !hasCachedPropsAtOpen))
                 .then((props) => {
                     if (!props || !isCurrentFloatBarContext(blockIdAtOpen, taskIdAtOpen, loadToken)) return;
                     currentProps = normalizeCustomProps(props);
@@ -6995,7 +7351,7 @@
 
         function removeInlineMetaNodes() {
             try { document.querySelectorAll('.sy-custom-props-inline-layer').forEach((el) => el.remove()); } catch (e) {}
-            try { document.querySelectorAll('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((el) => el.remove()); } catch (e) {}
+            try { document.querySelectorAll('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((el) => removeInlineMetaHostNode(el, true)); } catch (e) {}
             try { document.querySelectorAll('.sy-custom-props-inline-parent').forEach((el) => el.classList.remove('sy-custom-props-inline-parent')); } catch (e) {}
             inlineMetaLayer = null;
             inlineMetaMissingHostSeenAt.clear();
@@ -7321,8 +7677,7 @@
                     const escapedBlockId = CSS.escape(blockId);
                     blockEl.querySelectorAll?.(`.sy-custom-props-inline-host[data-inline-placement="in-block"][data-block-id="${escapedBlockId}"]`).forEach((node) => {
                         if (node?.parentElement === nativeMount.parent) return;
-                        removedLegacyHosts += 1;
-                        node.remove();
+                        if (removeInlineMetaHostNode(node, true)) removedLegacyHosts += 1;
                     });
                 } catch (e) {}
                 const layoutParent = nativeMount.layoutParent || nativeMount.parent;
@@ -7461,9 +7816,14 @@
             const now = () => ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
             const startTs = now();
             const frameBudgetMs = 4;
+            const lightDrain = isInlineMetaScrollSettling() || Date.now() < Number(inlineMetaRecentStructuralUntil || 0);
+            const batchLimit = lightDrain
+                ? Math.min(4, QUICKBAR_INLINE_RENDER_BATCH_LIMIT)
+                : QUICKBAR_INLINE_RENDER_BATCH_LIMIT;
             let count = 0;
+            const initialQueueLength = inlineMetaRenderQueue.length;
             while (inlineMetaRenderQueue.length) {
-                if (count >= QUICKBAR_INLINE_RENDER_BATCH_LIMIT && (now() - startTs) >= frameBudgetMs) break;
+                if (count >= batchLimit && (now() - startTs) >= frameBudgetMs) break;
                 const item = inlineMetaRenderQueue.shift();
                 inlineMetaRenderQueueIds.delete(item.taskId);
                 if (!item.blockEl?.isConnected || inlineMetaRenderActiveIds.has(item.taskId)) continue;
@@ -7477,6 +7837,17 @@
                     });
             }
             if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(0);
+            const duration = now() - startTs;
+            if (duration > 16 || initialQueueLength > 80 || inlineMetaRenderQueue.length > 80) {
+                pushQuickbarPerfProbe('render-queue', {
+                    durationMs: Math.round(duration),
+                    processed: count,
+                    initialQueueLength,
+                    remainingQueueLength: inlineMetaRenderQueue.length,
+                    activeCount: inlineMetaRenderActiveIds.size,
+                    scrolling: !!inlineMetaScrolling,
+                }, { throttleMs: 800 });
+            }
         }
 
         function getInlineDirectionalTaskBlocks(upBuffer = 360, downBuffer = 360, maxCount = 96, preferVisible = false) {
@@ -7530,7 +7901,7 @@
             // accurate picture of the active tab's blocks; the IO-driven
             // visible set lags on tab switches.
             const sourceBlocks = Array.from(inlineMetaObservedTaskBlocks.values());
-            const buckets = { coreBlocks: [], preRenderBlocks: [], keepBlocks: [] };
+            const buckets = { viewportBlocks: [], coreBlocks: [], preRenderBlocks: [], keepBlocks: [] };
             const seen = new Set();
             for (let i = 0; i < sourceBlocks.length; i += 1) {
                 const blockEl = sourceBlocks[i];
@@ -7549,6 +7920,9 @@
                     }
                     if (rect.bottom >= -coreUp && rect.top <= viewportHeight + coreDown) {
                         if (buckets.coreBlocks.length < 160) buckets.coreBlocks.push(blockEl);
+                    }
+                    if (rect.bottom >= 0 && rect.top <= viewportHeight) {
+                        if (buckets.viewportBlocks.length < 96) buckets.viewportBlocks.push(blockEl);
                     }
                 } catch (e) {}
             }
@@ -7749,6 +8123,7 @@
             pruneInlineMetaNativeHostSuppression(now, retainIds);
             pruneInlineMetaTimestampMap(inlineMetaMissingHostSeenAt, now, QUICKBAR_INLINE_MISC_CACHE_TTL_MS, QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT, retainIds);
             pruneInlineMetaTimestampMap(quickbarAttrHostMigrationSeenAt, now, QUICKBAR_INLINE_MISC_CACHE_TTL_MS, QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT, retainIds);
+            pruneInlineMetaTimestampMap(quickbarAttrHostMirrorSyncSeenAt, now, QUICKBAR_INLINE_MISC_CACHE_TTL_MS, QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT, retainIds);
         }
 
         function clearInlineMetaRuntimeCaches() {
@@ -7759,8 +8134,13 @@
             try { inlineMetaPropsInflight.clear(); } catch (e) {}
             try { inlineMetaMissingHostSeenAt.clear(); } catch (e) {}
             try { inlineMetaNativeHostSuppressedUntil.clear(); } catch (e) {}
+            try { inlineMetaSourceHostDedupeSeenAt.clear(); } catch (e) {}
             try { quickbarAttrHostMigrationSeenAt.clear(); } catch (e) {}
+            try { quickbarAttrHostMirrorSyncSeenAt.clear(); } catch (e) {}
             try { quickbarAttrHostDragSnapshots.clear(); } catch (e) {}
+            inlineMetaPrefetchQueue = [];
+            inlineMetaPrefetchQueuedIds.clear();
+            inlineMetaPrefetchActiveCount = 0;
             inlineMetaLastRuntimePruneAt = 0;
             inlineMetaScopeDocIds = null;
             inlineMetaScopeDocIdsTs = 0;
@@ -7825,18 +8205,14 @@
                             stale.push(taskId);
                             return;
                         }
-                        if (blockEl === topmostAffected) {
+                        if (blockEl === topmostAffected || topmostAffected.contains(blockEl) || blockEl.contains(topmostAffected)) {
                             stale.push(taskId);
-                            return;
                         }
-                        const rel = topmostAffected.compareDocumentPosition(blockEl);
-                        if (rel & Node.DOCUMENT_POSITION_FOLLOWING) stale.push(taskId);
                     });
                     stale.forEach((taskId) => inlineMetaLayoutCache.delete(taskId));
                     return;
                 } catch (e) {}
             }
-            inlineMetaLayoutCache.clear();
         }
 
         function rememberInlineMetaDeferredStructuralAnchor(topmostAffected = null) {
@@ -7868,13 +8244,19 @@
                     scheduleInlineMetaDeferredPrune();
                     return;
                 }
+                const hadDeferredStructural = !!inlineMetaDeferredStructural;
                 if (inlineMetaDeferredStructural) {
                     applyInlineMetaStructuralInvalidation(inlineMetaDeferredStructuralAnchor);
                     inlineMetaDeferredStructural = false;
                     inlineMetaDeferredStructuralAnchor = null;
                 }
+                let shouldCompactHosts = false;
+                try {
+                    shouldCompactHosts = document.querySelectorAll('.sy-custom-props-inline-host').length > QUICKBAR_INLINE_DOM_HOST_SOFT_LIMIT;
+                } catch (e) {}
+                if (!hadDeferredStructural && !shouldCompactHosts) return;
                 inlineMetaNeedSyncBlocks = true;
-                requestInlineMetaRender(true);
+                requestInlineMetaRender(false);
             }, delay);
         }
 
@@ -8110,7 +8492,28 @@
             return removed;
         }
 
+        function isInlineMetaStructuralSettling() {
+            return !!inlineMetaStructuralRenderTimer || Date.now() < Number(inlineMetaStructuralSettleUntil || 0);
+        }
+
+        function scheduleInlineMetaStructuralQuietRender(forceRefresh = false) {
+            if (!inlineMetaStarted || !isInlineMetaEnabled()) return;
+            if (inlineMetaStructuralRenderTimer) {
+                try { clearTimeout(inlineMetaStructuralRenderTimer); } catch (e) {}
+            }
+            const now = Date.now();
+            const quietDelay = 180;
+            inlineMetaStructuralSettleUntil = now + quietDelay;
+            inlineMetaRecentStructuralUntil = Math.max(Number(inlineMetaRecentStructuralUntil || 0), now + 1800);
+            inlineMetaStructuralRenderTimer = setTimeout(() => {
+                inlineMetaStructuralRenderTimer = 0;
+                inlineMetaStructuralSettleUntil = 0;
+                requestInlineMetaRender(!!forceRefresh);
+            }, quietDelay);
+        }
+
         function requestInlineMetaRender(forceRefresh = false) {
+            if (!forceRefresh && isInlineMetaStructuralSettling()) return;
             if (forceRefresh) inlineMetaPendingForceRefresh = true;
             if (inlineMetaRafId) return;
             inlineMetaRafId = requestAnimationFrame(() => {
@@ -8124,6 +8527,7 @@
         function setInlineMetaScrolling(active) {
             if (inlineMetaScrolling === !!active) return;
             inlineMetaScrolling = !!active;
+            if (!inlineMetaScrolling) inlineMetaRenderCursor = 0;
             try {
                 document.querySelectorAll('.sy-custom-props-inline-layer').forEach((layer) => {
                     if (active) layer.classList.add('is-scrolling');
@@ -8222,7 +8626,7 @@
                     ? blockEl.parentElement
                     : blockEl.closest?.('.list,[data-type="NodeList"]');
                 taskList?.querySelectorAll?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((node) => {
-                    try { node.remove(); } catch (e2) {}
+                    removeInlineMetaHostNode(node, true);
                 });
                 taskList?.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((node) => {
                     if (!hasInlineMetaInBlockHost(node)) {
@@ -8232,7 +8636,7 @@
                 blockEl.querySelectorAll?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((node) => {
                     const hostBlock = getTaskBlockElementFromTarget(node) || node.closest?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
                     if (hostBlock && hostBlock !== blockEl) return;
-                    node.remove();
+                    removeInlineMetaHostNode(node, true);
                 });
             } catch (e) {}
             try { queueInlineMetaRenderBlock(blockEl, false, 420); } catch (e) {}
@@ -8429,7 +8833,10 @@
                         // the scroll-core zone (240–720px) wait until the
                         // next scroll-driven render pass even gets to them,
                         // which during fast scroll is too late.
-                        if (!wasVisible && blockEl instanceof Element && blockEl.isConnected) {
+                        let renderTaskId = blockId;
+                        try { renderTaskId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockId).trim() || blockId; } catch (e) {}
+                        const hasCachedRenderProps = !!renderTaskId && inlineMetaCache.has(renderTaskId);
+                        if (!wasVisible && (!isInlineMetaScrollSettling() || hasCachedRenderProps) && blockEl instanceof Element && blockEl.isConnected) {
                             try { queueInlineMetaRenderBlock(blockEl, false, 2400); } catch (e) {}
                         }
                     } else {
@@ -8447,18 +8854,30 @@
         function syncInlineMetaTaskBlocks(force = false) {
             if (!inlineMetaStarted) return;
             if (!force && !inlineMetaNeedSyncBlocks) return;
+            const perfStartTs = quickbarPerfNow();
             inlineMetaNeedSyncBlocks = false;
             const roots = inlineMetaObservedRoots.length ? inlineMetaObservedRoots : getInlineMetaObserveRoots();
             const nextBlocks = new Map();
+            let scannedCount = 0;
+            let taskCount = 0;
+            let hiddenDoneSkipped = 0;
+            let nearQueued = 0;
             roots.forEach((root) => {
                 if (root?.closest?.('.tm-task-detail-note-mount')) return;
                 const blocks = root?.querySelectorAll?.('.li[data-node-id], [data-type="NodeListItem"][data-node-id]') || [];
                 for (let i = 0; i < blocks.length; i += 1) {
+                    scannedCount += 1;
                     const blockEl = blocks[i];
                     const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                     if (!blockId || nextBlocks.has(blockId)) continue;
                     if (!isTaskBlockElement(blockEl)) continue;
-                    if (isInlineMetaHiddenDoneTaskBlock(blockEl) && !quickbarInlineFieldsIncludeCompleteAt()) continue;
+                    taskCount += 1;
+                    if (isInlineMetaHiddenDoneTaskBlock(blockEl)) {
+                        hiddenDoneSkipped += 1;
+                        try { removeInlineMetaHostByTaskId(blockId); } catch (e) {}
+                        inlineMetaLayoutCache.delete(blockId);
+                        continue;
+                    }
                     nextBlocks.set(blockId, blockEl);
                 }
             });
@@ -8492,6 +8911,8 @@
                 // the block is genuinely far from the viewport.
             });
             const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+            const syncLightMode = !force && (isScrolling || isInlineMetaScrollSettling() || Date.now() < Number(inlineMetaRecentStructuralUntil || 0));
+            const nearQueueLimit = syncLightMode ? 12 : 48;
             nextBlocks.forEach((nextEl, blockId) => {
                 const prevEl = inlineMetaObservedTaskBlocks.get(blockId);
                 if (prevEl === nextEl) return;
@@ -8508,11 +8929,15 @@
                 // synchronously here lets us queue the build during
                 // the same mutation-driven render cycle that surfaced
                 // the block.
-                if (nextEl instanceof Element && nextEl.isConnected) {
+                let renderTaskId = blockId;
+                try { renderTaskId = String(resolveTaskAttrNodeIdForDetail(nextEl) || blockId).trim() || blockId; } catch (e) {}
+                const hasCachedRenderProps = !!renderTaskId && inlineMetaCache.has(renderTaskId);
+                const canQueueNearRender = !syncLightMode || !inlineMetaScrolling || hasCachedRenderProps;
+                if (canQueueNearRender && nearQueued < nearQueueLimit && nextEl instanceof Element && nextEl.isConnected) {
                     try {
                         const rect = nextEl.getBoundingClientRect();
                         if (rect && rect.bottom > -2400 && rect.top < (viewportHeight + 2400)) {
-                            queueInlineMetaRenderBlock(nextEl, false, 2400);
+                            if (queueInlineMetaRenderBlock(nextEl, false, 2400)) nearQueued += 1;
                         }
                     } catch (e) {}
                 }
@@ -8528,6 +8953,7 @@
                 inlineMetaNeedSyncBlocks = true;
             } else {
                 inlineMetaObservedTaskBlocks = nextBlocks;
+                inlineMetaRenderCursor = 0;
             }
             if (!io) {
                 if (isScrolling) {
@@ -8539,11 +8965,31 @@
                 }
             }
             invalidateInlineMetaActiveTargetsCache();
+            const perfDuration = quickbarPerfNow() - perfStartTs;
+            if (perfDuration > 24 || scannedCount > 300 || hiddenDoneSkipped > 0) {
+                pushQuickbarPerfProbe('sync-blocks', {
+                    durationMs: Math.round(perfDuration),
+                    force: !!force,
+                    scrolling: !!isScrolling,
+                    roots: roots.length,
+                    scannedCount,
+                    taskCount,
+                    hiddenDoneSkipped,
+                    observedCount: inlineMetaObservedTaskBlocks.size,
+                    visibleCount: inlineMetaVisibleTaskBlocks.size,
+                    nearQueued,
+                    queueLength: inlineMetaRenderQueue.length,
+                }, { throttleMs: hiddenDoneSkipped > 0 ? 1600 : 900 });
+            }
         }
 
         function cleanupInlineMetaTaskBlocks() {
             if (inlineMetaMutationTimer) clearTimeout(inlineMetaMutationTimer);
             inlineMetaMutationTimer = null;
+            if (inlineMetaStructuralRenderTimer) clearTimeout(inlineMetaStructuralRenderTimer);
+            inlineMetaStructuralRenderTimer = 0;
+            inlineMetaStructuralSettleUntil = 0;
+            inlineMetaRecentStructuralUntil = 0;
             inlineMetaPropsInflight = new Map();
             if (inlineMetaBlockObserver) {
                 try { inlineMetaBlockObserver.disconnect(); } catch (e) {}
@@ -8556,11 +9002,63 @@
             invalidateInlineMetaActiveTargetsCache();
         }
 
+        function rebindInlineMetaResizeObserver(roots) {
+            try { inlineMetaResizeObserver?.disconnect?.(); } catch (e) {}
+            inlineMetaResizeObserver = null;
+            inlineMetaResizeObservedWidths = new WeakMap();
+            if (typeof ResizeObserver !== 'function') return;
+            const targetRoots = Array.isArray(roots) ? roots : [];
+            if (!targetRoots.length) return;
+            try {
+                inlineMetaResizeObserver = new ResizeObserver((entries) => {
+                    let widthChanged = false;
+                    (Array.isArray(entries) ? entries : []).forEach((entry) => {
+                        const target = entry?.target;
+                        if (!(target instanceof Element) || !target.isConnected) return;
+                        const width = Math.round(Number(entry?.contentRect?.width || target.getBoundingClientRect?.().width || 0));
+                        if (width <= 0) return;
+                        const prevWidth = Number(inlineMetaResizeObservedWidths.get(target) || 0);
+                        inlineMetaResizeObservedWidths.set(target, width);
+                        if (prevWidth && prevWidth !== width) widthChanged = true;
+                    });
+                    if (widthChanged) scheduleInlineMetaResizeLayoutRefresh();
+                });
+                const seen = new WeakSet();
+                const observeTarget = (target) => {
+                    if (!(target instanceof Element) || seen.has(target)) return;
+                    seen.add(target);
+                    try {
+                        const rect = target.getBoundingClientRect?.();
+                        const width = Math.round(Number(rect?.width || 0));
+                        if (width > 0) inlineMetaResizeObservedWidths.set(target, width);
+                    } catch (e) {}
+                    try { inlineMetaResizeObserver.observe(target); } catch (e) {}
+                };
+                targetRoots.forEach((root) => {
+                    observeTarget(root);
+                    observeTarget(root?.querySelector?.('.protyle-content'));
+                    observeTarget(root?.querySelector?.('.protyle-wysiwyg'));
+                });
+            } catch (e) {
+                try { inlineMetaResizeObserver?.disconnect?.(); } catch (e2) {}
+                inlineMetaResizeObserver = null;
+            }
+        }
+
         function rebindInlineMetaObservers() {
             try { inlineMetaObserver?.disconnect?.(); } catch (e) {}
             inlineMetaObservedRoots = [];
             if (!inlineMetaStarted) return;
             inlineMetaObserver = new MutationObserver((mutations) => {
+                const perfStartTs = quickbarPerfNow();
+                let structuralMutationCount = 0;
+                let addedElementCount = 0;
+                let removedElementCount = 0;
+                let addedBlockLikeCount = 0;
+                let removedBlockLikeCount = 0;
+                let attributeMutationCount = 0;
+                let sampleTarget = null;
+                const attributeNameCounts = new Map();
                 try {
                     mutations.forEach((m) => {
                         if (m.type !== 'attributes' || m.attributeName !== 'data-editing') return;
@@ -8570,7 +9068,7 @@
                             ? target
                             : (target.closest?.('.list,[data-type="NodeList"]') || target.closest?.('.li,[data-type="NodeListItem"]') || target);
                         scope.querySelectorAll?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((node) => {
-                            try { node.remove(); } catch (e2) {}
+                            removeInlineMetaHostNode(node, true);
                         });
                         scope.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((node) => {
                             if (!hasInlineMetaInBlockHost(node)) {
@@ -8586,6 +9084,19 @@
                     if (node.closest?.('.sy-custom-props-inline-layer,.sy-custom-props-inline-host')) return true;
                     return node.matches?.('.sy-custom-props-inline-layer,.sy-custom-props-inline-host');
                 };
+                try {
+                    mutations.forEach((m) => {
+                        const target = m.target instanceof Element ? m.target : null;
+                        if (target && !sampleTarget && !isInlineMetaOwnNode(target)) {
+                            sampleTarget = describeQuickbarPerfElement(target);
+                        }
+                        if (m.type !== 'attributes') return;
+                        if (target && isInlineMetaOwnNode(target)) return;
+                        attributeMutationCount += 1;
+                        const attrName = String(m.attributeName || 'unknown');
+                        attributeNameCounts.set(attrName, Number(attributeNameCounts.get(attrName) || 0) + 1);
+                    });
+                } catch (e) {}
                 const hasRelevantMutation = mutations.some((m) => {
                     const target = m.target;
                     if (target instanceof Element) {
@@ -8599,13 +9110,24 @@
                 });
                 if (!hasRelevantMutation) return;
                 let topmostAffected = null;
+                const countBlockLikeNode = (node) => {
+                    if (!(node instanceof Element)) return 0;
+                    let count = node.hasAttribute?.('data-node-id') ? 1 : 0;
+                    try { count += node.querySelectorAll?.('[data-node-id]')?.length || 0; } catch (e) {}
+                    return count;
+                };
                 const hasStructuralChange = mutations.some((m) => {
                     if (m.type !== 'childList') return false;
                     if (m.target instanceof Element && isInlineMetaOwnNode(m.target)) return false;
                     const nodes = [...m.addedNodes, ...m.removedNodes];
                     if (nodes.length && nodes.every((node) => isInlineMetaOwnNode(node))) return false;
+                    addedElementCount += Array.from(m.addedNodes || []).filter((node) => node instanceof Element).length;
+                    removedElementCount += Array.from(m.removedNodes || []).filter((node) => node instanceof Element).length;
+                    addedBlockLikeCount += Array.from(m.addedNodes || []).reduce((sum, node) => sum + countBlockLikeNode(node), 0);
+                    removedBlockLikeCount += Array.from(m.removedNodes || []).reduce((sum, node) => sum + countBlockLikeNode(node), 0);
                     const structural = nodes.some((n) => n.nodeType === Node.ELEMENT_NODE && (n.hasAttribute?.('data-node-id') || n.querySelector?.('[data-node-id]')));
                     if (structural) {
+                        structuralMutationCount += 1;
                         // Find the topmost-in-DOM-order anchor for the mutation,
                         // so we can invalidate only entries at or after it.
                         // Removed nodes are no longer in the tree — use the
@@ -8635,33 +9157,73 @@
                     return structural;
                 });
                 inlineMetaNeedSyncBlocks = true;
-                if (hasStructuralChange && !inlineMetaScrolling) {
+                const inScrollGrace = inlineMetaScrolling || Date.now() < Number(inlineMetaRecentScrollUntil || 0);
+                const deferStructuralForScroll = !!(hasStructuralChange
+                    && inScrollGrace
+                    && !quickbarAttrHostDragActive
+                    && !hasRecentQuickbarAttrHostDragChange(2500));
+                if (hasStructuralChange && !inScrollGrace) {
                     try { clearQuickbarTaskBindingCaches(); } catch (e) {}
                     quickbarAttrHostLastStructuralAt = Date.now();
                     try { quickbarAttrHostMigrationScheduler?.('structural-change'); } catch (e) {}
-                    if (Date.now() >= inlineMetaRecentScrollUntil) {
-                        inlineMetaMutationHasStructural = true;
-                        applyInlineMetaStructuralInvalidation(topmostAffected);
+                    inlineMetaMutationHasStructural = true;
+                    applyInlineMetaStructuralInvalidation(topmostAffected);
+                } else if (deferStructuralForScroll) {
+                    rememberInlineMetaDeferredStructuralAnchor(topmostAffected);
+                    scheduleInlineMetaDeferredPrune();
+                }
+                if (!deferStructuralForScroll) {
+                    if (inlineMetaMutationTimer) clearTimeout(inlineMetaMutationTimer);
+                    const now = Date.now();
+                    const elapsed = now - inlineMetaMutationLastFireTs;
+                    const fireNow = elapsed >= 80;
+                    const fireMutation = () => {
+                        inlineMetaMutationTimer = null;
+                        inlineMetaMutationLastFireTs = Date.now();
+                        const structural = inlineMetaMutationHasStructural;
+                        inlineMetaMutationHasStructural = false;
+                        const forceForDragOrMigration = !!(structural && (
+                            quickbarAttrHostDragActive
+                            || hasRecentQuickbarAttrHostDragChange(2500)
+                            || hasQuickbarAttrHostDragSnapshots(QUICKBAR_ATTR_HOST_DRAG_RECENT_TTL_MS)
+                        ));
+                        if (structural && !forceForDragOrMigration) {
+                            scheduleInlineMetaStructuralQuietRender(false);
+                            return;
+                        }
+                        requestInlineMetaRender(forceForDragOrMigration);
+                    };
+                    if (fireNow) {
+                        fireMutation();
                     } else {
-                        rememberInlineMetaDeferredStructuralAnchor(topmostAffected);
-                        scheduleInlineMetaDeferredPrune();
+                        inlineMetaMutationTimer = setTimeout(fireMutation, 80 - elapsed);
                     }
                 }
-                if (inlineMetaMutationTimer) clearTimeout(inlineMetaMutationTimer);
-                const now = Date.now();
-                const elapsed = now - inlineMetaMutationLastFireTs;
-                const fireNow = elapsed >= 80;
-                const fireMutation = () => {
-                    inlineMetaMutationTimer = null;
-                    inlineMetaMutationLastFireTs = Date.now();
-                    const structural = inlineMetaMutationHasStructural;
-                    inlineMetaMutationHasStructural = false;
-                    requestInlineMetaRender(structural);
-                };
-                if (fireNow) {
-                    fireMutation();
-                } else {
-                    inlineMetaMutationTimer = setTimeout(fireMutation, 80 - elapsed);
+                const perfDuration = quickbarPerfNow() - perfStartTs;
+                const topAttributeNames = Array.from(attributeNameCounts.entries())
+                    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+                    .slice(0, 6)
+                    .map(([name, count]) => `${name}:${count}`);
+                if (perfDuration > 24 || structuralMutationCount > 3 || (addedBlockLikeCount + removedBlockLikeCount) > 30 || attributeMutationCount > 120) {
+                    pushQuickbarPerfProbe('mutation', {
+                        durationMs: Math.round(perfDuration),
+                        mutationCount: Array.isArray(mutations) ? mutations.length : 0,
+                        hasStructuralChange,
+                        structuralMutationCount,
+                        attributeMutationCount,
+                        attributeNames: topAttributeNames,
+                        addedElementCount,
+                        removedElementCount,
+                        addedBlockLikeCount,
+                        removedBlockLikeCount,
+                        sampleTarget,
+                        dragActive: !!quickbarAttrHostDragActive,
+                        recentDragSnapshots: hasQuickbarAttrHostDragSnapshots(QUICKBAR_ATTR_HOST_DRAG_RECENT_TTL_MS),
+                        structuralAgeMs: quickbarAttrHostLastStructuralAt ? Math.max(0, Date.now() - quickbarAttrHostLastStructuralAt) : 0,
+                        scrolling: !!inlineMetaScrolling,
+                        recentScroll: Date.now() < inlineMetaRecentScrollUntil,
+                        queuedRender: !!inlineMetaMutationTimer,
+                    }, { throttleMs: 800 });
                 }
             });
             const roots = getInlineMetaObserveRoots();
@@ -8669,6 +9231,7 @@
             roots.forEach((root) => {
                 try { inlineMetaObserver.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-editing'] }); } catch (e) {}
             });
+            rebindInlineMetaResizeObserver(roots);
             // Watch every .protyle for hidden→visible transitions so a tab
             // switch back to a document tab triggers a wake even when SiYuan
             // does not fire switch-protyle / loaded-protyle-* for it.
@@ -8810,8 +9373,9 @@
             // Prefer the source string we last wrote over host.innerHTML,
             // which can differ after browser serialization.
             const layoutHtml = String(html ?? prevLayout?.html ?? host._inlineMetaHtml ?? host.innerHTML ?? '');
+            const layoutRevision = Number(inlineMetaLayoutRevision || 0);
             if (isInBlockHost) {
-                if (!forceRefresh && prevLayout?.inBlock && prevLayout.textSig === textSig && prevLayout.html === layoutHtml) {
+                if (!forceRefresh && prevLayout?.inBlock && prevLayout.layoutRevision === layoutRevision && prevLayout.textSig === textSig && prevLayout.html === layoutHtml) {
                     host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
                     host.style.left = prevLayout.left || '0px';
                     host.style.top = prevLayout.top || '0px';
@@ -8873,6 +9437,7 @@
                     viewportSig,
                     html: layoutHtml,
                     inBlock: true,
+                    layoutRevision,
                     left: `${left}px`,
                     top: `${top}px`,
                     maxWidth,
@@ -8904,7 +9469,7 @@
                 }
             } catch (e) {}
             // --- FAST PATH: skip expensive geometry reads when content is unchanged ---
-            if (!forceRefresh && prevLayout && prevLayout.textSig === textSig && prevLayout.html === layoutHtml && !inlineMetaScrolling) {
+            if (!forceRefresh && prevLayout && prevLayout.layoutRevision === layoutRevision && prevLayout.textSig === textSig && prevLayout.html === layoutHtml && !inlineMetaScrolling) {
                 host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
                 host.style.left = prevLayout.left;
                 host.style.top = prevLayout.top;
@@ -8962,7 +9527,7 @@
             };
             const viewportSig = `${localTextRect.right}:${localTextRect.top}:${localTextRect.height}`;
             // --- CACHE HIT: reuse cached layout, use cached dimensions to avoid forced reflow ---
-            if (!forceRefresh && prevLayout && prevLayout.textSig === textSig && prevLayout.widthSig === widthSig && prevLayout.viewportSig === viewportSig && prevLayout.html === layoutHtml) {
+            if (!forceRefresh && prevLayout && prevLayout.layoutRevision === layoutRevision && prevLayout.textSig === textSig && prevLayout.widthSig === widthSig && prevLayout.viewportSig === viewportSig && prevLayout.html === layoutHtml) {
                 host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
                 host.style.left = prevLayout.left;
                 host.style.top = prevLayout.top;
@@ -9028,7 +9593,7 @@
                     host.style.top = topPx;
                     host.style.maxWidth = maxWidthPx;
                     host.classList.add('is-ready');
-                    inlineMetaLayoutCache.set(taskId, { ts: Date.now(), textSig, widthSig, viewportSig, html: layoutHtml, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
+                    inlineMetaLayoutCache.set(taskId, { ts: Date.now(), textSig, widthSig, viewportSig, html: layoutHtml, layoutRevision, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
                     return true;
                 }
                 // Same preservation as the failure paths above:
@@ -9050,7 +9615,7 @@
             host.style.top = topPx;
             host.style.maxWidth = maxWidthPx;
             host.classList.add('is-ready');
-            inlineMetaLayoutCache.set(taskId, { ts: Date.now(), textSig, widthSig, viewportSig, html: layoutHtml, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
+            inlineMetaLayoutCache.set(taskId, { ts: Date.now(), textSig, widthSig, viewportSig, html: layoutHtml, layoutRevision, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
             inlineMetaOccupiedRects.push(candidateRect);
             return true;
         }
@@ -9144,8 +9709,9 @@
             if (!taskId) return;
             try { maybeRequestQuickbarSubtaskFieldInheritance(blockEl, binding, 'inline-meta-render'); } catch (e) {}
             const cfg = getQuickbarInlineSettings();
-            const hasCompleteAtInlineField = quickbarInlineFieldsIncludeCompleteAt(cfg);
-            if (isInlineMetaHiddenDoneTaskBlock(blockEl) && !hasCompleteAtInlineField) {
+            const hasVisibleDateInlineField = Array.isArray(cfg?.fields)
+                && (cfg.fields.includes('custom-start-date') || cfg.fields.includes('custom-completion-time'));
+            if (isInlineMetaHiddenDoneTaskBlock(blockEl)) {
                 removeInlineMetaHostByTaskId(taskId);
                 inlineMetaLayoutCache.delete(taskId);
                 return;
@@ -9169,7 +9735,7 @@
             const attrHostIdForRender = String(binding?.attrHostId || taskId).trim() || taskId;
             const hasRecentAttrHostChange = hasRecentQuickbarAttrHostStructuralChange(5000);
             const hasRecentAttrHostDrag = hasRecentQuickbarAttrHostDragChange(2500);
-            let runtimeProps = hasRemarkInlineField ? null : getRuntimeTaskCustomProps(taskId, blockEl);
+            let runtimeProps = getRuntimeTaskCustomProps(taskId, blockEl);
             if (runtimeProps?.props && !shouldUseQuickbarRuntimePropsForBinding(runtimeProps, binding)) {
                 pushQuickbarInlineSyncLog('runtime-host-conflict', {
                     taskId,
@@ -9181,6 +9747,22 @@
                 });
                 runtimeProps = null;
             }
+            if (runtimeProps?.props && hasVisibleDateInlineField
+                && String(binding?.taskId || '').trim()
+                && String(binding?.attrHostId || '').trim()
+                && String(binding?.taskId || '').trim() !== String(binding?.attrHostId || '').trim()) {
+                const cachedDateProps = inlineMetaCache.get(taskId);
+                if (cachedDateProps?.__tmQuickbarHasManagedAttrHostAttrs === true) {
+                    runtimeProps = null;
+                }
+            }
+            const shouldRevalidateRuntimeDateProps = !!(
+                runtimeProps?.props
+                && hasVisibleDateInlineField
+                && String(binding?.taskId || '').trim()
+                && String(binding?.attrHostId || '').trim()
+                && String(binding?.taskId || '').trim() !== String(binding?.attrHostId || '').trim()
+            );
             if (!runtimeProps?.props) {
                 try {
                     const dragSnapshot = getQuickbarAttrHostDragSnapshot(binding?.taskId, binding?.attrHostId || taskId);
@@ -9258,10 +9840,11 @@
             }
             const hasCacheForRender = inlineMetaCache.has(taskId) && !runtimeProps?.props;
             const hasCached = hasCacheForRender && !forceRefresh;
-            const revalidateCached = hasCached && (hasRemarkInlineField || isInlineMetaCacheStale(taskId));
+            const revalidateCached = hasCached && isInlineMetaCacheStale(taskId, hasRemarkInlineField ? 30000 : 12000);
+            const includeRemarkForFreshRead = false;
             const useEmptyPropsForRender = !runtimeProps?.props && !hasCacheForRender;
             if (useEmptyPropsForRender && transitionSourceId && hasRecentAttrHostDrag) {
-                Promise.resolve(ensureTaskPropsReady(taskId, true, { skipAttrFallback: false, blockEl, includeRemark: hasRemarkInlineField }))
+                Promise.resolve(ensureTaskPropsReady(taskId, true, { skipAttrFallback: false, blockEl, includeRemark: includeRemarkForFreshRead }))
                     .then(() => {
                         try { queueInlineMetaRenderBlock(blockEl, true, visibilityBuffer || 420); } catch (e) {}
                     })
@@ -9279,16 +9862,31 @@
                 : getInlineCachedProps(taskId);
             const html = renderInlineMetaHtml(cfg, cachedPropsForRender, blockEl);
             if (!html) {
-                if (isInlineMetaScrollSettling()) return;
+                if (inlineMetaScrolling) return;
                 if (runtimeProps?.props || hasCacheForRender) {
                     removeInlineMetaHostByTaskId(taskId);
                     inlineMetaLayoutCache.delete(taskId);
                     return;
                 }
-                if (!isInlineMetaScrollSettling() && (!hasCacheForRender || revalidateCached || forceRefresh)) {
-                    Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: false, blockEl, includeRemark: hasRemarkInlineField })).catch(() => null);
+                if (!inlineMetaScrolling && (!hasCacheForRender || revalidateCached || forceRefresh)) {
+                    Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: false, blockEl, includeRemark: includeRemarkForFreshRead })).catch(() => null);
                 }
                 return;
+            }
+            const sourceTaskIdForRender = String(binding?.taskId || taskId).trim() || taskId;
+            const shouldDedupeSourceHosts = sourceTaskIdForRender
+                && (sourceTaskIdForRender !== attrHostIdForRender || hasRecentAttrHostChange || hasRecentAttrHostDrag)
+                && shouldRunInlineMetaSourceHostDedupe(sourceTaskIdForRender, attrHostIdForRender, hasRecentAttrHostChange || hasRecentAttrHostDrag ? 700 : QUICKBAR_INLINE_SOURCE_DEDUPE_TTL_MS);
+            const removedSourceHosts = shouldDedupeSourceHosts
+                ? removeInlineMetaHostsBySourceTaskId(sourceTaskIdForRender, attrHostIdForRender)
+                : 0;
+            if (removedSourceHosts > 0) {
+                pushQuickbarInlineSyncLog('source-host-dedupe', {
+                    taskId,
+                    sourceTaskId: sourceTaskIdForRender,
+                    attrHostId: attrHostIdForRender,
+                    removed: removedSourceHosts,
+                });
             }
             const host = ensureInlineHost(blockEl, { preferOverlay: useOverlayHost, blockId: taskId });
             if (!host) return;
@@ -9326,9 +9924,30 @@
                 host.innerHTML = html;
                 host._inlineMetaHtml = html;
             }
-            if (runtimeProps?.props || (hasCached && !revalidateCached)) return;
-            if (isInlineMetaScrollSettling() && !hasRecentAttrHostDrag) return;
-            Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: false, blockEl, includeRemark: hasRemarkInlineField })).catch(() => null);
+            if (runtimeProps?.props || (hasCached && !revalidateCached)) {
+                if (shouldRevalidateRuntimeDateProps && !isInlineMetaScrollSettling()) {
+                    const now = Date.now();
+                    const revalidateKey = `${taskId}:${attrHostIdForRender}`;
+                    const lastRevalidateAt = Number(inlineMetaRuntimeDateRevalidateSeenAt.get(revalidateKey) || 0);
+                    if (!lastRevalidateAt || now - lastRevalidateAt > 8000) {
+                        inlineMetaRuntimeDateRevalidateSeenAt.set(revalidateKey, now);
+                        if (inlineMetaRuntimeDateRevalidateSeenAt.size > 300) {
+                            inlineMetaRuntimeDateRevalidateSeenAt.forEach((seenAt, key) => {
+                                if (now - Number(seenAt || 0) > 30000) inlineMetaRuntimeDateRevalidateSeenAt.delete(key);
+                            });
+                        }
+                        Promise.resolve(ensureTaskPropsReady(taskId, true, { skipAttrFallback: false, blockEl, includeRemark: includeRemarkForFreshRead }))
+                            .then(() => {
+                                try { queueInlineMetaRenderBlock(blockEl, false, visibilityBuffer || 420); } catch (e) {}
+                            })
+                            .catch(() => null);
+                    }
+                }
+                return;
+            }
+            if (inlineMetaScrolling && !hasRecentAttrHostDrag) return;
+            if (hasRecentAttrHostChange && !hasRecentAttrHostDrag && hasCacheForRender) return;
+            Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: false, blockEl, includeRemark: includeRemarkForFreshRead })).catch(() => null);
         }
 
         function scheduleInlineMetaRender(forceRefresh = false, immediate = false) {
@@ -9342,7 +9961,10 @@
                     syncInlineMetaObserveRoots();
                     syncInlineMetaTaskBlocks(false);
                 }
-                if (!isInlineMetaScrollSettling()) {
+                const scrollSettling = isInlineMetaScrollSettling();
+                const structuralSettling = Date.now() < Number(inlineMetaRecentStructuralUntil || 0);
+                const lightRender = scrollSettling || structuralSettling;
+                if (!lightRender) {
                     pruneInlineMetaInvalidHosts(forceRefresh ? 'render-force' : 'render');
                 }
                 inlineMetaOccupiedRects = [];
@@ -9361,30 +9983,52 @@
                     const scrollCoreBlocks = getInlineDirectionalTaskBlocks(scrollCoreUp, scrollCoreDown, 32, true);
                     const scrollCoreLimit = Math.min(QUICKBAR_INLINE_RENDER_BATCH_LIMIT, scrollCoreBlocks.length);
                     for (let i = 0; i < scrollCoreLimit; i += 1) {
-                        queueInlineMetaRenderBlock(scrollCoreBlocks[i], false, 360);
+                        const blockEl = scrollCoreBlocks[i];
+                        const blockId = String(blockEl?.dataset?.nodeId || '').trim();
+                        let renderTaskId = blockId;
+                        try { renderTaskId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockId).trim() || blockId; } catch (e) {}
+                        if (renderTaskId && inlineMetaCache.has(renderTaskId)) {
+                            queueInlineMetaRenderBlock(blockEl, false, 360);
+                        }
                     }
                 } else {
-                    const preRenderBlocks = buckets ? buckets.preRenderBlocks : [];
+                    const viewportBlocks = buckets ? buckets.viewportBlocks : [];
+                    const preRenderBlocks = buckets && !lightRender ? buckets.preRenderBlocks : [];
                     const keepBlocks = buckets ? buckets.keepBlocks : [];
-                    pruneInlineMetaOutsideViewport(keepBlocks);
-                    prefetchInlineMetaProps(preRenderBlocks, 180);
-                    const coreSet = new Set(blocks.map((el) => String(el?.dataset?.nodeId || '').trim()).filter(Boolean));
-                    const renderBlocks = [];
-                    const renderLimit = Math.min(QUICKBAR_INLINE_RENDER_BATCH_LIMIT, preRenderBlocks.length);
-                    const renderCursor = preRenderBlocks.length ? inlineMetaRenderCursor % preRenderBlocks.length : 0;
-                    for (let i = 0; i < renderLimit; i += 1) {
-                        renderBlocks.push(preRenderBlocks[(renderCursor + i) % preRenderBlocks.length]);
+                    if (lightRender) {
+                        if (scrollSettling) scheduleInlineMetaDeferredPrune();
+                    } else {
+                        pruneInlineMetaOutsideViewport(keepBlocks);
                     }
-                    const renderPassComplete = !preRenderBlocks.length || (renderCursor + renderBlocks.length) >= preRenderBlocks.length;
-                    inlineMetaRenderCursor = preRenderBlocks.length
-                        ? (renderCursor + renderBlocks.length) % preRenderBlocks.length
+                    const coreSet = new Set(blocks.map((el) => String(el?.dataset?.nodeId || '').trim()).filter(Boolean));
+                    const renderSourceBlocks = [];
+                    const renderSourceSeen = new Set();
+                    const pushRenderSourceBlock = (blockEl) => {
+                        const blockId = String(blockEl?.dataset?.nodeId || '').trim();
+                        if (!blockId || renderSourceSeen.has(blockId)) return;
+                        renderSourceSeen.add(blockId);
+                        renderSourceBlocks.push(blockEl);
+                    };
+                    viewportBlocks.forEach(pushRenderSourceBlock);
+                    blocks.forEach(pushRenderSourceBlock);
+                    preRenderBlocks.forEach(pushRenderSourceBlock);
+                    prefetchInlineMetaProps(renderSourceBlocks, lightRender ? 24 : 120);
+                    const renderBlocks = [];
+                    const renderLimit = Math.min(QUICKBAR_INLINE_RENDER_BATCH_LIMIT, renderSourceBlocks.length);
+                    const renderCursor = renderSourceBlocks.length ? inlineMetaRenderCursor % renderSourceBlocks.length : 0;
+                    for (let i = 0; i < renderLimit; i += 1) {
+                        renderBlocks.push(renderSourceBlocks[(renderCursor + i) % renderSourceBlocks.length]);
+                    }
+                    const renderPassComplete = !renderSourceBlocks.length || (renderCursor + renderBlocks.length) >= renderSourceBlocks.length;
+                    inlineMetaRenderCursor = renderSourceBlocks.length
+                        ? (renderCursor + renderBlocks.length) % renderSourceBlocks.length
                         : 0;
                     renderBlocks.forEach((blockEl) => {
                         const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                         const buffer = coreSet.has(blockId) ? 420 : 1800;
                         queueInlineMetaRenderBlock(blockEl, forceRefresh, buffer);
                     });
-                    if (preRenderBlocks.length > renderBlocks.length && !renderPassComplete) {
+                    if (!lightRender && renderSourceBlocks.length > renderBlocks.length && !renderPassComplete) {
                         inlineMetaRenderTimer = setTimeout(() => {
                             inlineMetaRenderTimer = null;
                             requestInlineMetaRender(false);
@@ -9412,15 +10056,22 @@
             bindInlineMetaWakeEvents();
             inlineMetaScrollHandler = (e) => {
                 if (!shouldHandleInlineMetaViewportEvent(e?.target || document.documentElement)) return;
+                const isResizeEvent = e?.type === 'resize';
+                if (isResizeEvent) bumpInlineMetaLayoutRevision();
                 let pos = inlineMetaLastScrollPos;
                 let delta = 0;
+                const now = Date.now();
+                const postStructuralScrollQuiet = !isResizeEvent && now < Number(inlineMetaRecentStructuralUntil || 0);
                 if (!hasInlineMetaActiveTargets()) {
                     if (!inlineMetaNeedSyncBlocks) return;
-                    const now = Date.now();
-                    if ((now - inlineMetaLastScrollRenderTs) > 220) {
-                        inlineMetaLastScrollRenderTs = now;
-                        requestInlineMetaRender(false);
-                    }
+                    if (inlineMetaScrollIdleTimer) clearTimeout(inlineMetaScrollIdleTimer);
+                    inlineMetaScrollIdleTimer = setTimeout(() => {
+                        inlineMetaScrollIdleTimer = null;
+                        if (inlineMetaNeedSyncBlocks || inlineMetaDeferredStructural) {
+                            inlineMetaLastScrollRenderTs = Date.now();
+                            requestInlineMetaRender(false);
+                        }
+                    }, postStructuralScrollQuiet ? 1000 : 220);
                     return;
                 }
                 setInlineMetaScrolling(true);
@@ -9434,7 +10085,7 @@
                 // Extending the prune deferral past the layout-idle
                 // threshold keeps those hosts alive across the reversal.
                 inlineMetaRecentScrollUntil = Date.now() + 2500;
-                if (e?.type !== 'resize') {
+                if (!isResizeEvent) {
                     pos = getInlineScrollPositionFromEventTarget(e?.target || document.documentElement);
                     delta = pos - inlineMetaLastScrollPos;
                     if (Math.abs(delta) >= 1) {
@@ -9442,14 +10093,13 @@
                         inlineMetaLastScrollPos = pos;
                     }
                 }
-                const now = Date.now();
                 if (!inlineMetaPositionRafId && hasInlineMetaOverlayHosts()) {
                     inlineMetaPositionRafId = requestAnimationFrame(() => {
                         inlineMetaPositionRafId = 0;
                         try { refreshInlineMetaPositions(); } catch (e2) {}
                     });
                 }
-                if (e?.type !== 'resize' && (now - inlineMetaLastScrollRenderTs) > 120) {
+                if (isResizeEvent && (now - inlineMetaLastScrollRenderTs) > 80) {
                     inlineMetaLastScrollRenderTs = now;
                     requestInlineMetaRender(false);
                 }
@@ -9457,9 +10107,19 @@
                 inlineMetaScrollIdleTimer = setTimeout(() => {
                     inlineMetaScrollIdleTimer = null;
                     setInlineMetaScrolling(false);
-                    requestInlineMetaRender(e?.type === 'resize');
-                }, e?.type === 'resize' ? 70 : 150);
+                    if (isResizeEvent || inlineMetaNeedSyncBlocks || inlineMetaDeferredStructural) {
+                        inlineMetaLastScrollRenderTs = Date.now();
+                        requestInlineMetaRender(false);
+                    }
+                }, isResizeEvent ? 70 : (postStructuralScrollQuiet ? 1000 : 150));
             };
+            inlineMetaPreScrollHandler = (e) => {
+                if (!shouldHandleInlineMetaViewportEvent(e?.target || document.documentElement)) return;
+                setInlineMetaScrolling(true);
+                inlineMetaRecentScrollUntil = Date.now() + 2500;
+            };
+            try { document.addEventListener('wheel', inlineMetaPreScrollHandler, { capture: true, passive: true }); } catch (e) {}
+            try { document.addEventListener('touchmove', inlineMetaPreScrollHandler, { capture: true, passive: true }); } catch (e) {}
             try { document.addEventListener('scroll', inlineMetaScrollHandler, { capture: true, passive: true }); } catch (e) {}
             try { window.addEventListener('resize', inlineMetaScrollHandler, true); } catch (e) {}
             try {
@@ -9573,9 +10233,18 @@
             cleanupInlineMetaTaskBlocks();
             try { inlineMetaObserver?.disconnect?.(); } catch (e) {}
             inlineMetaObserver = null;
+            try { inlineMetaResizeObserver?.disconnect?.(); } catch (e) {}
+            inlineMetaResizeObserver = null;
+            if (inlineMetaResizeTimer) clearTimeout(inlineMetaResizeTimer);
+            inlineMetaResizeTimer = 0;
+            inlineMetaResizeLastRenderAt = 0;
+            inlineMetaResizeObservedWidths = new WeakMap();
             inlineMetaObservedRoots = [];
             inlineMetaProtyleHints.clear();
             unbindInlineMetaWakeEvents();
+            try { if (inlineMetaPreScrollHandler) document.removeEventListener('wheel', inlineMetaPreScrollHandler, true); } catch (e) {}
+            try { if (inlineMetaPreScrollHandler) document.removeEventListener('touchmove', inlineMetaPreScrollHandler, true); } catch (e) {}
+            inlineMetaPreScrollHandler = null;
             try { if (inlineMetaScrollHandler) document.removeEventListener('scroll', inlineMetaScrollHandler, true); } catch (e) {}
             try { if (inlineMetaScrollHandler) window.removeEventListener('resize', inlineMetaScrollHandler, true); } catch (e) {}
             inlineMetaScrollHandler = null;
@@ -9901,13 +10570,14 @@
                 if (!e?.detail || !isReminderRelatedAttrKey(normalizedAttrKey)) return;
                 if (!floatBar || floatBar.style.display === 'none') return;
                 const incomingTaskId = String(e.detail.taskId || '').trim();
+                const incomingResolvedTaskId = String(e.detail.resolvedTaskId || '').trim();
                 const incomingAttrHostId = String(e.detail.attrHostId || '').trim();
                 const currentIds = new Set([
                     String(currentBlockId || '').trim(),
                     String(currentTaskId || '').trim(),
                     String(resolveCurrentTaskId() || '').trim(),
                 ].filter(Boolean));
-                if (!currentIds.has(incomingTaskId) && !currentIds.has(incomingAttrHostId)) return;
+                if (!currentIds.has(incomingTaskId) && !currentIds.has(incomingResolvedTaskId) && !currentIds.has(incomingAttrHostId)) return;
                 if (normalizedAttrKey === 'bookmark') {
                     currentProps = normalizeCustomProps({ ...currentProps, bookmark: String(e.detail.value || '') });
                 } else if (currentBlockId) {

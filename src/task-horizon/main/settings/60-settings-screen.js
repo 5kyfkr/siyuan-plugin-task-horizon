@@ -15,7 +15,7 @@
         { section: 'display', titles: ['基础显示', '字体大小', '移动端字体', '行高模式', '行高(px)', '父任务名称加粗', '自动换行', '内容行数', '备注行数', '任务标题级别', '完成反馈', '文档名称显示'] },
         { section: 'new-task', titles: ['新建任务', '新建任务位置', '默认新建文档', '今天日记默认笔记本', '启用“移动内容至今天日记”', '日记追加到底部', '标题分组追加到内容末尾', '新建任务默认置顶', '子任务继承父任务字段'] },
         { section: 'status', titles: ['状态选项', '勾选完成时状态', '未完成状态默认状态', '子任务全部完成后自动完成父任务'] },
-        { section: 'layout', titles: ['视图布局', '默认视图', '移动端默认', '自动隐藏页签栏', '页签拖延值上色', '启用 Dock 侧边栏', 'Dock 默认视图', 'Dock 紧凑标题点击跳转', '移动端清单紧凑视图标题点击跳转', 'Dock 及移动端紧凑右侧字段', '桌面端紧凑右侧字段', '紧凑右侧字体', '时间轴卡片字段', '标题点击弹出详情页面', '看板紧凑模式', '清单紧凑模式', '清单紧凑层级线', '看板宽度', '表格和看板宽度填满窗口', '看板卡片字段', '白板卡片字段', '白板文字默认字号', '卡片字段常驻显示', '卡片流最小宽度', '移动端卡片流双栏', '显示已完成任务看板', '看板拖动父任务时同步更改子任务状态', '看板内子任务不与父任务分离', '时长显示格式', '实际番茄数属性名', '预计番茄数属性名'] },
+        { section: 'layout', titles: ['视图布局', '默认视图', '移动端默认', '自动隐藏页签栏', '页签拖延值上色', '启用 Dock 侧边栏', 'Dock 默认视图', 'Dock 紧凑标题点击跳转', '移动端清单紧凑视图标题点击跳转', 'Dock 及移动端紧凑右侧字段', '桌面端紧凑右侧字段', '紧凑右侧字体', '时间轴卡片字段', '标题点击弹出详情页面', '看板紧凑模式', '清单紧凑模式', '清单紧凑层级线', '看板宽度', '表格和看板宽度填满窗口', '看板卡片字段', '白板卡片字段', '删除任务同步删除白板卡片', '白板文字默认字号', '卡片字段常驻显示', '卡片流最小宽度', '移动端卡片流双栏', '显示已完成任务看板', '看板拖动父任务时同步更改子任务状态', '看板内子任务不与父任务分离', '时长显示格式', '实际番茄数属性名', '预计番茄数属性名'] },
         { section: 'search', titles: ['搜索分组', '搜索与分组', '递归文档数上限', '兼容旧版 Win7 思源', '父任务回溯层数', '显示已完成任务', '已完成分组仅显示今天完成', '已完成任务不单独分组', '文档分组下按二级标题子分组', '分组模式增加“按任务名分组”', '分组内置顶任务', '自动识别语义日期（全量分批）', '父任务按子任务时间参与时间相关排序', '全部折叠展开包含分组', '手动刷新时同步伺服共享设置', '手动刷新时同步当前分组/规则等会话状态'] },
         { section: 'topbar', titles: ['顶栏入口', '文档顶栏按钮(桌面)', '文档顶栏按钮(移动)', '对调文档顶栏长短按', '打开时定位当前文档', '思源窗口顶栏图标(桌面)', '思源窗口顶栏图标(移动)'] },
         { section: 'quickbar', titles: ['悬浮条', '任务悬浮条', '启用任务悬浮条', '文档任务行末尾常驻显示', '悬浮条显示图标', '常驻显示字段', '子任务数量显示未完成数', '移动端启用常驻显示'] },
@@ -29,7 +29,7 @@
         { tab: 'appearance', title: '列设置', desc: '显示、排序、宽度和自定义列' },
         { tab: 'appearance', section: 'columns', key: 'appearance-task-meta-attr-migration', title: '高级：内置字段属性名与迁移', desc: '自定义开始日期、截止日期、重要性、状态、完成时间等内置字段属性名，并可选择迁移旧任务字段' },
         { tab: 'appearance', title: '页签栏', desc: '归档入口位置' },
-        { tab: 'appearance', title: '任务复选框', desc: '使用圆形任务复选框样式' },
+        { tab: 'appearance', title: '任务复选框', desc: '使用圆形任务复选框样式，按重要性上色' },
         { tab: 'appearance', title: '配色', desc: '调整主题、看板、时间轴和顶栏颜色' },
         { tab: 'calendar', title: '日历', desc: '日历视图与日程相关设置' },
         { tab: 'ai', title: 'AI 接入', desc: '供应商、API Key、Base URL、模型、温度、超时和上下文模式' },
@@ -1302,12 +1302,17 @@
                                 </select>`
                             )}
                         </div>
-                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '任务复选框', '使用圆形任务复选框样式')}>
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '任务复选框', '使用圆形任务复选框样式，按重要性上色')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">☑️ 任务复选框</div>
                             ${renderSingleSwitchSetting(
                                 '圆形任务复选框',
                                 '使用圆形任务复选框样式',
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskCheckboxCircleStyleEnabled ? 'checked' : ''} onchange="updateTaskCheckboxCircleStyleEnabled(this.checked)">`
+                            )}
+                            ${renderSingleSwitchSetting(
+                                '按重要性给文档任务复选框上色',
+                                '根据任务重要性属性为文档内任务复选框着色',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskCheckboxPriorityColorEnabled !== false ? 'checked' : ''} onchange="updateTaskCheckboxPriorityColorEnabled(this.checked)">`
                             )}
                         </div>
                         <div class="tm-settings-panel" style="margin-bottom:0;" ${__tmSettingsSearchAttrs('appearance', '配色', '调整主题、看板、时间轴和顶栏颜色')}>
@@ -1799,6 +1804,12 @@
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
+                        ${renderSingleSwitchSetting(
+                            '删除任务同步删除白板卡片',
+                            '开启后，删除任务本体时同步移除白板上的对应卡片、快照和手动连线；关闭后保留白板卡片作为历史记录。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.deleteTaskRemovesWhiteboardCards !== false ? 'checked' : ''} onchange="updateDeleteTaskRemovesWhiteboardCards(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                         ${renderSingleFieldSetting(
                             '白板文字默认字号',
                             '文字模式中新建文字的默认字号；已创建的文字不受影响。',
@@ -1943,7 +1954,7 @@
                         )}
                         ${renderSingleSwitchSetting(
                             '分组内置顶任务',
-                            '开启后，表格和清单视图在按文档、时间、四象限或任务名分组时，置顶任务留在所属分组内并排在组内最前。',
+                            '开启后，表格、清单和看板视图在按文档、时间、四象限或任务名分组时，置顶任务留在所属分组内并排在组内最前。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pinTasksWithinGroups ? 'checked' : ''} onchange="updatePinTasksWithinGroups(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}

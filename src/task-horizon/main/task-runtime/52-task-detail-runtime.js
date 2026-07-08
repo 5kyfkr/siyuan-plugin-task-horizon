@@ -8936,10 +8936,27 @@ return true;
             });
         } catch (e) {}
         let refreshed = false;
+        const patchVisibleDetailPanel = (panel) => __tmPatchTaskDetailPanelInPlace(panel, tid, {
+            done: true,
+            customStatus: true,
+            priority: true,
+            startDate: true,
+            completionTime: true,
+            taskCompleteAt: true,
+            duration: true,
+            tomatoEstimateCount: true,
+            tomatoCount: true,
+            pinned: true,
+            remark: true,
+            attachments: true,
+            customFieldValues: true,
+            location: true,
+        });
         if (__tmIsChecklistSelectionContext(state.modal) && __tmAreTaskDetailIdsEquivalent(state.detailTaskId, tid)) {
             const notePanel = __tmResolveChecklistDetailPanel(state.modal).panel;
             const noteTask = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
             if (notePanel instanceof HTMLElement && __tmKeepTaskDetailNoteViewDuringRefresh(notePanel, noteTask, tid)) {
+                try { refreshed = !!patchVisibleDetailPanel(notePanel) || refreshed; } catch (e) {}
                 refreshed = true;
             } else
             if (forceRebuild) {
@@ -8959,23 +8976,7 @@ return true;
             } else {
                 try {
                     const panel = __tmResolveChecklistDetailPanel(state.modal).panel;
-                    const detailPatched = !!__tmPatchTaskDetailPanelInPlace(panel, tid, {
-                        done: true,
-                        customStatus: true,
-                        priority: true,
-                        startDate: true,
-                        completionTime: true,
-                        taskCompleteAt: true,
-                        repeatHistory: true,
-                        duration: true,
-                        tomatoEstimateCount: true,
-                        tomatoCount: true,
-                        pinned: true,
-                        remark: true,
-                        attachments: true,
-                        customFieldValues: true,
-                        location: true,
-                    });
+                    const detailPatched = !!patchVisibleDetailPanel(panel);
 refreshed = detailPatched || refreshed;
                 } catch (e) {}
                 if (!refreshed) {
@@ -9013,6 +9014,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
             const notePanel = __tmResolveTaskDetailSheetPanel(state.modal);
             const noteTask = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
             if (notePanel instanceof HTMLElement && __tmKeepTaskDetailNoteViewDuringRefresh(notePanel, noteTask, tid)) {
+                try { refreshed = !!patchVisibleDetailPanel(notePanel) || refreshed; } catch (e) {}
                 refreshed = true;
             } else
             if (forceRebuild) {
@@ -9033,23 +9035,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                 try {
                     const panel = __tmResolveTaskDetailSheetPanel(state.modal);
                     if (panel instanceof HTMLElement) {
-                        const detailPatched = !!__tmPatchTaskDetailPanelInPlace(panel, tid, {
-                            done: true,
-                            customStatus: true,
-                            priority: true,
-                            startDate: true,
-                            completionTime: true,
-                            taskCompleteAt: true,
-                            repeatHistory: true,
-                            duration: true,
-                            tomatoEstimateCount: true,
-                            tomatoCount: true,
-                            pinned: true,
-                            remark: true,
-                            attachments: true,
-                            customFieldValues: true,
-                            location: true,
-                        });
+                        const detailPatched = !!patchVisibleDetailPanel(panel);
                         refreshed = detailPatched || refreshed;
                         if (!detailPatched) {
                             if (__tmIsTaskDetailRootUsable(panel, { taskId: tid }) && __tmShouldDeferTaskDetailFallback(panel)) {

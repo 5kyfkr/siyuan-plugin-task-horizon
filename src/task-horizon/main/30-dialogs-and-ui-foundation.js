@@ -3428,6 +3428,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 push(task.id || task.blockId || '');
                 push(task.updated || task.updatedAt || '');
                 push(task.markdown || task.content || task.text || '');
+                push(task.remark || task.custom_remark || task.customRemark || '');
                 push(task.priority || '');
                 push(task.customStatus || task.status || '');
                 push(task.startDate || task.start_date || '');
@@ -7325,7 +7326,9 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         const sortFields = RuleManager.getSortFields();
 
-        return sortRules.map((sortRule, index) => `
+        return sortRules.map((sortRule, index) => {
+            const isCustomOrderSort = String(sortRule?.field || '').trim() === __TM_CUSTOM_ORDER_SORT_FIELD;
+            return `
             <div class="tm-rule-sort-item">
                 <select class="tm-rule-sort-field" data-tm-change="updateSortField" data-index="${index}">
                     ${sortFields.map(f =>
@@ -7334,17 +7337,18 @@ return Number(state.contextInteractionQuietUntil || 0);
                         </option>`
                     ).join('')}
                 </select>
-                <select class="tm-rule-sort-order" data-tm-change="updateSortOrder" data-index="${index}">
+                <select class="tm-rule-sort-order" data-tm-change="updateSortOrder" data-index="${index}" ${isCustomOrderSort ? 'disabled' : ''}>
                     <option value="asc" ${sortRule.order === 'asc' ? 'selected' : ''}>升序</option>
                     <option value="desc" ${sortRule.order === 'desc' ? 'selected' : ''}>降序</option>
                 </select>
-                <button class="tm-rule-btn tm-rule-btn-secondary tm-rule-sort-move-btn" data-tm-action="moveSortRule" data-index="${index}" data-delta="-1" ${index === 0 ? 'disabled' : ''}><span>↑</span></button>
-                <button class="tm-rule-btn tm-rule-btn-secondary tm-rule-sort-move-btn" data-tm-action="moveSortRule" data-index="${index}" data-delta="1" ${index === sortRules.length - 1 ? 'disabled' : ''}><span>↓</span></button>
+                <button class="tm-rule-btn tm-rule-btn-secondary tm-rule-sort-move-btn" data-tm-action="moveSortRule" data-index="${index}" data-delta="-1" ${index === 0 || isCustomOrderSort ? 'disabled' : ''}><span>↑</span></button>
+                <button class="tm-rule-btn tm-rule-btn-secondary tm-rule-sort-move-btn" data-tm-action="moveSortRule" data-index="${index}" data-delta="1" ${index === sortRules.length - 1 || isCustomOrderSort ? 'disabled' : ''}><span>↓</span></button>
                 <button class="tm-rule-btn tm-rule-btn-danger tm-rule-sort-remove-btn" data-tm-action="removeSortRule" data-index="${index}">
                     ×
                 </button>
             </div>
-        `).join('');
+        `;
+        }).join('');
     }
 
     // 全局规则管理函数
@@ -8465,9 +8469,23 @@ return Number(state.contextInteractionQuietUntil || 0);
         __tmRerenderRulesManagerUI();
     };
 
+    function __tmNormalizeRuleSortConfigForCustomOrder(rule) {
+        if (!rule || typeof rule !== 'object') return rule;
+        const sorts = Array.isArray(rule.sort) ? rule.sort : [];
+        if (sorts.some((item) => String(item?.field || '').trim() === __TM_CUSTOM_ORDER_SORT_FIELD)) {
+            rule.sort = [{ field: __TM_CUSTOM_ORDER_SORT_FIELD, order: 'asc' }];
+        }
+        return rule;
+    }
+
+    function __tmNormalizeRuleListSortConfigForCustomOrder(rules) {
+        return (Array.isArray(rules) ? rules : []).map((rule) => __tmNormalizeRuleSortConfigForCustomOrder(rule));
+    }
+
     window.saveEditRule = async function() {
         if (!state.editingRule) return;
         const savedRuleId = String(state.editingRule.id || '').trim();
+        __tmNormalizeRuleSortConfigForCustomOrder(state.editingRule);
 
         try {
             const fields = RuleManager.getAvailableFields();
@@ -8679,7 +8697,13 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     window.addSortRule = function() {
         if (!state.editingRule) return;
+        const sorts = Array.isArray(state.editingRule.sort) ? state.editingRule.sort : [];
+        if (sorts.some((item) => String(item?.field || '').trim() === __TM_CUSTOM_ORDER_SORT_FIELD)) {
+            hint('自定义排序不能叠加其他排序规则', 'warning');
+            return;
+        }
 
+        state.editingRule.sort = sorts;
         state.editingRule.sort.push({
             field: 'priority',
             order: 'desc'
@@ -8690,12 +8714,26 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     window.updateSortField = function(index, field) {
         if (state.editingRule && state.editingRule.sort[index]) {
-            state.editingRule.sort[index].field = field;
+            const nextField = String(field || '').trim();
+            if (nextField === __TM_CUSTOM_ORDER_SORT_FIELD) {
+                state.editingRule.sort = [{ field: __TM_CUSTOM_ORDER_SORT_FIELD, order: 'asc' }];
+                __tmRerenderRulesManagerUI('sort');
+                return;
+            }
+            state.editingRule.sort[index].field = nextField;
+            if (String(state.editingRule.sort[index].order || '').trim() !== 'desc') {
+                state.editingRule.sort[index].order = 'asc';
+            }
+            __tmRerenderRulesManagerUI('sort');
         }
     };
 
     window.updateSortOrder = function(index, order) {
         if (state.editingRule && state.editingRule.sort[index]) {
+            if (String(state.editingRule.sort[index]?.field || '').trim() === __TM_CUSTOM_ORDER_SORT_FIELD) {
+                state.editingRule.sort[index].order = 'asc';
+                return;
+            }
             state.editingRule.sort[index].order = order;
         }
     };
@@ -8716,6 +8754,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!Number.isInteger(from) || !Number.isInteger(to)) return;
         if (from < 0 || from >= list.length) return;
         if (to < 0 || to >= list.length) return;
+        if (list.some((item) => String(item?.field || '').trim() === __TM_CUSTOM_ORDER_SORT_FIELD)) return;
         const tmp = list[from];
         list[from] = list[to];
         list[to] = tmp;
@@ -8797,6 +8836,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.saveRules = async function() {
+        state.filterRules = __tmNormalizeRuleListSortConfigForCustomOrder(state.filterRules);
         await RuleManager.saveRules(state.filterRules);
         // 同时保存当前选中的规则
         SettingsStore.data.currentRule = state.currentRule;
@@ -8821,7 +8861,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function __tmGetNormalizedRuleSorts(rule) {
         if (!rule || typeof rule !== 'object') return [];
-        return (Array.isArray(rule.sort) ? rule.sort : [])
+        const sorts = (Array.isArray(rule.sort) ? rule.sort : [])
             .map((item) => (item && typeof item === 'object') ? item : null)
             .filter(Boolean)
             .map((item) => ({
@@ -8829,6 +8869,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                 order: String(item.order || 'asc').trim() === 'desc' ? 'desc' : 'asc',
             }))
             .filter((item) => !!item.field);
+        const customOrderSort = sorts.find((item) => item.field === __TM_CUSTOM_ORDER_SORT_FIELD);
+        if (customOrderSort) return [{ field: __TM_CUSTOM_ORDER_SORT_FIELD, order: 'asc' }];
+        return sorts;
     }
 
     function __tmRuleHasExplicitSort(rule) {
@@ -8840,6 +8883,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         const sorts = __tmGetNormalizedRuleSorts(rule);
         if (!sorts.length) return true;
         return sorts.length === 1 && String(sorts[0]?.field || '').trim() === 'docSeq';
+    }
+
+    function __tmRuleUsesCustomOrderSort(rule) {
+        if (!rule || typeof rule !== 'object') return false;
+        const sorts = __tmGetNormalizedRuleSorts(rule);
+        return sorts.length === 1 && String(sorts[0]?.field || '').trim() === __TM_CUSTOM_ORDER_SORT_FIELD;
     }
 
     function __tmGetCurrentRule() {
@@ -8861,6 +8910,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (state.groupByTime || state.groupByTaskName || state.quadrantEnabled) return false;
         const isUngroup = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
         if (!state.groupByDocName && !isUngroup) return false;
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        if (__tmRuleUsesCustomOrderSort(activeRule)) return true;
+        if (activeDocId === 'all') return false;
         return __tmRuleUsesDocFlowSort(activeRule);
     }
 
@@ -8883,6 +8935,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         const currentRule = __tmGetCurrentRule();
         const archiveMode = state.docTabsArchiveMode === true;
         const rule = __tmGetArchiveModeFilterRule(currentRule, archiveMode);
+        const customOrderProjection = __tmRuleUsesCustomOrderSort(rule)
+            ? __tmBuildCustomTaskOrderProjection(state.taskTree, rule)
+            : null;
+        const taskTreeForFilter = Array.isArray(customOrderProjection?.taskTree)
+            ? customOrderProjection.taskTree
+            : state.taskTree;
+        state.__tmCustomTaskOrderProjection = customOrderProjection || null;
         const docTaskStateCache = new Map();
         state.activeDocId = state.activeDocId || 'all';
         if (archiveMode && __tmIsOtherBlockTabId(state.activeDocId)) {
@@ -8928,7 +8987,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             });
         };
 
-        state.taskTree.forEach((doc) => {
+        taskTreeForFilter.forEach((doc) => {
             if (archiveMode && !__tmGetDocTaskStateForTabs(doc, docTaskStateCache).isArchived) return;
             const docTasks = [];
             collect(doc.tasks, docTasks);
@@ -8947,7 +9006,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
         }
 
-        const taskMap = state.flatTasks || {};
+        const taskMap = customOrderProjection?.flatTasks || state.flatTasks || {};
         const hasIncompleteAncestorMemo = new Map();
         const hasIncompleteAncestor = (task) => {
             const tid = String(task?.id || '').trim();
@@ -9051,9 +9110,9 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         const searchFilterStartTime = Date.now();
         if (state.searchKeyword) {
-            const keyword = state.searchKeyword.toLowerCase();
-            matchedForTabs = matchedForTabs.filter((task) => String(task.content || '').toLowerCase().includes(keyword));
-            matched = taskScopeMatchesTabs ? matchedForTabs : matched.filter((task) => String(task.content || '').toLowerCase().includes(keyword));
+            const keyword = state.searchKeyword;
+            matchedForTabs = matchedForTabs.filter((task) => __tmTaskMatchesSearch(task, keyword));
+            matched = taskScopeMatchesTabs ? matchedForTabs : matched.filter((task) => __tmTaskMatchesSearch(task, keyword));
         }
         filterMetrics.searchMs = __tmRoundPerfMs(Date.now() - searchFilterStartTime);
         filterMetrics.matchedTaskCount = Array.isArray(matched) ? matched.length : 0;
@@ -9294,13 +9353,13 @@ return Number(state.contextInteractionQuietUntil || 0);
             filterMetrics.allScopeMs = __tmRoundPerfMs(Date.now() - allScopeStartTime);
             ordered.push(...sortedVisibleTasks);
         } else if (isDocTabCustomGroupActive) {
-            state.taskTree.forEach((doc) => {
+            taskTreeForFilter.forEach((doc) => {
                 const docId = String(doc?.id || '').trim();
                 if (!docId || !activeDocTabCustomGroupDocIds.has(docId)) return;
                 traverse(doc.tasks || [], false);
             });
         } else {
-            state.taskTree.forEach((doc) => {
+            taskTreeForFilter.forEach((doc) => {
                 if (activeDocId !== 'all' && doc.id !== activeDocId) return;
                 traverse(doc.tasks || [], false);
             });
@@ -12563,10 +12622,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                     class="tm-inline-searchbar__input"
                     type="search"
                     value="${esc(String(value || ''))}"
-                    placeholder="搜索任务"
+                    placeholder="搜索任务或备注"
                     autocomplete="off"
                     spellcheck="false"
-                    aria-label="搜索任务"
+                    aria-label="搜索任务或备注"
                     oninput="tmInputInlineSearch(event)"
                     onkeydown="return tmHandleInlineSearchKeydown(event)"
                 >
@@ -12777,6 +12836,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.activeDocId = 'all';
         state.whiteboardSelectedTaskId = '';
         state.whiteboardSelectedNoteId = '';
+        state.whiteboardSelectedFrameId = '';
         state.whiteboardSelectedLinkId = '';
         state.whiteboardSelectedLinkDocId = '';
         state.whiteboardMultiSelectedTaskIds = [];
@@ -13147,6 +13207,27 @@ return Number(state.contextInteractionQuietUntil || 0);
         return !!task && !__tmIsCollectedOtherBlockTask(task);
     }
 
+    function __tmGetTaskRowDropTaskById(id) {
+        const tid = String(id || '').trim();
+        if (!tid) return null;
+        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
+            || state.flatTasks?.[tid]
+            || state.pendingInsertedTasks?.[tid]
+            || null;
+    }
+
+    async function __tmEnsureTaskRowDropTaskById(id) {
+        const task = __tmGetTaskRowDropTaskById(id);
+        if (task) return task;
+        try {
+            if (typeof __tmEnsureTaskInStateById === 'function') {
+                return await __tmEnsureTaskInStateById(id);
+            }
+        } catch (e) {}
+        return null;
+    }
+
     function __tmIsTaskInSubtree(task, maybeDescendantId) {
         const targetId = String(maybeDescendantId || '').trim();
         if (!task || !targetId) return false;
@@ -13196,7 +13277,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     async function __tmResolveTaskMovePlacementMeta(targetTaskId) {
         const targetId = String(targetTaskId || '').trim();
-        const targetTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId) || state.flatTasks?.[targetId] || null;
+        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
         if (!targetId || !targetTask) throw new Error('未找到目标任务');
         const targetDocId = String(targetTask.docId || targetTask.root_id || '').trim();
         const targetListId = await __tmResolveTaskListBlockId(targetId);
@@ -13266,14 +13347,23 @@ return Number(state.contextInteractionQuietUntil || 0);
         const id = String(taskId || '').trim();
         const targetId = String(targetTaskId || '').trim();
         if (!id || !targetId || id === targetId) return false;
-        const sourceTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id] || null;
-        const targetTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId) || state.flatTasks?.[targetId] || null;
+        const sourceTask = await __tmEnsureTaskRowDropTaskById(id);
+        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
         if (!sourceTask || !targetTask) return false;
         const meta = await __tmResolveTaskMovePlacementMeta(targetId);
         if (meta.prevSiblingTaskId && meta.prevSiblingTaskId === id) return true;
         if (meta.prevSiblingTaskId) await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.prevSiblingTaskId });
-        else if (meta.targetListId) await __tmMoveBlockViaBackendAdapter(id, { parentID: meta.targetListId });
-        else throw new Error('未找到目标任务所在列表');
+        else if (meta.targetListId) {
+            let targetListType = '';
+            try {
+                const rows = await API.getBlocksByIds([meta.targetListId]);
+                targetListType = String((Array.isArray(rows) ? rows[0] : null)?.type || '').trim().toLowerCase();
+            } catch (e) {}
+            if (targetListType === 'h') await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.targetListId });
+            else await __tmMoveBlockViaBackendAdapter(id, { parentID: meta.targetListId });
+        } else {
+            throw new Error('未找到目标任务所在列表');
+        }
         try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
         try {
             const docIds = [String(sourceTask.docId || sourceTask.root_id || '').trim(), String(opts.targetDocId || targetTask.docId || targetTask.root_id || '').trim()].filter(Boolean);
@@ -13287,8 +13377,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         const id = String(taskId || '').trim();
         const targetId = String(targetTaskId || '').trim();
         if (!id || !targetId || id === targetId) return false;
-        const sourceTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id] || null;
-        const targetTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId) || state.flatTasks?.[targetId] || null;
+        const sourceTask = await __tmEnsureTaskRowDropTaskById(id);
+        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
         if (!sourceTask || !targetTask) return false;
         await __tmMoveBlockViaBackendAdapter(id, { previousID: targetId });
         try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
@@ -13304,8 +13394,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         const id = String(taskId || '').trim();
         const targetId = String(targetTaskId || '').trim();
         if (!id || !targetId || id === targetId) return false;
-        const sourceTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id] || null;
-        const targetTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId) || state.flatTasks?.[targetId] || null;
+        const sourceTask = await __tmEnsureTaskRowDropTaskById(id);
+        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
         if (!sourceTask || !targetTask) return false;
         const meta = await __tmResolveTaskMovePlacementMeta(targetId);
         if (meta.lastDirectChildId && meta.lastDirectChildId === id && String(sourceTask.parentTaskId || '').trim() === targetId) return true;
@@ -13326,8 +13416,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         const id = String(taskId || '').trim();
         const targetId = String(targetTaskId || '').trim();
         if (!id || !targetId || id === targetId) return false;
-        const sourceTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id] || null;
-        const targetTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId) || state.flatTasks?.[targetId] || null;
+        const sourceTask = await __tmEnsureTaskRowDropTaskById(id);
+        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
         if (!sourceTask || !targetTask) return false;
         const meta = await __tmResolveTaskMovePlacementMeta(targetId);
         if (meta.firstDirectChildId && meta.firstDirectChildId === id && String(sourceTask.parentTaskId || '').trim() === targetId) return true;
@@ -13725,20 +13815,36 @@ return Number(state.contextInteractionQuietUntil || 0);
         return 'child';
     }
 
+    function __tmResolveTaskRowOrDropGapFromTarget(target) {
+        const el = target instanceof Element ? target : null;
+        if (!(el instanceof Element)) return null;
+        const found = el.closest('.tm-task-drop-gap[data-target-task-id], .tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id]');
+        return found instanceof HTMLElement ? found : null;
+    }
+
+    function __tmReadTaskRowOrDropGapTarget(el, target = null) {
+        const row = el instanceof HTMLElement ? el : null;
+        if (!(row instanceof HTMLElement)) return { targetId: '', overrideKind: '' };
+        return {
+            targetId: String(
+                row.getAttribute('data-id')
+                || row.getAttribute('data-target-task-id')
+                || ''
+            ).trim(),
+            overrideKind: String(
+                row.getAttribute('data-drop-kind')
+                || target?.closest?.('[data-drop-kind]')?.getAttribute?.('data-drop-kind')
+                || ''
+            ).trim(),
+        };
+    }
+
     async function __tmBuildTaskRowMovePayload(sourceTaskId, targetTaskId, kind) {
         const sourceId = String(sourceTaskId || '').trim();
         const targetId = String(targetTaskId || '').trim();
         const moveKind = String(kind || '').trim();
-        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId)
-            || state.flatTasks?.[sourceId]
-            || state.pendingInsertedTasks?.[sourceId]
-            || null;
-        const targetTask = globalThis.__tmRuntimeState?.getTaskById?.(targetId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId)
-            || state.flatTasks?.[targetId]
-            || state.pendingInsertedTasks?.[targetId]
-            || null;
+        const sourceTask = await __tmEnsureTaskRowDropTaskById(sourceId);
+        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
         if (!sourceTask || !targetTask || !sourceId || !targetId || !moveKind) throw new Error('拖拽目标无效');
         const meta = await __tmResolveTaskMovePlacementMeta(targetId);
         return {
@@ -13844,16 +13950,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         const targetId = String(targetTaskId || '').trim();
         if (!sourceId || !targetId || sourceId === targetId) return { ok: false, reason: 'same' };
         if (!__tmCanCreateChildTaskByDrag()) return { ok: false, reason: 'group' };
-        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId)
-            || state.flatTasks?.[sourceId]
-            || state.pendingInsertedTasks?.[sourceId]
-            || null;
-        const targetTask = globalThis.__tmRuntimeState?.getTaskById?.(targetId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId)
-            || state.flatTasks?.[targetId]
-            || state.pendingInsertedTasks?.[targetId]
-            || null;
+        const sourceTask = __tmGetTaskRowDropTaskById(sourceId);
+        const targetTask = __tmGetTaskRowDropTaskById(targetId);
+        if (!sourceTask || !targetTask) return { ok: false, reason: 'missing' };
         if (!__tmTaskSupportsRowDrop(sourceTask) || !__tmTaskSupportsRowDrop(targetTask)) return { ok: false, reason: 'readonly' };
         if (__tmIsTaskInSubtree(sourceTask, targetId)) return { ok: false, reason: 'cycle' };
         return { ok: true };
@@ -13866,23 +13965,44 @@ return Number(state.contextInteractionQuietUntil || 0);
         const validation = __tmCanHandleTaskRowDrop(sourceTaskId, targetId);
         const row = ev?.currentTarget instanceof HTMLElement
             ? ev.currentTarget
-            : (ev?.target instanceof Element ? ev.target.closest('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') : null);
+            : __tmResolveTaskRowOrDropGapFromTarget(ev?.target);
         const capabilities = __tmGetTaskDropCapabilities();
         const kind = __tmNormalizeTaskRowDropKind(overrideKind || __tmResolveTaskRowDropIntent(ev, row, capabilities), capabilities);
-        if (!validation.ok || !kind) {
+        if ((!validation.ok && validation.reason !== 'missing') || !kind) {
             if (row instanceof HTMLElement) __tmApplyTaskRowDropIndicator(row, 'forbidden');
             return null;
         }
         const sourceId = String(sourceTaskId || '').trim();
-        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId)
-            || state.flatTasks?.[sourceId]
-            || state.pendingInsertedTasks?.[sourceId]
-            || null;
+        const sourceTask = await __tmEnsureTaskRowDropTaskById(sourceId);
+        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
+        if (!sourceTask || !targetTask) throw new Error('拖拽目标无效');
+        if (!__tmTaskSupportsRowDrop(sourceTask) || !__tmTaskSupportsRowDrop(targetTask)) throw new Error('当前任务不支持拖拽移动');
+        if (__tmIsTaskInSubtree(sourceTask, targetId)) throw new Error('不能拖拽为自己的子任务');
         if (!__tmEnsureEditableTaskLike(sourceTask, '拖拽移动')) return null;
+        const activeRule = __tmGetCurrentRule();
+        let customPhysicalPlacement = null;
+        if (__tmRuleUsesCustomOrderSort(activeRule)) {
+            const customResult = __tmApplyCustomTaskOrderMove(activeRule, sourceId, targetId, kind);
+            if (customResult?.ok || customResult?.reason === 'unchanged') {
+                try { applyFilters(); } catch (e) {}
+                try { __tmScheduleRender({ withFilters: false, reason: 'custom-order-drop' }); } catch (e) {}
+                return { kind, payload: { customOrder: true, taskId: sourceId, targetTaskId: targetId, mode: kind } };
+            }
+            if (customResult?.reason !== 'physical') {
+                const reasonText = customResult?.reason === 'cycle'
+                    ? '不能拖拽为自己的子任务'
+                    : '自定义排序更新失败';
+                throw new Error(reasonText);
+            }
+            customPhysicalPlacement = __tmApplyCustomTaskOrderPhysicalPlacement(activeRule, sourceId, targetId, kind);
+            if (!customPhysicalPlacement?.ok && customPhysicalPlacement?.reason !== 'unchanged') {
+                throw new Error('自定义排序位置记录失败');
+            }
+        }
         const payload = await __tmBuildTaskRowMovePayload(sourceTaskId, targetId, kind);
+        if (customPhysicalPlacement) payload.customOrderPlacement = true;
         payload.deferOptimisticRender = true;
-        payload.skipOptimisticFilterWork = true;
+        payload.skipOptimisticFilterWork = !customPhysicalPlacement;
         const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
         if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
         moveTask(sourceTaskId, payload, {
@@ -13891,6 +14011,14 @@ return Number(state.contextInteractionQuietUntil || 0);
                 hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
             },
         });
+        if (customPhysicalPlacement) {
+            try {
+                setTimeout(() => {
+                    try { applyFilters(); } catch (e) {}
+                    try { __tmScheduleRender({ withFilters: true, reason: 'custom-order-physical-drop' }); } catch (e) {}
+                }, 80);
+            } catch (e) {}
+        }
         if (kind === 'child') {
             try { state.collapsedTaskIds?.delete?.(targetId); } catch (e) {}
         }
@@ -13933,13 +14061,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         const sourceTaskId = __tmGetDraggedTaskId(ev);
         const row = ev?.currentTarget instanceof HTMLElement
             ? ev.currentTarget
-            : (ev?.target instanceof Element ? ev.target.closest('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') : null);
+            : __tmResolveTaskRowOrDropGapFromTarget(ev?.target);
         if (!(row instanceof HTMLElement) || !targetId || !sourceTaskId) {
             __tmClearTaskRowDropIndicators();
             return false;
         }
         const validation = __tmCanHandleTaskRowDrop(sourceTaskId, targetId);
-        if (!validation.ok) {
+        if (!validation.ok && validation.reason !== 'missing') {
             __tmApplyTaskRowDropIndicator(row, 'forbidden');
             return false;
         }
@@ -14476,8 +14604,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                         }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
                     } catch (e) {}
                 } else {
-                    const taskRowEl = pointTarget?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
+                    const taskRowEl = __tmResolveTaskRowOrDropGapFromTarget(pointTarget);
                     if (taskRowEl instanceof HTMLElement) {
+                        const rowTarget = __tmReadTaskRowOrDropGapTarget(taskRowEl, pointTarget);
                         try {
                             window.tmTaskRowDragOver?.({
                                 preventDefault() {},
@@ -14486,7 +14615,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                                 dataTransfer: syntheticTransfer,
                                 target: pointTarget || taskRowEl,
                                 currentTarget: taskRowEl,
-                            }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                            }, rowTarget.targetId, rowTarget.overrideKind);
                         } catch (e) {}
                     } else {
                         clearTaskRowHover();
@@ -14521,6 +14650,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 clearDocHover();
                 clearKanbanHover();
                 clearTaskRowHover();
+                try { state.modal?.classList?.remove?.('tm-task-drag-active'); } catch (e) {}
                 try { globalThis.__tmCalendar?.clearSideDayCalendarDragPreview?.(); } catch (e) {}
                 try { __tmSetCalendarSideDockDragHidden(false); } catch (e) {}
                 try { __tmCalendarFloatingDragEnd(); } catch (e) {}
@@ -14583,8 +14713,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                         return true;
                     } catch (e) {}
                 }
-                const taskRowEl = pointTarget?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
+                const taskRowEl = __tmResolveTaskRowOrDropGapFromTarget(pointTarget);
                 if (taskRowEl instanceof HTMLElement) {
+                    const rowTarget = __tmReadTaskRowOrDropGapTarget(taskRowEl, pointTarget);
                     try {
                         await window.tmTaskRowDrop?.({
                             preventDefault() {},
@@ -14593,7 +14724,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                             dataTransfer: syntheticTransfer,
                             target: pointTarget || taskRowEl,
                             currentTarget: taskRowEl,
-                        }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                        }, rowTarget.targetId, rowTarget.overrideKind);
                         return true;
                     } catch (e) {}
                 }
@@ -14617,12 +14748,13 @@ return Number(state.contextInteractionQuietUntil || 0);
             };
             const startDrag = () => {
                 if (dragging || ended) return;
-                dragging = true;
-                capturePointer();
-                state.draggingTaskId = taskId;
-                if (sourceType === 'kanban') {
-                    state.__tmKanbanDragId = taskId;
-                    state.__tmKanbanDragIds = [taskId];
+            dragging = true;
+            capturePointer();
+            state.draggingTaskId = taskId;
+            try { state.modal?.classList?.add?.('tm-task-drag-active'); } catch (e) {}
+            if (sourceType === 'kanban') {
+                state.__tmKanbanDragId = taskId;
+                state.__tmKanbanDragIds = [taskId];
                     try { window.__tmBindKanbanDocumentAutoScroll?.(); } catch (e) {}
                     try { sourceEl.classList.add('tm-kanban-card--dragging'); } catch (e) {}
                 }
@@ -14968,6 +15100,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
             try { __tmSetCalendarSideDockDragHidden(false); } catch (e) {}
             clearTaskRowHover();
+            try { state.modal?.classList?.remove?.('tm-task-drag-active'); } catch (e) {}
             try { globalThis.__tmCalendar?.clearSideDayCalendarDragPreview?.(); } catch (e) {}
             try { __tmCalendarFloatingDragEnd(); } catch (e) {}
             if (String(state.draggingTaskId || '').trim() === id) state.draggingTaskId = '';
@@ -14985,6 +15118,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             dragStartY = lastY;
             capturePointer();
             state.draggingTaskId = id;
+            try { state.modal?.classList?.add?.('tm-task-drag-active'); } catch (e) {}
             if (sourceEl.closest('.tm-calendar-sidebar')) {
                 try { globalThis.__tmCalendar?.closeSidebar?.(); } catch (e) {}
             }
@@ -15078,8 +15212,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                     }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
                 } catch (e) {}
             } else {
-                const taskRowEl = pointTargetForRows?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
+                const taskRowEl = __tmResolveTaskRowOrDropGapFromTarget(pointTargetForRows);
                 if (taskRowEl instanceof HTMLElement) {
+                    const rowTarget = __tmReadTaskRowOrDropGapTarget(taskRowEl, pointTargetForRows);
                     try {
                         window.tmTaskRowDragOver?.({
                             preventDefault() {},
@@ -15091,9 +15226,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                                     return '';
                                 },
                             },
-                            target: taskRowEl,
+                            target: pointTargetForRows || taskRowEl,
                             currentTarget: taskRowEl,
-                        }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                        }, rowTarget.targetId, rowTarget.overrideKind);
                     } catch (e) {}
                 } else {
                     clearTaskRowHover();
@@ -15148,8 +15283,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                             }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
                             handled = true;
                         } else {
-                            const taskRowEl = pointTarget?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
+                            const taskRowEl = __tmResolveTaskRowOrDropGapFromTarget(pointTarget);
                             if (taskRowEl instanceof HTMLElement) {
+                                const rowTarget = __tmReadTaskRowOrDropGapTarget(taskRowEl, pointTarget);
                                 await window.tmTaskRowDrop?.({
                                     preventDefault() {},
                                     stopPropagation() {},
@@ -15160,9 +15296,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                                             return '';
                                         },
                                     },
-                                    target: taskRowEl,
+                                    target: pointTarget || taskRowEl,
                                     currentTarget: taskRowEl,
-                                }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                                }, rowTarget.targetId, rowTarget.overrideKind);
                                 handled = true;
                             }
                         }
@@ -16450,8 +16586,17 @@ return Number(state.contextInteractionQuietUntil || 0);
     __tmPhosphorBoldPaths['hand'] = 'M188,44a32,32,0,0,0-8,1V44a32,32,0,0,0-60.79-14A32,32,0,0,0,76,60v50.83a32,32,0,0,0-52,36.7C55.82,214.6,75.35,244,128,244a92.1,92.1,0,0,0,92-92V76A32,32,0,0,0,188,44Zm8,108a68.08,68.08,0,0,1-68,68c-35.83,0-49.71-14-82.48-83.14-.14-.29-.29-.58-.45-.86a8,8,0,0,1,13.85-8l.21.35,18.68,30A12,12,0,0,0,100,152V60a8,8,0,0,1,16,0v60a12,12,0,0,0,24,0V44a8,8,0,0,1,16,0v76a12,12,0,0,0,24,0V76a8,8,0,0,1,16,0Z';
     __tmPhosphorBoldPaths['selection-plus'] = 'M156,40a12,12,0,0,1-12,12H112a12,12,0,0,1,0-24h32A12,12,0,0,1,156,40ZM144,204H112a12,12,0,0,0,0,24h32a12,12,0,0,0,0-24ZM204,52V72a12,12,0,0,0,24,0V48a20,20,0,0,0-20-20H184a12,12,0,0,0,0,24Zm12,48a12,12,0,0,0-12,12v32a12,12,0,0,0,24,0V112A12,12,0,0,0,216,100ZM40,156a12,12,0,0,0,12-12V112a12,12,0,0,0-24,0v32A12,12,0,0,0,40,156Zm32,48H52V184a12,12,0,0,0-24,0v24a20,20,0,0,0,20,20H72a12,12,0,0,0,0-24ZM72,28H48A20,20,0,0,0,28,48V72a12,12,0,0,0,24,0V52H72a12,12,0,0,0,0-24ZM240,204H228V192a12,12,0,0,0-24,0v12H192a12,12,0,0,0,0,24h12v12a12,12,0,0,0,24,0V228h12a12,12,0,0,0,0-24Z';
     __tmPhosphorBoldPaths['cursor-text'] = 'M188,208a12,12,0,0,1-12,12H160a43.86,43.86,0,0,1-32-13.85A43.86,43.86,0,0,1,96,220H80a12,12,0,0,1,0-24H96a20,20,0,0,0,20-20V140H104a12,12,0,0,1,0-24h12V80A20,20,0,0,0,96,60H80a12,12,0,0,1,0-24H96a43.86,43.86,0,0,1,32,13.85A43.86,43.86,0,0,1,160,36h16a12,12,0,0,1,0,24H160a20,20,0,0,0-20,20v36h12a12,12,0,0,1,0,24H140v36a20,20,0,0,0,20,20h16A12,12,0,0,1,188,208Z';
+    __tmPhosphorBoldPaths['pencil'] = 'M230.14,70.54,185.46,25.85a20,20,0,0,0-28.29,0L33.86,149.17A19.85,19.85,0,0,0,28,163.31V208a20,20,0,0,0,20,20H92.69a19.86,19.86,0,0,0,14.14-5.86L230.14,98.82a20,20,0,0,0,0-28.28ZM93,180l71-71,11,11-71,71ZM76,163,65,152l71-71,11,11ZM52,173l15.51,15.51h0L83,204H52ZM192,103,153,64l18.34-18.34,39,39Z';
+    __tmPhosphorBoldPaths['highlighter'] = 'M252.49,107.51a12,12,0,0,0-17,0L192,151,113,72l43.52-43.51a12,12,0,0,0-17-17L93.17,57.86a20,20,0,0,0-4.72,20.72L69.17,97.86a20,20,0,0,0,0,28.28L71,128,15.51,183.51a12,12,0,0,0,4.7,19.87l72,24A11.8,11.8,0,0,0,96,228a12,12,0,0,0,8.49-3.52L136,193l1.86,1.86a20,20,0,0,0,28.28,0l19.27-19.27a20.27,20.27,0,0,0,6.59,1.13,19.86,19.86,0,0,0,14.14-5.86l46.35-46.34A12,12,0,0,0,252.49,107.51ZM92.76,202.27,46.21,186.76,88,145l31,31ZM152,175,96.49,119.52h0L89,112l15-15,63,63Z';
+    __tmPhosphorBoldPaths['eraser'] = 'M216,204H141l86.84-86.84a28,28,0,0,0,0-39.6L186.43,36.19a28,28,0,0,0-39.6,0L28.19,154.82a28,28,0,0,0,0,39.6l30.06,30.07A12,12,0,0,0,66.74,228H216a12,12,0,0,0,0-24ZM163.8,53.16a4,4,0,0,1,5.66,0l41.38,41.38a4,4,0,0,1,0,5.65L160,151l-47-47ZM71.71,204,45.16,177.45a4,4,0,0,1,0-5.65L96,121l47,47-36,36Z';
+    __tmPhosphorBoldPaths['eye'] = 'M251,123.13c-.37-.81-9.13-20.26-28.48-39.61C196.63,57.67,164,44,128,44S59.37,57.67,33.51,83.52C14.16,102.87,5.4,122.32,5,123.13a12.08,12.08,0,0,0,0,9.75c.37.82,9.13,20.26,28.49,39.61C59.37,198.34,92,212,128,212s68.63-13.66,94.48-39.51c19.36-19.35,28.12-38.79,28.49-39.61A12.08,12.08,0,0,0,251,123.13Zm-46.06,33C183.47,177.27,157.59,188,128,188s-55.47-10.73-76.91-31.88A130.36,130.36,0,0,1,29.52,128,130.45,130.45,0,0,1,51.09,99.89C72.54,78.73,98.41,68,128,68s55.46,10.73,76.91,31.89A130.36,130.36,0,0,1,226.48,128,130.45,130.45,0,0,1,204.91,156.12ZM128,84a44,44,0,1,0,44,44A44.05,44.05,0,0,0,128,84Zm0,64a20,20,0,1,1,20-20A20,20,0,0,1,128,148Z';
+    __tmPhosphorBoldPaths['eye-slash'] = 'M56.88,31.93A12,12,0,1,0,39.12,48.07l16,17.65C20.67,88.66,5.72,121.58,5,123.13a12.08,12.08,0,0,0,0,9.75c.37.82,9.13,20.26,28.49,39.61C59.37,198.34,92,212,128,212a131.34,131.34,0,0,0,51-10l20.09,22.1a12,12,0,0,0,17.76-16.14ZM128,188c-29.59,0-55.47-10.73-76.91-31.88A130.69,130.69,0,0,1,29.52,128c5.27-9.31,18.79-29.9,42-44.29l90.09,99.11A109.33,109.33,0,0,1,128,188Zm123-55.12c-.36.81-9,20-28,39.16a12,12,0,1,1-17-16.9A130.48,130.48,0,0,0,226.48,128a130.36,130.36,0,0,0-21.57-28.12C183.46,78.73,157.59,68,128,68c-3.35,0-6.7.14-10,.42a12,12,0,1,1-2-23.91c3.93-.34,8-.51,12-.51,36,0,68.63,13.67,94.49,39.52,19.35,19.35,28.11,38.8,28.48,39.61A12.08,12.08,0,0,1,251,132.88Z';
+    __tmPhosphorBoldPaths['eye-off'] = __tmPhosphorBoldPaths['eye-slash'];
+    __tmPhosphorBoldPaths['arrow-counter-clockwise'] = 'M228,128a100,100,0,0,1-98.66,100H128a99.39,99.39,0,0,1-68.62-27.29,12,12,0,0,1,16.48-17.45,76,76,0,1,0-1.57-109c-.13.13-.25.25-.39.37L54.89,92H72a12,12,0,0,1,0,24H24a12,12,0,0,1-12-12V56a12,12,0,0,1,24,0V76.72L57.48,57.06A100,100,0,0,1,228,128Z';
+    __tmPhosphorBoldPaths['palette'] = 'M203.57,51A107.9,107.9,0,0,0,20,128c0,44.72,27.6,82.25,72,97.94A36,36,0,0,0,140,192a12,12,0,0,1,12-12h46.21a35.79,35.79,0,0,0,35.1-28A108.6,108.6,0,0,0,236,127.09,107.23,107.23,0,0,0,203.57,51Zm6.34,95.67a11.91,11.91,0,0,1-11.7,9.3H152a36,36,0,0,0-36,36,12,12,0,0,1-16,11.3c-16.65-5.88-30.65-15.76-40.48-28.56A76,76,0,0,1,44,128a84,84,0,0,1,83.13-84H128a84.35,84.35,0,0,1,84,83.29A84.72,84.72,0,0,1,209.91,146.71ZM144,76a16,16,0,1,1-16-16A16,16,0,0,1,144,76Zm-44,24A16,16,0,1,1,84,84,16,16,0,0,1,100,100Zm0,56a16,16,0,1,1-16-16A16,16,0,0,1,100,156Zm88-56a16,16,0,1,1-16-16A16,16,0,0,1,188,100Z';
     __tmPhosphorBoldPaths['note-pencil'] = 'M232.49,55.51l-32-32a12,12,0,0,0-17,0l-96,96A12,12,0,0,0,84,128v32a12,12,0,0,0,12,12h32a12,12,0,0,0,8.49-3.51l96-96A12,12,0,0,0,232.49,55.51ZM192,49l15,15L196,75,181,60Zm-69,99H108V133l56-56,15,15Zm105-7.43V208a20,20,0,0,1-20,20H48a20,20,0,0,1-20-20V48A20,20,0,0,1,48,28h67.43a12,12,0,0,1,0,24H52V204H204V140.57a12,12,0,0,1,24,0Z';
     __tmPhosphorBoldPaths['link-simple-break'] = 'M218.45,122.43l-30.08,30.06a12,12,0,0,1-17-17l30.08-30.07a36,36,0,0,0-50.93-50.92L120.48,84.59a12,12,0,0,1-17-17l30.07-30.06a60,60,0,0,1,84.87,84.88Zm-82.93,49-30.07,30.08a36,36,0,0,1-50.92-50.93l30.06-30.07a12,12,0,0,0-17-17L37.55,133.58a60,60,0,0,0,84.88,84.87l30.06-30.07a12,12,0,0,0-17-17Z';
+    __tmPhosphorBoldPaths['bounding-box'] = 'M208,100a20,20,0,0,0,20-20V48a20,20,0,0,0-20-20H176a20,20,0,0,0-20,20v4H100V48A20,20,0,0,0,80,28H48A20,20,0,0,0,28,48V80a20,20,0,0,0,20,20h4v56H48a20,20,0,0,0-20,20v32a20,20,0,0,0,20,20H80a20,20,0,0,0,20-20v-4h56v4a20,20,0,0,0,20,20h32a20,20,0,0,0,20-20V176a20,20,0,0,0-20-20h-4V100ZM180,52h24V76H180ZM52,52H76V76H52ZM76,204H52V180H76Zm128,0H180V180h24Zm-24-48h-4a20,20,0,0,0-20,20v4H100v-4a20,20,0,0,0-20-20H76V100h4a20,20,0,0,0,20-20V76h56v4a20,20,0,0,0,20,20h4Z';
     __tmPhosphorBoldPaths['corners-in'] = 'M148,96V48a12,12,0,0,1,24,0V84h36a12,12,0,0,1,0,24H160A12,12,0,0,1,148,96ZM96,148H48a12,12,0,0,0,0,24H84v36a12,12,0,0,0,24,0V160A12,12,0,0,0,96,148Zm112,0H160a12,12,0,0,0-12,12v48a12,12,0,0,0,24,0V172h36a12,12,0,0,0,0-24ZM96,36A12,12,0,0,0,84,48V84H48a12,12,0,0,0,0,24H96a12,12,0,0,0,12-12V48A12,12,0,0,0,96,36Z';
     __tmPhosphorBoldPaths['corners-out'] = 'M220,48V88a12,12,0,0,1-24,0V60H168a12,12,0,0,1,0-24h40A12,12,0,0,1,220,48ZM88,196H60V168a12,12,0,0,0-24,0v40a12,12,0,0,0,12,12H88a12,12,0,0,0,0-24Zm120-40a12,12,0,0,0-12,12v28H168a12,12,0,0,0,0,24h40a12,12,0,0,0,12-12V168A12,12,0,0,0,208,156ZM88,36H48A12,12,0,0,0,36,48V88a12,12,0,0,0,24,0V60H88a12,12,0,0,0,0-24Z';
     __tmPhosphorBoldPaths['text-h'] = 'M212,56V200a12,12,0,0,1-24,0V140H68v60a12,12,0,0,1-24,0V56a12,12,0,0,1,24,0v60H188V56a12,12,0,0,1,24,0Z';

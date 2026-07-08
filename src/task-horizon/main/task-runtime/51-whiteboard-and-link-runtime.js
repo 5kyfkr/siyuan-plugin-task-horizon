@@ -89,6 +89,15 @@
             }
         } catch (e) {}
         try {
+            const links0 = Array.isArray(SettingsStore.data.whiteboardLinks) ? SettingsStore.data.whiteboardLinks : [];
+            const links = links0.filter((ln) => {
+                const from = String(ln?.from || '').trim();
+                const to = String(ln?.to || '').trim();
+                return !idSet.has(from) && !idSet.has(to);
+            });
+            if (links.length !== links0.length) SettingsStore.data.whiteboardLinks = links;
+        } catch (e) {}
+        try {
             const pos0 = __tmGetWhiteboardNodePosMap();
             const pos = { ...pos0 };
             let dirty = false;
@@ -111,6 +120,80 @@
                 }
             });
             if (dirty) SettingsStore.data.whiteboardPlacedTaskIds = placed;
+        } catch (e) {}
+        try {
+            const frames0 = __tmNormalizeWhiteboardFrameArray(SettingsStore.data.whiteboardFrames);
+            let framesDirty = false;
+            const frames = frames0.map((frame) => {
+                const memberIds = Array.isArray(frame.memberTaskIds) ? frame.memberTaskIds : [];
+                const nextIds = memberIds.map((id) => String(id || '').trim()).filter((id) => id && !idSet.has(id));
+                if (nextIds.length === memberIds.length) return frame;
+                framesDirty = true;
+                return { ...frame, memberTaskIds: nextIds, updatedAt: String(Date.now()) };
+            });
+            if (framesDirty) SettingsStore.data.whiteboardFrames = frames;
+        } catch (e) {}
+        try {
+            const rawBoards = __tmGetWhiteboardGlobalBoardsByGroupMap();
+            const nextBoards = { ...rawBoards };
+            let boardsDirty = false;
+            Object.keys(rawBoards || {}).forEach((gid) => {
+                const board = __tmNormalizeWhiteboardGlobalBoardState(rawBoards[gid]);
+                let boardDirty = false;
+                const nodePos = { ...((board.nodePos && typeof board.nodePos === 'object') ? board.nodePos : {}) };
+                const placedTaskIds = { ...((board.placedTaskIds && typeof board.placedTaskIds === 'object') ? board.placedTaskIds : {}) };
+                const detachedChildren = { ...((board.detachedChildren && typeof board.detachedChildren === 'object') ? board.detachedChildren : {}) };
+                ids.forEach((id) => {
+                    if (Object.prototype.hasOwnProperty.call(nodePos, id)) {
+                        delete nodePos[id];
+                        boardDirty = true;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(placedTaskIds, id)) {
+                        delete placedTaskIds[id];
+                        boardDirty = true;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(detachedChildren, id)) {
+                        delete detachedChildren[id];
+                        boardDirty = true;
+                    }
+                });
+                Object.keys(detachedChildren).forEach((key) => {
+                    const item = detachedChildren[key];
+                    if (item && typeof item === 'object' && idSet.has(String(item.parentTaskId || '').trim())) {
+                        delete detachedChildren[key];
+                        boardDirty = true;
+                    }
+                });
+                const links0 = Array.isArray(board.links) ? board.links : [];
+                const links = links0.filter((ln) => {
+                    const from = String(ln?.from || '').trim();
+                    const to = String(ln?.to || '').trim();
+                    return !idSet.has(from) && !idSet.has(to);
+                });
+                if (links.length !== links0.length) boardDirty = true;
+                const frames0 = __tmNormalizeWhiteboardFrameArray(board.frames);
+                let framesDirty = false;
+                const frames = frames0.map((frame) => {
+                    const memberIds = Array.isArray(frame.memberTaskIds) ? frame.memberTaskIds : [];
+                    const nextIds = memberIds.map((id) => String(id || '').trim()).filter((id) => id && !idSet.has(id));
+                    if (nextIds.length === memberIds.length) return frame;
+                    framesDirty = true;
+                    return { ...frame, memberTaskIds: nextIds, updatedAt: String(Date.now()) };
+                });
+                if (framesDirty) boardDirty = true;
+                if (boardDirty) {
+                    nextBoards[gid] = __tmNormalizeWhiteboardGlobalBoardState({
+                        ...board,
+                        nodePos,
+                        placedTaskIds,
+                        detachedChildren,
+                        links,
+                        frames,
+                    });
+                    boardsDirty = true;
+                }
+            });
+            if (boardsDirty) SettingsStore.data.whiteboardGlobalBoardsByGroup = nextBoards;
         } catch (e) {}
         try { SettingsStore.syncToLocal(); } catch (e) {}
     }
@@ -1056,6 +1139,8 @@
             || __tmIsPlainObjectWithKeys(board.placedTaskIds)
             || __tmIsPlainObjectWithKeys(board.detachedChildren)
             || (Array.isArray(board.notes) && board.notes.length > 0)
+            || (Array.isArray(board.drawings) && board.drawings.length > 0)
+            || (Array.isArray(board.frames) && board.frames.length > 0)
             || (Array.isArray(board.links) && board.links.length > 0);
         if (hasContent || o.keepEmpty === true) next[gid] = board;
         else delete next[gid];
@@ -1134,6 +1219,41 @@
             });
         });
         __tmPatchWhiteboardGlobalBoardState(groupId, { links: normalized }, { keepEmpty: true, persist: o.persist });
+    }
+
+    function __tmGetWhiteboardFrameArray(opts = {}) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        if (o.global === true || __tmIsWhiteboardGlobalCanvasActive()) {
+            return __tmNormalizeWhiteboardFrameArray(__tmGetWhiteboardGlobalBoardState(o.groupId || '').frames);
+        }
+        return __tmNormalizeWhiteboardFrameArray(SettingsStore?.data?.whiteboardFrames);
+    }
+
+    function __tmSaveWhiteboardFramesToStorage(frames, opts = {}) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const normalized = __tmNormalizeWhiteboardFrameArray(frames);
+        if (o.global === true || __tmIsWhiteboardGlobalCanvasActive()) {
+            __tmPatchWhiteboardGlobalBoardState(o.groupId || '', { frames: normalized }, { keepEmpty: true, persist: o.persist });
+            return normalized;
+        }
+        SettingsStore.data.whiteboardFrames = normalized;
+        if (WhiteboardStore.loaded) {
+            try {
+                WhiteboardStore.data.frames = normalized;
+                WhiteboardStore.scheduleSave();
+            } catch (e) {}
+        }
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.persist) {
+            try { SettingsStore.save(); } catch (e) {}
+        }
+        return normalized;
+    }
+
+    function __tmGetWhiteboardFrameById(frameId, opts = {}) {
+        const id = String(frameId || '').trim();
+        if (!id) return null;
+        return __tmGetWhiteboardFrameArray(opts).find((frame) => String(frame?.id || '').trim() === id) || null;
     }
 
     function __tmClearWhiteboardAllTabsDocDragMarkers() {
@@ -1507,6 +1627,158 @@
                 placed[to] = placed[from];
                 delete placed[from];
                 SettingsStore.data.whiteboardPlacedTaskIds = placed;
+                changed = true;
+            }
+        } catch (e) {}
+        try {
+            const cards = (WhiteboardStore?.data?.cards && typeof WhiteboardStore.data.cards === 'object' && !Array.isArray(WhiteboardStore.data.cards))
+                ? { ...WhiteboardStore.data.cards }
+                : null;
+            if (cards && cards[from] && typeof cards[from] === 'object') {
+                cards[to] = {
+                    ...(cards[to] && typeof cards[to] === 'object' ? cards[to] : {}),
+                    ...cards[from],
+                    id: to,
+                    taskId: to,
+                    updatedAt: String(Date.now()),
+                };
+                delete cards[from];
+                WhiteboardStore.data.cards = cards;
+                try { __tmClearWhiteboardCardSnapshotCache(); } catch (e2) {}
+                try { WhiteboardStore.scheduleSave(); } catch (e2) {}
+                changed = true;
+            }
+        } catch (e) {}
+        try {
+            const remapLinkTaskIds = (links) => {
+                if (!Array.isArray(links)) return links;
+                let linkChanged = false;
+                const next = links.map((link) => {
+                    const item = (link && typeof link === 'object') ? link : {};
+                    let nextLink = link;
+                    if (String(item.from || '').trim() === from || String(item.to || '').trim() === from) {
+                        nextLink = {
+                            ...item,
+                            from: String(item.from || '').trim() === from ? to : item.from,
+                            to: String(item.to || '').trim() === from ? to : item.to,
+                            updatedAt: String(Date.now()),
+                        };
+                        linkChanged = true;
+                    }
+                    return nextLink;
+                });
+                return linkChanged ? next : links;
+            };
+            const nextLinks = remapLinkTaskIds(SettingsStore.data.whiteboardLinks);
+            if (nextLinks !== SettingsStore.data.whiteboardLinks) {
+                SettingsStore.data.whiteboardLinks = nextLinks;
+                changed = true;
+            }
+            if (WhiteboardStore?.data && Array.isArray(WhiteboardStore.data.links)) {
+                const nextStoreLinks = remapLinkTaskIds(WhiteboardStore.data.links);
+                if (nextStoreLinks !== WhiteboardStore.data.links) {
+                    WhiteboardStore.data.links = nextStoreLinks;
+                    try { WhiteboardStore.scheduleSave(); } catch (e2) {}
+                    changed = true;
+                }
+            }
+        } catch (e) {}
+        try {
+            const remapFrameTaskIds = (frames) => {
+                let frameChanged = false;
+                const nextFrames = __tmNormalizeWhiteboardFrameArray(frames).map((frame) => {
+                    const ids = Array.isArray(frame.memberTaskIds) ? frame.memberTaskIds : [];
+                    if (!ids.some((id) => String(id || '').trim() === from)) return frame;
+                    frameChanged = true;
+                    return {
+                        ...frame,
+                        memberTaskIds: Array.from(new Set(ids.map((id) => String(id || '').trim() === from ? to : id))).filter(Boolean),
+                        updatedAt: String(Date.now()),
+                    };
+                });
+                return frameChanged ? nextFrames : frames;
+            };
+            const remapGlobalBoardTaskIds = (board) => {
+                const base = __tmNormalizeWhiteboardGlobalBoardState(board);
+                let boardChanged = false;
+                const nextBoard = { ...base };
+                const nodePos = (base.nodePos && typeof base.nodePos === 'object') ? { ...base.nodePos } : {};
+                if (nodePos[from] && typeof nodePos[from] === 'object') {
+                    nodePos[to] = {
+                        ...(nodePos[to] && typeof nodePos[to] === 'object' ? nodePos[to] : {}),
+                        ...nodePos[from],
+                        updatedAt: String(Date.now()),
+                    };
+                    delete nodePos[from];
+                    nextBoard.nodePos = nodePos;
+                    boardChanged = true;
+                }
+                const placed = (base.placedTaskIds && typeof base.placedTaskIds === 'object') ? { ...base.placedTaskIds } : {};
+                if (Object.prototype.hasOwnProperty.call(placed, from)) {
+                    placed[to] = placed[from];
+                    delete placed[from];
+                    nextBoard.placedTaskIds = placed;
+                    boardChanged = true;
+                }
+                const detached = (base.detachedChildren && typeof base.detachedChildren === 'object') ? { ...base.detachedChildren } : {};
+                if (detached[from] && typeof detached[from] === 'object') {
+                    detached[to] = {
+                        ...detached[from],
+                        parentTaskId: String(detached[from]?.parentTaskId || '').trim() === from ? to : detached[from].parentTaskId,
+                        updatedAt: String(Date.now()),
+                    };
+                    delete detached[from];
+                    nextBoard.detachedChildren = detached;
+                    boardChanged = true;
+                }
+                Object.keys(detached).forEach((key) => {
+                    const item = detached[key];
+                    if (item && typeof item === 'object' && String(item.parentTaskId || '').trim() === from) {
+                        detached[key] = { ...item, parentTaskId: to, updatedAt: String(Date.now()) };
+                        nextBoard.detachedChildren = detached;
+                        boardChanged = true;
+                    }
+                });
+                if (Array.isArray(base.links)) {
+                    const nextLinks = base.links.map((link) => {
+                        const item = (link && typeof link === 'object') ? link : {};
+                        if (String(item.from || '').trim() !== from && String(item.to || '').trim() !== from) return link;
+                        boardChanged = true;
+                        return {
+                            ...item,
+                            from: String(item.from || '').trim() === from ? to : item.from,
+                            to: String(item.to || '').trim() === from ? to : item.to,
+                            fromDocId: String(item.from || '').trim() === from ? (__tmGetTaskDocIdById(to) || item.fromDocId || '') : item.fromDocId,
+                            toDocId: String(item.to || '').trim() === from ? (__tmGetTaskDocIdById(to) || item.toDocId || '') : item.toDocId,
+                        };
+                    });
+                    if (boardChanged) nextBoard.links = nextLinks;
+                }
+                const nextFrames = remapFrameTaskIds(base.frames);
+                if (nextFrames !== base.frames) {
+                    nextBoard.frames = nextFrames;
+                    boardChanged = true;
+                }
+                return boardChanged ? __tmNormalizeWhiteboardGlobalBoardState(nextBoard) : board;
+            };
+            const nextFrames = remapFrameTaskIds(SettingsStore.data.whiteboardFrames);
+            if (nextFrames !== SettingsStore.data.whiteboardFrames) {
+                SettingsStore.data.whiteboardFrames = nextFrames;
+                changed = true;
+            }
+            const rawBoards = __tmGetWhiteboardGlobalBoardsByGroupMap();
+            let boardsChanged = false;
+            const nextBoards = { ...rawBoards };
+            Object.keys(rawBoards || {}).forEach((gid) => {
+                const board = __tmNormalizeWhiteboardGlobalBoardState(rawBoards[gid]);
+                const nextBoard = remapGlobalBoardTaskIds(board);
+                if (nextBoard !== board) {
+                    nextBoards[gid] = nextBoard;
+                    boardsChanged = true;
+                }
+            });
+            if (boardsChanged) {
+                SettingsStore.data.whiteboardGlobalBoardsByGroup = nextBoards;
                 changed = true;
             }
         } catch (e) {}
@@ -9139,6 +9411,18 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 : null;
         })();
         const hasExplicitSortForRowModel = __tmRuleHasExplicitSort(activeSortRuleForRowModel);
+        const showCustomOrderAllTabSiblingDropGaps = (() => {
+            try {
+                const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+                return activeDocId === 'all'
+                    && typeof __tmRuleUsesCustomOrderSort === 'function'
+                    && __tmRuleUsesCustomOrderSort(activeSortRuleForRowModel)
+                    && typeof __tmCanReorderTasksBeforeAfter === 'function'
+                    && __tmCanReorderTasksBeforeAfter(activeSortRuleForRowModel);
+            } catch (e) {
+                return false;
+            }
+        })();
         const ruleSortRuntimeForRowModel = {
             fieldInfoCache: new Map(),
             valueMemo: new WeakMap(),
@@ -9207,6 +9491,20 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             });
         };
 
+        const emitSiblingDropGap = (task, depth, kind) => {
+            if (!showCustomOrderAllTabSiblingDropGaps) return;
+            const taskId = String(task?.id || '').trim();
+            const dropKind = String(kind || '').trim();
+            if (!taskId || (dropKind !== 'before' && dropKind !== 'after')) return;
+            rows.push({
+                type: 'drop-gap',
+                id: `drop-gap:${taskId}:${dropKind}`,
+                targetTaskId: taskId,
+                depth: Math.max(0, Number(depth) || 0),
+                kind: dropKind,
+            });
+        };
+
         const emitChildDropGap = (task, depth) => {
             const taskId = String(task?.id || '').trim();
             if (!taskId) return;
@@ -9216,6 +9514,15 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 targetTaskId: taskId,
                 depth: Math.max(0, Number(depth) || 0),
                 kind: 'child',
+            });
+        };
+
+        const walkTaskList = (tasks, depth, inheritedHideCompleted = false, inCompletedRootGroup = false) => {
+            const list = Array.isArray(tasks) ? tasks : [];
+            list.forEach((task, index) => {
+                emitSiblingDropGap(task, depth, 'before');
+                walkTaskTree(task, depth, inheritedHideCompleted, inCompletedRootGroup);
+                if (index === list.length - 1) emitSiblingDropGap(task, depth, 'after');
             });
         };
 
@@ -9229,7 +9536,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             emitTask(task, depth, showChildren, collapsed, inCompletedRootGroup);
             if (showChildren && !collapsed) {
                 emitChildDropGap(task, depth + 1);
-                childTasks.forEach(child => walkTaskTree(child, depth + 1, hideCompletedDescendants, inCompletedRootGroup));
+                walkTaskList(childTasks, depth + 1, hideCompletedDescendants, inCompletedRootGroup);
             }
         };
 
@@ -9248,7 +9555,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 collapsed: !!doneCollapsed,
             });
             if (!doneCollapsed) {
-                completedRoots.forEach(task => walkTaskTree(task, 0, false, true));
+                walkTaskList(completedRoots, 0, false, true);
             }
         };
 
@@ -9266,7 +9573,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 collapsed: !!pinnedCollapsed,
             });
             if (!pinnedCollapsed) {
-                pinnedRoots.forEach(task => walkTaskTree(task, 0));
+                walkTaskList(pinnedRoots, 0);
             }
         }
 
@@ -9282,7 +9589,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 collapsed: !!normalCollapsed,
             });
             if (!normalCollapsed) {
-                normalRoots.forEach(task => walkTaskTree(task, 0));
+                walkTaskList(normalRoots, 0);
             }
             appendCompletedRootGroup();
             return rows;
@@ -9364,7 +9671,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 if (!isCollapsed) {
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
                     sortRowModelGroupItems(group.items, prefer ? compareByTimePriority : null);
-                    group.items.forEach(task => walkTaskTree(task, 0));
+                    walkTaskList(group.items, 0);
                 }
             });
             appendCompletedRootGroup();
@@ -9404,7 +9711,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 if (!isCollapsed) {
                     const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, docTasks);
                     if (!useDocH2Subgroup) {
-                        renderDocTasks.forEach(task => walkTaskTree(task, 0));
+                        walkTaskList(renderDocTasks, 0);
                         return;
                     }
                     const h2Groups = new Map();
@@ -9439,7 +9746,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                         });
                         if (!h2Collapsed) {
                             const renderItems = sortRowModelGroupItems(items.slice());
-                            renderItems.forEach(task => walkTaskTree(task, 0));
+                            walkTaskList(renderItems, 0);
                         }
                     });
                 }
@@ -9492,7 +9799,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
                 if (!isCollapsed) {
                     sortRowModelGroupItems(tasks);
-                    tasks.forEach(task => walkTaskTree(task, 0));
+                    walkTaskList(tasks, 0);
                 }
             });
             appendCompletedRootGroup();
@@ -9542,14 +9849,14 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 if (!isCollapsed) {
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
                     sortRowModelGroupItems(group.items, prefer ? compareByTimePriority : null);
-                    group.items.forEach(task => walkTaskTree(task, 0));
+                    walkTaskList(group.items, 0);
                 }
             });
             appendCompletedRootGroup();
             return rows;
         }
 
-        normalRoots.forEach(task => walkTaskTree(task, 0));
+        walkTaskList(normalRoots, 0);
         appendCompletedRootGroup();
         return rows;
     }

@@ -1978,6 +1978,11 @@
             }
         } catch (e) {}
         if (!deletedIds.length) __tmRememberPendingDeletedTaskIds(tid, { source: 'task-delete-optimistic' });
+        if (SettingsStore.data.deleteTaskRemovesWhiteboardCards !== false) {
+            try {
+                __tmDeleteWhiteboardSnapshotTasks(deletedIds.length ? deletedIds : [tid]);
+            } catch (e) {}
+        }
         __tmRemoveTaskFromLocalState(tid, { recalc: false, filter: false });
         try { __tmRemoveTaskFromFilteredLocalState(tid); } catch (e) {}
         try { __tmRemoveTaskDomNodes(tid); } catch (e) {}
@@ -2402,7 +2407,8 @@
             });
         } catch (e) {}
         let projectedFilterState = false;
-        if (payload.skipOptimisticFilterWork !== true) {
+        const requiresFilteredRebuild = payload.customOrderPlacement === true;
+        if (payload.skipOptimisticFilterWork !== true || requiresFilteredRebuild) {
             try { recalcStats(); } catch (e) {}
             try { applyFilters(); } catch (e) {}
         } else {
@@ -4546,6 +4552,83 @@
         __tmRememberQuickAddRecentDoc(id);
         window.tmQuickAddRenderMeta?.();
     };
+
+    async function __tmResolveDefaultNewTaskInsertOptions(targetDocId, docMode = 'doc', options = {}) {
+        const did = String(targetDocId || '').trim();
+        const mode = String(docMode || 'doc').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const contentCount = Math.max(1, Number(opts.contentCount || opts.count || 1) || 1);
+        const result = {
+            atTop: false,
+            appendToBottom: false,
+            insertBeforeId: '',
+            insertAfterId: '',
+            targetHeadingId: '',
+            targetHeading: '',
+            targetHeadingRank: Number.NaN,
+            headingPatch: null,
+        };
+        if (!did) return result;
+        const appendToBottom = mode === 'dailyNote' && SettingsStore.data.newTaskDailyNoteAppendToBottom === true;
+        result.appendToBottom = appendToBottom;
+        let topAnchorResolved = false;
+        let headingAppendToBottom = false;
+        let staleConfiguredHeading = false;
+        const configuredHeading = mode === 'doc' && typeof __tmGetDocDefaultTaskHeadingConfig === 'function'
+            ? __tmGetDocDefaultTaskHeadingConfig(did)
+            : null;
+        if (!appendToBottom && configuredHeading?.headingId && typeof __tmResolveHeadingGroupInsertPlacement === 'function') {
+            try {
+                const useSectionEnd = !!SettingsStore.data.headingGroupCreateAtSectionEnd;
+                const placement = await __tmResolveHeadingGroupInsertPlacement(did, configuredHeading.headingId, configuredHeading.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2');
+                if (placement?.matched) {
+                    result.headingPatch = __tmBuildHeadingPatchFromPlacement(placement);
+                    if (useSectionEnd) {
+                        result.insertBeforeId = String(placement.nextID || '').trim();
+                        headingAppendToBottom = placement.appendToBottom === true;
+                        if (!result.insertBeforeId && placement.appendToBottom === true) {
+                            topAnchorResolved = true;
+                        }
+                    } else {
+                        result.insertAfterId = String(placement.insertAfterID || configuredHeading.headingId || '').trim();
+                    }
+                } else if (placement?.checked === true) {
+                    staleConfiguredHeading = true;
+                }
+            } catch (e) {
+                result.headingPatch = null;
+                result.insertBeforeId = '';
+                result.insertAfterId = '';
+            }
+        }
+        if (staleConfiguredHeading && configuredHeading?.headingId) {
+            try {
+                if (typeof __tmSaveDocDefaultTaskHeadingConfig === 'function') {
+                    await __tmSaveDocDefaultTaskHeadingConfig(did, null);
+                } else if (SettingsStore?.data?.docDefaultTaskHeadingByDocId) {
+                    delete SettingsStore.data.docDefaultTaskHeadingByDocId[did];
+                    await SettingsStore.save();
+                }
+            } catch (e) {}
+            try { hint('⚠ 默认新建标题已不存在，已改用默认新建位置', 'warning'); } catch (e) {}
+            result.headingPatch = null;
+            result.insertBeforeId = '';
+            result.insertAfterId = '';
+            headingAppendToBottom = false;
+        }
+        if (!appendToBottom && !result.headingPatch && contentCount > 1) {
+            try {
+                result.insertBeforeId = String(await API.getFirstDirectChildIdOfDoc(did) || '').trim();
+                topAnchorResolved = true;
+            } catch (e) {}
+        }
+        const appendEmptyBatchToKeepOrder = !appendToBottom && topAnchorResolved && !result.insertBeforeId && contentCount > 1;
+        result.appendToBottom = appendToBottom || headingAppendToBottom || appendEmptyBatchToKeepOrder;
+        result.targetHeadingId = result.headingPatch?.h2Id || '';
+        result.targetHeading = result.headingPatch?.h2 || '';
+        result.targetHeadingRank = Number(result.headingPatch?.h2Rank);
+        return result;
+    }
 
     window.tmQuickAddSubmit = async function() {
         const qa = state.quickAdd;

@@ -485,6 +485,9 @@
                 const touchDragAttr = __tmShouldUseCustomTouchTaskDrag()
                     ? `onpointerdown="tmTaskTouchDragStart(event, '${escSq(String(task.id || ''))}')"`
                     : '';
+                const remarkSearchSnippetHtml = typeof __tmBuildTaskRemarkSearchSnippet === 'function'
+                    ? __tmBuildTaskRemarkSearchSnippet(task, state.searchKeyword)
+                    : '';
                 renderedChecklistTaskCount += 1;
                 return `
                     <div class="tm-checklist-item${activeCls}${doneCls}${branchLeadingCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" ${itemDragAttrs} ondragenter="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragover="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragleave="tmTaskRowDragLeave(event, '${escSq(String(task.id || ''))}')" ondrop="tmTaskRowDrop(event, '${escSq(String(task.id || ''))}')" ${touchDragAttr} style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ${itemContextMenuAttr}>
@@ -503,6 +506,7 @@
                                 ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : ''}
                             </div>
                             ${meta.length ? `<div class="tm-checklist-meta">${meta.join('')}</div>` : ''}
+                            ${remarkSearchSnippetHtml}
                         </div>
                     </div>
                 `;

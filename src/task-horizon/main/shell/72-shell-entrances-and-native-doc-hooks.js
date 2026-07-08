@@ -1313,13 +1313,16 @@
             : __tmReadNativeDocTaskDoneFromDom(rawId);
         if (previousDone === null) return null;
         const snapshot = existing || __tmReadNativeDocCheckboxTaskSnapshot(rawId);
+        const source = String(opts.source || '').trim();
+        const userInitiated = /^native-doc-checkbox-(?:click|pointerup)$/.test(source) || existing?.userInitiated === true;
         const entry = {
             blockId: rawId,
             taskId: String(snapshot.taskId || rawId).trim() || rawId,
             previousDone: !!previousDone,
             status: String(snapshot.status || '').trim(),
             taskCompleteAt: String(snapshot.taskCompleteAt || '').trim(),
-            source: String(opts.source || '').trim(),
+            source,
+            userInitiated,
             expiresAt: now + __TM_NATIVE_DOC_CHECKBOX_PREVIOUS_STATE_TTL_MS,
         };
         try {
@@ -1609,14 +1612,26 @@
         const rawId = String(blockId || '').trim();
         if (!rawId) return { status: '', taskCompleteAt: '' };
         let attrTargetId = rawId;
+        let taskMirrorId = '';
         try {
-            const resolvedAttrId = await __tmResolveTaskAttrHostIdFromAnyBlockId(rawId);
+            const binding = typeof __tmResolveTaskBindingFromAnyBlockId === 'function'
+                ? await __tmResolveTaskBindingFromAnyBlockId(rawId)
+                : null;
+            const resolvedAttrId = String(binding?.attrHostId || '').trim();
+            const resolvedTaskId = String(binding?.taskId || '').trim();
             if (resolvedAttrId) attrTargetId = resolvedAttrId;
+            if (resolvedTaskId && resolvedTaskId !== attrTargetId) taskMirrorId = resolvedTaskId;
         } catch (e) {}
         try {
             const res = await API.call('/api/attr/getBlockAttrs', { id: attrTargetId });
-            if (!(res && res.code === 0 && res.data && typeof res.data === 'object')) return { status: '', taskCompleteAt: '' };
-            const attrs = res.data;
+            let attrs = (res && res.code === 0 && res.data && typeof res.data === 'object') ? res.data : {};
+            if (taskMirrorId) {
+                try {
+                    const mirrorRes = await API.call('/api/attr/getBlockAttrs', { id: taskMirrorId });
+                    const mirrorAttrs = (mirrorRes && mirrorRes.code === 0 && mirrorRes.data && typeof mirrorRes.data === 'object') ? mirrorRes.data : {};
+                    attrs = { ...mirrorAttrs, ...attrs };
+                } catch (e) {}
+            }
             const result = {
                 status: typeof __tmReadTaskMetaAttrValue === 'function'
                     ? String(__tmReadTaskMetaAttrValue(attrs, 'customStatus') || '').trim()
@@ -1968,6 +1983,7 @@
         const hasPreviousState = !!(previousState && typeof previousState.previousDone === 'boolean');
         const previousStatus = String(previousState?.status || '').trim();
         const previousTaskCompleteAt = String(previousState?.taskCompleteAt || '').trim();
+        const userInitiatedCheckboxChange = previousState?.userInitiated === true;
         const taskDoneBefore = hasPreviousState ? !!previousState.previousDone : !!task.done;
         const currentStatusDoneBefore = currentStatus ? __tmDoesStatusIdResolveToDone(currentStatus, statusOptions) : false;
         const previousStatusDoneBefore = previousStatus ? __tmDoesStatusIdResolveToDone(previousStatus, statusOptions) : false;
@@ -2046,7 +2062,12 @@
             ? false
             : (persistedStatusBefore ? persistedStatusDoneBefore : (!!domDone && !!persistedTaskCompleteAtBefore));
         const wasDoneBefore = effectiveTaskDoneBefore || persistedDoneBefore;
-        const shouldDispatchTaskReward = !!SettingsStore?.data?.enablePointsRewardIntegration && !insertedSync && !wasDoneBefore && !!domDone && !__tmUndoState?.applying;
+        const shouldDispatchTaskReward = !!SettingsStore?.data?.enablePointsRewardIntegration
+            && userInitiatedCheckboxChange
+            && !insertedSync
+            && !wasDoneBefore
+            && !!domDone
+            && !__tmUndoState?.applying;
         const taskRewardPriorityScore = shouldDispatchTaskReward
             ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(task, { force: true })) || 0))
             : 0;
@@ -2078,7 +2099,9 @@
                 status: previousStatus,
                 taskCompleteAt: previousTaskCompleteAt,
                 source: String(previousState.source || '').trim(),
+                userInitiated: previousState.userInitiated === true,
             } : null,
+            userInitiatedCheckboxChange,
             currentTaskCompleteAt,
             persistedTaskCompleteAtBefore,
         }, [rawId, tid, __tmGetTaskAttrHostId(task)], { force: true });
@@ -2153,6 +2176,7 @@
                         source: 'native-doc-checkbox-sync',
                         previousDone: false,
                         nextDone: true,
+                        userInitiated: userInitiatedCheckboxChange === true,
                     });
                 } catch (e) {}
             }
@@ -2294,6 +2318,7 @@
                     source: 'native-doc-checkbox-sync',
                     previousDone: false,
                     nextDone: true,
+                    userInitiated: userInitiatedCheckboxChange === true,
                 });
             } catch (e) {}
         }

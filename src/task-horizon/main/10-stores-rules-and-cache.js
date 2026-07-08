@@ -55,6 +55,10 @@
     const TASK_INDEX_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-index.json`;
     const DOC_SCOPE_CACHE_FILE_PATH = `${PLUGIN_STORAGE_DIR}/doc-scope-cache.json`;
     const DIAGNOSTIC_LOG_FILE_PATH = `${PLUGIN_STORAGE_DIR}/diagnostic-logs.json`;
+    const __TM_CUSTOM_ORDER_SORT_FIELD = 'customOrder';
+    const __TM_CUSTOM_TASK_ORDER_META_KEY = '__tmCustomTaskOrder';
+    const __TM_CUSTOM_TASK_ORDER_VERSION = 1;
+    const __TM_CUSTOM_TASK_ORDER_RANK_GAP = 1024;
     const __TM_TASK_SNAPSHOT_VERSION = 3;
     const __TM_TASK_SNAPSHOT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
     const __TM_TASK_SNAPSHOT_MAX_ENTRIES = 20;
@@ -119,6 +123,7 @@
     const __TM_TASK_ATTACHMENT_ATTR_PREFIX = 'custom-data-assets-th-';
     const __TM_TASK_ATTACHMENT_META_ATTR = 'custom-data-assets-th-meta';
     const __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR = 'custom-task-horizon-attr-host-updated-at';
+    const __TM_TASK_ATTR_HOST_OWNER_ATTR = 'custom-task-horizon-attr-host-owner';
     const __TM_TASK_ATTACHMENT_BLOCK_PREFIX = 'block:';
     const __TM_TASK_ATTACHMENT_BLOCK_ID_PATTERN = /^[0-9]{14}-[A-Za-z0-9]+$/;
     const __TM_TASK_ATTACHMENT_DETAIL_COLLAPSE_COUNT = 6;
@@ -2484,6 +2489,9 @@
             taskHeadingLevel: String(data.taskHeadingLevel || 'h2').trim() || 'h2',
             docH2SubgroupEnabled: data.docH2SubgroupEnabled ? 1 : 0,
             whiteboardSequenceMode: data.whiteboardSequenceMode ? 1 : 0,
+            customTaskOrder: (typeof __tmBuildCustomTaskOrderFingerprint === 'function' && __tmRuleSortsUseCustomOrderField(rule))
+                ? __tmBuildCustomTaskOrderFingerprint(rule, opts.docIds || state?.__tmLoadedDocIdsForTasks || [])
+                : '',
             customFieldDefsVersion: __tmParseVersionNumber(data.customFieldDefsVersion),
             taskMetaAttrKeys: __tmStableSettingsJsonValue(__tmNormalizeTaskMetaAttrKeySettings(data.taskMetaAttrKeys)),
             taskMetaAttrKeyAliases: __tmStableSettingsJsonValue(__tmNormalizeTaskMetaAttrAliasSettings(data.taskMetaAttrKeyAliases)),
@@ -2684,6 +2692,13 @@
             taskTree: __tmCloneTaskSnapshotValue(Array.isArray(state.taskTree) ? state.taskTree : [], 0) || [],
             otherBlocks: __tmCloneTaskSnapshotValue(Array.isArray(state.otherBlocks) ? state.otherBlocks : [], 0) || [],
         };
+        try {
+            const rule = __tmGetTaskSnapshotRuleForView();
+            const customOrderView = __tmRuleSortsUseCustomOrderField(rule)
+                ? __tmBuildCustomTaskOrderSnapshotView(rule, docIds)
+                : null;
+            if (customOrderView) payload.customTaskOrderView = customOrderView;
+        } catch (e) {}
         try { __tmMergeLocalTaskPatchIntoTaskTree(payload.taskTree); } catch (e) {}
         try { __tmMergeLocalTaskPatchIntoTaskList(payload.otherBlocks); } catch (e) {}
         return __tmAttachTaskSnapshotViewState(payload, { groupId, activeDocId });
@@ -4342,6 +4357,9 @@
         'whiteboardLinks',
         'whiteboardDetachedChildren',
         'whiteboardNotes',
+        'whiteboardDrawings',
+        'whiteboardFrames',
+        'whiteboardDrawingConfig',
         'whiteboardTool',
         'whiteboardSidebarCollapsed',
         'whiteboardSidebarWidth',
@@ -4568,6 +4586,127 @@
         }).filter(Boolean);
     }
 
+    function __tmNormalizeWhiteboardDrawingConfig(input) {
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const normalizeColor = (value, fallback) => {
+            const s = String(value || '').trim();
+            return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : fallback;
+        };
+        const normalizeWidth = (value, fallback, min = 1, max = 48) => {
+            const n = Number(value);
+            return Number.isFinite(n) ? Math.round(Math.max(min, Math.min(max, n)) * 10) / 10 : fallback;
+        };
+        return {
+            hidden: !!raw.hidden,
+            penColor: normalizeColor(raw.penColor, '#1f2937'),
+            penWidth: normalizeWidth(raw.penWidth, 4, 1, 24),
+            highlighterColor: normalizeColor(raw.highlighterColor, '#f59e0b'),
+            highlighterWidth: normalizeWidth(raw.highlighterWidth, 14, 4, 48),
+            eraserWidth: normalizeWidth(raw.eraserWidth, 22, 6, 64),
+        };
+    }
+
+    function __tmNormalizeWhiteboardDrawingArray(input) {
+        const list = Array.isArray(input) ? input : [];
+        return list.map((item, index) => {
+            const raw = (item && typeof item === 'object') ? item : null;
+            if (!raw) return null;
+            const docId = String(raw.docId || '').trim();
+            const id = String(raw.id || '').trim() || `stroke_${index}`;
+            if (!docId || !id) return null;
+            const type = String(raw.type || raw.kind || 'stroke').trim() === 'highlighter' ? 'highlighter' : 'stroke';
+            const colorRaw = String(raw.color || '').trim();
+            const color = /^#[0-9a-fA-F]{6}$/.test(colorRaw) ? colorRaw.toLowerCase() : (type === 'highlighter' ? '#f59e0b' : '#1f2937');
+            const width0 = Number(raw.width);
+            const width = Number.isFinite(width0) ? Math.round(Math.max(1, Math.min(64, width0)) * 10) / 10 : (type === 'highlighter' ? 14 : 4);
+            const opacity0 = Number(raw.opacity);
+            const opacity = Number.isFinite(opacity0) ? Math.max(0.05, Math.min(1, opacity0)) : (type === 'highlighter' ? 0.42 : 1);
+            const points = (Array.isArray(raw.points) ? raw.points : [])
+                .map((point) => {
+                    const x = Number(Array.isArray(point) ? point[0] : point?.x);
+                    const y = Number(Array.isArray(point) ? point[1] : point?.y);
+                    const p = Number(Array.isArray(point) ? point[2] : point?.p);
+                    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+                    return Number.isFinite(p)
+                        ? [Math.round(x * 10) / 10, Math.round(y * 10) / 10, Math.max(0, Math.min(1, Math.round(p * 100) / 100))]
+                        : [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+                })
+                .filter(Boolean);
+            const d = String(raw.d || raw.path || '').trim();
+            if (!d && points.length < 2) return null;
+            const boundsRaw = (raw.bounds && typeof raw.bounds === 'object') ? raw.bounds : {};
+            const bx = Number(boundsRaw.x);
+            const by = Number(boundsRaw.y);
+            const bw = Number(boundsRaw.w ?? boundsRaw.width);
+            const bh = Number(boundsRaw.h ?? boundsRaw.height);
+            const bounds = (Number.isFinite(bx) && Number.isFinite(by) && Number.isFinite(bw) && Number.isFinite(bh))
+                ? { x: bx, y: by, w: Math.max(0, bw), h: Math.max(0, bh) }
+                : null;
+            return {
+                id,
+                docId,
+                type,
+                color,
+                width,
+                opacity,
+                points,
+                d,
+                bounds,
+                createdAt: String(raw.createdAt || raw.updatedAt || Date.now()),
+                updatedAt: String(raw.updatedAt || Date.now()),
+            };
+        }).filter(Boolean);
+    }
+
+    function __tmNormalizeWhiteboardFrameName(value) {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        return (text || '分组').slice(0, 48);
+    }
+
+    function __tmNormalizeWhiteboardFrameBackgroundColor(value) {
+        const raw = String(value || '').trim().toLowerCase();
+        return /^#[0-9a-f]{6}$/.test(raw) ? raw : '';
+    }
+
+    function __tmNormalizeWhiteboardFrameMemberIds(input) {
+        return Array.from(new Set((Array.isArray(input) ? input : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+    }
+
+    function __tmNormalizeWhiteboardFrameArray(input) {
+        const list = Array.isArray(input) ? input : [];
+        const seen = new Set();
+        return list.map((item, index) => {
+            const raw = (item && typeof item === 'object') ? item : null;
+            if (!raw) return null;
+            const id = String(raw.id || '').trim() || `frame_${index}`;
+            if (!id || seen.has(id)) return null;
+            const docId = String(raw.docId || '').trim();
+            const x = Number(raw.x);
+            const y = Number(raw.y);
+            const w = Number(raw.w ?? raw.width);
+            const h = Number(raw.h ?? raw.height);
+            if (!docId || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) return null;
+            seen.add(id);
+            return {
+                id,
+                docId,
+                name: __tmNormalizeWhiteboardFrameName(raw.name),
+                backgroundColor: __tmNormalizeWhiteboardFrameBackgroundColor(raw.backgroundColor || raw.color || raw.fill),
+                x: Math.round(x),
+                y: Math.round(y),
+                w: Math.max(80, Math.round(w)),
+                h: Math.max(60, Math.round(h)),
+                memberTaskIds: __tmNormalizeWhiteboardFrameMemberIds(raw.memberTaskIds || raw.taskIds),
+                memberNoteIds: __tmNormalizeWhiteboardFrameMemberIds(raw.memberNoteIds || raw.noteIds),
+                memberStrokeIds: __tmNormalizeWhiteboardFrameMemberIds(raw.memberStrokeIds || raw.strokeIds),
+                createdAt: String(raw.createdAt || raw.updatedAt || Date.now()),
+                updatedAt: String(raw.updatedAt || Date.now()),
+            };
+        }).filter(Boolean);
+    }
+
     function __tmNormalizeWhiteboardDocFrameSizeMap(input) {
         const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
         const out = {};
@@ -4633,6 +4772,8 @@
             nodePos: __tmNormalizeWhiteboardNodePosMap(raw.nodePos || raw.whiteboardNodePos),
             placedTaskIds: __tmNormalizeWhiteboardPlacedTaskIds(raw.placedTaskIds || raw.whiteboardPlacedTaskIds),
             notes: __tmNormalizeWhiteboardNoteArray(raw.notes || raw.whiteboardNotes),
+            drawings: __tmNormalizeWhiteboardDrawingArray(raw.drawings || raw.whiteboardDrawings),
+            frames: __tmNormalizeWhiteboardFrameArray(raw.frames || raw.whiteboardFrames),
             links: __tmNormalizeWhiteboardGlobalLinkArray(raw.links || raw.whiteboardLinks),
             detachedChildren: __tmNormalizeWhiteboardDetachedChildrenMap(raw.detachedChildren || raw.whiteboardDetachedChildren),
             view,
@@ -4649,6 +4790,8 @@
                 || __tmIsPlainObjectWithKeys(board.placedTaskIds)
                 || __tmIsPlainObjectWithKeys(board.detachedChildren)
                 || (Array.isArray(board.notes) && board.notes.length > 0)
+                || (Array.isArray(board.drawings) && board.drawings.length > 0)
+                || (Array.isArray(board.frames) && board.frames.length > 0)
                 || (Array.isArray(board.links) && board.links.length > 0);
             if (hasContent || gid === 'all') out[gid] = board;
         });
@@ -4666,6 +4809,9 @@
             whiteboardLinks: __tmNormalizeWhiteboardLinkArray(src.whiteboardLinks),
             whiteboardDetachedChildren: __tmNormalizeWhiteboardDetachedChildrenMap(src.whiteboardDetachedChildren),
             whiteboardNotes: __tmNormalizeWhiteboardNoteArray(src.whiteboardNotes),
+            whiteboardDrawings: __tmNormalizeWhiteboardDrawingArray(src.whiteboardDrawings),
+            whiteboardFrames: __tmNormalizeWhiteboardFrameArray(src.whiteboardFrames),
+            whiteboardDrawingConfig: __tmNormalizeWhiteboardDrawingConfig(src.whiteboardDrawingConfig),
             whiteboardTool: String(src.whiteboardTool || 'pan').trim() || 'pan',
             whiteboardSidebarCollapsed: !!src.whiteboardSidebarCollapsed,
             whiteboardSidebarWidth: Number(src.whiteboardSidebarWidth) || 300,
@@ -4694,6 +4840,8 @@
         const state = __tmBuildWhiteboardSettingsState(data);
         if (Array.isArray(state.whiteboardLinks) && state.whiteboardLinks.length) return true;
         if (Array.isArray(state.whiteboardNotes) && state.whiteboardNotes.length) return true;
+        if (Array.isArray(state.whiteboardDrawings) && state.whiteboardDrawings.length) return true;
+        if (Array.isArray(state.whiteboardFrames) && state.whiteboardFrames.length) return true;
         return [
             state.whiteboardDetachedChildren,
             state.whiteboardNodePos,
@@ -4710,6 +4858,9 @@
         return Object.prototype.hasOwnProperty.call(src, 'whiteboardStateVersion')
             || Object.prototype.hasOwnProperty.call(src, 'whiteboardLinks')
             || Object.prototype.hasOwnProperty.call(src, 'whiteboardNotes')
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardDrawings')
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardFrames')
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardDrawingConfig')
             || Object.prototype.hasOwnProperty.call(src, 'whiteboardNodePos')
             || Object.prototype.hasOwnProperty.call(src, 'whiteboardPlacedTaskIds')
             || Object.prototype.hasOwnProperty.call(src, 'whiteboardDocFrameSize')
@@ -4815,6 +4966,8 @@
             placedTaskIds: __tmNormalizeWhiteboardPlacedTaskIds(raw.placedTaskIds || raw.whiteboardPlacedTaskIds),
             detachedChildren: __tmNormalizeWhiteboardDetachedChildrenMap(raw.detachedChildren || raw.whiteboardDetachedChildren),
             notes: __tmNormalizeWhiteboardNoteArray(raw.notes || raw.whiteboardNotes),
+            drawings: __tmNormalizeWhiteboardDrawingArray(raw.drawings || raw.whiteboardDrawings),
+            frames: __tmNormalizeWhiteboardFrameArray(raw.frames || raw.whiteboardFrames),
             docFrameSize: __tmNormalizeWhiteboardDocFrameSizeMap(raw.docFrameSize || raw.whiteboardDocFrameSize),
             allTabsDocOrderByGroup: __tmNormalizeWhiteboardAllTabsDocOrderMap(raw.allTabsDocOrderByGroup || raw.whiteboardAllTabsDocOrderByGroup),
             globalBoardsByGroup: __tmNormalizeWhiteboardGlobalBoardsByGroupMap(raw.globalBoardsByGroup || raw.whiteboardGlobalBoardsByGroup),
@@ -4834,6 +4987,8 @@
             placedTaskIds: settings.whiteboardPlacedTaskIds,
             detachedChildren: settings.whiteboardDetachedChildren,
             notes: settings.whiteboardNotes,
+            drawings: settings.whiteboardDrawings,
+            frames: settings.whiteboardFrames,
             docFrameSize: settings.whiteboardDocFrameSize,
             allTabsDocOrderByGroup: settings.whiteboardAllTabsDocOrderByGroup,
             globalBoardsByGroup: settings.whiteboardGlobalBoardsByGroup,
@@ -4851,6 +5006,8 @@
         if ((!hasField('placedTaskIds', 'whiteboardPlacedTaskIds') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.placedTaskIds) && __tmIsPlainObjectWithKeys(settings.whiteboardPlacedTaskIds)) next.placedTaskIds = settings.whiteboardPlacedTaskIds;
         if ((!hasField('detachedChildren', 'whiteboardDetachedChildren') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.detachedChildren) && __tmIsPlainObjectWithKeys(settings.whiteboardDetachedChildren)) next.detachedChildren = settings.whiteboardDetachedChildren;
         if ((!hasField('notes', 'whiteboardNotes') || rawVersion <= 0) && !next.notes.length && settings.whiteboardNotes.length) next.notes = settings.whiteboardNotes;
+        if ((!hasField('drawings', 'whiteboardDrawings') || rawVersion <= 0) && !next.drawings.length && settings.whiteboardDrawings.length) next.drawings = settings.whiteboardDrawings;
+        if ((!hasField('frames', 'whiteboardFrames') || rawVersion <= 0) && !next.frames.length && settings.whiteboardFrames.length) next.frames = settings.whiteboardFrames;
         if ((!hasField('docFrameSize', 'whiteboardDocFrameSize') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.docFrameSize) && __tmIsPlainObjectWithKeys(settings.whiteboardDocFrameSize)) next.docFrameSize = settings.whiteboardDocFrameSize;
         if ((!hasField('allTabsDocOrderByGroup', 'whiteboardAllTabsDocOrderByGroup') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.allTabsDocOrderByGroup) && __tmIsPlainObjectWithKeys(settings.whiteboardAllTabsDocOrderByGroup)) next.allTabsDocOrderByGroup = settings.whiteboardAllTabsDocOrderByGroup;
         if ((!hasField('globalBoardsByGroup', 'whiteboardGlobalBoardsByGroup') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.globalBoardsByGroup) && __tmIsPlainObjectWithKeys(settings.whiteboardGlobalBoardsByGroup)) next.globalBoardsByGroup = settings.whiteboardGlobalBoardsByGroup;
@@ -4865,6 +5022,8 @@
         target.whiteboardPlacedTaskIds = state.placedTaskIds;
         target.whiteboardDetachedChildren = state.detachedChildren;
         target.whiteboardNotes = state.notes;
+        target.whiteboardDrawings = state.drawings;
+        target.whiteboardFrames = state.frames;
         target.whiteboardDocFrameSize = state.docFrameSize;
         target.whiteboardAllTabsDocOrderByGroup = state.allTabsDocOrderByGroup;
         target.whiteboardGlobalBoardsByGroup = state.globalBoardsByGroup;
@@ -4893,6 +5052,8 @@
             || __tmIsPlainObjectWithKeys(state.placedTaskIds)
             || __tmIsPlainObjectWithKeys(state.detachedChildren)
             || (Array.isArray(state.notes) && state.notes.length > 0)
+            || (Array.isArray(state.drawings) && state.drawings.length > 0)
+            || (Array.isArray(state.frames) && state.frames.length > 0)
             || __tmIsPlainObjectWithKeys(state.docFrameSize)
             || __tmIsPlainObjectWithKeys(state.allTabsDocOrderByGroup)
             || __tmIsPlainObjectWithKeys(state.globalBoardsByGroup);
@@ -4908,6 +5069,8 @@
             || Object.prototype.hasOwnProperty.call(src, 'placedTaskIds')
             || Object.prototype.hasOwnProperty.call(src, 'detachedChildren')
             || Object.prototype.hasOwnProperty.call(src, 'notes')
+            || Object.prototype.hasOwnProperty.call(src, 'drawings')
+            || Object.prototype.hasOwnProperty.call(src, 'frames')
             || Object.prototype.hasOwnProperty.call(src, 'docFrameSize')
             || Object.prototype.hasOwnProperty.call(src, 'allTabsDocOrderByGroup')
             || Object.prototype.hasOwnProperty.call(src, 'globalBoardsByGroup');
@@ -5700,10 +5863,17 @@
             const filtered = Array.isArray(state?.filteredTasks) ? state.filteredTasks : [];
             const limit = Math.max(0, Math.min(filtered.length, __tmGetActiveListTaskRenderLimit() || filtered.length));
             const sampleIds = [];
+            const includeRemarkSample = !!String(state?.searchKeyword || '').trim();
             const sampleTask = (idx) => {
                 if (idx < 0 || idx >= limit) return;
-                const id = String(filtered[idx]?.id || '').trim();
-                if (id) sampleIds.push(`${idx}:${id}`);
+                const task = filtered[idx] || {};
+                const id = String(task?.id || '').trim();
+                if (id) {
+                    const remarkSig = includeRemarkSample
+                        ? `:${String(task?.remark || task?.custom_remark || task?.customRemark || '').trim()}`
+                        : '';
+                    sampleIds.push(`${idx}:${id}${remarkSig}`);
+                }
             };
             sampleTask(0);
             sampleTask(1);
@@ -6136,6 +6306,17 @@
             this.saving = true;
             const prevFingerprint = String(this.lastFingerprint || '');
             try {
+                try {
+                    const remoteMeta = await __tmReadJsonFile(META_FILE_PATH);
+                    const mergedCustomOrder = __tmMergeCustomTaskOrderStore(
+                        this.data?.[__TM_CUSTOM_TASK_ORDER_META_KEY],
+                        remoteMeta?.[__TM_CUSTOM_TASK_ORDER_META_KEY]
+                    );
+                    if (__tmGetSettingsFieldFingerprint(mergedCustomOrder) !== __tmGetSettingsFieldFingerprint(this.data?.[__TM_CUSTOM_TASK_ORDER_META_KEY] || {})) {
+                        if (!this.data || typeof this.data !== 'object') this.data = {};
+                        this.data[__TM_CUSTOM_TASK_ORDER_META_KEY] = mergedCustomOrder;
+                    }
+                } catch (e) {}
                 Storage.set('tm_meta_cache', this.data || {});
                 const formDir = new FormData();
                 formDir.append('path', PLUGIN_STORAGE_DIR);
@@ -6157,6 +6338,647 @@
             }
         }
     };
+
+    function __tmCreateEmptyCustomTaskOrderStore(updatedAt = 0) {
+        return {
+            version: __TM_CUSTOM_TASK_ORDER_VERSION,
+            updatedAt: Number(updatedAt) || 0,
+            rules: {},
+        };
+    }
+
+    function __tmRuleSortsUseCustomOrderField(rule) {
+        const sorts = Array.isArray(rule?.sort) ? rule.sort : [];
+        const normalized = sorts
+            .map((item) => (item && typeof item === 'object') ? String(item.field || '').trim() : '')
+            .filter(Boolean);
+        return normalized.includes(__TM_CUSTOM_ORDER_SORT_FIELD);
+    }
+
+    function __tmGetCustomTaskOrderRuleId(ruleOrId = null) {
+        if (ruleOrId && typeof ruleOrId === 'object') {
+            if (!__tmRuleSortsUseCustomOrderField(ruleOrId)) return '';
+            return String(ruleOrId.id || '').trim();
+        }
+        return String(ruleOrId || '').trim();
+    }
+
+    function __tmNormalizeCustomTaskOrderStore(raw = null) {
+        const source = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+        const out = __tmCreateEmptyCustomTaskOrderStore(source.updatedAt);
+        const rules = (source.rules && typeof source.rules === 'object' && !Array.isArray(source.rules)) ? source.rules : {};
+        Object.entries(rules).forEach(([ruleId, ruleValue]) => {
+            const rid = String(ruleId || '').trim();
+            const rule = (ruleValue && typeof ruleValue === 'object' && !Array.isArray(ruleValue)) ? ruleValue : null;
+            if (!rid || !rule) return;
+            const docs = (rule.docs && typeof rule.docs === 'object' && !Array.isArray(rule.docs)) ? rule.docs : {};
+            const nextRule = {
+                updatedAt: Number(rule.updatedAt) || 0,
+                docs: {},
+            };
+            Object.entries(docs).forEach(([docId, docValue]) => {
+                const did = String(docId || '').trim();
+                const doc = (docValue && typeof docValue === 'object' && !Array.isArray(docValue)) ? docValue : null;
+                if (!did || !doc) return;
+                const nodes = (doc.nodes && typeof doc.nodes === 'object' && !Array.isArray(doc.nodes)) ? doc.nodes : {};
+                const nextDoc = {
+                    updatedAt: Number(doc.updatedAt) || 0,
+                    nodes: {},
+                };
+                Object.entries(nodes).forEach(([taskId, nodeValue]) => {
+                    const tid = String(taskId || '').trim();
+                    const node = (nodeValue && typeof nodeValue === 'object' && !Array.isArray(nodeValue)) ? nodeValue : null;
+                    if (!tid || !node) return;
+                    const rank = Number(node.rank);
+                    nextDoc.nodes[tid] = {
+                        parentTaskId: String(node.parentTaskId || '').trim(),
+                        rank: Number.isFinite(rank) ? rank : __TM_CUSTOM_TASK_ORDER_RANK_GAP,
+                    };
+                });
+                if (Object.keys(nextDoc.nodes).length > 0 || nextDoc.updatedAt > 0) {
+                    nextRule.docs[did] = nextDoc;
+                }
+            });
+            if (Object.keys(nextRule.docs).length > 0 || nextRule.updatedAt > 0) {
+                out.rules[rid] = nextRule;
+            }
+        });
+        return out;
+    }
+
+    function __tmGetCustomTaskOrderStore() {
+        try {
+            return __tmNormalizeCustomTaskOrderStore(MetaStore?.data?.[__TM_CUSTOM_TASK_ORDER_META_KEY]);
+        } catch (e) {
+            return __tmCreateEmptyCustomTaskOrderStore();
+        }
+    }
+
+    function __tmSetCustomTaskOrderStore(nextStore, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const normalized = __tmNormalizeCustomTaskOrderStore(nextStore);
+        const prev = __tmNormalizeCustomTaskOrderStore(MetaStore?.data?.[__TM_CUSTOM_TASK_ORDER_META_KEY]);
+        if (__tmGetSettingsFieldFingerprint(normalized) === __tmGetSettingsFieldFingerprint(prev)) return false;
+        try {
+            if (!MetaStore.data || typeof MetaStore.data !== 'object') MetaStore.data = {};
+            MetaStore.data[__TM_CUSTOM_TASK_ORDER_META_KEY] = normalized;
+            try { state.listDomRenderSignature = ''; } catch (e) {}
+            try { state.listRenderSignature = ''; } catch (e) {}
+            try { if (typeof __tmInvalidateFilteredTaskDerivedStateCache === 'function') __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
+            if (opts.save !== false) MetaStore.scheduleSave();
+        } catch (e) {
+            return false;
+        }
+        return true;
+    }
+
+    function __tmMergeCustomTaskOrderStore(localStore = null, remoteStore = null) {
+        const local = __tmNormalizeCustomTaskOrderStore(localStore);
+        const remote = __tmNormalizeCustomTaskOrderStore(remoteStore);
+        const out = __tmCreateEmptyCustomTaskOrderStore(Math.max(Number(local.updatedAt) || 0, Number(remote.updatedAt) || 0));
+        const ruleIds = new Set([
+            ...Object.keys(remote.rules || {}),
+            ...Object.keys(local.rules || {}),
+        ]);
+        ruleIds.forEach((ruleId) => {
+            const rid = String(ruleId || '').trim();
+            if (!rid) return;
+            const localRule = local.rules?.[rid] || { updatedAt: 0, docs: {} };
+            const remoteRule = remote.rules?.[rid] || { updatedAt: 0, docs: {} };
+            const nextRule = {
+                updatedAt: Math.max(Number(localRule.updatedAt) || 0, Number(remoteRule.updatedAt) || 0),
+                docs: {},
+            };
+            const docIds = new Set([
+                ...Object.keys(remoteRule.docs || {}),
+                ...Object.keys(localRule.docs || {}),
+            ]);
+            docIds.forEach((docId) => {
+                const did = String(docId || '').trim();
+                if (!did) return;
+                const localDoc = localRule.docs?.[did] || null;
+                const remoteDoc = remoteRule.docs?.[did] || null;
+                const localUpdatedAt = Number(localDoc?.updatedAt) || 0;
+                const remoteUpdatedAt = Number(remoteDoc?.updatedAt) || 0;
+                const picked = localUpdatedAt >= remoteUpdatedAt ? localDoc : remoteDoc;
+                if (!picked || !picked.nodes) return;
+                if (Object.keys(picked.nodes).length === 0 && (Number(picked.updatedAt) || 0) <= 0) return;
+                nextRule.docs[did] = __tmCloneJsonSafe(picked, { updatedAt: picked.updatedAt, nodes: {} });
+            });
+            if (Object.keys(nextRule.docs).length > 0 || nextRule.updatedAt > 0) out.rules[rid] = nextRule;
+        });
+        return __tmNormalizeCustomTaskOrderStore(out);
+    }
+
+    function __tmPatchCustomTaskOrderDoc(ruleId, docId, updater, options = {}) {
+        const rid = String(ruleId || '').trim();
+        const did = String(docId || '').trim();
+        if (!rid || !did || typeof updater !== 'function') return false;
+        const store = __tmGetCustomTaskOrderStore();
+        if (!store.rules[rid]) store.rules[rid] = { updatedAt: 0, docs: {} };
+        if (!store.rules[rid].docs[did]) store.rules[rid].docs[did] = { updatedAt: 0, nodes: {} };
+        const doc = store.rules[rid].docs[did];
+        const before = __tmGetSettingsFieldFingerprint(doc);
+        try { updater(doc); } catch (e) { return false; }
+        Object.keys(doc.nodes || {}).forEach((taskId) => {
+            const tid = String(taskId || '').trim();
+            const node = doc.nodes?.[taskId];
+            if (!tid || !(node && typeof node === 'object')) {
+                delete doc.nodes[taskId];
+                return;
+            }
+            const rank = Number(node.rank);
+            doc.nodes[tid] = {
+                parentTaskId: String(node.parentTaskId || '').trim(),
+                rank: Number.isFinite(rank) ? rank : __TM_CUSTOM_TASK_ORDER_RANK_GAP,
+            };
+            if (tid !== taskId) delete doc.nodes[taskId];
+        });
+        const after = __tmGetSettingsFieldFingerprint(doc);
+        if (before === after) return false;
+        const now = Date.now();
+        doc.updatedAt = now;
+        store.rules[rid].updatedAt = now;
+        store.updatedAt = now;
+        return __tmSetCustomTaskOrderStore(store, options);
+    }
+
+    function __tmBuildCustomTaskOrderProjection(taskTree, rule, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const ruleId = __tmGetCustomTaskOrderRuleId(rule);
+        if (!ruleId) return null;
+        const sourceDocs = Array.isArray(taskTree) ? taskTree : [];
+        const store = __tmGetCustomTaskOrderStore();
+        const ruleStore = store.rules?.[ruleId] || null;
+        const projectedDocs = [];
+        const projectedFlat = {};
+        let hasCustomNodes = false;
+
+        sourceDocs.forEach((doc) => {
+            const docId = String(doc?.id || '').trim();
+            const customDoc = docId ? ruleStore?.docs?.[docId] : null;
+            const customNodes = (customDoc?.nodes && typeof customDoc.nodes === 'object') ? customDoc.nodes : {};
+            if (Object.keys(customNodes).length > 0) hasCustomNodes = true;
+
+            const items = [];
+            const idMap = new Map();
+            const originalOrder = new Map();
+            const realParentById = new Map();
+            const walkSource = (list, parentId = '') => {
+                (Array.isArray(list) ? list : []).forEach((task) => {
+                    const taskId = String(task?.id || '').trim();
+                    if (!taskId) return;
+                    const realParentId = String(parentId || task?.parentTaskId || task?.parent_task_id || '').trim();
+                    const clone = { ...task, children: [] };
+                    idMap.set(taskId, clone);
+                    originalOrder.set(taskId, originalOrder.size);
+                    realParentById.set(taskId, realParentId);
+                    items.push(clone);
+                    walkSource(task?.children, taskId);
+                });
+            };
+            walkSource(doc?.tasks || [], '');
+
+            const roots = [];
+            const getCustomRankForRealParent = (taskId) => {
+                const tid = String(taskId || '').trim();
+                const node = tid ? customNodes?.[tid] : null;
+                if (!(node && typeof node === 'object')) return Number.NaN;
+                const realParentId = String(realParentById.get(tid) || '').trim();
+                if (String(node.parentTaskId || '').trim() !== realParentId) return Number.NaN;
+                const rank = Number(node.rank);
+                return Number.isFinite(rank) ? rank : Number.NaN;
+            };
+            const sortSiblingsByCustomRank = (list) => {
+                const arr = Array.isArray(list) ? list : [];
+                arr.sort((a, b) => {
+                    const aid = String(a?.id || '').trim();
+                    const bid = String(b?.id || '').trim();
+                    const ar = getCustomRankForRealParent(aid);
+                    const br = getCustomRankForRealParent(bid);
+                    const ah = Number.isFinite(ar);
+                    const bh = Number.isFinite(br);
+                    if (ah !== bh) return ah ? -1 : 1;
+                    if (ah && bh && ar !== br) return ar - br;
+                    return (originalOrder.get(aid) ?? Number.POSITIVE_INFINITY) - (originalOrder.get(bid) ?? Number.POSITIVE_INFINITY);
+                });
+                arr.forEach((child) => sortSiblingsByCustomRank(child?.children));
+                return arr;
+            };
+
+            items.forEach((task) => {
+                const taskId = String(task?.id || '').trim();
+                let parentId = String(realParentById.get(taskId) || '').trim();
+                if (parentId && !idMap.has(parentId)) parentId = '';
+                task.parentTaskId = parentId || null;
+                task.parent_task_id = parentId || '';
+                task.docId = task.docId || task.root_id || docId;
+                task.root_id = task.root_id || task.docId || docId;
+                if (parentId && idMap.has(parentId)) idMap.get(parentId).children.push(task);
+                else roots.push(task);
+                projectedFlat[taskId] = task;
+            });
+
+            sortSiblingsByCustomRank(roots);
+            let docSeq = 0;
+            const assignLevel = (list, level) => {
+                (Array.isArray(list) ? list : []).forEach((task) => {
+                    task.level = level;
+                    task.docSeq = docSeq++;
+                    assignLevel(task.children, level + 1);
+                });
+            };
+            assignLevel(roots, 0);
+            projectedDocs.push({ ...doc, tasks: roots });
+        });
+
+        if (!hasCustomNodes && opts.force !== true) return null;
+        return {
+            taskTree: projectedDocs,
+            flatTasks: projectedFlat,
+            ruleId,
+            updatedAt: Number(ruleStore?.updatedAt || store.updatedAt || 0) || 0,
+        };
+    }
+
+    function __tmBuildCustomTaskOrderFingerprint(ruleOrId = null, docIds = []) {
+        const ruleId = __tmGetCustomTaskOrderRuleId(ruleOrId);
+        if (!ruleId) return '';
+        const store = __tmGetCustomTaskOrderStore();
+        const rule = store.rules?.[ruleId] || null;
+        if (!rule) return `${ruleId}:empty`;
+        const requested = __tmNormalizeTaskSnapshotDocIds(docIds || []);
+        const ids = requested.length ? requested : Object.keys(rule.docs || {}).sort();
+        const parts = ids.map((docId) => {
+            const doc = rule.docs?.[docId] || null;
+            if (!doc) return `${docId}:`;
+            const nodeText = JSON.stringify(__tmStableSettingsJsonValue(doc.nodes || {}));
+            return `${docId}:${Number(doc.updatedAt) || 0}:${__tmHashTaskSnapshotText(nodeText)}:${nodeText.length}`;
+        });
+        return `${ruleId}:${Number(rule.updatedAt) || 0}:${Number(store.updatedAt) || 0}:${parts.join(';')}`;
+    }
+
+    function __tmBuildCustomTaskOrderSnapshotView(ruleOrId = null, docIds = []) {
+        const ruleId = __tmGetCustomTaskOrderRuleId(ruleOrId);
+        if (!ruleId) return null;
+        const store = __tmGetCustomTaskOrderStore();
+        const rule = store.rules?.[ruleId] || null;
+        if (!rule) return null;
+        const ids = __tmNormalizeTaskSnapshotDocIds(docIds || []);
+        const docs = {};
+        (ids.length ? ids : Object.keys(rule.docs || {})).forEach((docId) => {
+            const doc = rule.docs?.[docId] || null;
+            if (!doc) return;
+            docs[docId] = __tmCloneJsonSafe(doc, { updatedAt: Number(doc.updatedAt) || 0, nodes: {} });
+        });
+        if (Object.keys(docs).length === 0) return null;
+        return {
+            version: __TM_CUSTOM_TASK_ORDER_VERSION,
+            ruleId,
+            updatedAt: Number(rule.updatedAt || store.updatedAt || 0) || 0,
+            fingerprint: __tmBuildCustomTaskOrderFingerprint(ruleId, ids),
+            docs,
+        };
+    }
+
+    function __tmGetCustomTaskOrderProjectionDoc(projection, docId) {
+        const did = String(docId || '').trim();
+        if (!did || !(projection && Array.isArray(projection.taskTree))) return null;
+        return projection.taskTree.find((doc) => String(doc?.id || '').trim() === did) || null;
+    }
+
+    function __tmGetCustomTaskOrderSiblingIds(projection, docId, parentTaskId = '') {
+        const parentId = String(parentTaskId || '').trim();
+        if (parentId) {
+            const parent = projection?.flatTasks?.[parentId] || null;
+            return (Array.isArray(parent?.children) ? parent.children : [])
+                .map((task) => String(task?.id || '').trim())
+                .filter(Boolean);
+        }
+        const doc = __tmGetCustomTaskOrderProjectionDoc(projection, docId);
+        return (Array.isArray(doc?.tasks) ? doc.tasks : [])
+            .map((task) => String(task?.id || '').trim())
+            .filter(Boolean);
+    }
+
+    function __tmTaskContainsCustomOrderDescendant(task, targetTaskId) {
+        const targetId = String(targetTaskId || '').trim();
+        if (!task || !targetId) return false;
+        const stack = Array.isArray(task.children) ? task.children.slice() : [];
+        while (stack.length) {
+            const item = stack.pop();
+            const itemId = String(item?.id || '').trim();
+            if (itemId === targetId) return true;
+            if (Array.isArray(item?.children) && item.children.length) stack.push(...item.children);
+        }
+        return false;
+    }
+
+    function __tmApplyCustomTaskOrderMove(rule, sourceTaskId, targetTaskId, kind = '') {
+        const ruleId = __tmGetCustomTaskOrderRuleId(rule);
+        const sourceId = String(sourceTaskId || '').trim();
+        const targetId = String(targetTaskId || '').trim();
+        const mode = String(kind || '').trim();
+        if (!ruleId || !sourceId || !targetId || sourceId === targetId) return { ok: false, reason: 'invalid' };
+        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId)
+            || state.flatTasks?.[sourceId]
+            || state.pendingInsertedTasks?.[sourceId]
+            || null;
+        const targetTask = globalThis.__tmRuntimeState?.getTaskById?.(targetId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId)
+            || state.flatTasks?.[targetId]
+            || state.pendingInsertedTasks?.[targetId]
+            || null;
+        const sourceDocId = String(sourceTask?.docId || sourceTask?.root_id || '').trim();
+        const targetDocId = String(targetTask?.docId || targetTask?.root_id || '').trim();
+        if (!sourceDocId || !targetDocId) return { ok: false, reason: 'missing-doc' };
+        if (mode === 'child' || mode === 'child-top' || sourceDocId !== targetDocId) return { ok: false, reason: 'physical' };
+        const projection = __tmBuildCustomTaskOrderProjection(state.taskTree, rule, { force: true });
+        const sourceProjected = projection?.flatTasks?.[sourceId] || null;
+        const targetProjected = projection?.flatTasks?.[targetId] || null;
+        if (!projection || !sourceProjected || !targetProjected) return { ok: false, reason: 'missing' };
+        if (__tmTaskContainsCustomOrderDescendant(sourceProjected, targetId)) return { ok: false, reason: 'cycle' };
+
+        let parentTaskId = '';
+        let siblingIds = [];
+        if (mode === 'before' || mode === 'after') {
+            parentTaskId = String(targetProjected.parentTaskId || targetProjected.parent_task_id || '').trim();
+            const sourceParentTaskId = String(sourceProjected.parentTaskId || sourceProjected.parent_task_id || '').trim();
+            if (sourceParentTaskId !== parentTaskId) return { ok: false, reason: 'physical' };
+            siblingIds = __tmGetCustomTaskOrderSiblingIds(projection, sourceDocId, parentTaskId).filter((id) => id !== sourceId);
+            const targetIndex = siblingIds.indexOf(targetId);
+            if (targetIndex < 0) return { ok: false, reason: 'target-sibling' };
+            siblingIds.splice(mode === 'before' ? targetIndex : targetIndex + 1, 0, sourceId);
+        } else {
+            return { ok: false, reason: 'mode' };
+        }
+
+        const changed = __tmPatchCustomTaskOrderDoc(ruleId, sourceDocId, (doc) => {
+            siblingIds.forEach((taskId, index) => {
+                const tid = String(taskId || '').trim();
+                if (!tid) return;
+                doc.nodes[tid] = {
+                    ...(doc.nodes[tid] || {}),
+                    parentTaskId,
+                    rank: (index + 1) * __TM_CUSTOM_TASK_ORDER_RANK_GAP,
+                };
+            });
+        });
+        return { ok: changed, reason: changed ? '' : 'unchanged', parentTaskId, siblingIds };
+    }
+
+    function __tmApplyCustomTaskOrderPhysicalPlacement(rule, sourceTaskId, targetTaskId, kind = '') {
+        const ruleId = __tmGetCustomTaskOrderRuleId(rule);
+        const sourceId = String(sourceTaskId || '').trim();
+        const targetId = String(targetTaskId || '').trim();
+        const mode = String(kind || '').trim();
+        if (!ruleId || !sourceId || !targetId || sourceId === targetId) return { ok: false, reason: 'invalid' };
+        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId)
+            || state.flatTasks?.[sourceId]
+            || state.pendingInsertedTasks?.[sourceId]
+            || null;
+        const targetTask = globalThis.__tmRuntimeState?.getTaskById?.(targetId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId)
+            || state.flatTasks?.[targetId]
+            || state.pendingInsertedTasks?.[targetId]
+            || null;
+        const sourceDocId = String(sourceTask?.docId || sourceTask?.root_id || '').trim();
+        const targetDocId = String(targetTask?.docId || targetTask?.root_id || '').trim();
+        if (!sourceDocId || !targetDocId) return { ok: false, reason: 'missing-doc' };
+        const projection = __tmBuildCustomTaskOrderProjection(state.taskTree, rule, { force: true });
+        const sourceProjected = projection?.flatTasks?.[sourceId] || null;
+        const targetProjected = projection?.flatTasks?.[targetId] || null;
+        if (!projection || !targetProjected) return { ok: false, reason: 'missing' };
+        if (sourceProjected && __tmTaskContainsCustomOrderDescendant(sourceProjected, targetId)) return { ok: false, reason: 'cycle' };
+
+        let parentTaskId = '';
+        let siblingIds = [];
+        if (mode === 'before' || mode === 'after') {
+            parentTaskId = String(targetProjected.parentTaskId || targetProjected.parent_task_id || '').trim();
+            siblingIds = __tmGetCustomTaskOrderSiblingIds(projection, targetDocId, parentTaskId).filter((id) => id !== sourceId);
+            const targetIndex = siblingIds.indexOf(targetId);
+            if (targetIndex < 0) return { ok: false, reason: 'target-sibling' };
+            siblingIds.splice(mode === 'before' ? targetIndex : targetIndex + 1, 0, sourceId);
+        } else if (mode === 'child' || mode === 'child-top') {
+            parentTaskId = targetId;
+            siblingIds = __tmGetCustomTaskOrderSiblingIds(projection, targetDocId, parentTaskId).filter((id) => id !== sourceId);
+            if (mode === 'child-top') siblingIds.unshift(sourceId);
+            else siblingIds.push(sourceId);
+        } else {
+            return { ok: false, reason: 'mode' };
+        }
+
+        const changed = __tmPatchCustomTaskOrderDoc(ruleId, targetDocId, (doc) => {
+            siblingIds.forEach((taskId, index) => {
+                const tid = String(taskId || '').trim();
+                if (!tid) return;
+                doc.nodes[tid] = {
+                    ...(doc.nodes[tid] || {}),
+                    parentTaskId,
+                    rank: (index + 1) * __TM_CUSTOM_TASK_ORDER_RANK_GAP,
+                };
+            });
+        });
+        const clearedSourceDoc = sourceDocId !== targetDocId
+            ? __tmClearCustomTaskOrderTasks(sourceId, { ruleId, docIds: [sourceDocId] })
+            : false;
+        const ok = changed || clearedSourceDoc;
+        return { ok, reason: ok ? '' : 'unchanged', parentTaskId, siblingIds, targetDocId };
+    }
+
+    function __tmRegisterCustomTaskOrderCreatedTask(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const taskId = String(opts.taskId || opts.tempId || '').trim();
+        const docId = String(opts.docId || '').trim();
+        if (!taskId || !docId) return false;
+        const rule = typeof __tmGetCurrentRule === 'function' ? __tmGetCurrentRule() : null;
+        const ruleId = __tmGetCustomTaskOrderRuleId(rule);
+        if (!ruleId) return false;
+        const projection = __tmBuildCustomTaskOrderProjection(state.taskTree, rule, { force: true });
+        if (!projection) return false;
+        let parentTaskId = String(opts.parentTaskId || '').trim();
+        let siblingIds = [];
+        const mode = String(opts.mode || '').trim();
+        if (mode === 'sibling') {
+            const sourceTaskId = String(opts.sourceTaskId || '').trim();
+            const sourceTask = projection.flatTasks?.[sourceTaskId] || null;
+            parentTaskId = String(sourceTask?.parentTaskId || sourceTask?.parent_task_id || '').trim();
+            siblingIds = __tmGetCustomTaskOrderSiblingIds(projection, docId, parentTaskId).filter((id) => id !== taskId);
+            const index = siblingIds.indexOf(sourceTaskId);
+            siblingIds.splice(index >= 0 ? index + 1 : siblingIds.length, 0, taskId);
+        } else {
+            siblingIds = __tmGetCustomTaskOrderSiblingIds(projection, docId, parentTaskId).filter((id) => id !== taskId);
+            siblingIds.push(taskId);
+        }
+        return __tmPatchCustomTaskOrderDoc(ruleId, docId, (doc) => {
+            siblingIds.forEach((id, index) => {
+                const tid = String(id || '').trim();
+                if (!tid) return;
+                doc.nodes[tid] = {
+                    ...(doc.nodes[tid] || {}),
+                    parentTaskId,
+                    rank: (index + 1) * __TM_CUSTOM_TASK_ORDER_RANK_GAP,
+                };
+            });
+        });
+    }
+
+    function __tmRemapCustomTaskOrderId(oldId, newId, options = {}) {
+        const fromIds = new Set([String(oldId || '').trim()]);
+        (Array.isArray(options?.aliases) ? options.aliases : []).forEach((id) => {
+            const tid = String(id || '').trim();
+            if (tid) fromIds.add(tid);
+        });
+        const to = String(newId || '').trim();
+        fromIds.delete('');
+        if (!fromIds.size || !to) return false;
+        const store = __tmGetCustomTaskOrderStore();
+        const now = Date.now();
+        let changed = false;
+        Object.values(store.rules || {}).forEach((rule) => {
+            let ruleChanged = false;
+            Object.values(rule.docs || {}).forEach((doc) => {
+                const nodes = doc.nodes || {};
+                let docChanged = false;
+                fromIds.forEach((from) => {
+                    if (nodes[from]) {
+                        nodes[to] = { ...(nodes[to] || {}), ...nodes[from] };
+                        delete nodes[from];
+                        docChanged = true;
+                    }
+                });
+                Object.values(nodes).forEach((node) => {
+                    if (fromIds.has(String(node?.parentTaskId || '').trim())) {
+                        node.parentTaskId = to;
+                        docChanged = true;
+                    }
+                });
+                if (docChanged) {
+                    doc.updatedAt = now;
+                    ruleChanged = true;
+                    changed = true;
+                }
+            });
+            if (ruleChanged) rule.updatedAt = now;
+        });
+        if (!changed) return false;
+        store.updatedAt = now;
+        return __tmSetCustomTaskOrderStore(store);
+    }
+
+    function __tmRemoveCustomTaskOrderTasks(taskIds = []) {
+        const removeIds = new Set((Array.isArray(taskIds) ? taskIds : [taskIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        if (!removeIds.size) return false;
+        const store = __tmGetCustomTaskOrderStore();
+        const now = Date.now();
+        let changed = false;
+        Object.entries(store.rules || {}).forEach(([ruleId, rule]) => {
+            let ruleChanged = false;
+            Object.entries(rule.docs || {}).forEach(([docId, doc]) => {
+                const nodes = doc.nodes || {};
+                let docChanged = false;
+                const removedParentById = new Map();
+                removeIds.forEach((id) => {
+                    if (nodes[id]) removedParentById.set(id, String(nodes[id].parentTaskId || '').trim());
+                });
+                removeIds.forEach((id) => {
+                    if (nodes[id]) {
+                        delete nodes[id];
+                        docChanged = true;
+                    }
+                });
+                Object.values(nodes).forEach((node) => {
+                    let parentId = String(node?.parentTaskId || '').trim();
+                    const seen = new Set();
+                    while (parentId && removeIds.has(parentId) && !seen.has(parentId)) {
+                        seen.add(parentId);
+                        parentId = String(removedParentById.get(parentId) || '').trim();
+                    }
+                    if (String(node.parentTaskId || '').trim() !== parentId) {
+                        node.parentTaskId = parentId;
+                        docChanged = true;
+                    }
+                });
+                if (docChanged) {
+                    doc.updatedAt = now;
+                    ruleChanged = true;
+                    changed = true;
+                }
+            });
+            if (ruleChanged) rule.updatedAt = now;
+        });
+        if (!changed) return false;
+        store.updatedAt = now;
+        return __tmSetCustomTaskOrderStore(store);
+    }
+
+    function __tmClearCustomTaskOrderTasks(taskIds = [], options = {}) {
+        const removeIds = new Set((Array.isArray(taskIds) ? taskIds : [taskIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        if (!removeIds.size) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const onlyRuleId = String(opts.ruleId || '').trim();
+        const docIds = new Set((Array.isArray(opts.docIds) ? opts.docIds : [opts.docId, opts.fromDocId, opts.toDocId])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        const hasPreserveParent = Object.prototype.hasOwnProperty.call(opts, 'preserveParentTaskId');
+        const preserveParentTaskId = String(opts.preserveParentTaskId || '').trim();
+        const preserveDocId = String(opts.preserveDocId || '').trim();
+        const store = __tmGetCustomTaskOrderStore();
+        const now = Date.now();
+        let changed = false;
+        Object.entries(store.rules || {}).forEach(([ruleId, rule]) => {
+            const rid = String(ruleId || '').trim();
+            if (onlyRuleId && rid !== onlyRuleId) return;
+            let ruleChanged = false;
+            Object.entries(rule.docs || {}).forEach(([docId, doc]) => {
+                const did = String(docId || '').trim();
+                if (docIds.size && !docIds.has(did)) return;
+                const nodes = doc.nodes || {};
+                let docChanged = false;
+                removeIds.forEach((id) => {
+                    const node = nodes[id];
+                    if (node) {
+                        const shouldPreserve = hasPreserveParent
+                            && (!preserveDocId || did === preserveDocId)
+                            && String(node.parentTaskId || '').trim() === preserveParentTaskId;
+                        if (shouldPreserve) return;
+                        delete nodes[id];
+                        docChanged = true;
+                    }
+                });
+                if (!docChanged) return;
+                doc.updatedAt = now;
+                ruleChanged = true;
+                changed = true;
+            });
+            if (ruleChanged) rule.updatedAt = now;
+        });
+        if (!changed) return false;
+        store.updatedAt = now;
+        return __tmSetCustomTaskOrderStore(store);
+    }
+
+    function __tmHandleCustomTaskOrderPhysicalMove(taskId, fromDocId, toDocId, options = {}) {
+        const tid = String(taskId || '').trim();
+        const fromDid = String(fromDocId || '').trim();
+        const toDid = String(toDocId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!tid) return false;
+        const clearOptions = {
+            docIds: [fromDid, toDid].filter(Boolean),
+        };
+        if (opts.preservePlacement === true) {
+            clearOptions.preserveDocId = toDid;
+            clearOptions.preserveParentTaskId = String(opts.nextParentTaskId || '').trim();
+        }
+        return __tmClearCustomTaskOrderTasks(tid, clearOptions);
+    }
 
     const TM_TASK_PARENT_LOOKUP_DEPTH_DEFAULT = 0;
     const TM_TASK_PARENT_LOOKUP_DEPTH_MAX = 6;
@@ -6413,6 +7235,7 @@
             taskRemarkWrapMaxLines: 2,
             parentTaskNameBoldEnabled: true,
             taskCheckboxCircleStyleEnabled: false,
+            taskCheckboxPriorityColorEnabled: true,
             docTabsAutoHideEnabled: true,
             docTabProcrastinationTintEnabled: true,
             enableQuickbar: true,
@@ -6445,6 +7268,7 @@
             newTaskDocId: '',
             newTaskDailyNoteNotebookId: '',
             newTaskDailyNoteAppendToBottom: false,
+            deleteTaskRemovesWhiteboardCards: true,
             quickAddRecentDocs: [],
             headingGroupCreateAtSectionEnd: false,
             enableTomatoIntegration: true,
@@ -6596,6 +7420,16 @@
             whiteboardAutoConnectByCreated: false,
             whiteboardDetachedChildren: {},
             whiteboardNotes: [],
+            whiteboardDrawings: [],
+            whiteboardFrames: [],
+            whiteboardDrawingConfig: {
+                hidden: false,
+                penColor: '#1f2937',
+                penWidth: 4,
+                highlighterColor: '#f59e0b',
+                highlighterWidth: 14,
+                eraserWidth: 22,
+            },
             whiteboardTool: 'pan',
             whiteboardNoteDefaultFontSize: 20,
             whiteboardSidebarCollapsed: false,
@@ -7020,6 +7854,7 @@
                                 if (typeof cloudData.taskRemarkWrapMaxLines === 'number') this.data.taskRemarkWrapMaxLines = cloudData.taskRemarkWrapMaxLines;
                                 if (typeof cloudData.parentTaskNameBoldEnabled === 'boolean') this.data.parentTaskNameBoldEnabled = cloudData.parentTaskNameBoldEnabled;
                                 if (typeof cloudData.taskCheckboxCircleStyleEnabled === 'boolean') this.data.taskCheckboxCircleStyleEnabled = cloudData.taskCheckboxCircleStyleEnabled;
+                                if (typeof cloudData.taskCheckboxPriorityColorEnabled === 'boolean') this.data.taskCheckboxPriorityColorEnabled = cloudData.taskCheckboxPriorityColorEnabled;
                                 if (typeof cloudData.docTabsAutoHideEnabled === 'boolean') this.data.docTabsAutoHideEnabled = cloudData.docTabsAutoHideEnabled;
                                 if (typeof cloudData.docTabsArchiveButtonPosition === 'string') this.data.docTabsArchiveButtonPosition = String(cloudData.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
                                 if (typeof cloudData.docTabProcrastinationTintEnabled === 'boolean') this.data.docTabProcrastinationTintEnabled = cloudData.docTabProcrastinationTintEnabled;
@@ -7049,6 +7884,7 @@
                                 if (typeof cloudData.newTaskDocId === 'string') this.data.newTaskDocId = cloudData.newTaskDocId;
                                 if (typeof cloudData.newTaskDailyNoteNotebookId === 'string') this.data.newTaskDailyNoteNotebookId = cloudData.newTaskDailyNoteNotebookId;
                                 if (typeof cloudData.newTaskDailyNoteAppendToBottom === 'boolean') this.data.newTaskDailyNoteAppendToBottom = cloudData.newTaskDailyNoteAppendToBottom;
+                                if (typeof cloudData.deleteTaskRemovesWhiteboardCards === 'boolean') this.data.deleteTaskRemovesWhiteboardCards = cloudData.deleteTaskRemovesWhiteboardCards;
                                 if (Array.isArray(cloudData.quickAddRecentDocs)) this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(cloudData.quickAddRecentDocs);
                                 if (typeof cloudData.headingGroupCreateAtSectionEnd === 'boolean') this.data.headingGroupCreateAtSectionEnd = cloudData.headingGroupCreateAtSectionEnd;
                                 if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
@@ -7509,6 +8345,7 @@
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
             this.data.parentTaskNameBoldEnabled = Storage.get('tm_parent_task_name_bold_enabled', this.data.parentTaskNameBoldEnabled);
             this.data.taskCheckboxCircleStyleEnabled = !!Storage.get('tm_task_checkbox_circle_style_enabled', this.data.taskCheckboxCircleStyleEnabled);
+            this.data.taskCheckboxPriorityColorEnabled = Storage.get('tm_task_checkbox_priority_color_enabled', this.data.taskCheckboxPriorityColorEnabled) !== false;
             this.data.docTabsAutoHideEnabled = !!Storage.get('tm_doc_tabs_auto_hide_enabled', this.data.docTabsAutoHideEnabled);
             this.data.docTabProcrastinationTintEnabled = Storage.get('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled) !== false;
             this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
@@ -7644,6 +8481,9 @@
             this.data.whiteboardAutoConnectByCreated = Storage.get('tm_whiteboard_auto_connect_by_created', this.data.whiteboardAutoConnectByCreated);
             this.data.whiteboardDetachedChildren = Storage.get('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren) || {};
             this.data.whiteboardNotes = Storage.get('tm_whiteboard_notes', this.data.whiteboardNotes) || [];
+            this.data.whiteboardDrawings = Storage.get('tm_whiteboard_drawings', this.data.whiteboardDrawings) || [];
+            this.data.whiteboardFrames = Storage.get('tm_whiteboard_frames', this.data.whiteboardFrames) || [];
+            this.data.whiteboardDrawingConfig = Storage.get('tm_whiteboard_drawing_config', this.data.whiteboardDrawingConfig) || this.data.whiteboardDrawingConfig;
             this.data.whiteboardTool = Storage.get('tm_whiteboard_tool', this.data.whiteboardTool);
             this.data.whiteboardNoteDefaultFontSize = Storage.get('tm_whiteboard_note_default_font_size', this.data.whiteboardNoteDefaultFontSize);
             this.data.whiteboardSidebarCollapsed = Storage.get('tm_whiteboard_sidebar_collapsed', this.data.whiteboardSidebarCollapsed);
@@ -7704,6 +8544,7 @@
             this.data.serverSyncOnManualRefresh = !!Storage.get('tm_server_sync_on_manual_refresh', this.data.serverSyncOnManualRefresh);
             this.data.serverSyncSessionStateOnManualRefresh = !!Storage.get('tm_server_sync_session_state_on_manual_refresh', this.data.serverSyncSessionStateOnManualRefresh);
             this.data.newTaskDailyNoteAppendToBottom = !!Storage.get('tm_new_task_daily_note_append_to_bottom', this.data.newTaskDailyNoteAppendToBottom);
+            this.data.deleteTaskRemovesWhiteboardCards = Storage.get('tm_delete_task_removes_whiteboard_cards', this.data.deleteTaskRemovesWhiteboardCards) !== false;
             this.data.headingGroupCreateAtSectionEnd = !!Storage.get('tm_heading_group_create_at_section_end', this.data.headingGroupCreateAtSectionEnd);
             this.data.desktopChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.desktopChecklistCompactMetaFields);
             this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.dockChecklistCompactMetaFields);
@@ -7807,6 +8648,7 @@
                 this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(normalizedFieldMap, this.data) ? {} : normalizedFieldMap;
             }
             this.normalizeColumns();
+            try { __tmApplyTaskCheckboxPriorityColorStyle(this.data.taskCheckboxPriorityColorEnabled !== false); } catch (e) {}
         },
 
         // 同步到本地缓存
@@ -7940,6 +8782,7 @@
             Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
             Storage.set('tm_new_task_daily_note_notebook_id', String(this.data.newTaskDailyNoteNotebookId || '').trim());
             Storage.set('tm_new_task_daily_note_append_to_bottom', !!this.data.newTaskDailyNoteAppendToBottom);
+            Storage.set('tm_delete_task_removes_whiteboard_cards', this.data.deleteTaskRemovesWhiteboardCards !== false);
             Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs));
             Storage.set('tm_heading_group_create_at_section_end', !!this.data.headingGroupCreateAtSectionEnd);
             Storage.set('tm_doc_tab_sort_mode', String(this.data.docTabSortMode || 'created_desc').trim() || 'created_desc');
@@ -7951,6 +8794,8 @@
             Storage.set('tm_task_remark_wrap_max_lines', Number(this.data.taskRemarkWrapMaxLines) || 2);
             Storage.set('tm_parent_task_name_bold_enabled', this.data.parentTaskNameBoldEnabled !== false);
             Storage.set('tm_task_checkbox_circle_style_enabled', !!this.data.taskCheckboxCircleStyleEnabled);
+            Storage.set('tm_task_checkbox_priority_color_enabled', this.data.taskCheckboxPriorityColorEnabled !== false);
+            try { __tmApplyTaskCheckboxPriorityColorStyle(this.data.taskCheckboxPriorityColorEnabled !== false); } catch (e) {}
             Storage.set('tm_doc_tabs_auto_hide_enabled', !!this.data.docTabsAutoHideEnabled);
             Storage.set('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled !== false);
             Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
@@ -8089,6 +8934,9 @@
             Storage.set('tm_whiteboard_auto_connect_by_created', !!this.data.whiteboardAutoConnectByCreated);
             Storage.set('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren || {});
             Storage.set('tm_whiteboard_notes', this.data.whiteboardNotes || []);
+            Storage.set('tm_whiteboard_drawings', this.data.whiteboardDrawings || []);
+            Storage.set('tm_whiteboard_frames', this.data.whiteboardFrames || []);
+            Storage.set('tm_whiteboard_drawing_config', __tmNormalizeWhiteboardDrawingConfig(this.data.whiteboardDrawingConfig));
             Storage.set('tm_whiteboard_tool', String(this.data.whiteboardTool || 'pan').trim() || 'pan');
             {
                 const n = Number(this.data.whiteboardNoteDefaultFontSize);
@@ -8263,6 +9111,7 @@
             this.data.taskAutoWrapEnabled = this.data.taskAutoWrapEnabled !== false;
             this.data.parentTaskNameBoldEnabled = this.data.parentTaskNameBoldEnabled !== false;
             this.data.taskCheckboxCircleStyleEnabled = !!this.data.taskCheckboxCircleStyleEnabled;
+            this.data.taskCheckboxPriorityColorEnabled = this.data.taskCheckboxPriorityColorEnabled !== false;
             this.data.docTabsAutoHideEnabled = !!this.data.docTabsAutoHideEnabled;
             this.data.docTabsArchiveButtonPosition = String(this.data.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
             this.data.docTabProcrastinationTintEnabled = this.data.docTabProcrastinationTintEnabled !== false;
@@ -8368,6 +9217,7 @@
             this.data.pointsPenaltyCheckOnStartup = !!this.data.pointsPenaltyCheckOnStartup;
             this.data.pointsPenaltyConfirmModalEnabled = this.data.pointsPenaltyConfirmModalEnabled !== false;
             this.data.newTaskDailyNoteAppendToBottom = !!this.data.newTaskDailyNoteAppendToBottom;
+            this.data.deleteTaskRemovesWhiteboardCards = this.data.deleteTaskRemovesWhiteboardCards !== false;
             this.data.headingGroupCreateAtSectionEnd = !!this.data.headingGroupCreateAtSectionEnd;
             this.data.autoCompleteParentOnSubtasksDone = !!this.data.autoCompleteParentOnSubtasksDone;
             this.data.taskDetailShowCompletedSubtasks = __tmNormalizeTaskDetailShowCompletedSubtasksSetting(
@@ -8395,8 +9245,11 @@
                 ? this.data.whiteboardDetachedChildren
                 : {};
             this.data.whiteboardNotes = Array.isArray(this.data.whiteboardNotes) ? this.data.whiteboardNotes : [];
+            this.data.whiteboardDrawings = __tmNormalizeWhiteboardDrawingArray(this.data.whiteboardDrawings);
+            this.data.whiteboardFrames = __tmNormalizeWhiteboardFrameArray(this.data.whiteboardFrames);
+            this.data.whiteboardDrawingConfig = __tmNormalizeWhiteboardDrawingConfig(this.data.whiteboardDrawingConfig);
             const wbTool = String(this.data.whiteboardTool || 'pan').trim();
-            this.data.whiteboardTool = (wbTool === 'select' || wbTool === 'text' || wbTool === 'sticky' || wbTool === 'pan') ? wbTool : 'pan';
+            this.data.whiteboardTool = (wbTool === 'select' || wbTool === 'text' || wbTool === 'sticky' || wbTool === 'pen' || wbTool === 'highlighter' || wbTool === 'eraser' || wbTool === 'frame' || wbTool === 'pan') ? wbTool : 'pan';
             const wbNoteDefaultFontSize = Number(this.data.whiteboardNoteDefaultFontSize);
             this.data.whiteboardNoteDefaultFontSize = Number.isFinite(wbNoteDefaultFontSize) ? Math.max(10, Math.min(40, Math.round(wbNoteDefaultFontSize))) : 20;
             this.data.whiteboardSidebarCollapsed = !!this.data.whiteboardSidebarCollapsed;
@@ -8598,6 +9451,8 @@
                     'whiteboardLinks',
                     'whiteboardDetachedChildren',
                     'whiteboardNotes',
+                    'whiteboardDrawings',
+                    'whiteboardFrames',
                     'whiteboardNodePos',
                     'whiteboardPlacedTaskIds',
                     'whiteboardDocFrameSize',
@@ -8768,6 +9623,71 @@
             await this.save();
         }
     };
+
+    const __TM_TASK_CHECKBOX_PRIORITY_COLOR_STYLE_ID = 'tm-task-checkbox-priority-color-style';
+
+    function __tmBuildTaskCheckboxPriorityColorCss() {
+        const priorityKeys = (typeof __tmGetTaskMetaAttrReadKeys === 'function' ? __tmGetTaskMetaAttrReadKeys('priority') : ['custom-priority'])
+            .map((key) => __tmNormalizeTaskMetaAttrKeyName(key, ''))
+            .filter(Boolean);
+        const keys = Array.from(new Set(priorityKeys.length ? priorityKeys : ['custom-priority']));
+        const noItemPrioritySelector = keys.map((key) => `:not([${key}])`).join('');
+        const sourceSelectors = (value) => {
+            const selectors = [];
+            keys.forEach((key) => {
+                selectors.push(`:root .protyle-wysiwyg .li[data-subtype="t"][${key}="${value}"] > .protyle-action--task`);
+                selectors.push(`:root .protyle-wysiwyg .list[data-subtype="t"][${key}="${value}"] > .li[data-subtype="t"]:first-child${noItemPrioritySelector} > .protyle-action--task`);
+            });
+            return selectors.join(',\n');
+        };
+        const colors = [
+            ['high', '#d94a4a'],
+            ['medium', '#d08a2a'],
+            ['low', '#2b6aa0'],
+            ['none', '#9aa0a6'],
+        ];
+        const rules = [
+            ':root .protyle-wysiwyg .li[data-subtype="t"] > .protyle-action--task {',
+            '    --tm-doc-task-check: #9aa0a6;',
+            '}',
+            ...colors.flatMap(([value, color]) => [
+                `${sourceSelectors(value)} {`,
+                `    --tm-doc-task-check: ${color};`,
+                '}',
+            ]),
+            ':root .protyle-wysiwyg .li[data-subtype="t"] > .protyle-action--task::before {',
+            '    background: var(--tm-doc-task-check) !important;',
+            '    background-image: none !important;',
+            '    filter: none !important;',
+            '    opacity: 1 !important;',
+            '}',
+        ];
+        return rules.join('\n');
+    }
+
+    function __tmApplyTaskCheckboxPriorityColorStyle(enabled = true) {
+        if (typeof document === 'undefined') return;
+        const existing = document.getElementById(__TM_TASK_CHECKBOX_PRIORITY_COLOR_STYLE_ID);
+        if (enabled === false) {
+            existing?.remove?.();
+            return;
+        }
+        const css = __tmBuildTaskCheckboxPriorityColorCss();
+        if (!css) {
+            existing?.remove?.();
+            return;
+        }
+        let styleEl = existing;
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = __TM_TASK_CHECKBOX_PRIORITY_COLOR_STYLE_ID;
+            styleEl.dataset.tmRuntimeStyle = 'task-checkbox-priority-color';
+            (document.head || document.documentElement).appendChild(styleEl);
+        }
+        if (styleEl.textContent !== css) styleEl.textContent = css;
+    }
+
+    try { globalThis.__tmApplyTaskCheckboxPriorityColorStyle = __tmApplyTaskCheckboxPriorityColorStyle; } catch (e) {}
 
     const WhiteboardStore = {
         data: Storage.get(WHITEBOARD_DATA_CACHE_KEY, { version: 0, cards: {}, links: [] }) || { version: 0, cards: {}, links: [] },
@@ -9055,7 +9975,12 @@
 
         // 保存规则（使用 SettingsStore 保存到云端和本地）
         async saveRules(rules) {
-            SettingsStore.data.filterRules = rules;
+            SettingsStore.data.filterRules = (Array.isArray(rules) ? rules : []).map((rule) => {
+                if (rule && typeof rule === 'object' && __tmRuleSortsUseCustomOrderField(rule)) {
+                    return { ...rule, sort: [{ field: __TM_CUSTOM_ORDER_SORT_FIELD, order: 'asc' }] };
+                }
+                return rule;
+            });
             await SettingsStore.save();
         },
 
@@ -9537,6 +10462,7 @@
         // 获取排序字段
         getSortFields() {
             const sortFields = [
+                { value: __TM_CUSTOM_ORDER_SORT_FIELD, label: '自定义排序' },
                 { value: 'priorityScore', label: '优先级数值' },
                 { value: 'priority', label: '优先级' },
                 { value: 'customStatus', label: '状态' },
@@ -9798,6 +10724,10 @@
             };
 
             if (__tmRuleUsesDocFlowSort(rule)) {
+                return [...source].sort(pinnedSort);
+            }
+
+            if (typeof __tmRuleUsesCustomOrderSort === 'function' && __tmRuleUsesCustomOrderSort(rule)) {
                 return [...source].sort(pinnedSort);
             }
 
@@ -10166,6 +11096,8 @@
     const __tmLocalCreateTxSuppressBlockIds = new Set();
     const __tmLocalCreateTxSuppressDocIds = new Set();
     const __tmRecentVisibleDateFallbackTasks = new Map();
+    const __tmTaskAttrHostBackfillSeenAt = new Map();
+    const __tmTaskAttrHostMirrorSyncSeenAt = new Map();
 
     function __tmClearAttrHostResolutionCache() {
         try { __tmAttrHostParentResolutionCache.clear(); } catch (e) {}
@@ -10213,6 +11145,65 @@
         return { resolved: false, attrHostId: '', useParentHost: false, parentId };
     }
 
+    function __tmBuildTaskAttrContext(taskId, parentListId = '', details = {}) {
+        const tid = String(taskId || '').trim();
+        const parentId = String(parentListId || details?.parentId || '').trim();
+        const taskCount = Number(details?.taskCount);
+        const firstTaskId = String(details?.firstTaskId || '').trim();
+        const parentType = String(details?.parentType || '').trim().toLowerCase();
+        const hasParentList = /^[0-9]+-[a-zA-Z0-9]+$/.test(parentId) && (!parentType || parentType === 'l');
+        let state = 'state2-list-item';
+        let primaryHostId = tid;
+        const mirrorHostIds = [];
+        if (!tid) {
+            state = 'unknown';
+            primaryHostId = '';
+        } else if (hasParentList && Number.isFinite(taskCount) && taskCount === 1 && (!firstTaskId || firstTaskId === tid)) {
+            state = 'state1-parent';
+            primaryHostId = parentId;
+            mirrorHostIds.push(tid);
+        } else if (hasParentList && Number.isFinite(taskCount) && taskCount > 1 && firstTaskId === tid) {
+            state = 'state3-list-item';
+            primaryHostId = tid;
+            mirrorHostIds.push(parentId);
+        } else {
+            state = 'state2-list-item';
+            primaryHostId = tid;
+        }
+        return {
+            taskId: tid,
+            parentListId: parentId,
+            parentType,
+            parentListTaskCount: Number.isFinite(taskCount) ? taskCount : 0,
+            firstTaskId,
+            state,
+            primaryHostId: String(primaryHostId || tid || '').trim(),
+            mirrorHostIds: Array.from(new Set(mirrorHostIds.map((id) => String(id || '').trim()).filter((id) => id && id !== primaryHostId))),
+        };
+    }
+
+    function __tmBuildTaskAttrContextFromShape(taskId, parentListId = '', source = null) {
+        const tid = String(taskId || '').trim();
+        const shape = __tmBuildTaskParentListHostShape(parentListId, source);
+        const parentId = String(shape.parentId || '').trim();
+        const taskCount = Number(shape.siblingTaskCount);
+        const firstTaskId = String(source?.firstTaskId || source?.first_task_id || '').trim()
+            || (Number.isFinite(taskCount) && taskCount === 1 ? tid : '');
+        if (!tid) return __tmBuildTaskAttrContext('', parentId, { taskCount, firstTaskId, parentType: shape.parentType });
+        if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(parentId) || (shape.parentType && shape.parentType !== 'l')) {
+            return __tmBuildTaskAttrContext(tid, '', { taskCount: NaN, firstTaskId: '', parentType: shape.parentType });
+        }
+        if (shape.parentType === 'l' && Number.isFinite(taskCount)) {
+            if (taskCount > 1 && !firstTaskId) return null;
+            return __tmBuildTaskAttrContext(tid, parentId, {
+                taskCount,
+                firstTaskId: taskCount === 1 ? tid : firstTaskId,
+                parentType: 'l',
+            });
+        }
+        return null;
+    }
+
     function __tmRememberAttrHostParentResolution(parentId, firstTaskId = '', nowTs = Date.now()) {
         const pid = String(parentId || '').trim();
         if (!pid) return;
@@ -10229,28 +11220,32 @@
         } catch (e) {}
     }
 
-    async function __tmResolveStableTaskAttrHostId(taskId, parentListId = '', source = null) {
+    async function __tmResolveTaskAttrContext(taskId, parentListId = '', source = null) {
         const tid = String(taskId || '').trim();
         const parentId = String(parentListId || '').trim();
-        if (!tid) return '';
-        const resolvedFromShape = __tmResolveTaskAttrHostIdFromParentShape(tid, parentId, source);
-        if (resolvedFromShape.resolved) {
-            if (/^[0-9]+-[a-zA-Z0-9]+$/.test(resolvedFromShape.parentId)) {
+        if (!tid) return __tmBuildTaskAttrContext('', parentId, { taskCount: NaN });
+        const contextFromShape = __tmBuildTaskAttrContextFromShape(tid, parentId, source);
+        if (contextFromShape) {
+            if (/^[0-9]+-[a-zA-Z0-9]+$/.test(contextFromShape.parentListId)) {
                 __tmRememberAttrHostParentResolution(
-                    resolvedFromShape.parentId,
-                    resolvedFromShape.useParentHost === true ? (resolvedFromShape.firstTaskId || tid) : ''
+                    contextFromShape.parentListId,
+                    contextFromShape.state === 'state1-parent' ? (contextFromShape.firstTaskId || tid) : ''
                 );
             }
-            return resolvedFromShape.attrHostId || tid;
+            return contextFromShape;
         }
-        if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(parentId)) return tid;
+        if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(parentId)) {
+            return __tmBuildTaskAttrContext(tid, '', { taskCount: NaN });
+        }
         const cacheTtlMs = 20000;
         const nowTs = Date.now();
         try {
             const cached = __tmAttrHostParentResolutionCache.get(parentId);
             if (cached && (nowTs - Number(cached.t || 0)) < cacheTtlMs) {
                 const firstTaskId = String(cached.firstTaskId || '').trim();
-                return cached.useParentHost === true && firstTaskId && firstTaskId === tid ? parentId : tid;
+                if (cached.useParentHost === true && firstTaskId && firstTaskId === tid) {
+                    return __tmBuildTaskAttrContext(tid, parentId, { taskCount: 1, firstTaskId, parentType: 'l' });
+                }
             }
         } catch (e) {}
         let parentRow = null;
@@ -10263,7 +11258,7 @@
         const parentType = String(parentRow?.type || '').trim().toLowerCase();
         if (parentType !== 'l') {
             __tmRememberAttrHostParentResolution(parentId, false, nowTs);
-            return tid;
+            return __tmBuildTaskAttrContext(tid, '', { taskCount: NaN, parentType });
         }
         let taskIds = [];
         try {
@@ -10275,7 +11270,17 @@
         const firstTaskId = String(taskIds[0] || '').trim();
         const useParentHost = taskIds.length === 1 && firstTaskId === tid;
         __tmRememberAttrHostParentResolution(parentId, useParentHost ? firstTaskId : '', nowTs);
-        return useParentHost ? parentId : tid;
+        return __tmBuildTaskAttrContext(tid, parentId, {
+            taskCount: taskIds.length,
+            firstTaskId,
+            parentType: 'l',
+        });
+    }
+
+    async function __tmResolveStableTaskAttrHostId(taskId, parentListId = '', source = null) {
+        const context = await __tmResolveTaskAttrContext(taskId, parentListId, source);
+        const tid = String(taskId || '').trim();
+        return String(context?.primaryHostId || tid || '').trim();
     }
 
     function __tmIsVisibleDateAttrKey(key) {
@@ -11320,10 +12325,21 @@
     }
 
     function __tmGetTaskMetaAttrStorageKeys() {
+        const customFieldAttrKeys = (() => {
+            try {
+                return __tmGetCustomFieldDefs()
+                    .map((field) => __tmBuildCustomFieldAttrStorageKey(field?.attrKey || field?.id || field?.name || 'field', field?.id || 'field'))
+                    .map((name) => String(name || '').trim())
+                    .filter(Boolean);
+            } catch (e) {
+                return [];
+            }
+        })();
         return Array.from(new Set(__tmGetTaskInlineAttrSpecs()
             .filter((spec) => spec && spec.enabled)
             .flatMap((spec) => Array.isArray(spec.names) ? spec.names : [spec.name])
-            .concat([__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR])
+            .concat(customFieldAttrKeys)
+            .concat([__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR, __TM_TASK_ATTR_HOST_OWNER_ATTR])
             .map((name) => String(name || '').trim())
             .filter(Boolean)));
     }
@@ -11425,6 +12441,9 @@
         const nowTs = Date.now();
         const cacheTtlMs = 20000;
         const parentFirstTaskIdMap = new Map();
+        const parentActualFirstTaskIdMap = new Map();
+        const parentTaskCountMap = new Map();
+        const parentTypeMap = new Map();
         const unresolvedParentIds = [];
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
@@ -11438,12 +12457,25 @@
             if (resolvedFromShape.resolved) {
                 const firstTaskId = resolvedFromShape.useParentHost === true ? (resolvedFromShape.firstTaskId || taskId) : '';
                 parentFirstTaskIdMap.set(parentId, firstTaskId);
+                const shape = __tmBuildTaskParentListHostShape(parentId, task);
+                const taskCount = Number(shape.siblingTaskCount);
+                if (Number.isFinite(taskCount)) parentTaskCountMap.set(parentId, taskCount);
+                parentTypeMap.set(parentId, shape.parentType || 'l');
+                if (firstTaskId) parentActualFirstTaskIdMap.set(parentId, firstTaskId);
+                else if (Number.isFinite(taskCount) && taskCount > 1) unresolvedParentIds.push(parentId);
                 __tmRememberAttrHostParentResolution(parentId, firstTaskId, nowTs);
                 return;
             }
             const cached = __tmAttrHostParentResolutionCache.get(parentId);
             if (cached && (nowTs - Number(cached.t || 0)) < cacheTtlMs) {
                 parentFirstTaskIdMap.set(parentId, cached.useParentHost === true ? String(cached.firstTaskId || '').trim() : '');
+                if (cached.useParentHost === true) {
+                    parentActualFirstTaskIdMap.set(parentId, String(cached.firstTaskId || '').trim());
+                    parentTaskCountMap.set(parentId, 1);
+                    parentTypeMap.set(parentId, 'l');
+                } else {
+                    unresolvedParentIds.push(parentId);
+                }
                 return;
             }
             unresolvedParentIds.push(parentId);
@@ -11481,18 +12513,26 @@
                 const taskCount = Number(taskCountMap.get(parentId) || 0);
                 const useParentHost = parentType === 'l' && taskCount === 1 && !!firstTaskId;
                 parentFirstTaskIdMap.set(parentId, useParentHost ? firstTaskId : '');
+                if (parentType) parentTypeMap.set(parentId, parentType);
+                if (parentType === 'l') {
+                    parentActualFirstTaskIdMap.set(parentId, firstTaskId);
+                    parentTaskCountMap.set(parentId, taskCount);
+                }
                 __tmRememberAttrHostParentResolution(parentId, useParentHost ? firstTaskId : '', nowTs);
             });
         }
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
             const parentId = String(task?.parent_id || '').trim();
-            let attrHostId = taskId;
-            if (parentId && String(parentFirstTaskIdMap.get(parentId) || '').trim() === taskId) {
-                attrHostId = parentId;
-            }
+            const context = __tmBuildTaskAttrContext(taskId, parentId, {
+                taskCount: parentTaskCountMap.has(parentId) ? Number(parentTaskCountMap.get(parentId) || 0) : NaN,
+                firstTaskId: String(parentActualFirstTaskIdMap.get(parentId) || parentFirstTaskIdMap.get(parentId) || '').trim(),
+                parentType: String(parentTypeMap.get(parentId) || '').trim() || 'l',
+            });
+            const attrHostId = context.primaryHostId || taskId;
             task.attrHostId = attrHostId || taskId;
             task.attr_host_id = task.attrHostId;
+            task.__tmTaskAttrContext = context;
         });
         return list;
     }
@@ -11690,149 +12730,227 @@
             const value = Number(row[__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR] || 0);
             return Number.isFinite(value) ? value : 0;
         };
+        const readAttrHostOwner = (row) => {
+            if (!row || typeof row !== 'object') return '';
+            return String(row[__TM_TASK_ATTR_HOST_OWNER_ATTR] || '').trim();
+        };
+        const getTaskAttrContext = (task) => {
+            const taskId = String(task?.id || '').trim();
+            const cached = task?.__tmTaskAttrContext;
+            if (cached && typeof cached === 'object' && String(cached.taskId || '').trim() === taskId) return cached;
+            return __tmBuildTaskAttrContext(taskId, task?.parent_id || task?.parentId || '', {
+                taskCount: Number(task?.parentListTaskCount ?? task?.parent_list_task_count ?? task?.siblingTaskCount),
+                firstTaskId: String(task?.firstTaskId || task?.first_task_id || '').trim(),
+                parentType: String(task?.parentListType || task?.parent_list_type || task?.parentType || '').trim().toLowerCase(),
+            });
+        };
+        const isTaskAttrManagedRowKey = (key) => {
+            const attrKey = String(key || '').trim();
+            if (!attrKey) return false;
+            if (attrKey === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || attrKey === __TM_TASK_ATTR_HOST_OWNER_ATTR) return true;
+            if (__tmIsTaskMetaAttrKey(attrKey)) return true;
+            if (attrKey === __TM_TASK_REPEAT_RULE_ATTR || attrKey === __TM_TASK_REPEAT_STATE_ATTR || attrKey === __TM_TASK_REPEAT_HISTORY_ATTR) return true;
+            if (attrKey === __TM_TASK_ATTACHMENT_META_ATTR) return true;
+            if (__tmIsTaskAttachmentAttrKey(attrKey)) return true;
+            if (__tmGetCustomFieldDefByAttrStorageKey(attrKey)) return true;
+            const tomatoKeys = [
+                __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes'),
+                __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyHours, 'custom-tomato-time'),
+                __tmSafeAttrName(SettingsStore.data.tomatoCountAttrKey, 'custom-tomato-count'),
+                __tmSafeAttrName(SettingsStore.data.tomatoEstimateAttrKey, 'custom-tomato-estimate-count'),
+            ];
+            return tomatoKeys.includes(attrKey);
+        };
+        const hasManagedAttrHostRowValue = (row) => Object.entries(row || {}).some(([attrKey, value]) => {
+            const key = String(attrKey || '').trim();
+            if (!key || key === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || key === __TM_TASK_ATTR_HOST_OWNER_ATTR) return false;
+            return isTaskAttrManagedRowKey(key) && String(value ?? '').trim() !== '';
+        });
+        const isSafeMirrorRow = (context, mirrorId, row) => {
+            const mid = String(mirrorId || '').trim();
+            const tid = String(context?.taskId || '').trim();
+            if (!mid || !tid || !row) return false;
+            if (mid === tid) return true;
+            if (mid === String(context?.parentListId || '').trim()) {
+                const owner = readAttrHostOwner(row);
+                return String(context?.state || '').trim() !== 'state3-list-item' ? (!owner || owner === tid) : owner === tid;
+            }
+            return false;
+        };
+        const mergeTaskAttrRowsForContext = (context) => {
+            const primaryId = String(context?.primaryHostId || context?.taskId || '').trim();
+            const primaryRow = primaryId ? (rowMap.get(primaryId) || null) : null;
+            const primaryUpdatedAt = readAttrHostUpdatedAt(primaryRow);
+            const primaryOwner = readAttrHostOwner(primaryRow);
+            const primaryHasManagedValues = hasManagedAttrHostRowValue(primaryRow);
+            const ignorePrimaryRow = String(context?.state || '').trim() === 'state1-parent'
+                && !!primaryOwner
+                && primaryOwner !== String(context?.taskId || '').trim();
+            const safeMirrorRows = (Array.isArray(context?.mirrorHostIds) ? context.mirrorHostIds : [])
+                .map((id) => ({ id: String(id || '').trim(), row: rowMap.get(String(id || '').trim()) || null }))
+                .filter((entry) => {
+                    if (!entry.id || !isSafeMirrorRow(context, entry.id, entry.row)) return false;
+                    if (String(context?.state || '').trim() === 'state3-list-item'
+                        && entry.id === String(context?.parentListId || '').trim()) return false;
+                    return true;
+                });
+            try { context.__tmSafeMirrorHostIds = safeMirrorRows.map((entry) => entry.id).filter(Boolean); } catch (e) {}
+            const out = {};
+            safeMirrorRows.forEach((entry) => {
+                const mirrorUpdatedAt = readAttrHostUpdatedAt(entry.row);
+                Object.entries(entry.row || {}).forEach(([key, value]) => {
+                    if (!isTaskAttrManagedRowKey(key)) return;
+                    if (Object.prototype.hasOwnProperty.call(primaryRow || {}, key)) return;
+                    if (primaryOwner === context.taskId && primaryUpdatedAt > mirrorUpdatedAt) return;
+                    out[key] = value;
+                });
+            });
+            if (!ignorePrimaryRow) {
+                Object.entries(primaryRow || {}).forEach(([key, value]) => {
+                    if (!isTaskAttrManagedRowKey(key)) return;
+                    out[key] = value;
+                });
+            }
+            const selectedSourceId = !ignorePrimaryRow && (shouldApplySelfRow(primaryRow) || readAttrHostUpdatedAt(primaryRow) > 0)
+                ? primaryId
+                : String(safeMirrorRows.find((entry) => shouldApplySelfRow(entry.row))?.id || primaryId || '').trim();
+            return {
+                row: out,
+                primaryRow,
+                primaryId,
+                selectedSourceId,
+                hasValues: shouldApplySelfRow(out),
+                primaryHasValues: !ignorePrimaryRow && shouldApplySelfRow(primaryRow),
+            };
+        };
+        const scheduleState1PrimaryBackfill = (context, merged) => {
+            const ctx = context && typeof context === 'object' ? context : null;
+            const primaryId = String(ctx?.primaryHostId || '').trim();
+            const taskId = String(ctx?.taskId || '').trim();
+            if (!ctx || ctx.state !== 'state1-parent' || !primaryId || !taskId || primaryId === taskId) return;
+            const primaryRow = rowMap.get(primaryId) || {};
+            const taskRow = rowMap.get(taskId) || {};
+            const primaryOwner = readAttrHostOwner(primaryRow);
+            const taskHasManagedValues = hasManagedAttrHostRowValue(taskRow);
+            const primaryHasManagedValues = hasManagedAttrHostRowValue(primaryRow);
+            const ownerMismatch = !!primaryOwner && primaryOwner !== taskId;
+            if (!ownerMismatch && (primaryHasManagedValues || String(merged?.selectedSourceId || '').trim() !== taskId)) return;
+            const key = `${taskId}:${primaryId}`;
+            const now = Date.now();
+            const last = Number(__tmTaskAttrHostBackfillSeenAt.get(key) || 0);
+            if (last && now - last < 8000) return;
+            const patch = {};
+            if (ownerMismatch) {
+                const keys = new Set(Object.keys(primaryRow).concat(Object.keys(taskRow)));
+                keys.forEach((attrKey) => {
+                    const k = String(attrKey || '').trim();
+                    if (!k || k === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || k === __TM_TASK_ATTR_HOST_OWNER_ATTR) return;
+                    if (!isTaskAttrManagedRowKey(k)) return;
+                    const nextValue = Object.prototype.hasOwnProperty.call(taskRow, k) ? String(taskRow[k] ?? '') : '';
+                    const prevValue = Object.prototype.hasOwnProperty.call(primaryRow, k) ? String(primaryRow[k] ?? '') : '';
+                    if (prevValue !== nextValue) patch[k] = nextValue;
+                });
+            } else if (taskHasManagedValues) {
+                Object.entries(merged?.row || {}).forEach(([attrKey, value]) => {
+                    const k = String(attrKey || '').trim();
+                    if (!k || k === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || k === __TM_TASK_ATTR_HOST_OWNER_ATTR) return;
+                    if (!isTaskAttrManagedRowKey(k)) return;
+                    if (String(value ?? '').trim() === '') return;
+                    patch[k] = String(value ?? '');
+                });
+            }
+            if (!Object.keys(patch).length) return;
+            patch[__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR] = String(now);
+            patch[__TM_TASK_ATTR_HOST_OWNER_ATTR] = taskId;
+            __tmTaskAttrHostBackfillSeenAt.set(key, now);
+            rowMap.set(primaryId, {
+                ...primaryRow,
+                ...patch,
+            });
+            setTimeout(async () => {
+                try {
+                    const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+                    if (adapter && typeof adapter.setAttrs === 'function') {
+                        await adapter.setAttrs(primaryId, patch);
+                        try { await adapter.flushTransaction?.(); } catch (e) {}
+                    } else {
+                        await API.call('/api/attr/setBlockAttrs', { id: primaryId, attrs: patch });
+                    }
+                } catch (e) {}
+            }, 0);
+        };
+        const scheduleState3ParentMirrorSync = (context) => {
+            const ctx = context && typeof context === 'object' ? context : null;
+            const taskId = String(ctx?.taskId || '').trim();
+            const primaryId = String(ctx?.primaryHostId || '').trim();
+            const parentId = String(ctx?.parentListId || '').trim();
+            if (!ctx || ctx.state !== 'state3-list-item' || !taskId || !primaryId || !parentId) return;
+            if (primaryId !== taskId || parentId === primaryId) return;
+            const primaryRow = rowMap.get(primaryId) || {};
+            const parentRow = rowMap.get(parentId) || {};
+            const parentOwner = readAttrHostOwner(parentRow);
+            const primaryHasManagedValues = hasManagedAttrHostRowValue(primaryRow);
+            if (parentOwner === taskId && !primaryHasManagedValues) return;
+            if (!parentOwner && !primaryHasManagedValues) return;
+            const keys = new Set(Object.keys(parentRow).concat(Object.keys(primaryRow)));
+            const patch = {};
+            keys.forEach((attrKey) => {
+                const key = String(attrKey || '').trim();
+                if (!key || key === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || key === __TM_TASK_ATTR_HOST_OWNER_ATTR) return;
+                if (!isTaskAttrManagedRowKey(key)) return;
+                const nextValue = Object.prototype.hasOwnProperty.call(primaryRow, key) ? String(primaryRow[key] ?? '') : '';
+                const prevValue = Object.prototype.hasOwnProperty.call(parentRow, key) ? String(parentRow[key] ?? '') : '';
+                if (prevValue !== nextValue) patch[key] = nextValue;
+            });
+            if (!Object.keys(patch).length && parentOwner === taskId) return;
+            const now = Date.now();
+            const syncKey = `${taskId}:${parentId}`;
+            const last = Number(__tmTaskAttrHostMirrorSyncSeenAt.get(syncKey) || 0);
+            if (last && now - last < 3000) return;
+            patch[__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR] = String(now);
+            patch[__TM_TASK_ATTR_HOST_OWNER_ATTR] = taskId;
+            __tmTaskAttrHostMirrorSyncSeenAt.set(syncKey, now);
+            if (__tmTaskAttrHostMirrorSyncSeenAt.size > 2400) {
+                try {
+                    const oldestKey = __tmTaskAttrHostMirrorSyncSeenAt.keys().next().value;
+                    if (oldestKey !== undefined) __tmTaskAttrHostMirrorSyncSeenAt.delete(oldestKey);
+                } catch (e) {}
+            }
+            rowMap.set(parentId, {
+                ...parentRow,
+                ...patch,
+            });
+            setTimeout(async () => {
+                try {
+                    const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+                    if (adapter && typeof adapter.setAttrs === 'function') {
+                        await adapter.setAttrs(parentId, patch);
+                        try { await adapter.flushTransaction?.(); } catch (e) {}
+                    } else {
+                        await API.call('/api/attr/setBlockAttrs', { id: parentId, attrs: patch });
+                    }
+                } catch (e) {}
+            }, 0);
+        };
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
-            const parentId = String(task?.parent_id || '').trim();
-            const selfRow = taskId ? rowMap.get(taskId) : null;
-            const selfStatusBeforeHost = selfRow ? __tmReadTaskMetaAttrValue(selfRow, 'customStatus').trim() : '';
-            let hostId = String(task?.attrHostId || task?.attr_host_id || taskId).trim();
-            let hostRow = (hostId && hostId !== taskId) ? rowMap.get(hostId) : null;
-            const parentRow = (parentId && parentId !== taskId) ? rowMap.get(parentId) : null;
-            if (hostId === parentId && parentRow && __tmHasTaskMetaAttrRowValues(parentRow)) {
-                hostId = parentId;
-                hostRow = parentRow;
-                task.attrHostId = hostId;
-                task.attr_host_id = hostId;
-            }
-            if ((!hostId || hostId === taskId) && shouldApplySelfRow(selfRow)) {
-                __tmApplyTaskMetaAttrRow(task, selfRow, {
-                    preferExisting: opts.preferExistingSelf !== false,
-                    preferExistingVisibleDates: true,
-                    preserveExistingVisibleDatesOnBlank: true,
-                });
-            }
-            if (!hostId || hostId === taskId) {
-                return;
-            }
-            if (!hostRow) {
-                const selfHasAttrHostTimestamp = readAttrHostUpdatedAt(selfRow) > 0;
-                if (shouldApplySelfRow(selfRow) || selfHasAttrHostTimestamp) {
-                    if (shouldApplySelfRow(selfRow)) {
-                        __tmApplyTaskMetaAttrRow(task, selfRow, {
-                            preferExisting: opts.preferExistingSelf !== false,
-                            preferExistingVisibleDates: true,
-                            preserveExistingVisibleDatesOnBlank: true,
-                        });
-                    }
-                    task.__tmPreferSelfAttrHostValues = true;
-                    task.__tmPreferSelfAttrHostId = hostId;
-                    __tmPushAttrHostReadLog('legacy-source-rescue', {
-                        taskId,
-                        hostId,
-                        reason: selfHasAttrHostTimestamp ? 'host-row-missing-with-task-timestamp' : 'host-row-missing',
-                        taskUpdatedAt: readAttrHostUpdatedAt(selfRow),
-                        hostUpdatedAt: 0,
-                        taskStatus: selfStatusBeforeHost,
-                    });
-                }
-                return;
-            }
-            const hostRowHasValues = shouldApplySelfRow(hostRow);
-            if (!hostRowHasValues && shouldApplySelfRow(selfRow)) {
-                __tmApplyTaskMetaAttrRow(task, selfRow, {
-                    preferExisting: opts.preferExistingSelf !== false,
-                    preferExistingVisibleDates: true,
-                    preserveExistingVisibleDatesOnBlank: true,
-                });
-                task.__tmPreferSelfAttrHostValues = true;
-                task.__tmPreferSelfAttrHostId = hostId;
-                __tmPushAttrHostReadLog('legacy-source-rescue', {
-                    taskId,
-                    hostId,
-                    reason: 'host-row-empty',
-                    taskUpdatedAt: readAttrHostUpdatedAt(selfRow),
-                    hostUpdatedAt: readAttrHostUpdatedAt(hostRow),
-                    taskStatus: selfStatusBeforeHost,
-                });
-                return;
-            }
-            const hostStatusBeforeApply = __tmReadTaskMetaAttrValue(hostRow, 'customStatus').trim();
-            const markerDoneState = resolveTaskMarkerDoneState(task);
-            const selfStatusDoneState = resolveStatusDoneState(selfStatusBeforeHost);
-            const hostStatusDoneState = resolveStatusDoneState(hostStatusBeforeApply);
-            const selfUpdatedAt = readAttrHostUpdatedAt(selfRow);
-            const hostUpdatedAt = readAttrHostUpdatedAt(hostRow);
-            const selfNewerThanHost = selfUpdatedAt > 0 && selfUpdatedAt > hostUpdatedAt;
-            const shouldPreferSelfByMarker = markerDoneState !== null
-                && selfStatusBeforeHost
-                && selfStatusDoneState !== null
-                && selfStatusDoneState === markerDoneState
-                && hostStatusBeforeApply
-                && hostStatusDoneState !== null
-                && hostStatusDoneState !== markerDoneState;
-            const shouldPreferSelfState = false;
-            const shouldPreferSelfHostValues = false;
-            if (selfStatusBeforeHost && (selfNewerThanHost || shouldPreferSelfByMarker)) {
-                __tmPushAttrHostReadLog('legacy-source-conflict-keep-host', {
-                    taskId,
-                    hostId,
-                    reason: selfNewerThanHost ? 'task-newer' : 'marker-conflict',
-                    taskUpdatedAt: selfUpdatedAt,
-                    hostUpdatedAt,
-                    taskStatus: selfStatusBeforeHost,
-                    hostStatus: hostStatusBeforeApply,
-                    markerDone: markerDoneState,
-                    taskStatusDone: selfStatusDoneState,
-                    hostStatusDone: hostStatusDoneState,
-                });
-            } else if (selfStatusBeforeHost && hostStatusBeforeApply && selfStatusBeforeHost !== hostStatusBeforeApply) {
-                __tmPushAttrHostReadLog('prefer-host-conflict', {
-                    taskId,
-                    hostId,
-                    reason: hostUpdatedAt > selfUpdatedAt ? 'host-newer' : 'no-newer-signal',
-                    taskUpdatedAt: selfUpdatedAt,
-                    hostUpdatedAt,
-                    taskStatus: selfStatusBeforeHost,
-                    hostStatus: hostStatusBeforeApply,
-                    markerDone: markerDoneState,
-                    taskStatusDone: selfStatusDoneState,
-                    hostStatusDone: hostStatusDoneState,
-                });
-            } else if (selfStatusBeforeHost && !hostStatusBeforeApply) {
-                __tmPushAttrHostReadLog('task-only-status', {
-                    taskId,
-                    hostId,
-                    reason: 'host-status-empty',
-                    taskUpdatedAt: selfUpdatedAt,
-                    hostUpdatedAt,
-                    taskStatus: selfStatusBeforeHost,
-                    markerDone: markerDoneState,
-                    taskStatusDone: selfStatusDoneState,
-                });
-            }
-            const shouldLogStatus = false;
-            const beforeStatus = shouldLogStatus ? String(task?.customStatus || task?.custom_status || '').trim() : '';
-            // attrHostId != taskId 时，宿主块才是这些属性字段的真实持久化位置。
-            // 任务块自身可能残留历史值，不能再用 preferExisting 阻止宿主回读覆盖。
-            __tmApplyTaskMetaAttrRow(task, hostRow, {
-                preferExistingVisibleDates: true,
+            if (!taskId) return;
+            const context = getTaskAttrContext(task);
+            task.__tmTaskAttrContext = context;
+            task.attrHostId = context.primaryHostId || taskId;
+            task.attr_host_id = task.attrHostId;
+            const merged = mergeTaskAttrRowsForContext(context);
+            scheduleState3ParentMirrorSync(context);
+            scheduleState1PrimaryBackfill(context, merged);
+            if (!merged.hasValues && !(opts.applyBlankSelfAttrs === true && Object.keys(merged.row || {}).some((key) => __tmIsTaskMetaAttrKey(key)))) return;
+            __tmApplyTaskMetaAttrRow(task, merged.row, {
+                preferExisting: merged.primaryId === taskId ? opts.preferExistingSelf !== false : false,
+                preferExistingVisibleDates: merged.primaryId === taskId,
                 preserveExistingVisibleDatesOnBlank: true,
             });
-            if (shouldPreferSelfHostValues) {
+            if (merged.selectedSourceId && merged.selectedSourceId === taskId && merged.primaryId !== taskId) {
                 task.__tmPreferSelfAttrHostValues = true;
-                task.__tmPreferSelfAttrHostId = hostId;
-            }
-            if (shouldPreferSelfState) {
-                applyTaskStateFieldsFromRow(task, selfRow, selfStatusDoneState);
-            }
-            if (shouldLogStatus) {
-                __tmPushStatusDebug('attr-host-override', {
-                    taskId,
-                    hostId,
-                    beforeStatus,
-                    rowStatus: __tmReadTaskMetaAttrValue(hostRow, 'customStatus').trim(),
-                    afterStatus: String(task?.customStatus || task?.custom_status || '').trim(),
-                }, [taskId, hostId], { force: false });
+                task.__tmPreferSelfAttrHostId = merged.primaryId;
             }
         });
         return list;
@@ -12027,28 +13145,28 @@
             ? Array.from(new Set(opts.fieldIds.map((id) => String(id || '').trim()).filter(Boolean))).sort()
             : [];
         const loadedAllFields = !Array.isArray(opts.fieldIds);
-        const hostIds = new Set();
+        const contextByTaskId = new Map();
+        const candidateIds = new Set();
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
-            const hostId = String(task?.attrHostId || task?.attr_host_id || taskId).trim();
-            if (!taskId || !hostId) return;
-            hostIds.add(hostId);
+            if (!taskId) return;
+            const context = (task?.__tmTaskAttrContext && typeof task.__tmTaskAttrContext === 'object')
+                ? task.__tmTaskAttrContext
+                : __tmBuildTaskAttrContext(taskId, task?.parent_id || task?.parentId || '', {
+                    taskCount: Number(task?.parentListTaskCount ?? task?.parent_list_task_count ?? task?.siblingTaskCount),
+                    firstTaskId: String(task?.firstTaskId || task?.first_task_id || '').trim(),
+                    parentType: String(task?.parentListType || task?.parent_list_type || task?.parentType || '').trim().toLowerCase(),
+                });
+            contextByTaskId.set(taskId, context);
+            const ids = [context.primaryHostId];
+            const safeMirrorIds = Array.isArray(context.__tmSafeMirrorHostIds)
+                ? context.__tmSafeMirrorHostIds
+                : (context.state === 'state3-list-item' ? [] : context.mirrorHostIds);
+            ids.push(...(Array.isArray(safeMirrorIds) ? safeMirrorIds : []));
+            ids.map((id) => String(id || '').trim()).filter(Boolean).forEach((id) => candidateIds.add(id));
         });
-        const hostResult = await __tmQueryCustomFieldAttrRowsByTaskIds(Array.from(hostIds), opts);
-        const hostValueMap = hostResult?.valueMapByTaskId instanceof Map ? hostResult.valueMapByTaskId : new Map();
-        const selfFallbackTaskIds = new Set();
-        list.forEach((task) => {
-            const tid = String(task?.id || '').trim();
-            const hostId = String(task?.attrHostId || task?.attr_host_id || tid).trim();
-            const hostValues = hostId ? hostValueMap.get(hostId) : null;
-            const hostHasValues = !!(hostValues && typeof hostValues === 'object' && Object.keys(hostValues).length > 0);
-            const preferSelfHostValues = task?.__tmPreferSelfAttrHostValues === true;
-            if (hostId && hostId !== tid && tid && (!hostHasValues || preferSelfHostValues)) selfFallbackTaskIds.add(tid);
-        });
-        const selfResult = selfFallbackTaskIds.size > 0
-            ? await __tmQueryCustomFieldAttrRowsByTaskIds(Array.from(selfFallbackTaskIds), opts)
-            : { valueMapByTaskId: new Map(), cacheHitCount: 0, cacheMissCount: 0, requestedFieldCount: Number(hostResult?.requestedFieldCount || 0) };
-        const selfValueMap = selfResult?.valueMapByTaskId instanceof Map ? selfResult.valueMapByTaskId : new Map();
+        const queryResult = await __tmQueryCustomFieldAttrRowsByTaskIds(Array.from(candidateIds), opts);
+        const valueMap = queryResult?.valueMapByTaskId instanceof Map ? queryResult.valueMapByTaskId : new Map();
         const applyResolvedRawValues = (task, resolvedValues) => {
             const nextResolvedValues = (resolvedValues && typeof resolvedValues === 'object' && !Array.isArray(resolvedValues))
                 ? resolvedValues
@@ -12072,10 +13190,7 @@
         let selfAssignedCount = 0;
         list.forEach((task) => {
             const tid = String(task?.id || '').trim();
-            const hostId = String(task?.attrHostId || task?.attr_host_id || tid).trim();
-            const hostValues = hostId ? hostValueMap.get(hostId) : null;
-            const preferSelfHostValues = task?.__tmPreferSelfAttrHostValues === true;
-            const hostHasValues = !!(hostValues && typeof hostValues === 'object' && Object.keys(hostValues).length > 0);
+            const context = contextByTaskId.get(tid) || null;
             const markLoadedFields = () => {
                 if (loadedAllFields) {
                     task.__tmLoadedAllCustomFields = true;
@@ -12087,36 +13202,32 @@
                     task.__tmLoadedCustomFieldIds = Array.from(new Set(loadedFieldIds.concat(requestedFieldIds))).sort();
                 }
             };
-            const selfValues = tid ? selfValueMap.get(tid) : null;
-            if (preferSelfHostValues && selfValues && typeof selfValues === 'object' && Object.keys(selfValues).length > 0) {
-                applyResolvedRawValues(task, selfValues);
-                selfAssignedCount += 1;
-                markLoadedFields();
-                return;
-            }
-            if (hostId && hostId !== tid && hostValues && typeof hostValues === 'object' && Object.keys(hostValues).length > 0) {
-                applyResolvedRawValues(task, hostValues);
+            const primaryId = String(context?.primaryHostId || task?.attrHostId || task?.attr_host_id || tid).trim();
+            const safeMirrorIds = Array.isArray(context?.__tmSafeMirrorHostIds)
+                ? context.__tmSafeMirrorHostIds
+                : (context?.state === 'state3-list-item' ? [] : context?.mirrorHostIds);
+            const mergedValues = {};
+            (Array.isArray(safeMirrorIds) ? safeMirrorIds : []).forEach((id) => {
+                const values = valueMap.get(String(id || '').trim());
+                if (values && typeof values === 'object') Object.assign(mergedValues, values);
+            });
+            const primaryValues = primaryId ? valueMap.get(primaryId) : null;
+            if (primaryValues && typeof primaryValues === 'object') Object.assign(mergedValues, primaryValues);
+            applyResolvedRawValues(task, mergedValues);
+            if (primaryValues && typeof primaryValues === 'object' && Object.keys(primaryValues).length > 0) {
                 hostAssignedCount += 1;
-                markLoadedFields();
-                return;
             }
-            applyResolvedRawValues(
-                task,
-                (selfValues && typeof selfValues === 'object')
-                    ? selfValues
-                    : ((hostValues && typeof hostValues === 'object') ? hostValues : {})
-            );
-            if (selfValues && typeof selfValues === 'object' && Object.keys(selfValues).length > 0) selfAssignedCount += 1;
+            if (Object.keys(mergedValues).length > 0 && (!primaryValues || !Object.keys(primaryValues).length)) selfAssignedCount += 1;
             markLoadedFields();
         });
         return {
-            cacheHitCount: Number(hostResult?.cacheHitCount || 0) + Number(selfResult?.cacheHitCount || 0),
-            cacheMissCount: Number(hostResult?.cacheMissCount || 0) + Number(selfResult?.cacheMissCount || 0),
-            hostQueryCount: hostIds.size,
-            selfFallbackCount: selfFallbackTaskIds.size,
+            cacheHitCount: Number(queryResult?.cacheHitCount || 0),
+            cacheMissCount: Number(queryResult?.cacheMissCount || 0),
+            hostQueryCount: candidateIds.size,
+            selfFallbackCount: 0,
             hostAssignedCount,
             selfAssignedCount,
-            requestedFieldCount: Number(hostResult?.requestedFieldCount || selfResult?.requestedFieldCount || 0),
+            requestedFieldCount: Number(queryResult?.requestedFieldCount || 0),
         };
     }
 

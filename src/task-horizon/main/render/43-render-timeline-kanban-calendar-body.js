@@ -1082,7 +1082,10 @@
                 const docChipHtml = (isAllTabsView && docName)
                     ? `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--doc" style="cursor:default;" title="${esc(docName)}"><span class="tm-icon-label">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${esc(docName)}</span></span></span>`
                     : '';
-                const remarkHtml = kanbanCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '';
+                const remarkSearchSnippetHtml = !kanbanCardFields.has('remark') && typeof __tmBuildTaskRemarkSearchSnippet === 'function'
+                    ? __tmBuildTaskRemarkSearchSnippet(task, state.searchKeyword)
+                    : '';
+                const remarkHtml = kanbanCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : remarkSearchSnippetHtml;
                 const multiSelectCls = __tmIsTaskMultiSelected(id) ? ' tm-task-row--multi-selected' : '';
                 const cardDragAttrs = useKanbanCustomCardGesture
                     ? 'draggable="false"'
@@ -1104,6 +1107,10 @@
                             : ''))
                     : '';
                 const cardClass = `tm-kanban-card${isSub ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}${task?.done ? ' tm-kanban-card--done' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${multiSelectCls}${tomatoFocusCls}`;
+                const isPinnedCard = typeof __tmIsTaskPinned === 'function'
+                    ? __tmIsTaskPinned(task)
+                    : (task?.pinned === true || task?.pinned === 1 || task?.pinned === 'true' || task?.pinned === '1');
+                const pinnedCardStyle = isPinnedCard ? ' style="border-left:3px solid var(--tm-danger-color,#d32f2f);"' : '';
                 const cardAttrs = `data-id="${id}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ondblclick="tmKanbanCardDblClick('${id}', event)"`;
                 const checkboxHtml = __tmRenderTaskCheckboxWrap(id, task, {
                     checked: task?.done,
@@ -1130,7 +1137,7 @@
 
                 if (isSub) {
                     return `
-                        <div class="${cardClass}" ${cardAttrs}>
+                        <div class="${cardClass}" ${cardAttrs}${pinnedCardStyle}>
                             <div class="tm-kanban-subtask-row-main">
                                 ${checkboxHtml}
                                 <div class="tm-kanban-subtask-text">
@@ -1164,7 +1171,7 @@
                     : '';
 
                 return `
-                    <div class="${cardClass}" ${cardAttrs}>
+                    <div class="${cardClass}" ${cardAttrs}${pinnedCardStyle}>
                         <div class="tm-kanban-card-top tm-kanban-card-main">
                             <div class="tm-kanban-card-head">
                                 ${!isParent ? (toggleHtml || '') : ''}
@@ -1371,6 +1378,17 @@
                     const doneBody = doneCollapsed ? '' : `<div class="tm-kanban-group-items">${completedRoots.map(t => renderTree(t, 0, false, true)).join('')}</div>`;
                     return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)')}${doneBody}</div>`;
                 };
+                const pinWithinKanbanGroups = !!SettingsStore.data.pinTasksWithinGroups
+                    && !!(state.groupByDocName || state.groupByTaskName || state.groupByTime || state.quadrantEnabled);
+                const sortKanbanGroupItems = (items, compare) => {
+                    const list = Array.isArray(items) ? items : [];
+                    const fallbackCompare = typeof compare === 'function' ? compare : sortByIdx;
+                    if (pinWithinKanbanGroups && typeof __tmSortPinnedTasksFirst === 'function') {
+                        return __tmSortPinnedTasksFirst(list, fallbackCompare);
+                    }
+                    list.sort(fallbackCompare);
+                    return list;
+                };
 
                 const renderGroupedByDoc = (opt = {}) => {
                     const o = (opt && typeof opt === 'object') ? opt : {};
@@ -1384,9 +1402,9 @@
                         const p = t.pinned;
                         return p === true || p === 'true' || p === '1';
                     };
-                    // 分离置顶和非置顶任务
-                    const allPinned = roots.filter(isPinned);
-                    const allNormal = roots.filter(t => !isPinned(t));
+                    // 分组内置顶开启时，置顶任务留在所属分组；否则抽到全局置顶分组
+                    const allPinned = pinWithinKanbanGroups ? [] : roots.filter(isPinned);
+                    const allNormal = pinWithinKanbanGroups ? roots.slice() : roots.filter(t => !isPinned(t));
                     // 分别排序
                     allPinned.sort(allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
                     // 构建置顶分组 HTML
@@ -1394,14 +1412,7 @@
                     if (allPinned.length > 0) {
                         const pinnedGroupKey = `kanban_${c.id}_doc_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
-                        // 渲染置顶任务卡片，添加红色左边框
-                        const renderPinnedTree = (t) => {
-                            const html = renderTree(t, 0);
-                            // 使用正则精确替换最外层的 tm-kanban-card class，添加红色左边框样式
-                            return html.replace(/class="tm-kanban-card([^"]*)"/, (match, extras) => {
-                                return `class="tm-kanban-card${extras}" style="border-left:3px solid var(--tm-danger-color,#d32f2f);"`;
-                            });
-                        };
+                        const renderPinnedTree = (t) => renderTree(t, 0);
                         const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
@@ -1440,28 +1451,8 @@
                             const enableH2 = ((!!SettingsStore.data.docH2SubgroupEnabled || headingMode) && !o.forceNoHeading)
                                 && __tmDocHasAnyHeading(docId, items);
                             if (!enableH2) {
-                                // 辅助函数：检查任务是否被置顶
-                                const isPinned = (t) => {
-                                    const p = t.pinned;
-                                    return p === true || p === 'true' || p === '1';
-                                };
-                                // 分离置顶和非置顶任务
-                                const pinnedItems = items.filter(isPinned);
-                                const normalItems = items.filter(t => !isPinned(t));
-                                // 分别排序
-                                pinnedItems.sort(allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
-                                normalItems.sort(allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
-                                // 构建看板内容
-                                let bodyContent = '';
-                                if (pinnedItems.length > 0) {
-                                    const pinnedBody = `<div class="tm-kanban-group-items">${pinnedItems.map(t => renderTree(t, 0)).join('')}</div>`;
-                                    bodyContent += `<div class="tm-kanban-group"><div class="tm-kanban-group-title" style="display:flex;align-items:center;gap:4px;color:var(--tm-warning-color);">${pinnedGroupLabelHtml}</div>${pinnedBody}</div>`;
-                                }
-                                if (normalItems.length > 0) {
-                                    const normalBody = `<div class="tm-kanban-group-items">${normalItems.map(t => renderTree(t, 0)).join('')}</div>`;
-                                    bodyContent += `<div class="tm-kanban-group-items">${normalBody}</div>`;
-                                }
-                                body = bodyContent;
+                                const groupItems = sortKanbanGroupItems(items.slice(), allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
+                                body = groupItems.length ? `<div class="tm-kanban-group-items">${groupItems.map(t => renderTree(t, 0)).join('')}</div>` : '';
                             } else {
                                 const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
                                 const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
@@ -1473,30 +1464,13 @@
                                     if (!grouped.has(b.key)) grouped.set(b.key, []);
                                     grouped.get(b.key).push(task);
                                 });
-                                // 重新排序 buckets：将"无二级标题"的 bucket 提取出来，其余保持文档内的原始顺序
-                                // 先过滤掉没有任务的 bucket
+                                // 先过滤掉没有任务的 bucket，顺序保持与清单/表格视图一致
                                 const filteredBuckets = buckets.filter(b => (grouped.get(b.key) || []).length > 0);
-                                // 将"无二级标题"的 bucket 和其他 bucket 分开
-                                const noneBucket = filteredBuckets.find(b => b.label === noHeadingLabel);
-                                const otherBuckets = filteredBuckets.filter(b => b.label !== noHeadingLabel);
-                                // 其他 bucket 保持文档内的原始顺序，"无二级标题"的放最后
-                                const sortedBuckets = noneBucket ? [...otherBuckets, noneBucket] : otherBuckets;
+                                const sortedBuckets = filteredBuckets;
                                 const h2Html = sortedBuckets.map((bucket) => {
                                     let bucketItems = grouped.get(bucket.key) || [];
                                     if (!bucketItems.length) return '';
-                                    // 辅助函数：检查任务是否被置顶
-                                    const isPinned = (t) => {
-                                        const p = t.pinned;
-                                        return p === true || p === 'true' || p === '1';
-                                    };
-                                    // 分离置顶和非置顶任务
-                                    const pinnedItems = bucketItems.filter(isPinned);
-                                    const normalItems = bucketItems.filter(t => !isPinned(t));
-                                    // 分别排序
-                                    pinnedItems.sort(allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
-                                    normalItems.sort(allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
-                                    // 置顶任务排在前面
-                                    bucketItems = [...pinnedItems, ...normalItems];
+                                    bucketItems = sortKanbanGroupItems(bucketItems.slice(), allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
                                     const h2Key = `kanban_${c.id}_doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
                                     const h2Collapsed = state.collapsedGroups?.has(h2Key);
                                     const h2Title = __tmRenderHeadingLevelIconLabel(String(bucket.label || ''), SettingsStore.data.taskHeadingLevel || 'h2', {
@@ -1530,9 +1504,9 @@
                         const p = t.pinned;
                         return p === true || p === 'true' || p === '1';
                     };
-                    // 分离置顶和非置顶任务
-                    const allPinned = roots.filter(isPinned);
-                    const allNormal = roots.filter(t => !isPinned(t));
+                    // 分组内置顶开启时，置顶任务留在所属分组；否则抽到全局置顶分组
+                    const allPinned = pinWithinKanbanGroups ? [] : roots.filter(isPinned);
+                    const allNormal = pinWithinKanbanGroups ? roots.slice() : roots.filter(t => !isPinned(t));
                     // 分别排序
                     allPinned.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
                     allNormal.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
@@ -1542,14 +1516,7 @@
                     if (allPinned.length > 0) {
                         const pinnedGroupKey = `kanban_${c.id}_time_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
-                        // 渲染置顶任务卡片，添加红色左边框
-                        const renderPinnedTree = (t) => {
-                            const html = renderTree(t, 0);
-                            // 使用正则精确替换最外层的 tm-kanban-card class，添加红色左边框样式
-                            return html.replace(/class="tm-kanban-card([^"]*)"/, (match, extras) => {
-                                return `class="tm-kanban-card${extras}" style="border-left:3px solid var(--tm-danger-color,#d32f2f);"`;
-                            });
-                        };
+                        const renderPinnedTree = (t) => renderTree(t, 0);
                         const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
@@ -1572,8 +1539,7 @@
                         const isCollapsed = state.collapsedGroups?.has(groupKey);
                         const color = getTimeGroupLabelColor(g);
                         const title = `<span style="color:${color};">${esc(g.label || '')}</span>`;
-                        const items = (Array.isArray(g.items) ? g.items : []).slice();
-                        items.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
+                        const items = sortKanbanGroupItems((Array.isArray(g.items) ? g.items : []).slice(), needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
                         const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
                         return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
                     }).join('');
@@ -1587,9 +1553,9 @@
                         const p = t.pinned;
                         return p === true || p === 'true' || p === '1';
                     };
-                    // 分离置顶和非置顶任务
-                    const allPinned = roots.filter(isPinned);
-                    const allNormal = roots.filter(t => !isPinned(t));
+                    // 分组内置顶开启时，置顶任务留在所属分组；否则抽到全局置顶分组
+                    const allPinned = pinWithinKanbanGroups ? [] : roots.filter(isPinned);
+                    const allNormal = pinWithinKanbanGroups ? roots.slice() : roots.filter(t => !isPinned(t));
                     // 分别排序
                     allPinned.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
                     // 构建结果
@@ -1598,14 +1564,7 @@
                     if (allPinned.length > 0) {
                         const pinnedGroupKey = `kanban_${c.id}_quadrant_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
-                        // 渲染置顶任务卡片，添加红色左边框
-                        const renderPinnedTree = (t) => {
-                            const html = renderTree(t, 0);
-                            // 使用正则精确替换最外层的 tm-kanban-card class，添加红色左边框样式
-                            return html.replace(/class="tm-kanban-card([^"]*)"/, (match, extras) => {
-                                return `class="tm-kanban-card${extras}" style="border-left:3px solid var(--tm-danger-color,#d32f2f);"`;
-                            });
-                        };
+                        const renderPinnedTree = (t) => renderTree(t, 0);
                         const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
@@ -1635,8 +1594,7 @@
                             const isCollapsed = state.collapsedGroups?.has(groupKey);
                             const color = quadrantColorMap[String(rule.color || '')] || 'var(--tm-text-color)';
                             const title = `<span style="color:${color};">${esc(String(rule.name || k))}</span>`;
-                            const items = (Array.isArray(g.items) ? g.items : []).slice();
-                            items.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
+                            const items = sortKanbanGroupItems((Array.isArray(g.items) ? g.items : []).slice(), needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
                             const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
                             return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
                         })
@@ -1651,9 +1609,9 @@
                         const p = t.pinned;
                         return p === true || p === 'true' || p === '1';
                     };
-                    // 分离置顶和非置顶任务
-                    const allPinned = roots.filter(isPinned);
-                    const allNormal = roots.filter(t => !isPinned(t));
+                    // 分组内置顶开启时，置顶任务留在所属分组；否则抽到全局置顶分组
+                    const allPinned = pinWithinKanbanGroups ? [] : roots.filter(isPinned);
+                    const allNormal = pinWithinKanbanGroups ? roots.slice() : roots.filter(t => !isPinned(t));
                     // 分别排序
                     allPinned.sort(sortByIdx);
                     // 构建结果
@@ -1662,14 +1620,7 @@
                     if (allPinned.length > 0) {
                         const pinnedGroupKey = `kanban_${c.id}_task_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
-                        // 渲染置顶任务卡片，添加红色左边框
-                        const renderPinnedTree = (t) => {
-                            const html = renderTree(t, 0);
-                            // 使用正则精确替换最外层的 tm-kanban-card class，添加红色左边框样式
-                            return html.replace(/class="tm-kanban-card([^"]*)"/, (match, extras) => {
-                                return `class="tm-kanban-card${extras}" style="border-left:3px solid var(--tm-danger-color,#d32f2f);"`;
-                            });
-                        };
+                        const renderPinnedTree = (t) => renderTree(t, 0);
                         const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
@@ -1695,8 +1646,7 @@
                         }
                         const color = groupDocColor || 'var(--tm-primary-color)';
                         const title = `<span style="color:${color};">📝 ${esc(g.content || '')}</span>`;
-                        const items = (Array.isArray(g.items) ? g.items : []).slice();
-                        items.sort(sortByIdx);
+                        const items = sortKanbanGroupItems((Array.isArray(g.items) ? g.items : []).slice(), sortByIdx);
                         const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
                         return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, g.items.length, color)}${body}</div>`;
                     }).join('');
@@ -1751,14 +1701,7 @@
                     if (allPinned.length > 0) {
                         const pinnedGroupKey = `kanban_${c.id}_ungrouped_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
-                        // 渲染置顶任务卡片，添加红色左边框
-                        const renderPinnedTree = (t) => {
-                            const html = renderTree(t, 0);
-                            // 使用正则精确替换最外层的 tm-kanban-card class，添加红色左边框样式
-                            return html.replace(/class="tm-kanban-card([^"]*)"/, (match, extras) => {
-                                return `class="tm-kanban-card${extras}" style="border-left:3px solid var(--tm-danger-color,#d32f2f);"`;
-                            });
-                        };
+                        const renderPinnedTree = (t) => renderTree(t, 0);
                         const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         result += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;

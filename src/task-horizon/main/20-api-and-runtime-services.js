@@ -3802,6 +3802,51 @@
             || field === 'customTime';
     }
 
+    function __tmIsManagedTaskAttrStorageKeyForMirror(attrKey) {
+        const key = String(attrKey || '').trim();
+        if (!key) return false;
+        const updatedAtKey = typeof __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR !== 'undefined'
+            ? __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR
+            : 'custom-task-horizon-attr-host-updated-at';
+        const ownerKey = typeof __TM_TASK_ATTR_HOST_OWNER_ATTR !== 'undefined'
+            ? __TM_TASK_ATTR_HOST_OWNER_ATTR
+            : 'custom-task-horizon-attr-host-owner';
+        if (key === updatedAtKey || key === ownerKey) return false;
+        try { if (typeof __tmIsTaskMetaAttrKey === 'function' && __tmIsTaskMetaAttrKey(key)) return true; } catch (e) {}
+        try { if (typeof __tmIsTaskAttachmentAttrKey === 'function' && __tmIsTaskAttachmentAttrKey(key)) return true; } catch (e) {}
+        try { if (typeof __tmIsTaskAttachmentMetaAttrKey === 'function' && __tmIsTaskAttachmentMetaAttrKey(key)) return true; } catch (e) {}
+        try {
+            if (key === __TM_TASK_REPEAT_RULE_ATTR || key === __TM_TASK_REPEAT_STATE_ATTR || key === __TM_TASK_REPEAT_HISTORY_ATTR) return true;
+        } catch (e) {}
+        try {
+            const tomatoKeys = [
+                __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes'),
+                __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyHours, 'custom-tomato-time'),
+                __tmSafeAttrName(SettingsStore.data.tomatoCountAttrKey, 'custom-tomato-count'),
+                __tmSafeAttrName(SettingsStore.data.tomatoEstimateAttrKey, 'custom-tomato-estimate-count'),
+            ];
+            if (tomatoKeys.includes(key)) return true;
+        } catch (e) {}
+        try {
+            return __tmGetCustomFieldDefs().some((field) => {
+                const storageKey = __tmBuildCustomFieldAttrStorageKey(field?.attrKey || field?.id || field?.name || 'field', field?.id || 'field');
+                return storageKey === key;
+            });
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function __tmReadBlockAttrsSafe(blockId) {
+        const id = String(blockId || '').trim();
+        if (!id) return {};
+        try {
+            const res = await API.call('/api/attr/getBlockAttrs', { id });
+            if (res && res.code === 0 && res.data && typeof res.data === 'object') return res.data;
+        } catch (e) {}
+        return {};
+    }
+
     function __tmPushAttrHostWriteLog(tag, payload = {}) {
         return null;
     }
@@ -3815,18 +3860,46 @@
         let previousAttachmentMeta = new Map();
         let previousAttachmentSlotCount = 0;
         let attrTargetId = String(opts.attrTargetId || '').trim();
-        if (!attrTargetId) {
-            const task = currentTask;
-            const currentTaskAttrHostId = __tmGetTaskAttrHostId(task);
-            let stableAttrHostId = '';
-            if (task && typeof task === 'object') {
-                try {
-                    stableAttrHostId = await __tmResolveStableTaskAttrHostId(taskId, task?.parent_id || task?.parentId || '', task);
-                } catch (e) {
-                    stableAttrHostId = '';
+        let attrContext = null;
+        let task = currentTask;
+        if (taskId) {
+            try {
+                const liveTask = await API.getTaskById(taskId);
+                if (liveTask && typeof liveTask === 'object') {
+                    task = {
+                        ...((task && typeof task === 'object') ? task : {}),
+                        ...liveTask,
+                    };
                 }
+            } catch (e) {}
+        }
+        if (task && typeof task === 'object') {
+            try {
+                if (typeof __tmResolveTaskAttrContext === 'function') {
+                    attrContext = await __tmResolveTaskAttrContext(taskId, task?.parent_id || task?.parentId || '', task);
+                }
+            } catch (e) {
+                attrContext = null;
             }
-            attrTargetId = stableAttrHostId || currentTaskAttrHostId;
+        }
+        if (!attrContext && typeof __tmResolveTaskBindingFromAnyBlockId === 'function') {
+            try {
+                const binding = await __tmResolveTaskBindingFromAnyBlockId(taskId);
+                const boundTask = binding?.task && typeof binding.task === 'object' ? binding.task : task;
+                const boundTaskId = String(binding?.taskId || taskId || '').trim();
+                if (boundTaskId && typeof __tmResolveTaskAttrContext === 'function') {
+                    attrContext = await __tmResolveTaskAttrContext(boundTaskId, boundTask?.parent_id || boundTask?.parentId || '', boundTask);
+                }
+            } catch (e) {
+                attrContext = null;
+            }
+        }
+        if (attrContext?.primaryHostId) {
+            attrTargetId = String(attrContext.primaryHostId || '').trim();
+        }
+        if (!attrTargetId) {
+            const currentTaskAttrHostId = __tmGetTaskAttrHostId(task);
+            attrTargetId = currentTaskAttrHostId;
         }
         if (!attrTargetId) {
             try { attrTargetId = await __tmResolveTaskAttrHostIdFromAnyBlockId(id); } catch (e) { attrTargetId = ''; }
@@ -3897,9 +3970,44 @@
         const hostUpdatedAtAttr = typeof __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR !== 'undefined'
             ? __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR
             : 'custom-task-horizon-attr-host-updated-at';
+        const hostOwnerAttr = typeof __TM_TASK_ATTR_HOST_OWNER_ATTR !== 'undefined'
+            ? __TM_TASK_ATTR_HOST_OWNER_ATTR
+            : 'custom-task-horizon-attr-host-owner';
         if (opts.stampTaskAttrHostUpdatedAt !== false && !Object.prototype.hasOwnProperty.call(attrs, hostUpdatedAtAttr)) {
             attrs[hostUpdatedAtAttr] = String(Date.now());
             attrKeys = Object.keys(attrs);
+        }
+        if (taskId && !Object.prototype.hasOwnProperty.call(attrs, hostOwnerAttr)) {
+            attrs[hostOwnerAttr] = taskId;
+            attrKeys = Object.keys(attrs);
+        }
+        const structuralMirrorTargetIds = Array.from(new Set((Array.isArray(attrContext?.mirrorHostIds) ? attrContext.mirrorHostIds : [])
+            .map((item) => String(item || '').trim())
+            .filter((item) => item && item !== attrTargetId)));
+        if (structuralMirrorTargetIds.length > 0) {
+            try {
+                const primaryAttrs = await __tmReadBlockAttrsSafe(attrTargetId);
+                const readMirrorRows = await Promise.all(structuralMirrorTargetIds.map(async (mirrorId) => ({
+                    id: mirrorId,
+                    attrs: await __tmReadBlockAttrsSafe(mirrorId),
+                })));
+                readMirrorRows.forEach((entry) => {
+                    const mirrorAttrs = entry?.attrs && typeof entry.attrs === 'object' ? entry.attrs : {};
+                    const mirrorOwner = String(mirrorAttrs[hostOwnerAttr] || '').trim();
+                    if (entry.id !== taskId) {
+                        const isState3ParentMirror = String(attrContext?.state || '').trim() === 'state3-list-item';
+                        if (isState3ParentMirror ? mirrorOwner !== taskId : (mirrorOwner && mirrorOwner !== taskId)) return;
+                    }
+                    Object.entries(mirrorAttrs).forEach(([key, value]) => {
+                        const attrKey = String(key || '').trim();
+                        if (!__tmIsManagedTaskAttrStorageKeyForMirror(attrKey)) return;
+                        if (Object.prototype.hasOwnProperty.call(attrs, attrKey)) return;
+                        if (Object.prototype.hasOwnProperty.call(primaryAttrs || {}, attrKey)) return;
+                        attrs[attrKey] = String(value ?? '');
+                    });
+                });
+                attrKeys = Object.keys(attrs);
+            } catch (e) {}
         }
         const statusAttrKey = typeof __tmGetTaskMetaAttrKey === 'function' ? __tmGetTaskMetaAttrKey('customStatus') : 'custom-status';
         const hasStatusAttr = Object.prototype.hasOwnProperty.call(attrs, statusAttrKey) || Object.prototype.hasOwnProperty.call(patch, 'customStatus');
@@ -3907,8 +4015,9 @@
         const allTaskReadMirrorAttrs = __tmBuildTaskReadMirrorAttrs(attrs);
         const hasSyncTaskReadMirrorAttr = Object.keys(allTaskReadMirrorAttrs).some((key) => __tmShouldSyncTaskReadMirrorAttr(key));
         const shouldMirrorAllTaskReadAttrs = opts.mirrorTaskAttrs === true;
+        const shouldSyncOnlyTaskReadMirrorAttrs = opts.syncMirrorTaskAttrs === true;
         const taskReadMirrorAttrs = {};
-        if (opts.mirrorTaskAttrs === true && (shouldMirrorAllTaskReadAttrs || hasSyncTaskReadMirrorAttr)) {
+        if ((opts.mirrorTaskAttrs === true || shouldSyncOnlyTaskReadMirrorAttrs) && (shouldMirrorAllTaskReadAttrs || hasSyncTaskReadMirrorAttr)) {
             Object.entries(allTaskReadMirrorAttrs).forEach(([key, value]) => {
                 if (shouldMirrorAllTaskReadAttrs || __tmShouldSyncTaskReadMirrorAttr(key)) {
                     taskReadMirrorAttrs[key] = value;
@@ -3953,8 +4062,35 @@
                     }, [id, attrTargetId], { force: true });
                 }
                 await __tmBackendAdapter.setAttrs(attrTargetId, attrs);
+                const mirroredTargetIds = new Set();
+                if (structuralMirrorTargetIds.length > 0) {
+                    for (const mirrorTargetId of structuralMirrorTargetIds) {
+                        if (!mirrorTargetId || mirrorTargetId === attrTargetId) continue;
+                        try {
+                            await __tmBackendAdapter.setAttrs(mirrorTargetId, { ...attrs });
+                            mirroredTargetIds.add(mirrorTargetId);
+                            __tmPushAttrHostWriteLog('structural-mirror-success', {
+                                taskId: String(id || '').trim(),
+                                primaryAttrTargetId: attrTargetId,
+                                mirrorTargetId,
+                                source: String(opts.source || '').trim(),
+                            });
+                        } catch (e) {
+                            __tmPushAttrHostWriteLog('structural-mirror-error', {
+                                taskId: String(id || '').trim(),
+                                primaryAttrTargetId: attrTargetId,
+                                mirrorTargetId,
+                                source: String(opts.source || '').trim(),
+                                error: String(e?.message || e || ''),
+                            });
+                        }
+                    }
+                }
                 if (hasTaskReadMirrorAttrs && taskId && attrTargetId !== taskId) {
                     const mirrorTargetId = taskId;
+                    if (mirroredTargetIds.has(mirrorTargetId)) {
+                        // 已由结构镜像写入。
+                    } else {
                     const mirrorAttrs = { ...taskReadMirrorAttrs };
                     const runMirrorSetAttrs = async () => {
                         try {
@@ -3992,6 +4128,7 @@
                                 runMirrorSetAttrs().catch(() => null);
                             }
                         };
+                    }
                     }
                 }
                 if (opts.skipFlush !== true) {
@@ -4083,6 +4220,7 @@
                 background: opts.background === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
                 mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
+                syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 renderOptimistic: opts.renderOptimistic !== false,
                 withFilters: optimisticProjectionRefresh,
                 skipSnapshotPersist: opts.skipSnapshotPersist === true,
@@ -4119,6 +4257,7 @@
                 source: opts.source,
                 attrTargetId: opts.attrTargetId,
                 mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
+                syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 renderOptimistic: opts.renderOptimistic !== false && opts.background !== true,
                 withFilters: opts.withFilters !== false,
                 skipSnapshotPersist: opts.skipSnapshotPersist === true,
@@ -4324,6 +4463,7 @@
         timelineSelectedLinkId: '',
         whiteboardSelectedTaskId: '',
         whiteboardSelectedNoteId: '',
+        whiteboardSelectedFrameId: '',
         whiteboardMultiSelectedTaskIds: [],
         whiteboardMultiSelectedNoteIds: [],
         whiteboardMultiSelectedLinkKeys: [],
@@ -4336,6 +4476,9 @@
         whiteboardPanSession: null,
         whiteboardNodeDrag: null,
         whiteboardNoteDrag: null,
+        whiteboardFrameDrag: null,
+        whiteboardFrameResize: null,
+        whiteboardFrameCreate: null,
         whiteboardMarqueeSession: null,
         whiteboardSuppressClickUntil: 0,
         whiteboardPoolSelectedTaskIds: [],
@@ -6029,6 +6172,119 @@
         return keys.some((key) => taskFieldKeys.has(String(key || '').trim()));
     }
 
+    function __tmAddMoveAttrHostReconcileId(target, value) {
+        if (!(target instanceof Set)) return;
+        const id = String(value || '').trim();
+        if (id) target.add(id);
+    }
+
+    async function __tmResolveMoveAttrHostTaskLike(id) {
+        const rawId = String(id || '').trim();
+        if (!rawId) return null;
+        let taskId = rawId;
+        try {
+            if (typeof __tmResolveTaskIdFromAnyBlockId === 'function') {
+                const resolvedId = String(await __tmResolveTaskIdFromAnyBlockId(rawId) || '').trim();
+                if (resolvedId) taskId = resolvedId;
+            }
+        } catch (e) {}
+        let task = null;
+        try { task = await API.getTaskById(taskId); } catch (e) { task = null; }
+        if (!task && taskId !== rawId) {
+            try { task = await API.getTaskById(rawId); } catch (e) { task = null; }
+        }
+        if (!task && typeof __tmBuildTaskLikeFromBlockId === 'function') {
+            try { task = await __tmBuildTaskLikeFromBlockId(taskId || rawId); } catch (e) { task = null; }
+            if (!task && taskId !== rawId) {
+                try { task = await __tmBuildTaskLikeFromBlockId(rawId); } catch (e) { task = null; }
+            }
+        }
+        if (task && typeof task === 'object' && !String(task.id || '').trim()) {
+            try { task.id = taskId || rawId; } catch (e) {}
+        }
+        return (task && typeof task === 'object') ? task : null;
+    }
+
+    async function __tmReconcileTaskAttrHostsAfterMove(op, detail = {}) {
+        if (typeof __tmApplyTaskAttrHostOverrides !== 'function') return;
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        const snapshot = (data.snapshot && typeof data.snapshot === 'object') ? data.snapshot : null;
+        const taskIds = new Set();
+        const listIds = new Set();
+        try {
+            if (typeof __tmClearAttrHostResolutionCache === 'function') __tmClearAttrHostResolutionCache();
+        } catch (e) {}
+
+        try {
+            const affected = __tmBuildQueuedOpAffectedScope(op, detail);
+            (Array.isArray(affected?.taskIds) ? affected.taskIds : []).forEach((id) => __tmAddMoveAttrHostReconcileId(taskIds, id));
+            (Array.isArray(affected?.parentTaskIds) ? affected.parentTaskIds : []).forEach((id) => __tmAddMoveAttrHostReconcileId(taskIds, id));
+        } catch (e) {}
+
+        [
+            data.taskId,
+            data.targetTaskId,
+            data.targetParentTaskId,
+            data.targetFirstDirectChildId,
+            data.targetLastDirectChildId,
+            data.prevSiblingTaskId,
+            snapshot?.taskId,
+            snapshot?.parentTaskId,
+            snapshot?.task?.id,
+            snapshot?.task?.parentTaskId,
+            snapshot?.task?.parent_task_id,
+        ].forEach((id) => __tmAddMoveAttrHostReconcileId(taskIds, id));
+        [
+            data.targetListId,
+            data.targetChildListId,
+            data.targetContentAnchorId,
+            snapshot?.task?.parent_id,
+            snapshot?.task?.parentId,
+        ].forEach((id) => __tmAddMoveAttrHostReconcileId(listIds, id));
+
+        const tasksById = new Map();
+        const processedTaskIds = new Set();
+        const processedListIds = new Set();
+        for (let pass = 0; pass < 3; pass += 1) {
+            const pendingTaskIds = Array.from(taskIds).filter((id) => id && !processedTaskIds.has(id));
+            for (const id of pendingTaskIds) {
+                processedTaskIds.add(id);
+                const task = await __tmResolveMoveAttrHostTaskLike(id);
+                const taskId = String(task?.id || '').trim();
+                if (!taskId) continue;
+                tasksById.set(taskId, task);
+                __tmAddMoveAttrHostReconcileId(listIds, task?.parent_id || task?.parentId);
+            }
+            const pendingListIds = Array.from(listIds).filter((id) => id && !processedListIds.has(id));
+            for (const listId of pendingListIds) {
+                processedListIds.add(listId);
+                let childTaskIds = [];
+                try { childTaskIds = await API.getTaskIdsInList(listId, { preferDom: true }); } catch (e) { childTaskIds = []; }
+                (Array.isArray(childTaskIds) ? childTaskIds.slice(0, 4) : [])
+                    .forEach((id) => __tmAddMoveAttrHostReconcileId(taskIds, id));
+            }
+            if (!pendingTaskIds.length && !pendingListIds.length) break;
+        }
+
+        const tasks = Array.from(tasksById.values());
+        if (!tasks.length) return;
+        await __tmApplyTaskAttrHostOverrides(tasks, { applyBlankSelfAttrs: true });
+        try {
+            if (typeof __tmClearAttrHostResolutionCache === 'function') __tmClearAttrHostResolutionCache();
+        } catch (e) {}
+    }
+
+    function __tmScheduleTaskAttrHostReconcileAfterMove(op, result = {}) {
+        if (!op || String(op?.type || '').trim() !== 'moveTask') return;
+        const run = (delayMs) => {
+            setTimeout(() => {
+                __tmReconcileTaskAttrHostsAfterMove(op, result).catch(() => null);
+            }, delayMs);
+        };
+        run(80);
+        run(420);
+    }
+
     async function __tmExecuteQueuedOp(op) {
         const type = String(op?.type || '').trim();
         const primaryTaskId = String(op?.data?.taskId || op?.data?.sourceTaskId || '').trim();
@@ -6065,6 +6321,7 @@
                 skipSnapshotPersist: op?.data?.skipSnapshotPersist === true,
                 skipTaskIndexPersist: op?.data?.skipTaskIndexPersist === true,
                 mirrorTaskAttrs: op?.data?.mirrorTaskAttrs === true,
+                syncMirrorTaskAttrs: op?.data?.syncMirrorTaskAttrs === true,
                 attrTargetId: String(op?.data?.attrTargetId || '').trim(),
                 previousAttachmentPaths: Array.isArray(op?.data?.previousAttachmentPaths) ? op.data.previousAttachmentPaths : undefined,
                 previousAttachmentMeta: op?.data?.previousAttachmentMeta,
@@ -6361,14 +6618,17 @@ onBlockInserted: (info) => {
                 __tmMarkLocalMoveTxSuppressionIds(suppressMeta.blockIds, suppressMeta.docIds, 2400);
                 
             } catch (e) {}
-            if (mode === 'heading') return await __tmMoveTaskToHeading(payload.taskId, payload.targetDocId, payload.headingId, { silentHint: true });
-            if (mode === 'docTop') return await __tmMoveTaskToDocTop(payload.taskId, payload.targetDocId, { silentHint: true, clearHeading: true });
-            if (mode === 'docBottom') return await __tmMoveTaskToDoc(payload.taskId, payload.targetDocId, { silentHint: true });
-            if (mode === 'before') return await __tmMoveTaskBeforeTask(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
-            if (mode === 'after') return await __tmMoveTaskAfterTask(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
-            if (mode === 'child-top') return await __tmMoveTaskAsChildTop(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
-            if (mode === 'child') return await __tmMoveTaskAsChild(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
-            return await __tmMoveTaskToDoc(payload.taskId, payload.targetDocId, { silentHint: true });
+            let moved = false;
+            if (mode === 'heading') moved = await __tmMoveTaskToHeading(payload.taskId, payload.targetDocId, payload.headingId, { silentHint: true });
+            else if (mode === 'docTop') moved = await __tmMoveTaskToDocTop(payload.taskId, payload.targetDocId, { silentHint: true, clearHeading: true });
+            else if (mode === 'docBottom') moved = await __tmMoveTaskToDoc(payload.taskId, payload.targetDocId, { silentHint: true });
+            else if (mode === 'before') moved = await __tmMoveTaskBeforeTask(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
+            else if (mode === 'after') moved = await __tmMoveTaskAfterTask(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
+            else if (mode === 'child-top') moved = await __tmMoveTaskAsChildTop(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
+            else if (mode === 'child') moved = await __tmMoveTaskAsChild(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
+            else moved = await __tmMoveTaskToDoc(payload.taskId, payload.targetDocId, { silentHint: true });
+            if (moved) __tmScheduleTaskAttrHostReconcileAfterMove(op, { taskId: payload.taskId });
+            return moved;
         }
         throw new Error(`未支持的队列操作: ${type || 'unknown'}`);
     }
@@ -9912,6 +10172,51 @@ const wait = !!options.wait;
         return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
+    function __tmGetTaskRemarkSearchText(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const raw = task.remark ?? task.custom_remark ?? task.customRemark ?? '';
+        const text = typeof __tmNormalizeRemarkMarkdown === 'function'
+            ? __tmNormalizeRemarkMarkdown(raw)
+            : String(raw || '').replace(/\r\n?/g, '\n').trim();
+        return String(text || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function __tmTaskRemarkMatchesSearch(taskLike, keyword = state.searchKeyword) {
+        const query = String(keyword || '').trim().toLowerCase();
+        if (!query) return false;
+        return __tmGetTaskRemarkSearchText(taskLike).toLowerCase().includes(query);
+    }
+
+    function __tmTaskMatchesSearch(taskLike, keyword = state.searchKeyword) {
+        const query = String(keyword || '').trim().toLowerCase();
+        if (!query) return true;
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const title = String(task.content || task.text || task.raw_content || '').toLowerCase();
+        if (title.includes(query)) return true;
+        return __tmTaskRemarkMatchesSearch(task, query);
+    }
+
+    function __tmBuildTaskRemarkSearchSnippet(taskLike, keyword = state.searchKeyword, options = {}) {
+        const query = String(keyword || '').trim();
+        if (!query || !__tmTaskRemarkMatchesSearch(taskLike, query)) return '';
+        const remark = __tmGetTaskRemarkSearchText(taskLike);
+        if (!remark) return '';
+        const opts = (options && typeof options === 'object') ? options : {};
+        const maxLength = Math.max(40, Math.min(180, Math.round(Number(opts.maxLength) || 96)));
+        const lower = remark.toLowerCase();
+        const matchIndex = lower.indexOf(query.toLowerCase());
+        const safeIndex = matchIndex >= 0 ? matchIndex : 0;
+        let start = Math.max(0, safeIndex - Math.floor(maxLength / 2));
+        let end = Math.min(remark.length, start + maxLength);
+        if (end - start < maxLength) start = Math.max(0, end - maxLength);
+        const prefix = start > 0 ? '...' : '';
+        const suffix = end < remark.length ? '...' : '';
+        const snippet = `${prefix}${remark.slice(start, end).trim()}${suffix}`;
+        if (!snippet) return '';
+        const label = String(opts.label || '备注').trim() || '备注';
+        return `<span class="tm-task-search-remark-snippet" title="${esc(remark)}"><span class="tm-task-search-remark-snippet__label">${esc(label)}</span><span class="tm-task-search-remark-snippet__text">${esc(snippet)}</span></span>`;
+    }
+
     function __tmClearSearchHighlights(container = state.modal) {
         const root = container instanceof Element ? container : null;
         if (!root) return false;
@@ -9972,7 +10277,7 @@ const wait = !!options.wait;
         __tmClearSearchHighlights(root);
         const query = String(keyword || '').trim();
         if (!query) return false;
-        const selector = String(options?.selector || '.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title, .tm-kanban-card-title-inline, .tm-cal-task-event-title-text, .tm-gantt-bar__title').trim();
+        const selector = String(options?.selector || '.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title, .tm-kanban-card-title-inline, .tm-cal-task-event-title-text, .tm-gantt-bar__title, .tm-task-card-remark, .tm-task-remark-text, .tm-task-search-remark-snippet__text').trim();
         const source = __tmEscapeSearchHighlightRegex(query);
         if (!source) return false;
         const pattern = new RegExp(source, 'gi');
@@ -10001,6 +10306,10 @@ const wait = !!options.wait;
         globalThis.__tmBuildTaskTitleOpacityStyle = __tmBuildTaskTitleOpacityStyle;
         globalThis.__tmApplyTaskTitleOpacityToElement = __tmApplyTaskTitleOpacityToElement;
         globalThis.__tmApplyTaskTitleOpacityInContainer = __tmApplyTaskTitleOpacityInContainer;
+        globalThis.__tmGetTaskRemarkSearchText = __tmGetTaskRemarkSearchText;
+        globalThis.__tmTaskRemarkMatchesSearch = __tmTaskRemarkMatchesSearch;
+        globalThis.__tmTaskMatchesSearch = __tmTaskMatchesSearch;
+        globalThis.__tmBuildTaskRemarkSearchSnippet = __tmBuildTaskRemarkSearchSnippet;
         globalThis.__tmClearSearchHighlights = __tmClearSearchHighlights;
         globalThis.__tmApplySearchHighlights = __tmApplySearchHighlights;
         globalThis.__tmDoesTaskDomTargetBelongToTask = __tmDoesTaskDomTargetBelongToTask;
@@ -12450,6 +12759,13 @@ const wait = !!options.wait;
             const attrHostId = String(detail.attrHostId || __tmGetTaskAttrHostId(task) || taskId).trim();
             const previousDone = Object.prototype.hasOwnProperty.call(detail, 'previousDone') ? !!detail.previousDone : false;
             const nextDone = Object.prototype.hasOwnProperty.call(detail, 'nextDone') ? !!detail.nextDone : true;
+            const source = String(detail.source || '').trim();
+            const backgroundSyncSources = new Set([
+                'native-doc-checkbox-sync',
+                'native-doc-checkbox-reconcile',
+                'native-doc-checkbox-status-sync',
+            ]);
+            if (backgroundSyncSources.has(source) && detail.userInitiated !== true) return false;
             if (!previousDone && nextDone && __tmShouldSkipTaskRewardDispatch(taskId, nextDone)) return false;
             const rawScore = Number(detail.priorityScore);
             const priorityScore = Number.isFinite(rawScore) ? Math.max(0, Math.round(rawScore)) : 0;
@@ -12463,7 +12779,7 @@ const wait = !!options.wait;
                     priority: String(detail.priority || task.priority || task.custom_priority || '').trim(),
                     priorityScore,
                     completedAt: String(detail.completedAt || '').trim(),
-                    source: String(detail.source || '').trim(),
+                    source,
                     previousDone,
                     nextDone,
                 }
@@ -14336,6 +14652,22 @@ const wait = !!options.wait;
         }
         const persistId = String(task?.id || resolvedId || requestedId).trim();
         if (!persistId) return null;
+        if (persistId) {
+            try {
+                const liveTask = await API.getTaskById(persistId);
+                if (liveTask && typeof liveTask === 'object') {
+                    task = {
+                        ...((task && typeof task === 'object') ? task : {}),
+                        ...liveTask,
+                    };
+                    try {
+                        task = __tmCacheTaskInState(task, {
+                            docNameFallback: task.doc_name || task.docName || '未命名文档'
+                        }) || task;
+                    } catch (e2) {}
+                }
+            } catch (e) {}
+        }
         let attrHostId = String(__tmGetTaskAttrHostId(task) || persistId).trim() || persistId;
         try {
             attrHostId = await __tmResolveStableTaskAttrHostId(persistId, task?.parent_id || task?.parentId || '', task) || attrHostId;
@@ -14601,6 +14933,7 @@ if (hasStatusPatch) {
             if (opts.broadcast !== false) {
                 __tmDispatchTaskAttrPatchUpdated(opts.broadcastTaskId || context.requestedId || context.persistId, nextPatch, {
                     resolvedTaskId: context.persistId,
+                    attrHostId: effectiveAttrTargetId,
                     source: String(opts.source || '').trim(),
                     previousPatch: settledInversePatch,
                     previousAttachmentPaths: persistOptions.__resolvedPreviousAttachmentPaths,
@@ -15259,6 +15592,7 @@ __tmPushStatusDebug('apply-status:start', {
             if (opts.broadcast !== false) {
                 __tmDispatchTaskAttrPatchUpdated(opts.broadcastTaskId || context.requestedId || context.persistId, persistPatch, {
                     resolvedTaskId: context.persistId,
+                    attrHostId: rewardAttrHostId || __tmGetTaskAttrHostId(task) || context.persistId,
                     source: String(opts.source || '').trim(),
                 });
             }
@@ -16172,6 +16506,7 @@ if (!state.homepageOpen) return;
         if (prevGroupId !== nextGroupId) {
             state.whiteboardSelectedTaskId = '';
             state.whiteboardSelectedNoteId = '';
+            state.whiteboardSelectedFrameId = '';
             state.whiteboardSelectedLinkId = '';
             state.whiteboardSelectedLinkDocId = '';
             state.whiteboardMultiSelectedTaskIds = [];
@@ -19124,17 +19459,23 @@ refreshOk = false;
         const expiryText = license?.plan === 'lifetime'
             ? '永久'
             : (String(license?.expiresAt || '').trim() || (active ? '未读取到' : '未激活'));
+        const benefitsDetailsOpenAttr = active ? '' : ' open';
+        const benefitsSummaryTitle = active ? '套餐、价格和功能说明已收起' : '套餐、价格和功能说明';
+        const benefitsSummaryDesc = active
+            ? '已激活全功能版，展开可查看套餐、功能区别和付款流程。'
+            : '试用、年付、永久授权、功能区别和发码流程。';
         const featureRows = [
             ['清单、看板、表格、日历、时间轴', '完整可用', '完整可用', '完整可用', '完整可用'],
             ['基础任务创建、编辑、筛选', '完整可用', '完整可用', '完整可用', '完整可用'],
             ['白板基础与全局白板', '完整可用', '完整可用', '完整可用', '完整可用'],
-            ['白板便签/任务池搜索/详情定位', '不包含', '可用', '可用', '可用'],
+            ['白板手写、分组框、便签', '不包含', '可用', '可用', '可用'],
+            ['白板任务池搜索/详情定位', '不包含', '可用', '可用', '可用'],
             ['AI 工作台与任务 AI 操作', '不包含', '可用', '可用', '可用'],
             ['离线激活', '不需要', '用户名或设备', '用户名或设备', '用户名或设备'],
             ['维护支持', '常规', '常规', '优先响应', '优先响应'],
         ];
         const advancedItems = [
-            ['白板增强', '全局白板继续可用。全功能限制便签工具、任务详情里的白板反向显示定位、任务池搜索。'],
+            ['白板增强', '全局白板基础能力继续可用；免费版不包含手写、分组框、便签工具、任务详情白板反向定位和任务池搜索。'],
             ['AI 辅助', 'AI 设置页可见可配置。全功能限制 AI 工作台和任务 AI 操作，包含优化任务名称、编辑字段、安排日程等能力。'],
         ];
         return `
@@ -19142,10 +19483,23 @@ refreshOk = false;
                 .tm-benefits-wrap{display:flex;flex-direction:column;gap:12px;}
                 .tm-benefits-license{display:grid;grid-template-columns:minmax(140px,.55fr) minmax(220px,1fr) auto;gap:12px;align-items:center;padding:14px;border:1px solid var(--tm-border-color);border-radius:12px;background:var(--tm-card-bg);}
                 .tm-benefits-label{font-size:12px;color:var(--tm-secondary-text);font-weight:700;margin-bottom:5px;}
+                .tm-benefits-license.is-active{border-color:color-mix(in srgb,var(--tm-primary-color) 58%,var(--tm-border-color));box-shadow:0 0 0 1px color-mix(in srgb,var(--tm-primary-color) 22%,transparent),0 12px 28px color-mix(in srgb,var(--tm-primary-color) 10%,transparent);background:linear-gradient(135deg,color-mix(in srgb,var(--tm-primary-color) 7%,var(--tm-card-bg)),var(--tm-card-bg) 46%);}
                 .tm-benefits-license strong{display:block;color:var(--tm-text-color);font-size:18px;line-height:1.25;}
+                .tm-benefits-status-value{letter-spacing:0;transition:color .18s ease, text-shadow .18s ease;}
+                .tm-benefits-license.is-active .tm-benefits-status-value{color:var(--tm-success-color);font-weight:900;text-shadow:0 0 18px color-mix(in srgb,var(--tm-success-color) 30%,transparent);}
+                .tm-benefits-license.is-active .tm-benefits-badge{background:color-mix(in srgb,var(--tm-success-color) 12%,var(--tm-card-bg));}
                 .tm-benefits-badge{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:999px;background:var(--tm-rule-group-bg);color:${statusColor};font-size:12px;font-weight:800;}
                 .tm-benefits-account{display:flex;gap:8px;align-items:center;min-width:0;}
                 .tm-benefits-account code{flex:1;min-width:0;padding:8px 10px;border:1px solid var(--tm-border-color);border-radius:9px;background:var(--tm-sidebar-bg);color:var(--tm-text-color);word-break:break-all;}
+                .tm-benefits-details{display:block;}
+                .tm-benefits-summary{padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-sidebar-bg);color:var(--tm-text-color);cursor:pointer;}
+                .tm-benefits-summary::marker{color:var(--tm-secondary-text);}
+                .tm-benefits-summary:focus-visible{outline:2px solid color-mix(in srgb,var(--tm-primary-color) 45%,transparent);outline-offset:2px;}
+                .tm-benefits-summary-text{display:inline-grid;max-width:calc(100% - 24px);gap:3px;margin-left:4px;vertical-align:middle;white-space:normal;}
+                .tm-benefits-summary-title{font-size:14px;font-weight:800;line-height:1.35;overflow-wrap:anywhere;}
+                .tm-benefits-summary-desc{font-size:12px;font-weight:700;line-height:1.5;color:var(--tm-secondary-text);overflow-wrap:anywhere;}
+                .tm-benefits-details[open] .tm-benefits-summary{background:var(--tm-card-bg);}
+                .tm-benefits-details-body{display:flex;flex-direction:column;gap:12px;margin-top:12px;}
                 .tm-benefits-plans{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
                 .tm-benefits-plan{display:flex;min-height:168px;flex-direction:column;justify-content:space-between;gap:12px;padding:15px;border:1px solid var(--tm-border-color);border-radius:12px;background:var(--tm-card-bg);}
                 .tm-benefits-plan.is-featured{border-color:color-mix(in srgb,var(--tm-primary-color) 48%,var(--tm-border-color));box-shadow:0 14px 34px color-mix(in srgb,var(--tm-text-color) 8%,transparent);}
@@ -19210,6 +19564,8 @@ refreshOk = false;
                     .tm-benefits-license,.tm-benefits-plan,.tm-benefits-flow{padding:12px;}
                     .tm-benefits-account{flex-direction:column;align-items:stretch;}
                     .tm-benefits-license .tm-btn,.tm-benefits-plan .tm-btn,.tm-benefits-dialog-actions .tm-btn{width:100%;}
+                    .tm-benefits-summary{padding:9px 10px;}
+                    .tm-benefits-summary-text{margin-left:2px;}
                     .tm-benefits-section-title{display:block;padding:12px 12px 0;}
                     .tm-benefits-section-title p{margin-top:4px;}
                     .tm-benefits-grid{padding:8px 12px 12px;}
@@ -19225,19 +19581,19 @@ refreshOk = false;
                 }
             </style>
             <div class="tm-benefits-wrap">
-                <div class="tm-benefits-license" ${__tmSettingsSearchAttrs ? __tmSettingsSearchAttrs('benefits', '功能权益', '查看授权状态、套餐和付款说明') : ''}>
+                <div class="tm-benefits-license${active ? ' is-active' : ''}" ${__tmSettingsSearchAttrs ? __tmSettingsSearchAttrs('benefits', '功能权益', '查看授权状态、套餐和付款说明') : ''}>
                     <div>
                         <div class="tm-benefits-label">当前授权</div>
-                        <strong>${esc(statusText)}</strong>
+                        <strong class="tm-benefits-status-value">${esc(statusText)}</strong>
                         <div style="margin-top:6px;font-size:12px;color:var(--tm-secondary-text);">到期：${esc(expiryText)}</div>
                     </div>
                     <div>
-                        <div class="tm-benefits-label">付款时请提供以下用户名</div>
+                        <div class="tm-benefits-label">${esc(active ? '授权用户名' : '付款时请提供以下用户名')}</div>
                         <div class="tm-benefits-account">
                             <code id="tmBenefitsAccountValue">${esc(accountText)}</code>
                             <button class="tm-btn tm-btn-secondary" type="button" onclick="tmCopyBenefitsSubject()">复制</button>
                         </div>
-                        <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-top:6px;">无法在付款备注提供时，可将${esc(accountKindText)}和付款截图发送至 729373125@qq.com。</div>
+                        ${active ? '' : `<div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-top:6px;">无法在付款备注提供时，可将${esc(accountKindText)}和付款截图发送至 729373125@qq.com。</div>`}
                     </div>
                     <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">
                         <span class="tm-benefits-badge">${esc(active ? '已激活' : '未激活')}</span>
@@ -19245,79 +19601,89 @@ refreshOk = false;
                     </div>
                 </div>
 
-                <div class="tm-benefits-plans">
-                    <div class="tm-benefits-plan">
-                        <div>
-                            <div class="tm-benefits-plan-head">
-                                <h3>全功能试用</h3>
-                                <span class="tm-benefits-tag">30 天</span>
-                            </div>
-                            <div class="tm-benefits-price"><strong>免费</strong><span>领取试用码</span></div>
-                            <p>无需付款，用于确认账号绑定、离线激活和高级能力是否适合你的工作流。</p>
-                        </div>
-                        <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('trial')">领取试用</button>
-                    </div>
-                    <div class="tm-benefits-plan">
-                        <div>
-                            <div class="tm-benefits-plan-head">
-                                <h3>全功能年付</h3>
-                                <span class="tm-benefits-tag">灵活</span>
-                            </div>
-                            <div class="tm-benefits-price"><strong>38</strong><span>元 / 年</span></div>
-                            <p>低成本解锁一年全功能，适合先稳定使用一段时间，再决定是否长期买断。</p>
-                        </div>
-                        <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('yearly')">扫码付款</button>
-                    </div>
-                    <div class="tm-benefits-plan is-featured">
-                        <div>
-                            <div class="tm-benefits-plan-head">
-                                <h3>全功能永久</h3>
-                                <span class="tm-benefits-tag">早鸟推荐</span>
-                            </div>
-                            <div class="tm-benefits-price"><del><strong>98</strong><span>元</span></del><strong>50</strong><span>元</span></div>
-                            <p>限时早鸟至 2026年7月31日，一次付费获得当前插件全功能永久授权，适合把本插件作为主力任务系统的用户。已捐助达到 50 元可直接联系获取激活码，未达到的补齐差额即可。</p>
-                        </div>
-                        <button class="tm-btn tm-btn-primary" type="button" onclick="tmOpenBenefitsPaymentDialog('lifetime')">扫码付款</button>
-                    </div>
-                </div>
-
-                <div class="tm-benefits-matrix">
-                    <div class="tm-benefits-section-title">
-                        <h3>功能区别</h3>
-                        <p>清单、看板、表格、日历、时间轴当前都是完整功能；当前限制主要面向白板增强和 AI。</p>
-                    </div>
-                    <div class="tm-benefits-grid" role="table" aria-label="功能权益">
-                        <div class="tm-benefits-row is-head" role="row">
-                            <div class="tm-benefits-cell tm-benefits-feature" role="columnheader">功能</div>
-                            <div class="tm-benefits-cell" role="columnheader">免费版</div>
-                            <div class="tm-benefits-cell" role="columnheader">全功能试用</div>
-                            <div class="tm-benefits-cell" role="columnheader">全功能年付</div>
-                            <div class="tm-benefits-cell" role="columnheader">全功能永久</div>
-                        </div>
-                        ${__tmRenderBenefitsFeatureRows(featureRows)}
-                    </div>
-                    <div class="tm-benefits-advanced">
-                        <h4>付费高级能力示例</h4>
-                        <div class="tm-benefits-advanced-list">
-                            ${advancedItems.map(([title, desc]) => `
-                                <div class="tm-benefits-advanced-item">
-                                    <strong>${esc(title)}</strong>
-                                    <span>${esc(desc)}</span>
+                <details class="tm-benefits-details"${benefitsDetailsOpenAttr}>
+                    <summary class="tm-benefits-summary">
+                        <span class="tm-benefits-summary-text">
+                            <span class="tm-benefits-summary-title">${esc(benefitsSummaryTitle)}</span>
+                            <span class="tm-benefits-summary-desc">${esc(benefitsSummaryDesc)}</span>
+                        </span>
+                    </summary>
+                    <div class="tm-benefits-details-body">
+                        <div class="tm-benefits-plans">
+                            <div class="tm-benefits-plan">
+                                <div>
+                                    <div class="tm-benefits-plan-head">
+                                        <h3>全功能试用</h3>
+                                        <span class="tm-benefits-tag">30 天</span>
+                                    </div>
+                                    <div class="tm-benefits-price"><strong>免费</strong><span>领取试用码</span></div>
+                                    <p>无需付款，用于确认账号绑定、离线激活和高级能力是否适合你的工作流。</p>
                                 </div>
-                            `).join('')}
+                                <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('trial')">领取试用</button>
+                            </div>
+                            <div class="tm-benefits-plan">
+                                <div>
+                                    <div class="tm-benefits-plan-head">
+                                        <h3>全功能年付</h3>
+                                        <span class="tm-benefits-tag">灵活</span>
+                                    </div>
+                                    <div class="tm-benefits-price"><strong>38</strong><span>元 / 年</span></div>
+                                    <p>低成本解锁一年全功能，适合先稳定使用一段时间，再决定是否长期买断。</p>
+                                </div>
+                                <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('yearly')">扫码付款</button>
+                            </div>
+                            <div class="tm-benefits-plan is-featured">
+                                <div>
+                                    <div class="tm-benefits-plan-head">
+                                        <h3>全功能永久</h3>
+                                        <span class="tm-benefits-tag">早鸟推荐</span>
+                                    </div>
+                                    <div class="tm-benefits-price"><del><strong>98</strong><span>元</span></del><strong>50</strong><span>元</span></div>
+                                    <p>限时早鸟至 2026年7月31日，一次付费获得当前插件全功能永久授权，适合把本插件作为主力任务系统的用户。已捐助达到 50 元可直接联系获取激活码，未达到的补齐差额即可。</p>
+                                </div>
+                                <button class="tm-btn tm-btn-primary" type="button" onclick="tmOpenBenefitsPaymentDialog('lifetime')">扫码付款</button>
+                            </div>
+                        </div>
+
+                        <div class="tm-benefits-matrix">
+                            <div class="tm-benefits-section-title">
+                                <h3>功能区别</h3>
+                                <p>清单、看板、表格、日历、时间轴当前都是完整功能；当前限制主要面向白板增强和 AI。</p>
+                            </div>
+                            <div class="tm-benefits-grid" role="table" aria-label="功能权益">
+                                <div class="tm-benefits-row is-head" role="row">
+                                    <div class="tm-benefits-cell tm-benefits-feature" role="columnheader">功能</div>
+                                    <div class="tm-benefits-cell" role="columnheader">免费版</div>
+                                    <div class="tm-benefits-cell" role="columnheader">全功能试用</div>
+                                    <div class="tm-benefits-cell" role="columnheader">全功能年付</div>
+                                    <div class="tm-benefits-cell" role="columnheader">全功能永久</div>
+                                </div>
+                                ${__tmRenderBenefitsFeatureRows(featureRows)}
+                            </div>
+                            <div class="tm-benefits-advanced">
+                                <h4>付费高级能力示例</h4>
+                                <div class="tm-benefits-advanced-list">
+                                    ${advancedItems.map(([title, desc]) => `
+                                        <div class="tm-benefits-advanced-item">
+                                            <strong>${esc(title)}</strong>
+                                            <span>${esc(desc)}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tm-benefits-flow">
+                            <h3>付款和发码流程</h3>
+                            <div class="tm-benefits-steps">
+                                <div class="tm-benefits-step"><strong>1. 选择方案</strong><p>点击全功能年付或全功能永久，弹出微信和支付宝收款码。</p></div>
+                                <div class="tm-benefits-step"><strong>2. 扫码转账</strong><p>付款时请提供上方用户名，无法在付款备注提供时保留截图。</p></div>
+                                <div class="tm-benefits-step"><strong>3. 提供信息</strong><p>加入 QQ 群 758666272，或发送邮件至 729373125@qq.com，提供用户名和付款截图。</p></div>
+                                <div class="tm-benefits-step"><strong>4. 获取激活码</strong><p>收到激活码后回到本页粘贴激活。</p></div>
+                            </div>
                         </div>
                     </div>
-                </div>
-
-                <div class="tm-benefits-flow">
-                    <h3>付款和发码流程</h3>
-                    <div class="tm-benefits-steps">
-                        <div class="tm-benefits-step"><strong>1. 选择方案</strong><p>点击全功能年付或全功能永久，弹出微信和支付宝收款码。</p></div>
-                        <div class="tm-benefits-step"><strong>2. 扫码转账</strong><p>付款时请提供上方用户名，无法在付款备注提供时保留截图。</p></div>
-                        <div class="tm-benefits-step"><strong>3. 提供信息</strong><p>加入 QQ 群 758666272，或发送邮件至 729373125@qq.com，提供用户名和付款截图。</p></div>
-                        <div class="tm-benefits-step"><strong>4. 获取激活码</strong><p>收到激活码后回到本页粘贴激活。</p></div>
-                    </div>
-                </div>
+                </details>
             </div>
 
             <dialog class="tm-benefits-dialog" id="tmBenefitsActivationDialog" aria-labelledby="tmBenefitsActivationTitle">

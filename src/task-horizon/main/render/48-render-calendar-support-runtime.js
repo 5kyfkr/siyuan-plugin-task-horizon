@@ -1431,9 +1431,11 @@
         if (hasTaskDateColor) viewPatch.taskDateColor = nextColor;
         if (opts.background === true) {
             try { __tmPatchCalendarAllTasksCacheTask(persistId, attrPatch); } catch (e) {}
-            try { __tmApplyTaskFieldPatchToLocalMirrors?.(persistId, attrPatch); } catch (e) {}
             try {
-                __tmMarkLocalTaskPatchWatermark?.(persistId, attrPatch, { source: refreshReason });
+                if (typeof __tmApplyTaskFieldPatchToLocalMirrors === 'function') __tmApplyTaskFieldPatchToLocalMirrors(persistId, attrPatch);
+            } catch (e) {}
+            try {
+                if (typeof __tmMarkLocalTaskPatchWatermark === 'function') __tmMarkLocalTaskPatchWatermark(persistId, attrPatch, { source: refreshReason });
             } catch (e) {}
             try {
                 if (taskDocId) __tmInvalidateTasksQueryCacheByDocId?.(taskDocId);
@@ -1494,7 +1496,7 @@
                 }
             } catch (e) {}
         }
-        const refreshViaQueuedOptimisticPatch = opts.renderOptimistic !== false && opts.background !== true;
+        const refreshViaQueuedOptimisticPatch = opts.renderOptimistic !== false && opts.background !== true && opts.wait !== true;
         if ((shouldPersistStartDate || shouldPersistCompletionTime) && opts.refresh !== false && !refreshViaQueuedOptimisticPatch) {
             try {
                 __tmRefreshTaskTimeAcrossViews(persistId, {
@@ -1584,6 +1586,15 @@
                 await persistPromise;
             } catch (error) {
                 throw error;
+            }
+            if ((shouldPersistStartDate || shouldPersistCompletionTime || hasTaskDateColor) && opts.refresh !== false) {
+                try {
+                    __tmRefreshTaskTimeAcrossViews(persistId, {
+                        patch: viewPatch,
+                        withFilters: needsProjectionRefresh ? true : false,
+                        reason: refreshReason,
+                    });
+                } catch (e) {}
             }
             try {
                 const recordReschedule = globalThis.__tmRecordTaskProcrastinationDateReschedule;

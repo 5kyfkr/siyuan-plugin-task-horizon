@@ -288,6 +288,10 @@
             const titleInlineBadgeClass = (completedTodayBadgeHtml || recurringInstanceBadgeHtml)
                 ? ' tm-task-content-clickable--inline-badges'
                 : '';
+            const remarkSearchSnippetHtml = hasContentCol && !colSet.has('remark') && typeof __tmBuildTaskRemarkSearchSnippet === 'function'
+                ? __tmBuildTaskRemarkSearchSnippet(task, state.searchKeyword)
+                : '';
+            const taskTextSearchRemarkClass = remarkSearchSnippetHtml ? ' tm-task-text--with-search-remark' : '';
 
             const contentIndent = 12 + depth * 16;
             const treeGuides = getTreeGuidesHtml(depth);
@@ -309,7 +313,7 @@
                     ? 'tm-timer-focus'
                     : (tomatoFocusModeEnabled ? 'tm-timer-dim' : ''))
                 : '';
-            const finalRowClass = [rowClass, isMultiSelected ? 'tm-task-row--multi-selected' : ''].filter(Boolean).join(' ');
+            const finalRowClass = [rowClass, isMultiSelected ? 'tm-task-row--multi-selected' : '', remarkSearchSnippetHtml ? 'tm-task-row--search-remark' : ''].filter(Boolean).join(' ');
             const touchDragAttr = useCustomTouchTaskDrag
                 ? ` onpointerdown="tmTaskTouchDragStart(event, '${taskId}')"`
                 : '';
@@ -334,9 +338,10 @@
                                 ${leadingRing}
                                 ${__tmRenderTaskCheckbox(taskId, task, { checked: done, extraClass: checkboxExtraClass })}${toggle}
                             </span>
-                            <span class="tm-task-text ${done ? 'tm-task-done' : ''}"
+                            <span class="tm-task-text${taskTextSearchRemarkClass} ${done ? 'tm-task-done' : ''}"
                                   data-level="${depth}">
                                 <span class="tm-task-content-clickable${titleInlineBadgeClass}" onclick="tmJumpToTask('${taskId}', event)"${contentTooltip} style="${__tmBuildTaskTitleOpacityStyle(task)}">${renderedContent}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderPinnedTaskInlineIcon(task)}${reminderHtml}${recurringInstanceBadgeHtml}</span>
+                                ${remarkSearchSnippetHtml}
                             </span>
                             <button class="tm-subtask-create-btn"
                                     type="button"
@@ -4365,6 +4370,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 headingId: String(data.headingId || '').trim(),
                 mode,
                 snapshot,
+                customOrderPlacement: data.customOrderPlacement === true,
                 deferOptimisticRender: data.deferOptimisticRender === true,
                 skipOptimisticFilterWork: data.skipOptimisticFilterWork === true || hooks.skipOptimisticFilterWork === true,
                 crossDoc: String(String(task.docId || task.root_id || '').trim() !== targetDocId ? '1' : ''),

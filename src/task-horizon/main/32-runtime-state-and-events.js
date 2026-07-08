@@ -371,6 +371,29 @@
         const tid = normalizeId(id);
         if (!tid) return false;
         const aliases = new Set(getTaskIdAliases(tid));
+        const customOrderRemoveIds = new Set(aliases);
+        const collectCustomOrderRemoveIds = (list) => {
+            if (!Array.isArray(list)) return;
+            list.forEach((item) => {
+                const itemId = normalizeId(item?.id);
+                if (itemId && aliases.has(itemId)) {
+                    const walk = (task) => {
+                        const taskId = normalizeId(task?.id);
+                        if (taskId) customOrderRemoveIds.add(taskId);
+                        (Array.isArray(task?.children) ? task.children : []).forEach(walk);
+                    };
+                    walk(item);
+                    return;
+                }
+                collectCustomOrderRemoveIds(item?.children);
+            });
+        };
+        try {
+            (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => collectCustomOrderRemoveIds(doc?.tasks));
+            collectCustomOrderRemoveIds(state.filteredTasks);
+            collectCustomOrderRemoveIds(state.otherBlocks);
+            __tmRemoveCustomTaskOrderTasks(Array.from(customOrderRemoveIds));
+        } catch (e) {}
         let removed = false;
         const pending = ensurePendingInsertedTaskMap();
         aliases.forEach((alias) => {
@@ -672,6 +695,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const aliases = new Set(getTaskIdAliases(from));
         aliases.add(from);
+        try { __tmRemapCustomTaskOrderId(from, to, { aliases: Array.from(aliases) }); } catch (e) {}
         let changed = false;
         const remapOneTask = (task) => {
             if (!(task && typeof task === 'object')) return false;
@@ -1282,6 +1306,20 @@
                     mutationDriven: true,
                     source: normalized.source,
                 });
+                try {
+                    const previousParentTaskId = String(normalized.affected?.previousParentTaskId || '').trim();
+                    const nextParentTaskId = String(normalized.affected?.nextParentTaskId || '').trim();
+                    const previousDocId = String(normalized.previousDocId || '').trim();
+                    const nextDocId = String(normalized.nextDocId || normalized.docId || '').trim();
+                    const docChanged = !!previousDocId && !!nextDocId && previousDocId !== nextDocId;
+                    const parentChanged = previousParentTaskId !== nextParentTaskId && !!(previousParentTaskId || nextParentTaskId);
+                    if (docChanged || parentChanged) {
+                        __tmHandleCustomTaskOrderPhysicalMove(normalized.taskId, previousDocId, nextDocId, {
+                            nextParentTaskId,
+                            preservePlacement: normalized.data?.customOrderPlacement === true,
+                        });
+                    }
+                } catch (e) {}
             } else if ((normalized.type === 'createTaskInDoc' || normalized.type === 'createSubtask' || normalized.type === 'createSibling')
                 && normalized.task && typeof normalized.task === 'object') {
                 createPendingTaskLocal(normalized.task, {
@@ -1292,6 +1330,20 @@
                     kind: normalized.type,
                     status: normalized.phase,
                 });
+            }
+            if ((normalized.phase === 'optimistic' || normalized.phase === 'local')
+                && (normalized.type === 'createTaskInDoc' || normalized.type === 'createSubtask' || normalized.type === 'createSibling')) {
+                try {
+                    __tmRegisterCustomTaskOrderCreatedTask({
+                        taskId: normalized.tempId || normalized.realId || normalized.taskId,
+                        docId: normalized.docId,
+                        parentTaskId: normalized.type === 'createSubtask' ? normalized.parentTaskId : '',
+                        sourceTaskId: normalized.type === 'createSibling' ? String(normalized.data?.sourceTaskId || normalized.taskId || '').trim() : '',
+                        mode: normalized.type === 'createSubtask'
+                            ? 'child'
+                            : (normalized.type === 'createSibling' ? 'sibling' : 'root'),
+                    });
+                } catch (e) {}
             }
         }
         return notifyTaskMutation(normalized);

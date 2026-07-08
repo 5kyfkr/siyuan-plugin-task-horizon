@@ -34,7 +34,13 @@
             const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
             const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
             let notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
+            let drawings = Array.isArray(SettingsStore.data.whiteboardDrawings) ? SettingsStore.data.whiteboardDrawings : [];
+            let frames = Array.isArray(SettingsStore.data.whiteboardFrames) ? SettingsStore.data.whiteboardFrames : [];
+            const drawingConfig = (typeof __tmNormalizeWhiteboardDrawingConfig === 'function')
+                ? __tmNormalizeWhiteboardDrawingConfig(SettingsStore.data.whiteboardDrawingConfig)
+                : (SettingsStore.data.whiteboardDrawingConfig || {});
             const noteColorOptions = ['#1f2937', '#2f6fed', '#16a34a', '#d97706', '#b91c1c', '#7c3aed'];
+            const frameColorOptions = ['#dbeafe', '#dcfce7', '#fef3c7', '#fee2e2', '#ede9fe', '#e0f2fe'];
             const stickyThemeOptions = __tmGetWhiteboardStickyThemes();
             let view = __tmGetWhiteboardView();
             let posMap = { ...__tmGetWhiteboardNodePosMap() };
@@ -103,6 +109,8 @@
             const globalWhiteboardBoard = isGlobalBoardMode ? __tmGetWhiteboardGlobalBoardState(globalWhiteboardGroupId) : null;
             if (isGlobalBoardMode && globalWhiteboardBoard) {
                 notes = Array.isArray(globalWhiteboardBoard.notes) ? globalWhiteboardBoard.notes : [];
+                drawings = Array.isArray(globalWhiteboardBoard.drawings) ? globalWhiteboardBoard.drawings : [];
+                frames = Array.isArray(globalWhiteboardBoard.frames) ? globalWhiteboardBoard.frames : [];
                 posMap = { ...((globalWhiteboardBoard.nodePos && typeof globalWhiteboardBoard.nodePos === 'object') ? globalWhiteboardBoard.nodePos : {}) };
                 placedMap = { ...((globalWhiteboardBoard.placedTaskIds && typeof globalWhiteboardBoard.placedTaskIds === 'object') ? globalWhiteboardBoard.placedTaskIds : {}) };
                 detachedMap = { ...((globalWhiteboardBoard.detachedChildren && typeof globalWhiteboardBoard.detachedChildren === 'object') ? globalWhiteboardBoard.detachedChildren : {}) };
@@ -546,6 +554,15 @@
                 const docNotes = isGlobalCanvasDoc
                     ? notes
                     : notes.filter(n => String(n?.docId || '').trim() === docId);
+                const drawingEnabledForCanvas = !allView || isGlobalCanvasDoc;
+                const docDrawings = drawingEnabledForCanvas
+                    ? (isGlobalCanvasDoc
+                        ? drawings
+                        : drawings.filter((stroke) => String(stroke?.docId || '').trim() === docId))
+                    : [];
+                const docFrames = isGlobalCanvasDoc
+                    ? frames
+                    : frames.filter((frame) => String(frame?.docId || '').trim() === docId);
                 const framePlan = (() => {
                     if (!allView || isGlobalCanvasDoc) return { offsetX: 0, offsetY: 0, w: 0, h: 0, empty: false };
                     const CARD_W = 320;
@@ -582,6 +599,17 @@
                         maxX = Math.max(maxX, x + noteW);
                         maxY = Math.max(maxY, y + noteH);
                     });
+                    docFrames.forEach((frame) => {
+                        const x = Number(frame?.x);
+                        const y = Number(frame?.y);
+                        const w = Number(frame?.w);
+                        const h = Number(frame?.h);
+                        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) return;
+                        minX = Math.min(minX, x);
+                        minY = Math.min(minY, y);
+                        maxX = Math.max(maxX, x + Math.max(80, w));
+                        maxY = Math.max(maxY, y + Math.max(60, h));
+                    });
                     if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
                         return { offsetX: 0, offsetY: 0, w: 1000, h: 1000, empty: true };
                     }
@@ -595,6 +623,39 @@
                     const h = Math.max(220, Math.ceil(spanH + PAD * 2));
                     return { offsetX, offsetY, w, h, empty: false };
                 })();
+
+                const renderWhiteboardFrame = (frame) => {
+                    const frameId = String(frame?.id || '').trim();
+                    if (!frameId) return '';
+                    const localX = Number.isFinite(Number(frame?.x)) ? Number(frame.x) : 24;
+                    const localY = Number.isFinite(Number(frame?.y)) ? Number(frame.y) : 24;
+                    const w = Math.max(80, Math.round(Number(frame?.w) || 80));
+                    const h = Math.max(60, Math.round(Number(frame?.h) || 60));
+                    const fx = Math.round(localX + ((allView && !isGlobalCanvasDoc) ? framePlan.offsetX : 0));
+                    const fy = Math.round(localY + ((allView && !isGlobalCanvasDoc) ? framePlan.offsetY : 0));
+                    const name = (typeof __tmNormalizeWhiteboardFrameName === 'function')
+                        ? __tmNormalizeWhiteboardFrameName(frame?.name)
+                        : (String(frame?.name || '').trim() || '分组').slice(0, 48);
+                    const backgroundColor = (typeof __tmNormalizeWhiteboardFrameBackgroundColor === 'function')
+                        ? __tmNormalizeWhiteboardFrameBackgroundColor(frame?.backgroundColor)
+                        : (/^#[0-9a-fA-F]{6}$/.test(String(frame?.backgroundColor || '').trim()) ? String(frame.backgroundColor).trim() : '');
+                    const selected = String(state.whiteboardSelectedFrameId || '').trim() === frameId;
+                    const frameStyle = `left:${fx}px;top:${fy}px;width:${w}px;height:${h}px;${backgroundColor ? `--tm-whiteboard-frame-bg:${esc(backgroundColor)};` : ''}`;
+                    const toolsHtml = selected ? `
+                        <div class="tm-whiteboard-frame-tools" onclick="event.stopPropagation()" onpointerdown="event.stopPropagation()" onmousedown="event.stopPropagation()">
+                            <input class="tm-whiteboard-frame-name-input" value="${esc(name)}" maxlength="48" onkeydown="tmWhiteboardFrameNameKeyDown(event, '${escSq(frameId)}')" onblur="tmWhiteboardUpdateFrameName('${escSq(frameId)}', this.value, event)" aria-label="分组名称">
+                            <div class="tm-whiteboard-frame-swatches" role="group" aria-label="背景颜色">
+                                ${frameColorOptions.map((color) => `<button type="button" class="tm-whiteboard-frame-swatch${backgroundColor.toLowerCase() === color ? ' is-active' : ''}" style="--tm-whiteboard-frame-swatch:${esc(color)};" onclick="tmWhiteboardSetFrameBackground('${escSq(frameId)}', '${escSq(color)}', event)" title="背景颜色"></button>`).join('')}
+                            </div>
+                            <button type="button" class="tm-whiteboard-frame-tool-btn" onclick="tmWhiteboardSetFrameBackground('${escSq(frameId)}', '', event)" title="清除背景">清除</button>
+                            <button type="button" class="tm-whiteboard-frame-tool-btn tm-whiteboard-frame-tool-btn--danger" onclick="tmWhiteboardDeleteFrame('${escSq(frameId)}', event)" title="删除分组框">删除</button>
+                        </div>
+                    ` : '';
+                    const resizeHtml = selected
+                        ? `<span class="tm-whiteboard-frame-resize tm-whiteboard-frame-resize--nw" onpointerdown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'nw')" onmousedown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'nw')" title="拖拽调整分组框"></span><span class="tm-whiteboard-frame-resize tm-whiteboard-frame-resize--se" onpointerdown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'se')" onmousedown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'se')" title="拖拽调整分组框"></span>`
+                        : '';
+                    return `<div class="tm-whiteboard-frame${selected ? ' tm-whiteboard-frame--selected' : ''}" data-frame-id="${esc(frameId)}" data-doc-id="${esc(docId)}" data-x="${Math.round(fx)}" data-y="${Math.round(fy)}" data-local-x="${Math.round(localX)}" data-local-y="${Math.round(localY)}" data-w="${w}" data-h="${h}" style="${frameStyle}" onclick="tmWhiteboardSelectFrame('${escSq(frameId)}', event)" onpointerdown="tmWhiteboardFrameMouseDown(event, '${escSq(frameId)}', '${escSq(docId)}')" onmousedown="tmWhiteboardFrameMouseDown(event, '${escSq(frameId)}', '${escSq(docId)}')" title="拖动分组框"><div class="tm-whiteboard-frame-title">${esc(name)}</div>${toolsHtml}${resizeHtml}</div>`;
+                };
 
                 const renderWhiteboardNote = (n, idx) => {
                     const nid = String(n?.id || '').trim();
@@ -857,6 +918,15 @@
                     if (Number.isFinite(x)) maxX = Math.max(maxX, x);
                     if (Number.isFinite(y)) maxY = Math.max(maxY, y);
                 });
+                docFrames.forEach((frame) => {
+                    const x = Number(frame?.x);
+                    const y = Number(frame?.y);
+                    const w = Number(frame?.w);
+                    const h = Number(frame?.h);
+                    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+                    maxX = Math.max(maxX, x + (Number.isFinite(w) ? Math.max(80, w) : 80));
+                    maxY = Math.max(maxY, y + (Number.isFinite(h) ? Math.max(60, h) : 60));
+                });
                 const frameSize = __tmGetWhiteboardDocFrameSize(docId);
                 const hasManualSize = false;
                 const autoBoardH = isGlobalCanvasDoc ? (maxY + 230) : (allView ? framePlan.h : (maxY + 230));
@@ -877,12 +947,35 @@
                     boardW = Math.max(boardW, 12000);
                     boardH = Math.max(boardH, 8000);
                 }
+                const renderWhiteboardDrawingLayer = () => {
+                    if (!drawingEnabledForCanvas) return '';
+                    const selectedStrokeId = String(state.whiteboardSelectedStrokeId || '').trim();
+                    const multiSelectedStrokeIds = new Set((Array.isArray(state.whiteboardMultiSelectedStrokeIds) ? state.whiteboardMultiSelectedStrokeIds : [])
+                        .map((id) => String(id || '').trim())
+                        .filter(Boolean));
+                    const hiddenCls = drawingConfig.hidden ? ' tm-whiteboard-drawing-layer--hidden' : '';
+                    const pathHtml = docDrawings.map((stroke) => {
+                        const sid = String(stroke?.id || '').trim();
+                        const did = String(stroke?.docId || docId).trim();
+                        const d = String(stroke?.d || '').trim();
+                        if (!sid || !did || !d) return '';
+                        const color = /^#[0-9a-fA-F]{6}$/.test(String(stroke?.color || '').trim()) ? String(stroke.color).trim() : '#1f2937';
+                        const width = Math.round(Math.max(1, Math.min(64, Number(stroke?.width) || 4)) * 10) / 10;
+                        const opacity = Math.max(0.05, Math.min(1, Number(stroke?.opacity) || 1));
+                        const selected = selectedStrokeId === sid || multiSelectedStrokeIds.has(sid);
+                        const cls = `tm-whiteboard-drawing-stroke${String(stroke?.type || '').trim() === 'highlighter' ? ' tm-whiteboard-drawing-stroke--highlighter' : ''}${selected ? ' tm-whiteboard-drawing-stroke--selected' : ''}`;
+                        return `<path class="${cls}" data-stroke-id="${esc(sid)}" data-doc-id="${esc(did)}" d="${esc(d)}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" fill="none" stroke-linecap="round" stroke-linejoin="round" onpointerdown="tmWhiteboardDrawingPointerDown(event, '${escSq(sid)}', '${escSq(did)}')"></path>`;
+                    }).join('');
+                    return `<svg class="tm-whiteboard-drawing-layer${hiddenCls}" data-doc-id="${esc(docId)}" width="${Math.round(boardW)}" height="${Math.round(boardH)}" viewBox="0 0 ${Math.round(boardW)} ${Math.round(boardH)}" aria-hidden="true">${pathHtml}</svg>`;
+                };
                 const cardEmptyHtml = cardsHtml || `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--tm-secondary-text);font-size:14px;">无任务</div>`;
                 if (isGlobalCanvasDoc) {
                     return `
                         <section class="tm-whiteboard-doc tm-whiteboard-doc--global" data-doc-id="${esc(globalCanvasDocId)}" data-tm-whiteboard-scope="global" style="border:none;background:transparent;">
                             <div class="tm-whiteboard-doc-body" data-doc-id="${esc(globalCanvasDocId)}" data-tm-whiteboard-scope="global" style="height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(globalCanvasDocId)}')">
                                 <svg class="tm-whiteboard-edges" aria-hidden="true"></svg>
+                                ${docFrames.map((frame) => renderWhiteboardFrame(frame)).join('')}
+                                ${renderWhiteboardDrawingLayer()}
                                 ${docNotes.map((n, idx) => renderWhiteboardNote(n, idx)).join('')}
                                 ${cardEmptyHtml}
                             </div>
@@ -894,6 +987,8 @@
                         <section class="tm-whiteboard-doc" data-doc-id="${esc(docId)}" style="border:none;background:transparent;">
                             <div class="tm-whiteboard-doc-body" data-doc-id="${esc(docId)}" style="height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(docId)}')">
                                 <svg class="tm-whiteboard-edges" aria-hidden="true"></svg>
+                                ${docFrames.map((frame) => renderWhiteboardFrame(frame)).join('')}
+                                ${renderWhiteboardDrawingLayer()}
                                 ${docNotes.map((n, idx) => renderWhiteboardNote(n, idx)).join('')}
                                 ${cardEmptyHtml}
                             </div>
@@ -908,6 +1003,7 @@
                         </header>
                         <div class="tm-whiteboard-doc-body" data-doc-id="${esc(docId)}" data-frame-offset-x="${allView ? Math.round(framePlan.offsetX) : 0}" data-frame-offset-y="${allView ? Math.round(framePlan.offsetY) : 0}" style="height:${Math.round(boardH)}px;min-height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;min-width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(docId)}')">
                             <svg class="tm-whiteboard-edges" aria-hidden="true"></svg>
+                            ${docFrames.map((frame) => renderWhiteboardFrame(frame)).join('')}
                             ${docNotes.map((n, idx) => renderWhiteboardNote(n, idx)).join('')}
                             ${cardEmptyHtml}
                         </div>
@@ -1593,7 +1689,11 @@
             }
 
             const whiteboardTool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
-            const viewportPanClass = whiteboardTool === 'pan' ? ' tm-whiteboard-viewport--tool-pan' : '';
+            const whiteboardDrawingToolsEnabled = !isAllTabsView || isGlobalBoardMode;
+            const whiteboardDrawingModeActive = whiteboardDrawingToolsEnabled && !drawingConfig.hidden && (whiteboardTool === 'pen' || whiteboardTool === 'highlighter' || whiteboardTool === 'eraser');
+            const viewportToolClass = whiteboardTool === 'pan'
+                ? ' tm-whiteboard-viewport--tool-pan'
+                : (whiteboardDrawingModeActive ? ` tm-whiteboard-viewport--tool-${whiteboardTool}` : (whiteboardTool === 'frame' ? ' tm-whiteboard-viewport--tool-frame' : ''));
             const compactSidebarHost = !!(isMobile || isDockHost);
             if (compactSidebarHost && typeof state.whiteboardCompactSidebarCollapsed !== 'boolean') {
                 state.whiteboardCompactSidebarCollapsed = true;
@@ -1611,10 +1711,76 @@
                 ? `<button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-sidebar-title-toggle" onclick="tmWhiteboardToggleSidebar(event)"${__tmBuildTooltipAttrs('折叠任务池', { side: 'bottom' })}>⟨</button>`
                 : '';
             const whiteboardPluginFullscreen = !!state.whiteboardPluginFullscreen;
-            const renderWhiteboardToolbarButton = ({ label, icon, onclick, active = false, pressed = null }) => {
-                const cls = `tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-toolbar-btn${active ? ' tm-whiteboard-toolbar-btn--active' : ''}`;
+            const whiteboardBottomMoreOpen = !!state.whiteboardBottomMoreOpen;
+            const renderWhiteboardToolbarButton = ({ label, icon, onclick, active = false, pressed = null, extraClass = '' }) => {
+                const cls = `tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-toolbar-btn${active ? ' tm-whiteboard-toolbar-btn--active' : ''}${extraClass ? ` ${extraClass}` : ''}`;
                 const ariaPressed = pressed == null ? '' : ` aria-pressed="${pressed ? 'true' : 'false'}"`;
-                return `<button type="button" class="${cls}" onclick="${onclick}"${ariaPressed}${__tmBuildTooltipAttrs(label, { side: 'top' })}>${__tmPhosphorBoldSvg(icon, { size: 16, className: 'tm-whiteboard-toolbar-btn__icon' })}</button>`;
+                return `<button type="button" class="${cls}" onclick="${onclick}"${ariaPressed}${__tmBuildTooltipAttrs(label, { side: 'top' })}>${__tmPhosphorBoldSvg(icon, { size: 20, className: 'tm-whiteboard-toolbar-btn__icon', style: 'width:20px;height:20px;min-width:20px;min-height:20px;max-width:20px;max-height:20px;' })}</button>`;
+            };
+            const renderWhiteboardBottomMoreItem = ({ label, icon, onclick, danger = false }) => {
+                const cls = `tm-whiteboard-bottom-more-item${danger ? ' tm-whiteboard-bottom-more-item--danger' : ''}`;
+                return `<button type="button" class="${cls}" onclick="${onclick}">${__tmPhosphorBoldSvg(icon, { size: 16, className: 'tm-whiteboard-bottom-more-item__icon' })}<span>${esc(label)}</span></button>`;
+            };
+            const renderDrawingToolButton = ({ label, icon, onclick, active = false, danger = false, disabled = false, extraClass = '' }) => {
+                const cls = `tm-btn ${danger ? 'tm-btn-danger' : 'tm-btn-info'} bc-btn bc-btn--sm tm-whiteboard-drawing-tool-btn${active ? ' tm-whiteboard-drawing-tool-btn--active' : ''}${disabled ? ' tm-whiteboard-drawing-tool-btn--disabled' : ''}${extraClass ? ` ${extraClass}` : ''}`;
+                return `<button type="button" class="${cls}" onclick="${onclick}" aria-pressed="${active ? 'true' : 'false'}"${disabled ? ' disabled' : ''}${__tmBuildTooltipAttrs(label, { side: 'left' })}>${__tmPhosphorBoldSvg(icon, { size: 20, className: 'tm-whiteboard-drawing-tool-btn__icon', style: 'width:20px;height:20px;min-width:20px;min-height:20px;max-width:20px;max-height:20px;' })}</button>`;
+            };
+            const renderWhiteboardDrawingToolbar = () => {
+                if (!whiteboardDrawingModeActive) return '';
+                const cfg = drawingConfig;
+                const activeColor = whiteboardTool === 'highlighter' ? cfg.highlighterColor : cfg.penColor;
+                const activeWidth = whiteboardTool === 'highlighter'
+                    ? cfg.highlighterWidth
+                    : (whiteboardTool === 'eraser' ? cfg.eraserWidth : cfg.penWidth);
+                const activeWidthValue = Math.round(Math.max(1, Math.min(64, Number(activeWidth) || 4)) * 10) / 10;
+                const widthRange = whiteboardTool === 'highlighter'
+                    ? { min: 4, max: 48 }
+                    : (whiteboardTool === 'eraser' ? { min: 6, max: 64 } : { min: 1, max: 24 });
+                const selectedStrokeCount = Math.max(
+                    String(state.whiteboardSelectedStrokeId || '').trim() ? 1 : 0,
+                    Array.isArray(state.whiteboardMultiSelectedStrokeIds) ? state.whiteboardMultiSelectedStrokeIds.length : 0
+                );
+                const drawingUndoStack = Array.isArray(state.whiteboardDrawingUndoStack) ? state.whiteboardDrawingUndoStack : [];
+                const drawingUndoKey = isGlobalBoardMode
+                    ? `global:${String(globalWhiteboardGroupId || '').trim() || 'all'}`
+                    : (String(state.activeDocId || '').trim() ? `doc:${String(state.activeDocId || '').trim()}` : '');
+                const canUndoDrawing = !!drawingUndoKey && drawingUndoStack.some((entry) => String(entry?.key || '').trim() === drawingUndoKey);
+                const customColors = ['#1f2937', '#2f6fed', '#ef4444', '#64748b', '#0f766e', '#0891b2', '#16a34a', '#f59e0b', '#db2777', '#7c3aed'];
+                const activeColorLower = String(activeColor || '').toLowerCase();
+                const currentColor = /^#[0-9a-fA-F]{6}$/.test(activeColorLower) ? activeColorLower : '#1f2937';
+                const moreColorsOpen = !!state.whiteboardDrawingMoreColorsOpen;
+                const actionsOpen = !!state.whiteboardDrawingActionsOpen;
+                const renderColorSwatch = (color) => `<button type="button" class="tm-whiteboard-drawing-swatch${activeColorLower === color ? ' is-active' : ''}" style="--tm-whiteboard-drawing-swatch:${esc(color)};" onclick="tmWhiteboardSetDrawingColor('${escSq(color)}', event)"${__tmBuildTooltipAttrs(`颜色 ${color}`, { side: 'left' })}></button>`;
+                const renderCustomColorButton = () => {
+                    const cls = `tm-whiteboard-drawing-custom-color is-active${moreColorsOpen ? ' is-open' : ''}`;
+                    return `<button type="button" class="${cls}" style="--tm-whiteboard-drawing-custom-color:${esc(currentColor)};" onclick="tmWhiteboardToggleDrawingMoreColors(event)" aria-pressed="${moreColorsOpen ? 'true' : 'false'}"${__tmBuildTooltipAttrs(moreColorsOpen ? '收起颜色' : '选择颜色', { side: 'left' })}></button>`;
+                };
+                return `
+                    <div class="tm-whiteboard-drawing-toolbar" data-tm-whiteboard-drawing-toolbar="1">
+                        <div class="tm-whiteboard-drawing-toolbar__group">
+                            ${renderDrawingToolButton({ label: '画笔', icon: 'pencil', onclick: "tmWhiteboardSetTool('pen')", active: whiteboardTool === 'pen' })}
+                            ${renderDrawingToolButton({ label: '高亮笔', icon: 'highlighter', onclick: "tmWhiteboardSetTool('highlighter')", active: whiteboardTool === 'highlighter' })}
+                            ${renderDrawingToolButton({ label: '橡皮', icon: 'eraser', onclick: "tmWhiteboardSetTool('eraser')", active: whiteboardTool === 'eraser' })}
+                        </div>
+                        <div class="tm-whiteboard-drawing-toolbar__group">
+                            ${renderDrawingToolButton({ label: '撤销手写 Ctrl+Z', icon: 'arrow-counter-clockwise', onclick: 'tmWhiteboardUndoDrawing(event)', disabled: !canUndoDrawing })}
+                        </div>
+                        <div class="tm-whiteboard-drawing-toolbar__group tm-whiteboard-drawing-toolbar__colors">
+                            ${renderCustomColorButton()}
+                            ${moreColorsOpen ? `<div class="tm-whiteboard-drawing-color-panel" role="group" aria-label="更多颜色">${customColors.map(renderColorSwatch).join('')}</div>` : ''}
+                        </div>
+                        <div class="tm-whiteboard-drawing-toolbar__group tm-whiteboard-drawing-toolbar__widths">
+                            <input class="tm-whiteboard-drawing-width-slider" type="range" min="${widthRange.min}" max="${widthRange.max}" step="0.1" value="${activeWidthValue}" oninput="tmWhiteboardSetDrawingWidth(this.value, event, { persist: false, render: false })" onchange="tmWhiteboardSetDrawingWidth(this.value, event)" aria-label="${whiteboardTool === 'eraser' ? '橡皮大小' : '笔画粗细'}"${__tmBuildTooltipAttrs(`${activeWidthValue}px`, { side: 'left' })}>
+                            <span class="tm-whiteboard-drawing-width-value">${activeWidthValue}</span>
+                        </div>
+                        <div class="tm-whiteboard-drawing-toolbar__group tm-whiteboard-drawing-toolbar__actions">
+                            ${renderDrawingToolButton({ label: '更多手写操作', icon: 'dots-three', onclick: 'tmWhiteboardToggleDrawingActions(event)', active: actionsOpen })}
+                            ${actionsOpen ? `<div class="tm-whiteboard-drawing-actions-panel">
+                                ${renderDrawingToolButton({ label: '清空当前手写', icon: 'trash', onclick: 'tmWhiteboardClearDrawings(event)', danger: true })}
+                            </div>` : ''}
+                        </div>
+                    </div>
+                `;
             };
             const poolSearchBarHtml = whiteboardPoolSearchOpen ? `
                 <div class="tm-whiteboard-pool-searchbar" role="search">
@@ -1646,7 +1812,7 @@
                         <div class="tm-whiteboard-sidebar-resizer" onmousedown="tmStartWhiteboardSidebarResize(event)" title="拖拽调整侧栏宽度"></div>
                         <div class="tm-whiteboard-main">
                             <button class="tm-btn tm-btn-info tm-whiteboard-sidebar-toggle" onclick="tmWhiteboardToggleSidebar(event)" title="${sidebarToggleLabel}">${sidebarToggleGlyph}</button>
-                            <div id="tmWhiteboardViewport" class="tm-whiteboard-viewport${viewportPanClass}" onpointerdown="tmWhiteboardViewportMouseDown(event)" oncontextmenu="return tmWhiteboardViewportContextMenu(event)" onclick="tmWhiteboardBoardClick(event)" ondblclick="tmWhiteboardBoardDblClick(event)" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event)">
+                            <div id="tmWhiteboardViewport" class="tm-whiteboard-viewport${viewportToolClass}" onpointerdown="tmWhiteboardViewportMouseDown(event)" oncontextmenu="return tmWhiteboardViewportContextMenu(event)" onclick="tmWhiteboardBoardClick(event)" ondblclick="tmWhiteboardBoardDblClick(event)" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event)">
                                 <div id="tmWhiteboardWorld" class="tm-whiteboard-world" style="transform:translate(${view.x}px, ${view.y}px) scale(${view.zoom});">
                                     <div class="tm-whiteboard tm-kanban--clean${isKanbanCompact ? ' tm-kanban--compact' : ''}">
                                         ${docsHtml || `<div style="padding:18px;color:var(--tm-secondary-text);">暂无任务可用于白板视图</div>`}
@@ -1654,22 +1820,31 @@
                                 </div>
                                 <div id="tmWhiteboardNavigator" class="tm-whiteboard-navigator${navigatorHidden ? ' tm-whiteboard-navigator--hidden' : ''}"${navigatorReadyAttr} aria-label="白板视图浏览窗口">
                                     <button type="button" class="tm-whiteboard-navigator__hide" onclick="tmWhiteboardSetNavigatorHidden(true, event)" title="隐藏浏览窗口">${__tmRenderLucideIcon('corners-in')}</button>
-                                    <div class="tm-whiteboard-navigator__surface" onpointerdown="tmWhiteboardNavigatorSurfacePointerDown(event)" ontouchstart="tmWhiteboardNavigatorSurfaceTouchStart(event)">
+                                    <div class="tm-whiteboard-navigator__surface" onpointerdown="tmWhiteboardNavigatorSurfacePointerDown(event)">
                                         <div class="tm-whiteboard-navigator__content"></div>
                                         <div class="tm-whiteboard-navigator__viewport" onpointerdown="tmWhiteboardNavigatorViewportPointerDown(event)"></div>
                                     </div>
                                 </div>
                                 <button id="tmWhiteboardNavigatorReveal" type="button" class="tm-whiteboard-navigator-reveal${navigatorHidden ? ' tm-whiteboard-navigator-reveal--visible' : ''}" onclick="tmWhiteboardSetNavigatorHidden(false, event)" title="显示浏览窗口">${__tmRenderLucideIcon('map')}</button>
+                                ${renderWhiteboardDrawingToolbar()}
                                 <div class="tm-whiteboard-bottom-toolbar">
                                     ${renderWhiteboardToolbarButton({ label: '平移模式', icon: 'hand', onclick: "tmWhiteboardSetTool('pan')", active: whiteboardTool === 'pan', pressed: whiteboardTool === 'pan' })}
                                     ${renderWhiteboardToolbarButton({ label: '多选模式', icon: 'selection-plus', onclick: "tmWhiteboardSetTool('select')", active: whiteboardTool === 'select', pressed: whiteboardTool === 'select' })}
                                     ${renderWhiteboardToolbarButton({ label: '文字模式', icon: 'cursor-text', onclick: "tmWhiteboardSetTool('text')", active: whiteboardTool === 'text', pressed: whiteboardTool === 'text' })}
                                     ${renderWhiteboardToolbarButton({ label: '便利贴模式', icon: 'note-pencil', onclick: "tmWhiteboardSetTool('sticky')", active: whiteboardTool === 'sticky', pressed: whiteboardTool === 'sticky' })}
+                                    ${renderWhiteboardToolbarButton({ label: '分组框', icon: 'bounding-box', onclick: "tmWhiteboardSetTool('frame')", active: whiteboardTool === 'frame', pressed: whiteboardTool === 'frame' })}
+                                    ${whiteboardDrawingToolsEnabled ? renderWhiteboardToolbarButton({ label: '手写模式', icon: 'pencil', onclick: "tmWhiteboardSetTool('pen')", active: whiteboardDrawingModeActive, pressed: whiteboardDrawingModeActive }) : ''}
                                     ${renderWhiteboardToolbarButton({ label: '缩小画布', icon: 'minus', onclick: 'tmWhiteboardZoomOut()' })}
                                     ${renderWhiteboardToolbarButton({ label: '放大画布', icon: 'plus', onclick: 'tmWhiteboardZoomIn()' })}
                                     ${renderWhiteboardToolbarButton({ label: whiteboardPluginFullscreen ? '退出全屏' : '全屏', icon: whiteboardPluginFullscreen ? 'corners-in' : 'corners-out', onclick: 'tmWhiteboardTogglePluginFullscreen(event)', active: whiteboardPluginFullscreen, pressed: whiteboardPluginFullscreen })}
-                                    ${renderWhiteboardToolbarButton({ label: '重置视图', icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView()' })}
-                                    ${renderWhiteboardToolbarButton({ label: '清空手动连线', icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks()' })}
+                                    <div class="tm-whiteboard-bottom-more">
+                                        ${renderWhiteboardToolbarButton({ label: '更多白板操作', icon: 'dots-three', onclick: 'tmWhiteboardToggleBottomMore(event)', active: whiteboardBottomMoreOpen, pressed: whiteboardBottomMoreOpen })}
+                                        ${whiteboardBottomMoreOpen ? `<div class="tm-whiteboard-bottom-more-panel">
+                                            ${whiteboardDrawingToolsEnabled ? renderWhiteboardBottomMoreItem({ label: drawingConfig.hidden ? '显示手写' : '隐藏手写', icon: drawingConfig.hidden ? 'eye' : 'eye-slash', onclick: 'tmWhiteboardToggleDrawingLayer(event)' }) : ''}
+                                            ${renderWhiteboardBottomMoreItem({ label: '重置视图', icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView(event)' })}
+                                            ${renderWhiteboardBottomMoreItem({ label: '清空卡片连线', icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks(event)', danger: true })}
+                                        </div>` : ''}
+                                    </div>
                                 </div>
                             </div>
                         </div>

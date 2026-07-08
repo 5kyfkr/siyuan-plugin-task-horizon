@@ -1601,6 +1601,14 @@
         showSettings();
     };
 
+    window.updateTaskCheckboxPriorityColorEnabled = async function(enabled) {
+        const next = !!enabled;
+        SettingsStore.data.taskCheckboxPriorityColorEnabled = next;
+        try { globalThis.__tmApplyTaskCheckboxPriorityColorStyle?.(next); } catch (e) {}
+        await SettingsStore.save();
+        showSettings();
+    };
+
     function __tmNormalizeQuickbarSettingItems(items, allow, fallbackItems) {
         const source = Array.isArray(items) ? items : fallbackItems;
         const seen = new Set();
@@ -2220,6 +2228,12 @@
 
     window.updateNewTaskDailyNoteAppendToBottom = async function(enabled) {
         SettingsStore.data.newTaskDailyNoteAppendToBottom = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateDeleteTaskRemovesWhiteboardCards = async function(enabled) {
+        SettingsStore.data.deleteTaskRemovesWhiteboardCards = !!enabled;
         await SettingsStore.save();
         showSettings();
     };
