@@ -7267,6 +7267,7 @@
             subtaskInheritedFields: __TM_SUBTASK_INHERIT_DEFAULT_FIELDS.slice(),
             newTaskDocId: '',
             newTaskDailyNoteNotebookId: '',
+            newTaskDailyNoteTargetHeadingText: '',
             newTaskDailyNoteAppendToBottom: false,
             deleteTaskRemovesWhiteboardCards: true,
             quickAddRecentDocs: [],
@@ -7355,6 +7356,7 @@
             windowTopbarIconDesktop: true,
             windowTopbarIconMobile: true,
             semanticDateAutoPromptEnabled: true,
+            semanticDateDefaultReminderTime: '08:00',
             defaultDocId: '',
             defaultDocIdByGroup: {},
             docDefaultTaskHeadingByDocId: {},
@@ -7464,6 +7466,7 @@
                 importLight: {},
                 importDark: {}
             },
+            enableSiyuanThemeColors: true,
             priorityIconStyle: 'jira',
             // 外观配色（支持亮/暗）
             topbarGradientLightStart: '#E3ECF2',
@@ -7883,6 +7886,7 @@
                                 if (Array.isArray(cloudData.subtaskInheritedFields)) this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(cloudData.subtaskInheritedFields);
                                 if (typeof cloudData.newTaskDocId === 'string') this.data.newTaskDocId = cloudData.newTaskDocId;
                                 if (typeof cloudData.newTaskDailyNoteNotebookId === 'string') this.data.newTaskDailyNoteNotebookId = cloudData.newTaskDailyNoteNotebookId;
+                                if (typeof cloudData.newTaskDailyNoteTargetHeadingText === 'string') this.data.newTaskDailyNoteTargetHeadingText = cloudData.newTaskDailyNoteTargetHeadingText;
                                 if (typeof cloudData.newTaskDailyNoteAppendToBottom === 'boolean') this.data.newTaskDailyNoteAppendToBottom = cloudData.newTaskDailyNoteAppendToBottom;
                                 if (typeof cloudData.deleteTaskRemovesWhiteboardCards === 'boolean') this.data.deleteTaskRemovesWhiteboardCards = cloudData.deleteTaskRemovesWhiteboardCards;
                                 if (Array.isArray(cloudData.quickAddRecentDocs)) this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(cloudData.quickAddRecentDocs);
@@ -7972,6 +7976,7 @@
                                 if (typeof cloudData.windowTopbarIconDesktop === 'boolean') this.data.windowTopbarIconDesktop = cloudData.windowTopbarIconDesktop;
                                 if (typeof cloudData.windowTopbarIconMobile === 'boolean') this.data.windowTopbarIconMobile = cloudData.windowTopbarIconMobile;
                                 if (typeof cloudData.semanticDateAutoPromptEnabled === 'boolean') this.data.semanticDateAutoPromptEnabled = cloudData.semanticDateAutoPromptEnabled;
+                                if (typeof cloudData.semanticDateDefaultReminderTime === 'string') this.data.semanticDateDefaultReminderTime = cloudData.semanticDateDefaultReminderTime;
                                 if (typeof cloudData.checklistDetailWidth === 'number') this.data.checklistDetailWidth = cloudData.checklistDetailWidth;
                                 if (shouldApplyCloudDocGroupState && typeof cloudData.defaultDocId === 'string') this.data.defaultDocId = cloudData.defaultDocId;
                                 if (shouldApplyCloudDocGroupState && cloudData.defaultDocIdByGroup && typeof cloudData.defaultDocIdByGroup === 'object') this.data.defaultDocIdByGroup = cloudData.defaultDocIdByGroup;
@@ -7986,6 +7991,7 @@
                                 if (cloudData.currentGroupId) this.data.currentGroupId = cloudData.currentGroupId;
                                 if (cloudData.taskHeadingLevel) this.data.taskHeadingLevel = cloudData.taskHeadingLevel;
                                 if (cloudData.themeConfig && typeof cloudData.themeConfig === 'object') this.data.themeConfig = cloudData.themeConfig;
+                                if (typeof cloudData.enableSiyuanThemeColors === 'boolean') this.data.enableSiyuanThemeColors = cloudData.enableSiyuanThemeColors;
                                 if (typeof cloudData.priorityIconStyle === 'string') this.data.priorityIconStyle = String(cloudData.priorityIconStyle || '').trim() === 'flag' ? 'flag' : 'jira';
                                 if (typeof cloudData.topbarGradientLightStart === 'string') this.data.topbarGradientLightStart = cloudData.topbarGradientLightStart;
                                 if (typeof cloudData.topbarGradientLightEnd === 'string') this.data.topbarGradientLightEnd = cloudData.topbarGradientLightEnd;
@@ -8336,6 +8342,7 @@
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(Storage.get('tm_subtask_inherited_fields', this.data.subtaskInheritedFields));
             this.data.newTaskDocId = Storage.get('tm_new_task_doc_id', '');
             this.data.newTaskDailyNoteNotebookId = String(Storage.get('tm_new_task_daily_note_notebook_id', this.data.newTaskDailyNoteNotebookId) || '').trim();
+            this.data.newTaskDailyNoteTargetHeadingText = String(Storage.get('tm_new_task_daily_note_target_heading_text', this.data.newTaskDailyNoteTargetHeadingText) || '').trim();
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(Storage.get(__TM_QUICK_ADD_RECENT_DOCS_KEY, this.data.quickAddRecentDocs));
             this.data.docTabSortMode = String(Storage.get('tm_doc_tab_sort_mode', this.data.docTabSortMode) || this.data.docTabSortMode || 'created_desc').trim() || 'created_desc';
             this.data.docDisplayNameMode = String(Storage.get('tm_doc_display_name_mode', this.data.docDisplayNameMode) || this.data.docDisplayNameMode || 'name').trim() || 'name';
@@ -8419,6 +8426,7 @@
             this.data.windowTopbarIconDesktop = !!Storage.get('tm_window_topbar_icon_desktop', this.data.windowTopbarIconDesktop);
             this.data.windowTopbarIconMobile = !!Storage.get('tm_window_topbar_icon_mobile', this.data.windowTopbarIconMobile);
             this.data.semanticDateAutoPromptEnabled = !!Storage.get('tm_semantic_date_auto_prompt_enabled', this.data.semanticDateAutoPromptEnabled);
+            this.data.semanticDateDefaultReminderTime = String(Storage.get('tm_semantic_date_default_reminder_time', this.data.semanticDateDefaultReminderTime) || '08:00');
             this.data.calendarColorFocus = Storage.get('tm_calendar_color_focus', this.data.calendarColorFocus);
             this.data.calendarColorBreak = Storage.get('tm_calendar_color_break', this.data.calendarColorBreak);
             this.data.calendarColorStopwatch = Storage.get('tm_calendar_color_stopwatch', this.data.calendarColorStopwatch);
@@ -8506,6 +8514,7 @@
             this.data.docColorSeed = Storage.get('tm_doc_color_seed', this.data.docColorSeed);
             this.data.docDefaultColorScheme = Storage.get('tm_doc_default_color_scheme', this.data.docDefaultColorScheme) || this.data.docDefaultColorScheme;
             this.data.themeConfig = Storage.get('tm_theme_config', this.data.themeConfig) || this.data.themeConfig;
+            this.data.enableSiyuanThemeColors = !!Storage.get('tm_enable_siyuan_theme_colors', this.data.enableSiyuanThemeColors);
             this.data.priorityIconStyle = String(Storage.get('tm_priority_icon_style', this.data.priorityIconStyle) || this.data.priorityIconStyle || 'jira').trim() === 'flag' ? 'flag' : 'jira';
             this.data.enableGroupTaskBgByGroupColor = Storage.get('tm_enable_group_task_bg_by_group_color', this.data.enableGroupTaskBgByGroupColor);
             this.data.aiEnabled = !!Storage.get('tm_ai_enabled', this.data.aiEnabled);
@@ -8781,6 +8790,7 @@
             Storage.set('tm_subtask_inherited_fields', __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields, []));
             Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
             Storage.set('tm_new_task_daily_note_notebook_id', String(this.data.newTaskDailyNoteNotebookId || '').trim());
+            Storage.set('tm_new_task_daily_note_target_heading_text', String(this.data.newTaskDailyNoteTargetHeadingText || '').trim());
             Storage.set('tm_new_task_daily_note_append_to_bottom', !!this.data.newTaskDailyNoteAppendToBottom);
             Storage.set('tm_delete_task_removes_whiteboard_cards', this.data.deleteTaskRemovesWhiteboardCards !== false);
             Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs));
@@ -8868,6 +8878,7 @@
             Storage.set('tm_window_topbar_icon_desktop', !!this.data.windowTopbarIconDesktop);
             Storage.set('tm_window_topbar_icon_mobile', !!this.data.windowTopbarIconMobile);
             Storage.set('tm_semantic_date_auto_prompt_enabled', !!this.data.semanticDateAutoPromptEnabled);
+            Storage.set('tm_semantic_date_default_reminder_time', String(this.data.semanticDateDefaultReminderTime || '08:00').trim() || '08:00');
             Storage.set('tm_calendar_color_focus', String(this.data.calendarColorFocus || '').trim());
             Storage.set('tm_calendar_color_break', String(this.data.calendarColorBreak || '').trim());
             Storage.set('tm_calendar_color_stopwatch', String(this.data.calendarColorStopwatch || '').trim());
@@ -8962,6 +8973,7 @@
             Storage.set('tm_doc_color_seed', Number(this.data.docColorSeed) || 1);
             Storage.set('tm_doc_default_color_scheme', this.data.docDefaultColorScheme || { palette: 'random', seed: Number(this.data.docColorSeed) || 1, baseColor: '#3b82f6' });
             Storage.set('tm_theme_config', __tmNormalizeThemeConfig(this.data.themeConfig));
+            Storage.set('tm_enable_siyuan_theme_colors', !!this.data.enableSiyuanThemeColors);
             Storage.set('tm_enable_group_task_bg_by_group_color', !!this.data.enableGroupTaskBgByGroupColor);
             Storage.set('tm_ai_enabled', !!this.data.aiEnabled);
             Storage.set('tm_ai_side_dock_enabled', !!this.data.aiSideDockEnabled);
@@ -9216,6 +9228,7 @@
             }
             this.data.pointsPenaltyCheckOnStartup = !!this.data.pointsPenaltyCheckOnStartup;
             this.data.pointsPenaltyConfirmModalEnabled = this.data.pointsPenaltyConfirmModalEnabled !== false;
+            this.data.newTaskDailyNoteTargetHeadingText = String(this.data.newTaskDailyNoteTargetHeadingText || '').trim();
             this.data.newTaskDailyNoteAppendToBottom = !!this.data.newTaskDailyNoteAppendToBottom;
             this.data.deleteTaskRemovesWhiteboardCards = this.data.deleteTaskRemovesWhiteboardCards !== false;
             this.data.headingGroupCreateAtSectionEnd = !!this.data.headingGroupCreateAtSectionEnd;
@@ -9232,6 +9245,15 @@
             this.data.windowTopbarIconDesktop = this.data.windowTopbarIconDesktop !== false;
             this.data.windowTopbarIconMobile = this.data.windowTopbarIconMobile !== false;
             this.data.semanticDateAutoPromptEnabled = !!this.data.semanticDateAutoPromptEnabled;
+            {
+                const rawTime = String(this.data.semanticDateDefaultReminderTime || '').trim();
+                const m = rawTime.match(/^(\d{1,2}):(\d{2})$/);
+                const hh = m ? Number(m[1]) : NaN;
+                const mm = m ? Number(m[2]) : NaN;
+                this.data.semanticDateDefaultReminderTime = (Number.isInteger(hh) && Number.isInteger(mm) && hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59)
+                    ? `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+                    : '08:00';
+            }
             this.data.serverSyncOnManualRefresh = !!this.data.serverSyncOnManualRefresh;
             this.data.serverSyncSessionStateOnManualRefresh = !!this.data.serverSyncSessionStateOnManualRefresh;
             this.data.timelineForceSortByCompletionNearToday = !!this.data.timelineForceSortByCompletionNearToday;

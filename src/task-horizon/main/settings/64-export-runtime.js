@@ -49,6 +49,7 @@
         'allDocsExcludedDocIds',
         'newTaskDocId',
         'newTaskDailyNoteNotebookId',
+        'newTaskDailyNoteTargetHeadingText',
         'newTaskDailyNoteAppendToBottom',
         'deleteTaskRemovesWhiteboardCards',
         'quickAddRecentDocs',

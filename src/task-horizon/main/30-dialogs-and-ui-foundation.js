@@ -564,44 +564,26 @@
 
     function __tmGetTopbarControlAppearance(isDark) {
         const d = SettingsStore.data || {};
-        const themeDefaults = __tmBuildThemeAppearanceDefaults(d.themeConfig, isDark);
-        const topbarText = isDark
-            ? __tmNormalizeHexColor(d.topbarTextColorDark, themeDefaults.topbarTextColor)
-            : __tmNormalizeHexColor(d.topbarTextColorLight, themeDefaults.topbarTextColor);
-        const controlTextFallback = themeDefaults.topbarControlText || topbarText || (isDark ? '#FFFFFF' : '#003252');
+        const followSiyuan = __tmIsSiyuanThemeColorsEnabled();
+        const themeDefaults = __tmBuildEffectiveThemeAppearanceDefaults(d.themeConfig, isDark);
+        const pickColor = (key, fallback) => {
+            if (followSiyuan) return fallback;
+            return __tmNormalizeHexColor(d[key], fallback) || fallback;
+        };
+        const topbarText = pickColor(isDark ? 'topbarTextColorDark' : 'topbarTextColorLight', themeDefaults.topbarTextColor);
+        const controlTextFallback = topbarText || themeDefaults.topbarControlText || (isDark ? '#FFFFFF' : '#003252');
         const controlBgFallback = themeDefaults.topbarControlBg || __tmWithAlpha('#ffffff', 0.12);
         const controlHoverFallback = themeDefaults.topbarControlHover || __tmWithAlpha('#000000', 0.12);
         const segBgFallback = themeDefaults.topbarControlSegmentBg || __tmWithAlpha('#ffffff', 0.18);
         const segActiveFallback = themeDefaults.topbarControlSegmentActiveBg || __tmWithAlpha('#000000', 0.26);
         const shadowColorFallback = themeDefaults.topbarControlShadowColor || (isDark ? 'rgba(0, 0, 0, 0.34)' : 'rgba(15, 23, 42, 0.16)');
-        const controlText = __tmNormalizeHexColor(
-            isDark ? d.topbarControlTextDark : d.topbarControlTextLight,
-            controlTextFallback
-        ) || controlTextFallback;
-        const controlBg = __tmNormalizeHexColor(
-            isDark ? d.topbarControlBgDark : d.topbarControlBgLight,
-            controlBgFallback
-        ) || controlBgFallback;
-        const controlBorder = __tmNormalizeHexColor(
-            isDark ? d.topbarControlBorderDark : d.topbarControlBorderLight,
-            __tmWithAlpha(controlText || controlTextFallback, 0.34)
-        ) || __tmWithAlpha(controlText || controlTextFallback, 0.34);
-        const controlHover = __tmNormalizeHexColor(
-            isDark ? d.topbarControlHoverDark : d.topbarControlHoverLight,
-            controlHoverFallback
-        ) || controlHoverFallback;
-        const segBg = __tmNormalizeHexColor(
-            isDark ? d.topbarControlSegmentBgDark : d.topbarControlSegmentBgLight,
-            segBgFallback
-        ) || segBgFallback;
-        const segActive = __tmNormalizeHexColor(
-            isDark ? d.topbarControlSegmentActiveBgDark : d.topbarControlSegmentActiveBgLight,
-            segActiveFallback
-        ) || segActiveFallback;
-        const shadowColor = __tmNormalizeHexColor(
-            isDark ? d.topbarControlShadowColorDark : d.topbarControlShadowColorLight,
-            shadowColorFallback
-        ) || shadowColorFallback;
+        const controlText = pickColor(isDark ? 'topbarControlTextDark' : 'topbarControlTextLight', controlTextFallback);
+        const controlBg = pickColor(isDark ? 'topbarControlBgDark' : 'topbarControlBgLight', controlBgFallback);
+        const controlBorder = pickColor(isDark ? 'topbarControlBorderDark' : 'topbarControlBorderLight', __tmWithAlpha(controlText || controlTextFallback, 0.34));
+        const controlHover = pickColor(isDark ? 'topbarControlHoverDark' : 'topbarControlHoverLight', controlHoverFallback);
+        const segBg = pickColor(isDark ? 'topbarControlSegmentBgDark' : 'topbarControlSegmentBgLight', segBgFallback);
+        const segActive = pickColor(isDark ? 'topbarControlSegmentActiveBgDark' : 'topbarControlSegmentActiveBgLight', segActiveFallback);
+        const shadowColor = pickColor(isDark ? 'topbarControlShadowColorDark' : 'topbarControlShadowColorLight', shadowColorFallback);
         const radiusPx = __tmNormalizeAppearanceMetric(d.topbarControlRadiusPx, 10, 0, 24);
         const borderWidthPx = __tmNormalizeAppearanceMetric(d.topbarControlBorderWidthPx, 1, 0, 4);
         const shadowYOffsetPx = __tmNormalizeAppearanceMetric(d.topbarControlShadowYOffsetPx, 0, 0, 24);
@@ -633,41 +615,32 @@
         const isDark = __tmIsDarkMode();
         const root = document.documentElement;
         const themeConfig = __tmNormalizeThemeConfig(SettingsStore.data?.themeConfig);
-        const palette = __tmBuildThemePalette(themeConfig, isDark);
-        const themeDefaults = __tmBuildThemeAppearanceDefaults(themeConfig, isDark);
+        const followSiyuan = __tmIsSiyuanThemeColorsEnabled();
+        const palette = __tmBuildEffectiveThemePalette(themeConfig, isDark);
+        const themeDefaults = __tmBuildEffectiveThemeAppearanceDefaults(themeConfig, isDark);
+        const pickColor = (lightKey, darkKey, fallback) => {
+            if (followSiyuan) return fallback;
+            const key = isDark ? darkKey : lightKey;
+            return __tmNormalizeHexColor(SettingsStore.data?.[key], fallback) || fallback;
+        };
 
-        const start = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.topbarGradientDarkStart, themeDefaults.topbarGradientStart)
-            : __tmNormalizeHexColor(SettingsStore.data.topbarGradientLightStart, themeDefaults.topbarGradientStart);
-        const end = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.topbarGradientDarkEnd, themeDefaults.topbarGradientEnd)
-            : __tmNormalizeHexColor(SettingsStore.data.topbarGradientLightEnd, themeDefaults.topbarGradientEnd);
+        const start = pickColor('topbarGradientLightStart', 'topbarGradientDarkStart', themeDefaults.topbarGradientStart);
+        const end = pickColor('topbarGradientLightEnd', 'topbarGradientDarkEnd', themeDefaults.topbarGradientEnd);
+        const topbarBg = followSiyuan
+            ? (start || end || palette.secondary || palette.background)
+            : `linear-gradient(135deg, ${start || themeDefaults.topbarGradientStart} 0%, ${end || themeDefaults.topbarGradientEnd} 100%)`;
         const topbarAppearance = __tmGetTopbarControlAppearance(isDark);
         const topbarText = topbarAppearance.topbarText;
-        const taskColor = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.taskContentColorDark, themeDefaults.taskContentColor)
-            : __tmNormalizeHexColor(SettingsStore.data.taskContentColorLight, themeDefaults.taskContentColor);
-        const taskMetaColor = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.taskMetaColorDark, themeDefaults.taskMetaColor)
-            : __tmNormalizeHexColor(SettingsStore.data.taskMetaColorLight, themeDefaults.taskMetaColor);
-        const docGroupColor = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.groupDocLabelColorDark, themeDefaults.groupDocLabelColor)
-            : __tmNormalizeHexColor(SettingsStore.data.groupDocLabelColorLight, themeDefaults.groupDocLabelColor);
-        const timeBase = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, themeDefaults.timeGroupBaseColor)
-            : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, themeDefaults.timeGroupBaseColor);
-        const timeOverdue = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, themeDefaults.timeGroupOverdueColor)
-            : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, themeDefaults.timeGroupOverdueColor);
-        const calendarTodayHighlight = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.calendarTodayHighlightColorDark, themeDefaults.calendarTodayHighlightColor)
-            : __tmNormalizeHexColor(SettingsStore.data.calendarTodayHighlightColorLight, themeDefaults.calendarTodayHighlightColor);
-        const calendarGridBorder = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.calendarGridBorderColorDark, themeDefaults.calendarGridBorderColor)
-            : __tmNormalizeHexColor(SettingsStore.data.calendarGridBorderColorLight, themeDefaults.calendarGridBorderColor);
-        const tableBorder = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.tableBorderColorDark, themeDefaults.tableBorderColor)
-            : __tmNormalizeHexColor(SettingsStore.data.tableBorderColorLight, themeDefaults.tableBorderColor);
+        const taskColor = pickColor('taskContentColorLight', 'taskContentColorDark', themeDefaults.taskContentColor);
+        const taskMetaColor = pickColor('taskMetaColorLight', 'taskMetaColorDark', themeDefaults.taskMetaColor);
+        const docGroupColor = pickColor('groupDocLabelColorLight', 'groupDocLabelColorDark', themeDefaults.groupDocLabelColor);
+        const timeBase = pickColor('timeGroupBaseColorLight', 'timeGroupBaseColorDark', themeDefaults.timeGroupBaseColor);
+        const timeOverdue = pickColor('timeGroupOverdueColorLight', 'timeGroupOverdueColorDark', themeDefaults.timeGroupOverdueColor);
+        const calendarTodayHighlight = pickColor('calendarTodayHighlightColorLight', 'calendarTodayHighlightColorDark', themeDefaults.calendarTodayHighlightColor);
+        const siyuanBorderLineColor = 'color-mix(in srgb, var(--b3-border-color) 50%, transparent)';
+        const siyuanWhiteboardLineColor = 'color-mix(in srgb, var(--b3-border-color) 40%, transparent)';
+        const calendarGridBorder = followSiyuan ? siyuanBorderLineColor : pickColor('calendarGridBorderColorLight', 'calendarGridBorderColorDark', themeDefaults.calendarGridBorderColor);
+        const tableBorder = followSiyuan ? siyuanBorderLineColor : pickColor('tableBorderColorLight', 'tableBorderColorDark', themeDefaults.tableBorderColor);
         const controlText = topbarAppearance.controlText;
         const controlBg = topbarAppearance.controlBg;
         const controlBorder = topbarAppearance.controlBorder;
@@ -696,8 +669,8 @@
         const subgroupBg = __tmMixThemeColors(palette.secondary, palette.background, isDark ? 0.34 : 0.42);
         const emptyCellBg = __tmMixThemeColors(palette.secondary, palette.background, isDark ? 0.42 : 0.58);
         const taskDoneColor = __tmMixThemeColors(palette.foreground, palette.background, isDark ? 0.56 : 0.62);
-        const whiteboardGridColor = __tmWithAlpha(palette.border, isDark ? 0.42 : 0.55);
-        const whiteboardStreamTreeLineColor = __tmWithAlpha(palette.border, isDark ? 0.5 : 0.62);
+        const whiteboardGridColor = followSiyuan ? siyuanWhiteboardLineColor : palette.border;
+        const whiteboardStreamTreeLineColor = followSiyuan ? siyuanWhiteboardLineColor : palette.border;
         const taskLeadingRingBg = __tmMixThemeColors(palette.card, palette.background, 0.2, 0.95);
         const taskLeadingRingBorder = __tmWithAlpha(palette.border, isDark ? 0.48 : 0.32);
         const modalOverlay = isDark ? 'rgba(2, 6, 23, 0.72)' : 'rgba(15, 23, 42, 0.42)';
@@ -723,6 +696,7 @@
         try { root.style.setProperty('--ring', palette.ring); } catch (e) {}
         try { root.style.setProperty('--tm-bg-color', palette.background); } catch (e) {}
         try { root.style.setProperty('--tm-text-color', palette.foreground); } catch (e) {}
+        try { root.style.setProperty('--tm-secondary-text', palette.mutedForeground); } catch (e) {}
         try { root.style.setProperty('--tm-border-color', palette.border); } catch (e) {}
         try { root.style.setProperty('--tm-hover-bg', hoverBg); } catch (e) {}
         try { root.style.setProperty('--tm-modal-overlay', modalOverlay); } catch (e) {}
@@ -730,7 +704,7 @@
         try { root.style.setProperty('--tm-input-bg', inputBg); } catch (e) {}
         try { root.style.setProperty('--tm-input-border', palette.input); } catch (e) {}
         try { root.style.setProperty('--tm-table-header-bg', tableHeaderBg); } catch (e) {}
-        try { root.style.setProperty('--tm-table-border', palette.border); } catch (e) {}
+        try { root.style.setProperty('--tm-table-border', followSiyuan ? siyuanBorderLineColor : palette.border); } catch (e) {}
         try { root.style.setProperty('--tm-task-done-color', taskDoneColor); } catch (e) {}
         try { root.style.setProperty('--tm-doc-item-bg', docItemBg); } catch (e) {}
         try { root.style.setProperty('--tm-doc-item-hover', docItemHover); } catch (e) {}
@@ -775,6 +749,7 @@
         try { root.style.setProperty('--tm-task-leading-ring-border', taskLeadingRingBorder); } catch (e) {}
         try { if (start) root.style.setProperty('--tm-topbar-grad-start', start); } catch (e) {}
         try { if (end) root.style.setProperty('--tm-topbar-grad-end', end); } catch (e) {}
+        try { if (topbarBg) root.style.setProperty('--tm-topbar-bg', topbarBg); } catch (e) {}
         try { if (topbarText) root.style.setProperty('--tm-topbar-text-color', topbarText); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-control-bg', controlBg); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-control-text', controlText); } catch (e) {}
@@ -802,7 +777,7 @@
         try { if (calendarTodayHighlight) root.style.setProperty('--tm-calendar-today-highlight-color', calendarTodayHighlight); } catch (e) {}
         try { if (calendarGridBorder) root.style.setProperty('--tm-calendar-grid-border-color', calendarGridBorder); } catch (e) {}
         try { if (tableBorder) root.style.setProperty('--tm-table-border-color', tableBorder); } catch (e) {}
-        try { window.dispatchEvent(new CustomEvent('tm:appearance-theme-updated', { detail: { ts: Date.now(), source: themeConfig.source, presetId: themeConfig.presetId } })); } catch (e) {}
+        try { window.dispatchEvent(new CustomEvent('tm:appearance-theme-updated', { detail: { ts: Date.now(), source: followSiyuan ? 'siyuan' : themeConfig.source, presetId: themeConfig.presetId } })); } catch (e) {}
     }
 
     function __tmGetDocTaskStateForTabs(doc, cache = null) {
@@ -13195,6 +13170,121 @@ return Number(state.contextInteractionQuietUntil || 0);
         return taskId;
     }
 
+    function __tmNormalizeDraggedTaskIds(ids) {
+        const out = [];
+        const seen = new Set();
+        (Array.isArray(ids) ? ids : [ids]).forEach((rawId) => {
+            const id = String(rawId || '').trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            out.push(id);
+        });
+        return out;
+    }
+
+    function __tmGetDragTaskParentId(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return '';
+        const task = __tmGetTaskRowDropTaskById(id);
+        return String(task?.parentTaskId || task?.parent_task_id || '').trim();
+    }
+
+    function __tmFilterDraggedTaskRootIds(ids) {
+        const orderedIds = __tmNormalizeDraggedTaskIds(ids);
+        if (orderedIds.length <= 1) return orderedIds;
+        const selectedSet = new Set(orderedIds);
+        return orderedIds.filter((id) => {
+            let parentId = __tmGetDragTaskParentId(id);
+            const visited = new Set();
+            while (parentId && !visited.has(parentId)) {
+                if (selectedSet.has(parentId)) return false;
+                visited.add(parentId);
+                parentId = __tmGetDragTaskParentId(parentId);
+            }
+            return true;
+        });
+    }
+
+    function __tmBuildVisibleTaskOrderMap() {
+        const order = new Map();
+        const add = (taskId) => {
+            const id = String(taskId || '').trim();
+            if (!id || order.has(id)) return;
+            order.set(id, order.size);
+        };
+        const host = state.modal instanceof Element ? state.modal : document;
+        try {
+            host.querySelectorAll?.('#tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id], .tm-checklist-item[data-id], .tm-kanban-card[data-id], .tm-whiteboard-stream-task-head[data-id]').forEach((row) => {
+                add(row?.getAttribute?.('data-id') || row?.getAttribute?.('data-task-id') || '');
+            });
+        } catch (e) {}
+        const walkTask = (task) => {
+            if (!task || typeof task !== 'object') return;
+            add(task.id);
+            (Array.isArray(task.children) ? task.children : []).forEach(walkTask);
+        };
+        try {
+            (Array.isArray(state.filteredTasks) ? state.filteredTasks : []).forEach(walkTask);
+            (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
+                (Array.isArray(doc?.tasks) ? doc.tasks : []).forEach(walkTask);
+            });
+        } catch (e) {}
+        return order;
+    }
+
+    function __tmOrderDraggedTaskIds(ids) {
+        const orderedIds = __tmNormalizeDraggedTaskIds(ids);
+        if (orderedIds.length <= 1) return orderedIds;
+        const visibleOrder = __tmBuildVisibleTaskOrderMap();
+        const selectionOrder = new Map(__tmNormalizeDraggedTaskIds(state.multiSelectedTaskIds).map((id, index) => [id, index]));
+        return orderedIds
+            .map((id, index) => ({ id, index }))
+            .sort((a, b) => {
+                const ai = visibleOrder.has(a.id) ? visibleOrder.get(a.id) : Number.POSITIVE_INFINITY;
+                const bi = visibleOrder.has(b.id) ? visibleOrder.get(b.id) : Number.POSITIVE_INFINITY;
+                if (ai !== bi) return ai - bi;
+                const as = selectionOrder.has(a.id) ? selectionOrder.get(a.id) : Number.POSITIVE_INFINITY;
+                const bs = selectionOrder.has(b.id) ? selectionOrder.get(b.id) : Number.POSITIVE_INFINITY;
+                if (as !== bs) return as - bs;
+                return a.index - b.index;
+            })
+            .map((item) => item.id);
+    }
+
+    function __tmBuildTaskDragSelectionIds(primaryTaskId) {
+        const primaryId = String(primaryTaskId || '').trim();
+        if (!primaryId) return [];
+        let ids = [primaryId];
+        try {
+            if (__tmIsMultiSelectActive() && __tmIsTaskMultiSelected(primaryId)) {
+                const selectedIds = __tmGetMultiSelectedTaskIds();
+                if (selectedIds.length > 0) ids = selectedIds;
+            }
+        } catch (e) {}
+        return __tmFilterDraggedTaskRootIds(__tmOrderDraggedTaskIds(ids));
+    }
+
+    function __tmGetDraggedTaskIds(ev) {
+        let ids = [];
+        try {
+            const raw = String(ev?.dataTransfer?.getData?.('application/x-tm-task-ids') || '').trim();
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) ids = parsed;
+            }
+        } catch (e) {}
+        if (!ids.length) {
+            try {
+                if (Array.isArray(state.draggingTaskIds)) ids = state.draggingTaskIds;
+            } catch (e) {}
+        }
+        if (!ids.length) {
+            const primaryId = __tmGetDraggedTaskId(ev);
+            if (primaryId) ids = __tmBuildTaskDragSelectionIds(primaryId);
+        }
+        return __tmFilterDraggedTaskRootIds(__tmOrderDraggedTaskIds(ids));
+    }
+
     function __tmClearDocTabDropTarget() {
         try {
             state.modal?.querySelectorAll?.('.tm-doc-tab.is-drop-target')?.forEach?.((el) => {
@@ -13958,21 +14048,31 @@ return Number(state.contextInteractionQuietUntil || 0);
         return { ok: true };
     }
 
-    async function __tmHandleTaskRowDropCore(ev, targetTaskId, overrideKind = '') {
+    function __tmCanHandleTaskRowBatchDrop(sourceTaskIds, targetTaskId) {
+        const sourceIds = __tmFilterDraggedTaskRootIds(sourceTaskIds);
         const targetId = String(targetTaskId || '').trim();
-        const sourceTaskId = __tmGetDraggedTaskId(ev);
-        if (!sourceTaskId || !targetId) return null;
-        const validation = __tmCanHandleTaskRowDrop(sourceTaskId, targetId);
-        const row = ev?.currentTarget instanceof HTMLElement
-            ? ev.currentTarget
-            : __tmResolveTaskRowOrDropGapFromTarget(ev?.target);
-        const capabilities = __tmGetTaskDropCapabilities();
-        const kind = __tmNormalizeTaskRowDropKind(overrideKind || __tmResolveTaskRowDropIntent(ev, row, capabilities), capabilities);
-        if ((!validation.ok && validation.reason !== 'missing') || !kind) {
-            if (row instanceof HTMLElement) __tmApplyTaskRowDropIndicator(row, 'forbidden');
-            return null;
+        if (!sourceIds.length || !targetId) return { ok: false, reason: 'same', sourceIds };
+        if (sourceIds.includes(targetId)) return { ok: false, reason: 'same', sourceIds };
+        if (!__tmCanCreateChildTaskByDrag()) return { ok: false, reason: 'group', sourceIds };
+        const targetTask = __tmGetTaskRowDropTaskById(targetId);
+        if (!targetTask) return { ok: false, reason: 'missing', sourceIds };
+        if (!__tmTaskSupportsRowDrop(targetTask)) return { ok: false, reason: 'readonly', sourceIds };
+        for (const sourceId of sourceIds) {
+            if (!sourceId || sourceId === targetId) return { ok: false, reason: 'same', sourceIds };
+            const sourceTask = __tmGetTaskRowDropTaskById(sourceId);
+            if (!sourceTask) return { ok: false, reason: 'missing', sourceIds };
+            if (!__tmTaskSupportsRowDrop(sourceTask)) return { ok: false, reason: 'readonly', sourceIds };
+            if (__tmIsTaskInSubtree(sourceTask, targetId)) return { ok: false, reason: 'cycle', sourceIds };
         }
+        return { ok: true, sourceIds };
+    }
+
+    async function __tmQueueTaskRowMove(sourceTaskId, targetTaskId, kind, options = {}) {
         const sourceId = String(sourceTaskId || '').trim();
+        const targetId = String(targetTaskId || '').trim();
+        const moveKind = String(kind || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!sourceId || !targetId || !moveKind) throw new Error('拖拽目标无效');
         const sourceTask = await __tmEnsureTaskRowDropTaskById(sourceId);
         const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
         if (!sourceTask || !targetTask) throw new Error('拖拽目标无效');
@@ -13982,11 +14082,11 @@ return Number(state.contextInteractionQuietUntil || 0);
         const activeRule = __tmGetCurrentRule();
         let customPhysicalPlacement = null;
         if (__tmRuleUsesCustomOrderSort(activeRule)) {
-            const customResult = __tmApplyCustomTaskOrderMove(activeRule, sourceId, targetId, kind);
+            const customResult = __tmApplyCustomTaskOrderMove(activeRule, sourceId, targetId, moveKind);
             if (customResult?.ok || customResult?.reason === 'unchanged') {
                 try { applyFilters(); } catch (e) {}
                 try { __tmScheduleRender({ withFilters: false, reason: 'custom-order-drop' }); } catch (e) {}
-                return { kind, payload: { customOrder: true, taskId: sourceId, targetTaskId: targetId, mode: kind } };
+                return { kind: moveKind, payload: { customOrder: true, taskId: sourceId, targetTaskId: targetId, mode: moveKind } };
             }
             if (customResult?.reason !== 'physical') {
                 const reasonText = customResult?.reason === 'cycle'
@@ -13994,19 +14094,24 @@ return Number(state.contextInteractionQuietUntil || 0);
                     : '自定义排序更新失败';
                 throw new Error(reasonText);
             }
-            customPhysicalPlacement = __tmApplyCustomTaskOrderPhysicalPlacement(activeRule, sourceId, targetId, kind);
+            customPhysicalPlacement = __tmApplyCustomTaskOrderPhysicalPlacement(activeRule, sourceId, targetId, moveKind);
             if (!customPhysicalPlacement?.ok && customPhysicalPlacement?.reason !== 'unchanged') {
                 throw new Error('自定义排序位置记录失败');
             }
         }
-        const payload = await __tmBuildTaskRowMovePayload(sourceTaskId, targetId, kind);
+        const payload = await __tmBuildTaskRowMovePayload(sourceId, targetId, moveKind);
         if (customPhysicalPlacement) payload.customOrderPlacement = true;
-        payload.deferOptimisticRender = true;
-        payload.skipOptimisticFilterWork = !customPhysicalPlacement;
+        payload.deferOptimisticRender = opts.deferOptimisticRender === true;
+        const useLightweightProjection = !customPhysicalPlacement
+            && typeof __tmCanUseLightweightMoveProjection === 'function'
+            && __tmCanUseLightweightMoveProjection(sourceTask, payload);
+        payload.skipOptimisticFilterWork = !customPhysicalPlacement && useLightweightProjection;
+        payload.forceOptimisticRender = opts.forceOptimisticRender === true;
         const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
         if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
-        moveTask(sourceTaskId, payload, {
+        moveTask(sourceId, payload, {
             wait: false,
+            forceOptimisticRender: opts.forceOptimisticRender === true,
             onError: (err) => {
                 hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
             },
@@ -14019,10 +14124,49 @@ return Number(state.contextInteractionQuietUntil || 0);
                 }, 80);
             } catch (e) {}
         }
-        if (kind === 'child') {
+        if (moveKind === 'child' || moveKind === 'child-top') {
             try { state.collapsedTaskIds?.delete?.(targetId); } catch (e) {}
         }
-        return { kind, payload };
+        return { kind: moveKind, payload };
+    }
+
+    async function __tmHandleTaskRowDropCore(ev, targetTaskId, overrideKind = '') {
+        const targetId = String(targetTaskId || '').trim();
+        const sourceTaskIds = __tmGetDraggedTaskIds(ev);
+        if (!sourceTaskIds.length || !targetId) return null;
+        const validation = __tmCanHandleTaskRowBatchDrop(sourceTaskIds, targetId);
+        const row = ev?.currentTarget instanceof HTMLElement
+            ? ev.currentTarget
+            : __tmResolveTaskRowOrDropGapFromTarget(ev?.target);
+        const capabilities = __tmGetTaskDropCapabilities();
+        const kind = __tmNormalizeTaskRowDropKind(overrideKind || __tmResolveTaskRowDropIntent(ev, row, capabilities), capabilities);
+        if ((!validation.ok && validation.reason !== 'missing') || !kind) {
+            if (row instanceof HTMLElement) __tmApplyTaskRowDropIndicator(row, 'forbidden');
+            return null;
+        }
+        const ids = __tmFilterDraggedTaskRootIds(validation.sourceIds?.length ? validation.sourceIds : sourceTaskIds);
+        if (!ids.length) return null;
+        if (ids.length === 1) {
+            return await __tmQueueTaskRowMove(ids[0], targetId, kind, { forceOptimisticRender: true });
+        }
+        const results = [];
+        let anchorTaskId = targetId;
+        let anchorKind = kind;
+        for (const sourceId of ids) {
+            if (!sourceId || sourceId === anchorTaskId) continue;
+            const result = await __tmQueueTaskRowMove(sourceId, anchorTaskId, anchorKind, {
+                forceOptimisticRender: true,
+            });
+            results.push(result);
+            anchorTaskId = sourceId;
+            anchorKind = 'after';
+        }
+        return {
+            kind,
+            payload: results[0]?.payload || null,
+            batchCount: results.length,
+            results,
+        };
     }
 
     function __tmScheduleTaskRowDropReconcileRefresh(payload = null) {
@@ -14058,15 +14202,15 @@ return Number(state.contextInteractionQuietUntil || 0);
             ev.stopPropagation?.();
         } catch (e) {}
         const targetId = String(targetTaskId || '').trim();
-        const sourceTaskId = __tmGetDraggedTaskId(ev);
+        const sourceTaskIds = __tmGetDraggedTaskIds(ev);
         const row = ev?.currentTarget instanceof HTMLElement
             ? ev.currentTarget
             : __tmResolveTaskRowOrDropGapFromTarget(ev?.target);
-        if (!(row instanceof HTMLElement) || !targetId || !sourceTaskId) {
+        if (!(row instanceof HTMLElement) || !targetId || !sourceTaskIds.length) {
             __tmClearTaskRowDropIndicators();
             return false;
         }
-        const validation = __tmCanHandleTaskRowDrop(sourceTaskId, targetId);
+        const validation = __tmCanHandleTaskRowBatchDrop(sourceTaskIds, targetId);
         if (!validation.ok && validation.reason !== 'missing') {
             __tmApplyTaskRowDropIndicator(row, 'forbidden');
             return false;
@@ -14099,11 +14243,18 @@ return Number(state.contextInteractionQuietUntil || 0);
             const result = await __tmHandleTaskRowDropCore(ev, targetTaskId, overrideKind);
             const moveKind = String(result?.kind || '').trim();
             if (moveKind) {
-                const successText = moveKind === 'before'
-                    ? '✅ 已移动到目标任务前'
-                    : (moveKind === 'after'
-                        ? '✅ 已移动到目标任务后'
-                        : '✅ 已设为子任务');
+                const batchCount = Math.max(0, Number(result?.batchCount) || 0);
+                const successText = batchCount > 1
+                    ? (moveKind === 'before'
+                        ? `✅ 已将 ${batchCount} 个任务移动到目标任务前`
+                        : (moveKind === 'after'
+                            ? `✅ 已将 ${batchCount} 个任务移动到目标任务后`
+                            : `✅ 已将 ${batchCount} 个任务设为子任务`))
+                    : (moveKind === 'before'
+                        ? '✅ 已移动到目标任务前'
+                        : (moveKind === 'after'
+                            ? '✅ 已移动到目标任务后'
+                            : '✅ 已设为子任务'));
                 hint(successText, 'success');
             }
         } catch (e) {
@@ -14188,13 +14339,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         const targetEl = ev?.target instanceof Element ? ev.target : null;
         const sourceEl = ev?.currentTarget instanceof Element ? ev.currentTarget : targetEl;
         if (__tmIsWhiteboardTaskDragSource(sourceEl) || __tmIsWhiteboardTaskDragSource(targetEl)) return;
-        if (__tmIsMultiSelectActive()) {
-            try { ev?.preventDefault?.(); } catch (e) {}
-            try { ev?.stopPropagation?.(); } catch (e) {}
-            state.draggingTaskId = '';
-            return;
-        }
+        const dragTaskIds = __tmBuildTaskDragSelectionIds(id);
         state.draggingTaskId = id;
+        state.draggingTaskIds = dragTaskIds.length ? dragTaskIds : [id];
         let meta = null;
         try {
             if (typeof window.tmCalendarGetTaskDragMeta === 'function') {
@@ -14213,9 +14360,10 @@ return Number(state.contextInteractionQuietUntil || 0);
         try {
             ev.dataTransfer.effectAllowed = 'move';
             ev.dataTransfer.setData('application/x-tm-task-id', id);
+            ev.dataTransfer.setData('application/x-tm-task-ids', JSON.stringify(state.draggingTaskIds || [id]));
             ev.dataTransfer.setData('application/x-tm-task', JSON.stringify({
                 id,
-                title: title || id,
+                title: (state.draggingTaskIds || []).length > 1 ? `已选 ${(state.draggingTaskIds || []).length} 个任务` : (title || id),
                 durationMin: (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60,
                 calendarId: calendarId || 'default',
                 startDate: String(meta?.startDate || '').trim(),
@@ -14235,6 +14383,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     window.tmDragTaskEnd = function() {
         try { __tmSuppressDockPointerTaskClick(420); } catch (e) {}
         state.draggingTaskId = '';
+        state.draggingTaskIds = [];
         try { __tmClearDocTabDropTarget(); } catch (e) {}
         try { __tmClearTaskRowDropIndicators(); } catch (e) {}
         try { __tmCalendarFloatingDragEnd(); } catch (e) {}
@@ -14278,6 +14427,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmBuildDockPointerTaskDragPayload(taskId, meta) {
         const id = String(taskId || '').trim();
         if (!id) return null;
+        const taskIds = __tmBuildTaskDragSelectionIds(id);
         let nextMeta = (meta && typeof meta === 'object') ? meta : null;
         if (!nextMeta && typeof window.tmCalendarGetTaskDragMeta === 'function') {
             try { nextMeta = window.tmCalendarGetTaskDragMeta(id); } catch (e) {}
@@ -14294,6 +14444,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         return {
             taskId: id,
             id,
+            taskIds: taskIds.length ? taskIds : [id],
             title,
             durationMin: (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60,
             calendarId: String(safeMeta.calendarId || 'default').trim() || 'default',
@@ -14305,9 +14456,12 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmBuildDockPointerTaskSyntheticTransfer(payload) {
         const safePayload = (payload && typeof payload === 'object') ? payload : {};
         const taskId = String(safePayload.taskId || safePayload.id || '').trim();
+        const taskIds = __tmNormalizeDraggedTaskIds(safePayload.taskIds).length
+            ? __tmNormalizeDraggedTaskIds(safePayload.taskIds)
+            : (taskId ? [taskId] : []);
         const json = JSON.stringify({
             id: taskId,
-            title: String(safePayload.title || taskId || '任务').trim() || '任务',
+            title: taskIds.length > 1 ? `已选 ${taskIds.length} 个任务` : (String(safePayload.title || taskId || '任务').trim() || '任务'),
             durationMin: Number(safePayload.durationMin) || 60,
             calendarId: String(safePayload.calendarId || 'default').trim() || 'default',
             startDate: String(safePayload.startDate || '').trim(),
@@ -14319,6 +14473,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             getData(type) {
                 const key = String(type || '').trim();
                 if (key === 'application/x-tm-task-id' || key === 'text/plain') return taskId;
+                if (key === 'application/x-tm-task-ids') return JSON.stringify(taskIds);
                 if (key === 'application/x-tm-task') return json;
                 return '';
             },
@@ -14441,9 +14596,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             const source = __tmResolveDockPointerTaskDragSource(ev?.target);
             if (!source) return;
             if (__tmIsMultiSelectActive()) {
-                try { ev.preventDefault(); } catch (e) {}
-                try { ev.stopPropagation(); } catch (e) {}
-                state.draggingTaskId = '';
                 return;
             }
             if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
@@ -14654,7 +14806,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                 try { globalThis.__tmCalendar?.clearSideDayCalendarDragPreview?.(); } catch (e) {}
                 try { __tmSetCalendarSideDockDragHidden(false); } catch (e) {}
                 try { __tmCalendarFloatingDragEnd(); } catch (e) {}
-                if (String(state.draggingTaskId || '').trim() === taskId) state.draggingTaskId = '';
+                if (String(state.draggingTaskId || '').trim() === taskId) {
+                    state.draggingTaskId = '';
+                    state.draggingTaskIds = [];
+                }
                 try { document.body.style.userSelect = ''; } catch (e) {}
                 try { document.body.style.cursor = ''; } catch (e) {}
                 if (suppressClick) {
@@ -14751,6 +14906,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             dragging = true;
             capturePointer();
             state.draggingTaskId = taskId;
+            state.draggingTaskIds = __tmBuildTaskDragSelectionIds(taskId);
+            if (!state.draggingTaskIds.length) state.draggingTaskIds = [taskId];
             try { state.modal?.classList?.add?.('tm-task-drag-active'); } catch (e) {}
             if (sourceType === 'kanban') {
                 state.__tmKanbanDragId = taskId;
@@ -15103,7 +15260,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { state.modal?.classList?.remove?.('tm-task-drag-active'); } catch (e) {}
             try { globalThis.__tmCalendar?.clearSideDayCalendarDragPreview?.(); } catch (e) {}
             try { __tmCalendarFloatingDragEnd(); } catch (e) {}
-            if (String(state.draggingTaskId || '').trim() === id) state.draggingTaskId = '';
+            if (String(state.draggingTaskId || '').trim() === id) {
+                state.draggingTaskId = '';
+                state.draggingTaskIds = [];
+            }
             try { document.body.style.userSelect = ''; } catch (e) {}
             try { document.body.style.cursor = ''; } catch (e) {}
             if (suppressClick) {
@@ -15118,6 +15278,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             dragStartY = lastY;
             capturePointer();
             state.draggingTaskId = id;
+            state.draggingTaskIds = __tmBuildTaskDragSelectionIds(id);
+            if (!state.draggingTaskIds.length) state.draggingTaskIds = [id];
             try { state.modal?.classList?.add?.('tm-task-drag-active'); } catch (e) {}
             if (sourceEl.closest('.tm-calendar-sidebar')) {
                 try { globalThis.__tmCalendar?.closeSidebar?.(); } catch (e) {}

@@ -16,7 +16,7 @@
         { section: 'new-task', titles: ['新建任务', '新建任务位置', '默认新建文档', '今天日记默认笔记本', '启用“移动内容至今天日记”', '日记追加到底部', '标题分组追加到内容末尾', '新建任务默认置顶', '子任务继承父任务字段'] },
         { section: 'status', titles: ['状态选项', '勾选完成时状态', '未完成状态默认状态', '子任务全部完成后自动完成父任务'] },
         { section: 'layout', titles: ['视图布局', '默认视图', '移动端默认', '自动隐藏页签栏', '页签拖延值上色', '启用 Dock 侧边栏', 'Dock 默认视图', 'Dock 紧凑标题点击跳转', '移动端清单紧凑视图标题点击跳转', 'Dock 及移动端紧凑右侧字段', '桌面端紧凑右侧字段', '紧凑右侧字体', '时间轴卡片字段', '标题点击弹出详情页面', '看板紧凑模式', '清单紧凑模式', '清单紧凑层级线', '看板宽度', '表格和看板宽度填满窗口', '看板卡片字段', '白板卡片字段', '删除任务同步删除白板卡片', '白板文字默认字号', '卡片字段常驻显示', '卡片流最小宽度', '移动端卡片流双栏', '显示已完成任务看板', '看板拖动父任务时同步更改子任务状态', '看板内子任务不与父任务分离', '时长显示格式', '实际番茄数属性名', '预计番茄数属性名'] },
-        { section: 'search', titles: ['搜索分组', '搜索与分组', '递归文档数上限', '兼容旧版 Win7 思源', '父任务回溯层数', '显示已完成任务', '已完成分组仅显示今天完成', '已完成任务不单独分组', '文档分组下按二级标题子分组', '分组模式增加“按任务名分组”', '分组内置顶任务', '自动识别语义日期（全量分批）', '父任务按子任务时间参与时间相关排序', '全部折叠展开包含分组', '手动刷新时同步伺服共享设置', '手动刷新时同步当前分组/规则等会话状态'] },
+        { section: 'search', titles: ['搜索分组', '搜索与分组', '递归文档数上限', '兼容旧版 Win7 思源', '父任务回溯层数', '显示已完成任务', '已完成分组仅显示今天完成', '已完成任务不单独分组', '文档分组下按二级标题子分组', '分组模式增加“按任务名分组”', '分组内置顶任务', '自动识别语义日期（全量分批）', '语义截止默认提醒时间', '父任务按子任务时间参与时间相关排序', '全部折叠展开包含分组', '手动刷新时同步伺服共享设置', '手动刷新时同步当前分组/规则等会话状态'] },
         { section: 'topbar', titles: ['顶栏入口', '文档顶栏按钮(桌面)', '文档顶栏按钮(移动)', '对调文档顶栏长短按', '打开时定位当前文档', '思源窗口顶栏图标(桌面)', '思源窗口顶栏图标(移动)'] },
         { section: 'quickbar', titles: ['悬浮条', '任务悬浮条', '启用任务悬浮条', '文档任务行末尾常驻显示', '悬浮条显示图标', '常驻显示字段', '子任务数量显示未完成数', '移动端启用常驻显示'] },
         { section: 'tomato', titles: ['番茄钟/联动', '番茄钟与插件联动', '启用底栏番茄钟相关功能', '耗时读取模式', '分钟属性名', '小时属性名', '启用凡人修仙传:打卡插件联动', '不联动的文档分组', '启用任务逾期扣分', '截止日过期扣分', '日程过期扣分', '检查时间', '弹窗确认扣分'] }
@@ -1515,6 +1515,17 @@
                             )}
                         </div>
                         <div style="margin-top:10px;">
+                            ${renderSingleFieldSetting(
+                                '今天日记目标标题',
+                                '配置后，新建任务到今天日记时会追加到同名标题分节末尾；标题不存在时自动创建。留空则继续使用日记默认位置规则。',
+                                `<input class="b3-text-field" type="text"
+                                       value="${esc(SettingsStore.data.newTaskDailyNoteTargetHeadingText || '')}"
+                                       placeholder="例如：任务"
+                                       onchange="updateNewTaskDailyNoteTargetHeadingText(this.value)"
+                                       style="width:100%;">`
+                            )}
+                        </div>
+                        <div style="margin-top:10px;">
                             ${renderSingleSwitchSetting(
                                 '启用“移动内容至今天日记”',
                                 '开启后，在块图标菜单和正文右键菜单中显示该入口，可将当前块或所选块直接移动到今天日记；日记笔记本跟随上面的“今天日记默认笔记本”设置。',
@@ -1962,6 +1973,12 @@
                             '自动识别语义日期（全量分批）',
                             '开启后，刷新任务后会分批扫描全部任务里的“明天/下周五/今晚8点/从明天到周五”等表达，并弹窗确认写入开始日期或截止日期。默认开启，如需避免同步后自动弹窗可关闭。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.semanticDateAutoPromptEnabled ? 'checked' : ''} onchange="updateSemanticDateAutoPromptEnabled(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleFieldSetting(
+                            '语义截止默认提醒时间',
+                            '当识别到“7月10日截止”这类仅日期截止时，自动按这个时间写入一次任务提醒。',
+                            `<input type="time" value="${esc(String(SettingsStore.data.semanticDateDefaultReminderTime || '08:00'))}" onchange="updateSemanticDateDefaultReminderTime(this.value)" style="width:128px;padding:6px 8px;border:1px solid var(--tm-border-color);border-radius:6px;background:var(--tm-bg-color);color:var(--tm-text-color);">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(

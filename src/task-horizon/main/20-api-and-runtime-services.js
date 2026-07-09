@@ -4341,11 +4341,15 @@
         settingsSectionJump: null,
         statusOptionDraft: null,
         statusOptionDraftShouldFocus: false,
+        draggingTaskId: '',
+        draggingTaskIds: [],
         dockTaskPointerDragAbort: null,
         dockTaskPointerGestureCleanup: null,
         dockTaskPointerSuppressClickUntil: 0,
         multiSelectPointerSweepAbort: null,
         multiSelectPointerGestureCleanup: null,
+        multiSelectDragMoveArmedUntil: 0,
+        multiSelectDragMoveArmedTaskId: '',
         multiSelectMenuEl: null,
         multiSelectMenuAnchorEl: null,
         multiSelectMenuCloseHandler: null,
@@ -8964,6 +8968,37 @@ const wait = !!options.wait;
         return `${__tmSemanticFormatDateKey(dt)} ${__tmSemanticPad2(dt.getHours())}:${__tmSemanticPad2(dt.getMinutes())}`;
     }
 
+    function __tmSemanticNormalizeClockTime(value, fallback = '08:00') {
+        const raw = String(value || '').trim();
+        const m = raw.match(/^(\d{1,2}):(\d{2})$/);
+        const hh = m ? Number(m[1]) : NaN;
+        const mm = m ? Number(m[2]) : NaN;
+        if (Number.isInteger(hh) && Number.isInteger(mm) && hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+            return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+        }
+        return String(fallback || '08:00').trim() || '08:00';
+    }
+
+    function __tmGetSemanticDefaultReminderTime() {
+        return __tmSemanticNormalizeClockTime(SettingsStore?.data?.semanticDateDefaultReminderTime || '08:00', '08:00');
+    }
+
+    function __tmSemanticHasReminderIntent(text) {
+        return /(提醒|通知)/.test(String(text || ''));
+    }
+
+    function __tmSemanticBuildTimeInfoFromClock(value) {
+        const time = __tmSemanticNormalizeClockTime(value, '08:00');
+        const parsed = time.match(/^(\d{2}):(\d{2})$/);
+        return {
+            hour: parsed ? Number(parsed[1]) : 8,
+            minute: parsed ? Number(parsed[2]) : 0,
+            label: time,
+            stableKey: `default:${time}`,
+            matchedText: time,
+        };
+    }
+
     function __tmSemanticStartOfDay(baseDate) {
         const now = (baseDate instanceof Date && !Number.isNaN(baseDate.getTime()))
             ? new Date(baseDate.getTime())
@@ -9272,20 +9307,38 @@ const wait = !!options.wait;
         const currentStartDate = String(target?.startDate || target?.start_date || '').trim();
         const currentCompletionTime = String(target?.completionTime || target?.completion_time || '').trim();
         const startBuilt = startInfo ? __tmSemanticBuildDateValue(startInfo, null) : { value: '', date: null };
+        const completionTimeInfo = options?.completionTimeInfo || null;
+        const reminderIntent = !!(completionInfo && completionTimeInfo && options?.reminderIntent);
+        const completionWriteTimeInfo = reminderIntent ? null : completionTimeInfo;
         const completionBuilt = completionInfo
-            ? __tmSemanticBuildDateValue(completionInfo, options?.completionTimeInfo || null)
+            ? __tmSemanticBuildDateValue(completionInfo, completionWriteTimeInfo)
             : { value: '', date: null };
+        const shouldBuildReminder = !!completionInfo && (!!reminderIntent || !completionTimeInfo);
+        const reminderTimeInfo = shouldBuildReminder
+            ? (completionTimeInfo || __tmSemanticBuildTimeInfoFromClock(__tmGetSemanticDefaultReminderTime()))
+            : null;
+        const reminderBuilt = shouldBuildReminder
+            ? __tmSemanticBuildDateValue(completionInfo, reminderTimeInfo)
+            : { value: '', date: null };
+        const timedDate = completionTimeInfo
+            ? (reminderIntent ? reminderBuilt.date : completionBuilt.date)
+            : null;
         const startDateValue = currentStartDate ? '' : String(startBuilt.value || '').trim();
         const completionValue = currentCompletionTime ? '' : String(completionBuilt.value || '').trim();
-        if (!startDateValue && !completionValue) return null;
+        const reminderAt = String(reminderBuilt.value || '').trim();
+        if (!startDateValue && !completionValue && !reminderAt) return null;
         const reasonParts = [];
         if (startDateValue && startInfo) reasonParts.push(`开始日期：${startInfo.reason}`);
         if (completionValue && completionInfo) {
-            reasonParts.push(`截止日期：${completionInfo.reason}${options?.completionTimeInfo ? `，识别到 ${options.completionTimeInfo.label}` : ''}`);
+            reasonParts.push(`截止日期：${completionInfo.reason}${completionWriteTimeInfo ? `，识别到 ${completionWriteTimeInfo.label}` : ''}`);
+        }
+        if (reminderAt && completionInfo) {
+            reasonParts.push(`任务提醒：${completionInfo.reason}${reminderTimeInfo ? `，提醒时间 ${reminderTimeInfo.label}` : ''}`);
         }
         const startStableKey = startInfo ? String(startInfo.stableKey || '').trim() : '';
         const completionStableKey = completionInfo ? String(completionInfo.stableKey || '').trim() : '';
-        const timeStableKey = String(options?.completionTimeInfo?.stableKey || '').trim();
+        const timeStableKey = String(completionTimeInfo?.stableKey || '').trim();
+        const intentStableKey = reminderIntent ? 'reminder-intent' : ((!completionTimeInfo && completionInfo) ? 'default-reminder' : '');
         return {
             taskId: String(target?.id || '').trim(),
             docId: String(target?.root_id || target?.docId || '').trim(),
@@ -9295,8 +9348,10 @@ const wait = !!options.wait;
             currentCompletionTime,
             startDateValue,
             completionValue,
-            hasTime: !!options?.completionTimeInfo,
-            start: options?.completionTimeInfo ? new Date(completionBuilt.date.getTime()) : null,
+            reminderAt,
+            reminderIntent,
+            hasTime: !!completionTimeInfo,
+            start: timedDate instanceof Date && !Number.isNaN(timedDate.getTime()) ? new Date(timedDate.getTime()) : null,
             reason: `${source.label}：${reasonParts.join('；') || '识别到日期表达'}`,
             isRelativeDate: !!(startInfo?.isRelative || completionInfo?.isRelative),
             sourceKey: String(source.key || '').trim(),
@@ -9304,7 +9359,8 @@ const wait = !!options.wait;
             timeStableKey,
             startStableKey,
             completionStableKey,
-            signature: __tmBuildSemanticTaskSignature(target, source.key, startStableKey, completionStableKey, timeStableKey),
+            intentStableKey,
+            signature: __tmBuildSemanticTaskSignature(target, source.key, startStableKey, completionStableKey, timeStableKey, intentStableKey),
         };
     }
 
@@ -9321,7 +9377,10 @@ const wait = !!options.wait;
             const between = text.slice(left.end, right.index);
             if (!/(到|至|~|～|-|—|－)/.test(between)) continue;
             const completionTimeInfo = __tmSemanticFindTimeNearDate(text, right, dates[i + 2]);
-            const payload = __tmSemanticBuildSuggestionPayload(task, source, left, right, { completionTimeInfo });
+            const payload = __tmSemanticBuildSuggestionPayload(task, source, left, right, {
+                completionTimeInfo,
+                reminderIntent: __tmSemanticHasReminderIntent(text),
+            });
             if (payload) return payload;
         }
         const timeThen = '(?:\\d{1,2}\\s*[:：]\\s*\\d{1,2}|\\d{1,2}\\s*点\\s*(?:半|一刻|三刻|整|\\d{1,2}\\s*分?)?)?';
@@ -9340,7 +9399,10 @@ const wait = !!options.wait;
         if (!startInfo && !completionInfo) return null;
         const completionIndex = completionInfo ? dates.indexOf(completionInfo) : -1;
         const completionTimeInfo = completionInfo ? __tmSemanticFindTimeNearDate(text, completionInfo, dates[completionIndex + 1]) : null;
-        return __tmSemanticBuildSuggestionPayload(task, source, startInfo, completionInfo, { completionTimeInfo });
+        return __tmSemanticBuildSuggestionPayload(task, source, startInfo, completionInfo, {
+            completionTimeInfo,
+            reminderIntent: __tmSemanticHasReminderIntent(text),
+        });
     }
 
     function __tmIsSemanticDateAutoPromptEnabled() {
@@ -9356,13 +9418,16 @@ const wait = !!options.wait;
         ].join('||');
     }
 
-    function __tmBuildSemanticTaskSignature(task, sourceKey, startStableKey, dateStableKey, timeStableKey) {
-        return [
+    function __tmBuildSemanticTaskSignature(task, sourceKey, startStableKey, dateStableKey, timeStableKey, intentStableKey = '') {
+        const parts = [
             String(sourceKey || '').trim(),
             String(startStableKey || '').trim(),
             String(dateStableKey || '').trim(),
             String(timeStableKey || '').trim(),
-        ].join('||');
+        ];
+        const intent = String(intentStableKey || '').trim();
+        if (intent) parts.push(intent);
+        return parts.join('||');
     }
 
     function __tmLoadSemanticDateRecognizedMap() {
@@ -9390,6 +9455,70 @@ const wait = !!options.wait;
         return set;
     }
 
+    function __tmSemanticTaskHasExistingReminder(task) {
+        const taskId = String(task?.id || task?.taskId || task?.task_id || '').trim();
+        if (String(task?.bookmark || '').includes('⏰')) return true;
+        try {
+            if (taskId && __tmReminderMarkCache?.get?.(taskId) === true) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmSemanticBuildSuggestionWrites(suggestion, options = {}) {
+        const item = (suggestion && typeof suggestion === 'object') ? suggestion : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const writes = [];
+        const startDateValue = String(item.startDateValue || '').trim();
+        const completionValue = String(item.completionValue || '').trim();
+        const reminderAt = String(item.reminderAt || '').trim();
+        if (startDateValue) {
+            writes.push({
+                id: 'startDate',
+                label: '写入开始日期',
+                value: startDateValue,
+                checked: true,
+            });
+        }
+        if (completionValue) {
+            writes.push({
+                id: 'completionTime',
+                label: completionValue.includes(' ') ? '写入截止时间' : '写入截止日期',
+                value: completionValue,
+                checked: true,
+            });
+        }
+        const canAddCalendar = !!completionValue
+            && !!item.hasTime
+            && !item.reminderIntent
+            && !opts.scheduleExists
+            && !!opts.hasCalendarModule
+            && item.start instanceof Date
+            && !Number.isNaN(item.start.getTime());
+        if (canAddCalendar) {
+            writes.push({
+                id: 'calendarSchedule',
+                label: '添加日历日程',
+                value: __tmSemanticFormatDateTime(item.start),
+                checked: true,
+            });
+        }
+        if (reminderAt && !opts.reminderExists) {
+            writes.push({
+                id: 'reminder',
+                label: '写入任务提醒',
+                value: reminderAt,
+                checked: !!item.hasTime,
+            });
+        }
+        return writes;
+    }
+
+    function __tmSemanticFormatWriteSummary(writes) {
+        const list = Array.isArray(writes) ? writes : [];
+        const labels = list.map((item) => String(item?.label || '').trim()).filter(Boolean);
+        return labels.join('、') || '写入日期';
+    }
+
     function __tmExtractSemanticTaskDateSuggestion(task, baseDate) {
         const target = (task && typeof task === 'object') ? task : null;
         const sources = [
@@ -9402,7 +9531,10 @@ const wait = !!options.wait;
             const dateInfo = __tmSemanticExtractDateInfo(source.text, baseDate);
             if (!dateInfo) continue;
             const timeInfo = __tmSemanticExtractTimeInfo(source.text);
-            const payload = __tmSemanticBuildSuggestionPayload(target, source, null, dateInfo, { completionTimeInfo: timeInfo });
+            const payload = __tmSemanticBuildSuggestionPayload(target, source, null, dateInfo, {
+                completionTimeInfo: timeInfo,
+                reminderIntent: __tmSemanticHasReminderIntent(source.text),
+            });
             if (payload) return payload;
         }
         return null;
@@ -9446,21 +9578,21 @@ const wait = !!options.wait;
                     }
                     if (!skipSuggestion) {
                         const scheduleExists = scheduledTaskIds.has(taskId);
-                        const hasCompletionWrite = !!String(suggestion.completionValue || '').trim();
-                        const hasStartWrite = !!String(suggestion.startDateValue || '').trim();
-                        const calendarEligible = hasCompletionWrite && !!suggestion.hasTime && !scheduleExists && hasCalendarModule;
-                        const writeLabel = hasStartWrite && hasCompletionWrite
-                            ? '写入开始日期和截止日期'
-                            : (hasStartWrite ? '写入开始日期' : '写入截止日期');
+                        const reminderExists = __tmSemanticTaskHasExistingReminder(task);
+                        const writes = __tmSemanticBuildSuggestionWrites(suggestion, {
+                            scheduleExists,
+                            hasCalendarModule,
+                            reminderExists,
+                        });
+                        if (!writes.length) continue;
+                        const calendarEligible = writes.some((write) => write?.id === 'calendarSchedule');
                         out.push({
                             ...suggestion,
                             scheduleExists,
+                            reminderExists,
                             calendarEligible,
-                            actionLabel: suggestion.hasTime && hasCompletionWrite
-                                ? (calendarEligible
-                                    ? `${writeLabel}并添加到日历`
-                                    : (scheduleExists ? `${writeLabel}（该任务已有日历）` : `${writeLabel}（日历模块未加载）`))
-                                : writeLabel,
+                            writes,
+                            actionLabel: __tmSemanticFormatWriteSummary(writes),
                         });
                         if (maxSuggestions > 0 && out.length >= maxSuggestions) {
                             truncated = true;
@@ -9572,9 +9704,43 @@ const wait = !!options.wait;
         return mergedTasks;
     }
 
+    function __tmGetSemanticSuggestionWrites(item) {
+        if (Array.isArray(item?.writes) && item.writes.length) {
+            return item.writes
+                .map((write) => (write && typeof write === 'object' ? write : null))
+                .filter((write) => write && String(write.id || '').trim());
+        }
+        const writes = [];
+        if (String(item?.startDateValue || '').trim()) {
+            writes.push({ id: 'startDate', checked: true });
+        }
+        if (String(item?.completionValue || '').trim()) {
+            writes.push({ id: 'completionTime', checked: true });
+        }
+        if (item?.calendarEligible) {
+            writes.push({ id: 'calendarSchedule', checked: true });
+        }
+        if (String(item?.reminderAt || '').trim()) {
+            writes.push({ id: 'reminder', checked: true });
+        }
+        return writes;
+    }
+
+    function __tmGetSemanticSelectedWriteIds(item) {
+        const explicit = Array.isArray(item?.selectedWriteIds)
+            ? item.selectedWriteIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [];
+        if (explicit.length) return new Set(explicit);
+        const writes = __tmGetSemanticSuggestionWrites(item);
+        return new Set(writes
+            .filter((write) => write?.checked !== false && write?.disabled !== true)
+            .map((write) => String(write.id || '').trim())
+            .filter(Boolean));
+    }
+
     async function __tmApplySemanticDateSuggestions(items) {
         const chosen = Array.isArray(items) ? items.filter(Boolean) : [];
-        if (!chosen.length) return { startApplied: 0, completionApplied: 0, calendarApplied: 0, failures: [], appliedItems: [] };
+        if (!chosen.length) return { startApplied: 0, completionApplied: 0, calendarApplied: 0, reminderApplied: 0, failures: [], appliedItems: [] };
         const failures = [];
         const touchedDocIds = new Set();
         const appliedItems = [];
@@ -9587,47 +9753,54 @@ const wait = !!options.wait;
         let startApplied = 0;
         let completionApplied = 0;
         let calendarApplied = 0;
+        let reminderApplied = 0;
         let calendarChanged = false;
         for (const item of chosen) {
             const taskId = String(item?.taskId || '').trim();
             if (!taskId) continue;
+            const selectedWriteIds = __tmGetSemanticSelectedWriteIds(item);
+            if (!selectedWriteIds.size) continue;
             const task = state.flatTasks?.[taskId] || null;
             const taskTitle = String(item?.content || task?.content || taskId).trim() || taskId;
-            const startDateValue = String(item?.startDateValue || '').trim();
-            const completionValue = String(item?.completionValue || '').trim();
-            if (!startDateValue && !completionValue) continue;
-            try {
-                const patch = {};
-                if (startDateValue) patch.startDate = startDateValue;
-                if (completionValue) patch.completionTime = completionValue;
-                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
-                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                await patchTask(taskId, patch, {
-                    source: 'semantic-date-suggestion',
-                    reason: 'semantic-date-suggestion',
-                    label: '语义日期',
-                    background: true,
-                    wait: false,
-                    skipInteractionGate: true,
-                    skipSettledRefresh: true,
-                    withFilters: true,
-                    forceProjectionRefresh: true,
-                    showErrorHint: false,
-                });
-                if (task && typeof task === 'object') {
-                    if (startDateValue) task.startDate = startDateValue;
-                    if (completionValue) task.completionTime = completionValue;
-                }
-                touchedDocIds.add(String(item?.docId || task?.root_id || task?.docId || '').trim());
-                if (startDateValue) startApplied += 1;
-                if (completionValue) completionApplied += 1;
-                appliedItems.push(item);
-            } catch (e) {
-                failures.push(`${taskTitle}：日期写入失败（${String(e?.message || e || '未知错误')}）`);
-                continue;
-            }
-            if (completionValue && item?.calendarEligible && item?.start instanceof Date && !Number.isNaN(item.start.getTime())) {
+            const startDateValue = selectedWriteIds.has('startDate') ? String(item?.startDateValue || '').trim() : '';
+            const completionValue = selectedWriteIds.has('completionTime') ? String(item?.completionValue || '').trim() : '';
+            const wantsCalendar = selectedWriteIds.has('calendarSchedule');
+            const wantsReminder = selectedWriteIds.has('reminder') && String(item?.reminderAt || '').trim();
+            let itemApplied = false;
+            if (startDateValue || completionValue) {
                 try {
+                    const patch = {};
+                    if (startDateValue) patch.startDate = startDateValue;
+                    if (completionValue) patch.completionTime = completionValue;
+                    const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                    if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                    await patchTask(taskId, patch, {
+                        source: 'semantic-date-suggestion',
+                        reason: 'semantic-date-suggestion',
+                        label: '语义日期',
+                        background: true,
+                        wait: false,
+                        skipInteractionGate: true,
+                        skipSettledRefresh: true,
+                        withFilters: true,
+                        forceProjectionRefresh: true,
+                        showErrorHint: false,
+                    });
+                    if (task && typeof task === 'object') {
+                        if (startDateValue) task.startDate = startDateValue;
+                        if (completionValue) task.completionTime = completionValue;
+                    }
+                    touchedDocIds.add(String(item?.docId || task?.root_id || task?.docId || '').trim());
+                    if (startDateValue) startApplied += 1;
+                    if (completionValue) completionApplied += 1;
+                    itemApplied = true;
+                } catch (e) {
+                    failures.push(`${taskTitle}：日期写入失败（${String(e?.message || e || '未知错误')}）`);
+                }
+            }
+            if (wantsCalendar) {
+                try {
+                    if (!(item?.start instanceof Date) || Number.isNaN(item.start.getTime())) throw new Error('日历时间无效');
                     const calendar = globalThis.__tmCalendar;
                     if (!calendar?.addTaskSchedule) throw new Error('日历模块未加载');
                     const durationMin = 60;
@@ -9652,9 +9825,40 @@ const wait = !!options.wait;
                     });
                     calendarApplied += 1;
                     calendarChanged = true;
+                    itemApplied = true;
                 } catch (e) {
                     failures.push(`${taskTitle}：日历写入失败（${String(e?.message || e || '未知错误')}）`);
                 }
+            }
+            if (wantsReminder) {
+                try {
+                    const reminderTask = task && typeof task === 'object'
+                        ? task
+                        : {
+                            id: taskId,
+                            content: item?.content || taskTitle,
+                            root_id: item?.docId || '',
+                            startDate: startDateValue || item?.startDateValue || '',
+                            completionTime: completionValue || item?.completionValue || '',
+                        };
+                    await __tmSaveTaskReminderForTask(reminderTask, item.reminderAt, {
+                        source: 'semantic-date-suggestion',
+                        blockName: taskTitle,
+                        startDate: startDateValue || item?.startDateValue || '',
+                        completionTime: completionValue || item?.completionValue || '',
+                    });
+                    reminderApplied += 1;
+                    itemApplied = true;
+                    touchedDocIds.add(String(item?.docId || task?.root_id || task?.docId || '').trim());
+                } catch (e) {
+                    failures.push(`${taskTitle}：提醒写入失败（${String(e?.message || e || '未知错误')}）`);
+                }
+            }
+            if (itemApplied) {
+                appliedItems.push({
+                    ...item,
+                    selectedWriteIds: Array.from(selectedWriteIds),
+                });
             }
         }
         touchedDocIds.forEach((docId) => {
@@ -9688,7 +9892,7 @@ const wait = !!options.wait;
                 Promise.resolve(refreshPromise).catch(() => null);
             } catch (e) {}
         }
-        return { startApplied, completionApplied, calendarApplied, failures, appliedItems };
+        return { startApplied, completionApplied, calendarApplied, reminderApplied, failures, appliedItems };
     }
 
     function __tmShowSemanticDateConfirmModal(items, options = {}) {
@@ -9705,10 +9909,16 @@ const wait = !!options.wait;
         const totalCount = Number.isFinite(totalCount0) && totalCount0 > 0 ? Math.max(list.length, Math.floor(totalCount0)) : list.length;
         const remainingItems = Array.isArray(opts.remainingItems) ? opts.remainingItems.filter(Boolean) : [];
         __tmCloseSemanticDateConfirmModal();
-        const dateOnlyCount = list.filter((item) => !item?.hasTime).length;
-        const dateTimeCount = list.filter((item) => !!item?.hasTime).length;
-        const startCount = list.filter((item) => !!String(item?.startDateValue || '').trim()).length;
-        const completionCount = list.filter((item) => !!String(item?.completionValue || '').trim()).length;
+        const modalItems = list.map((item) => ({
+            ...item,
+            writes: __tmGetSemanticSuggestionWrites(item),
+        }));
+        const dateOnlyCount = modalItems.filter((item) => !item?.hasTime).length;
+        const dateTimeCount = modalItems.filter((item) => !!item?.hasTime).length;
+        const startCount = modalItems.filter((item) => item.writes.some((write) => write?.id === 'startDate')).length;
+        const completionCount = modalItems.filter((item) => item.writes.some((write) => write?.id === 'completionTime')).length;
+        const reminderCount = modalItems.filter((item) => item.writes.some((write) => write?.id === 'reminder')).length;
+        const calendarCount = modalItems.filter((item) => item.writes.some((write) => write?.id === 'calendarSchedule')).length;
         const modal = document.createElement('div');
         modal.className = 'tm-modal tm-semantic-date-confirm-modal';
         modal.style.cssText = scopedToManager
@@ -9726,7 +9936,7 @@ const wait = !!options.wait;
                 <div style="font-size:13px;color:var(--tm-secondary-text);line-height:1.6;">
                     本次刷新自动识别到 <b>${totalCount}</b> 条语义日期。
                     ${batchCount > 1 ? `当前展示第 <b>${batchIndex}</b> / <b>${batchCount}</b> 批，本批 <b>${list.length}</b> 条。` : `本批共 <b>${list.length}</b> 条。`}
-                    其中开始日期 <b>${startCount}</b> 条，截止日期 <b>${completionCount}</b> 条；仅日期 <b>${dateOnlyCount}</b> 条，带时分 <b>${dateTimeCount}</b> 条。
+                    其中开始日期 <b>${startCount}</b> 条，截止日期 <b>${completionCount}</b> 条，任务提醒 <b>${reminderCount}</b> 条，日历日程 <b>${calendarCount}</b> 条；仅日期 <b>${dateOnlyCount}</b> 条，带时分 <b>${dateTimeCount}</b> 条。
                     已识别过的同一任务内容后续重载不会再次扫描；新建任务刷新后会继续识别。
                 </div>
                 ${batchCount > 1 ? `
@@ -9740,16 +9950,20 @@ const wait = !!options.wait;
                     <button class="tm-btn tm-btn-secondary" data-tm-semantic-action="clear-all" style="padding:6px 12px;">全不选</button>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:10px;">
-                    ${list.map((item, index) => `
-                        <label style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);cursor:pointer;">
-                            <input type="checkbox" data-tm-semantic-item="${index}" checked style="margin-top:2px;">
+                    ${modalItems.map((item, index) => `
+                        <div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
                             <div style="flex:1;min-width:0;">
                                 <div style="font-size:14px;font-weight:600;line-height:1.5;word-break:break-word;">${esc(item.content || '未命名任务')}</div>
-                                ${item.startDateValue ? `<div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">识别开始日期：${esc(item.startDateValue || '')}</div>` : ''}
-                                ${item.completionValue ? `<div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">识别截止日期：${esc(item.completionValue || '')}</div>` : ''}
-                                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">将执行：${esc(item.actionLabel || '写入截止日期')}</div>
+                                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+                                    ${item.writes.map((write) => `
+                                        <label style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--tm-border-color);border-radius:6px;background:var(--tm-bg-color);cursor:pointer;font-size:12px;color:var(--tm-text-color);">
+                                            <input type="checkbox" data-tm-semantic-index="${index}" data-tm-semantic-write-id="${esc(write.id || '')}" ${write.checked === false ? '' : 'checked'}>
+                                            <span>${esc(write.label || '写入')}：${esc(write.value || '')}</span>
+                                        </label>
+                                    `).join('')}
+                                </div>
                             </div>
-                        </label>
+                        </div>
                     `).join('')}
                 </div>
             </div>
@@ -9772,18 +9986,22 @@ const wait = !!options.wait;
                 return;
             }
             if (action === 'select-all' || action === 'clear-all') {
-                modal.querySelectorAll('input[data-tm-semantic-item]').forEach((input) => {
+                modal.querySelectorAll('input[data-tm-semantic-write-id]').forEach((input) => {
                     input.checked = action === 'select-all';
                 });
                 return;
             }
             if (action !== 'apply' || state.semanticDateAutoApplying) return;
-            const chosen = list.filter((item, index) => {
-                const input = modal.querySelector(`input[data-tm-semantic-item="${index}"]`);
-                return !!input?.checked;
-            });
+            const chosen = modalItems.map((item, index) => {
+                const selectedWriteIds = Array.from(modal.querySelectorAll(`input[data-tm-semantic-index="${index}"][data-tm-semantic-write-id]`))
+                    .filter((input) => input?.checked)
+                    .map((input) => String(input.dataset.tmSemanticWriteId || '').trim())
+                    .filter(Boolean);
+                if (!selectedWriteIds.length) return null;
+                return { ...item, selectedWriteIds };
+            }).filter(Boolean);
             if (!chosen.length) {
-                hint('⚠️ 请至少勾选一条识别结果', 'warning');
+                hint('⚠️ 请至少勾选一个写入项', 'warning');
                 return;
             }
             state.semanticDateAutoApplying = true;
@@ -9797,8 +10015,8 @@ const wait = !!options.wait;
                 if (Array.isArray(result.appliedItems) && result.appliedItems.length > 0) {
                     __tmMarkSemanticDateSuggestionsRecognized(result.appliedItems);
                 }
-                if (result.startApplied > 0 || result.completionApplied > 0 || result.calendarApplied > 0) {
-                    hint(`✅ 已写入 ${result.startApplied || 0} 条开始日期、${result.completionApplied || 0} 条截止日期${result.calendarApplied > 0 ? `，新增 ${result.calendarApplied} 条日历` : ''}`, 'success');
+                if (result.startApplied > 0 || result.completionApplied > 0 || result.calendarApplied > 0 || result.reminderApplied > 0) {
+                    hint(`✅ 已写入 ${result.startApplied || 0} 条开始日期、${result.completionApplied || 0} 条截止日期${result.reminderApplied > 0 ? `，新增 ${result.reminderApplied} 条提醒` : ''}${result.calendarApplied > 0 ? `，新增 ${result.calendarApplied} 条日历` : ''}`, 'success');
                 }
                 if (result.failures.length > 0) {
                     try { console.warn('[task-horizon] semantic date apply failures:', result.failures); } catch (e2) {}
@@ -10041,7 +10259,7 @@ const wait = !!options.wait;
     }
 
     function __tmGetTaskTitleReadabilityBackground(isDark) {
-        const palette = __tmBuildThemePalette(SettingsStore?.data?.themeConfig, isDark);
+        const palette = __tmBuildEffectiveThemePalette(SettingsStore?.data?.themeConfig, isDark);
         return __tmParseCssColorToRgba(palette.card)
             || __tmParseCssColorToRgba(palette.background)
             || (isDark ? { r: 18, g: 24, b: 38, a: 1 } : { r: 255, g: 255, b: 255, a: 1 });
@@ -11492,6 +11710,135 @@ const wait = !!options.wait;
         } catch (e) {}
     }
 
+    async function __tmSaveTaskReminderForTask(task, reminderAt, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const requestedId = String(opts.taskId || task?.id || task?.taskId || task?.task_id || '').trim();
+        if (!requestedId) throw new Error('任务 ID 为空');
+        const reminderDate = reminderAt instanceof Date ? new Date(reminderAt.getTime()) : __tmReminderToDateSafe(reminderAt);
+        if (!(reminderDate instanceof Date) || Number.isNaN(reminderDate.getTime())) throw new Error('提醒时间无效');
+        const dateKey = __tmNormalizeReminderDateKey(reminderDate);
+        const timeKey = __tmParseReminderTime(`${String(reminderDate.getHours()).padStart(2, '0')}:${String(reminderDate.getMinutes()).padStart(2, '0')}`)?.key;
+        if (!dateKey || !timeKey) throw new Error('提醒时间无效');
+
+        let taskId = requestedId;
+        let attrHostId = String(opts.attrHostId || '').trim();
+        let taskObj = (task && typeof task === 'object') ? task : null;
+        try {
+            if (typeof __tmResolveTaskBindingFromAnyBlockId === 'function') {
+                const binding = await __tmResolveTaskBindingFromAnyBlockId(requestedId);
+                if (binding && typeof binding === 'object') {
+                    taskId = String(binding.taskId || taskId || requestedId).trim() || requestedId;
+                    attrHostId = attrHostId || String(binding.attrHostId || '').trim();
+                    if (binding.task && typeof binding.task === 'object') taskObj = { ...(taskObj || {}), ...binding.task };
+                }
+            }
+        } catch (e) {}
+        if (!taskObj && taskId) {
+            taskObj = state.flatTasks?.[taskId] || globalThis.__tmRuntimeState?.getTaskById?.(taskId) || null;
+        }
+        if (!attrHostId) {
+            try { attrHostId = String(__tmGetTaskAttrHostId(taskObj) || '').trim(); } catch (e) {}
+        }
+        if (!attrHostId) attrHostId = taskId || requestedId;
+
+        let currentAttrs = {};
+        try {
+            const res = await API.call('/api/attr/getBlockAttrs', { id: attrHostId });
+            currentAttrs = (res && res.code === 0 && res.data && typeof res.data === 'object') ? res.data : {};
+        } catch (e) {
+            currentAttrs = {};
+        }
+        const currentReminderRaw = String(currentAttrs?.['custom-tomato-reminder'] || '').trim();
+        if (currentReminderRaw && opts.overwrite !== true) {
+            throw new Error('已有提醒，已跳过');
+        }
+
+        const nowIso = new Date().toISOString();
+        const taskName = String(opts.blockName || taskObj?.content || taskObj?.raw_content || taskObj?.rawContent || taskObj?.markdown || '任务').trim() || '任务';
+        const rootId = String(taskObj?.root_id || taskObj?.docId || taskObj?.rootId || opts.docId || '').trim();
+        const taskStartDate = __tmNormalizeReminderDateKey(opts.startDate || taskObj?.startDate || taskObj?.start_date || '');
+        const taskCompletionTime = __tmNormalizeReminderDateKey(opts.completionTime || taskObj?.completionTime || taskObj?.completion_time || dateKey);
+        let repeatRule = null;
+        try {
+            repeatRule = typeof __tmGetTaskRepeatRule === 'function'
+                ? __tmGetTaskRepeatRule(taskObj || {})
+                : __tmNormalizeTaskRepeatRule(taskObj?.repeatRule || taskObj?.repeat_rule || '', {
+                    startDate: taskStartDate,
+                    completionTime: taskCompletionTime,
+                });
+        } catch (e) {
+            repeatRule = null;
+        }
+        const repeatEnabled = !!(repeatRule?.enabled && repeatRule.type !== 'none');
+        const reminderRecord = {
+            blockId: attrHostId,
+            taskId,
+            blockName: taskName,
+            blockContent: taskName,
+            rootId,
+            repeatMode: __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK,
+            interval: 'once',
+            every: 1,
+            times: [timeKey],
+            startDate: dateKey,
+            syncTaskDone: true,
+            enabled: true,
+            taskStartDate,
+            taskCompletionTime,
+            taskRepeatRule: repeatEnabled ? repeatRule : null,
+            taskRepeatState: repeatEnabled ? (taskObj?.repeatState || taskObj?.repeat_state || null) : null,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+        };
+        const reminderValue = JSON.stringify(reminderRecord);
+        const res = await API.call('/api/attr/setBlockAttrs', {
+            id: attrHostId,
+            attrs: {
+                'custom-tomato-reminder': reminderValue,
+                bookmark: '⏰',
+            },
+        });
+        if (!res || res.code !== 0) throw new Error(res?.msg || '保存提醒失败');
+
+        try { __tmSetTaskReminderMark(taskId, true); } catch (e) {}
+        try { if (attrHostId !== taskId) __tmSetTaskReminderMark(attrHostId, true); } catch (e) {}
+        try { __tmClearReminderSnapshotCache(taskId); } catch (e) {}
+        try { if (attrHostId !== taskId) __tmClearReminderSnapshotCache(attrHostId); } catch (e) {}
+        try { __tmReminderListCache.fetchedAt = 0; } catch (e) {}
+        const dispatchAttr = (attrKey, value) => {
+            try {
+                window.dispatchEvent(new CustomEvent('tm-task-attr-updated', {
+                    detail: {
+                        taskId,
+                        requestedTaskId: requestedId,
+                        attrHostId,
+                        attrKey,
+                        value: String(value ?? ''),
+                        source: opts.source || 'task-horizon-reminder',
+                    }
+                }));
+            } catch (e) {}
+        };
+        dispatchAttr('bookmark', '⏰');
+        dispatchAttr('custom-tomato-reminder', reminderValue);
+        try {
+            window.dispatchEvent(new CustomEvent('tomato-reminder-updated', {
+                detail: {
+                    taskId,
+                    blockId: attrHostId,
+                    reminder: reminderRecord,
+                    value: reminderValue,
+                    source: opts.source || 'task-horizon-reminder',
+                }
+            }));
+        } catch (e) {}
+        try { globalThis.__tomatoReminder?.refresh?.(); } catch (e) {}
+        try { globalThis.__tomatoUpdateReminderBadge?.(); } catch (e) {}
+        try { API.call('/api/sqlite/flushTransaction', {}).catch(() => {}); } catch (e) {}
+        try { __tmRefreshReminderMarkForTask(taskId, 240); } catch (e) {}
+        return reminderRecord;
+    }
+
     function __tmInvalidateTaskReminderMark(taskId) {
         const tid = String(taskId || '').trim();
         if (!tid) return;
@@ -11623,7 +11970,7 @@ const wait = !!options.wait;
         const opts = (options && typeof options === 'object') ? options : {};
         const entries = __tmGetReminderCompletedEntries(reminder);
         if (!entries.length) return null;
-        const taskAnchor = __tmNormalizeReminderDateKey(
+        const taskAnchor = opts.ignoreTaskAnchor ? '' : __tmNormalizeReminderDateKey(
             reminder?.taskCompletionTime
             || task?.completionTime
             || task?.completion_time
@@ -11661,7 +12008,10 @@ const wait = !!options.wait;
         if (!requestedId || !SettingsStore?.data?.enableTomatoIntegration) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const reminder = __tmParseReminderRecordFromValue(reminderInput, requestedId);
-        if (!reminder || __tmGetReminderRepeatMode(reminder) !== __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK) return false;
+        const repeatMode = reminder ? __tmGetReminderRepeatMode(reminder) : '';
+        const shouldFollowTaskRepeat = repeatMode === __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK;
+        const shouldSyncTaskDone = reminder?.syncTaskDone === true || shouldFollowTaskRepeat;
+        if (!reminder || !shouldSyncTaskDone) return false;
         let taskId = requestedId;
         try {
             const resolved = await __tmResolveTaskIdFromAnyBlockId(requestedId);
@@ -11688,20 +12038,32 @@ const wait = !!options.wait;
                 startDate: task?.startDate,
                 completionTime: task?.completionTime,
             });
-        if (!repeatRule?.enabled || repeatRule.type === 'none') return false;
+        const canAdvanceRepeat = shouldFollowTaskRepeat && !!(repeatRule?.enabled && repeatRule.type !== 'none');
         const picked = __tmPickReminderFollowTaskCompletedEntry(reminder, task, {
             detail: opts.detail || null,
             previousReminder: opts.previousReminder || null,
+            ignoreTaskAnchor: !canAdvanceRepeat,
         });
         if (!picked?.entry) return false;
         __tmRememberReminderFollowTaskDoneSignature(picked.signature);
         const completedAt = picked.entry.doneAt || __tmNowInChinaTimezoneIso();
+        const source = canAdvanceRepeat ? 'tomato-reminder-follow-task-repeat' : 'tomato-reminder-sync-task-done';
+        let statusPatch = null;
+        try {
+            statusPatch = typeof __tmBuildCheckboxStatusPatch === 'function'
+                ? __tmBuildCheckboxStatusPatch(task, true)
+                : null;
+        } catch (e) {
+            statusPatch = null;
+        }
         try {
             if (typeof window?.tmSetDone === 'function') {
                 const setDoneResult = await window.tmSetDone(task.id, true, null, {
                     wait: true,
+                    waitStatusPatch: true,
+                    statusPatch,
                     suppressHint: true,
-                    source: 'tomato-reminder-follow-task-repeat',
+                    source,
                 });
                 if (setDoneResult === false) {
                     __tmReminderFollowTaskDoneSignatures.delete(picked.signature);
@@ -11711,17 +12073,17 @@ const wait = !!options.wait;
                 __tmReminderFollowTaskDoneSignatures.delete(picked.signature);
                 return false;
             }
-            try { if (typeof __tmClearRecurringTaskAdvanceTimer === 'function') __tmClearRecurringTaskAdvanceTimer(task.id); } catch (e) {}
-            if (typeof __tmAdvanceRecurringTaskAfterCompletion === 'function') {
+            if (canAdvanceRepeat) try { if (typeof __tmClearRecurringTaskAdvanceTimer === 'function') __tmClearRecurringTaskAdvanceTimer(task.id); } catch (e) {}
+            if (canAdvanceRepeat && typeof __tmAdvanceRecurringTaskAfterCompletion === 'function') {
                 await __tmAdvanceRecurringTaskAfterCompletion(task.id, {
-                    source: 'tomato-reminder-follow-task-repeat',
+                    source,
                     completedAt,
                 });
             }
             return true;
         } catch (e) {
             __tmReminderFollowTaskDoneSignatures.delete(picked.signature);
-            try { console.warn('[提醒联动] 跟随任务循环推进失败:', e); } catch (e2) {}
+            try { console.warn('[提醒联动] 提醒同步任务状态失败:', e); } catch (e2) {}
             return false;
         }
     }
@@ -15797,6 +16159,17 @@ __tmPushStatusDebug('apply-status:start', {
             if (!__tmIsMultiSelectActive()) return;
             const source = __tmResolveMultiSelectSweepSource(ev?.target);
             if (!source) return;
+            const armedUntil = Number(state.multiSelectDragMoveArmedUntil || 0);
+            const armedTaskId = String(state.multiSelectDragMoveArmedTaskId || '').trim();
+            const sourceTaskId = String(source.taskId || '').trim();
+            const dragMoveArmed = armedUntil > Date.now()
+                && !!sourceTaskId
+                && (!armedTaskId || armedTaskId === sourceTaskId)
+                && __tmIsTaskMultiSelected(sourceTaskId);
+            if (dragMoveArmed) {
+                try { state.multiSelectPointerGestureCleanup?.(); } catch (e) {}
+                return;
+            }
             try { ev.preventDefault(); } catch (e) {}
             try { ev.stopPropagation(); } catch (e) {}
         }, { capture: true, signal: abort.signal });
@@ -15816,7 +16189,10 @@ __tmPushStatusDebug('apply-status:start', {
             if (!taskId || !(sourceEl instanceof HTMLElement)) return;
 
             const pointerId = Number.isFinite(Number(ev?.pointerId)) ? Number(ev.pointerId) : NaN;
-            const threshold = 4;
+            const threshold = 10;
+            const dragMoveLongPressMs = 1000;
+            const dragMoveTolerance = 10;
+            const dragMoveToleranceSq = dragMoveTolerance * dragMoveTolerance;
             const suppressClickMs = 260;
             const baselineSelectedSet = __tmGetMultiSelectedTaskIdSet();
             const sweepPath = [];
@@ -15827,6 +16203,8 @@ __tmPushStatusDebug('apply-status:start', {
             let sweeping = false;
             let ended = false;
             let captured = false;
+            let dragMoveArmed = false;
+            let dragMoveTimer = 0;
 
             const samePointer = (e2) => {
                 if (!Number.isFinite(pointerId)) return true;
@@ -15891,9 +16269,29 @@ __tmPushStatusDebug('apply-status:start', {
                 } catch (e) {}
             };
 
+            const clearDragMoveTimer = () => {
+                if (!dragMoveTimer) return;
+                try { clearTimeout(dragMoveTimer); } catch (e) {}
+                dragMoveTimer = 0;
+            };
+
+            const armDragMove = () => {
+                if (ended || sweeping || dragMoveArmed) return;
+                const dx = lastX - startX;
+                const dy = lastY - startY;
+                if ((dx * dx + dy * dy) >= dragMoveToleranceSq) return;
+                if (!__tmIsTaskMultiSelected(taskId)) return;
+                dragMoveArmed = true;
+                state.multiSelectDragMoveArmedUntil = Date.now() + 4000;
+                state.multiSelectDragMoveArmedTaskId = taskId;
+                try { sourceEl.classList.add('tm-task-row--multi-drag-armed'); } catch (e) {}
+                try { document.body.style.cursor = 'grab'; } catch (e) {}
+            };
+
             const cleanup = (suppressClick) => {
                 if (ended) return;
                 ended = true;
+                clearDragMoveTimer();
                 try { globalThis.__tmRuntimeEvents?.off?.(document, 'pointermove', onMove, true); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(document, 'pointerup', onUp, true); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(document, 'pointercancel', onUp, true); } catch (e) {}
@@ -15901,11 +16299,15 @@ __tmPushStatusDebug('apply-status:start', {
                 if (captured && Number.isFinite(pointerId) && typeof sourceEl.releasePointerCapture === 'function') {
                     try { sourceEl.releasePointerCapture(pointerId); } catch (e) {}
                 }
-                try { sourceEl.classList.remove('tm-task-row--multi-sweeping'); } catch (e) {}
+                try { sourceEl.classList.remove('tm-task-row--multi-sweeping', 'tm-task-row--multi-drag-armed'); } catch (e) {}
                 try {
                     document.body.style.userSelect = '';
                     document.body.style.cursor = '';
                 } catch (e) {}
+                if (String(state.multiSelectDragMoveArmedTaskId || '').trim() === taskId) {
+                    state.multiSelectDragMoveArmedUntil = 0;
+                    state.multiSelectDragMoveArmedTaskId = '';
+                }
                 if (suppressClick) {
                     __tmSuppressDockPointerTaskClick(suppressClickMs);
                 }
@@ -15921,7 +16323,10 @@ __tmPushStatusDebug('apply-status:start', {
                 if (!sweeping) {
                     const dx = lastX - startX;
                     const dy = lastY - startY;
+                    if (dragMoveArmed) return;
+                    if ((dx * dx + dy * dy) >= dragMoveToleranceSq) clearDragMoveTimer();
                     if ((dx * dx + dy * dy) < (threshold * threshold)) return;
+                    clearDragMoveTimer();
                     startSweep();
                 }
                 sweepAtPoint(lastX, lastY);
@@ -15939,6 +16344,7 @@ __tmPushStatusDebug('apply-status:start', {
             };
 
             state.multiSelectPointerGestureCleanup = () => cleanup(false);
+            dragMoveTimer = setTimeout(armDragMove, dragMoveLongPressMs);
             try { globalThis.__tmRuntimeEvents?.on?.(document, 'pointermove', onMove, true); } catch (e) {}
             try { globalThis.__tmRuntimeEvents?.on?.(document, 'pointerup', onUp, true); } catch (e) {}
             try { globalThis.__tmRuntimeEvents?.on?.(document, 'pointercancel', onUp, true); } catch (e) {}
@@ -16074,6 +16480,7 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmBreadcrumbObserver = null;
     let __tmBreadcrumbBtnEl = null;
     let __tmThemeModeObserver = null;
+    let __tmThemeModeRefreshRaf = null;
     let __tmTopBarTimer = null;
     let __tmShellEntrancesRefreshRaf = null;
     let __tmShellEntrancesRefreshTimer = null;
@@ -21381,6 +21788,7 @@ refreshOk = false;
     const __tmPriorityChipStyleCache = new Map();
     const __tmDocColorHexCache = new Map();
     let __tmCssColorParseCtx = null;
+    let __tmCssColorProbeEl = null;
 
     function __tmRememberSmallCache(cache, key, value, limit = 400) {
         if (!(cache instanceof Map)) return value;
@@ -21394,8 +21802,30 @@ refreshOk = false;
         return value;
     }
 
+    function __tmClearThemeColorRuntimeCaches() {
+        try { __tmCssColorRgbaCache.clear(); } catch (e) {}
+        try { __tmGroupBgColorCache.clear(); } catch (e) {}
+        try { __tmStatusChipStyleCache.clear(); } catch (e) {}
+        try { __tmPriorityChipStyleCache.clear(); } catch (e) {}
+        try { __tmDocColorHexCache.clear(); } catch (e) {}
+    }
+
+    function __tmGetRootThemeAttr(name) {
+        try {
+            return String(document.documentElement?.getAttribute?.(name) || '').trim();
+        } catch (e) {
+            return '';
+        }
+    }
+
     function __tmGetColorCacheThemeKey() {
-        return __tmIsDarkMode() ? 'dark' : 'light';
+        return [
+            __tmIsDarkMode() ? 'dark' : 'light',
+            __tmGetRootThemeAttr('data-light-theme'),
+            __tmGetRootThemeAttr('data-dark-theme'),
+            __tmGetRootThemeAttr('data-mode'),
+            __tmGetRootThemeAttr('class'),
+        ].join('|');
     }
 
     function __tmGetCssColorParseCtx() {
@@ -21407,6 +21837,38 @@ refreshOk = false;
             __tmCssColorParseCtx = null;
         }
         return __tmCssColorParseCtx;
+    }
+
+    function __tmGetCssColorProbeEl() {
+        try {
+            if (typeof document === 'undefined' || !document?.createElement) return null;
+            if (!__tmCssColorProbeEl) {
+                const probe = document.createElement('span');
+                probe.setAttribute('aria-hidden', 'true');
+                probe.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none;';
+                __tmCssColorProbeEl = probe;
+            }
+            const host = document.body || document.documentElement;
+            if (host && !__tmCssColorProbeEl.isConnected) host.appendChild(__tmCssColorProbeEl);
+            return __tmCssColorProbeEl.isConnected ? __tmCssColorProbeEl : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmResolveCssColorWithProbe(input) {
+        const s = String(input || '').trim();
+        if (!s) return '';
+        try {
+            const probe = __tmGetCssColorProbeEl();
+            if (!probe || typeof getComputedStyle !== 'function') return '';
+            probe.style.color = '';
+            probe.style.color = s;
+            if (!probe.style.color) return '';
+            return String(getComputedStyle(probe).color || probe.style.color || '').trim();
+        } catch (e) {
+            return '';
+        }
     }
 
     function __tmThemeAdjustHex(hex, isDark) {
@@ -21881,6 +22343,12 @@ refreshOk = false;
         const varMatch = /^var\(\s*(--[a-zA-Z0-9\-_]+)(?:\s*,\s*([\s\S]+))?\)$/.exec(s0);
         if (varMatch) {
             try {
+                const probed = __tmResolveCssColorWithProbe(s0);
+                if (probed && probed !== s0) {
+                    const out = __tmParseCssColorToRgba(probed);
+                    __tmRememberSmallCache(__tmCssColorRgbaCache, cacheKey, out, 600);
+                    return out;
+                }
                 const host = document.documentElement || document.body;
                 const resolvedVar = String(host ? getComputedStyle(host).getPropertyValue(varMatch[1]) : '').trim();
                 const fallback = String(varMatch[2] || '').trim();
@@ -21894,6 +22362,12 @@ refreshOk = false;
             }
         }
         try {
+            const probed = __tmResolveCssColorWithProbe(s0);
+            if (probed && probed !== s0) {
+                const out = __tmParseCssColorToRgba(probed);
+                __tmRememberSmallCache(__tmCssColorRgbaCache, cacheKey, out, 600);
+                return out;
+            }
             const probe = document.createElement('span');
             probe.style.color = '';
             probe.style.color = s0;
@@ -22287,8 +22761,76 @@ refreshOk = false;
         return `rgba(${Math.round(mixed.r)}, ${Math.round(mixed.g)}, ${Math.round(mixed.b)}, ${alpha})`;
     }
 
-    function __tmBuildThemePalette(themeConfig, isDark) {
-        const tokens = __tmResolveThemeTokenMap(themeConfig, isDark);
+    function __tmIsSiyuanThemeColorsEnabled() {
+        return !!SettingsStore?.data?.enableSiyuanThemeColors;
+    }
+
+    function __tmReadCurrentThemeCssColor(expr, fallback = '') {
+        const source = String(expr || '').trim();
+        const resolved = __tmResolveCssColorWithProbe(source);
+        const normalized = __tmNormalizeThemeSemanticColorValue(resolved);
+        if (normalized) return normalized;
+        const fallbackValue = __tmNormalizeThemeSemanticColorValue(fallback);
+        if (fallbackValue) return fallbackValue;
+        return __tmNormalizeThemeSemanticColorValue(source) || String(fallback || '').trim();
+    }
+
+    function __tmReadCurrentThemeVar(name, fallback = '') {
+        const key = String(name || '').trim();
+        if (!/^--[a-zA-Z0-9\-_]+$/.test(key)) return __tmReadCurrentThemeCssColor(fallback, fallback);
+        const fallbackValue = __tmNormalizeThemeSemanticColorValue(fallback);
+        return __tmReadCurrentThemeCssColor(fallbackValue ? `var(${key}, ${fallbackValue})` : `var(${key})`, fallbackValue);
+    }
+
+    function __tmBuildSiyuanThemeTokenMap(isDark) {
+        const fallbackPreset = __tmGetThemePresetById('task-horizon-slate');
+        const fallbackTokens = __tmNormalizeThemeTokenMap(isDark ? fallbackPreset.dark : fallbackPreset.light);
+        const fallback = (key, value = '') => fallbackTokens[key] || value || '';
+        const background = __tmReadCurrentThemeVar('--b3-theme-background', fallback('background'));
+        const menuBackground = __tmReadCurrentThemeVar('--b3-menu-background', background || fallback('popover'));
+        const foreground = __tmReadCurrentThemeVar('--b3-theme-on-background', fallback('foreground'));
+        const surface = __tmReadCurrentThemeVar('--b3-theme-surface', fallback('card', background));
+        const surfaceLight = __tmReadCurrentThemeVar('--b3-theme-surface-light', surface || fallback('muted'));
+        const onSurface = __tmReadCurrentThemeVar('--b3-theme-on-surface', foreground || fallback('card-foreground'));
+        const onSurfaceLight = __tmReadCurrentThemeVar('--b3-theme-on-surface-light', fallback('muted-foreground', onSurface || foreground));
+        const listHover = __tmReadCurrentThemeVar('--b3-list-hover', surfaceLight || fallback('accent'));
+        const primary = __tmReadCurrentThemeVar('--b3-theme-primary', fallback('primary'));
+        const accent = listHover || __tmMixThemeColors(primary, background, isDark ? 0.78 : 0.86);
+        const rawBorder = __tmReadCurrentThemeVar('--b3-border-color', fallback('border'));
+        const border = __tmWithAlpha(rawBorder, 0.5);
+        const destructive = __tmReadCurrentThemeVar('--b3-theme-error', fallback('destructive'));
+        const success = __tmReadCurrentThemeVar('--b3-card-success-color', fallback('success'));
+        const warning = __tmReadCurrentThemeVar('--b3-card-warning-color', fallback('warning'));
+        const info = __tmReadCurrentThemeVar('--b3-card-info-color', fallback('info'));
+        return {
+            background,
+            foreground,
+            sidebar: surface,
+            card: background || surface,
+            'card-foreground': foreground,
+            popover: menuBackground || background || surface,
+            'popover-foreground': foreground,
+            primary,
+            'primary-foreground': __tmGetReadableTextColor(primary, '#0f172a', '#ffffff'),
+            secondary: surface,
+            'secondary-foreground': onSurface || foreground,
+            muted: surfaceLight || listHover || surface,
+            'muted-foreground': onSurfaceLight || onSurface || foreground,
+            accent: accent || listHover,
+            'accent-foreground': foreground,
+            destructive,
+            'destructive-foreground': __tmGetReadableTextColor(destructive, '#0f172a', '#ffffff'),
+            border,
+            input: border,
+            ring: primary,
+            success,
+            warning,
+            info,
+        };
+    }
+
+    function __tmBuildThemePaletteFromTokens(tokens, isDark) {
+        tokens = (tokens && typeof tokens === 'object') ? tokens : {};
         const background = tokens.background || (isDark ? 'hsl(222 47% 11%)' : 'hsl(210 20% 98%)');
         const foreground = tokens.foreground || (isDark ? 'hsl(210 40% 98%)' : 'hsl(222 47% 11%)');
         const card = tokens.card || __tmMixThemeColors(background, foreground, isDark ? 0.08 : 0.02);
@@ -22339,14 +22881,27 @@ refreshOk = false;
         };
     }
 
-    function __tmBuildThemeAppearanceDefaults(themeConfig, isDark) {
-        const palette = __tmBuildThemePalette(themeConfig, isDark);
+    function __tmBuildThemePalette(themeConfig, isDark) {
+        return __tmBuildThemePaletteFromTokens(__tmResolveThemeTokenMap(themeConfig, isDark), isDark);
+    }
+
+    function __tmBuildEffectiveThemePalette(themeConfig, isDark) {
+        if (!__tmIsSiyuanThemeColorsEnabled()) return __tmBuildThemePalette(themeConfig, isDark);
+        const fallbackPreset = __tmGetThemePresetById('task-horizon-slate');
+        const fallbackTokens = __tmNormalizeThemeTokenMap(isDark ? fallbackPreset.dark : fallbackPreset.light);
+        return __tmBuildThemePaletteFromTokens({
+            ...fallbackTokens,
+            ...__tmBuildSiyuanThemeTokenMap(isDark),
+        }, isDark);
+    }
+
+    function __tmBuildThemeAppearanceDefaultsFromPalette(palette, isDark) {
         const topbarStart = __tmMixThemeColors(palette.background, palette.primary, isDark ? 0.24 : 0.14);
         const topbarEnd = __tmMixThemeColors(palette.background, palette.accent, isDark ? 0.34 : 0.28);
         const topbarMid = __tmMixThemeColors(topbarStart, topbarEnd, 0.5);
         const topbarText = __tmGetReadableTextColor(topbarMid, palette.foreground, '#ffffff');
         const controlBg = __tmMixThemeColors(topbarMid, palette.background, isDark ? 0.42 : 0.56);
-        const controlText = __tmGetReadableTextColor(controlBg, palette.foreground, '#ffffff');
+        const controlText = topbarText || __tmGetReadableTextColor(controlBg, palette.foreground, '#ffffff');
         const controlBorder = __tmWithAlpha(controlText, isDark ? 0.26 : 0.18);
         const controlHover = __tmMixThemeColors(controlBg, palette.accent, isDark ? 0.34 : 0.22);
         const controlSegBg = __tmMixThemeColors(controlBg, palette.background, isDark ? 0.16 : 0.24);
@@ -22374,6 +22929,42 @@ refreshOk = false;
             calendarGridBorderColor: palette.border,
             tableBorderColor: palette.border,
         };
+    }
+
+    function __tmBuildThemeAppearanceDefaults(themeConfig, isDark) {
+        return __tmBuildThemeAppearanceDefaultsFromPalette(__tmBuildThemePalette(themeConfig, isDark), isDark);
+    }
+
+    function __tmBuildEffectiveThemeAppearanceDefaults(themeConfig, isDark) {
+        const palette = __tmBuildEffectiveThemePalette(themeConfig, isDark);
+        const defaults = __tmBuildThemeAppearanceDefaultsFromPalette(palette, isDark);
+        if (!__tmIsSiyuanThemeColorsEnabled()) return defaults;
+        const flatTopbar = palette.secondary || palette.card || palette.background || defaults.topbarGradientStart;
+        return {
+            ...defaults,
+            topbarGradientStart: flatTopbar,
+            topbarGradientEnd: flatTopbar,
+            topbarTextColor: __tmGetReadableTextColor(flatTopbar, palette.foreground, '#ffffff'),
+        };
+    }
+
+    function __tmGetEffectiveAppearanceColor(lightKey, darkKey, defaultKey, fallbackLight, fallbackDark, isDark = __tmIsDarkMode()) {
+        const themeDefaults = __tmBuildEffectiveThemeAppearanceDefaults(SettingsStore?.data?.themeConfig, isDark);
+        const fallback = themeDefaults?.[defaultKey] || (isDark ? fallbackDark : fallbackLight) || '';
+        if (__tmIsSiyuanThemeColorsEnabled()) return fallback;
+        const key = isDark ? darkKey : lightKey;
+        return __tmNormalizeHexColor(SettingsStore?.data?.[key], fallback) || fallback;
+    }
+
+    function __tmGetEffectiveProgressBarColor(isDark = __tmIsDarkMode()) {
+        return __tmGetEffectiveAppearanceColor(
+            'progressBarColorLight',
+            'progressBarColorDark',
+            'progressBarColor',
+            '#4caf50',
+            '#81c784',
+            isDark
+        );
     }
 
     function __tmApplyThemeConfigToAppearanceFields(themeConfig) {
@@ -23423,9 +24014,7 @@ return true;
         const timelineStartW = __tmGetFixedDateColumnWidth('startDate');
         const timelineEndW = __tmGetFixedDateColumnWidth('completionTime');
         const isDark = __tmIsDarkMode();
-        const progressBarColor = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
-            : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
+        const progressBarColor = __tmGetEffectiveProgressBarColor(isDark);
         const completedTodayKey = __tmNormalizeDateOnly(new Date());
         const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
         let currentGroupBg = '';

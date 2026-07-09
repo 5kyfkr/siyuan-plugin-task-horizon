@@ -159,24 +159,26 @@
     function renderAppearanceColorSettings() {
         const d = SettingsStore.data || {};
         const themeConfig = __tmNormalizeThemeConfig(d.themeConfig);
-        const themeDefaultsLight = __tmBuildThemeAppearanceDefaults(themeConfig, false);
-        const themeDefaultsDark = __tmBuildThemeAppearanceDefaults(themeConfig, true);
-        const themePaletteLight = __tmBuildThemePalette(themeConfig, false);
-        const themePaletteDark = __tmBuildThemePalette(themeConfig, true);
+        const followSiyuan = !!d.enableSiyuanThemeColors;
+        const themeDefaultsLight = __tmBuildEffectiveThemeAppearanceDefaults(themeConfig, false);
+        const themeDefaultsDark = __tmBuildEffectiveThemeAppearanceDefaults(themeConfig, true);
+        const themePaletteLight = __tmBuildEffectiveThemePalette(themeConfig, false);
+        const themePaletteDark = __tmBuildEffectiveThemePalette(themeConfig, true);
         const hasImportedTheme = Object.keys(themeConfig.importLight || {}).length > 0;
         const themeSelectValue = themeConfig.source === 'imported' && hasImportedTheme ? '__imported__' : themeConfig.presetId;
         const topbarLight = __tmGetTopbarControlAppearance(false);
         const topbarDark = __tmGetTopbarControlAppearance(true);
+        const colorValue = (key, fallback) => followSiyuan ? fallback : (d[key] || fallback);
         const items = [
             {
                 title: '插件顶栏渐变',
                 rows: [
-                    { label: '亮色 起始', key: 'topbarGradientLightStart', value: d.topbarGradientLightStart || themeDefaultsLight.topbarGradientStart },
-                    { label: '亮色 结束', key: 'topbarGradientLightEnd', value: d.topbarGradientLightEnd || themeDefaultsLight.topbarGradientEnd },
-                    { label: '夜间 起始', key: 'topbarGradientDarkStart', value: d.topbarGradientDarkStart || themeDefaultsDark.topbarGradientStart },
-                    { label: '夜间 结束', key: 'topbarGradientDarkEnd', value: d.topbarGradientDarkEnd || themeDefaultsDark.topbarGradientEnd },
-                    { label: '顶栏文字 亮色', key: 'topbarTextColorLight', value: d.topbarTextColorLight || themeDefaultsLight.topbarTextColor },
-                    { label: '顶栏文字 夜间', key: 'topbarTextColorDark', value: d.topbarTextColorDark || themeDefaultsDark.topbarTextColor }
+                    { label: '亮色 起始', key: 'topbarGradientLightStart', value: colorValue('topbarGradientLightStart', themeDefaultsLight.topbarGradientStart) },
+                    { label: '亮色 结束', key: 'topbarGradientLightEnd', value: colorValue('topbarGradientLightEnd', themeDefaultsLight.topbarGradientEnd) },
+                    { label: '夜间 起始', key: 'topbarGradientDarkStart', value: colorValue('topbarGradientDarkStart', themeDefaultsDark.topbarGradientStart) },
+                    { label: '夜间 结束', key: 'topbarGradientDarkEnd', value: colorValue('topbarGradientDarkEnd', themeDefaultsDark.topbarGradientEnd) },
+                    { label: '顶栏文字 亮色', key: 'topbarTextColorLight', value: colorValue('topbarTextColorLight', themeDefaultsLight.topbarTextColor) },
+                    { label: '顶栏文字 夜间', key: 'topbarTextColorDark', value: colorValue('topbarTextColorDark', themeDefaultsDark.topbarTextColor) }
                 ]
             },
             {
@@ -201,66 +203,66 @@
             {
                 title: '任务内容列字体颜色',
                 rows: [
-                    { label: '亮色', key: 'taskContentColorLight', value: d.taskContentColorLight || themeDefaultsLight.taskContentColor },
-                    { label: '夜间', key: 'taskContentColorDark', value: d.taskContentColorDark || themeDefaultsDark.taskContentColor }
+                    { label: '亮色', key: 'taskContentColorLight', value: colorValue('taskContentColorLight', themeDefaultsLight.taskContentColor) },
+                    { label: '夜间', key: 'taskContentColorDark', value: colorValue('taskContentColorDark', themeDefaultsDark.taskContentColor) }
                 ]
             },
             {
                 title: '任务其它列字体颜色',
                 rows: [
-                    { label: '亮色', key: 'taskMetaColorLight', value: d.taskMetaColorLight || themeDefaultsLight.taskMetaColor },
-                    { label: '夜间', key: 'taskMetaColorDark', value: d.taskMetaColorDark || themeDefaultsDark.taskMetaColor }
+                    { label: '亮色', key: 'taskMetaColorLight', value: colorValue('taskMetaColorLight', themeDefaultsLight.taskMetaColor) },
+                    { label: '夜间', key: 'taskMetaColorDark', value: colorValue('taskMetaColorDark', themeDefaultsDark.taskMetaColor) }
                 ]
             },
             {
                 title: '子任务进度条背景',
                 rows: [
-                    { label: '亮色', key: 'progressBarColorLight', value: d.progressBarColorLight || themeDefaultsLight.progressBarColor },
-                    { label: '夜间', key: 'progressBarColorDark', value: d.progressBarColorDark || themeDefaultsDark.progressBarColor }
+                    { label: '亮色', key: 'progressBarColorLight', value: colorValue('progressBarColorLight', themeDefaultsLight.progressBarColor) },
+                    { label: '夜间', key: 'progressBarColorDark', value: colorValue('progressBarColorDark', themeDefaultsDark.progressBarColor) }
                 ]
             },
             {
                 title: '日历当天高亮颜色',
                 rows: [
-                    { label: '亮色', key: 'calendarTodayHighlightColorLight', value: d.calendarTodayHighlightColorLight || themeDefaultsLight.calendarTodayHighlightColor },
-                    { label: '夜间', key: 'calendarTodayHighlightColorDark', value: d.calendarTodayHighlightColorDark || themeDefaultsDark.calendarTodayHighlightColor }
+                    { label: '亮色', key: 'calendarTodayHighlightColorLight', value: colorValue('calendarTodayHighlightColorLight', themeDefaultsLight.calendarTodayHighlightColor) },
+                    { label: '夜间', key: 'calendarTodayHighlightColorDark', value: colorValue('calendarTodayHighlightColorDark', themeDefaultsDark.calendarTodayHighlightColor) }
                 ]
             },
             {
                 title: '日历边框线颜色',
                 rows: [
-                    { label: '亮色', key: 'calendarGridBorderColorLight', value: d.calendarGridBorderColorLight || themeDefaultsLight.calendarGridBorderColor },
-                    { label: '夜间', key: 'calendarGridBorderColorDark', value: d.calendarGridBorderColorDark || themeDefaultsDark.calendarGridBorderColor }
+                    { label: '亮色', key: 'calendarGridBorderColorLight', value: colorValue('calendarGridBorderColorLight', themeDefaultsLight.calendarGridBorderColor) },
+                    { label: '夜间', key: 'calendarGridBorderColorDark', value: colorValue('calendarGridBorderColorDark', themeDefaultsDark.calendarGridBorderColor) }
                 ]
             },
             {
                 title: '表格边框线颜色',
                 rows: [
-                    { label: '亮色', key: 'tableBorderColorLight', value: d.tableBorderColorLight || themeDefaultsLight.tableBorderColor },
-                    { label: '夜间', key: 'tableBorderColorDark', value: d.tableBorderColorDark || themeDefaultsDark.tableBorderColor }
+                    { label: '亮色', key: 'tableBorderColorLight', value: colorValue('tableBorderColorLight', themeDefaultsLight.tableBorderColor) },
+                    { label: '夜间', key: 'tableBorderColorDark', value: colorValue('tableBorderColorDark', themeDefaultsDark.tableBorderColor) }
                 ]
             },
             {
                 title: '分组名称（按文档分组）',
                 rows: [
-                    { label: '亮色', key: 'groupDocLabelColorLight', value: d.groupDocLabelColorLight || themeDefaultsLight.groupDocLabelColor },
-                    { label: '夜间', key: 'groupDocLabelColorDark', value: d.groupDocLabelColorDark || themeDefaultsDark.groupDocLabelColor }
+                    { label: '亮色', key: 'groupDocLabelColorLight', value: colorValue('groupDocLabelColorLight', themeDefaultsLight.groupDocLabelColor) },
+                    { label: '夜间', key: 'groupDocLabelColorDark', value: colorValue('groupDocLabelColorDark', themeDefaultsDark.groupDocLabelColor) }
                 ]
             },
             {
                 title: '分组名称（按时间分组）',
                 rows: [
-                    { label: '未来基础色 亮色', key: 'timeGroupBaseColorLight', value: d.timeGroupBaseColorLight || themeDefaultsLight.timeGroupBaseColor },
-                    { label: '未来基础色 夜间', key: 'timeGroupBaseColorDark', value: d.timeGroupBaseColorDark || themeDefaultsDark.timeGroupBaseColor },
-                    { label: '已过期 亮色', key: 'timeGroupOverdueColorLight', value: d.timeGroupOverdueColorLight || themeDefaultsLight.timeGroupOverdueColor },
-                    { label: '已过期 夜间', key: 'timeGroupOverdueColorDark', value: d.timeGroupOverdueColorDark || themeDefaultsDark.timeGroupOverdueColor }
+                    { label: '未来基础色 亮色', key: 'timeGroupBaseColorLight', value: colorValue('timeGroupBaseColorLight', themeDefaultsLight.timeGroupBaseColor) },
+                    { label: '未来基础色 夜间', key: 'timeGroupBaseColorDark', value: colorValue('timeGroupBaseColorDark', themeDefaultsDark.timeGroupBaseColor) },
+                    { label: '已过期 亮色', key: 'timeGroupOverdueColorLight', value: colorValue('timeGroupOverdueColorLight', themeDefaultsLight.timeGroupOverdueColor) },
+                    { label: '已过期 夜间', key: 'timeGroupOverdueColorDark', value: colorValue('timeGroupOverdueColorDark', themeDefaultsDark.timeGroupOverdueColor) }
                 ]
             },
             {
                 title: '表格视图待定分组任务行背景',
                 rows: [
-                    { label: '亮色', key: 'timeGroupPendingTaskBgColorLight', value: d.timeGroupPendingTaskBgColorLight || themeDefaultsLight.timeGroupPendingTaskBgColor },
-                    { label: '夜间', key: 'timeGroupPendingTaskBgColorDark', value: d.timeGroupPendingTaskBgColorDark || themeDefaultsDark.timeGroupPendingTaskBgColor }
+                    { label: '亮色', key: 'timeGroupPendingTaskBgColorLight', value: colorValue('timeGroupPendingTaskBgColorLight', themeDefaultsLight.timeGroupPendingTaskBgColor) },
+                    { label: '夜间', key: 'timeGroupPendingTaskBgColorDark', value: colorValue('timeGroupPendingTaskBgColorDark', themeDefaultsDark.timeGroupPendingTaskBgColor) }
                 ]
             }
         ];
@@ -268,10 +270,12 @@
         const renderRow = (row) => {
             const raw = __tmNormalizeHexColor(row.value, '#000000') || '#000000';
             const displayValue = __tmFormatColorDisplayValue(raw);
+            const disabledAttr = followSiyuan ? ' disabled title="跟随思源主题色时由当前主题自动生成"' : '';
+            const disabledStyle = followSiyuan ? 'opacity:0.68;cursor:not-allowed;' : '';
             return `
                 <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-bg-color);">
                     <span style="font-size:12px;color:var(--tm-secondary-text);">${esc(row.label)}</span>
-                    <button type="button" class="tm-color-btn" data-tm-color-key="${esc(row.key)}" data-tm-color-label="${esc(row.label)}" onclick="tmOpenAppearanceColorPicker(this)">
+                    <button type="button" class="tm-color-btn" data-tm-color-key="${esc(row.key)}" data-tm-color-label="${esc(row.label)}" onclick="tmOpenAppearanceColorPicker(this)" style="${disabledStyle}"${disabledAttr}>
                         <span class="tm-color-swatch" style="background:${esc(raw)}"></span>
                         <span class="tm-color-text">${esc(displayValue)}</span>
                     </button>
@@ -314,10 +318,22 @@
             </div>
         `).join('');
 
-        const previewLight = `linear-gradient(135deg, ${esc(__tmNormalizeHexColor(d.topbarGradientLightStart, themeDefaultsLight.topbarGradientStart) || themeDefaultsLight.topbarGradientStart)} 0%, ${esc(__tmNormalizeHexColor(d.topbarGradientLightEnd, themeDefaultsLight.topbarGradientEnd) || themeDefaultsLight.topbarGradientEnd)} 100%)`;
-        const previewDark = `linear-gradient(135deg, ${esc(__tmNormalizeHexColor(d.topbarGradientDarkStart, themeDefaultsDark.topbarGradientStart) || themeDefaultsDark.topbarGradientStart)} 0%, ${esc(__tmNormalizeHexColor(d.topbarGradientDarkEnd, themeDefaultsDark.topbarGradientEnd) || themeDefaultsDark.topbarGradientEnd)} 100%)`;
+        const buildTopbarPreviewBg = (startKey, endKey, defaults) => {
+            const startValue = colorValue(startKey, defaults.topbarGradientStart) || defaults.topbarGradientStart;
+            const endValue = colorValue(endKey, defaults.topbarGradientEnd) || defaults.topbarGradientEnd;
+            if (followSiyuan) return esc(startValue || endValue);
+            const start = __tmNormalizeHexColor(startValue, defaults.topbarGradientStart) || defaults.topbarGradientStart;
+            const end = __tmNormalizeHexColor(endValue, defaults.topbarGradientEnd) || defaults.topbarGradientEnd;
+            return `linear-gradient(135deg, ${esc(start)} 0%, ${esc(end)} 100%)`;
+        };
+        const previewLight = buildTopbarPreviewBg('topbarGradientLightStart', 'topbarGradientLightEnd', themeDefaultsLight);
+        const previewDark = buildTopbarPreviewBg('topbarGradientDarkStart', 'topbarGradientDarkEnd', themeDefaultsDark);
         const themeOptions = __TM_THEME_PRESETS.map((preset) => `<option value="${esc(preset.id)}" ${themeSelectValue === preset.id ? 'selected' : ''}>${esc(preset.name)}</option>`).join('');
-        const activeThemeName = themeConfig.source === 'imported' && hasImportedTheme ? (themeConfig.importName || 'Custom') : __tmGetThemePresetById(themeConfig.presetId).name;
+        const activeThemeName = followSiyuan
+            ? '思源主题色'
+            : (themeConfig.source === 'imported' && hasImportedTheme ? (themeConfig.importName || 'Custom') : __tmGetThemePresetById(themeConfig.presetId).name);
+        const themeControlDisabledAttr = followSiyuan ? ' disabled' : '';
+        const themeControlDisabledStyle = followSiyuan ? 'opacity:0.68;cursor:not-allowed;' : '';
         const editableThemeTokens = [
             { key: 'background', label: '背景' },
             { key: 'sidebar', label: '侧栏' },
@@ -337,21 +353,21 @@
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
                         <span style="font-size:12px;color:var(--tm-secondary-text);">亮色${lightOverridden ? ' · 已覆盖' : ''}</span>
                         <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                            <button type="button" class="tm-color-btn" onclick="tmOpenThemeTokenPicker('${esc(token.key)}','light')" style="min-width:128px;">
+                            <button type="button" class="tm-color-btn" onclick="tmOpenThemeTokenPicker('${esc(token.key)}','light')" style="min-width:128px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>
                                 <span class="tm-color-swatch" style="background:${esc(lightValue)}"></span>
                                 <span class="tm-color-text">${esc(__tmFormatColorDisplayValue(lightValue))}</span>
                             </button>
-                            ${lightOverridden ? `<button class="tm-btn tm-btn-gray" onclick="tmClearThemeTokenOverride('${esc(token.key)}','light')" style="padding:4px 8px;font-size:12px;">清除</button>` : ''}
+                            ${lightOverridden ? `<button class="tm-btn tm-btn-gray" onclick="tmClearThemeTokenOverride('${esc(token.key)}','light')" style="padding:4px 8px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>清除</button>` : ''}
                         </span>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
                         <span style="font-size:12px;color:var(--tm-secondary-text);">夜间${darkOverridden ? ' · 已覆盖' : ''}</span>
                         <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                            <button type="button" class="tm-color-btn" onclick="tmOpenThemeTokenPicker('${esc(token.key)}','dark')" style="min-width:128px;">
+                            <button type="button" class="tm-color-btn" onclick="tmOpenThemeTokenPicker('${esc(token.key)}','dark')" style="min-width:128px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>
                                 <span class="tm-color-swatch" style="background:${esc(darkValue)}"></span>
                                 <span class="tm-color-text">${esc(__tmFormatColorDisplayValue(darkValue))}</span>
                             </button>
-                            ${darkOverridden ? `<button class="tm-btn tm-btn-gray" onclick="tmClearThemeTokenOverride('${esc(token.key)}','dark')" style="padding:4px 8px;font-size:12px;">清除</button>` : ''}
+                            ${darkOverridden ? `<button class="tm-btn tm-btn-gray" onclick="tmClearThemeTokenOverride('${esc(token.key)}','dark')" style="padding:4px 8px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>清除</button>` : ''}
                         </span>
                     </div>
                 </div>
@@ -372,22 +388,32 @@
                 </div>
             </div>
         `;
+        const currentThemeSourceText = followSiyuan
+            ? '思源主题色'
+            : (themeConfig.source === 'imported' && hasImportedTheme ? `导入主题「${themeConfig.importName || 'Custom'}」` : `预设「${__tmGetThemePresetById(themeConfig.presetId).name}」`);
         const themeSection = `
             <div style="padding:12px;border:1px solid var(--tm-border-color);border-radius:12px;background:var(--tm-card-bg);margin-bottom:12px;display:flex;flex-direction:column;gap:12px;">
+                <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-bg-color);">
+                    <span style="display:flex;flex-direction:column;gap:4px;">
+                        <span style="font-size:13px;color:var(--tm-text-color);font-weight:600;">跟随思源主题色</span>
+                        <span style="font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">开启后使用当前思源主题变量，关闭后恢复插件配色。</span>
+                    </span>
+                    <input class="b3-switch fn__flex-center" type="checkbox" ${followSiyuan ? 'checked' : ''} onchange="tmToggleSiyuanThemeColors(this.checked)">
+                </label>
                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
                     <div>
                         <div style="font-weight:600;">主题方案</div>
                         <div style="margin-top:4px;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">支持内置预设与 TweakCN / shadcn CSS 变量导入。切换方案时，会同步刷新插件背景、Basecoat 控件和下面的外观微调项。<a href="${esc(__TM_TWEAKCN_URL)}" target="_blank" rel="noopener noreferrer" style="margin-left:6px;color:var(--tm-primary-color);text-decoration:none;">打开 TweakCN ↗</a></div>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                        <select class="tm-rule-select" onchange="tmSelectAppearanceTheme(this.value)" style="min-width:180px;">
+                        <select class="tm-rule-select" onchange="tmSelectAppearanceTheme(this.value)" style="min-width:180px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>
                             ${themeOptions}
                             ${hasImportedTheme ? `<option value="__imported__" ${themeSelectValue === '__imported__' ? 'selected' : ''}>导入主题 · ${esc(themeConfig.importName || 'Custom')}</option>` : ''}
                         </select>
-                        <button class="tm-btn tm-btn-gray" type="button" onclick="window.open('${esc(__TM_TWEAKCN_URL)}', '_blank', 'noopener,noreferrer')" style="padding:4px 10px;font-size:12px;">访问 TweakCN</button>
-                        <button class="tm-btn tm-btn-info" onclick="tmOpenThemeImportDialog()" style="padding:4px 10px;font-size:12px;">导入 TweakCN</button>
-                        ${hasImportedTheme ? `<button class="tm-btn tm-btn-gray" onclick="tmClearImportedTheme()" style="padding:4px 10px;font-size:12px;">移除导入</button>` : ''}
-                        <button class="tm-btn tm-btn-gray" onclick="tmResetThemeOverrides()" style="padding:4px 10px;font-size:12px;">还原当前主题</button>
+                        <button class="tm-btn tm-btn-gray" type="button" onclick="window.open('${esc(__TM_TWEAKCN_URL)}', '_blank', 'noopener,noreferrer')" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>访问 TweakCN</button>
+                        <button class="tm-btn tm-btn-info" onclick="tmOpenThemeImportDialog()" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>导入 TweakCN</button>
+                        ${hasImportedTheme ? `<button class="tm-btn tm-btn-gray" onclick="tmClearImportedTheme()" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>移除导入</button>` : ''}
+                        <button class="tm-btn tm-btn-gray" onclick="tmResetThemeOverrides()" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>还原当前主题</button>
                     </div>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">
@@ -397,7 +423,7 @@
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
                     ${editableThemeTokens.map(renderThemeTokenEditor).join('')}
                 </div>
-                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">当前来源：${esc(themeConfig.source === 'imported' && hasImportedTheme ? `导入主题「${themeConfig.importName || 'Custom'}」` : `预设「${__tmGetThemePresetById(themeConfig.presetId).name}」`)}</div>
+                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">当前来源：${esc(currentThemeSourceText)}</div>
             </div>
         `;
 
@@ -413,7 +439,7 @@
                     <div id="tmAppearancePreviewDark" style="width:180px;height:22px;border-radius:8px;background:${previewDark};border:1px solid rgba(0,0,0,0.06);"></div>
                 </div>
                 <div style="flex:1;"></div>
-                <button class="tm-btn tm-btn-gray" onclick="tmResetAppearanceColors()" style="padding: 4px 10px; font-size: 12px;">恢复默认</button>
+                <button class="tm-btn tm-btn-gray" onclick="tmResetAppearanceColors()" style="padding: 4px 10px; font-size: 12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>恢复默认</button>
             </div>
             <div style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
@@ -447,6 +473,10 @@
     }
 
     window.tmOpenAppearanceColorPicker = function(el) {
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            return;
+        }
         const btn = el && el.nodeType === 1 ? el : null;
         const k = String(btn?.dataset?.tmColorKey || '').trim();
         const label = String(btn?.dataset?.tmColorLabel || '选择颜色').trim() || '选择颜色';
@@ -504,6 +534,10 @@
     };
 
     window.tmUpdateAppearanceColor = async function(key, value) {
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            return;
+        }
         const allowed = new Set([
             'topbarGradientLightStart', 'topbarGradientLightEnd', 'topbarGradientDarkStart', 'topbarGradientDarkEnd',
             'topbarTextColorLight', 'topbarTextColorDark',
@@ -591,6 +625,15 @@
         render();
     };
 
+    window.tmToggleSiyuanThemeColors = async function(enabled) {
+        SettingsStore.data.enableSiyuanThemeColors = !!enabled;
+        await SettingsStore.save();
+        try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
+        try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+        showSettings();
+        render();
+    };
+
     window.tmUpdatePriorityIconStyle = async function(value) {
         SettingsStore.data.priorityIconStyle = __tmNormalizePriorityIconStyle(value);
         await SettingsStore.save();
@@ -651,6 +694,11 @@
     };
 
     window.tmResetAppearanceColors = async function() {
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            showSettings();
+            return;
+        }
         SettingsStore.data.themeConfig = __tmGetDefaultThemeConfig();
         SettingsStore.data.topbarControlRadiusPx = 10;
         SettingsStore.data.topbarControlBorderWidthPx = 1;
@@ -665,6 +713,11 @@
     };
 
     window.tmSelectAppearanceTheme = async function(value) {
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            showSettings();
+            return;
+        }
         const next = String(value || '').trim();
         const current = __tmNormalizeThemeConfig(SettingsStore.data?.themeConfig);
         if (next === '__imported__') {
@@ -683,6 +736,10 @@
     };
 
     window.tmOpenThemeTokenPicker = function(tokenKey, mode) {
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            return;
+        }
         const key = __tmNormalizeThemeTokenKey(tokenKey);
         const resolvedMode = String(mode || '').trim() === 'dark' ? 'dark' : 'light';
         if (!key) return;
@@ -696,6 +753,10 @@
     };
 
     window.tmUpdateThemeTokenOverride = async function(tokenKey, mode, value) {
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            return;
+        }
         const key = __tmNormalizeThemeTokenKey(tokenKey);
         const resolvedMode = String(mode || '').trim() === 'dark' ? 'dark' : 'light';
         const nextValue = __tmNormalizeHexColor(value, '');
@@ -714,6 +775,10 @@
     };
 
     window.tmClearThemeTokenOverride = async function(tokenKey, mode) {
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            return;
+        }
         const key = __tmNormalizeThemeTokenKey(tokenKey);
         const resolvedMode = String(mode || '').trim() === 'dark' ? 'dark' : 'light';
         if (!key) return;
@@ -731,6 +796,11 @@
     };
 
     window.tmResetThemeOverrides = async function() {
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            showSettings();
+            return;
+        }
         const config = __tmNormalizeThemeConfig(SettingsStore.data?.themeConfig);
         config.overrideLight = {};
         config.overrideDark = {};
@@ -743,6 +813,11 @@
     };
 
     window.tmClearImportedTheme = async function() {
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            showSettings();
+            return;
+        }
         const next = __tmNormalizeThemeConfig(SettingsStore.data?.themeConfig);
         next.source = 'preset';
         next.importName = '';
@@ -2125,6 +2200,10 @@
     };
 
     window.tmOpenThemeImportDialog = function() {
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            return;
+        }
         __tmRemoveElementsById('tm-theme-import-backdrop');
         const currentConfig = __tmNormalizeThemeConfig(SettingsStore.data?.themeConfig);
         const backdrop = document.createElement('div');

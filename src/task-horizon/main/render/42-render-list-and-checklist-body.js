@@ -113,9 +113,7 @@
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const sheetMode = __tmChecklistUseSheetMode();
             const detailWidth = Math.max(260, Math.min(520, Math.round(Number(SettingsStore.data.checklistDetailWidth) || 320)));
-            const progressBarColor = isDark
-                ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
-                : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
+            const progressBarColor = __tmGetEffectiveProgressBarColor(isDark);
             const selectedId = String(state.detailTaskId || '').trim();
             const fallbackId = __tmResolveFirstVisibleTaskIdFromRowModel(rowModel);
             const dismissed = !!state.checklistDetailDismissed;
@@ -531,7 +529,6 @@
                 ].filter(Boolean).join(' ');
                 const cardStyle = [];
                 if (compactGroupCard.accent) cardStyle.push(`--tm-checklist-card-accent:${compactGroupCard.accent};`);
-                if (compactGroupCard.groupBg) cardStyle.push(`--tm-checklist-card-group-bg:${compactGroupCard.groupBg};`);
                 const cardBodyHtml = compactGroupCard.children.length
                     ? `<div class="tm-checklist-group-card-items">${compactGroupCard.children.join('')}</div>`
                     : '';
@@ -547,7 +544,6 @@
                         compactGroupCard = {
                             kind: String(row.kind || 'default'),
                             accent: String(currentGroupAccent || '').trim(),
-                            groupBg: String(currentGroupBg || '').trim(),
                             header: groupHtml,
                             children: [],
                         };

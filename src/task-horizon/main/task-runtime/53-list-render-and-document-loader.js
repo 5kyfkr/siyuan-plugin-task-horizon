@@ -24,9 +24,7 @@
         const isDark = __tmIsDarkMode();
         const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
         let currentGroupBg = '';
-        const progressBarColor = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
-            : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
+        const progressBarColor = __tmGetEffectiveProgressBarColor(isDark);
         const timeBaseColor = isDark
             ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
             : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
@@ -2405,13 +2403,18 @@ return finish(false, 'noop');
                     try {
                         const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
                         if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                        void patchTask(String(id || '').trim(), statusPatch, {
+                        const statusPromise = patchTask(String(id || '').trim(), statusPatch, {
                             background: true,
                             wait: false,
                             touchMetaStore: false,
                             skipFlush: false,
                             source: 'set-done-stateless-status',
-                        }).catch(() => null);
+                        });
+                        if (opts.wait === true || opts.waitStatusPatch === true) {
+                            await statusPromise;
+                        } else {
+                            void Promise.resolve(statusPromise).catch(() => null);
+                        }
                         MetaStore.set(String(id || '').trim(), {
                             ...statusPatch,
                             ...((statelessChangedToDone && completeAtPatch) ? completeAtPatch : {}),
@@ -2708,7 +2711,7 @@ return finish(false, 'noop');
                 try {
                     const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
                     if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                    void patchTask(id, touchPatch, {
+                    const statusPromise = patchTask(id, touchPatch, {
                         background: true,
                         wait: false,
                         touchMetaStore: false,
@@ -2720,9 +2723,14 @@ return finish(false, 'noop');
                         optimisticProjectionRefresh: opts.optimisticProjectionRefresh === true,
                         forceProjectionRefresh: opts.forceProjectionRefresh === true,
                         refreshAncestorViews: opts.refreshAncestorViews !== false,
-                    }).catch((statusErr) => {
-                        try { console.error('[完成状态] 状态联动保存失败:', statusErr); } catch (e) {}
                     });
+                    if (opts.wait === true || opts.waitStatusPatch === true) {
+                        await statusPromise;
+                    } else {
+                        void Promise.resolve(statusPromise).catch((statusErr) => {
+                            try { console.error('[完成状态] 状态联动保存失败:', statusErr); } catch (e) {}
+                        });
+                    }
                 } catch (statusErr) {
                     statusSyncError = statusErr;
                     try { console.error('[完成状态] 状态联动保存失败:', statusErr); } catch (e) {}
@@ -4372,6 +4380,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 snapshot,
                 customOrderPlacement: data.customOrderPlacement === true,
                 deferOptimisticRender: data.deferOptimisticRender === true,
+                forceOptimisticRender: data.forceOptimisticRender === true || hooks.forceOptimisticRender === true,
                 skipOptimisticFilterWork: data.skipOptimisticFilterWork === true || hooks.skipOptimisticFilterWork === true,
                 crossDoc: String(String(task.docId || task.root_id || '').trim() !== targetDocId ? '1' : ''),
             },
@@ -4811,7 +4820,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const showDialog = globalThis.__tomatoReminder?.showDialog;
         if (typeof showDialog === 'function') {
             const taskName = __tmNormalizeTimerTaskName(task?.content || task?.raw_content || task?.markdown || '', '任务');
-            showDialog(taskId, taskName || '任务');
+            showDialog(taskId, taskName || '任务', { defaultSyncTaskDone: true });
             try { __tmRefreshReminderMarkForTask(taskId, 1200); } catch (e) {}
             return;
         }

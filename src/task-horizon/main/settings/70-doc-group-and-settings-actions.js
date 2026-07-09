@@ -1890,6 +1890,18 @@
         showSettings();
     };
 
+    window.updateSemanticDateDefaultReminderTime = async function(value) {
+        const raw = String(value || '').trim();
+        const m = raw.match(/^(\d{1,2}):(\d{2})$/);
+        const hh = m ? Number(m[1]) : NaN;
+        const mm = m ? Number(m[2]) : NaN;
+        SettingsStore.data.semanticDateDefaultReminderTime = (Number.isInteger(hh) && Number.isInteger(mm) && hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59)
+            ? `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+            : '08:00';
+        await SettingsStore.save();
+        showSettings();
+    };
+
     window.updateDefaultViewMode = async function(mode) {
         const next = __tmGetSafeViewMode(mode);
         SettingsStore.data.defaultViewMode = next;
@@ -2228,6 +2240,12 @@
 
     window.updateNewTaskDailyNoteAppendToBottom = async function(enabled) {
         SettingsStore.data.newTaskDailyNoteAppendToBottom = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateNewTaskDailyNoteTargetHeadingText = async function(value) {
+        SettingsStore.data.newTaskDailyNoteTargetHeadingText = String(value || '').trim();
         await SettingsStore.save();
         showSettings();
     };

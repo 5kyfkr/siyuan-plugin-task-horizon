@@ -19,9 +19,7 @@
             const sidebarCollapsed = !!SettingsStore.data.timelineSidebarCollapsed;
             const splitClass = sidebarCollapsed ? ' tm-timeline-split--sidebar-collapsed' : '';
             const isDark = __tmIsDarkMode();
-            const progressBarColor = isDark
-                ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
-                : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
+            const progressBarColor = __tmGetEffectiveProgressBarColor(isDark);
             const completedTodayKey = __tmNormalizeDateOnly(new Date());
             const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
             let currentGroupBg = '';

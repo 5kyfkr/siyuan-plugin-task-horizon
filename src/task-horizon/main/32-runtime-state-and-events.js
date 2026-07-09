@@ -817,7 +817,7 @@
             }
         } catch (e) {}
         try {
-            ['whiteboardMultiSelectedTaskIds', 'whiteboardPoolSelectedTaskIds', '__tmChecklistItemsOnlyRefreshTaskIds', '__tmChecklistProjectionGroupRefreshTaskIds'].forEach((key) => {
+            ['draggingTaskIds', 'whiteboardMultiSelectedTaskIds', 'whiteboardPoolSelectedTaskIds', '__tmChecklistItemsOnlyRefreshTaskIds', '__tmChecklistProjectionGroupRefreshTaskIds'].forEach((key) => {
                 if (remapIdArrayProp(state, key)) changed = true;
             });
         } catch (e) {}
@@ -890,10 +890,15 @@
         const opts = (options && typeof options === 'object') ? options : {};
         try {
             if (typeof __tmApplyMoveOptimisticLocal === 'function') {
+                const forceOptimisticRender = data.forceOptimisticRender === true || opts.forceOptimisticRender === true;
+                const skipOptimisticFilterWork = forceOptimisticRender
+                    ? data.skipOptimisticFilterWork === true
+                    : (opts.mutationDriven === true ? true : data.skipOptimisticFilterWork === true);
                 return __tmApplyMoveOptimisticLocal({
                     ...data,
-                    deferOptimisticRender: opts.mutationDriven === true ? true : data.deferOptimisticRender === true,
-                    skipOptimisticFilterWork: opts.mutationDriven === true ? true : data.skipOptimisticFilterWork === true,
+                    deferOptimisticRender: forceOptimisticRender ? false : (opts.mutationDriven === true ? true : data.deferOptimisticRender === true),
+                    skipOptimisticFilterWork,
+                    forceOptimisticRender,
                     mutationDriven: opts.mutationDriven === true,
                 }) !== false;
             }

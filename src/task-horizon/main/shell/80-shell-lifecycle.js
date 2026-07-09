@@ -289,11 +289,28 @@ if (shouldMarkDirty) {
                 __tmThemeModeObserver.disconnect();
                 __tmThemeModeObserver = null;
             }
-            __tmThemeModeObserver = new MutationObserver(() => {
+            if (__tmThemeModeRefreshRaf) {
+                try { cancelAnimationFrame(__tmThemeModeRefreshRaf); } catch (e) {}
+                __tmThemeModeRefreshRaf = null;
+            }
+            const refreshThemeAppearance = () => {
+                __tmThemeModeRefreshRaf = null;
+                try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
                 try { __tmApplyAppearanceThemeVars(); } catch (e) {}
                 try { if (state.modal) render(); } catch (e) {}
+            };
+            __tmThemeModeObserver = new MutationObserver(() => {
+                if (__tmThemeModeRefreshRaf) return;
+                try {
+                    __tmThemeModeRefreshRaf = requestAnimationFrame(refreshThemeAppearance);
+                } catch (e) {
+                    refreshThemeAppearance();
+                }
             });
-            __tmThemeModeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme-mode'] });
+            __tmThemeModeObserver.observe(document.documentElement, {
+                attributes: true,
+                attributeFilter: ['data-theme-mode', 'data-light-theme', 'data-dark-theme', 'data-mode', 'class']
+            });
         } catch (e) {}
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
 
@@ -1467,6 +1484,10 @@ if (shouldMarkDirty) {
             if (__tmThemeModeObserver) {
                 __tmThemeModeObserver.disconnect();
                 __tmThemeModeObserver = null;
+            }
+            if (__tmThemeModeRefreshRaf) {
+                try { cancelAnimationFrame(__tmThemeModeRefreshRaf); } catch (e2) {}
+                __tmThemeModeRefreshRaf = null;
             }
         } catch (e) {}
 

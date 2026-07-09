@@ -1036,16 +1036,27 @@
         const shouldVisible = (customGroupDocIds instanceof Set && customGroupDocIds.size)
             ? customGroupDocIds.has(targetDocId)
             : (activeDocId === 'all' || activeDocId === targetDocId);
-        try { __tmRemoveTaskFromFilteredLocalState(tid); } catch (e) {}
+        const movedTaskIds = [];
+        const collectMovedTaskIds = (item) => {
+            if (!item || typeof item !== 'object') return;
+            const id = String(item?.id || '').trim();
+            if (id) movedTaskIds.push(id);
+            (Array.isArray(item.children) ? item.children : []).forEach(collectMovedTaskIds);
+        };
+        collectMovedTaskIds(nextTask);
+        Array.from(new Set(movedTaskIds)).forEach((id) => {
+            try { __tmRemoveTaskFromFilteredLocalState(id); } catch (e) {}
+        });
         if (shouldVisible) {
             const existing = new Set((Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
                 .map((item) => String(item?.id || '').trim())
                 .filter(Boolean));
+            const insertItems = [];
             const addOne = (item) => {
                 const id = String(item?.id || '').trim();
                 if (!id || existing.has(id)) return;
                 existing.add(id);
-                state.filteredTasks.push(item);
+                insertItems.push(item);
             };
             const walk = (item) => {
                 if (!item || typeof item !== 'object') return;
@@ -1053,6 +1064,59 @@
                 (Array.isArray(item.children) ? item.children : []).forEach(walk);
             };
             walk(nextTask);
+            const findFlatIndex = (taskId) => {
+                const id = String(taskId || '').trim();
+                if (!id) return -1;
+                return state.filteredTasks.findIndex((item) => String(item?.id || '').trim() === id);
+            };
+            const collectSubtreeIdSet = (taskId) => {
+                const root = __tmResolveOptimisticTaskForLocalUse(taskId)?.task || null;
+                const ids = new Set();
+                const walkIds = (item) => {
+                    if (!item || typeof item !== 'object') return;
+                    const id = String(item?.id || '').trim();
+                    if (id) ids.add(id);
+                    (Array.isArray(item.children) ? item.children : []).forEach(walkIds);
+                };
+                walkIds(root);
+                const rawId = String(taskId || '').trim();
+                if (rawId) ids.add(rawId);
+                return ids;
+            };
+            const indexAfterSubtree = (taskId) => {
+                const ids = collectSubtreeIdSet(taskId);
+                let maxIndex = -1;
+                state.filteredTasks.forEach((item, index) => {
+                    if (ids.has(String(item?.id || '').trim())) maxIndex = Math.max(maxIndex, index);
+                });
+                if (maxIndex >= 0) return maxIndex + 1;
+                const idx = findFlatIndex(taskId);
+                return idx >= 0 ? idx + 1 : state.filteredTasks.length;
+            };
+            const resolveInsertIndex = () => {
+                const mode = String(data.mode || '').trim();
+                const targetId = String(data.targetTaskId || '').trim();
+                if (mode === 'before') {
+                    const idx = findFlatIndex(targetId);
+                    return idx >= 0 ? idx : state.filteredTasks.length;
+                }
+                if (mode === 'after') return indexAfterSubtree(targetId);
+                if (mode === 'child-top') {
+                    const idx = findFlatIndex(targetId);
+                    return idx >= 0 ? idx + 1 : state.filteredTasks.length;
+                }
+                if (mode === 'child') {
+                    const lastChildId = String(data.targetLastDirectChildId || '').trim();
+                    if (lastChildId) return indexAfterSubtree(lastChildId);
+                    const idx = findFlatIndex(targetId);
+                    return idx >= 0 ? idx + 1 : state.filteredTasks.length;
+                }
+                return state.filteredTasks.length;
+            };
+            if (insertItems.length) {
+                const insertIndex = Math.max(0, Math.min(state.filteredTasks.length, resolveInsertIndex()));
+                state.filteredTasks.splice(insertIndex, 0, ...insertItems);
+            }
             const mode = String(data.mode || '').trim();
             if (mode === 'child' || mode === 'child-top') {
                 const parentId = String(data.targetTaskId || nextTask.parentTaskId || nextTask.parent_task_id || '').trim();
@@ -4553,6 +4617,87 @@
         window.tmQuickAddRenderMeta?.();
     };
 
+    function __tmGetDailyNoteTargetHeadingText() {
+        return __tmNormalizeHeadingText(SettingsStore?.data?.newTaskDailyNoteTargetHeadingText || '');
+    }
+
+    function __tmNormalizeDailyNoteCreateHeadingLevel() {
+        const level = String(SettingsStore?.data?.taskHeadingLevel || 'h2').trim().toLowerCase();
+        return /^h[1-6]$/.test(level) ? level : 'h2';
+    }
+
+    function __tmNormalizeParsedHeadingLevelName(level) {
+        const n = Number(level);
+        return Number.isInteger(n) && n >= 1 && n <= 6 ? `h${n}` : __tmNormalizeDailyNoteCreateHeadingLevel();
+    }
+
+    async function __tmResolveDailyNoteTargetHeadingInsertOptions(docId) {
+        const did = String(docId || '').trim();
+        const targetText = __tmGetDailyNoteTargetHeadingText();
+        if (!did || !targetText) return null;
+        if (typeof __tmParseHeadingBlocksFromKramdown !== 'function') throw new Error('标题解析器未就绪');
+        const km = await API.getBlockKramdown(did);
+        const parsedHeadings = __tmParseHeadingBlocksFromKramdown(km);
+        const headingList = Array.isArray(parsedHeadings) ? parsedHeadings : [];
+        const matchedIndex = headingList.findIndex((heading) => {
+            const hid = String(heading?.id || '').trim();
+            if (!hid) return false;
+            return __tmNormalizeHeadingText(heading?.content || '') === targetText;
+        });
+        const matched = matchedIndex >= 0 ? headingList[matchedIndex] : null;
+        if (matched?.id) {
+            const headingLevel = __tmNormalizeParsedHeadingLevelName(matched.level);
+            try {
+                const placement = await __tmResolveHeadingGroupInsertPlacement(did, String(matched.id || '').trim(), headingLevel);
+                if (placement?.matched) {
+                    const headingPatch = __tmBuildHeadingPatchFromPlacement(placement);
+                    const insertBeforeId = String(placement.nextID || '').trim();
+                    return {
+                        atTop: false,
+                        appendToBottom: !insertBeforeId && placement.appendToBottom === true,
+                        insertBeforeId,
+                        insertAfterId: '',
+                        headingPatch,
+                    };
+                }
+            } catch (e) {}
+            const nextHeading = headingList.slice(matchedIndex + 1).find((heading) => String(heading?.id || '').trim()) || null;
+            const insertBeforeId = String(nextHeading?.id || '').trim();
+            const headingPatch = __tmBuildHeadingPatchFromPlacement({
+                heading: {
+                    id: String(matched.id || '').trim(),
+                    content: matched.content || targetText,
+                    rank: Number.NaN,
+                },
+            });
+            return {
+                atTop: false,
+                appendToBottom: !insertBeforeId,
+                insertBeforeId,
+                insertAfterId: '',
+                headingPatch,
+            };
+        }
+        const headingLevel = __tmNormalizeDailyNoteCreateHeadingLevel();
+        const levelNum = Number((headingLevel.match(/^h([1-6])$/) || [])[1]) || 2;
+        const headingId = String(await __tmAppendBlockWithRetry(did, `${'#'.repeat(levelNum)} ${targetText}`) || '').trim();
+        if (!headingId) throw new Error('创建日记目标标题失败');
+        const headingPatch = __tmBuildHeadingPatchFromPlacement({
+            heading: {
+                id: headingId,
+                content: targetText,
+                rank: Number.NaN,
+            },
+        });
+        return {
+            atTop: false,
+            appendToBottom: false,
+            insertBeforeId: '',
+            insertAfterId: headingId,
+            headingPatch,
+        };
+    }
+
     async function __tmResolveDefaultNewTaskInsertOptions(targetDocId, docMode = 'doc', options = {}) {
         const did = String(targetDocId || '').trim();
         const mode = String(docMode || 'doc').trim();
@@ -4569,6 +4714,20 @@
             headingPatch: null,
         };
         if (!did) return result;
+        if (mode === 'dailyNote') {
+            try {
+                const dailyHeadingOptions = await __tmResolveDailyNoteTargetHeadingInsertOptions(did);
+                if (dailyHeadingOptions) {
+                    Object.assign(result, dailyHeadingOptions);
+                    result.targetHeadingId = result.headingPatch?.h2Id || '';
+                    result.targetHeading = result.headingPatch?.h2 || '';
+                    result.targetHeadingRank = Number(result.headingPatch?.h2Rank);
+                    return result;
+                }
+            } catch (e) {
+                try { hint('⚠ 今天日记目标标题定位失败，已改用默认新建位置', 'warning'); } catch (e2) {}
+            }
+        }
         const appendToBottom = mode === 'dailyNote' && SettingsStore.data.newTaskDailyNoteAppendToBottom === true;
         result.appendToBottom = appendToBottom;
         let topAnchorResolved = false;
@@ -4678,62 +4837,12 @@
                     if (!String(targetDocId || '').trim()) throw new Error('获取日记文档失败');
                 }
                 const createdTaskIds = [];
-                const appendToBottom = payload.docMode === 'dailyNote' && SettingsStore.data.newTaskDailyNoteAppendToBottom === true;
                 const createTaskInDoc = globalThis.__tmRequireTaskOutbox?.('createTaskInDoc');
                 if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
-                let insertBeforeId = '';
-                let insertAfterId = '';
-                let topAnchorResolved = false;
-                let headingPatch = null;
-                let headingAppendToBottom = false;
-                let staleConfiguredHeading = false;
-                const configuredHeading = payload.docMode === 'doc' && typeof __tmGetDocDefaultTaskHeadingConfig === 'function'
-                    ? __tmGetDocDefaultTaskHeadingConfig(targetDocId)
-                    : null;
-                if (!appendToBottom && configuredHeading?.headingId && typeof __tmResolveHeadingGroupInsertPlacement === 'function') {
-                    try {
-                        const useSectionEnd = !!SettingsStore.data.headingGroupCreateAtSectionEnd;
-                        const placement = await __tmResolveHeadingGroupInsertPlacement(targetDocId, configuredHeading.headingId, configuredHeading.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2');
-                        if (placement?.matched) {
-                            headingPatch = __tmBuildHeadingPatchFromPlacement(placement);
-                            if (useSectionEnd) {
-                                insertBeforeId = String(placement.nextID || '').trim();
-                                headingAppendToBottom = placement.appendToBottom === true;
-                                if (!insertBeforeId && placement.appendToBottom === true) {
-                                    topAnchorResolved = true;
-                                }
-                            } else {
-                                insertAfterId = String(placement.insertAfterID || configuredHeading.headingId || '').trim();
-                            }
-                        } else if (placement?.checked === true) {
-                            staleConfiguredHeading = true;
-                        }
-                    } catch (e) {
-                        headingPatch = null;
-                        insertAfterId = '';
-                    }
-                }
-                if (staleConfiguredHeading && configuredHeading?.headingId) {
-                    try {
-                        if (typeof __tmSaveDocDefaultTaskHeadingConfig === 'function') {
-                            await __tmSaveDocDefaultTaskHeadingConfig(targetDocId, null);
-                        } else if (SettingsStore?.data?.docDefaultTaskHeadingByDocId) {
-                            delete SettingsStore.data.docDefaultTaskHeadingByDocId[targetDocId];
-                            await SettingsStore.save();
-                        }
-                    } catch (e) {}
-                    try { hint('⚠ 默认新建标题已不存在，已改用默认新建位置', 'warning'); } catch (e) {}
-                    headingPatch = null;
-                    insertAfterId = '';
-                    headingAppendToBottom = false;
-                }
-                if (!appendToBottom && !headingPatch && payload.contents.length > 1) {
-                    try {
-                        insertBeforeId = String(await API.getFirstDirectChildIdOfDoc(targetDocId) || '').trim();
-                        topAnchorResolved = true;
-                    } catch (e) {}
-                }
-                const appendEmptyBatchToKeepOrder = !appendToBottom && topAnchorResolved && !insertBeforeId && payload.contents.length > 1;
+                const insertOptions = await __tmResolveDefaultNewTaskInsertOptions(targetDocId, payload.docMode, { contentCount: payload.contents.length });
+                const normalizedInsertOptions = (insertOptions && typeof insertOptions === 'object') ? insertOptions : {};
+                const { headingPatch, ...createInsertOptions } = normalizedInsertOptions;
+                const insertAfterId = String(createInsertOptions.insertAfterId || '').trim();
                 const createContents = insertAfterId ? payload.contents.slice().reverse() : payload.contents;
                 await Promise.all(createContents.map((content) => createTaskInDoc({
                         docId: targetDocId,
@@ -4743,13 +4852,7 @@
                         customFieldValues: payload.customFieldValues,
                         startDate: payload.startDate,
                         completionTime: payload.completionTime,
-                        atTop: false,
-                        appendToBottom: appendToBottom || headingAppendToBottom || appendEmptyBatchToKeepOrder,
-                        insertBeforeId,
-                        insertAfterId,
-                        targetHeadingId: headingPatch?.h2Id || '',
-                        targetHeading: headingPatch?.h2 || '',
-                        targetHeadingRank: Number(headingPatch?.h2Rank),
+                        ...createInsertOptions,
                         wait: false,
                         skipOptimisticMainRefresh: true,
                         skipOptimisticFilterWork: true,

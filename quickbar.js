@@ -1237,17 +1237,32 @@
         const id = String(taskId || '').trim();
         const expectedPlacement = String(placement || '').trim();
         if (!id) return;
-        let hosts = [];
-        try {
-            hosts = Array.from(document.querySelectorAll(`.sy-custom-props-inline-host[data-block-id="${CSS.escape(id)}"]`));
-        } catch (e) {
-            hosts = Array.from(document.querySelectorAll('.sy-custom-props-inline-host[data-block-id]'))
-                .filter((el) => String(el?.dataset?.blockId || '').trim() === id);
-        }
+        const hosts = [];
+        const seen = new WeakSet();
+        const pushHost = (host) => {
+            if (!(host instanceof Element) || seen.has(host)) return;
+            seen.add(host);
+            hosts.push(host);
+        };
+        ['blockId', 'taskId', 'attrHostId'].forEach((field) => {
+            const attrName = field === 'blockId'
+                ? 'data-block-id'
+                : (field === 'taskId' ? 'data-task-id' : 'data-attr-host-id');
+            try {
+                document.querySelectorAll(`.sy-custom-props-inline-host[${attrName}="${CSS.escape(id)}"]`).forEach(pushHost);
+            } catch (e) {
+                document.querySelectorAll(`.sy-custom-props-inline-host[${attrName}]`).forEach((host) => {
+                    if (String(host?.dataset?.[field] || '').trim() === id) pushHost(host);
+                });
+            }
+        });
         if (expectedPlacement) {
-            hosts = hosts.filter((host) => String(host?.dataset?.inlinePlacement || '').trim() === expectedPlacement);
+            hosts
+                .filter((host) => String(host?.dataset?.inlinePlacement || '').trim() === expectedPlacement)
+                .forEach((host) => removeInlineMetaHostNode(host, true));
+        } else {
+            hosts.forEach((host) => removeInlineMetaHostNode(host, true));
         }
-        hosts.forEach((host) => removeInlineMetaHostNode(host, true));
         try { inlineMetaMissingHostSeenAt.delete(id); } catch (e) {}
         try { inlineMetaLayoutCache.delete(id); } catch (e) {}
         invalidateInlineMetaActiveTargetsCache();
@@ -1381,13 +1396,17 @@
         const isListItem = el.matches?.('.li,[data-type="NodeListItem"]');
         if (!isListItem) return false;
         const selfSubtype = getListSubtype(el);
+        const marker = String(el.getAttribute?.('data-marker') || '').trim();
+        const hasTaskMarker = marker.includes('[ ]') || marker.includes('[x]') || marker.includes('[X]');
+        const hasTaskState = el.hasAttribute?.('data-task') || selfSubtype === 't' || hasTaskMarker;
         if (selfSubtype === 'u' || selfSubtype === 'o') return true;
         const parentList = el.parentElement instanceof Element
             && el.parentElement.matches?.('.list,[data-type="NodeList"]')
             ? el.parentElement
             : null;
         const parentSubtype = getListSubtype(parentList);
-        return parentSubtype === 'u' || parentSubtype === 'o';
+        if ((parentSubtype === 'u' || parentSubtype === 'o') && !hasTaskState) return true;
+        return !hasTaskState && (/^[-*+]$/.test(marker) || /^\d+[.)]$/.test(marker));
     }
 
     function hasTaskMarkerEl(el) {
@@ -1395,8 +1414,14 @@
         if (isExplicitNonTaskListItem(el)) return false;
         const marker = el.getAttribute?.('data-marker') || '';
         if (marker.includes('[ ]') || marker.includes('[x]') || marker.includes('[X]')) return true;
+        if (el.hasAttribute?.('data-task')) return true;
         const subtype = getListSubtype(el);
         if (subtype === 't') return true;
+        const parentList = el.parentElement instanceof Element
+            && el.parentElement.matches?.('.list,[data-type="NodeList"]')
+            ? el.parentElement
+            : null;
+        if (getListSubtype(parentList) === 't') return true;
         return false;
     }
 
@@ -1407,7 +1432,7 @@
         const directChildren = Array.from(blockEl.children || []);
         const hasDirectTaskControl = directChildren.some((child) => {
             if (!(child instanceof Element)) return false;
-            return child.matches?.('input[type="checkbox"],.protyle-action__task,.protyle-action--task,.protyle-task--checkbox,.protyle-task,.b3-checkbox,[data-task]');
+            return child.matches?.('.protyle-action__task,.protyle-action--task,.protyle-task--checkbox');
         });
         if (hasDirectTaskControl) return true;
         return hasTaskMarkerEl(blockEl);
@@ -7882,10 +7907,10 @@
                     if (rect.bottom < viewportTop) continue;
                     if (rect.top > viewportBottom) continue;
                     out.push(blockEl);
-                    if (out.length >= maxCount) return out;
+                    if (out.length >= maxCount) return sortInlineMetaBlocksByViewportPriority(out);
                 } catch (e) {}
             }
-            return out;
+            return sortInlineMetaBlocksByViewportPriority(out);
         }
 
         function getInlineTaskBlockBuckets(dir) {
@@ -7926,6 +7951,10 @@
                     }
                 } catch (e) {}
             }
+            sortInlineMetaBlocksByViewportPriority(buckets.viewportBlocks);
+            sortInlineMetaBlocksByViewportPriority(buckets.coreBlocks);
+            sortInlineMetaBlocksByViewportPriority(buckets.preRenderBlocks);
+            sortInlineMetaBlocksByViewportPriority(buckets.keepBlocks);
             return buckets;
         }
 
@@ -7939,6 +7968,31 @@
                 if (typeof el.scrollTop === 'number' && el.scrollHeight > el.clientHeight) return Number(el.scrollTop || 0);
             } catch (e) {}
             return Number(window.scrollY || document.documentElement?.scrollTop || 0);
+        }
+
+        function getInlineMetaViewportPriority(blockEl) {
+            if (!(blockEl instanceof Element)) return Number.MAX_SAFE_INTEGER;
+            try {
+                const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+                const rect = blockEl.getBoundingClientRect?.();
+                if (!rect) return Number.MAX_SAFE_INTEGER;
+                const intersectsViewport = rect.bottom >= 0 && rect.top <= viewportHeight;
+                const edgeDistance = rect.bottom < 0
+                    ? Math.abs(rect.bottom)
+                    : (rect.top > viewportHeight ? rect.top - viewportHeight : 0);
+                const centerDistance = Math.abs(((rect.top + rect.bottom) / 2) - (viewportHeight / 2));
+                return (intersectsViewport ? 0 : 100000) + edgeDistance + (centerDistance / 1000);
+            } catch (e) {
+                return Number.MAX_SAFE_INTEGER;
+            }
+        }
+
+        function sortInlineMetaBlocksByViewportPriority(blocks) {
+            if (!Array.isArray(blocks) || blocks.length < 2) return blocks;
+            try {
+                blocks.sort((a, b) => getInlineMetaViewportPriority(a) - getInlineMetaViewportPriority(b));
+            } catch (e) {}
+            return blocks;
         }
 
         function collectInlineMetaOwnerIds(blockEl) {
@@ -8913,6 +8967,7 @@
             const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
             const syncLightMode = !force && (isScrolling || isInlineMetaScrollSettling() || Date.now() < Number(inlineMetaRecentStructuralUntil || 0));
             const nearQueueLimit = syncLightMode ? 12 : 48;
+            const nearRenderCandidates = [];
             nextBlocks.forEach((nextEl, blockId) => {
                 const prevEl = inlineMetaObservedTaskBlocks.get(blockId);
                 if (prevEl === nextEl) return;
@@ -8937,11 +8992,15 @@
                     try {
                         const rect = nextEl.getBoundingClientRect();
                         if (rect && rect.bottom > -2400 && rect.top < (viewportHeight + 2400)) {
-                            if (queueInlineMetaRenderBlock(nextEl, false, 2400)) nearQueued += 1;
+                            nearRenderCandidates.push(nextEl);
                         }
                     } catch (e) {}
                 }
             });
+            sortInlineMetaBlocksByViewportPriority(nearRenderCandidates);
+            for (let i = 0; i < nearRenderCandidates.length && nearQueued < nearQueueLimit; i += 1) {
+                if (queueInlineMetaRenderBlock(nearRenderCandidates[i], false, 2400)) nearQueued += 1;
+            }
             if (isScrolling) {
                 // Merge mode: keep stale (possibly-still-detached) entries
                 // alongside fresh ones, so their cache survives. Schedule
@@ -9110,17 +9169,75 @@
                 });
                 if (!hasRelevantMutation) return;
                 let topmostAffected = null;
+                const addedTaskOwnerIds = new Set();
+                const removedTaskOwnerIds = new Set();
                 const countBlockLikeNode = (node) => {
                     if (!(node instanceof Element)) return 0;
                     let count = node.hasAttribute?.('data-node-id') ? 1 : 0;
                     try { count += node.querySelectorAll?.('[data-node-id]')?.length || 0; } catch (e) {}
                     return count;
                 };
+                const stripInlineMetaArtifactsFromAddedNode = (node) => {
+                    if (!(node instanceof Element)) return;
+                    try {
+                        if (node.matches?.('.sy-custom-props-inline-host,[data-inline-meta-host="true"]')) {
+                            const isLivePluginHost = !!node.closest?.('.sy-custom-props-inline-layer')
+                                || node.parentElement?.classList?.contains('protyle-attr');
+                            if (!isLivePluginHost) removeInlineMetaHostNode(node, true);
+                            return;
+                        }
+                        if (!node.hasAttribute?.('data-node-id') && !node.querySelector?.('[data-node-id]')) return;
+                        node.querySelectorAll?.('.sy-custom-props-inline-host,[data-inline-meta-host="true"]').forEach((host) => {
+                            removeInlineMetaHostNode(host, true);
+                        });
+                        node.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((parent) => {
+                            if (!hasInlineMetaInBlockHost(parent)) parent.classList.remove('sy-custom-props-inline-parent');
+                        });
+                        if (node.classList?.contains('sy-custom-props-inline-parent') && !hasInlineMetaInBlockHost(node)) {
+                            node.classList.remove('sy-custom-props-inline-parent');
+                        }
+                    } catch (e) {}
+                };
+                const collectTaskOwnerIdsFromNode = (node, out) => {
+                    if (!(node instanceof Element) || !(out instanceof Set)) return;
+                    const collectFromBlock = (blockEl) => {
+                        if (!(blockEl instanceof Element)) return;
+                        try {
+                            collectInlineMetaOwnerIds(blockEl).forEach((id) => out.add(id));
+                        } catch (e) {
+                            const id = String(blockEl?.dataset?.nodeId || blockEl?.getAttribute?.('data-node-id') || '').trim();
+                            if (id) out.add(id);
+                        }
+                    };
+                    try {
+                        if (node.matches?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]')) {
+                            collectFromBlock(node);
+                        }
+                        node.querySelectorAll?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]').forEach(collectFromBlock);
+                    } catch (e) {}
+                };
+                const hasLiveTaskOwnerId = (id) => {
+                    const ownerId = String(id || '').trim();
+                    if (!ownerId) return false;
+                    try {
+                        if (document.querySelector(`.protyle-wysiwyg [data-node-id="${CSS.escape(ownerId)}"]`)) return true;
+                    } catch (e) {}
+                    try {
+                        const blocks = document.querySelectorAll('.protyle-wysiwyg .li[data-node-id], .protyle-wysiwyg [data-type="NodeListItem"][data-node-id]');
+                        for (let i = 0; i < blocks.length; i += 1) {
+                            if (collectInlineMetaOwnerIds(blocks[i]).has(ownerId)) return true;
+                        }
+                    } catch (e) {}
+                    return false;
+                };
                 const hasStructuralChange = mutations.some((m) => {
                     if (m.type !== 'childList') return false;
                     if (m.target instanceof Element && isInlineMetaOwnNode(m.target)) return false;
                     const nodes = [...m.addedNodes, ...m.removedNodes];
                     if (nodes.length && nodes.every((node) => isInlineMetaOwnNode(node))) return false;
+                    Array.from(m.addedNodes || []).forEach(stripInlineMetaArtifactsFromAddedNode);
+                    Array.from(m.addedNodes || []).forEach((node) => collectTaskOwnerIdsFromNode(node, addedTaskOwnerIds));
+                    Array.from(m.removedNodes || []).forEach((node) => collectTaskOwnerIdsFromNode(node, removedTaskOwnerIds));
                     addedElementCount += Array.from(m.addedNodes || []).filter((node) => node instanceof Element).length;
                     removedElementCount += Array.from(m.removedNodes || []).filter((node) => node instanceof Element).length;
                     addedBlockLikeCount += Array.from(m.addedNodes || []).reduce((sum, node) => sum + countBlockLikeNode(node), 0);
@@ -9156,6 +9273,17 @@
                     }
                     return structural;
                 });
+                if (removedTaskOwnerIds.size > 0) {
+                    removedTaskOwnerIds.forEach((id) => {
+                        if (!id || addedTaskOwnerIds.has(id)) return;
+                        if (hasLiveTaskOwnerId(id)) return;
+                        try { removeInlineMetaHostByTaskId(id); } catch (e) {}
+                        try { removeInlineMetaHostsBySourceTaskId(id); } catch (e) {}
+                        try { inlineMetaObservedTaskBlocks.delete(id); } catch (e) {}
+                        try { inlineMetaVisibleTaskBlocks.delete(id); } catch (e) {}
+                        try { inlineMetaLayoutCache.delete(id); } catch (e) {}
+                    });
+                }
                 inlineMetaNeedSyncBlocks = true;
                 const inScrollGrace = inlineMetaScrolling || Date.now() < Number(inlineMetaRecentScrollUntil || 0);
                 const deferStructuralForScroll = !!(hasStructuralChange
@@ -10012,6 +10140,7 @@
                     viewportBlocks.forEach(pushRenderSourceBlock);
                     blocks.forEach(pushRenderSourceBlock);
                     preRenderBlocks.forEach(pushRenderSourceBlock);
+                    sortInlineMetaBlocksByViewportPriority(renderSourceBlocks);
                     prefetchInlineMetaProps(renderSourceBlocks, lightRender ? 24 : 120);
                     const renderBlocks = [];
                     const renderLimit = Math.min(QUICKBAR_INLINE_RENDER_BATCH_LIMIT, renderSourceBlocks.length);

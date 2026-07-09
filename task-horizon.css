@@ -29,6 +29,7 @@
     --tm-section-bg: #f8f9fa;
     --tm-sidebar-bg: #f8f9fa;
     --tm-card-bg: #ffffff;
+    --tm-checklist-pane-bg: color-mix(in srgb, var(--tm-bg-color) 96%, var(--tm-text-color) 4%);
     --tm-font-size: 14px;
     --tm-header-height: 44px;
     --tm-timeline-month-row-height: 18px;
@@ -53,6 +54,7 @@
     --tm-empty-cell-bg: #f1f3f4;
     --tm-topbar-grad-start: #E3ECF2;
     --tm-topbar-grad-end: #E3ECF2;
+    --tm-topbar-bg: linear-gradient(135deg, var(--tm-topbar-grad-start) 0%, var(--tm-topbar-grad-end) 100%);
     --tm-topbar-text-color: #003252;
     --tm-topbar-control-bg: rgba(255,255,255,0.12);
     --tm-topbar-control-text: #ffffff;
@@ -115,8 +117,8 @@
     --tm-quadrant-yellow: #f9ab00;
     --tm-quadrant-blue: #1a73e8;
     --tm-quadrant-green: #34a853;
-    --tm-whiteboard-grid-color: rgba(0,0,0,0.06);
-    --tm-whiteboard-stream-tree-line-color: rgba(120, 130, 148, 0.52);
+    --tm-whiteboard-grid-color: rgba(224,224,224,0.1);
+    --tm-whiteboard-stream-tree-line-color: rgba(224,224,224,0.1);
     --tm-whiteboard-frame-fill-mix: 46%;
     --tm-whiteboard-frame-fill-saturate: 1;
     --tm-task-leading-ring-bg: rgba(226, 232, 240, 0.95);
@@ -159,6 +161,7 @@
     --tm-section-bg: #252525;
     --tm-sidebar-bg: #252525;
     --tm-card-bg: #2d2d2d;
+    --tm-checklist-pane-bg: color-mix(in srgb, var(--tm-bg-color) 93%, var(--tm-text-color) 7%);
     --tm-empty-cell-bg: #1a1a1a;
     --tm-topbar-grad-start: #2D2D2D;
     --tm-topbar-grad-end: #2D2D2D;
@@ -174,8 +177,8 @@
     --tm-quadrant-yellow: #f9ab00;
     --tm-quadrant-blue: #6ba5ff;
     --tm-quadrant-green: #4caf50;
-    --tm-whiteboard-grid-color: rgba(255,255,255,0.10);
-    --tm-whiteboard-stream-tree-line-color: rgba(156, 167, 185, 0.42);
+    --tm-whiteboard-grid-color: rgba(72,72,72,0.1);
+    --tm-whiteboard-stream-tree-line-color: rgba(72,72,72,0.1);
     --tm-whiteboard-frame-fill-mix: 10%;
     --tm-whiteboard-frame-fill-saturate: 2;
     --tm-task-leading-ring-bg: rgba(55, 65, 81, 0.92);
@@ -1746,7 +1749,7 @@
 /* 新增的筛选工具栏样式 */
 .tm-filter-rule-bar {
     padding: 12px 24px;
-    background: linear-gradient(135deg, var(--tm-topbar-grad-start) 0%, var(--tm-topbar-grad-end) 100%);
+    background: var(--tm-topbar-bg);
     color: var(--tm-topbar-text-color);
     --radius: var(--tm-topbar-control-radius);
     display: flex;
@@ -1756,6 +1759,7 @@
     overflow-x: auto;
     overflow-y: visible;
     box-sizing: border-box;
+    border-bottom: 1px solid var(--tm-table-border-color, var(--tm-border-color));
 }
 
 .tm-filter-rule-bar .tm-btn-info {
@@ -2068,7 +2072,7 @@
     width: 56px;
     height: 56px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--tm-topbar-grad-start) 0%, var(--tm-topbar-grad-end) 100%);
+    background: var(--tm-topbar-bg);
     color: white;
     font-size: 14px;
     font-weight: 600;
@@ -3576,7 +3580,7 @@ select.tm-btn-secondary {
 
 .tm-filter-rule-bar {
     padding: 12px 24px;
-    background: linear-gradient(135deg, var(--tm-topbar-grad-start) 0%, var(--tm-topbar-grad-end) 100%);
+    background: var(--tm-topbar-bg);
     color: var(--tm-topbar-text-color);
     display: flex;
     justify-content: space-between;
@@ -3760,6 +3764,14 @@ select.tm-btn-secondary {
 
 .tm-filter-rule-bar .tm-manager-brand-icon:hover {
     background: color-mix(in srgb, var(--tm-topbar-control-hover) 72%, transparent);
+}
+
+.tm-filter-rule-bar .tm-manager-brand-icon svg,
+.tm-filter-rule-bar .tm-btn-info svg,
+.tm-filter-rule-bar .bc-select-trigger svg,
+.tm-filter-rule-bar .tm-view-seg-item svg,
+.tm-filter-rule-bar .bc-tabs-trigger svg {
+    color: var(--tm-topbar-text-color);
 }
 
 .tm-filter-rule-bar .tm-manager-title-label {
@@ -4723,6 +4735,22 @@ select.tm-btn-secondary {
     padding: 2px 4px;
     cursor: grab;
     user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1.3;
+}
+
+.tm-whiteboard-pool-h2-icon {
+    width: 14px;
+    height: 14px;
+}
+
+.tm-whiteboard-pool-h2-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .tm-whiteboard-pool-item {
@@ -5381,6 +5409,21 @@ select.tm-btn-secondary {
     stroke: var(--tm-primary-color);
     pointer-events: stroke;
     cursor: pointer;
+}
+
+.tm-whiteboard-edge.tm-whiteboard-edge--hit {
+    stroke: transparent;
+    stroke-width: 10;
+    opacity: 0;
+    pointer-events: stroke;
+    cursor: pointer;
+}
+
+.tm-whiteboard-edge.tm-whiteboard-edge--manual:not(.tm-whiteboard-edge--selected):not(.tm-whiteboard-multi-selected):hover,
+.tm-whiteboard-edge.tm-whiteboard-edge--hit:hover + .tm-whiteboard-edge.tm-whiteboard-edge--manual:not(.tm-whiteboard-edge--selected):not(.tm-whiteboard-multi-selected) {
+    stroke-width: 2.4;
+    opacity: 1;
+    filter: drop-shadow(0 0 1px color-mix(in srgb, var(--tm-primary-color) 35%, transparent));
 }
 
 .tm-whiteboard-edge.tm-whiteboard-edge--selected {
@@ -12244,7 +12287,7 @@ select.tm-btn-secondary {
     padding: 0;
     position: relative;
     font-size: var(--tm-font-size);
-    background: var(--tm-topbar-grad-end);
+    background: var(--tm-checklist-pane-bg, var(--tm-bg-color, var(--b3-theme-background)));
 }
 
 .tm-checklist-scroll {
@@ -12820,7 +12863,7 @@ select.tm-btn-secondary {
     margin: 0 0 12px 0;
     border: 0;
     border-radius: 10px;
-    background: color-mix(in srgb, var(--tm-card-bg) 94%, var(--tm-checklist-card-group-bg, var(--tm-section-bg)) 6%);
+    background: var(--tm-card-bg);
     box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
     overflow: hidden;
     isolation: isolate;
