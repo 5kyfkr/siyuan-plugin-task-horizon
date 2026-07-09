@@ -3771,7 +3771,19 @@ select.tm-btn-secondary {
 .tm-filter-rule-bar .bc-select-trigger svg,
 .tm-filter-rule-bar .tm-view-seg-item svg,
 .tm-filter-rule-bar .bc-tabs-trigger svg {
-    color: var(--tm-topbar-text-color);
+    color: var(--tm-topbar-text-color) !important;
+}
+
+.tm-filter-rule-bar .tm-btn-info .tm-lucide-emoji__svg path {
+    fill: currentColor !important;
+}
+
+[data-theme-mode="light"] .tm-filter-rule-bar .tm-manager-brand-icon svg,
+[data-theme-mode="light"] .tm-filter-rule-bar .tm-btn-info svg,
+[data-theme-mode="light"] .tm-filter-rule-bar .bc-select-trigger svg,
+[data-theme-mode="light"] .tm-filter-rule-bar .tm-view-seg-item svg,
+[data-theme-mode="light"] .tm-filter-rule-bar .bc-tabs-trigger svg {
+    color: var(--tm-text-color) !important;
 }
 
 .tm-filter-rule-bar .tm-manager-title-label {
