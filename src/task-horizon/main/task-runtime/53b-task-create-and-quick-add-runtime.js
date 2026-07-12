@@ -990,6 +990,7 @@
             .map((doc) => [String(doc?.id || '').trim(), doc])
             .filter(([id]) => !!id));
         const currentRule = typeof __tmGetCurrentRule === 'function' ? __tmGetCurrentRule() : null;
+        const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         let changed = false;
         ids.forEach((docId) => {
             const doc = docMap.get(docId) || null;
@@ -999,6 +1000,7 @@
                     ? __tmDocShouldShowInDocTabs(doc, {
                         rule: currentRule,
                         archiveMode: state.docTabsArchiveMode === true,
+                        groupId: currentGroupId,
                     })
                     : !!(doc && Array.isArray(doc.tasks) && doc.tasks.length > 0);
             } catch (e) {
@@ -2529,8 +2531,9 @@
         return rolledBack;
     }
 
-    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, customFieldValues, atTop, appendToBottom, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
+    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, customFieldValues, atTop, appendToBottom, insertParentId, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
         const parentDocId = String(docId || '').trim();
+        let targetParentId = String(insertParentId || parentDocId).trim() || parentDocId;
         const text = String(content || '').trim();
         if (!parentDocId) throw new Error('未设置文档');
         if (!text) throw new Error('请输入任务内容');
@@ -2543,18 +2546,41 @@
         const md = `- [${initialMarker}] ${text}`;
 
         let nextID = String(insertBeforeId || '').trim();
-        const previousID = String(insertAfterId || '').trim();
+        let previousID = String(insertAfterId || '').trim();
+        let appendAtBottom = appendToBottom === true;
+        let columnHeadingId = '';
+        const headingAnchorId = String(targetHeadingId || h2Id || '').trim();
+        if (headingAnchorId) {
+            try {
+                const structure = await __tmResolveLiveHeadingInsertStructure(headingAnchorId, targetParentId);
+                if (structure.parentID && structure.parentID !== targetParentId) {
+                    targetParentId = structure.parentID;
+                    nextID = '';
+                    previousID = '';
+                    appendAtBottom = true;
+                }
+                if (structure.layout === 'col') {
+                    targetParentId = structure.parentID || targetParentId;
+                    columnHeadingId = headingAnchorId;
+                    nextID = '';
+                    previousID = '';
+                    appendAtBottom = false;
+                }
+            } catch (e) {}
+        }
         if (!nextID && atTop) {
             try { nextID = String(await API.getFirstDirectChildIdOfDoc(parentDocId) || '').trim(); } catch (e) { nextID = ''; }
         }
-        try { __tmMarkLocalCreateTxSuppressionIds([parentDocId, nextID, previousID].filter(Boolean), [parentDocId], 2600); } catch (e) {}
-        const placement = nextID || (previousID ? { previousID, parentID: parentDocId } : undefined);
-        const insertedId = appendToBottom && !atTop && !nextID && !previousID
-            ? await __tmAppendBlockWithRetry(parentDocId, md)
-            : await __tmInsertBlockWithRetry(parentDocId, md, placement);
+        try { __tmMarkLocalCreateTxSuppressionIds([parentDocId, targetParentId, headingAnchorId, nextID, previousID].filter(Boolean), [parentDocId], 2600); } catch (e) {}
+        const placement = nextID || (previousID ? { previousID, parentID: targetParentId } : undefined);
+        const insertedId = columnHeadingId
+            ? await __tmInsertTaskBelowColumnHeading(targetParentId, columnHeadingId, md)
+            : (appendAtBottom && !atTop && !nextID && !previousID
+                ? await __tmAppendBlockWithRetry(targetParentId, md)
+                : await __tmInsertBlockWithRetry(targetParentId, md, placement));
         try {
             if (typeof onBlockInserted === 'function') {
-                await Promise.resolve(onBlockInserted({ insertedId, docId: parentDocId, insertBeforeId: nextID || '', insertAfterId: previousID || '' }));
+                await Promise.resolve(onBlockInserted({ insertedId, docId: parentDocId, insertParentId: targetParentId, insertBeforeId: nextID || '', insertAfterId: previousID || '' }));
             }
         } catch (e) {}
         // 某些端会返回外层列表块 ID；outbox 场景会把真实任务 ID 解析交给后台短探测，避免卡住 UI。
@@ -2757,6 +2783,7 @@
                     await Promise.all(orderedLines.map((line) => createTaskInDoc({
                             docId: did,
                             content: line,
+                            insertParentId: String(placement.parentID || did).trim(),
                             insertBeforeId,
                             insertAfterId,
                             appendToBottom,
@@ -2876,6 +2903,69 @@
             }
         }
         throw lastErr || new Error('插入块失败');
+    }
+
+    async function __tmResolveLiveHeadingInsertStructure(headingId, fallbackParentId) {
+        const hid = String(headingId || '').trim();
+        const fallback = String(fallbackParentId || '').trim();
+        if (!hid) return { parentID: fallback, layout: '' };
+        let parentID = fallback;
+        try {
+            const rows = await API.getBlocksByIds([hid]);
+            const headingRow = (Array.isArray(rows) ? rows : []).find((row) => String(row?.id || '').trim() === hid);
+            parentID = String(headingRow?.parent_id || fallback).trim() || fallback;
+        } catch (e) {}
+        if (!parentID) return { parentID: '', layout: '' };
+        let layout = '';
+        try {
+            const parentRows = await API.getBlocksByIds([parentID]);
+            const parentRow = (Array.isArray(parentRows) ? parentRows : []).find((row) => String(row?.id || '').trim() === parentID);
+            if (String(parentRow?.type || '').trim() !== 's') return { parentID, layout };
+            const km = String(await API.getBlockKramdown(parentID) || '');
+            if (/^\s*\{\{\{\s*col(?:\s|$)/i.test(km)) layout = 'col';
+            else if (/^\s*\{\{\{\s*row(?:\s|$)/i.test(km)) layout = 'row';
+        } catch (e) {}
+        return { parentID, layout };
+    }
+
+    async function __tmInsertTaskBelowColumnHeading(columnParentId, headingId, md) {
+        const parentID = String(columnParentId || '').trim();
+        const hid = String(headingId || '').trim();
+        let wrapperID = '';
+        if (!parentID || !hid) throw new Error('未找到超级块目标标题');
+        try {
+            const insertedID = String(await __tmInsertBlockWithRetry(parentID, `{{{row\n${md}\n}}}`, hid) || '').trim();
+            if (!insertedID) throw new Error('创建超级块列容器失败');
+            wrapperID = insertedID;
+            try {
+                const rows = await API.getBlocksByIds([insertedID]);
+                const insertedRow = (Array.isArray(rows) ? rows : []).find((row) => String(row?.id || '').trim() === insertedID);
+                if (String(insertedRow?.type || '').trim() !== 's') {
+                    wrapperID = String(insertedRow?.parent_id || insertedID).trim() || insertedID;
+                }
+            } catch (e) {}
+            let firstChildID = '';
+            for (const delay of [0, 80, 180, 360]) {
+                if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+                const children = await API.getChildBlocks(wrapperID).catch(() => []);
+                firstChildID = String((Array.isArray(children) ? children : []).find((child) => String(child?.id || '').trim())?.id || '').trim();
+                if (firstChildID) break;
+            }
+            if (!firstChildID) throw new Error('未找到超级块列内的新任务');
+            await __tmBackendAdapter.moveBlock(hid, { nextID: firstChildID, parentID: wrapperID });
+            return wrapperID;
+        } catch (e) {
+            if (wrapperID) {
+                let headingMoved = false;
+                try {
+                    const rows = await API.getBlocksByIds([hid]);
+                    headingMoved = String(rows?.[0]?.parent_id || '').trim() === wrapperID;
+                } catch (e2) {}
+                if (headingMoved) return wrapperID;
+                try { await __tmBackendAdapter.deleteBlock(wrapperID); } catch (e2) {}
+            }
+            throw e;
+        }
     }
 
     async function __tmCreateSubtaskForTaskKernel(parentTaskId, content, options = {}) {
@@ -4655,6 +4745,7 @@
                     return {
                         atTop: false,
                         appendToBottom: !insertBeforeId && placement.appendToBottom === true,
+                        insertParentId: String(placement.parentID || did).trim(),
                         insertBeforeId,
                         insertAfterId: '',
                         headingPatch,
@@ -4673,6 +4764,7 @@
             return {
                 atTop: false,
                 appendToBottom: !insertBeforeId,
+                insertParentId: did,
                 insertBeforeId,
                 insertAfterId: '',
                 headingPatch,
@@ -4692,6 +4784,7 @@
         return {
             atTop: false,
             appendToBottom: false,
+            insertParentId: did,
             insertBeforeId: '',
             insertAfterId: headingId,
             headingPatch,
@@ -4706,6 +4799,7 @@
         const result = {
             atTop: false,
             appendToBottom: false,
+            insertParentId: '',
             insertBeforeId: '',
             insertAfterId: '',
             targetHeadingId: '',
@@ -4742,6 +4836,7 @@
                 const placement = await __tmResolveHeadingGroupInsertPlacement(did, configuredHeading.headingId, configuredHeading.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2');
                 if (placement?.matched) {
                     result.headingPatch = __tmBuildHeadingPatchFromPlacement(placement);
+                    result.insertParentId = String(placement.parentID || did).trim();
                     if (useSectionEnd) {
                         result.insertBeforeId = String(placement.nextID || '').trim();
                         headingAppendToBottom = placement.appendToBottom === true;
@@ -4756,6 +4851,7 @@
                 }
             } catch (e) {
                 result.headingPatch = null;
+                result.insertParentId = '';
                 result.insertBeforeId = '';
                 result.insertAfterId = '';
             }
@@ -4771,6 +4867,7 @@
             } catch (e) {}
             try { hint('⚠ 默认新建标题已不存在，已改用默认新建位置', 'warning'); } catch (e) {}
             result.headingPatch = null;
+            result.insertParentId = '';
             result.insertBeforeId = '';
             result.insertAfterId = '';
             headingAppendToBottom = false;

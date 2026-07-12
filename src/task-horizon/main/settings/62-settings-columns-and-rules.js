@@ -1550,13 +1550,84 @@
         }
     };
 
+    window.tmUpdateDocGroupSettingsQuery = function(value) {
+        const rawQuery = String(value || '');
+        const query = rawQuery.trim().toLowerCase();
+        state.settingsDocGroupQuery = rawQuery;
+        const manager = state.settingsModal?.querySelector?.('.tm-doc-group-manager');
+        if (!manager) return;
+        let visibleCount = 0;
+        manager.querySelectorAll('[data-tm-doc-group-search-name]').forEach((item) => {
+            const searchableName = String(item.dataset.tmDocGroupSearchName || '').toLowerCase();
+            const visible = !query || searchableName.includes(query);
+            item.hidden = !visible;
+            if (visible) visibleCount += 1;
+        });
+        const empty = manager.querySelector('.tm-doc-group-manager__search-empty');
+        if (empty) empty.hidden = visibleCount > 0;
+        const clear = manager.querySelector('.tm-doc-group-manager__search button');
+        if (clear) clear.hidden = !query;
+    };
+
+    window.tmClearDocGroupSettingsQuery = function() {
+        const input = state.settingsModal?.querySelector?.('.tm-doc-group-manager__search input');
+        if (input) input.value = '';
+        window.tmUpdateDocGroupSettingsQuery('');
+        try { input?.focus?.(); } catch (e) {}
+    };
+
+    window.tmSetDocGroupSettingsDetailTab = function(tab) {
+        const normalized = String(tab || '').trim();
+        state.settingsDocGroupDetailTab = ['sources', 'excluded', 'optimization'].includes(normalized)
+            ? normalized
+            : 'sources';
+        showSettings();
+    };
+
+    window.tmSwitchSettingsDocGroup = async function(groupId) {
+        const nextGroupId = String(groupId || 'all').trim() || 'all';
+        const previousGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (nextGroupId === previousGroupId) return;
+        const manager = state.settingsModal?.querySelector?.('.tm-doc-group-manager');
+        const workspace = manager?.querySelector?.('.tm-doc-group-manager__workspace');
+        if (workspace) workspace.setAttribute('aria-busy', 'true');
+        manager?.querySelectorAll?.('[data-tm-call="tmSwitchSettingsDocGroup"]').forEach((button) => {
+            let buttonGroupId = '';
+            try {
+                const args = JSON.parse(String(button.dataset.tmArgs || '[]'));
+                buttonGroupId = String(Array.isArray(args) ? args[0] : '').trim();
+            } catch (e) {}
+            const selected = buttonGroupId === nextGroupId;
+            button.classList.toggle('is-active', selected);
+            button.setAttribute('aria-selected', selected ? 'true' : 'false');
+        });
+        try {
+            await window.switchDocGroup(nextGroupId);
+        } catch (e) {
+            manager?.querySelectorAll?.('[data-tm-call="tmSwitchSettingsDocGroup"]').forEach((button) => {
+                let buttonGroupId = '';
+                try {
+                    const args = JSON.parse(String(button.dataset.tmArgs || '[]'));
+                    buttonGroupId = String(Array.isArray(args) ? args[0] : '').trim();
+                } catch (e2) {}
+                const selected = buttonGroupId === previousGroupId;
+                button.classList.toggle('is-active', selected);
+                button.setAttribute('aria-selected', selected ? 'true' : 'false');
+            });
+        } finally {
+            if (workspace?.isConnected) workspace.setAttribute('aria-busy', 'false');
+        }
+    };
+
     // 新增：切换分组
     window.switchDocGroup = async function(groupId) {
+        const previousGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        let savePromise = Promise.resolve();
         try {
             const nextGroupId = String(groupId || 'all').trim() || 'all';
             SettingsStore.data.currentGroupId = nextGroupId;
             try { SettingsStore.syncToLocal(); } catch (e) {}
-            const savePromise = SettingsStore.save().catch(() => null);
+            savePromise = SettingsStore.save().catch(() => null);
             state.activeDocId = 'all';
             const currentRuleId = String(state.currentRule || SettingsStore.data.currentRule || '').trim();
             const nextRuleId = (state.filterRules || []).some((rule) => rule && rule.enabled && String(rule.id || '').trim() === currentRuleId)
@@ -1564,6 +1635,7 @@
                 : '';
             state.currentRule = nextRuleId || null;
             SettingsStore.data.currentRule = nextRuleId || null;
+            showSettings();
             await loadSelectedDocuments({
                 showInlineLoading: true,
                 loadingStyleKind: 'topbar',
@@ -1586,8 +1658,12 @@
             } catch (e) {}
             await savePromise;
             render();
-            showSettings();
         } catch (e) {
+            try { await savePromise; } catch (e2) {}
+            SettingsStore.data.currentGroupId = previousGroupId;
+            try { SettingsStore.syncToLocal(); } catch (e2) {}
+            try { await SettingsStore.save(); } catch (e2) {}
+            try { showSettings(); } catch (e2) {}
             try { hint(`❌ 切换失败: ${e?.message || String(e)}`, 'error'); } catch (e2) {}
             throw e;
         }
@@ -1770,10 +1846,11 @@
 
     // 新增：删除当前分组
     window.deleteCurrentGroup = async function() {
-        if (!confirm('确定要删除当前分组吗？')) return;
-
         const currentId = SettingsStore.data.currentGroupId;
         let groups = SettingsStore.data.docGroups || [];
+        const currentGroup = groups.find((group) => String(group?.id || '').trim() === String(currentId || '').trim());
+        const currentGroupName = __tmResolveDocGroupName(currentGroup) || '当前分组';
+        if (!confirm(`确定要删除分组“${currentGroupName}”吗？此操作不会删除思源中的文档。`)) return;
         groups = groups.filter(g => g.id !== currentId);
         try {
             const pinMap = (SettingsStore.data.docPinnedByGroup && typeof SettingsStore.data.docPinnedByGroup === 'object')
@@ -1791,4 +1868,3 @@
         try { window.tmRefreshDocGroupTopbarSelects?.('all'); } catch (e) {}
         showSettings();
     };
-

@@ -293,24 +293,40 @@ if (shouldMarkDirty) {
                 try { cancelAnimationFrame(__tmThemeModeRefreshRaf); } catch (e) {}
                 __tmThemeModeRefreshRaf = null;
             }
+            if (__tmThemeStylesheetLoadHandler) {
+                try { document.removeEventListener('load', __tmThemeStylesheetLoadHandler, true); } catch (e) {}
+                __tmThemeStylesheetLoadHandler = null;
+            }
             const refreshThemeAppearance = () => {
                 __tmThemeModeRefreshRaf = null;
                 try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
                 try { __tmApplyAppearanceThemeVars(); } catch (e) {}
                 try { if (state.modal) render(); } catch (e) {}
             };
-            __tmThemeModeObserver = new MutationObserver(() => {
+            const scheduleThemeAppearanceRefresh = () => {
                 if (__tmThemeModeRefreshRaf) return;
                 try {
                     __tmThemeModeRefreshRaf = requestAnimationFrame(refreshThemeAppearance);
                 } catch (e) {
                     refreshThemeAppearance();
                 }
-            });
+            };
+            __tmThemeModeObserver = new MutationObserver(scheduleThemeAppearanceRefresh);
             __tmThemeModeObserver.observe(document.documentElement, {
                 attributes: true,
                 attributeFilter: ['data-theme-mode', 'data-light-theme', 'data-dark-theme', 'data-mode', 'class']
             });
+            __tmThemeStylesheetLoadHandler = (event) => {
+                const target = event?.target;
+                if (String(target?.tagName || '').toLowerCase() !== 'link') return;
+                const id = String(target.id || '');
+                const href = String(target.href || target.getAttribute?.('href') || '');
+                const isThemeStylesheet = id === 'themeDefaultStyle'
+                    || id === 'themeStyle'
+                    || /\/appearance\/themes\/[^/]+\/theme\.css(?:[?#]|$)/i.test(href);
+                if (isThemeStylesheet) scheduleThemeAppearanceRefresh();
+            };
+            document.addEventListener('load', __tmThemeStylesheetLoadHandler, true);
         } catch (e) {}
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
 
@@ -1488,6 +1504,10 @@ if (shouldMarkDirty) {
             if (__tmThemeModeRefreshRaf) {
                 try { cancelAnimationFrame(__tmThemeModeRefreshRaf); } catch (e2) {}
                 __tmThemeModeRefreshRaf = null;
+            }
+            if (__tmThemeStylesheetLoadHandler) {
+                try { document.removeEventListener('load', __tmThemeStylesheetLoadHandler, true); } catch (e2) {}
+                __tmThemeStylesheetLoadHandler = null;
             }
         } catch (e) {}
 

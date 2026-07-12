@@ -15,20 +15,20 @@
         { section: 'display', titles: ['基础显示', '字体大小', '移动端字体', '行高模式', '行高(px)', '父任务名称加粗', '自动换行', '内容行数', '备注行数', '任务标题级别', '完成反馈', '文档名称显示'] },
         { section: 'new-task', titles: ['新建任务', '新建任务位置', '默认新建文档', '今天日记默认笔记本', '启用“移动内容至今天日记”', '日记追加到底部', '标题分组追加到内容末尾', '新建任务默认置顶', '子任务继承父任务字段'] },
         { section: 'status', titles: ['状态选项', '勾选完成时状态', '未完成状态默认状态', '子任务全部完成后自动完成父任务'] },
-        { section: 'layout', titles: ['视图布局', '默认视图', '移动端默认', '自动隐藏页签栏', '页签拖延值上色', '启用 Dock 侧边栏', 'Dock 默认视图', 'Dock 紧凑标题点击跳转', '移动端清单紧凑视图标题点击跳转', 'Dock 及移动端紧凑右侧字段', '桌面端紧凑右侧字段', '紧凑右侧字体', '时间轴卡片字段', '标题点击弹出详情页面', '看板紧凑模式', '清单紧凑模式', '清单紧凑层级线', '看板宽度', '表格和看板宽度填满窗口', '看板卡片字段', '白板卡片字段', '删除任务同步删除白板卡片', '白板文字默认字号', '卡片字段常驻显示', '卡片流最小宽度', '移动端卡片流双栏', '显示已完成任务看板', '看板拖动父任务时同步更改子任务状态', '看板内子任务不与父任务分离', '时长显示格式', '实际番茄数属性名', '预计番茄数属性名'] },
+        { section: 'layout', titles: ['视图布局', '默认视图', '移动端默认', '自动隐藏页签栏', '页签拖延值上色', '启用 Dock 侧边栏', 'Dock 默认视图', 'Dock 紧凑标题点击跳转', '移动端清单紧凑视图标题点击跳转', '标题点击弹出详情页面', 'Dock 及移动端紧凑右侧字段', '桌面端紧凑右侧字段', '紧凑右侧字体', '时间轴卡片字段', '看板紧凑模式', '清单紧凑模式', '清单紧凑层级线', '看板宽度', '表格和看板宽度填满窗口', '看板卡片字段', '白板卡片字段', '删除任务同步删除白板卡片', '白板文字默认字号', '卡片字段常驻显示', '卡片流最小宽度', '移动端卡片流双栏', '单独已完成看板列', '看板拖动父任务时同步更改子任务状态', '看板内子任务不与父任务分离', '时长显示格式', '实际番茄数属性名', '预计番茄数属性名'] },
         { section: 'search', titles: ['搜索分组', '搜索与分组', '递归文档数上限', '兼容旧版 Win7 思源', '父任务回溯层数', '显示已完成任务', '已完成分组仅显示今天完成', '已完成任务不单独分组', '文档分组下按二级标题子分组', '分组模式增加“按任务名分组”', '分组内置顶任务', '自动识别语义日期（全量分批）', '语义截止默认提醒时间', '父任务按子任务时间参与时间相关排序', '全部折叠展开包含分组', '手动刷新时同步伺服共享设置', '手动刷新时同步当前分组/规则等会话状态'] },
         { section: 'topbar', titles: ['顶栏入口', '文档顶栏按钮(桌面)', '文档顶栏按钮(移动)', '对调文档顶栏长短按', '打开时定位当前文档', '思源窗口顶栏图标(桌面)', '思源窗口顶栏图标(移动)'] },
         { section: 'quickbar', titles: ['悬浮条', '任务悬浮条', '启用任务悬浮条', '文档任务行末尾常驻显示', '悬浮条显示图标', '常驻显示字段', '子任务数量显示未完成数', '移动端启用常驻显示'] },
         { section: 'tomato', titles: ['番茄钟/联动', '番茄钟与插件联动', '启用底栏番茄钟相关功能', '耗时读取模式', '分钟属性名', '小时属性名', '启用凡人修仙传:打卡插件联动', '不联动的文档分组', '启用任务逾期扣分', '截止日过期扣分', '日程过期扣分', '检查时间', '弹窗确认扣分'] }
     ]);
     const TM_SETTINGS_SEARCH_PAGE_ITEMS = Object.freeze([
-        { tab: 'docs', title: '文档分组与管理', desc: '按笔记本分组、自定义分组、当前分组内文档、排除文档' },
+        { tab: 'docs', title: '文档分组与管理', desc: '选择分组，管理文档来源、排除文档和搜索优化' },
         { tab: 'docs', title: '数据导入', desc: '导入滴答 CSV，自动创建文档、二级标题和任务块' },
-        { tab: 'docs', title: '当前分组内文档', desc: '查看、添加、清空或移除当前分组文档' },
-        { tab: 'docs', title: '排除文档', desc: '恢复或管理被排除的文档' },
         { tab: 'appearance', title: '列设置', desc: '显示、排序、宽度和自定义列' },
+        { tab: 'appearance', title: '插件图标', desc: '统一更换顶栏、文档栏、页签、Dock 侧栏和插件顶栏左上角图标' },
         { tab: 'appearance', section: 'columns', key: 'appearance-task-meta-attr-migration', title: '高级：内置字段属性名与迁移', desc: '自定义开始日期、截止日期、重要性、状态、完成时间等内置字段属性名，并可选择迁移旧任务字段' },
         { tab: 'appearance', title: '页签栏', desc: '归档入口位置' },
+        { tab: 'appearance', title: '顶栏按钮', desc: '控制新建、搜索、刷新和 AI 工作台按钮的显示' },
         { tab: 'appearance', title: '任务复选框', desc: '使用圆形任务复选框样式，按重要性上色' },
         { tab: 'appearance', title: '配色', desc: '调整主题、看板、时间轴和顶栏颜色' },
         { tab: 'calendar', title: '日历', desc: '日历视图与日程相关设置' },
@@ -617,28 +617,6 @@
             `;
         };
 
-        // 渲染分组选择器
-        const renderGroupSelector = () => {
-            const canRenameCurrentGroup = currentGroupId !== 'all' && currentGroup && !String(currentGroup.notebookId || '').trim();
-            return `
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-                    <button class="tm-btn tm-btn-primary" data-tm-action="createNotebookGroup" style="padding: 6px 12px; font-size: 12px;">+ 按笔记本分组</button>
-                    <button class="tm-btn tm-btn-info" data-tm-action="createCustomGroup" style="padding: 6px 12px; font-size: 12px;">+ 自定义分组</button>
-                </div>
-                <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                    <select id="groupSelector" data-tm-call="switchDocGroup"
-                            style="flex: 1; padding: 6px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
-                        <option value="all" ${currentGroupId === 'all' ? 'selected' : ''}>全部文档</option>
-                        ${groups.map(g => `<option value="${g.id}" ${currentGroupId === g.id ? 'selected' : ''}>${esc(__tmResolveDocGroupName(g))}</option>`).join('')}
-                    </select>
-                    ${currentGroupId !== 'all' ? `${canRenameCurrentGroup ? `<button class="tm-btn tm-btn-secondary" data-tm-action="renameCurrentGroup" style="padding: 6px 10px; font-size: 12px;">重命名</button>` : ''}
-                        <button class="tm-btn tm-btn-danger" data-tm-action="deleteCurrentGroup" style="padding: 6px 10px; font-size: 12px;">删除分组</button>
-                        <button class="tm-btn tm-btn-success" data-tm-action="exportCurrentGroup" style="padding: 6px 10px; font-size: 12px;">导出任务</button>` : ''}
-                </div>
-            `;
-        };
-
-
         const resolveOtherBlockSourceGroupsForSettings = () => {
             if (currentGroupId === 'all') return groups;
             return currentGroup ? [currentGroup] : [];
@@ -764,6 +742,286 @@
                 if (docEntry) doc = { id: docId, name: docEntry.name };
             }
             return doc ? __tmGetDocDisplayName(doc, doc.name || '未知文档') : '未知文档';
+        };
+
+        const renderDocumentGroupManager = () => {
+            const searchEnabled = groups.length >= 6;
+            const searchQuery = searchEnabled ? String(state.settingsDocGroupQuery || '').trim().toLowerCase() : '';
+            const isAllDocs = currentGroupId === 'all';
+            const isNotebookGroup = !!String(currentGroup?.notebookId || '').trim();
+            const currentGroupName = isAllDocs ? '全部文档' : (__tmResolveDocGroupName(currentGroup) || '未命名分组');
+            const detailTabs = isAllDocs ? ['sources', 'excluded'] : ['sources', 'excluded', 'optimization'];
+            const requestedDetailTab = String(state.settingsDocGroupDetailTab || 'sources').trim();
+            const activeDetailTab = detailTabs.includes(requestedDetailTab) ? requestedDetailTab : 'sources';
+            const icon = (name, size = 16) => __tmLucideIconSvg(name, {
+                size,
+                className: 'tm-doc-group-manager__icon-svg'
+            });
+            const sourceCountForGroup = (group) => {
+                const gid = String(group?.id || '').trim();
+                const directCount = __tmGetGroupSourceEntries(group).length;
+                const otherCount = gid ? __tmGetOtherBlockRefsByGroup(gid).length : 0;
+                return directCount + otherCount;
+            };
+            const renderGroupButton = (group) => {
+                const gid = String(group?.id || '').trim();
+                if (!gid) return '';
+                const name = __tmResolveDocGroupName(group) || '未命名分组';
+                const selected = gid === currentGroupId;
+                const notebook = !!String(group?.notebookId || '').trim();
+                const sourceCount = sourceCountForGroup(group);
+                const searchableName = name.toLowerCase();
+                const hidden = !!searchQuery && !searchableName.includes(searchQuery);
+                return `
+                    <button type="button"
+                        class="tm-doc-group-manager__group${selected ? ' is-active' : ''}"
+                        data-tm-doc-group-search-name="${esc(searchableName)}"
+                        data-tm-call="tmSwitchSettingsDocGroup"
+                        data-tm-args='${esc(JSON.stringify([gid]))}'
+                        aria-selected="${selected ? 'true' : 'false'}"
+                        title="${esc(name)}"${hidden ? ' hidden' : ''}>
+                        <span class="tm-doc-group-manager__group-icon">${icon(notebook ? 'archive' : 'file', 15)}</span>
+                        <span class="tm-doc-group-manager__group-copy">
+                            <span class="tm-doc-group-manager__group-name">${esc(name)}</span>
+                            <span class="tm-doc-group-manager__group-meta">${notebook ? '笔记本' : '自定义'} · ${sourceCount} 项来源</span>
+                        </span>
+                    </button>
+                `;
+            };
+            const visibleGroupCount = groups.filter((group) => {
+                if (!searchQuery) return true;
+                return String(__tmResolveDocGroupName(group) || '').toLowerCase().includes(searchQuery);
+            }).length;
+            const renderSourceRows = () => {
+                if (!currentDocs.length) {
+                    return '<div class="tm-doc-group-manager__empty">暂无文档来源。可在上方添加文档，或从思源文档菜单加入当前分组。</div>';
+                }
+                return `
+                    <div class="tm-doc-group-manager__source-list">
+                        ${currentDocs.map((docItem) => {
+                            const docId = String((typeof docItem === 'object' ? docItem?.id : docItem) || '').trim();
+                            const itemKind = String((typeof docItem === 'object' ? docItem?.kind : '') || 'doc').trim() || 'doc';
+                            const isNotebook = itemKind === 'notebook';
+                            const isRecursive = !isNotebook && !!(typeof docItem === 'object' ? docItem?.recursive : false);
+                            const hasOtherBlockSource = !isNotebook && !!(typeof docItem === 'object' ? docItem?.hasOtherBlockSource : false);
+                            const hasDirectDocSource = isNotebook || !!(typeof docItem === 'object' ? docItem?.hasDirectDocSource : true);
+                            const otherBlockCount = Math.max(0, Number(typeof docItem === 'object' ? docItem?.otherBlockCount : 0) || 0);
+                            const sourceGroupName = String((typeof docItem === 'object' ? docItem?.sourceGroupName : '') || '').trim();
+                            const sourceGroupId = String((typeof docItem === 'object'
+                                ? (docItem?.sourceGroupId || (Array.isArray(docItem?.sourceGroupIds) ? docItem.sourceGroupIds[0] : ''))
+                                : '') || '').trim();
+                            let doc = isNotebook ? null : state.allDocuments.find((item) => item.id === docId);
+                            if (!doc && !isNotebook) {
+                                const docEntry = state.taskTree.find((item) => item.id === docId);
+                                if (docEntry) doc = { id: docId, name: docEntry.name };
+                            }
+                            const fallbackOtherBlockDocName = String((typeof docItem === 'object' ? docItem?.docName : '') || '').trim();
+                            const docName = isNotebook
+                                ? __tmGetNotebookDisplayName(docId, '未知笔记本')
+                                : (doc ? __tmGetDocDisplayName(doc, doc.name || '未知文档') : (fallbackOtherBlockDocName || '未知文档'));
+                            const otherBlockBadgeTitle = `${sourceGroupName ? `${sourceGroupName}：` : ''}其他块页签来源${otherBlockCount > 0 ? `，${otherBlockCount} 个块` : ''}`;
+                            const directRemoveAction = isAllDocs
+                                ? `removeDocFromAll('${escSq(docId)}')`
+                                : `removeDocFromGroupById('${escSq(docId)}')`;
+                            return `
+                                <div class="tm-doc-group-manager__source-row">
+                                    <span class="tm-doc-group-manager__source-icon">${icon(isNotebook ? 'archive' : 'file-text', 15)}</span>
+                                    <div class="tm-doc-group-manager__source-copy">
+                                        <div class="tm-doc-group-manager__source-name" title="${esc(docName)}">${esc(docName)}</div>
+                                        <div class="tm-doc-group-manager__source-meta">
+                                            <span class="tm-doc-group-manager__source-id" title="${esc(docId)}">${esc(docId)}</span>
+                                            ${isNotebook ? '<span class="tm-doc-group-manager__badge">笔记本</span>' : ''}
+                                            ${isRecursive ? '<span class="tm-doc-group-manager__badge">含子文档</span>' : ''}
+                                            ${hasOtherBlockSource ? `<span class="tm-doc-group-manager__badge tm-doc-group-manager__badge--warning" title="${esc(otherBlockBadgeTitle)}">其他块${otherBlockCount > 1 ? ` ${otherBlockCount}` : ''}</span>` : ''}
+                                        </div>
+                                    </div>
+                                    <div class="tm-doc-group-manager__source-actions">
+                                        ${isNotebook
+                                            ? `<span class="tm-doc-group-manager__row-note">${isAllDocs ? '来自笔记本分组' : '在更多操作中解除关联'}</span>`
+                                            : `${hasDirectDocSource ? `<button type="button" class="tm-doc-group-manager__text-action" onclick="${directRemoveAction}">${icon('trash-2', 13)}<span>移除</span></button>` : ''}
+                                               ${hasOtherBlockSource ? `<button type="button" class="tm-doc-group-manager__text-action" onclick="removeOtherBlockSourceDocFromGroup('${escSq(docId)}', '${escSq(sourceGroupId)}')">${icon('trash-2', 13)}<span>移除其他块</span></button>` : ''}`}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            };
+            const renderSourcePane = () => {
+                const addForm = isNotebookGroup ? `
+                    <div class="tm-doc-group-manager__notice">
+                        ${icon('archive', 16)}
+                        <div>
+                            <strong>来源由笔记本同步</strong>
+                            <span>自动搜索该笔记本内包含任务的文档，名称跟随笔记本显示名。</span>
+                        </div>
+                    </div>
+                ` : `
+                    <div class="tm-doc-group-manager__add-form">
+                        <input type="text" id="manualDocId" class="tm-doc-group-manager__input" placeholder="输入文档 ID" aria-label="文档 ID">
+                        ${isAllDocs ? '' : `
+                            <label class="tm-doc-group-manager__recursive">
+                                <input class="b3-switch fn__flex-center" type="checkbox" id="recursiveCheck">
+                                <span>包含子文档</span>
+                            </label>
+                        `}
+                        <button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__add-button" data-tm-action="addManualDoc">
+                            ${icon('plus', 15)}<span>添加</span>
+                        </button>
+                    </div>
+                    <div class="tm-doc-group-manager__hint">
+                        ${isAllDocs
+                            ? '添加到全部文档的兼容来源；需要包含子文档时，请先选择一个自定义分组。'
+                            : '在思源中打开文档，从文档菜单复制 ID。'}
+                    </div>
+                `;
+                return `${addForm}${renderSourceRows()}`;
+            };
+            const renderExcludedPane = () => {
+                if (!currentGroupExcludedDocIds.length) {
+                    return '<div class="tm-doc-group-manager__empty">暂无排除文档。右击任务管理器中的文档页签可以快速排除。</div>';
+                }
+                return `
+                    <div class="tm-doc-group-manager__pane-intro">
+                        ${isAllDocs ? '这里只影响“全部文档”视图。' : '恢复后，文档会重新出现在当前分组中。'}
+                    </div>
+                    <div class="tm-doc-group-manager__source-list">
+                        ${currentGroupExcludedDocIds.map((docId) => {
+                            const docName = resolveDocName(docId);
+                            return `
+                                <div class="tm-doc-group-manager__source-row">
+                                    <span class="tm-doc-group-manager__source-icon">${icon('file-text', 15)}</span>
+                                    <div class="tm-doc-group-manager__source-copy">
+                                        <div class="tm-doc-group-manager__source-name" title="${esc(docName)}">${esc(docName)}</div>
+                                        <div class="tm-doc-group-manager__source-meta"><span class="tm-doc-group-manager__source-id" title="${esc(String(docId))}">${esc(String(docId))}</span></div>
+                                    </div>
+                                    <button type="button" class="tm-doc-group-manager__restore" onclick="removeExcludedDocFromCurrentGroup('${escSq(docId)}')">恢复显示</button>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            };
+            const renderOptimizationPane = () => `
+                <div class="tm-doc-group-manager__pane-intro">
+                    适合以日记文档为主的分组，也可用于限制普通分组的任务搜索范围。
+                </div>
+                ${renderSingleSwitchSetting(
+                    '启用日记分组优化搜索',
+                    '仅对当前分组生效，默认关闭以保持原有行为。',
+                    `<input class="b3-switch fn__flex-center" type="checkbox" ${currentGroupCalendarOptimization.enabled ? 'checked' : ''} onchange="updateCurrentGroupCalendarSearchOptimizationEnabled(this.checked)">`
+                )}
+                <div class="tm-doc-group-manager__optimization-days${currentGroupCalendarOptimization.enabled ? '' : ' is-disabled'}">
+                    ${renderSingleFieldSetting(
+                        '搜索窗口',
+                        '只搜索最近多少天内可识别为日记文档的任务。',
+                        `<select class="b3-select tm-doc-group-manager__days-select" ${currentGroupCalendarOptimization.enabled ? '' : 'disabled'} onchange="updateCurrentGroupCalendarSearchOptimizationDays(this.value)">
+                            <option value="7" ${Number(currentGroupCalendarOptimization.days) === 7 ? 'selected' : ''}>最近 7 天</option>
+                            <option value="30" ${Number(currentGroupCalendarOptimization.days) === 30 ? 'selected' : ''}>最近 30 天</option>
+                            <option value="60" ${Number(currentGroupCalendarOptimization.days) === 60 ? 'selected' : ''}>最近 60 天</option>
+                            <option value="90" ${Number(currentGroupCalendarOptimization.days) === 90 ? 'selected' : ''}>最近 90 天</option>
+                            <option value="120" ${Number(currentGroupCalendarOptimization.days) === 120 ? 'selected' : ''}>最近 120 天</option>
+                        </select>`
+                    )}
+                </div>
+            `;
+            const renderDetailActions = () => {
+                if (isAllDocs) return '';
+                const canRename = !isNotebookGroup;
+                const canClear = isNotebookGroup || (Array.isArray(currentGroup?.docs) && currentGroup.docs.length > 0);
+                return `
+                    <div class="tm-doc-group-manager__detail-actions">
+                        <button type="button" class="tm-btn tm-btn-secondary tm-doc-group-manager__export" data-tm-action="exportCurrentGroup">
+                            ${icon('download', 15)}<span>导出</span>
+                        </button>
+                        <details class="tm-doc-group-manager__more">
+                            <summary class="tm-doc-group-manager__icon-button" title="更多操作" aria-label="更多操作">${icon('dots-three', 17)}</summary>
+                            <div class="tm-doc-group-manager__more-menu" role="menu">
+                                ${canRename ? `<button type="button" data-tm-action="renameCurrentGroup" role="menuitem">${icon('pencil', 15)}<span>重命名</span></button>` : ''}
+                                ${canClear ? `<button type="button" data-tm-action="clearCurrentGroupDocs" role="menuitem">${icon(isNotebookGroup ? 'archive' : 'trash-2', 15)}<span>${isNotebookGroup ? '解除笔记本关联' : '清空手动文档'}</span></button>` : ''}
+                                <button type="button" class="is-danger" data-tm-action="deleteCurrentGroup" role="menuitem">${icon('trash-2', 15)}<span>删除分组</span></button>
+                            </div>
+                        </details>
+                    </div>
+                `;
+            };
+            const renderDetailTab = (tab, label, count = null) => {
+                const active = activeDetailTab === tab;
+                return `
+                    <button type="button" class="tm-doc-group-manager__tab${active ? ' is-active' : ''}"
+                        data-tm-call="tmSetDocGroupSettingsDetailTab"
+                        data-tm-args='${esc(JSON.stringify([tab]))}'
+                        role="tab" aria-selected="${active ? 'true' : 'false'}">
+                        <span>${label}</span>${count === null ? '' : `<span class="tm-doc-group-manager__tab-count">${count}</span>`}
+                    </button>
+                `;
+            };
+            const detailPaneHtml = activeDetailTab === 'excluded'
+                ? renderExcludedPane()
+                : (activeDetailTab === 'optimization' ? renderOptimizationPane() : renderSourcePane());
+            return `
+                <section class="tm-settings-panel tm-doc-group-manager" ${__tmSettingsSearchAttrs('docs', '文档分组与管理', '常驻分组列表、文档来源、排除文档和搜索优化')}>
+                    <div class="tm-doc-group-manager__heading">
+                        <div>
+                            <div class="tm-settings-section-title">${icon('list-bullets', 18)}<span>文档分组与管理</span></div>
+                            <div class="tm-settings-section-desc">选择分组后管理来源、排除范围与搜索优化。</div>
+                        </div>
+                    </div>
+                    <div class="tm-doc-group-manager__workspace" aria-busy="false">
+                        <aside class="tm-doc-group-manager__nav" aria-label="文档分组">
+                            <div class="tm-doc-group-manager__nav-head">
+                                <span>文档范围</span>
+                                <span>${groups.length} 个分组</span>
+                            </div>
+                            ${searchEnabled ? `
+                                <div class="tm-doc-group-manager__search">
+                                    <span>${icon('search', 14)}</span>
+                                    <input type="search" value="${esc(String(state.settingsDocGroupQuery || ''))}" placeholder="搜索分组" aria-label="搜索文档分组" data-tm-call="tmUpdateDocGroupSettingsQuery">
+                                    <button type="button" data-tm-action="tmClearDocGroupSettingsQuery" title="清除搜索" aria-label="清除搜索"${searchQuery ? '' : ' hidden'}>${icon('x', 14)}</button>
+                                </div>
+                            ` : ''}
+                            <div class="tm-doc-group-manager__all">
+                                <button type="button" class="tm-doc-group-manager__group${isAllDocs ? ' is-active' : ''}"
+                                    data-tm-call="tmSwitchSettingsDocGroup" data-tm-args='${esc(JSON.stringify(['all']))}'
+                                    aria-selected="${isAllDocs ? 'true' : 'false'}" title="全部文档">
+                                    <span class="tm-doc-group-manager__group-icon">${icon('list-bullets', 15)}</span>
+                                    <span class="tm-doc-group-manager__group-copy">
+                                        <span class="tm-doc-group-manager__group-name">全部文档</span>
+                                        <span class="tm-doc-group-manager__group-meta">汇总所有分组</span>
+                                    </span>
+                                </button>
+                            </div>
+                            <div class="tm-doc-group-manager__group-list" role="listbox">
+                                ${groups.map(renderGroupButton).join('')}
+                                <div class="tm-doc-group-manager__search-empty"${visibleGroupCount > 0 ? ' hidden' : ''}>没有匹配的分组</div>
+                            </div>
+                            <div class="tm-doc-group-manager__create">
+                                <button type="button" class="tm-btn tm-btn-primary" data-tm-action="createNotebookGroup">${icon('plus', 14)}<span>笔记本</span></button>
+                                <button type="button" class="tm-btn tm-btn-primary" data-tm-action="createCustomGroup">${icon('plus', 14)}<span>自定义</span></button>
+                            </div>
+                        </aside>
+                        <div class="tm-doc-group-manager__detail">
+                            <div class="tm-doc-group-manager__detail-head">
+                                <div class="tm-doc-group-manager__detail-title-wrap">
+                                    <div class="tm-doc-group-manager__detail-title" title="${esc(currentGroupName)}">${esc(currentGroupName)}</div>
+                                    <div class="tm-doc-group-manager__detail-meta">
+                                        ${isAllDocs ? '汇总视图' : (isNotebookGroup ? '笔记本分组' : '自定义分组')} · ${currentDocs.length} 项来源
+                                    </div>
+                                </div>
+                                ${renderDetailActions()}
+                            </div>
+                            <div class="tm-doc-group-manager__tabs" role="tablist" aria-label="分组详情">
+                                ${renderDetailTab('sources', '文档来源', currentDocs.length)}
+                                ${renderDetailTab('excluded', '排除文档', currentGroupExcludedDocIds.length)}
+                                ${isAllDocs ? '' : renderDetailTab('optimization', '搜索优化')}
+                            </div>
+                            <div class="tm-doc-group-manager__pane" role="tabpanel">
+                                ${detailPaneHtml}
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            `;
         };
 
         const docTabCustomGroups = __tmGetDocTabCustomGroups();
@@ -996,6 +1254,40 @@
                     <div class="tm-setting-field-control${isStacked ? ' tm-setting-field-control--block' : ''}">
                         ${controlHtml}
                     </div>
+                </div>
+            `;
+        };
+        const renderEntryIconPresetSetting = () => {
+            const registry = globalThis.__taskHorizonEntryIconRegistry;
+            const presets = Array.isArray(registry?.presets) ? registry.presets : [];
+            if (!presets.length) return '';
+            const hasFullFeature = typeof window.tmLicenseHasFeature === 'function' && window.tmLicenseHasFeature('pro');
+            const selected = __tmNormalizeEntryIconPreset(registry?.getActivePreset?.() || SettingsStore.data.entryIconPreset);
+            return `
+                <div class="tm-entry-icon-picker" role="radiogroup" aria-label="任务管理器插件图标">
+                    ${presets.map((preset, index) => {
+                        const id = String(preset?.id || '').trim();
+                        const label = String(preset?.label || id).trim() || id;
+                        const symbolId = String(preset?.symbolId || '').trim();
+                        const active = id === selected;
+                        const locked = id !== 'classic' && !hasFullFeature;
+                        const orderLabel = id === 'classic' ? '默认' : String(index).padStart(2, '0');
+                        return `
+                            <button
+                                type="button"
+                                class="tm-entry-icon-option${active ? ' is-active' : ''}${locked ? ' is-locked' : ''}"
+                                role="radio"
+                                aria-checked="${active ? 'true' : 'false'}"
+                                aria-label="${esc(label)}${locked ? '，全功能权益' : ''}"
+                                title="${esc(label)}${locked ? ' · 全功能权益' : ''}"
+                                onclick="tmUpdateEntryIconPreset('${escSq(id)}')"
+                            >
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${esc(symbolId)}" xlink:href="#${esc(symbolId)}"></use></svg>
+                                <span>${orderLabel} ${esc(label)}</span>
+                                ${locked ? '<small>全功能</small>' : ''}
+                            </button>
+                        `;
+                    }).join('')}
                 </div>
             `;
         };
@@ -1291,6 +1583,11 @@
                                 { style: 'margin-top:12px;', section: 'columns', key: 'appearance-task-meta-attr-migration' }
                             )}
                         </div>
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '插件图标', '统一更换顶栏、文档栏、页签、Dock 侧栏和插件顶栏左上角图标')}>
+                            <div style="font-weight: 600; margin-bottom: 6px;">插件图标</div>
+                            <div style="font-size:13px;color:var(--tm-secondary-text);line-height:1.6;margin-bottom:12px;">统一应用于思源窗口顶栏、文档栏、插件页签、Dock 侧栏和插件顶栏左上角。经典图标免费可用，其余预设属于全功能权益。</div>
+                            ${renderEntryIconPresetSetting()}
+                        </div>
                         <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '页签栏', '归档入口位置')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">📑 页签栏</div>
                             ${renderSingleFieldSetting(
@@ -1300,6 +1597,29 @@
                                     <option value="before-all" ${String(SettingsStore.data.docTabsArchiveButtonPosition || '') === 'before-all' ? 'selected' : ''}>全部页签前左侧</option>
                                     <option value="after-docs" ${String(SettingsStore.data.docTabsArchiveButtonPosition || '') === 'before-all' ? '' : 'selected'}>文档页签后</option>
                                 </select>`
+                            )}
+                        </div>
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '顶栏按钮', '控制新建、搜索、刷新和 AI 工作台按钮的显示')}>
+                            <div style="font-weight: 600; margin-bottom: 12px;">🔘 顶栏按钮</div>
+                            ${renderSingleSwitchSetting(
+                                '新建任务按钮',
+                                '在桌面宽屏和紧凑顶栏显示新建任务入口。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('add') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('add', this.checked)">`
+                            )}
+                            ${renderSingleSwitchSetting(
+                                '搜索按钮',
+                                '在桌面宽屏和紧凑顶栏显示任务搜索入口。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('search') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('search', this.checked)">`
+                            )}
+                            ${renderSingleSwitchSetting(
+                                '刷新按钮',
+                                '在桌面宽屏和紧凑顶栏显示手动刷新入口。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('refresh') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('refresh', this.checked)">`
+                            )}
+                            ${renderSingleSwitchSetting(
+                                'AI 工作台按钮',
+                                '仅在 AI 功能启用时显示，关闭 AI 后仍保留此偏好。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('ai') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('ai', this.checked)">`
                             )}
                         </div>
                         <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '任务复选框', '使用圆形任务复选框样式，按重要性上色')}>
@@ -1670,6 +1990,12 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ` : ''}
+                        ${renderSingleSwitchSetting(
+                            '标题点击弹出详情页面',
+                            '适用于各视图的任务标题点击。开启后标题默认打开任务详情页面；在移动端/Dock 清单紧凑视图中，本设置的优先级高于上方两个“标题点击跳转”开关：同时开启时，移动端弹出详情页面，Dock 打开任务详情抽屉。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactTitleOpenDetailPage ? 'checked' : ''} onchange="updateChecklistCompactTitleOpenDetailPage(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                         <div style="margin-bottom:10px;">
                             ${renderSingleFieldSetting(
                                 'Dock 及移动端紧凑右侧字段',
@@ -1729,12 +2055,6 @@
                                     })
                                 ]);
                             })(),
-                            { style: 'margin-bottom:10px;' }
-                        )}
-                        ${renderSingleSwitchSetting(
-                            '标题点击弹出详情页面',
-                            '适用于各视图的任务标题点击。开启后标题默认打开任务详情页面；在移动端/Dock 清单紧凑视图中，仍低于上方两个“标题点击跳转”开关，仅在原本允许标题点击跳转时才会生效；其中 Dock 紧凑视图会改为打开抽屉详情。',
-                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactTitleOpenDetailPage ? 'checked' : ''} onchange="updateChecklistCompactTitleOpenDetailPage(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         <div style="margin-bottom:10px;">
@@ -1856,8 +2176,8 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '显示已完成任务看板',
-                            '仅在标题看板中显示“已完成”看板列。',
+                            '单独已完成看板列',
+                            '在“已完成任务不单独分组”关闭时生效。开启后，标题看板和日期看板使用单独的“已完成”列；关闭时，已完成任务收纳到各列底部折叠分组。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanShowDoneColumn ? 'checked' : ''} onchange="updateKanbanShowDoneColumn(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -1947,7 +2267,7 @@
                         )}
                         ${renderSingleSwitchSetting(
                             '已完成任务不单独分组',
-                            '开启后，已完成任务跟随当前文档、时间、四象限或任务名分组显示，不再统一放入尾部“已完成任务”分组。',
+                            '开启后，已完成任务跟随当前文档、时间、四象限或任务名分组显示；看板中也不再显示单独已完成列或列底部已完成分组。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.completedTasksInlineInGroups ? 'checked' : ''} onchange="updateCompletedTasksInlineInGroups(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2027,7 +2347,7 @@
                         )}
                         ${renderSingleSwitchSetting(
                             '打开时定位当前文档',
-                            '开启后，文档顶栏按钮在执行“打开任务管理器”时，会优先跳转到当前文档所在分组并切到该文档页签；若当前文档没有任务块或未加入分组，则保持原行为。',
+                            '开启后，文档顶栏按钮在执行“打开任务管理器”时，会优先跳转到当前文档所在分组并切到该文档页签；若当前文档没有任务块或未加入分组，则保持原行为。之后从思源窗口顶栏打开时，会返回定位前分组的“全部”页签。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonLocateCurrentDocTab ? 'checked' : ''} onchange="updateDocTopbarButtonLocateCurrentDocTab(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
@@ -2243,53 +2563,7 @@
                         </div>
                     </div>
 
-                    <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;" ${__tmSettingsSearchAttrs('docs', '文档分组与管理', '按笔记本分组、自定义分组、手动添加文档和包含子文档')}>
-                        <div style="font-weight: 600; margin-bottom: 8px;">📂 文档分组与管理</div>
-                        <div style="font-size: 12px; color: var(--tm-secondary-text); line-height: 1.7; margin-bottom: 10px;">
-                            <div><b>按笔记本分组：</b>自动搜索笔记本内有任务的文档，分组名称跟随笔记本名称。</div>
-                            <div style="margin-top: 4px;"><b>自定义分组：</b>可自定义设置分组名称，文档手动添加，也支持选择“包含子文档”自动搜索有任务的子文档。</div>
-                        </div>
-                        ${renderGroupSelector()}
-                        ${currentGroupId !== 'all' ? `
-                        <div style="margin-bottom: 12px; padding: 10px; border: 1px solid var(--tm-border-color); border-radius: 8px; background: var(--tm-card-bg);" ${__tmSettingsSearchAttrs('docs', '日记分组优化搜索', '按日记日期裁剪分组搜索范围')}>
-                            <div style="font-weight: 600; margin-bottom: 6px;">📅 日记分组优化搜索</div>
-                            <div style="font-size: 12px; color: var(--tm-secondary-text); line-height: 1.7; margin-bottom: 10px;">
-                                当当前分组主要由每天的日记文档组成时，开启后会优先按文档日期裁剪，只搜索最近 7、30、60、90 或 120 天内的日记文档任务；如果是非日记分组，也会将搜索范围限制在设定的时间内。
-                            </div>
-                            ${renderSingleSwitchSetting(
-                                '启用日记分组优化搜索',
-                                '仅对当前分组生效，默认关闭以保持原有分组行为。',
-                                `<input class="b3-switch fn__flex-center" type="checkbox" ${currentGroupCalendarOptimization.enabled ? 'checked' : ''} onchange="updateCurrentGroupCalendarSearchOptimizationEnabled(this.checked)">`
-                            )}
-                            <div style="margin-top:10px;opacity:${currentGroupCalendarOptimization.enabled ? 1 : 0.6};">
-                                ${renderSingleFieldSetting(
-                                    '搜索窗口',
-                                    '当前分组仅搜索最近多少天内可识别为日记文档的任务。',
-                                    `<select class="b3-select" ${currentGroupCalendarOptimization.enabled ? '' : 'disabled'} onchange="updateCurrentGroupCalendarSearchOptimizationDays(this.value)" style="width:180px;">
-                                        <option value="7" ${Number(currentGroupCalendarOptimization.days) === 7 ? 'selected' : ''}>最近7天</option>
-                                        <option value="30" ${Number(currentGroupCalendarOptimization.days) === 30 ? 'selected' : ''}>最近30天</option>
-                                        <option value="60" ${Number(currentGroupCalendarOptimization.days) === 60 ? 'selected' : ''}>最近60天</option>
-                                        <option value="90" ${Number(currentGroupCalendarOptimization.days) === 90 ? 'selected' : ''}>最近90天</option>
-                                        <option value="120" ${Number(currentGroupCalendarOptimization.days) === 120 ? 'selected' : ''}>最近120天</option>
-                                    </select>`
-                                )}
-                            </div>
-                        </div>
-                        ` : ''}
-
-                        <div style="display: flex; gap: 8px; margin-top: 12px;">
-                            <input type="text" id="manualDocId" placeholder="输入文档ID"
-                                   style="flex: 1; padding: 8px 12px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 13px;">
-                            <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; user-select: none;">
-                                <input class="b3-switch fn__flex-center" type="checkbox" id="recursiveCheck">
-                                包含子文档
-                            </label>
-                            <button class="tm-btn tm-btn-primary" data-tm-action="addManualDoc">添加</button>
-                        </div>
-                        <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 8px;">
-                            提示：在思源笔记中打开文档，文档菜单中复制ID即可得到文档ID
-                        </div>
-                    </div>
+                    ${renderDocumentGroupManager()}
 
                     <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;" ${__tmSettingsSearchAttrs('docs', '页签自定义分组', '独立弹窗管理页签组，勾选当前文档分组页签并选择是否包含子文档')}>
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -2301,103 +2575,6 @@
                         </div>
                     </div>
 
-                    <div style="margin-bottom: 0;" ${__tmSettingsSearchAttrs('docs', '当前分组内文档', '查看、添加、清空或移除当前分组文档')}>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 600;">📚 当前分组内文档（${currentDocs.length} 个）</span>
-                            ${currentGroupId !== 'all' ? `<button class="tm-btn tm-btn-danger" data-tm-action="clearCurrentGroupDocs" style="padding: 4px 8px; font-size: 12px;">清空分组内文档</button>` : ''}
-                        </div>
-                        ${currentDocs.length > 0 ? `
-                            <div style="max-height: min(42vh, 320px); overflow-y: auto; border: 1px solid var(--tm-border-color); border-radius: 8px; padding: 8px;">
-                                ${currentDocs.map((docItem, index) => {
-                                    // 尝试从 allDocuments 中查找
-                                    const docId = typeof docItem === 'object' ? docItem.id : docItem;
-                                    const itemKind = String((typeof docItem === 'object' ? docItem.kind : '') || 'doc').trim() || 'doc';
-                                    const isNotebook = itemKind === 'notebook';
-                                    const isRecursive = !isNotebook && (typeof docItem === 'object' ? !!docItem.recursive : false);
-                                    const hasOtherBlockSource = !isNotebook && !!(typeof docItem === 'object' ? docItem.hasOtherBlockSource : false);
-                                    const hasDirectDocSource = isNotebook || !!(typeof docItem === 'object' ? docItem.hasDirectDocSource : true);
-                                    const otherBlockCount = Math.max(0, Number(typeof docItem === 'object' ? docItem.otherBlockCount : 0) || 0);
-                                    const sourceGroupName = String((typeof docItem === 'object' ? docItem.sourceGroupName : '') || '').trim();
-                                    const sourceGroupId = String((typeof docItem === 'object' ? (docItem.sourceGroupId || (Array.isArray(docItem.sourceGroupIds) ? docItem.sourceGroupIds[0] : '')) : '') || '').trim();
-
-                                    let doc = isNotebook ? null : state.allDocuments.find(d => d.id === docId);
-
-                                    // 如果找不到，尝试从 taskTree 中查找
-                                    if (!doc && !isNotebook) {
-                                        const docEntry = state.taskTree.find(d => d.id === docId);
-                                        if (docEntry) {
-                                            doc = { id: docId, name: docEntry.name };
-                                        }
-                                    }
-
-                                    const fallbackOtherBlockDocName = String((typeof docItem === 'object' ? docItem.docName : '') || '').trim();
-                                    const docName = isNotebook ? __tmGetNotebookDisplayName(docId, '未知笔记本') : (doc ? doc.name : (fallbackOtherBlockDocName || '未知文档'));
-                                    const displayName = docName.length > 25 ? docName.substring(0, 25) + '...' : docName;
-                                    const otherBlockBadgeTitle = `${sourceGroupName ? `${sourceGroupName}：` : ''}其他块页签来源${otherBlockCount > 0 ? `，${otherBlockCount} 个块` : ''}`;
-
-                                    return `
-                                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; background: var(--tm-card-bg); border-radius: 4px; margin-bottom: 4px;">
-                                            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-                                                <span style="color: var(--tm-primary-color); font-weight: 500;">${index + 1}.</span>
-                                                <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                                    <span title="${esc(docName)}">${esc(displayName)}</span>
-                                                    ${isNotebook ? '<span style="font-size: 10px; background: var(--tm-info-bg); color: var(--tm-primary-color); padding: 1px 4px; border-radius: 4px; margin-left: 4px;">笔记本</span>' : ''}
-                                                    ${isRecursive ? '<span style="font-size: 10px; background: var(--tm-info-bg); color: var(--tm-primary-color); padding: 1px 4px; border-radius: 4px; margin-left: 4px;">+子文档</span>' : ''}
-                                                    ${hasOtherBlockSource ? `<span title="${esc(otherBlockBadgeTitle)}" style="font-size: 10px; background: color-mix(in srgb, var(--tm-warning-color, #f9ab00) 12%, transparent); color: var(--tm-warning-color, #f9ab00); padding: 1px 4px; border-radius: 4px; margin-left: 4px;">其他块${otherBlockCount > 1 ? ` ${otherBlockCount}` : ''}</span>` : ''}
-                                                </div>
-                                                <span style="font-size: 11px; color: var(--tm-task-done-color); font-family: monospace;">${docId.slice(0, 8)}...</span>
-                                            </div>
-                                            ${currentGroupId !== 'all' ? `
-                                                ${isNotebook ? `<span style="font-size: 11px; color: var(--tm-secondary-text);">使用“清空分组内文档”移除</span>` : `
-                                                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-                                                    ${hasDirectDocSource ? `<button class="tm-btn tm-btn-danger" onclick="removeDocFromGroupById('${escSq(docId)}')" style="padding: 2px 6px; font-size: 11px;">移除</button>` : ''}
-                                                    ${hasOtherBlockSource ? `<button class="tm-btn tm-btn-danger" onclick="removeOtherBlockSourceDocFromGroup('${escSq(docId)}', '${escSq(sourceGroupId)}')" style="padding: 2px 6px; font-size: 11px;">移除</button>` : ''}
-                                                </div>
-                                                `}
-                                            ` : `
-                                                ${isNotebook ? `<span style="font-size: 11px; color: var(--tm-secondary-text);">来自笔记本分组</span>` : `
-                                                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-                                                    ${hasDirectDocSource ? `<button class="tm-btn tm-btn-danger" onclick="removeDocFromAll('${escSq(docId)}')" style="padding: 2px 6px; font-size: 11px;">移除</button>` : ''}
-                                                    ${hasOtherBlockSource ? `<button class="tm-btn tm-btn-danger" onclick="removeOtherBlockSourceDocFromGroup('${escSq(docId)}', '${escSq(sourceGroupId)}')" style="padding: 2px 6px; font-size: 11px;">移除</button>` : ''}
-                                                </div>
-                                                `}
-                                            `}
-                                        </div>
-                                    `;
-                                }).join('')}
-                            </div>
-                        ` : '<div style="color: var(--tm-secondary-text); font-size: 13px; padding: 10px; background: var(--tm-rule-group-bg); border-radius: 8px;">暂无文档，请添加</div>'}
-                    </div>
-                    <div style="margin-top: 16px;" ${__tmSettingsSearchAttrs('docs', '排除文档', '恢复或管理被排除的文档')}>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 600;">🚫 排除文档（${currentGroupExcludedDocIds.length} 个）</span>
-                        </div>
-                        <div style="font-size: 12px; color: var(--tm-secondary-text); line-height: 1.7; margin-bottom: 8px;">
-                            ${currentGroupId === 'all'
-                                ? '右击文档页签可快速排除。这里只影响“全部文档”视图，恢复显示请从这里移出排除列表。'
-                                : '右击文档页签可快速排除。恢复显示请从这里移出排除列表。'}
-                        </div>
-                        ${currentGroupExcludedDocIds.length > 0 ? `
-                            <div style="max-height: min(32vh, 240px); overflow-y: auto; border: 1px solid var(--tm-border-color); border-radius: 8px; padding: 8px;">
-                                ${currentGroupExcludedDocIds.map((docId, index) => {
-                                    const docName = resolveDocName(docId);
-                                    const displayName = docName.length > 25 ? docName.substring(0, 25) + '...' : docName;
-                                    return `
-                                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; background: var(--tm-card-bg); border-radius: 4px; margin-bottom: 4px;">
-                                            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-                                                <span style="color: var(--tm-danger-color); font-weight: 500;">${index + 1}.</span>
-                                                <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                                    <span title="${esc(docName)}">${esc(displayName)}</span>
-                                                </div>
-                                                <span style="font-size: 11px; color: var(--tm-task-done-color); font-family: monospace;">${docId.slice(0, 8)}...</span>
-                                            </div>
-                                            <button class="tm-btn tm-btn-success" onclick="removeExcludedDocFromCurrentGroup('${docId}')" style="padding: 2px 6px; font-size: 11px;">移出排除</button>
-                                        </div>
-                                    `;
-                                }).join('')}
-                            </div>
-                        ` : '<div style="color: var(--tm-secondary-text); font-size: 13px; padding: 10px; background: var(--tm-rule-group-bg); border-radius: 8px;">暂无排除文档</div>'}
-                    </div>
                     ` : ''}
                 </div>
                     </div>

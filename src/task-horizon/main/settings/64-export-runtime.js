@@ -1100,9 +1100,7 @@
 
     // 新增：导出当前分组任务
     window.exportCurrentGroup = async function() {
-        // 从当前DOM中获取当前选中的分组ID
-        const groupSelect = document.getElementById('groupSelector');
-        const currentId = groupSelect ? groupSelect.value : (SettingsStore.data.currentGroupId || 'all');
+        const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
 
         if (currentId === 'all') {
             hint('⚠️ 请先选择一个分组进行导出', 'error');

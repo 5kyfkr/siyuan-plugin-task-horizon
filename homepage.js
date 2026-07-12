@@ -373,6 +373,8 @@
     --tm-home-warning-soft: color-mix(in srgb, var(--tm-warning-color, #f9ab00) 16%, var(--tm-card-bg));
     --tm-home-danger: var(--tm-danger-color);
     --tm-home-danger-soft: color-mix(in srgb, var(--tm-danger-color) 16%, var(--tm-card-bg));
+    --tm-home-overview-pending: #f59e0b;
+    --tm-home-overview-overdue: #ef4444;
     --tm-home-hover: var(--tm-hover-bg);
     --tm-home-shadow: var(--shadow-sm, 0 8px 20px rgba(15, 23, 42, 0.045));
     --tm-home-gap: 16px;
@@ -905,6 +907,14 @@
     background: linear-gradient(180deg, color-mix(in srgb, var(--tm-home-success) 90%, white 10%), color-mix(in srgb, var(--tm-home-success) 78%, black 6%));
 }
 
+.tm-homepage-overview-bar-seg.is-overdue {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--tm-home-overview-overdue) 90%, white 10%), color-mix(in srgb, var(--tm-home-overview-overdue) 78%, black 6%));
+}
+
+.tm-homepage-overview-bar-seg.is-pending {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--tm-home-overview-pending) 90%, white 10%), color-mix(in srgb, var(--tm-home-overview-pending) 78%, black 6%));
+}
+
 .tm-homepage-overview-stats {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -958,6 +968,8 @@
 .tm-homepage-overview-dot.is-accent { background: color-mix(in srgb, var(--tm-home-accent) 88%, white 12%); }
 .tm-homepage-overview-dot.is-warning { background: color-mix(in srgb, var(--tm-home-warning) 88%, white 12%); }
 .tm-homepage-overview-dot.is-success { background: color-mix(in srgb, var(--tm-home-success) 88%, white 12%); }
+.tm-homepage-overview-dot.is-overdue { background: color-mix(in srgb, var(--tm-home-overview-overdue) 88%, white 12%); }
+.tm-homepage-overview-dot.is-pending { background: color-mix(in srgb, var(--tm-home-overview-pending) 88%, white 12%); }
 
 .tm-homepage-overview-stat-value {
     margin-top: 0;
@@ -4155,14 +4167,14 @@
                 label: "已过期",
                 value: Number(overview?.kpis?.overdueCount) || 0,
                 pct: total > 0 ? Math.round(((Number(overview?.kpis?.overdueCount) || 0) / total) * 100) : 0,
-                tone: "is-warning",
+                tone: "is-overdue",
             },
             {
                 key: "pending",
                 label: "未完成",
                 value: Number(overview?.kpis?.pendingCount) || 0,
                 pct: total > 0 ? Math.round(((Number(overview?.kpis?.pendingCount) || 0) / total) * 100) : 0,
-                tone: "is-success",
+                tone: "is-pending",
             },
         ];
     }

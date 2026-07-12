@@ -4373,6 +4373,8 @@
         searchBarSelectAfterRender: true,
         searchBarLiveSearchTimer: 0,
         activeDocId: 'all',
+        docTopbarLocateReturnGroupId: '',
+        docTopbarLocateTargetActive: false,
 
         // 操作状态
         isRefreshing: false,
@@ -10775,7 +10777,10 @@ const wait = !!options.wait;
 
     function __tmGetReminderRepeatMode(reminder) {
         return __tmNormalizeReminderRepeatMode(
-            reminder?.repeatMode || reminder?.mode || reminder?.repeat_mode || (reminder?.followTaskRepeat ? __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK : '')
+            reminder?.repeatMode
+            || reminder?.mode
+            || reminder?.repeat_mode
+            || ((reminder?.followTaskRepeat || reminder?.syncTaskDone || reminder?.sync_task_done) ? __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK : '')
         );
     }
 
@@ -10787,7 +10792,7 @@ const wait = !!options.wait;
     function __tmGetReminderFollowTaskAnchorKey(reminder) {
         const dueKey = __tmNormalizeReminderDateKey(reminder?.taskCompletionTime || '');
         if (dueKey) return dueKey;
-        return __tmNormalizeReminderDateKey(reminder?.taskStartDate || '');
+        return __tmNormalizeReminderDateKey(reminder?.startDate || '');
     }
 
     function __tmGetReminderCompletedSet(reminder) {
@@ -11503,7 +11508,7 @@ const wait = !!options.wait;
         const pad = (n) => String(n).padStart(2, '0');
         const now = new Date();
         const datePart = dt.getFullYear() === now.getFullYear()
-            ? `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`
+            ? `${dt.getMonth() + 1}月${dt.getDate()}日`
             : `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
         return `${datePart} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
     }
@@ -11938,9 +11943,9 @@ const wait = !!options.wait;
         return new Set(__tmGetReminderCompletedEntries(reminder).map((entry) => entry.key).filter(Boolean));
     }
 
-    function __tmReminderUpdateDetailLooksDone(detail = {}) {
+    function __tmReminderUpdateDetailLooksUncomplete(detail = {}) {
         const d = (detail && typeof detail === 'object') ? detail : {};
-        const negativeText = [
+        const text = [
             d.action,
             d.reason,
             d.source,
@@ -11948,9 +11953,22 @@ const wait = !!options.wait;
             d.kind,
             d.event,
         ].map((value) => String(value || '').trim().toLowerCase()).join(' ');
-        if (/uncomplete|undo|cancel|delete|remove|clear|unchecked|undone/.test(negativeText)) return false;
+        return /uncomplete|undo|cancel|delete|remove|clear|unchecked|undone/.test(text);
+    }
+
+    function __tmReminderUpdateDetailLooksDone(detail = {}) {
+        const d = (detail && typeof detail === 'object') ? detail : {};
+        if (__tmReminderUpdateDetailLooksUncomplete(d)) return false;
+        const text = [
+            d.action,
+            d.reason,
+            d.source,
+            d.status,
+            d.kind,
+            d.event,
+        ].map((value) => String(value || '').trim().toLowerCase()).join(' ');
         if (d.done === true || d.completed === true || d.checked === true || d.nextDone === true) return true;
-        return /complete|completed|done|finish|finished|checked|occurrence-done|mark-done/.test(negativeText);
+        return /complete|completed|done|finish|finished|checked|occurrence-done|mark-done/.test(text);
     }
 
     function __tmRememberReminderFollowTaskDoneSignature(signature) {
@@ -12007,10 +12025,11 @@ const wait = !!options.wait;
         const requestedId = String(taskIdOrBlockId || '').trim();
         if (!requestedId || !SettingsStore?.data?.enableTomatoIntegration) return false;
         const opts = (options && typeof options === 'object') ? options : {};
+        if (__tmReminderUpdateDetailLooksUncomplete(opts.detail)) return false;
         const reminder = __tmParseReminderRecordFromValue(reminderInput, requestedId);
         const repeatMode = reminder ? __tmGetReminderRepeatMode(reminder) : '';
         const shouldFollowTaskRepeat = repeatMode === __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK;
-        const shouldSyncTaskDone = reminder?.syncTaskDone === true || shouldFollowTaskRepeat;
+        const shouldSyncTaskDone = shouldFollowTaskRepeat;
         if (!reminder || !shouldSyncTaskDone) return false;
         let taskId = requestedId;
         try {
@@ -12073,6 +12092,15 @@ const wait = !!options.wait;
                 __tmReminderFollowTaskDoneSignatures.delete(picked.signature);
                 return false;
             }
+            try {
+                const reminderApi = globalThis.__tomatoReminder;
+                if (typeof reminderApi?.recordTaskCompletionOwner === 'function') {
+                    await reminderApi.recordTaskCompletionOwner(requestedId, picked.entry.dateKey, picked.entry.timeKey, {
+                        taskId: task.id,
+                        completedAt,
+                    });
+                }
+            } catch (e) {}
             if (canAdvanceRepeat) try { if (typeof __tmClearRecurringTaskAdvanceTimer === 'function') __tmClearRecurringTaskAdvanceTimer(task.id); } catch (e) {}
             if (canAdvanceRepeat && typeof __tmAdvanceRecurringTaskAfterCompletion === 'function') {
                 await __tmAdvanceRecurringTaskAfterCompletion(task.id, {
@@ -15958,6 +15986,20 @@ __tmPushStatusDebug('apply-status:start', {
                     source: String(opts.source || '').trim(),
                 });
             }
+            if (!prevDone && nextDone) {
+                try {
+                    const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(context.persistId)
+                        || globalThis.__tmRuntimeState?.getFlatTaskById?.(context.persistId)
+                        || state.flatTasks?.[context.persistId]
+                        || state.pendingInsertedTasks?.[context.persistId]
+                        || task;
+                    await __tmSettleTomatoAfterTaskDone(context.persistId, {
+                        task: latestTask,
+                        attrHostId: rewardAttrHostId || __tmGetTaskAttrHostId(latestTask) || context.persistId,
+                        source: String(opts.source || 'task-status').trim() || 'task-status',
+                    });
+                } catch (e) {}
+            }
             if (shouldDispatchTaskReward) {
                 try {
                     const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(context.persistId)
@@ -16481,6 +16523,7 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmBreadcrumbBtnEl = null;
     let __tmThemeModeObserver = null;
     let __tmThemeModeRefreshRaf = null;
+    let __tmThemeStylesheetLoadHandler = null;
     let __tmTopBarTimer = null;
     let __tmShellEntrancesRefreshRaf = null;
     let __tmShellEntrancesRefreshTimer = null;
@@ -16906,6 +16949,10 @@ if (!state.homepageOpen) return;
         const prevGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const prevDocId = String(state.activeDocId || 'all').trim() || 'all';
         const nextGroupId = String(target.groupId || 'all').trim() || 'all';
+        if (state.docTopbarLocateTargetActive !== true) {
+            state.docTopbarLocateReturnGroupId = prevGroupId;
+        }
+        state.docTopbarLocateTargetActive = true;
         SettingsStore.data.currentGroupId = nextGroupId;
         state.activeDocId = docId;
         const changed = prevGroupId !== nextGroupId || prevDocId !== docId;
@@ -16930,21 +16977,51 @@ if (!state.homepageOpen) return;
         };
     }
 
+    async function __tmRestoreDefaultManagerContextAfterDocTopbarLocate() {
+        if (state.docTopbarLocateTargetActive !== true) return false;
+        const returnGroupId = String(state.docTopbarLocateReturnGroupId || 'all').trim() || 'all';
+        state.docTopbarLocateReturnGroupId = '';
+        state.docTopbarLocateTargetActive = false;
+
+        const prevGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const prevDocId = String(state.activeDocId || 'all').trim() || 'all';
+        SettingsStore.data.currentGroupId = returnGroupId;
+        state.activeDocId = 'all';
+        const changed = prevGroupId !== returnGroupId || prevDocId !== 'all';
+        if (changed) state.__tmForceShellRenderOnOpen = true;
+        if (prevGroupId !== returnGroupId) {
+            state.whiteboardSelectedTaskId = '';
+            state.whiteboardSelectedNoteId = '';
+            state.whiteboardSelectedFrameId = '';
+            state.whiteboardSelectedLinkId = '';
+            state.whiteboardSelectedLinkDocId = '';
+            state.whiteboardMultiSelectedTaskIds = [];
+            state.whiteboardMultiSelectedNoteIds = [];
+            try { await SettingsStore.save(); } catch (e) {}
+        }
+        try { __tmMarkContextInteractionQuiet('window-topbar-restore-default-context', 1600); } catch (e) {}
+        return changed;
+    }
+
     async function __tmOpenManagerFromDocTopbarEntry() {
         try {
             await __tmTryApplyDocTopbarManagerTarget();
         } catch (e) {
             try { console.warn('[task-horizon] doc topbar locate current doc failed', e); } catch (e2) {}
         }
-        return __tmOpenManagerFromTopbarEntry();
+        return __tmOpenManagerFromTopbarEntry({ restoreDocTopbarContext: false });
     }
 
-    function __tmOpenManagerFromTopbarEntry() {
+    async function __tmOpenManagerFromTopbarEntry(entryOptions = {}) {
         try {
             const suppressUntil = Number(globalThis.__taskHorizonSuppressMobileTopbarOpenUntil || 0);
             if (suppressUntil > Date.now()) return false;
         } catch (e) {}
+        if (entryOptions.restoreDocTopbarContext !== false) {
+            try { await __tmRestoreDefaultManagerContextAfterDocTopbarLocate(); } catch (e) {}
+        }
         const options = { preserveViewMode: true };
+        if (entryOptions.skipEnsureTabOpened === true) options.skipEnsureTabOpened = true;
         try {
             if (!__tmIsRuntimeMobileClient()) options.forceOpenTab = true;
         } catch (e) {
@@ -18048,25 +18125,43 @@ refreshOk = false;
         try {
             if (!SettingsStore?.data?.enableTomatoIntegration) return touched;
             const timer = globalThis.__tomatoTimer;
-            if (!timer || typeof timer !== 'object') return touched;
-            const api = typeof timer.completeAssociatedTask === 'function'
-                ? timer.completeAssociatedTask
-                : (typeof timer.stopAssociatedTaskAfterDone === 'function' ? timer.stopAssociatedTaskAfterDone : null);
-            if (typeof api !== 'function') return touched;
+            if (timer && typeof timer === 'object') {
+                const api = typeof timer.completeAssociatedTask === 'function'
+                    ? timer.completeAssociatedTask
+                    : (typeof timer.stopAssociatedTaskAfterDone === 'function' ? timer.stopAssociatedTaskAfterDone : null);
+                if (typeof api === 'function') {
+                    for (const candidateId of candidateIds) {
+                        const result = await api.call(timer, candidateId, {
+                            source: String(opts.source || 'task-horizon-task-done').trim() || 'task-horizon-task-done',
+                            suppressToast: true,
+                        });
+                        if (result === true || result?.matched || result?.associationCleared || result?.stopped) {
+                            state.timerFocusTaskId = '';
+                            __tmClearTomatoFocusRowClasses();
+                            touched = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            try { console.warn('[番茄钟联动] 完成任务后停止番茄钟失败:', e); } catch (e2) {}
+        }
+        try {
+            if (!SettingsStore?.data?.enableTomatoIntegration) return touched;
+            const reminderApi = globalThis.__tomatoReminder;
+            if (typeof reminderApi?.completeFollowTaskReminder !== 'function') return touched;
             for (const candidateId of candidateIds) {
-                const result = await api.call(timer, candidateId, {
+                const result = await reminderApi.completeFollowTaskReminder(candidateId, {
                     source: String(opts.source || 'task-horizon-task-done').trim() || 'task-horizon-task-done',
-                    suppressToast: true,
                 });
-                if (result === true || result?.matched || result?.associationCleared || result?.stopped) {
-                    state.timerFocusTaskId = '';
-                    __tmClearTomatoFocusRowClasses();
+                if (result === true) {
                     touched = true;
                     break;
                 }
             }
         } catch (e) {
-            try { console.warn('[番茄钟联动] 完成任务后停止番茄钟失败:', e); } catch (e2) {}
+            try { console.warn('[提醒联动] 完成任务后同步提醒失败:', e); } catch (e2) {}
         }
         return touched;
     }
@@ -19175,6 +19270,7 @@ refreshOk = false;
         const statusOptions = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
         const docs = Array.isArray(state.taskTree) ? state.taskTree : [];
         const collapsedGroups = state.collapsedGroups instanceof Set ? Array.from(state.collapsedGroups).sort() : [];
+        const expandedCompletedGroups = state.expandedCompletedGroups instanceof Set ? Array.from(state.expandedCompletedGroups).sort() : [];
         const kanbanCollapsedIds = state.__tmKanbanCollapsedIds instanceof Set ? Array.from(state.__tmKanbanCollapsedIds).sort() : [];
         const kanbanCollapsedColumnKeys = state.__tmKanbanCollapsedColumnKeys instanceof Set ? Array.from(state.__tmKanbanCollapsedColumnKeys).sort() : [];
         const quadrantRules = Array.isArray(SettingsStore.data?.quadrantConfig?.rules) ? SettingsStore.data.quadrantConfig.rules : [];
@@ -19184,6 +19280,7 @@ refreshOk = false;
         feed(options.kanbanFillColumns ? 1 : 0);
         feed(options.showCompletedTasks ? 1 : 0);
         feed(options.showDoneCol ? 1 : 0);
+        feed(options.kanbanUseCompletedTailGroups ? 1 : 0);
         feed(options.boardMode || '');
         feed(options.headingMode ? 1 : 0);
         feed(options.currentGroupId);
@@ -19244,6 +19341,9 @@ refreshOk = false;
 
         feed(collapsedGroups.length);
         collapsedGroups.forEach(feed);
+
+        feed(expandedCompletedGroups.length);
+        expandedCompletedGroups.forEach(feed);
 
         feed(kanbanCollapsedIds.length);
         kanbanCollapsedIds.forEach(feed);
@@ -19393,7 +19493,13 @@ refreshOk = false;
         let middle = '';
         if (hit.def.type === 'code') {
             middle = `<code>${esc(inner)}</code>`;
-        } else if (hit.def.type === 'blockRef' || hit.def.type === 'linked') {
+        } else if (hit.def.type === 'blockRef') {
+            const blockId = String(hit.match[1] || '').trim();
+            if (inner && blockId) {
+                const labelHtml = __tmRenderTaskInlineMarkdownHtml(inner, depth + 1);
+                middle = `<span class="tm-linked-text tm-task-title-block-ref" data-tm-block-ref-id="${esc(blockId)}"><span class="tm-task-title-block-ref__text">${labelHtml}</span></span>`;
+            }
+        } else if (hit.def.type === 'linked') {
             middle = inner ? `<span class="tm-linked-text">${__tmRenderTaskInlineMarkdownHtml(inner, depth + 1)}</span>` : '';
         } else {
             middle = `<${hit.def.tag}>${__tmRenderTaskInlineMarkdownHtml(inner, depth + 1)}</${hit.def.tag}>`;
@@ -19843,13 +19949,11 @@ refreshOk = false;
     }
 
     function __tmRenderBenefitsFeatureRows(rows) {
-        return rows.map(([feature, free, trial, yearly, lifetime]) => `
+        return rows.map(([feature, free, full]) => `
             <div class="tm-benefits-row" role="row">
                 <div class="tm-benefits-cell tm-benefits-feature" role="cell">${esc(feature)}</div>
                 <div class="tm-benefits-cell" role="cell" data-label="免费版">${esc(free)}</div>
-                <div class="tm-benefits-cell is-yes" role="cell" data-label="全功能试用">${esc(trial)}</div>
-                <div class="tm-benefits-cell is-yes" role="cell" data-label="全功能年付">${esc(yearly)}</div>
-                <div class="tm-benefits-cell is-yes" role="cell" data-label="全功能永久">${esc(lifetime)}</div>
+                <div class="tm-benefits-cell is-yes" role="cell" data-label="全功能版（年付 / 永久）">${esc(full)}</div>
             </div>
         `).join('');
     }
@@ -19872,14 +19976,15 @@ refreshOk = false;
             ? '已激活全功能版，展开可查看套餐、功能区别和付款流程。'
             : '试用、年付、永久授权、功能区别和发码流程。';
         const featureRows = [
-            ['清单、看板、表格、日历、时间轴', '完整可用', '完整可用', '完整可用', '完整可用'],
-            ['基础任务创建、编辑、筛选', '完整可用', '完整可用', '完整可用', '完整可用'],
-            ['白板基础与全局白板', '完整可用', '完整可用', '完整可用', '完整可用'],
-            ['白板手写、分组框、便签', '不包含', '可用', '可用', '可用'],
-            ['白板任务池搜索/详情定位', '不包含', '可用', '可用', '可用'],
-            ['AI 工作台与任务 AI 操作', '不包含', '可用', '可用', '可用'],
-            ['离线激活', '不需要', '用户名或设备', '用户名或设备', '用户名或设备'],
-            ['维护支持', '常规', '常规', '优先响应', '优先响应'],
+            ['清单、看板、表格、日历、时间轴', '完整可用', '完整可用'],
+            ['基础任务创建、编辑、筛选', '完整可用', '完整可用'],
+            ['插件图标预设', '仅经典图标', '全部预设'],
+            ['白板基础与全局白板', '完整可用', '完整可用'],
+            ['白板手写、分组框、便签', '不包含', '可用'],
+            ['白板任务池搜索/详情定位', '不包含', '可用'],
+            ['AI 工作台与任务 AI 操作', '不包含', '可用'],
+            ['离线激活', '不需要', '用户名或设备'],
+            ['维护支持', '常规', '优先响应'],
         ];
         const advancedItems = [
             ['白板增强', '全局白板基础能力继续可用；免费版不包含手写、分组框、便签工具、任务详情白板反向定位和任务池搜索。'],
@@ -19926,7 +20031,7 @@ refreshOk = false;
                 .tm-benefits-section-title h3{margin:0;font-size:16px;line-height:1.25;color:var(--tm-text-color);}
                 .tm-benefits-section-title p{margin:0;color:var(--tm-secondary-text);font-size:12px;line-height:1.6;}
                 .tm-benefits-grid{padding:10px 16px 14px;}
-                .tm-benefits-row{display:grid;grid-template-columns:1.28fr repeat(4,minmax(86px,1fr));border-bottom:1px solid var(--tm-border-color);}
+                .tm-benefits-row{display:grid;grid-template-columns:minmax(180px,1.4fr) repeat(2,minmax(140px,1fr));border-bottom:1px solid var(--tm-border-color);}
                 .tm-benefits-row:last-child{border-bottom:0;}
                 .tm-benefits-row.is-head{color:var(--tm-secondary-text);font-size:12px;font-weight:800;}
                 .tm-benefits-cell{min-width:0;padding:8px 7px;font-size:12px;color:var(--tm-text-color);line-height:1.55;}
@@ -20055,15 +20160,13 @@ refreshOk = false;
                         <div class="tm-benefits-matrix">
                             <div class="tm-benefits-section-title">
                                 <h3>功能区别</h3>
-                                <p>清单、看板、表格、日历、时间轴当前都是完整功能；当前限制主要面向白板增强和 AI。</p>
+                                <p>年付和永久授权包含相同的全功能权益，区别仅在授权期限。</p>
                             </div>
                             <div class="tm-benefits-grid" role="table" aria-label="功能权益">
                                 <div class="tm-benefits-row is-head" role="row">
                                     <div class="tm-benefits-cell tm-benefits-feature" role="columnheader">功能</div>
                                     <div class="tm-benefits-cell" role="columnheader">免费版</div>
-                                    <div class="tm-benefits-cell" role="columnheader">全功能试用</div>
-                                    <div class="tm-benefits-cell" role="columnheader">全功能年付</div>
-                                    <div class="tm-benefits-cell" role="columnheader">全功能永久</div>
+                                    <div class="tm-benefits-cell" role="columnheader">全功能版（年付 / 永久）</div>
                                 </div>
                                 ${__tmRenderBenefitsFeatureRows(featureRows)}
                             </div>
@@ -22415,12 +22518,14 @@ refreshOk = false;
     }
 
     function __tmGetPendingTimeGroupTaskBg(isDark) {
+        const fallbackKey = isDark ? 'timeGroupPendingTaskBgColorDark' : 'timeGroupPendingTaskBgColorLight';
+        const fallback = __tmGetSiyuanFollowAppearanceColorDefault(fallbackKey, isDark ? '#8ab4f8' : '#9aa0a6');
         const raw = String(
             isDark
-                ? (SettingsStore.data?.timeGroupPendingTaskBgColorDark || '#8ab4f8')
-                : (SettingsStore.data?.timeGroupPendingTaskBgColorLight || '#9aa0a6')
+                ? (SettingsStore.data?.timeGroupPendingTaskBgColorDark || fallback)
+                : (SettingsStore.data?.timeGroupPendingTaskBgColorLight || fallback)
         ).trim();
-        const normalized = __tmNormalizeHexColor(raw, isDark ? '#8ab4f8' : '#9aa0a6') || (isDark ? '#8ab4f8' : '#9aa0a6');
+        const normalized = __tmNormalizeHexColor(raw, fallback) || fallback;
         return __tmGroupBgFromLabelColor(normalized, isDark);
     }
 
@@ -22765,6 +22870,57 @@ refreshOk = false;
         return !!SettingsStore?.data?.enableSiyuanThemeColors;
     }
 
+    const __TM_SIYUAN_FOLLOW_APPEARANCE_COLOR_KEYS = new Set([
+        'taskContentColorLight',
+        'taskContentColorDark',
+        'groupDocLabelColorLight',
+        'groupDocLabelColorDark',
+        'timeGroupBaseColorLight',
+        'timeGroupBaseColorDark',
+        'timeGroupOverdueColorLight',
+        'timeGroupOverdueColorDark',
+        'timeGroupPendingTaskBgColorLight',
+        'timeGroupPendingTaskBgColorDark',
+        'progressBarColorLight',
+        'progressBarColorDark',
+        'calendarTodayHighlightColorLight',
+        'calendarTodayHighlightColorDark',
+        'calendarGridBorderColorLight',
+        'calendarGridBorderColorDark',
+        'tableBorderColorLight',
+        'tableBorderColorDark',
+    ]);
+
+    function __tmCanOverrideAppearanceColorWhenFollowingSiyuan(key) {
+        return __TM_SIYUAN_FOLLOW_APPEARANCE_COLOR_KEYS.has(String(key || '').trim());
+    }
+
+    const __TM_SIYUAN_FOLLOW_APPEARANCE_COLOR_DEFAULTS = Object.freeze({
+        taskContentColorLight: '#333333',
+        taskContentColorDark: '#e5e5e5',
+        groupDocLabelColorLight: '#333333',
+        groupDocLabelColorDark: '#e5e5e5',
+        timeGroupBaseColorLight: '#3b82f6',
+        timeGroupBaseColorDark: '#3b82f6',
+        timeGroupOverdueColorLight: '#ef4444',
+        timeGroupOverdueColorDark: '#ef4444',
+        timeGroupPendingTaskBgColorLight: '#6b7280',
+        timeGroupPendingTaskBgColorDark: '#a3a3a3',
+        progressBarColorLight: '#16a34a',
+        progressBarColorDark: '#4ade80',
+        calendarTodayHighlightColorLight: '#eaeef7',
+        calendarTodayHighlightColorDark: '#30384d',
+        calendarGridBorderColorLight: '#e5e7eb',
+        calendarGridBorderColorDark: '#404040',
+        tableBorderColorLight: '#e5e7eb',
+        tableBorderColorDark: '#404040',
+    });
+
+    function __tmGetSiyuanFollowAppearanceColorDefault(key, fallback = '') {
+        const normalizedKey = String(key || '').trim();
+        return __TM_SIYUAN_FOLLOW_APPEARANCE_COLOR_DEFAULTS[normalizedKey] || fallback || '';
+    }
+
     function __tmReadCurrentThemeCssColor(expr, fallback = '') {
         const source = String(expr || '').trim();
         const resolved = __tmResolveCssColorWithProbe(source);
@@ -22950,9 +23106,12 @@ refreshOk = false;
 
     function __tmGetEffectiveAppearanceColor(lightKey, darkKey, defaultKey, fallbackLight, fallbackDark, isDark = __tmIsDarkMode()) {
         const themeDefaults = __tmBuildEffectiveThemeAppearanceDefaults(SettingsStore?.data?.themeConfig, isDark);
-        const fallback = themeDefaults?.[defaultKey] || (isDark ? fallbackDark : fallbackLight) || '';
-        if (__tmIsSiyuanThemeColorsEnabled()) return fallback;
         const key = isDark ? darkKey : lightKey;
+        let fallback = themeDefaults?.[defaultKey] || (isDark ? fallbackDark : fallbackLight) || '';
+        if (__tmIsSiyuanThemeColorsEnabled()) {
+            if (!__tmCanOverrideAppearanceColorWhenFollowingSiyuan(key)) return fallback;
+            fallback = __tmGetSiyuanFollowAppearanceColorDefault(key, fallback);
+        }
         return __tmNormalizeHexColor(SettingsStore?.data?.[key], fallback) || fallback;
     }
 

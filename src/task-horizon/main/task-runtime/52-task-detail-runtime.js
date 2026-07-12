@@ -56,6 +56,11 @@
         </div>`;
     }
 
+    function __tmRenderTaskTimeHubUntilControlHtml(value = '') {
+        const normalized = __tmNormalizeDateOnly(value);
+        return `<input class="tm-input tm-task-time-hub__until-date${normalized ? ' has-value' : ''}" type="date" value="${esc(normalized)}" data-tm-time-hub-repeat-until-input aria-label="循环结束日期">`;
+    }
+
     function __tmRenderTaskDetailPhosphorIcon(iconName, size = 18) {
         const name = String(iconName || '').trim();
         if (!name) return '';
@@ -440,6 +445,90 @@
         return null;
     }
 
+    function __tmResolveTaskDetailParentTaskId(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!task) return '';
+        const rawTaskId = String(task.id || task.blockId || '').trim();
+        const taskId = rawTaskId ? (__tmResolveTaskDetailEffectiveId(rawTaskId) || rawTaskId) : '';
+        let parentTaskId = String(task.parentTaskId || task.parent_task_id || '').trim();
+        if (!parentTaskId) return '';
+        try {
+            if (typeof __tmResolveOptimisticTaskId === 'function') {
+                parentTaskId = String(__tmResolveOptimisticTaskId(parentTaskId) || parentTaskId).trim();
+            }
+        } catch (e) {}
+        if (!parentTaskId || (taskId && parentTaskId === taskId)) return '';
+        return parentTaskId;
+    }
+
+    function __tmCleanTaskDetailParentTitle(value, fallback = '') {
+        const stripTaskSyntax = (input) => String(input || '')
+            .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
+            .replace(/\r?\n+/g, ' ')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+        let text = String(value || fallback || '').trim();
+        if (!text) return '';
+        try {
+            if (typeof API?.extractTaskContentLine === 'function') {
+                text = String(API.extractTaskContentLine(text) || text).trim();
+            } else {
+                text = String(text.split(/\r?\n/)[0] || text).trim();
+            }
+        } catch (e) {}
+        try {
+            if (typeof API?.normalizeTaskContent === 'function') {
+                text = String(API.normalizeTaskContent(text) || text).trim();
+            }
+        } catch (e) {}
+        return stripTaskSyntax(text) || stripTaskSyntax(fallback);
+    }
+
+    function __tmGetTaskDetailParentTitle(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!task) return '';
+        try {
+            const parsedContent = String(API.parseTaskStatus(String(task.markdown || '')).content || '').trim();
+            if (parsedContent) return __tmCleanTaskDetailParentTitle(parsedContent, parsedContent);
+        } catch (e) {}
+        const raw = String(task.content || task.raw_content || task.markdown || '').trim();
+        return __tmCleanTaskDetailParentTitle(raw, raw);
+    }
+
+    function __tmGetTaskDetailParentInfo(taskLike, options = {}) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!task) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const parentTaskId = __tmResolveTaskDetailParentTaskId(task);
+        if (!parentTaskId) return null;
+        const parentTask = __tmGetTaskDetailTaskById(parentTaskId, {
+            includePending: opts.includePending !== false,
+            preferPending: opts.preferPending !== false,
+            includeWhiteboard: opts.includeWhiteboard !== false,
+        });
+        if (!(parentTask && typeof parentTask === 'object')) return null;
+        const resolvedParentId = String(parentTask.id || parentTaskId || '').trim();
+        const childId = String(task.id || task.blockId || '').trim();
+        if (resolvedParentId && childId && resolvedParentId === childId) return null;
+        const title = __tmGetTaskDetailParentTitle(parentTask);
+        if (!title) return null;
+        return {
+            id: resolvedParentId || parentTaskId,
+            task: parentTask,
+            title,
+        };
+    }
+
+    function __tmBuildTaskDetailParentLineHtml(taskLike) {
+        const parentInfo = __tmGetTaskDetailParentInfo(taskLike, { includeWhiteboard: true });
+        if (!parentInfo?.title) return '';
+        const parentTaskId = String(parentInfo.id || '').trim();
+        if (!parentTaskId) return '';
+        const title = String(parentInfo.title || '').trim();
+        const nameWeight = SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800';
+        return `<button type="button" class="tm-task-detail-parent-line tm-kanban-parent-line" data-tm-detail-parent-task="${esc(parentTaskId)}" style="display:block;width:fit-content;max-width:100%;border:0;background:transparent;padding:0;font:inherit;font-size:12px;color:var(--tm-secondary-text);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;cursor:pointer;" title="${esc(title)}" aria-label="打开父任务详情：${esc(title)}"><span>父任务：</span><span style="font-weight:${nameWeight};color:var(--card-foreground);">${esc(title)}</span></button>`;
+    }
+
     async function __tmEnsureTaskDetailFieldAttrs(taskLike, options = {}) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
         if (!task) return taskLike || null;
@@ -725,6 +814,19 @@
         return year === now.getFullYear()
             ? `${Number(m[2])}月${Number(m[3])}日`
             : key;
+    }
+
+    function __tmFormatTaskDetailReminderText(taskLike, snapshot) {
+        const text = String(snapshot?.displayText || '').trim();
+        const reminder = snapshot?.reminder;
+        if (!text || !reminder || __tmGetReminderRepeatMode(reminder) !== __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK) return text;
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const completionDate = __tmNormalizeDateOnly(task?.completionTime || task?.completion_time || '');
+        const reminderDate = __tmNormalizeDateOnly(snapshot?.displayAt || '');
+        const displayAt = snapshot?.displayAt instanceof Date ? snapshot.displayAt : new Date(snapshot?.displayAt || '');
+        if (!completionDate || reminderDate !== completionDate || Number.isNaN(displayAt.getTime())) return text;
+        const pad = (value) => String(value).padStart(2, '0');
+        return `${pad(displayAt.getHours())}:${pad(displayAt.getMinutes())}`;
     }
 
     function __tmGetTaskTimeHubCalendarFirstDay() {
@@ -1029,7 +1131,7 @@
             try { return !!(snap?.hasReminder === true || __tmHasReminderMark(task || { id: getEffectiveTaskId() || taskId })); } catch (e) {}
             return snap?.hasReminder === true;
         };
-        const readReminderDisplayValue = () => String(readReminderSnapshot()?.displayText || '').trim();
+        const readReminderDisplayValue = () => __tmFormatTaskDetailReminderText(task, readReminderSnapshot());
         const sortDateRange = (left, right) => {
             const a = normalizeDate(left);
             const b = normalizeDate(right);
@@ -1056,6 +1158,7 @@
             schedulesLoading: false,
             scheduleExpanded: false,
             rangeDrag: null,
+            untilDraft: normalizeDate(getRepeatRule()?.until || ''),
         };
         const getHubMonthDate = () => {
             const current = hubState.monthDate instanceof Date ? hubState.monthDate : initialMonth;
@@ -1177,9 +1280,10 @@
             const gridStart = __tmGetTaskTimeHubMonthGridStart(month, firstDay);
             const startValue = readTaskDate('startDate');
             const endValue = readTaskDate('completionTime');
-            const activeValue = readTaskDate(hubState.activeField);
-            const savedRange = startValue && endValue ? sortDateRange(startValue, endValue) : null;
-            const dragRange = hubState.rangeDrag ? sortDateRange(hubState.rangeDrag.anchor, hubState.rangeDrag.current) : null;
+            const selectingUntil = hubState.editor === 'end';
+            const activeValue = selectingUntil ? normalizeDate(hubState.untilDraft) : readTaskDate(hubState.activeField);
+            const savedRange = !selectingUntil && startValue && endValue ? sortDateRange(startValue, endValue) : null;
+            const dragRange = !selectingUntil && hubState.rangeDrag ? sortDateRange(hubState.rangeDrag.anchor, hubState.rangeDrag.current) : null;
             const days = [];
             for (let i = 0; i < 42; i += 1) {
                 const d = new Date(gridStart.getTime());
@@ -1194,8 +1298,8 @@
                     savedRange && key === savedRange.start ? 'is-range-start' : '',
                     savedRange && key === savedRange.end ? 'is-range-end' : '',
                     key === activeValue ? 'is-active' : '',
-                    key === startValue ? 'is-start' : '',
-                    key === endValue ? 'is-due' : '',
+                    !selectingUntil && key === startValue ? 'is-start' : '',
+                    !selectingUntil && key === endValue ? 'is-due' : '',
                     dragRange && isKeyInDateRange(key, dragRange.start, dragRange.end) ? 'is-range-preview' : '',
                     dragRange && key === dragRange.start ? 'is-range-start-preview' : '',
                     dragRange && key === dragRange.end ? 'is-range-end-preview' : '',
@@ -1319,11 +1423,12 @@
             if (editor === 'end') {
                 if (hideRepeat) return '';
                 const rule = getRepeatRule();
+                const untilValue = normalizeDate(hubState.untilDraft || rule?.until || '');
                 return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
                     <div class="tm-task-time-hub__subpanel-title">结束</div>
-                    <button type="button" class="tm-task-time-hub__choice ${!rule?.until ? 'is-selected' : ''}" data-tm-time-hub-repeat-until-clear>永不结束</button>
+                    <button type="button" class="tm-task-time-hub__choice ${!untilValue ? 'is-selected' : ''}" data-tm-time-hub-repeat-until-clear>永不结束</button>
                     <div class="tm-task-time-hub__until-row">
-                        <input class="tm-input" type="date" value="${esc(rule?.until || '')}" data-tm-time-hub-repeat-until-input>
+                        ${__tmRenderTaskTimeHubUntilControlHtml(untilValue)}
                         <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-until-apply>应用</button>
                     </div>
                 </div>`;
@@ -1342,7 +1447,7 @@
                 ${hubState.tab === 'date' ? `
                     <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
-                        ${__tmRenderTaskTimeHubQuickDatesHtml(readTaskDate(hubState.activeField))}
+                        ${__tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' ? hubState.untilDraft : readTaskDate(hubState.activeField))}
                         ${renderCalendarHtml()}
                         ${renderMonthEditorHtml()}
                         ${(() => {
@@ -1542,7 +1647,9 @@
                 render();
                 return;
             }
-            if (__tmShouldDismissTaskTimeHubEditor(popover, hubState.editor, target)) {
+            const selectingUntilFromCalendar = hubState.editor === 'end'
+                && !!target.closest('[data-tm-time-hub-date], [data-tm-time-hub-quick-date], [data-tm-time-hub-month]');
+            if (!selectingUntilFromCalendar && __tmShouldDismissTaskTimeHubEditor(popover, hubState.editor, target)) {
                 hubState.editor = '';
                 render();
             }
@@ -1572,8 +1679,12 @@
             if (quickDateBtn) {
                 try { ev.preventDefault(); } catch (e) {}
                 if (quickDateBtn.disabled || quickDateBtn.getAttribute('aria-disabled') === 'true') return;
-                const key = normalizeDate(quickDateBtn.getAttribute('data-tm-time-hub-quick-date') || '');
-                if (key) await updateDateField(hubState.activeField, key);
+                    const key = normalizeDate(quickDateBtn.getAttribute('data-tm-time-hub-quick-date') || '');
+                    if (key && hubState.editor === 'end') {
+                        hubState.untilDraft = key;
+                        hubState.monthDate = startOfMonth(parseDateKey(key) || new Date());
+                        render();
+                } else if (key) await updateDateField(hubState.activeField, key);
                 return;
             }
             const monthStepBtn = target.closest('[data-tm-time-hub-year-step]');
@@ -1621,8 +1732,11 @@
                     suppressNextDayClick = false;
                     return;
                 }
-                const key = normalizeDate(dayBtn.getAttribute('data-tm-time-hub-date') || '');
-                if (key) await updateDateField(hubState.activeField, key);
+                    const key = normalizeDate(dayBtn.getAttribute('data-tm-time-hub-date') || '');
+                    if (key && hubState.editor === 'end') {
+                        hubState.untilDraft = key;
+                        render();
+                } else if (key) await updateDateField(hubState.activeField, key);
                 return;
             }
             const cardBtn = target.closest('[data-tm-time-hub-card]');
@@ -1638,7 +1752,13 @@
                     }
                     return;
                 }
-                hubState.editor = hubState.editor === key ? '' : key;
+                const nextEditor = hubState.editor === key ? '' : key;
+                if (nextEditor === 'end') {
+                    hubState.untilDraft = normalizeDate(getRepeatRule()?.until || '');
+                    const untilMonth = parseDateKey(hubState.untilDraft || todayKey);
+                    if (untilMonth) hubState.monthDate = startOfMonth(untilMonth);
+                }
+                hubState.editor = nextEditor;
                 render();
                 return;
             }
@@ -1678,6 +1798,7 @@
             const untilApplyBtn = target.closest('[data-tm-time-hub-repeat-until-apply]');
             if (untilApplyBtn) {
                 try { ev.preventDefault(); } catch (e) {}
+                if (untilApplyBtn.disabled || untilApplyBtn.getAttribute('aria-disabled') === 'true') return;
                 const input = popover.querySelector('[data-tm-time-hub-repeat-until-input]');
                 await applyRepeatUntil(input instanceof HTMLInputElement ? input.value : '');
                 return;
@@ -1730,6 +1851,7 @@
             input.value = String(getHubMonthDate().getFullYear());
         });
         on(popover, 'pointerdown', (ev) => {
+            if (hubState.editor === 'end') return;
             const target = ev.target instanceof Element ? ev.target : null;
             const dayBtn = target?.closest?.('[data-tm-time-hub-date]');
             if (!(dayBtn instanceof HTMLElement)) return;
@@ -2020,7 +2142,7 @@
         const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
         const curReminderSnapshot = tomatoEnabled ? __tmPeekTaskReminderSnapshotByAnyId(task) : null;
         const curHasReminder = tomatoEnabled && (curReminderSnapshot?.hasReminder === true || __tmHasReminderMark(task));
-        const curReminderText = curHasReminder ? String(curReminderSnapshot?.displayText || '').trim() : '';
+        const curReminderText = curHasReminder ? __tmFormatTaskDetailReminderText(task, curReminderSnapshot) : '';
         const taskStartDateValue = String(task?.startDate || task?.start_date || '').trim();
         const taskCompletionTimeValue = String(task?.completionTime || task?.completion_time || '').trim();
         const curRepeatRule = __tmGetTaskRepeatRule(task);
@@ -2087,6 +2209,7 @@
         const titleReadonlyTip = isOtherBlock
             ? '其他块内容请回原文档编辑'
             : (isSnapshotTask ? '快照任务，源任务已删除' : '');
+        const parentLineHtml = __tmBuildTaskDetailParentLineHtml(task);
         const docName = String(task?.docName || task?.doc_name || '').trim();
         const docId = String(task?.root_id || task?.docId || '').trim();
         const headingName = __tmNormalizeHeadingText(task?.h2 || task?.h2Name);
@@ -2183,6 +2306,7 @@
                         ${headerActionsHtml}
                     </div>
                     <div class="tm-task-detail-header-main">
+                        ${parentLineHtml}
                         <textarea class="tm-task-detail-title-input" data-tm-detail="content" ${titleReadonly ? 'readonly' : ''} title="${esc(titleReadonlyTip)}" rows="1">${esc(titleValue)}</textarea>
                     </div>
                 </div>
@@ -2806,7 +2930,7 @@
         };
         const readReminderDisplayValue = () => {
             const cached = __tmPeekTaskReminderSnapshotByAnyId(getBoundTask() || taskId);
-            return String(cached?.displayText || '').trim();
+            return __tmFormatTaskDetailReminderText(getBoundTask(), cached);
         };
         const readReminderTooltipValue = () => {
             const cached = __tmPeekTaskReminderSnapshotByAnyId(getBoundTask() || taskId);
@@ -3096,7 +3220,7 @@
                 const remarkDraftSnapshot = captureRemarkDraftSnapshot(requestedId);
                 const nextTask = await resolveDetailNavigationTask(requestedId);
                 if (!nextTask || !isSessionActive()) {
-                    try { hint('⚠️ 未找到子任务数据，无法打开详情', 'warning'); } catch (e) {}
+                    try { hint('⚠️ 未找到任务数据，无法打开详情', 'warning'); } catch (e) {}
                     return;
                 }
                 const nextId = String(nextTask.id || requestedId).trim() || requestedId;
@@ -3143,7 +3267,7 @@
                 restoreRemarkDraftSnapshot(remarkDraftSnapshot);
                 try { __tmBindFloatingTooltips(root); } catch (e) {}
             } catch (e) {
-                try { hint(`❌ 打开子任务详情失败: ${e.message}`, 'error'); } catch (err) {}
+                try { hint(`❌ 打开任务详情失败: ${e.message}`, 'error'); } catch (err) {}
             }
         };
         const rerenderChecklistPreserveScroll = () => {
@@ -3591,6 +3715,17 @@
         on(root, 'click', async (ev) => {
             const target = ev.target instanceof Element ? ev.target : null;
             if (!target) return;
+            const parentTaskButton = target.closest('[data-tm-detail-parent-task]');
+            if (parentTaskButton instanceof HTMLElement && root.contains(parentTaskButton)) {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                const parentTaskId = String(parentTaskButton.getAttribute('data-tm-detail-parent-task') || '').trim();
+                if (parentTaskId) {
+                    if (embedded) await refreshBoundDetail(parentTaskId);
+                    else await window.tmOpenTaskDetail?.(parentTaskId, ev);
+                }
+                return;
+            }
             const toggle = target.closest('[data-tm-detail-whiteboard-outline-toggle]');
             if (toggle instanceof HTMLElement && root.contains(toggle)) {
                 try { ev.preventDefault(); } catch (e) {}
@@ -5527,6 +5662,7 @@
             schedulesLoading: false,
             scheduleExpanded: false,
             rangeDrag: null,
+            untilDraft: __tmNormalizeDateOnly(getRepeatRule()?.until || ''),
         };
         const getHubMonthDate = () => {
             const current = hubState.monthDate instanceof Date ? hubState.monthDate : initialMonth;
@@ -5605,9 +5741,10 @@
                 const gridStart = __tmGetTaskTimeHubMonthGridStart(month, firstDay);
                 const startValue = readHiddenInputValue('startDate');
                 const endValue = readHiddenInputValue('completionTime');
-                const activeValue = readHiddenInputValue(hubState.activeField);
-                const savedRange = startValue && endValue ? sortDateRange(startValue, endValue) : null;
-                const dragRange = hubState.rangeDrag
+                const selectingUntil = hubState.editor === 'end';
+                const activeValue = selectingUntil ? __tmNormalizeDateOnly(hubState.untilDraft) : readHiddenInputValue(hubState.activeField);
+                const savedRange = !selectingUntil && startValue && endValue ? sortDateRange(startValue, endValue) : null;
+                const dragRange = !selectingUntil && hubState.rangeDrag
                     ? sortDateRange(hubState.rangeDrag.anchor, hubState.rangeDrag.current)
                     : null;
                 const days = [];
@@ -5624,8 +5761,8 @@
                         savedRange && key === savedRange.start ? 'is-range-start' : '',
                         savedRange && key === savedRange.end ? 'is-range-end' : '',
                         key === activeValue ? 'is-active' : '',
-                        key === startValue ? 'is-start' : '',
-                        key === endValue ? 'is-due' : '',
+                        !selectingUntil && key === startValue ? 'is-start' : '',
+                        !selectingUntil && key === endValue ? 'is-due' : '',
                         dragRange && isKeyInDateRange(key, dragRange.start, dragRange.end) ? 'is-range-preview' : '',
                         dragRange && key === dragRange.start ? 'is-range-start-preview' : '',
                         dragRange && key === dragRange.end ? 'is-range-end-preview' : '',
@@ -5763,11 +5900,12 @@
             if (editor === 'end') {
                 if (hideRepeat) return '';
                 const rule = getRepeatRule();
+                const untilValue = __tmNormalizeDateOnly(hubState.untilDraft || rule?.until || '');
                     return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
                         <div class="tm-task-time-hub__subpanel-title">结束</div>
-                        <button type="button" class="tm-task-time-hub__choice ${!rule?.until ? 'is-selected' : ''}" data-tm-time-hub-repeat-until-clear>永不结束</button>
+                        <button type="button" class="tm-task-time-hub__choice ${!untilValue ? 'is-selected' : ''}" data-tm-time-hub-repeat-until-clear>永不结束</button>
                         <div class="tm-task-time-hub__until-row">
-                            <input class="tm-input" type="date" value="${esc(rule?.until || '')}" data-tm-time-hub-repeat-until-input>
+                            ${__tmRenderTaskTimeHubUntilControlHtml(untilValue)}
                             <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-until-apply>应用</button>
                         </div>
                     </div>`;
@@ -5786,7 +5924,7 @@
                     ${hubState.tab === 'date' ? `
                         <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
-                        ${__tmRenderTaskTimeHubQuickDatesHtml(readHiddenInputValue(hubState.activeField))}
+                        ${__tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' ? hubState.untilDraft : readHiddenInputValue(hubState.activeField))}
                         ${renderCalendarHtml()}
                         ${renderMonthEditorHtml()}
                         ${(() => {
@@ -6083,7 +6221,9 @@
                     render();
                     return;
                 }
-                if (__tmShouldDismissTaskTimeHubEditor(popover, hubState.editor, target)) {
+                const selectingUntilFromCalendar = hubState.editor === 'end'
+                    && !!target.closest('[data-tm-time-hub-date], [data-tm-time-hub-quick-date], [data-tm-time-hub-month]');
+                if (!selectingUntilFromCalendar && __tmShouldDismissTaskTimeHubEditor(popover, hubState.editor, target)) {
                     hubState.editor = '';
                     render();
                 }
@@ -6115,7 +6255,11 @@
                     try { ev.preventDefault(); } catch (e) {}
                     if (quickDateBtn.disabled || quickDateBtn.getAttribute('aria-disabled') === 'true') return;
                     const key = __tmNormalizeDateOnly(quickDateBtn.getAttribute('data-tm-time-hub-quick-date') || '');
-                    if (key) await updateDateField(hubState.activeField, key);
+                    if (key && hubState.editor === 'end') {
+                        hubState.untilDraft = key;
+                        hubState.monthDate = startOfMonth(parseDateKey(key) || new Date());
+                        render();
+                    } else if (key) await updateDateField(hubState.activeField, key);
                     return;
                 }
                 const monthStepBtn = target.closest('[data-tm-time-hub-year-step]');
@@ -6164,7 +6308,10 @@
                         return;
                     }
                     const key = __tmNormalizeDateOnly(dayBtn.getAttribute('data-tm-time-hub-date') || '');
-                    if (key) await updateDateField(hubState.activeField, key);
+                    if (key && hubState.editor === 'end') {
+                        hubState.untilDraft = key;
+                        render();
+                    } else if (key) await updateDateField(hubState.activeField, key);
                     return;
                 }
                 const cardBtn = target.closest('[data-tm-time-hub-card]');
@@ -6181,7 +6328,13 @@
                         }
                         return;
                     }
-                    hubState.editor = hubState.editor === key ? '' : key;
+                    const nextEditor = hubState.editor === key ? '' : key;
+                    if (nextEditor === 'end') {
+                        hubState.untilDraft = __tmNormalizeDateOnly(getRepeatRule()?.until || '');
+                        const untilMonth = parseDateKey(hubState.untilDraft || todayKey);
+                        if (untilMonth) hubState.monthDate = startOfMonth(untilMonth);
+                    }
+                    hubState.editor = nextEditor;
                     render();
                     return;
                 }
@@ -6226,6 +6379,7 @@
                 const untilApplyBtn = target.closest('[data-tm-time-hub-repeat-until-apply]');
                 if (untilApplyBtn) {
                     try { ev.preventDefault(); } catch (e) {}
+                    if (untilApplyBtn.disabled || untilApplyBtn.getAttribute('aria-disabled') === 'true') return;
                     const input = popover.querySelector('[data-tm-time-hub-repeat-until-input]');
                     await applyRepeatUntil(input instanceof HTMLInputElement ? input.value : '');
                     return;
@@ -6278,6 +6432,7 @@
                 input.value = String(getHubMonthDate().getFullYear());
             });
             on(popover, 'pointerdown', (ev) => {
+                if (hubState.editor === 'end') return;
                 const target = ev.target instanceof Element ? ev.target : null;
                 const dayBtn = target?.closest?.('[data-tm-time-hub-date]');
                 if (!(dayBtn instanceof HTMLElement)) return;
@@ -8089,11 +8244,14 @@
     function __tmBuildTaskDetailLocationSignature(task) {
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!taskLike) return '';
+        const parentInfo = __tmGetTaskDetailParentInfo(taskLike, { includeWhiteboard: true });
         return JSON.stringify({
             docId: String(taskLike?.root_id || taskLike?.docId || '').trim(),
             docName: String(taskLike?.docName || taskLike?.doc_name || '').trim(),
             headingName: __tmNormalizeHeadingText(taskLike?.h2 || taskLike?.h2Name),
             headingLevel: String(taskLike?.headingLevel || '').trim(),
+            parentTaskId: String(parentInfo?.id || __tmResolveTaskDetailParentTaskId(taskLike) || '').trim(),
+            parentTaskTitle: String(parentInfo?.title || '').trim(),
             otherBlockTypeLabel: String(taskLike?.otherBlockTypeLabel || '').trim(),
             isOtherBlock: !!(taskLike?.isOtherBlock || taskLike?.otherBlockId || taskLike?.sourceType === 'other-block'),
         });
@@ -8778,7 +8936,7 @@ return true;
                 startDate,
                 completionTime,
                 hasReminder,
-                reminderText: hasReminder ? String(reminderSnapshot?.displayText || '').trim() : '',
+                reminderText: hasReminder ? __tmFormatTaskDetailReminderText(task, reminderSnapshot) : '',
                 scheduleText: String(panel.__tmTaskDetailTimeHubScheduleText || '').trim(),
                 repeatSummary,
             };

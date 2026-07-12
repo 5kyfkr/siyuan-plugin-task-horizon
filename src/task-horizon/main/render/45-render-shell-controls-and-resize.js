@@ -1268,4 +1268,3 @@
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
     };
-

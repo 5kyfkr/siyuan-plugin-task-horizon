@@ -168,7 +168,11 @@
         const themeSelectValue = themeConfig.source === 'imported' && hasImportedTheme ? '__imported__' : themeConfig.presetId;
         const topbarLight = __tmGetTopbarControlAppearance(false);
         const topbarDark = __tmGetTopbarControlAppearance(true);
-        const colorValue = (key, fallback) => followSiyuan ? fallback : (d[key] || fallback);
+        const canEditColor = (key) => !followSiyuan || __tmCanOverrideAppearanceColorWhenFollowingSiyuan(key);
+        const colorValue = (key, fallback) => {
+            if (!canEditColor(key)) return fallback;
+            return d[key] || (followSiyuan ? __tmGetSiyuanFollowAppearanceColorDefault(key, fallback) : fallback);
+        };
         const items = [
             {
                 title: '插件顶栏渐变',
@@ -270,8 +274,9 @@
         const renderRow = (row) => {
             const raw = __tmNormalizeHexColor(row.value, '#000000') || '#000000';
             const displayValue = __tmFormatColorDisplayValue(raw);
-            const disabledAttr = followSiyuan ? ' disabled title="跟随思源主题色时由当前主题自动生成"' : '';
-            const disabledStyle = followSiyuan ? 'opacity:0.68;cursor:not-allowed;' : '';
+            const disabled = !canEditColor(row.key);
+            const disabledAttr = disabled ? ' disabled title="跟随思源主题色时由当前主题自动生成"' : '';
+            const disabledStyle = disabled ? 'opacity:0.68;cursor:not-allowed;' : '';
             return `
                 <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-bg-color);">
                     <span style="font-size:12px;color:var(--tm-secondary-text);">${esc(row.label)}</span>
@@ -467,20 +472,20 @@
                 ${cards}
             </div>
             <div style="margin-top:10px;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">
-                上面的颜色按钮会作为当前主题的微调覆盖项；按时间分组的分组名称会根据“距离今天的天数”自动变淡，已过期固定使用“已过期颜色”，以保证可读性并适配夜间模式。
+                上面的颜色按钮会作为当前主题的微调覆盖项；开启“跟随思源主题色”后，任务内容、分组名称、子任务进度、日历当天、日历/表格边框和待定分组行背景仍可单独覆盖，默认色使用插件固定默认色。按时间分组的分组名称会根据“距离今天的天数”自动变淡，已过期固定使用“已过期颜色”。
             </div>
         `;
     }
 
     window.tmOpenAppearanceColorPicker = function(el) {
-        if (__tmIsSiyuanThemeColorsEnabled()) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
-            return;
-        }
         const btn = el && el.nodeType === 1 ? el : null;
         const k = String(btn?.dataset?.tmColorKey || '').trim();
         const label = String(btn?.dataset?.tmColorLabel || '选择颜色').trim() || '选择颜色';
         if (!k) return;
+        if (__tmIsSiyuanThemeColorsEnabled() && !__tmCanOverrideAppearanceColorWhenFollowingSiyuan(k)) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            return;
+        }
         const themeDefaultsLight = __tmBuildThemeAppearanceDefaults(SettingsStore.data?.themeConfig, false);
         const themeDefaultsDark = __tmBuildThemeAppearanceDefaults(SettingsStore.data?.themeConfig, true);
         const topbarLight = __tmGetTopbarControlAppearance(false);
@@ -527,17 +532,16 @@
             tableBorderColorLight: themeDefaultsLight.tableBorderColor,
             tableBorderColorDark: themeDefaultsDark.tableBorderColor
         };
-        const initial = __tmNormalizeHexColor(SettingsStore.data[k], defaults[k] || '#f44336') || (defaults[k] || '#f44336');
+        const defaultColor = __tmIsSiyuanThemeColorsEnabled()
+            ? __tmGetSiyuanFollowAppearanceColorDefault(k, defaults[k] || '#f44336')
+            : (defaults[k] || '#f44336');
+        const initial = __tmNormalizeHexColor(SettingsStore.data[k], defaultColor) || defaultColor;
         __tmOpenColorPickerDialog(label, initial, (next) => {
             tmUpdateAppearanceColor(k, next);
-        }, { defaultColor: defaults[k] || '#f44336' });
+        }, { defaultColor });
     };
 
     window.tmUpdateAppearanceColor = async function(key, value) {
-        if (__tmIsSiyuanThemeColorsEnabled()) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
-            return;
-        }
         const allowed = new Set([
             'topbarGradientLightStart', 'topbarGradientLightEnd', 'topbarGradientDarkStart', 'topbarGradientDarkEnd',
             'topbarTextColorLight', 'topbarTextColorDark',
@@ -561,6 +565,10 @@
         ]);
         const k = String(key || '').trim();
         if (!allowed.has(k)) return;
+        if (__tmIsSiyuanThemeColorsEnabled() && !__tmCanOverrideAppearanceColorWhenFollowingSiyuan(k)) {
+            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            return;
+        }
         const v = __tmNormalizeHexColor(value, '');
         if (!v) return;
         SettingsStore.data[k] = v;

@@ -2570,47 +2570,8 @@ return finish(false, 'noop');
             let apiSuccess = false;
             let clickSuccess = false;
             try {
-                // 1. 获取 kramdown
-                const kramdown = await API.getBlockKramdown(id);
-
-                if (kramdown) {
-                    // 2. 正则匹配：匹配行首的任务标记，容忍前面的空白
-                    // 匹配：(任意空白)(*或-或数字.)(任意空白)[(空格或xX)](右括号)
-                    const statusRegex = /^(\s*(?:[\*\-]|\d+\.)\s*\[)([^\]]?)(\])/;
-                    const match = kramdown.match(statusRegex);
-
-                    if (match) {
-                        const currentStatusChar = match[2] || ' ';
-                        const isCurrentlyDone = currentStatusChar !== ' ';
-
-                        if (isCurrentlyDone === targetDone) {
-                            apiSuccess = true;
-                        } else {
-                            // 3. 构造新的 kramdown
-                            const newStatusChar = targetDone ? 'x' : ' ';
-                            const newKramdown = kramdown.replace(statusRegex, `$1${newStatusChar}$3`);
-                            // 4. 调用 updateBlock
-                            await __tmBackendAdapter.updateBlock(id, newKramdown);
-                            apiSuccess = true;
-                        }
-                    } else {
-                        // Fallback: 尝试查找内容中的第一个复选框标记（即使不在行首）
-                        const fallbackRegex = /(\[)([^\]]?)(\])/;
-                        const fallbackMatch = kramdown.match(fallbackRegex);
-                        if (fallbackMatch) {
-                             const newStatusChar = targetDone ? 'x' : ' ';
-                             // 只替换第一个匹配项
-                             const newKramdown = kramdown.replace(fallbackRegex, `$1${newStatusChar}$3`);
-
-                             await __tmBackendAdapter.updateBlock(id, newKramdown);
-                             apiSuccess = true;
-                        } else {
-                            console.error('[完成状态] 无法在kramdown中找到任务标记');
-                        }
-                    }
-                } else {
-                    console.error('[完成状态] 未获取到kramdown内容');
-                }
+                const markerResult = await __tmUpdateTaskListItemMarkerWithFallback(id, targetDone ? 'X' : ' ');
+                apiSuccess = !!markerResult;
             } catch (e) {
                 console.error('[完成状态] API处理异常:', e);
             }
@@ -3180,7 +3141,7 @@ return finish(false, 'noop');
             },
         });
         const settlePromise = pendingPromise || opPromise;
-        Promise.resolve(settlePromise).then(() => {
+        Promise.resolve(settlePromise).then(async () => {
             if (targetDone) {
                 try { __tmQueueTaskDoneDelight(tid, { done: true, suppressHint: opts.suppressHint, source: opts.source }); } catch (e) {}
                 try {
@@ -3200,11 +3161,20 @@ return finish(false, 'noop');
                         });
                     }
                 } catch (e) {}
+                const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+                    || state.pendingInsertedTasks?.[tid]
+                    || state.flatTasks?.[tid]
+                    || taskLike;
+                if (!originalDone) {
+                    try {
+                        await __tmSettleTomatoAfterTaskDone(tid, {
+                            task: latestTask,
+                            attrHostId: String(__tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
+                            source: String(opts.source || 'set-done-patch').trim() || 'set-done-patch',
+                        });
+                    } catch (e) {}
+                }
                 try {
-                    const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                        || state.pendingInsertedTasks?.[tid]
-                        || state.flatTasks?.[tid]
-                        || taskLike;
                     const completedAt = String(latestTask?.taskCompleteAt || latestTask?.task_complete_at || '').trim()
                         || __tmNowInChinaTimezoneIso();
                     __tmScheduleRecurringTaskAdvanceAfterCompletion(tid, {
@@ -4405,6 +4375,121 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         return shouldWait ? opPromise : Promise.resolve(tid);
     }
 
+    function __tmGetTaskForDetachSubtask(taskOrId) {
+        if (taskOrId && typeof taskOrId === 'object') return taskOrId;
+        const rawId = String(taskOrId || '').trim();
+        if (!rawId) return null;
+        const resolvedId = typeof __tmResolveOptimisticTaskId === 'function'
+            ? (String(__tmResolveOptimisticTaskId(rawId) || rawId).trim() || rawId)
+            : rawId;
+        return (typeof __tmGetTaskDetailTaskById === 'function'
+            ? __tmGetTaskDetailTaskById(resolvedId, { includePending: true, preferPending: true, includeWhiteboard: true })
+            : null)
+            || globalThis.__tmRuntimeState?.getTaskById?.(resolvedId, { includePending: true, preferPending: true })
+            || (rawId !== resolvedId ? globalThis.__tmRuntimeState?.getTaskById?.(rawId, { includePending: true, preferPending: true }) : null)
+            || state.pendingInsertedTasks?.[resolvedId]
+            || (rawId !== resolvedId ? state.pendingInsertedTasks?.[rawId] : null)
+            || state.flatTasks?.[resolvedId]
+            || (rawId !== resolvedId ? state.flatTasks?.[rawId] : null)
+            || null;
+    }
+
+    function __tmBuildDetachSubtaskInfo(taskOrId) {
+        const task = __tmGetTaskForDetachSubtask(taskOrId);
+        if (!(task && typeof task === 'object')) return null;
+        if (typeof __tmIsTaskDetailWhiteboardSnapshotTask === 'function' && __tmIsTaskDetailWhiteboardSnapshotTask(task)) return null;
+        const rawTaskId = String(task.id || task.blockId || (typeof taskOrId === 'string' ? taskOrId : '') || '').trim();
+        const taskId = rawTaskId && typeof __tmResolveOptimisticTaskId === 'function'
+            ? (String(__tmResolveOptimisticTaskId(rawTaskId) || rawTaskId).trim() || rawTaskId)
+            : rawTaskId;
+        if (!taskId) return null;
+        const parentInfo = typeof __tmGetTaskDetailParentInfo === 'function'
+            ? __tmGetTaskDetailParentInfo(task, { includePending: true, preferPending: true, includeWhiteboard: true })
+            : null;
+        if (!parentInfo?.id || !(parentInfo.task && typeof parentInfo.task === 'object')) return null;
+        if (typeof __tmIsTaskDetailWhiteboardSnapshotTask === 'function' && __tmIsTaskDetailWhiteboardSnapshotTask(parentInfo.task)) return null;
+        let targetParentTaskId = typeof __tmResolveTaskDetailParentTaskId === 'function'
+            ? __tmResolveTaskDetailParentTaskId(parentInfo.task)
+            : String(parentInfo.task.parentTaskId || parentInfo.task.parent_task_id || '').trim();
+        if (targetParentTaskId === taskId) targetParentTaskId = '';
+        const targetDocId = String(parentInfo.task.root_id || parentInfo.task.docId || task.root_id || task.docId || '').trim();
+        if (!targetDocId) return null;
+        return {
+            task,
+            taskId,
+            parentTask: parentInfo.task,
+            parentTaskId: String(parentInfo.id || '').trim(),
+            parentTitle: String(parentInfo.title || '').trim(),
+            targetParentTaskId,
+            targetDocId,
+        };
+    }
+
+    function __tmCanDetachSubtaskFromParent(taskOrId) {
+        return !!__tmBuildDetachSubtaskInfo(taskOrId);
+    }
+
+    function __tmRefreshDetachSubtaskViews(info, reason = 'detach-subtask') {
+        const data = (info && typeof info === 'object') ? info : null;
+        if (!data) return;
+        const taskIds = Array.from(new Set([
+            data.taskId,
+            data.parentTaskId,
+            data.targetParentTaskId,
+        ].map((id) => String(id || '').trim()).filter(Boolean)));
+        try {
+            if (data.parentTaskId) __tmScheduleChecklistOptimisticSubtaskRefresh?.(data.parentTaskId, data.taskId);
+        } catch (e) {}
+        try {
+            if (data.targetParentTaskId) __tmScheduleChecklistOptimisticSubtaskRefresh?.(data.targetParentTaskId, data.taskId);
+        } catch (e) {}
+        try {
+            __tmScheduleViewRefresh({
+                mode: 'current',
+                withFilters: true,
+                reason,
+                taskIds,
+            });
+        } catch (e) {}
+    }
+
+    window.tmDetachSubtaskFromParent = async function(taskId, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const info = __tmBuildDetachSubtaskInfo(taskId);
+        if (!info) {
+            if (opts.silent !== true) hint('⚠️ 未找到可移出的父任务', 'warning');
+            return false;
+        }
+        const shouldWait = opts.wait === true;
+        const payload = {
+            mode: 'after',
+            targetDocId: info.targetDocId,
+            targetTaskId: info.parentTaskId,
+            targetParentTaskId: info.targetParentTaskId,
+            forceOptimisticRender: opts.forceOptimisticRender === true,
+        };
+        const onSuccess = () => {
+            __tmRefreshDetachSubtaskViews(info, 'detach-subtask-success');
+            if (opts.silent !== true) hint('✅ 已移出子任务', 'success');
+        };
+        const onError = (e) => {
+            if (opts.silent !== true) hint(`❌ 移出子任务失败: ${String(e?.message || e || '未知错误')}`, 'error');
+        };
+        try {
+            const result = await __tmQueueMoveTask(info.taskId, payload, {
+                wait: shouldWait,
+                onQueued: () => __tmRefreshDetachSubtaskViews(info, 'detach-subtask-queued'),
+                onSuccess,
+                onError,
+            });
+            if (shouldWait) onSuccess();
+            return result !== false;
+        } catch (e) {
+            onError(e);
+            return false;
+        }
+    };
+
     function __tmRollbackContentPatchLocally(taskId, inversePatch, options = {}) {
         const tid = String(taskId || '').trim();
         if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && __tmIsOutboxTaskPendingDeleted(tid)) return false;
@@ -5215,6 +5300,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const taskName = __tmNormalizeTimerTaskName(task?.content || task?.markdown || '', '任务');
         const hasChildren = Array.isArray(task?.children) && task.children.length > 0;
         const showCompletedSubtasks = __tmShouldShowCompletedSubtasksForTask(taskId);
+        const canDetachSubtask = typeof __tmCanDetachSubtaskFromParent === 'function'
+            && __tmCanDetachSubtaskFromParent(task);
         const extra0 = (extra && typeof extra === 'object') ? extra : {};
         const scheduleId0 = String(extra0.scheduleId || '').trim();
         const scheduleTitle0 = __tmNormalizeTimerTaskName(extra0.title || '', '');
@@ -5545,6 +5632,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         ]));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('text-indent', '新建子任务'), () => tmCreateSubtask(taskId)));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('list-bullets', '新建同级任务'), () => tmCreateSiblingTask(taskId)));
+        if (canDetachSubtask) {
+            const detachIconHtml = typeof __tmPhosphorBoldSvg === 'function'
+                ? __tmPhosphorBoldSvg('text-outdent', { size: 14, className: 'tm-task-context-menu__icon' })
+                : '';
+            menu.appendChild(createItem(__tmRenderContextMenuLabel('text-outdent', '移出子任务', { iconHtml: detachIconHtml }), () => {
+                window.tmDetachSubtaskFromParent?.(taskId);
+            }));
+        }
         menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task?.pinned ? '取消置顶' : '置顶'), () => tmSetPinned(taskId, !task?.pinned)));
         if (hasChildren) {
             menu.appendChild(createItem(__tmRenderContextMenuLabel(showCompletedSubtasks ? 'check-circle-2' : 'circle-dot', showCompletedSubtasks ? '隐藏已完成子任务' : '显示已完成子任务'), () => {

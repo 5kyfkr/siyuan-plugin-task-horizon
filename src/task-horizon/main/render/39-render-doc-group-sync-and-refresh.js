@@ -94,6 +94,10 @@
         return out;
     }
 
+    function __tmNormalizeDocTabsManualArchivedByGroupForSync(input) {
+        return __tmNormalizeDocPinnedByGroupForSync(__tmNormalizeDocTabsManualArchivedByGroup(input));
+    }
+
     function __tmBuildDocGroupSyncSnapshot(source) {
         const data = (source && typeof source === 'object') ? source : {};
         const fixedGlobalScheme = __tmGetDefaultDocColorSchemeConfig(1);
@@ -138,7 +142,8 @@
             otherBlockRefs: __tmNormalizeOtherBlockRefs(data.otherBlockRefs).map((item) => ({
                 id: String(item?.id || '').trim()
             })).filter((item) => item.id),
-            docPinnedByGroup: __tmNormalizeDocPinnedByGroupForSync(data.docPinnedByGroup)
+            docPinnedByGroup: __tmNormalizeDocPinnedByGroupForSync(data.docPinnedByGroup),
+            docTabsManualArchivedByGroup: __tmNormalizeDocTabsManualArchivedByGroupForSync(data.docTabsManualArchivedByGroup)
         };
     }
 
@@ -169,11 +174,21 @@
                 count += Array.isArray(group?.docs) ? group.docs.length : 0;
                 if (String(group?.notebookId || '').trim()) count += 1;
             });
+            const manualArchivedByGroup = data.docTabsManualArchivedByGroup && typeof data.docTabsManualArchivedByGroup === 'object'
+                ? data.docTabsManualArchivedByGroup
+                : {};
+            Object.keys(manualArchivedByGroup).forEach((key) => {
+                if (Array.isArray(manualArchivedByGroup[key])) count += manualArchivedByGroup[key].length;
+            });
             return count;
         }
         const group = groups.find((item) => String(item?.id || '').trim() === gid);
-        if (!group) return 0;
-        return (Array.isArray(group.docs) ? group.docs.length : 0) + (String(group.notebookId || '').trim() ? 1 : 0);
+        const manualArchivedByGroup = data.docTabsManualArchivedByGroup && typeof data.docTabsManualArchivedByGroup === 'object'
+            ? data.docTabsManualArchivedByGroup
+            : {};
+        const manualArchivedCount = Array.isArray(manualArchivedByGroup[gid]) ? manualArchivedByGroup[gid].length : 0;
+        if (!group) return manualArchivedCount;
+        return (Array.isArray(group.docs) ? group.docs.length : 0) + (String(group.notebookId || '').trim() ? 1 : 0) + manualArchivedCount;
     }
 
     function __tmIsDocGroupSnapshotEmpty(snapshot) {
@@ -185,6 +200,9 @@
         if (Array.isArray(data.otherBlockRefs) && data.otherBlockRefs.length > 0) return false;
         if (Array.isArray(data.docTabCustomGroups) && data.docTabCustomGroups.some((group) => Array.isArray(group?.entries) && group.entries.length > 0)) return false;
         if (data.docPinnedByGroup && Object.keys(data.docPinnedByGroup).some((key) => Array.isArray(data.docPinnedByGroup[key]) && data.docPinnedByGroup[key].length > 0)) {
+            return false;
+        }
+        if (data.docTabsManualArchivedByGroup && Object.keys(data.docTabsManualArchivedByGroup).some((key) => Array.isArray(data.docTabsManualArchivedByGroup[key]) && data.docTabsManualArchivedByGroup[key].length > 0)) {
             return false;
         }
         const groups = Array.isArray(data.docGroups) ? data.docGroups : [];
@@ -265,6 +283,7 @@
         targetData.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(snapshot.docTabCustomGroups);
         targetData.otherBlockRefs = __tmNormalizeOtherBlockRefs(snapshot.otherBlockRefs);
         targetData.docPinnedByGroup = __tmSafeCloneJson(snapshot.docPinnedByGroup, {});
+        targetData.docTabsManualArchivedByGroup = __tmSafeCloneJson(snapshot.docTabsManualArchivedByGroup, {});
         const remoteDocGroupUpdatedAt = __tmGetDocGroupSettingsUpdatedAt(source, {
             fallbackSettingsUpdatedAt: source?.settingsUpdatedAt,
             useSettingsFallback: false,
@@ -1084,6 +1103,5 @@ return false;
             globalThis.__tmCalendar.toggleSidebar();
         } catch (e) {}
     };
-
 
 

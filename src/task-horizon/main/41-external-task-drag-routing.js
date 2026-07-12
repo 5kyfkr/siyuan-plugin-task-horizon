@@ -67,6 +67,30 @@
         };
     }
 
+    function __tmIsExternalKanbanCardDrag(ctx) {
+        return String(ctx?.payload?.dragSource || '').trim() === 'kanban-card';
+    }
+
+    function __tmActivateExternalKanbanCardDrag(ctx) {
+        if (!__tmIsExternalKanbanCardDrag(ctx)) return false;
+        const taskId = String(ctx?.taskId || '').trim();
+        if (!taskId) return false;
+        state.__tmKanbanDragId = taskId;
+        state.__tmKanbanDragIds = [taskId];
+        state.__tmExternalKanbanDragId = taskId;
+        return true;
+    }
+
+    function __tmClearExternalKanbanCardDrag() {
+        const taskId = String(state.__tmExternalKanbanDragId || '').trim();
+        if (!taskId) return;
+        if (String(state.__tmKanbanDragId || '').trim() === taskId) {
+            try { delete state.__tmKanbanDragId; } catch (e) {}
+            try { delete state.__tmKanbanDragIds; } catch (e) {}
+        }
+        try { delete state.__tmExternalKanbanDragId; } catch (e) {}
+    }
+
     function __tmMakeExternalTaskDragEvent(ctx, currentTarget) {
         return {
             preventDefault() {},
@@ -179,15 +203,22 @@
         return `${ctx.taskId}|${type}|${targetKey}|${String(hit?.overrideKind || '').trim()}`;
     }
 
-    window.__tmClearExternalTaskDragIndicators = function(root = null) {
+    window.__tmClearExternalTaskDragIndicators = function(root = null, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
         try { __tmClearDocTabDropTarget(); } catch (e) {}
         try { __tmClearTaskRowDropIndicators(root); } catch (e) {}
-        try { __tmKanbanClearDragOver(root); } catch (e) {}
+        try {
+            if (opts.preserveKanbanChildDropCandidate === true) __tmKanbanClearSurfaceDragOver(root);
+            else __tmKanbanClearDragOver(root);
+        } catch (e) {}
         try {
             document.querySelectorAll?.('.tm-doc-tab.is-drop-target')?.forEach?.((el) => {
                 try { el.classList.remove('is-drop-target'); } catch (e) {}
             });
         } catch (e) {}
+        if (opts.preserveKanbanChildDropCandidate !== true) {
+            __tmClearExternalKanbanCardDrag();
+        }
     };
 
     window.__tmHandleExternalTaskDragOver = function(options = {}) {
@@ -201,7 +232,12 @@
             window.__tmClearExternalTaskDragIndicators?.();
             return false;
         }
-        window.__tmClearExternalTaskDragIndicators?.();
+        const isKanbanHit = hit.type === 'kanban' || hit.type === 'kanban-group';
+        const preserveKanbanCandidate = isKanbanHit && __tmIsExternalKanbanCardDrag(ctx);
+        window.__tmClearExternalTaskDragIndicators?.(null, {
+            preserveKanbanChildDropCandidate: preserveKanbanCandidate,
+        });
+        if (preserveKanbanCandidate) __tmActivateExternalKanbanCardDrag(ctx);
         const ev = __tmMakeExternalTaskDragEvent(ctx, hit.el);
         try {
             if (hit.type === 'doc-tab') {

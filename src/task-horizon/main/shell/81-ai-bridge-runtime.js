@@ -1261,6 +1261,7 @@
                 'tm_tomato_estimate_attr_key',
                 'tm_timeline_card_fields',
                 'tm_doc_topbar_button_swap_press_actions',
+                'tm_topbar_button_visibility',
                 'tm_default_doc_id',
                 'tm_default_doc_id_by_group',
                 'tm_priority_score_config',
@@ -1335,4 +1336,3 @@
             } catch (e) {}
         } catch (e) {}
     };
-

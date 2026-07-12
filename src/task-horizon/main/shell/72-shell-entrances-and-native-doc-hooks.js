@@ -382,7 +382,7 @@
                     if (isDesktopTabHost) {
                         Promise.resolve().then(async () => {
                             try { await __tmEnsureTabOpened(1800); } catch (e2) {}
-                            try { await openManager({ preserveViewMode: true, skipEnsureTabOpened: true }); } catch (e2) {}
+                            try { await __tmOpenManagerFromTopbarEntry({ skipEnsureTabOpened: true }); } catch (e2) {}
                         }).catch(() => null);
                     } else {
                         try { __tmOpenManagerFromTopbarEntry(); } catch (e2) {}

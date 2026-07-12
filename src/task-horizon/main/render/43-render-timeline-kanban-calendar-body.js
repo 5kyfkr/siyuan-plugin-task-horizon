@@ -309,7 +309,9 @@
             const headingMode = boardMode === 'heading';
             const timeBoardMode = boardMode === 'time';
             const completedTasksInlineInGroups = SettingsStore.data.completedTasksInlineInGroups === true;
-            const showDoneCol = !completedTasksInlineInGroups && (headingMode || timeBoardMode) && !!state.showCompletedTasks && !!SettingsStore.data.kanbanShowDoneColumn;
+            const kanbanShowDoneColumn = SettingsStore.data.kanbanShowDoneColumn === true;
+            const showDoneCol = (headingMode || timeBoardMode) && !!state.showCompletedTasks && !completedTasksInlineInGroups && kanbanShowDoneColumn;
+            const kanbanUseCompletedTailGroups = !!state.showCompletedTasks && !showDoneCol && !completedTasksInlineInGroups;
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
             const statusOptions = __tmGetStatusOptions(statusOptionsRaw)
                 .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim(), marker: o?.marker }))
@@ -802,6 +804,7 @@
                 useKanbanCustomCardGesture,
                 showCompletedTasks: !!state.showCompletedTasks,
                 showDoneCol,
+                kanbanUseCompletedTailGroups,
                 boardMode,
                 headingMode,
                 currentGroupId,
@@ -1240,9 +1243,9 @@
                 let roots = list0.filter(t => {
                     return !getNearestMappedAncestorId(t);
                 });
-                const headingDoneTailEnabled = headingMode && !isDoneCol && !completedTasksInlineInGroups;
-                const doneRootSplit = headingDoneTailEnabled
-                    ? __tmSplitTasksByDoneState(roots)
+                const completedTailGroupEnabled = kanbanUseCompletedTailGroups && !isDoneCol;
+                const doneRootSplit = completedTailGroupEnabled
+                    ? __tmSplitTasksByDoneState(roots, { forceSeparateCompletedRootGroup: true })
                     : { active: roots, done: [] };
                 roots = doneRootSplit.active;
                 const completedRoots = doneRootSplit.done;
@@ -1329,7 +1332,8 @@
                 };
 
                 const renderGroupTitle = (groupKey, titleHtml, count, color, opt = {}) => {
-                    const isCollapsed = state.collapsedGroups?.has(groupKey);
+                    const hasForcedCollapsed = typeof opt?.collapsed === 'boolean';
+                    const isCollapsed = hasForcedCollapsed ? !!opt.collapsed : state.collapsedGroups?.has(groupKey);
                     const indentCh = Number(opt?.indentCh);
                     const leftIndent = Number.isFinite(indentCh) && indentCh > 0 ? `${indentCh}ch` : '0';
                     const titleColor = String(color || '').trim();
@@ -1369,12 +1373,12 @@
                 };
 
                 const renderCompletedRootGroup = () => {
-                    if (!headingDoneTailEnabled || completedRoots.length === 0) return '';
+                    if (!completedTailGroupEnabled || completedRoots.length === 0) return '';
                     const doneGroupKey = __tmBuildCompletedRootGroupKey(`kanban:${String(c.id || '').trim() || 'col'}`);
                     const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
                     const doneTitle = `<span style="color:var(--tm-secondary-text);">已完成任务</span>`;
                     const doneBody = doneCollapsed ? '' : `<div class="tm-kanban-group-items">${completedRoots.map(t => renderTree(t, 0, false, true)).join('')}</div>`;
-                    return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)')}${doneBody}</div>`;
+                    return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)', { collapsed: doneCollapsed })}${doneBody}</div>`;
                 };
                 const pinWithinKanbanGroups = !!SettingsStore.data.pinTasksWithinGroups
                     && !!(state.groupByDocName || state.groupByTaskName || state.groupByTime || state.quadrantEnabled);
@@ -1787,8 +1791,15 @@
                         : `data-kind="heading" data-doc="${esc(String(c?.docId || '').trim())}" data-heading="${esc(String(c?.headingId || '__none__').trim())}"`)
                     : `data-kind="status" data-status="${esc(c.id)}"`));
                 const colTintBg = (() => {
-                    const rgba = __tmParseCssColorToRgba(String(c?.color || '').trim());
-                    if (!rgba) return '';
+                    const rawColor = String(c?.color || '').trim();
+                    const rgba = __tmParseCssColorToRgba(rawColor);
+                    if (!rgba) {
+                        if (rawColor && (rawColor.startsWith('var(') || rawColor.startsWith('color-mix('))) {
+                            const mix = isDark ? 30 : 20;
+                            return `color-mix(in srgb, ${rawColor} ${mix}%, var(--tm-bg-color) ${100 - mix}%)`;
+                        }
+                        return '';
+                    }
                     const a = isDark ? 0.30 : 0.20;
                     return `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${a})`;
                 })();

@@ -24,6 +24,8 @@ const TAB_TYPE = "task-horizon";
 const TAB_TITLE = "任务管理器";
 const COMMAND_OPEN_QUICK_ADD_TASK_WINDOW = "openQuickAddTaskWindow";
 const ICON_ID = "iconTaskHorizon";
+const ENTRY_ICON_PRESET_STORAGE_KEY = "tm_entry_icon_preset";
+const DEFAULT_ENTRY_ICON_PRESET = "classic";
 const WINDOW_TOPBAR_ATTR = "data-task-horizon-window-topbar";
 const CUSTOM_TAB_ID = PLUGIN_ID + TAB_TYPE;
 const TASK_DOCK_TYPE = "::task-horizon-dock";
@@ -33,15 +35,84 @@ const TASK_DOCK_SNAPSHOT_ATTR = "data-task-horizon-dock-snapshot";
 const RESOURCE_FETCH_TIMEOUT_MS = 12000;
 const DOCK_VIEW_IDS = new Set(["list", "checklist", "timeline", "kanban", "calendar", "whiteboard"]);
 
-const ICON_SYMBOL = `<symbol id="${ICON_ID}" viewBox="0 0 24 24">
-  <g transform="translate(12 12) scale(1.25) translate(-12 -12)" fill="none" stroke="currentColor">
-    <path d="M7.25 3.75h9.5c1.105 0 2 .895 2 2v12.5c0 1.105-.895 2-2 2h-9.5c-1.105 0-2-.895-2-2V5.75c0-1.105.895-2 2-2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
-    <path d="M8.75 7h6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-    <path d="M8.75 10.5h6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-    <path d="M8.75 14h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-    <path d="M12.1 17.6l1.55 1.55 3.2-3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
-  </g>
-</symbol>`;
+const ENTRY_ICON_PRESETS = Object.freeze([
+    {
+        id: "classic",
+        label: "经典图标",
+        symbolId: "iconTaskHorizonPresetClassic",
+        viewBox: "0 0 24 24",
+        body: `<g transform="translate(12 12) scale(1.25) translate(-12 -12)" fill="none" stroke="currentColor">
+<path d="M7.25 3.75h9.5c1.105 0 2 .895 2 2v12.5c0 1.105-.895 2-2 2h-9.5c-1.105 0-2-.895-2-2V5.75c0-1.105.895-2 2-2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+<path d="M8.75 7h6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+<path d="M8.75 10.5h6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+<path d="M8.75 14h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+<path d="M12.1 17.6l1.55 1.55 3.2-3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+</g>`,
+    },
+    {
+        id: "inbox",
+        label: "任务收件箱",
+        symbolId: "iconTaskHorizonPresetInbox",
+        viewBox: "1.5 1.5 21 21",
+        body: `<path d="M5.25 4.25h13.5l1.5 9.25v5.25H3.75V13.5l1.5-9.25Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+<path d="M3.75 13.5h4.1l1.35 2h5.6l1.35-2h4.1M9.2 10.05l1.8 1.8 3.8-4.15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>`,
+    },
+    {
+        id: "complete",
+        label: "任务完成",
+        symbolId: "iconTaskHorizonPresetComplete",
+        viewBox: "1.5 1.5 21 21",
+        body: `<rect x="4.25" y="4.25" width="15.5" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"></rect>
+<path d="m8.25 12.15 2.4 2.4 5.15-5.65" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>`,
+    },
+    {
+        id: "list",
+        label: "任务列表",
+        symbolId: "iconTaskHorizonPresetList",
+        viewBox: "1.5 1.5 21 21",
+        body: `<circle cx="5" cy="6" r="1.35" fill="currentColor"></circle>
+<circle cx="5" cy="12" r="1.35" fill="currentColor"></circle>
+<circle cx="5" cy="18" r="1.35" fill="currentColor"></circle>
+<path d="M9 6h11M9 12h8M9 18h10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"></path>`,
+    },
+    {
+        id: "calendar",
+        label: "日程任务",
+        symbolId: "iconTaskHorizonPresetCalendar",
+        viewBox: "1.5 1.5 21 21",
+        body: `<rect x="3.5" y="4.5" width="17" height="16" rx="2.75" fill="none" stroke="currentColor" stroke-width="1.8"></rect>
+<path d="M7.5 2.75v3.5M16.5 2.75v3.5M3.5 9.25h17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+<path d="m8.25 14.75 2.1 2.1 4.8-5.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path>`,
+    },
+    {
+        id: "focus",
+        label: "聚焦完成",
+        symbolId: "iconTaskHorizonPresetFocus",
+        viewBox: "1.5 1.5 21 21",
+        body: `<circle cx="12" cy="12" r="8.25" fill="none" stroke="currentColor" stroke-width="1.8"></circle>
+<path d="m8.25 12.2 2.45 2.45 5.15-5.65" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+<path d="M12 1.75v2M12 20.25v2M1.75 12h2M20.25 12h2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>`,
+    },
+]);
+
+const normalizeEntryIconPreset = (value) => {
+    const id = String(value || "").trim();
+    return ENTRY_ICON_PRESETS.some((preset) => preset.id === id) ? id : DEFAULT_ENTRY_ICON_PRESET;
+};
+
+const getEntryIconPreset = (value) => {
+    const id = normalizeEntryIconPreset(value);
+    return ENTRY_ICON_PRESETS.find((preset) => preset.id === id) || ENTRY_ICON_PRESETS[0];
+};
+
+const buildEntryIconSymbols = (value) => {
+    const selected = getEntryIconPreset(value);
+    const symbols = ENTRY_ICON_PRESETS.map((preset) => (
+        `<symbol id="${preset.symbolId}" viewBox="${preset.viewBox}">${preset.body}</symbol>`
+    ));
+    symbols.unshift(`<symbol id="${ICON_ID}" viewBox="${selected.viewBox}">${selected.body}</symbol>`);
+    return symbols.join("\n");
+};
 
 const readLocalJson = (key, fallback) => {
     try {
@@ -703,6 +774,68 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         return isRuntimeMobileClient(this);
     }
 
+    applyEntryIconPreset(value) {
+        const preset = getEntryIconPreset(value);
+        const symbol = document.querySelector(`svg[data-name="${PLUGIN_ID}"] symbol#${ICON_ID}`);
+        if (!(symbol instanceof Element)) return preset.id;
+        try { symbol.setAttribute("viewBox", preset.viewBox); } catch (e) {}
+        try { symbol.innerHTML = preset.body; } catch (e) {}
+        this._entryIconPreset = preset.id;
+        return preset.id;
+    }
+
+    syncEntryIconEntitlement(value = this._entryIconDesiredPreset) {
+        const desired = normalizeEntryIconPreset(value);
+        this._entryIconDesiredPreset = desired;
+        const canUsePremium = desired === DEFAULT_ENTRY_ICON_PRESET
+            || (typeof window.tmLicenseHasFeature === "function" && window.tmLicenseHasFeature("pro"));
+        return this.applyEntryIconPreset(canUsePremium ? desired : DEFAULT_ENTRY_ICON_PRESET);
+    }
+
+    initEntryIconRuntime(value) {
+        this._entryIconDesiredPreset = normalizeEntryIconPreset(value);
+        const presets = Object.freeze(ENTRY_ICON_PRESETS.map((preset) => Object.freeze({
+            id: preset.id,
+            label: preset.label,
+            symbolId: preset.symbolId,
+        })));
+        globalThis.__taskHorizonEntryIconRegistry = Object.freeze({
+            plugin: this,
+            presets,
+            normalize: normalizeEntryIconPreset,
+            applyPreset: (nextValue) => this.syncEntryIconEntitlement(nextValue),
+            getActivePreset: () => String(this._entryIconPreset || DEFAULT_ENTRY_ICON_PRESET),
+        });
+        this._entryIconStorageHandler = (event) => {
+            if (String(event?.key || "") !== ENTRY_ICON_PRESET_STORAGE_KEY) return;
+            this.syncEntryIconEntitlement(readLocalJson(ENTRY_ICON_PRESET_STORAGE_KEY, DEFAULT_ENTRY_ICON_PRESET));
+        };
+        this._entryIconLicenseHandler = () => this.syncEntryIconEntitlement();
+        try { window.addEventListener("storage", this._entryIconStorageHandler); } catch (e) {}
+        try { window.addEventListener("tm:task-horizon-license-changed", this._entryIconLicenseHandler); } catch (e) {}
+        return this.syncEntryIconEntitlement();
+    }
+
+    destroyEntryIconRuntime() {
+        try {
+            if (this._entryIconStorageHandler) {
+                window.removeEventListener("storage", this._entryIconStorageHandler);
+                this._entryIconStorageHandler = null;
+            }
+            if (this._entryIconLicenseHandler) {
+                window.removeEventListener("tm:task-horizon-license-changed", this._entryIconLicenseHandler);
+                this._entryIconLicenseHandler = null;
+            }
+        } catch (e) {}
+        try {
+            if (globalThis.__taskHorizonEntryIconRegistry?.plugin === this) {
+                delete globalThis.__taskHorizonEntryIconRegistry;
+            }
+        } catch (e) {}
+        this._entryIconPreset = null;
+        this._entryIconDesiredPreset = null;
+    }
+
     async onload() {
         clearPluginResourceTextCache();
         try { delete globalThis.__taskHorizonExplicitWindowExportKeys; } catch (e) {}
@@ -740,7 +873,9 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             if (String(globalThis.__taskHorizonMountToken || "") !== mountToken) return;
             globalThis.__taskHorizonPluginManifest = manifest;
         }).catch(() => null);
-        try { this.addIcons(ICON_SYMBOL); } catch (e) {}
+        const entryIconPreset = normalizeEntryIconPreset(readLocalJson(ENTRY_ICON_PRESET_STORAGE_KEY, DEFAULT_ENTRY_ICON_PRESET));
+        try { this.addIcons(buildEntryIconSymbols(entryIconPreset)); } catch (e) {}
+        try { this.initEntryIconRuntime(entryIconPreset); } catch (e) {}
         try {
             if (!runtimeMobile && readWindowTopbarEnabled()) this.ensureWindowTopBar();
         } catch (e) {}
@@ -1727,6 +1862,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     onunload() {
         clearPluginResourceTextCache();
+        try { this.destroyEntryIconRuntime(); } catch (e) {}
         try {
             this._mountExistingTabsStopped = true;
             if (this._mountExistingTabsTimer) {

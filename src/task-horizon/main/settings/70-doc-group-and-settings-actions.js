@@ -957,16 +957,25 @@
     };
 
     window.clearCurrentGroupDocs = async function() {
-        if (!confirm('确定要清空当前分组的所有文档吗？')) return;
-
-        const currentId = SettingsStore.data.currentGroupId;
+        const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         if (currentId === 'all') return;
 
         const groups = SettingsStore.data.docGroups || [];
-        const group = groups.find(g => g.id === currentId);
+        const group = groups.find(g => String(g?.id || '').trim() === currentId);
         if (group) {
+            const isNotebookGroup = !!String(group.notebookId || '').trim();
+            const groupName = __tmResolveDocGroupName(group) || '当前分组';
+            const message = isNotebookGroup
+                ? `确定解除分组“${groupName}”与笔记本的关联吗？分组会保留并转为自定义分组，思源中的文档不会被删除。`
+                : `确定清空分组“${groupName}”的手动文档吗？其他块来源和思源中的文档不会被删除。`;
+            if (!confirm(message)) return;
             group.docs = [];
             group.excludedDocIds = [];
+            const manualArchiveMap = __tmNormalizeDocTabsManualArchivedByGroup(SettingsStore.data.docTabsManualArchivedByGroup);
+            if (manualArchiveMap[currentId]) {
+                delete manualArchiveMap[currentId];
+                SettingsStore.data.docTabsManualArchivedByGroup = manualArchiveMap;
+            }
             delete group.notebookId;
             await SettingsStore.updateDocGroups(groups);
             showSettings();
@@ -985,6 +994,7 @@
             const removedDocId = String((typeof removed === 'object' ? removed?.id : removed) || '').trim();
             if (removedDocId) {
                 group.excludedDocIds = __tmGetGroupExcludedDocIds(group).filter((id) => id !== removedDocId);
+                __tmClearDocManualArchivedInGroups(removedDocId, currentId);
             }
             await SettingsStore.updateDocGroups(groups);
             showSettings();
@@ -1009,6 +1019,7 @@
             return;
         }
         group.excludedDocIds = __tmGetGroupExcludedDocIds(group).filter((item) => item !== id);
+        __tmClearDocManualArchivedInGroups(id, currentId);
         await SettingsStore.updateDocGroups(groups);
         showSettings();
     };
@@ -1148,6 +1159,10 @@
                 SettingsStore.data.docPinnedByGroup = pinMap;
                 changed = true;
             }
+        } catch (e) {}
+
+        try {
+            if (__tmClearDocManualArchivedInGroups(id)) changed = true;
         } catch (e) {}
 
         try {
@@ -1607,6 +1622,20 @@
         try { globalThis.__tmApplyTaskCheckboxPriorityColorStyle?.(next); } catch (e) {}
         await SettingsStore.save();
         showSettings();
+    };
+
+    window.tmUpdateTopbarButtonVisibility = async function(id, enabled) {
+        const key = String(id || '').trim();
+        if (!Object.prototype.hasOwnProperty.call(__TM_TOPBAR_BUTTON_VISIBILITY_DEFAULTS, key)) return false;
+        const next = __tmNormalizeTopbarButtonVisibility(SettingsStore.data.topbarButtonVisibility);
+        next[key] = !!enabled;
+        SettingsStore.data.topbarButtonVisibility = next;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            try { render(); } catch (e) {}
+        }
+        return true;
     };
 
     function __tmNormalizeQuickbarSettingItems(items, allow, fallbackItems) {
@@ -2119,6 +2148,7 @@
     window.updateKanbanShowDoneColumn = async function(enabled) {
         SettingsStore.data.kanbanShowDoneColumn = !!enabled;
         await SettingsStore.save();
+        try { __tmKanbanColsHtmlCache = null; } catch (e) {}
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
@@ -2312,6 +2342,19 @@
     window.tmClearNewTaskDocIdInput = async function() {
         await updateNewTaskDocId('');
         showSettings();
+    };
+
+    window.tmUpdateEntryIconPreset = async function(value) {
+        const preset = __tmNormalizeEntryIconPreset(value);
+        if (preset !== 'classic') {
+            if (typeof window.tmRequireFullFeature !== 'function') return false;
+            if (!window.tmRequireFullFeature('plugin-icon-presets', '插件图标预设')) return false;
+        }
+        SettingsStore.data.entryIconPreset = preset;
+        __tmApplyEntryIconPreset(preset);
+        await SettingsStore.save();
+        showSettings();
+        return true;
     };
 
     window.updateDocTopbarButtonDesktop = async function(enabled) {

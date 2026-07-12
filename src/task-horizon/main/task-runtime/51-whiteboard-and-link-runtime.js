@@ -4393,6 +4393,168 @@ return false;
         return false;
     }
 
+    let __tmTaskTitleBlockRefJumpDelegationInstalled = false;
+    let __tmTaskTitleBlockRefFloatingButton = null;
+    let __tmTaskTitleBlockRefFloatingSource = null;
+    let __tmTaskTitleBlockRefFloatingHideTimer = 0;
+
+    function __tmGetTaskTitleBlockRefElement(target) {
+        const el = target instanceof Element ? target : null;
+        if (!el) return null;
+        return el.closest?.('.tm-task-title-block-ref[data-tm-block-ref-id]') || null;
+    }
+
+    function __tmStopTaskTitleBlockRefJumpEvent(event, options = {}) {
+        if (options?.preventDefault !== false) {
+            try { event?.preventDefault?.(); } catch (e) {}
+        }
+        try { event?.stopPropagation?.(); } catch (e) {}
+        try { event?.stopImmediatePropagation?.(); } catch (e) {}
+    }
+
+    function __tmClearTaskTitleBlockRefFloatingHideTimer() {
+        if (!__tmTaskTitleBlockRefFloatingHideTimer) return;
+        clearTimeout(__tmTaskTitleBlockRefFloatingHideTimer);
+        __tmTaskTitleBlockRefFloatingHideTimer = 0;
+    }
+
+    function __tmHideTaskTitleBlockRefFloatingJump() {
+        __tmClearTaskTitleBlockRefFloatingHideTimer();
+        const button = __tmTaskTitleBlockRefFloatingButton;
+        __tmTaskTitleBlockRefFloatingSource = null;
+        if (!(button instanceof HTMLElement)) return;
+        button.classList.remove('is-visible', 'is-below');
+        button.removeAttribute('data-tm-block-ref-id');
+    }
+
+    function __tmScheduleHideTaskTitleBlockRefFloatingJump(delay = 140) {
+        __tmClearTaskTitleBlockRefFloatingHideTimer();
+        __tmTaskTitleBlockRefFloatingHideTimer = setTimeout(() => {
+            const button = __tmTaskTitleBlockRefFloatingButton;
+            const source = __tmTaskTitleBlockRefFloatingSource;
+            const buttonHovered = button instanceof HTMLElement && button.matches?.(':hover, :focus-within');
+            const sourceHovered = source instanceof HTMLElement && source.matches?.(':hover, :focus-within');
+            if (buttonHovered || sourceHovered) {
+                __tmScheduleHideTaskTitleBlockRefFloatingJump(180);
+                return;
+            }
+            __tmHideTaskTitleBlockRefFloatingJump();
+        }, Math.max(0, Number(delay) || 0));
+    }
+
+    function __tmGetTaskTitleBlockRefFloatingButton() {
+        if (__tmTaskTitleBlockRefFloatingButton instanceof HTMLElement && __tmTaskTitleBlockRefFloatingButton.isConnected) {
+            return __tmTaskTitleBlockRefFloatingButton;
+        }
+        const doc = document;
+        if (!doc?.body) return null;
+        const button = doc.createElement('button');
+        button.type = 'button';
+        button.className = 'tm-task-title-block-ref-floating-jump';
+        button.title = '跳转到块引用文档';
+        button.setAttribute('aria-label', '跳转到块引用文档');
+        button.innerHTML = (typeof __tmRenderLucideIcon === 'function')
+            ? __tmRenderLucideIcon('map-pin', '', { size: 13 })
+            : '<span aria-hidden="true">&#8599;</span>';
+        const stopPointer = (event) => {
+            __tmStopTaskTitleBlockRefJumpEvent(event, { preventDefault: false });
+            __tmClearTaskTitleBlockRefFloatingHideTimer();
+        };
+        button.addEventListener('pointerdown', stopPointer, true);
+        button.addEventListener('mousedown', stopPointer, true);
+        button.addEventListener('pointerenter', () => __tmClearTaskTitleBlockRefFloatingHideTimer());
+        button.addEventListener('pointerleave', () => __tmScheduleHideTaskTitleBlockRefFloatingJump());
+        button.addEventListener('focusin', () => __tmClearTaskTitleBlockRefFloatingHideTimer());
+        button.addEventListener('focusout', () => __tmScheduleHideTaskTitleBlockRefFloatingJump());
+        button.addEventListener('click', (event) => {
+            __tmStopTaskTitleBlockRefJumpEvent(event);
+            const blockId = String(button.getAttribute('data-tm-block-ref-id') || '').trim();
+            if (!blockId) return;
+            __tmHideTaskTitleBlockRefFloatingJump();
+            void __tmOpenTaskAttachmentBlockRef(blockId, event);
+        }, true);
+        doc.body.appendChild(button);
+        __tmTaskTitleBlockRefFloatingButton = button;
+        return button;
+    }
+
+    function __tmPositionTaskTitleBlockRefFloatingJump(button, source) {
+        if (!(button instanceof HTMLElement) || !(source instanceof HTMLElement)) return false;
+        let rect = null;
+        try { rect = source.getBoundingClientRect?.(); } catch (e) {}
+        if (!rect || (!rect.width && !rect.height)) return false;
+        const viewportW = Math.max(1, window.innerWidth || document.documentElement?.clientWidth || 1);
+        const centerX = rect.left + rect.width / 2;
+        const left = Math.min(Math.max(centerX, 18), Math.max(18, viewportW - 18));
+        const placeBelow = rect.top < 34;
+        const top = placeBelow ? rect.bottom + 6 : rect.top - 6;
+        button.style.left = `${Math.round(left)}px`;
+        button.style.top = `${Math.round(top)}px`;
+        button.classList.toggle('is-below', placeBelow);
+        return true;
+    }
+
+    function __tmShowTaskTitleBlockRefFloatingJump(source) {
+        const refEl = source instanceof HTMLElement ? source : null;
+        const blockId = String(refEl?.getAttribute?.('data-tm-block-ref-id') || '').trim();
+        if (!refEl || !blockId) return false;
+        const button = __tmGetTaskTitleBlockRefFloatingButton();
+        if (!(button instanceof HTMLElement)) return false;
+        __tmClearTaskTitleBlockRefFloatingHideTimer();
+        __tmTaskTitleBlockRefFloatingSource = refEl;
+        button.setAttribute('data-tm-block-ref-id', blockId);
+        if (!__tmPositionTaskTitleBlockRefFloatingJump(button, refEl)) return false;
+        button.classList.add('is-visible');
+        return true;
+    }
+
+    function __tmRefreshTaskTitleBlockRefFloatingJumpPosition() {
+        const source = __tmTaskTitleBlockRefFloatingSource;
+        const button = __tmTaskTitleBlockRefFloatingButton;
+        if (!(source instanceof HTMLElement) || !source.isConnected || !(button instanceof HTMLElement) || !button.classList.contains('is-visible')) {
+            __tmHideTaskTitleBlockRefFloatingJump();
+            return;
+        }
+        __tmPositionTaskTitleBlockRefFloatingJump(button, source);
+    }
+
+    function __tmInstallTaskTitleBlockRefJumpDelegation() {
+        if (__tmTaskTitleBlockRefJumpDelegationInstalled) return;
+        const doc = document;
+        if (!doc?.addEventListener) return;
+        __tmTaskTitleBlockRefJumpDelegationInstalled = true;
+        doc.addEventListener('pointerover', (event) => {
+            const refEl = __tmGetTaskTitleBlockRefElement(event?.target);
+            if (!refEl) return;
+            __tmShowTaskTitleBlockRefFloatingJump(refEl);
+        }, true);
+        doc.addEventListener('pointerout', (event) => {
+            const refEl = __tmGetTaskTitleBlockRefElement(event?.target);
+            if (!refEl) return;
+            const related = event?.relatedTarget instanceof Element ? event.relatedTarget : null;
+            const button = __tmTaskTitleBlockRefFloatingButton;
+            if (related && (refEl.contains(related) || button?.contains?.(related))) return;
+            __tmScheduleHideTaskTitleBlockRefFloatingJump();
+        }, true);
+        doc.addEventListener('focusin', (event) => {
+            const refEl = __tmGetTaskTitleBlockRefElement(event?.target);
+            if (!refEl) return;
+            __tmShowTaskTitleBlockRefFloatingJump(refEl);
+        }, true);
+        doc.addEventListener('focusout', (event) => {
+            const refEl = __tmGetTaskTitleBlockRefElement(event?.target);
+            if (!refEl) return;
+            __tmScheduleHideTaskTitleBlockRefFloatingJump();
+        }, true);
+        doc.addEventListener('keydown', (event) => {
+            if (event?.key === 'Escape') __tmHideTaskTitleBlockRefFloatingJump();
+        }, true);
+        doc.addEventListener('scroll', () => __tmRefreshTaskTitleBlockRefFloatingJumpPosition(), true);
+        window.addEventListener?.('resize', () => __tmRefreshTaskTitleBlockRefFloatingJumpPosition());
+    }
+
+    __tmInstallTaskTitleBlockRefJumpDelegation();
+
     function __tmBuildTaskAttachmentThumbHtml(entry, options = {}) {
         const item = (entry && typeof entry === 'object') ? entry : null;
         if (!item?.path) return '';
@@ -9259,10 +9421,12 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         return SettingsStore?.data?.completedTasksInlineInGroups !== true;
     }
 
-    function __tmSplitTasksByDoneState(tasks) {
+    function __tmSplitTasksByDoneState(tasks, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
         const active = [];
         const done = [];
-        const separateCompletedRootGroup = __tmShouldSeparateCompletedRootGroup();
+        const separateCompletedRootGroup = opts.forceSeparateCompletedRootGroup === true
+            || __tmShouldSeparateCompletedRootGroup();
         const archivedDocIds = __tmGetArchivedDocIdsForAllTabCompletedTailGroup();
         (Array.isArray(tasks) ? tasks : []).forEach((task) => {
             if (__tmIsTaskDoneForTailGroup(task)) {

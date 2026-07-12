@@ -291,7 +291,7 @@ return;
             .filter((doc) => {
                 const docId = String(doc?.id || '').trim();
                 if (docId && activeDocId && activeDocId !== 'all' && docId === activeDocId) return true;
-                const shouldShowByTaskState = __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode: docTabsArchiveMode, docStateCache: docTaskStateCache });
+                const shouldShowByTaskState = __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode: docTabsArchiveMode, groupId: currentGroupId, docStateCache: docTaskStateCache });
                 if (!shouldShowByTaskState) return false;
                 if (filteredDocIdSet.size || hasContentFilter) return filteredDocIdSet.has(docId);
                 return shouldShowByTaskState;
@@ -311,7 +311,7 @@ return;
         });
         const customTabGroups = Array.isArray(docTabGroupedView?.groups) ? docTabGroupedView.groups : [];
         const docTabsToRender = Array.isArray(docTabGroupedView?.normalDocs) ? docTabGroupedView.normalDocs : visibleDocs;
-        const archivedDocCount = docsForTabs.filter((doc) => __tmGetDocTaskStateForTabs(doc, docTaskStateCache).isArchived).length;
+        const archivedDocCount = docsForTabs.filter((doc) => __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode: true, groupId: currentGroupId, docStateCache: docTaskStateCache })).length;
         const showOtherBlocksTab = !docTabsArchiveMode && currentGroupId !== 'all' && Array.isArray(state.otherBlocks) && state.otherBlocks.length > 0;
 
         // 获取文档分组信息
@@ -406,6 +406,7 @@ return;
             + (hostUsesMobileUI ? ' tm-modal--host-mobile-ui' : '')
             + (isSplitPane ? ' tm-modal--split-pane' : '')
             + (isDockHost ? ' tm-modal--dock' : '')
+            + (docTabsHidden ? ' tm-modal--doc-tabs-hidden' : '')
             + (docTabsAutoHide ? ' tm-modal--doc-tabs-auto-hide' : '')
             + (docTabsAutoHide && docTabsHidden ? ' tm-modal--doc-tabs-auto-hidden' : '')
             + (docTabsAutoHide && !docTabsHidden ? ' tm-modal--doc-tabs-auto-visible' : '')
@@ -616,6 +617,54 @@ return;
             && !showCalendarSidebarMobileTopbarToggle
             && !showCalendarSidebarCompactToggle);
         const calendarSidebarCompactButtonHtml = `<button class="tm-btn tm-btn-info tm-calendar-sidebar-toggle-compact tm-calendar-sidebar-toggle-compact--visible bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>`;
+        const topbarActionCatalog = {
+            add: {
+                icon: 'plus',
+                label: '新建任务',
+                action: 'tmAdd()',
+            },
+            search: {
+                icon: 'search',
+                label: state.searchKeyword ? `搜索：${String(state.searchKeyword)}` : '搜索',
+                action: 'tmShowSearchModal()',
+                active: !!String(state.searchKeyword || '').trim(),
+            },
+            refresh: {
+                icon: 'arrow-clockwise',
+                label: '刷新',
+                action: 'tmRefresh()',
+            },
+            ai: {
+                icon: 'bot',
+                label: state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台',
+                action: 'tmToggleAiSidebar()',
+                available: __tmIsAiFeatureEnabled(),
+            },
+        };
+        const renderConfiguredTopbarActions = (ids, options = {}) => {
+            const compact = options?.compact === true;
+            return ids.map((id) => {
+                const def = topbarActionCatalog[id];
+                if (!def || def.available === false || !__tmIsTopbarButtonVisible(id)) return '';
+                const classes = [
+                    'tm-btn',
+                    'tm-btn-info',
+                    'bc-btn',
+                    'bc-btn--sm',
+                    'tm-topbar-action',
+                    `tm-topbar-action--${id}`,
+                    compact ? 'tm-compact-topbar-action' : '',
+                    compact ? `tm-compact-topbar-action--${id}` : '',
+                    def.active ? 'is-active' : '',
+                ].filter(Boolean).join(' ');
+                const searchStateAttrs = id === 'search'
+                    ? ` aria-pressed="${def.active ? 'true' : 'false'}" aria-expanded="${state.searchBarOpen ? 'true' : 'false'}"`
+                    : '';
+                return `<button type="button" class="${classes}" onclick="${def.action}" aria-label="${__tmEscAttr(def.label)}"${searchStateAttrs} style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(def.label, { side: 'bottom' })}>${__tmRenderLucideIcon(def.icon)}</button>`;
+            }).join('');
+        };
+        const desktopTopbarActionButtonsHtml = renderConfiguredTopbarActions(['add', 'search', 'refresh', 'ai']);
+        const compactTopbarActionButtonsHtml = renderConfiguredTopbarActions(['add', 'search', 'refresh'], { compact: true });
         const parentTaskNameBoldClass = SettingsStore.data.parentTaskNameBoldEnabled === false ? ' tm-box--parent-task-name-normal' : '';
         try {
             if (state.modal instanceof HTMLElement) {
@@ -679,8 +728,7 @@ return;
                         <div class="tm-topbar-right">
                             ${!isMobile ? `
                             <div class="tm-compact-topbar-actions">
-                                ${topbarAddBtnHtml}
-                                <button class="tm-btn tm-btn-info tm-compact-topbar-action tm-compact-topbar-action--refresh bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('刷新', { side: 'bottom' })}>${__tmRenderLucideIcon('arrow-clockwise')}</button>
+                                ${compactTopbarActionButtonsHtml}
                                 <button class="tm-btn tm-btn-info tm-compact-topbar-action tm-compact-topbar-action--settings bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('设置', { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
                             </div>
                             ` : ''}
@@ -719,9 +767,7 @@ return;
                             ${__tmRenderViewSwitcherButtons()}
                         </div>
                         ` : ''}
-                        ${topbarAddBtnHtml}
-                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('刷新', { side: 'bottom' })}>${__tmRenderLucideIcon('arrow-clockwise')}</button>
-                        ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleAiSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台', { side: 'bottom' })}>${__tmRenderLucideIcon('bot')}</button>` : ''}
+                        ${desktopTopbarActionButtonsHtml}
                         <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('设置', { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
                         ${!false ? `
                             <button class="tm-btn tm-btn-info tm-desktop-menu-btn bc-btn bc-btn--sm" onclick="tmToggleDesktopMenu(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('菜单', { side: 'bottom' })}>
@@ -982,6 +1028,17 @@ return;
                         cursor: pointer;
                         user-select: none;
                     }
+                    .tm-view-segmented .tm-view-seg-item,
+                    .tm-view-segmented .bc-tabs-trigger,
+                    .tm-view-segmented .tm-view-seg-item--active,
+                    .tm-view-segmented .bc-tabs-trigger.tm-view-seg-item--active {
+                        color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
+                    }
+                    .tm-view-segmented .tm-view-seg-item svg,
+                    .tm-view-segmented .bc-tabs-trigger svg {
+                        color: currentColor !important;
+                        stroke: currentColor !important;
+                    }
                     .tm-box {
                         position: relative;
                     }
@@ -1096,11 +1153,15 @@ return;
                         position: relative;
                         z-index: 1;
                     }
+                    .tm-modal.tm-modal--doc-tabs-hidden .tm-filter-rule-bar {
+                        border-bottom: 0;
+                    }
                     .tm-doc-tabs.tm-doc-tabs--hidden {
                         max-height: 0 !important;
                         transform: translate3d(0, -12px, 0);
                         opacity: 0;
-                        border-bottom-color: transparent;
+                        border-bottom: 0 !important;
+                        background: transparent;
                         padding-top: 0;
                         padding-bottom: 0;
                         pointer-events: none;
@@ -1489,6 +1550,7 @@ return;
                             white-space: nowrap;
                             flex: 1 0 auto;
                             background: transparent;
+                            color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
                             border-color: transparent;
                             box-shadow: none;
                         }
@@ -1498,7 +1560,7 @@ return;
                         .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .tm-view-seg-item--active,
                         .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .bc-tabs-trigger.tm-view-seg-item--active {
                             background: var(--tm-topbar-seg-item-active-bg) !important;
-                            color: var(--tm-topbar-control-text) !important;
+                            color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
                             border-color: color-mix(in srgb, var(--tm-topbar-control-border) 72%, transparent) !important;
                             box-shadow: 0 4px 12px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
                         }
@@ -1578,13 +1640,14 @@ return;
                         white-space: nowrap;
                         flex: 1 0 auto;
                         background: transparent;
+                        color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
                         border-color: transparent;
                         box-shadow: none;
                     }
                     .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher .tm-view-seg-item--active,
                     .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher .bc-tabs-trigger.tm-view-seg-item--active {
                         background: var(--tm-topbar-seg-item-active-bg) !important;
-                        color: var(--tm-topbar-control-text) !important;
+                        color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
                         border-color: color-mix(in srgb, var(--tm-topbar-control-border) 72%, transparent) !important;
                         box-shadow: 0 4px 12px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
                     }
@@ -1658,13 +1721,14 @@ return;
                         white-space: nowrap;
                         flex: 1 0 auto;
                         background: transparent;
+                        color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
                         border-color: transparent;
                         box-shadow: none;
                     }
                     .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .tm-view-seg-item--active,
                     .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .bc-tabs-trigger.tm-view-seg-item--active {
                         background: var(--tm-topbar-seg-item-active-bg) !important;
-                        color: var(--tm-topbar-control-text) !important;
+                        color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
                         border-color: color-mix(in srgb, var(--tm-topbar-control-border) 72%, transparent) !important;
                         box-shadow: 0 4px 12px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
                     }
@@ -1791,7 +1855,7 @@ return;
                         border-radius: var(--tm-topbar-control-radius);
                         border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-control-border);
                         background: var(--tm-topbar-control-bg);
-                        color: var(--tm-topbar-control-text);
+                        color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text));
                         box-shadow: var(--tm-topbar-control-shadow);
                         display: inline-flex;
                         align-items: center;
@@ -3046,13 +3110,102 @@ return;
         return await tracked;
     };
 
-    function __tmKanbanClearDragOver(modalEl) {
+    const __TM_KANBAN_CHILD_DROP_HOLD_MS = 500;
+    let __tmKanbanChildDropCandidate = null;
+
+    function __tmClearKanbanChildDropCandidate() {
+        const candidate = __tmKanbanChildDropCandidate;
+        __tmKanbanChildDropCandidate = null;
+        if (!candidate) return;
+        try { if (candidate.timer) clearTimeout(candidate.timer); } catch (e) {}
+        try {
+            candidate.targetElement?.classList?.remove?.(
+                'tm-kanban-card--child-drop-candidate',
+                'tm-kanban-card--child-drop-ready'
+            );
+        } catch (e) {}
+    }
+
+    function __tmUpdateKanbanChildDropCandidate(target) {
+        const sourceId = String(state.__tmKanbanDragId || '').trim();
+        const sourceIds = Array.isArray(state.__tmKanbanDragIds)
+            ? Array.from(new Set(state.__tmKanbanDragIds.map((id) => String(id || '').trim()).filter(Boolean)))
+            : [];
+        const targetElement = target instanceof Element
+            ? target.closest('.tm-kanban-card[data-id]')
+            : null;
+        const targetId = String(targetElement?.getAttribute?.('data-id') || '').trim();
+        if (!sourceId || sourceIds.length !== 1 || sourceIds[0] !== sourceId || !targetElement || !targetId) {
+            __tmClearKanbanChildDropCandidate();
+            return;
+        }
+
+        const current = __tmKanbanChildDropCandidate;
+        if (current?.sourceId === sourceId && current?.targetId === targetId && current?.targetElement === targetElement) {
+            try { targetElement.classList.add('tm-kanban-card--child-drop-candidate'); } catch (e) {}
+            return;
+        }
+
+        const sourceTask = __tmKanbanGetTaskById(sourceId);
+        const validation = __tmCanHandleTaskRowBatchDrop([sourceId], targetId);
+        const alreadyChild = !!(sourceTask && __tmKanbanGetParentTaskId(sourceTask) === targetId);
+        if (!validation.ok || alreadyChild) {
+            __tmClearKanbanChildDropCandidate();
+            return;
+        }
+
+        __tmClearKanbanChildDropCandidate();
+        const candidate = {
+            sourceId,
+            targetId,
+            targetElement,
+            timer: 0,
+            ready: false,
+        };
+        __tmKanbanChildDropCandidate = candidate;
+        try { targetElement.classList.add('tm-kanban-card--child-drop-candidate'); } catch (e) {}
+        candidate.timer = window.setTimeout(() => {
+            if (__tmKanbanChildDropCandidate !== candidate) return;
+            const activeId = String(state.__tmKanbanDragId || '').trim();
+            const nextValidation = __tmCanHandleTaskRowBatchDrop([sourceId], targetId);
+            const nextSourceTask = __tmKanbanGetTaskById(sourceId);
+            const stillDirectChild = !!(nextSourceTask && __tmKanbanGetParentTaskId(nextSourceTask) === targetId);
+            if (activeId !== sourceId || !targetElement.isConnected || !nextValidation.ok || stillDirectChild) {
+                __tmClearKanbanChildDropCandidate();
+                return;
+            }
+            candidate.timer = 0;
+            candidate.ready = true;
+            try { targetElement.classList.add('tm-kanban-card--child-drop-ready'); } catch (e) {}
+        }, __TM_KANBAN_CHILD_DROP_HOLD_MS);
+    }
+
+    function __tmTakeReadyKanbanChildDropTarget() {
+        const candidate = __tmKanbanChildDropCandidate;
+        const ready = candidate?.ready
+            && candidate.targetElement?.isConnected
+            && String(state.__tmKanbanDragId || '').trim() === candidate.sourceId
+            ? {
+                sourceId: candidate.sourceId,
+                targetId: candidate.targetId,
+            }
+            : null;
+        __tmClearKanbanChildDropCandidate();
+        return ready;
+    }
+
+    function __tmKanbanClearSurfaceDragOver(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!modal) return;
         try {
             const els = modal.querySelectorAll('.tm-kanban-col.tm-kanban-col--dragover, .tm-kanban-col.tm-kanban-col--drop-forbidden, .tm-kanban-group-title.tm-kanban-group-title--dragover');
             els.forEach(el => { try { el.classList.remove('tm-kanban-col--dragover', 'tm-kanban-col--drop-forbidden', 'tm-kanban-group-title--dragover'); } catch (e) {} });
         } catch (e) {}
+    }
+
+    function __tmKanbanClearDragOver(modalEl) {
+        __tmKanbanClearSurfaceDragOver(modalEl);
+        __tmClearKanbanChildDropCandidate();
     }
 
     try { globalThis.__tmKanbanClearDragOver = __tmKanbanClearDragOver; } catch (e) {}
@@ -3492,16 +3645,30 @@ return;
             return { matched: false, checked: true, insertAfterID: '', nextID: '', appendToBottom: false, heading: headingMeta };
         }
         const currentHeading = headings[currentIndex];
+        let parentID = did;
+        let parentByHeadingId = new Map();
+        try {
+            const rows = await API.getBlocksByIds(headings.map((item) => String(item?.id || '').trim()).filter(Boolean));
+            parentByHeadingId = new Map((Array.isArray(rows) ? rows : [])
+                .map((row) => [String(row?.id || '').trim(), String(row?.parent_id || '').trim()])
+                .filter(([id]) => !!id));
+            parentID = parentByHeadingId.get(hid) || did;
+        } catch (e) {}
         let nextID = '';
         for (let i = currentIndex + 1; i < headings.length; i += 1) {
-            nextID = String(headings[i]?.id || '').trim();
-            if (nextID) break;
+            const candidateID = String(headings[i]?.id || '').trim();
+            if (!candidateID) continue;
+            const candidateParentID = parentByHeadingId.get(candidateID) || did;
+            if (candidateParentID !== parentID) continue;
+            nextID = candidateID;
+            break;
         }
         return {
             matched: true,
             checked: true,
             insertAfterID: hid,
             nextID,
+            parentID,
             appendToBottom: !nextID,
             heading: headingMeta || {
                 id: hid,
@@ -3650,6 +3817,7 @@ return;
 
     window.tmKanbanDragStart = function(ev, id) {
         try { ev.stopPropagation(); } catch (e) {}
+        __tmClearKanbanChildDropCandidate();
         const sourceCard = ev?.currentTarget instanceof HTMLElement
             ? ev.currentTarget
             : (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-card[data-id]') : null);
@@ -3732,6 +3900,7 @@ return;
     window.tmKanbanDragOver = function(ev) {
         try { ev.preventDefault(); } catch (e) {}
         try { ev.dataTransfer.dropEffect = 'move'; } catch (e) {}
+        __tmUpdateKanbanChildDropCandidate(ev?.target);
         const host = __tmResolveKanbanDropHost(ev);
         const col = host?.closest?.('.tm-kanban-col') || null;
         if (!col) return;
@@ -3740,7 +3909,7 @@ return;
             const timeKey = String(col?.dataset?.time || '').trim();
             const timeDropForbidden = kind === 'time' && !__tmBuildKanbanTimeDropTarget(timeKey);
             if (!col.classList.contains('tm-kanban-col--dragover')) {
-                __tmKanbanClearDragOver();
+                __tmKanbanClearSurfaceDragOver();
                 col.classList.add('tm-kanban-col--dragover');
             }
             col.classList.toggle('tm-kanban-col--drop-forbidden', timeDropForbidden);
@@ -3760,6 +3929,7 @@ return;
         try { ev.preventDefault(); } catch (e) {}
         try { ev.stopPropagation(); } catch (e) {}
         try { ev.dataTransfer.dropEffect = 'move'; } catch (e) {}
+        __tmUpdateKanbanChildDropCandidate(ev?.target);
         const ct = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
         const el0 = ct || (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-group-title, .tm-kanban-group') : null);
         if (!el0) return;
@@ -3903,7 +4073,8 @@ return;
     }
 
     function __tmApplyKanbanDragHoverFromTarget(target) {
-        __tmKanbanClearDragOver();
+        __tmKanbanClearSurfaceDragOver();
+        __tmUpdateKanbanChildDropCandidate(target);
         if (!(target instanceof Element)) return;
         const groupHost = target.closest('.tm-kanban-group-title, .tm-kanban-group');
         const groupTitle = groupHost?.classList?.contains?.('tm-kanban-group-title')
@@ -5834,6 +6005,7 @@ return;
         try { ev.preventDefault(); } catch (e) {}
         try { ev.stopPropagation(); } catch (e) {}
 
+        const readyChildDrop = __tmTakeReadyKanbanChildDropTarget();
         const dropHost = __tmResolveKanbanDropHost(ev);
         // 首先检查是否拖放到组标题（文档标题或标题分组）
         const dropTarget = dropHost?.closest?.('[data-tm-kb-drop-kind]') || null;
@@ -5860,13 +6032,72 @@ return;
             st = String(col?.dataset?.status || '').trim();
         }
 
-        __tmKanbanClearDragOver();
+        __tmKanbanClearSurfaceDragOver();
         let id = '';
         try { id = String(ev.dataTransfer.getData('text/plain') || '').trim(); } catch (e) {}
         if (!id) id = String(state.__tmKanbanDragId || '').trim();
         if (!id) return;
         const baseIds = Array.isArray(state.__tmKanbanDragIds) && state.__tmKanbanDragIds.length ? state.__tmKanbanDragIds : [id];
         const kanbanBoardMode = __tmGetKanbanBoardMode();
+        if (
+            readyChildDrop
+            && readyChildDrop.sourceId === id
+            && baseIds.length === 1
+            && String(baseIds[0] || '').trim() === id
+        ) {
+            const targetId = String(readyChildDrop.targetId || '').trim();
+            const validation = __tmCanHandleTaskRowBatchDrop([id], targetId);
+            const sourceTask = __tmKanbanGetTaskById(id);
+            const targetTask = __tmKanbanGetTaskById(targetId);
+            const alreadyChild = !!(sourceTask && __tmKanbanGetParentTaskId(sourceTask) === targetId);
+            if (validation.ok && targetTask && !alreadyChild) {
+                const shouldSyncStatus = kanbanBoardMode === 'status'
+                    && SettingsStore.data.kanbanDragSyncSubtasks === true;
+                const targetStatus = shouldSyncStatus
+                    ? __tmKanbanResolveTaskStatusColumnKey(targetTask)
+                    : '';
+                const syncIds = targetStatus
+                    ? __tmKanbanCollectAttachedStatusDescendantIds(id)
+                    : [];
+                const onMoveSuccess = targetStatus && syncIds.length
+                    ? () => {
+                        const resolvedIds = Array.from(new Set(syncIds.map((taskId) => {
+                            const rawId = String(taskId || '').trim();
+                            if (!rawId) return '';
+                            try {
+                                return String(globalThis.__tmTaskIdentity?.resolve?.(rawId) || rawId).trim() || rawId;
+                            } catch (e) {
+                                return rawId;
+                            }
+                        }).filter(Boolean)));
+                        void __tmKanbanMoveIdsToStatus(resolvedIds, targetStatus).then(() => {
+                            try { __tmKanbanColsHtmlCache = null; } catch (e) {}
+                            try {
+                                __tmScheduleViewRefresh({
+                                    mode: 'current',
+                                    withFilters: true,
+                                    reason: 'kanban-child-drop-status-sync',
+                                    taskIds: resolvedIds,
+                                });
+                            } catch (e) {}
+                        }).catch(() => null);
+                    }
+                    : null;
+                try {
+                    try { __tmRememberKanbanViewScroll(state.modal); } catch (e) {}
+                    const collapsed = __tmKanbanGetCollapsedSet();
+                    if (collapsed.delete(targetId)) __tmKanbanPersistCollapsed();
+                    const result = await __tmQueueTaskRowMove(id, targetId, 'child', {
+                        forceOptimisticRender: true,
+                        onSuccess: onMoveSuccess,
+                    });
+                    if (result) hint('✅ 已设为子任务', 'success');
+                } catch (e) {
+                    hint(`❌ 移动失败: ${e.message}`, 'error');
+                }
+                return;
+            }
+        }
         const doneBoardEnabled = (kanbanBoardMode === 'heading' || kanbanBoardMode === 'time')
             && !!state.showCompletedTasks
             && !!SettingsStore.data.kanbanShowDoneColumn;
@@ -6901,6 +7132,7 @@ return;
                 pinMap[gid] = nextPinned;
                 SettingsStore.data.docPinnedByGroup = pinMap;
             }
+            try { __tmClearDocManualArchivedInGroups(id, gid); } catch (e) {}
 
             if (isAllGroup) {
                 if (String(SettingsStore.data.defaultDocId || '').trim() === id) {
@@ -6938,6 +7170,44 @@ return;
 
         if (state.settingsModal) showSettings();
         return { changed: true, group: isAllGroup ? null : group, reason: excluded ? 'excluded' : 'restored' };
+    }
+
+    async function __tmSetDocManualArchivedForGroup(docId, archived, groupId) {
+        const id = String(docId || '').trim();
+        const gid = String(groupId || 'all').trim() || 'all';
+        if (!id || !gid) return { changed: false, reason: 'invalid' };
+
+        const map0 = __tmNormalizeDocTabsManualArchivedByGroup(SettingsStore?.data?.docTabsManualArchivedByGroup);
+        const next = new Set(Array.isArray(map0[gid]) ? map0[gid] : []);
+        const had = next.has(id);
+        if (archived) next.add(id);
+        else next.delete(id);
+        if (had === !!archived) return { changed: false, reason: had ? 'already-set' : 'already-cleared' };
+
+        const map = { ...map0 };
+        const ids = __tmNormalizeDocGroupExcludedDocIds(Array.from(next));
+        if (ids.length > 0) map[gid] = ids;
+        else delete map[gid];
+        SettingsStore.data.docTabsManualArchivedByGroup = map;
+        await SettingsStore.save();
+
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (currentGroupId === gid) {
+            if (archived) {
+                state.docTabsArchiveMode = true;
+                state.activeDocId = id;
+                state.docTabsScrollLeft = 0;
+                state.docTabsScrollTop = 0;
+            } else if (state.docTabsArchiveMode === true && String(state.activeDocId || '').trim() === id) {
+                state.activeDocId = 'all';
+            }
+            try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
+            try { await __tmApplyCurrentContextViewProfile(); } catch (e) {}
+            try { applyFilters(); } catch (e) {}
+            try { render(); } catch (e) {}
+        }
+
+        return { changed: true, reason: archived ? 'manual-archived' : 'manual-restored' };
     }
 
     function __tmNormalizeOtherBlockRefs(input) {

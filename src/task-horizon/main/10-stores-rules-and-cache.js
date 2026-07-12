@@ -4348,6 +4348,7 @@
         'docTabCustomGroups',
         'otherBlockRefs',
         'docPinnedByGroup',
+        'docTabsManualArchivedByGroup',
         'collapsedTaskIds',
         'kanbanCollapsedTaskIds',
         'kanbanCollapsedColumnKeys',
@@ -7165,6 +7166,45 @@
         return 'timeGridWeek';
     }
 
+    const __TM_TOPBAR_BUTTON_VISIBILITY_DEFAULTS = Object.freeze({
+        add: true,
+        search: true,
+        refresh: true,
+        ai: true,
+    });
+
+    function __tmNormalizeTopbarButtonVisibility(input) {
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const normalized = {};
+        Object.keys(__TM_TOPBAR_BUTTON_VISIBILITY_DEFAULTS).forEach((id) => {
+            normalized[id] = typeof source[id] === 'boolean'
+                ? source[id]
+                : __TM_TOPBAR_BUTTON_VISIBILITY_DEFAULTS[id];
+        });
+        return normalized;
+    }
+
+    function __tmIsTopbarButtonVisible(id) {
+        const key = String(id || '').trim();
+        if (!Object.prototype.hasOwnProperty.call(__TM_TOPBAR_BUTTON_VISIBILITY_DEFAULTS, key)) return false;
+        return __tmNormalizeTopbarButtonVisibility(SettingsStore?.data?.topbarButtonVisibility)[key] !== false;
+    }
+
+    function __tmNormalizeEntryIconPreset(value) {
+        const raw = String(value || '').trim();
+        try {
+            const normalize = globalThis.__taskHorizonEntryIconRegistry?.normalize;
+            if (typeof normalize === 'function') return normalize(raw);
+        } catch (e) {}
+        return raw || 'classic';
+    }
+
+    function __tmApplyEntryIconPreset(value) {
+        const preset = __tmNormalizeEntryIconPreset(value);
+        try { return globalThis.__taskHorizonEntryIconRegistry?.applyPreset?.(preset) || preset; } catch (e) {}
+        return preset;
+    }
+
     // 设置存储（使用云端同步存储，支持跨设备同步）
     const SettingsStore = {
         data: {
@@ -7355,6 +7395,8 @@
             docTopbarButtonLocateCurrentDocTab: false,
             windowTopbarIconDesktop: true,
             windowTopbarIconMobile: true,
+            entryIconPreset: 'classic',
+            topbarButtonVisibility: { ...__TM_TOPBAR_BUTTON_VISIBILITY_DEFAULTS },
             semanticDateAutoPromptEnabled: true,
             semanticDateDefaultReminderTime: '08:00',
             defaultDocId: '',
@@ -7386,6 +7428,9 @@
             // 文档页签钉住（按分组存储）
             // 结构: { [groupId]: ['docId1', 'docId2'] }
             docPinnedByGroup: {},
+            // 文档页签手动归档（按分组存储，仅影响未完成任务文档页签显示分区）
+            // 结构: { [groupId]: ['docId1', 'docId2'] }
+            docTabsManualArchivedByGroup: {},
             // 文档页签自定义分组
             // 结构: [{ id: 'uuid', name: '分组名', entries: [{ id: 'docId', includeChildren: boolean }] }]
             docTabCustomGroups: [],
@@ -7975,6 +8020,8 @@
                                 if (typeof cloudData.docTopbarButtonLocateCurrentDocTab === 'boolean') this.data.docTopbarButtonLocateCurrentDocTab = cloudData.docTopbarButtonLocateCurrentDocTab;
                                 if (typeof cloudData.windowTopbarIconDesktop === 'boolean') this.data.windowTopbarIconDesktop = cloudData.windowTopbarIconDesktop;
                                 if (typeof cloudData.windowTopbarIconMobile === 'boolean') this.data.windowTopbarIconMobile = cloudData.windowTopbarIconMobile;
+                                if (typeof cloudData.entryIconPreset === 'string') this.data.entryIconPreset = __tmNormalizeEntryIconPreset(cloudData.entryIconPreset);
+                                if (cloudData.topbarButtonVisibility && typeof cloudData.topbarButtonVisibility === 'object') this.data.topbarButtonVisibility = __tmNormalizeTopbarButtonVisibility(cloudData.topbarButtonVisibility);
                                 if (typeof cloudData.semanticDateAutoPromptEnabled === 'boolean') this.data.semanticDateAutoPromptEnabled = cloudData.semanticDateAutoPromptEnabled;
                                 if (typeof cloudData.semanticDateDefaultReminderTime === 'string') this.data.semanticDateDefaultReminderTime = cloudData.semanticDateDefaultReminderTime;
                                 if (typeof cloudData.checklistDetailWidth === 'number') this.data.checklistDetailWidth = cloudData.checklistDetailWidth;
@@ -7988,6 +8035,7 @@
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.docTabCustomGroups)) this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(cloudData.docTabCustomGroups);
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.otherBlockRefs)) this.data.otherBlockRefs = cloudData.otherBlockRefs;
                                 if (shouldApplyCloudDocGroupState && cloudData.docPinnedByGroup && typeof cloudData.docPinnedByGroup === 'object') this.data.docPinnedByGroup = cloudData.docPinnedByGroup;
+                                if (shouldApplyCloudDocGroupState && cloudData.docTabsManualArchivedByGroup && typeof cloudData.docTabsManualArchivedByGroup === 'object') this.data.docTabsManualArchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(cloudData.docTabsManualArchivedByGroup);
                                 if (cloudData.currentGroupId) this.data.currentGroupId = cloudData.currentGroupId;
                                 if (cloudData.taskHeadingLevel) this.data.taskHeadingLevel = cloudData.taskHeadingLevel;
                                 if (cloudData.themeConfig && typeof cloudData.themeConfig === 'object') this.data.themeConfig = cloudData.themeConfig;
@@ -8176,6 +8224,7 @@
                                 this.refreshCollapsedStateSyncState();
                                 this.refreshSettingsFieldSyncState();
                                 this.loaded = true;
+                                __tmApplyEntryIconPreset(this.data.entryIconPreset);
                                 try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-cloud'); } catch (e) {}
                                 if (migratedLegacyTopbarDefaults || restoredLocalSettingFields.length > 0) {
                                     try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
@@ -8196,6 +8245,7 @@
             this.refreshCollapsedStateSyncState();
             this.refreshSettingsFieldSyncState();
             this.loaded = true;
+            __tmApplyEntryIconPreset(this.data.entryIconPreset);
             try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-fallback'); } catch (e) {}
             if (migratedLegacyTopbarDefaults) {
                 try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
@@ -8425,6 +8475,8 @@
             this.data.docTopbarButtonLocateCurrentDocTab = !!Storage.get('tm_doc_topbar_button_locate_current_doc_tab', this.data.docTopbarButtonLocateCurrentDocTab);
             this.data.windowTopbarIconDesktop = !!Storage.get('tm_window_topbar_icon_desktop', this.data.windowTopbarIconDesktop);
             this.data.windowTopbarIconMobile = !!Storage.get('tm_window_topbar_icon_mobile', this.data.windowTopbarIconMobile);
+            this.data.entryIconPreset = __tmNormalizeEntryIconPreset(Storage.get('tm_entry_icon_preset', this.data.entryIconPreset));
+            this.data.topbarButtonVisibility = __tmNormalizeTopbarButtonVisibility(Storage.get('tm_topbar_button_visibility', this.data.topbarButtonVisibility));
             this.data.semanticDateAutoPromptEnabled = !!Storage.get('tm_semantic_date_auto_prompt_enabled', this.data.semanticDateAutoPromptEnabled);
             this.data.semanticDateDefaultReminderTime = String(Storage.get('tm_semantic_date_default_reminder_time', this.data.semanticDateDefaultReminderTime) || '08:00');
             this.data.calendarColorFocus = Storage.get('tm_calendar_color_focus', this.data.calendarColorFocus);
@@ -8454,6 +8506,7 @@
             this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(Storage.get('tm_doc_tab_custom_groups', this.data.docTabCustomGroups));
             this.data.otherBlockRefs = Storage.get('tm_other_block_refs', this.data.otherBlockRefs) || [];
             this.data.docPinnedByGroup = Storage.get('tm_doc_pinned_by_group', this.data.docPinnedByGroup) || {};
+            this.data.docTabsManualArchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(Storage.get('tm_doc_tabs_manual_archived_by_group', this.data.docTabsManualArchivedByGroup));
             this.data.currentGroupId = Storage.get('tm_current_group_id', 'all');
             this.data.customStatusOptions = Storage.get('tm_custom_status_options', this.data.customStatusOptions);
             this.data.customDurationOptions = Storage.get('tm_custom_duration_options', this.data.customDurationOptions);
@@ -8877,6 +8930,8 @@
             Storage.set('tm_doc_topbar_button_locate_current_doc_tab', !!this.data.docTopbarButtonLocateCurrentDocTab);
             Storage.set('tm_window_topbar_icon_desktop', !!this.data.windowTopbarIconDesktop);
             Storage.set('tm_window_topbar_icon_mobile', !!this.data.windowTopbarIconMobile);
+            Storage.set('tm_entry_icon_preset', __tmNormalizeEntryIconPreset(this.data.entryIconPreset));
+            Storage.set('tm_topbar_button_visibility', __tmNormalizeTopbarButtonVisibility(this.data.topbarButtonVisibility));
             Storage.set('tm_semantic_date_auto_prompt_enabled', !!this.data.semanticDateAutoPromptEnabled);
             Storage.set('tm_semantic_date_default_reminder_time', String(this.data.semanticDateDefaultReminderTime || '08:00').trim() || '08:00');
             Storage.set('tm_calendar_color_focus', String(this.data.calendarColorFocus || '').trim());
@@ -8908,6 +8963,7 @@
             if (legacyOtherBlockRefs.length > 0) Storage.set('tm_other_block_refs', legacyOtherBlockRefs);
             else Storage.remove('tm_other_block_refs');
             Storage.set('tm_doc_pinned_by_group', this.data.docPinnedByGroup || {});
+            Storage.set('tm_doc_tabs_manual_archived_by_group', __tmNormalizeDocTabsManualArchivedByGroup(this.data.docTabsManualArchivedByGroup));
             Storage.set('tm_current_group_id', this.data.currentGroupId);
             __tmNormalizeCheckboxStatusBindingConfig(this.data);
             Storage.set('tm_custom_status_options', this.data.customStatusOptions);
@@ -9099,6 +9155,7 @@
                 normalizedPinMap[key] = list;
             });
             this.data.docPinnedByGroup = normalizedPinMap;
+            this.data.docTabsManualArchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(this.data.docTabsManualArchivedByGroup);
             const seed = Number(this.data.docColorSeed);
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
             this.data.docDefaultColorScheme.seed = this.data.docColorSeed;
@@ -9244,6 +9301,8 @@
             this.data.docTopbarButtonLocateCurrentDocTab = !!this.data.docTopbarButtonLocateCurrentDocTab;
             this.data.windowTopbarIconDesktop = this.data.windowTopbarIconDesktop !== false;
             this.data.windowTopbarIconMobile = this.data.windowTopbarIconMobile !== false;
+            this.data.entryIconPreset = __tmNormalizeEntryIconPreset(this.data.entryIconPreset);
+            this.data.topbarButtonVisibility = __tmNormalizeTopbarButtonVisibility(this.data.topbarButtonVisibility);
             this.data.semanticDateAutoPromptEnabled = !!this.data.semanticDateAutoPromptEnabled;
             {
                 const rawTime = String(this.data.semanticDateDefaultReminderTime || '').trim();
@@ -9617,6 +9676,7 @@
                 };
                 this.data.whiteboardGlobalBoardsByGroup = cleanMap(this.data.whiteboardGlobalBoardsByGroup);
                 this.data.whiteboardAllTabsDocOrderByGroup = cleanMap(this.data.whiteboardAllTabsDocOrderByGroup);
+                this.data.docTabsManualArchivedByGroup = cleanMap(this.data.docTabsManualArchivedByGroup);
                 if (WhiteboardStore?.loaded) {
                     try {
                         WhiteboardStore.data.globalBoardsByGroup = cleanMap(WhiteboardStore.data?.globalBoardsByGroup);

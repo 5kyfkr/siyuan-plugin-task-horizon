@@ -2537,6 +2537,15 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     opacity: 1 !important;
 }
 
+.tm-calendar-wrap .fc .fc-button .fc-icon,
+.tm-calendar-host.fc .fc-button .fc-icon,
+.tm-calendar-wrap .fc .fc-button svg,
+.tm-calendar-host.fc .fc-button svg {
+    color: inherit !important;
+    stroke: currentColor !important;
+    fill: currentColor !important;
+}
+
 .tm-calendar-wrap .fc .fc-scrollgrid-section-header > * {
     padding-top: 1px;
     padding-bottom: 1px;
@@ -3428,7 +3437,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     border-radius: var(--tm-topbar-control-radius);
     border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-control-border) !important;
     background: var(--tm-topbar-control-bg) !important;
-    color: var(--tm-topbar-control-text) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
     font-size: 13px;
     font-weight: 500;
     line-height: 28px;
@@ -3545,7 +3554,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     border-radius: var(--tm-topbar-control-radius);
     border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-control-border);
     background: var(--tm-topbar-control-bg);
-    color: var(--tm-topbar-control-text);
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text));
     box-shadow: var(--tm-topbar-control-shadow);
     font-size: 13px;
     font-weight: 600;
@@ -3585,7 +3594,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     border: 1px solid transparent !important;
     border-radius: max(0px, calc(var(--tm-topbar-control-radius) - 3px));
     background: transparent !important;
-    color: var(--tm-topbar-seg-item-text) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-seg-item-text)) !important;
     box-shadow: none !important;
     line-height: 1 !important;
 }
@@ -3620,7 +3629,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     border-radius: var(--tm-topbar-control-radius);
     border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-control-border) !important;
     background: var(--tm-topbar-control-bg) !important;
-    color: var(--tm-topbar-control-text) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
     box-shadow: var(--tm-topbar-control-shadow) !important;
 }
 
@@ -3632,7 +3641,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 
 .tm-calendar-wrap .fc .fc-toolbar-chunk:first-child > .fc-today-button:disabled,
 .tm-calendar-host.fc .fc-toolbar-chunk:first-child > .fc-today-button:disabled {
-    color: var(--tm-topbar-control-text) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
     opacity: 1 !important;
 }
 
@@ -3865,21 +3874,21 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 
 .tm-calendar-wrap .fc .fc-button-primary,
 .tm-calendar-host.fc .fc-button-primary {
-    color: var(--tm-topbar-control-text) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
     background: var(--tm-topbar-control-bg) !important;
     border-color: var(--tm-topbar-control-border) !important;
 }
 
 .tm-calendar-wrap .fc .fc-button-primary:hover:not(:disabled),
 .tm-calendar-host.fc .fc-button-primary:hover:not(:disabled) {
-    color: var(--tm-topbar-control-text) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
     background: var(--tm-topbar-control-hover) !important;
     border-color: var(--tm-topbar-control-border) !important;
 }
 
 .tm-calendar-wrap .fc .fc-button-primary:disabled,
 .tm-calendar-host.fc .fc-button-primary:disabled {
-    color: var(--tm-topbar-control-text) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
     background: var(--tm-topbar-control-bg) !important;
     border-color: var(--tm-topbar-control-border) !important;
     opacity: .65 !important;
@@ -3887,14 +3896,14 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 
 .tm-calendar-wrap .fc .fc-button-group .fc-button-primary:hover:not(:disabled),
 .tm-calendar-host.fc .fc-button-group .fc-button-primary:hover:not(:disabled) {
-    color: var(--tm-topbar-control-text) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
     background: var(--tm-topbar-seg-item-hover) !important;
     border-color: var(--tm-topbar-seg-border) !important;
 }
 
 .tm-calendar-wrap .fc .tm-calendar-view-segmented .tm-view-seg-item:hover:not(:disabled),
 .tm-calendar-host.fc .tm-calendar-view-segmented .tm-view-seg-item:hover:not(:disabled) {
-    color: var(--tm-topbar-control-text) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
     background: var(--tm-topbar-seg-item-hover) !important;
     border-color: var(--tm-topbar-seg-border) !important;
 }
@@ -3903,7 +3912,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-host .fc .fc-button-primary:not(:disabled):active,
 .tm-calendar-host.fc .fc-button-primary:not(:disabled).fc-button-active,
 .tm-calendar-host.fc .fc-button-primary:not(:disabled):active {
-    color: var(--tm-text-color) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
     background: var(--tm-section-bg) !important;
     border-color: var(--tm-border-color) !important;
     box-shadow: none !important;
@@ -3913,7 +3922,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-wrap .fc .tm-calendar-view-segmented .tm-view-seg-item.tm-view-seg-item--active:hover,
 .tm-calendar-host.fc .tm-calendar-view-segmented .tm-view-seg-item.tm-view-seg-item--active,
 .tm-calendar-host.fc .tm-calendar-view-segmented .tm-view-seg-item.tm-view-seg-item--active:hover {
-    color: var(--tm-text-color) !important;
+    color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
     background: var(--tm-section-bg) !important;
     border-color: var(--tm-border-color) !important;
     box-shadow: none !important;

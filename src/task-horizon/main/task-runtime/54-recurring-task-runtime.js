@@ -200,6 +200,7 @@
     }
 
     const __tmRecurringAdvanceTimers = new Map();
+    const __tmRecurringAdvanceInFlightIds = new Set();
 
     function __tmClearRecurringTaskAdvanceTimer(taskId) {
         const tid = String(taskId || '').trim();
@@ -212,6 +213,17 @@
     }
 
     async function __tmAdvanceRecurringTaskAfterCompletion(taskId, options = {}) {
+        const advanceTaskId = String(taskId || '').trim();
+        if (!advanceTaskId || __tmRecurringAdvanceInFlightIds.has(advanceTaskId)) return false;
+        __tmRecurringAdvanceInFlightIds.add(advanceTaskId);
+        try {
+            return await __tmAdvanceRecurringTaskAfterCompletionInternal(advanceTaskId, options);
+        } finally {
+            __tmRecurringAdvanceInFlightIds.delete(advanceTaskId);
+        }
+    }
+
+    async function __tmAdvanceRecurringTaskAfterCompletionInternal(taskId, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         if (String(opts.source || '').trim() === 'task-repeat-advance') return false;
         const waited = await __tmWaitForGlobalUnlock(12000);
@@ -250,6 +262,9 @@
             withFilters: true,
             hard: false,
             recordUndo: false,
+            queued: true,
+            background: true,
+            wait: false,
         });
         try {
             task.startDate = String(nextPatch.startDate || '').trim();
@@ -384,12 +399,20 @@
                 fallback: true,
             });
         } catch (e) {}
+        // The task has moved from the completed projection back into the active list.
         try {
-            const summary = __tmGetTaskRepeatSummary(repeatRule, {
-                startDate: nextPatch.startDate,
-                completionTime: nextPatch.completionTime,
-            });
-            hint(`🔁 已推进到下一次${summary ? `：${summary}` : ''}`, 'success');
+            if (typeof __tmIsPluginVisibleNow !== 'function' || __tmIsPluginVisibleNow()) {
+                try { state.listDomRenderSignature = ''; } catch (e) {}
+                try { applyFilters(); } catch (e) {}
+                const modal = globalThis.__tmRuntimeState?.getModal?.() || state.modal;
+                if (modal instanceof Element && document.body.contains(modal)) {
+                    try { if (!__tmRerenderCurrentViewInPlace(modal)) render(); } catch (e) { try { render(); } catch (e2) {} }
+                }
+            }
+        } catch (e) {}
+        try {
+            const nextDate = __tmNormalizeDateOnly(nextPatch.completionTime || nextPatch.startDate || '');
+            hint(`🔁 已推进到下一次${nextDate ? `：${nextDate}` : ''}`, 'success');
         } catch (e) {}
         return true;
     }
@@ -605,4 +628,3 @@
     };
 
     let __tmCalendarSidebarDocItemsWarmPromise = null;
-

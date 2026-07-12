@@ -2793,7 +2793,7 @@
         __tmScheduleWhiteboardViewSave();
     };
 
-    function __tmBuildWhiteboardTouchPanSession(viewport, touchLike) {
+    function __tmBuildWhiteboardTouchPanSession(viewport, touchLike, options = {}) {
         const t = touchLike || {};
         const v = __tmGetWhiteboardView();
         return {
@@ -2803,10 +2803,12 @@
             startClientY: Number(t.clientY) || 0,
             startX: Number(v.x) || 0,
             startY: Number(v.y) || 0,
+            card: options.card instanceof HTMLElement ? options.card : null,
+            moved: options.moved === true,
         };
     }
 
-    function __tmBuildWhiteboardTouchPinchSession(viewport, touchA, touchB) {
+    function __tmBuildWhiteboardTouchPinchSession(viewport, touchA, touchB, options = {}) {
         const t1 = touchA || {};
         const t2 = touchB || {};
         const rect = viewport.getBoundingClientRect();
@@ -2826,24 +2828,28 @@
             startZoom,
             anchorWx: (cx - (Number(v.x) || 0)) / startZoom,
             anchorWy: (cy - (Number(v.y) || 0)) / startZoom,
+            card: options.card instanceof HTMLElement ? options.card : null,
+            moved: options.moved === true,
         };
     }
 
     window.tmWhiteboardViewportTouchStart = function(ev) {
         if (state.viewMode !== 'whiteboard') return;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
-        if (tool !== 'pan') return;
         const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
         if (!(viewport instanceof HTMLElement)) return;
         const target = ev?.target;
-        if (target && target.closest && target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-pool-item')) return;
+        const card = target && target.closest ? target.closest('.tm-whiteboard-node') : null;
+        if (tool !== 'pan' && !(tool === 'select' && card instanceof HTMLElement)) return;
+        if (target && target.closest && target.closest('.tm-task-link-dot')) return;
+        if (!card && target && target.closest && target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-pool-item')) return;
         const touches = ev?.touches;
         const n = Number(touches?.length) || 0;
         if (n <= 0) return;
         if (n >= 2) {
-            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPinchSession(viewport, touches[0], touches[1]);
+            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPinchSession(viewport, touches[0], touches[1], { card });
         } else {
-            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPanSession(viewport, touches[0]);
+            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPanSession(viewport, touches[0], { card });
         }
         try { viewport.classList.add('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
     };
@@ -2859,7 +2865,7 @@
         if (n <= 0) return;
         if (n >= 2) {
             if (s.mode !== 'pinch') {
-                state.whiteboardTouchSession = __tmBuildWhiteboardTouchPinchSession(viewport, touches[0], touches[1]);
+                state.whiteboardTouchSession = __tmBuildWhiteboardTouchPinchSession(viewport, touches[0], touches[1], { card: s.card, moved: s.moved });
                 return;
             }
             const t1 = touches[0];
@@ -2876,17 +2882,19 @@
             const nextZoom = Math.max(0.35, Math.min(2.5, (Number(s.startZoom) || 1) * ratio));
             const nextX = cx - (Number(s.anchorWx) || 0) * nextZoom;
             const nextY = cy - (Number(s.anchorWy) || 0) * nextZoom;
+            s.moved = true;
             __tmSetWhiteboardView({ x: nextX, y: nextY, zoom: nextZoom }, { persist: false });
             __tmApplyWhiteboardTransform();
             return;
         }
         const t = touches[0];
         if (s.mode !== 'pan') {
-            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPanSession(viewport, t);
+            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPanSession(viewport, t, { card: s.card, moved: s.moved });
             return;
         }
         const dx = (Number(t?.clientX) || 0) - (Number(s.startClientX) || 0);
         const dy = (Number(t?.clientY) || 0) - (Number(s.startClientY) || 0);
+        if (!s.moved && (dx * dx + dy * dy) > 16) s.moved = true;
         __tmSetWhiteboardView({ x: (Number(s.startX) || 0) + dx, y: (Number(s.startY) || 0) + dy }, { persist: false });
         __tmApplyWhiteboardTransform();
     };
@@ -2901,6 +2909,9 @@
         if (n <= 0) {
             state.whiteboardTouchSession = null;
             try { viewport?.classList?.remove?.('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
+            if (s.moved && s.card instanceof HTMLElement) {
+                __tmSuppressNextWhiteboardCardClick(s.card, 700);
+            }
             __tmScheduleWhiteboardViewSave();
             return;
         }
@@ -2910,10 +2921,10 @@
             return;
         }
         if (n >= 2) {
-            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPinchSession(viewport, touches[0], touches[1]);
+            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPinchSession(viewport, touches[0], touches[1], { card: s.card, moved: s.moved });
             return;
         }
-        state.whiteboardTouchSession = __tmBuildWhiteboardTouchPanSession(viewport, touches[0]);
+        state.whiteboardTouchSession = __tmBuildWhiteboardTouchPanSession(viewport, touches[0], { card: s.card, moved: s.moved });
     };
 
     function __tmStartWhiteboardFrameCreate(ev, viewport) {
@@ -4127,7 +4138,7 @@
             if (session.active) return;
             const dx = (Number(e2?.clientX) || 0) - session.sx;
             const dy = (Number(e2?.clientY) || 0) - session.sy;
-            if (Math.hypot(dx, dy) > 10) cleanup();
+            if ((dx * dx + dy * dy) > 16) cleanup();
         };
         const onUp = (e2) => {
             if (!samePointer(e2)) return;
@@ -4247,6 +4258,7 @@
             __tmSetManualTaskLinks(links);
         }
         if (idSet.has(String(state.whiteboardSelectedTaskId || '').trim())) state.whiteboardSelectedTaskId = '';
+        __tmRemoveWhiteboardPoolSelectionIds(Array.from(idSet));
         try { await SettingsStore.save(); } catch (e) {}
         render();
     };
@@ -4498,6 +4510,7 @@
         state.whiteboardSelectedLinkId = '';
         state.whiteboardSelectedLinkDocId = '';
         state.whiteboardMultiSelectedLinkKeys = [];
+        __tmRemoveWhiteboardPoolSelectionIds(Array.from(allTaskIds));
         __tmApplyWhiteboardCardSelectionDom('');
         __tmClearWhiteboardMultiSelection();
         try { SettingsStore.syncToLocal(); } catch (e) {}
@@ -5917,12 +5930,34 @@
         } catch (e) {}
     }
 
+    function __tmRemoveWhiteboardPoolSelectionIds(idsInput) {
+        const ids = new Set((Array.isArray(idsInput) ? idsInput : [idsInput])
+            .map((x) => String(x || '').trim())
+            .filter(Boolean));
+        if (!ids.size) return false;
+        const current = Array.isArray(state.whiteboardPoolSelectedTaskIds) ? state.whiteboardPoolSelectedTaskIds : [];
+        const next = current.map((x) => String(x || '').trim()).filter((id) => id && !ids.has(id));
+        if (next.length === current.length) return false;
+        state.whiteboardPoolSelectedTaskIds = next;
+        __tmApplyWhiteboardPoolSelectionDom();
+        return true;
+    }
+
+    function __tmClearWhiteboardSelectedCardDom() {
+        if (!String(state.whiteboardSelectedTaskId || '').trim()) return false;
+        state.whiteboardSelectedTaskId = '';
+        try { __tmApplyWhiteboardCardSelectionDom(''); } catch (e) {}
+        try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
+        return true;
+    }
+
     window.tmWhiteboardPoolItemMouseDown = function(ev, taskId, docId, locked) {
         if (Number(ev?.button) !== 0) {
             __tmWhiteboardDebugLog('pool:mousedown-skip', { reason: 'non-left-button', taskId: String(taskId || ''), docId: String(docId || ''), event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         try { __tmCalendarFloatingDragEnd(); } catch (e) {}
+        __tmClearWhiteboardSelectedCardDom();
         const target = ev?.target;
         const inPoolTitle = !!(target && target.closest && target.closest('.tm-whiteboard-pool-item-title'));
         const interactiveSelector = inPoolTitle

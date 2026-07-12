@@ -290,6 +290,15 @@
         };
     }
 
+    function __tmLicenseDispatchStateChanged() {
+        try {
+            const state = __tmLicenseBuildState(__tmLicenseRecord);
+            window.dispatchEvent(new CustomEvent('tm:task-horizon-license-changed', {
+                detail: { active: state.active === true, features: Array.isArray(state.features) ? state.features.slice() : [] }
+            }));
+        } catch (e) {}
+    }
+
     function __tmLicenseNormalizeStoredRecord(raw) {
         if (!raw) return null;
         if (typeof raw === 'string') return { code: __tmLicenseNormalizeCode(raw), payload: null, activatedAt: '' };
@@ -331,6 +340,7 @@
             }
             __tmLicenseRecord = record;
             __tmLicenseLoaded = true;
+            __tmLicenseDispatchStateChanged();
             return record;
         })();
         try {
@@ -351,6 +361,7 @@
             }
             __tmLicenseRecord = normalized;
             __tmLicenseLoaded = true;
+            __tmLicenseDispatchStateChanged();
             return true;
         } catch (e) {
             return false;
@@ -366,6 +377,7 @@
             }
             __tmLicenseRecord = null;
             __tmLicenseLoaded = true;
+            __tmLicenseDispatchStateChanged();
             return true;
         } catch (e) {
             return false;

@@ -548,7 +548,6 @@
         '.tm-cal-task[data-id]',
         '.tm-checklist-item[data-id]',
         '.tm-kanban-card[data-id]',
-        '.tm-whiteboard-node[data-task-id]',
         '.tm-whiteboard-stream-task-head[data-task-id]',
         '.tm-whiteboard-stream-task-node[data-task-id]',
         '.tm-whiteboard-pool-item[data-task-id]',
@@ -1314,7 +1313,6 @@
                     target: state.externalDragPreview.lastTarget,
                 };
                 suppressTaskClickAfterCalendarExternalDrag();
-                clearOfficialExternalTaskDragIndicators();
                 stopOfficialExternalTaskAutoScroll();
                 if (activePayload?.taskId && shouldFinalizeOfficialExternalTaskDragEnd(ev)) {
                     try {
@@ -1375,7 +1373,6 @@
                 if (ended) return;
                 ended = true;
                 suppressTaskClickAfterCalendarExternalDrag();
-                clearOfficialExternalTaskDragIndicators();
                 stopOfficialExternalTaskAutoScroll();
                 const point = rememberCalendarExternalDragClientPoint(ev) || {
                     clientX: Number(state.externalDragPreview.lastClientX),
@@ -16566,7 +16563,7 @@
         if (typeof Draggable !== 'function') {
             return false;
         }
-        const itemSelector = 'tr[data-id], .tm-cal-task[data-task-id], .tm-checklist-item[data-id], .tm-kanban-card[data-id], .tm-whiteboard-node[data-task-id], .tm-whiteboard-stream-task-head[data-task-id], .tm-whiteboard-stream-task-node[data-task-id], .tm-whiteboard-pool-item[data-task-id]';
+        const itemSelector = 'tr[data-id], .tm-cal-task[data-task-id], .tm-checklist-item[data-id], .tm-kanban-card[data-id], .tm-whiteboard-stream-task-head[data-task-id], .tm-whiteboard-stream-task-node[data-task-id], .tm-whiteboard-pool-item[data-task-id]';
         const resolver = typeof resolveTask === 'function' ? resolveTask : null;
         const externalDragAbort = new AbortController();
         try {
@@ -16609,12 +16606,15 @@
                     const liveSettings = getSettings();
                     if (!calendarId) calendarId = pickDefaultCalendarId(liveSettings);
                     safeMin = clampNewScheduleDurationMin(safeMin, liveSettings);
+                    const dragSource = el?.matches?.('.tm-kanban-card[data-id]')
+                        ? 'kanban-card'
+                        : 'side-day-external-draggable';
                     const payload = calendarExternalDragPreviewController.begin({
                         taskId: id,
                         title,
                         durationMin: safeMin,
                         calendarId,
-                    }, { dragSource: 'side-day-external-draggable', officialFullCalendar: true });
+                    }, { dragSource, officialFullCalendar: true });
                     calendarExternalDragPreviewController.beginOfficialFloatingMini(payload, el);
                     return buildTaskScheduleExternalEventData(payload) || {
                         title,

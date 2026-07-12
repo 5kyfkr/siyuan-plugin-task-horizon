@@ -577,6 +577,8 @@
         const segBgFallback = themeDefaults.topbarControlSegmentBg || __tmWithAlpha('#ffffff', 0.18);
         const segActiveFallback = themeDefaults.topbarControlSegmentActiveBg || __tmWithAlpha('#000000', 0.26);
         const shadowColorFallback = themeDefaults.topbarControlShadowColor || (isDark ? 'rgba(0, 0, 0, 0.34)' : 'rgba(15, 23, 42, 0.16)');
+        const defaultThemeDefaults = __tmBuildThemeAppearanceDefaults(__tmGetDefaultThemeConfig(), isDark);
+        const defaultControlText = defaultThemeDefaults.topbarControlText || (isDark ? '#FFFFFF' : '#003252');
         const controlText = pickColor(isDark ? 'topbarControlTextDark' : 'topbarControlTextLight', controlTextFallback);
         const controlBg = pickColor(isDark ? 'topbarControlBgDark' : 'topbarControlBgLight', controlBgFallback);
         const controlBorder = pickColor(isDark ? 'topbarControlBorderDark' : 'topbarControlBorderLight', __tmWithAlpha(controlText || controlTextFallback, 0.34));
@@ -608,6 +610,7 @@
             shadowBlurPx,
             shadowStrengthPct,
             shadow,
+            defaultControlText,
         };
     }
 
@@ -619,9 +622,10 @@
         const palette = __tmBuildEffectiveThemePalette(themeConfig, isDark);
         const themeDefaults = __tmBuildEffectiveThemeAppearanceDefaults(themeConfig, isDark);
         const pickColor = (lightKey, darkKey, fallback) => {
-            if (followSiyuan) return fallback;
             const key = isDark ? darkKey : lightKey;
-            return __tmNormalizeHexColor(SettingsStore.data?.[key], fallback) || fallback;
+            if (followSiyuan && !__tmCanOverrideAppearanceColorWhenFollowingSiyuan(key)) return fallback;
+            const base = followSiyuan ? __tmGetSiyuanFollowAppearanceColorDefault(key, fallback) : fallback;
+            return __tmNormalizeHexColor(SettingsStore.data?.[key], base) || base;
         };
 
         const start = pickColor('topbarGradientLightStart', 'topbarGradientDarkStart', themeDefaults.topbarGradientStart);
@@ -639,8 +643,8 @@
         const calendarTodayHighlight = pickColor('calendarTodayHighlightColorLight', 'calendarTodayHighlightColorDark', themeDefaults.calendarTodayHighlightColor);
         const siyuanBorderLineColor = 'color-mix(in srgb, var(--b3-border-color) 50%, transparent)';
         const siyuanWhiteboardLineColor = 'color-mix(in srgb, var(--b3-border-color) 40%, transparent)';
-        const calendarGridBorder = followSiyuan ? siyuanBorderLineColor : pickColor('calendarGridBorderColorLight', 'calendarGridBorderColorDark', themeDefaults.calendarGridBorderColor);
-        const tableBorder = followSiyuan ? siyuanBorderLineColor : pickColor('tableBorderColorLight', 'tableBorderColorDark', themeDefaults.tableBorderColor);
+        const calendarGridBorder = pickColor('calendarGridBorderColorLight', 'calendarGridBorderColorDark', followSiyuan ? siyuanBorderLineColor : themeDefaults.calendarGridBorderColor);
+        const tableBorder = pickColor('tableBorderColorLight', 'tableBorderColorDark', followSiyuan ? siyuanBorderLineColor : themeDefaults.tableBorderColor);
         const controlText = topbarAppearance.controlText;
         const controlBg = topbarAppearance.controlBg;
         const controlBorder = topbarAppearance.controlBorder;
@@ -663,12 +667,17 @@
         const inputBg = __tmMixThemeColors(palette.background, palette.card, isDark ? 0.22 : 0.12);
         const docItemBg = __tmMixThemeColors(palette.card, palette.background, 0.12);
         const docItemHover = __tmMixThemeColors(palette.background, palette.accent, isDark ? 0.44 : 0.28);
-        const docCountBg = __tmWithAlpha(palette.primary, isDark ? 0.24 : 0.14);
+        const docCountBg = followSiyuan
+            ? `color-mix(in srgb, ${palette.primary} ${isDark ? 18 : 10}%, ${palette.card || palette.background})`
+            : __tmWithAlpha(palette.primary, isDark ? 0.24 : 0.14);
         const infoBg = __tmMixThemeColors(palette.background, palette.primary, isDark ? 0.22 : 0.08);
         const infoBorder = __tmMixThemeColors(palette.primary, palette.border, 0.18);
         const subgroupBg = __tmMixThemeColors(palette.secondary, palette.background, isDark ? 0.34 : 0.42);
         const emptyCellBg = __tmMixThemeColors(palette.secondary, palette.background, isDark ? 0.42 : 0.58);
-        const taskDoneColor = __tmMixThemeColors(palette.foreground, palette.background, isDark ? 0.56 : 0.62);
+        const taskDoneColor = followSiyuan
+            ? (isDark ? '#666666' : '#999999')
+            : __tmMixThemeColors(palette.foreground, palette.background, isDark ? 0.56 : 0.62);
+        const priorityNoneColor = followSiyuan ? '#9aa0a6' : taskDoneColor;
         const whiteboardGridColor = followSiyuan ? siyuanWhiteboardLineColor : palette.border;
         const whiteboardStreamTreeLineColor = followSiyuan ? siyuanWhiteboardLineColor : palette.border;
         const taskLeadingRingBg = __tmMixThemeColors(palette.card, palette.background, 0.2, 0.95);
@@ -704,8 +713,9 @@
         try { root.style.setProperty('--tm-input-bg', inputBg); } catch (e) {}
         try { root.style.setProperty('--tm-input-border', palette.input); } catch (e) {}
         try { root.style.setProperty('--tm-table-header-bg', tableHeaderBg); } catch (e) {}
-        try { root.style.setProperty('--tm-table-border', followSiyuan ? siyuanBorderLineColor : palette.border); } catch (e) {}
+        try { root.style.setProperty('--tm-table-border', tableBorder); } catch (e) {}
         try { root.style.setProperty('--tm-task-done-color', taskDoneColor); } catch (e) {}
+        try { root.style.setProperty('--tm-priority-none-color', priorityNoneColor); } catch (e) {}
         try { root.style.setProperty('--tm-doc-item-bg', docItemBg); } catch (e) {}
         try { root.style.setProperty('--tm-doc-item-hover', docItemHover); } catch (e) {}
         try { root.style.setProperty('--tm-doc-count-bg', docCountBg); } catch (e) {}
@@ -753,6 +763,7 @@
         try { if (topbarText) root.style.setProperty('--tm-topbar-text-color', topbarText); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-control-bg', controlBg); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-control-text', controlText); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-control-default-text', topbarAppearance.defaultControlText || controlText); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-control-border', controlBorder); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-control-hover', controlHover); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-control-radius', `${topbarAppearance.radiusPx}px`); } catch (e) {}
@@ -827,8 +838,11 @@
     function __tmDocShouldShowInDocTabs(doc, options = {}) {
         const docState = __tmGetDocTaskStateForTabs(doc, options?.docStateCache);
         if (!docState.hasAny) return false;
-        if (options?.archiveMode === true) return !!docState.isArchived;
-        return !!docState.hasUndone;
+        const docId = String(doc?.id || '').trim();
+        const groupId = String(options?.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const manuallyArchived = !!(docState.hasUndone && __tmIsDocManuallyArchivedInGroup(docId, groupId));
+        if (options?.archiveMode === true) return !!(docState.isArchived || manuallyArchived);
+        return !!(docState.hasUndone && !manuallyArchived);
     }
 
     function __tmGetArchiveModeFilterRule(rule, archiveMode = state.docTabsArchiveMode === true) {
@@ -1090,6 +1104,49 @@
             out.push(id);
         });
         return out;
+    }
+
+    function __tmNormalizeDocTabsManualArchivedByGroup(input) {
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const out = {};
+        Object.keys(source).forEach((key) => {
+            const groupId = String(key || '').trim() || 'all';
+            const ids = __tmNormalizeDocGroupExcludedDocIds(source[key]);
+            if (ids.length > 0) out[groupId] = ids;
+        });
+        return out;
+    }
+
+    function __tmGetManualArchivedDocIdsForGroup(groupId = SettingsStore?.data?.currentGroupId) {
+        const gid = String(groupId || 'all').trim() || 'all';
+        const map = __tmNormalizeDocTabsManualArchivedByGroup(SettingsStore?.data?.docTabsManualArchivedByGroup);
+        return Array.isArray(map[gid]) ? map[gid] : [];
+    }
+
+    function __tmIsDocManuallyArchivedInGroup(docId, groupId = SettingsStore?.data?.currentGroupId) {
+        const id = String(docId || '').trim();
+        if (!id) return false;
+        return __tmGetManualArchivedDocIdsForGroup(groupId).includes(id);
+    }
+
+    function __tmClearDocManualArchivedInGroups(docId, groupId = '') {
+        const id = String(docId || '').trim();
+        if (!id) return false;
+        const map = __tmNormalizeDocTabsManualArchivedByGroup(SettingsStore?.data?.docTabsManualArchivedByGroup);
+        const gid = String(groupId || '').trim();
+        const keys = gid ? [gid] : Object.keys(map);
+        let changed = false;
+        keys.forEach((key) => {
+            const groupKey = String(key || '').trim() || 'all';
+            const list = Array.isArray(map[groupKey]) ? map[groupKey] : [];
+            const next = list.filter((item) => item !== id);
+            if (next.length === list.length) return;
+            changed = true;
+            if (next.length > 0) map[groupKey] = next;
+            else delete map[groupKey];
+        });
+        if (changed) SettingsStore.data.docTabsManualArchivedByGroup = map;
+        return changed;
     }
 
     function __tmNormalizeDocGroupConfig(group, globalDocColorScheme = null) {
@@ -1715,10 +1772,12 @@
             ? options.currentRule
             : (typeof __tmGetCurrentRule === 'function' ? __tmGetCurrentRule() : null);
         const docStateCache = options?.docStateCache instanceof Map ? options.docStateCache : null;
+        const currentGroupId = String(options?.currentGroupId || options?.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const shouldShowByTaskState = __tmDocShouldShowInDocTabs(doc, {
             rule: currentRule,
             archiveMode,
-            docStateCache
+            docStateCache,
+            groupId: currentGroupId
         });
         if (!shouldShowByTaskState) return false;
         const filteredDocIdSet = options?.filteredDocIdSet instanceof Set
@@ -6497,6 +6556,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                 || typeof globalThis.__tmCalendar.openScheduleEditorByTaskId === 'function'));
         const aiEnabled = __tmIsAiFeatureEnabled();
         const isOtherBlock = __tmIsCollectedOtherBlockTask(task);
+        const canDetachSubtask = typeof __tmCanDetachSubtaskFromParent === 'function'
+            && __tmCanDetachSubtaskFromParent(task);
 
         actions.push({
             label: task?.pinned ? '取消置顶' : '置顶',
@@ -6566,6 +6627,13 @@ return Number(state.contextInteractionQuietUntil || 0);
             icon: 'list-bullets',
             run: async () => { await window.tmCreateSiblingTask?.(tid); }
         });
+        if (canDetachSubtask) {
+            actions.push({
+                label: '移出子任务',
+                icon: 'text-outdent',
+                run: async () => { await window.tmDetachSubtaskFromParent?.(tid); }
+            });
+        }
         if (canEditSchedule) {
             actions.push({
                 label: '编辑日程',
@@ -8909,6 +8977,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         const currentRule = __tmGetCurrentRule();
         const archiveMode = state.docTabsArchiveMode === true;
+        const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const rule = __tmGetArchiveModeFilterRule(currentRule, archiveMode);
         const customOrderProjection = __tmRuleUsesCustomOrderSort(rule)
             ? __tmBuildCustomTaskOrderProjection(state.taskTree, rule)
@@ -8963,7 +9032,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         };
 
         taskTreeForFilter.forEach((doc) => {
-            if (archiveMode && !__tmGetDocTaskStateForTabs(doc, docTaskStateCache).isArchived) return;
+            if (archiveMode && !__tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode, groupId: currentGroupId, docStateCache: docTaskStateCache })) return;
             const docTasks = [];
             collect(doc.tasks, docTasks);
             allTasksForTabs.push(...docTasks);
@@ -9102,7 +9171,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             const did = String(docId || '').trim();
             if (!did) return false;
             if (docTabVisibleMemo.has(did)) return !!docTabVisibleMemo.get(did);
-            const result = __tmDocShouldShowInDocTabs(loadedDocById.get(did), { rule: currentRule, archiveMode, docStateCache: docTaskStateCache });
+            const result = __tmDocShouldShowInDocTabs(loadedDocById.get(did), { rule: currentRule, archiveMode, groupId: currentGroupId, docStateCache: docTaskStateCache });
             docTabVisibleMemo.set(did, result);
             return result;
         };
@@ -9774,9 +9843,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                 .find((doc) => String(doc?.id || '').trim() === resolvedDocId);
             const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
             const archiveMode = state.docTabsArchiveMode === true;
+            const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
             const allowSpecialNewTaskDoc = !archiveMode && resolvedDocId === globalNewTaskDocId;
             if (!allowSpecialNewTaskDoc
-                && (!targetDoc || !__tmDocShouldShowInDocTabs(targetDoc, { rule: __tmGetCurrentRule(), archiveMode }))) {
+                && (!targetDoc || !__tmDocShouldShowInDocTabs(targetDoc, { rule: __tmGetCurrentRule(), archiveMode, groupId: currentGroupId }))) {
                 resolvedDocId = 'all';
             }
         }
@@ -10674,7 +10744,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             .filter((doc) => {
                 const docId = String(doc?.id || '').trim();
                 if (docId && activeDocId && activeDocId !== 'all' && docId === activeDocId) return true;
-                const shouldShowByTaskState = __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode });
+                const shouldShowByTaskState = __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode, groupId: currentGroupId });
                 if (!shouldShowByTaskState) return false;
                 if (filteredDocIdSet.size || hasContentFilter) return filteredDocIdSet.has(docId);
                 return shouldShowByTaskState;
@@ -11204,6 +11274,11 @@ return Number(state.contextInteractionQuietUntil || 0);
         const expectedMeta = __tmGetCachedDocExpectedMeta(id) || __tmNormalizeDocExpectedMeta({});
         const startDateLabel = expectedMeta.startDate ? `（${expectedMeta.startDate}）` : '';
         const deadlineLabel = expectedMeta.deadline ? `（${expectedMeta.deadline}）` : '';
+        const docForMenu = !isOtherBlocksTab
+            ? (Array.isArray(state.taskTree) ? state.taskTree : []).find((doc) => String(doc?.id || '').trim() === id)
+            : null;
+        const docTabStateForMenu = docForMenu ? __tmGetDocTaskStateForTabs(docForMenu) : { hasAny: false, hasUndone: false, isArchived: false };
+        const docTabManuallyArchived = !!(docTabStateForMenu.hasUndone && __tmIsDocManuallyArchivedInGroup(id, pinGroupId));
 
         if (!isOtherBlocksTab) {
             menu.appendChild(item(__tmRenderContextMenuLabel('file-text', '打开文档'), async () => {
@@ -11212,6 +11287,17 @@ return Number(state.contextInteractionQuietUntil || 0);
             menu.appendChild(item(__tmRenderContextMenuLabel('plus', '新建任务'), () => {
                 try { window.tmQuickAddOpenForDoc?.(id); } catch (e) {}
             }));
+            if (docTabStateForMenu.hasUndone && state.docTabsArchiveMode !== true && !docTabManuallyArchived) {
+                menu.appendChild(item(__tmRenderContextMenuLabel('archive', '归档页签'), async () => {
+                    const result = await __tmSetDocManualArchivedForGroup(id, true, pinGroupId);
+                    if (result?.changed) hint('✅ 已归档页签', 'success');
+                }));
+            } else if (state.docTabsArchiveMode === true && docTabManuallyArchived) {
+                menu.appendChild(item(__tmRenderContextMenuLabel('archive-restore', '移出归档区'), async () => {
+                    const result = await __tmSetDocManualArchivedForGroup(id, false, pinGroupId);
+                    if (result?.changed) hint('✅ 已移出归档区', 'success');
+                }));
+            }
             menu.appendChild(item(__tmRenderContextMenuLabel('settings', `新建任务默认标题：${__tmSummarizeDocDefaultTaskHeading(id)}`), async () => {
                 await __tmOpenDocDefaultTaskHeadingPicker(id);
             }));
@@ -14086,6 +14172,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (customResult?.ok || customResult?.reason === 'unchanged') {
                 try { applyFilters(); } catch (e) {}
                 try { __tmScheduleRender({ withFilters: false, reason: 'custom-order-drop' }); } catch (e) {}
+                try { opts.onSuccess?.({ customOrder: true, taskId: sourceId, targetTaskId: targetId, mode: moveKind }); } catch (e) {}
                 return { kind: moveKind, payload: { customOrder: true, taskId: sourceId, targetTaskId: targetId, mode: moveKind } };
             }
             if (customResult?.reason !== 'physical') {
@@ -14112,6 +14199,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         moveTask(sourceId, payload, {
             wait: false,
             forceOptimisticRender: opts.forceOptimisticRender === true,
+            onSuccess: (result) => {
+                try { opts.onSuccess?.(result); } catch (e) {}
+            },
             onError: (err) => {
                 hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
             },
@@ -14776,7 +14866,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 }
                 if (sourceType === 'kanban') {
                     try { window.__tmKanbanAutoScrollByPoint?.(lastX, lastY, pointTarget); } catch (e) {}
-                    try { __tmApplyKanbanDragHoverFromTarget(pointTarget); } catch (e) {}
+                    try { __tmApplyKanbanDragHoverFromTarget(__tmResolveKanbanPointTarget(lastX, lastY) || pointTarget); } catch (e) {}
                 }
             };
             const cleanup = (suppressClick) => {
@@ -16455,6 +16545,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         } catch (e) {}
         try {
             if (modal instanceof HTMLElement) {
+                modal.classList.toggle('tm-modal--doc-tabs-hidden', hidden);
                 modal.classList.toggle('tm-modal--doc-tabs-auto-hide', autoHide);
                 modal.classList.toggle('tm-modal--doc-tabs-auto-visible', autoHide && !hidden);
                 modal.classList.toggle('tm-modal--doc-tabs-auto-hidden', autoHide && hidden);
