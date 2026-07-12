@@ -1039,15 +1039,19 @@
             state.searchBarOpen = false;
             window.__tmRemoveInlineSearchBarPortal?.();
         } catch (e) {}
+        try { __tmSetInlineLoading(false); } catch (e) {}
 
-        // 强制移除所有可能的模态框（防御性编程）
+        const keepaliveModal = __tmHideMobileManagerModalForKeepalive(state.modal) ? state.modal : null;
+
+        // 移动端主面板保活，其他临时模态框仍正常移除
         const modals = document.querySelectorAll('.tm-modal, .tm-settings-modal, .tm-rules-modal, .tm-prompt-modal');
         modals.forEach(el => {
+            if (keepaliveModal && el === keepaliveModal) return;
             try { el.remove(); } catch (e) {}
         });
 
         // 清理状态引用
-        state.modal = null;
+        if (!keepaliveModal) state.modal = null;
         state.settingsModal = null;
         state.summaryModal = null;
         state.rulesModal = null;

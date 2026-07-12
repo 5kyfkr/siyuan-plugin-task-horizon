@@ -12530,6 +12530,28 @@ const wait = !!options.wait;
         return removed;
     }
 
+    function __tmHideMobileManagerModalForKeepalive(modalEl = null) {
+        const modal = modalEl instanceof HTMLElement ? modalEl : state.modal;
+        if (!(modal instanceof HTMLElement) || !document.body.contains(modal)) return false;
+        if (!modal.classList.contains('tm-modal--mobile') || modal.classList.contains('tm-modal--dock')) return false;
+        try { modal.dataset.tmMobileKeepaliveHidden = '1'; } catch (e) {}
+        try { modal.setAttribute('aria-hidden', 'true'); } catch (e) {}
+        try { modal.style.display = 'none'; } catch (e) {}
+        return true;
+    }
+
+    function __tmRestoreMobileManagerModalFromKeepalive() {
+        const modal = state.modal;
+        if (!(modal instanceof HTMLElement) || !document.body.contains(modal)) return false;
+        if (String(modal.dataset?.tmMobileKeepaliveHidden || '').trim() !== '1') return false;
+        try { delete modal.dataset.tmMobileKeepaliveHidden; } catch (e) {}
+        try { modal.removeAttribute('aria-hidden'); } catch (e) {}
+        try { modal.style.removeProperty('display'); } catch (e) {}
+        try { __tmApplyMobileBrowserViewportMetrics(modal); } catch (e) {}
+        try { __tmBindMobileViewportAutoRefresh(modal); } catch (e) {}
+        return true;
+    }
+
     function __tmIsDockRootElement(el) {
         try {
             return !!(el instanceof HTMLElement && String(el.getAttribute('data-task-horizon-dock-root') || '').trim() === '1');

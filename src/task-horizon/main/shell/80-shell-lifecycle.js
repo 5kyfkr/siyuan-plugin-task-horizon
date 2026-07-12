@@ -584,6 +584,7 @@ if (shouldMarkDirty) {
         });
         __tmPerfTraceMark(perfTrace, 'open:start', { token });
         try { __tmListenPinnedChanged(); } catch (e) {}
+        try { __tmRestoreMobileManagerModalFromKeepalive(); } catch (e) {}
         let reusedExistingModal = false;
         const shouldEnsureDesktopTab = !!(options && options.forceOpenTab)
             || !runtimeMobile;
