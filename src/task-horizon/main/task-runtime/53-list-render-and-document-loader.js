@@ -5148,6 +5148,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 
         const menu = document.createElement('div');
         menu.id = 'tm-task-context-menu';
+        menu.className = 'tm-task-context-menu';
         const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
         menu.style.cssText = `
             position: fixed;
@@ -5162,9 +5163,6 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             padding: 4px 0;
             z-index: 200020;
-            width: auto;
-            max-width: calc(100vw - 16px);
-            min-width: 0;
             box-sizing: border-box;
             user-select: none;
         `;
@@ -5173,9 +5171,6 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             menu.style.setProperty('display', 'inline-flex', 'important');
             menu.style.setProperty('flex-direction', 'column', 'important');
             menu.style.setProperty('align-items', 'stretch', 'important');
-            menu.style.setProperty('width', 'auto', 'important');
-            menu.style.setProperty('min-width', '0', 'important');
-            menu.style.setProperty('max-width', 'calc(100vw - 16px)', 'important');
             menu.style.setProperty('box-sizing', 'border-box', 'important');
         } catch (e) {}
 
@@ -5548,20 +5543,20 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             const durations = (() => {
                 const list = timer?.getDurations?.();
                 const arr = Array.isArray(list) ? list.map(n => parseInt(n, 10)).filter(n => Number.isFinite(n) && n > 0) : [];
-                return arr.length > 0 ? arr.slice(0, 8) : [5, 15, 25, 30, 45, 60];
+                return arr.length > 0 ? arr : [5, 15, 25, 30, 45, 60];
             })();
 
             const timerWrap = document.createElement('div');
-            timerWrap.style.cssText = 'padding: 6px 10px 8px;';
+            timerWrap.className = 'tm-task-context-timer';
             const title = document.createElement('div');
+            title.className = 'tm-task-context-timer__title';
             title.textContent = '🍅 计时';
-            title.style.cssText = 'font-size: 12px; opacity: 0.75; padding: 2px 0 6px;';
             timerWrap.appendChild(title);
             if (scheduleId0 && scheduleDurationMin > 0) {
                 const scheduleBtn = document.createElement('button');
-                scheduleBtn.className = 'tm-btn tm-btn-secondary';
+                scheduleBtn.type = 'button';
+                scheduleBtn.className = 'tm-btn tm-btn-secondary tm-task-context-timer__schedule';
                 scheduleBtn.textContent = `📅 按日程时长开始番茄（${scheduleDurationMin}m）`;
-                scheduleBtn.style.cssText = 'display:block; width:100%; margin-bottom:6px; padding: 4px 8px; font-size: 12px; line-height: 18px;';
                 scheduleBtn.onclick = async (e) => {
                     e.stopPropagation();
                     await runTaskTimer(scheduleDurationMin, 'countdown');
@@ -5570,12 +5565,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 timerWrap.appendChild(scheduleBtn);
             }
             const btnRow = document.createElement('div');
-            btnRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
+            btnRow.className = 'tm-task-context-timer__grid';
+            btnRow.setAttribute('role', 'group');
+            btnRow.setAttribute('aria-label', '计时方式');
             durations.forEach(min => {
                 const b = document.createElement('button');
-                b.className = 'tm-btn tm-btn-secondary';
+                b.type = 'button';
+                b.className = 'tm-btn tm-btn-secondary tm-task-context-timer__btn';
                 b.textContent = `${min}m`;
-                b.style.cssText = 'padding: 2px 8px; font-size: 12px; line-height: 18px;';
                 b.onclick = async (e) => {
                     e.stopPropagation();
                     await runTaskTimer(min, 'countdown');
@@ -5584,9 +5581,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 btnRow.appendChild(b);
             });
             const sw = document.createElement('button');
-            sw.className = 'tm-btn tm-btn-secondary';
+            sw.type = 'button';
+            sw.className = 'tm-btn tm-btn-secondary tm-task-context-timer__btn tm-task-context-timer__btn--stopwatch';
             sw.textContent = '⏱️ 正计时';
-            sw.style.cssText = 'padding: 2px 8px; font-size: 12px; line-height: 18px;';
             sw.onclick = async (e) => {
                 e.stopPropagation();
                 await runTaskTimer(0, 'stopwatch');

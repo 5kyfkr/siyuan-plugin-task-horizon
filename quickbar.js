@@ -2037,50 +2037,6 @@
     };
     document.addEventListener('pointerdown', __tmQBOnInlineMetaPointerdownCapture, true);
 
-    const __tmQBOnInlineMetaEditIntentCapture = (e) => {
-        if (!QUICKBAR_INLINE_USE_NATIVE_HOST) return;
-        const eventType = String(e?.type || '').trim();
-        if (eventType === 'keydown') {
-            const key = String(e?.key || '');
-            const mutatingKey = key.length === 1 || key === 'Enter' || key === 'Backspace' || key === 'Delete';
-            if (!mutatingKey || e.ctrlKey || e.metaKey || e.altKey) return;
-        }
-        const rawTarget = e.target;
-        const targetEl = rawTarget instanceof Element ? rawTarget : rawTarget?.parentElement;
-        if (!targetEl || targetEl.closest?.('.sy-custom-props-inline-host,.sy-custom-props-inline-chip')) return;
-        const editable = targetEl.closest?.('[contenteditable="true"]');
-        let taskBlock = editable
-            ? (getTaskBlockElementFromTarget(editable) || editable.closest?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]'))
-            : null;
-        if (!taskBlock) {
-            try {
-                const selection = window.getSelection?.();
-                const nodes = [selection?.anchorNode, selection?.focusNode].filter(Boolean);
-                for (let i = 0; i < nodes.length; i += 1) {
-                    const node = nodes[i];
-                    const el = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
-                    const li = el?.closest?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
-                    if (li) {
-                        taskBlock = li;
-                        break;
-                    }
-                }
-            } catch (err) {}
-        }
-        if (!taskBlock) return;
-        if (e.__tmQBInlineEditIntentCaptured) return;
-        try { Object.defineProperty(e, '__tmQBInlineEditIntentCaptured', { value: true, configurable: true }); } catch (err) { e.__tmQBInlineEditIntentCaptured = true; }
-        try {
-            suppressInlineMetaNativeHostForBlock(taskBlock, `edit-intent-${eventType || 'pointer'}`, 8000);
-        } catch (err) {}
-    };
-    window.addEventListener('pointerdown', __tmQBOnInlineMetaEditIntentCapture, true);
-    window.addEventListener('mousedown', __tmQBOnInlineMetaEditIntentCapture, true);
-    window.addEventListener('keydown', __tmQBOnInlineMetaEditIntentCapture, true);
-    document.addEventListener('pointerdown', __tmQBOnInlineMetaEditIntentCapture, true);
-    document.addEventListener('mousedown', __tmQBOnInlineMetaEditIntentCapture, true);
-    document.addEventListener('keydown', __tmQBOnInlineMetaEditIntentCapture, true);
-
     const __tmQBOnTaskCheckboxActionCapture = (e) => {
         const rawTarget = e.target;
         const targetEl = rawTarget instanceof Element ? rawTarget : rawTarget?.parentElement;
@@ -7296,6 +7252,10 @@
                 }
 
                 const rect = currentBlockEl.getBoundingClientRect();
+                if (!rect || rect.width <= 0 || rect.height <= 0 || currentBlockEl.getClientRects().length === 0) {
+                    hideFloatBar();
+                    return;
+                }
                 const barRect = floatBar.getBoundingClientRect();
                 const barHeight = barRect.height || 40;
                 const barWidth = barRect.width || 240;
@@ -7617,10 +7577,9 @@
             if (!blockEl || !QUICKBAR_INLINE_USE_NATIVE_HOST) return false;
             try {
                 if (blockEl.matches?.('[data-editing="true"]')) return true;
-                if (blockEl.closest?.('.list[data-editing="true"],[data-type="NodeList"][data-editing="true"]')) return true;
                 if (blockEl.querySelector?.(':scope > .p[data-editing="true"], .p[data-editing="true"]')) return true;
             } catch (e) {}
-            return inlineMetaIsComposing && isInlineMetaEditingBlock(blockEl);
+            return isInlineMetaEditingBlock(blockEl);
         }
 
         async function handleInlineHostPointerDown(host, chip, event, fallbackBlockEl = null) {
@@ -7756,20 +7715,8 @@
                         removedLegacyHosts,
                     });
                 }
-                try {
-                    document.querySelectorAll(`.sy-custom-props-inline-layer .sy-custom-props-inline-host[data-block-id="${CSS.escape(blockId)}"]`).forEach((node) => removeInlineMetaHostNode(node, true));
-                } catch (e) {}
                 return host;
             }
-            removeInlineMetaHostByTaskId(blockId, 'in-block');
-            try {
-                blockEl.querySelectorAll?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((node) => removeInlineMetaHostNode(node, true));
-                blockEl.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((node) => {
-                    if (!hasInlineMetaInBlockHost(node)) {
-                        node.classList.remove('sy-custom-props-inline-parent');
-                    }
-                });
-            } catch (e) {}
             const layer = ensureInlineMetaLayer(blockEl);
             if (!layer) return null;
             let host = layer.querySelector(`.sy-custom-props-inline-host[data-block-id="${blockId}"]`);
@@ -7786,6 +7733,20 @@
             bindInlineHostPointerHandler(host, blockEl);
             touchInlineMetaHost(host);
             return host;
+        }
+
+        function removeInlineMetaAlternatePlacementHosts(taskId, keepHost) {
+            const id = String(taskId || '').trim();
+            const keepPlacement = String(keepHost?.dataset?.inlinePlacement || '').trim();
+            const removePlacement = keepPlacement === 'in-block' ? 'overlay' : 'in-block';
+            if (!id || !keepPlacement) return;
+            let removed = false;
+            try {
+                document.querySelectorAll(`.sy-custom-props-inline-host[data-block-id="${CSS.escape(id)}"][data-inline-placement="${removePlacement}"]`).forEach((host) => {
+                    if (host !== keepHost && removeInlineMetaHostNode(host, false)) removed = true;
+                });
+            } catch (e) {}
+            if (removed) invalidateInlineMetaActiveTargetsCache();
         }
 
         function getInlineVisibleTaskBlocks(buffer = 360, maxCount = 96) {
@@ -8674,26 +8635,7 @@
             const safeDurationMs = Math.max(300, Math.min(30000, Number(durationMs) || 1800));
             const until = Date.now() + safeDurationMs;
             inlineMetaNativeHostSuppressedUntil.set(hostId, until);
-            removeInlineMetaHostByTaskId(hostId, 'in-block');
-            try {
-                const taskList = blockEl.parentElement?.matches?.('.list,[data-type="NodeList"]')
-                    ? blockEl.parentElement
-                    : blockEl.closest?.('.list,[data-type="NodeList"]');
-                taskList?.querySelectorAll?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((node) => {
-                    removeInlineMetaHostNode(node, true);
-                });
-                taskList?.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((node) => {
-                    if (!hasInlineMetaInBlockHost(node)) {
-                        node.classList.remove('sy-custom-props-inline-parent');
-                    }
-                });
-                blockEl.querySelectorAll?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((node) => {
-                    const hostBlock = getTaskBlockElementFromTarget(node) || node.closest?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
-                    if (hostBlock && hostBlock !== blockEl) return;
-                    removeInlineMetaHostNode(node, true);
-                });
-            } catch (e) {}
-            try { queueInlineMetaRenderBlock(blockEl, false, 420); } catch (e) {}
+            try { Promise.resolve(renderInlineMetaForBlock(blockEl, false, 420)).catch(() => null); } catch (e) {}
             setTimeout(() => {
                 try {
                     if (Number(inlineMetaNativeHostSuppressedUntil.get(hostId) || 0) <= Date.now()) {
@@ -9118,24 +9060,6 @@
                 let attributeMutationCount = 0;
                 let sampleTarget = null;
                 const attributeNameCounts = new Map();
-                try {
-                    mutations.forEach((m) => {
-                        if (m.type !== 'attributes' || m.attributeName !== 'data-editing') return;
-                        const target = m.target instanceof Element ? m.target : null;
-                        if (!target || target.getAttribute?.('data-editing') !== 'true') return;
-                        const scope = target.matches?.('.list,[data-type="NodeList"]')
-                            ? target
-                            : (target.closest?.('.list,[data-type="NodeList"]') || target.closest?.('.li,[data-type="NodeListItem"]') || target);
-                        scope.querySelectorAll?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((node) => {
-                            removeInlineMetaHostNode(node, true);
-                        });
-                        scope.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((node) => {
-                            if (!hasInlineMetaInBlockHost(node)) {
-                                node.classList.remove('sy-custom-props-inline-parent');
-                            }
-                        });
-                    });
-                } catch (e) {}
                 // Ignore mutations originating from the inline meta layer itself
                 // to prevent a feedback loop where our own DOM writes trigger re-renders.
                 const isInlineMetaOwnNode = (node) => {
@@ -9493,8 +9417,7 @@
             if (!blockEl || !host || !taskId || !textAnchor) return false;
             const isInBlockHost = String(host?.dataset?.inlinePlacement || '').trim() === 'in-block';
             if (inlineMetaIsComposing && isInlineMetaEditingBlock(blockEl)) {
-                if (!isInBlockHost) host.classList.remove('is-ready');
-                return isInBlockHost;
+                return isInBlockHost || host.classList.contains('is-ready');
             }
             const textSig = getInlineTextFastSignature(textAnchor);
             const prevLayout = inlineMetaLayoutCache.get(taskId);
@@ -9853,7 +9776,6 @@
             const useOverlayHost = isInlineMetaNativeHostSuppressed(taskId)
                 || isInlineMetaNativeHostUnsafeBlock(blockEl)
                 || !QUICKBAR_INLINE_USE_NATIVE_HOST;
-            if (useOverlayHost) removeInlineMetaHostByTaskId(taskId, 'in-block');
             const hostParent = getInlineHostParent(blockEl);
             if (!hostParent) return;
             const textAnchor = getInlineTextAnchor(blockEl);
@@ -10051,6 +9973,9 @@
             if (htmlChanged && layoutOk && host.isConnected && String(host.dataset.blockId || '').trim() === taskId) {
                 host.innerHTML = html;
                 host._inlineMetaHtml = html;
+            }
+            if (layoutOk && host.isConnected && String(host.dataset.blockId || '').trim() === taskId) {
+                removeInlineMetaAlternatePlacementHosts(taskId, host);
             }
             if (runtimeProps?.props || (hasCached && !revalidateCached)) {
                 if (shouldRevalidateRuntimeDateProps && !isInlineMetaScrollSettling()) {
@@ -10254,8 +10179,8 @@
             try {
                 if (!inlineMetaCompositionStartHandler) {
                     inlineMetaCompositionStartHandler = (event) => {
-                        inlineMetaIsComposing = true;
                         try { inlineMetaEditingCleanupHandler?.(event); } catch (e2) {}
+                        inlineMetaIsComposing = true;
                         requestInlineMetaRender(false);
                     };
                 }
@@ -10276,31 +10201,11 @@
                         if (!editable) return;
                         const taskBlock = getTaskBlockElementFromTarget(editable) || editable.closest?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
                         if (!taskBlock) return;
-                        if (QUICKBAR_INLINE_USE_NATIVE_HOST) {
-                            suppressInlineMetaNativeHostForBlock(taskBlock, `edit-${eventType || 'input'}`, 8000);
-                            return;
-                        }
-                        let binding = null;
-                        try { binding = resolveTaskBindingFromBlockEl(taskBlock); } catch (e2) { binding = null; }
-                        const hostId = String(binding?.attrHostId || binding?.taskId || resolveTaskAttrNodeIdForDetail(taskBlock) || taskBlock?.dataset?.nodeId || '').trim();
-                        if (!hostId) return;
-                        removeInlineMetaHostByTaskId(hostId, 'in-block');
-                        try { queueInlineMetaRenderBlock(taskBlock, false, 420); } catch (e2) {}
+                        try { Promise.resolve(renderInlineMetaForBlock(taskBlock, false, 420)).catch(() => null); } catch (e2) {}
                     };
                 }
                 if (!inlineMetaEditingRestoreHandler) {
-                    inlineMetaEditingRestoreHandler = (event) => {
-                        const target = event?.target instanceof Element ? event.target : event?.target?.parentElement;
-                        const editable = target?.closest?.('[contenteditable="true"]');
-                        const taskBlock = getTaskBlockElementFromTarget(editable) || editable?.closest?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
-                        if (QUICKBAR_INLINE_USE_NATIVE_HOST && taskBlock) {
-                            let binding = null;
-                            try { binding = resolveTaskBindingFromBlockEl(taskBlock); } catch (e2) { binding = null; }
-                            const hostId = String(binding?.attrHostId || binding?.taskId || resolveTaskAttrNodeIdForDetail(taskBlock) || taskBlock?.dataset?.nodeId || '').trim();
-                            if (hostId) {
-                                try { inlineMetaNativeHostSuppressedUntil.delete(hostId); } catch (e2) {}
-                            }
-                        }
+                    inlineMetaEditingRestoreHandler = () => {
                         setTimeout(() => {
                             try { requestInlineMetaRender(false); } catch (e2) {}
                         }, 120);
@@ -10420,12 +10325,16 @@
         let lastTriggerTime = 0;
 
         function handleTrigger(e) {
+            const target = e.target;
+            if (target?.closest?.('[data-type="block-ref"][data-id]')) {
+                if (floatBar.style.display !== 'none') hideFloatBar();
+                return;
+            }
             const now = Date.now();
             if (now - lastTriggerTime < 80) return;  // 防抖
             lastTriggerTime = now;
             if (Date.now() < inlineMetaInteractUntil) return;
 
-            const target = e.target;
             if (isQuickbarInteractionTarget(target)) noteQuickbarActivity();
             if (target?.closest?.('.sy-custom-props-inline-host,.sy-custom-props-inline-chip')) return;
             if (shouldSuppressFloatBarForTarget(target, now)) {
@@ -10584,6 +10493,7 @@
                 const eb = globalThis.__taskHorizonPluginInstance?.eventBus || window.siyuan?.eventBus;
                 if (!eb || typeof eb.on !== 'function') return;
                 const rebind = (e) => {
+                    if (floatBar.style.display !== 'none') hideFloatBar();
                     const protyle = e?.protyle || e?.detail?.protyle;
                     const root = protyle?.wysiwyg?.element || null;
                     startQuickbarSubtaskInheritanceObserver();
@@ -10730,6 +10640,8 @@
             try { document.removeEventListener('scroll', updatePosition, true); } catch (e) {}
             try { window.removeEventListener('resize', updatePosition, true); } catch (e) {}
             unbindQuickbarAutoHideEvents();
+            unbindQuickbarSubtaskInheritanceEvents();
+            stopQuickbarSubtaskInheritanceObserver();
             try { if (closePopupsHandler) document.removeEventListener('pointerdown', closePopupsHandler, true); } catch (e) {}
             closePopupsHandler = null;
             try { if (taskAttrUpdatedHandler) window.removeEventListener('tm-task-attr-updated', taskAttrUpdatedHandler); } catch (e) {}
@@ -10812,12 +10724,6 @@
             try { document.removeEventListener('contextmenu', __tmQBOnContextmenuCapture, true); } catch (e) {}
             try { document.removeEventListener('pointerdown', __tmQBOnPointerdownCapture, true); } catch (e) {}
             try { document.removeEventListener('pointerdown', __tmQBOnInlineMetaPointerdownCapture, true); } catch (e) {}
-            try { window.removeEventListener('pointerdown', __tmQBOnInlineMetaEditIntentCapture, true); } catch (e) {}
-            try { window.removeEventListener('mousedown', __tmQBOnInlineMetaEditIntentCapture, true); } catch (e) {}
-            try { window.removeEventListener('keydown', __tmQBOnInlineMetaEditIntentCapture, true); } catch (e) {}
-            try { document.removeEventListener('pointerdown', __tmQBOnInlineMetaEditIntentCapture, true); } catch (e) {}
-            try { document.removeEventListener('mousedown', __tmQBOnInlineMetaEditIntentCapture, true); } catch (e) {}
-            try { document.removeEventListener('keydown', __tmQBOnInlineMetaEditIntentCapture, true); } catch (e) {}
             try { window.removeEventListener('pointerdown', __tmQBOnTaskCheckboxActionCapture, true); } catch (e) {}
             try { window.removeEventListener('mousedown', __tmQBOnTaskCheckboxActionCapture, true); } catch (e) {}
             try { document.removeEventListener('pointerdown', __tmQBOnTaskCheckboxActionCapture, true); } catch (e) {}

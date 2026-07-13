@@ -400,7 +400,6 @@
         mainCalendarDefaultViewSyncRaf: 0,
         mainCalendarDefaultViewSyncSeq: 0,
         sidebarOpen: false,
-        mobileDragCloseTimer: null,
         sidebarColorMenuCloseHandler: null,
         sidebarColorMenuBindTimer: null,
         scheduleContextMenuCloseHandler: null,
@@ -547,6 +546,15 @@
         '.tm-cal-task[data-task-id]',
         '.tm-cal-task[data-id]',
         '.tm-checklist-item[data-id]',
+        '.tm-kanban-card[data-id]',
+        '.tm-whiteboard-stream-task-head[data-task-id]',
+        '.tm-whiteboard-stream-task-node[data-task-id]',
+        '.tm-whiteboard-pool-item[data-task-id]',
+    ].join(',');
+    const CALENDAR_EXTERNAL_DRAG_CUSTOM_TOUCH_SOURCE_SELECTOR = '.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]';
+    const CALENDAR_EXTERNAL_DRAG_MOBILE_ITEM_SELECTOR = [
+        '#tmTimelineLeftTable tbody tr[data-id]',
+        '.tm-cal-task[data-task-id]:not(.tm-checklist-item)',
         '.tm-kanban-card[data-id]',
         '.tm-whiteboard-stream-task-head[data-task-id]',
         '.tm-whiteboard-stream-task-node[data-task-id]',
@@ -756,6 +764,7 @@
         const target = ev?.target instanceof Element ? ev.target : null;
         const sourceEl = target?.closest?.(CALENDAR_EXTERNAL_DRAG_SOURCE_SELECTOR);
         if (!(sourceEl instanceof HTMLElement)) return;
+        if (shouldUseCustomTouchDragForCalendarSource(sourceEl)) return;
         const blockedByMultiSelect = __tmCalendarShouldBlockExternalTaskDragForMultiSelect(sourceEl);
         prepareFullCalendarExternalMirrorSourceClasses(sourceEl);
         try { sourceEl.__tmFcRestoreNativeDraggable?.(); } catch (e) {}
@@ -801,6 +810,12 @@
         return (state.isMobileDevice || isLikelyMobileRuntime())
             ? { longPressDelay: CALENDAR_EXTERNAL_DRAG_MOBILE_LONG_PRESS_DELAY, minDistance: 0 }
             : {};
+    }
+
+    function shouldUseCustomTouchDragForCalendarSource(sourceEl) {
+        if (!(state.isMobileDevice || isLikelyMobileRuntime())) return false;
+        const source = sourceEl instanceof Element ? sourceEl : null;
+        return !!source?.matches?.(CALENDAR_EXTERNAL_DRAG_CUSTOM_TOUCH_SOURCE_SELECTOR);
     }
 
     function getCalendarExternalDragClientPoint(ev) {
@@ -1162,6 +1177,7 @@
         if (__tmCalendarShouldBlockExternalTaskDragForMultiSelect(sourceEl)) {
             return false;
         }
+        if (shouldUseCustomTouchDragForCalendarSource(sourceEl)) return false;
         rememberCalendarExternalDragClientPoint(ev);
         prepareFullCalendarExternalMirrorSourceClasses(sourceEl);
         if (sourceEl.closest?.('[data-tm-fc-external-drag-host="1"]')) {
@@ -8337,6 +8353,9 @@
         const draggables = [];
         hosts.forEach(({ el: host, kind }) => {
             const isTableBody = String(host?.tagName || '').toUpperCase() === 'TBODY';
+            const itemSelector = (state.isMobileDevice || isLikelyMobileRuntime())
+                ? CALENDAR_EXTERNAL_DRAG_MOBILE_ITEM_SELECTOR
+                : ((kind === 'table' || isTableBody) ? 'tr[data-id]' : '.tm-cal-task, .tm-checklist-item[data-id]');
             try {
                 try { host.setAttribute('data-tm-fc-external-drag-host', '1'); } catch (e) {}
                 try {
@@ -8347,7 +8366,7 @@
                 } catch (e) {}
                 const instance = new Draggable(host, {
                     ...getFullCalendarExternalDraggableInteractionOptions(),
-                    itemSelector: (kind === 'table' || isTableBody) ? 'tr[data-id]' : '.tm-cal-task, .tm-checklist-item[data-id]',
+                    itemSelector,
                     appendTo: document.body,
                     eventData: (el) => {
                         if (__tmCalendarShouldBlockExternalTaskDragForMultiSelect(el)) {
@@ -8774,14 +8793,7 @@
         return !!(state.isMobileDevice || state.isDockHost === true);
     }
 
-    function clearSidebarDragCloseTimer() {
-        if (!state.mobileDragCloseTimer) return;
-        try { clearTimeout(state.mobileDragCloseTimer); } catch (e) {}
-        state.mobileDragCloseTimer = null;
-    }
-
     function closeSidebarForTaskDrag() {
-        clearSidebarDragCloseTimer();
         try {
             const wrapEl = state.wrapEl;
             if (wrapEl) setCalendarSidebarOpen(wrapEl, false);
@@ -8795,60 +8807,9 @@
             if (!(target instanceof Element)) return null;
             return target.closest('tr[data-id], .tm-cal-task, .tm-checklist-item[data-id]');
         };
-        let touchSession = null;
-        const clearTouchSession = () => {
-            touchSession = null;
-            clearSidebarDragCloseTimer();
-        };
-        if (state.isMobileDevice) {
-            host.addEventListener('touchstart', (ev) => {
-                const dragTarget = resolveDragTarget(ev?.target);
-                if (!dragTarget) {
-                    clearTouchSession();
-                    return;
-                }
-                const touch = ev?.touches?.[0] || ev?.changedTouches?.[0] || null;
-                touchSession = {
-                    startX: Number(touch?.clientX),
-                    startY: Number(touch?.clientY),
-                    sidebarClosed: false,
-                };
-                clearSidebarDragCloseTimer();
-                state.mobileDragCloseTimer = setTimeout(() => {
-                    state.mobileDragCloseTimer = null;
-                    if (!touchSession || touchSession.sidebarClosed) return;
-                    touchSession.sidebarClosed = true;
-                    closeSidebarForTaskDrag();
-                }, 180);
-            }, { passive: true, signal });
-            host.addEventListener('touchmove', (ev) => {
-                if (!touchSession) return;
-                const touch = ev?.touches?.[0] || ev?.changedTouches?.[0] || null;
-                const x = Number(touch?.clientX);
-                const y = Number(touch?.clientY);
-                if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-                const startX = Number(touchSession.startX);
-                const startY = Number(touchSession.startY);
-                const dx = x - (Number.isFinite(startX) ? startX : x);
-                const dy = y - (Number.isFinite(startY) ? startY : y);
-                const absX = Math.abs(dx);
-                const absY = Math.abs(dy);
-                if (!touchSession.sidebarClosed && absX >= 16 && absX >= absY) {
-                    touchSession.sidebarClosed = true;
-                    closeSidebarForTaskDrag();
-                    return;
-                }
-                if (absY >= 14 && absY > absX * 1.2) {
-                    clearTouchSession();
-                }
-            }, { passive: true, signal });
-            host.addEventListener('touchend', clearTouchSession, { passive: true, signal });
-            host.addEventListener('touchcancel', clearTouchSession, { passive: true, signal });
-        }
         host.addEventListener('dragstart', (ev) => {
             const dragTarget = resolveDragTarget(ev?.target);
             if (!dragTarget) return;
-            if (touchSession) touchSession.sidebarClosed = true;
             closeSidebarForTaskDrag();
         }, { signal });
     }
@@ -16563,7 +16524,9 @@
         if (typeof Draggable !== 'function') {
             return false;
         }
-        const itemSelector = 'tr[data-id], .tm-cal-task[data-task-id], .tm-checklist-item[data-id], .tm-kanban-card[data-id], .tm-whiteboard-stream-task-head[data-task-id], .tm-whiteboard-stream-task-node[data-task-id], .tm-whiteboard-pool-item[data-task-id]';
+        const itemSelector = (state.isMobileDevice || isLikelyMobileRuntime())
+            ? CALENDAR_EXTERNAL_DRAG_MOBILE_ITEM_SELECTOR
+            : 'tr[data-id], .tm-cal-task[data-task-id], .tm-checklist-item[data-id], .tm-kanban-card[data-id], .tm-whiteboard-stream-task-head[data-task-id], .tm-whiteboard-stream-task-node[data-task-id], .tm-whiteboard-pool-item[data-task-id]';
         const resolver = typeof resolveTask === 'function' ? resolveTask : null;
         const externalDragAbort = new AbortController();
         try {
@@ -23324,10 +23287,6 @@
         state.miniAbort = null;
         state.miniMonthKey = '';
         destroyTaskDraggable();
-        if (state.mobileDragCloseTimer) {
-            try { clearTimeout(state.mobileDragCloseTimer); } catch (e) {}
-            state.mobileDragCloseTimer = null;
-        }
         try { hideFloatingMiniCalendar(); } catch (e) {}
         if (state.scheduleContextMenuCloseHandler) {
             try { state.scheduleContextMenuCloseHandler(); } catch (e) {}
@@ -24373,6 +24332,8 @@
         updateFloatingMiniCalendarDrag,
         finalizeFloatingMiniCalendarTouchDrop,
         finalizeMainCalendarTouchDrop,
+        updateExternalTaskAutoScroll: updateOfficialExternalTaskAutoScroll,
+        stopExternalTaskAutoScroll: stopOfficialExternalTaskAutoScroll,
         updateSideDayCalendarDragPreview,
         clearSideDayCalendarDragPreview: clearSideDayDropPreview,
         finalizeSideDayCalendarTouchDrop,

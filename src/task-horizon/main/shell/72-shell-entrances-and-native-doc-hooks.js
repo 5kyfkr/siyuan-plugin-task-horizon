@@ -635,31 +635,6 @@
         } catch (e) {}
     }
 
-    function __tmNodeTouchesShellEntrances(node) {
-        if (!(node instanceof Element)) return false;
-        if (node.closest?.('.tm-modal')) return false;
-        if (node.matches?.('.protyle-breadcrumb, [aria-label="任务管理器"], [aria-label="任务管理"]')) return true;
-        if (node.querySelector?.('.protyle-breadcrumb, [aria-label="任务管理器"], [aria-label="任务管理"]')) return true;
-        try {
-            const cls = String(node.className?.baseVal || node.className || '').trim();
-            if (/(^|\b)(protyle|breadcrumb|toolbar|topbar|layout__wnd)(\b|$)/i.test(cls)) return true;
-        } catch (e) {}
-        return false;
-    }
-
-    function __tmMutationTouchesShellEntrances(mutation) {
-        const target = mutation?.target;
-        if (target instanceof Element) {
-            if (target.closest?.('.tm-modal')) return false;
-            if (__tmNodeTouchesShellEntrances(target)) return true;
-        }
-        const nodes = [
-            ...(Array.isArray(mutation?.addedNodes) ? mutation.addedNodes : Array.from(mutation?.addedNodes || [])),
-            ...(Array.isArray(mutation?.removedNodes) ? mutation.removedNodes : Array.from(mutation?.removedNodes || [])),
-        ];
-        return nodes.some((node) => __tmNodeTouchesShellEntrances(node));
-    }
-
     function __tmScheduleShellEntrancesRefresh() {
         if (__tmShellEntrancesRefreshTimer != null) return;
         if (__tmShellEntrancesRefreshRaf != null) return;
@@ -736,48 +711,22 @@
      * 监听面包屑栏变化
      */
     function observeBreadcrumb() {
-        if (window.__tmTaskHorizonBreadcrumbObserver) {
-            __tmRefreshShellEntrances();
-            return;
-        }
-        // 先尝试添加一次
         __tmRefreshShellEntrances();
-
-        // 使用 MutationObserver 监听面包屑栏变化
+        const breadcrumb = globalThis.__tmCompat?.findBreadcrumb?.() || null;
+        if (__tmBreadcrumbObserver && __tmBreadcrumbObserverTarget === breadcrumb) return;
         if (__tmBreadcrumbObserver) {
             try { __tmBreadcrumbObserver.disconnect(); } catch (e) {}
             __tmBreadcrumbObserver = null;
         }
-        const observer = new MutationObserver((mutations) => {
-            const list = Array.isArray(mutations) ? mutations : [];
-            const onlyTaskHorizonModalMutations = list.length > 0 && list.every((mutation) => {
-                const target = mutation?.target;
-                if (target instanceof Element && target.closest?.('.tm-modal')) return true;
-                const nodes = [
-                    ...(Array.isArray(mutation?.addedNodes) ? mutation.addedNodes : Array.from(mutation?.addedNodes || [])),
-                    ...(Array.isArray(mutation?.removedNodes) ? mutation.removedNodes : Array.from(mutation?.removedNodes || [])),
-                ];
-                if (!nodes.length) return false;
-                return nodes.every((node) => {
-                    if (!(node instanceof Element)) return true;
-                    if (node.matches?.('.tm-modal')) return true;
-                    if (node.closest?.('.tm-modal')) return true;
-                    if (node.querySelector?.('.tm-modal')) return true;
-                    return false;
-                });
-            });
-            if (onlyTaskHorizonModalMutations) return;
-            if (!list.some((mutation) => __tmMutationTouchesShellEntrances(mutation))) return;
-            __tmScheduleShellEntrancesRefresh();
-        });
-
-        // 监听整个文档的子节点变化
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
-        __tmBreadcrumbObserver = observer;
-        try { window.__tmTaskHorizonBreadcrumbObserver = observer; } catch (e) {}
+        __tmBreadcrumbObserverTarget = breadcrumb instanceof HTMLElement ? breadcrumb : null;
+        if (__tmBreadcrumbObserverTarget) {
+            const observer = new MutationObserver(() => __tmScheduleShellEntrancesRefresh());
+            observer.observe(__tmBreadcrumbObserverTarget, { childList: true, subtree: true });
+            __tmBreadcrumbObserver = observer;
+            try { window.__tmTaskHorizonBreadcrumbObserver = observer; } catch (e) {}
+        } else {
+            try { delete window.__tmTaskHorizonBreadcrumbObserver; } catch (e) {}
+        }
 
         // 额外监听顶栏图标注入（如果插件实例加载较晚）
         if (__tmShouldShowWindowTopbarIcon()) __tmTopBarTimer = setTimeout(addTopBarIcon, 1000);
@@ -850,6 +799,10 @@
             const detail = event?.detail || {};
             const menu = detail.menu;
             if (!menu || typeof menu.addItem !== 'function') return;
+            try {
+                __tmLastRightClickedTitleProtyle = __tmResolveProtyleElement(detail?.protyle || null);
+                __tmLastRightClickedTitleAtMs = Date.now();
+            } catch (e) {}
             const docId = String(detail?.data?.id || detail?.protyle?.block?.rootID || '').trim();
             if (!docId) return;
             menu.addItem({
@@ -1011,7 +964,7 @@
             const detail = event?.detail || {};
             const menu = detail.menu;
             if (!menu || typeof menu.addItem !== 'function') return;
-            const fallbackBlockId = String(__tmGetRecentBlockMenuContext()?.blockId || '').trim();
+            const fallbackBlockId = String(__tmResolveAnyBlockIdFromElement(detail?.element) || '').trim();
             const blockIds = __tmCollectSelectedBlockIdsFromProtyle(detail?.protyle || null, fallbackBlockId);
             __tmAddMoveBlockToDailyNoteMenuItem(menu, blockIds, {
                 protyle: detail?.protyle || null
@@ -1022,67 +975,6 @@
         globalThis.__tmRuntimeEvents?.onEventBus?.('open-menu-doctree', __tmDocTreeMenuHandler, eb);
         globalThis.__tmRuntimeEvents?.onEventBus?.('open-menu-content', __tmContentMenuHandler, eb);
         globalThis.__tmRuntimeEvents?.onEventBus?.('click-blockicon', __tmBlockIconMenuHandler, eb);
-    }
-
-    function __tmBindNativeDocMenuEntry() {
-        try {
-            globalThis.__tmRuntimeEvents?.off?.(document, 'contextmenu', __tmNativeDocMenuCaptureHandler, true);
-            globalThis.__tmRuntimeEvents?.off?.(document, 'mousedown', __tmNativeDocMenuCaptureHandler, true);
-            globalThis.__tmRuntimeEvents?.off?.(document, 'click', __tmNativeDocMenuCaptureHandler, true);
-        } catch (e) {}
-
-        __tmNativeDocMenuCaptureHandler = (e) => {
-            try { __tmRememberTitleMenuContext(e?.target); } catch (e2) {}
-            try { __tmRememberBlockMenuContext(e?.target, e); } catch (e2) {}
-        };
-        try { globalThis.__tmRuntimeEvents?.on?.(document, 'contextmenu', __tmNativeDocMenuCaptureHandler, true); } catch (e) {}
-        try { globalThis.__tmRuntimeEvents?.on?.(document, 'mousedown', __tmNativeDocMenuCaptureHandler, true); } catch (e) {}
-        try { globalThis.__tmRuntimeEvents?.on?.(document, 'click', __tmNativeDocMenuCaptureHandler, true); } catch (e) {}
-
-        try { __tmDocMenuObserver?.disconnect?.(); } catch (e) {}
-        __tmDocMenuObserver = new MutationObserver(() => {
-            try {
-                if (globalThis.__tmCaps?.has?.('commonMenuHook') === false) return;
-                const menuItems = globalThis.__tmCompat?.findCommonMenuItems?.() || null;
-                if (!menuItems) return;
-                const titleMenu = globalThis.__tmCompat?.findCommonTitleMenu?.(menuItems) || null;
-                if (titleMenu) {
-                    if (menuItems.querySelector('.tm-doc-group-menu-item')) return;
-                    const now = Date.now();
-                    const isRecent = __tmLastRightClickedTitleProtyle && __tmLastRightClickedTitleProtyle.isConnected && (now - (Number(__tmLastRightClickedTitleAtMs) || 0) < 3000);
-                    const targetProtyle = (isRecent ? __tmLastRightClickedTitleProtyle : null) || globalThis.__tmCompat?.findActiveProtyle?.() || __tmFindActiveProtyle?.() || null;
-                    const docId = __tmGetDocIdFromProtyle(targetProtyle);
-                    if (!docId) return;
-                    const menuItem = __tmCreateNativeMenuItem('添加到任务管理器分组', async () => {
-                        await window.tmOpenAddDocToGroupDialog?.(docId);
-                    });
-                    __tmInsertMenuItem(menuItems, menuItem);
-                    if (__tmIsAiFeatureEnabled()) {
-                        const smartItem = __tmCreateNativeMenuItem('AI SMART 分析', async () => {
-                            await window.tmAiAnalyzeDocumentSmart?.(docId);
-                        });
-                        __tmInsertMenuItem(menuItems, smartItem);
-                        const scheduleItem = __tmCreateNativeMenuItem('AI 日程排期', async () => {
-                            await window.tmAiPlanDocumentSchedule?.(docId);
-                        });
-                        __tmInsertMenuItem(menuItems, scheduleItem);
-                    }
-                    return;
-                }
-                if (menuItems.querySelector('.tm-block-schedule-menu-item')) return;
-                const blockCtx = __tmGetRecentBlockMenuContext();
-                if (!blockCtx?.blockId) return;
-                if (!globalThis.__tmCalendar || typeof globalThis.__tmCalendar.addTaskSchedule !== 'function') return;
-                const scheduleItem = __tmCreateNativeMenuItem('添加至今天日程', async () => {
-                    await __tmAddBlockToTodaySchedule(blockCtx.blockId, blockCtx.blockElement);
-                }, 'tm-block-schedule-menu-item');
-                __tmInsertMenuItem(menuItems, scheduleItem);
-                __tmLastRightClickedBlockAtMs = 0;
-            } catch (e) {}
-        });
-        try {
-            __tmDocMenuObserver.observe(document.body, { childList: true, subtree: true });
-        } catch (e) {}
     }
 
     const __TM_NATIVE_DOC_CHECKBOX_SYNC_DELAY_MS = 260;
@@ -2487,7 +2379,24 @@
         try {
             __tmNativeDocCheckboxSyncObserver?.disconnect?.();
             __tmNativeDocCheckboxSyncObserver = null;
+            __tmNativeDocCheckboxObserverRoots.clear();
         } catch (e) {}
+        try {
+            const buses = Array.isArray(__tmNativeDocProtyleEventBuses) ? __tmNativeDocProtyleEventBuses : [];
+            buses.forEach((bus) => {
+                if (__tmNativeDocProtyleLoadedHandler) {
+                    ['loaded-protyle-static', 'loaded-protyle-dynamic', 'switch-protyle'].forEach((name) => {
+                        globalThis.__tmRuntimeEvents?.offEventBus?.(name, __tmNativeDocProtyleLoadedHandler, bus);
+                    });
+                }
+                if (__tmNativeDocProtyleDestroyedHandler) {
+                    globalThis.__tmRuntimeEvents?.offEventBus?.('destroy-protyle', __tmNativeDocProtyleDestroyedHandler, bus);
+                }
+            });
+        } catch (e) {}
+        __tmNativeDocProtyleLoadedHandler = null;
+        __tmNativeDocProtyleDestroyedHandler = null;
+        __tmNativeDocProtyleEventBuses = [];
 
         __tmNativeDocCheckboxSyncClickHandler = (event) => {
             if (!event || event.isTrusted !== true) return;
@@ -2609,12 +2518,56 @@
                 inserted.forEach((blockId) => __tmMarkNativeDocCheckboxInsertedBlocks(blockId));
                 touched.forEach((blockId) => __tmScheduleNativeDocCheckboxStatusSync(blockId));
             });
-            __tmNativeDocCheckboxSyncObserver.observe(document.body, {
+
+            const observerOptions = {
                 subtree: true,
                 childList: true,
                 attributes: true,
                 attributeFilter: ['class', 'href', 'xlink:href'],
                 attributeOldValue: true,
+            };
+            const resolveRoot = (input) => {
+                const candidate = input?.wysiwyg?.element
+                    || input?.element
+                    || input;
+                if (!(candidate instanceof Element)) return null;
+                if (candidate.matches?.('.protyle-wysiwyg')) return candidate;
+                return candidate.querySelector?.('.protyle-wysiwyg') || null;
+            };
+            const observeRoot = (input) => {
+                const root = resolveRoot(input);
+                if (!(root instanceof Element) || __tmNativeDocCheckboxObserverRoots.has(root)) return null;
+                __tmNativeDocCheckboxObserverRoots.add(root);
+                __tmNativeDocCheckboxSyncObserver.observe(root, observerOptions);
+                return root;
+            };
+            const reobserveRoots = () => {
+                __tmNativeDocCheckboxSyncObserver.disconnect();
+                Array.from(__tmNativeDocCheckboxObserverRoots).forEach((root) => {
+                    if (root?.isConnected) __tmNativeDocCheckboxSyncObserver.observe(root, observerOptions);
+                    else __tmNativeDocCheckboxObserverRoots.delete(root);
+                });
+            };
+
+            document.querySelectorAll('.protyle-wysiwyg').forEach((root) => observeRoot(root));
+            __tmNativeDocProtyleLoadedHandler = (event) => {
+                try { observeRoot(event?.detail?.protyle || event?.protyle || null); } catch (e) {}
+                try { observeBreadcrumb(); } catch (e) {}
+            };
+            __tmNativeDocProtyleDestroyedHandler = (event) => {
+                try {
+                    const root = resolveRoot(event?.detail?.protyle || event?.protyle || null);
+                    if (root) __tmNativeDocCheckboxObserverRoots.delete(root);
+                    reobserveRoots();
+                } catch (e) {}
+                try { observeBreadcrumb(); } catch (e) {}
+            };
+            __tmNativeDocProtyleEventBuses = Array.from(new Set(globalThis.__tmHost?.getEventBuses?.() || [globalThis.__tmHost?.getEventBus?.()].filter(Boolean)));
+            __tmNativeDocProtyleEventBuses.forEach((bus) => {
+                ['loaded-protyle-static', 'loaded-protyle-dynamic', 'switch-protyle'].forEach((name) => {
+                    globalThis.__tmRuntimeEvents?.onEventBus?.(name, __tmNativeDocProtyleLoadedHandler, bus);
+                });
+                globalThis.__tmRuntimeEvents?.onEventBus?.('destroy-protyle', __tmNativeDocProtyleDestroyedHandler, bus);
             });
         } catch (e) {}
     }

@@ -4397,6 +4397,13 @@ return false;
     let __tmTaskTitleBlockRefFloatingButton = null;
     let __tmTaskTitleBlockRefFloatingSource = null;
     let __tmTaskTitleBlockRefFloatingHideTimer = 0;
+    let __tmTaskTitleBlockRefPointerOverHandler = null;
+    let __tmTaskTitleBlockRefPointerOutHandler = null;
+    let __tmTaskTitleBlockRefFocusInHandler = null;
+    let __tmTaskTitleBlockRefFocusOutHandler = null;
+    let __tmTaskTitleBlockRefKeydownHandler = null;
+    let __tmTaskTitleBlockRefScrollHandler = null;
+    let __tmTaskTitleBlockRefResizeHandler = null;
 
     function __tmGetTaskTitleBlockRefElement(target) {
         const el = target instanceof Element ? target : null;
@@ -4523,34 +4530,66 @@ return false;
         const doc = document;
         if (!doc?.addEventListener) return;
         __tmTaskTitleBlockRefJumpDelegationInstalled = true;
-        doc.addEventListener('pointerover', (event) => {
+        __tmTaskTitleBlockRefPointerOverHandler = (event) => {
             const refEl = __tmGetTaskTitleBlockRefElement(event?.target);
             if (!refEl) return;
             __tmShowTaskTitleBlockRefFloatingJump(refEl);
-        }, true);
-        doc.addEventListener('pointerout', (event) => {
+        };
+        __tmTaskTitleBlockRefPointerOutHandler = (event) => {
             const refEl = __tmGetTaskTitleBlockRefElement(event?.target);
             if (!refEl) return;
             const related = event?.relatedTarget instanceof Element ? event.relatedTarget : null;
             const button = __tmTaskTitleBlockRefFloatingButton;
             if (related && (refEl.contains(related) || button?.contains?.(related))) return;
             __tmScheduleHideTaskTitleBlockRefFloatingJump();
-        }, true);
-        doc.addEventListener('focusin', (event) => {
+        };
+        __tmTaskTitleBlockRefFocusInHandler = (event) => {
             const refEl = __tmGetTaskTitleBlockRefElement(event?.target);
             if (!refEl) return;
             __tmShowTaskTitleBlockRefFloatingJump(refEl);
-        }, true);
-        doc.addEventListener('focusout', (event) => {
+        };
+        __tmTaskTitleBlockRefFocusOutHandler = (event) => {
             const refEl = __tmGetTaskTitleBlockRefElement(event?.target);
             if (!refEl) return;
             __tmScheduleHideTaskTitleBlockRefFloatingJump();
-        }, true);
-        doc.addEventListener('keydown', (event) => {
+        };
+        __tmTaskTitleBlockRefKeydownHandler = (event) => {
             if (event?.key === 'Escape') __tmHideTaskTitleBlockRefFloatingJump();
-        }, true);
-        doc.addEventListener('scroll', () => __tmRefreshTaskTitleBlockRefFloatingJumpPosition(), true);
-        window.addEventListener?.('resize', () => __tmRefreshTaskTitleBlockRefFloatingJumpPosition());
+        };
+        __tmTaskTitleBlockRefScrollHandler = () => __tmRefreshTaskTitleBlockRefFloatingJumpPosition();
+        __tmTaskTitleBlockRefResizeHandler = () => __tmRefreshTaskTitleBlockRefFloatingJumpPosition();
+        globalThis.__tmRuntimeEvents?.on?.(doc, 'pointerover', __tmTaskTitleBlockRefPointerOverHandler, true);
+        globalThis.__tmRuntimeEvents?.on?.(doc, 'pointerout', __tmTaskTitleBlockRefPointerOutHandler, true);
+        globalThis.__tmRuntimeEvents?.on?.(doc, 'focusin', __tmTaskTitleBlockRefFocusInHandler, true);
+        globalThis.__tmRuntimeEvents?.on?.(doc, 'focusout', __tmTaskTitleBlockRefFocusOutHandler, true);
+        globalThis.__tmRuntimeEvents?.on?.(doc, 'keydown', __tmTaskTitleBlockRefKeydownHandler, true);
+        globalThis.__tmRuntimeEvents?.on?.(doc, 'scroll', __tmTaskTitleBlockRefScrollHandler, true);
+        globalThis.__tmRuntimeEvents?.on?.(window, 'resize', __tmTaskTitleBlockRefResizeHandler);
+    }
+
+    function __tmCleanupTaskTitleBlockRefJumpDelegation() {
+        const off = (target, name, handler, options) => {
+            if (handler) globalThis.__tmRuntimeEvents?.off?.(target, name, handler, options);
+        };
+        off(document, 'pointerover', __tmTaskTitleBlockRefPointerOverHandler, true);
+        off(document, 'pointerout', __tmTaskTitleBlockRefPointerOutHandler, true);
+        off(document, 'focusin', __tmTaskTitleBlockRefFocusInHandler, true);
+        off(document, 'focusout', __tmTaskTitleBlockRefFocusOutHandler, true);
+        off(document, 'keydown', __tmTaskTitleBlockRefKeydownHandler, true);
+        off(document, 'scroll', __tmTaskTitleBlockRefScrollHandler, true);
+        off(window, 'resize', __tmTaskTitleBlockRefResizeHandler);
+        __tmTaskTitleBlockRefPointerOverHandler = null;
+        __tmTaskTitleBlockRefPointerOutHandler = null;
+        __tmTaskTitleBlockRefFocusInHandler = null;
+        __tmTaskTitleBlockRefFocusOutHandler = null;
+        __tmTaskTitleBlockRefKeydownHandler = null;
+        __tmTaskTitleBlockRefScrollHandler = null;
+        __tmTaskTitleBlockRefResizeHandler = null;
+        __tmTaskTitleBlockRefJumpDelegationInstalled = false;
+        __tmClearTaskTitleBlockRefFloatingHideTimer();
+        try { __tmTaskTitleBlockRefFloatingButton?.remove?.(); } catch (e) {}
+        __tmTaskTitleBlockRefFloatingButton = null;
+        __tmTaskTitleBlockRefFloatingSource = null;
     }
 
     __tmInstallTaskTitleBlockRefJumpDelegation();

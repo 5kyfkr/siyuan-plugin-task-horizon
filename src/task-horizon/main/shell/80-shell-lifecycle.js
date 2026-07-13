@@ -28,10 +28,6 @@
                 } catch (e) {}
                 __tmReminderFollowTaskRepeatUpdateHandler = null;
             }
-            if (__tmQuickbarRelayPollTimer) {
-                try { clearInterval(__tmQuickbarRelayPollTimer); } catch (e) {}
-                __tmQuickbarRelayPollTimer = null;
-            }
             __tmQuickbarTaskUpdateHandler = (e) => {
                 if (!e || !e.detail || !e.detail.taskId) return;
                 const taskId = String(e.detail.taskId || '').trim();
@@ -202,9 +198,6 @@ if (shouldMarkDirty) {
                 } catch (e2) {}
             };
             globalThis.__tmRuntimeEvents?.on?.(window, 'storage', __tmQuickbarRelayStorageHandler);
-            __tmQuickbarRelayPollTimer = setInterval(() => {
-                try { __tmPollQuickbarRelayStorage(); } catch (e) {}
-            }, 180);
             try { __tmPollQuickbarRelayStorage(); } catch (e) {}
         } catch (e) {}
 
@@ -916,6 +909,8 @@ if (shouldMarkDirty) {
     function __tmCleanup() {
         try { __tmMarkRuntimeCleanupRequested?.(); } catch (e) {}
         try { __tmCancelBackgroundStorageTimers?.(); } catch (e) {}
+        try { __tmCleanupTaskTitleBlockRefJumpDelegation?.(); } catch (e) {}
+        try { __tmCleanupChecklistSheetSuppressClick?.(); } catch (e) {}
         try { globalThis.__tmHomepage?.unmount?.(); } catch (e) {}
         try {
             if (__tmModalStackEscHandler) {
@@ -965,6 +960,10 @@ if (shouldMarkDirty) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'storage', __tmQuickbarRelayStorageHandler);
                 __tmQuickbarRelayStorageHandler = null;
             }
+            if (__tmQuickbarSilentRefreshTimer) {
+                clearTimeout(__tmQuickbarSilentRefreshTimer);
+                __tmQuickbarSilentRefreshTimer = null;
+            }
             if (__tmReminderFollowTaskRepeatUpdateHandler) {
                 try {
                     __TM_REMINDER_UPDATE_EVENT_NAMES.forEach((eventName) => {
@@ -972,10 +971,6 @@ if (shouldMarkDirty) {
                     });
                 } catch (e2) {}
                 __tmReminderFollowTaskRepeatUpdateHandler = null;
-            }
-            if (__tmQuickbarRelayPollTimer) {
-                clearInterval(__tmQuickbarRelayPollTimer);
-                __tmQuickbarRelayPollTimer = null;
             }
             __tmQuickbarRelayLastTokenByKey.clear();
         } catch (e) {}
@@ -989,6 +984,20 @@ if (shouldMarkDirty) {
                 __tmNativeDocCheckboxSyncObserver.disconnect();
                 __tmNativeDocCheckboxSyncObserver = null;
             }
+            __tmNativeDocCheckboxObserverRoots.clear();
+            __tmNativeDocProtyleEventBuses.forEach((bus) => {
+                if (__tmNativeDocProtyleLoadedHandler) {
+                    ['loaded-protyle-static', 'loaded-protyle-dynamic', 'switch-protyle'].forEach((name) => {
+                        globalThis.__tmRuntimeEvents?.offEventBus?.(name, __tmNativeDocProtyleLoadedHandler, bus);
+                    });
+                }
+                if (__tmNativeDocProtyleDestroyedHandler) {
+                    globalThis.__tmRuntimeEvents?.offEventBus?.('destroy-protyle', __tmNativeDocProtyleDestroyedHandler, bus);
+                }
+            });
+            __tmNativeDocProtyleLoadedHandler = null;
+            __tmNativeDocProtyleDestroyedHandler = null;
+            __tmNativeDocProtyleEventBuses = [];
             if (__tmNativeDocCheckboxBatchTimer) {
                 try { clearTimeout(__tmNativeDocCheckboxBatchTimer); } catch (e2) {}
                 __tmNativeDocCheckboxBatchTimer = null;
@@ -1041,6 +1050,10 @@ if (shouldMarkDirty) {
             if (__tmTabHeaderAutoRefreshHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(document, 'click', __tmTabHeaderAutoRefreshHandler, true);
                 __tmTabHeaderAutoRefreshHandler = null;
+            }
+            if (__tmTaskHorizonHostLifecycleHandler) {
+                globalThis.__tmRuntimeEvents?.off?.(window, 'tm:task-horizon-host-lifecycle', __tmTaskHorizonHostLifecycleHandler);
+                __tmTaskHorizonHostLifecycleHandler = null;
             }
             if (__tmTabActivationObserver) {
                 __tmTabActivationObserver.disconnect();
@@ -1437,25 +1450,9 @@ if (shouldMarkDirty) {
             __tmDocMenuEventBus = null;
         } catch (e) {}
         try {
-            if (__tmNativeDocMenuCaptureHandler) {
-                globalThis.__tmRuntimeEvents?.off?.(document, 'contextmenu', __tmNativeDocMenuCaptureHandler, true);
-                globalThis.__tmRuntimeEvents?.off?.(document, 'mousedown', __tmNativeDocMenuCaptureHandler, true);
-                globalThis.__tmRuntimeEvents?.off?.(document, 'click', __tmNativeDocMenuCaptureHandler, true);
-                __tmNativeDocMenuCaptureHandler = null;
-            }
             __tmLastRightClickedTitleProtyle = null;
             __tmLastRightClickedTitleAtMs = 0;
-            __tmLastRightClickedBlockEl = null;
-            __tmLastRightClickedBlockId = '';
-            __tmLastRightClickedBlockAtMs = 0;
         } catch (e) {}
-        try {
-            if (__tmDocMenuObserver) {
-                __tmDocMenuObserver.disconnect();
-                __tmDocMenuObserver = null;
-            }
-        } catch (e) {}
-
         try {
             if (breadcrumbTimer != null) {
                 clearTimeout(breadcrumbTimer);
@@ -1492,6 +1489,7 @@ if (shouldMarkDirty) {
                 __tmBreadcrumbObserver.disconnect();
                 __tmBreadcrumbObserver = null;
             }
+            __tmBreadcrumbObserverTarget = null;
         } catch (e) {}
         try { delete window.__tmTaskHorizonBreadcrumbObserver; } catch (e) {
             try { window.__tmTaskHorizonBreadcrumbObserver = undefined; } catch (e2) {}

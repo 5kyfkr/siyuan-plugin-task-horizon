@@ -2277,6 +2277,39 @@
             return true;
         },
 
+        async batchGetBlockAttrs(ids, chunkSize = 400) {
+            const normalizedIds = Array.from(new Set((Array.isArray(ids) ? ids : [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)));
+            const out = {};
+            const size = Math.max(1, Math.min(400, Math.floor(Number(chunkSize) || 400)));
+            for (let i = 0; i < normalizedIds.length; i += size) {
+                const chunk = normalizedIds.slice(i, i + size);
+                const res = await this.call('/api/attr/batchGetBlockAttrs', { ids: chunk });
+                if (res.code !== 0) throw new Error(res.msg || '批量读取属性失败');
+                Object.entries((res.data && typeof res.data === 'object') ? res.data : {}).forEach(([id, attrs]) => {
+                    out[String(id)] = (attrs && typeof attrs === 'object') ? attrs : {};
+                });
+            }
+            return out;
+        },
+
+        async batchSetAttrs(entries) {
+            const blockAttrs = (Array.isArray(entries) ? entries : []).map((entry) => {
+                const id = String(entry?.id || '').trim();
+                const attrs = {};
+                Object.entries(entry?.attrs || {}).forEach(([key, value]) => {
+                    const attrKey = String(key || '').trim();
+                    if (attrKey) attrs[attrKey] = String(value ?? '');
+                });
+                return id && Object.keys(attrs).length ? { id, attrs } : null;
+            }).filter(Boolean);
+            if (!blockAttrs.length) return true;
+            const res = await this.call('/api/attr/batchSetBlockAttrs', { blockAttrs });
+            if (res.code !== 0) throw new Error(res.msg || '批量保存属性失败');
+            return true;
+        },
+
         async searchAssets(keyword, options = {}) {
             const query = String(keyword || '').trim();
             if (!query) return [];
@@ -2337,25 +2370,22 @@
             }).filter(Boolean);
 
             const escapeSql = (value) => String(value || '').replace(/'/g, "''");
-            const escapeLike = (value) => escapeSql(value).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
             const keywords = query.split(/\s+/).map((item) => item.trim()).filter(Boolean);
             if (!keywords.length) return [];
             const keywordCondition = keywords.map((item) => {
                 const exact = escapeSql(item);
-                const like = escapeLike(item);
                 return `(
                     d.id = '${exact}'
-                    OR d.id LIKE '%${like}%' ESCAPE '\\'
-                    OR d.content LIKE '%${like}%' ESCAPE '\\'
-                    OR d.hpath LIKE '%${like}%' ESCAPE '\\'
-                    OR COALESCE(attr.alias, '') LIKE '%${like}%' ESCAPE '\\'
+                    OR instr(d.id, '${exact}') > 0
+                    OR instr(d.content, '${exact}') > 0
+                    OR instr(d.hpath, '${exact}') > 0
+                    OR instr(COALESCE(attr.alias, ''), '${exact}') > 0
                 )`;
             }).join(' AND ');
             const excludeCondition = excludeIDs.length
                 ? ' AND ' + excludeIDs.map((item) => {
                     const exact = escapeSql(item);
-                    const like = escapeLike(item);
-                    return `(d.id != '${exact}' AND d.path NOT LIKE '%${like}%' ESCAPE '\\')`;
+                    return `(d.id != '${exact}' AND instr(d.path, '${exact}') = 0)`;
                 }).join(' AND ')
                 : '';
             const sql = `
@@ -3076,8 +3106,14 @@
         call(url, body) {
             return API.call(url, body);
         },
+        batchGetBlockAttrs(ids, chunkSize = 400) {
+            return API.batchGetBlockAttrs(ids, chunkSize);
+        },
         setAttrs: __tmGuardBackendWrite('setAttrs', function(id, attrs) {
             return API.setAttrs(id, attrs);
+        }),
+        batchSetAttrs: __tmGuardBackendWrite('batchSetAttrs', function(entries) {
+            return API.batchSetAttrs(entries);
         }),
         updateBlock: __tmGuardBackendWrite('updateBlock', function(id, md, dataType = 'markdown') {
             return API.updateBlock(id, md, dataType);
@@ -6184,92 +6220,138 @@
         if (id) target.add(id);
     }
 
-    async function __tmResolveMoveAttrHostTaskLike(id) {
-        const rawId = String(id || '').trim();
-        if (!rawId) return null;
-        let taskId = rawId;
-        try {
-            if (typeof __tmResolveTaskIdFromAnyBlockId === 'function') {
-                const resolvedId = String(await __tmResolveTaskIdFromAnyBlockId(rawId) || '').trim();
-                if (resolvedId) taskId = resolvedId;
+    async function __tmPrepareTaskAttrHostsForMove(taskIds) {
+        const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (!ids.length || typeof __tmResolveTaskAttrContext !== 'function') return false;
+        const candidates = (await Promise.all(ids.map(async (taskId) => {
+            let task = null;
+            try { task = await API.getTaskById(taskId); } catch (e) { task = null; }
+            if (!task || typeof task !== 'object') return null;
+            let context = null;
+            try {
+                context = await __tmResolveTaskAttrContext(taskId, task?.parent_id || task?.parentId || '', task);
+            } catch (e) {
+                context = null;
             }
-        } catch (e) {}
-        let task = null;
-        try { task = await API.getTaskById(taskId); } catch (e) { task = null; }
-        if (!task && taskId !== rawId) {
-            try { task = await API.getTaskById(rawId); } catch (e) { task = null; }
-        }
-        if (!task && typeof __tmBuildTaskLikeFromBlockId === 'function') {
-            try { task = await __tmBuildTaskLikeFromBlockId(taskId || rawId); } catch (e) { task = null; }
-            if (!task && taskId !== rawId) {
-                try { task = await __tmBuildTaskLikeFromBlockId(rawId); } catch (e) { task = null; }
+            const stateName = String(context?.state || '').trim();
+            const parentId = String(context?.parentListId || '').trim();
+            if (!parentId || (stateName !== 'state1-parent' && stateName !== 'state3-list-item')) return null;
+            return { taskId, parentId, context };
+        }))).filter(Boolean);
+        if (!candidates.length) return false;
+
+        const attrIds = Array.from(new Set(candidates.flatMap((item) => [item.taskId, item.parentId])));
+        const attrsById = await API.batchGetBlockAttrs(attrIds, 400);
+        const ownerKey = typeof __TM_TASK_ATTR_HOST_OWNER_ATTR !== 'undefined'
+            ? __TM_TASK_ATTR_HOST_OWNER_ATTR
+            : 'custom-task-horizon-attr-host-owner';
+        const updatedAtKey = typeof __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR !== 'undefined'
+            ? __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR
+            : 'custom-task-horizon-attr-host-updated-at';
+        const patches = new Map();
+        const mergePatch = (id, patch) => {
+            const targetId = String(id || '').trim();
+            if (!targetId || !patch || typeof patch !== 'object' || !Object.keys(patch).length) return;
+            patches.set(targetId, { ...(patches.get(targetId) || {}), ...patch });
+        };
+        candidates.forEach(({ taskId, parentId, context }) => {
+            const parentAttrs = (attrsById?.[parentId] && typeof attrsById[parentId] === 'object') ? attrsById[parentId] : {};
+            const taskAttrs = (attrsById?.[taskId] && typeof attrsById[taskId] === 'object') ? attrsById[taskId] : {};
+            const parentOwner = String(parentAttrs[ownerKey] || '').trim();
+            const managedParentAttrs = {};
+            Object.entries(parentAttrs).forEach(([key, value]) => {
+                if (__tmIsManagedTaskAttrStorageKeyForMirror(key)) managedParentAttrs[key] = String(value ?? '');
+            });
+            if (!Object.keys(managedParentAttrs).length) return;
+            const now = String(Date.now());
+            if (String(context?.state || '').trim() === 'state1-parent') {
+                if (parentOwner && parentOwner !== taskId) return;
+                const taskPatch = {};
+                Object.entries(managedParentAttrs).forEach(([key, value]) => {
+                    if (String(taskAttrs[key] ?? '') !== value) taskPatch[key] = value;
+                });
+                if (String(taskAttrs[ownerKey] || '').trim() !== taskId) taskPatch[ownerKey] = taskId;
+                if (Object.keys(taskPatch).length) {
+                    taskPatch[updatedAtKey] = now;
+                    mergePatch(taskId, taskPatch);
+                }
+                if (parentOwner !== taskId) {
+                    mergePatch(parentId, {
+                        [ownerKey]: taskId,
+                        [updatedAtKey]: now,
+                    });
+                }
+                return;
             }
+            if (!parentOwner) {
+                mergePatch(parentId, {
+                    [ownerKey]: taskId,
+                    [updatedAtKey]: now,
+                });
+            }
+        });
+        if (!patches.size) return false;
+        const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+        if (!adapter || typeof adapter.batchSetAttrs !== 'function') {
+            throw new Error('任务属性迁移适配器未就绪');
         }
-        if (task && typeof task === 'object' && !String(task.id || '').trim()) {
-            try { task.id = taskId || rawId; } catch (e) {}
-        }
-        return (task && typeof task === 'object') ? task : null;
+        await adapter.batchSetAttrs(Array.from(patches, ([id, attrs]) => ({ id, attrs })));
+        await adapter.flushTransaction?.();
+        try { __tmClearAttrHostResolutionCache?.(); } catch (e) {}
+        return true;
     }
 
     async function __tmReconcileTaskAttrHostsAfterMove(op, detail = {}) {
         if (typeof __tmApplyTaskAttrHostOverrides !== 'function') return;
         const data = (op?.data && typeof op.data === 'object') ? op.data : {};
         const snapshot = (data.snapshot && typeof data.snapshot === 'object') ? data.snapshot : null;
+        const mode = String(data.mode || '').trim();
+        const sourceTaskId = String(data.taskId || snapshot?.taskId || snapshot?.task?.id || '').trim();
         const taskIds = new Set();
-        const listIds = new Set();
+        const listCandidateIds = new Set();
+        const tasksById = new Map();
         try {
             if (typeof __tmClearAttrHostResolutionCache === 'function') __tmClearAttrHostResolutionCache();
         } catch (e) {}
+        __tmAddMoveAttrHostReconcileId(taskIds, sourceTaskId);
+        __tmAddMoveAttrHostReconcileId(listCandidateIds, snapshot?.task?.parent_id || snapshot?.task?.parentId);
+        const destinationListId = mode === 'child' || mode === 'child-top'
+            ? String(data.targetChildListId || '').trim()
+            : String(data.targetListId || '').trim();
+        __tmAddMoveAttrHostReconcileId(listCandidateIds, destinationListId);
 
-        try {
-            const affected = __tmBuildQueuedOpAffectedScope(op, detail);
-            (Array.isArray(affected?.taskIds) ? affected.taskIds : []).forEach((id) => __tmAddMoveAttrHostReconcileId(taskIds, id));
-            (Array.isArray(affected?.parentTaskIds) ? affected.parentTaskIds : []).forEach((id) => __tmAddMoveAttrHostReconcileId(taskIds, id));
-        } catch (e) {}
-
-        [
-            data.taskId,
-            data.targetTaskId,
-            data.targetParentTaskId,
-            data.targetFirstDirectChildId,
-            data.targetLastDirectChildId,
-            data.prevSiblingTaskId,
-            snapshot?.taskId,
-            snapshot?.parentTaskId,
-            snapshot?.task?.id,
-            snapshot?.task?.parentTaskId,
-            snapshot?.task?.parent_task_id,
-        ].forEach((id) => __tmAddMoveAttrHostReconcileId(taskIds, id));
-        [
-            data.targetListId,
-            data.targetChildListId,
-            data.targetContentAnchorId,
-            snapshot?.task?.parent_id,
-            snapshot?.task?.parentId,
-        ].forEach((id) => __tmAddMoveAttrHostReconcileId(listIds, id));
-
-        const tasksById = new Map();
-        const processedTaskIds = new Set();
-        const processedListIds = new Set();
-        for (let pass = 0; pass < 3; pass += 1) {
-            const pendingTaskIds = Array.from(taskIds).filter((id) => id && !processedTaskIds.has(id));
-            for (const id of pendingTaskIds) {
-                processedTaskIds.add(id);
-                const task = await __tmResolveMoveAttrHostTaskLike(id);
-                const taskId = String(task?.id || '').trim();
-                if (!taskId) continue;
-                tasksById.set(taskId, task);
-                __tmAddMoveAttrHostReconcileId(listIds, task?.parent_id || task?.parentId);
+        if (sourceTaskId) {
+            let sourceTask = null;
+            try { sourceTask = await API.getTaskById(sourceTaskId); } catch (e) { sourceTask = null; }
+            if (sourceTask && typeof sourceTask === 'object') {
+                tasksById.set(sourceTaskId, sourceTask);
+                __tmAddMoveAttrHostReconcileId(listCandidateIds, sourceTask?.parent_id || sourceTask?.parentId);
             }
-            const pendingListIds = Array.from(listIds).filter((id) => id && !processedListIds.has(id));
-            for (const listId of pendingListIds) {
-                processedListIds.add(listId);
-                let childTaskIds = [];
-                try { childTaskIds = await API.getTaskIdsInList(listId, { preferDom: true }); } catch (e) { childTaskIds = []; }
-                (Array.isArray(childTaskIds) ? childTaskIds.slice(0, 4) : [])
-                    .forEach((id) => __tmAddMoveAttrHostReconcileId(taskIds, id));
-            }
-            if (!pendingTaskIds.length && !pendingListIds.length) break;
+        }
+
+        const candidateIds = Array.from(listCandidateIds);
+        const realListIds = new Set();
+        if (candidateIds.length) {
+            let rows = [];
+            try { rows = await API.getBlocksByIds(candidateIds); } catch (e) { rows = []; }
+            (Array.isArray(rows) ? rows : []).forEach((row) => {
+                const id = String(row?.id || '').trim();
+                const type = String(row?.type || '').trim().toLowerCase();
+                if (id && type === 'l') realListIds.add(id);
+            });
+        }
+        for (const listId of realListIds) {
+            let childTaskIds = [];
+            try { childTaskIds = await API.getTaskIdsInList(listId, { preferDom: true }); } catch (e) { childTaskIds = []; }
+            __tmAddMoveAttrHostReconcileId(taskIds, childTaskIds?.[0]);
+        }
+        for (const taskId of taskIds) {
+            if (!taskId || tasksById.has(taskId)) continue;
+            let task = null;
+            try { task = await API.getTaskById(taskId); } catch (e) { task = null; }
+            if (task && typeof task === 'object') tasksById.set(taskId, task);
         }
 
         const tasks = Array.from(tasksById.values());
@@ -6619,6 +6701,10 @@ onBlockInserted: (info) => {
                     }
                 }
             } catch (e) {}
+            const destinationTransitionTaskId = mode === 'child' || mode === 'child-top'
+                ? String(payload.targetFirstDirectChildId || payload.targetLastDirectChildId || '').trim()
+                : String(payload.targetTaskId || '').trim();
+            await __tmPrepareTaskAttrHostsForMove([payload.taskId, destinationTransitionTaskId]);
             try {
                 const suppressMeta = __tmCollectMoveSuppressionIds(payload);
                 __tmMarkLocalMoveTxSuppressionIds(suppressMeta.blockIds, suppressMeta.docIds, 2400);
@@ -8309,6 +8395,9 @@ const wait = !!options.wait;
                 targetDocId: String(data.targetDocId || '').trim(),
                 headingId: String(data.headingId || '').trim(),
                 targetTaskId: String(data.targetTaskId || '').trim(),
+                targetParentTaskId: String(data.targetParentTaskId || '').trim(),
+                targetListId: String(data.targetListId || '').trim(),
+                targetChildListId: String(data.targetChildListId || '').trim(),
                 targetHeadingId: String(data.targetHeadingId || data.headingId || '').trim(),
                 targetHeading: String(data.targetHeading || '').trim(),
                 targetHeadingRank: Number(data.targetHeadingRank),
@@ -16542,6 +16631,7 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmGlobalClickHandler = null;
     let __tmDomReadyHandler = null;
     let __tmBreadcrumbObserver = null;
+    let __tmBreadcrumbObserverTarget = null;
     let __tmBreadcrumbBtnEl = null;
     let __tmThemeModeObserver = null;
     let __tmThemeModeRefreshRaf = null;
@@ -16573,7 +16663,7 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmCalendarBootstrapRetryTimer = null;
     let __tmQuickbarTaskUpdateHandler = null;
     let __tmQuickbarRelayStorageHandler = null;
-    let __tmQuickbarRelayPollTimer = null;
+    let __tmQuickbarSilentRefreshTimer = null;
     let __tmReminderFollowTaskRepeatUpdateHandler = null;
     const __tmQuickbarRelayLastTokenByKey = new Map();
     let __tmEditorTitleIconMenuHandler = null;
@@ -16581,9 +16671,12 @@ __tmPushStatusDebug('apply-status:start', {
     const __TM_MOBILE_TOPBAR_REGISTERED_KEY = '__taskHorizonMobileTopBarRegistered';
     let __tmDocTreeMenuHandler = null;
     let __tmBlockIconMenuHandler = null;
-    let __tmDocMenuObserver = null;
     let __tmNativeDocCheckboxSyncClickHandler = null;
     let __tmNativeDocCheckboxSyncObserver = null;
+    const __tmNativeDocCheckboxObserverRoots = new Set();
+    let __tmNativeDocProtyleLoadedHandler = null;
+    let __tmNativeDocProtyleDestroyedHandler = null;
+    let __tmNativeDocProtyleEventBuses = [];
     const __tmNativeDocCheckboxReconcileTimers = new Map();
     const __tmNativeDocCheckboxReconcileVersions = new Map();
     const __tmNativeDocCheckboxSyncIgnoreMap = new Map();
@@ -16598,10 +16691,6 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmNativeDocCheckboxBatchSeq = 0;
     let __tmLastRightClickedTitleProtyle = null;
     let __tmLastRightClickedTitleAtMs = 0;
-    let __tmLastRightClickedBlockEl = null;
-    let __tmLastRightClickedBlockId = '';
-    let __tmLastRightClickedBlockAtMs = 0;
-    let __tmNativeDocMenuCaptureHandler = null;
     let __tmDocMenuEventBus = null;
     const __TM_TIMELINE_TODAY_REFRESH_MS = 5 * 60 * 1000;
 
@@ -17259,6 +17348,8 @@ async function __tmRefreshAfterWake(reason) {
                     return;
                 }
 
+                try { __tmPollQuickbarRelayStorage(); } catch (e) {}
+
                 // 只有当最小化前插件页面正在显示时才继续处理
                 if (!__tmWasPluginVisibleBeforeHide) {
                     return;
@@ -17278,6 +17369,7 @@ async function __tmRefreshAfterWake(reason) {
 		};
 		__tmFocusHandler = async () => {
 			try {
+                try { __tmPollQuickbarRelayStorage(); } catch (e) {}
                 if (__tmWasPluginVisibleBeforeHide && __tmHasAutoRefreshPendingSync()) {
                     await __tmMaybeAutoRefreshOnEnter('focus');
                 } else if (await __tmRefreshVisibleViewAfterTaskSnapshotSync?.('focus-task-snapshot-sync')) {
@@ -17301,6 +17393,7 @@ async function __tmRefreshAfterWake(reason) {
     let __tmTabEnterAutoRefreshTimer = null;
     let __tmTabEnterAutoRefreshTryCount = 0;
     let __tmTabHeaderAutoRefreshHandler = null;
+    let __tmTaskHorizonHostLifecycleHandler = null;
     let __tmTabActivationObserver = null;
     let __tmTabActivationObserverTimer = 0;
     let __tmTabActivationObserverRaf = 0;
@@ -17721,6 +17814,14 @@ async function __tmRefreshAfterWake(reason) {
         }
     }
 
+    function __tmScheduleSilentRefreshAfterQuickbarUpdate(delayMs = 0) {
+        if (__tmQuickbarSilentRefreshTimer) clearTimeout(__tmQuickbarSilentRefreshTimer);
+        __tmQuickbarSilentRefreshTimer = setTimeout(() => {
+            __tmQuickbarSilentRefreshTimer = null;
+            void __tmSilentRefreshAfterQuickbarUpdate();
+        }, Math.max(0, Number(delayMs) || 0));
+    }
+
     async function __tmSilentRefreshAfterQuickbarUpdate() {
         const uiSnapshot = (typeof __tmCaptureRefreshUiState === 'function')
             ? __tmCaptureRefreshUiState()
@@ -17739,11 +17840,11 @@ async function __tmRefreshAfterWake(reason) {
                     source: 'quickbar-silent-refresh',
                 });
             } catch (e) {}
-            setTimeout(() => { try { __tmSilentRefreshAfterQuickbarUpdate(); } catch (e2) {} }, 320);
+            __tmScheduleSilentRefreshAfterQuickbarUpdate(320);
             return;
         }
         if (state.isRefreshing) {
-            setTimeout(() => { try { __tmSilentRefreshAfterQuickbarUpdate(); } catch (e) {} }, 300);
+            __tmScheduleSilentRefreshAfterQuickbarUpdate(300);
             return;
         }
         state.isRefreshing = true;
@@ -17953,6 +18054,32 @@ refreshOk = false;
         __tmTabEnterAutoRefreshTimer = setTimeout(tick, Number(initialDelayMeta.waitMs || 120));
     }
 
+    function __tmObserveTaskHorizonActivationTargets() {
+        if (!__tmTabActivationObserver) {
+            __tmTabActivationObserver = new MutationObserver(() => {
+                __tmQueueTabActivationCheck('tabActivatedObserver');
+            });
+        }
+        __tmTabActivationObserver.disconnect();
+        const targets = new Set();
+        try {
+            document.querySelectorAll('.tm-tab-root, [data-task-horizon-dock-root="1"], [data-type="::task-horizon-dock"]').forEach((el) => {
+                if (el instanceof Element) targets.add(el);
+            });
+            document.querySelectorAll('.layout-tab-bar__item').forEach((el) => {
+                if (__tmIsTaskHorizonTabHeaderEl(el)) targets.add(el);
+            });
+        } catch (e) {}
+        targets.forEach((target) => {
+            try {
+                __tmTabActivationObserver.observe(target, {
+                    attributes: true,
+                    attributeFilter: ['class', 'style', 'aria-selected', 'aria-hidden'],
+                });
+            } catch (e) {}
+        });
+    }
+
     function __tmBindTabEnterAutoRefresh() {
         if (__tmTabEnterAutoRefreshBound) return;
         __tmTabEnterAutoRefreshBound = true;
@@ -17981,18 +18108,13 @@ refreshOk = false;
             }
         } catch (e) {}
         try {
-            if (!__tmTabActivationObserver) {
-                __tmTaskHorizonTabWasActive = __tmIsTaskHorizonHostActiveForAutoRefresh();
-                __tmTabActivationObserver = new MutationObserver(() => {
-                    __tmQueueTabActivationCheck('tabActivatedObserver');
-                });
-                __tmTabActivationObserver.observe(document.body, {
-                    subtree: true,
-                    attributes: true,
-                    childList: true,
-                    attributeFilter: ['class', 'aria-selected'],
-                });
-            }
+            __tmTaskHorizonTabWasActive = __tmIsTaskHorizonHostActiveForAutoRefresh();
+            __tmObserveTaskHorizonActivationTargets();
+            __tmTaskHorizonHostLifecycleHandler = (event) => {
+                __tmObserveTaskHorizonActivationTargets();
+                __tmQueueTabActivationCheck(`hostLifecycle:${String(event?.detail?.phase || 'update')}`);
+            };
+            globalThis.__tmRuntimeEvents?.on?.(window, 'tm:task-horizon-host-lifecycle', __tmTaskHorizonHostLifecycleHandler);
         } catch (e) {}
     }
 
@@ -21915,18 +22037,6 @@ refreshOk = false;
     let __tmCssColorParseCtx = null;
     let __tmCssColorProbeEl = null;
 
-    function __tmRememberSmallCache(cache, key, value, limit = 400) {
-        if (!(cache instanceof Map)) return value;
-        try {
-            cache.set(key, value);
-            if (cache.size > limit) {
-                const oldestKey = cache.keys().next().value;
-                if (oldestKey !== undefined) cache.delete(oldestKey);
-            }
-        } catch (e) {}
-        return value;
-    }
-
     function __tmClearThemeColorRuntimeCaches() {
         try { __tmCssColorRgbaCache.clear(); } catch (e) {}
         try { __tmGroupBgColorCache.clear(); } catch (e) {}
@@ -22243,8 +22353,67 @@ refreshOk = false;
         const id = String(docId || '').trim();
         if (!id) return __tmNormalizeDocExpectedMeta({});
         const normalized = __tmNormalizeDocExpectedMeta(meta);
-        __tmDocExpectedMetaCache.set(id, normalized);
-        return normalized;
+        return __tmRememberSmallCache(__tmDocExpectedMetaCache, id, normalized, 1024);
+    }
+
+    async function __tmLoadDocExpectedMetaBatch(docIds, force = false) {
+        const ids = Array.from(new Set((Array.isArray(docIds) ? docIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => id && !__tmIsOtherBlockTabId(id))));
+        const out = new Map();
+        const pendingIds = [];
+        const inflightEntries = [];
+        ids.forEach((id) => {
+            const cached = force ? null : __tmGetCachedDocExpectedMeta(id);
+            if (cached) out.set(id, cached);
+            else if (!force && __tmDocExpectedMetaInflight.has(id)) {
+                inflightEntries.push([id, __tmDocExpectedMetaInflight.get(id)]);
+            } else pendingIds.push(id);
+        });
+        if (inflightEntries.length) {
+            await Promise.all(inflightEntries.map(async ([id, promise]) => {
+                out.set(id, await promise);
+            }));
+        }
+        if (!pendingIds.length) return out;
+
+        const requestTokens = new Map();
+        pendingIds.forEach((id) => {
+            const token = ++__tmDocExpectedMetaRequestSeq;
+            requestTokens.set(id, token);
+            __tmDocExpectedMetaLatestRequestToken.set(id, token);
+        });
+        try {
+            const attrsById = await API.batchGetBlockAttrs(pendingIds, 400);
+            pendingIds.forEach((id) => {
+                const attrs = attrsById?.[id] || {};
+                const nextMeta = __tmNormalizeDocExpectedMeta({
+                    startDate: attrs[__TM_DOC_EXPECTED_START_ATTR],
+                    deadline: attrs[__TM_DOC_EXPECTED_DEADLINE_ATTR],
+                });
+                if (__tmDocExpectedMetaLatestRequestToken.get(id) === requestTokens.get(id)) {
+                    out.set(id, __tmRememberDocExpectedMeta(id, nextMeta));
+                } else {
+                    out.set(id, __tmGetCachedDocExpectedMeta(id) || nextMeta);
+                }
+            });
+        } catch (e) {
+            pendingIds.forEach((id) => {
+                const fallback = __tmGetCachedDocExpectedMeta(id) || __tmNormalizeDocExpectedMeta({});
+                if (__tmDocExpectedMetaLatestRequestToken.get(id) === requestTokens.get(id)) {
+                    out.set(id, __tmRememberDocExpectedMeta(id, fallback));
+                } else {
+                    out.set(id, fallback);
+                }
+            });
+        } finally {
+            pendingIds.forEach((id) => {
+                if (__tmDocExpectedMetaLatestRequestToken.get(id) === requestTokens.get(id)) {
+                    __tmDocExpectedMetaLatestRequestToken.delete(id);
+                }
+            });
+        }
+        return out;
     }
 
     async function __tmLoadDocExpectedMeta(docId, force = false) {
@@ -22262,8 +22431,8 @@ refreshOk = false;
         let requestPromise = null;
         requestPromise = (async () => {
             try {
-                const res = await API.call('/api/attr/getBlockAttrs', { id });
-                const attrs = (res && res.code === 0 && res.data && typeof res.data === 'object') ? res.data : {};
+                const attrsById = await API.batchGetBlockAttrs([id], 400);
+                const attrs = attrsById?.[id] || {};
                 const nextMeta = {
                     startDate: attrs[__TM_DOC_EXPECTED_START_ATTR],
                     deadline: attrs[__TM_DOC_EXPECTED_DEADLINE_ATTR],
@@ -22280,6 +22449,9 @@ refreshOk = false;
             } finally {
                 if (__tmDocExpectedMetaInflight.get(id) === requestPromise) {
                     __tmDocExpectedMetaInflight.delete(id);
+                }
+                if (__tmDocExpectedMetaLatestRequestToken.get(id) === requestToken) {
+                    __tmDocExpectedMetaLatestRequestToken.delete(id);
                 }
             }
         })();
@@ -22334,7 +22506,13 @@ refreshOk = false;
         const normalizedValue = value ? __tmNormalizeDateOnly(value) : '';
         const attrKey = field === 'startDate' ? __TM_DOC_EXPECTED_START_ATTR : __TM_DOC_EXPECTED_DEADLINE_ATTR;
         await __tmBackendAdapter.setAttrs(id, { [attrKey]: normalizedValue });
-        return await __tmLoadDocExpectedMeta(id, true);
+        __tmDocExpectedMetaRequestSeq += 1;
+        __tmDocExpectedMetaLatestRequestToken.delete(id);
+        const current = __tmGetCachedDocExpectedMeta(id) || __tmNormalizeDocExpectedMeta({});
+        return __tmRememberDocExpectedMeta(id, {
+            ...current,
+            [field === 'startDate' ? 'startDate' : 'deadline']: normalizedValue,
+        });
     }
 
     window.__tmUpdateDocTabProgress = async (docId, elId, expectedElId) => {
@@ -22383,7 +22561,7 @@ refreshOk = false;
                 percent = Math.min(100, Math.max(0, Math.round((completed / total) * 100)));
             }
             if (__tmDocProgressCache.get(docId) !== percent) {
-                __tmDocProgressCache.set(docId, percent);
+                __tmRememberSmallCache(__tmDocProgressCache, docId, percent, 1024);
             }
             el.style.width = `${percent}%`;
         }
@@ -24380,31 +24558,24 @@ return true;
                             const startDate = String(patch?.startDate || '').trim();
                             const nextStart = startDate ? __tmNormalizeDateOnly(startDate) : '';
                             datePatch.startDate = nextStart;
-                            task.startDate = nextStart;
-                            task.start_date = nextStart;
                         }
                         if (hasCompletionTime) {
                             const completionTime = String(patch?.completionTime || '').trim();
                             const nextEnd = completionTime ? __tmNormalizeDateOnly(completionTime) : '';
                             datePatch.completionTime = nextEnd;
-                            task.completionTime = nextEnd;
-                            task.completion_time = nextEnd;
                         }
                         try {
-                            const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
-                            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                            void patchTask(id, datePatch, {
+                            if (typeof window.tmUpdateTaskDates !== 'function') throw new Error('日期更新接口未就绪');
+                            await window.tmUpdateTaskDates(id, datePatch, {
                                 source: 'timeline-gantt-drag',
-                                label: '甘特日期',
-                                reason: 'timeline-gantt-drag',
-                                background: true,
-                                wait: false,
-                                withFilters: false,
-                                skipSettledRefresh: true,
+                                wait: true,
+                                background: false,
+                                refresh: false,
+                                refreshCalendar: true,
                                 skipInteractionGate: true,
-                            }).catch((error) => {
-                                try { __tmReportTaskOutboxFailure(error, { action: '甘特日期' }); } catch (e2) {}
                             });
+                            if (hasStartDate) task.startDate = task.start_date = datePatch.startDate;
+                            if (hasCompletionTime) task.completionTime = task.completion_time = datePatch.completionTime;
                         } catch (e) {
                             hint(`❌ 更新失败: ${e.message}`, 'error');
                         }

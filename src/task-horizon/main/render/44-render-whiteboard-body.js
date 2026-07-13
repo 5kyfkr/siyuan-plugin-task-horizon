@@ -24,6 +24,10 @@
             const todoOpt = statusOptions.find(o => o.id === 'todo') || { id: 'todo', name: '待办', color: '#757575' };
             const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             const docsInOrder0 = __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId).map(d => String(d?.id || '').trim()).filter(Boolean);
+            const visibleDocIds = (typeof __tmGetVisibleDocTabsForCurrentGroup === 'function'
+                ? __tmGetVisibleDocTabsForCurrentGroup()
+                : docsInOrder0).map((doc) => String(doc?.id || doc || '').trim()).filter(Boolean);
+            const visibleDocIdSet = new Set(visibleDocIds);
             const docNameById = new Map((state.taskTree || []).map(d => [String(d?.id || '').trim(), String(d?.name || '').trim() || '未命名文档']));
             const snapMap = __tmGetWhiteboardCardSnapshotMap();
             // 仅使用当前分组已加载文档，避免把其他分组/历史快照文档混入“全部页签”白板
@@ -98,10 +102,10 @@
                 : null;
             const isDocTabCustomGroupActive = activeDocTabCustomGroupDocIds instanceof Set && activeDocTabCustomGroupDocIds.size > 0;
             const selectedDocIds = isDocTabCustomGroupActive
-                ? docsInOrder.filter((id) => activeDocTabCustomGroupDocIds.has(String(id || '').trim()))
+                ? docsInOrder.filter((id) => activeDocTabCustomGroupDocIds.has(String(id || '').trim()) && visibleDocIdSet.has(String(id || '').trim()))
                 : ((state.activeDocId && state.activeDocId !== 'all')
                     ? [String(state.activeDocId)]
-                    : docsInOrder);
+                    : visibleDocIds);
             const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all') || isDocTabCustomGroupActive;
             const allTabsLayoutMode = __tmGetWhiteboardAllTabsLayoutMode();
             const isGlobalBoardMode = isAllTabsView && allTabsLayoutMode === 'global';
@@ -1841,7 +1845,7 @@
                                         ${renderWhiteboardToolbarButton({ label: '更多白板操作', icon: 'dots-three', onclick: 'tmWhiteboardToggleBottomMore(event)', active: whiteboardBottomMoreOpen, pressed: whiteboardBottomMoreOpen })}
                                         ${whiteboardBottomMoreOpen ? `<div class="tm-whiteboard-bottom-more-panel">
                                             ${whiteboardDrawingToolsEnabled ? renderWhiteboardBottomMoreItem({ label: drawingConfig.hidden ? '显示手写' : '隐藏手写', icon: drawingConfig.hidden ? 'eye' : 'eye-slash', onclick: 'tmWhiteboardToggleDrawingLayer(event)' }) : ''}
-                                            ${renderWhiteboardBottomMoreItem({ label: '重置视图', icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView(event)' })}
+                                            ${renderWhiteboardBottomMoreItem({ label: '回到画布中心', icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView(event)' })}
                                             ${renderWhiteboardBottomMoreItem({ label: '清空卡片连线', icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks(event)', danger: true })}
                                         </div>` : ''}
                                     </div>

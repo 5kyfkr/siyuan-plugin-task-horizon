@@ -4906,62 +4906,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         return out;
     }
 
-    function __tmRememberTitleMenuContext(target) {
-        try {
-            if (!target || !target.closest) return;
-            if (target.closest('#commonMenu') || target.closest('.b3-menu')) return;
-            const protyle = target.closest('.protyle');
-            if (!protyle) return;
-            const isTitle = !!(target.closest('.protyle-title') || target.closest('.protyle-title__input') || target.closest('.protyle-icon'));
-            if (!isTitle) return;
-            __tmLastRightClickedTitleProtyle = protyle;
-            __tmLastRightClickedTitleAtMs = Date.now();
-        } catch (e) {}
-    }
-
-    function __tmFindContextBlockElement(target) {
-        try {
-            const node = (target instanceof Element) ? target : target?.parentElement || null;
-            if (!node || !node.closest) return null;
-            if (node.closest('#commonMenu') || node.closest('.b3-menu')) return null;
-            if (node.closest('.protyle-title, .protyle-title__input, .protyle-icon, .protyle-background')) return null;
-            const blockEl = node.closest('[data-node-id], [data-id]');
-            if (!(blockEl instanceof Element)) return null;
-            if (!blockEl.closest('.protyle')) return null;
-            if (!blockEl.closest('.protyle-wysiwyg, .protyle-content, .protyle-gutters')) return null;
-            const blockId = __tmResolveAnyBlockIdFromElement(blockEl);
-            if (!blockId) return null;
-            return blockEl;
-        } catch (e) {
-            return null;
-        }
-    }
-
-    function __tmRememberBlockMenuContext(target, event0) {
-        try {
-            const type = String(event0?.type || '').trim();
-            const button = Number(event0?.button);
-            if (type !== 'contextmenu' && button !== 2) return;
-            const blockEl = __tmFindContextBlockElement(target);
-            if (!blockEl) return;
-            const blockId = __tmResolveAnyBlockIdFromElement(blockEl);
-            if (!blockId) return;
-            __tmLastRightClickedBlockEl = blockEl;
-            __tmLastRightClickedBlockId = blockId;
-            __tmLastRightClickedBlockAtMs = Date.now();
-        } catch (e) {}
-    }
-
-    function __tmGetRecentBlockMenuContext() {
-        const blockId = String(__tmLastRightClickedBlockId || '').trim();
-        const atMs = Number(__tmLastRightClickedBlockAtMs) || 0;
-        if (!blockId || !atMs || (Date.now() - atMs) > 3000) return null;
-        const blockElement = (__tmLastRightClickedBlockEl && __tmLastRightClickedBlockEl.isConnected)
-            ? __tmLastRightClickedBlockEl
-            : null;
-        return { blockId, blockElement };
-    }
-
     function __tmResolveProtyleElement(protyleLike) {
         const candidates = [
             protyleLike,
@@ -5508,41 +5452,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             hint(`❌ 添加至今天日程失败：${String(e?.message || e || '')}`, 'error');
             return false;
         }
-    }
-
-    function __tmCreateNativeMenuItem(label, onClick, extraClass = '') {
-        const btn = document.createElement('button');
-        btn.className = ['b3-menu__item', 'tm-doc-group-menu-item', String(extraClass || '').trim()].filter(Boolean).join(' ');
-        btn.type = 'button';
-        btn.innerHTML = `
-            <svg class="b3-menu__icon"><use xlink:href="#iconTaskHorizon"></use></svg>
-            <span class="b3-menu__label">${esc(String(label || '添加到任务管理器分组'))}</span>
-        `;
-        btn.onclick = async (e) => {
-            try { e.preventDefault(); } catch (e2) {}
-            try { e.stopPropagation(); } catch (e2) {}
-            try { globalThis.__tmCompat?.closeGlobalMenu?.(); } catch (e2) {}
-            try { await onClick?.(); } catch (e2) {}
-        };
-        return btn;
-    }
-
-    function __tmInsertMenuItem(menuItems, menuItem) {
-        if (!menuItems || !menuItem) return;
-        const ref = menuItems.querySelector('button[data-id="addToDatabase"]');
-        const existing = menuItems.querySelector('.tm-doc-group-menu-item');
-        Array.from(menuItems.querySelectorAll('.tm-doc-group-menu-separator')).forEach((el) => {
-            try { el.remove(); } catch (e) {}
-        });
-        if (existing) existing.remove();
-        if (ref && ref.parentNode === menuItems) {
-            const divider = document.createElement('button');
-            divider.className = 'b3-menu__separator tm-doc-group-menu-separator';
-            ref.before(divider);
-            ref.before(menuItem);
-            return;
-        }
-        menuItems.appendChild(menuItem);
     }
 
     function __tmToDatetimeLocalValue(iso) {
@@ -10586,13 +10495,15 @@ return Number(state.contextInteractionQuietUntil || 0);
         Promise.resolve().then(async () => {
             let shouldRerender = false;
             try {
-                await Promise.all(ids.map(async (id) => {
-                    const before = __tmGetCachedDocExpectedMeta(id);
-                    const meta = await __tmLoadDocExpectedMeta(id);
+                const beforeById = new Map(ids.map((id) => [id, __tmGetCachedDocExpectedMeta(id)]));
+                const metaById = await __tmLoadDocExpectedMetaBatch(ids);
+                ids.forEach((id) => {
+                    const before = beforeById.get(id);
+                    const meta = metaById.get(id);
                     if (String(before?.deadline || '').trim() !== String(meta?.deadline || '').trim()) {
                         shouldRerender = true;
                     }
-                }));
+                });
             } catch (e) {
             } finally {
                 ids.forEach((id) => __tmDocTabSortMetaWarmupIds.delete(id));
@@ -14194,12 +14105,36 @@ return Number(state.contextInteractionQuietUntil || 0);
             && __tmCanUseLightweightMoveProjection(sourceTask, payload);
         payload.skipOptimisticFilterWork = !customPhysicalPlacement && useLightweightProjection;
         payload.forceOptimisticRender = opts.forceOptimisticRender === true;
+        const shouldRefreshSubtaskViews = moveKind === 'child' || moveKind === 'child-top';
+        const reconcilePayload = shouldRefreshSubtaskViews
+            ? {
+                ...payload,
+                snapshot: {
+                    docId: String(sourceTask.root_id || sourceTask.docId || '').trim(),
+                    parentTaskId: String(sourceTask.parentTaskId || sourceTask.parent_task_id || '').trim(),
+                },
+            }
+            : null;
         const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
         if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
         moveTask(sourceId, payload, {
             wait: false,
             forceOptimisticRender: opts.forceOptimisticRender === true,
+            onQueued: () => {
+                if (reconcilePayload) {
+                    __tmScheduleTaskRowDropReconcileRefresh({
+                        ...reconcilePayload,
+                        forceFullReconcile: true,
+                    });
+                }
+            },
             onSuccess: (result) => {
+                if (reconcilePayload) {
+                    __tmScheduleTaskRowDropReconcileRefresh({
+                        ...reconcilePayload,
+                        forceFullReconcile: true,
+                    });
+                }
                 try { opts.onSuccess?.(result); } catch (e) {}
             },
             onError: (err) => {
@@ -14261,6 +14196,14 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function __tmScheduleTaskRowDropReconcileRefresh(payload = null) {
         const data = (payload && typeof payload === 'object') ? payload : null;
+        const previousParentTaskId = String(data?.snapshot?.parentTaskId || '').trim();
+        const nextParentTaskId = String(
+            data?.targetParentTaskId
+            || ((String(data?.mode || '').trim() === 'child' || String(data?.mode || '').trim() === 'child-top')
+                ? data?.targetTaskId
+                : '')
+            || ''
+        ).trim();
         try {
             [
                 String(data?.targetDocId || '').trim(),
@@ -14270,11 +14213,17 @@ return Number(state.contextInteractionQuietUntil || 0);
             });
         } catch (e) {}
         try {
+            if (previousParentTaskId) __tmScheduleChecklistOptimisticSubtaskRefresh?.(previousParentTaskId, data?.taskId);
+        } catch (e) {}
+        try {
+            if (nextParentTaskId) __tmScheduleChecklistOptimisticSubtaskRefresh?.(nextParentTaskId, data?.taskId);
+        } catch (e) {}
+        try {
             const ids = [
                 String(data?.taskId || '').trim(),
                 String(data?.targetTaskId || '').trim(),
-                String(data?.targetParentTaskId || '').trim(),
-                String(data?.snapshot?.parentTaskId || '').trim(),
+                nextParentTaskId,
+                previousParentTaskId,
             ].filter(Boolean);
             __tmScheduleViewRefresh({
                 mode: 'current',
@@ -15159,7 +15108,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         if (!__tmIsTouchLikeChecklistPointer(ev)) return false;
         if (ev && typeof ev.button === 'number' && ev.button !== 0) return false;
-        try { ev?.preventDefault?.(); } catch (e) {}
         const source = __tmResolveTouchTaskDragSource(ev, taskId);
         if (!source) return false;
         if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
@@ -15173,6 +15121,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (target?.closest?.(blockedSelector)) {
             return false;
         }
+        try { ev?.preventDefault?.(); } catch (e) {}
 
         const id = source.taskId;
         const sourceEl = source.sourceEl;
@@ -15195,6 +15144,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         let lastX = startX;
         let lastY = startY;
         let ended = false;
+        let completing = false;
         let dragging = false;
         let captured = false;
         let longPressTimer = null;
@@ -15330,7 +15280,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { document.removeEventListener('pointercancel', onPointerCancel, true); } catch (e) {}
             try { document.removeEventListener('touchmove', onTouchMove, true); } catch (e) {}
             try { document.removeEventListener('touchend', onTouchEnd, true); } catch (e) {}
-            try { document.removeEventListener('touchcancel', onTouchEnd, true); } catch (e) {}
+            try { document.removeEventListener('touchcancel', onTouchCancel, true); } catch (e) {}
             try { window.removeEventListener('touchmove', preventTouchDragScroll, true); } catch (e) {}
             try { window.removeEventListener('pointermove', preventTouchDragScroll, true); } catch (e) {}
             try { document.removeEventListener('contextmenu', onContextMenu, true); } catch (e) {}
@@ -15348,6 +15298,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { __tmSetCalendarSideDockDragHidden(false); } catch (e) {}
             clearTaskRowHover();
             try { state.modal?.classList?.remove?.('tm-task-drag-active'); } catch (e) {}
+            try { globalThis.__tmCalendar?.stopExternalTaskAutoScroll?.(); } catch (e) {}
             try { globalThis.__tmCalendar?.clearSideDayCalendarDragPreview?.(); } catch (e) {}
             try { __tmCalendarFloatingDragEnd(); } catch (e) {}
             if (String(state.draggingTaskId || '').trim() === id) {
@@ -15388,6 +15339,12 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (!dragging) return;
             __tmPlaceDockPointerTaskGhost(ghostMeta, x, y);
             const pointTargetForSide = resolvePointTarget(x, y) || sourceEl;
+            try {
+                globalThis.__tmCalendar?.updateExternalTaskAutoScroll?.(payload, {
+                    clientX: x,
+                    clientY: y,
+                }, pointTargetForSide);
+            } catch (e) {}
             const sideInfo = globalThis.__tmCalendar?.updateSideDayCalendarDragPreview?.({
                 taskId: id,
                 payload,
@@ -15489,6 +15446,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
         };
         const finalizeDrag = async () => {
+            if (ended || completing) return false;
+            completing = true;
             cancelLongPress();
             cancelFloatingMiniStart();
             let handled = false;
@@ -15562,7 +15521,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
         };
         const onMove = (e2) => {
-            if (ended || !samePointer(e2)) return;
+            if (ended || completing || !samePointer(e2)) return;
             lastX = Number(e2?.clientX) || lastX;
             lastY = Number(e2?.clientY) || lastY;
             if (!dragging) {
@@ -15577,14 +15536,14 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { e2.preventDefault(); } catch (e) {}
         };
         const onUp = async (e2) => {
-            if (ended || !samePointer(e2)) return;
+            if (ended || completing || !samePointer(e2)) return;
             lastX = Number(e2?.clientX) || lastX;
             lastY = Number(e2?.clientY) || lastY;
             try { e2.preventDefault(); } catch (e) {}
             await finalizeDrag();
         };
         const onTouchMove = (e2) => {
-            if (ended) return;
+            if (ended || completing) return;
             const point = getTouchPoint(e2);
             if (!point) return;
             lastX = point.x;
@@ -15601,7 +15560,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { e2.preventDefault(); } catch (e) {}
         };
         const onTouchEnd = async (e2) => {
-            if (ended) return;
+            if (ended || completing) return;
             const point = getTouchPoint(e2);
             if (point) {
                 lastX = point.x;
@@ -15611,11 +15570,18 @@ return Number(state.contextInteractionQuietUntil || 0);
             await finalizeDrag();
         };
         const onPointerCancel = (e2) => {
-            if (!__tmShouldUseCustomTouchTaskDrag()) {
-                onUp(e2);
-            }
+            if (ended || completing || !samePointer(e2)) return;
+            completing = true;
+            cleanup(false);
+        };
+        const onTouchCancel = () => {
+            if (ended || completing) return;
+            completing = true;
+            cleanup(false);
         };
         const onBlur = () => {
+            if (completing) return;
+            completing = true;
             cleanup(false);
         };
 
@@ -15629,7 +15595,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         document.addEventListener('pointercancel', onPointerCancel, true);
         document.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
         document.addEventListener('touchend', onTouchEnd, { capture: true, passive: false });
-        document.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: false });
+        document.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: false });
         window.addEventListener('touchmove', preventTouchDragScroll, { capture: true, passive: false });
         window.addEventListener('pointermove', preventTouchDragScroll, { capture: true, passive: false });
         document.addEventListener('contextmenu', onContextMenu, true);
@@ -15858,6 +15824,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     let __tmChecklistSheetLastTouchStartAt = 0;
     let __tmChecklistSheetSuppressClickUntil = 0;
+    let __tmChecklistSheetSuppressClickHandler = null;
 
     function __tmGetClientYFromPointerOrTouchEvent(ev) {
         const directY = Number(ev?.clientY);
@@ -16387,9 +16354,19 @@ return Number(state.contextInteractionQuietUntil || 0);
         });
     };
 
-    if (document.__tmChecklistSheetSuppressClickBound !== true) {
-        document.__tmChecklistSheetSuppressClickBound = true;
-        document.addEventListener('click', (ev) => {
+    function __tmCleanupChecklistSheetSuppressClick() {
+        const handler = __tmChecklistSheetSuppressClickHandler || document.__tmChecklistSheetSuppressClickHandler;
+        if (handler) globalThis.__tmRuntimeEvents?.off?.(document, 'click', handler, true);
+        __tmChecklistSheetSuppressClickHandler = null;
+        try { delete document.__tmChecklistSheetSuppressClickHandler; } catch (e) {}
+        try { delete document.__tmChecklistSheetSuppressClickBound; } catch (e) {}
+        try { delete document.__tmChecklistSheetSuppressClickUntil; } catch (e) {}
+    }
+
+    try {
+        const staleHandler = document.__tmChecklistSheetSuppressClickHandler;
+        if (staleHandler) document.removeEventListener('click', staleHandler, true);
+        __tmChecklistSheetSuppressClickHandler = (ev) => {
             const suppressUntil = Math.max(
                 Number(__tmChecklistSheetSuppressClickUntil || 0) || 0,
                 Number(document.__tmChecklistSheetSuppressClickUntil || 0) || 0
@@ -16400,8 +16377,11 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { ev.preventDefault(); } catch (e) {}
             try { ev.stopPropagation(); } catch (e) {}
             try { ev.stopImmediatePropagation?.(); } catch (e) {}
-        }, true);
-    }
+        };
+        document.__tmChecklistSheetSuppressClickBound = true;
+        document.__tmChecklistSheetSuppressClickHandler = __tmChecklistSheetSuppressClickHandler;
+        globalThis.__tmRuntimeEvents?.on?.(document, 'click', __tmChecklistSheetSuppressClickHandler, true);
+    } catch (e) {}
 
     function __tmBindChecklistSheetTouchFallback(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;

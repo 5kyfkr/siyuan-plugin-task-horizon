@@ -2308,6 +2308,26 @@
         return String(data.targetListId || '').trim();
     }
 
+    function __tmResetMovedTaskAttrHostProjection(task, parentType = '') {
+        const nextTask = (task && typeof task === 'object') ? task : null;
+        if (!nextTask) return;
+        const taskId = String(nextTask.id || nextTask.blockId || '').trim();
+        try { delete nextTask.__tmTaskAttrContext; } catch (e) {}
+        try { delete nextTask.__tmPreferSelfAttrHostValues; } catch (e) {}
+        try { delete nextTask.__tmPreferSelfAttrHostId; } catch (e) {}
+        nextTask.attrHostId = taskId;
+        nextTask.attr_host_id = taskId;
+        nextTask.parentListType = String(parentType || '').trim().toLowerCase();
+        nextTask.parent_list_type = nextTask.parentListType;
+        nextTask.parentListTaskCount = Number.NaN;
+        nextTask.parent_list_task_count = Number.NaN;
+        nextTask.parentTaskCount = Number.NaN;
+        nextTask.parent_task_count = Number.NaN;
+        nextTask.siblingTaskCount = Number.NaN;
+        nextTask.firstTaskId = '';
+        nextTask.first_task_id = '';
+    }
+
     function __tmApplyMovePayloadToTaskRecursive(task, payload = {}, isRoot = true) {
         const nextTask = (task && typeof task === 'object') ? task : null;
         if (!nextTask) return;
@@ -2358,6 +2378,10 @@
                 nextTask.parent_id = String(targetListId || '').trim();
                 nextTask.parentId = nextTask.parent_id;
             }
+            const projectedParentType = (mode === 'child' || mode === 'child-top')
+                ? (String(payload.targetChildListId || '').trim() ? 'l' : 'i')
+                : '';
+            __tmResetMovedTaskAttrHostProjection(nextTask, projectedParentType);
         }
         (Array.isArray(nextTask.children) ? nextTask.children : []).forEach((child) => __tmApplyMovePayloadToTaskRecursive(child, payload, false));
     }
@@ -2386,6 +2410,9 @@
             nextTask.h2Id = headingId;
             nextTask.h2 = String(patch.targetHeading || nextTask.h2 || '').trim();
             if (Number.isFinite(Number(patch.targetHeadingRank))) nextTask.h2Rank = Number(patch.targetHeadingRank);
+            const targetListId = String(patch.targetListId || '').trim();
+            if (targetListId) nextTask.parent_id = nextTask.parentId = targetListId;
+            __tmResetMovedTaskAttrHostProjection(nextTask);
             return true;
         }
         if (mode === 'docTop' || mode === 'docBottom') {
@@ -2394,17 +2421,26 @@
             nextTask.h2Rank = Number.NaN;
             nextTask.parentTaskId = '';
             nextTask.parent_task_id = '';
+            const targetListId = String(patch.targetListId || '').trim();
+            if (targetListId) nextTask.parent_id = nextTask.parentId = targetListId;
+            __tmResetMovedTaskAttrHostProjection(nextTask);
             return true;
         }
         const targetParentTaskId = String(patch.targetParentTaskId || '').trim();
         if (mode === 'before' || mode === 'after') {
             nextTask.parentTaskId = targetParentTaskId;
             nextTask.parent_task_id = targetParentTaskId;
+            const targetListId = String(patch.targetListId || '').trim();
+            if (targetListId) nextTask.parent_id = nextTask.parentId = targetListId;
+            __tmResetMovedTaskAttrHostProjection(nextTask);
         } else if (mode === 'child' || mode === 'child-top') {
             const targetTaskId = String(patch.targetTaskId || '').trim();
             if (targetTaskId) {
                 nextTask.parentTaskId = targetTaskId;
                 nextTask.parent_task_id = targetTaskId;
+                const targetChildListId = String(patch.targetChildListId || '').trim();
+                nextTask.parent_id = nextTask.parentId = targetChildListId || targetTaskId;
+                __tmResetMovedTaskAttrHostProjection(nextTask, targetChildListId ? 'l' : 'i');
             }
         }
         return true;
@@ -3784,7 +3820,7 @@
                         __tmScheduleMaybeAutoRefreshOnEnter('quickbar-refresh-busy');
                     }
                 } catch (e) {}
-                setTimeout(() => { try { __tmSilentRefreshAfterQuickbarUpdate(); } catch (e) {} }, 500);
+                __tmScheduleSilentRefreshAfterQuickbarUpdate(500);
                 return;
             }
             __tmSilentRefreshAfterQuickbarUpdate();

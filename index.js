@@ -35,6 +35,14 @@ const TASK_DOCK_SNAPSHOT_ATTR = "data-task-horizon-dock-snapshot";
 const RESOURCE_FETCH_TIMEOUT_MS = 12000;
 const DOCK_VIEW_IDS = new Set(["list", "checklist", "timeline", "kanban", "calendar", "whiteboard"]);
 
+const notifyTaskHorizonHostLifecycle = (phase, element) => {
+    try {
+        window.dispatchEvent(new CustomEvent("tm:task-horizon-host-lifecycle", {
+            detail: { phase: String(phase || "update"), element: element || null },
+        }));
+    } catch (e) {}
+};
+
 const ENTRY_ICON_PRESETS = Object.freeze([
     {
         id: "classic",
@@ -361,6 +369,12 @@ const clearPluginResourceTextCache = () => {
     try { __tmDeferredScriptLoaders.clear(); } catch (e) {}
 };
 
+const releasePluginResourceText = (path) => {
+    const key = String(path || "").trim();
+    if (!key) return;
+    try { __tmResourceTextCache.delete(key); } catch (e) {}
+};
+
 const fetchPluginResourceText = async (path) => {
     const key = String(path || "").trim();
     if (!key) throw new Error("empty resource path");
@@ -398,7 +412,10 @@ const loadPluginManifest = async (pluginInstance) => {
         const text = await fetchPluginResourceText(PLUGIN_MANIFEST_PATH);
         const parsed = JSON.parse(text);
         if (parsed && typeof parsed === "object") return normalizePluginManifest(parsed);
-    } catch (e) {}
+    } catch (e) {
+    } finally {
+        releasePluginResourceText(PLUGIN_MANIFEST_PATH);
+    }
     try {
         return normalizePluginManifest(pluginInstance?.manifest);
     } catch (e) {}
@@ -611,6 +628,8 @@ const buildTaskDevCombinedCode = async (scripts) => {
         } catch (e) {
             console.error("[task-horizon] load task dev script failed", scriptPath, e);
             return "";
+        } finally {
+            releasePluginResourceText(fullPath);
         }
     }
     return chunks.join("\n");
@@ -627,6 +646,8 @@ const loadTaskDevManifestScripts = async () => {
         }
         console.error("[task-horizon] load task dev manifest failed", e);
         return { status: "error", scripts: [] };
+    } finally {
+        releasePluginResourceText(TASK_DEV_MANIFEST_PATH);
     }
     try {
         const parsed = JSON.parse(text);
@@ -698,6 +719,8 @@ const loadScriptText = async (path, sourceName) => {
         }
         console.error("[task-horizon] load script failed", sourceName, e);
         return false;
+    } finally {
+        releasePluginResourceText(path);
     }
 };
 
@@ -766,6 +789,8 @@ const loadStyleText = async (path, sourceName) => {
         }
         console.error("[task-horizon] load style failed", sourceName, e);
         return false;
+    } finally {
+        releasePluginResourceText(path);
     }
 };
 
@@ -1028,6 +1053,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 this.element.classList.add("tm-tab-root");
                 plugin.prepareTaskTabRoot(this.element);
                 globalThis.__taskHorizonTabElement = this.element;
+                notifyTaskHorizonHostLifecycle("tab-init", this.element);
                 const mounted = plugin.tryImmediateMountTabRoot(this.element, { force: true });
                 if (!mounted) {
                     plugin.tryMountTabRoot(this.element, {
@@ -1601,6 +1627,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             init() {
                 plugin._taskDockElement = this.element || null;
                 plugin._taskDockOpen = true;
+                notifyTaskHorizonHostLifecycle("dock-init", this.element || null);
                 const mounted = plugin.mountTaskDockElement(this.element || null);
                 if (!mounted) {
                     plugin.scheduleTaskDockRecovery("dock-init", { element: this.element || null });
@@ -1610,6 +1637,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             update() {
                 plugin._taskDockElement = this.element || null;
                 plugin._taskDockOpen = true;
+                notifyTaskHorizonHostLifecycle("dock-update", this.element || null);
                 const mounted = plugin.mountTaskDockElement(this.element || null, { reactivate: false, reason: "update" });
                 if (!mounted) {
                     plugin.scheduleTaskDockRecovery("dock-update", { element: this.element || null });
@@ -1630,6 +1658,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 }
                 plugin._taskDockOpen = false;
                 plugin.destroyTaskDockFrame(this.element || null);
+                notifyTaskHorizonHostLifecycle("dock-destroy", this.element || null);
             },
         });
         this._taskDockAdded = true;

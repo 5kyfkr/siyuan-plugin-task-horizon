@@ -1284,6 +1284,50 @@
     pointer-events: none;
 }
 
+#tm-task-context-menu.tm-task-context-menu {
+    width: min(272px, calc(100vw - 16px)) !important;
+    min-width: 0 !important;
+    max-width: calc(100vw - 16px) !important;
+}
+
+.tm-task-context-timer {
+    min-width: 0;
+    padding: 6px 10px 8px;
+    box-sizing: border-box;
+}
+
+.tm-task-context-timer__title {
+    padding: 2px 0 6px;
+    color: var(--b3-theme-on-surface, var(--tm-secondary-text));
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.tm-task-context-timer .tm-task-context-timer__schedule {
+    display: block;
+    width: 100%;
+    margin: 0 0 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.tm-task-context-timer__grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.tm-task-context-timer .tm-task-context-timer__btn {
+    flex: 0 0 auto;
+    width: auto;
+    padding: 2px 8px;
+    font-size: 12px;
+    line-height: 18px;
+    white-space: nowrap;
+}
+
 .tm-task-context-date {
     min-width: 0;
     padding: 6px 10px 8px;

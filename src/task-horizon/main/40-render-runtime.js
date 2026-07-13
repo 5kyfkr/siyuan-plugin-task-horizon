@@ -2384,30 +2384,25 @@ return;
                                 const startDate = String(patch?.startDate || '').trim();
                                 const nextStart = startDate ? __tmNormalizeDateOnly(startDate) : '';
                                 datePatch.startDate = nextStart;
-                                task.startDate = nextStart;
-                                task.start_date = nextStart;
                             }
                             if (hasCompletionTime) {
                                 const completionTime = String(patch?.completionTime || '').trim();
                                 const nextEnd = completionTime ? __tmNormalizeDateOnly(completionTime) : '';
                                 datePatch.completionTime = nextEnd;
-                                task.completionTime = nextEnd;
-                                task.completion_time = nextEnd;
                             }
                             try {
-                                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
-                                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                                void patchTask(id, datePatch, {
+                                if (typeof window.tmUpdateTaskDates !== 'function') throw new Error('日期更新接口未就绪');
+                                await window.tmUpdateTaskDates(id, datePatch, {
                                     source: 'gantt-date-drag',
-                                    reason: 'gantt-date-drag',
-                                    label: '甘特日期',
-                                    wait: false,
-                                    background: true,
-                                    skipSettledRefresh: true,
+                                    wait: true,
+                                    background: false,
+                                    refresh: false,
+                                    refreshCalendar: true,
+                                    skipInteractionGate: true,
                                     forceProjectionRefresh: true,
-                                }).catch((error) => {
-                                    try { globalThis.__tmReportTaskOutboxFailure?.(error, { action: '更新甘特日期' }); } catch (e2) {}
                                 });
+                                if (hasStartDate) task.startDate = task.start_date = datePatch.startDate;
+                                if (hasCompletionTime) task.completionTime = task.completion_time = datePatch.completionTime;
                                 try { __tmRefreshTaskTimeAcrossViews(id, { patch: datePatch, withFilters: true, reason: 'gantt-date-drag' }); } catch (e2) {
                                     try { __tmScheduleViewRefresh({ mode: 'current', withFilters: true, reason: 'gantt-date-drag' }); } catch (e3) {}
                                 }
@@ -7865,6 +7860,7 @@ return;
 
         const menu = document.createElement('div');
         menu.id = 'tm-task-context-menu';
+        menu.className = 'tm-task-context-menu';
         menu.style.cssText = `
             position: fixed;
             top: ${event.clientY}px;
@@ -7878,7 +7874,6 @@ return;
             box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             padding: 4px 0;
             z-index: 200000;
-            min-width: 180px;
             box-sizing: border-box;
             user-select: none;
         `;
@@ -8001,21 +7996,23 @@ return;
             const durations = (() => {
                 const list = timer?.getDurations?.();
                 const arr = Array.isArray(list) ? list.map((n) => parseInt(n, 10)).filter((n) => Number.isFinite(n) && n > 0) : [];
-                return arr.length > 0 ? arr.slice(0, 8) : [5, 15, 25, 30, 45, 60];
+                return arr.length > 0 ? arr : [5, 15, 25, 30, 45, 60];
             })();
             const timerWrap = document.createElement('div');
-            timerWrap.style.cssText = 'padding: 6px 10px 8px;';
+            timerWrap.className = 'tm-task-context-timer';
             const title = document.createElement('div');
+            title.className = 'tm-task-context-timer__title';
             title.textContent = '🍅 计时';
-            title.style.cssText = 'font-size: 12px; opacity: 0.75; padding: 2px 0 6px;';
             timerWrap.appendChild(title);
             const btnRow = document.createElement('div');
-            btnRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
+            btnRow.className = 'tm-task-context-timer__grid';
+            btnRow.setAttribute('role', 'group');
+            btnRow.setAttribute('aria-label', '计时方式');
             durations.forEach((min) => {
                 const b = document.createElement('button');
-                b.className = 'tm-btn tm-btn-secondary';
+                b.type = 'button';
+                b.className = 'tm-btn tm-btn-secondary tm-task-context-timer__btn';
                 b.textContent = `${min}m`;
-                b.style.cssText = 'padding: 2px 8px; font-size: 12px; line-height: 18px;';
                 b.onclick = async (e) => {
                     e.stopPropagation();
                     await runTaskTimer(min, 'countdown');
@@ -8024,9 +8021,9 @@ return;
                 btnRow.appendChild(b);
             });
             const sw = document.createElement('button');
-            sw.className = 'tm-btn tm-btn-secondary';
+            sw.type = 'button';
+            sw.className = 'tm-btn tm-btn-secondary tm-task-context-timer__btn tm-task-context-timer__btn--stopwatch';
             sw.textContent = '⏱️ 正计时';
-            sw.style.cssText = 'padding: 2px 8px; font-size: 12px; line-height: 18px;';
             sw.onclick = async (e) => {
                 e.stopPropagation();
                 await runTaskTimer(0, 'stopwatch');
