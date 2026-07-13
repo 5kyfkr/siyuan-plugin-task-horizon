@@ -9136,7 +9136,15 @@
             this.data.allDocsExcludedDocIds = __tmNormalizeDocGroupExcludedDocIds(this.data.allDocsExcludedDocIds);
             const rawDocGroups = Array.isArray(this.data.docGroups) ? this.data.docGroups : [];
             this.data.docGroups = rawDocGroups.map((group) => __tmNormalizeDocGroupConfig(group, this.data.docDefaultColorScheme)).filter(Boolean);
-            this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(this.data.docTabCustomGroups);
+            const validDocTabGroupScopeIds = new Set(['all', ...this.data.docGroups
+                .map((group) => String(group?.id || '').trim())
+                .filter(Boolean)]);
+            const normalizedDocTabCustomGroups = __tmNormalizeDocTabCustomGroups(this.data.docTabCustomGroups);
+            this.data.docTabCustomGroups = normalizedDocTabCustomGroups
+                .filter((group) => validDocTabGroupScopeIds.has(__tmGetDocTabCustomGroupScopeId(group)));
+            if (this.data.docTabCustomGroups.length < normalizedDocTabCustomGroups.length) {
+                Storage.set('tm_doc_tab_custom_groups', this.data.docTabCustomGroups);
+            }
             const pinMap0 = this.data.docPinnedByGroup;
             const pinMap = (pinMap0 && typeof pinMap0 === 'object' && !Array.isArray(pinMap0)) ? pinMap0 : {};
             const normalizedPinMap = {};
@@ -9676,6 +9684,9 @@
                 this.data.whiteboardGlobalBoardsByGroup = cleanMap(this.data.whiteboardGlobalBoardsByGroup);
                 this.data.whiteboardAllTabsDocOrderByGroup = cleanMap(this.data.whiteboardAllTabsDocOrderByGroup);
                 this.data.docTabsManualArchivedByGroup = cleanMap(this.data.docTabsManualArchivedByGroup);
+                const removedIdSet = new Set(removedIds);
+                this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(this.data.docTabCustomGroups)
+                    .filter((group) => !removedIdSet.has(__tmGetDocTabCustomGroupScopeId(group)));
                 if (WhiteboardStore?.loaded) {
                     try {
                         WhiteboardStore.data.globalBoardsByGroup = cleanMap(WhiteboardStore.data?.globalBoardsByGroup);
