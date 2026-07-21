@@ -1,4 +1,11 @@
     const TM_SETTINGS_SEARCH_MAX_RESULTS = 12;
+    const __tmAgentMcpExpandedToolGroups = new Set();
+    window.tmSetAgentMcpToolGroupExpanded = function(groupID, expanded) {
+        const id = String(groupID || '').trim();
+        if (!id) return;
+        if (expanded === true) __tmAgentMcpExpandedToolGroups.add(id);
+        else __tmAgentMcpExpandedToolGroups.delete(id);
+    };
     const TM_SETTINGS_SEARCH_TAB_LABELS = Object.freeze({
         docs: '文档分组',
         main: '常规设置',
@@ -21,6 +28,44 @@
         { section: 'quickbar', titles: ['悬浮条', '任务悬浮条', '启用任务悬浮条', '文档任务行末尾常驻显示', '悬浮条显示图标', '常驻显示字段', '子任务数量显示未完成数', '移动端启用常驻显示'] },
         { section: 'tomato', titles: ['番茄钟/联动', '番茄钟与插件联动', '启用底栏番茄钟相关功能', '耗时读取模式', '分钟属性名', '小时属性名', '启用凡人修仙传:打卡插件联动', '不联动的文档分组', '启用任务逾期扣分', '截止日过期扣分', '日程过期扣分', '检查时间', '弹窗确认扣分'] }
     ]);
+    const TM_SETTINGS_SEARCH_CALENDAR_TITLES = Object.freeze([
+        '任务日期跟随日程',
+        '启用日历视图',
+        '联通底栏番茄钟',
+        '桌面端默认视图',
+        '移动端/Dock侧边栏默认视图',
+        '日历起始日',
+        '3日视图今天位置',
+        '默认折叠桌面端日历左侧侧边栏',
+        '侧边栏默认打开区域',
+        '显示起始时间',
+        '显示结束时间',
+        '每小时格子高度',
+        '月视图自适应行高',
+        '月视图最少展示日程',
+        '日程默认最大新建时长',
+        '文档中块菜单添加至今天日程的默认时间',
+        '自定义添加时间',
+        '显示农历',
+        '月视图隐藏番茄钟',
+        '显示休息记录',
+        '显示闲置记录',
+        '显示任务提醒',
+        '显示跨天任务',
+        '显示已完成全天日程',
+        '全天区隐藏已安排任务',
+        '其他块显示复选框',
+        '日程提醒',
+        '日程默认提醒',
+        '系统弹窗提醒',
+        '微信提醒',
+        '全天事件提醒',
+        '跨天事项全天提醒',
+        '全天汇总包含番茄/节日',
+        '全天提醒时间',
+        '跨天任务颜色',
+        '日程跟随文档颜色'
+    ]);
     const TM_SETTINGS_SEARCH_PAGE_ITEMS = Object.freeze([
         { tab: 'docs', title: '文档分组与管理', desc: '选择分组，管理文档来源、排除文档和搜索优化' },
         { tab: 'docs', title: '数据导入', desc: '导入滴答 CSV，自动创建文档、二级标题和任务块' },
@@ -32,12 +77,20 @@
         { tab: 'appearance', title: '任务复选框', desc: '使用圆形任务复选框样式，按重要性上色' },
         { tab: 'appearance', title: '配色', desc: '调整主题、看板、时间轴和顶栏颜色' },
         { tab: 'calendar', title: '日历', desc: '日历视图与日程相关设置' },
-        { tab: 'ai', title: 'AI 接入', desc: '供应商、API Key、Base URL、模型、温度、超时和上下文模式' },
-        { tab: 'ai', title: '供应商', desc: 'MiniMax、DeepSeek、OpenAI 兼容和 Anthropic 兼容' },
-        { tab: 'ai', title: 'API Key', desc: 'AI 服务密钥' },
-        { tab: 'ai', title: 'Base URL', desc: 'AI 服务地址' },
-        { tab: 'ai', title: '模型', desc: 'AI 模型名称' },
-        { tab: 'ai', title: '默认上下文模式', desc: '附近块或全文上下文' },
+        { tab: 'ai', section: 'ai-mode', title: 'AI 工作方式', desc: '在思源智能体与旧版插件 AI 之间切换' },
+        { tab: 'ai', section: 'ai-agent', title: '思源智能体', desc: '使用思源统一管理的模型、文档处理、会话和通用工具' },
+        { tab: 'ai', section: 'ai-agent', title: '启用 AI 功能', desc: '显示任务管理器内的智能体工作台入口' },
+        { tab: 'ai', section: 'ai-mode', title: '对话字体大小', desc: '调整 AI 对话中用户和助手正文的字号' },
+        { tab: 'ai', section: 'ai-agent', title: '启用任务 MCP 工具', desc: '按任务、日程、提醒、安排规则和统计分组开关思源智能体工具' },
+        { tab: 'ai', section: 'ai-agent', title: '工作流程', desc: '任务收集、计划、复盘和模板' },
+        { tab: 'ai', section: 'ai-connection', title: '供应商', desc: '旧版 AI 的 MiniMax、DeepSeek、OpenAI 兼容和 Anthropic 兼容设置' },
+        { tab: 'ai', section: 'ai-connection', title: 'API Key', desc: '旧版 AI 服务密钥' },
+        { tab: 'ai', section: 'ai-connection', title: 'Base URL', desc: '旧版 AI 服务地址' },
+        { tab: 'ai', section: 'ai-connection', title: '模型', desc: '旧版 AI 模型名称' },
+        { tab: 'ai', section: 'ai-connection', title: '默认上下文模式', desc: '旧版 AI 的附近块或全文上下文' },
+        { tab: 'ai', section: 'ai-scheduled', key: 'ai-scheduled-events', title: '定时事件', desc: '创建、启停、编辑、立即运行并查看自动化结果' },
+        { tab: 'ai', section: 'ai-scheduled', key: 'ai-scheduled-summary', title: '每日完成总结', desc: '每天 19:00 汇总当天实际完成的任务' },
+        { tab: 'ai', section: 'ai-policy', key: 'ai-policy', title: '安排规则', desc: '默认时长、时间地图、固定占用、优先级和默认日历' },
         { tab: 'rules', title: '规则管理', desc: '筛选规则、排序规则和优先级算法入口' },
         { tab: 'rules', title: '筛选规则管理', desc: '新建、编辑、应用和删除筛选规则' },
         { tab: 'rules', title: '时间轴强制按截止日期排序', desc: '时间轴规则排序行为' },
@@ -52,6 +105,7 @@
 
     function __tmNormalizeSettingsSearchTab(tab) {
         const v = String(tab || '').trim();
+        if (v === 'scheduled') return 'ai';
         return Object.prototype.hasOwnProperty.call(TM_SETTINGS_SEARCH_TAB_LABELS, v) ? v : 'docs';
     }
 
@@ -70,11 +124,11 @@
         }
     }
 
-    function __tmGetSettingsSearchSectionLabel(sectionId) {
+    function __tmGetSettingsSearchSectionLabel(sectionId, tab = 'main') {
         const sid = String(sectionId || '').trim();
         if (!sid) return '';
         try {
-            const section = (Array.isArray(TM_MAIN_SETTINGS_SECTIONS) ? TM_MAIN_SETTINGS_SECTIONS : [])
+            const section = __tmGetSettingsSections(tab)
                 .find((item) => String(item?.id || '').trim() === sid);
             return String(section?.label || '').trim();
         } catch (e) {
@@ -115,7 +169,7 @@
         const desc = __tmPlainSettingsSearchText(raw.desc);
         const key = String(raw.key || __tmBuildSettingsSearchKey(tab, title, section)).trim();
         const tabLabel = TM_SETTINGS_SEARCH_TAB_LABELS[tab] || tab;
-        const sectionLabel = tab === 'main' ? __tmGetSettingsSearchSectionLabel(section) : '';
+        const sectionLabel = __tmGetSettingsSearchSectionLabel(section, tab);
         const haystack = __tmNormalizeSettingsSearchText([title, desc, tabLabel, sectionLabel].filter(Boolean).join(' '));
         return { tab, title, desc, section, key, tabLabel, sectionLabel, haystack, rendered: !!raw.rendered };
     }
@@ -128,7 +182,7 @@
         });
         TM_SETTINGS_SEARCH_MAIN_GROUPS.forEach((group) => {
             const section = String(group?.section || '').trim();
-            const sectionLabel = __tmGetSettingsSearchSectionLabel(section);
+            const sectionLabel = __tmGetSettingsSearchSectionLabel(section, 'main');
             (Array.isArray(group?.titles) ? group.titles : []).forEach((title) => {
                 const entry = __tmCreateSettingsSearchEntry({
                     tab: 'main',
@@ -139,7 +193,36 @@
                 if (entry) entries.push(entry);
             });
         });
+        TM_SETTINGS_SEARCH_CALENDAR_TITLES.forEach((title) => {
+            const entry = __tmCreateSettingsSearchEntry({
+                tab: 'calendar',
+                title,
+                desc: '日历设置'
+            });
+            if (entry) entries.push(entry);
+        });
         return entries;
+    }
+
+    function __tmDecorateCalendarSettingsSearchRows(root) {
+        if (!(root instanceof HTMLElement)) return;
+        root.querySelectorAll('.tm-calendar-settings-row').forEach((row) => {
+            if (!(row instanceof HTMLElement)) return;
+            const label = row.querySelector('.tm-calendar-settings-label');
+            if (!(label instanceof HTMLElement)) return;
+            const title = __tmPlainSettingsSearchText(Array.from(label.childNodes)
+                .filter((node) => node?.nodeType === 3)
+                .map((node) => node.textContent || '')
+                .join(' '));
+            if (!title) return;
+            const descNode = label.querySelector('.tm-calendar-settings-label-desc');
+            const desc = __tmPlainSettingsSearchText(descNode?.textContent || label.getAttribute('title') || '');
+            row.dataset.tmSettingsSearchKey = __tmBuildSettingsSearchKey('calendar', title);
+            row.dataset.tmSettingsSearchTab = 'calendar';
+            row.dataset.tmSettingsSearchTitle = title;
+            if (desc) row.dataset.tmSettingsSearchDesc = desc;
+            else delete row.dataset.tmSettingsSearchDesc;
+        });
     }
 
     function __tmCollectRenderedSettingsSearchEntries(root) {
@@ -171,6 +254,7 @@
         __tmGetSettingsSearchStaticEntries().forEach((entry) => {
             map.set(`${entry.tab}:${entry.key}`, entry);
         });
+        __tmDecorateCalendarSettingsSearchRows(state.settingsModal);
         __tmCollectRenderedSettingsSearchEntries(state.settingsModal).forEach((entry) => {
             map.set(`${entry.tab}:${entry.key}`, entry);
         });
@@ -308,6 +392,12 @@
                 return node instanceof HTMLElement && String(node.dataset.tmSettingsSearchKey || '') === key;
             });
             if (found instanceof HTMLElement) return found;
+            const targetTab = __tmNormalizeSettingsSearchTab(target?.tab || state.settingsActiveTab || 'docs');
+            if (targetTab === 'calendar'
+                && root.querySelector('#tm-calendar-settings-root')
+                && !root.querySelector('.tm-calendar-settings-row')) {
+                return null;
+            }
         }
         const section = String(target?.section || '').trim();
         if (section) {
@@ -341,7 +431,7 @@
         const section = String(target?.section || '').trim();
         const content = root.querySelector('.tm-settings-content');
         if (!(content instanceof HTMLElement)) return false;
-        if (tab === 'main' && section) {
+        if (section) {
             try { __tmSetActiveSettingsSection(root, section, true); } catch (e) {}
         }
         const targetEl = __tmFindSettingsSearchTarget(root, target);
@@ -483,7 +573,8 @@
         state.settingsSearchActiveIndex = -1;
         state.settingsSearchPendingTarget = pending;
         const currentTab = __tmNormalizeSettingsSearchTab(state.settingsActiveTab || 'docs');
-        if (targetTab !== currentTab) {
+        const settingsOpen = state.settingsModal instanceof HTMLElement && document.body.contains(state.settingsModal);
+        if (targetTab !== currentTab || !settingsOpen) {
             if (targetTab === 'priority') {
                 try { state.priorityScoreDraft = state.priorityScoreDraft || __tmEnsurePriorityDraft(); } catch (e) {}
             }
@@ -567,7 +658,10 @@
         if (state.settingsActiveTab === 'docs') activeTab = 'docs';
         if (state.settingsActiveTab === 'appearance') activeTab = 'appearance';
         if (state.settingsActiveTab === 'calendar') activeTab = 'calendar';
-        if (state.settingsActiveTab === 'ai') activeTab = 'ai';
+        if (state.settingsActiveTab === 'ai' || state.settingsActiveTab === 'scheduled') {
+            activeTab = 'ai';
+            state.settingsActiveTab = 'ai';
+        }
         if (state.settingsActiveTab === 'rules') activeTab = 'rules';
         if (state.settingsActiveTab === 'quadrant') activeTab = 'quadrant';
         if (state.settingsActiveTab === 'priority') activeTab = 'priority';
@@ -1190,12 +1284,13 @@
             try { __tmEnsureAllDocumentsLoaded(false); } catch (e) {}
         }
         let settingsSearchCurrentSection = '';
-        const renderMainSettingsSubtabs = () => {
-            if (activeTab !== 'main') return '';
+        const renderSettingsSubtabs = () => {
+            const sections = __tmGetSettingsSections(activeTab);
+            if (!sections.length) return '';
             return `
                 <div class="tm-settings-subtabs">
                     <div class="tm-settings-subtabs-inner">
-                        ${TM_MAIN_SETTINGS_SECTIONS.map((section, index) => `
+                        ${sections.map((section, index) => `
                             <button
                                 class="tm-settings-subtab-btn${index === 0 ? ' is-active' : ''}"
                                 type="button"
@@ -1413,6 +1508,125 @@
             `;
         };
         const renderAiSettingsPanel = () => {
+            const experienceMode = String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
+            const scheduledEventsPanel = __tmRenderScheduledEventsSettingsPanel();
+            const policyPanel = typeof __tmRenderAgentPolicySettingsPanel === 'function' ? __tmRenderAgentPolicySettingsPanel() : '';
+            const renderAgentToolSettings = (hasFullFeature) => {
+                const groups = typeof window.tmGetAgentMcpToolGroups === 'function'
+                    ? window.tmGetAgentMcpToolGroups()
+                    : [];
+                const toolsEnabled = hasFullFeature && SettingsStore.data.agentMcpEnabled === true;
+                if (!Array.isArray(groups) || !groups.length) {
+                    return `
+                        <div class="tm-agent-tool-settings is-disabled">
+                            <div class="tm-agent-tool-settings__summary">正在读取工具列表…</div>
+                        </div>
+                    `;
+                }
+                const totalCount = groups.reduce((sum, group) => sum + (Array.isArray(group?.tools) ? group.tools.length : 0), 0);
+                const enabledCount = groups.reduce((sum, group) => sum + (Array.isArray(group?.tools) ? group.tools.filter((tool) => tool?.enabled === true).length : 0), 0);
+                return `
+                    <div class="tm-agent-tool-settings${toolsEnabled ? '' : ' is-disabled'}">
+                        <div class="tm-agent-tool-settings__summary">
+                            <span>按需要保留工具；关闭后会从下一次智能体对话中移除，可减少模型上下文占用，不影响任务管理器界面。</span>
+                            <span class="tm-agent-tool-settings__count">${enabledCount}/${totalCount}</span>
+                        </div>
+                        ${groups.map((group) => {
+                            const tools = Array.isArray(group?.tools) ? group.tools : [];
+                            const groupEnabledCount = tools.filter((tool) => tool?.enabled === true).length;
+                            const allEnabled = tools.length > 0 && groupEnabledCount === tools.length;
+                            const partial = groupEnabledCount > 0 && !allEnabled;
+                            const groupID = String(group?.id || '').trim();
+                            const expanded = __tmAgentMcpExpandedToolGroups.has(groupID);
+                            return `
+                                <details class="tm-agent-tool-group${partial ? ' is-partial' : ''}" ${expanded ? 'open' : ''} ontoggle="tmSetAgentMcpToolGroupExpanded('${escSq(groupID)}', this.open)">
+                                    <summary class="tm-agent-tool-group__head">
+                                        <div class="tm-agent-tool-group__copy">
+                                            <div class="tm-agent-tool-group__title">${esc(String(group?.label || groupID))}</div>
+                                            <div class="tm-agent-tool-group__desc">${esc(String(group?.description || ''))}</div>
+                                        </div>
+                                        <div class="tm-agent-tool-group__control">
+                                            <span>${groupEnabledCount}/${tools.length}</span>
+                                            <input class="b3-switch fn__flex-center" type="checkbox" ${allEnabled ? 'checked' : ''} ${toolsEnabled ? '' : 'disabled'} aria-label="${allEnabled ? '关闭' : '启用'}${esc(String(group?.label || groupID))}分组" onclick="event.stopPropagation()" onchange="tmUpdateAgentMcpGroup('${escSq(groupID)}', this.checked)">
+                                            <svg class="tm-agent-tool-group__chevron" aria-hidden="true"><use xlink:href="#iconDown"></use></svg>
+                                        </div>
+                                    </summary>
+                                    <div class="tm-agent-tool-group__items">
+                                        ${tools.map((tool) => {
+                                            const name = String(tool?.name || '').trim();
+                                            return `
+                                                <label class="tm-agent-tool-item" title="${esc(name)}">
+                                                    <span>${esc(String(tool?.label || name))}</span>
+                                                    <input class="b3-switch fn__flex-center" type="checkbox" ${tool?.enabled === true ? 'checked' : ''} ${toolsEnabled ? '' : 'disabled'} onchange="tmUpdateAgentMcpTool('${escSq(name)}', this.checked)">
+                                                </label>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </details>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            };
+            const conversationFontSize = Number.isFinite(Number(SettingsStore.data.aiConversationFontSize))
+                ? Math.max(12, Math.min(22, Math.round(Number(SettingsStore.data.aiConversationFontSize))))
+                : 14;
+            const modePanel = `
+                <div class="tm-settings-panel" data-tm-settings-section="ai-mode" ${__tmSettingsSearchAttrs('ai', 'AI 工作方式', '思源智能体或旧版 AI')}>
+                    <div class="tm-settings-section-title">AI 工作方式</div>
+                    <div class="tm-settings-section-desc">默认使用思源智能体；旧版会话和设置保持独立，不会迁移或混合。</div>
+                    ${renderSingleFieldSetting(
+                        '当前模式',
+                        experienceMode === 'agent'
+                            ? '使用思源智能体的文档处理、会话和工具能力，插件补充任务界面与上下文。'
+                            : '继续使用插件原有模型供应商、提示词和会话。',
+                        `<select class="b3-select" onchange="tmUpdateAiExperienceMode(this.value)" style="width:220px;">
+                            <option value="agent" ${experienceMode === 'agent' ? 'selected' : ''}>思源智能体（默认）</option>
+                            <option value="legacy" ${experienceMode === 'legacy' ? 'selected' : ''}>旧版插件 AI</option>
+                        </select>`
+                    )}
+                    ${renderSingleFieldSetting(
+                        '对话字体大小',
+                        '调整用户和助手的对话正文，不影响输入框、工具卡片及其他界面。',
+                        `<label style="display:flex;align-items:center;gap:6px;">
+                            <input class="b3-text-field" type="number" min="12" max="22" step="1" value="${conversationFontSize}" onchange="tmUpdateAiConversationFontSize(this.value)" style="width:72px;">
+                            <span class="tm-setting-field-unit">px</span>
+                        </label>`
+                    )}
+                </div>
+            `;
+            if (experienceMode === 'agent') {
+                const hasFullFeature = typeof window.tmLicenseHasFeature === 'function' && window.tmLicenseHasFeature('pro');
+                return `${modePanel}
+                    <div class="tm-settings-panel" data-tm-settings-section="ai-agent" ${__tmSettingsSearchAttrs('ai', '思源智能体', '任务、日程、提醒、安排规则和统计工具')}>
+                        <div class="tm-settings-section-title">思源智能体</div>
+                        <div class="tm-settings-section-desc">模型、密钥、通用工具和会话由思源统一管理；任务管理器只补充任务上下文与领域操作。</div>
+                        ${renderSingleSwitchSetting(
+                            '启用 AI 功能',
+                            '关闭后隐藏任务管理器内的 AI 入口，不影响思源自身的智能体。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiEnabled ? 'checked' : ''} onchange="tmUpdateAiEnabled(this.checked)">`
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '启用任务 MCP 工具',
+                            hasFullFeature
+                                ? '开启后，Task Horizon 会把所选任务、日程、提醒、安排规则和统计能力注册到思源智能体。思源主智能体、插件工作台及其他使用同一智能体运行时的入口都可以调用；普通写入会确认，删除需要先预览。'
+                                : '免费版保持关闭，仍可使用思源智能体的文档对话；升级全功能后可启用这些任务 MCP 工具。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${hasFullFeature && SettingsStore.data.agentMcpEnabled ? 'checked' : ''} ${hasFullFeature ? '' : 'disabled'} onchange="tmUpdateAgentMcpEnabled(this.checked)">`
+                        )}
+                        ${hasFullFeature ? renderAgentToolSettings(hasFullFeature) : ''}
+                        ${renderSingleFieldSetting(
+                            '工作流程',
+                            '任务收集、计划、复盘和模板四类流程会按可用能力逐步启用。',
+                            `<span class="tm-setting-field-unit">任务收集 · 任务计划 · 任务复盘 · 场景模板</span>`
+                        )}
+                        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+                            <button class="tm-btn tm-btn-secondary" onclick="tmAiTestConnection()">检查智能体</button>
+                        </div>
+                    </div>
+                    ${hasFullFeature ? policyPanel : ''}
+                    ${scheduledEventsPanel}
+                `;
+            }
             const contextMode = String(SettingsStore.data.aiDefaultContextMode || 'nearby').trim() === 'fulltext' ? 'fulltext' : 'nearby';
             const providerRaw = String(SettingsStore.data.aiProvider || '').trim();
             const provider = providerRaw === 'deepseek'
@@ -1452,8 +1666,8 @@
                     : (provider === 'anthropic'
                         ? String(SettingsStore.data.aiAnthropicApiKey || '')
                         : String(SettingsStore.data.aiMiniMaxApiKey || ''))));
-            return `
-                <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('ai', 'AI 接入', '供应商、API Key、Base URL、模型、温度、超时和上下文模式')}>
+            return `${modePanel}
+                <div class="tm-settings-panel" data-tm-settings-section="ai-connection" ${__tmSettingsSearchAttrs('ai', 'AI 接入', '供应商、API Key、Base URL、模型、温度、超时和上下文模式')}>
                     <div class="tm-settings-section-title">🤖 AI 接入</div>
                     <div class="tm-settings-section-desc">可在 MiniMax、DeepSeek、OpenAI 兼容和 Anthropic 兼容之间切换，用于任务命名优化、自然语言字段编辑和 SMART 分析。</div>
                     ${renderSingleSwitchSetting(
@@ -1544,6 +1758,7 @@
                         <button class="tm-btn tm-btn-secondary" onclick="tmAiTestConnection()">测试连接</button>
                     </div>
                 </div>
+                ${scheduledEventsPanel}
             `;
         };
 
@@ -1648,7 +1863,7 @@
                         </div>
                     ` : ''}
 
-                    ${activeTab === 'ai' ? renderAiSettingsPanel() : ''}
+                    ${activeTab === 'ai' ? `${renderSettingsSubtabs()}${renderAiSettingsPanel()}` : ''}
 
                     ${activeTab === 'rules' ? `
                         <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('rules', '筛选规则管理', '新建、编辑、应用和删除筛选规则')}>
@@ -1705,7 +1920,7 @@
                     ` : ''}
 
                     ${activeTab === 'main' ? `
-                    ${renderMainSettingsSubtabs()}
+                    ${renderSettingsSubtabs()}
                     ${(settingsSearchCurrentSection = 'display', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="display">
                         <div class="tm-settings-section-title">🖥️ 基础显示</div>

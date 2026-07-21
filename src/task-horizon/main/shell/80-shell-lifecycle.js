@@ -20,14 +20,6 @@
             if (__tmQuickbarRelayStorageHandler) {
                 try { globalThis.__tmRuntimeEvents?.off?.(window, 'storage', __tmQuickbarRelayStorageHandler); } catch (e) {}
             }
-            if (__tmReminderFollowTaskRepeatUpdateHandler) {
-                try {
-                    __TM_REMINDER_UPDATE_EVENT_NAMES.forEach((eventName) => {
-                        globalThis.__tmRuntimeEvents?.off?.(window, eventName, __tmReminderFollowTaskRepeatUpdateHandler);
-                    });
-                } catch (e) {}
-                __tmReminderFollowTaskRepeatUpdateHandler = null;
-            }
             __tmQuickbarTaskUpdateHandler = (e) => {
                 if (!e || !e.detail || !e.detail.taskId) return;
                 const taskId = String(e.detail.taskId || '').trim();
@@ -174,22 +166,11 @@ if (shouldMarkDirty) {
                     || attrKey === __TM_TASK_REPEAT_STATE_ATTR
                     || !attrKey
                 ) {
-                    if (attrKey === 'custom-tomato-reminder') {
-                        try { void __tmMaybeAdvanceRecurringTaskFromReminderAttr(taskId, attrValue, e.detail); } catch (ex) {}
-                    }
                     try { __tmClearReminderSnapshotCache(taskId); } catch (ex) {}
                     try { __tmRefreshReminderMarkForTask(taskId, 240); } catch (ex) {}
                 }
             };
             globalThis.__tmRuntimeEvents?.on?.(window, 'tm-task-attr-updated', __tmQuickbarTaskUpdateHandler);
-            __tmReminderFollowTaskRepeatUpdateHandler = (e) => {
-                try { void __tmMaybeAdvanceRecurringTaskFromReminderUpdateEvent(e); } catch (ex) {}
-            };
-            try {
-                __TM_REMINDER_UPDATE_EVENT_NAMES.forEach((eventName) => {
-                    globalThis.__tmRuntimeEvents?.on?.(window, eventName, __tmReminderFollowTaskRepeatUpdateHandler);
-                });
-            } catch (e) {}
             __tmQuickbarRelayStorageHandler = (e) => {
                 const storageKey = String(e?.key || '').trim();
                 if (!storageKey || !String(e?.newValue || '').trim()) return;
@@ -209,6 +190,7 @@ if (shouldMarkDirty) {
         // 1. 先加载设置（包括文档ID）
         try {
             await __tmEnsureSettingsLoaded();
+            try { globalThis['siyuan-plugin-task-horizon']?.scheduledEvents?.init?.(); } catch (e) {}
             try {
                 if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSettingsStore === 'function') {
                     globalThis.__tmCalendar.setSettingsStore(SettingsStore);
@@ -908,6 +890,7 @@ if (shouldMarkDirty) {
     // 插件卸载清理
     function __tmCleanup() {
         try { __tmMarkRuntimeCleanupRequested?.(); } catch (e) {}
+        try { globalThis['siyuan-plugin-task-horizon']?.scheduledEvents?.dispose?.(); } catch (e) {}
         try { __tmCancelBackgroundStorageTimers?.(); } catch (e) {}
         try { __tmCleanupTaskTitleBlockRefJumpDelegation?.(); } catch (e) {}
         try { __tmCleanupChecklistSheetSuppressClick?.(); } catch (e) {}
@@ -963,14 +946,6 @@ if (shouldMarkDirty) {
             if (__tmQuickbarSilentRefreshTimer) {
                 clearTimeout(__tmQuickbarSilentRefreshTimer);
                 __tmQuickbarSilentRefreshTimer = null;
-            }
-            if (__tmReminderFollowTaskRepeatUpdateHandler) {
-                try {
-                    __TM_REMINDER_UPDATE_EVENT_NAMES.forEach((eventName) => {
-                        globalThis.__tmRuntimeEvents?.off?.(window, eventName, __tmReminderFollowTaskRepeatUpdateHandler);
-                    });
-                } catch (e2) {}
-                __tmReminderFollowTaskRepeatUpdateHandler = null;
             }
             __tmQuickbarRelayLastTokenByKey.clear();
         } catch (e) {}

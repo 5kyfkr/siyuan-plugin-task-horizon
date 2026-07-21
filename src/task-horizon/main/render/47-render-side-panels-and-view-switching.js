@@ -200,14 +200,21 @@
         return mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'whiteboard' || mode === 'calendar';
     }
 
+    function __tmAiUsesOverlayPanel() {
+        return __tmIsMobileDevice() || __tmIsDockHost();
+    }
+
     async function __tmMountAiSidebarHost(payload) {
-        const isMobile = __tmIsMobileDevice();
-        const host = state.modal?.querySelector?.(isMobile ? '#tmAiMobileSidebarPanel' : '#tmAiSidebarPanel');
+        const useOverlayPanel = __tmAiUsesOverlayPanel();
+        const selector = useOverlayPanel ? '#tmAiMobileSidebarPanel' : '#tmAiSidebarPanel';
+        let host = state.modal?.querySelector?.(selector);
         if (!(host instanceof HTMLElement)) return false;
         const ready = await __tmEnsureAiRuntimeLoaded();
         if (!ready) return false;
+        host = state.modal?.querySelector?.(selector);
+        if (!(host instanceof HTMLElement) || !host.isConnected) return false;
         if (globalThis.__tmAI?.mountSidebar) {
-            try { await globalThis.__tmAI.mountSidebar(host, { mobile: isMobile }); } catch (e) {}
+            try { await globalThis.__tmAI.mountSidebar(host, { mobile: useOverlayPanel }); } catch (e) {}
         }
         if (payload && !payload.__tmAiPendingOpen && globalThis.__tmAI?.openSidebar) {
             try { await globalThis.__tmAI.openSidebar(payload); } catch (e) {}
@@ -239,7 +246,9 @@
     };
 
     window.tmCloseAiSidebar = function() {
-        if (__tmIsMobileDevice()) {
+        SettingsStore.data.aiSideDockEnabled = false;
+        try { SettingsStore.save()?.catch?.(() => {}); } catch (e) {}
+        if (__tmAiUsesOverlayPanel()) {
             state.aiMobilePanelOpen = false;
         } else {
             state.aiSidebarOpen = false;
@@ -254,7 +263,7 @@
         SettingsStore.data.aiSideDockEnabled = !!next;
         try { await SettingsStore.save(); } catch (e) {}
         if (!next) {
-            if (__tmIsMobileDevice()) {
+            if (__tmAiUsesOverlayPanel()) {
                 state.aiMobilePanelOpen = false;
             } else {
                 state.aiSidebarOpen = false;
@@ -267,12 +276,46 @@
     };
 
     window.tmToggleAiSidebar = async function(payload) {
-        if (__tmIsMobileDevice()) {
+        if (__tmAiUsesOverlayPanel()) {
             if (state.aiMobilePanelOpen) return window.tmCloseAiSidebar();
             return await window.tmOpenAiSidebar(payload);
         }
         if (state.aiSidebarOpen) return window.tmCloseAiSidebar();
         return await window.tmOpenAiSidebar(payload);
+    };
+
+    async function __tmPrepareChecklistDetailForAiSidebar() {
+        if (__tmAiUsesOverlayPanel() || state.homepageOpen) return false;
+        const mode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+        if (mode !== 'checklist') return false;
+        let panel = null;
+        try { panel = __tmResolveChecklistDetailPanel(state.modal).panel; } catch (e) { panel = null; }
+        if (panel instanceof HTMLElement) {
+            try {
+                await panel.__tmTaskDetailFlushSave?.({
+                    showHint: false,
+                    closeAfterSave: false,
+                    preserveFocus: false,
+                    skipRerender: true,
+                });
+            } catch (e) {}
+            try { panel.__tmTaskDetailCloseInlinePopover?.(); } catch (e) {}
+        }
+        state.checklistDetailSheetOpen = false;
+        state.checklistDetailSheetFullscreen = false;
+        return true;
+    }
+
+    window.tmMultiSelectSendToAi = async function() {
+        const taskIds = __tmGetMultiSelectedTaskIds();
+        if (!taskIds.length) {
+            try { hint('请先选择任务', 'info'); } catch (e) {}
+            return false;
+        }
+        return await window.tmOpenAiSidebar({
+            selectedTaskIds: taskIds,
+            draft: `请基于这 ${taskIds.length} 个已选任务继续处理：`,
+        });
     };
 
     window.tmOpenAiSidebar = async function(payload) {
@@ -281,13 +324,18 @@
             SettingsStore.data.aiSideDockEnabled = true;
             try { await SettingsStore.save(); } catch (e) {}
         }
-        if (__tmIsMobileDevice()) {
+        try { await __tmPrepareChecklistDetailForAiSidebar(); } catch (e) {}
+        if (__tmAiUsesOverlayPanel()) {
             state.aiMobilePanelOpen = true;
         } else {
             state.aiSidebarOpen = true;
             try { Storage.set('tm_ai_sidebar_open', true); } catch (e) {}
         }
-        await openManager({ preserveViewMode: true, skipLoadingHint: true });
+        const canRenderInCurrentDockHost = __tmIsDockHost()
+            && (globalThis.__tmRuntimeState?.hasLiveModal?.() ?? (state.modal && document.body.contains(state.modal)));
+        if (!canRenderInCurrentDockHost) {
+            await openManager({ preserveViewMode: true, skipLoadingHint: true });
+        }
         try { render(); } catch (e) {}
         try { await __tmMountAiSidebarHost(payload); } catch (e) {}
         return true;

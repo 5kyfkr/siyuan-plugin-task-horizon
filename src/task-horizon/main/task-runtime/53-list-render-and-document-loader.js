@@ -913,7 +913,10 @@
             || null;
         if (!task) return;
 
-        await window.tmSetDone(tid, !task.done);
+        const currentDone = typeof __tmIsTaskDoneEffective === 'function'
+            ? !!__tmIsTaskDoneEffective(task)
+            : !!task.done;
+        await window.tmSetDone(tid, !currentDone);
     };
 
     function __tmUpdateDoneMarkdown(markdown, done) {
@@ -2018,28 +2021,31 @@ return finish(false, 'noop');
         if (!kramdown) return false;
         let nextMd = '';
         let wasDone = false;
+        let previousMarker = ' ';
         const fallbackRegex = /(\[)([^\]]?)(\])/;
         const prefixMatch = typeof __tmGetTaskListItemMarkerPrefixMatch === 'function'
             ? __tmGetTaskListItemMarkerPrefixMatch(kramdown)
             : null;
         if (prefixMatch) {
-            wasDone = String(prefixMatch?.[3] || ' ') !== ' ';
+            previousMarker = __tmNormalizeTaskStatusMarker(prefixMatch?.[3], ' ');
+            wasDone = __tmIsTaskMarkerDone(previousMarker);
             nextMd = typeof __tmNormalizeTaskListItemMarkdownMarker === 'function'
-                ? __tmNormalizeTaskListItemMarkdownMarker(kramdown, targetDone ? 'x' : ' ')
+                ? __tmNormalizeTaskListItemMarkdownMarker(kramdown, targetDone ? 'X' : ' ')
                 : '';
             if (!nextMd) {
                 const statusRegex = /^(\s*(?:[\*\-]|\d+\.)\s*\[)([^\]]?)(\])/;
-                nextMd = kramdown.replace(statusRegex, `$1${targetDone ? 'x' : ' '}$3`);
+                nextMd = kramdown.replace(statusRegex, `$1${targetDone ? 'X' : ' '}$3`);
             }
         } else if (fallbackRegex.test(kramdown)) {
             const match = kramdown.match(fallbackRegex);
-            wasDone = String(match?.[2] || '') !== ' ';
-            nextMd = kramdown.replace(fallbackRegex, `$1${targetDone ? 'x' : ' '}$3`);
+            previousMarker = __tmNormalizeTaskStatusMarker(match?.[2], ' ');
+            wasDone = __tmIsTaskMarkerDone(previousMarker);
+            nextMd = kramdown.replace(fallbackRegex, `$1${targetDone ? 'X' : ' '}$3`);
         } else {
             return false;
         }
         const changedToDone = targetDone && !wasDone;
-        if (nextMd === kramdown) return { ok: true, changed: false, changedToDone };
+        if (nextMd === kramdown) return { ok: true, changed: false, changedToDone, previousDone: wasDone, previousMarker };
         try {
             try {
                 const task0 = globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
@@ -2049,20 +2055,7 @@ return finish(false, 'noop');
                 }
             } catch (e) {}
             await __tmBackendAdapter.updateBlock(tid, nextMd);
-            if (changedToDone) {
-                try {
-                    const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
-                    if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                    void patchTask(tid, __tmBuildTaskCompleteAtPatch(), {
-                        background: true,
-                        wait: false,
-                        touchMetaStore: false,
-                        skipFlush: false,
-                        source: 'set-done-stateless-complete-at',
-                    }).catch(() => null);
-                } catch (e) {}
-            }
-            return { ok: true, changed: true, changedToDone };
+            return { ok: true, changed: true, changedToDone, previousDone: wasDone, previousMarker };
         } catch (e) {
             return false;
         }
@@ -2077,32 +2070,6 @@ return finish(false, 'noop');
             if (next) return next;
         }
         return markdown.replace(/^(\s*[\*\-]\s*)\[[^\]]?\]/, `$1[${done ? 'x' : ' '}]`);
-    }
-
-    // ========== 原有完成状态处理 ==========
-
-    const __tmDoneDesired = new Map();
-    const __tmDoneBase = new Map();
-    const __tmDoneChain = new Map();
-
-    function __tmRemapDoneStateTaskId(oldId, newId) {
-        const from = String(oldId || '').trim();
-        const to = String(newId || '').trim();
-        if (!from || !to || from === to) return false;
-        let changed = false;
-        [
-            __tmDoneDesired,
-            __tmDoneBase,
-            __tmDoneChain,
-        ].forEach((store) => {
-            try {
-                if (!store?.has?.(from)) return;
-                store.set(to, store.get(from));
-                store.delete(from);
-                changed = true;
-            } catch (e) {}
-        });
-        return changed;
     }
 
     function __tmRemapTaskId(oldId, newId) {
@@ -2209,7 +2176,6 @@ return finish(false, 'noop');
                 updateRecursive(state.filteredTasks);
             } catch (e) {}
             try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
-            __tmRemapDoneStateTaskId(oldId, newId);
         } catch (e) {}
     }
 
@@ -2356,10 +2322,12 @@ return finish(false, 'noop');
         const useLocalRefreshMode = String(opts.refreshMode || '').trim() === 'local';
         if (ev) {
             ev.stopPropagation();
-            ev.preventDefault();
         }
 
-        let task = globalThis.__tmRuntimeState?.getTaskById?.(id) || state.flatTasks?.[id] || state.pendingInsertedTasks?.[id] || null;
+        let task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+            || state.pendingInsertedTasks?.[id]
+            || state.flatTasks?.[id]
+            || null;
         if (!task) {
             try { task = await __tmEnsureTaskInStateById(id); } catch (e) { task = null; }
         }
@@ -2369,7 +2337,11 @@ return finish(false, 'noop');
         if (task && __tmIsCollectedOtherBlockTask(task)) {
             const ok = await __tmSetCollectedOtherBlockDone(task, done);
             if (!ok) {
-                if (ev?.target) ev.target.checked = !!task.done;
+                if (ev?.target) {
+                    ev.target.checked = typeof __tmIsTaskDoneEffective === 'function'
+                        ? !!__tmIsTaskDoneEffective(task)
+                        : !!task.done;
+                }
                 return;
             }
             if (opts.suppressHint !== true) {
@@ -2384,7 +2356,7 @@ return finish(false, 'noop');
         const statusPatch = __tmBuildCheckboxStatusPatch(task, targetDone, opts.statusPatch);
         const taskWasDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
             ? !!opts.previousDone
-            : !!(task?.done);
+            : (typeof __tmIsTaskDoneEffective === 'function' ? !!__tmIsTaskDoneEffective(task) : !!task?.done);
         const shouldStampTaskCompleteAt = targetDone && !taskWasDone;
         const shouldClearTaskCompleteAt = !targetDone && taskWasDone;
         const completeAtPatch = shouldStampTaskCompleteAt
@@ -2397,33 +2369,24 @@ return finish(false, 'noop');
         if (!task) {
             const statelessResult = await __tmSetDoneByIdStateless(id, done);
             const ok = statelessResult === true || !!statelessResult?.ok;
-            const statelessChangedToDone = statelessResult === true ? targetDone : statelessResult?.changedToDone === true;
             if (ok) {
-                if (statusPatch && Object.keys(statusPatch).length > 0) {
+                if (touchPatch && Object.keys(touchPatch).length > 0) {
                     try {
-                        const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
-                        if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                        const statusPromise = patchTask(String(id || '').trim(), statusPatch, {
-                            background: true,
-                            wait: false,
+                        await __tmPersistMetaAndAttrsKernel(String(id || '').trim(), touchPatch, {
                             touchMetaStore: false,
                             skipFlush: false,
                             source: 'set-done-stateless-status',
                         });
-                        if (opts.wait === true || opts.waitStatusPatch === true) {
-                            await statusPromise;
-                        } else {
-                            void Promise.resolve(statusPromise).catch(() => null);
-                        }
-                        MetaStore.set(String(id || '').trim(), {
-                            ...statusPatch,
-                            ...((statelessChangedToDone && completeAtPatch) ? completeAtPatch : {}),
-                        });
+                        MetaStore.set(String(id || '').trim(), touchPatch);
                     } catch (statusErr) {
-                        try { console.error('[完成状态] 状态联动保存失败:', statusErr); } catch (e) {}
+                        try {
+                            await __tmUpdateTaskListItemMarkerWithFallback(
+                                String(id || '').trim(),
+                                __tmNormalizeTaskStatusMarker(statelessResult?.previousMarker, statelessResult?.previousDone ? 'X' : ' '),
+                            );
+                        } catch (rollbackErr) {}
+                        throw statusErr;
                     }
-                } else if (statelessChangedToDone && completeAtPatch) {
-                    try { MetaStore.set(String(id || '').trim(), completeAtPatch); } catch (e) {}
                 }
                 try {
                     if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
@@ -2490,7 +2453,7 @@ return finish(false, 'noop');
             }
         }
 
-        if (task.done === targetDone && opts.force !== true) return;
+        if (taskWasDone === targetDone && opts.force !== true) return;
 
         // 锁定
         GlobalLock.lock();
@@ -2504,13 +2467,24 @@ return finish(false, 'noop');
         }
 
         // 关键修改：先保存原始状态，然后保存到 MetaStore（保持原始状态，等点击完成后再更新）
-        const originalMarkdown = task.markdown;
+        const originalMarkdown = Object.prototype.hasOwnProperty.call(opts, 'previousMarkdown')
+            ? String(opts.previousMarkdown || '')
+            : String(task.markdown || '');
         const originalDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
             ? !!opts.previousDone
-            : !!task.done;
+            : taskWasDone;
+        const originalMarker = Object.prototype.hasOwnProperty.call(opts, 'previousMarker')
+            ? __tmNormalizeTaskStatusMarker(opts.previousMarker, originalDone ? 'X' : ' ')
+            : __tmResolveTaskMarker({ ...task, markdown: originalMarkdown });
         const originalCustomStatus = Object.prototype.hasOwnProperty.call(opts, 'previousStatusId')
             ? String(opts.previousStatusId || '').trim()
             : String(task.customStatus || '').trim();
+        const originalTaskCompleteAt = __tmNormalizeTaskCompleteAtValue(
+            task.taskCompleteAt
+            || task.task_complete_at
+            || MetaStore.get(id)?.taskCompleteAt
+            || '',
+        );
         const shouldDispatchTaskReward = !!SettingsStore?.data?.enablePointsRewardIntegration && !originalDone && targetDone && !__tmUndoState?.applying;
         const passedRewardPriorityScore = Number(opts.rewardPriorityScore);
         const taskRewardPriorityScore = shouldDispatchTaskReward && Number.isFinite(passedRewardPriorityScore) && passedRewardPriorityScore > 0
@@ -2568,13 +2542,12 @@ return finish(false, 'noop');
             try { __tmMarkLocalDoneTxSuppressionForTask(task, [String(id || '').trim()]); } catch (e) {}
             // 优先尝试 API 更新（解决文档未打开无法操作的问题）
             let apiSuccess = false;
+            let markerResult = null;
             let clickSuccess = false;
             try {
-                const markerResult = await __tmUpdateTaskListItemMarkerWithFallback(id, targetDone ? 'X' : ' ');
+                markerResult = await __tmUpdateTaskListItemMarkerWithFallback(id, targetDone ? 'X' : ' ');
                 apiSuccess = !!markerResult;
-            } catch (e) {
-                console.error('[完成状态] API处理异常:', e);
-            }
+            } catch (e) {}
 
             // 只有当 API 失败时才尝试查找 DOM（作为回退）
             let taskElement = null;
@@ -2652,11 +2625,9 @@ return finish(false, 'noop');
                 throw new Error('未能更新任务复选框状态');
             }
 
-            // 等待思源处理完成
-            await new Promise(r => setTimeout(r, 150));
-
             let actualDone = targetDone;
             if (!apiSuccess) {
+                await new Promise(r => setTimeout(r, 150));
                 const domDoneAfter = __tmReadNativeDocTaskDoneFromDom(id);
                 if (domDoneAfter === null) {
                     throw new Error('无法确认任务复选框状态');
@@ -2667,42 +2638,31 @@ return finish(false, 'noop');
                 }
             }
 
-            let statusSyncError = null;
             if (touchPatch && Object.keys(touchPatch).length > 0) {
                 try {
-                    const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
-                    if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                    const statusPromise = patchTask(id, touchPatch, {
-                        background: true,
-                        wait: false,
+                    await __tmPersistMetaAndAttrsKernel(id, touchPatch, {
                         touchMetaStore: false,
                         skipFlush: false,
                         source: String(opts.source || 'set-done-status-link').trim() || 'set-done-status-link',
-                        skipViewRefresh: opts.skipViewRefresh === true,
-                        skipOptimisticRefresh: opts.skipOptimisticRefresh === true || opts.skipViewRefresh === true,
-                        skipSettledRefresh: opts.skipSettledRefresh === true,
-                        optimisticProjectionRefresh: opts.optimisticProjectionRefresh === true,
-                        forceProjectionRefresh: opts.forceProjectionRefresh === true,
-                        refreshAncestorViews: opts.refreshAncestorViews !== false,
                     });
-                    if (opts.wait === true || opts.waitStatusPatch === true) {
-                        await statusPromise;
-                    } else {
-                        void Promise.resolve(statusPromise).catch((statusErr) => {
-                            try { console.error('[完成状态] 状态联动保存失败:', statusErr); } catch (e) {}
-                        });
-                    }
                 } catch (statusErr) {
-                    statusSyncError = statusErr;
-                    try { console.error('[完成状态] 状态联动保存失败:', statusErr); } catch (e) {}
-                    const restorePatch = {};
-                    if (Object.prototype.hasOwnProperty.call(touchPatch, 'customStatus')) restorePatch.customStatus = originalCustomStatus;
-                    if (Object.keys(restorePatch).length > 0) {
-                        try { __tmApplyAttrPatchLocally(id, restorePatch, { render: false, withFilters: false }); } catch (e) {}
-                    }
+                    try { await __tmUpdateTaskListItemMarkerWithFallback(id, originalMarker); } catch (rollbackErr) {}
+                    throw statusErr;
                 }
             }
 
+            const actualMarker = actualDone ? 'X' : ' ';
+            const doneStatePatch = __tmApplyDoneStateToLocalMirrors(
+                id,
+                task,
+                actualDone,
+                actualMarker,
+                typeof markerResult?.markdown === 'string' ? markerResult.markdown : null,
+            );
+            if (touchPatch && Object.keys(touchPatch).length > 0) {
+                try { __tmApplyQueuedTaskFieldPatchToTask(task, touchPatch); } catch (e) {}
+                try { __tmApplyTaskFieldPatchToLocalMirrors(id, touchPatch); } catch (e) {}
+            }
             // 保存到MetaStore
             MetaStore.set(id, {
                 priority: task.priority || '',
@@ -2715,24 +2675,10 @@ return finish(false, 'noop');
                     : (task.customStatus || ''),
                 done: actualDone,
                 content: task.content,
+                ...doneStatePatch,
                 ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
             });
 
-            // 更新本地状态
-            task.done = actualDone;
-            const actualMarker = actualDone ? 'X' : ' ';
-            task.taskMarker = actualMarker;
-            task.task_marker = actualMarker;
-            try { task.markdown = __tmBuildTaskMarkdownWithMarker(task, actualMarker); } catch (e) {}
-            if (Object.prototype.hasOwnProperty.call(touchPatch || {}, 'customStatus')) {
-                task.customStatus = String(touchPatch.customStatus || '').trim();
-                task.custom_status = task.customStatus;
-            }
-            if (completeAtPatch && typeof completeAtPatch === 'object'
-                && Object.prototype.hasOwnProperty.call(completeAtPatch, 'taskCompleteAt')) {
-                task.taskCompleteAt = String(completeAtPatch.taskCompleteAt || '').trim();
-                task.task_complete_at = task.taskCompleteAt;
-            }
             try {
                 globalThis.__tmTaskStore?.upsertLocal?.(task, {
                     pending: !!state.pendingInsertedTasks?.[id],
@@ -2740,12 +2686,31 @@ return finish(false, 'noop');
                     status: 'set-done-success',
                 });
             } catch (e) {}
+            if (opts.recordUndo !== false && !__tmUndoState?.applying) {
+                const undoPatch = { done: actualDone, ...touchPatch };
+                const inversePatch = { done: originalDone };
+                if (Object.prototype.hasOwnProperty.call(touchPatch, 'customStatus')) {
+                    inversePatch.customStatus = originalCustomStatus;
+                }
+                if (Object.prototype.hasOwnProperty.call(touchPatch, 'taskCompleteAt')) {
+                    inversePatch.taskCompleteAt = originalTaskCompleteAt;
+                }
+                try {
+                    __tmPushUndoRecord({
+                        type: 'setDone',
+                        taskId: String(id || '').trim(),
+                        requestedTaskId: String(id || '').trim(),
+                        patch: undoPatch,
+                        inversePatch,
+                        label: actualDone ? '完成任务' : '取消完成',
+                        source: String(opts.source || 'set-done').trim() || 'set-done',
+                    });
+                } catch (e) {}
+            }
             try {
                 __tmScheduleTaskSnapshotAfterLocalPatch?.(id, {
                     ...((markdownRetentionPatch && typeof markdownRetentionPatch === 'object') ? markdownRetentionPatch : {}),
-                    done: !!actualDone,
-                    taskMarker: actualMarker,
-                    markdown: task.markdown,
+                    ...doneStatePatch,
                     ...((touchPatch && typeof touchPatch === 'object') ? touchPatch : {}),
                 }, {
                     source: String(opts.source || 'set-done-success').trim() || 'set-done-success',
@@ -2825,8 +2790,7 @@ return finish(false, 'noop');
             } catch (e) {}
 
             if (opts.suppressHint !== true) {
-                if (statusSyncError) hint(`${__tmBuildTaskDoneSuccessHint(!!actualDone, '✅ 任务已完成')}，但状态同步失败`, 'warning');
-                else hint(__tmBuildTaskDoneSuccessHint(!!actualDone, '✅ 任务已完成'), 'success');
+                hint(__tmBuildTaskDoneSuccessHint(!!actualDone, '✅ 任务已完成'), 'success');
             }
             if (actualDone) {
                 try {
@@ -2845,11 +2809,8 @@ return finish(false, 'noop');
             }
 
         } catch (err) {
-            console.error('[完成操作失败]', err);
-
             // 恢复
-            task.markdown = originalMarkdown;
-            task.done = originalDone;
+            const rollbackDoneStatePatch = __tmApplyDoneStateToLocalMirrors(id, task, originalDone, originalMarker, originalMarkdown);
             task.customStatus = originalCustomStatus;
             task.custom_status = originalCustomStatus;
             try {
@@ -2858,7 +2819,7 @@ return finish(false, 'noop');
             } catch (e) {}
             try {
                 MetaStore.set(String(id || '').trim(), {
-                    done: originalDone,
+                    ...rollbackDoneStatePatch,
                     customStatus: originalCustomStatus,
                     content: task.content,
                 });
@@ -3077,9 +3038,14 @@ return finish(false, 'noop');
                 || null);
         if (!tid || !taskLike) return Promise.resolve(false);
         const targetDone = !!done;
+        const effectiveTaskDone = typeof __tmIsTaskDoneEffective === 'function'
+            ? !!__tmIsTaskDoneEffective(taskLike)
+            : !!taskLike.done;
         const originalDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
             ? !!opts.previousDone
-            : !!taskLike.done;
+            : effectiveTaskDone;
+        const previousMarker = __tmResolveTaskMarker(taskLike);
+        const previousMarkdown = String(taskLike.markdown || '');
         const statusPatch = __tmBuildCheckboxStatusPatch(taskLike, targetDone, opts.statusPatch);
         const originalCustomStatus = Object.prototype.hasOwnProperty.call(opts, 'previousStatusId')
             ? String(opts.previousStatusId || '').trim()
@@ -3097,7 +3063,7 @@ return finish(false, 'noop');
             optimisticPatch.taskCompleteAt = '';
         }
         const inversePatch = __tmCaptureTaskPatchInverse(tid, optimisticPatch);
-        if (!Object.prototype.hasOwnProperty.call(inversePatch, 'done')) inversePatch.done = originalDone;
+        inversePatch.done = originalDone;
         if (Object.prototype.hasOwnProperty.call(optimisticPatch, 'customStatus')
             && !Object.prototype.hasOwnProperty.call(inversePatch, 'customStatus')) {
             inversePatch.customStatus = originalCustomStatus;
@@ -3123,6 +3089,8 @@ return finish(false, 'noop');
                 scheduleId: String(opts.scheduleId || '').trim(),
                 suppressHint: true,
                 previousDone: originalDone,
+                previousMarker: previousMarker,
+                previousMarkdown: previousMarkdown,
                 previousStatusId: originalCustomStatus,
                 rewardPriorityScore,
                 recordUndo: opts.recordUndo !== false,
@@ -3200,14 +3168,41 @@ return finish(false, 'noop');
         return opts.wait === true ? opPromise : Promise.resolve(true);
     }
 
-    window.tmSetDone = async function(id, done, ev, options = {}) {
+    const __tmSetDoneIngressByTask = new Map();
+
+    function __tmRunSetDoneIngress(taskId, runner) {
+        const tid = String(taskId || '').trim();
+        const invoke = typeof runner === 'function' ? runner : async () => false;
+        const previous = tid ? __tmSetDoneIngressByTask.get(tid) : null;
+        let request;
+        if (previous) {
+            request = previous.then(invoke);
+        } else {
+            try {
+                request = Promise.resolve(invoke());
+            } catch (error) {
+                request = Promise.reject(error);
+            }
+        }
+        if (!tid) return request;
+        let tracked = null;
+        tracked = request.then(() => undefined, () => undefined).finally(() => {
+            if (__tmSetDoneIngressByTask.get(tid) === tracked) __tmSetDoneIngressByTask.delete(tid);
+        });
+        __tmSetDoneIngressByTask.set(tid, tracked);
+        return request;
+    }
+
+    async function __tmSetDoneFromUi(id, done, ev, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
 if (ev) {
             try { ev.stopPropagation(); } catch (e) {}
-            try { ev.preventDefault(); } catch (e) {}
         }
         const tid = String(id || '').trim();
-        let task = globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
+        let task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || state.pendingInsertedTasks?.[tid]
+            || state.flatTasks?.[tid]
+            || null;
         if (__tmIsOptimisticTempTaskId(tid) && state.pendingInsertedTasks?.[tid]) {
             const targetDone = !!done;
             try {
@@ -3294,7 +3289,10 @@ if (ev) {
         if (!task || __tmIsCollectedOtherBlockTask(task)) {
             return await __tmSetDoneKernel(tid, done, ev, opts);
         }
-        if (!!task.done === targetDone) return;
+        const currentDone = typeof __tmIsTaskDoneEffective === 'function'
+            ? !!__tmIsTaskDoneEffective(task)
+            : !!task.done;
+        if (currentDone === targetDone) return;
         try {
             const request = __tmQueueSetDoneTask(tid, targetDone, task, {
                 source: String(opts.source || '').trim(),
@@ -3315,6 +3313,34 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             if (ev?.target) ev.target.checked = !targetDone;
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e2) {}
         }
+    }
+
+    window.tmSetDone = function(id, done, ev, options = {}) {
+        const tid = String(id || '').trim();
+        const input = ev?.target && String(ev.target?.type || '').toLowerCase() === 'checkbox'
+            ? ev.target
+            : null;
+        if (ev) {
+            try { ev.stopPropagation(); } catch (e) {}
+        }
+        const request = __tmRunSetDoneIngress(tid, async () => {
+            const liveTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+                || state.pendingInsertedTasks?.[tid]
+                || state.flatTasks?.[tid]
+                || null;
+            const liveDone = typeof __tmIsTaskDoneEffective === 'function'
+                ? __tmIsTaskDoneEffective(liveTask)
+                : !!liveTask?.done;
+            const targetDone = input ? !liveDone : !!done;
+            if (input) {
+                try { input.checked = targetDone; } catch (e) {}
+            }
+            const setDoneOptions = input
+                ? { ...((options && typeof options === 'object') ? options : {}), wait: true }
+                : options;
+            return await __tmSetDoneFromUi(tid, targetDone, ev, setDoneOptions);
+        });
+        return request;
     };
 
     // 保存所有任务到MetaStore（递归）
@@ -4437,6 +4463,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             data.parentTaskId,
             data.targetParentTaskId,
         ].map((id) => String(id || '').trim()).filter(Boolean)));
+        try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
+        try { state.listDomRenderSignature = ''; } catch (e) {}
         try {
             if (data.parentTaskId) __tmScheduleChecklistOptimisticSubtaskRefresh?.(data.parentTaskId, data.taskId);
         } catch (e) {}
@@ -4905,7 +4933,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const showDialog = globalThis.__tomatoReminder?.showDialog;
         if (typeof showDialog === 'function') {
             const taskName = __tmNormalizeTimerTaskName(task?.content || task?.raw_content || task?.markdown || '', '任务');
-            showDialog(taskId, taskName || '任务', { defaultSyncTaskDone: true });
+            showDialog(taskId, taskName || '任务', { taskOwned: true, defaultSyncTaskDone: true });
             try { __tmRefreshReminderMarkForTask(taskId, 1200); } catch (e) {}
             return;
         }
@@ -5694,6 +5722,12 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         }
         if (__tmIsAiFeatureEnabled()) {
             menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('bot', 'AI'), () => [
+                createItem(__tmRenderContextMenuLabel('sparkle', '发送到 AI'), async () => {
+                    return await window.tmOpenAiSidebar({
+                        selectedTaskIds: [taskId],
+                        draft: '请基于这 1 个已选任务继续处理：',
+                    });
+                }),
                 createItem(__tmRenderContextMenuLabel('bot', '优化任务名称'), async () => {
                     if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-optimize-task-name', 'AI 优化任务名称')) return;
                     if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
@@ -5817,6 +5851,28 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         { id: 'tomato', label: '番茄钟/联动' }
     ]);
 
+    function __tmGetSettingsSections(tab = state.settingsActiveTab || '') {
+        const activeTab = String(tab || '').trim();
+        if (activeTab === 'main') return TM_MAIN_SETTINGS_SECTIONS;
+        if (activeTab !== 'ai') return [];
+        const experienceMode = String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
+        if (experienceMode === 'legacy') {
+            return [
+                { id: 'ai-mode', label: '工作方式' },
+                { id: 'ai-connection', label: '模型设置' },
+                { id: 'ai-scheduled', label: '定时事件' }
+            ];
+        }
+        const sections = [
+            { id: 'ai-mode', label: '工作方式' },
+            { id: 'ai-agent', label: '智能体' }
+        ];
+        const hasFullFeature = typeof window.tmLicenseHasFeature === 'function' && window.tmLicenseHasFeature('pro');
+        if (hasFullFeature) sections.push({ id: 'ai-policy', label: '安排规则' });
+        sections.push({ id: 'ai-scheduled', label: '定时事件' });
+        return sections;
+    }
+
     function __tmGetSettingsSectionAnchorTop(content, section) {
         if (!(content instanceof HTMLElement) || !(section instanceof HTMLElement)) return 0;
         const anchor = section.querySelector('.tm-settings-section-title');
@@ -5858,7 +5914,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 
     function __tmSyncSettingsSectionNav(modal) {
         const root = modal || state.settingsModal;
-        if (!root || String(state.settingsActiveTab || 'docs') !== 'main') return;
+        if (!root || !__tmGetSettingsSections(state.settingsActiveTab || '').length) return;
         const content = root.querySelector('.tm-settings-content');
         const subtabs = root.querySelector('.tm-settings-subtabs');
         const sections = Array.from(root.querySelectorAll('.tm-settings-panel[data-tm-settings-section]'));

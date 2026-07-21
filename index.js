@@ -1,4 +1,4 @@
-const { Plugin, Protyle, openTab, openMobileFileById, platformUtils } = require("siyuan");
+const { Plugin, Protyle, openTab, openMobileFileById, platformUtils, getFrontend } = require("siyuan");
 
 const PLUGIN_ID = "siyuan-plugin-task-horizon";
 const TASK_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/task.js`;
@@ -6,6 +6,8 @@ const TASK_MAIN_STYLE_PATH = `/data/plugins/${PLUGIN_ID}/task-horizon.css`;
 const TASK_DEV_MANIFEST_PATH = `/data/plugins/${PLUGIN_ID}/src/task-horizon/manifest.main.json`;
 const TASK_DEV_SOURCE_ROOT = `/data/plugins/${PLUGIN_ID}/src/task-horizon`;
 const AI_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/ai.js`;
+const AGENT_WORKBENCH_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/ai/agent-workbench.js`;
+const AGENT_WORKBENCH_STYLE_PATH = `/data/plugins/${PLUGIN_ID}/src/ai/agent-workbench.css`;
 const HOMEPAGE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/homepage.js`;
 const QUICKBAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/quickbar.js`;
 const XLSX_VENDOR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/vendor/xlsx.full.min.js`;
@@ -34,6 +36,58 @@ const TASK_DOCK_ROOT_ATTR = "data-task-horizon-dock-root";
 const TASK_DOCK_SNAPSHOT_ATTR = "data-task-horizon-dock-snapshot";
 const RESOURCE_FETCH_TIMEOUT_MS = 12000;
 const DOCK_VIEW_IDS = new Set(["list", "checklist", "timeline", "kanban", "calendar", "whiteboard"]);
+const AI_EXPERIENCE_MODE_KEY = "tm_ai_experience_mode";
+const AI_EXPERIENCE_MODE_INITIALIZED_KEY = "tm_ai_experience_mode_initialized";
+const AGENT_WORKBENCH_STORE_FILE = "agent-workbench.json";
+const AGENT_BUILTIN_SKILL_NAMES = Object.freeze(["task-capture", "task-planning", "task-review", "task-template"]);
+
+const hashAgentSkillContent = async (content) => {
+    const value = String(content || "");
+    if (globalThis.crypto?.subtle && typeof TextEncoder === "function") {
+        try {
+            const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+            return Array.from(new Uint8Array(digest), (item) => item.toString(16).padStart(2, "0")).join("");
+        } catch (e) {}
+    }
+    let first = 0x811c9dc5;
+    let second = 0x9e3779b9;
+    for (let index = 0; index < value.length; index += 1) {
+        const code = value.charCodeAt(index);
+        first = Math.imul(first ^ code, 0x01000193) >>> 0;
+        second = Math.imul(second ^ (code + index), 0x85ebca6b) >>> 0;
+    }
+    return `fallback:${first.toString(16).padStart(8, "0")}${second.toString(16).padStart(8, "0")}:${value.length}`;
+};
+
+const removeUnmodifiedAgentSkills = async (pluginInstance) => {
+    let store = null;
+    try { store = await pluginInstance?.loadData?.(AGENT_WORKBENCH_STORE_FILE); } catch (e) {}
+    const tracked = store?.builtinSkills && typeof store.builtinSkills === "object" ? store.builtinSkills : {};
+    for (const name of AGENT_BUILTIN_SKILL_NAMES) {
+        const trackedHash = String(tracked?.[name]?.hash || "").trim();
+        if (!trackedHash) continue;
+        try {
+            const response = await fetch("/api/ai/agent/getSkill", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name }),
+            });
+            const payload = response.ok ? await response.json() : null;
+            const content = payload && Number(payload.code) === 0 ? payload.data?.content : null;
+            if (typeof content !== "string" || await hashAgentSkillContent(content) !== trackedHash) continue;
+            const removed = await fetch("/api/ai/agent/removeSkill", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name }),
+            });
+            if (!removed.ok) continue;
+            const result = await removed.json().catch(() => null);
+            if (result && Number(result.code) !== 0) console.warn("[task-horizon] remove Agent skill failed", name, result.msg || "");
+        } catch (e) {
+            console.warn("[task-horizon] cleanup Agent skill failed", name, e);
+        }
+    }
+};
 
 const notifyTaskHorizonHostLifecycle = (phase, element) => {
     try {
@@ -165,19 +219,24 @@ const hasOfficialMobileRuntimeSignal = () => {
     return false;
 };
 
+const getOfficialFrontend = () => {
+    try {
+        return String(typeof getFrontend === "function" ? getFrontend() : "").trim().toLowerCase();
+    } catch (e) {
+        return "";
+    }
+};
+
 const isMobileBrowserViewport = () => {
+    const frontend = getOfficialFrontend();
+    if (frontend === "browser-mobile") return true;
+    if (frontend === "mobile" || frontend === "desktop" || frontend === "desktop-window" || frontend === "browser-desktop") return false;
     try {
         if (navigator?.userAgentData?.mobile === true) return true;
     } catch (e) {}
     try {
         const ua = String(navigator?.userAgent || "");
         if (/Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua)) return true;
-    } catch (e) {}
-    try {
-        const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
-        const width = Number(window?.innerWidth) || 0;
-        const coarse = !!window?.matchMedia?.("(pointer: coarse)")?.matches;
-        if ((coarse || maxTouchPoints > 0) && width > 0 && width <= 900) return true;
     } catch (e) {}
     return false;
 };
@@ -194,6 +253,10 @@ const getRuntimeClientKind = () => {
     try {
         if (globalThis?.webkit?.messageHandlers) return "ios-app";
     } catch (e) {}
+    const frontend = getOfficialFrontend();
+    if (frontend === "mobile") return "mobile-app";
+    if (frontend === "browser-mobile") return "mobile-browser";
+    if (frontend === "desktop" || frontend === "desktop-window" || frontend === "browser-desktop") return "desktop-browser";
     return isMobileBrowserViewport() ? "mobile-browser" : "desktop-browser";
 };
 
@@ -424,9 +487,11 @@ const loadPluginManifest = async (pluginInstance) => {
 
 const createTaskHorizonHostBridge = (pluginInstance) => ({
     plugin: pluginInstance || null,
+    kernel: pluginInstance?.kernel || null,
     app: pluginInstance?.app || null,
     eventBus: pluginInstance?.eventBus || null,
     platformUtils: platformUtils || null,
+    getFrontend: () => getOfficialFrontend(),
     Protyle: typeof Protyle === "function" ? Protyle : null,
     openTab: typeof openTab === "function" ? openTab : null,
     openMobileFileById: typeof openMobileFileById === "function" ? openMobileFileById : null,
@@ -681,6 +746,7 @@ const ensureTaskMainLoaded = async () => {
     const devLoad = await loadTaskDevManifestScripts();
     if (devLoad.status === "loaded") {
         if (hasTaskMainRuntime()) {
+            console.log(`[task-horizon] dev sources loaded (${devLoad.scripts.length} files): task-horizon.dev-main.js`);
             return true;
         }
         console.error("[task-horizon] task dev main loaded but runtime mount is unavailable", devLoad.scripts);
@@ -730,6 +796,47 @@ const hasAiRuntime = () => {
     } catch (e) {
         return false;
     }
+};
+
+const hasAgentWorkbenchRuntime = () => {
+    try {
+        return !!(globalThis.__tmAI?.loaded && globalThis.__tmAI?.runtimeKind === "agent");
+    } catch (e) {
+        return false;
+    }
+};
+
+const getAiExperienceMode = () => {
+    try {
+        const raw = JSON.parse(localStorage.getItem(AI_EXPERIENCE_MODE_KEY) || '""');
+        if (raw === "agent" || raw === "legacy") return raw;
+    } catch (e) {}
+    return "agent";
+};
+
+const persistAiExperienceMode = (mode) => {
+    const normalized = String(mode || "").trim() === "legacy" ? "legacy" : "agent";
+    try {
+        localStorage.setItem(AI_EXPERIENCE_MODE_KEY, JSON.stringify(normalized));
+        localStorage.setItem(AI_EXPERIENCE_MODE_INITIALIZED_KEY, JSON.stringify(true));
+    } catch (e) {}
+    return normalized;
+};
+
+const ensureAiExperienceRuntime = async (requestedMode = "") => {
+    const requested = String(requestedMode || "").trim();
+    const mode = requested === "agent" || requested === "legacy" ? requested : getAiExperienceMode();
+    const currentKind = globalThis.__tmAI?.runtimeKind === "agent" ? "agent" : (globalThis.__tmAI?.loaded ? "legacy" : "");
+    if (currentKind && currentKind !== mode) {
+        try { globalThis.__tmAI?.cleanup?.(); } catch (e) {}
+        try { delete globalThis.__tmAI; } catch (e) {}
+    }
+    if (mode === "agent") {
+        if (hasAgentWorkbenchRuntime()) return true;
+        await loadStyleText(AGENT_WORKBENCH_STYLE_PATH, "agent-workbench.css");
+        return await ensureDeferredScriptText("agent-workbench", AGENT_WORKBENCH_SCRIPT_PATH, "agent-workbench.js", hasAgentWorkbenchRuntime);
+    }
+    return await ensureDeferredScriptText("legacy-ai", AI_SCRIPT_PATH, "ai.js", hasAiRuntime);
 };
 
 const hasXlsxRuntime = () => {
@@ -878,6 +985,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonPluginInstance = this;
         globalThis.__taskHorizonPluginIsMobile = runtimeMobile;
         globalThis.__taskHorizonPluginIsNativeMobile = runtimeNativeMobile;
+        globalThis.__taskHorizonFrontend = getOfficialFrontend();
         globalThis.__taskHorizonRuntimeClientKind = getRuntimeClientKind();
         globalThis.__taskHorizonOpenTab = typeof openTab === "function" ? openTab : null;
         globalThis.__taskHorizonProtyle = typeof Protyle === "function" ? Protyle : null;
@@ -890,7 +998,38 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
         globalThis.__taskHorizonMountToken = mountToken;
-        globalThis.__taskHorizonEnsureAiModuleLoaded = () => ensureDeferredScriptText("ai", AI_SCRIPT_PATH, "ai.js", hasAiRuntime);
+        globalThis.__taskHorizonGetAiExperienceMode = getAiExperienceMode;
+        globalThis.__taskHorizonEnsureAiModuleLoaded = ensureAiExperienceRuntime;
+        globalThis.__taskHorizonSetAiExperienceMode = async (mode, options = {}) => {
+            const normalized = String(mode || "").trim() === "legacy" ? "legacy" : "agent";
+            const previousMode = getAiExperienceMode();
+            const currentKind = globalThis.__tmAI?.runtimeKind === "agent" ? "agent" : (globalThis.__tmAI?.loaded ? "legacy" : "");
+            if (currentKind === normalized) {
+                persistAiExperienceMode(normalized);
+                return true;
+            }
+            try { globalThis.__tmAI?.cleanup?.(); } catch (e) {}
+            try { delete globalThis.__tmAI; } catch (e) {}
+            try {
+                const ready = await ensureAiExperienceRuntime(normalized);
+                if (!ready) throw new Error(`无法加载${normalized === "agent" ? "思源智能体" : "旧版 AI"}运行时`);
+                persistAiExperienceMode(normalized);
+                try {
+                    window.dispatchEvent(new CustomEvent("tm:task-horizon-ai-mode-changed", { detail: { mode: normalized } }));
+                } catch (e) {}
+                if (options?.open === true) {
+                    try { await globalThis.tmOpenAiSidebar?.({ __tmAiPendingOpen: false }); } catch (e) {}
+                }
+                return true;
+            } catch (error) {
+                try { globalThis.__tmAI?.cleanup?.(); } catch (e) {}
+                try { delete globalThis.__tmAI; } catch (e) {}
+                const restored = await ensureAiExperienceRuntime(previousMode).catch(() => false);
+                persistAiExperienceMode(previousMode);
+                if (!restored) console.error("[task-horizon] restore previous AI runtime failed", previousMode);
+                throw error;
+            }
+        };
         globalThis.__taskHorizonEnsureHomepageModuleLoaded = () => ensureDeferredScriptText("homepage", HOMEPAGE_SCRIPT_PATH, "homepage.js", () => !!globalThis.__tmHomepage?.loaded);
         globalThis.__taskHorizonEnsureXlsxModuleLoaded = () => ensureDeferredScriptText("xlsx", XLSX_VENDOR_SCRIPT_PATH, "vendor/xlsx.full.min.js", hasXlsxRuntime);
         globalThis.__taskHorizonPluginManifest = normalizePluginManifest(this?.manifest);
@@ -901,6 +1040,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         const entryIconPreset = normalizeEntryIconPreset(readLocalJson(ENTRY_ICON_PRESET_STORAGE_KEY, DEFAULT_ENTRY_ICON_PRESET));
         try { this.addIcons(buildEntryIconSymbols(entryIconPreset)); } catch (e) {}
         try { this.initEntryIconRuntime(entryIconPreset); } catch (e) {}
+        try { this.registerTaskHorizonAgentActions(); } catch (e) { console.warn("[task-horizon] register Agent actions failed", e); }
         try {
             if (!runtimeMobile && readWindowTopbarEnabled()) this.ensureWindowTopBar();
         } catch (e) {}
@@ -949,6 +1089,201 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             },
         });
         this._commandsRegistered = true;
+    }
+
+    resolveActiveAgentTaskScope() {
+        try {
+            const activeHeader = document.querySelector('.layout__wnd--active [data-type="tab-header"].item--focus')
+                || document.querySelector('ul.layout-tab-bar > [data-type="tab-header"].item--focus');
+            if (!(activeHeader instanceof HTMLElement)) return { scope: 'unsupported', source: 'no_active_tab' };
+            const tabID = String(activeHeader.getAttribute('data-id') || '').trim();
+            const activeWindow = activeHeader.closest('.layout__wnd--active') || document;
+            const panel = Array.from(activeWindow.querySelectorAll('[data-id]')).find((element) => (
+                element !== activeHeader
+                && String(element.getAttribute('data-id') || '').trim() === tabID
+                && (element.classList.contains('tm-tab-root') || !!element.querySelector('.tm-tab-root, .protyle'))
+            )) || null;
+            const opened = typeof this.getOpenedTab === 'function' ? this.getOpenedTab() : null;
+            const taskTabs = Array.isArray(opened?.[TAB_TYPE]) ? opened[TAB_TYPE] : [];
+            const isTaskHorizonTab = taskTabs.some((model) => (
+                model?.tab?.headElement === activeHeader
+                || String(model?.tab?.id || '').trim() === tabID
+                || (panel && model?.element === panel)
+            )) || panel?.classList?.contains('tm-tab-root') === true;
+            if (isTaskHorizonTab) return { scope: 'current_view', source: 'task_horizon_tab' };
+            const protyle = panel?.matches?.('.protyle') ? panel : panel?.querySelector?.('.protyle');
+            const documentID = [
+                protyle?.querySelector?.('.protyle-title')?.getAttribute?.('data-node-id'),
+                protyle?.querySelector?.('.protyle-title__input')?.getAttribute?.('data-node-id'),
+                protyle?.querySelector?.('.protyle-background')?.getAttribute?.('data-node-id'),
+                protyle?.dataset?.nodeId,
+                protyle?.dataset?.id,
+            ].map((value) => String(value || '').trim()).find((value) => /^[0-9]{14}-[A-Za-z0-9]+$/.test(value)) || '';
+            if (documentID) return { scope: 'focused_document', source: 'siyuan_document_tab', documentID };
+            return { scope: 'unsupported', source: 'unsupported_active_tab' };
+        } catch (e) {
+            return { scope: 'unsupported', source: 'active_tab_error' };
+        }
+    }
+
+    registerTaskHorizonAgentActions() {
+        if (this._taskHorizonAgentActionsRegistered || typeof this.addAgentAction !== "function") return false;
+        const handlers = new Map();
+        const register = (name, description, handler) => {
+            const fullName = this.addAgentAction({ name, description, handler });
+            const entry = { name: fullName, description };
+            handlers.set(name, handler);
+            handlers.set(fullName, handler);
+            return entry;
+        };
+        const descriptors = [
+            register("open_task_manager", "打开任务管理器的指定视图、任务或功能面板", async (args = {}) => {
+                try {
+                    this.openTaskHorizonTab();
+                    const view = String(args.view || "").trim();
+                    const taskID = String(args.taskID || args.taskId || "").trim();
+                    const panel = String(args.panel || "").trim();
+                    if (view && typeof globalThis.tmSwitchViewMode === "function") {
+                        await globalThis.tmSwitchViewMode(view);
+                    }
+                    if (taskID && typeof globalThis.tmOpenTaskDetail === "function") {
+                        await globalThis.tmOpenTaskDetail(taskID, null, { source: "agent-action", panel });
+                    }
+                    return { result: JSON.stringify({ opened: true, view, taskID, panel }) };
+                } catch (e) {
+                    return { error: String(e?.message || e || "打开任务管理器失败") };
+                }
+            }),
+            register("focus_task", "在任务管理器中定位并聚焦一个任务", async (args = {}) => {
+                const taskID = String(args.taskID || args.taskId || "").trim();
+                if (!taskID) return { error: "缺少任务 ID" };
+                try {
+                    this.openTaskHorizonTab();
+                    if (typeof globalThis.tmJumpToTask === "function") await globalThis.tmJumpToTask(taskID);
+                    else if (typeof globalThis.tmOpenTaskDetail === "function") await globalThis.tmOpenTaskDetail(taskID, null, { source: "agent-focus" });
+                    return { result: JSON.stringify({ focused: true, taskID }) };
+                } catch (e) {
+                    return { error: String(e?.message || e || "定位任务失败") };
+                }
+            }),
+            register("get_task_view_context", "按活动页签注册任务范围；返回当前视图 scopeToken 和可重新筛选的 containerScopeToken；scope 可显式覆盖", async (args = {}) => {
+                try {
+                    const taskBridge = globalThis[PLUGIN_ID]?.aiBridge;
+                    if (!taskBridge) throw new Error("任务上下文服务尚未就绪");
+                    const registerScope = this.kernel?.rpc?.call?.taskHorizonRegisterTaskScope;
+                    if (typeof registerScope !== "function") throw new Error("任务范围注册服务尚未就绪");
+                    const explicitScope = String(args.scope || args.mode || "").trim();
+                    const explicitDocumentID = String(args.documentID || args.documentId || "").trim();
+                    const activeScope = this.resolveActiveAgentTaskScope();
+                    const requestedScope = explicitScope || (explicitDocumentID ? "focused_document" : activeScope.scope);
+                    if (requestedScope === "focused_document") {
+                        const documentID = explicitDocumentID || (activeScope.scope === "focused_document" ? activeScope.documentID : "");
+                        if (!/^[0-9]{14}-[A-Za-z0-9]+$/.test(documentID)) throw new Error("无法确定当前思源文档");
+                        if (typeof taskBridge?.getDocumentTaskReadScope !== "function") throw new Error("文档任务范围服务尚未就绪");
+                        const documentScope = await taskBridge.getDocumentTaskReadScope([documentID]);
+                        const registeredDocument = await registerScope({
+                            scopeID: String(documentScope?.scopeID || `documents:${documentID}`).trim(),
+                            scopeMode: "documents",
+                            taskIDs: [],
+                            documentIDs: [documentID],
+                            taskValues: Array.isArray(documentScope?.taskValues) ? documentScope.taskValues : [],
+                            virtualTasks: Array.isArray(documentScope?.virtualTasks) ? documentScope.virtualTasks : [],
+                        });
+                        if (!registeredDocument || registeredDocument.ok !== true) throw new Error(String(registeredDocument?.error?.message || "文档任务范围注册失败"));
+                        return { result: JSON.stringify({
+                            source: (explicitScope || explicitDocumentID) ? "focused_document" : activeScope.source,
+                            scopeToken: registeredDocument.data?.scopeToken,
+                            viewScopeToken: registeredDocument.data?.scopeToken,
+                            containerScopeToken: registeredDocument.data?.scopeToken,
+                            scopeID: registeredDocument.data?.scopeID,
+                            expiresAt: registeredDocument.data?.expiresAt,
+                            documentID,
+                            visibleTaskCount: registeredDocument.data?.taskCount,
+                            realTaskCount: registeredDocument.data?.realTaskCount,
+                            virtualTaskCount: registeredDocument.data?.virtualTaskCount,
+                            containerTaskCount: registeredDocument.data?.taskCount,
+                            documentCount: 1,
+                        }) };
+                    }
+                    if (requestedScope !== "current_view") throw new Error("当前活动页签不是任务管理器或思源笔记");
+                    if (typeof taskBridge.getCurrentViewContext !== "function") throw new Error("任务视图范围服务尚未就绪");
+                    const context = await taskBridge.getCurrentViewContext();
+                    const registered = await registerScope({
+                        scopeID: String(context?.scopeID || "").trim(),
+                        taskIDs: Array.isArray(context?.visibleTaskIDs) ? context.visibleTaskIDs : [],
+                        documentIDs: Array.isArray(context?.documentIDs) ? context.documentIDs : [],
+                        taskValues: Array.isArray(context?.taskValues) ? context.taskValues : [],
+                        virtualTasks: Array.isArray(context?.virtualTasks) ? context.virtualTasks : [],
+                    });
+                    if (!registered || registered.ok !== true) throw new Error(String(registered?.error?.message || "任务范围注册失败"));
+                    const containerDocumentIDs = Array.from(new Set((Array.isArray(context?.documentIDs) ? context.documentIDs : []).map((id) => String(id || "").trim()).filter(Boolean)));
+                    let containerRegistered = registered;
+                    if (containerDocumentIDs.length) {
+                        if (typeof taskBridge?.getDocumentTaskReadScope !== "function") throw new Error("文档任务范围服务尚未就绪");
+                        const containerScope = await taskBridge.getDocumentTaskReadScope(containerDocumentIDs);
+                        containerRegistered = await registerScope({
+                            scopeID: `${String(context?.groupID || "all").trim()}|${String(context?.activeDocID || "all").trim()}|container`,
+                            scopeMode: "documents",
+                            taskIDs: [],
+                            documentIDs: containerDocumentIDs,
+                            taskValues: Array.isArray(containerScope?.taskValues) ? containerScope.taskValues : [],
+                            virtualTasks: Array.isArray(containerScope?.virtualTasks) ? containerScope.virtualTasks : [],
+                        });
+                        if (!containerRegistered || containerRegistered.ok !== true) throw new Error(String(containerRegistered?.error?.message || "任务容器范围注册失败"));
+                    }
+                    const selectedTaskIDs = Array.isArray(context?.selectedTaskIDs) ? context.selectedTaskIDs : [];
+                    const selectedVirtualTasks = Array.isArray(context?.selectedVirtualTasks) ? context.selectedVirtualTasks : [];
+                    let selectedRegistered = null;
+                    if (selectedTaskIDs.length || selectedVirtualTasks.length) {
+                        selectedRegistered = await registerScope({
+                            scopeID: `${String(context?.scopeID || "").trim()}|selected`,
+                            taskIDs: selectedTaskIDs,
+                            documentIDs: Array.isArray(context?.documentIDs) ? context.documentIDs : [],
+                            taskValues: (Array.isArray(context?.taskValues) ? context.taskValues : []).filter((item) => selectedTaskIDs.includes(String(item?.id || "").trim())),
+                            virtualTasks: selectedVirtualTasks,
+                        });
+                        if (!selectedRegistered || selectedRegistered.ok !== true) throw new Error(String(selectedRegistered?.error?.message || "已选任务范围注册失败"));
+                    }
+                    return { result: JSON.stringify({
+                        source: explicitScope ? "current_view" : activeScope.source,
+                        scopeToken: registered.data?.scopeToken,
+                        viewScopeToken: registered.data?.scopeToken,
+                        containerScopeToken: containerRegistered.data?.scopeToken,
+                        scopeID: context?.scopeID,
+                        expiresAt: registered.data?.expiresAt,
+                        groupID: context?.groupID,
+                        groupLabel: context?.groupLabel,
+                        activeDocID: context?.activeDocID,
+                        activeDocLabel: context?.activeDocLabel,
+                        view: context?.view,
+                        viewLabel: context?.viewLabel,
+                        filter: context?.filter,
+                        visibleTaskCount: registered.data?.taskCount,
+                        realTaskCount: registered.data?.realTaskCount,
+                        virtualTaskCount: registered.data?.virtualTaskCount,
+                        containerTaskCount: containerRegistered.data?.taskCount,
+                        documentCount: registered.data?.documentCount,
+                        focusedTaskID: context?.focusedTaskID,
+                        selectedTaskCount: selectedTaskIDs.length + selectedVirtualTasks.length,
+                        selectedScopeToken: selectedRegistered?.data?.scopeToken,
+                        selectedTaskIDs: selectedTaskIDs.length + selectedVirtualTasks.length <= 20
+                            ? selectedTaskIDs.concat(selectedVirtualTasks.map((item) => String(item?.id || "").trim()).filter(Boolean))
+                            : [],
+                        selectedTasksTruncated: selectedTaskIDs.length + selectedVirtualTasks.length > 20,
+                    }) };
+                } catch (e) {
+                    return { error: String(e?.message || e || "读取任务视图失败") };
+                }
+            }),
+        ];
+        globalThis.__taskHorizonAgentActionDescriptors = descriptors;
+        globalThis.__taskHorizonInvokeAgentAction = async (name, args = {}) => {
+            const handler = handlers.get(String(name || "").trim());
+            if (typeof handler !== "function") return { error: `未知前端动作: ${String(name || "")}` };
+            return await handler(args, this.app);
+        };
+        this._taskHorizonAgentActionsRegistered = true;
+        return true;
     }
 
     async loadTaskHorizonPostMainAssets() {
@@ -1939,6 +2274,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonPluginManifest; } catch (e) {}
         try { delete globalThis.__taskHorizonPluginIsMobile; } catch (e) {}
         try { delete globalThis.__taskHorizonPluginIsNativeMobile; } catch (e) {}
+        try { delete globalThis.__taskHorizonFrontend; } catch (e) {}
         try { delete globalThis.__taskHorizonRuntimeClientKind; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTab; } catch (e) {}
         try { delete globalThis.__taskHorizonProtyle; } catch (e) {}
@@ -1956,6 +2292,10 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonExplicitWindowExportKeys; } catch (e) {}
         try { delete globalThis.__taskHorizonAiCleanup; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureAiModuleLoaded; } catch (e) {}
+        try { delete globalThis.__taskHorizonGetAiExperienceMode; } catch (e) {}
+        try { delete globalThis.__taskHorizonSetAiExperienceMode; } catch (e) {}
+        try { delete globalThis.__taskHorizonAgentActionDescriptors; } catch (e) {}
+        try { delete globalThis.__taskHorizonInvokeAgentAction; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureXlsxModuleLoaded; } catch (e) {}
         try { delete globalThis.__taskHorizonMount; } catch (e) {}
         try { delete globalThis.__TaskManagerCleanup; } catch (e) {}
@@ -1976,6 +2316,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { globalThis.__taskHorizonAiCleanup?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarCleanup?.(); } catch (e) {}
 
+        try { await removeUnmodifiedAgentSkills(this); } catch (e) {}
+
         try {
             const ns = globalThis["siyuan-plugin-task-horizon"];
             if (ns && typeof ns.uninstallCleanup === "function") {
@@ -1992,6 +2334,11 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-conversations.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-debug.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-prompt-templates.json",
+                "/data/storage/petal/siyuan-plugin-task-horizon/agent-workbench.json",
+                "/data/storage/petal/siyuan-plugin-task-horizon/agent-mcp-config.json",
+                "/data/storage/petal/siyuan-plugin-task-horizon/ai-policy-config.json",
+                "/data/storage/petal/siyuan-plugin-task-horizon/agent-scheduled-events.json",
+                "/data/storage/petal/siyuan-plugin-task-horizon/calendar-events.json",
             ];
             await Promise.all(paths.map((path) => fetch("/api/file/removeFile", {
                 method: "POST",

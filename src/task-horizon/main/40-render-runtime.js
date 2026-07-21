@@ -102,6 +102,7 @@ return;
         const keepMountSnapshot = !!(prevModalSnapshot && snapshotKind && prevMountRoot !== nextMountRoot);
         const prevWasTimeline = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmTimelineLeftBody'));
         const prevWasCalendar = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot'));
+        const shouldRestoreCalendarScroll = prevWasCalendar;
         const prevWasKanban = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body.tm-body--kanban'));
         const prevWasWhiteboard = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body.tm-body--whiteboard'));
         const prevWasChecklist = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-checklist-scroll'));
@@ -853,9 +854,9 @@ return;
                                 </div>
                                 ${__tmIsAiFeatureEnabled() ? `
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px; opacity:.6; cursor:not-allowed;" title="移动端不启用 AI 对话侧栏" aria-disabled="true">
-                                        <span>AI 对话（移动端关闭）</span>
-                                        <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiSideDockEnabled ? 'checked' : ''} disabled>
+                                    <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; min-height:44px; padding:6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                                        <span>AI 对话</span>
+                                        <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiSideDockEnabled && state.aiMobilePanelOpen ? 'checked' : ''} onchange="tmToggleAiSideDock(this.checked); tmHideMobileMenu();">
                                     </div>
                                 </div>
                                 ` : ''}
@@ -2018,22 +2019,32 @@ return;
                         display: flex;
                         align-items: stretch;
                         justify-content: stretch;
-                    }
-                    .tm-ai-mobile-mask {
-                        position: absolute;
-                        inset: 0;
-                        background: rgba(0,0,0,.32);
+                        box-sizing: border-box;
+                        min-width: 0;
+                        max-width: 100%;
+                        overflow: hidden;
                     }
                     .tm-ai-mobile-panel {
                         position: relative;
                         margin-left: auto;
+                        box-sizing: border-box;
                         width: min(100vw, 100%);
+                        min-width: 0;
+                        max-width: 100%;
                         height: 100%;
+                        overflow: hidden;
                         background: var(--tm-bg-color);
                         border-left: 1px solid var(--tm-border-color);
                         display: flex;
                         flex-direction: column;
                         min-height: 0;
+                    }
+                    #tmAiMobileSidebarPanel {
+                        box-sizing: border-box;
+                        width: 100%;
+                        min-width: 0;
+                        max-width: 100%;
+                        overflow: hidden;
                     }
                 </style>
 
@@ -2042,6 +2053,13 @@ return;
                     ${bodyWithSideDockHtml}
                     ${multiSelectBarHtml}
                     ${taskDetailSheetHtml}
+                    ${(isMobile || isDockHost) && state.aiMobilePanelOpen && __tmIsAiFeatureEnabled() ? `
+                        <div class="tm-ai-mobile-shell">
+                            <div class="tm-ai-mobile-panel">
+                                <div id="tmAiMobileSidebarPanel" style="height:100%;min-height:0;"></div>
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
                 ${showMobileBottomViewBar ? `
                     <div class="tm-mobile-bottom-viewbar ${mobileBottomViewbarActive ? 'tm-mobile-bottom-viewbar--active' : ''}${mobileBottomViewbarSwitching ? ' tm-mobile-bottom-viewbar--switching' : ''}" onpointerdown="tmTouchMobileBottomViewbar(event)" onclick="tmTouchMobileBottomViewbar(event)">
@@ -2049,14 +2067,6 @@ return;
                             <div class="tm-view-segmented bc-tabs-list tm-mobile-bottom-view-switcher" role="tablist" aria-label="视图">
                                 ${__tmRenderViewSwitcherButtons({ compact: true, mobileBottom: true })}
                             </div>
-                        </div>
-                    </div>
-                ` : ''}
-                ${isMobile && state.aiMobilePanelOpen && __tmIsAiFeatureEnabled() ? `
-                    <div class="tm-ai-mobile-shell">
-                        <div class="tm-ai-mobile-mask" onclick="tmCloseAiSidebar()"></div>
-                        <div class="tm-ai-mobile-panel">
-                            <div id="tmAiMobileSidebarPanel" style="height:100%;min-height:0;"></div>
                         </div>
                     </div>
                 ` : ''}
@@ -2211,6 +2221,7 @@ return;
                     const restoreCalendarScrollAfterMount = () => {
                         const apply = () => {
                             try {
+                                if (!shouldRestoreCalendarScroll) return;
                                 if (!el || !el.querySelectorAll) return;
                                 const preferred = el.querySelector('.fc-timegrid-body .fc-scroller');
                                 const list = Array.from(el.querySelectorAll('.fc-scroller'));
@@ -2270,7 +2281,7 @@ return;
             } else if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.unmountSideDayTimeline === 'function') {
                 try { globalThis.__tmCalendar.unmountSideDayTimeline(); } catch (e) {}
             }
-            if ((showAiSideDock || (isMobile && state.aiMobilePanelOpen && __tmIsAiFeatureEnabled()))) {
+            if ((showAiSideDock || ((isMobile || isDockHost) && state.aiMobilePanelOpen && __tmIsAiFeatureEnabled()))) {
                 try { __tmMountAiSidebarHost(); } catch (e) {}
             }
             if (state.homepageOpen) {
@@ -2640,6 +2651,7 @@ return;
                     const root = state.modal.querySelector('#tmCalendarRoot');
                     const apply = () => {
                         try {
+                            if (!shouldRestoreCalendarScroll) return;
                             if (!root || !root.querySelectorAll) return;
                             const preferred = root.querySelector('.fc-timegrid-body .fc-scroller');
                             const list = Array.from(root.querySelectorAll('.fc-scroller'));
@@ -3835,6 +3847,8 @@ return;
                     ? String(API.extractTaskContentLine(fallbackTitle) || fallbackTitle).trim()
                     : fallbackTitle),
                 durationMin: Number(meta?.durationMin) || 60,
+                durationExplicit: meta?.durationExplicit === true,
+                documentID: String(meta?.documentID || meta?.docId || '').trim(),
                 calendarId: String(meta?.calendarId || '').trim(),
                 startDate: String(meta?.startDate || '').trim(),
                 completionTime: String(meta?.completionTime || '').trim(),
@@ -6109,7 +6123,10 @@ return;
             }
             for (const tid of ids) {
                 const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(String(tid || '').trim()) || state.flatTasks?.[String(tid || '').trim()];
-                if (!task?.done) continue;
+                const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+                    ? !!__tmIsTaskDoneEffective(task)
+                    : !!task?.done;
+                if (!taskDone) continue;
                 const ok0 = await __tmKanbanWaitForUnlock();
                 if (!ok0) return false;
                 await tmSetDone(tid, false);
@@ -8050,8 +8067,11 @@ return;
         hrPriority.style.cssText = 'margin: 4px 0; border: none; border-top: 1px solid var(--b3-theme-surface-light);';
         menu.appendChild(hrPriority);
 
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('check-circle-2', task.done ? '取消完成（仅插件内）' : '标记完成（仅插件内）'), async () => {
-            await tmSetDone(tid, !task.done);
+        const effectiveTaskDone = typeof __tmIsTaskDoneEffective === 'function'
+            ? !!__tmIsTaskDoneEffective(task)
+            : !!task.done;
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('check-circle-2', effectiveTaskDone ? '取消完成（仅插件内）' : '标记完成（仅插件内）'), async () => {
+            await tmSetDone(tid, !effectiveTaskDone);
         }));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task.pinned ? '取消置顶' : '置顶'), async () => {
             await tmSetPinned(tid, !task.pinned);

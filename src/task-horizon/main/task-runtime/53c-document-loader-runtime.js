@@ -892,7 +892,6 @@
             } catch (e) {}
         }
         try {
-        try { state.doneOverrides = {}; } catch (e) {}
         // 加载设置（包括文档ID列表）
         await __tmEnsureSettingsLoaded();
         __tmPerfTraceMark(perfTrace, 'settings', {

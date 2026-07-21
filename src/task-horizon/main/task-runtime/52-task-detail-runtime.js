@@ -61,6 +61,33 @@
         return `<input class="tm-input tm-task-time-hub__until-date${normalized ? ' has-value' : ''}" type="date" value="${esc(normalized)}" data-tm-time-hub-repeat-until-input aria-label="循环结束日期">`;
     }
 
+    function __tmRenderTaskTimeHubRepeatEndEditorHtml(ruleInput, stateInput = {}) {
+        const rule = __tmNormalizeTaskRepeatRule(ruleInput);
+        const state = (stateInput && typeof stateInput === 'object') ? stateInput : {};
+        const mode = ['date', 'count'].includes(state.repeatEndMode)
+            ? state.repeatEndMode
+            : (rule.maxOccurrences > 0 ? 'count' : (rule.until ? 'date' : 'never'));
+        const untilValue = __tmNormalizeDateOnly(state.untilDraft || rule.until || '');
+        const countValue = __tmNormalizeTaskRepeatMaxOccurrences(state.repeatEndCountDraft || rule.maxOccurrences || 1) || 1;
+        return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
+            <div class="tm-task-time-hub__subpanel-title">结束</div>
+            <button type="button" class="tm-task-time-hub__choice ${mode === 'never' ? 'is-selected' : ''}" data-tm-time-hub-repeat-end-mode="never">永不结束</button>
+            <button type="button" class="tm-task-time-hub__choice ${mode === 'date' ? 'is-selected' : ''}" data-tm-time-hub-repeat-end-mode="date">按日期结束</button>
+            ${mode === 'date' ? `<div class="tm-task-time-hub__until-row">
+                ${__tmRenderTaskTimeHubUntilControlHtml(untilValue)}
+                <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-until-apply>应用</button>
+            </div>` : ''}
+            <button type="button" class="tm-task-time-hub__choice ${mode === 'count' ? 'is-selected' : ''}" data-tm-time-hub-repeat-end-mode="count">按次数结束</button>
+            ${mode === 'count' ? `<div class="tm-task-time-hub__until-row">
+                <label class="tm-task-time-hub__count-field">
+                    <input class="tm-input tm-task-time-hub__until-date" type="number" min="1" max="200" step="1" value="${esc(String(countValue))}" data-tm-time-hub-repeat-count-input aria-label="循环总次数">
+                    <span>次</span>
+                </label>
+                <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-count-apply>应用</button>
+            </div>` : ''}
+        </div>`;
+    }
+
     function __tmRenderTaskDetailPhosphorIcon(iconName, size = 18) {
         const name = String(iconName || '').trim();
         if (!name) return '';
@@ -1159,6 +1186,8 @@
             scheduleExpanded: false,
             rangeDrag: null,
             untilDraft: normalizeDate(getRepeatRule()?.until || ''),
+            repeatEndMode: '',
+            repeatEndCountDraft: 1,
         };
         const getHubMonthDate = () => {
             const current = hubState.monthDate instanceof Date ? hubState.monthDate : initialMonth;
@@ -1280,7 +1309,7 @@
             const gridStart = __tmGetTaskTimeHubMonthGridStart(month, firstDay);
             const startValue = readTaskDate('startDate');
             const endValue = readTaskDate('completionTime');
-            const selectingUntil = hubState.editor === 'end';
+            const selectingUntil = hubState.editor === 'end' && hubState.repeatEndMode === 'date';
             const activeValue = selectingUntil ? normalizeDate(hubState.untilDraft) : readTaskDate(hubState.activeField);
             const savedRange = !selectingUntil && startValue && endValue ? sortDateRange(startValue, endValue) : null;
             const dragRange = !selectingUntil && hubState.rangeDrag ? sortDateRange(hubState.rangeDrag.anchor, hubState.rangeDrag.current) : null;
@@ -1348,7 +1377,10 @@
             const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
             const repeatText = getRepeatSummary() || '不循环';
             const rule = getRepeatRule();
-            const endText = rule?.enabled ? (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束') : '未设置';
+            const repeatTask = getBoundTask() || task || {};
+            const endText = rule?.enabled
+                ? (rule.maxOccurrences > 0 ? __tmGetTaskRepeatProgressText(repeatTask, rule) : (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束'))
+                : '未设置';
             const cards = [];
             if (!hideRepeat) {
                 cards.push(['repeat', 'repeat', '循环', repeatText]);
@@ -1422,16 +1454,7 @@
             }
             if (editor === 'end') {
                 if (hideRepeat) return '';
-                const rule = getRepeatRule();
-                const untilValue = normalizeDate(hubState.untilDraft || rule?.until || '');
-                return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
-                    <div class="tm-task-time-hub__subpanel-title">结束</div>
-                    <button type="button" class="tm-task-time-hub__choice ${!untilValue ? 'is-selected' : ''}" data-tm-time-hub-repeat-until-clear>永不结束</button>
-                    <div class="tm-task-time-hub__until-row">
-                        ${__tmRenderTaskTimeHubUntilControlHtml(untilValue)}
-                        <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-until-apply>应用</button>
-                    </div>
-                </div>`;
+                return __tmRenderTaskTimeHubRepeatEndEditorHtml(getRepeatRule(), hubState);
             }
             return '';
         };
@@ -1447,7 +1470,7 @@
                 ${hubState.tab === 'date' ? `
                     <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
-                        ${__tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' ? hubState.untilDraft : readTaskDate(hubState.activeField))}
+                        ${__tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' && hubState.repeatEndMode === 'date' ? hubState.untilDraft : readTaskDate(hubState.activeField))}
                         ${renderCalendarHtml()}
                         ${renderMonthEditorHtml()}
                         ${(() => {
@@ -1581,18 +1604,26 @@
                 setBusy(false);
             }
         };
-        const applyRepeatUntil = async (untilValue) => {
+        const applyRepeatEnd = async (modeInput, valueInput = '') => {
             if (hideRepeat) return;
             const current = getRepeatRule();
             if (!current?.enabled || current.type === 'none') {
                 hint('⚠ 请先设置循环规则', 'warning');
                 return;
             }
+            const mode = modeInput === 'date' || modeInput === 'count' ? modeInput : 'never';
+            const until = mode === 'date' ? normalizeDate(valueInput) : '';
+            const maxOccurrences = mode === 'count' ? (__tmNormalizeTaskRepeatMaxOccurrences(valueInput) || 1) : 0;
+            if (mode === 'date' && !until) {
+                hint('⚠ 请选择循环结束日期', 'warning');
+                return;
+            }
             try {
                 setBusy(true);
                 await window.tmSetTaskRepeatRule?.(getEffectiveTaskId() || taskId, {
                     ...current,
-                    until: untilValue ? normalizeDate(untilValue) : '',
+                    until,
+                    maxOccurrences,
                     anchorDate: readTaskDate('completionTime') || readTaskDate('startDate') || todayKey,
                 }, { source: 'task-time-hub-until' });
                 await refreshTask();
@@ -1647,7 +1678,7 @@
                 render();
                 return;
             }
-            const selectingUntilFromCalendar = hubState.editor === 'end'
+            const selectingUntilFromCalendar = hubState.editor === 'end' && hubState.repeatEndMode === 'date'
                 && !!target.closest('[data-tm-time-hub-date], [data-tm-time-hub-quick-date], [data-tm-time-hub-month]');
             if (!selectingUntilFromCalendar && __tmShouldDismissTaskTimeHubEditor(popover, hubState.editor, target)) {
                 hubState.editor = '';
@@ -1680,7 +1711,7 @@
                 try { ev.preventDefault(); } catch (e) {}
                 if (quickDateBtn.disabled || quickDateBtn.getAttribute('aria-disabled') === 'true') return;
                     const key = normalizeDate(quickDateBtn.getAttribute('data-tm-time-hub-quick-date') || '');
-                    if (key && hubState.editor === 'end') {
+                    if (key && hubState.editor === 'end' && hubState.repeatEndMode === 'date') {
                         hubState.untilDraft = key;
                         hubState.monthDate = startOfMonth(parseDateKey(key) || new Date());
                         render();
@@ -1733,7 +1764,7 @@
                     return;
                 }
                     const key = normalizeDate(dayBtn.getAttribute('data-tm-time-hub-date') || '');
-                    if (key && hubState.editor === 'end') {
+                    if (key && hubState.editor === 'end' && hubState.repeatEndMode === 'date') {
                         hubState.untilDraft = key;
                         render();
                 } else if (key) await updateDateField(hubState.activeField, key);
@@ -1754,7 +1785,10 @@
                 }
                 const nextEditor = hubState.editor === key ? '' : key;
                 if (nextEditor === 'end') {
-                    hubState.untilDraft = normalizeDate(getRepeatRule()?.until || '');
+                    const rule = getRepeatRule();
+                    hubState.untilDraft = normalizeDate(rule?.until || '');
+                    hubState.repeatEndMode = rule?.maxOccurrences > 0 ? 'count' : (rule?.until ? 'date' : 'never');
+                    hubState.repeatEndCountDraft = rule?.maxOccurrences || 1;
                     const untilMonth = parseDateKey(hubState.untilDraft || todayKey);
                     if (untilMonth) hubState.monthDate = startOfMonth(untilMonth);
                 }
@@ -1789,10 +1823,16 @@
                 }
                 return;
             }
-            const untilClearBtn = target.closest('[data-tm-time-hub-repeat-until-clear]');
-            if (untilClearBtn) {
+            const endModeBtn = target.closest('[data-tm-time-hub-repeat-end-mode]');
+            if (endModeBtn) {
                 try { ev.preventDefault(); } catch (e) {}
-                await applyRepeatUntil('');
+                const mode = String(endModeBtn.getAttribute('data-tm-time-hub-repeat-end-mode') || '').trim();
+                if (mode === 'never') {
+                    await applyRepeatEnd('never');
+                } else {
+                    hubState.repeatEndMode = mode === 'count' ? 'count' : 'date';
+                    render();
+                }
                 return;
             }
             const untilApplyBtn = target.closest('[data-tm-time-hub-repeat-until-apply]');
@@ -1800,7 +1840,14 @@
                 try { ev.preventDefault(); } catch (e) {}
                 if (untilApplyBtn.disabled || untilApplyBtn.getAttribute('aria-disabled') === 'true') return;
                 const input = popover.querySelector('[data-tm-time-hub-repeat-until-input]');
-                await applyRepeatUntil(input instanceof HTMLInputElement ? input.value : '');
+                await applyRepeatEnd('date', input instanceof HTMLInputElement ? input.value : '');
+                return;
+            }
+            const countApplyBtn = target.closest('[data-tm-time-hub-repeat-count-apply]');
+            if (countApplyBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                const input = popover.querySelector('[data-tm-time-hub-repeat-count-input]');
+                await applyRepeatEnd('count', input instanceof HTMLInputElement ? input.value : '1');
                 return;
             }
             const addScheduleBtn = target.closest('[data-tm-time-hub-add-schedule]');
@@ -3622,6 +3669,10 @@
                     syncMetaChipFaces();
                     scheduleReminderButtonStateRefresh();
                     break;
+                case 'custom-tomato-reminder':
+                    __tmClearReminderSnapshotCache(String(nextTask.id || taskId || '').trim());
+                    scheduleReminderButtonStateRefresh();
+                    break;
                 case 'custom-remark':
                     nextTask.remark = __tmNormalizeRemarkMarkdown(value);
                     nextTask = __tmCacheTaskInState(nextTask, {
@@ -5261,7 +5312,7 @@
                 if (!nodeTaskId) return;
                 const nextDone = !!input.checked;
                 try { node.classList.add('is-updating'); } catch (e) {}
-                const result = await window.tmSetDone?.(nodeTaskId, nextDone, null, {
+                const result = await window.tmSetDone?.(nodeTaskId, nextDone, ev, {
                     source: 'task-detail-whiteboard-outline',
                     wait: true,
                     skipInteractionGate: true,
@@ -5393,6 +5444,9 @@
                 const boundTask = getBoundTask() || task || {};
                 const rule = __tmGetTaskRepeatRule(boundTask);
                 if (!rule.enabled || rule.type === 'none') return '未设置';
+                if (rule.maxOccurrences > 0) {
+                    return __tmGetTaskRepeatProgressText(boundTask, rule);
+                }
                 return rule.until ? `结束于 ${rule.until}` : '永不结束';
             };
             const renderRepeatPreviewHtml = () => {
@@ -5574,13 +5628,10 @@
                     hint('⚠ 请先设置循环规则', 'warning');
                     return;
                 }
-                const nextUntil = await showDatePrompt('循环截止日期（留空表示永不结束）', currentRule.until || '');
-                if (nextUntil === null) return;
-                const result = await window.tmSetTaskRepeatRule?.(getBoundTaskId() || taskId, {
-                    ...currentRule,
-                    until: nextUntil || '',
-                    anchorDate: currentTask?.completionTime || currentTask?.startDate || __tmNormalizeDateOnly(new Date()),
-                }, { source: 'task-repeat-until-inline' });
+                const result = await window.tmEditTaskRepeatRule?.(getBoundTaskId() || taskId, {
+                    task: currentTask,
+                    title: '循环结束设置',
+                });
                 if (!result) return;
                 const refreshedTask = await __tmResolveTaskForRepeat(getBoundTaskId() || taskId);
                 if (refreshedTask) {
@@ -5663,6 +5714,8 @@
             scheduleExpanded: false,
             rangeDrag: null,
             untilDraft: __tmNormalizeDateOnly(getRepeatRule()?.until || ''),
+            repeatEndMode: '',
+            repeatEndCountDraft: 1,
         };
         const getHubMonthDate = () => {
             const current = hubState.monthDate instanceof Date ? hubState.monthDate : initialMonth;
@@ -5741,7 +5794,7 @@
                 const gridStart = __tmGetTaskTimeHubMonthGridStart(month, firstDay);
                 const startValue = readHiddenInputValue('startDate');
                 const endValue = readHiddenInputValue('completionTime');
-                const selectingUntil = hubState.editor === 'end';
+                const selectingUntil = hubState.editor === 'end' && hubState.repeatEndMode === 'date';
                 const activeValue = selectingUntil ? __tmNormalizeDateOnly(hubState.untilDraft) : readHiddenInputValue(hubState.activeField);
                 const savedRange = !selectingUntil && startValue && endValue ? sortDateRange(startValue, endValue) : null;
                 const dragRange = !selectingUntil && hubState.rangeDrag
@@ -5811,7 +5864,10 @@
                 const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
                 const repeatText = getRepeatSummary() || '不循环';
                 const rule = getRepeatRule();
-            const endText = rule?.enabled ? (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束') : '未设置';
+            const repeatTask = getBoundTask() || task || {};
+            const endText = rule?.enabled
+                ? (rule.maxOccurrences > 0 ? __tmGetTaskRepeatProgressText(repeatTask, rule) : (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束'))
+                : '未设置';
             const cards = [];
             if (!hideRepeat) {
                 cards.push(['repeat', 'repeat', '循环', repeatText]);
@@ -5899,16 +5955,7 @@
             }
             if (editor === 'end') {
                 if (hideRepeat) return '';
-                const rule = getRepeatRule();
-                const untilValue = __tmNormalizeDateOnly(hubState.untilDraft || rule?.until || '');
-                    return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
-                        <div class="tm-task-time-hub__subpanel-title">结束</div>
-                        <button type="button" class="tm-task-time-hub__choice ${!untilValue ? 'is-selected' : ''}" data-tm-time-hub-repeat-until-clear>永不结束</button>
-                        <div class="tm-task-time-hub__until-row">
-                            ${__tmRenderTaskTimeHubUntilControlHtml(untilValue)}
-                            <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-until-apply>应用</button>
-                        </div>
-                    </div>`;
+                return __tmRenderTaskTimeHubRepeatEndEditorHtml(getRepeatRule(), hubState);
                 }
                 return '';
             };
@@ -5924,7 +5971,7 @@
                     ${hubState.tab === 'date' ? `
                         <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
-                        ${__tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' ? hubState.untilDraft : readHiddenInputValue(hubState.activeField))}
+                        ${__tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' && hubState.repeatEndMode === 'date' ? hubState.untilDraft : readHiddenInputValue(hubState.activeField))}
                         ${renderCalendarHtml()}
                         ${renderMonthEditorHtml()}
                         ${(() => {
@@ -6154,17 +6201,25 @@
                     setInlinePopoverBusyState(false, popover);
                 }
             };
-            const applyRepeatUntil = async (untilValue) => {
+            const applyRepeatEnd = async (modeInput, valueInput = '') => {
                 const current = getRepeatRule();
                 if (!current?.enabled || current.type === 'none') {
                     hint('⚠ 请先设置循环规则', 'warning');
+                    return;
+                }
+                const mode = modeInput === 'date' || modeInput === 'count' ? modeInput : 'never';
+                const until = mode === 'date' ? __tmNormalizeDateOnly(valueInput) : '';
+                const maxOccurrences = mode === 'count' ? (__tmNormalizeTaskRepeatMaxOccurrences(valueInput) || 1) : 0;
+                if (mode === 'date' && !until) {
+                    hint('⚠ 请选择循环结束日期', 'warning');
                     return;
                 }
                 try {
                     setInlinePopoverBusyState(true, popover);
                     await window.tmSetTaskRepeatRule?.(getBoundTaskId() || taskId, {
                         ...current,
-                        until: untilValue ? __tmNormalizeDateOnly(untilValue) : '',
+                        until,
+                        maxOccurrences,
                         anchorDate: readHiddenInputValue('completionTime') || readHiddenInputValue('startDate') || todayKey,
                     }, { source: 'task-detail-time-hub-until' });
                     const refreshed = await __tmResolveTaskForRepeat(getBoundTaskId() || taskId);
@@ -6221,7 +6276,7 @@
                     render();
                     return;
                 }
-                const selectingUntilFromCalendar = hubState.editor === 'end'
+                const selectingUntilFromCalendar = hubState.editor === 'end' && hubState.repeatEndMode === 'date'
                     && !!target.closest('[data-tm-time-hub-date], [data-tm-time-hub-quick-date], [data-tm-time-hub-month]');
                 if (!selectingUntilFromCalendar && __tmShouldDismissTaskTimeHubEditor(popover, hubState.editor, target)) {
                     hubState.editor = '';
@@ -6255,7 +6310,7 @@
                     try { ev.preventDefault(); } catch (e) {}
                     if (quickDateBtn.disabled || quickDateBtn.getAttribute('aria-disabled') === 'true') return;
                     const key = __tmNormalizeDateOnly(quickDateBtn.getAttribute('data-tm-time-hub-quick-date') || '');
-                    if (key && hubState.editor === 'end') {
+                    if (key && hubState.editor === 'end' && hubState.repeatEndMode === 'date') {
                         hubState.untilDraft = key;
                         hubState.monthDate = startOfMonth(parseDateKey(key) || new Date());
                         render();
@@ -6308,7 +6363,7 @@
                         return;
                     }
                     const key = __tmNormalizeDateOnly(dayBtn.getAttribute('data-tm-time-hub-date') || '');
-                    if (key && hubState.editor === 'end') {
+                    if (key && hubState.editor === 'end' && hubState.repeatEndMode === 'date') {
                         hubState.untilDraft = key;
                         render();
                     } else if (key) await updateDateField(hubState.activeField, key);
@@ -6330,7 +6385,10 @@
                     }
                     const nextEditor = hubState.editor === key ? '' : key;
                     if (nextEditor === 'end') {
-                        hubState.untilDraft = __tmNormalizeDateOnly(getRepeatRule()?.until || '');
+                        const rule = getRepeatRule();
+                        hubState.untilDraft = __tmNormalizeDateOnly(rule?.until || '');
+                        hubState.repeatEndMode = rule?.maxOccurrences > 0 ? 'count' : (rule?.until ? 'date' : 'never');
+                        hubState.repeatEndCountDraft = rule?.maxOccurrences || 1;
                         const untilMonth = parseDateKey(hubState.untilDraft || todayKey);
                         if (untilMonth) hubState.monthDate = startOfMonth(untilMonth);
                     }
@@ -6370,10 +6428,16 @@
                     }
                     return;
                 }
-                const untilClearBtn = target.closest('[data-tm-time-hub-repeat-until-clear]');
-                if (untilClearBtn) {
+                const endModeBtn = target.closest('[data-tm-time-hub-repeat-end-mode]');
+                if (endModeBtn) {
                     try { ev.preventDefault(); } catch (e) {}
-                    await applyRepeatUntil('');
+                    const mode = String(endModeBtn.getAttribute('data-tm-time-hub-repeat-end-mode') || '').trim();
+                    if (mode === 'never') {
+                        await applyRepeatEnd('never');
+                    } else {
+                        hubState.repeatEndMode = mode === 'count' ? 'count' : 'date';
+                        render();
+                    }
                     return;
                 }
                 const untilApplyBtn = target.closest('[data-tm-time-hub-repeat-until-apply]');
@@ -6381,7 +6445,14 @@
                     try { ev.preventDefault(); } catch (e) {}
                     if (untilApplyBtn.disabled || untilApplyBtn.getAttribute('aria-disabled') === 'true') return;
                     const input = popover.querySelector('[data-tm-time-hub-repeat-until-input]');
-                    await applyRepeatUntil(input instanceof HTMLInputElement ? input.value : '');
+                    await applyRepeatEnd('date', input instanceof HTMLInputElement ? input.value : '');
+                    return;
+                }
+                const countApplyBtn = target.closest('[data-tm-time-hub-repeat-count-apply]');
+                if (countApplyBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    const input = popover.querySelector('[data-tm-time-hub-repeat-count-input]');
+                    await applyRepeatEnd('count', input instanceof HTMLInputElement ? input.value : '1');
                     return;
                 }
                 const addScheduleBtn = target.closest('[data-tm-time-hub-add-schedule]');
@@ -6990,12 +7061,24 @@
                             try { delete draftRow.dataset.saving; } catch (e2) {}
                         }
                     }));
+                    const refreshIds = [parentForCreate].concat(tempIds).filter(Boolean);
+                    try { __tmInvalidateFilteredTaskDerivedStateCache?.(); } catch (e) {}
+                    try { state.listDomRenderSignature = ''; } catch (e) {}
+                    try {
+                        __tmScheduleViewRefresh({
+                            mode: 'current',
+                            withFilters: false,
+                            reason: 'detail-create-subtask-current-optimistic',
+                            taskIds: refreshIds,
+                            bypassDefer: true,
+                        });
+                    } catch (e) {}
                     try {
                         __tmScheduleViewRefresh({
                             mode: 'detail',
                             withFilters: false,
                             reason: 'detail-create-subtask-optimistic',
-                            taskIds: [parentForCreate].concat(tempIds).filter(Boolean),
+                            taskIds: refreshIds,
                         });
                     } catch (e) {}
                     Promise.all(createPromises).then(() => {

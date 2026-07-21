@@ -45,11 +45,13 @@
         );
         if (!rollbackStart && !rollbackDue) return null;
         const carryCompletedAt = String(nextHead?.completedAt || '').trim();
+        const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
         return {
             startDate: rollbackStart,
             completionTime: rollbackDue,
             repeatState: __tmNormalizeTaskRepeatState({
-                ...(task?.repeatState && typeof task.repeatState === 'object' ? task.repeatState : {}),
+                ...currentState,
+                occurrenceCount: Math.max(1, currentState.occurrenceCount - 1),
                 lastCompletedAt: carryCompletedAt,
                 lastAdvancedAt: carryCompletedAt,
                 lastInstanceStart: rollbackStart,
@@ -58,23 +60,55 @@
         };
     }
 
-    async function __tmApplyTaskRepeatRule(taskId, ruleInput, options = {}) {
-        const task = await __tmResolveTaskForRepeat(taskId);
-        if (!task?.id) throw new Error('未找到任务');
-        const opts = (options && typeof options === 'object') ? options : {};
+    function __tmGetTaskRepeatScheduleSignature(ruleInput) {
+        const rule = __tmNormalizeTaskRepeatRule(ruleInput);
+        return JSON.stringify([
+            rule.enabled,
+            rule.type,
+            rule.every,
+            rule.monthlyMode,
+            rule.calendarMode,
+            rule.anchorDate,
+        ]);
+    }
+
+    function __tmBuildTaskRepeatRuleMetaPatch(taskInput, ruleInput) {
+        const task = (taskInput && typeof taskInput === 'object') ? taskInput : {};
         const nextRule = __tmNormalizeTaskRepeatRule(ruleInput, {
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
+        const currentRule = __tmNormalizeTaskRepeatRule(task?.repeatRule, {
+            startDate: task?.startDate,
+            completionTime: task?.completionTime,
+        });
+        const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
+        const scheduleChanged = __tmGetTaskRepeatScheduleSignature(currentRule) !== __tmGetTaskRepeatScheduleSignature(nextRule);
+        let occurrenceCount = currentState.occurrenceCount;
+        if (scheduleChanged || (nextRule.maxOccurrences > 0 && currentRule.maxOccurrences <= 0)) {
+            occurrenceCount = 1;
+        } else if (nextRule.maxOccurrences > 0 && nextRule.maxOccurrences < occurrenceCount) {
+            throw new Error(`结束次数不能小于当前第 ${occurrenceCount} 次`);
+        }
         const nextState = __tmNormalizeTaskRepeatState({
-            ...(task?.repeatState && typeof task.repeatState === 'object' ? task.repeatState : {}),
+            ...currentState,
+            occurrenceCount,
             lastInstanceStart: __tmNormalizeDateOnly(task?.startDate || ''),
             lastInstanceDue: __tmNormalizeDateOnly(task?.completionTime || ''),
         });
-        const patch = {
+        return {
             repeatRule: nextRule,
             repeatState: nextState,
         };
+    }
+
+    async function __tmApplyTaskRepeatRule(taskId, ruleInput, options = {}) {
+        const task = await __tmResolveTaskForRepeat(taskId);
+        if (!task?.id) throw new Error('未找到任务');
+        const opts = (options && typeof options === 'object') ? options : {};
+        const patch = __tmBuildTaskRepeatRuleMetaPatch(task, ruleInput);
+        const nextRule = patch.repeatRule;
+        const nextState = patch.repeatState;
         const result = await __tmApplyTaskMetaPatchWithUndo(task.id, patch, {
             source: String(opts.source || 'task-repeat').trim() || 'task-repeat',
             label: '循环规则',
@@ -147,6 +181,8 @@
             ? __tmNormalizeTaskRepeatHistory([
                 {
                     completedAt,
+                    occurrenceNumber: Math.max(0, Math.min(200, parseInt(entry.occurrenceNumber, 10) || 0)),
+                    totalOccurrences: __tmNormalizeTaskRepeatMaxOccurrences(entry.totalOccurrences),
                     sourceStart: __tmNormalizeDateOnly(entry.sourceStart || entry.startDate || ''),
                     sourceDue: __tmNormalizeDateOnly(entry.sourceDue || entry.completionTime || entry.dueDate || ''),
                     nextStart: __tmNormalizeDateOnly(task?.startDate || ''),
@@ -213,7 +249,17 @@
     }
 
     async function __tmAdvanceRecurringTaskAfterCompletion(taskId, options = {}) {
-        const advanceTaskId = String(taskId || '').trim();
+        const requestedTaskId = String(taskId || '').trim();
+        if (!requestedTaskId) return false;
+        let advanceTaskId = requestedTaskId;
+        try {
+            const resolvedId = await __tmResolveTaskIdFromAnyBlockId(requestedTaskId);
+            if (resolvedId) advanceTaskId = String(resolvedId || '').trim() || advanceTaskId;
+        } catch (e) {}
+        try {
+            const resolvedTask = await __tmResolveTaskForRepeat(advanceTaskId);
+            if (resolvedTask?.id) advanceTaskId = String(resolvedTask.id || '').trim() || advanceTaskId;
+        } catch (e) {}
         if (!advanceTaskId || __tmRecurringAdvanceInFlightIds.has(advanceTaskId)) return false;
         __tmRecurringAdvanceInFlightIds.add(advanceTaskId);
         try {
@@ -239,12 +285,15 @@
         if (!task?.id || !task.done) return false;
         const repeatRule = __tmGetTaskRepeatRule(task);
         if (!repeatRule.enabled || repeatRule.type === 'none') return false;
+        const currentRepeatState = __tmNormalizeTaskRepeatState(task?.repeatState);
         const completedAt = String(opts.completedAt || __tmNowInChinaTimezoneIso()).trim() || __tmNowInChinaTimezoneIso();
         const nextPatch = __tmBuildTaskRepeatAdvancePatch(task, repeatRule, { completedAt });
         if (!nextPatch) return false;
         const nextHistory = __tmNormalizeTaskRepeatHistory([
             {
                 completedAt,
+                occurrenceNumber: currentRepeatState.occurrenceCount,
+                totalOccurrences: repeatRule.maxOccurrences,
                 sourceStart: __tmNormalizeDateOnly(task?.startDate || ''),
                 sourceDue: __tmNormalizeDateOnly(task?.completionTime || ''),
                 nextStart: __tmNormalizeDateOnly(nextPatch.startDate || ''),
@@ -592,6 +641,127 @@
         }
         return await window.tmSetTaskRepeatRule(task.id, nextRule, { source: 'task-repeat-dialog' });
     };
+
+    async function __tmApplyFollowReminderDraft(payload = {}) {
+        const source = (payload && typeof payload === 'object') ? payload : {};
+        const taskRef = String(source.taskId || source.blockId || source.attrHostId || '').trim();
+        if (!taskRef) throw new Error('任务 ID 为空');
+        if (!Object.prototype.hasOwnProperty.call(source, 'repeatRule')) throw new Error('缺少任务循环草稿');
+        const task = await __tmResolveTaskForRepeat(taskRef);
+        if (!task?.id) throw new Error('未找到任务');
+        const completionTime = __tmNormalizeDateOnly(source.completionTime || '');
+        if (!completionTime) throw new Error('任务截止日不能为空');
+        const candidateTask = {
+            ...task,
+            completionTime,
+            completion_time: completionTime,
+        };
+        const ruleInput = source.repeatRule && typeof source.repeatRule === 'object'
+            ? source.repeatRule
+            : { enabled: false, type: 'none' };
+        const repeatPatch = __tmBuildTaskRepeatRuleMetaPatch(candidateTask, ruleInput);
+        const currentRule = __tmNormalizeTaskRepeatRule(task?.repeatRule, {
+            startDate: task?.startDate,
+            completionTime: task?.completionTime,
+        });
+        const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
+        const completionChanged = __tmNormalizeDateOnly(task?.completionTime || '') !== completionTime;
+        const repeatChanged = JSON.stringify(currentRule) !== JSON.stringify(repeatPatch.repeatRule)
+            || JSON.stringify(currentState) !== JSON.stringify(repeatPatch.repeatState);
+        if (completionChanged || repeatChanged) {
+            await __tmApplyTaskMetaPatchWithUndo(task.id, {
+                completionTime,
+                ...repeatPatch,
+            }, {
+                source: String(source.source || 'tomato-reminder-follow-draft').trim() || 'tomato-reminder-follow-draft',
+                label: '任务提醒联动',
+                refresh: true,
+                refreshCalendar: true,
+                withFilters: true,
+                recordUndo: source.recordUndo !== false,
+            });
+        }
+        let attrHostId = '';
+        try { attrHostId = String(__tmGetTaskAttrHostId(task) || '').trim(); } catch (e) {}
+        return {
+            ok: true,
+            changed: completionChanged || repeatChanged,
+            taskId: String(task.id || taskRef).trim() || taskRef,
+            attrHostId: attrHostId || String(task.id || taskRef).trim() || taskRef,
+            taskTitle: String(task?.content || task?.raw_content || task?.rawContent || task?.markdown || '任务').trim() || '任务',
+            startDate: __tmNormalizeDateOnly(task?.startDate || ''),
+            completionTime,
+            repeatRule: repeatPatch.repeatRule,
+            repeatState: repeatPatch.repeatState,
+        };
+    }
+
+    async function __tmClearFollowReminderDraft(payload = {}) {
+        const source = (payload && typeof payload === 'object') ? payload : {};
+        const taskRef = String(source.taskId || source.blockId || source.attrHostId || '').trim();
+        if (!taskRef) throw new Error('任务 ID 为空');
+        const task = await __tmResolveTaskForRepeat(taskRef);
+        if (!task?.id) throw new Error('未找到任务');
+        const candidateTask = {
+            ...task,
+            completionTime: '',
+            completion_time: '',
+        };
+        const repeatPatch = __tmBuildTaskRepeatRuleMetaPatch(candidateTask, {
+            enabled: false,
+            type: 'none',
+        });
+        const currentRule = __tmNormalizeTaskRepeatRule(task?.repeatRule, {
+            startDate: task?.startDate,
+            completionTime: task?.completionTime,
+        });
+        const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
+        const completionChanged = !!__tmNormalizeDateOnly(task?.completionTime || '');
+        const repeatChanged = JSON.stringify(currentRule) !== JSON.stringify(repeatPatch.repeatRule)
+            || JSON.stringify(currentState) !== JSON.stringify(repeatPatch.repeatState);
+        if (completionChanged || repeatChanged) {
+            await __tmApplyTaskMetaPatchWithUndo(task.id, {
+                completionTime: '',
+                ...repeatPatch,
+            }, {
+                source: String(source.source || 'tomato-reminder-follow-delete').trim() || 'tomato-reminder-follow-delete',
+                label: '删除任务提醒联动',
+                refresh: true,
+                refreshCalendar: true,
+                withFilters: true,
+                recordUndo: source.recordUndo !== false,
+            });
+        }
+        let attrHostId = '';
+        try { attrHostId = String(__tmGetTaskAttrHostId(task) || '').trim(); } catch (e) {}
+        return {
+            ok: true,
+            changed: completionChanged || repeatChanged,
+            taskId: String(task.id || taskRef).trim() || taskRef,
+            attrHostId: attrHostId || String(task.id || taskRef).trim() || taskRef,
+            completionTime: '',
+            repeatRule: repeatPatch.repeatRule,
+            repeatState: repeatPatch.repeatState,
+        };
+    }
+
+    try {
+        const previousBridge = (__tmNs.reminderBridge && typeof __tmNs.reminderBridge === 'object')
+            ? __tmNs.reminderBridge
+            : {};
+        __tmNs.reminderBridge = {
+            ...previousBridge,
+            version: 2,
+            capabilities: Object.freeze({
+                ...(previousBridge.capabilities || {}),
+                completeFromReminder: typeof previousBridge.completeFromReminder === 'function',
+                applyFollowDraft: true,
+                clearFollowDraft: true,
+            }),
+            applyFollowDraft: __tmApplyFollowReminderDraft,
+            clearFollowDraft: __tmClearFollowReminderDraft,
+        };
+    } catch (e) {}
 
     window.tmCalendarWarmDocsToGroupCache = async function() {
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];

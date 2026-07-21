@@ -590,7 +590,8 @@
             const calendarId = gid ? `group:${gid}` : 'default';
 
             const mins = __tmParseDurationMinutes(t?.duration);
-            const durationMin = (Number.isFinite(Number(mins)) && Number(mins) > 0) ? Math.round(Number(mins)) : 60;
+            const durationExplicit = Number.isFinite(Number(mins)) && Number(mins) > 0;
+            const durationMin = durationExplicit ? Math.round(Number(mins)) : 60;
 
             let spent = '';
             try {
@@ -598,7 +599,7 @@
                 else spent = __tmFormatSpentMinutes(__tmGetTaskSpentMinutes(t)) || '';
             } catch (e) {}
 
-            out.push({ id, title: title || '(无标题)', spent, durationMin, calendarId });
+            out.push({ id, title: title || '(无标题)', spent, durationMin, durationExplicit, documentID: docId, calendarId });
             if (out.length >= max) break;
         }
         return out;
@@ -645,7 +646,8 @@
             const calendarId = gid ? `group:${gid}` : 'default';
 
             const mins = __tmParseDurationMinutes(t?.duration);
-            const durationMin = (Number.isFinite(Number(mins)) && Number(mins) > 0) ? Math.round(Number(mins)) : 60;
+            const durationExplicit = Number.isFinite(Number(mins)) && Number(mins) > 0;
+            const durationMin = durationExplicit ? Math.round(Number(mins)) : 60;
 
             let spent = '';
             try {
@@ -658,6 +660,8 @@
                 title,
                 spent,
                 durationMin,
+                durationExplicit,
+                documentID: docId,
                 calendarId,
                 depth: getDepth(id),
                 hasChildren: childSet.has(id),
@@ -1132,11 +1136,14 @@
         const calendarId = gid ? `group:${gid}` : 'default';
 
         const mins = __tmParseDurationMinutes(t?.duration);
-        const durationMin = (Number.isFinite(Number(mins)) && Number(mins) > 0) ? Math.round(Number(mins)) : 60;
+        const durationExplicit = Number.isFinite(Number(mins)) && Number(mins) > 0;
+        const durationMin = durationExplicit ? Math.round(Number(mins)) : 60;
         const title = __tmResolveCalendarTaskDisplayTitle(t, '(无标题)');
         return {
             title,
             durationMin,
+            durationExplicit,
+            documentID: docId,
             calendarId,
             priority: String(t.priority || '').trim(),
             startDate: String(t.startDate || '').trim(),

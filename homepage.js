@@ -3359,6 +3359,12 @@
         return mode === "countdown" || mode === "stopwatch";
     }
 
+    function isGlobalFocusScope(ctx) {
+        const groupId = String(ctx?.currentGroupId || "all").trim() || "all";
+        const docId = String(ctx?.currentDocId || "all").trim() || "all";
+        return groupId === "all" && docId === "all";
+    }
+
     function getHistoryRecordRange(record) {
         const start = parseDateTime(record?.start);
         const end = parseDateTime(record?.end);
@@ -3373,7 +3379,13 @@
         const left = Math.max(range.start.getTime(), start.getTime());
         const right = Math.min(range.end.getTime(), end.getTime());
         if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return 0;
-        return Math.max(0, Math.round((right - left) / 1000));
+        const wallSeconds = Math.max(0, (range.end.getTime() - range.start.getTime()) / 1000);
+        const overlapSeconds = Math.max(0, (right - left) / 1000);
+        const storedSeconds = toNumber(record?.durationSec, 0) > 0
+            ? toNumber(record.durationSec, 0)
+            : (toNumber(record?.durationMin, 0) > 0 ? toNumber(record.durationMin, 0) * 60 : wallSeconds);
+        if (wallSeconds <= 0 || storedSeconds <= 0) return 0;
+        return Math.max(0, storedSeconds * (overlapSeconds / wallSeconds));
     }
 
     function getHistoryRecordEndMs(record, fallbackEnd = null) {
@@ -3404,6 +3416,7 @@
         push(record?.databaseBlockId);
         push(record?.blockId);
         push(record?.taskId);
+        push(record?.routineButtonBlockId);
         return ids;
     }
 
@@ -3420,6 +3433,8 @@
         push(task?.attr_host_id);
         push(task?.taskId);
         push(task?.task_id);
+        push(task?.sourceTaskId);
+        push(task?.recurringSourceTaskId);
         push(task?.nodeId);
         push(task?.node_id);
         push(task?.databaseBlockId);
@@ -3440,6 +3455,7 @@
     function buildFocusDayMap(ctx, records, monthKey) {
         const month = getMonthBounds(monthKey);
         const taskIndex = buildFocusTaskIndex(ctx?.tasks || []);
+        const includeUnmatchedRecords = isGlobalFocusScope(ctx);
         const daySeconds = new Map();
         const days = [];
         for (let dt = new Date(month.start.getTime()); dt < month.end; dt = addLocalDays(dt, 1)) {
@@ -3455,7 +3471,7 @@
                 task = taskIndex.get(id);
                 if (task) break;
             }
-            if (!task) return;
+            if (!task && !includeUnmatchedRecords) return;
             days.forEach((key) => {
                 const start = getLocalDayStart(key);
                 const end = addLocalDays(start, 1);
@@ -3574,6 +3590,7 @@
         const targetMinutes = safeSettings.dailyFocusTargetMinutes;
         const todayPomodoroSessions = new Set();
         const taskIndex = buildFocusTaskIndex(ctx?.tasks || []);
+        const includeUnmatchedRecords = isGlobalFocusScope(ctx);
         const groups = new Map();
         const dayGroups = new Map();
         let totalTodaySec = 0;
@@ -3612,7 +3629,7 @@
                 task = taskIndex.get(id);
                 if (task) break;
             }
-            if (!task) return;
+            if (!task && !includeUnmatchedRecords) return;
             const todaySec = getHistoryRecordOverlapSeconds(record, win.focusDayStart, win.focusDayEnd);
             if (todaySec > 0) {
                 totalTodaySec += todaySec;
@@ -3623,11 +3640,11 @@
                     stopwatchTodaySec += todaySec;
                 }
                 distractionCount += Math.max(0, Math.round(toNumber(record?.distractionCount, 0)));
-                addGroupRecord(dayGroups, task, record, todaySec, win.focusDayEnd);
+                if (task) addGroupRecord(dayGroups, task, record, todaySec, win.focusDayEnd);
             }
 
             const rangeSec = getHistoryRecordOverlapSeconds(record, win.rangeStart, win.rangeEnd);
-            if (rangeSec <= 0) return;
+            if (rangeSec <= 0 || !task) return;
             addGroupRecord(groups, task, record, rangeSec, win.rangeEnd);
         });
 

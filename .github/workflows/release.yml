@@ -18,6 +18,8 @@ jobs:
       (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v'))
     steps:
       - uses: actions/checkout@v4
+      - name: Verify
+        run: pwsh -ExecutionPolicy Bypass -File ./scripts/verify-release.ps1
       - name: Package
         run: pwsh -ExecutionPolicy Bypass -File ./build.ps1
       - name: Release

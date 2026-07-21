@@ -51,6 +51,10 @@ const whitelist = [
     reason: 'settings import tools; review before tightening',
   },
   {
+    test: (rel) => rel === path.join('settings', '65-scheduled-events-runtime.js'),
+    reason: 'scheduled result delivery through the guarded backend adapter',
+  },
+  {
     test: (rel) => rel === path.join('settings', '70-doc-group-and-settings-actions.js'),
     reason: 'settings/doc actions; review before tightening',
   },

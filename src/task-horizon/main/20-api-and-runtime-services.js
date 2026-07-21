@@ -90,16 +90,28 @@
                 const totalLimit = Number.isFinite(limitRaw)
                     ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
                     : recursiveDocLimit;
-                // 先获取根文档的 path
-                const pathSql = `SELECT hpath FROM blocks WHERE id = '${did.replace(/'/g, "''")}' AND type = 'd' LIMIT 1`;
+                // 使用物理路径判断普通子文档；笔记本文档是虚拟根节点，需要按 box 展开。
+                const escapedDid = did.replace(/'/g, "''");
+                const pathSql = `SELECT path, box FROM blocks WHERE id = '${escapedDid}' AND type = 'd' LIMIT 1`;
                 const pathRes = await this.call('/api/query/sql', { stmt: pathSql });
                 if (pathRes.code !== 0 || !pathRes.data || pathRes.data.length === 0) return [];
 
-                const hpath = String(pathRes.data[0].hpath || '');
+                const docPath = String(pathRes.data[0]?.path || '').trim();
+                const box = String(pathRes.data[0]?.box || '').trim();
+                if (!docPath || !box) return [];
 
                 // 查询子文档
                 const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
-                const sql = `SELECT id FROM blocks WHERE hpath LIKE '${hpath.replace(/'/g, "''")}/%' AND type = 'd' ORDER BY created DESC, hpath DESC${limitSql}`;
+                const escapedBox = box.replace(/'/g, "''");
+                let scopeSql;
+                if (did === box) {
+                    scopeSql = `box = '${escapedBox}' AND id != '${escapedDid}'`;
+                } else {
+                    const pathPrefix = docPath.replace(/\.sy$/i, '').replace(/'/g, "''");
+                    if (!pathPrefix || pathPrefix === '/') return [];
+                    scopeSql = `box = '${escapedBox}' AND path LIKE '${pathPrefix}/%'`;
+                }
+                const sql = `SELECT id FROM blocks WHERE ${scopeSql} AND type = 'd' ORDER BY created DESC, hpath DESC${limitSql}`;
                 const res = await this.call('/api/query/sql', { stmt: sql });
                 if (res.code === 0 && res.data) {
                     return res.data.map(d => d.id);
@@ -2471,7 +2483,7 @@
         async updateTaskListItemMarker(id, marker) {
             const payload = {
                 id: String(id || '').trim(),
-                marker: __tmNormalizeCompatTaskStatusMarker(marker, ' '),
+                marker: __tmNormalizeTaskStatusMarker(marker, ' '),
             };
             const res = await this.call('/api/block/updateTaskListItemMarker', payload);
             if (res.code !== 0) throw new Error(res.msg || '更新任务状态标记失败');
@@ -2482,7 +2494,7 @@
             const payloadItems = (Array.isArray(items) ? items : [])
                 .map((item) => ({
                     id: String(item?.id || '').trim(),
-                    marker: __tmNormalizeCompatTaskStatusMarker(item?.marker, ' '),
+                    marker: __tmNormalizeTaskStatusMarker(item?.marker, ' '),
                 }))
                 .filter((item) => item.id);
             if (!payloadItems.length) return [];
@@ -3109,26 +3121,47 @@
         batchGetBlockAttrs(ids, chunkSize = 400) {
             return API.batchGetBlockAttrs(ids, chunkSize);
         },
-        setAttrs: __tmGuardBackendWrite('setAttrs', function(id, attrs) {
-            return API.setAttrs(id, attrs);
+        setAttrs: __tmGuardBackendWrite('setAttrs', async function(id, attrs) {
+            const gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonPersistUiBlockOperation', { action: 'setAttrs', id, attrs });
+            if (gateway.available) return gateway.data;
+            return await API.setAttrs(id, attrs);
         }),
-        batchSetAttrs: __tmGuardBackendWrite('batchSetAttrs', function(entries) {
-            return API.batchSetAttrs(entries);
+        batchSetAttrs: __tmGuardBackendWrite('batchSetAttrs', async function(entries) {
+            const gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonPersistUiBlockOperation', { action: 'batchSetAttrs', entries });
+            if (gateway.available) return gateway.data;
+            return await API.batchSetAttrs(entries);
         }),
-        updateBlock: __tmGuardBackendWrite('updateBlock', function(id, md, dataType = 'markdown') {
-            return API.updateBlock(id, md, dataType);
+        updateBlock: __tmGuardBackendWrite('updateBlock', async function(id, md, dataType = 'markdown') {
+            const gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonPersistUiBlockOperation', { action: 'updateBlock', id, data: md, dataType });
+            if (gateway.available) return { res: null, id: String(gateway.data?.id || id).trim() || id };
+            return await API.updateBlock(id, md, dataType);
         }),
-        insertBlock: __tmGuardBackendWrite('insertBlock', function(parentId, md, placement) {
-            return API.insertBlock(parentId, md, placement);
+        insertBlock: __tmGuardBackendWrite('insertBlock', async function(parentId, md, placement) {
+            const target = placement && typeof placement === 'object' ? placement : { nextID: placement };
+            const gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonPersistUiBlockOperation', {
+                action: 'insertBlock',
+                parentID: String(target?.parentID || parentId || '').trim(),
+                nextID: String(target?.nextID || '').trim(),
+                previousID: String(target?.previousID || '').trim(),
+                data: md,
+            });
+            if (gateway.available) return String(gateway.data?.id || '').trim();
+            return await API.insertBlock(parentId, md, placement);
         }),
-        appendBlock: __tmGuardBackendWrite('appendBlock', function(parentId, md) {
-            return API.appendBlock(parentId, md);
+        appendBlock: __tmGuardBackendWrite('appendBlock', async function(parentId, md) {
+            const gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonPersistUiBlockOperation', { action: 'appendBlock', parentID: parentId, data: md });
+            if (gateway.available) return String(gateway.data?.id || '').trim();
+            return await API.appendBlock(parentId, md);
         }),
-        moveBlock: __tmGuardBackendWrite('moveBlock', function(id, placement = {}) {
-            return API.moveBlock(id, placement);
+        moveBlock: __tmGuardBackendWrite('moveBlock', async function(id, placement = {}) {
+            const gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonPersistUiBlockOperation', { action: 'moveBlock', id, ...(placement || {}) });
+            if (gateway.available) return true;
+            return await API.moveBlock(id, placement);
         }),
-        deleteBlock: __tmGuardBackendWrite('deleteBlock', function(id) {
-            return API.deleteBlock(id);
+        deleteBlock: __tmGuardBackendWrite('deleteBlock', async function(id) {
+            const gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonPersistUiBlockOperation', { action: 'deleteBlock', id });
+            if (gateway.available) return gateway.data;
+            return await API.deleteBlock(id);
         }),
         flushTransaction() {
             return API.call('/api/sqlite/flushTransaction', {});
@@ -3136,6 +3169,34 @@
     };
 
     try { globalThis.__tmTaskHorizonBackendAdapter = __tmBackendAdapter; } catch (e) {}
+
+    function __tmIsTaskHorizonKernelUnavailableError(error) {
+        const code = Number(error?.code);
+        if (code === -32001 || code === -32002 || code === -32601) return true;
+        const message = String(error?.message || error || '').trim();
+        return /plugin not (?:loaded|running)|method not found/i.test(message);
+    }
+
+    async function __tmCallTaskHorizonKernelRpc(name, ...args) {
+        const methodName = String(name || '').trim();
+        const kernel = globalThis.__taskHorizonHostBridge?.kernel || globalThis.__taskHorizonHostBridge?.plugin?.kernel;
+        const method = methodName ? kernel?.rpc?.call?.[methodName] : null;
+        if (typeof method !== 'function') return { available: false, data: null };
+        let result;
+        try {
+            result = await method(...args);
+        } catch (error) {
+            if (__tmIsTaskHorizonKernelUnavailableError(error)) return { available: false, data: null };
+            throw error;
+        }
+        if (!result || result.ok !== true) {
+            const error = new Error(String(result?.error?.message || '任务内核服务调用失败'));
+            error.code = String(result?.error?.code || 'STORAGE_ERROR');
+            error.details = result?.error?.details || null;
+            throw error;
+        }
+        return { available: true, data: result.data };
+    }
 
     const __TM_TASK_REPEAT_RULE_ATTR = 'custom-task-repeat-rule';
     const __TM_TASK_REPEAT_STATE_ATTR = 'custom-task-repeat-state';
@@ -3197,7 +3258,7 @@
     }
 
     function __tmGetTaskListItemMarkerPrefixMatch(value) {
-        return /^(\s*)((?:[-*+]|\d+[.)]))\s*\[([^\]]?)\]\s*/.exec(String(value || ''));
+        return /^([ \t]*)((?:[-*+]|\d+[.)]))[ \t]*(?:(?:\{:[ \t]*[^}\r\n]*\})[ \t]*)*\[([^\]\r\n]?)\][ \t]*/.exec(String(value || ''));
     }
 
     function __tmStripTaskListItemMarkerPrefix(value) {
@@ -3220,8 +3281,12 @@
         const firstLine = String(lines[0] || '');
         const match = __tmGetTaskListItemMarkerPrefixMatch(firstLine);
         if (!match) return '';
-        const rest = firstLine.slice(match[0].length).replace(/^\s+/, '');
-        lines[0] = `${match[1]}${match[2]} [${nextMarker}]${rest ? ` ${rest}` : ''}`;
+        const markerToken = `[${String(match[3] || ' ')}]`;
+        const markerIndex = String(match[0] || '').lastIndexOf(markerToken);
+        if (markerIndex < 0) return '';
+        const prefix = String(match[0] || '').slice(0, markerIndex);
+        const rest = firstLine.slice(match[0].length).replace(/^[ \t]+/, '');
+        lines[0] = `${prefix}[${nextMarker}]${rest ? ` ${rest}` : ''}`;
         return lines.join('\n');
     }
 
@@ -3445,7 +3510,7 @@
         source.forEach((item) => {
             const id = String(item?.id || '').trim();
             if (id && !idMap.has(id)) idMap.set(id, item);
-            const marker = __tmNormalizeCompatTaskStatusMarker(item?.marker, __tmGuessStatusOptionDefaultMarker(item));
+            const marker = __tmNormalizeTaskStatusMarker(item?.marker, __tmGuessStatusOptionDefaultMarker(item));
             if (!markerMap.has(marker)) markerMap.set(marker, item);
         });
         return { idMap, markerMap };
@@ -3504,11 +3569,11 @@
     }
 
     function __tmFindStatusOptionByMarker(marker, statusOptionsInput = null) {
-        const normalizedMarker = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
+        const normalizedMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
         const artifacts = __tmGetStatusOptionsRuntimeArtifacts(statusOptionsInput);
         if (artifacts.markerMap instanceof Map) return artifacts.markerMap.get(normalizedMarker) || null;
         const statusOptions = Array.isArray(artifacts.options) ? artifacts.options : [];
-        return statusOptions.find((item) => __tmNormalizeCompatTaskStatusMarker(item?.marker, __tmGuessStatusOptionDefaultMarker(item)) === normalizedMarker) || null;
+        return statusOptions.find((item) => __tmNormalizeTaskStatusMarker(item?.marker, __tmGuessStatusOptionDefaultMarker(item)) === normalizedMarker) || null;
     }
 
     function __tmIsTaskMarkerDone(marker) {
@@ -3532,14 +3597,14 @@
     function __tmResolveTaskMarker(task, statusOptionsInput = null) {
         const taskLike = (task && typeof task === 'object') ? task : {};
         const directMarker = taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker;
-        const normalizedDirect = __tmNormalizeCompatTaskStatusMarker(directMarker, '');
+        const normalizedDirect = __tmNormalizeTaskStatusMarker(directMarker, '');
         if (normalizedDirect) return normalizedDirect;
         const parsedMarker = __tmResolveTaskMarkdownMarker(taskLike);
-        if (parsedMarker) return __tmNormalizeCompatTaskStatusMarker(parsedMarker, ' ');
+        if (parsedMarker) return __tmNormalizeTaskStatusMarker(parsedMarker, ' ');
         const configuredStatus = String(taskLike?.customStatus ?? taskLike?.custom_status ?? '').trim();
         if (configuredStatus) {
             const matched = __tmFindStatusOptionById(configuredStatus, statusOptionsInput);
-            if (matched) return __tmNormalizeCompatTaskStatusMarker(matched?.marker, __tmGuessStatusOptionDefaultMarker(matched));
+            if (matched) return __tmNormalizeTaskStatusMarker(matched?.marker, __tmGuessStatusOptionDefaultMarker(matched));
         }
         return taskLike?.done ? 'X' : ' ';
     }
@@ -3558,27 +3623,18 @@
 
     function __tmIsTaskDoneEffective(task, statusOptionsInput = null) {
         const taskLike = (task && typeof task === 'object') ? task : {};
-        let hasExplicitState = false;
-        const isDoneMarker = (value, hasValue = false) => {
-            const marker = __tmNormalizeCompatTaskStatusMarker(value, '');
-            if (hasValue || marker) hasExplicitState = true;
-            return marker ? __tmIsTaskMarkerDone(marker) : false;
-        };
         const hasDirectMarker = Object.prototype.hasOwnProperty.call(taskLike, 'taskMarker')
             || Object.prototype.hasOwnProperty.call(taskLike, 'task_marker')
             || Object.prototype.hasOwnProperty.call(taskLike, 'marker');
-        if (isDoneMarker(taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker, hasDirectMarker)) return true;
+        if (hasDirectMarker) {
+            const directMarker = __tmNormalizeTaskStatusMarker(taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker, '');
+            if (directMarker) return __tmIsTaskMarkerDone(directMarker);
+        }
         const markdownMarker = __tmResolveTaskMarkdownMarker(taskLike);
-        if (markdownMarker) {
-            hasExplicitState = true;
-            if (__tmIsTaskMarkerDone(markdownMarker)) return true;
-        }
+        if (markdownMarker) return __tmIsTaskMarkerDone(markdownMarker);
         const statusId = String(taskLike.customStatus ?? taskLike.custom_status ?? '').trim();
-        if (statusId) {
-            hasExplicitState = true;
-            if (__tmDoesStatusIdResolveToDone(statusId, statusOptionsInput)) return true;
-        }
-        return hasExplicitState ? false : taskLike.done === true;
+        if (statusId) return __tmDoesStatusIdResolveToDone(statusId, statusOptionsInput);
+        return taskLike.done === true;
     }
 
     function __tmNormalizeCheckboxStatusBindingValue(value) {
@@ -3664,27 +3720,37 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const taskLike = (task && typeof task === 'object') ? task : {};
         const directMarker = taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker;
-        let marker = __tmNormalizeCompatTaskStatusMarker(directMarker, '');
+        let marker = __tmNormalizeTaskStatusMarker(directMarker, '');
         if (!marker) marker = __tmResolveTaskMarkdownMarker(taskLike);
-        if (marker) marker = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
+        if (marker) marker = __tmNormalizeTaskStatusMarker(marker, ' ');
         const configuredStatus = String(taskLike?.customStatus ?? taskLike?.custom_status ?? '').trim();
         const configuredMatched = configuredStatus
             ? ((statusArtifacts.idMap instanceof Map ? statusArtifacts.idMap.get(configuredStatus) : null) || null)
             : null;
-        if (!marker) {
-            if (configuredMatched) marker = __tmNormalizeCompatTaskStatusMarker(configuredMatched?.marker, __tmGuessStatusOptionDefaultMarker(configuredMatched));
-            else marker = taskLike?.done ? 'X' : ' ';
+        let resolvedId = '';
+        let matched = null;
+        if (marker) {
+            const configuredMarker = configuredMatched
+                ? __tmNormalizeTaskStatusMarker(configuredMatched?.marker, __tmGuessStatusOptionDefaultMarker(configuredMatched))
+                : '';
+            matched = configuredMatched && configuredMarker === marker
+                ? configuredMatched
+                : ((statusArtifacts.markerMap instanceof Map ? statusArtifacts.markerMap.get(marker) : null) || null);
+            if (matched?.id) resolvedId = String(matched.id || '').trim();
+            if (!resolvedId) {
+                resolvedId = __tmIsTaskMarkerDone(marker)
+                    ? String(__tmResolveCheckboxLinkedStatusId(true, statusOptions) || 'done').trim() || 'done'
+                    : __tmGetDefaultUndoneStatusId(statusOptions);
+            }
+        } else if (configuredMatched) {
+            marker = __tmNormalizeTaskStatusMarker(configuredMatched?.marker, __tmGuessStatusOptionDefaultMarker(configuredMatched));
+            matched = configuredMatched;
+            resolvedId = configuredStatus;
+        } else {
+            marker = taskLike?.done ? 'X' : ' ';
+            resolvedId = configuredStatus;
         }
         const done = __tmIsTaskMarkerDone(marker);
-        let resolvedId = configuredStatus;
-        let matched = configuredMatched;
-        if (!resolvedId) {
-            matched = (statusArtifacts.markerMap instanceof Map ? statusArtifacts.markerMap.get(marker) : null) || null;
-            if (matched?.id) resolvedId = String(matched.id || '').trim();
-            else resolvedId = done
-                ? String(__tmResolveCheckboxLinkedStatusId(true, statusOptions) || 'done').trim() || 'done'
-                : __tmGetDefaultUndoneStatusId(statusOptions);
-        }
         const fallbackColor = String(opts.fallbackColor || (done ? '#9e9e9e' : '#757575')).trim() || (done ? '#9e9e9e' : '#757575');
         const fallbackName = String(opts.fallbackName || (done ? '完成' : '待办')).trim() || (done ? '完成' : '待办');
         if (matched) {
@@ -4017,6 +4083,8 @@
             attrs[hostOwnerAttr] = taskId;
             attrKeys = Object.keys(attrs);
         }
+        const kernelWrite = await __tmCallTaskHorizonKernelRpc('taskHorizonPersistUiTaskAttrs', taskId, attrs);
+        if (kernelWrite.available) return true;
         const structuralMirrorTargetIds = Array.from(new Set((Array.isArray(attrContext?.mirrorHostIds) ? attrContext.mirrorHostIds : [])
             .map((item) => String(item || '').trim())
             .filter((item) => item && item !== attrTargetId)));
@@ -5104,6 +5172,14 @@
                 globalThis.__tmTaskIdentity?.commit?.({ clientId, tempId, blockId: realId });
             } catch (e) {}
             try { __tmQueueCreateOpPostInsertAttrs(op, realId); } catch (e) {}
+            if (data.refreshCurrentView !== false && data.skipSettledRefresh !== true) {
+                __tmRefreshQueuedStructuralProjection(op, {
+                    taskId: realId,
+                    realId,
+                    effectiveTaskId: realId,
+                    docId: String(data.docId || op?.docId || '').trim(),
+                });
+            }
         };
         try { __tmScheduleIdleTask(() => { run().catch(() => null); }, 120); }
         catch (e) { setTimeout(() => { run().catch(() => null); }, 120); }
@@ -5659,6 +5735,7 @@
             'duration',
             'tomatoEstimateCount',
             'tomatoCount',
+            'customFieldValues',
             'docId',
             'root_id',
         ]);
@@ -6433,6 +6510,7 @@
                 queued: true,
                 background: op?.data?.background === true,
                 skipFlush: op?.data?.skipFlush === true,
+                skipNoopCheck: op?.data?.skipNoopCheck === true,
                 attrTargetId: String(op?.data?.attrTargetId || '').trim(),
                 mirrorTaskAttrs: op?.data?.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: op?.data?.syncMirrorTaskAttrs === true,
@@ -6672,6 +6750,8 @@ onBlockInserted: (info) => {
                 source: op?.data?.source,
                 scheduleId: op?.data?.scheduleId,
                 previousDone: op?.data?.previousDone === true,
+                previousMarker: op?.data?.previousMarker,
+                previousMarkdown: op?.data?.previousMarkdown,
                 previousStatusId: String(op?.data?.previousStatusId || '').trim(),
                 rewardPriorityScore: Number(op?.data?.rewardPriorityScore) || 0,
                 recordUndo: op?.data?.recordUndo !== false,
@@ -7182,7 +7262,10 @@ onBlockInserted: (info) => {
             return;
         }
         if (type === 'setDone') {
-            __tmRollbackDoneOptimisticLocal(op?.data?.taskId, op?.inversePatch, op?.data?.source);
+            __tmRollbackDoneOptimisticLocal(op?.data?.taskId, op?.inversePatch, op?.data?.source, {
+                previousMarker: op?.data?.previousMarker,
+                previousMarkdown: op?.data?.previousMarkdown,
+            });
             __tmPublishQueuedOpMutation(op, 'rollback', {
                 taskId: String(op?.data?.taskId || '').trim(),
                 patch: op?.inversePatch,
@@ -7364,12 +7447,14 @@ onBlockInserted: (info) => {
                     return;
                 }
             }
-            __tmRefreshQueuedStructuralProjection(op, {
-                taskId: effectiveTaskId,
-                realId,
-                effectiveTaskId,
-                docId: String(op?.data?.docId || op?.docId || '').trim(),
-            });
+            if (realId && op?.data?.refreshCurrentView !== false && op?.data?.skipSettledRefresh !== true) {
+                __tmRefreshQueuedStructuralProjection(op, {
+                    taskId: effectiveTaskId,
+                    realId,
+                    effectiveTaskId,
+                    docId: String(op?.data?.docId || op?.docId || '').trim(),
+                });
+            }
             return;
         }
         if (type === 'moveTask') {
@@ -7583,9 +7668,16 @@ onBlockInserted: (info) => {
             return true;
         }
         if (String(target.type || '').trim() === 'setDone' && String(nextOp.type || '').trim() === 'setDone') {
+            const previousState = {
+                previousDone: target.data?.previousDone,
+                previousMarker: target.data?.previousMarker,
+                previousMarkdown: target.data?.previousMarkdown,
+                previousStatusId: target.data?.previousStatusId,
+            };
             target.data = {
                 ...(target.data && typeof target.data === 'object' ? target.data : {}),
                 ...(nextOp.data && typeof nextOp.data === 'object' ? nextOp.data : {}),
+                ...previousState,
             };
             target.inversePatch = (target.inversePatch && typeof target.inversePatch === 'object')
                 ? { ...target.inversePatch }
@@ -8452,6 +8544,12 @@ const wait = !!options.wait;
             }
             if (key === 'done') {
                 target.done = !!value;
+                return;
+            }
+            if (key === 'taskMarker' || key === 'task_marker') {
+                const marker = __tmNormalizeTaskStatusMarker(value, ' ');
+                target.taskMarker = marker;
+                target.task_marker = marker;
                 return;
             }
             if (key === 'content') {
@@ -10635,7 +10733,6 @@ const wait = !!options.wait;
     const __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK = 'followTaskRepeat';
     const __TM_REMINDER_SNAPSHOT_TTL_MS = 1800;
     const __TM_REMINDER_FOLLOW_TASK_DONE_RECENT_MS = 10 * 60 * 1000;
-    const __TM_REMINDER_UPDATE_EVENT_NAMES = ['tomato-reminder-updated', 'tomato-reminder-badge-update'];
     const __tmReminderFollowTaskDoneSignatures = new Map();
 
     function __tmReminderToDateSafe(value) {
@@ -10852,6 +10949,9 @@ const wait = !!options.wait;
             ? 'none'
             : (typeRaw === 'weekday' || typeRaw === 'weekdays' ? 'workday' : typeRaw);
         const enabled = raw.enabled === undefined ? (type !== 'none') : !!raw.enabled;
+        const maxOccurrences = enabled
+            ? Math.max(0, Math.min(200, parseInt(raw.maxOccurrences, 10) || 0))
+            : 0;
         return {
             enabled: enabled && type !== 'none',
             trigger: String(raw.trigger || '').trim().toLowerCase() === 'complete' ? 'complete' : 'due',
@@ -10859,7 +10959,8 @@ const wait = !!options.wait;
             every: Math.max(1, Math.min(3650, parseInt(raw.every, 10) || 1)),
             monthlyMode: __tmNormalizeReminderMonthlyMode(raw.monthlyMode || ''),
             calendarMode: __tmNormalizeReminderCalendarMode(raw.calendarMode || raw.repeatCalendarMode || '', type),
-            until: __tmNormalizeReminderDateKey(raw.until || raw.repeatUntil || ''),
+            until: maxOccurrences > 0 ? '' : __tmNormalizeReminderDateKey(raw.until || raw.repeatUntil || ''),
+            maxOccurrences,
             anchorDate: __tmNormalizeReminderDateKey(raw.anchorDate || ''),
         };
     }
@@ -10907,6 +11008,38 @@ const wait = !!options.wait;
         const key = __tmReminderOccurrenceKey(dateKey, timeKey);
         if (!key) return false;
         return __tmGetReminderCompletedSet(reminder).has(key);
+    }
+
+    function __tmGetReminderExcludedSet(reminder) {
+        const set = new Set();
+        try {
+            const arr = Array.isArray(reminder?.excludedOccurrences) ? reminder.excludedOccurrences : [];
+            arr.forEach((item) => {
+                if (!item) return;
+                if (typeof item === 'string') {
+                    const key = item.trim();
+                    if (key) set.add(key);
+                    return;
+                }
+                const key = __tmReminderOccurrenceKey(item.date || item.dateKey, item.time || item.timeKey);
+                if (key) set.add(key);
+            });
+        } catch (e) {}
+        return set;
+    }
+
+    function __tmIsReminderOccurrenceSuppressed(reminder, dateKey, timeKey) {
+        if (__tmIsReminderOccurrenceCompleted(reminder, dateKey, timeKey)) return true;
+        const key = __tmReminderOccurrenceKey(dateKey, timeKey);
+        return !!key && __tmGetReminderExcludedSet(reminder).has(key);
+    }
+
+    function __tmGetReminderTaskRepeatOccurrenceCount(reminder) {
+        let raw = reminder?.taskRepeatState;
+        if (typeof raw === 'string') {
+            try { raw = JSON.parse(raw); } catch (e) { raw = null; }
+        }
+        return Math.max(1, Math.min(200, parseInt(raw?.occurrenceCount, 10) || 1));
     }
 
     function __tmGetReminderEvery(reminder) {
@@ -11094,6 +11227,7 @@ const wait = !!options.wait;
             completedOccurrences: Array.isArray(raw.completedOccurrences)
                 ? raw.completedOccurrences
                 : (Array.isArray(raw.completed) ? raw.completed : (Array.isArray(raw.done) ? raw.done : [])),
+            excludedOccurrences: Array.isArray(raw.excludedOccurrences) ? raw.excludedOccurrences : [],
         };
     }
 
@@ -11134,7 +11268,7 @@ const wait = !!options.wait;
             for (const timeKey of times) {
                 const parsed = __tmParseReminderTime(timeKey);
                 if (!parsed) continue;
-                if (__tmIsReminderOccurrenceCompleted(reminder, dateKey, parsed.key)) continue;
+                if (__tmIsReminderOccurrenceSuppressed(reminder, dateKey, parsed.key)) continue;
                 const minutes = parsed.hh * 60 + parsed.mm;
                 if (requireFutureTime && minutes < nowMinutes) continue;
                 const dt = new Date(base);
@@ -11152,9 +11286,18 @@ const wait = !!options.wait;
         if (__tmHasReminderFollowTaskRepeat(reminder)) {
             const followKey = __tmGetReminderFollowTaskAnchorKey(reminder);
             if (!followKey) return null;
-            if (followKey < nowKey) return null;
-            if (followKey === nowKey) return pickOnDate(followKey, true);
-            return pickEarliest(followKey);
+            const currentAt = followKey < nowKey
+                ? null
+                : (followKey === nowKey ? pickOnDate(followKey, true) : pickEarliest(followKey));
+            if (currentAt) return currentAt;
+            const excludedSet = __tmGetReminderExcludedSet(reminder);
+            const hasDeletedCurrentOccurrence = times.some((timeKey) => (
+                excludedSet.has(__tmReminderOccurrenceKey(followKey, timeKey))
+            ));
+            if (!hasDeletedCurrentOccurrence) return null;
+            const afterCurrentDay = new Date(`${followKey}T23:59:59.999`);
+            const previewFrom = afterCurrentDay.getTime() > from.getTime() ? afterCurrentDay : from;
+            return __tmGetNextFollowTaskReminderPreviewDateTime(reminder, previewFrom);
         }
 
         if (interval === 'once') {
@@ -11368,6 +11511,35 @@ const wait = !!options.wait;
         return null;
     }
 
+    function __tmGetNextFollowTaskReminderPreviewDateTime(reminder, fromDate) {
+        const rule = __tmNormalizeReminderTaskRepeatRule(reminder?.taskRepeatRule);
+        if (__tmGetReminderRepeatMode(reminder) !== __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK || !rule?.enabled || rule.type === 'none') return null;
+        if (rule.maxOccurrences > 0 && __tmGetReminderTaskRepeatOccurrenceCount(reminder) >= rule.maxOccurrences) return null;
+        const followKey = __tmGetReminderFollowTaskAnchorKey(reminder);
+        if (!followKey) return null;
+        const monthlyAnchor = rule.type === 'monthly'
+            && rule.calendarMode !== 'lunar'
+            && rule.monthlyMode !== 'weekday'
+            ? __tmNormalizeReminderDateKey(rule.anchorDate || '')
+            : '';
+        return __tmGetNextReminderDateTime({
+            ...reminder,
+            repeatMode: 'manual',
+            interval: rule.type,
+            every: rule.every,
+            monthlyMode: rule.monthlyMode,
+            calendarMode: rule.calendarMode,
+            startDate: monthlyAnchor || followKey,
+            endDate: rule.until || '',
+            taskStartDate: '',
+            taskCompletionTime: '',
+            taskRepeatRule: null,
+            completedOccurrences: [],
+            excludedOccurrences: Array.isArray(reminder?.excludedOccurrences) ? reminder.excludedOccurrences : [],
+            syncTaskDone: false,
+        }, fromDate);
+    }
+
     function __tmGetLastDueReminderDateTime(reminder, toDate) {
         try {
             if (!reminder?.enabled) return null;
@@ -11396,7 +11568,7 @@ const wait = !!options.wait;
                 for (let i = times.length - 1; i >= 0; i -= 1) {
                     const parsed = __tmParseReminderTime(times[i]);
                     if (!parsed) continue;
-                    if (__tmIsReminderOccurrenceCompleted(reminder, dateKey, parsed.key)) continue;
+                    if (__tmIsReminderOccurrenceSuppressed(reminder, dateKey, parsed.key)) continue;
                     const minutes = parsed.hh * 60 + parsed.mm;
                     if (requirePastTime && minutes > nowMinutes) continue;
                     const dt = new Date(base);
@@ -11804,6 +11976,13 @@ const wait = !!options.wait;
         } catch (e) {}
     }
 
+    function __tmGetTomatoReminderBridgeV1() {
+        const bridge = globalThis.__tomatoReminder;
+        const version = Number(bridge?.version);
+        if (!bridge || !Number.isFinite(version) || version < 1 || typeof bridge.upsert !== 'function') return null;
+        return bridge;
+    }
+
     async function __tmSaveTaskReminderForTask(task, reminderAt, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const requestedId = String(opts.taskId || task?.id || task?.taskId || task?.task_id || '').trim();
@@ -11835,18 +12014,6 @@ const wait = !!options.wait;
         }
         if (!attrHostId) attrHostId = taskId || requestedId;
 
-        let currentAttrs = {};
-        try {
-            const res = await API.call('/api/attr/getBlockAttrs', { id: attrHostId });
-            currentAttrs = (res && res.code === 0 && res.data && typeof res.data === 'object') ? res.data : {};
-        } catch (e) {
-            currentAttrs = {};
-        }
-        const currentReminderRaw = String(currentAttrs?.['custom-tomato-reminder'] || '').trim();
-        if (currentReminderRaw && opts.overwrite !== true) {
-            throw new Error('已有提醒，已跳过');
-        }
-
         const nowIso = new Date().toISOString();
         const taskName = String(opts.blockName || taskObj?.content || taskObj?.raw_content || taskObj?.rawContent || taskObj?.markdown || '任务').trim() || '任务';
         const rootId = String(taskObj?.root_id || taskObj?.docId || taskObj?.rootId || opts.docId || '').trim();
@@ -11864,73 +12031,63 @@ const wait = !!options.wait;
             repeatRule = null;
         }
         const repeatEnabled = !!(repeatRule?.enabled && repeatRule.type !== 'none');
+        const reminderBridge = __tmGetTomatoReminderBridgeV1();
+        if (!reminderBridge) throw new Error('Dock Tomato 提醒桥接未就绪');
+        if (opts.overwrite !== true && typeof reminderBridge.get === 'function') {
+            const existingResult = await reminderBridge.get(requestedId, { preferDirect: false });
+            if (existingResult?.hasReminder) throw new Error('已有提醒，已跳过');
+        }
+        if (typeof __tmApplyFollowReminderDraft !== 'function') throw new Error('任务提醒联动接口未就绪');
+        const canonicalTask = await __tmApplyFollowReminderDraft({
+            taskId,
+            attrHostId,
+            completionTime: taskCompletionTime || dateKey,
+            repeatRule: repeatEnabled ? repeatRule : null,
+            source: String(opts.source || 'task-horizon-reminder').trim() || 'task-horizon-reminder',
+        });
+        taskId = String(canonicalTask?.taskId || taskId).trim() || taskId;
+        attrHostId = String(canonicalTask?.attrHostId || attrHostId || taskId).trim() || taskId;
         const reminderRecord = {
             blockId: attrHostId,
             taskId,
-            blockName: taskName,
-            blockContent: taskName,
+            blockName: String(canonicalTask?.taskTitle || taskName).trim() || taskName,
+            blockContent: String(canonicalTask?.taskTitle || taskName).trim() || taskName,
             rootId,
             repeatMode: __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK,
             interval: 'once',
             every: 1,
             times: [timeKey],
-            startDate: dateKey,
+            startDate: __tmNormalizeReminderDateKey(canonicalTask?.completionTime || taskCompletionTime || dateKey),
             syncTaskDone: true,
             enabled: true,
-            taskStartDate,
-            taskCompletionTime,
-            taskRepeatRule: repeatEnabled ? repeatRule : null,
-            taskRepeatState: repeatEnabled ? (taskObj?.repeatState || taskObj?.repeat_state || null) : null,
+            taskStartDate: __tmNormalizeReminderDateKey(canonicalTask?.startDate || taskStartDate),
+            taskCompletionTime: __tmNormalizeReminderDateKey(canonicalTask?.completionTime || taskCompletionTime || dateKey),
+            taskRepeatRule: canonicalTask?.repeatRule?.enabled ? canonicalTask.repeatRule : null,
+            taskRepeatState: canonicalTask?.repeatRule?.enabled ? canonicalTask.repeatState : null,
             createdAt: nowIso,
             updatedAt: nowIso,
         };
-        const reminderValue = JSON.stringify(reminderRecord);
-        const res = await API.call('/api/attr/setBlockAttrs', {
-            id: attrHostId,
-            attrs: {
-                'custom-tomato-reminder': reminderValue,
-                bookmark: '⏰',
-            },
+        const result = await reminderBridge.upsert(requestedId, reminderRecord, {
+            overwrite: opts.overwrite === true,
+            preferDirect: false,
+            source: String(opts.source || 'task-horizon-reminder').trim() || 'task-horizon-reminder',
         });
-        if (!res || res.code !== 0) throw new Error(res?.msg || '保存提醒失败');
+        if (!result?.ok) {
+            if (String(result?.code || '').trim() === 'REMINDER_EXISTS') throw new Error('已有提醒，已跳过');
+            throw new Error(result?.message || '保存提醒失败');
+        }
+        attrHostId = String(result.attrHostId || attrHostId || taskId).trim() || taskId;
+        const savedReminder = result.reminder && typeof result.reminder === 'object'
+            ? result.reminder
+            : { ...reminderRecord, blockId: attrHostId };
 
         try { __tmSetTaskReminderMark(taskId, true); } catch (e) {}
         try { if (attrHostId !== taskId) __tmSetTaskReminderMark(attrHostId, true); } catch (e) {}
         try { __tmClearReminderSnapshotCache(taskId); } catch (e) {}
         try { if (attrHostId !== taskId) __tmClearReminderSnapshotCache(attrHostId); } catch (e) {}
         try { __tmReminderListCache.fetchedAt = 0; } catch (e) {}
-        const dispatchAttr = (attrKey, value) => {
-            try {
-                window.dispatchEvent(new CustomEvent('tm-task-attr-updated', {
-                    detail: {
-                        taskId,
-                        requestedTaskId: requestedId,
-                        attrHostId,
-                        attrKey,
-                        value: String(value ?? ''),
-                        source: opts.source || 'task-horizon-reminder',
-                    }
-                }));
-            } catch (e) {}
-        };
-        dispatchAttr('bookmark', '⏰');
-        dispatchAttr('custom-tomato-reminder', reminderValue);
-        try {
-            window.dispatchEvent(new CustomEvent('tomato-reminder-updated', {
-                detail: {
-                    taskId,
-                    blockId: attrHostId,
-                    reminder: reminderRecord,
-                    value: reminderValue,
-                    source: opts.source || 'task-horizon-reminder',
-                }
-            }));
-        } catch (e) {}
-        try { globalThis.__tomatoReminder?.refresh?.(); } catch (e) {}
-        try { globalThis.__tomatoUpdateReminderBadge?.(); } catch (e) {}
-        try { API.call('/api/sqlite/flushTransaction', {}).catch(() => {}); } catch (e) {}
         try { __tmRefreshReminderMarkForTask(taskId, 240); } catch (e) {}
-        return reminderRecord;
+        return savedReminder;
     }
 
     function __tmInvalidateTaskReminderMark(taskId) {
@@ -12118,7 +12275,7 @@ const wait = !!options.wait;
         const reminder = __tmParseReminderRecordFromValue(reminderInput, requestedId);
         const repeatMode = reminder ? __tmGetReminderRepeatMode(reminder) : '';
         const shouldFollowTaskRepeat = repeatMode === __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK;
-        const shouldSyncTaskDone = shouldFollowTaskRepeat;
+        const shouldSyncTaskDone = shouldFollowTaskRepeat && reminder?.syncTaskDone !== false;
         if (!reminder || !shouldSyncTaskDone) return false;
         let taskId = requestedId;
         try {
@@ -12168,7 +12325,6 @@ const wait = !!options.wait;
             if (typeof window?.tmSetDone === 'function') {
                 const setDoneResult = await window.tmSetDone(task.id, true, null, {
                     wait: true,
-                    waitStatusPatch: true,
                     statusPatch,
                     suppressHint: true,
                     source,
@@ -12205,68 +12361,25 @@ const wait = !!options.wait;
         }
     }
 
-    function __tmMaybeAdvanceRecurringTaskFromReminderAttr(taskId, attrValue, detail = {}) {
-        const tid = String(taskId || '').trim();
-        if (!tid) return false;
-        const previousSnapshot = __tmPeekTaskReminderSnapshotByAnyId(tid);
-        return Promise.resolve(__tmMaybeAdvanceRecurringTaskFromReminderRecord(tid, attrValue, {
-            detail,
-            previousReminder: previousSnapshot?.reminder || null,
-        })).catch(() => false);
-    }
-
-    function __tmExtractReminderUpdatedEventPayload(eventLike) {
-        const detail = (eventLike?.detail && typeof eventLike.detail === 'object') ? eventLike.detail : {};
-        const reminder = detail.reminder || detail.record || detail.data || detail.item || detail.block || null;
-        const rawCandidate = detail.value || detail.attrValue || detail.reminderData || detail.reminder_data || reminder || null;
-        const rawValue = (typeof rawCandidate === 'string' || (rawCandidate && typeof rawCandidate === 'object'))
-            ? rawCandidate
-            : null;
-        const id = String(
-            detail.taskId
-            || detail.blockId
-            || detail.block_id
-            || detail.taskBlockId
-            || detail.task_block_id
-            || detail.targetBlockId
-            || detail.target_block_id
-            || detail.id
-            || reminder?.blockId
-            || reminder?.block_id
-            || reminder?.taskBlockId
-            || reminder?.targetBlockId
-            || ''
-        ).trim();
-        return { detail, id, rawValue };
-    }
-
-    function __tmMaybeAdvanceRecurringTaskFromReminderUpdateEvent(eventLike) {
-        const payload = __tmExtractReminderUpdatedEventPayload(eventLike);
-        const id = String(payload.id || '').trim();
-        if (!id) return false;
-        const previousSnapshot = __tmPeekTaskReminderSnapshotByAnyId(id);
-        if (payload.rawValue) {
-            return Promise.resolve(__tmMaybeAdvanceRecurringTaskFromReminderRecord(id, payload.rawValue, {
-                detail: payload.detail,
-                previousReminder: previousSnapshot?.reminder || null,
-            })).catch(() => false);
-        }
-        return new Promise((resolve) => {
-            try {
-                setTimeout(() => {
-                    Promise.resolve(__tmGetTaskReminderSnapshotByAnyId(id, { force: true }))
-                        .then((snapshot) => __tmMaybeAdvanceRecurringTaskFromReminderRecord(id, snapshot?.reminder || null, {
-                            detail: payload.detail,
-                            previousReminder: previousSnapshot?.reminder || null,
-                        }))
-                        .then(resolve)
-                        .catch(() => resolve(false));
-                }, 160);
-            } catch (e) {
-                resolve(false);
-            }
-        });
-    }
+    __tmNs.reminderBridge = {
+        version: 1,
+        capabilities: Object.freeze({ completeFromReminder: true }),
+        async completeFromReminder(payload = {}) {
+            const source = payload && typeof payload === 'object' ? payload : {};
+            const taskRef = String(source.taskId || source.blockId || source.attrHostId || '').trim();
+            if (!taskRef || !source.reminder) return { ok: false, applied: false, code: 'INVALID_ARGUMENT' };
+            const applied = await __tmMaybeAdvanceRecurringTaskFromReminderRecord(taskRef, source.reminder, {
+                previousReminder: source.previousReminder || null,
+                detail: {
+                    action: 'occurrence-done',
+                    done: true,
+                    occurrenceKey: String(source.occurrenceKey || '').trim(),
+                    source: String(source.source || 'docktomato-reminder-bridge').trim() || 'docktomato-reminder-bridge',
+                },
+            });
+            return { ok: true, applied: applied === true, taskId: taskRef };
+        },
+    };
 
     function __tmApplyReminderTaskNameMarks(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
@@ -15541,6 +15654,39 @@ if (hasStatusPatch) {
             || __tmIsTaskListItemMarkerApiError(error);
     }
 
+    async function __tmVerifyTaskListItemMarkerPersisted(taskId, marker, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) throw new Error('缺少任务 ID');
+        const expectedMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
+        const opts = (options && typeof options === 'object') ? options : {};
+        const delays = Array.isArray(opts.delays) ? opts.delays : [0, 80, 160];
+        let lastError = null;
+        for (let index = 0; index < delays.length; index += 1) {
+            const delay = Math.max(0, Number(delays[index]) || 0);
+            if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+            try {
+                const markdown = String(await API.getBlockKramdown(tid) || '');
+                if (!__tmIsTaskListItemMarkdown(markdown)) throw new Error('目标块不是任务列表项');
+                const parsed = API.parseTaskStatus(markdown);
+                const actualMarker = __tmNormalizeTaskStatusMarker(parsed?.marker, '');
+                const checkboxMarkerMatches = String(expectedMarker || '').toUpperCase() === 'X'
+                    && String(actualMarker || '').toUpperCase() === 'X';
+                if (actualMarker === expectedMarker || checkboxMarkerMatches) {
+                    return { id: tid, marker: actualMarker, markdown, attempt: index + 1 };
+                }
+                lastError = new Error(`任务 marker 回读不一致: expected=${expectedMarker}, actual=${actualMarker}`);
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error || '任务 marker 回读失败'));
+            }
+        }
+        const error = new Error('任务 marker 写入后未能通过回读确认');
+        error.code = 'TASK_MARKER_VERIFY_FAILED';
+        error.taskId = tid;
+        error.marker = expectedMarker;
+        if (lastError) error.cause = lastError;
+        throw error;
+    }
+
     async function __tmHandleStaleTaskBlockForRefresh(taskId, taskLike = null, options = {}) {
         const tid = String(taskId || '').trim();
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
@@ -15580,7 +15726,7 @@ if (hasStatusPatch) {
     async function __tmUpdateTaskListItemMarkerWithFallback(taskId, marker) {
         const tid = String(taskId || '').trim();
         if (!tid) throw new Error('缺少任务 ID');
-        const nextMarker = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
+        const nextMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
         const taskForRetention = globalThis.__tmRuntimeState?.getTaskById?.(tid)
             || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
             || globalThis.__tmRuntimeState?.getPendingTaskById?.(tid)
@@ -15621,25 +15767,28 @@ if (hasStatusPatch) {
             }
             const updateResult = await __tmBackendAdapter.updateBlock(tid, nextMarkdown);
             const nextId = String(updateResult?.id || tid).trim() || tid;
+            const verified = await __tmVerifyTaskListItemMarkerPersisted(nextId, nextMarker);
             __tmPushStatusDebug('marker-update:fallback-success', {
                 taskId: tid,
                 marker: nextMarker,
                 nextId,
                 markdown: nextMarkdown,
             }, [tid, nextId], { force: true });
-            return { id: nextId, marker: nextMarker, markdown: nextMarkdown, usedBatch: false, usedFallback: true };
+            return { id: nextId, marker: nextMarker, markdown: verified.markdown, usedBatch: false, usedFallback: true };
         };
         if (SettingsStore.data?.legacyWin7CompatMode === true) {
             return await updateByBlock();
         }
         try {
-            await API.updateTaskListItemMarker(tid, nextMarker);
+            const gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonPersistUiBlockOperation', { action: 'updateMarker', id: tid, marker: nextMarker });
+            if (!gateway.available) await API.updateTaskListItemMarker(tid, nextMarker);
+            const verified = await __tmVerifyTaskListItemMarkerPersisted(tid, nextMarker);
             __tmPushStatusDebug('marker-update:success', {
                 taskId: tid,
                 marker: nextMarker,
-                mode: 'direct',
+                mode: gateway.available ? 'kernel-gateway' : 'direct',
             }, [tid], { force: true });
-            return { id: tid, marker: nextMarker, markdown: null, usedBatch: false, usedFallback: false };
+            return { id: tid, marker: nextMarker, markdown: verified.markdown, usedBatch: false, usedFallback: false };
         } catch (apiErr) {
             return await updateByBlock(apiErr);
         }
@@ -15650,7 +15799,7 @@ if (hasStatusPatch) {
         const payload = list
             .map((item) => ({
                 id: String(item?.id || '').trim(),
-                marker: __tmNormalizeCompatTaskStatusMarker(item?.marker, ' '),
+                marker: __tmNormalizeTaskStatusMarker(item?.marker, ' '),
             }))
             .filter((item) => item.id);
         const successMap = new Map();
@@ -15680,7 +15829,8 @@ if (hasStatusPatch) {
                     || null;
                 try { __tmProtectMarkdownMutationTaskFields?.(item.id, taskForRetention, { source: 'batch-marker-update' }); } catch (e) {}
             });
-            await API.batchUpdateTaskListItemMarker(payload);
+            const gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonPersistUiBlockOperation', { action: 'batchUpdateMarker', items: payload });
+            if (!gateway.available) await API.batchUpdateTaskListItemMarker(payload);
             payload.forEach((item) => {
                 successMap.set(item.id, {
                     id: item.id,
@@ -15712,7 +15862,7 @@ if (hasStatusPatch) {
         if (!tid) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const nextStatusId = String(statusId || '').trim();
-        const nextMarker = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
+        const nextMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
         const nextDone = __tmIsTaskMarkerDone(nextMarker);
         const taskForRetention = globalThis.__tmRuntimeState?.getTaskById?.(tid)
             || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
@@ -15726,21 +15876,18 @@ if (hasStatusPatch) {
                 source: String(opts.source || 'status-local-state').trim() || 'status-local-state',
             })
             : {};
-        const applyOne = (target) => {
-            if (!(target && typeof target === 'object')) return;
-            target.customStatus = nextStatusId;
-            target.custom_status = nextStatusId;
-            target.done = nextDone;
-            target.taskMarker = nextMarker;
-            target.task_marker = nextMarker;
-            if (typeof opts.markdown === 'string' && opts.markdown) {
-                target.markdown = opts.markdown;
-            } else {
-                target.markdown = __tmBuildTaskMarkdownWithMarker(target, nextMarker);
-            }
+        const nextMarkdown = typeof opts.markdown === 'string'
+            ? opts.markdown
+            : __tmBuildTaskMarkdownWithMarker(taskForRetention, nextMarker);
+        const localPatch = {
+            customStatus: nextStatusId,
+            done: nextDone,
+            taskMarker: nextMarker,
+            task_marker: nextMarker,
+            markdown: nextMarkdown,
         };
-        try { applyOne(globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid]); } catch (e) {}
-        try { applyOne(globalThis.__tmRuntimeState?.getPendingTaskById?.(tid) || state.pendingInsertedTasks?.[tid]); } catch (e) {}
+        try { __tmApplyQueuedTaskFieldPatchToTask(taskForRetention, localPatch); } catch (e) {}
+        try { __tmApplyTaskFieldPatchToLocalMirrors(tid, localPatch); } catch (e) {}
         try {
             if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
             state.doneOverrides[tid] = nextDone;
@@ -15753,7 +15900,7 @@ if (hasStatusPatch) {
                 || state.pendingInsertedTasks?.[tid]?.content
                 || ''
             ).trim();
-            MetaStore.set(tid, { customStatus: nextStatusId, done: nextDone, content });
+            MetaStore.set(tid, { ...localPatch, content });
         } catch (e) {}
         try {
             const liveTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
@@ -15808,7 +15955,7 @@ if (hasStatusPatch) {
         const statusOption = __tmFindStatusOptionById(requestedStatusId, statusOptions);
         if (!statusOption) throw new Error('状态不存在，请先在设置中配置');
         const nextStatusId = String(statusOption.id || requestedStatusId).trim();
-        const nextMarker = __tmNormalizeCompatTaskStatusMarker(statusOption.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
+        const nextMarker = __tmNormalizeTaskStatusMarker(statusOption.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
         const nextDone = __tmIsTaskMarkerDone(nextMarker);
         const context = await __tmResolveTaskMutationContext(taskId);
         if (!context?.persistId) throw new Error('未找到任务');
@@ -15823,7 +15970,7 @@ if (hasStatusPatch) {
         const prevStatusId = String(opts.previousStatusId || '').trim() || currentStatusId;
         const hasPreviousMarker = Object.prototype.hasOwnProperty.call(opts, 'previousMarker');
         const prevMarker = hasPreviousMarker
-            ? __tmNormalizeCompatTaskStatusMarker(opts.previousMarker, '')
+            ? __tmNormalizeTaskStatusMarker(opts.previousMarker, '')
             : currentMarker;
         const prevDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
             ? !!opts.previousDone
@@ -15869,7 +16016,7 @@ __tmPushStatusDebug('apply-status:start', {
             prevDone,
             source: String(opts.source || '').trim(),
         }, initialStatusLogIds, { force: true });
-        if (prevStatusId === nextStatusId && prevMarker === nextMarker) {
+        if (opts.skipNoopCheck !== true && prevStatusId === nextStatusId && prevMarker === nextMarker) {
             __tmPushStatusDebug('apply-status:noop', {
                 requestedTaskId: context.requestedId,
                 persistId: context.persistId,
@@ -16110,6 +16257,17 @@ __tmPushStatusDebug('apply-status:start', {
                         source: String(opts.source || 'task-status').trim() || 'task-status',
                     });
                 } catch (e) {}
+                try {
+                    const completedAt = String(completeAtPatch?.taskCompleteAt || '').trim()
+                        || __tmNowInChinaTimezoneIso();
+                    __tmScheduleRecurringTaskAdvanceAfterCompletion(context.persistId, {
+                        source: String(opts.source || 'task-status').trim() || 'task-status',
+                        completedAt,
+                        scheduleId: String(opts.scheduleId || '').trim(),
+                    });
+                } catch (e) {}
+            } else if (prevDone && !nextDone) {
+                try { __tmClearRecurringTaskAdvanceTimer(context.persistId); } catch (e) {}
             }
             if (shouldDispatchTaskReward) {
                 try {
@@ -16664,7 +16822,6 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmQuickbarTaskUpdateHandler = null;
     let __tmQuickbarRelayStorageHandler = null;
     let __tmQuickbarSilentRefreshTimer = null;
-    let __tmReminderFollowTaskRepeatUpdateHandler = null;
     const __tmQuickbarRelayLastTokenByKey = new Map();
     let __tmEditorTitleIconMenuHandler = null;
     let __tmContentMenuHandler = null;
@@ -19760,19 +19917,28 @@ refreshOk = false;
         return false;
     };
 
+    const __tmGetOfficialFrontend = () => {
+        try {
+            const getter = globalThis.__taskHorizonHostBridge?.getFrontend;
+            if (typeof getter === 'function') return String(getter() || '').trim().toLowerCase();
+        } catch (e) {}
+        try {
+            return String(globalThis.__taskHorizonFrontend || '').trim().toLowerCase();
+        } catch (e) {
+            return '';
+        }
+    };
+
     const __tmIsMobileBrowserViewport = () => {
+        const frontend = __tmGetOfficialFrontend();
+        if (frontend === 'browser-mobile') return true;
+        if (frontend === 'mobile' || frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return false;
         try {
             if (navigator?.userAgentData?.mobile === true) return true;
         } catch (e) {}
         try {
             const ua = String(navigator?.userAgent || '');
             if (/Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua)) return true;
-        } catch (e) {}
-        try {
-            const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
-            const width = Number(window?.innerWidth) || 0;
-            const coarse = !!window?.matchMedia?.('(pointer: coarse)')?.matches;
-            if ((coarse || maxTouchPoints > 0) && width > 0 && width <= 900) return true;
         } catch (e) {}
         return false;
     };
@@ -19790,6 +19956,10 @@ refreshOk = false;
             } catch (e) {}
             return 'ios-app';
         }
+        const frontend = __tmGetOfficialFrontend();
+        if (frontend === 'mobile') return 'mobile-app';
+        if (frontend === 'browser-mobile') return 'mobile-browser';
+        if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return 'desktop-browser';
         return __tmIsMobileBrowserViewport() ? 'mobile-browser' : 'desktop-browser';
     };
 
@@ -19930,17 +20100,14 @@ refreshOk = false;
     };
 
     const __tmIsReferenceMobileBrowserClient = () => {
+        const frontend = __tmGetOfficialFrontend();
+        if (frontend === 'browser-mobile') return true;
+        if (frontend === 'mobile' || frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return false;
         const uaDataMobile = __tmGetUserAgentDataMobile();
         if (uaDataMobile === true) return true;
         try {
             const ua = String(navigator?.userAgent || '');
             if (/Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua)) return true;
-        } catch (e) {}
-        try {
-            const width = Number(window?.innerWidth) || 0;
-            const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
-            const coarse = !!window.matchMedia?.('(pointer: coarse)')?.matches;
-            if ((coarse || maxTouchPoints > 0) && width > 0 && width <= 900) return true;
         } catch (e) {}
         return false;
     };
@@ -19949,6 +20116,10 @@ refreshOk = false;
         if (__tmHasAndroidNativeBridge()) return 'android-app';
         if (__tmHasHarmonyNativeBridge()) return 'harmony-app';
         if (__tmHasIOSNativeBridge()) return 'ios-app';
+        const frontend = __tmGetOfficialFrontend();
+        if (frontend === 'mobile') return 'mobile-app';
+        if (frontend === 'browser-mobile') return 'mobile-browser';
+        if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return 'desktop-browser';
         if (__tmIsReferenceMobileBrowserClient()) return 'mobile-browser';
         return 'desktop-browser';
     };
@@ -20030,6 +20201,7 @@ refreshOk = false;
                 differsFromCurrent: currentUiMode !== referenceUiMode,
             },
             runtime: {
+                frontend: __tmGetOfficialFrontend(),
                 container: String(system?.container || '').trim(),
                 os: String(system?.os || '').trim(),
                 osPlatform: String(system?.osPlatform || '').trim(),
@@ -20615,6 +20787,7 @@ refreshOk = false;
             ['访问场景推断', snapshot.reference.scenario],
         ];
         const runtimeRows = [
+            ['SDK getFrontend()', snapshot.runtime.frontend],
             ['kernel container', snapshot.runtime.container],
             ['system.os', snapshot.runtime.os],
             ['system.osPlatform', snapshot.runtime.osPlatform],
@@ -20737,8 +20910,9 @@ refreshOk = false;
                 <div style="margin-top:14px;padding:12px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
                     <div style="font-weight:600;margin-bottom:8px;">官方/SDK 参考</div>
                     <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.8;">
+                        <div>SDK <code>getFrontend()</code> 是当前界面类型的首要信号，不受窗口宽度和触摸屏能力影响。</div>
                         <div><code>system.container</code> 更接近“本体内核运行环境”，不等于“当前访问页面客户端”。</div>
-                        <div>SDK <code>platformUtils</code> 来自兼容层，可用于原生能力调用；而当前页面是不是移动端，还需要结合原生桥与浏览器信号判断。</div>
+                        <div>SDK <code>platformUtils</code> 来自兼容层，可用于原生能力调用。</div>
                         <div><code>window.siyuan.mobile</code> 更偏向页面层的移动 UI/状态对象，不应单独当成原生移动桥信号。</div>
                         <div>插件清单支持 <code>frontends</code> / <code>backends</code> 兼容声明，常见前端包括 <code>browser-desktop</code>、<code>browser-mobile</code>、<code>desktop-window</code>。</div>
                     </div>
@@ -21515,7 +21689,11 @@ refreshOk = false;
     function __tmApplyMobileBrowserViewportMetrics(modalEl) {
         const modal = modalEl instanceof HTMLElement ? modalEl : state.modal;
         if (!(modal instanceof HTMLElement)) return false;
-        if (__tmGetRuntimeClientKind() !== 'mobile-browser' || !modal.classList.contains('tm-modal--mobile')) {
+        const isEmbeddedHost = modal.classList.contains('tm-modal--tab')
+            || modal.classList.contains('tm-modal--dock')
+            || __tmIsTabHost()
+            || __tmIsDockHost();
+        if (__tmGetRuntimeClientKind() !== 'mobile-browser' || !modal.classList.contains('tm-modal--mobile') || isEmbeddedHost) {
             try { modal.style.removeProperty('left'); } catch (e) {}
             try { modal.style.removeProperty('top'); } catch (e) {}
             try { modal.style.removeProperty('width'); } catch (e) {}

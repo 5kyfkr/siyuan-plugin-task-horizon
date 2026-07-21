@@ -80,6 +80,7 @@
         lastRenderedAt: 0,
         historyOpen: false,
         chatPromptTemplateId: '',
+        hostListenerController: null,
     };
 
     function loadAiUiPrefs() {
@@ -991,6 +992,9 @@
             temperature: Number.isFinite(Number(s.aiMiniMaxTemperature)) ? Number(s.aiMiniMaxTemperature) : 0.2,
             maxTokens: Number.isFinite(Number(s.aiMiniMaxMaxTokens)) ? Number(s.aiMiniMaxMaxTokens) : 1600,
             timeoutMs: Number.isFinite(Number(s.aiMiniMaxTimeoutMs)) ? Number(s.aiMiniMaxTimeoutMs) : 30000,
+            conversationFontSize: Number.isFinite(Number(s.aiConversationFontSize))
+                ? Math.max(12, Math.min(22, Math.round(Number(s.aiConversationFontSize))))
+                : 14,
             contextMode: String(s.aiDefaultContextMode || 'nearby').trim() === 'fulltext'
                 ? 'fulltext'
                 : (String(s.aiDefaultContextMode || 'nearby').trim() === 'none' ? 'none' : 'nearby'),
@@ -1722,7 +1726,7 @@
  .tm-ai-sidebar__message--user{border-color:color-mix(in srgb, var(--b3-theme-primary) 25%, var(--b3-theme-surface-light));}
  .tm-ai-sidebar__message--context{opacity:.88;background:rgba(127,127,127,.05);}
  .tm-ai-sidebar__message-role{font-size:12px;font-weight:700;margin-bottom:4px;opacity:.72;}
- .tm-ai-sidebar__message-body{white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;}
+ .tm-ai-sidebar__message-body{white-space:pre-wrap;word-break:break-word;font-size:var(--tm-ai-conversation-font-size,0.875rem);line-height:1.6;}
  .tm-ai-sidebar__title-input{width:100%;max-width:100%;box-sizing:border-box;min-height:36px;padding:8px 12px;border:1px solid color-mix(in srgb, var(--b3-theme-surface-light) 82%, var(--b3-theme-on-background) 18%);border-radius:10px;background:color-mix(in srgb, var(--b3-theme-surface) 94%, var(--b3-theme-background));color:var(--b3-theme-on-background);box-shadow:inset 0 1px 0 rgba(255,255,255,.03);transition:border-color .16s ease, box-shadow .16s ease, background .16s ease;outline:none;appearance:none;-webkit-appearance:none;font-size:13px;}
  .tm-ai-sidebar__title-input:focus{border-color:color-mix(in srgb, var(--b3-theme-primary) 72%, var(--b3-theme-surface-light));box-shadow:0 0 0 3px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);background:color-mix(in srgb, var(--b3-theme-surface) 98%, var(--b3-theme-background));}
 .tm-ai-sidebar__composer{display:flex;flex-direction:column;gap:8px;padding:10px 0 2px;border-top:1px solid var(--b3-theme-surface-light);margin-top:auto;background:var(--b3-theme-background);position:sticky;bottom:0;z-index:1;}
@@ -4808,8 +4812,9 @@
         const plannerSummary = formatSchedulePlannerSummary(planner);
         const root = aiRuntime.host;
         if (!(root instanceof HTMLElement)) return;
+        const conversationFontSize = getConfig().conversationFontSize;
         root.innerHTML = `
-            <div class="tm-ai-sidebar${aiRuntime.mobile ? ' tm-ai-sidebar--mobile' : ''}">
+            <div class="tm-ai-sidebar${aiRuntime.mobile ? ' tm-ai-sidebar--mobile' : ''}" style="--tm-ai-conversation-font-size:${Number((conversationFontSize / 16).toFixed(4))}rem;">
                 <div class="tm-ai-sidebar__head">
                     <div class="tm-ai-sidebar__title-row">
                         <div class="tm-ai-sidebar__title">AI 工作台</div>
@@ -4985,11 +4990,20 @@
     async function mountSidebar(host, options = {}) {
         if (!(host instanceof HTMLElement)) return false;
         ensureAiStyle();
+        const previousHost = aiRuntime.host;
+        if (previousHost && previousHost !== host) {
+            aiRuntime.hostListenerController?.abort?.();
+            aiRuntime.hostListenerController = null;
+            delete previousHost.dataset.tmAiSidebarBound;
+        }
         aiRuntime.host = host;
         aiRuntime.mobile = !!options.mobile;
         if (!host.dataset.tmAiSidebarBound) {
             host.dataset.tmAiSidebarBound = '1';
-            host.addEventListener('click', async (event) => {
+            aiRuntime.hostListenerController?.abort?.();
+            aiRuntime.hostListenerController = new AbortController();
+            const listen = (type, listener) => host.addEventListener(type, listener, { signal: aiRuntime.hostListenerController.signal });
+            listen('click', async (event) => {
                 const actionEl = event.target?.closest?.('[data-ai-sidebar-action]');
                 if (!actionEl) return;
                 const action = String(actionEl.getAttribute('data-ai-sidebar-action') || '').trim();
@@ -5228,7 +5242,7 @@
                     }
                 }
             });
-            host.addEventListener('change', async (event) => {
+            listen('change', async (event) => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement)) return;
                 const field = String(target.getAttribute('data-ai-sidebar-field') || '').trim();
@@ -5307,7 +5321,7 @@
                     await updateConversation(current.id, { selectedTaskIds: ids, contextScope: 'manual' });
                 }
             });
-            host.addEventListener('input', async (event) => {
+            listen('input', async (event) => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement)) return;
                 const draftKey = String(target.getAttribute('data-ai-sidebar-draft') || '').trim();
@@ -5317,7 +5331,7 @@
                 const draft = getConversationDraft(current.id);
                 draft[draftKey] = String(target.value || '');
             });
-            host.addEventListener('keydown', async (event) => {
+            listen('keydown', async (event) => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement)) return;
                 const draftKey = String(target.getAttribute('data-ai-sidebar-draft') || '').trim();
@@ -5328,8 +5342,8 @@
                 const runBtn = host.querySelector('[data-ai-sidebar-action="run-scene"]');
                 if (runBtn instanceof HTMLElement) runBtn.click();
             });
-            host.addEventListener('dragover', (event) => { try { event.preventDefault(); } catch (e) {} });
-            host.addEventListener('drop', async (event) => {
+            listen('dragover', (event) => { try { event.preventDefault(); } catch (e) {} });
+            listen('drop', async (event) => {
                 try { event.preventDefault(); } catch (e) {}
                 const taskId = readTransferTaskId(event);
                 const current = await getConversation(aiRuntime.activeConversationId || ConversationStore.data?.activeId);
@@ -5419,6 +5433,7 @@
         const conversations = ConversationStore.normalizePayload(ConversationStore.data);
         const promptTemplates = PromptTemplateStore.normalizePayload(PromptTemplateStore.data);
         return {
+            mode: 'legacy',
             conversations: clone(conversations),
             promptTemplates: clone(promptTemplates),
             summary: {
@@ -5482,6 +5497,9 @@
 
     function cleanup() {
         closeModal();
+        aiRuntime.hostListenerController?.abort?.();
+        aiRuntime.hostListenerController = null;
+        if (aiRuntime.host) delete aiRuntime.host.dataset.tmAiSidebarBound;
         aiRuntime.host = null;
         aiRuntime.pendingOpen = null;
         try { document.getElementById('tm-ai-style')?.remove?.(); } catch (e) {}
@@ -5508,14 +5526,22 @@
     globalThis.tmAiShowHistory = async (docId) => { try { await openSidebar({ type: 'chat', contextScope: 'current_doc', selectedDocIds: docId ? [docId] : undefined, showHistory: true }); } catch (e) { toast(`❌ ${String(e?.message || e)}`, 'error'); } };
     globalThis.tmAiMountSidebar = async (host, options) => { try { return await mountSidebar(host, options); } catch (e) { toast(`❌ ${String(e?.message || e)}`, 'error'); return false; } };
     globalThis.tmAiTestConnection = async () => { try { return await testConnection(); } catch (e) { toast(`❌ ${String(e?.message || e)}`, 'error'); throw e; } };
+    const setConversationFontSize = (value) => {
+        const size = Number.isFinite(Number(value)) ? Math.max(12, Math.min(22, Math.round(Number(value)))) : 14;
+        aiRuntime.host?.querySelector?.('.tm-ai-sidebar')?.style?.setProperty('--tm-ai-conversation-font-size', `${Number((size / 16).toFixed(4))}rem`);
+        return size;
+    };
     globalThis.__taskHorizonAiCleanup = cleanup;
     globalThis.__tmAI = {
         loaded: true,
+        runtimeKind: 'legacy',
+        isBusy: () => aiRuntime.busy === true,
         cleanup,
         testConnection,
         mountSidebar,
         openSidebar,
         refreshSidebar,
+        setConversationFontSize,
         listConversations,
         createConversation,
         updateConversation,

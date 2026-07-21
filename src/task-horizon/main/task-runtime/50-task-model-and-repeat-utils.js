@@ -452,10 +452,17 @@
         return __tmNormalizeDateOnly(value);
     }
 
+    function __tmNormalizeTaskRepeatMaxOccurrences(value) {
+        const parsed = parseInt(value, 10);
+        if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+        return Math.max(1, Math.min(200, parsed));
+    }
+
     function __tmNormalizeTaskRepeatState(value) {
         const raw = __tmParseTaskRepeatJson(value) || {};
         return {
             version: 1,
+            occurrenceCount: Math.max(1, Math.min(200, parseInt(raw.occurrenceCount, 10) || 1)),
             lastCompletedAt: String(raw.lastCompletedAt || '').trim(),
             lastAdvancedAt: String(raw.lastAdvancedAt || '').trim(),
             lastInstanceStart: __tmNormalizeDateOnly(raw.lastInstanceStart || ''),
@@ -482,6 +489,8 @@
             const entry = (item && typeof item === 'object' && !Array.isArray(item)) ? item : {};
             return {
                 completedAt: String(entry.completedAt || '').trim(),
+                occurrenceNumber: Math.max(0, Math.min(200, parseInt(entry.occurrenceNumber, 10) || 0)),
+                totalOccurrences: __tmNormalizeTaskRepeatMaxOccurrences(entry.totalOccurrences),
                 sourceStart: __tmNormalizeDateOnly(entry.sourceStart || ''),
                 sourceDue: __tmNormalizeDateOnly(entry.sourceDue || ''),
                 nextStart: __tmNormalizeDateOnly(entry.nextStart || ''),
@@ -502,6 +511,42 @@
             .slice(0, 30);
     }
 
+    function __tmGetTaskRepeatCompletedCount(taskLike, ruleInput = null) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const rule = __tmNormalizeTaskRepeatRule(
+            ruleInput || task?.repeatRule || task?.repeat_rule || '',
+            { startDate: task?.startDate, completionTime: task?.completionTime }
+        );
+        const state = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state);
+        let completed = Math.max(0, state.occurrenceCount - 1);
+        let done = task?.done === true;
+        try {
+            if (typeof __tmIsTaskDoneEffective === 'function') done = __tmIsTaskDoneEffective(task);
+        } catch (e) {}
+        if (done) completed = Math.max(completed, state.occurrenceCount);
+        return rule.maxOccurrences > 0
+            ? Math.min(rule.maxOccurrences, completed)
+            : completed;
+    }
+
+    function __tmGetTaskRepeatProgressText(taskLike, ruleInput = null) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const rule = __tmNormalizeTaskRepeatRule(
+            ruleInput || task?.repeatRule || task?.repeat_rule || '',
+            { startDate: task?.startDate, completionTime: task?.completionTime }
+        );
+        if (!rule.enabled || rule.type === 'none' || rule.maxOccurrences <= 0) return '';
+        return `已完成 ${__tmGetTaskRepeatCompletedCount(task, rule)}/${rule.maxOccurrences}`;
+    }
+
+    function __tmResolveTaskRepeatHistoryOccurrenceNumber(taskLike, historyItem, orderIndex = 0) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const history = (historyItem && typeof historyItem === 'object') ? historyItem : {};
+        const explicit = Math.max(0, Math.min(200, parseInt(history.occurrenceNumber, 10) || 0));
+        if (explicit > 0) return explicit;
+        return Math.max(1, __tmGetTaskRepeatCompletedCount(task) - Math.max(0, Number(orderIndex) || 0));
+    }
+
     function __tmNormalizeTaskRepeatRule(value, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const valueText = typeof value === 'string' ? String(value || '').trim() : '';
@@ -515,6 +560,7 @@
                 monthlyMode: 'date',
                 calendarMode: 'solar',
                 until: '',
+                maxOccurrences: 0,
                 anchorDate: __tmNormalizeDateOnly(
                     opts.anchorDate
                     || opts.startDate
@@ -536,6 +582,7 @@
             || opts.completionTime
             || new Date()
         );
+        const maxOccurrences = enabled ? __tmNormalizeTaskRepeatMaxOccurrences(raw.maxOccurrences) : 0;
         return {
             version: 1,
             enabled: enabled && type !== 'none',
@@ -544,7 +591,8 @@
             every: __tmNormalizeTaskRepeatEvery(raw.every, type),
             monthlyMode: __tmNormalizeTaskRepeatMonthlyMode(raw.monthlyMode, type),
             calendarMode: __tmNormalizeTaskRepeatCalendarMode(raw.calendarMode || raw.repeatCalendarMode, type),
-            until: enabled ? __tmNormalizeTaskRepeatUntil(raw.until || raw.repeatUntil || '') : '',
+            until: enabled && maxOccurrences === 0 ? __tmNormalizeTaskRepeatUntil(raw.until || raw.repeatUntil || '') : '',
+            maxOccurrences,
             anchorDate: fallbackAnchor,
         };
     }
@@ -797,6 +845,8 @@
             completionTime: task?.completionTime,
         });
         if (!rule.enabled || rule.type === 'none') return null;
+        const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
+        if (rule.maxOccurrences > 0 && currentState.occurrenceCount >= rule.maxOccurrences) return null;
         const prevStart = __tmNormalizeDateOnly(task?.startDate || '');
         const prevDue = __tmNormalizeDateOnly(task?.completionTime || '');
         const fallbackBase = prevDue || prevStart || rule.anchorDate || __tmNormalizeDateOnly(new Date());
@@ -809,7 +859,8 @@
         if (prevDue && !nextDue) return null;
         const nowIso = String(options.advancedAt || new Date().toISOString()).trim();
         const repeatState = __tmNormalizeTaskRepeatState({
-            ...(task?.repeatState && typeof task.repeatState === 'object' ? task.repeatState : {}),
+            ...currentState,
+            occurrenceCount: currentState.occurrenceCount + 1,
             lastCompletedAt: String(options.completedAt || '').trim() || String(task?.repeatState?.lastCompletedAt || '').trim(),
             lastAdvancedAt: nowIso,
             lastInstanceStart: nextStart,
@@ -849,7 +900,8 @@
         const triggerText = rule.trigger === 'complete' ? '完成后' : '到期后';
         const unitText = __tmGetTaskRepeatCalendarUnitLabel(rule.type, rule.every, rule.calendarMode);
         const untilText = rule.until ? ` · 至 ${rule.until}` : '';
-        return `${triggerText}${unitText}${untilText}`;
+        const countText = rule.maxOccurrences > 0 ? ` · 共 ${rule.maxOccurrences} 次` : '';
+        return `${triggerText}${unitText}${untilText}${countText}`;
     }
 
     function __tmGetTaskRepeatWeekdayLabel(dateLike) {
@@ -913,6 +965,13 @@
         const completedStamp = completedAt ? completedAt.replace(/[^0-9]/g, '').slice(0, 14) : `${Date.now()}_${orderIndex}`;
         const taskId = String(source.id || '').trim();
         if (!taskId) return null;
+        const occurrenceNumber = __tmResolveTaskRepeatHistoryOccurrenceNumber(source, history, orderIndex);
+        const totalOccurrences = __tmNormalizeTaskRepeatMaxOccurrences(
+            history.totalOccurrences || __tmNormalizeTaskRepeatRule(
+                source?.repeatRule || source?.repeat_rule || '',
+                { startDate: source?.startDate, completionTime: source?.completionTime }
+            ).maxOccurrences
+        );
         const virtualId = `repeatinst:${taskId}:${completedStamp || orderIndex}`;
         const doneStatusId = String(
             typeof __tmResolveCheckboxLinkedStatusId === 'function'
@@ -927,6 +986,10 @@
             sourceTaskId: taskId,
             recurringSourceTaskId: taskId,
             recurringCompletedAt: completedAt,
+            recurringOccurrenceNumber: occurrenceNumber,
+            recurringTotalOccurrences: totalOccurrences,
+            recurringSourceStart: __tmNormalizeDateOnly(history.sourceStart || ''),
+            recurringSourceDue: __tmNormalizeDateOnly(history.sourceDue || ''),
             isRecurringInstance: true,
             isRecurringInstanceReadOnly: true,
             done: true,
@@ -980,7 +1043,12 @@
         const cls = String(options?.className || '').trim();
         const classes = ['tm-recurring-instance-badge'];
         if (cls) classes.push(cls);
-        return `<span class="${classes.join(' ')}">循环记录</span>`;
+        const occurrenceNumber = Math.max(0, Math.min(200, parseInt(task?.recurringOccurrenceNumber, 10) || 0));
+        const totalOccurrences = __tmNormalizeTaskRepeatMaxOccurrences(task?.recurringTotalOccurrences);
+        const progressText = occurrenceNumber > 0
+            ? ` · 第 ${occurrenceNumber}${totalOccurrences > 0 ? `/${totalOccurrences}` : ''} 次`
+            : '';
+        return `<span class="${classes.join(' ')}">循环记录${progressText}</span>`;
     }
 
     function __tmRenderRecurringTaskInlineIcon(task, options = {}) {
@@ -1215,8 +1283,23 @@
         const readOnly = __tmIsCollectedOtherBlockTask(task);
         const jsTid = tid.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         const extraClass = String(options?.extraClass || '').trim();
-        const checkedAttr = options?.checked ? ' checked' : '';
+        let checked = !!options?.checked;
+        try {
+            if (Object.prototype.hasOwnProperty.call(state.doneOverrides || {}, tid)) {
+                checked = !!state.doneOverrides[tid];
+            } else {
+                const liveTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, {
+                    includePending: true,
+                    preferPending: true,
+                }) || task;
+                checked = typeof __tmIsTaskDoneEffective === 'function'
+                    ? __tmIsTaskDoneEffective(liveTask)
+                    : !!liveTask?.done;
+            }
+        } catch (e) {}
+        const checkedAttr = checked ? ' checked' : '';
         const disabledAttr = options?.disabled ? ' disabled' : '';
+        const taskIdAttr = ` data-task-id="${esc(tid)}"`;
         const title = String(options?.title || (readOnly ? '完成状态仅在插件内生效，不会修改原块内容' : '')).trim();
         const titleAttr = title ? ` title="${esc(title)}"` : '';
         const mouseDownAttr = options?.stopMouseDown ? ' onmousedown="event.stopPropagation()"' : '';
@@ -1229,7 +1312,7 @@
         const extraStyle = String(options?.style || '').trim().replace(/;+\s*$/, '');
         const mergedStyle = [baseStyle, extraStyle].filter(Boolean).join(';');
         const styleAttr = mergedStyle ? ` style="${mergedStyle};"` : '';
-        return `<input class="tm-task-checkbox${extraClass ? ` ${extraClass}` : ''}" type="checkbox"${checkedAttr}${disabledAttr}${titleAttr}${mouseDownAttr}${pointerDownAttr}${clickAttr}${changeAttr}${styleAttr}>`;
+        return `<input class="tm-task-checkbox${extraClass ? ` ${extraClass}` : ''}" type="checkbox"${taskIdAttr}${checkedAttr}${disabledAttr}${titleAttr}${mouseDownAttr}${pointerDownAttr}${clickAttr}${changeAttr}${styleAttr}>`;
     }
 
     function __tmRenderTaskCheckboxWrap(taskId, task, options = {}) {

@@ -4372,6 +4372,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                 startDate: task?.startDate,
                 completionTime: task?.completionTime,
             });
+            const currentRepeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
+            const currentEndMode = currentRule.maxOccurrences > 0 ? 'count' : (currentRule.until ? 'date' : 'never');
             const anchorDate = __tmNormalizeDateOnly(currentRule.anchorDate || task?.completionTime || task?.startDate || new Date());
             const modal = document.createElement('div');
             modal.className = 'tm-repeat-modal';
@@ -4417,7 +4419,17 @@ return Number(state.contextInteractionQuietUntil || 0);
                         </div>
                         <div class="tm-repeat-field">
                             <div class="tm-repeat-label">循环截止</div>
-                            <input class="tm-repeat-input" data-tm-repeat-field="until" type="date" value="${esc(String(currentRule.until || '').trim())}">
+                            <select class="tm-repeat-select" data-tm-repeat-field="endMode">
+                                <option value="never"${currentEndMode === 'never' ? ' selected' : ''}>永不结束</option>
+                                <option value="date"${currentEndMode === 'date' ? ' selected' : ''}>按日期结束</option>
+                                <option value="count"${currentEndMode === 'count' ? ' selected' : ''}>按次数结束</option>
+                            </select>
+                            <input class="tm-repeat-input" data-tm-repeat-field="until" type="date" value="${esc(String(currentRule.until || '').trim())}" style="display:${currentEndMode === 'date' ? '' : 'none'};">
+                            <div class="tm-repeat-inline" data-tm-repeat-count-wrap style="display:${currentEndMode === 'count' ? 'flex' : 'none'};">
+                                <div class="tm-repeat-inline-prefix">共</div>
+                                <input class="tm-repeat-input" data-tm-repeat-field="maxOccurrences" type="number" min="1" max="200" step="1" value="${esc(String(currentRule.maxOccurrences || 1))}">
+                                <div class="tm-repeat-inline-prefix">次（含本次）</div>
+                            </div>
                             <div class="tm-repeat-muted">基准日期：${esc(anchorDate || '未设置')}</div>
                         </div>
                         <div class="tm-repeat-summary" data-tm-repeat-summary></div>
@@ -4434,7 +4446,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             const triggerTypeEl = modal.querySelector('[data-tm-repeat-field="triggerType"]');
             const everyEl = modal.querySelector('[data-tm-repeat-field="every"]');
             const typeEl = modal.querySelector('[data-tm-repeat-field="type"]');
+            const endModeEl = modal.querySelector('[data-tm-repeat-field="endMode"]');
             const untilEl = modal.querySelector('[data-tm-repeat-field="until"]');
+            const maxOccurrencesEl = modal.querySelector('[data-tm-repeat-field="maxOccurrences"]');
+            const countWrap = modal.querySelector('[data-tm-repeat-count-wrap]');
             const calendarWrap = modal.querySelector('[data-tm-repeat-calendar-wrap]');
             const monthlyWrap = modal.querySelector('[data-tm-repeat-monthly-wrap]');
             const summaryEl = modal.querySelector('[data-tm-repeat-summary]');
@@ -4458,7 +4473,11 @@ return Number(state.contextInteractionQuietUntil || 0);
                 const triggerType = String(triggerTypeEl?.value || 'none').trim();
                 const type = __tmNormalizeTaskRepeatType(typeEl?.value || currentRule.type || 'daily');
                 const every = __tmNormalizeTaskRepeatEvery(everyEl?.value || currentRule.every || 1, type);
-                const until = __tmNormalizeTaskRepeatUntil(untilEl?.value || '');
+                const endMode = String(endModeEl?.value || 'never').trim();
+                const until = endMode === 'date' ? __tmNormalizeTaskRepeatUntil(untilEl?.value || '') : '';
+                const maxOccurrences = endMode === 'count'
+                    ? __tmNormalizeTaskRepeatMaxOccurrences(maxOccurrencesEl?.value || 1)
+                    : 0;
                 if (triggerType === 'none') {
                     return __tmNormalizeTaskRepeatRule({ enabled: false, type: 'none' }, {
                         anchorDate,
@@ -4474,6 +4493,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     monthlyMode,
                     calendarMode,
                     until,
+                    maxOccurrences,
                     anchorDate,
                 }, {
                     anchorDate,
@@ -4497,9 +4517,16 @@ return Number(state.contextInteractionQuietUntil || 0);
                 const triggerType = String(triggerTypeEl?.value || 'none').trim();
                 const type = __tmNormalizeTaskRepeatType(typeEl?.value || currentRule.type || 'daily');
                 const disabled = triggerType === 'none';
+                const endMode = String(endModeEl?.value || 'never').trim();
                 if (everyEl instanceof HTMLInputElement) everyEl.disabled = disabled;
                 if (typeEl instanceof HTMLSelectElement) typeEl.disabled = disabled;
-                if (untilEl instanceof HTMLInputElement) untilEl.disabled = disabled;
+                if (endModeEl instanceof HTMLSelectElement) endModeEl.disabled = disabled;
+                if (untilEl instanceof HTMLInputElement) {
+                    untilEl.disabled = disabled || endMode !== 'date';
+                    untilEl.style.display = endMode === 'date' ? '' : 'none';
+                }
+                if (maxOccurrencesEl instanceof HTMLInputElement) maxOccurrencesEl.disabled = disabled || endMode !== 'count';
+                if (countWrap instanceof HTMLElement) countWrap.style.display = endMode === 'count' ? 'flex' : 'none';
                 if (calendarWrap instanceof HTMLElement) calendarWrap.style.display = (!disabled && (type === 'monthly' || type === 'yearly')) ? 'flex' : 'none';
                 if (monthlyWrap instanceof HTMLElement) monthlyWrap.style.display = (!disabled && type === 'monthly' && calendarMode !== 'lunar') ? 'flex' : 'none';
                 syncCalendarButtons();
@@ -4527,8 +4554,29 @@ return Number(state.contextInteractionQuietUntil || 0);
             triggerTypeEl?.addEventListener('change', syncUi);
             typeEl?.addEventListener('change', syncUi);
             everyEl?.addEventListener('input', syncUi);
+            endModeEl?.addEventListener('change', syncUi);
             untilEl?.addEventListener('change', syncUi);
-            confirmBtn?.addEventListener('click', () => finish(readDraft()));
+            maxOccurrencesEl?.addEventListener('input', syncUi);
+            confirmBtn?.addEventListener('click', () => {
+                const draft = readDraft();
+                const scheduleFields = (rule) => JSON.stringify([
+                    rule.enabled,
+                    rule.type,
+                    rule.every,
+                    rule.monthlyMode,
+                    rule.calendarMode,
+                    rule.anchorDate,
+                ]);
+                if (draft.maxOccurrences > 0
+                    && currentRule.maxOccurrences > 0
+                    && scheduleFields(draft) === scheduleFields(currentRule)
+                    && draft.maxOccurrences < currentRepeatState.occurrenceCount) {
+                    hint(`⚠ 结束次数不能小于当前第 ${currentRepeatState.occurrenceCount} 次`, 'warning');
+                    try { maxOccurrencesEl?.focus?.(); } catch (e) {}
+                    return;
+                }
+                finish(draft);
+            });
             cancelBtn?.addEventListener('click', () => finish(null));
             modal.addEventListener('click', (ev) => {
                 if (ev.target === modal) finish(null);
@@ -6554,6 +6602,16 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (aiEnabled) {
             actions.push({ separator: true });
             actions.push({
+                label: '发送到 AI',
+                icon: 'sparkle',
+                run: async () => {
+                    return await window.tmOpenAiSidebar({
+                        selectedTaskIds: [tid],
+                        draft: '请基于这 1 个已选任务继续处理：',
+                    });
+                }
+            });
+            actions.push({
                 label: 'AI 优化任务名称',
                 icon: 'bot',
                 run: async () => {
@@ -7312,6 +7370,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             weights: { importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
             importanceDelta: { high: 20, medium: 10, low: -5, none: 0 },
             statusDelta: { todo: 0, in_progress: 15, done: -80, blocked: -10, review: 5 },
+            customFieldDelta: {},
             dueRanges: [
                 { days: 0, delta: 20 },
                 { days: 1, delta: 15 },
@@ -7378,6 +7437,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         merged.weights = { ...base.weights, ...(merged.weights || {}) };
         merged.importanceDelta = { ...base.importanceDelta, ...(merged.importanceDelta || {}) };
         merged.statusDelta = { ...base.statusDelta, ...(merged.statusDelta || {}) };
+        merged.customFieldDelta = __tmNormalizePriorityCustomFieldDelta(merged.customFieldDelta);
         merged.dueRanges = Array.isArray(merged.dueRanges) ? merged.dueRanges : base.dueRanges;
         merged.durationUnit = (merged.durationUnit === 'hours' || merged.durationUnit === 'minutes') ? merged.durationUnit : 'minutes';
         merged.durationBuckets = Array.isArray(merged.durationBuckets) ? merged.durationBuckets : base.durationBuckets;
@@ -7401,6 +7461,79 @@ return Number(state.contextInteractionQuietUntil || 0);
         const statuses = SettingsStore.data.customStatusOptions || [];
         const docs = state.allDocuments || [];
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const customFields = __tmGetCustomFieldDefs().filter((field) => {
+            const type = String(field?.type || '').trim();
+            return field?.enabled !== false
+                && (type === 'single' || type === 'multi')
+                && Array.isArray(field?.options)
+                && field.options.length > 0;
+        });
+        const weightRows = [
+            ['importance', '重要性'],
+            ['status', '状态'],
+            ['due', '截止日期'],
+            ['duration', '时长'],
+            ['doc', '文档'],
+        ].map(([key, label]) => `
+            <label class="tm-priority-field-row">
+                <span class="tm-priority-field-label">${label}</span>
+                <input class="b3-text-field tm-priority-number-input" type="number" value="${Number(cfg.weights[key]) || 0}" data-tm-call="tmSetPriorityWeight" data-tm-args='["${key}"]'>
+            </label>
+        `).join('');
+        const importanceRows = [
+            ['high', '高'],
+            ['medium', '中'],
+            ['low', '低'],
+            ['none', '无'],
+        ].map(([key, label]) => `
+            <label class="tm-priority-field-row">
+                <span class="tm-priority-field-label">${label}</span>
+                <input class="b3-text-field tm-priority-number-input" type="number" value="${Number(cfg.importanceDelta[key]) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["${key}"]'>
+            </label>
+        `).join('');
+        const statusRows = statuses.map((status) => `
+            <label class="tm-priority-field-row">
+                <span class="tm-priority-field-label">${esc(status?.name || status?.id)}</span>
+                <input class="b3-text-field tm-priority-number-input" type="number" value="${Number(cfg.statusDelta[status?.id]) || 0}" data-tm-call="tmSetPriorityStatus" data-tm-args='["${esc(String(status?.id || ''))}"]'>
+            </label>
+        `).join('');
+        const customFieldGroups = customFields.map((field) => {
+            const fieldId = String(field?.id || '').trim();
+            const fieldDelta = (cfg.customFieldDelta?.[fieldId] && typeof cfg.customFieldDelta[fieldId] === 'object')
+                ? cfg.customFieldDelta[fieldId]
+                : {};
+            const configuredCount = Object.keys(fieldDelta).length;
+            const optionRows = field.options.map((option) => {
+                const optionId = String(option?.id || '').trim();
+                const color = __tmNormalizeHexColor(option?.color, __tmGetCustomFieldPresetColor(0)) || __tmGetCustomFieldPresetColor(0);
+                return `
+                    <label class="tm-priority-field-row">
+                        <span class="tm-priority-field-label tm-priority-field-label--option">
+                            <span class="tm-priority-option-swatch" style="--tm-priority-option-color:${esc(color)}"></span>
+                            <span>${esc(option?.name || optionId)}</span>
+                        </span>
+                        <input class="b3-text-field tm-priority-number-input" type="number" value="${Number(fieldDelta[optionId]) || 0}" data-tm-call="tmSetPriorityCustomField" data-tm-args='["${esc(fieldId)}","${esc(optionId)}"]'>
+                    </label>
+                `;
+            }).join('');
+            return `
+                <details class="tm-priority-custom-field" ${configuredCount ? 'open' : ''}>
+                    <summary>
+                        <span>${esc(field?.name || fieldId)}</span>
+                        <span class="tm-priority-custom-field__meta">${String(field?.type || '').trim() === 'multi' ? '多选' : '单选'}${configuredCount ? ` · 已设置 ${configuredCount}` : ''}</span>
+                    </summary>
+                    <div class="tm-priority-field-grid">${optionRows}</div>
+                </details>
+            `;
+        }).join('');
+        const customFieldSection = `
+            <div class="${embedded ? 'tm-rule-section ' : ''}tm-priority-section" style="margin-bottom:${embedded ? '0' : '14px'};">
+                <div class="tm-priority-section__title">自定义列加减分</div>
+                <div class="tm-priority-custom-fields">
+                    ${customFieldGroups || '<div class="tm-priority-empty">暂无单选或多选自定义列</div>'}
+                </div>
+            </div>
+        `;
         const titleOpacityEnabled = cfg.titleOpacityEnabled === true;
         const titleOpacityRows = __tmNormalizePriorityTitleOpacityRanges(cfg.titleOpacityRanges, []).map((r, i) => {
             const opacityPercent = Math.round(Math.max(0.2, Math.min(1, Number(r.opacity) || 1)) * 100);
@@ -7416,11 +7549,11 @@ return Number(state.contextInteractionQuietUntil || 0);
                         title="点击选择分段颜色"
                     ></button>
                     <span style="width:52px;color:var(--tm-secondary-text);">最低分</span>
-                    <input class="tm-input" style="width:100px;" type="number" placeholder="-∞" value="${r.minScore === '' ? '' : Number(r.minScore)}" data-tm-call="tmSetPriorityTitleOpacityRange" data-tm-args='[${i},"minScore"]'>
+                    <input class="b3-text-field tm-priority-number-input" type="number" placeholder="-∞" value="${r.minScore === '' ? '' : Number(r.minScore)}" data-tm-call="tmSetPriorityTitleOpacityRange" data-tm-args='[${i},"minScore"]'>
                     <span style="width:52px;color:var(--tm-secondary-text);">最高分</span>
-                    <input class="tm-input" style="width:100px;" type="number" placeholder="+∞" value="${r.maxScore === '' ? '' : Number(r.maxScore)}" data-tm-call="tmSetPriorityTitleOpacityRange" data-tm-args='[${i},"maxScore"]'>
+                    <input class="b3-text-field tm-priority-number-input" type="number" placeholder="+∞" value="${r.maxScore === '' ? '' : Number(r.maxScore)}" data-tm-call="tmSetPriorityTitleOpacityRange" data-tm-args='[${i},"maxScore"]'>
                     <span style="width:58px;color:var(--tm-secondary-text);">透明度</span>
-                    <input class="tm-input" style="width:96px;" type="number" min="20" max="100" step="1" value="${opacityPercent}" data-tm-call="tmSetPriorityTitleOpacityRange" data-tm-args='[${i},"opacity"]'>
+                    <input class="b3-text-field tm-priority-number-input" type="number" min="20" max="100" step="1" value="${opacityPercent}" data-tm-call="tmSetPriorityTitleOpacityRange" data-tm-args='[${i},"opacity"]'>
                     <span style="color:var(--tm-secondary-text);">%</span>
                     <button class="tm-btn tm-btn-gray" data-tm-call="tmRemovePriorityTitleOpacityRange" data-tm-args='[${i}]'>删除</button>
                 </div>
@@ -7447,7 +7580,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                         <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(dName || docId)}</span>
                         <span style="opacity:0.8;">▾</span>
                     </button>
-                    <input class="tm-input" style="width:120px;" type="number" value="${Number(delta) || 0}" data-tm-call="tmSetPriorityDocDelta" data-tm-args='["${esc(docId)}"]'>
+                    <input class="b3-text-field tm-priority-number-input" type="number" value="${Number(delta) || 0}" data-tm-call="tmSetPriorityDocDelta" data-tm-args='["${esc(docId)}"]'>
                     <button class="tm-btn tm-btn-gray" data-tm-call="tmRemovePriorityDocDelta" data-tm-args='["${esc(docId)}"]'>删除</button>
                 </div>
             `;
@@ -7460,7 +7593,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                         <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(group ? __tmResolveDocGroupName(group) : groupId)}</span>
                         <span style="opacity:0.8;">▾</span>
                     </button>
-                    <input class="tm-input" style="width:120px;" type="number" value="${Number(delta) || 0}" data-tm-call="tmSetPriorityGroupDelta" data-tm-args='["${esc(groupId)}"]'>
+                    <input class="b3-text-field tm-priority-number-input" type="number" value="${Number(delta) || 0}" data-tm-call="tmSetPriorityGroupDelta" data-tm-args='["${esc(groupId)}"]'>
                     <button class="tm-btn tm-btn-gray" data-tm-call="tmRemovePriorityGroupDelta" data-tm-args='["${esc(groupId)}"]'>删除</button>
                 </div>
             `;
@@ -7469,9 +7602,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         const dueRows = (Array.isArray(cfg.dueRanges) ? cfg.dueRanges : []).map((r, i) => `
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
                 <span style="width:70px;color:var(--tm-secondary-text);">≤ 天数</span>
-                <input class="tm-input" style="width:120px;" type="number" value="${Number(r.days) || 0}" data-tm-call="tmSetPriorityDueRange" data-tm-args='[${i},"days"]'>
+                <input class="b3-text-field tm-priority-number-input" type="number" value="${Number(r.days) || 0}" data-tm-call="tmSetPriorityDueRange" data-tm-args='[${i},"days"]'>
                 <span style="width:40px;color:var(--tm-secondary-text);">加分</span>
-                <input class="tm-input" style="width:120px;" type="number" value="${Number(r.delta) || 0}" data-tm-call="tmSetPriorityDueRange" data-tm-args='[${i},"delta"]'>
+                <input class="b3-text-field tm-priority-number-input" type="number" value="${Number(r.delta) || 0}" data-tm-call="tmSetPriorityDueRange" data-tm-args='[${i},"delta"]'>
                 <button class="tm-btn tm-btn-gray" data-tm-call="tmRemovePriorityDueRange" data-tm-args='[${i}]'>删除</button>
             </div>
         `).join('');
@@ -7487,61 +7620,45 @@ return Number(state.contextInteractionQuietUntil || 0);
         const durRows = (Array.isArray(cfg.durationBuckets) ? cfg.durationBuckets : []).map((b, i) => `
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
                 <span style="width:70px;color:var(--tm-secondary-text);">${durationLabel}</span>
-                <input class="tm-input" style="width:120px;" type="number" value="${__tmDurationBucketToInputValue(b.maxMinutes)}" data-tm-call="tmSetPriorityDurationBucket" data-tm-args='[${i},"maxMinutes"]'>
+                <input class="b3-text-field tm-priority-number-input" type="number" value="${__tmDurationBucketToInputValue(b.maxMinutes)}" data-tm-call="tmSetPriorityDurationBucket" data-tm-args='[${i},"maxMinutes"]'>
                 <span style="width:40px;color:var(--tm-secondary-text);">加分</span>
-                <input class="tm-input" style="width:120px;" type="number" value="${Number(b.delta) || 0}" data-tm-call="tmSetPriorityDurationBucket" data-tm-args='[${i},"delta"]'>
+                <input class="b3-text-field tm-priority-number-input" type="number" value="${Number(b.delta) || 0}" data-tm-call="tmSetPriorityDurationBucket" data-tm-args='[${i},"delta"]'>
                 <button class="tm-btn tm-btn-gray" data-tm-call="tmRemovePriorityDurationBucket" data-tm-args='[${i}]'>删除</button>
             </div>
         `).join('');
 
         if (embedded) {
             return `
-                <div style="display:flex;flex-direction:column;gap:12px;">
+                <div class="tm-priority-settings" style="display:flex;flex-direction:column;gap:12px;">
                     <div style="font-weight: 700; font-size: 15px;">⚙️ 优先级算法</div>
 
                     <div class="tm-rule-section" style="margin-bottom:0;">
                         <div style="font-weight: 700; margin-bottom: 10px;">基础分</div>
                         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                            <input class="tm-input" type="number" value="${Number(cfg.base) || 100}" data-tm-call="tmSetPriorityBase" style="width: 180px;">
+                            <input class="b3-text-field tm-priority-number-input tm-priority-number-input--base" type="number" value="${Number(cfg.base) || 100}" data-tm-call="tmSetPriorityBase">
                             <div style="font-size: 12px; color: var(--tm-secondary-text);">用于所有任务的起始分</div>
                         </div>
                     </div>
 
                     <div class="tm-rule-section" style="margin-bottom:0;">
                         <div style="font-weight: 700; margin-bottom: 10px;">权重（微调）</div>
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
-                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">重要性 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.importance) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["importance"]'></label>
-                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">状态 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.status) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["status"]'></label>
-                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">截止日期 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.due) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["due"]'></label>
-                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">时长 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.duration) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["duration"]'></label>
-                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">文档 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.doc) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["doc"]'></label>
-                        </div>
+                        <div class="tm-priority-field-grid">${weightRows}</div>
                     </div>
 
                     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
                         <div class="tm-rule-section" style="margin-bottom:0;">
                             <div style="font-weight: 700; margin-bottom: 10px;">重要性加减分</div>
-                            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
-                                <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">高 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.importanceDelta.high) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["high"]'></label>
-                                <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">中 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.importanceDelta.medium) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["medium"]'></label>
-                                <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">低 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.importanceDelta.low) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["low"]'></label>
-                                <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">无 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.importanceDelta.none) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["none"]'></label>
-                            </div>
+                            <div class="tm-priority-field-grid">${importanceRows}</div>
                         </div>
 
                         <div class="tm-rule-section" style="margin-bottom:0;">
                             <div style="font-weight: 700; margin-bottom: 10px;">状态加减分</div>
-                            <div style="display:flex;flex-wrap:wrap;gap:10px;">
-                                ${statuses.map(s => `
-                                    <label class="tm-priority-status-row" style="display:flex;align-items:center;gap:8px; padding: 6px 8px; border: 1px solid var(--tm-border-color); border-radius: 8px; background: var(--tm-bg-color);">
-                                        <span class="tm-priority-status-name" style="max-width: 140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(s.name || s.id)}</span>
-                                        <input class="tm-input tm-priority-status-input" style="width:110px;" type="number" value="${Number(cfg.statusDelta[s.id]) || 0}" data-tm-call="tmSetPriorityStatus" data-tm-args='["${esc(String(s.id))}"]'>
-                                    </label>
-                                `).join('')}
-                            </div>
+                            <div class="tm-priority-field-grid">${statusRows}</div>
                             ${statuses.length === 0 ? '<div style="color: var(--tm-secondary-text); font-size: 12px;">暂无自定义状态</div>' : ''}
                         </div>
                     </div>
+
+                    ${customFieldSection}
 
                     <div class="tm-rule-section" style="margin-bottom:0;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
@@ -7555,7 +7672,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
                             <div style="font-weight: 700;">时长分段</div>
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                                <select class="tm-input" style="width: 160px;" data-tm-call="tmSetPriorityDurationUnit">
+                                <select class="b3-select tm-priority-select" data-tm-call="tmSetPriorityDurationUnit">
                                     <option value="minutes" ${durationUnit === 'minutes' ? 'selected' : ''}>分钟</option>
                                     <option value="hours" ${durationUnit === 'hours' ? 'selected' : ''}>小时（可小数）</option>
                                 </select>
@@ -7588,7 +7705,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
 
         return `
-            <div class="tm-box" style="width: ${embedded ? '100%' : '720px'}; height: auto; ${embedded ? '' : 'max-height: 86vh;'}">
+            <div class="tm-box tm-priority-settings" style="width: ${embedded ? '100%' : '720px'}; height: auto; ${embedded ? '' : 'max-height: 86vh;'}">
                 <div class="tm-header">
                     <div style="font-size: 16px; font-weight: 700; color: var(--tm-text-color);">⚙️ 优先级算法</div>
                     ${embedded
@@ -7598,41 +7715,25 @@ return Number(state.contextInteractionQuietUntil || 0);
                 <div style="padding: 14px; overflow: auto;">
                     <div style="margin-bottom: 14px;">
                         <div style="font-weight: 700; margin-bottom: 8px;">基础分</div>
-                        <input class="tm-input" type="number" value="${Number(cfg.base) || 100}" data-tm-call="tmSetPriorityBase" style="width: 160px;">
+                        <input class="b3-text-field tm-priority-number-input tm-priority-number-input--base" type="number" value="${Number(cfg.base) || 100}" data-tm-call="tmSetPriorityBase">
                     </div>
 
                     <div style="margin-bottom: 14px;">
                         <div style="font-weight: 700; margin-bottom: 8px;">权重（微调）</div>
-                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                            <label style="display:flex;align-items:center;gap:6px;">重要性 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.importance) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["importance"]'></label>
-                            <label style="display:flex;align-items:center;gap:6px;">状态 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.status) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["status"]'></label>
-                            <label style="display:flex;align-items:center;gap:6px;">截止日期 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.due) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["due"]'></label>
-                            <label style="display:flex;align-items:center;gap:6px;">时长 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.duration) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["duration"]'></label>
-                            <label style="display:flex;align-items:center;gap:6px;">文档 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.doc) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["doc"]'></label>
-                        </div>
+                        <div class="tm-priority-field-grid">${weightRows}</div>
                     </div>
 
                     <div style="margin-bottom: 14px;">
                         <div style="font-weight: 700; margin-bottom: 8px;">重要性加减分</div>
-                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                            <label style="display:flex;align-items:center;gap:6px;">高 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.high) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["high"]'></label>
-                            <label style="display:flex;align-items:center;gap:6px;">中 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.medium) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["medium"]'></label>
-                            <label style="display:flex;align-items:center;gap:6px;">低 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.low) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["low"]'></label>
-                            <label style="display:flex;align-items:center;gap:6px;">无 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.none) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["none"]'></label>
-                        </div>
+                        <div class="tm-priority-field-grid">${importanceRows}</div>
                     </div>
 
                     <div style="margin-bottom: 14px;">
                         <div style="font-weight: 700; margin-bottom: 8px;">状态加减分</div>
-                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                            ${statuses.map(s => `
-                                <label style="display:flex;align-items:center;gap:6px;">
-                                    ${esc(s.name || s.id)}
-                                    <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.statusDelta[s.id]) || 0}" data-tm-call="tmSetPriorityStatus" data-tm-args='["${esc(String(s.id))}"]'>
-                                </label>
-                            `).join('')}
-                        </div>
+                        <div class="tm-priority-field-grid">${statusRows}</div>
                     </div>
+
+                    ${customFieldSection}
 
                     <div style="margin-bottom: 14px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
@@ -7646,7 +7747,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
                             <div style="font-weight: 700;">时长分段</div>
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                                <select class="tm-input" style="width: 160px;" data-tm-call="tmSetPriorityDurationUnit">
+                                <select class="b3-select tm-priority-select" data-tm-call="tmSetPriorityDurationUnit">
                                     <option value="minutes" ${durationUnit === 'minutes' ? 'selected' : ''}>分钟</option>
                                     <option value="hours" ${durationUnit === 'hours' ? 'selected' : ''}>小时（可小数）</option>
                                 </select>
@@ -7721,10 +7822,21 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     window.savePriorityScoreSettings = async function() {
         if (!state.priorityScoreDraft) return;
+        const prevCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
+        state.priorityScoreDraft.customFieldDelta = __tmNormalizePriorityCustomFieldDelta(state.priorityScoreDraft.customFieldDelta);
         SettingsStore.data.priorityScoreConfig = state.priorityScoreDraft;
         await SettingsStore.save();
         try { await __tmWarmPriorityGroupDeltaDocsMap(); } catch (e) {}
-        __tmScheduleRender({ withFilters: true });
+        const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
+        if (__tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan)) {
+            try {
+                await loadSelectedDocuments({ showInlineLoading: false, source: 'priority-custom-field-score' });
+            } catch (e) {
+                __tmScheduleRender({ withFilters: true });
+            }
+        } else {
+            __tmScheduleRender({ withFilters: true });
+        }
         closePriorityScoreSettings();
         hint('✅ 优先级算法已保存', 'success');
     };
@@ -7973,6 +8085,24 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!state.priorityScoreDraft) return;
         if (!state.priorityScoreDraft.statusDelta) state.priorityScoreDraft.statusDelta = {};
         state.priorityScoreDraft.statusDelta[statusId] = Number(value) || 0;
+    };
+    window.tmSetPriorityCustomField = function(fieldId, optionId, value) {
+        if (!state.priorityScoreDraft) return;
+        const fid = String(fieldId || '').trim();
+        const oid = String(optionId || '').trim();
+        if (!fid || !oid) return;
+        if (!state.priorityScoreDraft.customFieldDelta || typeof state.priorityScoreDraft.customFieldDelta !== 'object') {
+            state.priorityScoreDraft.customFieldDelta = {};
+        }
+        const fieldDelta = (state.priorityScoreDraft.customFieldDelta[fid]
+            && typeof state.priorityScoreDraft.customFieldDelta[fid] === 'object')
+            ? state.priorityScoreDraft.customFieldDelta[fid]
+            : {};
+        const delta = Number(value);
+        if (Number.isFinite(delta) && delta !== 0) fieldDelta[oid] = delta;
+        else delete fieldDelta[oid];
+        if (Object.keys(fieldDelta).length) state.priorityScoreDraft.customFieldDelta[fid] = fieldDelta;
+        else delete state.priorityScoreDraft.customFieldDelta[fid];
     };
     window.tmAddPriorityDueRange = function() {
         if (!state.priorityScoreDraft) return;
@@ -14372,12 +14502,58 @@ return Number(state.contextInteractionQuietUntil || 0);
         ].join(','));
     }
 
+    function __tmResolveTaskDragSnapshot(taskId, sourceEl = null, targetEl = null) {
+        const id = String(taskId || '').trim();
+        if (!id) return { task: null, title: '', durationMin: NaN, durationExplicit: false, documentID: '' };
+        let task = null;
+        try {
+            task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)
+                || state.flatTasks?.[id]
+                || state.pendingInsertedTasks?.[id]
+                || (Array.isArray(state.filteredTasks)
+                    ? state.filteredTasks.find((item) => String(item?.id || '').trim() === id)
+                    : null)
+                || null;
+        } catch (e) {}
+        let title = String(task?.content || task?.raw_content || task?.title || '').trim();
+        const source = sourceEl instanceof Element ? sourceEl : (targetEl instanceof Element ? targetEl : null);
+        const row = source?.closest?.('tr[data-id], .tm-checklist-item[data-id], .tm-kanban-card[data-id], [data-task-id]') || null;
+        if (!title && row) {
+            title = String(row.getAttribute?.('data-task-title') || '').trim();
+            if (!title) {
+                const titleEl = row.querySelector?.('.tm-checklist-title-button, .tm-task-content-clickable, .tm-kanban-card-title, .tm-task-title');
+                title = String(titleEl?.textContent || '').trim();
+            }
+        }
+        if (title) {
+            try {
+                if (typeof API?.extractTaskContentLine === 'function') {
+                    title = String(API.extractTaskContentLine(title) || title).trim();
+                }
+            } catch (e) {}
+            title = title.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim();
+        }
+        let durationMin = NaN;
+        try {
+            if (typeof __tmParseDurationMinutes === 'function') durationMin = Number(__tmParseDurationMinutes(task?.duration));
+        } catch (e) {}
+        return {
+            task,
+            title,
+            durationMin,
+            durationExplicit: Number.isFinite(durationMin) && durationMin > 0,
+            documentID: String(task?.root_id || task?.docId || '').trim(),
+        };
+    }
+
     window.tmDragTaskStart = function(ev, taskId) {
         const id = String(taskId || '').trim();
         if (!id) return;
         const targetEl = ev?.target instanceof Element ? ev.target : null;
         const sourceEl = ev?.currentTarget instanceof Element ? ev.currentTarget : targetEl;
         if (__tmIsWhiteboardTaskDragSource(sourceEl) || __tmIsWhiteboardTaskDragSource(targetEl)) return;
+        const fallback = __tmResolveTaskDragSnapshot(id, sourceEl, targetEl);
         const dragTaskIds = __tmBuildTaskDragSelectionIds(id);
         state.draggingTaskId = id;
         state.draggingTaskIds = dragTaskIds.length ? dragTaskIds : [id];
@@ -14388,8 +14564,11 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
         } catch (e) {}
         const calendarId = String(meta?.calendarId || '').trim();
-        const durationMin = Number(meta?.durationMin);
-        const title = String(meta?.title || '').trim();
+        const durationMin = Number(meta?.durationMin ?? fallback.durationMin);
+        const durationExplicit = meta && Object.prototype.hasOwnProperty.call(meta, 'durationExplicit')
+            ? meta.durationExplicit === true
+            : fallback.durationExplicit === true;
+        const title = String(meta?.title || fallback.title || '').trim();
         try {
             const row = (ev?.currentTarget instanceof Element)
                 ? ev.currentTarget.closest?.('tr[data-id], .tm-checklist-item[data-id], .tm-kanban-card[data-id], .tm-whiteboard-pool-item[data-task-id], .tm-whiteboard-node[data-task-id], .tm-whiteboard-stream-task-head[data-task-id], .tm-whiteboard-stream-task-node[data-task-id]')
@@ -14404,6 +14583,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                 id,
                 title: (state.draggingTaskIds || []).length > 1 ? `已选 ${(state.draggingTaskIds || []).length} 个任务` : (title || id),
                 durationMin: (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60,
+                durationExplicit,
+                documentID: String(meta?.documentID || meta?.docId || fallback.documentID || '').trim(),
                 calendarId: calendarId || 'default',
                 startDate: String(meta?.startDate || '').trim(),
                 completionTime: String(meta?.completionTime || '').trim(),
@@ -14463,7 +14644,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         return true;
     }
 
-    function __tmBuildDockPointerTaskDragPayload(taskId, meta) {
+    function __tmBuildDockPointerTaskDragPayload(taskId, meta, sourceEl = null) {
         const id = String(taskId || '').trim();
         if (!id) return null;
         const taskIds = __tmBuildTaskDragSelectionIds(id);
@@ -14472,20 +14653,20 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { nextMeta = window.tmCalendarGetTaskDragMeta(id); } catch (e) {}
         }
         const safeMeta = (nextMeta && typeof nextMeta === 'object') ? nextMeta : {};
-        const durationMin = Number(safeMeta.durationMin);
-        const title = String(
-            safeMeta.title
-            || globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })?.content
-            || state.pendingInsertedTasks?.[id]?.content
-            || state.flatTasks?.[id]?.content
-            || id
-        ).trim() || id;
+        const fallback = __tmResolveTaskDragSnapshot(id, sourceEl);
+        const durationMin = Number(safeMeta.durationMin ?? fallback.durationMin);
+        const durationExplicit = nextMeta && Object.prototype.hasOwnProperty.call(nextMeta, 'durationExplicit')
+            ? safeMeta.durationExplicit === true
+            : fallback.durationExplicit === true;
+        const title = String(safeMeta.title || fallback.title || id).trim() || id;
         return {
             taskId: id,
             id,
             taskIds: taskIds.length ? taskIds : [id],
             title,
             durationMin: (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60,
+            durationExplicit,
+            documentID: String(safeMeta.documentID || safeMeta.docId || fallback.documentID || '').trim(),
             calendarId: String(safeMeta.calendarId || 'default').trim() || 'default',
             startDate: String(safeMeta.startDate || '').trim(),
             completionTime: String(safeMeta.completionTime || '').trim(),
@@ -14502,6 +14683,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             id: taskId,
             title: taskIds.length > 1 ? `已选 ${taskIds.length} 个任务` : (String(safePayload.title || taskId || '任务').trim() || '任务'),
             durationMin: Number(safePayload.durationMin) || 60,
+            durationExplicit: safePayload.durationExplicit === true,
+            documentID: String(safePayload.documentID || safePayload.docId || '').trim(),
             calendarId: String(safePayload.calendarId || 'default').trim() || 'default',
             startDate: String(safePayload.startDate || '').trim(),
             completionTime: String(safePayload.completionTime || '').trim(),
@@ -14682,7 +14865,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     dragMeta = window.tmCalendarGetTaskDragMeta(taskId);
                 }
             } catch (e) {}
-            const payload = __tmBuildDockPointerTaskDragPayload(taskId, dragMeta);
+            const payload = __tmBuildDockPointerTaskDragPayload(taskId, dragMeta, sourceEl);
             const syntheticTransfer = __tmBuildDockPointerTaskSyntheticTransfer(payload);
             const threshold = sourceType === 'kanban' ? 6 : 4;
             const suppressClickMs = 260;
@@ -16789,6 +16972,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         'menu': 'M228,128a12,12,0,0,1-12,12H40a12,12,0,0,1,0-24H216A12,12,0,0,1,228,128ZM40,76H216a12,12,0,0,0,0-24H40a12,12,0,0,0,0,24ZM216,180H40a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24Z',
         'minus': 'M216,140H40a12,12,0,0,1,0-24H216a12,12,0,0,1,0,24Z',
         'pin': 'M216,164h-5.93L190.3,52H192a12,12,0,0,0,0-24H64a12,12,0,0,0,0,24h1.7L45.93,164H40a12,12,0,0,0,0,24h76v52a12,12,0,0,0,24,0V188h76a12,12,0,0,0,0-24ZM90.07,52h75.86L185.7,164H70.3Z',
+        'play': 'M234.49,111.07,90.41,22.94A20,20,0,0,0,60,39.87V216.13a20,20,0,0,0,30.41,16.93l144.08-88.13a19.82,19.82,0,0,0,0-33.86ZM84,208.85V47.15L216.16,128Z',
         'plus': 'M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z',
         'puzzle': 'M222.41,155.16a12,12,0,0,0-11.56-.69A16,16,0,0,1,188,139,16.2,16.2,0,0,1,202.8,124a15.83,15.83,0,0,1,8,1.5A12,12,0,0,0,228,114.7V72a20,20,0,0,0-20-20H176a40.15,40.15,0,0,0-12.62-29.16,39.67,39.67,0,0,0-29.94-10.76,40.08,40.08,0,0,0-37.34,37C96,50.07,96,51,96,52H64A20,20,0,0,0,44,72v28a40.15,40.15,0,0,0-29.16,12.62A40,40,0,0,0,41.1,179.9a28.3,28.3,0,0,0,2.9.1v28a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V165.31A12,12,0,0,0,222.41,155.16ZM204,204H68V165.31a12,12,0,0,0-17.15-10.84A15.9,15.9,0,0,1,42.8,156,16.2,16.2,0,0,1,28,141.06a16,16,0,0,1,22.82-15.52A12,12,0,0,0,68,114.7V76h42.7a12,12,0,0,0,10.83-17.15A15.9,15.9,0,0,1,120,50.8,16.19,16.19,0,0,1,134.94,36a16,16,0,0,1,15.53,22.81A12,12,0,0,0,161.31,76H204v24c-1,0-1.93,0-2.9.11A40,40,0,0,0,204,180h0Z',
         'save': 'M222.14,69.17,186.83,33.86A19.86,19.86,0,0,0,172.69,28H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V83.31A19.86,19.86,0,0,0,222.14,69.17ZM164,204H92V160h72Zm40,0H188V156a20,20,0,0,0-20-20H88a20,20,0,0,0-20,20v48H52V52H171l33,33ZM164,84a12,12,0,0,1-12,12H96a12,12,0,0,1,0-24h56A12,12,0,0,1,164,84Z',
@@ -16808,6 +16992,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     __tmPhosphorBoldPaths['calendar-plus'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Zm112-52a12,12,0,0,1-12,12H140v12a12,12,0,0,1-24,0V164H104a12,12,0,0,1,0-24h12V128a12,12,0,0,1,24,0v12h12A12,12,0,0,1,164,152Z';
     __tmPhosphorBoldPaths['calendar-star'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28Zm-4,176H52V52H68a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16Zm-27.08-94.35-27.42-2.12L139,83.25a12,12,0,0,0-22,0L106.5,107.53l-27.42,2.12a12,12,0,0,0-6.72,21.22l20.58,17-6.25,25.26a12,12,0,0,0,17.73,13.22L128,172.46l23.58,13.88a12,12,0,0,0,17.73-13.22l-6.25-25.26,20.58-17a12,12,0,0,0-6.72-21.22Zm-35,24.51a12,12,0,0,0-4,12.13l1.21,4.89-5.07-3a12.06,12.06,0,0,0-12.18,0l-5.07,3,1.21-4.89a12,12,0,0,0-4-12.13l-3.47-2.87,5-.39a12,12,0,0,0,10.09-7.21l2.33-5.4,2.33,5.4a12,12,0,0,0,10.09,7.21l5,.39Z';
     __tmPhosphorBoldPaths['calendar-dots'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Zm92-76a16,16,0,1,1-16-16A16,16,0,0,1,144,128Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,192,128ZM96,176a16,16,0,1,1-16-16A16,16,0,0,1,96,176Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,144,176Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,192,176Z';
+    __tmPhosphorBoldPaths['chat-circle-text'] = 'M172,108a12,12,0,0,1-12,12H96a12,12,0,0,1,0-24h64A12,12,0,0,1,172,108Zm-12,28H96a12,12,0,0,0,0,24h64a12,12,0,0,0,0-24Zm76-8A108,108,0,0,1,78.77,224.15L46.34,235A20,20,0,0,1,21,209.66l10.81-32.43A108,108,0,1,1,236,128Zm-24,0A84,84,0,1,0,55.27,170.06a12,12,0,0,1,1,9.81l-9.93,29.79,29.79-9.93a12.1,12.1,0,0,1,3.8-.62,12,12,0,0,1,6,1.62A84,84,0,0,0,212,128Z';
     __tmPhosphorBoldPaths['calendar-x'] = 'M160.49,136.49,145,152l15.52,15.51a12,12,0,0,1-17,17L128,169l-15.51,15.52a12,12,0,0,1-17-17L111,152,95.51,136.49a12,12,0,1,1,17-17L128,135l15.51-15.52a12,12,0,1,1,17,17ZM228,48V208a20,20,0,0,1-20,20H48a20,20,0,0,1-20-20V48A20,20,0,0,1,48,28H68V24a12,12,0,0,1,24,0v4h72V24a12,12,0,0,1,24,0v4h20A20,20,0,0,1,228,48ZM52,52V76H204V52H188a12,12,0,0,1-24,0H92a12,12,0,0,1-24,0ZM204,204V100H52V204Z';
     __tmPhosphorBoldPaths['arrow-up'] = 'M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z';
     __tmPhosphorBoldPaths['arrow-down'] = 'M208.49,152.49l-72,72a12,12,0,0,1-17,0l-72-72a12,12,0,0,1,17-17L116,187V40a12,12,0,0,1,24,0V187l51.51-51.52a12,12,0,0,1,17,17Z';
@@ -16822,6 +17007,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     __tmPhosphorBoldPaths['pencil'] = 'M230.14,70.54,185.46,25.85a20,20,0,0,0-28.29,0L33.86,149.17A19.85,19.85,0,0,0,28,163.31V208a20,20,0,0,0,20,20H92.69a19.86,19.86,0,0,0,14.14-5.86L230.14,98.82a20,20,0,0,0,0-28.28ZM93,180l71-71,11,11-71,71ZM76,163,65,152l71-71,11,11ZM52,173l15.51,15.51h0L83,204H52ZM192,103,153,64l18.34-18.34,39,39Z';
     __tmPhosphorBoldPaths['highlighter'] = 'M252.49,107.51a12,12,0,0,0-17,0L192,151,113,72l43.52-43.51a12,12,0,0,0-17-17L93.17,57.86a20,20,0,0,0-4.72,20.72L69.17,97.86a20,20,0,0,0,0,28.28L71,128,15.51,183.51a12,12,0,0,0,4.7,19.87l72,24A11.8,11.8,0,0,0,96,228a12,12,0,0,0,8.49-3.52L136,193l1.86,1.86a20,20,0,0,0,28.28,0l19.27-19.27a20.27,20.27,0,0,0,6.59,1.13,19.86,19.86,0,0,0,14.14-5.86l46.35-46.34A12,12,0,0,0,252.49,107.51ZM92.76,202.27,46.21,186.76,88,145l31,31ZM152,175,96.49,119.52h0L89,112l15-15,63,63Z';
     __tmPhosphorBoldPaths['eraser'] = 'M216,204H141l86.84-86.84a28,28,0,0,0,0-39.6L186.43,36.19a28,28,0,0,0-39.6,0L28.19,154.82a28,28,0,0,0,0,39.6l30.06,30.07A12,12,0,0,0,66.74,228H216a12,12,0,0,0,0-24ZM163.8,53.16a4,4,0,0,1,5.66,0l41.38,41.38a4,4,0,0,1,0,5.65L160,151l-47-47ZM71.71,204,45.16,177.45a4,4,0,0,1,0-5.65L96,121l47,47-36,36Z';
+    __tmPhosphorBoldPaths['sparkle'] = 'M199,125.31l-49.88-18.39L130.69,57a19.92,19.92,0,0,0-37.38,0L74.92,106.92,25,125.31a19.92,19.92,0,0,0,0,37.38l49.88,18.39L93.31,231a19.92,19.92,0,0,0,37.38,0l18.39-49.88L199,162.69a19.92,19.92,0,0,0,0-37.38Zm-63.38,35.16a12,12,0,0,0-7.11,7.11L112,212.28l-16.47-44.7a12,12,0,0,0-7.11-7.11L43.72,144l44.7-16.47a12,12,0,0,0,7.11-7.11L112,75.72l16.47,44.7a12,12,0,0,0,7.11,7.11L180.28,144ZM140,40a12,12,0,0,1,12-12h12V16a12,12,0,0,1,24,0V28h12a12,12,0,0,1,0,24H188V64a12,12,0,0,1-24,0V52H152A12,12,0,0,1,140,40ZM252,88a12,12,0,0,1-12,12h-4v4a12,12,0,0,1-24,0v-4h-4a12,12,0,0,1,0-24h4V72a12,12,0,0,1,24,0v4h4A12,12,0,0,1,252,88Z';
     __tmPhosphorBoldPaths['eye'] = 'M251,123.13c-.37-.81-9.13-20.26-28.48-39.61C196.63,57.67,164,44,128,44S59.37,57.67,33.51,83.52C14.16,102.87,5.4,122.32,5,123.13a12.08,12.08,0,0,0,0,9.75c.37.82,9.13,20.26,28.49,39.61C59.37,198.34,92,212,128,212s68.63-13.66,94.48-39.51c19.36-19.35,28.12-38.79,28.49-39.61A12.08,12.08,0,0,0,251,123.13Zm-46.06,33C183.47,177.27,157.59,188,128,188s-55.47-10.73-76.91-31.88A130.36,130.36,0,0,1,29.52,128,130.45,130.45,0,0,1,51.09,99.89C72.54,78.73,98.41,68,128,68s55.46,10.73,76.91,31.89A130.36,130.36,0,0,1,226.48,128,130.45,130.45,0,0,1,204.91,156.12ZM128,84a44,44,0,1,0,44,44A44.05,44.05,0,0,0,128,84Zm0,64a20,20,0,1,1,20-20A20,20,0,0,1,128,148Z';
     __tmPhosphorBoldPaths['eye-slash'] = 'M56.88,31.93A12,12,0,1,0,39.12,48.07l16,17.65C20.67,88.66,5.72,121.58,5,123.13a12.08,12.08,0,0,0,0,9.75c.37.82,9.13,20.26,28.49,39.61C59.37,198.34,92,212,128,212a131.34,131.34,0,0,0,51-10l20.09,22.1a12,12,0,0,0,17.76-16.14ZM128,188c-29.59,0-55.47-10.73-76.91-31.88A130.69,130.69,0,0,1,29.52,128c5.27-9.31,18.79-29.9,42-44.29l90.09,99.11A109.33,109.33,0,0,1,128,188Zm123-55.12c-.36.81-9,20-28,39.16a12,12,0,1,1-17-16.9A130.48,130.48,0,0,0,226.48,128a130.36,130.36,0,0,0-21.57-28.12C183.46,78.73,157.59,68,128,68c-3.35,0-6.7.14-10,.42a12,12,0,1,1-2-23.91c3.93-.34,8-.51,12-.51,36,0,68.63,13.67,94.49,39.52,19.35,19.35,28.11,38.8,28.48,39.61A12.08,12.08,0,0,1,251,132.88Z';
     __tmPhosphorBoldPaths['eye-off'] = __tmPhosphorBoldPaths['eye-slash'];

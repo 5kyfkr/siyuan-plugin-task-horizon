@@ -827,15 +827,17 @@
                 menu.addItem({
                     icon: 'iconTaskHorizon',
                     label: 'AI SMART 分析',
-                    click: () => {
-                        try { window.tmAiAnalyzeDocumentSmart?.(docId); } catch (e) {}
+                    click: async () => {
+                        if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
+                        try { await window.tmAiAnalyzeDocumentSmart?.(docId); } catch (e) {}
                     }
                 });
                 menu.addItem({
                     icon: 'iconTaskHorizon',
                     label: 'AI 日程排期',
-                    click: () => {
-                        try { window.tmAiPlanDocumentSchedule?.(docId); } catch (e) {}
+                    click: async () => {
+                        if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
+                        try { await window.tmAiPlanDocumentSchedule?.(docId); } catch (e) {}
                     }
                 });
             }
@@ -862,15 +864,17 @@
                     menu.addItem({
                         icon: 'iconTaskHorizon',
                         label: 'AI SMART 分析',
-                        click: () => {
-                            try { window.tmAiAnalyzeDocumentSmart?.(docId); } catch (e) {}
+                        click: async () => {
+                            if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
+                            try { await window.tmAiAnalyzeDocumentSmart?.(docId); } catch (e) {}
                         }
                     });
                     menu.addItem({
                         icon: 'iconTaskHorizon',
                         label: 'AI 日程排期',
-                        click: () => {
-                            try { window.tmAiPlanDocumentSchedule?.(docId); } catch (e) {}
+                        click: async () => {
+                            if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
+                            try { await window.tmAiPlanDocumentSchedule?.(docId); } catch (e) {}
                         }
                     });
                 }

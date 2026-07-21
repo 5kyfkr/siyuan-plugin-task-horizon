@@ -1579,7 +1579,6 @@
         if (!remappedLocal) {
             try { __tmRemapTaskId(tmp, rid); } catch (e) { return false; }
         }
-        try { __tmRemapDoneStateTaskId(tmp, rid); } catch (e) {}
         try { globalThis.__tmTaskStore?.deletePendingProps?.(rid, '__tmPendingDoneRequest'); } catch (e) {}
         if (wasDeletedBeforeCommit) {
             try { __tmRememberPendingDeletedTaskIds([tmp, rid], { source: 'create-commit-after-delete' }); } catch (e) {}
@@ -2171,6 +2170,26 @@
         return touched;
     }
 
+    function __tmApplyDoneStateToLocalMirrors(taskId, task, done, markerInput = null, markdownInput = null) {
+        const tid = String(taskId || '').trim();
+        const target = (task && typeof task === 'object') ? task : null;
+        const marker = markerInput == null
+            ? (done ? 'X' : ' ')
+            : __tmNormalizeTaskStatusMarker(markerInput, done ? 'X' : ' ');
+        const markdown = typeof markdownInput === 'string'
+            ? markdownInput
+            : __tmBuildTaskMarkdownWithMarker(target, marker);
+        const patch = {
+            done: !!done,
+            taskMarker: marker,
+            task_marker: marker,
+            markdown,
+        };
+        try { __tmApplyQueuedTaskFieldPatchToTask(target, patch); } catch (e) {}
+        try { __tmApplyTaskFieldPatchToLocalMirrors(tid, patch); } catch (e) {}
+        return patch;
+    }
+
     function __tmApplyDoneOptimisticLocal(taskId, done, statusPatch = null, source = '', options = {}) {
         const tid = String(taskId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
@@ -2191,30 +2210,17 @@
                 source: String(source || 'done-local').trim() || 'done-local',
             });
         }
-        const applyOne = (target) => {
-            if (!(target && typeof target === 'object')) return;
-            target.done = !!done;
-            const marker = target.done ? 'X' : ' ';
-            target.taskMarker = marker;
-            target.task_marker = marker;
-            try { target.markdown = __tmBuildTaskMarkdownWithMarker(target, marker); } catch (e) {}
-        };
-        applyOne(task);
-        try { applyOne(state.flatTasks?.[tid]); } catch (e) {}
-        try { applyOne(state.pendingInsertedTasks?.[tid]); } catch (e) {}
-        const nextMarker = task.done ? 'X' : ' ';
+        const doneStatePatch = __tmApplyDoneStateToLocalMirrors(tid, task, done);
         try {
             if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
             state.doneOverrides[tid] = !!done;
         } catch (e) {}
-        try { MetaStore.set(tid, { done: !!done, content: task.content, taskMarker: nextMarker, markdown: task.markdown }); } catch (e) {}
+        try { MetaStore.set(tid, { ...doneStatePatch, content: task.content }); } catch (e) {}
         try { __tmSyncTaskDetailSubtaskDoneInDOM(tid, !!done); } catch (e) {}
         try {
             __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, {
                 ...((retentionPatch && typeof retentionPatch === 'object') ? retentionPatch : {}),
-                done: !!done,
-                taskMarker: nextMarker,
-                markdown: task.markdown,
+                ...doneStatePatch,
                 ...((nextStatusPatch && typeof nextStatusPatch === 'object') ? nextStatusPatch : {}),
             }, {
                 source: String(source || 'done-local').trim() || 'done-local',
@@ -2249,22 +2255,18 @@
         if (Object.keys(prevStatusPatch).length > 0) {
             __tmRollbackAttrPatchLocally(tid, prevStatusPatch, { render: false, withFilters: true });
         }
-        const applyOne = (target) => {
-            if (!(target && typeof target === 'object')) return;
-            target.done = prevDone;
-            const marker = target.done ? 'X' : ' ';
-            target.taskMarker = marker;
-            target.task_marker = marker;
-            try { target.markdown = __tmBuildTaskMarkdownWithMarker(target, marker); } catch (e) {}
-        };
-        applyOne(task);
-        try { applyOne(state.flatTasks?.[tid]); } catch (e) {}
-        try { applyOne(state.pendingInsertedTasks?.[tid]); } catch (e) {}
+        const doneStatePatch = __tmApplyDoneStateToLocalMirrors(
+            tid,
+            task,
+            prevDone,
+            opts.previousMarker,
+            typeof opts.previousMarkdown === 'string' ? opts.previousMarkdown : null,
+        );
         try {
             if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
             state.doneOverrides[tid] = prevDone;
         } catch (e) {}
-        try { MetaStore.set(tid, { done: prevDone, content: task.content }); } catch (e) {}
+        try { MetaStore.set(tid, { ...doneStatePatch, content: task.content }); } catch (e) {}
         try { __tmSyncTaskDetailSubtaskDoneInDOM(tid, prevDone); } catch (e) {}
         try {
             __tmSyncTaskPriorityScoreLocal(tid, {
@@ -3687,6 +3689,15 @@
                 });
             });
             const refreshIds = [pid].concat(tempIds).filter(Boolean);
+            try { state.listDomRenderSignature = ''; } catch (e) {}
+            try {
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: false,
+                    reason: 'create-subtask-current-optimistic',
+                    taskIds: refreshIds,
+                });
+            } catch (e) {}
             try {
                 __tmScheduleViewRefresh({
                     mode: 'detail',

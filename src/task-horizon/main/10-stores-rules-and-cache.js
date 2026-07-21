@@ -1508,6 +1508,7 @@
     function __tmMergeLocalTaskPatchIntoTask(task) {
         const target = (task && typeof task === 'object') ? task : null;
         if (!target) return target;
+        __tmApplyDoneOverrideToTaskIfPresent(target);
         const tid = String(target.id || '').trim();
         const entry = tid ? __tmGetLocalTaskPatchWatermark(tid) : null;
         if (!entry) return target;
@@ -5139,6 +5140,28 @@
         return '';
     }
 
+    function __tmNormalizePriorityCustomFieldDelta(input, options = {}) {
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const defs = Array.isArray(options?.customFieldDefs) ? options.customFieldDefs : __tmGetCustomFieldDefs();
+        const out = {};
+        defs.forEach((field) => {
+            const fieldId = String(field?.id || '').trim();
+            const fieldType = String(field?.type || '').trim();
+            const sourceOptions = source[fieldId];
+            if (!fieldId || field?.enabled === false || (fieldType !== 'single' && fieldType !== 'multi')) return;
+            if (!sourceOptions || typeof sourceOptions !== 'object' || Array.isArray(sourceOptions)) return;
+            const optionDelta = {};
+            (Array.isArray(field?.options) ? field.options : []).forEach((option) => {
+                const optionId = String(option?.id || '').trim();
+                if (!optionId || !Object.prototype.hasOwnProperty.call(sourceOptions, optionId)) return;
+                const delta = Number(sourceOptions[optionId]);
+                if (Number.isFinite(delta) && delta !== 0) optionDelta[optionId] = delta;
+            });
+            if (Object.keys(optionDelta).length) out[fieldId] = optionDelta;
+        });
+        return out;
+    }
+
     function __tmCollectCustomFieldLoadPlan(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const viewMode = String(opts.viewMode || state?.viewMode || '').trim();
@@ -5162,6 +5185,14 @@
             pushField(ruleFieldIds, sortRule?.field);
         });
         const bulkFieldIdsSet = new Set(ruleFieldIds);
+        const priorityConfig = (opts.priorityScoreConfig && typeof opts.priorityScoreConfig === 'object')
+            ? opts.priorityScoreConfig
+            : ((SettingsStore?.data?.priorityScoreConfig && typeof SettingsStore.data.priorityScoreConfig === 'object')
+                ? SettingsStore.data.priorityScoreConfig
+                : {});
+        Object.keys(__tmNormalizePriorityCustomFieldDelta(priorityConfig.customFieldDelta)).forEach((fieldId) => {
+            bulkFieldIdsSet.add(fieldId);
+        });
         if (viewMode === 'checklist') {
             const checklistCompact = !!SettingsStore?.data?.checklistCompactMode;
             if (checklistCompact) {
@@ -5183,7 +5214,7 @@
         const deferredListFieldIds = [];
         if (viewMode === 'list') {
             columnFieldIds.forEach((fieldId) => {
-                if (!ruleFieldIds.has(fieldId)) deferredListFieldIds.push(fieldId);
+                if (!bulkFieldIdsSet.has(fieldId)) deferredListFieldIds.push(fieldId);
             });
         } else {
             columnFieldIds.forEach((fieldId) => bulkFieldIdsSet.add(fieldId));
@@ -7280,6 +7311,12 @@
             enableQuickbar: true,
             taskDoneDelightEnabled: true,
             aiEnabled: false,
+            scheduledEventsSchemaVersion: 1,
+            scheduledEvents: [],
+            aiExperienceMode: 'agent',
+            aiExperienceModeInitialized: false,
+            agentMcpEnabled: false,
+            agentMcpEnabledInitialized: false,
             aiProvider: 'minimax',
             aiMiniMaxApiKey: '',
             aiMiniMaxBaseUrl: 'https://api.minimaxi.com/anthropic',
@@ -7296,6 +7333,7 @@
             aiMiniMaxTemperature: 0.2,
             aiMiniMaxMaxTokens: 1600,
             aiMiniMaxTimeoutMs: 30000,
+            aiConversationFontSize: 14,
             aiDefaultContextMode: 'nearby',
             aiScheduleWindows: ['09:00-18:00'],
             aiSideDockEnabled: true,
@@ -7339,6 +7377,7 @@
             calendarShowSchedule: true,
             calendarScheduleReminderEnabled: true,
             calendarScheduleReminderSystemEnabled: true,
+            calendarScheduleReminderWechatEnabled: false,
             calendarScheduleReminderDefaultMode: '0',
             calendarAllDayReminderEnabled: true,
             calendarAllDayReminderTime: '09:00',
@@ -7569,6 +7608,7 @@
                 weights: { importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
                 importanceDelta: { high: 20, medium: 10, low: -5, none: 0 },
                 statusDelta: { todo: 0, in_progress: 15, done: -80, blocked: -10, review: 5 },
+                customFieldDelta: {},
                 dueRanges: [
                     { days: 0, delta: 20 },
                     { days: 1, delta: 15 },
@@ -7965,6 +8005,7 @@
                                 if (typeof cloudData.calendarShowSchedule === 'boolean') this.data.calendarShowSchedule = cloudData.calendarShowSchedule;
                                 if (typeof cloudData.calendarScheduleReminderEnabled === 'boolean') this.data.calendarScheduleReminderEnabled = cloudData.calendarScheduleReminderEnabled;
                                 if (typeof cloudData.calendarScheduleReminderSystemEnabled === 'boolean') this.data.calendarScheduleReminderSystemEnabled = cloudData.calendarScheduleReminderSystemEnabled;
+                                if (typeof cloudData.calendarScheduleReminderWechatEnabled === 'boolean') this.data.calendarScheduleReminderWechatEnabled = cloudData.calendarScheduleReminderWechatEnabled;
                                 if (typeof cloudData.calendarScheduleReminderDefaultMode === 'string') this.data.calendarScheduleReminderDefaultMode = cloudData.calendarScheduleReminderDefaultMode;
                                 if (typeof cloudData.calendarAllDayReminderEnabled === 'boolean') this.data.calendarAllDayReminderEnabled = cloudData.calendarAllDayReminderEnabled;
                                 if (typeof cloudData.calendarAllDayReminderTime === 'string') this.data.calendarAllDayReminderTime = cloudData.calendarAllDayReminderTime;
@@ -8143,6 +8184,12 @@
                                 if (typeof cloudData.docDisplayNameMode === 'string') this.data.docDisplayNameMode = cloudData.docDisplayNameMode;
                                 if (typeof cloudData.docTabsArchiveButtonPosition === 'string') this.data.docTabsArchiveButtonPosition = String(cloudData.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
                                 if (typeof cloudData.aiEnabled === 'boolean') this.data.aiEnabled = cloudData.aiEnabled;
+                                if (Number(cloudData.scheduledEventsSchemaVersion) > 0) this.data.scheduledEventsSchemaVersion = Math.round(Number(cloudData.scheduledEventsSchemaVersion));
+                                if (Array.isArray(cloudData.scheduledEvents)) this.data.scheduledEvents = cloudData.scheduledEvents;
+                                if (cloudData.aiExperienceMode === 'agent' || cloudData.aiExperienceMode === 'legacy') this.data.aiExperienceMode = cloudData.aiExperienceMode;
+                                if (typeof cloudData.aiExperienceModeInitialized === 'boolean') this.data.aiExperienceModeInitialized = cloudData.aiExperienceModeInitialized;
+                                if (typeof cloudData.agentMcpEnabled === 'boolean') this.data.agentMcpEnabled = cloudData.agentMcpEnabled;
+                                if (typeof cloudData.agentMcpEnabledInitialized === 'boolean') this.data.agentMcpEnabledInitialized = cloudData.agentMcpEnabledInitialized;
                                 if (typeof cloudData.aiProvider === 'string') this.data.aiProvider = cloudData.aiProvider;
                                 if (typeof cloudData.aiMiniMaxApiKey === 'string') this.data.aiMiniMaxApiKey = cloudData.aiMiniMaxApiKey;
                                 if (typeof cloudData.aiMiniMaxBaseUrl === 'string') this.data.aiMiniMaxBaseUrl = cloudData.aiMiniMaxBaseUrl;
@@ -8159,6 +8206,7 @@
                                 if (typeof cloudData.aiMiniMaxTemperature === 'number') this.data.aiMiniMaxTemperature = cloudData.aiMiniMaxTemperature;
                                 if (typeof cloudData.aiMiniMaxMaxTokens === 'number') this.data.aiMiniMaxMaxTokens = cloudData.aiMiniMaxMaxTokens;
                                 if (typeof cloudData.aiMiniMaxTimeoutMs === 'number') this.data.aiMiniMaxTimeoutMs = cloudData.aiMiniMaxTimeoutMs;
+                                if (typeof cloudData.aiConversationFontSize === 'number') this.data.aiConversationFontSize = cloudData.aiConversationFontSize;
                                 if (typeof cloudData.aiDefaultContextMode === 'string') this.data.aiDefaultContextMode = cloudData.aiDefaultContextMode;
                                 if (Array.isArray(cloudData.aiScheduleWindows)) this.data.aiScheduleWindows = cloudData.aiScheduleWindows;
                                 else if (typeof cloudData.aiScheduleWindows === 'string') this.data.aiScheduleWindows = String(cloudData.aiScheduleWindows).split(/\r?\n/);
@@ -8436,6 +8484,7 @@
             this.data.calendarShowSchedule = Storage.get('tm_calendar_show_schedule', this.data.calendarShowSchedule);
             this.data.calendarScheduleReminderEnabled = !!Storage.get('tm_calendar_schedule_reminder_enabled', this.data.calendarScheduleReminderEnabled);
             this.data.calendarScheduleReminderSystemEnabled = !!Storage.get('tm_calendar_schedule_reminder_system_enabled', this.data.calendarScheduleReminderSystemEnabled);
+            this.data.calendarScheduleReminderWechatEnabled = !!Storage.get('tm_calendar_schedule_reminder_wechat_enabled', this.data.calendarScheduleReminderWechatEnabled);
             this.data.calendarScheduleReminderDefaultMode = String(Storage.get('tm_calendar_schedule_reminder_default_mode', this.data.calendarScheduleReminderDefaultMode) || '');
             this.data.calendarAllDayReminderEnabled = !!Storage.get('tm_calendar_all_day_reminder_enabled', this.data.calendarAllDayReminderEnabled);
             this.data.calendarAllDayReminderTime = String(Storage.get('tm_calendar_all_day_reminder_time', this.data.calendarAllDayReminderTime) || '');
@@ -8570,6 +8619,15 @@
             this.data.priorityIconStyle = String(Storage.get('tm_priority_icon_style', this.data.priorityIconStyle) || this.data.priorityIconStyle || 'jira').trim() === 'flag' ? 'flag' : 'jira';
             this.data.enableGroupTaskBgByGroupColor = Storage.get('tm_enable_group_task_bg_by_group_color', this.data.enableGroupTaskBgByGroupColor);
             this.data.aiEnabled = !!Storage.get('tm_ai_enabled', this.data.aiEnabled);
+            this.data.scheduledEventsSchemaVersion = Math.max(1, Math.round(Number(Storage.get('tm_scheduled_events_schema_version', this.data.scheduledEventsSchemaVersion)) || 1));
+            this.data.scheduledEvents = Storage.get('tm_scheduled_events', this.data.scheduledEvents) || [];
+            this.data.aiExperienceModeInitialized = !!Storage.get('tm_ai_experience_mode_initialized', this.data.aiExperienceModeInitialized);
+            {
+                const storedMode = String(Storage.get('tm_ai_experience_mode', this.data.aiExperienceMode) || '').trim();
+                this.data.aiExperienceMode = this.data.aiExperienceModeInitialized && storedMode === 'legacy' ? 'legacy' : 'agent';
+            }
+            this.data.agentMcpEnabled = !!Storage.get('tm_agent_mcp_enabled', this.data.agentMcpEnabled);
+            this.data.agentMcpEnabledInitialized = !!Storage.get('tm_agent_mcp_enabled_initialized', this.data.agentMcpEnabledInitialized);
             this.data.aiSideDockEnabled = !!Storage.get('tm_ai_side_dock_enabled', this.data.aiSideDockEnabled);
             {
                 const rawProvider = String(Storage.get('tm_ai_provider', this.data.aiProvider) || this.data.aiProvider).trim();
@@ -8594,11 +8652,15 @@
             this.data.aiMiniMaxTemperature = Number(Storage.get('tm_ai_minimax_temperature', this.data.aiMiniMaxTemperature));
             this.data.aiMiniMaxMaxTokens = Number(Storage.get('tm_ai_minimax_max_tokens', this.data.aiMiniMaxMaxTokens));
             this.data.aiMiniMaxTimeoutMs = Number(Storage.get('tm_ai_minimax_timeout_ms', this.data.aiMiniMaxTimeoutMs));
+            this.data.aiConversationFontSize = Number(Storage.get('tm_ai_conversation_font_size', this.data.aiConversationFontSize));
             this.data.aiDefaultContextMode = String(Storage.get('tm_ai_default_context_mode', this.data.aiDefaultContextMode) || this.data.aiDefaultContextMode).trim() === 'fulltext' ? 'fulltext' : 'nearby';
             this.data.aiScheduleWindows = Storage.get('tm_ai_schedule_windows', this.data.aiScheduleWindows) || this.data.aiScheduleWindows;
             if (!Number.isFinite(this.data.aiMiniMaxTemperature)) this.data.aiMiniMaxTemperature = 0.2;
             if (!Number.isFinite(this.data.aiMiniMaxMaxTokens)) this.data.aiMiniMaxMaxTokens = 1600;
             if (!Number.isFinite(this.data.aiMiniMaxTimeoutMs)) this.data.aiMiniMaxTimeoutMs = 30000;
+            this.data.aiConversationFontSize = Number.isFinite(this.data.aiConversationFontSize)
+                ? Math.max(12, Math.min(22, Math.round(this.data.aiConversationFontSize)))
+                : 14;
             if (!Array.isArray(this.data.aiScheduleWindows)) this.data.aiScheduleWindows = String(this.data.aiScheduleWindows || '').split(/\r?\n/);
             this.data.aiScheduleWindows = this.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean);
             if (!this.data.aiScheduleWindows.length) this.data.aiScheduleWindows = ['09:00-18:00'];
@@ -8704,6 +8766,8 @@
             this.data.timelineCardFields = __tmNormalizeTimelineCardFields(this.data.timelineCardFields);
             this.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(this.data.taskMetaAttrKeys);
             this.data.taskMetaAttrKeyAliases = __tmNormalizeTaskMetaAttrAliasSettings(this.data.taskMetaAttrKeyAliases);
+            this.data.aiExperienceMode = String(this.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
+            this.data.aiExperienceModeInitialized = true;
             {
                 const normalizedFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
                 this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(normalizedFieldMap, this.data) ? {} : normalizedFieldMap;
@@ -8891,6 +8955,7 @@
             Storage.set('tm_calendar_show_schedule', !!this.data.calendarShowSchedule);
             Storage.set('tm_calendar_schedule_reminder_enabled', !!this.data.calendarScheduleReminderEnabled);
             Storage.set('tm_calendar_schedule_reminder_system_enabled', !!this.data.calendarScheduleReminderSystemEnabled);
+            Storage.set('tm_calendar_schedule_reminder_wechat_enabled', !!this.data.calendarScheduleReminderWechatEnabled);
             Storage.set('tm_calendar_schedule_reminder_default_mode', String(this.data.calendarScheduleReminderDefaultMode || '').trim());
             Storage.set('tm_calendar_all_day_reminder_enabled', !!this.data.calendarAllDayReminderEnabled);
             Storage.set('tm_calendar_all_day_reminder_time', String(this.data.calendarAllDayReminderTime || '').trim());
@@ -9031,6 +9096,14 @@
             Storage.set('tm_enable_siyuan_theme_colors', !!this.data.enableSiyuanThemeColors);
             Storage.set('tm_enable_group_task_bg_by_group_color', !!this.data.enableGroupTaskBgByGroupColor);
             Storage.set('tm_ai_enabled', !!this.data.aiEnabled);
+            Storage.set('tm_scheduled_events_schema_version', Math.max(1, Math.round(Number(this.data.scheduledEventsSchemaVersion) || 1)));
+            Storage.set('tm_scheduled_events', Array.isArray(this.data.scheduledEvents) ? this.data.scheduledEvents : []);
+            this.data.aiExperienceMode = String(this.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
+            this.data.aiExperienceModeInitialized = true;
+            Storage.set('tm_ai_experience_mode', this.data.aiExperienceMode);
+            Storage.set('tm_ai_experience_mode_initialized', true);
+            Storage.set('tm_agent_mcp_enabled', !!this.data.agentMcpEnabled);
+            Storage.set('tm_agent_mcp_enabled_initialized', !!this.data.agentMcpEnabledInitialized);
             Storage.set('tm_ai_side_dock_enabled', !!this.data.aiSideDockEnabled);
             {
                 const rawProvider = String(this.data.aiProvider || '').trim();
@@ -9055,6 +9128,10 @@
             Storage.set('tm_ai_minimax_temperature', Number.isFinite(Number(this.data.aiMiniMaxTemperature)) ? Number(this.data.aiMiniMaxTemperature) : 0.2);
             Storage.set('tm_ai_minimax_max_tokens', Number.isFinite(Number(this.data.aiMiniMaxMaxTokens)) ? Math.round(Number(this.data.aiMiniMaxMaxTokens)) : 1600);
             Storage.set('tm_ai_minimax_timeout_ms', Number.isFinite(Number(this.data.aiMiniMaxTimeoutMs)) ? Math.round(Number(this.data.aiMiniMaxTimeoutMs)) : 30000);
+            this.data.aiConversationFontSize = Number.isFinite(Number(this.data.aiConversationFontSize))
+                ? Math.max(12, Math.min(22, Math.round(Number(this.data.aiConversationFontSize))))
+                : 14;
+            Storage.set('tm_ai_conversation_font_size', this.data.aiConversationFontSize);
             Storage.set('tm_ai_default_context_mode', String(this.data.aiDefaultContextMode || '').trim() === 'fulltext' ? 'fulltext' : 'nearby');
             Storage.set('tm_ai_schedule_windows', Array.isArray(this.data.aiScheduleWindows) ? this.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean) : ['09:00-18:00']);
             Storage.set('tm_server_sync_on_manual_refresh', !!this.data.serverSyncOnManualRefresh);
@@ -10185,7 +10262,16 @@
             const defaultUndoneStatusId = __tmGetDefaultUndoneStatusId(statusOptions);
             const customFieldRuleFields = __tmGetCustomFieldDefs().map((field) => {
                 const fieldId = String(field?.id || '').trim();
-                if (!fieldId || String(field?.type || '').trim() === 'text') return null;
+                if (!fieldId) return null;
+                const customFieldType = String(field?.type || '').trim();
+                if (customFieldType === 'text') {
+                    return {
+                        value: __tmBuildCustomFieldColumnKey(fieldId),
+                        label: `${String(field?.name || fieldId).trim() || fieldId}（自定义列）`,
+                        type: 'text',
+                        customFieldId: fieldId,
+                    };
+                }
                 const optionIds = Array.isArray(field?.options)
                     ? field.options.map((option) => String(option?.id || '').trim()).filter(Boolean)
                     : [];
@@ -10202,7 +10288,7 @@
                     options: optionIds,
                     optionLabels,
                     customFieldId: fieldId,
-                    multi: String(field?.type || '').trim() === 'multi',
+                    multi: customFieldType === 'multi',
                     allowEmpty: true,
                     emptyLabel: '未设置',
                 };
@@ -10577,7 +10663,7 @@
             ];
             __tmGetCustomFieldDefs().forEach((field) => {
                 const fieldId = String(field?.id || '').trim();
-                if (!fieldId || String(field?.type || '').trim() === 'text') return;
+                if (!fieldId) return;
                 sortFields.push({
                     value: __tmBuildCustomFieldColumnKey(fieldId),
                     label: `${String(field?.name || fieldId).trim() || fieldId}（自定义列）`,
@@ -10885,6 +10971,7 @@
                     if (isDurationSortField(field)) return 'duration';
                     if (field === 'docSeq') return 'docSeq';
                     if (field === 'customStatus') return 'customStatus';
+                    if (fieldInfo?.customFieldId && fieldInfo?.type === 'text') return 'customText';
                     if (fieldInfo?.customFieldId) return 'customSelect';
                     if (this.isTimeField(fieldInfo || field)) return 'time';
                     return 'default';
@@ -10900,6 +10987,11 @@
                     optionLabelMap: (fieldInfo?.optionLabels && typeof fieldInfo.optionLabels === 'object') ? fieldInfo.optionLabels : null,
                 };
             });
+            const customTextCollator = sortContexts.some((ctx) => ctx.kind === 'customText')
+                && typeof Intl !== 'undefined'
+                && typeof Intl.Collator === 'function'
+                ? new Intl.Collator('zh-Hans-CN', { sensitivity: 'base', numeric: true })
+                : null;
 
             const buildPreparedSortKey = (task, ctx) => {
                 let raw;
@@ -10933,6 +11025,10 @@
                     case 'customStatus': {
                         const token = String(raw || '').trim() || defaultStatusId;
                         return statusOrderMap.has(token) ? statusOrderMap.get(token) : 9999;
+                    }
+                    case 'customText': {
+                        const text = String(raw ?? '').trim();
+                        return { empty: text === '', text };
                     }
                     case 'customSelect': {
                         const values = Array.isArray(raw) ? raw : this.normalizeSelectFieldValues(ctx.fieldInfo, raw);
@@ -10979,6 +11075,17 @@
                         const va = Number.isFinite(Number(leftKey)) ? Number(leftKey) : Number.POSITIVE_INFINITY;
                         const vb = Number.isFinite(Number(rightKey)) ? Number(rightKey) : Number.POSITIVE_INFINITY;
                         return vb - va;
+                    }
+                    case 'customText': {
+                        if (leftKey?.empty && rightKey?.empty) return 0;
+                        if (leftKey?.empty) return 1;
+                        if (rightKey?.empty) return -1;
+                        const leftText = String(leftKey?.text || '');
+                        const rightText = String(rightKey?.text || '');
+                        const delta = customTextCollator
+                            ? customTextCollator.compare(leftText, rightText)
+                            : leftText.localeCompare(rightText, 'zh-Hans-CN');
+                        return order === 'desc' ? -delta : delta;
                     }
                     case 'customSelect': {
                         if (leftKey?.empty && rightKey?.empty) return 0;
@@ -11028,7 +11135,7 @@
                     const sortContext = sortContexts[i];
                     const result = comparePreparedSortKey(left.keys[i], right.keys[i], sortContext, sortRule.order);
                     if (result !== 0) {
-                        if (sortContext?.kind === 'duration') return result;
+                        if (sortContext?.kind === 'duration' || sortContext?.kind === 'customText') return result;
                         return sortRule.order === 'desc' ? -result : result;
                     }
                 }
@@ -14736,6 +14843,7 @@
                 task.taskMarker = parsedMarker;
                 task.task_marker = parsedMarker;
             }
+            __tmApplyDoneOverrideToTaskIfPresent(task);
             try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
             const docName = task.docName || task.doc_name || docInfoById.get(docId)?.name || '未命名文档';
             try {
@@ -15458,6 +15566,7 @@
         if (!taskId || !state.doneOverrides || typeof state.doneOverrides !== 'object') return false;
         if (!Object.prototype.hasOwnProperty.call(state.doneOverrides, taskId)) return false;
         const nextDone = !!state.doneOverrides[taskId];
+        if (!!target.done === nextDone) return false;
         target.done = nextDone;
         target.__tmDoneOverrideApplied = true;
         if (nextDone) {

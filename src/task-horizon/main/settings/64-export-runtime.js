@@ -31,7 +31,8 @@
         { id: 'settings', label: '常规设置', desc: '常规、外观、规则、状态、自定义字段、视图布局、白板、优先级等。', defaultChecked: true },
         { id: 'docGroups', label: '文档分组', desc: '文档分组、默认文档、排除文档、文档颜色、页签排序/钉住等。', defaultChecked: true },
         { id: 'ai', label: 'AI 接入设置', desc: 'AI 供应商、API Key、Base URL、模型、上下文与排期窗口。', defaultChecked: false },
-        { id: 'aiData', label: 'AI 会话/提示词', desc: 'AI 提示词模板与会话记录。', defaultChecked: false },
+        { id: 'aiData', label: 'AI 数据', desc: '智能体自定义预设与安排规则；旧版模式下为提示词和会话记录。', defaultChecked: false },
+        { id: 'scheduledEvents', label: '定时事件', desc: '仅导出事件定义，不包含执行状态和最近结果。', defaultChecked: true },
         { id: 'calendar', label: '日历设置/日程', desc: '日历配置与用户自建日程。', defaultChecked: true },
         { id: 'calendarOffline', label: '节假日/农历缓存', desc: '去年、今年、明年范围内真实可用的节假日/农历缓存。', defaultChecked: true },
     ]);
@@ -94,6 +95,7 @@
         'calendarShowSchedule',
         'calendarScheduleReminderEnabled',
         'calendarScheduleReminderSystemEnabled',
+        'calendarScheduleReminderWechatEnabled',
         'calendarScheduleReminderDefaultMode',
         'calendarAllDayReminderEnabled',
         'calendarAllDayReminderTime',
@@ -152,6 +154,8 @@
         'settingsFieldUpdatedAt',
         'docGroupSettingsUpdatedAt',
         'collapseStateUpdatedAt',
+        'scheduledEventsSchemaVersion',
+        'scheduledEvents',
         ...TM_DOC_GROUP_SETTING_KEYS,
         ...TM_AI_SETTING_KEYS,
         ...TM_CALENDAR_SETTING_KEYS,
@@ -247,8 +251,12 @@
             settingsKeys: m.settings?.settings ? Object.keys(m.settings.settings).length : 0,
             docGroups: Array.isArray(m.docGroups?.settings?.docGroups) ? m.docGroups.settings.docGroups.length : 0,
             aiIncluded: !!m.ai,
+            aiMode: String(m.aiData?.mode || '').trim(),
             aiConversations: Number(m.aiData?.summary?.conversations || 0),
             aiPromptTemplates: Number(m.aiData?.summary?.promptTemplates || 0),
+            agentCustomPresets: Number(m.aiData?.summary?.customPresets || 0),
+            agentPolicyIncluded: m.aiData?.summary?.policyIncluded === true,
+            scheduledEvents: Array.isArray(m.scheduledEvents?.events) ? m.scheduledEvents.events.length : 0,
             schedules: Number(m.calendar?.calendarData?.summary?.schedules || 0),
             holidayYears: Number(m.calendarOffline?.calendarData?.summary?.holidayYears || 0),
             holidayMissingYears: Array.isArray(m.calendarOffline?.calendarData?.summary?.holidayMissingYears) ? m.calendarOffline.calendarData.summary.holidayMissingYears : [],
@@ -286,7 +294,23 @@
         URL.revokeObjectURL(url);
     }
 
-    async function __tmEnsureMigrationAiRuntime() {
+    async function __tmEnsureMigrationAiRuntime(requestedMode = '') {
+        const mode = String(requestedMode || '').trim();
+        const targetMode = mode === 'agent' || mode === 'legacy'
+            ? mode
+            : (String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent');
+        const currentMode = globalThis.__tmAI?.runtimeKind === 'agent' ? 'agent' : (globalThis.__tmAI?.loaded ? 'legacy' : '');
+        if (currentMode !== targetMode) {
+            if (globalThis.__tmAI?.isBusy?.() === true) throw new Error('请先停止当前 AI 请求再导入');
+            if (typeof globalThis.__taskHorizonSetAiExperienceMode === 'function') {
+                const ready = await globalThis.__taskHorizonSetAiExperienceMode(targetMode);
+                if (!ready) return false;
+                SettingsStore.data.aiExperienceMode = targetMode;
+                SettingsStore.data.aiExperienceModeInitialized = true;
+                return true;
+            }
+            return false;
+        }
         if (globalThis.__tmAI?.loaded) return true;
         try {
             if (typeof __tmEnsureAiRuntimeLoaded === 'function') return await __tmEnsureAiRuntimeLoaded();
@@ -309,6 +333,12 @@
         }
         if (selected.has('ai')) {
             modules.ai = { settings: __tmPickSettingsKeys(TM_AI_SETTING_KEYS), includesApiKeys: true };
+        }
+        if (selected.has('scheduledEvents')) {
+            modules.scheduledEvents = {
+                schemaVersion: 1,
+                events: __tmNormalizeScheduledEvents(SettingsStore.data.scheduledEvents, { stripRuntime: true }),
+            };
         }
         if (selected.has('calendar')) {
             const calendarData = globalThis.__tmCalendar?.exportMigrationData
@@ -339,7 +369,7 @@
             const ready = await __tmEnsureMigrationAiRuntime();
             modules.aiData = ready && globalThis.__tmAI?.exportMigrationData
                 ? await globalThis.__tmAI.exportMigrationData()
-                : { conversations: { activeId: '', conversations: [] }, promptTemplates: { templates: [] }, summary: { conversations: 0, promptTemplates: 0 } };
+                : { mode: String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent', summary: { conversations: 0, promptTemplates: 0, customPresets: 0, policyIncluded: false } };
         }
         const payload = {
             schema: TM_SETTINGS_EXPORT_SCHEMA,
@@ -390,8 +420,9 @@
                 <div style="color:var(--tm-text-color);font-weight:600;margin-bottom:4px;">设置包摘要</div>
                 <div>导出时间：${esc(String(payload?.exportedAt || '未知'))}</div>
                 <div>模块：${esc(labels || '无')}</div>
-                <div>文档分组：${Number(summary.docGroups || 0)} 个 · AI 会话：${Number(summary.aiConversations || 0)} 个 · 提示词：${Number(summary.aiPromptTemplates || 0)} 个</div>
-                <div>日程：${Number(summary.schedules || 0)} 条 · 节假日年份：${Number(summary.holidayYears || 0)} 个（${esc(holidayText)}）</div>
+                <div>文档分组：${Number(summary.docGroups || 0)} 个 · AI 模式：${esc(summary.aiMode === 'agent' ? '思源智能体' : (summary.aiMode === 'legacy' ? '旧版 AI' : '未包含'))}</div>
+                <div>智能体预设：${Number(summary.agentCustomPresets || 0)} 个 · 安排规则：${summary.agentPolicyIncluded ? '已包含' : '未包含'} · 旧会话：${Number(summary.aiConversations || 0)} 个 · 旧提示词：${Number(summary.aiPromptTemplates || 0)} 个</div>
+                <div>定时事件：${Number(summary.scheduledEvents || 0)} 条 · 日程：${Number(summary.schedules || 0)} 条 · 节假日年份：${Number(summary.holidayYears || 0)} 个（${esc(holidayText)}）</div>
                 <div style="margin-top:4px;color:var(--tm-warning-color, #f9ab00);">节假日调休通常只有最近一年较可靠，缺失年份不会生成空数据。</div>
             </div>
         `;
@@ -479,6 +510,11 @@
         if (selected.has('settings')) __tmApplyMigrationSettingsPatch(modules.settings?.settings, 'settings');
         if (selected.has('docGroups')) __tmApplyMigrationSettingsPatch(modules.docGroups?.settings, 'docGroups');
         if (selected.has('ai')) __tmApplyMigrationSettingsPatch(modules.ai?.settings, 'ai');
+        if (selected.has('scheduledEvents') && Array.isArray(modules.scheduledEvents?.events)) {
+            const scheduledEvents = globalThis['siyuan-plugin-task-horizon']?.scheduledEvents;
+            if (!scheduledEvents?.importDefinitions) throw new Error('定时事件服务尚未就绪，请稍后重试');
+            await scheduledEvents.importDefinitions(modules.scheduledEvents.events);
+        }
         if (selected.has('calendar')) {
             __tmApplyMigrationSettingsPatch(modules.calendar?.settings, 'calendar');
             if (modules.calendar?.calendarData && globalThis.__tmCalendar?.importMigrationData) {
@@ -489,7 +525,7 @@
             await globalThis.__tmCalendar.importMigrationData(modules.calendarOffline.calendarData);
         }
         if (selected.has('aiData')) {
-            const ready = await __tmEnsureMigrationAiRuntime();
+            const ready = await __tmEnsureMigrationAiRuntime(modules.aiData?.mode);
             if (ready && globalThis.__tmAI?.importMigrationData) {
                 await globalThis.__tmAI.importMigrationData(modules.aiData || {});
             }

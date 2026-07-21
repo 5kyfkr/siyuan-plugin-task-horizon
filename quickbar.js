@@ -2022,14 +2022,36 @@
     document.addEventListener('dragend', __tmQBOnAttrHostDragEndCapture, true);
     document.addEventListener('drop', __tmQBOnAttrHostDragEndCapture, true);
 
-    const __tmQBOnInlineMetaPointerdownCapture = (e) => {
+    const __tmQBResolveInlineMetaPointerTarget = (e) => {
         const rawTarget = e.target;
         const targetEl = rawTarget instanceof Element ? rawTarget : rawTarget?.parentElement;
-        const chip = targetEl?.closest?.('.sy-custom-props-inline-chip');
-        const host = chip?.closest?.('.sy-custom-props-inline-host');
-        if (!chip || !host) return;
+        let chip = targetEl?.closest?.('.sy-custom-props-inline-chip');
+        let host = chip?.closest?.('.sy-custom-props-inline-host');
+        if (chip && host) return { host, chip };
+
+        // The higher contenteditable layer can receive the pointer while the chip remains visible underneath.
+        const parent = targetEl?.closest?.('.sy-custom-props-inline-parent');
+        const clientX = Number(e?.clientX);
+        const clientY = Number(e?.clientY);
+        if (!parent || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+
+        const chips = parent.querySelectorAll?.('.sy-custom-props-inline-host.is-ready[data-inline-placement="in-block"] .sy-custom-props-inline-chip') || [];
+        for (const candidate of chips) {
+            const rect = candidate.getBoundingClientRect?.();
+            if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+            if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) continue;
+            chip = candidate;
+            host = candidate.closest?.('.sy-custom-props-inline-host');
+            if (host) return { host, chip };
+        }
+        return null;
+    };
+
+    const __tmQBOnInlineMetaPointerdownCapture = (e) => {
+        const resolved = __tmQBResolveInlineMetaPointerTarget(e);
+        if (!resolved) return;
         if (typeof inlineMetaHostPointerDownHandler === 'function') {
-            inlineMetaHostPointerDownHandler(host, chip, e, null);
+            inlineMetaHostPointerDownHandler(resolved.host, resolved.chip, e, null);
         }
     };
     document.addEventListener('pointerdown', __tmQBOnInlineMetaPointerdownCapture, true);

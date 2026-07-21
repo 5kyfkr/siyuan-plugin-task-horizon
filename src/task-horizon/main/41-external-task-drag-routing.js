@@ -14,6 +14,7 @@
             id,
             title: id,
             durationMin: 60,
+            durationExplicit: false,
             calendarId: 'default',
             startDate: '',
             completionTime: '',
@@ -139,6 +140,11 @@
         const el = target instanceof Element ? target : null;
         if (!(el instanceof Element)) return null;
 
+        const agentWorkbenchEl = el.closest('.tm-agent-workbench') || null;
+        if (agentWorkbenchEl instanceof HTMLElement) {
+            return { type: 'agent-context', el: agentWorkbenchEl };
+        }
+
         const docTabEl = el.closest('.tm-doc-tab') || null;
         if (docTabEl instanceof Element) {
             return {
@@ -207,6 +213,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         try { __tmClearDocTabDropTarget(); } catch (e) {}
         try { __tmClearTaskRowDropIndicators(root); } catch (e) {}
+        try { globalThis.__tmAI?.clearTaskContextDropState?.(); } catch (e) {}
         try {
             if (opts.preserveKanbanChildDropCandidate === true) __tmKanbanClearSurfaceDragOver(root);
             else __tmKanbanClearDragOver(root);
@@ -240,6 +247,9 @@
         if (preserveKanbanCandidate) __tmActivateExternalKanbanCardDrag(ctx);
         const ev = __tmMakeExternalTaskDragEvent(ctx, hit.el);
         try {
+            if (hit.type === 'agent-context') {
+                return globalThis.__tmAI?.handleTaskContextDragOver?.(ctx.payload) === true;
+            }
             if (hit.type === 'doc-tab') {
                 window.tmDocTabDragOver?.(ev);
                 return true;
@@ -284,6 +294,10 @@
         state.__tmExternalTaskDragLastDrop = { key: dedupeKey, at: now };
 
         const ev = __tmMakeExternalTaskDragEvent(ctx, hit.el);
+        if (hit.type === 'agent-context') {
+            const result = globalThis.__tmAI?.addDraggedTasksToContext?.(ctx.payload);
+            return result && typeof result.then === 'function' ? (await result) === true : result === true;
+        }
         if (hit.type === 'doc-tab') {
             await window.tmDocTabDrop?.(ev, hit.docId);
             return true;

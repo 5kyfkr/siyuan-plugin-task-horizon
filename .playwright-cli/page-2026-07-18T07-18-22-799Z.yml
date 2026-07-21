@@ -1,0 +1,8 @@
+- generic [active] [ref=e1]:
+  - table [ref=e3]:
+    - rowgroup [ref=e4]:
+      - button "表格任务行" [ref=e5]:
+        - cell "表格任务" [ref=e6]
+        - cell "空字段" [ref=e7]
+  - button "清单任务行" [ref=e9] [cursor=pointer]: 清单任务
+  - button "看板任务卡片" [ref=e11]: 看板任务

@@ -88,6 +88,7 @@ try {
         '.history',
         '.idea',
         '.vscode',
+        '.playwright-cli',
         'scripts',
         '.DS_Store',
         'node_modules',

@@ -45,6 +45,8 @@
         SCHEDULE_FILE: '/data/storage/petal/siyuan-plugin-task-horizon/calendar-events.json',
         SCHEDULE_LS_KEY: 'tm-calendar-events',
         SCHEDULE_MOBILE_REGISTRY_LS_KEY: 'tm-calendar-mobile-notification-registry',
+        SCHEDULE_WECHAT_REGISTRY_FILE: '/data/storage/petal/siyuan-plugin-task-horizon/calendar-wechat-reminder-registry.json',
+        SCHEDULE_WECHAT_REGISTRY_LS_KEY: 'tm-calendar-wechat-reminder-registry-v1',
     };
     const SIDE_DAY_HALF_HOUR_SLOT_HEIGHT = 29;
     const CALENDAR_TIMEGRID_EVENT_MIN_HEIGHT = 30;
@@ -477,6 +479,15 @@
             backgroundLastRefreshAt: 0,
             sharedFileWatchTimer: null,
             sharedFileWatchRunning: false,
+            wechatTimer: null,
+            wechatPeriodicTimer: null,
+            wechatRunning: false,
+            wechatQueued: false,
+            wechatPendingReason: '',
+            wechatRegistryLoaded: false,
+            wechatRegistry: {},
+            wechatSyncEventBus: null,
+            wechatSyncHandler: null,
         },
         sideDay: {
             rootEl: null,
@@ -692,6 +703,7 @@
             extendedProps: {
                 __tmTaskId: safePayload.taskId,
                 __tmDurationMin: safePayload.durationMin,
+                __tmDurationExplicit: safePayload.durationExplicit === true,
                 __tmSource: 'schedule',
                 __tmExternalPreview: true,
                 calendarId: safePayload.calendarId,
@@ -3268,7 +3280,7 @@
         if (scope === 'main') {
             const seededUntil = Number(state.mainTimeGridAutoCenterSeededUntil || 0);
             const seededViewType = String(state.mainTimeGridAutoCenterSeededViewType || '');
-            if (seededUntil > Date.now() && (!seededViewType || seededViewType === guard.viewType)) {
+            if (!force && seededUntil > Date.now() && (!seededViewType || seededViewType === guard.viewType)) {
                 target[meta.keyField] = guard.key;
                 target[meta.pendingField] = '';
                 target[meta.tokenField] = Number(target[meta.tokenField] || 0) + 1;
@@ -3325,6 +3337,26 @@
         } catch (e) {
             runAttempt(0);
         }
+        return true;
+    }
+
+    function scheduleMainCalendarInitialTimeAutoCenter(rootEl, calendar, settings, reason = 'main-calendar-initial-mount') {
+        if (!(rootEl instanceof HTMLElement) || !calendar) return false;
+        const runInitialAutoCenter = () => {
+            if (state.calendar !== calendar || !rootEl.isConnected) return;
+            try {
+                scheduleCurrentTimeAutoCenter(rootEl, calendar, settings || getSettings(), {
+                    scope: 'main',
+                    force: true,
+                    once: true,
+                    reason,
+                });
+            } catch (e) {}
+        };
+        try { requestAnimationFrame(() => requestAnimationFrame(runInitialAutoCenter)); } catch (e) {}
+        [160, 420].forEach((delay) => {
+            try { setTimeout(runInitialAutoCenter, delay); } catch (e) {}
+        });
         return true;
     }
 
@@ -7537,6 +7569,7 @@
             showSchedule: s.calendarShowSchedule !== false,
             scheduleReminderEnabled: readStoredBool('tm_calendar_schedule_reminder_enabled', typeof s.calendarScheduleReminderEnabled === 'boolean' ? !!s.calendarScheduleReminderEnabled : undefined),
             scheduleReminderSystemEnabled: readStoredBool('tm_calendar_schedule_reminder_system_enabled', typeof s.calendarScheduleReminderSystemEnabled === 'boolean' ? !!s.calendarScheduleReminderSystemEnabled : undefined),
+            scheduleReminderWechatEnabled: readStoredBool('tm_calendar_schedule_reminder_wechat_enabled', typeof s.calendarScheduleReminderWechatEnabled === 'boolean' ? !!s.calendarScheduleReminderWechatEnabled : false),
             scheduleReminderDefaultMode: defaultMode0,
             allDayReminderEnabled: readStoredBool('tm_calendar_all_day_reminder_enabled', typeof s.calendarAllDayReminderEnabled === 'boolean' ? !!s.calendarAllDayReminderEnabled : undefined),
             allDayReminderTime: allDayTime0 || '09:00',
@@ -8176,6 +8209,7 @@
                         title: t?.title,
                         spent: t?.spent,
                         durationMin: t?.durationMin,
+                        durationExplicit: t?.durationExplicit === true,
                         calendarId: t?.calendarId,
                         depth: 0,
                     })).filter((t) => String(t?.id || '').trim());
@@ -8197,13 +8231,14 @@
             const title = String(t?.title || '').trim();
             const spent = String(t?.spent || '').trim();
             const durationMin = Number(t?.durationMin);
+            const durationExplicit = t?.durationExplicit === true;
             const depth = Number(t?.depth) || 0;
             const calendarId = String(t?.calendarId || 'default').trim() || 'default';
             const dot = colorMap.get(calendarId) || 'var(--tm-primary-color)';
             const safeDuration = (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60;
             const titleOpacityStyle = buildTaskTitleOpacityStyleForTask(getTaskLikeForTitleOpacity(id, t));
             return `
-                <div class="tm-cal-task" draggable="true" onpointerdown="tmTaskTouchDragStart(event, '${esc(id)}')" data-tm-task-item="1" style="padding-left:${6 + Math.min(6, Math.max(0, depth)) * 10}px" data-task-id="${esc(id)}" data-task-title="${esc(title)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-calendar-id="${esc(calendarId)}">
+                <div class="tm-cal-task" draggable="true" onpointerdown="tmTaskTouchDragStart(event, '${esc(id)}')" data-tm-task-item="1" style="padding-left:${6 + Math.min(6, Math.max(0, depth)) * 10}px" data-task-id="${esc(id)}" data-task-title="${esc(title)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-task-duration-explicit="${durationExplicit ? '1' : '0'}" data-calendar-id="${esc(calendarId)}">
                     <div class="tm-cal-task-left">
                         <span class="tm-cal-task-dot" style="background:${esc(dot)};"></span>
                         <div class="tm-cal-task-title" title="${esc(title)}" style="${titleOpacityStyle}">${esc(title)}</div>
@@ -8250,6 +8285,7 @@
                         title: t?.title,
                         spent: t?.spent,
                         durationMin: t?.durationMin,
+                        durationExplicit: t?.durationExplicit === true,
                         calendarId: t?.calendarId,
                         depth: 0,
                     })).filter((t) => String(t?.id || '').trim());
@@ -8270,18 +8306,19 @@
             const title = String(t?.title || '').trim() || '(无标题)';
             const spent = String(t?.spent || '').trim();
             const durationMin = Number(t?.durationMin);
+            const durationExplicit = t?.durationExplicit === true;
             const depth = Math.max(0, Number(t?.depth) || 0);
             const calendarId = String(t?.calendarId || 'default').trim() || 'default';
             const accent = colorMap.get(calendarId) || 'var(--tm-primary-color)';
             const safeDuration = (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60;
-            const durationLabel = formatCalendarTaskDurationLabel(safeDuration);
+            const durationLabel = durationExplicit ? formatCalendarTaskDurationLabel(safeDuration) : '';
             const metaParts = [];
             if (durationLabel) metaParts.push(`<span class="tm-checklist-meta-compact-time" title="预计时长">${esc(durationLabel)}</span>`);
             if (spent) metaParts.push(`<span class="tm-checklist-meta-compact-time" title="已耗时">${esc(spent)}</span>`);
             const tooltipAttrs = ` data-tm-floating-tooltip-label="${esc(title)}" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center"`;
             const titleOpacityStyle = buildTaskTitleOpacityStyleForTask(getTaskLikeForTitleOpacity(id, t));
             return `
-                <div class="tm-cal-task tm-cal-task--checklist tm-checklist-item" draggable="true" onpointerdown="tmTaskTouchDragStart(event, '${esc(id)}')" ondragstart="tmDragTaskStart(event, '${esc(id)}')" ondragend="tmDragTaskEnd(event)" data-id="${esc(id)}" data-task-id="${esc(id)}" data-task-title="${esc(title)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-calendar-id="${esc(calendarId)}" style="--tm-checklist-accent-color:${esc(accent)};--tm-checklist-compact-indent:${Math.min(8, depth) * 14}px;">
+                <div class="tm-cal-task tm-cal-task--checklist tm-checklist-item" draggable="true" onpointerdown="tmTaskTouchDragStart(event, '${esc(id)}')" ondragstart="tmDragTaskStart(event, '${esc(id)}')" ondragend="tmDragTaskEnd(event)" data-id="${esc(id)}" data-task-id="${esc(id)}" data-task-title="${esc(title)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-task-duration-explicit="${durationExplicit ? '1' : '0'}" data-calendar-id="${esc(calendarId)}" style="--tm-checklist-accent-color:${esc(accent)};--tm-checklist-compact-indent:${Math.min(8, depth) * 14}px;">
                     <div class="tm-checklist-leading">
                         <span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>
                         <input class="tm-task-checkbox tm-cal-task-check" type="checkbox" title="完成">
@@ -8383,6 +8420,7 @@
                         let title = '';
                         let calendarId = '';
                         let durMin = NaN;
+                        let durationExplicit = false;
                         if (isTableBody) {
                             taskId = String(el?.getAttribute?.('data-id') || '').trim();
                             calendarId = String(el?.getAttribute?.('data-calendar-id') || '').trim();
@@ -8391,6 +8429,7 @@
                                 title = String(meta?.title || '').trim();
                                 if (!calendarId) calendarId = String(meta?.calendarId || '').trim();
                                 durMin = Number(meta?.durationMin);
+                                durationExplicit = meta?.durationExplicit === true;
                             } catch (e) {}
                             if (!title) {
                                 try { title = String(el?.querySelector?.('.tm-task-content-clickable')?.textContent || '').trim(); } catch (e) {}
@@ -8400,6 +8439,7 @@
                             title = String(el?.getAttribute?.('data-task-title') || '').trim();
                             calendarId = String(el?.getAttribute?.('data-calendar-id') || '').trim();
                             durMin = Number(el?.getAttribute?.('data-task-duration-min'));
+                            durationExplicit = String(el?.getAttribute?.('data-task-duration-explicit') || '') === '1';
                             if (taskId) {
                                 try {
                                     const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function') ? window.tmCalendarGetTaskDragMeta(taskId) : null;
@@ -8407,6 +8447,7 @@
                                     if (!calendarId) calendarId = String(meta?.calendarId || '').trim();
                                     const metaDurationMin = Number(meta?.durationMin);
                                     if (Number.isFinite(metaDurationMin) && metaDurationMin > 0) durMin = metaDurationMin;
+                                    if (meta?.durationExplicit === true) durationExplicit = true;
                                 } catch (e) {}
                             }
                             if (!title) {
@@ -8420,6 +8461,7 @@
                             taskId,
                             title: title || '任务',
                             durationMin: safeMin,
+                            durationExplicit,
                             calendarId,
                         }, { dragSource: 'main-task-draggable', officialFullCalendar: true });
                         calendarExternalDragPreviewController.beginOfficialFloatingMini(payload, el);
@@ -8434,6 +8476,7 @@
                             extendedProps: {
                                 __tmTaskId: payload?.taskId || taskId,
                                 __tmDurationMin: payload?.durationMin || safeMin,
+                                __tmDurationExplicit: payload?.durationExplicit === true,
                                 __tmSource: 'schedule',
                                 __tmExternalPreview: true,
                                 calendarId: payload?.calendarId || calendarId,
@@ -10064,11 +10107,18 @@
         } catch (e) {}
         const safeMeta = (meta && typeof meta === 'object') ? meta : {};
         const durationMin = Number(base.durationMin || safeMeta.durationMin);
+        const hasDurationMarker = Object.prototype.hasOwnProperty.call(base, 'durationExplicit')
+            || Object.prototype.hasOwnProperty.call(safeMeta, 'durationExplicit');
+        const durationExplicit = base.durationExplicit === true
+            || safeMeta.durationExplicit === true
+            || (!hasDurationMarker && Number.isFinite(durationMin) && durationMin > 0);
         return {
             taskId: id,
             title: String(base.title || safeMeta.title || id || '任务').trim() || '任务',
             durationMin: (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60,
+            durationExplicit,
             calendarId: String(base.calendarId || safeMeta.calendarId || '').trim(),
+            documentID: String(base.documentID || base.docId || safeMeta.documentID || safeMeta.docId || '').trim(),
             startDate: String(base.startDate || safeMeta.startDate || '').trim(),
             completionTime: String(base.completionTime || safeMeta.completionTime || '').trim(),
             dateFieldsKnown: base.dateFieldsKnown === true
@@ -10083,7 +10133,7 @@
         const start = hit?.start;
         if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) return false;
         const settings = getSettings();
-        const safeMin = clampNewScheduleDurationMin(Number(source.durationMin), settings);
+        const safeMin = await resolveManualDragDurationMin(source, settings);
         const allDay = hit?.allDay === true;
         const end = allDay
             ? new Date(start.getTime() + 24 * 60 * 60000)
@@ -11445,6 +11495,43 @@
         return true;
     }
 
+    function getKernelScheduleRpc(name) {
+        try {
+            const kernel = globalThis.__taskHorizonHostBridge?.kernel || globalThis.__taskHorizonHostBridge?.plugin?.kernel;
+            const method = kernel?.rpc?.call?.[name];
+            return typeof method === 'function' ? method : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function resolveManualDragDurationMin(payload, settings) {
+        const source = payload && typeof payload === 'object' ? payload : {};
+        const rawMinutes = Number(source.durationMin ?? source.__tmDurationMin);
+        const hasExplicitMarker = Object.prototype.hasOwnProperty.call(source, 'durationExplicit')
+            || Object.prototype.hasOwnProperty.call(source, '__tmDurationExplicit');
+        const durationExplicit = source.durationExplicit === true || source.__tmDurationExplicit === true;
+        if ((durationExplicit || !hasExplicitMarker) && Number.isFinite(rawMinutes) && rawMinutes > 0) {
+            return clampNewScheduleDurationMin(rawMinutes, settings);
+        }
+        const resolveDefaults = getKernelScheduleRpc('taskHorizonResolveDurationDefaults');
+        if (resolveDefaults) {
+            try {
+                const result = await resolveDefaults({
+                    mode: 'manual-drag',
+                    items: [{
+                        taskID: String(source.taskId || source.taskID || source.id || '').trim(),
+                        title: String(source.title || '').trim(),
+                        documentID: String(source.documentID || source.docId || '').trim(),
+                    }],
+                });
+                const minutes = Number(result?.ok === true ? result.data?.items?.[0]?.minutes : NaN);
+                if (Number.isFinite(minutes) && minutes > 0) return clampNewScheduleDurationMin(minutes, settings);
+            } catch (e) {}
+        }
+        return clampNewScheduleDurationMin(60, settings);
+    }
+
     async function loadScheduleAll() {
         const cacheTtlMs = 1200;
         try {
@@ -11458,6 +11545,19 @@
             }
         } catch (e) {}
         state.scheduleCache.inflight = (async () => {
+            const kernelLoad = getKernelScheduleRpc('taskHorizonLoadSchedules');
+            if (kernelLoad) {
+                try {
+                    const result = await kernelLoad();
+                    if (result?.ok === true && Array.isArray(result.data)) {
+                        const { out } = normalizeScheduleList(result.data);
+                        const serialized = JSON.stringify(out, null, 2);
+                        setScheduleCache(out, computeScheduleSourceSignature(serialized));
+                        try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, serialized); } catch (e) {}
+                        return out;
+                    }
+                } catch (e) {}
+            }
             try {
                 // Keep reads side-effect free: mobile startup may run before cloud sync settles.
                 const raw = await getFileTextRetry(STORAGE.SCHEDULE_FILE, 1);
@@ -11625,7 +11725,19 @@
         setScheduleCache(list, computeScheduleSourceSignature(serialized));
         try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, serialized); } catch (e) {}
         try {
-            await putFileText(STORAGE.SCHEDULE_FILE, serialized);
+            const kernelSave = getKernelScheduleRpc('taskHorizonSaveSchedules');
+            if (kernelSave) {
+                const result = await kernelSave(list, opts);
+                if (!result || result.ok !== true) throw new Error(String(result?.error?.message || '内核日程服务保存失败'));
+                if (Array.isArray(result.data?.items)) {
+                    const { out } = normalizeScheduleList(result.data.items);
+                    const nextSerialized = JSON.stringify(out, null, 2);
+                    setScheduleCache(out, computeScheduleSourceSignature(nextSerialized));
+                    try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, nextSerialized); } catch (e) {}
+                }
+            } else {
+                await putFileText(STORAGE.SCHEDULE_FILE, serialized);
+            }
         } catch (e) {
             try { console.warn('[task-horizon] save schedule file failed', e); } catch (e2) {}
             throw e;
@@ -11649,6 +11761,9 @@
                     rangeEnd: String(opts.rangeEnd || '').trim(),
                 },
             }));
+        } catch (e) {}
+        try {
+            scheduleWechatReminderReconcile(`schedule-save:${String(opts.reason || opts.op || 'update').trim() || 'update'}`);
         } catch (e) {}
         if (!opts.skipDeviceSync && shouldPreferDeviceNotificationBackend()) {
             try { scheduleScheduleMobileSync('save-schedule-all'); } catch (e) {}
@@ -11985,6 +12100,23 @@
 
     function buildTaskDateReminderKey(taskId, atMs) {
         return `taskdate:${String(taskId || '').trim()}:${String(atMs || '')}`;
+    }
+
+    function buildScheduleReminderRuntimeTimerKey(baseKey, pack) {
+        const key = String(baseKey || '').trim();
+        if (String(pack?.kind || '').trim() === 'allday') {
+            const items = (Array.isArray(pack?.items) ? pack.items : []).map((item) => ({
+                key: String(item?.key || '').trim(),
+                title: String(item?.meta?.title || '').trim(),
+            })).sort((left, right) => left.key.localeCompare(right.key));
+            return `${key}\u0000${JSON.stringify(items)}`;
+        }
+        const meta = pack?.meta || {};
+        return `${key}\u0000${JSON.stringify({
+            title: String(meta.title || '').trim(),
+            startMs: Number(meta.startMs) || 0,
+            offsetMin: Number(meta.offsetMin) || 0,
+        })}`;
     }
 
     function getRuntimeBackendType() {
@@ -12417,7 +12549,7 @@
         return startText || title;
     }
 
-    function collectScheduleMobileNotificationTargets(item, settings) {
+    function collectScheduleMobileNotificationTargets(item, settings, options = {}) {
         if (!settings?.scheduleReminderEnabled) return [];
         const startMs = toMs(item?.start);
         const endMs = toMs(item?.end);
@@ -12448,9 +12580,10 @@
         })();
         const now = Date.now();
         const repeatType = getScheduleRepeatType(item);
-        const windowDays = repeatType === 'none'
-            ? SCHEDULE_MOBILE_WINDOW_DAYS
-            : SCHEDULE_ALL_DAY_MOBILE_WINDOW_DAYS;
+        const requestedWindowDays = Number(options?.windowDays);
+        const windowDays = Number.isFinite(requestedWindowDays) && requestedWindowDays > 0
+            ? Math.max(1, Math.round(requestedWindowDays))
+            : (repeatType === 'none' ? SCHEDULE_MOBILE_WINDOW_DAYS : SCHEDULE_ALL_DAY_MOBILE_WINDOW_DAYS);
         const rangeStart = new Date(Math.max(0, now - offsetMin * 60000));
         const rangeEnd = new Date(now + windowDays * 86400000 + offsetMin * 60000);
         const occurrences = collectScheduleOccurrencesInRange(item, rangeStart, rangeEnd, {
@@ -12552,6 +12685,303 @@
                 titles: Array.from(new Set((it.titles || []).filter(Boolean))),
             }))
             .sort((a, b) => Number(a?.atMs || 0) - Number(b?.atMs || 0));
+    }
+
+    function stableWechatReminderHash(value) {
+        const text = String(value || '');
+        let h1 = 0xdeadbeef ^ text.length;
+        let h2 = 0x41c6ce57 ^ text.length;
+        for (let i = 0; i < text.length; i += 1) {
+            const ch = text.charCodeAt(i);
+            h1 = Math.imul(h1 ^ ch, 2654435761);
+            h2 = Math.imul(h2 ^ ch, 1597334677);
+        }
+        h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+        h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+        const hash53 = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+        return (hash53 % 78364164096).toString(36).padStart(7, '0');
+    }
+
+    function formatWechatReminderTimed(value) {
+        const date = value instanceof Date ? value : new Date(Number(value) || value);
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+        return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`;
+    }
+
+    function formatWechatReminderDisplayTime(value) {
+        const date = value instanceof Date ? value : new Date(Number(value) || value);
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+        return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+    }
+
+    function limitWechatReminderContent(value) {
+        return Array.from(String(value || '').trim()).slice(0, 128).join('');
+    }
+
+    function buildWechatReminderTarget(namespace, ownerKey, atMs, content) {
+        const timed = formatWechatReminderTimed(atMs);
+        if (!timed || Number(atMs) <= Date.now()) return null;
+        const safeContent = limitWechatReminderContent(content);
+        if (!safeContent) return null;
+        const dataId = `${timed}-${stableWechatReminderHash(`${namespace}\u0000${ownerKey}\u0000${timed}`)}`;
+        return {
+            dataId,
+            ownerKey: String(ownerKey || '').trim(),
+            timed,
+            content: safeContent,
+            fingerprint: stableWechatReminderHash(`${timed}\u0000${safeContent}`),
+        };
+    }
+
+    function sanitizeWechatReminderRegistry(value) {
+        const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+        const out = {};
+        for (const [key, raw] of Object.entries(source)) {
+            const dataId = String(raw?.dataId || key || '').trim();
+            const timed = String(raw?.timed || '').trim();
+            const content = limitWechatReminderContent(raw?.content);
+            if (!dataId || !/^\d{14}$/.test(timed) || !content) continue;
+            out[dataId] = {
+                dataId,
+                ownerKey: String(raw?.ownerKey || '').trim(),
+                timed,
+                content,
+                fingerprint: String(raw?.fingerprint || stableWechatReminderHash(`${timed}\u0000${content}`)).trim(),
+            };
+        }
+        return out;
+    }
+
+    async function loadWechatReminderRegistry() {
+        const sr = state.scheduleReminder;
+        if (sr.wechatRegistryLoaded) return { ...sr.wechatRegistry };
+        let local = {};
+        let shared = {};
+        try {
+            const localRaw = localStorage.getItem(STORAGE.SCHEDULE_WECHAT_REGISTRY_LS_KEY);
+            if (localRaw != null) sr.wechatRegistrySnapshotFound = true;
+            local = sanitizeWechatReminderRegistry(JSON.parse(localRaw || '{}'));
+        } catch (e) {}
+        try {
+            const raw = await getFileTextRetry(STORAGE.SCHEDULE_WECHAT_REGISTRY_FILE, 1);
+            if (String(raw || '').trim()) {
+                sr.wechatRegistrySnapshotFound = true;
+                shared = sanitizeWechatReminderRegistry(JSON.parse(raw));
+            }
+        } catch (e) {}
+        sr.wechatRegistry = { ...shared, ...local };
+        sr.wechatRegistryLoaded = true;
+        return { ...sr.wechatRegistry };
+    }
+
+    async function saveWechatReminderRegistry(registry) {
+        const next = sanitizeWechatReminderRegistry(registry);
+        const sr = state.scheduleReminder;
+        sr.wechatRegistry = next;
+        sr.wechatRegistryLoaded = true;
+        sr.wechatRegistrySnapshotFound = true;
+        try { localStorage.setItem(STORAGE.SCHEDULE_WECHAT_REGISTRY_LS_KEY, JSON.stringify(next)); } catch (e) {}
+        try { await putFileText(STORAGE.SCHEDULE_WECHAT_REGISTRY_FILE, JSON.stringify(next, null, 2)); } catch (e) {}
+        return next;
+    }
+
+    async function getWechatReminderEligibility() {
+        if (Number(globalThis?.siyuan?.config?.cloudRegion) !== 0) return { ok: false, reason: '当前云端区域不支持微信提醒' };
+        if (globalThis?.siyuan?.config?.readonly === true) return { ok: false, reason: '只读模式下无法同步微信提醒' };
+        let user = globalThis?.siyuan?.user || null;
+        if (!user) {
+            try {
+                const response = await postJSON('/api/setting/getCloudUser', {});
+                const payload = await response.json();
+                if (response.ok && payload?.code === 0) {
+                    user = payload.data || null;
+                    if (user) globalThis.siyuan.user = user;
+                }
+            } catch (e) {}
+        }
+        const subscribed = !!user
+            && (Number(user.userSiYuanProExpireTime) === -1 || Number(user.userSiYuanProExpireTime) > 0)
+            && Number(user.userSiYuanSubscriptionStatus) === 0;
+        return subscribed ? { ok: true, reason: '' } : { ok: false, reason: '微信提醒需要有效的思源订阅' };
+    }
+
+    async function setCloudWechatReminder(target, cancel = false) {
+        const response = await postJSON('/api/cloud/setCloudReminder', {
+            id: target.dataId,
+            content: target.content,
+            timed: cancel ? '0' : target.timed,
+        });
+        let payload = null;
+        try { payload = await response.json(); } catch (e) {}
+        if (!response.ok || payload?.code !== 0) {
+            throw new Error(String(payload?.msg || `HTTP ${response.status}` || '微信提醒同步失败'));
+        }
+        return true;
+    }
+
+    function collectWechatTargets(list, settings, options = {}) {
+        const desired = new Map();
+        const force = options?.force === true;
+        if (!force && (!settings?.scheduleReminderEnabled || !settings?.scheduleReminderWechatEnabled)) return desired;
+        const effectiveSettings = force
+            ? { ...settings, scheduleReminderEnabled: true, scheduleReminderWechatEnabled: true }
+            : settings;
+        for (const item of (Array.isArray(list) ? list : [])) {
+            const scheduleId = String(item?.id || '').trim();
+            if (!scheduleId) continue;
+            const title = String(item?.title || '').trim() || '日程';
+            const targets = collectScheduleMobileNotificationTargets(item, effectiveSettings, { windowDays: SCHEDULE_MOBILE_WINDOW_DAYS });
+            for (const entry of targets) {
+                const startText = formatWechatReminderDisplayTime(entry.startMs);
+                const offset = Number(entry.offsetMin);
+                const offsetText = Number.isFinite(offset) && offset > 0 ? `，提前${offset}分钟` : '';
+                const ownerKey = `schedule:${scheduleId}:${String(entry.startMs || '')}`;
+                const target = buildWechatReminderTarget('task-horizon', ownerKey, Number(entry.atMs), `日程提醒：${title}（${startText}${offsetText}）`);
+                if (target) desired.set(target.dataId, target);
+            }
+        }
+        for (const summary of collectAllDayScheduleSummaryTargets(list, effectiveSettings)) {
+            const ownerKey = `all-day:${String(summary.dateKey || '')}:${String(summary.timeKey || '')}`;
+            const titles = Array.from(new Set((summary.titles || []).map((item) => String(item || '').trim()).filter(Boolean)));
+            const target = buildWechatReminderTarget(
+                'task-horizon',
+                ownerKey,
+                Number(summary.atMs),
+                `全天日程：${titles.join('、')}（${String(summary.dateKey || '')} ${String(summary.timeKey || '')}）`,
+            );
+            if (target) desired.set(target.dataId, target);
+        }
+        return desired;
+    }
+
+    async function runWechatReminderOperations(operations, worker, concurrency = 2) {
+        let cursor = 0;
+        const count = Math.max(1, Math.min(concurrency, operations.length || 1));
+        await Promise.all(Array.from({ length: count }, async () => {
+            while (cursor < operations.length) {
+                const index = cursor;
+                cursor += 1;
+                await worker(operations[index]);
+            }
+        }));
+    }
+
+    function diffWechatReminderTargets(registry, desired) {
+        const current = registry && typeof registry === 'object' ? registry : {};
+        const targetMap = desired instanceof Map ? desired : new Map();
+        return {
+            removals: Object.values(current).filter((entry) => !targetMap.has(entry.dataId)),
+            upserts: Array.from(targetMap.values()).filter((entry) => current[entry.dataId]?.fingerprint !== entry.fingerprint),
+        };
+    }
+
+    function mergeWechatReminderTargetsIntoRegistry(registry, targets) {
+        const current = registry && typeof registry === 'object' ? registry : {};
+        if (!(targets instanceof Map)) return current;
+        for (const [dataId, target] of targets) {
+            if (!current[dataId]) current[dataId] = target;
+        }
+        return current;
+    }
+
+    function shouldDeferWechatReconcileUntilRegistryLoaded(reason, snapshotFound) {
+        if (snapshotFound) return false;
+        return /^(bind|periodic|sync-end)$/.test(String(reason || '').trim());
+    }
+
+    async function reconcileWechatReminders(reason = 'refresh') {
+        const sr = state.scheduleReminder;
+        if (sr.wechatRunning) {
+            sr.wechatQueued = true;
+            sr.wechatPendingReason = String(reason || '').trim() || sr.wechatPendingReason;
+            return;
+        }
+        sr.wechatRunning = true;
+        try {
+            const settings = getSettings();
+            const registry = await loadWechatReminderRegistry();
+            if (shouldDeferWechatReconcileUntilRegistryLoaded(reason, sr.wechatRegistrySnapshotFound === true)) return;
+            const enabled = !!settings?.scheduleReminderEnabled && !!settings?.scheduleReminderWechatEnabled;
+            const cleanupCurrentTargets = !enabled && String(reason || '').includes('disable');
+            if (!enabled && Object.keys(registry).length === 0 && !cleanupCurrentTargets) return;
+            const eligibility = await getWechatReminderEligibility();
+            if (!eligibility.ok) {
+                if (String(reason || '').includes('settings')) toast(eligibility.reason, 'warning');
+                return;
+            }
+            const list = enabled || cleanupCurrentTargets ? await loadScheduleAll() : [];
+            const currentTargets = collectWechatTargets(list, settings, { force: cleanupCurrentTargets });
+            if (cleanupCurrentTargets) mergeWechatReminderTargetsIntoRegistry(registry, currentTargets);
+            const desired = enabled ? currentTargets : new Map();
+            const { removals, upserts } = diffWechatReminderTargets(registry, desired);
+            const errors = [];
+            let changed = false;
+            await runWechatReminderOperations(removals, async (entry) => {
+                try {
+                    await setCloudWechatReminder(entry, true);
+                    delete registry[entry.dataId];
+                    changed = true;
+                } catch (error) {
+                    errors.push(String(error?.message || error));
+                }
+            });
+            await runWechatReminderOperations(upserts, async (entry) => {
+                try {
+                    await setCloudWechatReminder(entry, false);
+                    registry[entry.dataId] = entry;
+                    changed = true;
+                } catch (error) {
+                    errors.push(String(error?.message || error));
+                }
+            });
+            if (changed) await saveWechatReminderRegistry(registry);
+            const reasonText = String(reason || '');
+            const interactive = /settings|manual|enable|disable/.test(reasonText);
+            const scheduleSaveReason = reasonText.startsWith('schedule-save:');
+            if (errors.length > 0) {
+                console.warn('[task-horizon] 微信提醒同步失败', errors);
+                if (interactive || scheduleSaveReason) toast(`微信提醒同步失败：${errors[0]}`, 'warning');
+            } else if (interactive) {
+                toast(`微信提醒已同步 ${upserts.length} 项，取消 ${removals.length} 项`, 'success');
+            }
+        } finally {
+            sr.wechatRunning = false;
+            if (sr.wechatQueued || sr.wechatPendingReason) {
+                const nextReason = sr.wechatPendingReason || String(reason || '').trim() || 'queued';
+                sr.wechatQueued = false;
+                sr.wechatPendingReason = '';
+                scheduleWechatReminderReconcile(nextReason);
+            }
+        }
+    }
+
+    async function refreshSchedulesFromSharedFile(options = {}) {
+        const opt = options && typeof options === 'object' ? options : {};
+        const refreshed = await refreshScheduleCacheFromSharedFile();
+        scheduleCalendarRefresh({
+            reason: String(opt.reason || 'shared-schedule-refresh').trim() || 'shared-schedule-refresh',
+            main: opt.main !== false,
+            side: opt.side !== false,
+            flushTaskPanel: opt.flushTaskPanel !== false,
+            hard: opt.hard === true,
+        });
+        return refreshed;
+    }
+
+    function scheduleWechatReminderReconcile(reason = 'refresh') {
+        const sr = state.scheduleReminder;
+        sr.wechatPendingReason = String(reason || '').trim() || sr.wechatPendingReason || 'refresh';
+        if (sr.wechatRunning) {
+            sr.wechatQueued = true;
+            return;
+        }
+        if (sr.wechatTimer) return;
+        sr.wechatTimer = setTimeout(() => {
+            sr.wechatTimer = null;
+            const nextReason = sr.wechatPendingReason || 'refresh';
+            sr.wechatPendingReason = '';
+            reconcileWechatReminders(nextReason).catch((error) => console.warn('[task-horizon] 微信提醒对账失败', error));
+        }, 240);
     }
 
     function buildAllDayScheduleSummaryPlanKey(targets, settings) {
@@ -12987,21 +13417,35 @@
         return key;
     }
 
-    function showScheduleSystemNotification(title, body) {
+    async function showScheduleSystemNotification(title, body, options = {}) {
         const safeTitle = String(title || '日程提醒');
         const safeBody = String(body || '');
-        sendDeviceNotificationCompat(safeTitle, safeBody, { timeoutType: 'never' })
-            .then((value) => {
-                const id = normalizeNotificationId(value);
-                if (id !== null && id >= 0) return;
-                const reason = describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason);
+        try {
+            const value = await sendDeviceNotificationCompat(safeTitle, safeBody, { ...options, timeoutType: 'never' });
+            const id = normalizeNotificationId(value);
+            if (id !== null && id >= 0) return { ok: true, id };
+            const reason = describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason);
+            if (options.showFailureToast !== false) {
                 showScheduleReminderToast(safeTitle, `${safeBody}\n\n系统提醒失败：${reason}`);
-            })
-            .catch(() => {
-                const reason = describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason);
+            }
+            return { ok: false, id: -1, error: reason };
+        } catch (e) {
+            const reason = describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason);
+            if (options.showFailureToast !== false) {
                 showScheduleReminderToast(safeTitle, `${safeBody}\n\n系统提醒失败：${reason}`);
-            });
-        return true;
+            }
+            return { ok: false, id: -1, error: reason };
+        }
+    }
+
+    async function showScheduleCompletionNotification(title, body, options = {}) {
+        const safeTitle = String(title || '日程提醒');
+        const safeBody = String(body || '');
+        showScheduleReminderToast(safeTitle, safeBody);
+        return showScheduleSystemNotification(safeTitle, safeBody, {
+            ...options,
+            showFailureToast: false,
+        });
     }
 
     function shouldShowImmediateScheduleSystemNotification() {
@@ -13052,6 +13496,7 @@
         }
         sr.refreshRunning = true;
         try {
+        try { scheduleWechatReminderReconcile(reason || 'refresh'); } catch (e) {}
         const hasStore = !!(state.settingsStore && state.settingsStore.data) || !!(state.sideDay?.settingsStore && state.sideDay.settingsStore.data);
         if (!hasStore) return;
         const settings = getSettings();
@@ -13298,14 +13743,16 @@
                 arr.push({ key, meta });
                 allDayGroups.set(gk, arr);
             } else {
-                desiredTimers.set(key, { kind: 'single', key, meta });
+                const pack = { kind: 'single', key, meta };
+                desiredTimers.set(buildScheduleReminderRuntimeTimerKey(key, pack), pack);
             }
         });
         allDayGroups.forEach((items, gk) => {
             if (!Array.isArray(items) || items.length === 0) return;
             const atMs = Number(items[0]?.meta?.atMs);
             if (!Number.isFinite(atMs)) return;
-            desiredTimers.set(gk, { kind: 'allday', atMs, items });
+            const pack = { kind: 'allday', atMs, items };
+            desiredTimers.set(buildScheduleReminderRuntimeTimerKey(gk, pack), pack);
         });
         active.forEach((timerId, key) => {
             if (!desiredTimers.has(key)) {
@@ -13521,10 +13968,26 @@
     function bindScheduleReminderEngine() {
         const sr = state.scheduleReminder;
         if (sr.scheduleUpdatedListener) return;
-        sr.scheduleUpdatedListener = () => { 
-            scheduleScheduleReminderRefresh('schedule-updated'); 
+        sr.scheduleUpdatedListener = (event) => {
+            const reason = String(event?.detail?.reason || 'schedule-updated').trim() || 'schedule-updated';
+            scheduleScheduleReminderRefresh(`schedule-save:${reason}`);
         };
         try { window.addEventListener('tm:calendar-schedule-updated', sr.scheduleUpdatedListener); } catch (e) {}
+        if (!sr.wechatPeriodicTimer) {
+            sr.wechatPeriodicTimer = setInterval(() => scheduleWechatReminderReconcile('periodic'), 10 * 60 * 1000);
+        }
+        try {
+            const eventBus = globalThis.__taskHorizonHostBridge?.eventBus || globalThis.__taskHorizonHostBridge?.plugin?.eventBus || null;
+            if (eventBus && typeof eventBus.on === 'function') {
+                sr.wechatSyncHandler = () => {
+                    sr.wechatRegistryLoaded = false;
+                    sr.wechatRegistrySnapshotFound = false;
+                    scheduleWechatReminderReconcile('sync-end');
+                };
+                sr.wechatSyncEventBus = eventBus;
+                eventBus.on('sync-end', sr.wechatSyncHandler);
+            }
+        } catch (e) {}
         try { bindScheduleReminderBackgroundRefresh(); } catch (e) {}
         scheduleScheduleReminderRefresh('bind');
         try { pollSharedScheduleFileAndSync('bind'); } catch (e) {}
@@ -13537,6 +14000,19 @@
             sr.scheduleUpdatedListener = null;
         }
         try { unbindScheduleReminderBackgroundRefresh(); } catch (e) {}
+        if (sr.wechatPeriodicTimer) {
+            try { clearInterval(sr.wechatPeriodicTimer); } catch (e) {}
+            sr.wechatPeriodicTimer = null;
+        }
+        if (sr.wechatSyncHandler) {
+            try { sr.wechatSyncEventBus?.off?.('sync-end', sr.wechatSyncHandler); } catch (e) {}
+            sr.wechatSyncEventBus = null;
+            sr.wechatSyncHandler = null;
+        }
+        if (sr.wechatTimer) {
+            try { clearTimeout(sr.wechatTimer); } catch (e) {}
+            sr.wechatTimer = null;
+        }
         clearScheduleReminderTimers();
         try {
             if (sr.toastHost) {
@@ -13623,6 +14099,7 @@
             reminderMode: 'inherit',
             reminderEnabled: null,
             reminderOffsetMin: null,
+            plannedMinutes: Math.max(1, Math.round((endMs - startMs) / 60000)),
         };
         if (base.taskDateRecurringException === true || base.detachedTaskOccurrence === true) {
             item.taskDateRecurringException = true;
@@ -14308,6 +14785,11 @@
         return String(item?.taskId || item?.task_id || item?.linkedTaskId || item?.linked_task_id || '').trim();
     }
 
+    function isVirtualRecurringTaskScheduleItem(item) {
+        if (item?.virtualTask === true) return true;
+        return /^repeatinst:[0-9]{14}-[A-Za-z0-9]+:[^:]+$/.test(getScheduleLinkedTaskId(item));
+    }
+
     function getScheduleDateFollowAliases(item) {
         const out = [];
         const taskId = getScheduleLinkedTaskId(item);
@@ -14323,7 +14805,7 @@
 
     function isScheduleLinkedToDateFollowTarget(item, aliasSet) {
         if (!(aliasSet instanceof Set) || aliasSet.size === 0) return false;
-        if (isTaskDateRecurringExceptionScheduleItem(item)) return false;
+        if (isTaskDateRecurringExceptionScheduleItem(item) || isVirtualRecurringTaskScheduleItem(item)) return false;
         const taskId = getScheduleLinkedTaskId(item);
         const blockId = getScheduleLinkedBlockId(item);
         return (!!taskId && aliasSet.has(taskId)) || (!!blockId && aliasSet.has(blockId));
@@ -14348,7 +14830,7 @@
         const map = new Map();
         for (const item of seeds) {
             if (!item || typeof item !== 'object') continue;
-            if (isTaskDateRecurringExceptionScheduleItem(item)) continue;
+            if (isTaskDateRecurringExceptionScheduleItem(item) || isVirtualRecurringTaskScheduleItem(item)) continue;
             const targetId = getScheduleDateFollowTargetId(item);
             if (!targetId) continue;
             const aliases = getScheduleDateFollowAliases(item);
@@ -14782,6 +15264,8 @@
         let calendarId = '';
         let titleFromPayload = '';
         let durationFromPayload = NaN;
+        let durationExplicitFromPayload = null;
+        let documentID = '';
         let startDate = '';
         let completionTime = '';
         let dateFieldsKnown = false;
@@ -14796,8 +15280,10 @@
                 taskId = String(pTask.id || pTask.taskId || '').trim() || taskId;
                 calendarId = String(pTask.calendarId || '').trim() || calendarId;
                 titleFromPayload = String(pTask.title || '').trim() || titleFromPayload;
+                documentID = String(pTask.documentID || pTask.docId || '').trim() || documentID;
                 const m = Number(pTask.durationMin);
                 if (Number.isFinite(m) && m > 0) durationFromPayload = Math.max(15, Math.round(m));
+                if (Object.prototype.hasOwnProperty.call(pTask, 'durationExplicit')) durationExplicitFromPayload = pTask.durationExplicit === true;
                 const payloadDateFields = readTaskDropDateFields(pTask);
                 if (payloadDateFields.known) {
                     startDate = payloadDateFields.startDate;
@@ -14812,6 +15298,7 @@
                 taskId = String(d0.getAttribute('data-id') || d0.getAttribute('data-task-id') || '').trim();
                 if (!calendarId) calendarId = String(d0.getAttribute('data-calendar-id') || '').trim();
                 if (!titleFromPayload) titleFromPayload = String(d0.getAttribute('data-task-title') || '').trim();
+                if (d0.hasAttribute('data-task-duration-explicit')) durationExplicitFromPayload = String(d0.getAttribute('data-task-duration-explicit') || '') === '1';
                 if (!(Number.isFinite(durationFromPayload) && durationFromPayload > 0)) {
                     const attrDurationMin = Number(d0.getAttribute('data-task-duration-min'));
                     if (Number.isFinite(attrDurationMin) && attrDurationMin > 0) {
@@ -14847,6 +15334,8 @@
         const task = resolver ? resolver(taskId) : null;
         let title = resolveTaskDisplayTitleForDrag(task, taskId) || taskId;
         let durationMin = parseTaskDurationMinutes(task?.duration);
+        let durationExplicit = Number.isFinite(Number(durationMin)) && Number(durationMin) > 0;
+        documentID = documentID || String(task?.root_id || task?.docId || '').trim();
         const taskDateFields = readTaskDropDateFields(task);
         if (taskDateFields.known) {
             startDate = taskDateFields.startDate;
@@ -14854,7 +15343,10 @@
             dateFieldsKnown = true;
         }
         if (titleFromPayload) title = titleFromPayload;
-        if (Number.isFinite(durationFromPayload) && durationFromPayload > 0) durationMin = durationFromPayload;
+        if (Number.isFinite(durationFromPayload) && durationFromPayload > 0) {
+            durationMin = durationFromPayload;
+            durationExplicit = durationExplicitFromPayload == null ? true : durationExplicitFromPayload;
+        }
         try {
             const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
                 ? window.tmCalendarGetTaskDragMeta(taskId)
@@ -14863,6 +15355,8 @@
                 if (!calendarId) calendarId = String(meta.calendarId || '').trim() || calendarId;
                 const m = Number(meta.durationMin);
                 if (Number.isFinite(m) && m > 0) durationMin = Math.max(15, Math.round(m));
+                if (Object.prototype.hasOwnProperty.call(meta, 'durationExplicit')) durationExplicit = meta.durationExplicit === true;
+                if (!documentID) documentID = String(meta.documentID || meta.docId || '').trim();
                 if (!titleFromPayload) {
                     const mt = String(meta.title || '').trim();
                     if (mt) title = mt;
@@ -14875,7 +15369,7 @@
                 }
             }
         } catch (e) {}
-        return { taskId, title, durationMin, calendarId: String(calendarId || '').trim(), startDate, completionTime, dateFieldsKnown };
+        return { taskId, title, durationMin, durationExplicit, documentID, calendarId: String(calendarId || '').trim(), startDate, completionTime, dateFieldsKnown };
     }
 
     function buildDraggingTaskPayload(resolveTask) {
@@ -14890,6 +15384,8 @@
         const task = resolver ? resolver(taskId) : null;
         let title = resolveTaskDisplayTitleForDrag(task, taskId) || taskId;
         let durationMin = parseTaskDurationMinutes(task?.duration);
+        let durationExplicit = Number.isFinite(Number(durationMin)) && Number(durationMin) > 0;
+        let documentID = String(task?.root_id || task?.docId || '').trim();
         let calendarId = '';
         let startDate = '';
         let completionTime = '';
@@ -14913,6 +15409,8 @@
                 if (Number.isFinite(metaDuration) && metaDuration > 0) {
                     durationMin = Math.max(15, Math.round(metaDuration));
                 }
+                if (Object.prototype.hasOwnProperty.call(meta, 'durationExplicit')) durationExplicit = meta.durationExplicit === true;
+                if (!documentID) documentID = String(meta.documentID || meta.docId || '').trim();
                 const metaDateFields = readTaskDropDateFields(meta);
                 if (metaDateFields.known) {
                     startDate = metaDateFields.startDate;
@@ -14921,7 +15419,7 @@
                 }
             }
         } catch (e) {}
-        return { taskId, title, durationMin, calendarId, startDate, completionTime, dateFieldsKnown };
+        return { taskId, title, durationMin, durationExplicit, documentID, calendarId, startDate, completionTime, dateFieldsKnown };
     }
 
     function applyTaskDoneVisual(wrapEl, titleEl, done) {
@@ -15044,6 +15542,7 @@
         const source = String(ext?.__tmSource || '').trim();
         if (source === 'reminder') return ext?.__tmReminderDone === true;
         if (!(source === 'taskdate' || source === 'schedule')) return false;
+        if (source === 'schedule' && ext?.__tmVirtualTaskSchedule === true) return true;
         if (isDetachedTaskOccurrenceEventExt(ext) || isDetachedScheduleOccurrenceEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
         const tid = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
         const opt = (options && typeof options === 'object') ? options : {};
@@ -15071,7 +15570,6 @@
             .map((it) => String(it || '').trim())
             .filter(Boolean);
         if (!id || !day) throw new Error('提醒实例信息不完整');
-        const occurrenceTimes = times.length ? times : [''];
         const api = globalThis.__tomatoReminder || null;
         if (times.length && typeof api?.setOccurrenceDone === 'function') {
             for (const timeKey of times) {
@@ -15092,39 +15590,7 @@
                 if (result === false) throw new Error('提醒撤销接口返回失败');
             }
         } else {
-            const list = await loadReminderBlocks().catch(() => []);
-            const existing = (Array.isArray(list) ? list : []).find((it) => String(
-                it?.blockId || it?.block_id || it?.taskBlockId || it?.task_block_id || it?.targetBlockId || it?.target_block_id || it?.id || ''
-            ).trim() === id);
-            if (!existing) throw new Error('提醒完成接口不可用');
-            const completed = Array.isArray(existing.completedOccurrences) ? existing.completedOccurrences.slice() : [];
-            const nowIso = new Date().toISOString();
-            const targetKeys = new Set(occurrenceTimes.map((timeKey) => reminderOccurrenceKey(day, timeKey)).filter(Boolean));
-            if (day) targetKeys.add(day);
-            const getCompletedEntryKey = (it) => {
-                if (typeof it === 'string') return it.trim();
-                return reminderOccurrenceKey(it?.date || it?.dateKey || it?.day, it?.time || it?.timeKey);
-            };
-            const rest = completed.filter((it) => !targetKeys.has(getCompletedEntryKey(it)));
-            const completedOccurrences = done === false
-                ? rest
-                : occurrenceTimes.map((timeKey) => ({ date: day, ...(timeKey ? { time: timeKey } : {}), doneAt: nowIso })).concat(rest);
-            const next = {
-                ...existing,
-                blockId: id,
-                completedOccurrences: completedOccurrences.slice(0, 30),
-                updatedAt: nowIso,
-            };
-            const res = await postJSON('/api/attr/setBlockAttrs', {
-                id,
-                attrs: {
-                    'custom-tomato-reminder': JSON.stringify(next),
-                    'bookmark': '⏰',
-                },
-            });
-            let json = null;
-            try { json = await res.json(); } catch (e) {}
-            if (!res.ok || json?.code !== 0) throw new Error('提醒完成状态保存失败');
+            throw new Error('Dock Tomato 提醒桥接未就绪');
         }
         try { clearReminderCalendarCache(); } catch (e) {}
         try { scheduleReminderCalendarRefetch(); } catch (e) {}
@@ -16554,6 +17020,7 @@
                     const task = resolver ? resolver(id) : null;
                     let title = resolveTaskDisplayTitleForDrag(task, id) || id || '任务';
                     let safeMin = parseTaskDurationMinutes(task?.duration);
+                    let durationExplicit = Number.isFinite(Number(safeMin)) && Number(safeMin) > 0;
                     let calendarId = String(el?.getAttribute?.('data-calendar-id') || '').trim();
                     try {
                         const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
@@ -16563,6 +17030,7 @@
                             title = String(meta.title || title).trim() || title;
                             const m = Number(meta.durationMin);
                             if (Number.isFinite(m) && m > 0) safeMin = Math.max(15, Math.round(m));
+                            if (Object.prototype.hasOwnProperty.call(meta, 'durationExplicit')) durationExplicit = meta.durationExplicit === true;
                             if (!calendarId) calendarId = String(meta.calendarId || '').trim();
                         }
                     } catch (e) {}
@@ -16576,6 +17044,7 @@
                         taskId: id,
                         title,
                         durationMin: safeMin,
+                        durationExplicit,
                         calendarId,
                     }, { dragSource, officialFullCalendar: true });
                     calendarExternalDragPreviewController.beginOfficialFloatingMini(payload, el);
@@ -16590,6 +17059,7 @@
                         extendedProps: {
                             __tmTaskId: id,
                             __tmDurationMin: safeMin,
+                            __tmDurationExplicit: durationExplicit,
                             __tmSource: 'schedule',
                             __tmExternalPreview: true,
                             calendarId,
@@ -16758,7 +17228,14 @@
                     const start = (hit?.start instanceof Date) ? hit.start : info?.event?.start;
                     let end = info?.event?.end;
                     const settings = getSettings();
-                    const durMin = clampNewScheduleDurationMin(Number(ext.__tmDurationMin || payload?.durationMin), settings);
+                    const durMin = await resolveManualDragDurationMin({
+                        ...(payload || {}),
+                        taskId,
+                        durationMin: Number(ext.__tmDurationMin || payload?.durationMin),
+                        durationExplicit: Object.prototype.hasOwnProperty.call(ext, '__tmDurationExplicit')
+                            ? ext.__tmDurationExplicit === true
+                            : payload?.durationExplicit === true,
+                    }, settings);
                     if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) {
                         try { info?.event?.remove?.(); } catch (e2) {}
                         return;
@@ -17454,6 +17931,9 @@
             const start = new Date(rs);
             const end = new Date(re);
             const taskId = String(it?.taskId || it?.task_id || it?.linkedTaskId || it?.linked_task_id || '').trim();
+            const isVirtualTaskSchedule = isVirtualRecurringTaskScheduleItem(it);
+            const virtualTaskMatch = taskId.match(/^repeatinst:([0-9]{14}-[A-Za-z0-9]+):[^:]+$/);
+            const sourceTaskId = String(it?.sourceTaskId || it?.sourceTaskID || (virtualTaskMatch && virtualTaskMatch[1]) || '').trim();
             const blockId = getScheduleLinkedBlockId(it);
             const taskLikeId = taskId || blockId;
             const linkedTitle = (linkedTaskTitleMap instanceof Map)
@@ -17532,6 +18012,10 @@
                         __tmScheduleTitle: titleBase,
                         __tmTaskId: taskLikeId,
                         __tmBlockId: blockId,
+                        __tmVirtualTaskSchedule: isVirtualTaskSchedule,
+                        __tmTaskDateReadOnly: isVirtualTaskSchedule,
+                        __tmTaskDone: isVirtualTaskSchedule,
+                        __tmSourceTaskId: sourceTaskId,
                         __tmAllDayBottom: allDay && allDayBottom,
                         __tmRank: 1,
                         __tmReminderMode: reminderMode,
@@ -17626,6 +18110,10 @@
             '__tmScheduleTitle',
             '__tmTaskId',
             '__tmBlockId',
+            '__tmVirtualTaskSchedule',
+            '__tmTaskDateReadOnly',
+            '__tmTaskDone',
+            '__tmSourceTaskId',
             '__tmRank',
             '__tmReminderMode',
             '__tmReminderEnabled',
@@ -19144,6 +19632,38 @@
         return arr.every((t) => set.has(reminderOccurrenceKey(dayKey, t)) || set.has(dayKey));
     }
 
+    async function dedupeReminderBlocks(items) {
+        const groups = new Map();
+        (Array.isArray(items) ? items : []).forEach((item, index) => {
+            const taskId = String(item?.taskId || item?.task_id || '').trim();
+            const blockId = String(item?.blockId || item?.block_id || '').trim();
+            const key = taskId ? `task:${taskId}` : `block:${blockId || index}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(item);
+        });
+        const resolveBinding = getKernelScheduleRpc('taskHorizonResolveTaskBinding');
+        const out = [];
+        for (const group of groups.values()) {
+            if (group.length === 1) {
+                out.push(group[0]);
+                continue;
+            }
+            const taskId = String(group[0]?.taskId || group[0]?.task_id || '').trim();
+            let attrHostId = '';
+            if (taskId && resolveBinding) {
+                try {
+                    const result = await resolveBinding(taskId);
+                    if (result?.ok === true) attrHostId = String(result.data?.primaryHostID || '').trim();
+                } catch (e) {}
+            }
+            const canonical = attrHostId
+                ? group.find((item) => String(item?.blockId || item?.block_id || '').trim() === attrHostId)
+                : null;
+            out.push(canonical || group[0]);
+        }
+        return out;
+    }
+
     async function loadReminderBlocks() {
         const now = Date.now();
         const cache = state.reminderCache || {};
@@ -19192,7 +19712,7 @@
                     blocks = [];
                 }
             }
-            const safe = Array.isArray(blocks) ? blocks : [];
+            const safe = await dedupeReminderBlocks(Array.isArray(blocks) ? blocks : []);
             state.reminderCache = { list: safe, loadedAt: Date.now(), inflight: null };
             return safe;
         })();
@@ -21816,7 +22336,14 @@
                     const start = info?.event?.start;
                     let end = info?.event?.end;
                     const settings = getSettings();
-                    const durMin = clampNewScheduleDurationMin(Number(ext.__tmDurationMin || payload?.durationMin), settings);
+                    const durMin = await resolveManualDragDurationMin({
+                        ...(payload || {}),
+                        taskId,
+                        durationMin: Number(ext.__tmDurationMin || payload?.durationMin),
+                        durationExplicit: Object.prototype.hasOwnProperty.call(ext, '__tmDurationExplicit')
+                            ? ext.__tmDurationExplicit === true
+                            : payload?.durationExplicit === true,
+                    }, settings);
                     if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) {
                         try { info?.event?.remove?.(); } catch (e2) {}
                         return;
@@ -22404,6 +22931,7 @@
                 try { scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: true, reason: 'initial-date-raf' }); } catch (e2) {}
             });
         } catch (e) {}
+        try { scheduleMainCalendarInitialTimeAutoCenter(host, calendar, getSettings(), 'main-calendar-initial-mount'); } catch (e) {}
         try { renderMiniCalendar(wrap); } catch (e) {}
 
         // 修复：页面从后台恢复时重新计算日历尺寸
@@ -23506,6 +24034,10 @@
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderSystemEnabled" ${s.scheduleReminderSystemEnabled ? 'checked' : ''}>
                 </div>
                 <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
+                    <div class="tm-calendar-settings-label" title="标题和时间将以明文发送到思源云端">微信提醒</div>
+                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderWechatEnabled" ${s.scheduleReminderWechatEnabled ? 'checked' : ''} ${Number(globalThis?.siyuan?.config?.cloudRegion) === 0 ? '' : 'disabled'}>
+                </div>
+                <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
                     <div class="tm-calendar-settings-label">全天事件提醒</div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarAllDayReminderEnabled" ${s.allDayReminderEnabled ? 'checked' : ''}>
                 </div>
@@ -23549,6 +24081,13 @@
             if (!key) return;
             const store = state.settingsStore;
             if (!store || !store.data) return;
+            if (key === 'calendarScheduleReminderWechatEnabled' && el.checked) {
+                const accepted = window.confirm('微信提醒会将日程标题和时间以明文发送到思源云端，并立即同步已有的未来提醒。是否继续？');
+                if (!accepted) {
+                    el.checked = false;
+                    return;
+                }
+            }
             if (key === 'calendarFirstDay') {
                 store.data[key] = String(el.value || '').trim() === '0' ? 0 : 1;
             } else if (key === 'calendarInitialViewDesktop') {
@@ -23644,9 +24183,12 @@
                     const settings = getSettings();
                     try { syncMainCalendarMonthViewLayout(state.wrapEl, state.calendarEl, state.calendar, settings); } catch (e2) {}
                     try { scheduleMainCalendarLayoutRefresh(state.wrapEl, state.calendarEl, state.calendar, { updateSize: true }); } catch (e2) {}
-                } else if (key === 'calendarScheduleReminderEnabled' || key === 'calendarScheduleReminderSystemEnabled' || key === 'calendarScheduleReminderDefaultMode' || key === 'calendarAllDayReminderEnabled' || key === 'calendarAllDayReminderTime' || key === 'calendarTaskDateAllDayReminderEnabled' || key === 'calendarAllDaySummaryIncludeExtras') {
+                } else if (key === 'calendarScheduleReminderEnabled' || key === 'calendarScheduleReminderSystemEnabled' || key === 'calendarScheduleReminderWechatEnabled' || key === 'calendarScheduleReminderDefaultMode' || key === 'calendarAllDayReminderEnabled' || key === 'calendarAllDayReminderTime' || key === 'calendarTaskDateAllDayReminderEnabled' || key === 'calendarAllDaySummaryIncludeExtras') {
                     try { renderSettings(containerEl, store); } catch (e2) {}
-                    try { scheduleScheduleReminderRefresh('settings'); } catch (e2) {}
+                    const reminderReason = key === 'calendarScheduleReminderWechatEnabled'
+                        ? (store.data.calendarScheduleReminderWechatEnabled ? 'settings-enable' : 'settings-disable')
+                        : 'settings';
+                    try { scheduleScheduleReminderRefresh(reminderReason); } catch (e2) {}
                 } else if (key === 'calendarScheduleDatesFollowSchedule') {
                     // No visual refresh is required; the flag affects subsequent schedule mutations.
                 } else if (key === 'calendarShowOtherBlockCheckbox' || key === 'calendarHideScheduledTaskDatesInAllDay' || key === 'calendarShowCompletedAllDaySchedules' || key === 'calendarShowTaskReminders' || key === 'calendarTaskDateColorMode' || key === 'calendarScheduleFollowDocColor') {
@@ -24360,11 +24902,14 @@
         scheduleDefaultViewForCurrentHost,
         requestRefresh: scheduleCalendarRefresh,
         refreshInPlace,
+        refreshSchedulesFromSharedFile,
         syncTaskDatePatchInPlace,
         syncTaskDateInPlace,
         syncTaskDoneInPlace,
         refreshSideDayLayout,
         exportMigrationData,
         importMigrationData,
+        showCompletionNotification: showScheduleCompletionNotification,
+        showSystemNotification: showScheduleSystemNotification,
     };
 })();

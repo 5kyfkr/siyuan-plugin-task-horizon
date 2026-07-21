@@ -1,0 +1,51 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const bridge = fs.readFileSync(path.join(root, 'src/task-horizon/main/shell/81-ai-bridge-runtime.js'), 'utf8');
+const workbench = fs.readFileSync(path.join(root, 'src/ai/agent-workbench.js'), 'utf8');
+const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
+
+assert.match(bridge, /resolveDocIdsFromGroups\(\{ groupId: currentGroupId, includeQuickAddDoc: true \}\)/, 'Agent group scope must reuse the task manager document resolver');
+assert.doesNotMatch(bridge, /docsForTabs = __tmSortDocEntriesForTabs\(state\.taskTree/, 'Agent scope must not treat every loaded taskTree document as part of the current group');
+assert.match(bridge, /allowedDocIds\.has\(__tmAiTaskDocId\(task\)\)/, 'visible tasks must be intersected with the resolved current group and tab documents');
+assert.match(bridge, /async function __tmAiGetCurrentFilteredTasks\(limit = 0\) \{\s*return await __tmAiGetCurrentViewTasks\(limit\);/, 'legacy filtered-task reads must use the same scoped implementation');
+assert.match(bridge, /async function __tmAiGetCurrentViewContext\(\)[\s\S]*const visibleTaskIDs = Array\.from\(new Set\(allTasks\.map/, 'the internal view snapshot must preserve every real visible task ID without a fixed limit');
+assert.match(bridge, /function __tmAiTaskBlockId\(task\)[\s\S]*\^\[0-9\]\{14\}-\[A-Za-z0-9\]\+\$[\s\S]*__tmIsRecurringInstanceTask/, 'the real task channel must retain only SiYuan block IDs');
+assert.match(bridge, /function __tmAiVirtualTaskDTO\(task\)[\s\S]*virtualType: 'recurring-history'[\s\S]*readOnly: true[\s\S]*sourceTaskID/, 'recurring-history rows must be registered as explicit read-only DTOs');
+assert.match(bridge, /async function __tmAiGetDocumentTaskReadScope\(docIds\)[\s\S]*__tmAiGetSummaryTasksByDocIds[\s\S]*__tmBuildRecurringInstanceTask[\s\S]*taskValues/, 'focused document scopes must load complete plugin task fields and recurring virtual rows');
+assert.match(bridge, /getCurrentDocId\(\)[\s\S]*const activeDocId = String\(state\.activeDocId[\s\S]*__tmResolveDocTopbarSourceDocId/, 'the plugin workbench must prefer its own active Task Horizon document');
+assert.match(bridge, /completionTime: String\(task\?\.recurringSourceDue \|\| task\?\.completionTime/, 'virtual task completionTime must retain the recurring instance due date instead of its completion timestamp');
+assert.match(bridge, /visibleTaskCount: visibleTaskIDs\.length \+ virtualTasks\.length[\s\S]*virtualTaskCount: virtualTasks\.length/, 'the reported Agent scope count must include real and virtual tasks');
+assert.match(bridge, /const viewMeta = __TM_ALL_VIEWS\.find\(\(item\) => item\.id === view\);[\s\S]*const viewLabel = String\(viewMeta\?\.label \|\| view\)/, 'view context must reuse the registered Chinese view label');
+assert.match(index, /resolveActiveAgentTaskScope\(\)[\s\S]*layout__wnd--active[\s\S]*getOpenedTab[\s\S]*opened\?\.\[TAB_TYPE\][\s\S]*tm-tab-root[\s\S]*scope: 'current_view', source: 'task_horizon_tab'/, 'the main Agent must detect an active Task Horizon custom tab from the active SiYuan tab');
+assert.match(index, /resolveActiveAgentTaskScope\(\)[\s\S]*element\.getAttribute\('data-id'\)[\s\S]*\.protyle-title[\s\S]*scope: 'focused_document', source: 'siyuan_document_tab', documentID/, 'the main Agent must resolve a note document only from the matching active tab panel');
+assert.match(index, /const explicitScope[\s\S]*const explicitDocumentID[\s\S]*const activeScope = this\.resolveActiveAgentTaskScope\(\)[\s\S]*const requestedScope = explicitScope \|\| \(explicitDocumentID \? "focused_document" : activeScope\.scope\)/, 'explicit scope arguments must override automatic active-tab routing');
+assert.match(index, /taskHorizonRegisterTaskScope[\s\S]*taskIDs: Array\.isArray\(context\?\.visibleTaskIDs\)[\s\S]*virtualTasks: Array\.isArray\(context\?\.virtualTasks\)[\s\S]*scopeToken: registered\.data\?\.scopeToken/, 'the frontend Agent Action must register both complete task channels and return an opaque scope token');
+assert.match(index, /containerDocumentIDs[\s\S]*getDocumentTaskReadScope\(containerDocumentIDs\)[\s\S]*scopeMode: "documents"[\s\S]*containerScopeToken: containerRegistered\.data\?\.scopeToken/, 'the main Agent must receive a complete container token for alternate structured filters');
+assert.match(index, /viewScopeToken: registered\.data\?\.scopeToken[\s\S]*containerTaskCount: containerRegistered\.data\?\.taskCount/, 'the main Agent response must distinguish current-view and container scopes without exposing IDs');
+assert.match(index, /view: context\?\.view,[\s\S]*viewLabel: context\?\.viewLabel,/, 'the main Agent must receive both the stable view ID and its readable Chinese label');
+assert.match(index, /get_task_view_context[\s\S]*focused_document[\s\S]*getDocumentTaskReadScope\(\[documentID\]\)[\s\S]*scopeMode: "documents"[\s\S]*activeScope\.source/, 'the same frontend Agent Action must register the active note document independently of the task-manager view');
+assert.match(bridge, /function __tmAiTaskReadValues\(task\)[\s\S]*__tmEnsureTaskPriorityScore[\s\S]*priorityScore/, 'the scope registry must receive the same priority score displayed by the task manager');
+assert.match(bridge, /function __tmAiTaskReadValues\(task\)[\s\S]*documentID = __tmAiTaskDocId\(task\)[\s\S]*\{ id, documentID, priorityScore/, 'document scopes must associate transient computed values with their document without exposing task IDs');
+assert.match(index, /scopeMode: "documents",\s*taskIDs: \[\],[\s\S]*containerScopeToken/, 'main Agent document scopes must stay compact and rely on live document membership');
+assert.match(workbench, /taskValues: Array\.isArray\(snapshot\.taskValues\) \? snapshot\.taskValues : \[\]/, 'the workbench must register transient task read values without exposing them in the prompt');
+assert.match(workbench, /virtualTasks: Array\.isArray\(snapshot\.virtualTasks\) \? snapshot\.virtualTasks : \[\]/, 'the workbench must pass recurring virtual DTOs through the opaque scope registry');
+assert.match(workbench, /containerDocumentIDs[\s\S]*getDocumentTaskReadScope\?\.\(containerDocumentIDs\)[\s\S]*scopeMode: 'documents'[\s\S]*containerScopeToken: text\(containerRegistered\?\.scopeToken\)/, 'the plugin workbench must register the same complete container scope independently of the visible task IDs');
+assert.match(workbench, /scopeID: `\$\{text\(snapshot\.groupID\)[\s\S]*scopeMode: 'documents',\s*taskIDs: \[\]/, 'workbench container scopes must not expand all document tasks into SQL ID lists');
+assert.match(workbench, /containerScopeToken[\s\S]*dateRange[\s\S]*customStatuses[\s\S]*默认仍使用当前视图 scopeToken/, 'the workbench prompt must explain when to use structured filters without injecting raw IDs');
+assert.match(workbench, /function currentViewScopeLabel\(snapshot, scopeType\)[\s\S]*snapshot\?\.viewLabel[\s\S]*snapshot\.view/, 'the workbench context chip must prefer the readable view label over its internal ID');
+assert.match(index, /selectedTaskIDs\.length[\s\S]*selectedScopeToken: selectedRegistered\?\.data\?\.scopeToken/, 'a large explicit selection must also be represented by a complete compact scope token');
+assert.doesNotMatch(index, /JSON\.stringify\(context\)/, 'the frontend Agent Action must not send the complete internal ID set to the model');
+assert.doesNotMatch(index, /taskBridge\.?getCurrentDocId|taskBridge\?\.getCurrentDocId/, 'main Agent routing must not fall back to stale plugin document state');
+assert.match(workbench, /window\.addEventListener\('tm:filtered-tasks-updated', runtime\.viewContextListener\)/, 'the workbench must follow task view, tab, group, and filter updates');
+assert.match(workbench, /if \(runtime\.context\.scope\) void syncCurrentViewContext\(\{ render: true \}\)/, 'a restored live scope must refresh as soon as the workbench mounts');
+assert.match(workbench, /const seq = \+\+runtime\.contextLabelSeq;[\s\S]*if \(seq !== runtime\.contextLabelSeq\) return;/, 'stale asynchronous label work must not overwrite a newer live scope');
+assert.match(workbench, /const currentViewSnapshot = await syncCurrentViewContext\(\);[\s\S]*filters\.scopeToken[\s\S]*不要索取或复述全部任务 ID[\s\S]*禁止复用之前轮次/, 'every new Agent request must use the fresh compact scope token');
+assert.match(workbench, /runtime\.context\.taskIDs\.length > 0[\s\S]*getTaskReadScope[\s\S]*taskHorizonRegisterTaskScope[\s\S]*const omitDirectTaskReferences[\s\S]*const directTaskIDs = omitDirectTaskReferences \? \[\] : taskIDs\.filter\(isTaskBlockID\)/, 'all explicit task contexts must register real and virtual read values while only real blocks become Agent references');
+assert.match(workbench, /window\.removeEventListener\('tm:filtered-tasks-updated', runtime\.viewContextListener\)/, 'the live scope listener must be cleaned up');
+
+console.log('agent view scope contract tests passed');

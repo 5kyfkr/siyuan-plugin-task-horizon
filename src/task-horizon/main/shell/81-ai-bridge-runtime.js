@@ -14,6 +14,13 @@
         const rawId = String(taskId || '').trim();
         if (!rawId) return null;
         const forceFresh = options === true || options?.forceFresh === true;
+        if (/^repeatinst:/.test(rawId)) {
+            const recurringInstance = globalThis.__tmRuntimeState?.getFlatTaskById?.(rawId)
+                || state.flatTasks?.[rawId]
+                || state.pendingInsertedTasks?.[rawId]
+                || (Array.isArray(state.filteredTasks) ? state.filteredTasks.find((item) => String(item?.id || '').trim() === rawId) : null);
+            if (recurringInstance) return __tmAiClone(recurringInstance);
+        }
         let tid = rawId;
         try {
             const resolved = await __tmResolveTaskIdFromAnyBlockId(rawId);
@@ -430,69 +437,234 @@
         return nextTask || await __tmAiGetTaskSnapshot(createdTaskId);
     }
 
-    async function __tmAiGetCurrentViewTasks(limit = 5) {
-        const max = Math.max(1, Math.min(100, Number(limit) || 5));
-        const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
-        if (filtered.length) {
-            return filtered
-                .slice(0, max)
-                .map((task) => __tmAiClone(task))
-                .filter(Boolean);
-        }
-        const list = [];
-        const walk = (items) => {
-            (Array.isArray(items) ? items : []).forEach((task) => {
-                if (list.length >= max) return;
-                if (task && typeof task === 'object') list.push(__tmAiClone(task));
-                if (list.length < max) walk(task?.children || []);
-            });
-        };
-        try {
-            (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
-                if (list.length >= max) return;
-                walk(doc?.tasks || []);
-            });
-        } catch (e) {}
-        return list.slice(0, max).filter(Boolean);
+    function __tmAiTaskDocId(task) {
+        const direct = String(task?.docId || task?.root_id || '').trim();
+        if (direct) return direct;
+        const taskId = String(task?.id || '').trim();
+        const stored = taskId ? (state.flatTasks?.[taskId] || state.pendingInsertedTasks?.[taskId]) : null;
+        return String(stored?.docId || stored?.root_id || '').trim();
     }
 
-    async function __tmAiGetCurrentFilteredTasks(limit = 0) {
+    function __tmAiTaskBlockId(task) {
+        const id = String(task?.id || '').trim();
+        if (!/^[0-9]{14}-[A-Za-z0-9]+$/.test(id)) return '';
+        try {
+            if (typeof __tmIsRecurringInstanceTask === 'function' && __tmIsRecurringInstanceTask(task)) return '';
+        } catch (e) {}
+        return task?.isRecurringInstance === true || task?.isRecurringInstanceReadOnly === true ? '' : id;
+    }
+
+    function __tmAiTaskReadValues(task) {
+        const id = __tmAiTaskBlockId(task);
+        if (!id) return null;
+        let priorityScore = Number(task?.priorityScore);
+        try {
+            if (typeof __tmEnsureTaskPriorityScore === 'function') {
+                priorityScore = Number(__tmEnsureTaskPriorityScore(task, { force: true }));
+            }
+        } catch (e) {}
+        const documentID = __tmAiTaskDocId(task);
+        return Number.isFinite(priorityScore) ? { id, documentID, priorityScore: Math.round(priorityScore) } : { id, documentID };
+    }
+
+    function __tmAiVirtualTaskDTO(task) {
+        const id = String(task?.id || '').trim();
+        const match = id.match(/^repeatinst:([0-9]{14}-[A-Za-z0-9]+):([^:]+)$/);
+        if (!match) return null;
+        let isRecurringInstance = task?.isRecurringInstance === true;
+        try {
+            if (typeof __tmIsRecurringInstanceTask === 'function') isRecurringInstance = __tmIsRecurringInstanceTask(task);
+        } catch (e) {}
+        if (!isRecurringInstance) return null;
+        const sourceTaskID = String(
+            task?.sourceTaskId
+            || task?.recurringSourceTaskId
+            || (typeof __tmResolveRecurringInstanceSourceTaskId === 'function' ? __tmResolveRecurringInstanceSourceTaskId(id, task) : '')
+            || match[1]
+        ).trim();
+        if (sourceTaskID !== match[1]) return null;
+        let priorityScore = Number(task?.priorityScore);
+        try {
+            if (typeof __tmEnsureTaskPriorityScore === 'function') {
+                priorityScore = Number(__tmEnsureTaskPriorityScore(task, { force: true }));
+            }
+        } catch (e) {}
+        const numberOrNull = (value) => Number.isFinite(Number(value)) && String(value ?? '').trim() !== '' ? Number(value) : null;
+        const looseBoolean = (value) => value === true || value === 1 || ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+        const structured = (value, fallback) => {
+            if (value == null || value === '') return fallback;
+            if (typeof value === 'string') {
+                try { return JSON.parse(value); } catch (e) { return value; }
+            }
+            return __tmAiClone(value);
+        };
+        const attachments = Array.isArray(task?.attachments) ? __tmAiClone(task.attachments) : [];
+        const reminder = structured(task?.reminder ?? task?.tomatoReminder ?? task?.tomato_reminder, null);
+        const customFieldValues = task?.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues)
+            ? __tmAiClone(task.customFieldValues)
+            : {};
+        return {
+            id,
+            virtualTask: true,
+            virtualType: 'recurring-history',
+            readOnly: true,
+            sourceTaskID,
+            title: String(task?.content || task?.raw_content || task?.title || '').trim() || '(无内容)',
+            markdown: String(task?.markdown || ''),
+            done: true,
+            documentID: __tmAiTaskDocId(task),
+            documentName: String(task?.docName || task?.doc_name || task?.rawDocName || '').trim(),
+            documentPath: String(task?.docPath || task?.doc_path || task?.blockPath || task?.block_path || '').trim(),
+            created: String(task?.created || task?.recurringCompletedAt || '').trim(),
+            updated: String(task?.updated || task?.recurringCompletedAt || '').trim(),
+            priority: String(task?.priority || task?.custom_priority || '').trim(),
+            priorityScore: Number.isFinite(priorityScore) ? Math.round(priorityScore) : null,
+            customStatus: String(task?.customStatus || task?.custom_status || '').trim(),
+            startDate: String(task?.recurringSourceStart || task?.startDate || task?.start_date || '').trim(),
+            completionTime: String(task?.recurringSourceDue || task?.completionTime || task?.completion_time || '').trim(),
+            taskCompleteAt: String(task?.taskCompleteAt || task?.task_complete_at || task?.recurringCompletedAt || '').trim(),
+            duration: String(task?.duration || task?.custom_duration || '').trim(),
+            remark: String(task?.remark || task?.custom_remark || '').trim(),
+            taskDateColor: String(task?.taskDateColor || task?.task_date_color || task?.custom_task_date_color || '').trim(),
+            customTime: String(task?.customTime || task?.custom_time || '').trim(),
+            milestone: looseBoolean(task?.milestone ?? task?.custom_milestone),
+            pinned: looseBoolean(task?.pinned ?? task?.custom_pinned),
+            allDayBottom: looseBoolean(task?.allDayBottom ?? task?.custom_all_day_bottom),
+            tomatoEstimateCount: numberOrNull(task?.tomatoEstimateCount ?? task?.tomato_estimate_count ?? task?.tomatoEstimate),
+            tomatoCount: numberOrNull(task?.tomatoCount ?? task?.tomato_count),
+            tomatoMinutes: numberOrNull(task?.tomatoMinutes ?? task?.tomato_minutes),
+            tomatoHours: numberOrNull(task?.tomatoHours ?? task?.tomato_hours),
+            attachments,
+            attachmentCount: Math.max(0, Number(task?.attachmentCount) || attachments.length),
+            reminder,
+            hasReminder: reminder != null,
+            repeatRule: structured(task?.repeatRule ?? task?.repeat_rule, null),
+            repeatState: structured(task?.repeatState ?? task?.repeat_state, null),
+            customFieldValues,
+        };
+    }
+
+    function __tmAiFindLocalTask(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return null;
+        const direct = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id] || state.pendingInsertedTasks?.[id];
+        if (direct) return direct;
+        return (Array.isArray(state.filteredTasks) ? state.filteredTasks : []).find((item) => String(item?.id || '').trim() === id) || null;
+    }
+
+    async function __tmAiGetTaskReadScope(taskIds) {
+        const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+        const taskIDs = ids.filter((id) => /^[0-9]{14}-[A-Za-z0-9]+$/.test(id));
+        const virtualTasks = ids
+            .filter((id) => /^repeatinst:/.test(id))
+            .map((id) => __tmAiVirtualTaskDTO(__tmAiFindLocalTask(id)))
+            .filter(Boolean);
+        return {
+            taskIDs,
+            taskValues: await __tmAiGetTaskReadValues(taskIDs),
+            virtualTasks,
+            taskCount: taskIDs.length + virtualTasks.length,
+        };
+    }
+
+    async function __tmAiGetDocumentTaskReadScope(docIds) {
+        const documentIDs = Array.from(new Set((Array.isArray(docIds) ? docIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => /^[0-9]{14}-[A-Za-z0-9]+$/.test(id))));
+        if (!documentIDs.length) return { documentIDs: [], taskIDs: [], taskValues: [], virtualTasks: [], taskCount: 0 };
+        const tasks = await __tmAiGetSummaryTasksByDocIds(documentIDs, { ignoreExcludeCompleted: true });
+        const taskMap = new Map();
+        const virtualTaskMap = new Map();
+        (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+            const virtualDTO = __tmAiVirtualTaskDTO(task);
+            if (virtualDTO) {
+                virtualTaskMap.set(virtualDTO.id, virtualDTO);
+                return;
+            }
+            const taskID = __tmAiTaskBlockId(task);
+            if (taskID && !taskMap.has(taskID)) taskMap.set(taskID, task);
+            let historyItems = [];
+            try {
+                const rawHistory = task?.repeatHistory ?? task?.repeat_history ?? [];
+                historyItems = Array.isArray(rawHistory)
+                    ? rawHistory
+                    : (typeof __tmNormalizeTaskRepeatHistory === 'function' ? __tmNormalizeTaskRepeatHistory(rawHistory) : []);
+            } catch (e) { historyItems = []; }
+            historyItems.forEach((historyItem, index) => {
+                try {
+                    const virtualTask = typeof __tmBuildRecurringInstanceTask === 'function'
+                        ? __tmBuildRecurringInstanceTask(task, historyItem, index)
+                        : null;
+                    const dto = __tmAiVirtualTaskDTO(virtualTask);
+                    if (dto) virtualTaskMap.set(dto.id, dto);
+                } catch (e) {}
+            });
+        });
+        const realTasks = Array.from(taskMap.values());
+        const taskIDs = Array.from(taskMap.keys());
+        const virtualTasks = Array.from(virtualTaskMap.values());
+        return {
+            scopeID: `documents:${documentIDs.slice().sort().join(',')}`,
+            documentIDs,
+            taskIDs,
+            taskValues: realTasks.map((task) => __tmAiTaskReadValues(task)).filter(Boolean),
+            virtualTasks,
+            taskCount: taskIDs.length + virtualTasks.length,
+        };
+    }
+
+    async function __tmAiGetTaskReadValues(taskIds) {
+        const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : []).map((id) => String(id || '').trim()).filter((id) => /^[0-9]{14}-[A-Za-z0-9]+$/.test(id))));
+        const out = [];
+        for (const id of ids) {
+            let task = state.flatTasks?.[id] || state.pendingInsertedTasks?.[id] || null;
+            if (!task) {
+                try { task = await __tmAiGetTaskSnapshot(id, { forceFresh: false }); } catch (e) { task = null; }
+            }
+            const values = __tmAiTaskReadValues(task || { id });
+            if (values) out.push(values);
+        }
+        return out;
+    }
+
+    async function __tmAiGetCurrentViewDocIdSet() {
+        const groupDocIds = await __tmAiGetCurrentGroupDocIds();
+        const groupDocIdSet = new Set(groupDocIds);
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        if (activeDocId === 'all' || __tmIsOtherBlockTabId(activeDocId)) return groupDocIdSet;
+        const customGroupDocIds = __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
+            currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+            docs: state.taskTree || [],
+        });
+        if (customGroupDocIds instanceof Set && customGroupDocIds.size > 0) {
+            return new Set(Array.from(customGroupDocIds).filter((docId) => groupDocIdSet.has(String(docId || '').trim())));
+        }
+        return groupDocIdSet.has(activeDocId) ? new Set([activeDocId]) : new Set();
+    }
+
+    async function __tmAiGetCurrentViewTasks(limit = 5) {
         const hasLimit = Number.isFinite(Number(limit)) && Number(limit) > 0;
-        const max = hasLimit ? Math.max(1, Math.min(5000, Number(limit) || 200)) : Infinity;
+        const max = hasLimit ? Math.max(1, Math.min(5000, Number(limit) || 5)) : Infinity;
+        const allowedDocIds = await __tmAiGetCurrentViewDocIdSet();
+        if (!allowedDocIds.size) return [];
         const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
         const list = filtered
+            .filter((task) => allowedDocIds.has(__tmAiTaskDocId(task)))
             .slice(0, hasLimit ? max : filtered.length)
             .map((task) => __tmAiClone(task))
             .filter(Boolean);
         return hasLimit ? list.slice(0, max) : list;
     }
 
+    async function __tmAiGetCurrentFilteredTasks(limit = 0) {
+        return await __tmAiGetCurrentViewTasks(limit);
+    }
+
     async function __tmAiGetCurrentGroupTasks(limit = 0, options = {}) {
         const hasLimit = Number.isFinite(Number(limit)) && Number(limit) > 0;
         const max = hasLimit ? Math.max(1, Math.min(2000, Number(limit) || 20)) : Infinity;
         const includeDone = !!(options && typeof options === 'object' && options.includeDone);
-        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
-        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
-        let targetDocs = [];
-        if (currentGroupId === 'all') {
-            const legacyIds = Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
-            legacyIds.forEach((id) => targetDocs.push({ id, kind: 'doc', recursive: false }));
-            groups.forEach((group) => {
-                targetDocs.push(...__tmGetGroupSourceEntries(group));
-            });
-        } else {
-            const group = groups.find((it) => String(it?.id || '').trim() === currentGroupId);
-            if (group) targetDocs = __tmGetGroupSourceEntries(group);
-        }
-        const docIds = [];
-        const seenDocIds = new Set();
-        const pushDocId = (id0) => {
-            const id = String(id0 || '').trim();
-            if (!id || seenDocIds.has(id)) return;
-            seenDocIds.add(id);
-            docIds.push(id);
-        };
-        await Promise.all((Array.isArray(targetDocs) ? targetDocs : []).map((entry) => __tmExpandSourceEntryDocIds(entry, pushDocId)));
+        const docIds = await __tmAiGetCurrentGroupDocIds();
         const docIdSet = new Set(docIds);
         if (!docIdSet.size) return [];
         const out = [];
@@ -501,7 +673,7 @@
             (Array.isArray(tasks) ? tasks : []).forEach((task) => {
                 if (out.length >= max || !task || typeof task !== 'object') return;
                 const taskId = String(task.id || '').trim();
-                const docId = String(task.docId || task.root_id || '').trim();
+                const docId = __tmAiTaskDocId(task);
                 if (taskId && (includeDone || !task.done) && docIdSet.has(docId) && !seenTaskIds.has(taskId)) {
                     seenTaskIds.add(taskId);
                     out.push(__tmAiClone(task));
@@ -520,32 +692,77 @@
 
     async function __tmAiGetCurrentGroupDocIds() {
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
-        const docsForTabs = __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId)
-            .map((doc) => String(doc?.id || '').trim())
-            .filter(Boolean);
-        if (docsForTabs.length) return Array.from(new Set(docsForTabs));
-        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
-        let targetDocs = [];
-        if (currentGroupId === 'all') {
-            const legacyIds = Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
-            legacyIds.forEach((id) => targetDocs.push({ id, kind: 'doc', recursive: false }));
-            groups.forEach((group) => {
-                targetDocs.push(...__tmGetGroupSourceEntries(group));
-            });
-        } else {
-            const group = groups.find((it) => String(it?.id || '').trim() === currentGroupId);
-            if (group) targetDocs = __tmGetGroupSourceEntries(group);
+        try {
+            const docIds = await resolveDocIdsFromGroups({ groupId: currentGroupId, includeQuickAddDoc: true });
+            return Array.from(new Set((Array.isArray(docIds) ? docIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+        } catch (e) {
+            return [];
         }
-        const docIds = [];
-        const seenDocIds = new Set();
-        const pushDocId = (id0) => {
-            const id = String(id0 || '').trim();
-            if (!id || seenDocIds.has(id)) return;
-            seenDocIds.add(id);
-            docIds.push(id);
+    }
+
+    async function __tmAiGetCurrentViewContext() {
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const currentGroup = currentGroupId === 'all'
+            ? null
+            : groups.find((group) => String(group?.id || '').trim() === currentGroupId) || null;
+        let groupLabel = currentGroupId === 'all' ? '全部分组' : String(currentGroup?.name || currentGroup?.label || currentGroup?.title || currentGroupId).trim();
+        try { groupLabel = currentGroupId === 'all' ? '全部分组' : (__tmResolveDocGroupName(currentGroup) || groupLabel); } catch (e) {}
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        let activeDocLabel = activeDocId === 'all' ? '全部页签' : activeDocId;
+        try {
+            if (__tmIsOtherBlockTabId(activeDocId)) activeDocLabel = '其他块';
+            else if (__tmParseDocTabCustomGroupActiveId(activeDocId)) activeDocLabel = '自定义页签组';
+            else if (activeDocId !== 'all') activeDocLabel = __tmGetDocDisplayName(activeDocId, activeDocId) || activeDocId;
+        } catch (e) {}
+        const view = String(state.viewMode || globalThis.__tmRuntimeState?.getViewMode?.('') || '').trim();
+        const viewMeta = __TM_ALL_VIEWS.find((item) => item.id === view);
+        const viewLabel = String(viewMeta?.label || view).trim();
+        const ruleId = String(state.currentRule || '').trim();
+        const searchKeyword = String(state.searchKeyword || '').trim();
+        const filter = {
+            ruleId,
+            searchKeyword,
+            archiveMode: state.docTabsArchiveMode === true,
+            showCompleted: state.showCompletedTasks === true,
         };
-        await Promise.all((Array.isArray(targetDocs) ? targetDocs : []).map((entry) => __tmExpandSourceEntryDocIds(entry, pushDocId)));
-        return docIds.filter(Boolean);
+        const documentIDs = Array.from(await __tmAiGetCurrentViewDocIdSet());
+        const allTasks = await __tmAiGetCurrentViewTasks(0);
+        const visibleTaskIDs = Array.from(new Set(allTasks.map((task) => __tmAiTaskBlockId(task)).filter(Boolean)));
+        const taskValues = allTasks.map((task) => __tmAiTaskReadValues(task)).filter(Boolean);
+        const virtualTasks = allTasks.map((task) => __tmAiVirtualTaskDTO(task)).filter(Boolean);
+        const focusedTaskValue = String(state.detailTaskId || state.draggingTaskId || '').trim();
+        const focusedTaskID = /^[0-9]{14}-[A-Za-z0-9]+$/.test(focusedTaskValue) ? focusedTaskValue : '';
+        let selectedTaskIDs = [];
+        let selectedVirtualTasks = [];
+        try {
+            const selectedIDs = __tmGetMultiSelectedTaskIds().map((id) => String(id || '').trim()).filter(Boolean);
+            selectedTaskIDs = selectedIDs.filter((id) => /^[0-9]{14}-[A-Za-z0-9]+$/.test(id));
+            const selectedIDSet = new Set(selectedIDs);
+            selectedVirtualTasks = virtualTasks.filter((item) => selectedIDSet.has(item.id));
+        } catch (e) {}
+        const scopeID = [currentGroupId, activeDocId, view, ruleId, searchKeyword, filter.archiveMode ? 1 : 0, filter.showCompleted ? 1 : 0].join('|');
+        return {
+            scopeID,
+            groupID: currentGroupId,
+            groupLabel,
+            activeDocID: activeDocId,
+            activeDocLabel,
+            view,
+            viewLabel,
+            filter,
+            documentIDs,
+            focusedTaskID,
+            selectedTaskIDs,
+            selectedVirtualTasks,
+            visibleTaskCount: visibleTaskIDs.length + virtualTasks.length,
+            realTaskCount: visibleTaskIDs.length,
+            virtualTaskCount: virtualTasks.length,
+            visibleTaskIDs,
+            taskValues,
+            virtualTasks,
+            truncated: false,
+        };
     }
 
     async function __tmQuickbarResolveConfiguredDocIds(forceRefresh = false) {
@@ -619,10 +836,153 @@
         return await __tmSummaryLoadTasksByDocs(docIds, { ignoreExcludeCompleted: options?.ignoreExcludeCompleted === true });
     }
 
+    function __tmAiNormalizeKernelTask(task) {
+        if (!task || typeof task !== 'object' || Array.isArray(task)) return null;
+        const next = { ...task };
+        const title = String(next.title || '').trim();
+        const docId = String(next.documentID || next.docId || next.root_id || '').trim();
+        const docName = String(next.documentName || next.docName || next.doc_name || '').trim();
+        if (title) {
+            next.content = title;
+            next.raw_content = title;
+        }
+        if (docId) {
+            next.docId = docId;
+            next.root_id = docId;
+        }
+        if (docName) {
+            next.docName = docName;
+            next.doc_name = docName;
+        }
+        if (next.parentListID && !next.parent_id) next.parent_id = next.parentListID;
+        if (next.parentTaskID && !next.parentTaskId) next.parentTaskId = next.parentTaskID;
+        if (next.attrHostID && !next.attrHostId) next.attrHostId = next.attrHostID;
+        return next;
+    }
+
+    async function __tmAiRefreshTaskMutation(payload = {}) {
+        const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+        const uniqueIDs = (values) => Array.from(new Set((Array.isArray(values) ? values : [])
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)));
+        const tasks = (Array.isArray(source.tasks) ? source.tasks : [])
+            .map(__tmAiNormalizeKernelTask)
+            .filter((task) => String(task?.id || '').trim());
+        const deletedTaskIDs = new Set(uniqueIDs(source.deletedTaskIDs));
+        const requiresDocumentReload = source.requiresDocumentReload === true;
+        const taskIDs = new Set(uniqueIDs(source.taskIDs));
+        const documentIDs = new Set(uniqueIDs(source.documentIDs));
+        const taskDocIDs = new Map();
+        const rememberCurrentDoc = (taskID) => {
+            const id = String(taskID || '').trim();
+            if (!id) return;
+            const current = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                || state.flatTasks?.[id]
+                || state.pendingInsertedTasks?.[id]
+                || null;
+            const docId = String(current?.root_id || current?.docId || '').trim();
+            if (docId) {
+                documentIDs.add(docId);
+                taskDocIDs.set(id, docId);
+            }
+        };
+        taskIDs.forEach(rememberCurrentDoc);
+        deletedTaskIDs.forEach((taskID) => {
+            taskIDs.add(taskID);
+            rememberCurrentDoc(taskID);
+        });
+        tasks.forEach((task) => {
+            const taskID = String(task.id || '').trim();
+            const docId = String(task.root_id || task.docId || '').trim();
+            taskIDs.add(taskID);
+            if (docId) {
+                documentIDs.add(docId);
+                taskDocIDs.set(taskID, docId);
+            }
+            if (deletedTaskIDs.has(taskID)) return;
+            try {
+                __tmCacheTaskInState(task, {
+                    docNameFallback: task.doc_name || task.docName || '未命名文档',
+                });
+            } catch (e) {}
+        });
+        deletedTaskIDs.forEach((taskID) => {
+            try { globalThis.__tmTaskStore?.removeLocal?.(taskID, { source: 'ai-task-mutation' }); } catch (e) {}
+            try { globalThis.__tmTaskStore?.removePending?.(taskID, { source: 'ai-task-mutation' }); } catch (e) {}
+        });
+        documentIDs.forEach((docId) => {
+            try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
+        });
+        try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+
+        const docIdList = Array.from(documentIDs);
+        const taskIdList = Array.from(taskIDs);
+        const refreshResults = [];
+        if (docIdList.length && typeof __tmRefreshAffectedDocsIncrementally === 'function') {
+            for (let index = 0; index < docIdList.length; index += 12) {
+                const chunk = docIdList.slice(index, index + 12);
+                const chunkSet = new Set(chunk);
+                const blockIds = taskIdList.filter((taskID) => chunkSet.has(taskDocIDs.get(taskID)));
+                try {
+                    refreshResults.push(await __tmRefreshAffectedDocsIncrementally({
+                        docIds: chunk,
+                        blockIds,
+                        withFilters: true,
+                        forcePositionRank: requiresDocumentReload,
+                        allowCalendar: true,
+                        invalidateCalendarCache: true,
+                        deferIfDetailBusy: true,
+                        reason: 'ai-task-mutation',
+                    }) === true);
+                } catch (e) {
+                    refreshResults.push(false);
+                }
+            }
+        }
+        const incrementallyRefreshed = refreshResults.length > 0 && refreshResults.every(Boolean);
+        try {
+            __tmRefreshViewsAfterTaskMutation({
+                taskIds: taskIdList,
+                withFilters: true,
+                calendarOnly: incrementallyRefreshed,
+                reason: 'ai-task-mutation',
+            });
+        } catch (e) {}
+        return {
+            taskIDs: taskIdList,
+            documentIDs: docIdList,
+            deletedTaskIDs: Array.from(deletedTaskIDs),
+            incrementallyRefreshed,
+        };
+    }
+
+    async function __tmAiRefreshScheduleMutation(payload = {}) {
+        const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+        const reason = String(source.reason || 'ai-schedule-mutation').trim() || 'ai-schedule-mutation';
+        const calendar = globalThis.__tmCalendar;
+        let cacheReloaded = false;
+        if (calendar && typeof calendar.refreshSchedulesFromSharedFile === 'function') {
+            const refreshed = await calendar.refreshSchedulesFromSharedFile({ reason, main: true, side: true });
+            cacheReloaded = Array.isArray(refreshed?.list);
+        } else {
+            try { calendar?.requestRefresh?.({ reason, main: true, side: true, hard: true }); } catch (e) {}
+        }
+        try {
+            window.dispatchEvent(new CustomEvent('tm:calendar-schedule-updated', {
+                detail: { ts: Date.now(), reason, source: 'ai-schedule-mutation', op: 'refresh' },
+            }));
+        } catch (e) {}
+        return { cacheReloaded };
+    }
+
     __tmNs.aiBridge = {
         getSettings() {
             return __tmAiClone({
                 aiEnabled: !!SettingsStore.data.aiEnabled,
+                aiExperienceMode: String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent',
+                aiExperienceModeInitialized: SettingsStore.data.aiExperienceModeInitialized === true,
+                agentMcpEnabled: SettingsStore.data.agentMcpEnabled === true,
+                agentMcpAllowed: typeof window.tmLicenseHasFeature === 'function' && window.tmLicenseHasFeature('pro'),
                 aiProvider: (() => {
                     const v = String(SettingsStore.data.aiProvider || '').trim();
                     if (v === 'deepseek') return 'deepseek';
@@ -645,6 +1005,9 @@
                 aiMiniMaxTemperature: Number(SettingsStore.data.aiMiniMaxTemperature),
                 aiMiniMaxMaxTokens: Number(SettingsStore.data.aiMiniMaxMaxTokens),
                 aiMiniMaxTimeoutMs: Number(SettingsStore.data.aiMiniMaxTimeoutMs),
+                aiConversationFontSize: Number.isFinite(Number(SettingsStore.data.aiConversationFontSize))
+                    ? Math.max(12, Math.min(22, Math.round(Number(SettingsStore.data.aiConversationFontSize))))
+                    : 14,
                 aiDefaultContextMode: String(SettingsStore.data.aiDefaultContextMode || 'nearby').trim() === 'fulltext' ? 'fulltext' : 'nearby',
                 aiScheduleWindows: Array.isArray(SettingsStore.data.aiScheduleWindows) ? SettingsStore.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean) : ['09:00-18:00'],
                 customStatusOptions: Array.isArray(SettingsStore.data.customStatusOptions)
@@ -656,14 +1019,59 @@
                     : [],
             });
         },
+        listActiveScheduledConversationIDs() {
+            return Array.from(new Set((Array.isArray(SettingsStore.data.scheduledEvents) ? SettingsStore.data.scheduledEvents : [])
+                .filter((event) => event?.enabled !== false)
+                .map((event) => String(event?.conversationId || '').trim())
+                .filter(Boolean)));
+        },
+        async getTaskCreationDestinations() {
+            const configured = String(SettingsStore.data.newTaskDocId || '').trim();
+            let defaultTarget = null;
+            if (configured === '__dailyNote__') {
+                let notebook = __tmResolveConfiguredDailyNoteNotebookId();
+                if (!notebook) {
+                    const currentDocID = String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : '').trim();
+                    const current = currentDocID && typeof API.getBlock === 'function' ? await API.getBlock(currentDocID).catch(() => null) : null;
+                    notebook = String(current?.box || state.notebooks?.[0]?.id || state.notebooks?.[0]?.box || '').trim();
+                }
+                if (notebook) {
+                    const id = String(await API.createDailyNote(notebook) || '').trim();
+                    if (id) defaultTarget = { id, label: '今天日记', kind: 'default' };
+                }
+            } else {
+                const id = String(__tmResolveConfiguredQuickAddDocId() || await __tmResolveDefaultDocIdAsync() || '').trim();
+                if (id) {
+                    const doc = (Array.isArray(state.allDocuments) ? state.allDocuments : []).find((item) => String(item?.id || '').trim() === id)
+                        || (Array.isArray(state.taskTree) ? state.taskTree : []).find((item) => String(item?.id || '').trim() === id);
+                    defaultTarget = { id, label: String(doc?.name || '默认新建文档').trim() || '默认新建文档', kind: 'default' };
+                }
+            }
+            const groupID = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+            const pinnedIDs = typeof __tmGetDocPinnedIdsForGroup === 'function'
+                ? __tmGetDocPinnedIdsForGroup(groupID)
+                : (Array.isArray(SettingsStore.data.docPinnedByGroup?.[groupID]) ? SettingsStore.data.docPinnedByGroup[groupID] : []);
+            const pinned = pinnedIDs.map((id) => {
+                const targetID = String(id || '').trim();
+                const doc = (Array.isArray(state.allDocuments) ? state.allDocuments : []).find((item) => String(item?.id || '').trim() === targetID)
+                    || (Array.isArray(state.taskTree) ? state.taskTree : []).find((item) => String(item?.id || '').trim() === targetID);
+                return targetID ? { id: targetID, label: String(doc?.name || '未命名文档').trim() || '未命名文档', kind: 'pinned' } : null;
+            }).filter(Boolean);
+            return { defaultTarget, pinned, groupID };
+        },
         async saveAiSettings(patch = {}) {
             if (!patch || typeof patch !== 'object') return this.getSettings();
             Object.entries(patch).forEach(([key, value]) => {
                 if (!(key in SettingsStore.data)) return;
+                if (key === 'agentMcpEnabled' || key === 'agentMcpEnabledInitialized') return;
+                if (key === 'aiExperienceMode') value = String(value || '').trim() === 'legacy' ? 'legacy' : 'agent';
                 SettingsStore.data[key] = value;
             });
             await SettingsStore.save();
             return this.getSettings();
+        },
+        async setAgentMcpEnabled(enabled) {
+            return await __tmSetAgentMcpEnabled(enabled === true, { notify: false, refreshSettings: false });
         },
         async resolveTaskId(taskId) {
             const rawId = String(taskId || '').trim();
@@ -690,8 +1098,26 @@
         async createTask(payload) {
             return await __tmAiCreateTask(payload);
         },
+        async refreshTaskMutation(payload) {
+            return await __tmAiRefreshTaskMutation(payload);
+        },
+        async refreshScheduleMutation(payload) {
+            return await __tmAiRefreshScheduleMutation(payload);
+        },
         async getCurrentViewTasks(limit) {
             return await __tmAiGetCurrentViewTasks(limit);
+        },
+        async getCurrentViewContext() {
+            return await __tmAiGetCurrentViewContext();
+        },
+        async getTaskReadValues(taskIds) {
+            return await __tmAiGetTaskReadValues(taskIds);
+        },
+        async getTaskReadScope(taskIds) {
+            return await __tmAiGetTaskReadScope(taskIds);
+        },
+        async getDocumentTaskReadScope(docIds) {
+            return await __tmAiGetDocumentTaskReadScope(docIds);
         },
         async getCurrentFilteredTasks(limit) {
             return await __tmAiGetCurrentFilteredTasks(limit);
@@ -724,6 +1150,14 @@
             try {
                 const activeDocId = String(state.activeDocId || '').trim();
                 if (activeDocId && activeDocId !== 'all') return activeDocId;
+                try {
+                    const focusedDocID = String(
+                        typeof __tmResolveDocTopbarSourceDocId === 'function'
+                            ? __tmResolveDocTopbarSourceDocId()
+                            : ''
+                    ).trim();
+                    if (focusedDocID) return focusedDocID;
+                } catch (e) {}
                 const candidates = [];
                 try {
                     if (__tmLastRightClickedTitleProtyle && __tmLastRightClickedTitleProtyle.isConnected) {

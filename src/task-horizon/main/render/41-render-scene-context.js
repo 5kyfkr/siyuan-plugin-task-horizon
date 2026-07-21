@@ -70,7 +70,7 @@
                     ? __tmRenderKanbanBodyHtml({ withBodyAnimation: true })
                     : __tmRenderListBodyHtml();
         const showCalendarSideDock = !state.homepageOpen && !state.attachmentLibraryOpen && __tmShouldShowCalendarSideDock() && !isMobile;
-        const showAiSideDock = !state.attachmentLibraryOpen && __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
+        const showAiSideDock = !state.attachmentLibraryOpen && __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile && !isDockHost;
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
         const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
         const showTaskDetailSheet = renderMode !== 'checklist' && !!globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.(renderMode, state.modal);
@@ -194,6 +194,7 @@
                             <span class="tm-multi-bulkbar__count" data-tm-multi-count title="已选任务数">${multiSelectCount}</span>
                         </div>
                         <div class="tm-multi-bulkbar__actions">
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectSendToAi()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('发送到 AI', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('sparkle', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetStartDate()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置开始日期', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('calendar-plus-2', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetCompletionDate()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置截止日期', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('calendar-check', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetPriority()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置重要性', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('flag', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>

@@ -932,74 +932,21 @@
     window.tmWhiteboardSetDone = function(taskId, checked, ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         const tid = String(taskId || '').trim();
-        const targetDone = !!checked;
         const checkbox = ev?.target instanceof HTMLInputElement ? ev.target : null;
         if (!tid) return false;
-        const previousTask = (typeof __tmTaskStateKernel !== 'undefined' && __tmTaskStateKernel?.getTask)
-            ? __tmTaskStateKernel.getTask(tid)
-            : (globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true }) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null);
-        if (previousTask && typeof __tmIsRecurringInstanceTask === 'function' && __tmIsRecurringInstanceTask(previousTask)) {
-            if (targetDone !== false || typeof window.tmSetDone !== 'function') {
-                try { if (checkbox) checkbox.checked = true; } catch (e) {}
-                try { hint('⚠️ 循环完成实例只能撤销完成，请在这里取消勾选', 'warning'); } catch (e) {}
-                return false;
-            }
-            Promise.resolve(window.tmSetDone(tid, false, ev, {
-                source: 'whiteboard-recurring-instance-uncomplete',
-            })).then((result) => {
-                if (result === false) {
-                    try { if (checkbox) checkbox.checked = true; } catch (e) {}
-                }
-            }).catch((error) => {
-                try { if (checkbox) checkbox.checked = true; } catch (e) {}
-                try { hint(`❌ 撤销失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
-            });
-            return true;
-        }
-        const previousDone = !!previousTask?.done;
-        const previousStatus = String(previousTask?.customStatus || previousTask?.custom_status || '').trim();
-        const statusPatch = (typeof __tmBuildCheckboxStatusPatch === 'function')
-            ? __tmBuildCheckboxStatusPatch(previousTask, targetDone)
-            : null;
-        const donePatch = {
-            done: targetDone,
-            ...((statusPatch && typeof statusPatch === 'object') ? statusPatch : {}),
-        };
-        let request = null;
-        try {
-            if (typeof __tmMutationEngine === 'undefined' || typeof __tmMutationEngine.requestTaskPatch !== 'function') throw new Error('任务写入引擎未就绪');
-            request = __tmMutationEngine.requestTaskPatch(tid, donePatch, {
-                source: 'whiteboard-card-done',
-                label: '完成状态',
-                optimistic: true,
-                skipViewRefresh: true,
-                skipSettledRefresh: true,
-                optimisticProjectionRefresh: false,
-                forceProjectionRefresh: false,
-                skipDetailPatch: true,
-                fallback: false,
-                refreshAncestorViews: false,
-            });
-            try {
-                if (typeof __tmViewControllers !== 'undefined') {
-                    __tmViewControllers?.whiteboard?.patchTask?.(tid, donePatch);
-                }
-            } catch (e) {}
-        } catch (error) {
-            try { if (checkbox) checkbox.checked = previousDone; } catch (e) {}
-            try { hint(`❌ 操作失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+        if (typeof window.tmSetDone !== 'function') {
+            try { if (checkbox) checkbox.checked = !checked; } catch (e) {}
+            try { hint('❌ 完成状态写入入口未就绪', 'error'); } catch (e) {}
             return false;
         }
-        Promise.resolve(request).catch((error) => {
-            try { if (checkbox) checkbox.checked = previousDone; } catch (e) {}
-            try {
-                if (typeof __tmViewControllers !== 'undefined') {
-                    __tmViewControllers?.whiteboard?.patchTask?.(tid, { done: previousDone, customStatus: previousStatus });
-                }
-            } catch (e) {}
+        return Promise.resolve(window.tmSetDone(tid, !!checked, ev, {
+            source: 'whiteboard-card-done',
+            skipInteractionGate: true,
+        })).catch((error) => {
+            try { if (checkbox) checkbox.checked = !checked; } catch (e) {}
             try { hint(`❌ 操作失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+            return false;
         });
-        return true;
     };
 
     function __tmMeasureWhiteboardNavigatorWorldRect(el, viewportRect, view) {

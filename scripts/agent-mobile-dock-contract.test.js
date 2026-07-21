@@ -1,0 +1,50 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const render = fs.readFileSync(path.join(root, 'src/task-horizon/main/40-render-runtime.js'), 'utf8');
+const panels = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/47-render-side-panels-and-view-switching.js'), 'utf8');
+const scene = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/41-render-scene-context.js'), 'utf8');
+const workbench = fs.readFileSync(path.join(root, 'src/ai/agent-workbench.js'), 'utf8');
+const styles = fs.readFileSync(path.join(root, 'src/ai/agent-workbench.css'), 'utf8');
+
+assert.doesNotMatch(render, /AI 对话（移动端关闭）|移动端不启用 AI 对话侧栏/, 'mobile menu must not disable AI chat');
+assert.match(render, /<span>AI 对话<\/span>[\s\S]*class="b3-switch fn__flex-center"[\s\S]*tmToggleAiSideDock\(this\.checked\)/, 'mobile AI option must use the same switch control as desktop');
+assert.match(render, /justify-content:space-between[\s\S]{0,300}<span>AI 对话<\/span>/, 'mobile AI text and switch must align like the neighboring mobile toggles');
+assert.doesNotMatch(render, /tm-desktop-menu-toggle[^\n]*title="AI 对话"/, 'mobile AI option must not inherit the centered desktop menu layout');
+assert.match(render, /class="tm-main-stage[\s\S]*\(isMobile \|\| isDockHost\) && state\.aiMobilePanelOpen[\s\S]*id="tmAiMobileSidebarPanel"[\s\S]*<\/div>[\s\S]*showMobileBottomViewBar/, 'mobile and Dock AI panels must stay inside the main stage below the top and document tabs');
+assert.match(render, /\.tm-ai-mobile-shell\s*\{[\s\S]*position: absolute;[\s\S]*inset: 0;/, 'mobile and Dock AI panels must fill the entire main stage');
+assert.doesNotMatch(render, /\.tm-ai-mobile-shell\s*\{[\s\S]{0,180}bottom: var\(--tm-view-bottom-inset/, 'mobile and Dock AI panels must not be raised above the bottom area');
+assert.match(render, /\.tm-ai-mobile-panel[\s\S]*box-sizing: border-box[\s\S]*min-width: 0[\s\S]*max-width: 100%[\s\S]*overflow: hidden/, 'the narrow AI panel must include its border and contain horizontal overflow');
+assert.match(render, /#tmAiMobileSidebarPanel[\s\S]*width: 100%[\s\S]*min-width: 0[\s\S]*max-width: 100%[\s\S]*overflow: hidden/, 'the narrow AI mount point must not widen its host');
+assert.match(panels, /function __tmAiUsesOverlayPanel\(\)[\s\S]*__tmIsMobileDevice\(\) \|\| __tmIsDockHost\(\)/, 'mobile and Dock hosts must share the narrow-panel path');
+assert.match(panels, /canRenderInCurrentDockHost[\s\S]*if \(!canRenderInCurrentDockHost\)[\s\S]*openManager/, 'an active Dock host must not open a separate manager window');
+assert.match(panels, /window\.tmCloseAiSidebar[\s\S]*aiSideDockEnabled = false[\s\S]*SettingsStore\.save/, 'closing AI must keep the menu switch state synchronized');
+assert.match(scene, /showAiSideDock[\s\S]*!isMobile && !isDockHost/, 'Dock must not use the desktop split sidebar');
+assert.match(workbench, /runtime\.mobile \? '[^']*data-agent-action="close-sidebar"/, 'narrow AI panels must expose a close action');
+assert.doesNotMatch(workbench, /tm-agent-new-session/, 'new session must use the same neutral header icon style as neighboring actions');
+assert.doesNotMatch(styles, /tm-agent-new-session/, 'new session must not retain a dedicated filled background');
+assert.match(styles, /tm-agent-workbench--mobile \.tm-agent-header__actions \.block__icon[\s\S]*width: 44px[\s\S]*height: 44px/, 'mobile header actions must remain touch sized');
+assert.match(styles, /\.tm-agent-header\s*\{[\s\S]*min-height: 44px/, 'the AI header must use the compact 44px height');
+assert.match(styles, /\.tm-agent-header__title > span:last-child\s*\{[\s\S]*text-overflow: ellipsis/, 'long session titles must not push header actions outside the panel');
+assert.match(styles, /tm-agent-workbench--mobile \.tm-agent-header__title\s*\{[\s\S]*white-space: nowrap/, 'narrow AI headers must keep the product title on one line');
+assert.match(styles, /\.tm-agent-messages-shell[\s\S]*box-sizing: border-box[\s\S]*min-width: 0/, 'the messages shell must shrink inside narrow Dock hosts');
+assert.match(styles, /\.tm-agent-messages\s*\{[\s\S]*box-sizing: border-box[\s\S]*min-width: 0/, 'the scroll surface must include padding in its width');
+assert.match(styles, /\.tm-agent-message\s*\{[\s\S]*width: min\(var\(--tm-agent-content-width\), 100%\)[\s\S]*margin: 0 auto 20px/, 'conversation entries must share a centered readable content column');
+assert.match(styles, /\.tm-agent-composer\s*\{[\s\S]*width: min\(var\(--tm-agent-content-width\), calc\(100% - 20px\)\)[\s\S]*border-radius: 8px[\s\S]*box-shadow:/, 'the composer must use the compact centered workbench surface');
+assert.match(styles, /\.tm-agent-send\[data-agent-action="stop"\]\s*\{[\s\S]*background: color-mix\(in srgb, var\(--b3-theme-on-background\) 62%, var\(--b3-theme-background\)\)/, 'the stop action must have a theme-aware neutral gray background');
+assert.doesNotMatch(styles, /\.tm-agent-send\[data-agent-action="stop"\]\s*\{[\s\S]{0,240}--b3-theme-error/, 'the stop action must not use the error color');
+assert.match(styles, /\.tm-agent-send svg\s*\{[\s\S]*display: block[\s\S]*margin: 0/, 'send and stop icons must reset the SiYuan button icon margin and remain centered');
+assert.match(styles, /\.tm-agent-message__body[\s\S]*min-width: 0[\s\S]*max-width: 100%/, 'message bodies must be allowed to shrink instead of widening the panel');
+assert.match(styles, /\.tm-agent-markdown table[\s\S]*width: 100%[\s\S]*overflow-x: auto/, 'Markdown tables must remain scrollable within the conversation width');
+assert.match(styles, /\.tm-agent-interaction__body[\s\S]*min-width: 0[\s\S]*max-width: 100%/, 'interaction cards must not push narrow panels wider');
+assert.match(styles, /\.tm-agent-workbench \.agent-chat__question-options[\s\S]*display: flex[\s\S]*flex-direction: column/, 'question options must remain separate rows when host Agent styles are unavailable');
+assert.match(styles, /\.tm-agent-workbench--mobile \.agent-chat__question-option[\s\S]*grid-template-columns: 20px minmax\(0, 1fr\)[\s\S]*min-height: 44px/, 'mobile and Dock question options must use a touch-sized two-column layout');
+assert.match(styles, /\.tm-agent-workbench--mobile \.agent-chat__question-option-label[\s\S]*white-space: normal/, 'long mobile question labels must wrap inside their own option');
+assert.match(styles, /\.tm-agent-workbench \.agent-chat__question-custom[\s\S]*box-sizing: border-box[\s\S]*width: 100%/, 'custom answers must stay within the question card');
+assert.ok(styles.indexOf('.tm-agent-workbench--mobile .agent-chat__question-option') < styles.indexOf('@media (max-width: 700px)'), 'Dock question layout must not depend on the desktop viewport width');
+
+console.log('agent mobile and Dock contract tests passed');

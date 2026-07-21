@@ -71,6 +71,11 @@
                 return true;
             }
         } catch (e) {}
+        try {
+            if (String(state.viewMode || '').trim() === 'checklist' && state.aiSidebarOpen && __tmShouldShowAiSidebar()) {
+                return true;
+            }
+        } catch (e) {}
         const modal = modalEl instanceof Element ? modalEl : state?.modal;
         const modalWidth = Number(modal?.clientWidth || 0);
         try {

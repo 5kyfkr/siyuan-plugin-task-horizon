@@ -2061,6 +2061,26 @@
         const stDelta = Number(statusDeltaMap[st] ?? 0);
         if (Number.isFinite(stDelta)) score += w('status') * stDelta;
 
+        const customFieldDeltaMap = (cfg.customFieldDelta && typeof cfg.customFieldDelta === 'object' && !Array.isArray(cfg.customFieldDelta))
+            ? cfg.customFieldDelta
+            : {};
+        const customFieldDefMap = __tmGetCustomFieldDefMap();
+        Object.entries(customFieldDeltaMap).forEach(([fieldId, optionDeltaMap]) => {
+            const field = customFieldDefMap.get(String(fieldId || '').trim());
+            const fieldType = String(field?.type || '').trim();
+            if (!field || field?.enabled === false || (fieldType !== 'single' && fieldType !== 'multi')) return;
+            if (!optionDeltaMap || typeof optionDeltaMap !== 'object' || Array.isArray(optionDeltaMap)) return;
+            const normalizedValue = __tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task, fieldId));
+            const selectedValues = Array.isArray(normalizedValue) ? normalizedValue : [normalizedValue];
+            selectedValues.forEach((selectedValue) => {
+                const option = __tmFindCustomFieldOption(field, selectedValue);
+                const optionId = String(option?.id || '').trim();
+                if (!optionId) return;
+                const delta = Number(optionDeltaMap[optionId]);
+                if (Number.isFinite(delta)) score += delta;
+            });
+        });
+
         const nowTs = Number.isFinite(Number(opts.nowTs)) ? Number(opts.nowTs) : Date.now();
         const dueInfo = (opts.dueInfo && typeof opts.dueInfo === 'object')
             ? opts.dueInfo
@@ -2172,6 +2192,10 @@
             reason: String(raw.reason || '').trim() || 'view-refresh',
             taskIds,
             forceRebuild: raw.forceRebuild === true,
+            bypassDefer: raw.bypassDefer === true,
+            bypassTaskFieldDefer: raw.bypassTaskFieldDefer === true,
+            bypassScrollDefer: raw.bypassScrollDefer === true,
+            bypassInteractionDefer: raw.bypassInteractionDefer === true,
         };
     }
 
@@ -2195,6 +2219,10 @@
             reason: right.reason || left.reason || 'view-refresh',
             taskIds,
             forceRebuild: left.forceRebuild === true || right.forceRebuild === true,
+            bypassDefer: left.bypassDefer === true || right.bypassDefer === true,
+            bypassTaskFieldDefer: left.bypassTaskFieldDefer === true || right.bypassTaskFieldDefer === true,
+            bypassScrollDefer: left.bypassScrollDefer === true || right.bypassScrollDefer === true,
+            bypassInteractionDefer: left.bypassInteractionDefer === true || right.bypassInteractionDefer === true,
         };
     }
 
@@ -3781,6 +3809,7 @@ return false;
                         previousDone: plan.previousDone === true,
                         previousStatusId: String(plan?.statusBefore?.statusId || '').trim(),
                         rewardPriorityScore: Number(plan.rewardPriorityScore) || 0,
+                        recordUndo: opts.recordUndo !== false,
                         skipViewRefresh: opts.skipViewRefresh === true,
                         skipOptimisticRefresh: opts.skipOptimisticRefresh === true || opts.skipViewRefresh === true,
                         skipSettledRefresh: opts.skipSettledRefresh === true,
@@ -3800,6 +3829,7 @@ return false;
                         mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                         syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                         inlineQueuedPersist: opts.inlineQueuedPersist === true && opts.background !== true && opts.wait !== false,
+                        skipNoopCheck: opts.skipNoopCheck === true,
                         previousStatusId: String(plan?.statusBefore?.statusId || '').trim(),
                         previousMarker: String(plan?.statusBefore?.marker ?? ''),
                         previousDone: plan?.statusBefore?.done === true,
@@ -6978,6 +7008,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 skipInteractionGate: opts.skipInteractionGate === true,
                 refreshAncestorViews: opts.refreshAncestorViews !== false,
                 skipFlush: opts.skipFlush === true,
+                skipNoopCheck: opts.skipNoopCheck === true,
                 attrTargetId: String(opts.attrTargetId || '').trim(),
                 mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
@@ -10770,20 +10801,27 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         if (!history.length) return '';
         const itemsHtml = history.map((item, index) => {
             const completedAt = String(item?.completedAt || '').trim();
+            const occurrenceNumber = __tmResolveTaskRepeatHistoryOccurrenceNumber(task, item, index);
+            const totalOccurrences = __tmNormalizeTaskRepeatMaxOccurrences(
+                item?.totalOccurrences || __tmGetTaskRepeatRule(task)?.maxOccurrences
+            );
+            const occurrenceText = occurrenceNumber > 0
+                ? `第 ${occurrenceNumber}${totalOccurrences > 0 ? `/${totalOccurrences}` : ''} 次`
+                : '';
             const sourceStart = __tmNormalizeDateOnly(item?.sourceStart || '');
             const sourceDue = __tmNormalizeDateOnly(item?.sourceDue || '');
             const nextStart = __tmNormalizeDateOnly(item?.nextStart || '');
             const nextDue = __tmNormalizeDateOnly(item?.nextDue || '');
             const sourceText = sourceStart && sourceDue
                 ? `${__tmFormatTaskTimeCompact(sourceStart)} - ${__tmFormatTaskTimeCompact(sourceDue)}`
-                : (sourceDue ? `截止 ${__tmFormatTaskTimeCompact(sourceDue)}` : (sourceStart ? `开始 ${__tmFormatTaskTimeCompact(sourceStart)}` : '当前实例'));
+                : (sourceDue ? `截止 ${__tmFormatTaskTimeCompact(sourceDue)}` : (sourceStart ? `开始 ${__tmFormatTaskTimeCompact(sourceStart)}` : '未记录日期'));
             const nextText = nextStart && nextDue
                 ? `${__tmFormatTaskTimeCompact(nextStart)} - ${__tmFormatTaskTimeCompact(nextDue)}`
                 : (nextDue ? `截止 ${__tmFormatTaskTimeCompact(nextDue)}` : (nextStart ? `开始 ${__tmFormatTaskTimeCompact(nextStart)}` : '未推进'));
             return `
                 <div class="tm-task-detail-history-item">
                     <div class="tm-task-detail-history-head">
-                        <div class="tm-task-detail-history-main">${esc(completedAt ? `完成于 ${__tmFormatTaskTime(completedAt)}` : '已完成')}</div>
+                        <div class="tm-task-detail-history-main">${esc([occurrenceText, completedAt ? `完成于 ${__tmFormatTaskTime(completedAt)}` : '已完成'].filter(Boolean).join(' · '))}</div>
                         <button type="button" class="tm-task-detail-history-delete" data-tm-detail-repeat-history-delete="${esc(completedAt || String(index))}">删除</button>
                     </div>
                     <div class="tm-task-detail-history-sub">本次：${esc(sourceText)}</div>
