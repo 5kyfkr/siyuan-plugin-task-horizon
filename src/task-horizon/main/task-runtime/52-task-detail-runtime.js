@@ -1377,7 +1377,7 @@
             const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
             const repeatText = getRepeatSummary() || '不循环';
             const rule = getRepeatRule();
-            const repeatTask = getBoundTask() || task || {};
+            const repeatTask = task || {};
             const endText = rule?.enabled
                 ? (rule.maxOccurrences > 0 ? __tmGetTaskRepeatProgressText(repeatTask, rule) : (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束'))
                 : '未设置';
