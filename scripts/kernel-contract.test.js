@@ -93,6 +93,7 @@ function createHarness() {
     }
 
     function query(statement) {
+        if (/SELECT 1 AS task_horizon_session_probe/.test(statement)) return [{ task_horizon_session_probe: 1 }];
         if (/SELECT id, box, hpath FROM blocks WHERE type = 'd' AND id IN/.test(statement)) {
             const ids = Array.from(statement.matchAll(/'(\d{14}-[^']+)'/g)).map((match) => match[1]);
             return ids.map((id) => blocks.get(id)).filter((block) => block?.type === 'd').map((block) => ({

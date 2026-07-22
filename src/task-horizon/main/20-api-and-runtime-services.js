@@ -3114,6 +3114,78 @@
         };
     } catch (e) {}
 
+    const __TM_KERNEL_SESSION_AUTH_ERROR = 'Auth failed [session]';
+    const __TM_KERNEL_RECOVERY_STORAGE_KEY = 'tm_agent_kernel_auth_recovery_at';
+    const __TM_KERNEL_RECOVERY_COOLDOWN_MS = 30000;
+    const __TM_KERNEL_RECOVERY_PEER_WAIT_MS = 1000;
+    const __TM_KERNEL_RECOVERY_REPLAYABLE_RPCS = new Set(['taskHorizonPersistUiTaskAttrs']);
+    let __tmKernelSessionRecoveryPromise = null;
+
+    function __tmIsKernelSessionAuthError(error) {
+        return String(error?.message || error || '').trim() === __TM_KERNEL_SESSION_AUTH_ERROR;
+    }
+
+    function __tmReadKernelRecoveryTime() {
+        try {
+            const value = Number(globalThis.localStorage?.getItem?.(__TM_KERNEL_RECOVERY_STORAGE_KEY));
+            return Number.isFinite(value) && value > 0 ? value : 0;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    async function __tmRestartTaskHorizonKernelSession() {
+        const appID = String(
+            globalThis.__taskHorizonHostBridge?.app?.appId
+            || globalThis.__taskHorizonHostBridge?.plugin?.app?.appId
+            || ''
+        ).trim();
+        if (!appID) throw new Error('缺少当前窗口标识，无法安全重启任务工具内核');
+        const now = Date.now();
+        const recentRecovery = __tmReadKernelRecoveryTime();
+        if (recentRecovery && now >= recentRecovery && now - recentRecovery < __TM_KERNEL_RECOVERY_COOLDOWN_MS) {
+            await new Promise((resolve) => setTimeout(resolve, __TM_KERNEL_RECOVERY_PEER_WAIT_MS));
+            return false;
+        }
+        const recoveryStartedAt = Date.now();
+        try { globalThis.localStorage?.setItem?.(__TM_KERNEL_RECOVERY_STORAGE_KEY, String(recoveryStartedAt)); } catch (e) {}
+        try {
+            const response = await fetch('/api/petal/setPetalEnabled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    packageName: 'siyuan-plugin-task-horizon',
+                    enabled: true,
+                    app: appID,
+                }),
+            });
+            let payload = null;
+            try { payload = await response.json(); } catch (e) {}
+            if (!response.ok || !payload || Number(payload.code) !== 0) {
+                throw new Error(String(payload?.msg || payload?.message || `任务工具内核重启失败 (${response.status})`));
+            }
+            return true;
+        } catch (error) {
+            try {
+                if (__tmReadKernelRecoveryTime() === recoveryStartedAt) {
+                    globalThis.localStorage?.removeItem?.(__TM_KERNEL_RECOVERY_STORAGE_KEY);
+                }
+            } catch (e) {}
+            throw error;
+        }
+    }
+
+    async function __tmRecoverTaskHorizonKernelSession() {
+        if (!__tmKernelSessionRecoveryPromise) {
+            __tmKernelSessionRecoveryPromise = __tmRestartTaskHorizonKernelSession().finally(() => {
+                __tmKernelSessionRecoveryPromise = null;
+            });
+        }
+        return await __tmKernelSessionRecoveryPromise;
+    }
+
+    try { globalThis.__tmRecoverTaskHorizonKernelSession = __tmRecoverTaskHorizonKernelSession; } catch (e) {}
+
     const __tmBackendAdapter = {
         call(url, body) {
             return API.call(url, body);
@@ -3182,20 +3254,34 @@
         const kernel = globalThis.__taskHorizonHostBridge?.kernel || globalThis.__taskHorizonHostBridge?.plugin?.kernel;
         const method = methodName ? kernel?.rpc?.call?.[methodName] : null;
         if (typeof method !== 'function') return { available: false, data: null };
-        let result;
+        const invoke = async () => {
+            const result = await method(...args);
+            if (!result || result.ok !== true) {
+                const error = new Error(String(result?.error?.message || '任务内核服务调用失败'));
+                error.code = String(result?.error?.code || 'STORAGE_ERROR');
+                error.details = result?.error?.details || null;
+                throw error;
+            }
+            return { available: true, data: result.data };
+        };
         try {
-            result = await method(...args);
+            return await invoke();
         } catch (error) {
             if (__tmIsTaskHorizonKernelUnavailableError(error)) return { available: false, data: null };
-            throw error;
+            if (!__tmIsKernelSessionAuthError(error)) throw error;
+            try {
+                await __tmRecoverTaskHorizonKernelSession();
+            } catch (recoveryError) {
+                const failure = new Error(`任务工具会话失效，自动恢复失败：${String(recoveryError?.message || recoveryError || '未知错误')}`);
+                failure.code = 'KERNEL_SESSION_RECOVERY_FAILED';
+                throw failure;
+            }
+            if (__TM_KERNEL_RECOVERY_REPLAYABLE_RPCS.has(methodName)) return await invoke();
+            const recovered = new Error('任务工具会话已恢复，请重试刚才的操作');
+            recovered.code = 'KERNEL_SESSION_RECOVERED';
+            recovered.details = { call: methodName };
+            throw recovered;
         }
-        if (!result || result.ok !== true) {
-            const error = new Error(String(result?.error?.message || '任务内核服务调用失败'));
-            error.code = String(result?.error?.code || 'STORAGE_ERROR');
-            error.details = result?.error?.details || null;
-            throw error;
-        }
-        return { available: true, data: result.data };
     }
 
     const __TM_TASK_REPEAT_RULE_ATTR = 'custom-task-repeat-rule';

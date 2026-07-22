@@ -7,12 +7,17 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 const workbench = fs.readFileSync(path.join(root, 'src/ai/agent-workbench.js'), 'utf8');
+const kernel = fs.readFileSync(path.join(root, 'kernel.js'), 'utf8');
 
 assert.match(workbench, /KERNEL_SESSION_AUTH_ERROR = 'Auth failed \[session\]'/, 'session recovery must match the exact SiYuan Kernel error');
 assert.match(workbench, /KERNEL_AUTH_RETRYABLE_READ_CALLS = new Set\(\[[\s\S]*taskHorizonQueryTasks[\s\S]*taskHorizonSearchDocuments[\s\S]*\]\)/, 'context picker reads must be explicitly retryable');
 assert.match(workbench, /fetch\('\/api\/petal\/setPetalEnabled'[\s\S]*packageName: KERNEL_PLUGIN_PACKAGE_NAME[\s\S]*enabled: true[\s\S]*app: appID/, 'recovery must restart the Kernel plugin without reloading the current app');
 assert.match(workbench, /kernelAuthRecoveryPromise[\s\S]*KERNEL_AUTH_RECOVERY_STORAGE_KEY[\s\S]*KERNEL_AUTH_RECOVERY_COOLDOWN_MS/, 'recovery must be single-flight and coordinated across windows');
 assert.match(workbench, /KERNEL_AUTH_RETRYABLE_READ_CALLS\.has\(name\)[\s\S]*return await callKernelMethod\(name, args\)/, 'only allowlisted reads may be replayed after recovery');
+assert.match(kernel, /async function getVerifiedCapabilities\(\)[\s\S]*SELECT 1 AS task_horizon_session_probe[\s\S]*return getCapabilities\(\)/, 'capability checks must probe the Kernel plugin JWT before AI tools run');
+assert.match(kernel, /taskHorizonGetCapabilities'[\s\S]*getVerifiedCapabilities\(\)/, 'the public capability RPC must use the authenticated probe');
+assert.match(workbench, /async function ensureTaskToolsReadyForSend\(\)[\s\S]*await getCapabilities\(\)[\s\S]*setAgentMcpEnabled\(true\)[\s\S]*任务工具正在恢复，请稍后重试/, 'sending must verify and re-authorize task tools after automatic Kernel recovery');
+assert.match(workbench, /async function sendMessage\(textOverride\)[\s\S]*if \(!await ensureTaskToolsReadyForSend\(\)\) return;[\s\S]*createSession\(\)/, 'AI requests must not start before task-tool session verification');
 
 const constantsStart = workbench.indexOf("const KERNEL_PLUGIN_PACKAGE_NAME =");
 const constantsEnd = workbench.indexOf('\n    const TASK_CONTEXT_DRAG_TYPES', constantsStart);
@@ -78,6 +83,13 @@ function createHarness(options = {}) {
 const authFailure = () => ({ ok: false, error: { message: 'Auth failed [session]', code: 'STORAGE_ERROR' } });
 
 (async () => {
+    const capabilityProbe = createHarness({
+        methodResults: { taskHorizonGetCapabilities: [authFailure(), { ok: true, data: { mcpEnabled: true } }] },
+    });
+    assert.deepEqual(await capabilityProbe.call('taskHorizonGetCapabilities'), { mcpEnabled: true });
+    assert.equal(capabilityProbe.calls.length, 2, 'the authenticated capability probe must retry after restarting a stale Kernel plugin');
+    assert.equal(capabilityProbe.fetches.length, 1, 'capability recovery must restart the Kernel plugin exactly once');
+
     const read = createHarness({
         methodResults: { taskHorizonQueryTasks: [authFailure(), { ok: true, data: { items: ['recovered'] } }] },
     });

@@ -4068,8 +4068,13 @@
         };
     }
 
+    async function getVerifiedCapabilities() {
+        await sql('SELECT 1 AS task_horizon_session_probe');
+        return getCapabilities();
+    }
+
     async function bindRpc() {
-        await siyuan.rpc.bind('taskHorizonGetCapabilities', () => asResult(async () => getCapabilities()));
+        await siyuan.rpc.bind('taskHorizonGetCapabilities', () => asResult(() => getVerifiedCapabilities()));
         await siyuan.rpc.bind('taskHorizonSyncMcpEntitlement', (input) => asResult(() => syncMcpEntitlement(input || {})));
         await siyuan.rpc.bind('taskHorizonSetMcpEnabled', (enabled) => asResult(() => setMcpEnabled(enabled)));
         await siyuan.rpc.bind('taskHorizonSetMcpToolConfig', (input) => asResult(() => setMcpToolConfig(input || {})));

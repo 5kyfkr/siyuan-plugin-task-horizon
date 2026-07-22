@@ -488,6 +488,9 @@
     }
 
     async function recoverKernelSession() {
+        if (typeof globalThis.__tmRecoverTaskHorizonKernelSession === 'function') {
+            return await globalThis.__tmRecoverTaskHorizonKernelSession();
+        }
         if (!kernelAuthRecoveryPromise) {
             kernelAuthRecoveryPromise = restartKernelPluginSession().finally(() => {
                 kernelAuthRecoveryPromise = null;
@@ -775,6 +778,29 @@
             runtime.statusText = '';
             render();
         }
+    }
+
+    async function ensureTaskToolsReadyForSend() {
+        const settings = aiBridge()?.getSettings?.() || {};
+        if (settings.agentMcpEnabled !== true) return true;
+        let capabilities = await getCapabilities();
+        if (capabilities?.mcpEnabled === true) return true;
+        if (settings.agentMcpAllowed === true
+            && capabilities?.kernelAvailable === true
+            && capabilities?.mcpAvailable === true
+            && typeof aiBridge()?.setAgentMcpEnabled === 'function') {
+            try {
+                await aiBridge().setAgentMcpEnabled(true);
+                capabilities = await getCapabilities();
+            } catch (error) {}
+        }
+        if (capabilities?.mcpEnabled === true) return true;
+        runtime.statusText = capabilities?.unavailableDetail
+            ? `任务工具连接恢复失败：${capabilities.unavailableDetail}`
+            : '任务工具正在恢复，请稍后重试';
+        startCapabilityRetry();
+        render();
+        return false;
     }
 
     async function hashContent(content) {
@@ -2719,6 +2745,7 @@
         const preset = getPreset(runtime.presetID);
         const userText = raw || text(preset?.starter);
         if (!userText) return;
+        if (!await ensureTaskToolsReadyForSend()) return;
         if (!runtime.activeSessionID) createSession();
         const currentViewSnapshot = await syncCurrentViewContext();
         if (runtime.context.scope && !text(currentViewSnapshot?.scopeToken)) {
