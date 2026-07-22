@@ -29,6 +29,10 @@ assert.doesNotMatch(workbench, /tm-agent-new-session/, 'new session must use the
 assert.doesNotMatch(styles, /tm-agent-new-session/, 'new session must not retain a dedicated filled background');
 assert.match(styles, /tm-agent-workbench--mobile \.tm-agent-header__actions \.block__icon[\s\S]*width: 44px[\s\S]*height: 44px/, 'mobile header actions must remain touch sized');
 assert.match(styles, /\.tm-agent-header\s*\{[\s\S]*min-height: 44px/, 'the AI header must use the compact 44px height');
+assert.match(styles, /\.tm-agent-workbench\s*\{[\s\S]*min-width: 0;[\s\S]*overflow: hidden;/, 'the workbench must contain intrinsic horizontal overflow');
+assert.match(styles, /\.tm-agent-header\s*\{[\s\S]*min-width: 0;[\s\S]*max-width: 100%;[\s\S]*overflow: hidden;/, 'the header must shrink within the SiYuan panel');
+assert.match(styles, /\.tm-agent-header__title\s*\{[\s\S]*flex: 1 1 0%;[\s\S]*min-width: 0;[\s\S]*overflow: hidden;/, 'the session title must use only the space left by header actions');
+assert.match(styles, /\.tm-agent-header__actions\s*\{[\s\S]*flex: 0 0 auto;/, 'header actions must keep their width while the session title shrinks');
 assert.match(styles, /\.tm-agent-header__title > span:last-child\s*\{[\s\S]*text-overflow: ellipsis/, 'long session titles must not push header actions outside the panel');
 assert.match(styles, /tm-agent-workbench--mobile \.tm-agent-header__title\s*\{[\s\S]*white-space: nowrap/, 'narrow AI headers must keep the product title on one line');
 assert.match(styles, /\.tm-agent-messages-shell[\s\S]*box-sizing: border-box[\s\S]*min-width: 0/, 'the messages shell must shrink inside narrow Dock hosts');
@@ -39,6 +43,7 @@ assert.match(styles, /\.tm-agent-send\[data-agent-action="stop"\]\s*\{[\s\S]*bac
 assert.doesNotMatch(styles, /\.tm-agent-send\[data-agent-action="stop"\]\s*\{[\s\S]{0,240}--b3-theme-error/, 'the stop action must not use the error color');
 assert.match(styles, /\.tm-agent-send svg\s*\{[\s\S]*display: block[\s\S]*margin: 0/, 'send and stop icons must reset the SiYuan button icon margin and remain centered');
 assert.match(styles, /\.tm-agent-message__body[\s\S]*min-width: 0[\s\S]*max-width: 100%/, 'message bodies must be allowed to shrink instead of widening the panel');
+assert.match(styles, /\.tm-agent-message--user \.tm-agent-message__body[\s\S]*width: fit-content;[\s\S]*overflow-wrap: anywhere;[\s\S]*word-break: break-word;/, 'long user prompts must wrap inside the conversation width');
 assert.match(styles, /\.tm-agent-markdown table[\s\S]*width: 100%[\s\S]*overflow-x: auto/, 'Markdown tables must remain scrollable within the conversation width');
 assert.match(styles, /\.tm-agent-interaction__body[\s\S]*min-width: 0[\s\S]*max-width: 100%/, 'interaction cards must not push narrow panels wider');
 assert.match(styles, /\.tm-agent-workbench \.agent-chat__question-options[\s\S]*display: flex[\s\S]*flex-direction: column/, 'question options must remain separate rows when host Agent styles are unavailable');

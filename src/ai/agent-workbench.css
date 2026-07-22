@@ -17,6 +17,7 @@
     height: 100%;
     min-width: 0;
     min-height: 0;
+    overflow: hidden;
     box-sizing: border-box;
     color: var(--b3-theme-on-background);
     background: var(--b3-theme-background);
@@ -74,8 +75,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     min-height: 44px;
     padding: 0 8px 0 14px;
+    overflow: hidden;
     border-bottom: 1px solid var(--tm-agent-border);
     background: color-mix(in srgb, var(--b3-theme-surface) 36%, var(--b3-theme-background));
 }
@@ -88,19 +94,26 @@
 }
 
 .tm-agent-header__title {
+    flex: 1 1 0%;
     gap: 8px;
     min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
     font-weight: 600;
 }
 
 .tm-agent-header__title > span:last-child {
+    display: block;
+    flex: 1 1 auto;
     min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .tm-agent-header__actions {
+    flex: 0 0 auto;
     gap: 4px;
 }
 
@@ -632,6 +645,7 @@
     min-width: 0;
     min-height: 0;
     max-width: 100%;
+    overflow: hidden;
 }
 
 .tm-agent-messages {
@@ -642,7 +656,8 @@
     height: 100%;
     min-height: 0;
     padding: 20px 14px 28px;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-user-select: text !important;
     user-select: text !important;
@@ -885,7 +900,11 @@
 }
 
 .tm-agent-message--user .tm-agent-message__body {
+    width: fit-content;
+    min-width: 0;
     max-width: min(88%, 620px);
+    overflow-wrap: anywhere;
+    word-break: break-word;
     padding: 9px 12px;
     border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 16%, transparent);
     border-radius: 8px;
