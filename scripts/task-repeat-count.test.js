@@ -78,6 +78,8 @@ assert.match(runtimeSource, /totalOccurrences:\s*repeatRule\.maxOccurrences/, 'h
 assert.ok(runtimeSource.indexOf('__tmResolveTaskIdFromAnyBlockId(requestedTaskId)') < runtimeSource.indexOf('__tmRecurringAdvanceInFlightIds.has(advanceTaskId)'), 'recurring advancement must canonicalize aliases before taking its lock');
 assert.match(modelSource, /循环记录\$\{progressText\}/, 'recurring record badges must show their occurrence number');
 assert.match(dialogSource, /data-tm-repeat-field="maxOccurrences"[^>]*max="200"/, 'repeat dialog must cap the count input at 200');
+assert.match(dialogSource, /const currentTriggerType = currentRule\.enabled && currentRule\.type !== 'none'[\s\S]*?: 'due';/, 'an unset repeat rule must default to due-triggered recurrence');
+assert.match(dialogSource, /<option value="due"[\s\S]*?<option value="complete"[\s\S]*?<option value="none"/, 'the non-recurring option must remain last');
 assert.match(detailSource, /data-tm-time-hub-repeat-end-mode="never"/, 'time hub must edit the never-ending mode directly');
 assert.match(detailSource, /data-tm-time-hub-repeat-end-mode="date"/, 'time hub must edit the date-ending mode directly');
 assert.match(detailSource, /data-tm-time-hub-repeat-end-mode="count"/, 'time hub must edit the count-ending mode directly');

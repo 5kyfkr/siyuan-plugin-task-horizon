@@ -7,6 +7,7 @@
     "main/08-license-runtime.js",
     "main/10-stores-rules-and-cache.js",
     "main/20-api-and-runtime-services.js",
+    "main/21-view-render-state.js",
     "main/30-dialogs-and-ui-foundation.js",
     "main/31-view-host-policies.js",
     "main/32-runtime-state-and-events.js",

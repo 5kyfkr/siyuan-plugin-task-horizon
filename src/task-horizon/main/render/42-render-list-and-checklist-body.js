@@ -77,7 +77,7 @@
                     });
                 });
             } catch (e) {}
-            const checklistVirtualThreshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 5000;
+            const checklistVirtualThreshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 50;
             const checklistVirtualEnabled = Array.isArray(state.filteredTasks) && state.filteredTasks.length > checklistVirtualThreshold;
             const checklistStep = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
             const checklistTaskLimit = checklistVirtualEnabled

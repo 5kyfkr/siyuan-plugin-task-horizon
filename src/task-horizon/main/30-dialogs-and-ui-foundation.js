@@ -3425,8 +3425,9 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function __tmGetListAutoLoadMoreState() {
         const total = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
-        const step = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
-        const currentLimit = Math.max(step, Math.min(total, Number(state.listRenderLimit) || step));
+        const runtimeWindow = __tmGetViewRenderWindow(state.viewMode, total);
+        const step = Number(runtimeWindow?.initial || state.listRenderStep || 20);
+        const currentLimit = Number(runtimeWindow?.limit || 0);
         return {
             total,
             step,
@@ -3436,13 +3437,8 @@ return Number(state.contextInteractionQuietUntil || 0);
     }
 
     function __tmGetRenderStepForFilteredScope(total = 0) {
-        const base = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
-        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-        if (activeDocId && activeDocId !== 'all' && !__tmIsOtherBlockTabId(activeDocId)) {
-            const count = Math.max(0, Math.round(Number(total) || 0));
-            return Math.max(base, Math.min(1200, Math.max(100, count)));
-        }
-        return base;
+        const policy = __tmGetViewRenderWindowPolicy(state.viewMode);
+        return Math.max(20, Number(policy?.initial || state.listRenderStep || 20));
     }
 
     function __tmBuildVisibleTaskWindowContentSignature(tasks, limit) {
@@ -3534,7 +3530,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         const opts = (options && typeof options === 'object') ? options : {};
         const source = String(opts.source || 'cache-first-paint').trim() || 'cache-first-paint';
         if (source.includes(':verify')) return false;
-        if (state.__tmSilentCacheVerifyInFlight) return false;
         const token = Number(state.openToken) || 0;
         const groupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const delayMs = Math.max(240, Number(opts.delayMs || 650) || 650);
@@ -3543,11 +3538,39 @@ return Number(state.contextInteractionQuietUntil || 0);
         try {
             if (state.__tmSilentCacheVerifyTimer) clearTimeout(state.__tmSilentCacheVerifyTimer);
         } catch (e) {}
+        if (state.__tmSilentCacheVerifyInFlight) {
+            const retryMs = Math.max(240, Math.min(delayMs, 600));
+            state.__tmSilentCacheVerifyTimer = setTimeout(() => {
+                state.__tmSilentCacheVerifyTimer = 0;
+                if (token !== (Number(state.openToken) || 0)) return;
+                if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== groupId) return;
+                __tmScheduleSilentCacheVerifyAfterFirstPaint({ ...opts, delayMs: 240 });
+            }, retryMs);
+            return true;
+        }
         state.__tmSilentCacheVerifyTimer = setTimeout(() => {
             state.__tmSilentCacheVerifyTimer = 0;
             const run = async () => {
                 if (token !== (Number(state.openToken) || 0)) return;
                 if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== groupId) return;
+                const now = Date.now();
+                const quietUntil = Number(state.contextInteractionQuietUntil || 0);
+                const deferForScroll = __tmShouldDeferMainViewRefreshForActiveScroll({
+                    mode: 'current',
+                    reason: `${source}:verify`,
+                });
+                if (quietUntil > now || deferForScroll) {
+                    const retryMs = Math.max(
+                        240,
+                        quietUntil > now ? quietUntil - now + 32 : 0,
+                        deferForScroll ? __tmGetDeferredMainViewRefreshDelay({ mode: 'current', reason: `${source}:verify` }) : 0
+                    );
+                    state.__tmSilentCacheVerifyTimer = setTimeout(() => {
+                        state.__tmSilentCacheVerifyTimer = 0;
+                        try { __tmScheduleIdleTask(run, 120); } catch (e) { setTimeout(run, 120); }
+                    }, retryMs);
+                    return;
+                }
                 state.__tmSilentCacheVerifyInFlight = true;
                 try {
                     const beforeFingerprint = __tmGetVisibleTaskFingerprint();
@@ -3628,6 +3651,150 @@ return Number(state.contextInteractionQuietUntil || 0);
         return true;
     }
 
+    async function __tmProbeCurrentGroupTaskFreshness() {
+        const docIds = Array.from(new Set((Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => __tmIsLikelyBlockId(id)))).sort();
+        if (!docIds.length || !API || typeof API.getTaskFreshnessByDocuments !== 'function') {
+            return { status: 'unknown', changed: false, unavailable: true, docCount: docIds.length };
+        }
+        const taskTreeByDocId = new Map((Array.isArray(state.taskTree) ? state.taskTree : [])
+            .map((doc) => [String(doc?.id || '').trim(), doc])
+            .filter(([id]) => !!id));
+        const allDocumentsById = new Map((Array.isArray(state.allDocuments) ? state.allDocuments : [])
+            .map((doc) => [String(doc?.id || '').trim(), doc])
+            .filter(([id]) => !!id));
+        const localMap = new Map();
+        docIds.forEach((docId) => {
+            const doc = taskTreeByDocId.get(docId) || allDocumentsById.get(docId) || null;
+            const seenTaskIds = new Set();
+            let taskCount = 0;
+            let taskUpdated = '';
+            const walk = (tasks) => {
+                (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+                    const taskId = String(task?.id || task?.blockId || '').trim();
+                    if (__tmIsLikelyBlockId(taskId) && !seenTaskIds.has(taskId)) {
+                        seenTaskIds.add(taskId);
+                        taskCount += 1;
+                        const updated = String(task?.updated || task?.updatedAt || '').trim();
+                        if (updated > taskUpdated) taskUpdated = updated;
+                    }
+                    if (Array.isArray(task?.children) && task.children.length > 0) walk(task.children);
+                });
+            };
+            walk(doc?.tasks);
+            localMap.set(docId, {
+                docUpdated: String(doc?.updated || doc?.docUpdated || allDocumentsById.get(docId)?.updated || '').trim(),
+                taskCount,
+                taskUpdated,
+            });
+        });
+        let remoteMeta = null;
+        try { remoteMeta = await API.getTaskFreshnessByDocuments(docIds); } catch (e) { remoteMeta = null; }
+        if (!remoteMeta || remoteMeta.unavailable || !(remoteMeta.map instanceof Map)) {
+            return { status: 'unknown', changed: false, unavailable: true, docCount: docIds.length };
+        }
+        const changedDocIds = docIds.filter((docId) => {
+            const local = localMap.get(docId) || {};
+            const remote = remoteMeta.map.get(docId) || null;
+            if (!remote || remote.exists !== true) return true;
+            return String(remote.docUpdated || '') !== String(local.docUpdated || '')
+                || Number(remote.taskCount || 0) !== Number(local.taskCount || 0)
+                || String(remote.taskUpdated || '') !== String(local.taskUpdated || '');
+        });
+        return {
+            status: changedDocIds.length > 0 ? 'changed' : 'unchanged',
+            changed: changedDocIds.length > 0,
+            unavailable: false,
+            docCount: docIds.length,
+            changedDocIds,
+            queryTime: Number(remoteMeta.queryTime || 0) || 0,
+        };
+    }
+
+    function __tmScheduleDocGroupSwitchVerifyAfterFirstPaint(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const token = Number(state.openToken) || 0;
+        const groupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const source = String(opts.source || 'switch-doc-group:snapshot-verify').trim() || 'switch-doc-group:snapshot-verify';
+        const delayMs = Math.max(240, Number(opts.delayMs || 1700) || 1700);
+        try {
+            if (state.__tmDocGroupSwitchVerifyTimer) clearTimeout(state.__tmDocGroupSwitchVerifyTimer);
+        } catch (e) {}
+        const run = async () => {
+            state.__tmDocGroupSwitchVerifyTimer = 0;
+            if (token !== (Number(state.openToken) || 0)) return;
+            if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== groupId) return;
+            const gate = __tmGetBackgroundRefreshGateMeta(source);
+            if (!gate.allowRun) {
+                if (gate.parkUntilVisible) return;
+                schedule(Math.max(240, Number(gate.waitMs || 0) || 240));
+                return;
+            }
+            try {
+                await __tmSyncRemoteDocGroupSettingsIfNeeded({
+                    silent: true,
+                    scopeVerifyTtlMs: Math.max(5000, Number(opts.scopeVerifyTtlMs || 60000) || 60000),
+                });
+            } catch (e) {}
+            if (token !== (Number(state.openToken) || 0)) return;
+            if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== groupId) return;
+            const freshness = await __tmProbeCurrentGroupTaskFreshness();
+            const freshnessStatus = String(freshness?.status || (freshness?.changed ? 'changed' : 'unknown')).trim() || 'unknown';
+            if (freshnessStatus === 'unchanged') return;
+            let unknownFallbackAtByGroup = null;
+            if (freshnessStatus === 'unknown') {
+                const now = Date.now();
+                const fallbackAtByGroup = (state.__tmDocGroupFreshnessFallbackAtByGroup
+                    && typeof state.__tmDocGroupFreshnessFallbackAtByGroup === 'object')
+                    ? state.__tmDocGroupFreshnessFallbackAtByGroup
+                    : (state.__tmDocGroupFreshnessFallbackAtByGroup = {});
+                const lastFallbackAt = Number(fallbackAtByGroup[groupId] || 0) || 0;
+                if (lastFallbackAt && now - lastFallbackAt < 60000) return;
+                unknownFallbackAtByGroup = fallbackAtByGroup;
+            }
+            const refreshGate = __tmGetBackgroundRefreshGateMeta(`${source}:task-refresh`);
+            if (!refreshGate.allowRun) {
+                if (refreshGate.parkUntilVisible) return;
+                schedule(Math.max(240, Number(refreshGate.waitMs || 0) || 240));
+                return;
+            }
+            if (unknownFallbackAtByGroup) unknownFallbackAtByGroup[groupId] = Date.now();
+            await loadSelectedDocuments({
+                skipRender: true,
+                showInlineLoading: false,
+                preferFastFirstPaint: false,
+                forceFreshTasks: true,
+                forceRefreshScope: false,
+                skipSnapshotFirstPaint: true,
+                skipTaskIndexFirstPaint: true,
+                skipSessionRestoreFirstPaint: true,
+                skipDocSessionRestoreFirstPaint: true,
+                skipFullLoadAfterFastFirstPaint: true,
+                source: freshnessStatus === 'unknown'
+                    ? 'switch-doc-group:task-freshness-unknown'
+                    : 'switch-doc-group:task-freshness-changed',
+            });
+            if (token !== (Number(state.openToken) || 0)) return;
+            if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== groupId) return;
+            try { recalcStats(); } catch (e) {}
+            try {
+                const modal = state.modal instanceof Element ? state.modal : null;
+                if (!modal || !__tmRerenderCurrentViewInPlace(modal)) render();
+            } catch (e) {
+                try { render(); } catch (e2) {}
+            }
+        };
+        const schedule = (waitMs) => {
+            state.__tmDocGroupSwitchVerifyTimer = setTimeout(() => {
+                state.__tmDocGroupSwitchVerifyTimer = 0;
+                try { __tmScheduleIdleTask(run, 120); } catch (e) { setTimeout(run, 120); }
+            }, Math.max(0, Number(waitMs) || 0));
+        };
+        schedule(delayMs);
+        return true;
+    }
+
     async function __tmRefreshVisibleViewAfterTaskSnapshotSync(reason = 'task-snapshot-sync') {
         const source = String(reason || 'task-snapshot-sync').trim() || 'task-snapshot-sync';
         try {
@@ -3688,12 +3855,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { state.__tmTaskSnapshotSyncRefreshInFlight = false; } catch (e2) {}
             return false;
         }
-    }
-
-    function __tmGetListAutoLoadMoreBatchSize(meta = null) {
-        const stateMeta = (meta && typeof meta === 'object') ? meta : __tmGetListAutoLoadMoreState();
-        const step = Math.max(20, Number(stateMeta.step || 0) || 20);
-        return Math.max(20, Math.min(step, 60));
     }
 
     function __tmScheduleListAutoLoadMoreHydration(options = {}) {
@@ -3777,11 +3938,14 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.listAutoLoadMoreInFlight = true;
         state.listAutoLoadMoreLastTs = now;
         try {
-            const growBy = __tmGetListAutoLoadMoreBatchSize(meta);
-            state.listRenderLimit = Math.min(meta.total, meta.currentLimit + growBy);
+            const grown = __tmGrowViewRenderWindow(mode, meta.total);
+            if (!grown || grown.limit <= grown.previousLimit) return false;
             if (mode === 'checklist') {
                 __tmRenderChecklistPreserveScroll();
-            } else if (!__tmRerenderListInPlace(state.modal)) {
+            } else if (!__tmRerenderListInPlace(state.modal, {
+                appendOnly: true,
+                previousLimit: grown.previousLimit,
+            })) {
                 render();
             }
             try {
@@ -4464,6 +4628,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                 startDate: task?.startDate,
                 completionTime: task?.completionTime,
             });
+            const currentTriggerType = currentRule.enabled && currentRule.type !== 'none'
+                ? currentRule.trigger
+                : 'due';
             const currentRepeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
             const currentEndMode = currentRule.maxOccurrences > 0 ? 'count' : (currentRule.until ? 'date' : 'never');
             const anchorDate = __tmNormalizeDateOnly(currentRule.anchorDate || task?.completionTime || task?.startDate || new Date());
@@ -4476,9 +4643,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                         <div class="tm-repeat-field">
                             <div class="tm-repeat-label">触发方式</div>
                             <select class="tm-repeat-select" data-tm-repeat-field="triggerType">
-                                <option value="none"${(!currentRule.enabled || currentRule.type === 'none') ? ' selected' : ''}>不循环</option>
-                                <option value="due"${(currentRule.enabled && currentRule.trigger === 'due') ? ' selected' : ''}>到期重复</option>
-                                <option value="complete"${(currentRule.enabled && currentRule.trigger === 'complete') ? ' selected' : ''}>完成重复</option>
+                                <option value="due"${currentTriggerType === 'due' ? ' selected' : ''}>到期重复</option>
+                                <option value="complete"${currentTriggerType === 'complete' ? ' selected' : ''}>完成重复</option>
+                                <option value="none"${currentTriggerType === 'none' ? ' selected' : ''}>不循环</option>
                             </select>
                         </div>
                         <div class="tm-repeat-field">
@@ -10070,12 +10237,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         state.activeDocId = resolvedDocId;
         try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
-        if (resolvedDocId !== 'all' && !__tmIsOtherBlockTabId(resolvedDocId)) {
-            try {
-                state.listRenderStep = 1200;
-                state.listRenderLimit = Math.max(Number(state.listRenderLimit) || 0, 1200);
-            } catch (e) {}
-        }
+        try { __tmResetViewRenderWindow(state.viewMode, 0); } catch (e) {}
         __tmMarkContextInteractionQuiet('switch-doc', 900);
         try { recalcStats(); } catch (e) {}
         const applied = await __tmApplyCurrentContextViewProfile();
@@ -10145,10 +10307,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const activeId = __tmBuildDocTabCustomGroupActiveId(gid);
         state.activeDocId = activeId || 'all';
         try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
-        try {
-            state.listRenderStep = 1200;
-            state.listRenderLimit = Math.max(Number(state.listRenderLimit) || 0, 1200);
-        } catch (e) {}
+        try { __tmResetViewRenderWindow(state.viewMode, 0); } catch (e) {}
         __tmMarkContextInteractionQuiet('switch-doc-tab-group', 900);
         try { recalcStats(); } catch (e) {}
         const applied = await __tmApplyCurrentContextViewProfile();
@@ -13078,15 +13237,11 @@ return Number(state.contextInteractionQuietUntil || 0);
                 const viewMode = String(state.viewMode || '').trim();
                 const isListLike = viewMode === 'checklist' || viewMode === 'list';
                 const filteredCount = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
-                const listRenderCap = (() => {
-                    if (runtimeMobileFastPath) return 96;
-                    if (filteredCount >= 800) return 120;
-                    if (filteredCount >= 360) return 140;
-                    return 180;
-                })();
-                const renderCap = isListLike
-                    ? listRenderCap
-                    : (runtimeMobileFastPath ? 360 : 1200);
+                if (isListLike) {
+                    __tmResetViewRenderWindow(viewMode, filteredCount);
+                    return;
+                }
+                const renderCap = runtimeMobileFastPath ? 360 : 1200;
                 state.listRenderStep = renderCap;
                 state.listRenderLimit = filteredCount > 0 ? Math.min(renderCap, filteredCount) : renderCap;
             } catch (e) {}
@@ -13289,28 +13444,18 @@ return Number(state.contextInteractionQuietUntil || 0);
                 logSwitchGroup('load-selected-documents-deferred', {
                     reason: 'snapshot-first-render',
                     mobileFastPath: runtimeMobileFastPath ? 1 : 0,
-                    mode: 'fresh-load-after-snapshot',
+                    mode: 'lightweight-group-and-task-verify',
                 });
-                await loadSelectedDocuments({
-                    showInlineLoading: false,
-                    preferFastFirstPaint: false,
-                    forceFastFirstPaintBudget: false,
-                    forceFreshTasks: true,
-                    forceRefreshScope: true,
-                    forceShellRender: true,
-                    switchGroupRenderCap: runtimeMobileFastPath ? 96 : 1200,
-                    skipSnapshotFirstPaint: true,
-                    skipSessionRestoreFirstPaint: true,
-                    skipDocSessionRestoreFirstPaint: true,
-                    skipTaskIndexFirstPaint: true,
-                    taskIndexFirstPaintCachedOnly: false,
-                    refreshAfterTaskIndexFirstPaint: false,
-                    source: 'switch-doc-group:full:snapshot',
+                const syncScheduled = __tmScheduleDocGroupSwitchVerifyAfterFirstPaint({
+                    source: 'switch-doc-group:snapshot-verify',
+                    delayMs: runtimeMobileFastPath ? 2100 : 1700,
+                    scopeVerifyTtlMs: 60000,
                 });
-                logSwitchGroup('load-selected-documents-done', {
+                logSwitchGroup('load-selected-documents-scheduled', {
                     durationMs: Date.now() - loadStart,
                     mobileFastPath: runtimeMobileFastPath ? 1 : 0,
                     reason: 'snapshot-first-render',
+                    scheduled: syncScheduled ? 1 : 0,
                 });
             } else {
                 const loadPromise = loadSelectedDocuments(runtimeMobileFastPath

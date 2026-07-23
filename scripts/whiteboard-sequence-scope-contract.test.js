@@ -9,6 +9,8 @@ const root = path.resolve(__dirname, '..');
 const storeSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/10-stores-rules-and-cache.js'), 'utf8');
 const apiSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/20-api-and-runtime-services.js'), 'utf8');
 const filterSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
+const renderSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/40-render-runtime.js'), 'utf8');
+const desktopMenuSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/45-render-shell-controls-and-resize.js'), 'utf8');
 const settingsSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/60-settings-screen.js'), 'utf8');
 const actionsSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/70-doc-group-and-settings-actions.js'), 'utf8');
 
@@ -16,6 +18,8 @@ assert.match(apiSource, /function __tmNormalizeWhiteboardSequenceScope[\s\S]*?'g
 assert.match(storeSource, /whiteboardSequenceScope:\s*'document'/, 'existing users must keep document whiteboards as the default sequence source');
 assert.match(storeSource, /tm_whiteboard_sequence_scope/, 'sequence scope must persist locally');
 assert.match(settingsSource, /白板顺序依据[\s\S]*?value="document"[\s\S]*?单文档白板[\s\S]*?value="global"[\s\S]*?全局白板/, 'settings must expose both sequence sources');
+assert.doesNotMatch(renderSource, /白板顺序模式（/, 'mobile menu must not append the sequence source to the mode label');
+assert.doesNotMatch(desktopMenuSource, /白板顺序模式（/, 'desktop menu must not append the sequence source to the mode label');
 assert.match(actionsSource, /updateWhiteboardSequenceScope[\s\S]*?applyFilters\(\)/, 'changing the sequence source must immediately reapply filters');
 
 const sequenceStart = filterSource.indexOf('function __tmIsTaskAndDescDoneForSequence');

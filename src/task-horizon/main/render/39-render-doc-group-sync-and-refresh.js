@@ -264,6 +264,27 @@
         }
     }
 
+    function __tmShouldVerifyDocGroupScope(groupId, options = {}) {
+        const opt = (options && typeof options === 'object') ? options : {};
+        if (opt.forceScopeVerify === true) return true;
+        const gid = String(groupId || 'all').trim() || 'all';
+        const ttlMs = Math.max(5000, Number(opt.scopeVerifyTtlMs || 60000) || 60000);
+        const checkedAtByGroup = state.__tmDocGroupScopeVerifyAtByGroup;
+        const checkedAt = checkedAtByGroup && typeof checkedAtByGroup === 'object'
+            ? Number(checkedAtByGroup[gid] || 0)
+            : 0;
+        return !checkedAt || Date.now() - checkedAt >= ttlMs;
+    }
+
+    function __tmMarkDocGroupScopeVerified(groupId, verified = true) {
+        const gid = String(groupId || 'all').trim() || 'all';
+        if (!state.__tmDocGroupScopeVerifyAtByGroup || typeof state.__tmDocGroupScopeVerifyAtByGroup !== 'object') {
+            state.__tmDocGroupScopeVerifyAtByGroup = {};
+        }
+        if (verified) state.__tmDocGroupScopeVerifyAtByGroup[gid] = Date.now();
+        else delete state.__tmDocGroupScopeVerifyAtByGroup[gid];
+    }
+
     function __tmApplyDocGroupSyncSnapshot(source, options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
         const targetData = (opt.targetData && typeof opt.targetData === 'object') ? opt.targetData : SettingsStore?.data;
@@ -333,15 +354,19 @@
     async function __tmReloadCurrentDocGroupAfterSync(options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
         try { await __tmApplyCurrentContextViewProfile(); } catch (e) {}
-        try {
-            await loadSelectedDocuments({
-                skipRender: true,
-                showInlineLoading: false,
-                skipEmptyDocGroupCloudSync: true,
-                forceRefreshScope: opt.forceRefreshScope === true,
-                source: String(opt.source || 'doc-group-dropdown-sync').trim() || 'doc-group-dropdown-sync'
-            });
-        } catch (e) {}
+        if (opt.skipTaskReload === true) {
+            try { applyFilters(); } catch (e) {}
+        } else {
+            try {
+                await loadSelectedDocuments({
+                    skipRender: true,
+                    showInlineLoading: false,
+                    skipEmptyDocGroupCloudSync: true,
+                    forceRefreshScope: opt.forceRefreshScope === true,
+                    source: String(opt.source || 'doc-group-dropdown-sync').trim() || 'doc-group-dropdown-sync'
+                });
+            } catch (e) {}
+        }
         const activeDocChanged = __tmEnsureActiveDocValidAfterDocGroupSync();
         if (activeDocChanged) {
             try {
@@ -372,6 +397,7 @@
             if (opt.silent !== true) {
                 try { hint('同步文档分组中，请稍后', 'info'); } catch (e) {}
             }
+            try { await __tmDocGroupDropdownSyncPromise; } catch (e) {}
             return true;
         }
         const localSettingsBusy = !!(SettingsStore.saveDirty || SettingsStore.saving);
@@ -389,14 +415,34 @@
                 try { hint('同步文档分组中，请稍后', 'info'); } catch (e) {}
             }
             const syncPromise = Promise.resolve().then(async () => {
+                const previousGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+                const previousScopeFingerprint = __tmBuildDocScopeFingerprint(state.__tmLoadedDocIdsForTasks, previousGroupId);
                 __tmApplyDocGroupSyncSnapshot(remoteSettings);
                 __tmEnsureDocGroupContextValidAfterSync();
                 try { SettingsStore.syncToLocal(); } catch (e) {}
                 try { __tmDocExpandCache.clear(); } catch (e) {}
                 try { __tmResolvedDocIdsCache = null; } catch (e) {}
                 try { __tmResolvedDocIdsPromise = null; } catch (e) {}
+                const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+                let refreshedDocIds = [];
+                let scopeResolved = false;
+                try {
+                    refreshedDocIds = await resolveDocIdsFromGroups({
+                        groupId: currentGroupId,
+                        forceRefreshScope: true,
+                    });
+                    scopeResolved = true;
+                    __tmMarkDocGroupScopeVerified(currentGroupId, true);
+                } catch (e) {
+                    __tmMarkDocGroupScopeVerified(currentGroupId, false);
+                }
+                const refreshedScopeFingerprint = scopeResolved
+                    ? __tmBuildDocScopeFingerprint(refreshedDocIds, currentGroupId)
+                    : '';
+                const scopeChanged = !scopeResolved || refreshedScopeFingerprint !== previousScopeFingerprint;
                 await __tmReloadCurrentDocGroupAfterSync({
-                    forceRefreshScope: true,
+                    forceRefreshScope: !scopeResolved,
+                    skipTaskReload: !scopeChanged,
                     source: 'doc-group-dropdown-sync'
                 });
             }).catch(() => null).finally(() => {
@@ -405,10 +451,13 @@
                 }
             });
             __tmDocGroupDropdownSyncPromise = syncPromise;
+            try { await syncPromise; } catch (e) {}
             return true;
         }
 
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (!__tmShouldVerifyDocGroupScope(currentGroupId, opt)) return false;
+        __tmMarkDocGroupScopeVerified(currentGroupId, true);
         const loadedScopeFingerprint = __tmBuildDocScopeFingerprint(state.__tmLoadedDocIdsForTasks, currentGroupId);
         let refreshedDocIds = [];
         try {
@@ -417,7 +466,8 @@
                 forceRefreshScope: true,
             });
         } catch (e) {
-            refreshedDocIds = [];
+            __tmMarkDocGroupScopeVerified(currentGroupId, false);
+            return false;
         }
         const refreshedScopeFingerprint = __tmBuildDocScopeFingerprint(refreshedDocIds, currentGroupId);
         if (!refreshedScopeFingerprint || refreshedScopeFingerprint === loadedScopeFingerprint) return false;
@@ -427,7 +477,7 @@
         }
         const syncPromise = Promise.resolve().then(async () => {
             await __tmReloadCurrentDocGroupAfterSync({
-                forceRefreshScope: true,
+                forceRefreshScope: false,
                 source: 'doc-group-dropdown-scope-sync'
             });
         }).catch(() => null).finally(() => {
@@ -436,6 +486,7 @@
             }
         });
         __tmDocGroupDropdownSyncPromise = syncPromise;
+        try { await syncPromise; } catch (e) {}
         return true;
     }
 
@@ -550,8 +601,6 @@
             aiSidebarOpen: !!state.aiSidebarOpen,
             aiMobilePanelOpen: !!state.aiMobilePanelOpen,
             calendarDockDate: String(state.calendarDockDate || '').trim(),
-            listRenderLimit: Number(state.listRenderLimit) || 100,
-            listRenderStep: Number(state.listRenderStep) || 100,
             viewScroll: __tmCloneHostSessionValue(state.viewScroll || {}),
         };
     }
@@ -588,8 +637,6 @@
         state.aiSidebarOpen = !!saved.aiSidebarOpen;
         state.aiMobilePanelOpen = !!saved.aiMobilePanelOpen;
         state.calendarDockDate = String(saved.calendarDockDate || '').trim();
-        state.listRenderLimit = Number(saved.listRenderLimit) || 100;
-        state.listRenderStep = Number(saved.listRenderStep) || 100;
         state.viewScroll = __tmCloneHostSessionValue(saved.viewScroll || {});
     }
 
@@ -1103,5 +1150,3 @@ return false;
             globalThis.__tmCalendar.toggleSidebar();
         } catch (e) {}
     };
-
-

@@ -154,6 +154,10 @@
     min-height: 0;
 }
 
+:is(.tm-calendar-host.fc, .tm-calendar-host .fc, #tmCalendarSideDockTimeline.fc, #tmCalendarSideDockTimeline .fc) .fc-scrollgrid-section {
+    height: auto !important;
+}
+
 .tm-calendar-root--month-view .tm-calendar-host,
 .tm-calendar-root--month-view .tm-calendar-host .fc,
 .tm-calendar-root--month-view .tm-calendar-host.fc,
@@ -3232,7 +3236,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     --fc-timegrid-slot-min-height: var(--tm-cal-slot-half-hour-height, 29px);
     --fc-page-bg-color: var(--tm-bg-color);
     --fc-border-color: var(--tm-calendar-grid-border-color, var(--tm-table-border-color, rgba(0,0,0,0.14)));
-    --fc-today-bg-color: var(--tm-calendar-today-highlight-color, color-mix(in srgb, var(--tm-primary-color) 8%, var(--tm-bg-color)));
+    --fc-today-bg-color: color-mix(in srgb, var(--tm-primary-color) 8%, var(--tm-bg-color));
     --fc-now-indicator-color: var(--tm-primary-color);
     --fc-button-text-color: #323130;
     --fc-button-bg-color: #f3f2f1;
@@ -3260,7 +3264,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     --fc-timegrid-slot-min-height: var(--tm-cal-slot-half-hour-height, 29px);
     --fc-page-bg-color: var(--tm-bg-color);
     --fc-border-color: var(--tm-calendar-grid-border-color, var(--tm-table-border-color, rgba(0,0,0,0.14)));
-    --fc-today-bg-color: var(--tm-calendar-today-highlight-color, color-mix(in srgb, var(--tm-primary-color) 8%, var(--tm-bg-color)));
+    --fc-today-bg-color: color-mix(in srgb, var(--tm-primary-color) 8%, var(--tm-bg-color));
     --fc-now-indicator-color: var(--tm-primary-color);
     position: relative;
     scrollbar-width: none;
@@ -3328,14 +3332,8 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     display: none;
 }
 
-#tmCalendarSideDockTimeline .fc .fc-timegrid-col.fc-day-today,
-#tmCalendarSideDockTimeline .fc .fc-daygrid-day.fc-day-today {
-    background: var(--fc-today-bg-color);
-}
-
-.tm-calendar-host .fc .fc-timegrid-col.fc-day-today,
-.tm-calendar-host .fc .fc-daygrid-day.fc-day-today {
-    background: var(--fc-today-bg-color);
+:is(.tm-calendar-host.fc, .tm-calendar-host .fc, #tmCalendarSideDockTimeline.fc, #tmCalendarSideDockTimeline .fc) :is(.fc-timegrid-col.fc-day-today, .fc-daygrid-day.fc-day-today) {
+    background-color: var(--fc-today-bg-color) !important;
 }
 
 #tmCalendarSideDockTimeline .fc .fc-col-header-cell-cushion {

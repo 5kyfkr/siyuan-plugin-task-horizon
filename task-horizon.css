@@ -15182,8 +15182,8 @@ select.tm-btn-secondary {
 
 .tm-table td {
     padding: 0 6px;
-    border-bottom: none;
-    box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
+    border-bottom: 1px solid var(--tm-table-border-color);
+    box-shadow: none;
     border-right: 1px solid var(--tm-table-border-color);
     vertical-align: middle;
     color: var(--tm-text-color);
@@ -15201,6 +15201,13 @@ select.tm-btn-secondary {
 
 .tm-body:not(.tm-body--timeline) #tmTaskTable tbody tr {
     height: var(--tm-row-height);
+}
+
+@supports (content-visibility: auto) {
+    .tm-body.tm-body--list #tmTaskTable tbody tr[data-id] {
+        content-visibility: auto;
+        contain-intrinsic-size: auto var(--tm-row-height);
+    }
 }
 
 .tm-table td.tm-cell-empty {

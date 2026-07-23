@@ -403,6 +403,218 @@
         return await window.tmOpenHomepage();
     };
 
+    const __TM_BODY_ONLY_VIEW_SWITCH_MODES = new Set(['list', 'checklist', 'timeline', 'kanban']);
+
+    function __tmCaptureBodyOnlyViewScroll(modeInput, modalEl) {
+        const mode = String(modeInput || '').trim();
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
+        if (mode === 'timeline') {
+            const globalScrollHost = __tmGetTimelineGlobalScrollHost(modal);
+            const leftBody = modal.querySelector('#tmTimelineLeftBody');
+            const ganttBody = modal.querySelector('#tmGanttBody');
+            state.viewScroll.timeline = {
+                top: Number(globalScrollHost?.scrollTop ?? leftBody?.scrollTop) || 0,
+                left: Number(globalScrollHost?.scrollLeft ?? ganttBody?.scrollLeft) || 0,
+            };
+            return;
+        }
+        if (mode === 'kanban') {
+            const body = modal.querySelector('.tm-body.tm-body--kanban');
+            const cols = {};
+            modal.querySelectorAll('.tm-kanban-col').forEach((col) => {
+                const key = __tmGetKanbanColScrollKey(col);
+                const colBody = col.querySelector?.('.tm-kanban-col-body');
+                if (key && colBody instanceof HTMLElement) cols[key] = Number(colBody.scrollTop) || 0;
+            });
+            state.viewScroll.kanban = { left: Number(body?.scrollLeft) || 0, cols };
+            return;
+        }
+        const pane = mode === 'checklist'
+            ? modal.querySelector('.tm-checklist-scroll')
+            : modal.querySelector('.tm-body.tm-body--list');
+        state.viewScroll.list = {
+            top: Number(pane?.scrollTop) || 0,
+            left: Number(pane?.scrollLeft) || 0,
+        };
+    }
+
+    function __tmRestoreBodyOnlyViewScroll(modeInput, modalEl) {
+        const mode = String(modeInput || '').trim();
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        const apply = () => {
+            if (mode === 'timeline') {
+                const saved = state.viewScroll?.timeline || {};
+                const top = Number(saved.top) || 0;
+                const left = Number(saved.left) || 0;
+                const globalScrollHost = __tmGetTimelineGlobalScrollHost(modal);
+                const leftBody = modal.querySelector('#tmTimelineLeftBody');
+                const ganttBody = modal.querySelector('#tmGanttBody');
+                if (globalScrollHost instanceof HTMLElement) {
+                    globalScrollHost.scrollTop = top;
+                    globalScrollHost.scrollLeft = left;
+                } else {
+                    if (leftBody instanceof HTMLElement) leftBody.scrollTop = top;
+                    if (ganttBody instanceof HTMLElement) {
+                        ganttBody.scrollTop = top;
+                        ganttBody.scrollLeft = left;
+                    }
+                }
+                return;
+            }
+            if (mode === 'kanban') {
+                const saved = state.viewScroll?.kanban || {};
+                const body = modal.querySelector('.tm-body.tm-body--kanban');
+                if (body instanceof HTMLElement) body.scrollLeft = Number(saved.left) || 0;
+                const cols = saved.cols && typeof saved.cols === 'object' ? saved.cols : {};
+                modal.querySelectorAll('.tm-kanban-col').forEach((col) => {
+                    const key = __tmGetKanbanColScrollKey(col);
+                    const colBody = col.querySelector?.('.tm-kanban-col-body');
+                    if (key && colBody instanceof HTMLElement) colBody.scrollTop = Number(cols[key]) || 0;
+                });
+                return;
+            }
+            const saved = state.viewScroll?.list || {};
+            const pane = mode === 'checklist'
+                ? modal.querySelector('.tm-checklist-scroll')
+                : modal.querySelector('.tm-body.tm-body--list');
+            if (pane instanceof HTMLElement) {
+                pane.scrollTop = Number(saved.top) || 0;
+                pane.scrollLeft = Number(saved.left) || 0;
+                try { pane.__tmChecklistScrollUpdateThumb?.(); } catch (e) {}
+                try { pane.__tmTableScrollUpdateThumb?.(); } catch (e) {}
+            }
+        };
+        try { apply(); } catch (e) {}
+        try { requestAnimationFrame(() => requestAnimationFrame(apply)); } catch (e) {}
+    }
+
+    function __tmRenderBodyOnlyViewToolbarExtra(modeInput, scene) {
+        const mode = String(modeInput || '').trim();
+        if (mode === 'timeline') return scene?.showTopbarTimelineToolbar ? String(scene.timelineCompactToolbarGroupHtml || '') : '';
+        if (mode !== 'kanban') return '';
+        const boardMode = __tmGetKanbanBoardMode();
+        return __tmRenderTopbarSelect({
+            id: 'tmTopbarKanbanModeSelect',
+            label: '看板模式',
+            className: 'tm-kanban-mode-select tm-topbar-select--narrow',
+            tooltip: '切换看板模式',
+            options: [
+                { value: 'status', label: '状态', selected: boardMode === 'status', action: "tmSetKanbanBoardMode('status')" },
+                { value: 'heading', label: '标题', selected: boardMode === 'heading', action: "tmSetKanbanBoardMode('heading')" },
+                { value: 'time', label: '时间', selected: boardMode === 'time', action: "tmSetKanbanBoardMode('time')" },
+            ],
+        });
+    }
+
+    function __tmSyncBodyOnlyViewSwitcherButtons(modalEl, activeMode) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        modal.querySelectorAll('[data-tm-view-mode]').forEach((button) => {
+            const active = String(button.getAttribute('data-tm-view-mode') || '').trim() === activeMode;
+            button.classList.toggle('tm-view-seg-item--active', active);
+            button.setAttribute('data-state', active ? 'active' : 'inactive');
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+    }
+
+    function __tmBindBodyOnlyViewAfterSwitch(modeInput, modalEl) {
+        const mode = String(modeInput || '').trim();
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        if (mode === 'list') {
+            if (!(modal.querySelector('.tm-body.tm-body--list') instanceof HTMLElement)) return false;
+            try { __tmBindListScrollVisibility(modal); } catch (e) {}
+            try { __tmBindAutoLoadMoreOnScroll(modal, 'list'); } catch (e) {}
+        } else if (mode === 'checklist') {
+            if (!(modal.querySelector('.tm-checklist-scroll') instanceof HTMLElement)) return false;
+            try { __tmBindChecklistScrollVisibility(modal); } catch (e) {}
+            try { __tmBindChecklistSheetTouchFallback(modal); } catch (e) {}
+            try { __tmBindAutoLoadMoreOnScroll(modal, 'checklist'); } catch (e) {}
+            try { __tmRefreshChecklistSelectionInPlace(modal, 'view-switch-body-only', { forceRebuild: true }); } catch (e) {}
+        } else if (mode === 'timeline') {
+            if (!__tmRerenderTimelineInPlace(modal)) return false;
+            if (!__tmBindTimelineStageInteractions(modal)) return false;
+        } else if (mode === 'kanban') {
+            if (!(modal.querySelector('.tm-body.tm-body--kanban') instanceof HTMLElement)) return false;
+            try { __tmNormalizeKanbanDetailFloatHost(modal); } catch (e) {}
+            try { __tmBindKanbanPan(modal); } catch (e) {}
+            try { __tmScheduleKanbanBottomNavAvoidance(modal); } catch (e) {}
+            try { __tmRefreshKanbanDetailInPlace(modal, { source: 'view-switch-body-only' }); } catch (e) {}
+            try { __tmSyncKanbanHeadingModeSegmentedUi(modal); } catch (e) {}
+        } else {
+            return false;
+        }
+        try { __tmBindResponsiveTableResize(modal); } catch (e) {}
+        try { __tmApplySearchHighlights(modal, state.searchKeyword); } catch (e) {}
+        try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        try { __tmBindFloatingTooltips(modal); } catch (e) {}
+        try { __tmBindTopbarOverflowTooltips(modal); } catch (e) {}
+        try { __tmSyncCurrentViewDomRenderSignature(mode); } catch (e) {}
+        return true;
+    }
+
+    function __tmTrySwitchViewBodyInPlace(prevModeInput, nextModeInput) {
+        const prevMode = String(prevModeInput || '').trim();
+        const nextMode = String(nextModeInput || '').trim();
+        if (!__TM_BODY_ONLY_VIEW_SWITCH_MODES.has(prevMode) || !__TM_BODY_ONLY_VIEW_SWITCH_MODES.has(nextMode)) return false;
+        if (state.homepageOpen || state.attachmentLibraryOpen || __tmIsMobileDevice() || __tmIsRuntimeMobileClient() || __tmHostUsesMobileUI() || __tmIsDockHost()) return false;
+        const modal = state.modal instanceof HTMLElement ? state.modal : null;
+        if (!modal || !modal.isConnected || modal.classList.contains('tm-modal--mobile') || modal.classList.contains('tm-modal--dock')) return false;
+        const width = Number(modal.getBoundingClientRect?.().width) || Number(modal.clientWidth) || 0;
+        if ((width > 0 && width <= 768) || window.matchMedia?.('(max-width: 768px)')?.matches) return false;
+        if (__tmShouldShowCalendarSideDock() || (state.aiSidebarOpen && __tmShouldShowAiSidebar()) || __tmIsMultiSelectActive()) return false;
+        if (modal.querySelector('.tm-calendar-side-dock,.tm-ai-side-dock,.tm-checklist-sheet--open,.tm-task-detail-inline-popover')) return false;
+        const activeDetailPanel = modal.querySelector('#tmChecklistDetailPanel,#tmKanbanDetailPanel,#tmTaskDetailSheetPanel');
+        if (activeDetailPanel?.__tmTaskDetailPendingSave === true || activeDetailPanel?.__tmTaskDetailActiveInlinePopover || activeDetailPanel?.__tmTaskDetailNoteActive === true) return false;
+        const stage = modal.querySelector('.tm-main-stage');
+        const toolbarExtra = modal.querySelector('[data-tm-view-toolbar-extra="1"]');
+        if (!(stage instanceof HTMLElement) || !(toolbarExtra instanceof HTMLElement) || modal.querySelectorAll('.tm-main-stage').length !== 1) return false;
+
+        try {
+            const scene = __tmBuildRenderSceneContext({
+                bodyAnimClass: '',
+                tableAvailableWidth: Number(state.tableAvailableWidth) || 0,
+                isMobile: false,
+                isDockHost: false,
+                isRuntimeMobile: false,
+                isLandscape: false,
+                isDesktopNarrow: false,
+                mountEl: modal.classList.contains('tm-modal--tab') ? modal.parentElement : null,
+            });
+            if (String(scene?.renderMode || '').trim() !== nextMode || scene.showCalendarSideDock || scene.showAiSideDock || scene.showTaskDetailSheet || scene.showMultiSelectBar) return false;
+            const bodyHtml = String(scene.mainBodyHtml || '').trim();
+            if (!bodyHtml) return false;
+            __tmCaptureBodyOnlyViewScroll(prevMode, modal);
+            try { __tmHideFloatingTooltip(); } catch (e) {}
+            if (prevMode === 'timeline') {
+                try { __tmClearTimelineTodayIndicatorTimer(); } catch (e) {}
+                try { modal.__tmTimelineStageInteractionsCleanup?.(); } catch (e) {}
+            }
+            if (prevMode === 'kanban') {
+                try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
+            }
+            state.listDomRenderSignature = '';
+            stage.className = 'tm-main-stage';
+            stage.style.setProperty('--tm-view-bottom-inset', String(scene.mainStageBottomInset || '0px'));
+            stage.innerHTML = `${scene.timelineFloatingToolbarHtml || ''}${scene.bodyWithSideDockHtml || bodyHtml}${scene.multiSelectBarHtml || ''}${scene.taskDetailSheetHtml || ''}`;
+            toolbarExtra.innerHTML = __tmRenderBodyOnlyViewToolbarExtra(nextMode, scene);
+            modal.setAttribute('data-tm-render-mode', nextMode);
+            __tmSyncBodyOnlyViewSwitcherButtons(modal, nextMode);
+            if (!__tmBindBodyOnlyViewAfterSwitch(nextMode, modal)) return false;
+            __tmRestoreBodyOnlyViewScroll(nextMode, modal);
+            return true;
+        } catch (e) {
+            try { __tmPushDiagnosticLog('view-switch-body-only-failed', e, { from: prevMode, to: nextMode }); } catch (e2) {}
+            return false;
+        }
+    }
+
     window.tmHandleCalendarViewButtonContextMenu = async function(ev) {
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
@@ -419,21 +631,20 @@
             try { __tmInvalidateHomepageMount(); } catch (e) {}
             try { Storage.set('tm_homepage_open', false); } catch (e) {}
             if (prev === next) {
+                try { __tmResetViewRenderWindow(next); } catch (e) {}
                 render();
                 return;
             }
         } else if (state.attachmentLibraryOpen) {
             state.attachmentLibraryOpen = false;
             if (prev === next) {
+                try { __tmResetViewRenderWindow(next); } catch (e) {}
                 render();
                 return;
             }
         } else if (prev === next) {
             return;
         }
-        const enabledViews = __tmGetEnabledViews();
-        const prevIdx = enabledViews.indexOf(prev);
-        const nextIdx = enabledViews.indexOf(next);
         const perfTrace = __tmCreatePerfTrace('switchViewMode', {
             from: prev || 'unknown',
             to: next || 'unknown',
@@ -445,13 +656,12 @@
         });
         const needRefilter = !!SettingsStore.data.whiteboardSequenceMode && (prev === 'whiteboard' || next === 'whiteboard');
         state.viewMode = next;
-        state.uiAnimKind = (prevIdx >= 0 && nextIdx >= 0 && nextIdx !== prevIdx)
-            ? (nextIdx > prevIdx ? 'from-right' : 'from-left')
-            : '';
-        state.uiAnimTs = Date.now();
+        try { __tmResetViewRenderWindow(next); } catch (e) {}
+        state.uiAnimKind = '';
+        state.uiAnimTs = 0;
         try {
             const mobileLike = !!(__tmIsMobileDevice() || __tmIsRuntimeMobileClient() || __tmHostUsesMobileUI());
-            if (mobileLike) __tmMarkHighPriorityInteraction('view-switch', 460);
+            __tmMarkHighPriorityInteraction('view-switch', mobileLike ? 460 : 240);
         } catch (e) {}
         try { __tmHideMobileMenu(); } catch (e) {}
         if (next === 'whiteboard') {
@@ -460,7 +670,7 @@
         if (needRefilter) {
             try { applyFilters(); } catch (e) {}
         }
-        render();
+        if (!__tmTrySwitchViewBodyInPlace(prev, next)) render();
         try {
             requestAnimationFrame(() => requestAnimationFrame(() => {
                 try {

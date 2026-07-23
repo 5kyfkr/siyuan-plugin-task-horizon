@@ -888,6 +888,70 @@
             return { map, queryTime: Date.now() - startedAt };
         },
 
+        async getTaskFreshnessByDocuments(docIds) {
+            const safeDocIds0 = Array.isArray(docIds) ? docIds.filter(id => /^[0-9]+-[a-zA-Z0-9]+$/.test(String(id || ''))) : [];
+            const safeDocIds = Array.from(new Set(safeDocIds0.map((x) => String(x || '').trim()).filter(Boolean))).sort();
+            const startedAt = Date.now();
+            const map = new Map(safeDocIds.map((id) => [id, {
+                exists: false,
+                docUpdated: '',
+                taskCount: 0,
+                taskUpdated: '',
+            }]));
+            if (safeDocIds.length === 0) return { map, queryTime: 0, unavailable: false };
+            const markdownCondition = SettingsStore.data?.legacyWin7CompatMode === true
+                ? "(t.markdown LIKE '%[ ]%' OR t.markdown LIKE '%[x]%' OR t.markdown LIKE '%[X]%')"
+                : "t.markdown IS NOT NULL AND t.markdown != ''";
+            const chunks = [];
+            for (let i = 0; i < safeDocIds.length; i += 220) chunks.push(safeDocIds.slice(i, i + 220));
+            let unavailable = false;
+            for (const chunk of chunks) {
+                const idList = chunk.map(id => `'${id}'`).join(',');
+                const sql = `
+                    SELECT
+                        d.id AS doc_id,
+                        d.updated AS doc_updated,
+                        COALESCE(task_stats.task_count, 0) AS task_count,
+                        COALESCE(task_stats.task_updated, '') AS task_updated
+                    FROM blocks d
+                    LEFT JOIN (
+                        SELECT root_id, COUNT(*) AS task_count, MAX(t.updated) AS task_updated
+                        FROM blocks t
+                        WHERE
+                            t.type = 'i'
+                            AND t.subtype = 't'
+                            AND t.root_id IN (${idList})
+                            AND ${markdownCondition}
+                        GROUP BY root_id
+                    ) task_stats ON task_stats.root_id = d.id
+                    WHERE d.type = 'd' AND d.id IN (${idList})
+                `;
+                try {
+                    const res = await this.call('/api/query/sql', { stmt: sql });
+                    if (!res || res.code !== 0 || !Array.isArray(res.data)) {
+                        unavailable = true;
+                        continue;
+                    }
+                    res.data.forEach((row) => {
+                        const docId = String(row?.doc_id || '').trim();
+                        if (!docId || !map.has(docId)) return;
+                        map.set(docId, {
+                            exists: true,
+                            docUpdated: String(row?.doc_updated || '').trim(),
+                            taskCount: Math.max(0, Math.round(Number(row?.task_count || 0) || 0)),
+                            taskUpdated: String(row?.task_updated || '').trim(),
+                        });
+                    });
+                } catch (e) {
+                    unavailable = true;
+                }
+                if (chunks.length > 1) {
+                    try { await new Promise((resolve) => setTimeout(resolve, 0)); } catch (e) {}
+                }
+            }
+            return { map, queryTime: Date.now() - startedAt, unavailable };
+        },
+
         async getTasksByDocument(docId, limit = 500, options = null) {
             const did = String(docId || '').trim();
             if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return { tasks: [], queryTime: 0 };
@@ -2614,6 +2678,21 @@
             const res = await this.call('/api/block/getChildBlocks', { id });
             if (res.code === 0 && Array.isArray(res.data)) return res.data;
             return [];
+        },
+
+        async getTaskContentBlockId(taskId) {
+            const id = String(taskId || '').trim();
+            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(id)) return '';
+            const sql = `
+                SELECT id
+                FROM blocks
+                WHERE parent_id = '${id}' AND type = 'p'
+                ORDER BY sort ASC, created ASC, id ASC
+                LIMIT 1
+            `;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            if (res.code !== 0 || !Array.isArray(res.data)) return '';
+            return String(res.data[0]?.id || '').trim();
         },
 
         async getFirstDirectChildListIdOfDoc(docId) {
@@ -4501,8 +4580,8 @@
         multiSelectedTaskIds: [],
         multiBulkEditFieldKey: '',
         calendarSideDockDragHidden: false,
-        listRenderStep: 100,
-        listRenderLimit: 100,
+        listRenderStep: 80,
+        listRenderLimit: 80,
         listRenderSignature: '',
         listDomRenderSignature: '',
         listAutoLoadMoreInFlight: false,
@@ -6427,7 +6506,10 @@
             const parentOwner = String(parentAttrs[ownerKey] || '').trim();
             const managedParentAttrs = {};
             Object.entries(parentAttrs).forEach(([key, value]) => {
-                if (__tmIsManagedTaskAttrStorageKeyForMirror(key)) managedParentAttrs[key] = String(value ?? '');
+                if (!__tmIsManagedTaskAttrStorageKeyForMirror(key)) return;
+                const normalizedValue = String(value ?? '');
+                if (normalizedValue.trim() === '') return;
+                managedParentAttrs[key] = normalizedValue;
             });
             if (!Object.keys(managedParentAttrs).length) return;
             const now = String(Date.now());
@@ -9388,6 +9470,11 @@ const wait = !!options.wait;
         const rel = /(今天|今日|今早|今晨|今晚|明天|明早|明晨|明晚|后天|大后天)/.exec(text);
         const dur = /(\d+)\s*(天|日|周|星期|礼拜)\s*后/.exec(text);
         const weekday = /((本周|这周|下周|下下周)?\s*(周|星期|礼拜)\s*([一二三四五六日天1-7]))/.exec(text);
+        const todayPeriod = /(凌晨|上午|早上|早晨|清晨|中午|下午|傍晚|晚上)\s*(?=\d{1,2}\s*(?:[:：]|点))/.exec(text);
+        const todayPeriodPrefix = todayPeriod
+            ? text.slice(Math.max(0, Number(todayPeriod.index) - 3), Number(todayPeriod.index))
+            : '';
+        const hasPastDayQualifier = /(昨天|昨日|前天)\s*$/.test(todayPeriodPrefix);
         let dt = null;
         let reason = '';
         let stableKey = '';
@@ -9442,6 +9529,13 @@ const wait = !!options.wait;
                 stableKey = `weekday:${matchedText}`;
                 isRelative = true;
             }
+        } else if (todayPeriod && !hasPastDayQualifier && __tmSemanticExtractTimeInfo(text)) {
+            dt = new Date(today.getTime());
+            const token = String(todayPeriod[1] || '').trim();
+            reason = `识别到${token}时间，日期按今天处理`;
+            matchedText = __tmSemanticNormalizeMatchText(todayPeriod[0]);
+            stableKey = `today-period:${matchedText}`;
+            isRelative = true;
         }
         if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return null;
         return {
@@ -12907,8 +13001,6 @@ const wait = !!options.wait;
             aiSidebarOpen: !!state.aiSidebarOpen,
             aiMobilePanelOpen: !!state.aiMobilePanelOpen,
             calendarDockDate: String(state.calendarDockDate || ''),
-            listRenderLimit: Number(state.listRenderLimit) || 100,
-            listRenderStep: Number(state.listRenderStep) || 100,
             viewScroll: __tmCloneHostSessionValue(state.viewScroll || {}),
         };
     }
@@ -12941,9 +13033,8 @@ const wait = !!options.wait;
         state.aiSidebarOpen = !!snap.aiSidebarOpen;
         state.aiMobilePanelOpen = !!snap.aiMobilePanelOpen;
         state.calendarDockDate = String(snap.calendarDockDate || '');
-        state.listRenderLimit = Number(snap.listRenderLimit) || 100;
-        state.listRenderStep = Number(snap.listRenderStep) || 100;
         state.viewScroll = __tmCloneHostSessionValue(snap.viewScroll || {});
+        try { __tmResetViewRenderWindow(state.viewMode); } catch (e) {}
     }
 
     function __tmIsMultiSelectSupportedView(mode) {
@@ -24435,8 +24526,76 @@ refreshOk = false;
         state.__tmFlipAction = null;
     }
 
-    function __tmRerenderListInPlace(modalEl) {
+    function __tmGetListRowStableKey(rowEl) {
+        const row = rowEl instanceof Element ? rowEl : null;
+        if (!row) return '';
+        const taskId = String(row.getAttribute('data-id') || '').trim();
+        if (taskId) return `task:${taskId}`;
+        const groupKey = String(row.getAttribute('data-group-key') || '').trim();
+        if (groupKey) return `group:${groupKey}`;
+        if (row.classList.contains('tm-load-more-row')) return 'control:load-more';
+        return '';
+    }
+
+    function __tmReconcileListRowsForAppend(tbodyEl, nextRowsHtml, options = {}) {
+        const tbody = tbodyEl instanceof HTMLElement ? tbodyEl : null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const previousLimit = Math.max(0, Math.round(Number(opts.previousLimit) || 0));
+        const nextLimit = Math.max(0, Math.round(Number(state.listRenderLimit) || 0));
+        if (!tbody || !previousLimit || nextLimit <= previousLimit) return false;
+        const stagingTable = document.createElement('table');
+        stagingTable.innerHTML = `<tbody>${String(nextRowsHtml || '')}</tbody>`;
+        const stagingBody = stagingTable.tBodies?.[0];
+        if (!(stagingBody instanceof HTMLElement)) return false;
+        const currentRows = Array.from(tbody.children).filter((row) => row instanceof HTMLElement);
+        const desiredRows = Array.from(stagingBody.children).filter((row) => row instanceof HTMLElement);
+        if (!currentRows.length || !desiredRows.length) return false;
+
+        const currentMap = new Map();
+        const currentOrder = [];
+        for (const row of currentRows) {
+            const key = __tmGetListRowStableKey(row);
+            if (!key) return false;
+            if (key === 'control:load-more') continue;
+            if (currentMap.has(key)) return false;
+            currentMap.set(key, row);
+            currentOrder.push(key);
+        }
+        const desiredKeys = [];
+        const desiredKeySet = new Set();
+        for (const row of desiredRows) {
+            const key = __tmGetListRowStableKey(row);
+            if (!key || desiredKeySet.has(key)) return false;
+            desiredKeySet.add(key);
+            desiredKeys.push(key);
+        }
+        if (currentOrder.some((key) => !desiredKeySet.has(key))) return false;
+        const commonDesiredOrder = desiredKeys.filter((key) => currentMap.has(key));
+        if (commonDesiredOrder.length !== currentOrder.length
+            || commonDesiredOrder.some((key, index) => key !== currentOrder[index])) return false;
+
+        let cursor = tbody.firstElementChild;
+        let insertedCount = 0;
+        for (let index = 0; index < desiredRows.length; index += 1) {
+            const stagedRow = desiredRows[index];
+            const key = desiredKeys[index];
+            const existing = key === 'control:load-more' ? null : currentMap.get(key);
+            const row = existing || stagedRow;
+            if (!existing) insertedCount += 1;
+            if (row !== cursor) tbody.insertBefore(row, cursor);
+            cursor = row.nextElementSibling;
+        }
+        const keepNodes = new Set(Array.from(tbody.children).slice(0, desiredRows.length));
+        currentRows.forEach((row) => {
+            if (!keepNodes.has(row) && row.parentElement === tbody) row.remove();
+        });
+        tbody.dataset.tmLastIncrementalAppendCount = String(Math.max(0, insertedCount));
+        return true;
+    }
+
+    function __tmRerenderListInPlace(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const opts = (options && typeof options === 'object') ? options : {};
         if (!modal) return false;
         const body = modal.querySelector('.tm-body');
         const table = modal.querySelector('#tmTaskTable');
@@ -24487,6 +24646,7 @@ refreshOk = false;
         }
         try {
             if (typeof __tmPrepareFlipAnimation === 'function'
+                && opts.appendOnly !== true
                 && String(state.viewMode || '').trim() === 'list'
                 && state.groupByTime === true) {
                 __tmPrepareFlipAnimation({
@@ -24496,12 +24656,19 @@ refreshOk = false;
                 });
             }
         } catch (e) {}
-        try { tbody.innerHTML = nextRowsHtml; } catch (e) {
+        let incrementallyPatched = false;
+        try {
+            if (opts.appendOnly === true && !isCalendarTaskTable) {
+                incrementallyPatched = __tmReconcileListRowsForAppend(tbody, nextRowsHtml, opts);
+            }
+            if (!incrementallyPatched) tbody.innerHTML = nextRowsHtml;
+        } catch (e) {
             try {
                 __tmPushDiagnosticLog('list-rerender-dom-swap-failed', e, {
                     renderSignature,
                     rowHtmlLength: String(nextRowsHtml || '').length,
                     isCalendarTaskTable,
+                    appendOnly: opts.appendOnly === true,
                 });
             } catch (e2) {}
             return false;
@@ -24517,8 +24684,10 @@ refreshOk = false;
         if (renderSignature) {
             try { state.listDomRenderSignature = renderSignature; } catch (e) {}
         }
-        try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {
-            try { Promise.resolve().then(() => { try { __tmRunFlipAnimation(modal); } catch (e2) {} }); } catch (e2) {}
+        if (!incrementallyPatched) {
+            try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {
+                try { Promise.resolve().then(() => { try { __tmRunFlipAnimation(modal); } catch (e2) {} }); } catch (e2) {}
+            }
         }
 return true;
     }
@@ -24622,6 +24791,90 @@ return true;
             try { leftBody.removeEventListener('click', prev, true); } catch (e) {}
         }
         try { leftBody.__tmTimelineLeftCollapseHandler = null; } catch (e) {}
+    }
+
+    function __tmBindTimelineStageInteractions(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        try { modal.__tmTimelineStageInteractionsCleanup?.(); } catch (e) {}
+        modal.__tmTimelineStageInteractionsCleanup = null;
+
+        const leftBody = modal.querySelector('#tmTimelineLeftBody');
+        const ganttBody = modal.querySelector('#tmGanttBody');
+        const ganttHeader = modal.querySelector('#tmGanttHeader');
+        if (!(ganttBody instanceof HTMLElement)) return false;
+        const globalScrollHost = __tmGetTimelineGlobalScrollHost(modal);
+        const useGlobalScroll = globalScrollHost instanceof HTMLElement;
+        const cleanups = [];
+        const bind = (target, type, handler, options) => {
+            if (!(target instanceof EventTarget) || typeof handler !== 'function') return;
+            target.addEventListener(type, handler, options);
+            cleanups.push(() => {
+                try { target.removeEventListener(type, handler, options); } catch (e) {}
+            });
+        };
+        const syncHeaderX = () => {
+            if (useGlobalScroll || !(ganttHeader instanceof HTMLElement)) return;
+            const inner = ganttHeader.querySelector('.tm-gantt-header-inner');
+            if (inner instanceof HTMLElement) inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
+        };
+        const onGroupClick = (ev) => {
+            const row = ev?.target instanceof Element ? ev.target.closest('.tm-gantt-row--group') : null;
+            const key = String(row?.getAttribute?.('data-group-key') || '').trim();
+            if (key) tmToggleGroupCollapse(key, ev);
+        };
+        const onGanttWheel = (ev) => {
+            if (!ev?.shiftKey || (ganttBody.scrollWidth - ganttBody.clientWidth) <= 2) return;
+            const dx = Number(ev.deltaX) || 0;
+            const dy = Number(ev.deltaY) || 0;
+            let delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+            if (!Number.isFinite(delta) || delta === 0) return;
+            if (ev.deltaMode === 1) delta *= 16;
+            else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
+            ganttBody.scrollLeft += delta;
+        };
+
+        if (useGlobalScroll) {
+            const syncMobileGroupX = () => {
+                try { __tmSyncTimelineMobileGroupStickyOffset(modal, { defer: true }); } catch (e) {}
+            };
+            try { __tmSyncTimelineMobileGroupStickyOffset(modal); } catch (e) {}
+            bind(globalScrollHost, 'scroll', syncMobileGroupX, { passive: true });
+        } else if (leftBody instanceof HTMLElement) {
+            let syncing = false;
+            const syncFromLeft = () => {
+                if (syncing) return;
+                syncing = true;
+                requestAnimationFrame(() => {
+                    try { ganttBody.scrollTop = leftBody.scrollTop; } catch (e) {}
+                    syncing = false;
+                });
+            };
+            const syncFromRight = () => {
+                if (syncing) return;
+                syncing = true;
+                requestAnimationFrame(() => {
+                    try { leftBody.scrollTop = ganttBody.scrollTop; } catch (e) {}
+                    syncing = false;
+                });
+            };
+            bind(leftBody, 'scroll', syncFromLeft, { passive: true });
+            bind(ganttBody, 'scroll', () => {
+                syncHeaderX();
+                syncFromRight();
+            }, { passive: true });
+            if (ganttHeader instanceof HTMLElement) bind(ganttHeader, 'wheel', onGanttWheel, { passive: true });
+        } else {
+            bind(ganttBody, 'scroll', syncHeaderX, { passive: true });
+            if (ganttHeader instanceof HTMLElement) bind(ganttHeader, 'wheel', onGanttWheel, { passive: true });
+        }
+        bind(ganttBody, 'click', onGroupClick, true);
+        syncHeaderX();
+        modal.__tmTimelineStageInteractionsCleanup = () => {
+            cleanups.splice(0).forEach((cleanup) => cleanup());
+            modal.__tmTimelineStageInteractionsCleanup = null;
+        };
+        return true;
     }
 
     function __tmRerenderTimelineInPlace(modalEl) {

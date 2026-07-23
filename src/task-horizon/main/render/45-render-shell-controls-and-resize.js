@@ -385,7 +385,7 @@
             ${__tmIsAiFeatureEnabled() ? renderDesktopMenuToggle('AI 对话', !!SettingsStore.data.aiSideDockEnabled, `tmToggleAiSideDock(this.checked); tmCloseDesktopMenu()`) : ''}
             ${showCalendarSideDockMenuToggle ? renderDesktopMenuToggle('日历侧边栏', !!SettingsStore.data.calendarSideDockEnabled, `tmToggleCalendarSideDock(this.checked); tmCloseDesktopMenu()`) : ''}
             ${state.searchKeyword ? renderDesktopMenuButton(`<span>清除搜索</span>`, `tmSearch(''); tmCloseDesktopMenu()`) : ''}
-            ${renderDesktopMenuToggle(`白板顺序模式（${__tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope) === 'global' ? '全局白板' : '单文档白板'}）`, !!SettingsStore.data.whiteboardSequenceMode, `tmToggleWhiteboardSequenceMode(this.checked); tmCloseDesktopMenu()`)}
+            ${renderDesktopMenuToggle('白板顺序模式', !!SettingsStore.data.whiteboardSequenceMode, `tmToggleWhiteboardSequenceMode(this.checked); tmCloseDesktopMenu()`)}
             ${renderDesktopMenuButton(`${__tmRenderLucideIcon('chevrons-down-up')}<span>全部折叠</span>`, `tmCollapseAllTasks(); tmCloseDesktopMenu()`)}
             ${renderDesktopMenuButton(`${__tmRenderLucideIcon('chevrons-up-down')}<span>全部展开</span>`, `tmExpandAllTasks(); tmCloseDesktopMenu()`)}
         `;

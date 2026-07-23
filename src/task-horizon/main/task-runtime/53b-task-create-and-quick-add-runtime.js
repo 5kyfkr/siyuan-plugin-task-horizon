@@ -926,6 +926,7 @@
         if (!nextTask) return false;
         const docId = String(nextTask.root_id || nextTask.docId || '').trim();
         if (!docId) return false;
+        if (!__tmIsDocInCurrentTaskScope(docId)) return false;
         if (String(state.searchKeyword || '').trim()) return false;
         if (state.docTabsArchiveMode === true) return false;
         if (__tmIsOtherBlockTabId(state.activeDocId)) return false;
@@ -943,6 +944,19 @@
         } else if (activeDocId !== 'all' && activeDocId !== docId) return false;
         if (nextTask.done === true && state.showCompletedTasks !== true) return false;
         return true;
+    }
+
+    function __tmIsDocInCurrentTaskScope(docId) {
+        const did = String(docId || '').trim();
+        if (!did) return false;
+        const loadedDocIds = Array.isArray(state.__tmLoadedDocIdsForTasks)
+            ? state.__tmLoadedDocIdsForTasks
+            : [];
+        if (loadedDocIds.length > 0) {
+            return loadedDocIds.some((id) => String(id || '').trim() === did);
+        }
+        return (Array.isArray(state.taskTree) ? state.taskTree : [])
+            .some((doc) => String(doc?.id || '').trim() === did);
     }
 
     function __tmCanUseLightweightMoveProjection(taskOrId, payload = {}) {
@@ -1472,30 +1486,33 @@
             });
         } catch (e) {}
         if (!insertedPending) return null;
-        __tmInsertTaskIntoDocLocal(nextTask, {
-            atTop: payload.atTop === true,
-            insertBeforeId: String(payload.insertBeforeId || '').trim(),
-            insertAfterId: String(payload.insertAfterId || '').trim(),
-        });
-        if (payload.skipOptimisticFilterWork !== true) {
-            try { recalcStats(); } catch (e) {}
-            try { applyFilters(); } catch (e) {}
-        } else {
-            let projected = false;
-            try { projected = __tmEnsureOptimisticTaskInFilteredTasks(nextTask) === true; } catch (e) {}
-            if (!projected && payload.skipOptimisticFilterFallback !== true) {
-                try {
-                    __tmScheduleViewRefresh({
-                        mode: 'current',
-                        withFilters: true,
-                        reason: 'create-task-optimistic-filter-fallback',
-                        taskIds: [tempId],
-                    });
-                } catch (e) {}
+        const projectIntoCurrentScope = __tmIsDocInCurrentTaskScope(docId);
+        if (projectIntoCurrentScope) {
+            __tmInsertTaskIntoDocLocal(nextTask, {
+                atTop: payload.atTop === true,
+                insertBeforeId: String(payload.insertBeforeId || '').trim(),
+                insertAfterId: String(payload.insertAfterId || '').trim(),
+            });
+            if (payload.skipOptimisticFilterWork !== true) {
+                try { recalcStats(); } catch (e) {}
+                try { applyFilters(); } catch (e) {}
+            } else {
+                let projected = false;
+                try { projected = __tmEnsureOptimisticTaskInFilteredTasks(nextTask) === true; } catch (e) {}
+                if (!projected && payload.skipOptimisticFilterFallback !== true) {
+                    try {
+                        __tmScheduleViewRefresh({
+                            mode: 'current',
+                            withFilters: true,
+                            reason: 'create-task-optimistic-filter-fallback',
+                            taskIds: [tempId],
+                        });
+                    } catch (e) {}
+                }
             }
-        }
-        if (payload.skipOptimisticMainRefresh !== true) {
-            __tmRefreshAfterOptimisticTaskCreate(tempId, 'create-task-optimistic');
+            if (payload.skipOptimisticMainRefresh !== true) {
+                __tmRefreshAfterOptimisticTaskCreate(tempId, 'create-task-optimistic');
+            }
         }
         return nextTask;
     }

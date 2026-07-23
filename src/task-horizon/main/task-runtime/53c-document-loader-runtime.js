@@ -655,8 +655,6 @@
                 groupByTime: state.groupByTime === true ? 1 : 0,
                 quadrantEnabled: state.quadrantEnabled === true ? 1 : 0,
                 listRenderSignature: String(state.listRenderSignature || ''),
-                listRenderLimit: Number(state.listRenderLimit) || 0,
-                listRenderStep: Number(state.listRenderStep) || 0,
                 filteredTaskIds: (Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
                     .map((task) => String(task?.id || task?.blockId || '').trim())
                     .filter(Boolean),
@@ -730,10 +728,8 @@
         const prepareSwitchGroupFirstPaintWindow = () => {
             if (!isSwitchDocGroupLoad || skipRender) return;
             try {
-                state.listRenderStep = stabilizeSwitchGroupView ? switchGroupRenderCap : 20;
                 const filteredCount = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
-                const renderLimit = stabilizeSwitchGroupView ? switchGroupRenderCap : 40;
-                state.listRenderLimit = filteredCount > 0 ? Math.min(renderLimit, filteredCount) : renderLimit;
+                __tmResetViewRenderWindow(getCurrentViewMode(''), filteredCount);
             } catch (e) {}
         };
         const viewNeedsCompleteVisibleDateAttrs = () => {
@@ -1446,10 +1442,9 @@
             const effectiveQueryLimit = loadBudget.enabled
                 ? Math.max(1, Math.min(Number(state.queryLimit) || 500, Number(loadBudget.queryLimit) || Number(state.queryLimit) || 500))
                 : (Number(state.queryLimit) || 500);
-            const initialRenderLimit = loadBudget.enabled
-                ? Math.max(loadBudget.listStep, loadBudget.renderLimit)
-                : Number.POSITIVE_INFINITY;
-            state.listRenderStep = loadBudget.enabled ? loadBudget.listStep : 100;
+            if (__tmIsListLikeViewMode(getCurrentViewMode(''))) {
+                state.listRenderStep = __tmGetViewRenderWindowPolicy(getCurrentViewMode('')).initial;
+            }
             const queryStageStartTime = __tmPerfNow();
             const shouldForceFreshColdAllDocsLoad = !forceFreshTasks
                 && String(state.activeDocId || 'all').trim() === 'all'
@@ -2407,8 +2402,6 @@
                                     ? snapshotCacheVerifyBefore.filteredDocIdsForTabs
                                     : []).slice();
                                 state.listRenderSignature = String(snapshotCacheVerifyBefore.listRenderSignature || '');
-                                state.listRenderLimit = Number(snapshotCacheVerifyBefore.listRenderLimit) || Number(state.listRenderLimit) || 0;
-                                state.listRenderStep = Number(snapshotCacheVerifyBefore.listRenderStep) || Number(state.listRenderStep) || 20;
                                 const remapDurationMs = Date.now() - filterStartedAt;
                                 state.__tmLastFilterPerf = {
                                     cacheHit: 'verify-remap',
@@ -2469,9 +2462,9 @@
                 if (isSwitchDocGroupLoad) {
                     prepareSwitchGroupFirstPaintWindow();
                 } else if (loadBudget.enabled) {
-                    state.listRenderLimit = Math.min(
-                        Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                        initialRenderLimit
+                    __tmResetViewRenderWindow(
+                        getCurrentViewMode(''),
+                        Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0
                     );
                 }
                 state.deferredListCustomFieldIds = getCurrentViewMode('') === 'list'

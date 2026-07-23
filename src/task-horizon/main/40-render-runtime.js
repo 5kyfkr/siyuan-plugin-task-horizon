@@ -364,7 +364,7 @@ return;
         const hasFreshUiAnim = (Date.now() - (Number(state.uiAnimTs) || 0) < 390);
         const bodyAnimClass = '';
         const stageAnimClass = ((!isMobile && !hostUsesMobileUI) && hasFreshUiAnim)
-            ? (kind === 'from-right' ? ' tm-stage-anim--from-right' : kind === 'from-left' ? ' tm-stage-anim--from-left' : ' tm-stage-anim')
+            ? (kind === 'from-right' ? ' tm-stage-anim--from-right' : (kind === 'from-left' ? ' tm-stage-anim--from-left' : ''))
             : '';
         const tableFillColumns = SettingsStore.data.kanbanFillColumns === true;
         const tableAvailableWidth = tableFillColumns ? (() => {
@@ -755,15 +755,17 @@ return;
 
                     <!-- 桌面端搜索栏 -->
                     <div class="tm-search-box tm-desktop-toolbar" style="display:${isMobile ? 'none' : 'flex'}; flex-wrap: nowrap;">
-                        ${renderMode === 'kanban' ? `
-                            ${__tmRenderTopbarSelect({ id: 'tmTopbarKanbanModeSelect', label: '看板模式', options: kanbanModeMenuOptions, className: 'tm-kanban-mode-select tm-topbar-select--narrow', tooltip: '切换看板模式' })}
-                        ` : showWhiteboardAllTabsModeToggle ? `
-                            ${__tmRenderTopbarSelect({ id: 'tmTopbarWhiteboardLayoutSelect', label: '白板模式', options: whiteboardLayoutMenuOptions, className: 'tm-kanban-mode-select tm-topbar-select--narrow', tooltip: '切换白板模式' })}
-                        ` : ''}
-                        ${showTopbarTimelineToolbar ? `
-                            ${timelineCompactToolbarGroupHtml}
-                        ` : ''}
-                        ${showCalendarSidebarDesktopToolbarToggle ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
+                        <span data-tm-view-toolbar-extra="1" style="display:contents;">
+                            ${renderMode === 'kanban' ? `
+                                ${__tmRenderTopbarSelect({ id: 'tmTopbarKanbanModeSelect', label: '看板模式', options: kanbanModeMenuOptions, className: 'tm-kanban-mode-select tm-topbar-select--narrow', tooltip: '切换看板模式' })}
+                            ` : showWhiteboardAllTabsModeToggle ? `
+                                ${__tmRenderTopbarSelect({ id: 'tmTopbarWhiteboardLayoutSelect', label: '白板模式', options: whiteboardLayoutMenuOptions, className: 'tm-kanban-mode-select tm-topbar-select--narrow', tooltip: '切换白板模式' })}
+                            ` : ''}
+                            ${showTopbarTimelineToolbar ? `
+                                ${timelineCompactToolbarGroupHtml}
+                            ` : ''}
+                            ${showCalendarSidebarDesktopToolbarToggle ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
+                        </span>
                         ${!showMobileBottomViewBar ? `
                         <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图">
                             ${__tmRenderViewSwitcherButtons()}
@@ -863,7 +865,7 @@ return;
                                 ` : ''}
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                                        <span>白板顺序模式（${__tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope) === 'global' ? '全局白板' : '单文档白板'}）</span>
+                                        <span>白板顺序模式</span>
                                         <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.whiteboardSequenceMode ? 'checked' : ''} onchange="tmToggleWhiteboardSequenceMode(this.checked); tmHideMobileMenu();">
                                     </div>
                                 </div>
@@ -2561,83 +2563,7 @@ return;
                     }
                 }));
 
-                if (leftBody && ganttBody) {
-                    const onGroupClick = (ev) => {
-                        const el = ev?.target instanceof Element ? ev.target.closest('.tm-gantt-row--group') : null;
-                        if (!el) return;
-                        const key = String(el.getAttribute('data-group-key') || '').trim();
-                        if (!key) return;
-                        tmToggleGroupCollapse(key, ev);
-                    };
-                    if (useGlobalScroll) {
-                        const syncMobileGroupX = () => {
-                            try { __tmSyncTimelineMobileGroupStickyOffset(state.modal, { defer: true }); } catch (e) {}
-                        };
-                        try { __tmSyncTimelineMobileGroupStickyOffset(state.modal); } catch (e) {}
-                        try {
-                            const prevSync = timelineScrollHost?.__tmTimelineMobileGroupXSync;
-                            if (typeof prevSync === 'function') timelineScrollHost.removeEventListener('scroll', prevSync);
-                            timelineScrollHost.__tmTimelineMobileGroupXSync = syncMobileGroupX;
-                            timelineScrollHost.addEventListener('scroll', syncMobileGroupX, { passive: true });
-                        } catch (e) {}
-                        ganttBody.addEventListener('click', onGroupClick, true);
-                    } else {
-                    const onGanttWheel = (ev) => {
-                        if (!ev?.shiftKey) return;
-                        if (!ganttBody) return;
-                        const canScrollX = (ganttBody.scrollWidth - ganttBody.clientWidth) > 2;
-                        if (!canScrollX) return;
-                        let delta = 0;
-                        const dx = Number(ev.deltaX) || 0;
-                        const dy = Number(ev.deltaY) || 0;
-                        delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
-                        if (!Number.isFinite(delta) || delta === 0) return;
-                        if (ev.deltaMode === 1) delta *= 16;
-                        else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
-                        ganttBody.scrollLeft = ganttBody.scrollLeft + delta;
-                    };
-                    let syncing = false;
-                    const syncFromLeft = () => {
-                        if (syncing) return;
-                        syncing = true;
-                        requestAnimationFrame(() => {
-                            try { ganttBody.scrollTop = leftBody.scrollTop; } catch (e) {}
-                            syncing = false;
-                        });
-                    };
-                    const syncFromRight = () => {
-                        if (syncing) return;
-                        syncing = true;
-                        requestAnimationFrame(() => {
-                            try { leftBody.scrollTop = ganttBody.scrollTop; } catch (e) {}
-                            syncing = false;
-                        });
-                    };
-                    leftBody.addEventListener('scroll', syncFromLeft, { passive: true });
-                    ganttBody.addEventListener('scroll', () => {
-                        syncHeaderX();
-                        syncFromRight();
-                    }, { passive: true });
-                    if (ganttHeader) ganttHeader.addEventListener('wheel', onGanttWheel, { passive: true });
-                    ganttBody.addEventListener('click', onGroupClick, true);
-                    }
-                } else if (ganttBody) {
-                    if (!useGlobalScroll) ganttBody.addEventListener('scroll', syncHeaderX, { passive: true });
-                    const onGanttWheel = (ev) => {
-                        if (!ev?.shiftKey) return;
-                        const canScrollX = (ganttBody.scrollWidth - ganttBody.clientWidth) > 2;
-                        if (!canScrollX) return;
-                        let delta = 0;
-                        const dx = Number(ev.deltaX) || 0;
-                        const dy = Number(ev.deltaY) || 0;
-                        delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
-                        if (!Number.isFinite(delta) || delta === 0) return;
-                        if (ev.deltaMode === 1) delta *= 16;
-                        else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
-                        ganttBody.scrollLeft = ganttBody.scrollLeft + delta;
-                    };
-                    if (!useGlobalScroll && ganttHeader) ganttHeader.addEventListener('wheel', onGanttWheel, { passive: true });
-                }
+                try { __tmBindTimelineStageInteractions(state.modal); } catch (e) {}
             } else {
                 const isCalendar = state.viewMode === 'calendar';
                 if (isCalendar) {

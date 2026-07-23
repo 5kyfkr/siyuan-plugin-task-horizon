@@ -13,7 +13,7 @@
 
         const isGloballyLocked = GlobalLock.isLocked();
         const isListView = globalThis.__tmRuntimeState?.isViewMode?.('list') ?? (String(state.viewMode || '').trim() === 'list');
-        const virtualThreshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 5000;
+        const virtualThreshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 50;
         const virtualEnabled = isListView && state.filteredTasks.length > virtualThreshold;
         const listStep = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
         const taskRowLimit = virtualEnabled
@@ -888,9 +888,8 @@
     window.tmListLoadMoreRows = async function(ev) {
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
-        const step = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
-        const next = Math.max(step, Number(state.listRenderLimit) || step) + step;
-        state.listRenderLimit = Math.min(state.filteredTasks.length, next);
+        const grown = __tmGrowViewRenderWindow('list', state.filteredTasks.length);
+        if (!grown || grown.limit <= grown.previousLimit) return;
         try {
             __tmScheduleDeferredVisibleListCustomFieldHydration({
                 delayMs: 180,
@@ -901,7 +900,10 @@
             __tmRefreshCalendarSidebarChecklistPreserveScroll();
             return;
         }
-        render();
+        if (!__tmRerenderListInPlace(state.modal, {
+            appendOnly: true,
+            previousLimit: grown.previousLimit,
+        })) render();
     };
 
     // 切换任务状态
@@ -4593,7 +4595,11 @@ if (ev) {
         try { __tmProtectMarkdownMutationTaskFields?.(tid, task, { source: 'content-patch-kernel' }); } catch (e) {}
         const nextMarkdown = __tmBuildTaskMarkdownWithContent(task, text);
 
-        await __tmBackendAdapter.updateBlock(tid, nextMarkdown);
+        const contentBlockId = String(await API.getTaskContentBlockId(tid) || '').trim();
+        if (!contentBlockId) {
+            throw new Error('未找到任务内容块，已取消写入');
+        }
+        await __tmBackendAdapter.updateBlock(contentBlockId, text);
         if (options.touchState !== false) {
             task.content = text;
             task.markdown = nextMarkdown;

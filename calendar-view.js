@@ -457,6 +457,7 @@
             loadedAt: 0,
             inflight: null,
             sourceSignature: '',
+            lastLoadError: false,
         },
         scheduleRangeCache: new Map(),
         scheduleRangeInflight: new Map(),
@@ -497,6 +498,7 @@
             wechatPendingReason: '',
             wechatRegistryLoaded: false,
             wechatRegistry: {},
+            wechatLifecycleToken: 0,
             wechatSyncEventBus: null,
             wechatSyncHandler: null,
         },
@@ -11642,6 +11644,7 @@
     function setScheduleCache(items, sourceSignature) {
         state.scheduleCache.list = cloneScheduleList(items);
         state.scheduleCache.loadedAt = Date.now();
+        state.scheduleCache.lastLoadError = false;
         try { state.scheduleRangeCache.clear(); } catch (e) {}
         if (typeof sourceSignature !== 'undefined') {
             state.scheduleCache.sourceSignature = String(sourceSignature || '');
@@ -11705,42 +11708,56 @@
             }
         } catch (e) {}
         state.scheduleCache.inflight = (async () => {
+            let sourceLoaded = false;
+            let sourceReadError = false;
             const kernelLoad = getKernelScheduleRpc('taskHorizonLoadSchedules');
             if (kernelLoad) {
                 try {
                     const result = await kernelLoad();
                     if (result?.ok === true && Array.isArray(result.data)) {
+                        sourceLoaded = true;
                         const { out } = normalizeScheduleList(result.data);
                         const serialized = JSON.stringify(out, null, 2);
                         setScheduleCache(out, computeScheduleSourceSignature(serialized));
                         try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, serialized); } catch (e) {}
+                        state.scheduleCache.lastLoadError = false;
                         return out;
                     }
-                } catch (e) {}
+                    sourceReadError = true;
+                } catch (e) { sourceReadError = true; }
             }
             try {
                 // Keep reads side-effect free: mobile startup may run before cloud sync settles.
                 const raw = await getFileTextRetry(STORAGE.SCHEDULE_FILE, 1);
+                sourceReadError = false;
                 if (raw && raw.trim()) {
                     const parsed = JSON.parse(raw);
+                    sourceLoaded = true;
                     const { out } = normalizeScheduleList(parsed);
                     setScheduleCache(out, computeScheduleSourceSignature(raw));
+                    state.scheduleCache.lastLoadError = false;
                     return Array.isArray(state.scheduleCache.list) ? state.scheduleCache.list : out;
                 }
-            } catch (e) {}
+            } catch (e) { sourceReadError = true; }
             try {
                 const raw = String(localStorage.getItem(STORAGE.SCHEDULE_LS_KEY) || '');
                 if (!raw.trim()) {
+                    sourceLoaded = !sourceReadError;
                     setScheduleCache([], '');
                     return [];
                 }
                 const parsed = JSON.parse(raw);
+                sourceReadError = false;
+                sourceLoaded = true;
                 const { out } = normalizeScheduleList(parsed);
                 setScheduleCache(out, computeScheduleSourceSignature(raw));
                 return Array.isArray(state.scheduleCache.list) ? state.scheduleCache.list : out;
             } catch (e) {
+                sourceReadError = true;
                 setScheduleCache([], '');
                 return [];
+            } finally {
+                state.scheduleCache.lastLoadError = !sourceLoaded || sourceReadError;
             }
         })();
         try {
@@ -11755,10 +11772,14 @@
         try {
             const raw = await getFileTextRetry(STORAGE.SCHEDULE_FILE, 1);
             const trimmed = String(raw || '').trim();
-            if (!trimmed) return { changed: false, list: null };
+            if (!trimmed) {
+                state.scheduleCache.lastLoadError = true;
+                return { changed: false, list: null };
+            }
             const nextSignature = computeScheduleSourceSignature(raw);
             const prevSignature = String(state.scheduleCache.sourceSignature || '');
             if (nextSignature && prevSignature && nextSignature === prevSignature) {
+                state.scheduleCache.lastLoadError = false;
                 return { changed: false, list: Array.isArray(state.scheduleCache.list) ? cloneScheduleList(state.scheduleCache.list) : null };
             }
             const parsed = JSON.parse(raw);
@@ -11766,6 +11787,7 @@
             setScheduleCache(out, nextSignature);
             return { changed: nextSignature !== prevSignature, list: cloneScheduleList(out) };
         } catch (e) {
+            state.scheduleCache.lastLoadError = true;
             return { changed: false, list: null };
         }
     }
@@ -12868,6 +12890,25 @@
         return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`;
     }
 
+    function parseWechatReminderTimed(value) {
+        const raw = String(value || '').trim();
+        if (!/^\d{14}$/.test(raw)) return Number.NaN;
+        const date = new Date(
+            Number(raw.slice(0, 4)),
+            Number(raw.slice(4, 6)) - 1,
+            Number(raw.slice(6, 8)),
+            Number(raw.slice(8, 10)),
+            Number(raw.slice(10, 12)),
+            Number(raw.slice(12, 14)),
+        );
+        return date instanceof Date && !Number.isNaN(date.getTime()) ? date.getTime() : Number.NaN;
+    }
+
+    function isWechatReminderTargetDue(target, nowMs = Date.now()) {
+        const atMs = parseWechatReminderTimed(target?.timed);
+        return Number.isFinite(atMs) && atMs <= Number(nowMs);
+    }
+
     function formatWechatReminderDisplayTime(value) {
         const date = value instanceof Date ? value : new Date(Number(value) || value);
         if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
@@ -12934,13 +12975,18 @@
         return { ...sr.wechatRegistry };
     }
 
-    async function saveWechatReminderRegistry(registry) {
+    function saveWechatReminderRegistryLocal(registry) {
         const next = sanitizeWechatReminderRegistry(registry);
         const sr = state.scheduleReminder;
         sr.wechatRegistry = next;
         sr.wechatRegistryLoaded = true;
         sr.wechatRegistrySnapshotFound = true;
         try { localStorage.setItem(STORAGE.SCHEDULE_WECHAT_REGISTRY_LS_KEY, JSON.stringify(next)); } catch (e) {}
+        return next;
+    }
+
+    async function saveWechatReminderRegistry(registry) {
+        const next = saveWechatReminderRegistryLocal(registry);
         try { await putFileText(STORAGE.SCHEDULE_WECHAT_REGISTRY_FILE, JSON.stringify(next, null, 2)); } catch (e) {}
         return next;
     }
@@ -13046,11 +13092,23 @@
 
     function shouldDeferWechatReconcileUntilRegistryLoaded(reason, snapshotFound) {
         if (snapshotFound) return false;
-        return /^(bind|periodic|sync-end)$/.test(String(reason || '').trim());
+        return /^(bind|set-store|visibility|focus|pageshow|app-visibility|app-focus|app-pageshow|mobile-periodic|periodic|sync-end)$/.test(String(reason || '').trim());
+    }
+
+    function shouldDeferWechatReminderRemovals(reason) {
+        return /^(bind|set-store|visibility|focus|pageshow|app-visibility|app-focus|app-pageshow|mobile-periodic)$/.test(String(reason || '').trim());
+    }
+
+    async function withWechatReminderReconcileLock(callback) {
+        const worker = typeof callback === 'function' ? callback : async () => undefined;
+        const locks = globalThis?.navigator?.locks;
+        if (!locks || typeof locks.request !== 'function') return await worker();
+        return await locks.request('task-horizon:calendar-wechat-reminder-reconcile', { mode: 'exclusive' }, worker);
     }
 
     async function reconcileWechatReminders(reason = 'refresh') {
         const sr = state.scheduleReminder;
+        const lifecycleToken = Number(sr.wechatLifecycleToken) || 0;
         if (sr.wechatRunning) {
             sr.wechatQueued = true;
             sr.wechatPendingReason = String(reason || '').trim() || sr.wechatPendingReason;
@@ -13058,28 +13116,57 @@
         }
         sr.wechatRunning = true;
         try {
+            await withWechatReminderReconcileLock(async () => {
+            if (lifecycleToken !== (Number(sr.wechatLifecycleToken) || 0)) return;
+            // Another calendar context may have completed while this one waited for the lock.
+            sr.wechatRegistryLoaded = false;
+            sr.wechatRegistrySnapshotFound = false;
             const settings = getSettings();
             const registry = await loadWechatReminderRegistry();
+            if (lifecycleToken !== (Number(sr.wechatLifecycleToken) || 0)) return;
             if (shouldDeferWechatReconcileUntilRegistryLoaded(reason, sr.wechatRegistrySnapshotFound === true)) return;
             const enabled = !!settings?.scheduleReminderEnabled && !!settings?.scheduleReminderWechatEnabled;
-            const cleanupCurrentTargets = !enabled && String(reason || '').includes('disable');
-            if (!enabled && Object.keys(registry).length === 0 && !cleanupCurrentTargets) return;
+            const reasonText = String(reason || '').trim();
+            const cleanupCurrentTargets = !enabled && reasonText.includes('disable');
+            // A view can bind before settings or the first schedule snapshot is ready.
+            // Only an explicit disable is allowed to clear durable cloud reminders.
+            if (!enabled && !cleanupCurrentTargets) return;
             const eligibility = await getWechatReminderEligibility();
             if (!eligibility.ok) {
-                if (String(reason || '').includes('settings')) toast(eligibility.reason, 'warning');
+                if (reasonText.includes('settings')) toast(eligibility.reason, 'warning');
                 return;
             }
-            const list = enabled || cleanupCurrentTargets ? await loadScheduleAll() : [];
+            const list = await loadScheduleAll();
+            if (lifecycleToken !== (Number(sr.wechatLifecycleToken) || 0)) return;
+            if (state.scheduleCache.lastLoadError === true && !cleanupCurrentTargets) return;
             const currentTargets = collectWechatTargets(list, settings, { force: cleanupCurrentTargets });
             if (cleanupCurrentTargets) mergeWechatReminderTargetsIntoRegistry(registry, currentTargets);
             const desired = enabled ? currentTargets : new Map();
-            const { removals, upserts } = diffWechatReminderTargets(registry, desired);
-            const errors = [];
+            const diff = diffWechatReminderTargets(registry, desired);
             let changed = false;
+            const explicitCloudRemoval = cleanupCurrentTargets
+                || /^schedule-save:/.test(reasonText)
+                || /^(delete|manual|settings-disable)$/.test(reasonText);
+            const cloudRemovals = [];
+            for (const entry of diff.removals) {
+                if (!explicitCloudRemoval && isWechatReminderTargetDue(entry)) {
+                    // The cloud reminder may still be delivering at its due time.
+                    // Drop only the local bookkeeping; never send timed=0 here.
+                    delete registry[entry.dataId];
+                    changed = true;
+                    continue;
+                }
+                cloudRemovals.push(entry);
+            }
+            const removals = shouldDeferWechatReminderRemovals(reasonText) ? [] : cloudRemovals;
+            const upserts = diff.upserts;
+            const errors = [];
             await runWechatReminderOperations(removals, async (entry) => {
                 try {
+                    if (lifecycleToken !== (Number(sr.wechatLifecycleToken) || 0)) return;
                     await setCloudWechatReminder(entry, true);
                     delete registry[entry.dataId];
+                    saveWechatReminderRegistryLocal(registry);
                     changed = true;
                 } catch (error) {
                     errors.push(String(error?.message || error));
@@ -13087,15 +13174,16 @@
             });
             await runWechatReminderOperations(upserts, async (entry) => {
                 try {
+                    if (lifecycleToken !== (Number(sr.wechatLifecycleToken) || 0)) return;
                     await setCloudWechatReminder(entry, false);
                     registry[entry.dataId] = entry;
+                    saveWechatReminderRegistryLocal(registry);
                     changed = true;
                 } catch (error) {
                     errors.push(String(error?.message || error));
                 }
             });
             if (changed) await saveWechatReminderRegistry(registry);
-            const reasonText = String(reason || '');
             const interactive = /settings|manual|enable|disable/.test(reasonText);
             const scheduleSaveReason = reasonText.startsWith('schedule-save:');
             if (errors.length > 0) {
@@ -13104,9 +13192,11 @@
             } else if (interactive) {
                 toast(`微信提醒已同步 ${upserts.length} 项，取消 ${removals.length} 项`, 'success');
             }
+            });
         } finally {
             sr.wechatRunning = false;
-            if (sr.wechatQueued || sr.wechatPendingReason) {
+            if (lifecycleToken === (Number(sr.wechatLifecycleToken) || 0)
+                && (sr.wechatQueued || sr.wechatPendingReason)) {
                 const nextReason = sr.wechatPendingReason || String(reason || '').trim() || 'queued';
                 sr.wechatQueued = false;
                 sr.wechatPendingReason = '';
@@ -14155,6 +14245,9 @@
 
     function unbindScheduleReminderEngine() {
         const sr = state.scheduleReminder;
+        sr.wechatLifecycleToken = (Number(sr.wechatLifecycleToken) || 0) + 1;
+        sr.wechatQueued = false;
+        sr.wechatPendingReason = '';
         if (sr.scheduleUpdatedListener) {
             try { window.removeEventListener('tm:calendar-schedule-updated', sr.scheduleUpdatedListener); } catch (e) {}
             sr.scheduleUpdatedListener = null;

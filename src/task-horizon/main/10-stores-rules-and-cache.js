@@ -2520,8 +2520,6 @@
                 filteredTaskIds,
                 filteredDocIdsForTabs,
                 listRenderSignature: String(state?.listRenderSignature || ''),
-                listRenderStep: Math.max(20, Math.min(1200, Number(state?.listRenderStep) || 20)),
-                listRenderLimit: Math.max(0, Math.round(Number(state?.listRenderLimit) || 0)),
             };
         } catch (e) {
             return null;
@@ -2644,18 +2642,7 @@
             .map((id) => String(id || '').trim())
             .filter(Boolean);
         state.listRenderSignature = String(view.listRenderSignature || '');
-        const activeDocId = String(state?.activeDocId || 'all').trim() || 'all';
-        const docTabStep = activeDocId && activeDocId !== 'all' && activeDocId !== __TM_OTHER_BLOCK_TAB_ID
-            ? Math.min(1200, Math.max(100, filtered.length))
-            : 0;
-        state.listRenderStep = Math.max(
-            docTabStep || 20,
-            Math.min(1200, Number(view.listRenderStep) || Number(state.listRenderStep) || 20)
-        );
-        const limit = Math.max(0, Math.round(Number(view.listRenderLimit) || 0));
-        if (limit > 0 || docTabStep > 0) {
-            state.listRenderLimit = Math.min(filtered.length, Math.max(state.listRenderStep, limit, docTabStep));
-        }
+        try { __tmResetViewRenderWindow(state.viewMode, filtered.length); } catch (e) {}
         state.__tmLastFilterPerf = {
             cacheHit: 'snapshot-view',
             totalMs: 0,
@@ -2795,7 +2782,6 @@
                     filteredTaskIds.join(','),
                     filteredDocIdsForTabs.join(','),
                     String(view?.listRenderSignature || '').trim(),
-                    Number(view?.listRenderLimit || 0) || 0,
                 ].join(':');
             });
             return JSON.stringify({
@@ -11303,8 +11289,6 @@
     const __tmLocalCreateTxSuppressBlockIds = new Set();
     const __tmLocalCreateTxSuppressDocIds = new Set();
     const __tmRecentVisibleDateFallbackTasks = new Map();
-    const __tmTaskAttrHostBackfillSeenAt = new Map();
-    const __tmTaskAttrHostMirrorSyncSeenAt = new Map();
 
     function __tmClearAttrHostResolutionCache() {
         try { __tmAttrHostParentResolutionCache.clear(); } catch (e) {}
@@ -12957,11 +12941,6 @@
             ];
             return tomatoKeys.includes(attrKey);
         };
-        const hasManagedAttrHostRowValue = (row) => Object.entries(row || {}).some(([attrKey, value]) => {
-            const key = String(attrKey || '').trim();
-            if (!key || key === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || key === __TM_TASK_ATTR_HOST_OWNER_ATTR) return false;
-            return isTaskAttrManagedRowKey(key) && String(value ?? '').trim() !== '';
-        });
         const isSafeMirrorRow = (context, mirrorId, row) => {
             const mid = String(mirrorId || '').trim();
             const tid = String(context?.taskId || '').trim();
@@ -12978,7 +12957,6 @@
             const primaryRow = primaryId ? (rowMap.get(primaryId) || null) : null;
             const primaryUpdatedAt = readAttrHostUpdatedAt(primaryRow);
             const primaryOwner = readAttrHostOwner(primaryRow);
-            const primaryHasManagedValues = hasManagedAttrHostRowValue(primaryRow);
             const ignorePrimaryRow = String(context?.state || '').trim() === 'state1-parent'
                 && !!primaryOwner
                 && primaryOwner !== String(context?.taskId || '').trim();
@@ -12994,6 +12972,7 @@
                 const mirrorUpdatedAt = readAttrHostUpdatedAt(entry.row);
                 Object.entries(entry.row || {}).forEach(([key, value]) => {
                     if (!isTaskAttrManagedRowKey(key)) return;
+                    if (String(value ?? '').trim() === '') return;
                     if (Object.prototype.hasOwnProperty.call(primaryRow || {}, key)) return;
                     if (primaryOwner === context.taskId && primaryUpdatedAt > mirrorUpdatedAt) return;
                     out[key] = value;
@@ -13017,116 +12996,6 @@
                 primaryHasValues: !ignorePrimaryRow && shouldApplySelfRow(primaryRow),
             };
         };
-        const repairPatches = new Map();
-        const rememberRepairPatch = (targetId, patch) => {
-            const id = String(targetId || '').trim();
-            if (!id || !patch || typeof patch !== 'object') return;
-            repairPatches.set(id, {
-                ...(repairPatches.get(id) || {}),
-                ...patch,
-            });
-        };
-        const scheduleState1PrimaryBackfill = (context, merged) => {
-            const ctx = context && typeof context === 'object' ? context : null;
-            const primaryId = String(ctx?.primaryHostId || '').trim();
-            const taskId = String(ctx?.taskId || '').trim();
-            if (!ctx || ctx.state !== 'state1-parent' || !primaryId || !taskId || primaryId === taskId) return;
-            const primaryRow = rowMap.get(primaryId) || {};
-            const taskRow = rowMap.get(taskId) || {};
-            const primaryOwner = readAttrHostOwner(primaryRow);
-            const taskHasManagedValues = hasManagedAttrHostRowValue(taskRow);
-            const primaryHasManagedValues = hasManagedAttrHostRowValue(primaryRow);
-            const ownerMismatch = !!primaryOwner && primaryOwner !== taskId;
-            if (!ownerMismatch && (primaryHasManagedValues || String(merged?.selectedSourceId || '').trim() !== taskId)) return;
-            const key = `${taskId}:${primaryId}`;
-            const now = Date.now();
-            const last = Number(__tmTaskAttrHostBackfillSeenAt.get(key) || 0);
-            if (last && now - last < 8000) return;
-            const patch = {};
-            if (ownerMismatch) {
-                const keys = new Set(Object.keys(primaryRow).concat(Object.keys(taskRow)));
-                keys.forEach((attrKey) => {
-                    const k = String(attrKey || '').trim();
-                    if (!k || k === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || k === __TM_TASK_ATTR_HOST_OWNER_ATTR) return;
-                    if (!isTaskAttrManagedRowKey(k)) return;
-                    const nextValue = Object.prototype.hasOwnProperty.call(taskRow, k) ? String(taskRow[k] ?? '') : '';
-                    const prevValue = Object.prototype.hasOwnProperty.call(primaryRow, k) ? String(primaryRow[k] ?? '') : '';
-                    if (prevValue !== nextValue) patch[k] = nextValue;
-                });
-            } else if (taskHasManagedValues) {
-                Object.entries(merged?.row || {}).forEach(([attrKey, value]) => {
-                    const k = String(attrKey || '').trim();
-                    if (!k || k === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || k === __TM_TASK_ATTR_HOST_OWNER_ATTR) return;
-                    if (!isTaskAttrManagedRowKey(k)) return;
-                    if (String(value ?? '').trim() === '') return;
-                    patch[k] = String(value ?? '');
-                });
-            }
-            if (!Object.keys(patch).length) return;
-            patch[__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR] = String(now);
-            patch[__TM_TASK_ATTR_HOST_OWNER_ATTR] = taskId;
-            __tmRememberSmallCache(__tmTaskAttrHostBackfillSeenAt, key, now, 1024);
-            rowMap.set(primaryId, {
-                ...primaryRow,
-                ...patch,
-            });
-            rememberRepairPatch(primaryId, patch);
-        };
-        const scheduleState3ParentMirrorSync = (context) => {
-            const ctx = context && typeof context === 'object' ? context : null;
-            const taskId = String(ctx?.taskId || '').trim();
-            const primaryId = String(ctx?.primaryHostId || '').trim();
-            const parentId = String(ctx?.parentListId || '').trim();
-            if (!ctx || ctx.state !== 'state3-list-item' || !taskId || !primaryId || !parentId) return false;
-            if (primaryId !== taskId || parentId === primaryId) return false;
-            const primaryRow = rowMap.get(primaryId) || {};
-            const parentRow = rowMap.get(parentId) || {};
-            const parentOwner = readAttrHostOwner(parentRow);
-            const primaryHasManagedValues = hasManagedAttrHostRowValue(primaryRow);
-            if (parentOwner === taskId && !primaryHasManagedValues && hasManagedAttrHostRowValue(parentRow)) {
-                const now = Date.now();
-                const patch = {};
-                Object.entries(parentRow).forEach(([attrKey, value]) => {
-                    const key = String(attrKey || '').trim();
-                    if (!key || key === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || key === __TM_TASK_ATTR_HOST_OWNER_ATTR) return;
-                    if (!isTaskAttrManagedRowKey(key)) return;
-                    patch[key] = String(value ?? '');
-                });
-                patch[__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR] = String(now);
-                patch[__TM_TASK_ATTR_HOST_OWNER_ATTR] = taskId;
-                rowMap.set(primaryId, {
-                    ...primaryRow,
-                    ...patch,
-                });
-                rememberRepairPatch(primaryId, patch);
-                return true;
-            }
-            if (!parentOwner && !primaryHasManagedValues) return false;
-            const keys = new Set(Object.keys(parentRow).concat(Object.keys(primaryRow)));
-            const patch = {};
-            keys.forEach((attrKey) => {
-                const key = String(attrKey || '').trim();
-                if (!key || key === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || key === __TM_TASK_ATTR_HOST_OWNER_ATTR) return;
-                if (!isTaskAttrManagedRowKey(key)) return;
-                const nextValue = Object.prototype.hasOwnProperty.call(primaryRow, key) ? String(primaryRow[key] ?? '') : '';
-                const prevValue = Object.prototype.hasOwnProperty.call(parentRow, key) ? String(parentRow[key] ?? '') : '';
-                if (prevValue !== nextValue) patch[key] = nextValue;
-            });
-            if (!Object.keys(patch).length && parentOwner === taskId) return false;
-            const now = Date.now();
-            const syncKey = `${taskId}:${parentId}`;
-            const last = Number(__tmTaskAttrHostMirrorSyncSeenAt.get(syncKey) || 0);
-            if (last && now - last < 3000) return false;
-            patch[__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR] = String(now);
-            patch[__TM_TASK_ATTR_HOST_OWNER_ATTR] = taskId;
-            __tmRememberSmallCache(__tmTaskAttrHostMirrorSyncSeenAt, syncKey, now, 1024);
-            rowMap.set(parentId, {
-                ...parentRow,
-                ...patch,
-            });
-            rememberRepairPatch(parentId, patch);
-            return false;
-        };
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
             if (!taskId) return;
@@ -13134,9 +13003,7 @@
             task.__tmTaskAttrContext = context;
             task.attrHostId = context.primaryHostId || taskId;
             task.attr_host_id = task.attrHostId;
-            let merged = mergeTaskAttrRowsForContext(context);
-            if (scheduleState3ParentMirrorSync(context)) merged = mergeTaskAttrRowsForContext(context);
-            scheduleState1PrimaryBackfill(context, merged);
+            const merged = mergeTaskAttrRowsForContext(context);
             if (!merged.hasValues && !(opts.applyBlankSelfAttrs === true && Object.keys(merged.row || {}).some((key) => __tmIsTaskMetaAttrKey(key)))) return;
             __tmApplyTaskMetaAttrRow(task, merged.row, {
                 preferExisting: merged.primaryId === taskId ? opts.preferExistingSelf !== false : false,
@@ -13148,19 +13015,6 @@
                 task.__tmPreferSelfAttrHostId = merged.primaryId;
             }
         });
-        if (repairPatches.size > 0) {
-            const entries = Array.from(repairPatches, ([id, attrs]) => ({ id, attrs }));
-            void (async () => {
-                try {
-                    const adapter = globalThis.__tmTaskHorizonBackendAdapter;
-                    if (!adapter || typeof adapter.batchSetAttrs !== 'function') return;
-                    await adapter.batchSetAttrs(entries);
-                    await adapter.flushTransaction?.();
-                } catch (e) {
-                    try { console.warn('[task-horizon] batch attr-host repair failed', e); } catch (e2) {}
-                }
-            })();
-        }
         return list;
     }
 
