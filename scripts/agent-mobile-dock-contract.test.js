@@ -43,6 +43,8 @@ assert.match(styles, /\.tm-agent-send\[data-agent-action="stop"\]\s*\{[\s\S]*bac
 assert.doesNotMatch(styles, /\.tm-agent-send\[data-agent-action="stop"\]\s*\{[\s\S]{0,240}--b3-theme-error/, 'the stop action must not use the error color');
 assert.match(styles, /\.tm-agent-send svg\s*\{[\s\S]*display: block[\s\S]*margin: 0/, 'send and stop icons must reset the SiYuan button icon margin and remain centered');
 assert.match(styles, /\.tm-agent-message__body[\s\S]*min-width: 0[\s\S]*max-width: 100%/, 'message bodies must be allowed to shrink instead of widening the panel');
+assert.match(styles, /\.tm-agent-workbench\s*\{[\s\S]*container-type: inline-size;/, 'message layout must respond to its actual host width');
+assert.match(styles, /@container \(max-width: 520px\)[\s\S]*\.tm-agent-markdown pre[\s\S]*white-space: pre-wrap[\s\S]*overflow-wrap: anywhere/, 'narrow message containers must wrap code blocks instead of forcing horizontal overflow');
 assert.match(styles, /\.tm-agent-message--user \.tm-agent-message__body[\s\S]*width: fit-content;[\s\S]*overflow-wrap: anywhere;[\s\S]*word-break: break-word;/, 'long user prompts must wrap inside the conversation width');
 assert.match(styles, /\.tm-agent-markdown table[\s\S]*width: 100%[\s\S]*overflow-x: auto/, 'Markdown tables must remain scrollable within the conversation width');
 assert.match(styles, /\.tm-agent-interaction__body[\s\S]*min-width: 0[\s\S]*max-width: 100%/, 'interaction cards must not push narrow panels wider');

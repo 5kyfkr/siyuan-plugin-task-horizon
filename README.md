@@ -1,58 +1,60 @@
 <!-- Hero -->
-<div style="text-align:center;margin-bottom:15px;padding:28px 20px 20px;background:var(--b3-theme-surface);border-radius:12px;border:1px solid var(--b3-border-color);box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-  <h1 style="margin:0 0 8px;font-size:32px;font-weight:800;letter-spacing:-0.02em;color:var(--b3-theme-on-background);">Task Horizon</h1>
-  <p style="margin:0 auto;font-size:15px;color:var(--b3-theme-on-surface);max-width:680px;">思源笔记多文档任务工作台 · 主页总览 | 清单/表格/时间轴/看板/日历/白板 | AI | Dock | 番茄/积分联动</p>
+<div style="text-align:center;margin-bottom:12px;padding:22px 20px 18px;background:var(--b3-theme-surface);border-radius:8px;border:1px solid var(--b3-border-color);">
+  <h1 style="margin:0 0 6px;font-size:28px;font-weight:800;letter-spacing:0;color:var(--b3-theme-on-background);">Task Horizon</h1>
+  <p style="margin:0 auto;max-width:720px;font-size:14px;line-height:1.65;color:var(--b3-theme-on-surface);">思源笔记多文档任务工作台 · 主页总览 · 清单 / 表格 / 时间轴 / 看板 / 日历 / 白板 · AI · Dock · 番茄 / 积分联动</p>
 </div>
 
-<!-- 贡献者 + 交流群 + 版本链接（铺满100%版） -->
-<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:15px;">
-  
-  <!-- 👤 PR贡献 -->
-  <div style="flex:1 1 140px;min-width:140px;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--b3-theme-surface);border-radius:10px;border:1px solid var(--b3-border-color);">
-    <div style="width:32px;height:32px;background:var(--b3-theme-primary-lightest);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">👤</div>
-    <div>
+<!-- 社区入口 -->
+<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px;">
+  <div style="box-sizing:border-box;flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--b3-theme-surface);border-radius:8px;border:1px solid var(--b3-border-color);">
+    <div style="flex:0 0 32px;width:32px;height:32px;background:var(--b3-theme-primary-lightest);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">👤</div>
+    <div style="min-width:0;">
       <div style="font-size:10px;color:var(--b3-theme-on-surface);font-weight:700;">PR贡献</div>
-      <a href="https://github.com/bytemain" style="font-size:13px;color:var(--b3-theme-on-background);text-decoration:none;font-weight:600;">bytemain</a>
-      <a href="https://github.com/ProgramFan" style="font-size:13px;color:var(--b3-theme-on-background);text-decoration:none;font-weight:600;">ProgramFan</a>
+      <div style="display:flex;flex-wrap:wrap;gap:4px 10px;">
+        <a href="https://github.com/bytemain" style="font-size:13px;color:var(--b3-theme-on-background);text-decoration:none;font-weight:600;">bytemain</a>
+        <a href="https://github.com/ProgramFan" style="font-size:13px;color:var(--b3-theme-on-background);text-decoration:none;font-weight:600;">ProgramFan</a>
+      </div>
     </div>
   </div>
-  
-  <!-- 💬 插件交流群 -->
-  <div style="flex:1 1 140px;min-width:140px;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--b3-theme-surface);border-radius:10px;border:1px solid var(--b3-border-color);">
-    <div style="width:32px;height:32px;background:var(--b3-theme-secondary-lightest, rgba(243, 169, 47, 0.12));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">💬</div>
-    <div>
+  <a href="https://qm.qq.com/q/MRkXe3Z00U" style="box-sizing:border-box;flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--b3-theme-surface);border-radius:8px;border:1px solid var(--b3-border-color);text-decoration:none;">
+    <div style="flex:0 0 32px;width:32px;height:32px;background:var(--b3-theme-secondary-lightest, rgba(243, 169, 47, 0.12));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">💬</div>
+    <div style="min-width:0;">
       <div style="font-size:10px;color:var(--b3-theme-on-surface);font-weight:700;">插件交流群</div>
-      <a href="https://qm.qq.com/q/MRkXe3Z00U" style="font-size:13px;color:var(--b3-theme-primary);text-decoration:none;font-weight:600;">758666272</a>
+      <div style="font-size:13px;color:var(--b3-theme-primary);font-weight:600;">758666272</div>
     </div>
-  </div>
-  
-  <!-- 📖 V1.3 使用说明 -->
-  <a href="https://ld246.com/article/1770607439695" style="flex:1 1 140px;min-width:140px;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--b3-theme-surface);border-radius:10px;border:1px solid var(--b3-border-color);text-decoration:none;">
-    <div style="width:32px;height:32px;background:var(--b3-theme-primary-lightest);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">📖</div>
-    <div>
+  </a>
+</div>
+
+<!-- 教程与版本介绍 -->
+<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:15px;">
+  <a href="https://ld246.com/article/1770607439695" style="box-sizing:border-box;flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--b3-theme-surface);border-radius:8px;border:1px solid var(--b3-border-color);text-decoration:none;">
+    <div style="flex:0 0 32px;width:32px;height:32px;background:var(--b3-theme-primary-lightest);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">📖</div>
+    <div style="min-width:0;">
       <div style="font-size:10px;color:var(--b3-theme-on-surface);font-weight:700;">V1.3</div>
       <div style="font-size:13px;color:var(--b3-theme-primary);font-weight:600;">使用说明</div>
     </div>
   </a>
-  
-  <!-- 🎨 V1.5 视图介绍 -->
-  <a href="https://ld246.com/article/1771900014059" style="flex:1 1 140px;min-width:140px;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--b3-theme-surface);border-radius:10px;border:1px solid var(--b3-border-color);text-decoration:none;">
-    <div style="width:32px;height:32px;background:var(--b3-theme-secondary-lightest, rgba(243, 169, 47, 0.12));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">🎨</div>
-    <div>
+  <a href="https://ld246.com/article/1771900014059" style="box-sizing:border-box;flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--b3-theme-surface);border-radius:8px;border:1px solid var(--b3-border-color);text-decoration:none;">
+    <div style="flex:0 0 32px;width:32px;height:32px;background:var(--b3-theme-secondary-lightest, rgba(243, 169, 47, 0.12));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">🎨</div>
+    <div style="min-width:0;">
       <div style="font-size:10px;color:var(--b3-theme-on-surface);font-weight:700;">V1.5</div>
       <div style="font-size:13px;color:var(--b3-theme-primary);font-weight:600;">视图介绍</div>
     </div>
   </a>
-  
-  <!-- ✨ V2.0 更新亮点 -->
-  <a href="https://ld246.com/article/1774945151303" style="flex:1 1 140px;min-width:140px;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--b3-theme-surface);border-radius:10px;border:1px solid var(--b3-border-color);text-decoration:none;">
-    <div style="width:32px;height:32px;background:var(--b3-theme-success-lightest, rgba(101, 184, 77, 0.12));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">✨</div>
-    <div>
+  <a href="https://ld246.com/article/1774945151303" style="box-sizing:border-box;flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--b3-theme-surface);border-radius:8px;border:1px solid var(--b3-border-color);text-decoration:none;">
+    <div style="flex:0 0 32px;width:32px;height:32px;background:var(--b3-theme-success-lightest, rgba(101, 184, 77, 0.12));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">✨</div>
+    <div style="min-width:0;">
       <div style="font-size:10px;color:var(--b3-theme-on-surface);font-weight:700;">V2.0</div>
       <div style="font-size:13px;color:var(--b3-theme-primary);font-weight:600;">更新亮点</div>
     </div>
   </a>
-  
+  <a href="https://ld246.com/article/1784692926216" title="任务管理器 2.0～2.7：AI 智能体升级、新增全局白板" style="box-sizing:border-box;flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--b3-theme-surface);border-radius:8px;border:1px solid var(--b3-border-color);text-decoration:none;">
+    <div style="flex:0 0 32px;width:32px;height:32px;background:var(--b3-theme-primary-lightest);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;">🚀</div>
+    <div style="min-width:0;">
+      <div style="font-size:10px;color:var(--b3-theme-on-surface);font-weight:700;">V2.0～2.7</div>
+      <div style="font-size:13px;color:var(--b3-theme-primary);font-weight:600;">智能体与全局白板</div>
+    </div>
+  </a>
 </div>
 
 <!-- 赞助者标签云 -->
@@ -85,6 +87,24 @@
 </div>
 
 # 更新记录
+
+## 2.7.7更新内容 7/23
+- **优化：AI 与安排规则**
+  - 补全文档分组上下文，AI 可识别任务和笔记所属的文档分组，并按文档正确应用对应的安排规则
+  - AI 生成内容中的代码块增加复制按钮，优化窄屏下长文本与代码的自动换行
+- **新增：白板顺序依据**
+  - 白板顺序模式可选择按“单文档白板”或“全局白板”的任务连线顺序显示，设置->常规设置->白板顺序依据
+- **优化：白板交互与显示**
+  - 触屏端白板分组框改为与任务卡片一致的长按拖动，避免直接拖拽造成误触
+  - 黑色手写笔迹在夜间模式下自动使用主题文字色，绘制预览与已保存笔迹保持一致
+- **优化：视图加载与动画性能**
+  - 优化文档折叠页签的尺寸监听、动画和资源清理，减少重复布局计算
+  - 优化日历月视图、视图切换、侧栏动画和数据加载，合并重复请求与渲染
+- **修复**
+  - 修复每日等循环任务点击完成后列表卡死、下一轮任务未及时刷新，以及加载后未继续推进的问题
+  - 修复多选模式下循环记录无法批量删除的问题
+  - 修复笔记普通块添加今日日程时提示“未找到任务 / 任务日期同步失败”的问题，并保持归入对应的“其他块”分组
+  - 修复 AI 定时任务因会话未预先保存或运行入口缺失而报错、无法启动的问题
 
 ## 2.7.6更新内容 7/22
 - 修复部分移动端在思源启动阶段出现 Kernel 插件会话失效，导致首次启用任务 MCP 或编辑截止日期、开始日期、状态、优先级等字段时报 `Auth failed [session]` 的问题

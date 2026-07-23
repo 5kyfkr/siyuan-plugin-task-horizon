@@ -1669,7 +1669,9 @@
                     ) as doc_path,
                     ${attrScalarSelectSql}
                 FROM blocks AS task
-                WHERE task.id = '${tid}'
+                WHERE ${compatTaskAliasTypeCondition('task')}
+                  AND task.subtype = 't'
+                  AND task.id = '${tid}'
                 LIMIT 1
             `;
             const res = await this.call('/api/query/sql', { stmt: sql });
@@ -6845,6 +6847,7 @@ onBlockInserted: (info) => {
                 skipOptimisticRefresh: op?.data?.skipOptimisticRefresh === true || op?.data?.skipViewRefresh === true,
                 skipSettledRefresh: op?.data?.skipSettledRefresh === true,
                 refreshAncestorViews: op?.data?.refreshAncestorViews !== false,
+                deferCompletionEffects: true,
             });
         }
         if (type === 'moveTask') {
@@ -16332,25 +16335,26 @@ __tmPushStatusDebug('apply-status:start', {
             }
             if (!prevDone && nextDone) {
                 try {
-                    const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(context.persistId)
-                        || globalThis.__tmRuntimeState?.getFlatTaskById?.(context.persistId)
-                        || state.flatTasks?.[context.persistId]
-                        || state.pendingInsertedTasks?.[context.persistId]
-                        || task;
-                    await __tmSettleTomatoAfterTaskDone(context.persistId, {
+                    const completedAt = String(completeAtPatch?.taskCompleteAt || '').trim()
+                    if (completedAt) {
+                        __tmScheduleRecurringTaskAdvanceAfterCompletion(context.persistId, {
+                            source: String(opts.source || 'task-status').trim() || 'task-status',
+                            completedAt,
+                            scheduleId: String(opts.scheduleId || '').trim(),
+                        });
+                    }
+                } catch (e) {}
+                const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(context.persistId)
+                    || globalThis.__tmRuntimeState?.getFlatTaskById?.(context.persistId)
+                    || state.flatTasks?.[context.persistId]
+                    || state.pendingInsertedTasks?.[context.persistId]
+                    || task;
+                try {
+                    void Promise.resolve(__tmSettleTomatoAfterTaskDone(context.persistId, {
                         task: latestTask,
                         attrHostId: rewardAttrHostId || __tmGetTaskAttrHostId(latestTask) || context.persistId,
                         source: String(opts.source || 'task-status').trim() || 'task-status',
-                    });
-                } catch (e) {}
-                try {
-                    const completedAt = String(completeAtPatch?.taskCompleteAt || '').trim()
-                        || __tmNowInChinaTimezoneIso();
-                    __tmScheduleRecurringTaskAdvanceAfterCompletion(context.persistId, {
-                        source: String(opts.source || 'task-status').trim() || 'task-status',
-                        completedAt,
-                        scheduleId: String(opts.scheduleId || '').trim(),
-                    });
+                    })).catch(() => null);
                 } catch (e) {}
             } else if (prevDone && !nextDone) {
                 try { __tmClearRecurringTaskAdvanceTimer(context.persistId); } catch (e) {}
@@ -19421,6 +19425,10 @@ refreshOk = false;
         const m = String(mode || '').trim().toLowerCase();
         if (m === 'global') return 'global';
         return m === 'stream' ? 'stream' : 'board';
+    }
+
+    function __tmNormalizeWhiteboardSequenceScope(scope) {
+        return String(scope || '').trim().toLowerCase() === 'global' ? 'global' : 'document';
     }
 
     function __tmCompareTasksByDocFlow(a, b) {

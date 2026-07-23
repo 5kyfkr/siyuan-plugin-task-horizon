@@ -2129,6 +2129,16 @@
         }
     };
 
+    window.updateWhiteboardSequenceScope = async function(scope) {
+        SettingsStore.data.whiteboardSequenceScope = __tmNormalizeWhiteboardSequenceScope(scope);
+        await SettingsStore.save();
+        try { applyFilters(); } catch (e) {}
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+        }
+    };
+
     window.updateWhiteboardNoteDefaultFontSize = async function(value) {
         const n = Number(value);
         SettingsStore.data.whiteboardNoteDefaultFontSize = Number.isFinite(n) ? Math.max(10, Math.min(40, Math.round(n))) : 20;

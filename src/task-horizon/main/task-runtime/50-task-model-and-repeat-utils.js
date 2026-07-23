@@ -1173,6 +1173,40 @@
         return removed;
     }
 
+    function __tmSyncRecurringInstanceTasks(sourceTaskInput) {
+        const sourceTask = (sourceTaskInput && typeof sourceTaskInput === 'object') ? sourceTaskInput : null;
+        const sourceTaskId = String(sourceTask?.id || '').trim();
+        if (!sourceTaskId) return 0;
+        __tmPurgeRecurringInstanceTasks(sourceTaskId);
+        const history = __tmNormalizeTaskRepeatHistory(sourceTask.repeatHistory || sourceTask.repeat_history || '');
+        let inserted = 0;
+        history.forEach((historyItem, historyIndex) => {
+            const virtualTask = __tmBuildRecurringInstanceTask(sourceTask, historyItem, historyIndex);
+            if (!virtualTask?.id) return;
+            const docId = String(virtualTask.root_id || virtualTask.docId || '').trim();
+            const loadedDoc = (Array.isArray(state.taskTree) ? state.taskTree : [])
+                .find((doc) => String(doc?.id || '').trim() === docId);
+            if (!loadedDoc) return;
+            if (!Array.isArray(loadedDoc.tasks)) loadedDoc.tasks = [];
+            loadedDoc.tasks.push(virtualTask);
+            let stored = false;
+            try {
+                const taskStore = globalThis.__tmTaskStore;
+                if (typeof taskStore?.upsertLocal === 'function') {
+                    taskStore.upsertLocal(virtualTask, { status: 'sync-recurring-instance' });
+                    stored = true;
+                }
+            } catch (e) {}
+            if (!stored) {
+                if (!state.flatTasks || typeof state.flatTasks !== 'object') state.flatTasks = {};
+                state.flatTasks[virtualTask.id] = virtualTask;
+            }
+            inserted += 1;
+        });
+        try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
+        return inserted;
+    }
+
     function __tmCollectTaskRepeatPreviewDates(taskLike, options = {}) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         const rule = __tmGetTaskRepeatRule(task, {

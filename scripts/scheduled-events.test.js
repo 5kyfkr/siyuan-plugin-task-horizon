@@ -393,6 +393,52 @@ async function run() {
     assert.equal(safety.isReminderModeChoiceIntent('给当前任务添加提醒'), true, 'task reminder writes without a time must still choose follow or independent mode');
     assert.equal(safety.isReminderModeChoiceIntent('查看已有的定时事件'), false, 'read-only scheduled-event requests must not open the choice');
     assert.equal(safety.isReminderModeChoiceIntent('提醒功能怎么用'), false, 'help requests must not open the choice');
+    {
+        const automation = loadAutomationSafety();
+        const requests = [];
+        let storedSession = null;
+        automation.context.fetch = async (url, options = {}) => {
+            const route = String(url).replace('/api/ai/agent', '');
+            const body = options.body ? JSON.parse(options.body) : {};
+            requests.push({ route, body });
+            const jsonResponse = (payload) => ({
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => payload,
+            });
+            if (route === '/getSession') {
+                return jsonResponse(storedSession ? { code: 0, data: storedSession } : { code: -1, msg: 'not found' });
+            }
+            if (route === '/saveSession') {
+                storedSession = { ...body, revision: Number(storedSession?.revision || 0) + 1 };
+                delete storedSession.expectedRevision;
+                return jsonResponse({ code: 0, data: { revision: storedSession.revision } });
+            }
+            if (route === '/chat') {
+                const encoded = new TextEncoder().encode('event: content\ndata: {"token":"Done"}\n\nevent: done\ndata: {}\n\n');
+                let reads = 0;
+                return {
+                    ok: true,
+                    status: 200,
+                    headers: { get: () => 'text/event-stream' },
+                    body: { getReader: () => ({ read: async () => reads++ === 0 ? { done: false, value: encoded } : { done: true } }) },
+                };
+            }
+            if (route === '/lsSessions') return jsonResponse({ code: 0, data: { sessions: [], total: 0 } });
+            throw new Error(`unexpected request: ${route}`);
+        };
+        const result = await automation.runAutomation({ prompt: 'Summarize', sessionID: '20260722120000-abcdefg', sessionTitle: '定时：Test', persistSession: true });
+        assert.equal(result.markdown, 'Done');
+        assert.deepEqual(requests.slice(0, 3).map((item) => item.route), ['/getSession', '/saveSession', '/chat'], 'a new automation conversation must be saved before chat starts');
+        const preSave = requests.find((item) => item.route === '/saveSession').body;
+        const chat = requests.find((item) => item.route === '/chat').body;
+        assert.equal(preSave.entries.length, 1);
+        assert.equal(preSave.entries[0].content, 'Summarize');
+        assert.equal(chat.userEntryID, preSave.entries[0].id);
+        assert.equal(chat.contentRevision, 1);
+        assert.equal(storedSession.entries.filter((entry) => entry.type === 'user' && entry.content === 'Summarize').length, 1, 'finalization must not duplicate the pre-saved user prompt');
+    }
     safety.context.interactionResponse = {
         ok: false,
         status: 503,

@@ -105,6 +105,11 @@
     scroll-padding-bottom: var(--tm-view-bottom-inset, 0px);
 }
 
+.tm-modal--doc-tabs-transitioning .tm-calendar-root--month-fit,
+.tm-calendar-root--month-fit.tm-calendar-root--host-height-transitioning {
+    overflow-y: hidden !important;
+}
+
 .tm-calendar-root--month-view .tm-calendar-wrap {
     flex: 0 0 auto;
     min-height: 100%;

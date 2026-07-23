@@ -658,7 +658,7 @@
                     const resizeHtml = selected
                         ? `<span class="tm-whiteboard-frame-resize tm-whiteboard-frame-resize--nw" onpointerdown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'nw')" onmousedown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'nw')" title="拖拽调整分组框"></span><span class="tm-whiteboard-frame-resize tm-whiteboard-frame-resize--se" onpointerdown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'se')" onmousedown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'se')" title="拖拽调整分组框"></span>`
                         : '';
-                    return `<div class="tm-whiteboard-frame${selected ? ' tm-whiteboard-frame--selected' : ''}" data-frame-id="${esc(frameId)}" data-doc-id="${esc(docId)}" data-x="${Math.round(fx)}" data-y="${Math.round(fy)}" data-local-x="${Math.round(localX)}" data-local-y="${Math.round(localY)}" data-w="${w}" data-h="${h}" style="${frameStyle}" onclick="tmWhiteboardSelectFrame('${escSq(frameId)}', event)" onpointerdown="tmWhiteboardFrameMouseDown(event, '${escSq(frameId)}', '${escSq(docId)}')" onmousedown="tmWhiteboardFrameMouseDown(event, '${escSq(frameId)}', '${escSq(docId)}')" title="拖动分组框"><div class="tm-whiteboard-frame-title">${esc(name)}</div>${toolsHtml}${resizeHtml}</div>`;
+                    return `<div class="tm-whiteboard-frame${selected ? ' tm-whiteboard-frame--selected' : ''}" data-frame-id="${esc(frameId)}" data-doc-id="${esc(docId)}" data-x="${Math.round(fx)}" data-y="${Math.round(fy)}" data-local-x="${Math.round(localX)}" data-local-y="${Math.round(localY)}" data-w="${w}" data-h="${h}" style="${frameStyle}" onclick="tmWhiteboardSelectFrame('${escSq(frameId)}', event)" onpointerdown="tmWhiteboardFramePointerDown(event, '${escSq(frameId)}', '${escSq(docId)}')" onmousedown="tmWhiteboardFrameMouseDown(event, '${escSq(frameId)}', '${escSq(docId)}')" title="拖动分组框"><div class="tm-whiteboard-frame-title">${esc(name)}</div>${toolsHtml}${resizeHtml}</div>`;
                 };
 
                 const renderWhiteboardNote = (n, idx) => {
@@ -964,11 +964,12 @@
                         const d = String(stroke?.d || '').trim();
                         if (!sid || !did || !d) return '';
                         const color = /^#[0-9a-fA-F]{6}$/.test(String(stroke?.color || '').trim()) ? String(stroke.color).trim() : '#1f2937';
+                        const displayColor = color.toLowerCase() === '#1f2937' ? 'var(--tm-text-color)' : color;
                         const width = Math.round(Math.max(1, Math.min(64, Number(stroke?.width) || 4)) * 10) / 10;
                         const opacity = Math.max(0.05, Math.min(1, Number(stroke?.opacity) || 1));
                         const selected = selectedStrokeId === sid || multiSelectedStrokeIds.has(sid);
                         const cls = `tm-whiteboard-drawing-stroke${String(stroke?.type || '').trim() === 'highlighter' ? ' tm-whiteboard-drawing-stroke--highlighter' : ''}${selected ? ' tm-whiteboard-drawing-stroke--selected' : ''}`;
-                        return `<path class="${cls}" data-stroke-id="${esc(sid)}" data-doc-id="${esc(did)}" d="${esc(d)}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" fill="none" stroke-linecap="round" stroke-linejoin="round" onpointerdown="tmWhiteboardDrawingPointerDown(event, '${escSq(sid)}', '${escSq(did)}')"></path>`;
+                        return `<path class="${cls}" data-stroke-id="${esc(sid)}" data-doc-id="${esc(did)}" d="${esc(d)}" stroke="${esc(displayColor)}" stroke-width="${width}" stroke-opacity="${opacity}" fill="none" stroke-linecap="round" stroke-linejoin="round" onpointerdown="tmWhiteboardDrawingPointerDown(event, '${escSq(sid)}', '${escSq(did)}')"></path>`;
                     }).join('');
                     return `<svg class="tm-whiteboard-drawing-layer${hiddenCls}" data-doc-id="${esc(docId)}" width="${Math.round(boardW)}" height="${Math.round(boardH)}" viewBox="0 0 ${Math.round(boardW)} ${Math.round(boardH)}" aria-hidden="true">${pathHtml}</svg>`;
                 };

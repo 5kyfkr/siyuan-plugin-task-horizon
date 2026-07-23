@@ -2489,6 +2489,7 @@
             taskHeadingLevel: String(data.taskHeadingLevel || 'h2').trim() || 'h2',
             docH2SubgroupEnabled: data.docH2SubgroupEnabled ? 1 : 0,
             whiteboardSequenceMode: data.whiteboardSequenceMode ? 1 : 0,
+            whiteboardSequenceScope: __tmNormalizeWhiteboardSequenceScope(data.whiteboardSequenceScope),
             customTaskOrder: (typeof __tmBuildCustomTaskOrderFingerprint === 'function' && __tmRuleSortsUseCustomOrderField(rule))
                 ? __tmBuildCustomTaskOrderFingerprint(rule, opts.docIds || state?.__tmLoadedDocIdsForTasks || [])
                 : '',
@@ -4374,6 +4375,7 @@
         'whiteboardAllTabsDocOrderByGroup',
         'whiteboardGlobalBoardsByGroup',
         'whiteboardSequenceMode',
+        'whiteboardSequenceScope',
     ]);
 
     function __tmIsSettingsFieldSyncKey(key) {
@@ -4826,6 +4828,7 @@
             whiteboardAllTabsDocOrderByGroup: __tmNormalizeWhiteboardAllTabsDocOrderMap(src.whiteboardAllTabsDocOrderByGroup),
             whiteboardGlobalBoardsByGroup: __tmNormalizeWhiteboardGlobalBoardsByGroupMap(src.whiteboardGlobalBoardsByGroup),
             whiteboardSequenceMode: !!src.whiteboardSequenceMode,
+            whiteboardSequenceScope: __tmNormalizeWhiteboardSequenceScope(src.whiteboardSequenceScope),
         };
     }
 
@@ -7532,6 +7535,7 @@
             whiteboardAllTabsDocOrderByGroup: {},
             whiteboardGlobalBoardsByGroup: {},
             whiteboardSequenceMode: false,
+            whiteboardSequenceScope: 'document',
             collapseAllIncludesGroups: false,
             serverSyncOnManualRefresh: false,
             serverSyncSessionStateOnManualRefresh: false,
@@ -8176,6 +8180,7 @@
                                 if (typeof cloudData.whiteboardAutoLayout === 'boolean') this.data.whiteboardAutoLayout = cloudData.whiteboardAutoLayout;
                                 if (typeof cloudData.whiteboardAllTabsLayoutMode === 'string') this.data.whiteboardAllTabsLayoutMode = cloudData.whiteboardAllTabsLayoutMode;
                                 if (typeof cloudData.whiteboardSequenceMode === 'boolean') this.data.whiteboardSequenceMode = cloudData.whiteboardSequenceMode;
+                                if (typeof cloudData.whiteboardSequenceScope === 'string') this.data.whiteboardSequenceScope = __tmNormalizeWhiteboardSequenceScope(cloudData.whiteboardSequenceScope);
                                 __tmAssignWhiteboardSettingsState(this.data, shouldApplyCloudWhiteboardState ? cloudData : localSettingsBeforeCloud);
                                 if (cloudData.docColorMap && typeof cloudData.docColorMap === 'object') this.data.docColorMap = cloudData.docColorMap;
                                 if (typeof cloudData.docColorSeed === 'number') this.data.docColorSeed = cloudData.docColorSeed;
@@ -8611,6 +8616,7 @@
             this.data.whiteboardAllTabsDocOrderByGroup = Storage.get('tm_whiteboard_all_tabs_doc_order_by_group', this.data.whiteboardAllTabsDocOrderByGroup) || {};
             this.data.whiteboardGlobalBoardsByGroup = Storage.get('tm_whiteboard_global_boards_by_group', this.data.whiteboardGlobalBoardsByGroup) || {};
             this.data.whiteboardSequenceMode = Storage.get('tm_whiteboard_sequence_mode', this.data.whiteboardSequenceMode);
+            this.data.whiteboardSequenceScope = __tmNormalizeWhiteboardSequenceScope(Storage.get('tm_whiteboard_sequence_scope', this.data.whiteboardSequenceScope));
             this.data.docColorMap = Storage.get('tm_doc_color_map', this.data.docColorMap) || {};
             this.data.docColorSeed = Storage.get('tm_doc_color_seed', this.data.docColorSeed);
             this.data.docDefaultColorScheme = Storage.get('tm_doc_default_color_scheme', this.data.docDefaultColorScheme) || this.data.docDefaultColorScheme;
@@ -9089,6 +9095,7 @@
             Storage.set('tm_whiteboard_all_tabs_doc_order_by_group', this.data.whiteboardAllTabsDocOrderByGroup || {});
             Storage.set('tm_whiteboard_global_boards_by_group', this.data.whiteboardGlobalBoardsByGroup || {});
             Storage.set('tm_whiteboard_sequence_mode', !!this.data.whiteboardSequenceMode);
+            Storage.set('tm_whiteboard_sequence_scope', __tmNormalizeWhiteboardSequenceScope(this.data.whiteboardSequenceScope));
             Storage.set('tm_doc_color_map', this.data.docColorMap || {});
             Storage.set('tm_doc_color_seed', Number(this.data.docColorSeed) || 1);
             Storage.set('tm_doc_default_color_scheme', this.data.docDefaultColorScheme || { palette: 'random', seed: Number(this.data.docColorSeed) || 1, baseColor: '#3b82f6' });
@@ -9438,6 +9445,7 @@
             this.data.whiteboardAutoLayout = false;
             this.data.whiteboardAllTabsLayoutMode = __tmNormalizeWhiteboardAllTabsLayoutMode(this.data.whiteboardAllTabsLayoutMode);
             this.data.whiteboardSequenceMode = !!this.data.whiteboardSequenceMode;
+            this.data.whiteboardSequenceScope = __tmNormalizeWhiteboardSequenceScope(this.data.whiteboardSequenceScope);
             const wbPlaced0 = (this.data.whiteboardPlacedTaskIds && typeof this.data.whiteboardPlacedTaskIds === 'object' && !Array.isArray(this.data.whiteboardPlacedTaskIds))
                 ? this.data.whiteboardPlacedTaskIds
                 : {};

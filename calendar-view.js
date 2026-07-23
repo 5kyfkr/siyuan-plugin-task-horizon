@@ -353,6 +353,7 @@
         calendarAdapter: null,
         miniCalendarEl: null,
         miniMonthKey: '',
+        miniRenderKey: '',
         miniAbort: null,
         taskListEl: null,
         taskPageHost: null,
@@ -409,6 +410,11 @@
         onVisibilityChange: null,
         calendarResizeObserver: null,
         calendarResizeBox: null,
+        calendarSidebarTransitionWrap: null,
+        calendarSidebarTransitionCleanup: null,
+        calendarSidebarResizeRaf: null,
+        calendarHostResizeSettleTimer: null,
+        calendarHostResizeSettleRoot: null,
         mainPopoverClickCapture: null,
         mainPopoverObserver: null,
         mainPopoverClampRaf: null,
@@ -452,6 +458,11 @@
             inflight: null,
             sourceSignature: '',
         },
+        scheduleRangeCache: new Map(),
+        scheduleRangeInflight: new Map(),
+        dockHistoryRangeCache: new Map(),
+        dockHistoryRangeInflight: new Map(),
+        dockHistoryRangeVersion: 0,
         linkedDocIdCache: new Map(),
         reminderCache: {
             list: null,
@@ -6196,28 +6207,36 @@
         const desiredHeight = isMonthView
             ? (monthAdaptiveRowHeight && viewportHeight > 0 ? viewportHeight : 'auto')
             : 'parent';
-        try {
-            if (targetCalendar.getOption?.('height') !== desiredHeight) {
-                targetCalendar.setOption('height', desiredHeight);
-            }
-        } catch (e) {}
         const desiredDayMaxEvents = isMonthView
             ? (monthAdaptiveRowHeight ? monthVisibleEvents : monthMinVisibleEvents)
             : true;
         const desiredDayMaxEventRows = false;
         let dayMaxChanged = false;
+        const applyCalendarOptions = () => {
+            try {
+                if (targetCalendar.getOption?.('height') !== desiredHeight) {
+                    targetCalendar.setOption('height', desiredHeight);
+                }
+            } catch (e) {}
+            try {
+                if (targetCalendar.getOption?.('dayMaxEvents') !== desiredDayMaxEvents) {
+                    targetCalendar.setOption('dayMaxEvents', desiredDayMaxEvents);
+                    dayMaxChanged = true;
+                }
+            } catch (e) {}
+            try {
+                if (targetCalendar.getOption?.('dayMaxEventRows') !== desiredDayMaxEventRows) {
+                    targetCalendar.setOption('dayMaxEventRows', desiredDayMaxEventRows);
+                    dayMaxChanged = true;
+                }
+            } catch (e) {}
+        };
         try {
-            if (targetCalendar.getOption?.('dayMaxEvents') !== desiredDayMaxEvents) {
-                targetCalendar.setOption('dayMaxEvents', desiredDayMaxEvents);
-                dayMaxChanged = true;
-            }
-        } catch (e) {}
-        try {
-            if (targetCalendar.getOption?.('dayMaxEventRows') !== desiredDayMaxEventRows) {
-                targetCalendar.setOption('dayMaxEventRows', desiredDayMaxEventRows);
-                dayMaxChanged = true;
-            }
-        } catch (e) {}
+            if (typeof targetCalendar.batchRendering === 'function') targetCalendar.batchRendering(applyCalendarOptions);
+            else applyCalendarOptions();
+        } catch (e) {
+            applyCalendarOptions();
+        }
         if (dayMaxChanged && targetWrap instanceof HTMLElement) {
             try {
                 requestAnimationFrame(() => {
@@ -8631,8 +8650,19 @@
         Promise.resolve().then(() => markTodayScheduledTaskRows(host)).catch(() => null);
     }
 
+    function isCalendarTaskPageVisible(wrap) {
+        const targetWrap = wrap instanceof Element ? wrap : null;
+        if (!targetWrap || state.sidePage !== 'tasks') return false;
+        if (targetWrap.classList.contains('tm-calendar-wrap--mobile')) {
+            return targetWrap.classList.contains('tm-calendar-wrap--sidebar-open');
+        }
+        return !targetWrap.classList.contains('tm-calendar-wrap--sidebar-collapsed');
+    }
+
     function scheduleTaskPageRender(wrap, settings) {
-        state.taskPageRenderWrap = wrap || state.wrapEl || null;
+        const targetWrap = wrap || state.wrapEl || null;
+        if (!isCalendarTaskPageVisible(targetWrap)) return false;
+        state.taskPageRenderWrap = targetWrap;
         state.taskPageRenderSettings = settings || state.taskPageRenderSettings || null;
         if (state.taskPageRenderRaf) return false;
         try {
@@ -8642,17 +8672,20 @@
                 const nextSettings = state.taskPageRenderSettings;
                 state.taskPageRenderWrap = null;
                 state.taskPageRenderSettings = null;
-                if (!nextWrap) return;
+                if (!isCalendarTaskPageVisible(nextWrap)) return;
                 try { renderTaskPanel(nextWrap, nextSettings || getSettings()); } catch (e) {}
                 try { renderTaskPage(nextWrap, nextSettings || getSettings()); } catch (e) {}
             });
             return true;
         } catch (e) {
             state.taskPageRenderRaf = null;
-            try { renderTaskPanel(state.taskPageRenderWrap, state.taskPageRenderSettings || getSettings()); } catch (e2) {}
-            try { renderTaskPage(state.taskPageRenderWrap, state.taskPageRenderSettings || getSettings()); } catch (e2) {}
+            const nextWrap = state.taskPageRenderWrap;
+            const nextSettings = state.taskPageRenderSettings;
             state.taskPageRenderWrap = null;
             state.taskPageRenderSettings = null;
+            if (!isCalendarTaskPageVisible(nextWrap)) return false;
+            try { renderTaskPanel(nextWrap, nextSettings || getSettings()); } catch (e2) {}
+            try { renderTaskPage(nextWrap, nextSettings || getSettings()); } catch (e2) {}
             return false;
         }
     }
@@ -8701,25 +8734,17 @@
                 const monthDayMaxChanged = !!(monthLayoutSyncResult && typeof monthLayoutSyncResult === 'object' && monthLayoutSyncResult.dayMaxChanged === true);
                 let updateMonthDayMaxChanged = false;
                 try { syncMainCalendarToolbarTitle(nextWrap, nextCalendar); } catch (e) {}
-                if (!monthDayMaxChanged) {
-                    try { applyMainCalendarMonthLayoutPass(nextHost, nextCalendar); } catch (e) {}
-                }
-                try { applyTimeGridAllDayMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
                 try { applyMainCalendarSlotHeightLayout(nextWrap, getSettings()); } catch (e) {}
-                try { if (nextHost instanceof Element) applyTimeAxisColumnLayout(nextHost, 40, { force: true }); } catch (e) {}
                 if (needUpdateSize) {
                     try { callFullCalendarUpdateSize(nextCalendar); } catch (e) {}
                     let updateMonthLayoutSyncResult = null;
                     try { updateMonthLayoutSyncResult = syncMainCalendarMonthViewLayout(nextWrap, nextHost, nextCalendar, getSettings()); } catch (e) {}
                     updateMonthDayMaxChanged = !!(updateMonthLayoutSyncResult && typeof updateMonthLayoutSyncResult === 'object' && updateMonthLayoutSyncResult.dayMaxChanged === true);
-                    if (!monthDayMaxChanged && !updateMonthDayMaxChanged) {
-                        try { applyMainCalendarMonthLayoutPass(nextHost, nextCalendar); } catch (e) {}
-                    }
-                    try { if (nextHost instanceof Element) applyTimeAxisColumnLayout(nextHost, 40, { force: true }); } catch (e) {}
                 }
                 if (!monthDayMaxChanged && !updateMonthDayMaxChanged) {
                     try { applyMainCalendarMonthLayoutPass(nextHost, nextCalendar); } catch (e) {}
                 }
+                try { if (nextHost instanceof Element) applyTimeAxisColumnLayout(nextHost, 40, { force: true }); } catch (e) {}
                 try { applyTimeGridAllDayMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
                 try { clampMainCalendarPopover(nextWrap, nextHost); } catch (e) {}
                 try { scheduleSyncTimeGridAllDayCollapseUi(nextHost || state.calendarEl, nextCalendar); } catch (e) {}
@@ -8806,16 +8831,147 @@
         } catch (e) {}
     }
 
+    function scheduleCalendarSidebarResizeFrame(calendar) {
+        const targetCalendar = calendar || state.calendar || null;
+        if (!targetCalendar || state.calendarSidebarResizeRaf) return false;
+        try {
+            state.calendarSidebarResizeRaf = requestAnimationFrame(() => {
+                state.calendarSidebarResizeRaf = null;
+                try { callFullCalendarUpdateSize(targetCalendar); } catch (e) {}
+            });
+            return true;
+        } catch (e) {
+            state.calendarSidebarResizeRaf = null;
+            try { callFullCalendarUpdateSize(targetCalendar); } catch (e2) {}
+            return false;
+        }
+    }
+
+    function clearCalendarHostResizeSettle() {
+        try {
+            if (state.calendarHostResizeSettleTimer) clearTimeout(state.calendarHostResizeSettleTimer);
+        } catch (e) {}
+        state.calendarHostResizeSettleTimer = null;
+        const root = state.calendarHostResizeSettleRoot;
+        state.calendarHostResizeSettleRoot = null;
+        try { root?.classList?.remove?.('tm-calendar-root--host-height-transitioning'); } catch (e) {}
+    }
+
+    function scheduleCalendarHostResizeSettle(wrap, host, calendar) {
+        try {
+            if (state.calendarHostResizeSettleTimer) clearTimeout(state.calendarHostResizeSettleTimer);
+        } catch (e) {}
+        state.calendarHostResizeSettleTimer = null;
+        const root = state.rootEl instanceof HTMLElement ? state.rootEl : null;
+        if (state.calendarHostResizeSettleRoot && state.calendarHostResizeSettleRoot !== root) {
+            try { state.calendarHostResizeSettleRoot.classList.remove('tm-calendar-root--host-height-transitioning'); } catch (e) {}
+        }
+        state.calendarHostResizeSettleRoot = root;
+        try { root?.classList?.add?.('tm-calendar-root--host-height-transitioning'); } catch (e) {}
+        const finishOverflowGuard = () => {
+            if (state.calendarHostResizeSettleRoot !== root) return;
+            state.calendarHostResizeSettleRoot = null;
+            try { root?.classList?.remove?.('tm-calendar-root--host-height-transitioning'); } catch (e) {}
+        };
+        try {
+            state.calendarHostResizeSettleTimer = setTimeout(() => {
+                state.calendarHostResizeSettleTimer = null;
+                if (calendar !== state.calendar || wrap?.isConnected === false) {
+                    finishOverflowGuard();
+                    return;
+                }
+                try {
+                    scheduleMainCalendarLayoutRefresh(wrap, host, calendar, {
+                        updateSize: true,
+                        reason: 'host-height-transition-end',
+                    });
+                } catch (e) {}
+                try {
+                    requestAnimationFrame(() => {
+                        try { requestAnimationFrame(finishOverflowGuard); } catch (e2) { finishOverflowGuard(); }
+                    });
+                } catch (e) {
+                    finishOverflowGuard();
+                }
+            }, 80);
+        } catch (e) {
+            finishOverflowGuard();
+        }
+    }
+
+    function beginCalendarSidebarTransition(wrap) {
+        const targetWrap = wrap instanceof HTMLElement ? wrap : null;
+        const sidebar = targetWrap?.querySelector?.('.tm-calendar-sidebar');
+        if (!(sidebar instanceof HTMLElement)) return false;
+        try { state.calendarSidebarTransitionCleanup?.(); } catch (e) {}
+        let finished = false;
+        let fallbackTimer = null;
+        function cleanup() {
+            if (finished) return;
+            finished = true;
+            try { sidebar.removeEventListener('transitionend', onTransitionEnd); } catch (e) {}
+            try { if (fallbackTimer) clearTimeout(fallbackTimer); } catch (e) {}
+            fallbackTimer = null;
+            if (state.calendarSidebarTransitionWrap === targetWrap) state.calendarSidebarTransitionWrap = null;
+            if (state.calendarSidebarTransitionCleanup === cleanup) state.calendarSidebarTransitionCleanup = null;
+        }
+        function finish() {
+            if (finished) return;
+            cleanup();
+            if (state.calendarSidebarResizeRaf) {
+                try { cancelAnimationFrame(state.calendarSidebarResizeRaf); } catch (e) {}
+                state.calendarSidebarResizeRaf = null;
+            }
+            try {
+                scheduleMainCalendarLayoutRefresh(targetWrap, state.calendarEl, state.calendar, {
+                    updateSize: true,
+                    reason: 'sidebar-transition-end',
+                });
+            } catch (e) {}
+        }
+        function onTransitionEnd(event) {
+            if (event?.target !== sidebar || String(event?.propertyName || '') !== 'width') return;
+            finish();
+        }
+        state.calendarSidebarTransitionWrap = targetWrap;
+        state.calendarSidebarTransitionCleanup = cleanup;
+        try { sidebar.addEventListener('transitionend', onTransitionEnd); } catch (e) {}
+        try { fallbackTimer = setTimeout(finish, 280); } catch (e) {}
+        return true;
+    }
+
     function setCalendarSidebarOpen(wrap, open, page) {
         try {
             if (!wrap?.classList) return false;
+            const previousPage = state.sidePage;
             if (page) setSidePage(wrap, page);
             const isMobile = !!wrap.classList.contains('tm-calendar-wrap--mobile');
             const next = !!open;
-            if (isMobile) wrap.classList.toggle('tm-calendar-wrap--sidebar-open', next);
-            else wrap.classList.toggle('tm-calendar-wrap--sidebar-collapsed', !next);
+            const current = isMobile
+                ? wrap.classList.contains('tm-calendar-wrap--sidebar-open')
+                : !wrap.classList.contains('tm-calendar-wrap--sidebar-collapsed');
+            if (current === next) {
+                state.sidebarOpen = next;
+                if (next && state.sidePage === 'tasks' && previousPage !== state.sidePage) {
+                    try { scheduleTaskPageRender(wrap, getSettings()); } catch (e) {}
+                }
+                try { requestAnimationFrame(() => { try { state.calendar?.updateSize?.(); } catch (e2) {} }); } catch (e) {}
+                return next;
+            }
+            let transitionStarted = false;
+            if (isMobile) {
+                wrap.classList.toggle('tm-calendar-wrap--sidebar-open', next);
+            } else {
+                transitionStarted = beginCalendarSidebarTransition(wrap);
+                wrap.classList.toggle('tm-calendar-wrap--sidebar-collapsed', !next);
+            }
             state.sidebarOpen = next;
-            try { requestAnimationFrame(() => { try { state.calendar?.updateSize?.(); } catch (e2) {} }); } catch (e) {}
+            if (next && state.sidePage === 'tasks') {
+                try { scheduleTaskPageRender(wrap, getSettings()); } catch (e) {}
+            }
+            if (isMobile || !transitionStarted) {
+                try { requestAnimationFrame(() => { try { state.calendar?.updateSize?.(); } catch (e2) {} }); } catch (e) {}
+            }
             return next;
         } catch (e) {
             return false;
@@ -9030,6 +9186,9 @@
         const selectedKey = selected ? formatDateKey(selected) : '';
 
         if (!state.miniMonthKey) state.miniMonthKey = miniMonthKeyFromDate(selected || new Date());
+        const renderKey = `${state.miniMonthKey}|${selectedKey}|${firstDay}|${formatDateKey(new Date())}`;
+        if (state.miniRenderKey === renderKey && state.miniAbort) return;
+        state.miniRenderKey = renderKey;
         renderMiniCalendarHost(mini, {
             kind: 'sidebar',
             monthKey: state.miniMonthKey,
@@ -11483,6 +11642,7 @@
     function setScheduleCache(items, sourceSignature) {
         state.scheduleCache.list = cloneScheduleList(items);
         state.scheduleCache.loadedAt = Date.now();
+        try { state.scheduleRangeCache.clear(); } catch (e) {}
         if (typeof sourceSignature !== 'undefined') {
             state.scheduleCache.sourceSignature = String(sourceSignature || '');
         }
@@ -14800,7 +14960,7 @@
     }
 
     function getScheduleDateFollowTargetId(item) {
-        return getScheduleLinkedTaskId(item) || getScheduleLinkedBlockId(item);
+        return getScheduleLinkedTaskId(item);
     }
 
     function isScheduleLinkedToDateFollowTarget(item, aliasSet) {
@@ -14954,7 +15114,10 @@
                     wait: true,
                     refreshCalendar: false,
                     skipFlush: false,
+                    requireTaskIdentity: true,
+                    ignoreMissingTask: true,
                 });
+                if (result?.skipped === true) continue;
                 synced = true;
                 const changedTaskId = String(result?.id || target.targetId || '').trim();
                 if (changedTaskId) changedTaskIds.add(changedTaskId);
@@ -17822,8 +17985,39 @@
     }
 
     async function loadScheduleForRange(rangeStart, rangeEnd) {
-        const list = await loadScheduleAll();
-        return list.filter((it) => hasScheduleOccurrenceInRange(it, rangeStart, rangeEnd));
+        const startMs = toMs(rangeStart);
+        const endMs = toMs(rangeEnd);
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return [];
+        const rangeKey = `${startMs}|${endMs}`;
+        const cached = state.scheduleRangeCache.get(rangeKey);
+        if (cached
+            && Array.isArray(cached.list)
+            && Number(cached.scheduleLoadedAt || 0) === Number(state.scheduleCache.loadedAt || 0)
+            && Date.now() - Number(cached.ts || 0) < 1200) {
+            return cached.list.slice();
+        }
+        const pending = state.scheduleRangeInflight.get(rangeKey);
+        if (pending) return (await pending).slice();
+        const run = (async () => {
+            const list = await loadScheduleAll();
+            const filtered = list.filter((it) => hasScheduleOccurrenceInRange(it, rangeStart, rangeEnd));
+            state.scheduleRangeCache.set(rangeKey, {
+                ts: Date.now(),
+                scheduleLoadedAt: Number(state.scheduleCache.loadedAt || 0),
+                list: filtered,
+            });
+            while (state.scheduleRangeCache.size > 8) {
+                const oldestKey = state.scheduleRangeCache.keys().next().value;
+                state.scheduleRangeCache.delete(oldestKey);
+            }
+            return filtered;
+        })();
+        state.scheduleRangeInflight.set(rangeKey, run);
+        try {
+            return (await run).slice();
+        } finally {
+            if (state.scheduleRangeInflight.get(rangeKey) === run) state.scheduleRangeInflight.delete(rangeKey);
+        }
     }
 
     function __tmNormalizeTaskTitleFromRow(row) {
@@ -18643,12 +18837,15 @@
         const start = rangeStart instanceof Date ? rangeStart : null;
         const end = rangeEnd instanceof Date ? rangeEnd : null;
         if (!(start instanceof Date) || Number.isNaN(start.getTime()) || !(end instanceof Date) || Number.isNaN(end.getTime())) return [];
+        if (!settings.showTaskDates) return [];
         const isTimeGridRange = isTimeGridViewType(view);
         const shouldApplyMonthTaskDateDedupe = shouldApplyMonthTaskDateScheduleDedupe(view);
+        const needsScheduleTaskDaySet = shouldApplyMonthTaskDateDedupe
+            || (isTimeGridRange && settings.hideScheduledTaskDatesInAllDay);
         const forceFreshTaskDates = __tmShouldForceFreshCalendarTaskDateQuery();
         const allowInactiveFullLoad = opts.allowInactiveFullLoad === true || opts.allowInactiveView === true;
         const [taskDates, schedules] = await Promise.all([
-            (settings.showTaskDates && typeof window.tmQueryCalendarTaskDateEvents === 'function')
+            (typeof window.tmQueryCalendarTaskDateEvents === 'function')
                 ? Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(start, end, {
                     forceFresh: forceFreshTaskDates,
                     fastFirst: allowInactiveFullLoad ? false : opts.fastFirst,
@@ -18657,9 +18854,9 @@
                     source: String(opts.source || 'calendar-task-date-events').trim() || 'calendar-task-date-events',
                 })).catch(() => [])
                 : Promise.resolve([]),
-            loadScheduleForRange(start, end).catch(() => []),
+            needsScheduleTaskDaySet ? loadScheduleForRange(start, end).catch(() => []) : Promise.resolve([]),
         ]);
-        const scheduleTaskDaySet = (shouldApplyMonthTaskDateDedupe || (isTimeGridRange && settings.hideScheduledTaskDatesInAllDay))
+        const scheduleTaskDaySet = needsScheduleTaskDaySet
             ? buildScheduleTaskDayKeySet(schedules, start, end)
             : null;
         return buildEventsFromTaskDates(taskDates, settings, { scheduleTaskDaySet, viewType: view });
@@ -20576,43 +20773,75 @@
         if (!s.linkDockTomato) return [];
         const startMs = toMs(rangeStart);
         const endMs = toMs(rangeEnd);
-        const dock = globalThis.__dockTomato;
-
-        let records = null;
-        if (s.linkDockTomato && dock && dock.history && typeof dock.history.loadRange === 'function') {
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return [];
+        const version = Number(state.dockHistoryRangeVersion || 0);
+        const rangeKey = `${version}|${startMs}|${endMs}`;
+        const cached = state.dockHistoryRangeCache.get(rangeKey);
+        let records = cached && Array.isArray(cached.records) && Date.now() - Number(cached.ts || 0) < 1200
+            ? cached.records
+            : null;
+        if (!records) {
+            let pending = state.dockHistoryRangeInflight.get(rangeKey);
+            if (!pending) {
+                pending = (async () => {
+                    const dock = globalThis.__dockTomato;
+                    let nextRecords = null;
+                    if (dock && dock.history && typeof dock.history.loadRange === 'function') {
+                        try {
+                            nextRecords = await dock.history.loadRange(new Date(startMs).toISOString(), new Date(endMs).toISOString());
+                        } catch (e) {
+                            nextRecords = null;
+                        }
+                    }
+                    if (!Array.isArray(nextRecords) || nextRecords.length === 0) {
+                        const cachedAll = state._dockHistoryCache && Array.isArray(state._dockHistoryCache.all) ? state._dockHistoryCache.all : null;
+                        const cachedOk = Array.isArray(cachedAll) && cachedAll.length > 0;
+                        const cachedFresh = cachedOk && (Date.now() - (state._dockHistoryCache.ts || 0) < 60000);
+                        if (cachedFresh) {
+                            nextRecords = cachedAll;
+                        } else {
+                            let all = [];
+                            try { all = await loadDockTomatoHistoryFallbackAll(); } catch (e) { all = []; }
+                            if (Array.isArray(all) && all.length > 0) {
+                                state._dockHistoryCache = { ts: Date.now(), all };
+                                nextRecords = all;
+                            } else if (cachedOk) {
+                                nextRecords = cachedAll;
+                            } else {
+                                nextRecords = all;
+                            }
+                        }
+                        nextRecords = nextRecords.filter((r) => {
+                            const rs = toMs(r?.start);
+                            const re = toMs(r?.end);
+                            return Number.isFinite(rs) && Number.isFinite(re) && re > rs && overlap(rs, re, startMs, endMs);
+                        });
+                    }
+                    const normalized = Array.isArray(nextRecords) ? nextRecords : [];
+                    if (version === Number(state.dockHistoryRangeVersion || 0)) {
+                        state.dockHistoryRangeCache.set(rangeKey, { ts: Date.now(), records: normalized });
+                        while (state.dockHistoryRangeCache.size > 8) {
+                            const oldestKey = state.dockHistoryRangeCache.keys().next().value;
+                            state.dockHistoryRangeCache.delete(oldestKey);
+                        }
+                    }
+                    return normalized;
+                })();
+                state.dockHistoryRangeInflight.set(rangeKey, pending);
+            }
             try {
-                records = await dock.history.loadRange(new Date(startMs).toISOString(), new Date(endMs).toISOString());
-            } catch (e) {
-                records = null;
+                records = await pending;
+            } finally {
+                if (state.dockHistoryRangeInflight.get(rangeKey) === pending) state.dockHistoryRangeInflight.delete(rangeKey);
             }
-        }
-        if (!Array.isArray(records) || records.length === 0) {
-            const cachedAll = state._dockHistoryCache && Array.isArray(state._dockHistoryCache.all) ? state._dockHistoryCache.all : null;
-            const cachedOk = Array.isArray(cachedAll) && cachedAll.length > 0;
-            const cachedFresh = cachedOk && (Date.now() - (state._dockHistoryCache.ts || 0) < 60000);
-            if (cachedFresh) {
-                records = cachedAll;
-            } else {
-                let all = [];
-                try { all = await loadDockTomatoHistoryFallbackAll(); } catch (e) { all = []; }
-                if (Array.isArray(all) && all.length > 0) {
-                    state._dockHistoryCache = { ts: Date.now(), all };
-                    records = all;
-                } else if (cachedOk) {
-                    records = cachedAll;
-                } else {
-                    records = all;
-                }
-            }
-            records = records.filter((r) => {
-                const rs = toMs(r?.start);
-                const re = toMs(r?.end);
-                if (!Number.isFinite(rs) || !Number.isFinite(re) || re <= rs) return false;
-                if (!shouldShowMode(r?.mode, s)) return false;
-                return overlap(rs, re, startMs, endMs);
-            });
         }
         return (Array.isArray(records) ? records : []).filter((r) => shouldShowMode(r?.mode, s));
+    }
+
+    function clearDockHistoryRangeCache() {
+        state.dockHistoryRangeVersion = (Number(state.dockHistoryRangeVersion || 0) + 1) % Number.MAX_SAFE_INTEGER;
+        try { state.dockHistoryRangeCache.clear(); } catch (e) {}
+        try { state.dockHistoryRangeInflight.clear(); } catch (e) {}
     }
 
     function buildEventsFromRecords(records, settings, viewType) {
@@ -22138,10 +22367,10 @@
         renderSidebar(wrap, s);
         bindCalendarNavScrollFx(wrap);
         renderTaskPanel(wrap, s);
-        renderTaskPage(wrap, s);
         setSidePage(wrap, state.sidePage);
         if (isMobileDevice || isDockHost) setCalendarSidebarOpen(wrap, false, state.sidePage);
         else setCalendarSidebarOpen(wrap, !s.collapseDesktopSidebarDefault);
+        if (isCalendarTaskPageVisible(wrap)) renderTaskPage(wrap, s);
         if (shouldStartSidebarCollapsed) {
             try {
                 requestAnimationFrame(() => {
@@ -22158,6 +22387,18 @@
         let mainCalendarLastEventCount = 0;
         let mainCalendarLastEventSourceViewType = '';
         let mainCalendarViewTypeRefetchToken = 0;
+        const mainCalendarEventSourceRequestSignatures = new Map();
+        const buildMainCalendarEventSourceRequestSignature = (viewType, rangeStart, rangeEnd) => [
+            String(viewType || '').trim(),
+            Number(toMs(rangeStart)) || 0,
+            Number(toMs(rangeEnd)) || 0,
+        ].join('|');
+        const rememberMainCalendarEventSourceRequest = (sourceId, viewType, info) => {
+            mainCalendarEventSourceRequestSignatures.set(
+                String(sourceId || '').trim(),
+                buildMainCalendarEventSourceRequestSignature(viewType, info?.start, info?.end),
+            );
+        };
         const ensureMainCalendarEventsPerfTrace = (info) => {
             if (mainCalendarEventsPerfTrace && mainCalendarEventsPerfTrace.finished !== true) return mainCalendarEventsPerfTrace;
             mainCalendarEventsLoadSeq += 1;
@@ -22392,6 +22633,7 @@
                         ? Math.max(0, Math.round((endMs - startMs) / 86400000))
                         : 0;
                     const viewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
+                    rememberMainCalendarEventSourceRequest(EVENT_SOURCE_IDS.mainAux, viewType, info);
                     const settings = getSettings();
                     const tomatoKey = [
                         String(viewType || ''),
@@ -22488,6 +22730,7 @@
                         try {
                             const settings = getSettings();
                             const sourceViewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
+                            rememberMainCalendarEventSourceRequest(EVENT_SOURCE_IDS.mainSchedule, sourceViewType, info);
                             const events = await __tmBuildScheduleSourceEvents(info.start, info.end, settings, sourceViewType);
                             __tmUpdateMainCalendarStatus({
                                 schedules: Array.isArray(events) ? events.length : 0,
@@ -22506,6 +22749,7 @@
                         try {
                             const settings = getSettings();
                             const viewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
+                            rememberMainCalendarEventSourceRequest(EVENT_SOURCE_IDS.mainTaskDate, viewType, info);
                             const events = await __tmBuildTaskDateSourceEvents(info.start, info.end, settings, viewType);
                             __tmUpdateMainCalendarStatus({
                                 taskDates: Array.isArray(events) ? events.length : 0,
@@ -22522,7 +22766,9 @@
             eventsSet: () => {
                 try { __tmDedupeTaskDateEventsInCalendar(calendar, EVENT_SOURCE_IDS.mainTaskDate); } catch (e) {}
                 try { scheduleSyncTimeGridAllDayCollapseUi(host, calendar); } catch (e) {}
-                try { scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: false }); } catch (e) {}
+                if (!wrap.classList.contains('tm-calendar-wrap--view-switching')) {
+                    try { scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: false, reason: 'events-set' }); } catch (e) {}
+                }
                 try { scheduleMainCalendarListTodayScroll(host, calendar, { reason: 'eventsSet' }); } catch (e) {}
                 try {
                     state.calendarRenderedVersionMain = Math.max(
@@ -22846,13 +23092,29 @@
                                     if (token !== mainCalendarViewTypeRefetchToken) return;
                                     if (calendar !== state.calendar) return;
                                     if (String(calendar?.view?.type || '').trim() !== vt) return;
+                                    const expectedSignature = buildMainCalendarEventSourceRequestSignature(
+                                        vt,
+                                        calendar?.view?.activeStart,
+                                        calendar?.view?.activeEnd,
+                                    );
+                                    const sourceIds = [
+                                        EVENT_SOURCE_IDS.mainAux,
+                                        EVENT_SOURCE_IDS.mainSchedule,
+                                        EVENT_SOURCE_IDS.mainTaskDate,
+                                    ];
+                                    if (sourceIds.every((sourceId) => mainCalendarEventSourceRequestSignatures.get(sourceId) === expectedSignature)) {
+                                        __tmCalendarDebugLog('view-type-refetch-skip', { viewType: vt, expectedSignature }, host, calendar);
+                                        return;
+                                    }
                                     calendar.refetchEvents?.();
                                 } catch (e2) {}
                             });
                         }
                     }
                 } catch (e) {}
-                try { scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: false, reason: 'datesSet' }); } catch (e) {}
+                if (!wrap.classList.contains('tm-calendar-wrap--view-switching')) {
+                    try { scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: false, reason: 'datesSet' }); } catch (e) {}
+                }
                 __tmCalendarDebugLog('datesSet-end', {}, host, calendar);
             },
             loading: (isLoading) => {
@@ -22952,17 +23214,31 @@
         // 修复：使用 ResizeObserver 监听日历容器尺寸变化，更可靠地处理布局问题
         const calendarHost = wrap?.querySelector?.('.tm-calendar-host');
         if (calendarHost && typeof ResizeObserver === 'function') {
-            const calendarResizeObserver = new ResizeObserver((entries) => {
-                const entry = Array.isArray(entries) && entries.length ? entries[0] : null;
+            const calendarResizeObserver = new ResizeObserver(() => {
                 const nextBox = {
-                    width: Math.round(Number(entry?.contentRect?.width || calendarHost.clientWidth || 0)),
-                    height: Math.round(Number(entry?.contentRect?.height || calendarHost.clientHeight || 0)),
+                    width: Math.round(Number(calendarHost.clientWidth || 0)),
+                    height: Math.round(Number(calendarHost.clientHeight || 0)),
                 };
                 const prevBox = state.calendarResizeBox || null;
                 if (prevBox && prevBox.width === nextBox.width && prevBox.height === nextBox.height) return;
                 state.calendarResizeBox = nextBox;
                 // 使用 requestAnimationFrame 确保在渲染周期中执行
                 __tmCalendarDebugLog('resize-observer', { prevBox, nextBox }, host, calendar);
+                const widthChanged = !prevBox || prevBox.width !== nextBox.width;
+                const heightChanged = !prevBox || prevBox.height !== nextBox.height;
+                const modal = rootEl?.closest?.('.tm-modal');
+                const docTabsTransitioning = !widthChanged
+                    && heightChanged
+                    && !!modal?.querySelector?.('.tm-doc-tabs.tm-doc-tabs--transitioning');
+                if (docTabsTransitioning) {
+                    scheduleCalendarHostResizeSettle(wrap, host, calendar);
+                    return;
+                }
+                clearCalendarHostResizeSettle();
+                if (state.calendarSidebarTransitionWrap === wrap) {
+                    try { scheduleCalendarSidebarResizeFrame(calendar); } catch (e2) {}
+                    return;
+                }
                 try { scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: true, reason: 'resize-observer' }); } catch (e2) {}
             });
             calendarResizeObserver.observe(calendarHost);
@@ -23643,6 +23919,7 @@
         state.tomatoListener = (ev) => {
             const s2 = getSettings();
             if (!s2.linkDockTomato) return;
+            clearDockHistoryRangeCache();
             scheduleReminderCalendarRefetch();
         };
         window.addEventListener('tomato:history-updated', state.tomatoListener);
@@ -23756,6 +24033,14 @@
             try { cancelAnimationFrame(state.mainLayoutRaf); } catch (e) {}
             state.mainLayoutRaf = null;
         }
+        try { state.calendarSidebarTransitionCleanup?.(); } catch (e) {}
+        state.calendarSidebarTransitionCleanup = null;
+        state.calendarSidebarTransitionWrap = null;
+        clearCalendarHostResizeSettle();
+        if (state.calendarSidebarResizeRaf) {
+            try { cancelAnimationFrame(state.calendarSidebarResizeRaf); } catch (e) {}
+            state.calendarSidebarResizeRaf = null;
+        }
         state.mainLayoutWrap = null;
         state.mainLayoutHost = null;
         state.mainLayoutCalendar = null;
@@ -23814,6 +24099,10 @@
         try { state.miniAbort?.abort(); } catch (e) {}
         state.miniAbort = null;
         state.miniMonthKey = '';
+        state.miniRenderKey = '';
+        try { state.scheduleRangeCache.clear(); } catch (e) {}
+        try { state.scheduleRangeInflight.clear(); } catch (e) {}
+        clearDockHistoryRangeCache();
         destroyTaskDraggable();
         try { hideFloatingMiniCalendar(); } catch (e) {}
         if (state.scheduleContextMenuCloseHandler) {

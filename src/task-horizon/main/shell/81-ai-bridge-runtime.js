@@ -700,6 +700,29 @@
         }
     }
 
+    async function __tmAiGetDocumentGroupSnapshot() {
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const resolvedGroups = [];
+        for (const group of groups) {
+            const groupID = String(group?.id || '').trim();
+            if (!groupID) continue;
+            let documentIDs = [];
+            try {
+                documentIDs = await resolveDocIdsFromGroups({ groupId: groupID, includeQuickAddDoc: false });
+            } catch (e) {}
+            let name = String(group?.name || groupID).trim() || groupID;
+            try { name = __tmResolveDocGroupName(group) || name; } catch (e) {}
+            resolvedGroups.push({
+                id: groupID,
+                name,
+                documentIDs: Array.from(new Set((Array.isArray(documentIDs) ? documentIDs : [])
+                    .map((id) => String(id || '').trim())
+                    .filter(Boolean))),
+            });
+        }
+        return { groups: resolvedGroups };
+    }
+
     async function __tmAiGetCurrentViewContext() {
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
@@ -1127,6 +1150,9 @@
         },
         async getCurrentGroupDocIds() {
             return await __tmAiGetCurrentGroupDocIds();
+        },
+        async getDocumentGroupSnapshot() {
+            return await __tmAiGetDocumentGroupSnapshot();
         },
         async getSummaryTasksByDocIds(docIds, options) {
             return await __tmAiGetSummaryTasksByDocIds(docIds, options);

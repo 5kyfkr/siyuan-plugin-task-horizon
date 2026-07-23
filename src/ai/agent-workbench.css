@@ -2,6 +2,7 @@
     --tm-agent-border: var(--b3-border-color);
     --tm-agent-muted: var(--b3-theme-on-surface-light);
     --tm-agent-content-width: 760px;
+    container-type: inline-size;
     position: relative;
     display: grid;
     grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
@@ -785,6 +786,12 @@
     overflow-wrap: anywhere;
 }
 
+.tm-agent-markdown :is(p, li, h1, h2, h3, h4, blockquote, th, td) {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
 .tm-agent-markdown > :first-child {
     margin-top: 0;
 }
@@ -830,6 +837,7 @@
 }
 
 .tm-agent-markdown pre {
+    position: relative;
     box-sizing: border-box;
     min-width: 0;
     max-width: 100%;
@@ -842,11 +850,69 @@
     white-space: pre;
 }
 
+.tm-agent-code-copy {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    padding: 6px;
+    border: 0;
+    border-radius: 4px;
+    color: var(--b3-theme-on-surface);
+    background: transparent;
+    box-shadow: none;
+    opacity: 0;
+    cursor: pointer;
+    white-space: normal;
+    transition: opacity 150ms ease-out, color 150ms ease-out, background-color 150ms ease-out;
+}
+
+.tm-agent-code-block:hover > .tm-agent-code-copy,
+.tm-agent-code-block:focus-within > .tm-agent-code-copy,
+.tm-agent-code-copy:focus-visible {
+    opacity: 0.72;
+}
+
+.tm-agent-code-copy:hover,
+.tm-agent-code-copy:focus-visible {
+    color: var(--b3-theme-on-background);
+    background: var(--b3-list-hover);
+    opacity: 1;
+}
+
+.tm-agent-code-copy:focus-visible {
+    outline: 2px solid var(--b3-theme-primary);
+    outline-offset: 1px;
+}
+
+.tm-agent-code-copy.is-copied {
+    color: var(--b3-theme-success);
+}
+
+.tm-agent-code-copy svg {
+    width: 14px;
+    height: 14px;
+}
+
+@media (hover: none), (pointer: coarse) {
+    .tm-agent-code-copy {
+        opacity: 0.62;
+    }
+}
+
 .tm-agent-markdown :not(pre) > code {
     padding: 0.12em 0.35em;
     border-radius: 3px;
     background: var(--b3-theme-surface);
     font-size: 0.92em;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .tm-agent-markdown table {
@@ -884,6 +950,19 @@
 .tm-agent-markdown img {
     max-width: 100%;
     height: auto;
+}
+
+@container (max-width: 520px) {
+    .tm-agent-markdown pre {
+        overflow-x: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
+    .tm-agent-markdown pre.tm-agent-code-block > code {
+        white-space: inherit;
+    }
 }
 
 .tm-agent-message--user {

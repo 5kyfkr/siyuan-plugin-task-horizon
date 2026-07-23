@@ -2170,6 +2170,7 @@
         if (!first) return false;
         const cfg = __tmGetWhiteboardDrawingConfig();
         const color = tool === 'highlighter' ? cfg.highlighterColor : cfg.penColor;
+        const displayColor = String(color || '').toLowerCase() === '#1f2937' ? 'var(--tm-text-color)' : color;
         const width = tool === 'highlighter' ? cfg.highlighterWidth : cfg.penWidth;
         const opacity = tool === 'highlighter' ? 0.42 : 1;
         const layer = state.modal?.querySelector?.(`.tm-whiteboard-drawing-layer[data-doc-id="${CSS.escape(first.docId)}"]`);
@@ -2179,7 +2180,7 @@
         __tmAppendWhiteboardDrawingPoint(points, first, 0);
         const draft = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         draft.setAttribute('class', `tm-whiteboard-drawing-stroke tm-whiteboard-drawing-stroke--draft${tool === 'highlighter' ? ' tm-whiteboard-drawing-stroke--highlighter' : ''}`);
-        draft.setAttribute('stroke', color);
+        draft.setAttribute('stroke', displayColor);
         draft.setAttribute('stroke-width', String(width));
         draft.setAttribute('stroke-opacity', String(opacity));
         draft.setAttribute('fill', 'none');
@@ -3439,6 +3440,7 @@
 
     window.tmWhiteboardFrameMouseDown = function(ev, frameId, docId) {
         if (state.viewMode !== 'whiteboard') return;
+        if (!ev?.__tmFromLongPress && Date.now() < (Number(state.whiteboardSuppressSyntheticMouseUntil) || 0)) return;
         if (state.whiteboardFrameDrag) return;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         if (tool !== 'pan' && tool !== 'select' && tool !== 'frame') return;
@@ -3582,6 +3584,79 @@
         try { document.addEventListener('pointerup', onUp, true); } catch (e) {}
         try { document.addEventListener('pointercancel', onUp, true); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
+    };
+
+    window.tmWhiteboardFramePointerDown = function(ev, frameId, docId) {
+        if (state.viewMode !== 'whiteboard') return;
+        if (String(ev?.pointerType || '') !== 'touch') return;
+        state.whiteboardSuppressSyntheticMouseUntil = Date.now() + 900;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        if (tool !== 'pan' && tool !== 'select' && tool !== 'frame') return;
+        const target = ev?.target;
+        if (target && target.closest && target.closest('.tm-whiteboard-frame-tools,.tm-whiteboard-frame-resize,input,button,select,textarea,label,a')) return;
+        const id = String(frameId || '').trim();
+        if (!id) return;
+        const pointerId = Number(ev?.pointerId);
+        const sx = Number(ev?.clientX) || 0;
+        const sy = Number(ev?.clientY) || 0;
+        const frame = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : __tmGetWhiteboardFrameElement(id);
+        if (!(frame instanceof HTMLElement)) return;
+        const session = {
+            pointerId: Number.isFinite(pointerId) ? pointerId : null,
+            sx,
+            sy,
+            active: false,
+            timer: 0,
+        };
+        const cleanup = () => {
+            try { clearTimeout(session.timer); } catch (e) {}
+            try { document.removeEventListener('pointermove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('pointerup', onUp, true); } catch (e) {}
+            try { document.removeEventListener('pointercancel', onUp, true); } catch (e) {}
+            try { frame.releasePointerCapture?.(session.pointerId); } catch (e) {}
+        };
+        const samePointer = (e2) => {
+            if (session.pointerId == null) return true;
+            const cur = Number(e2?.pointerId);
+            return !Number.isFinite(cur) || cur === session.pointerId;
+        };
+        const onMove = (e2) => {
+            if (!samePointer(e2)) return;
+            if (session.active) return;
+            const dx = (Number(e2?.clientX) || 0) - session.sx;
+            const dy = (Number(e2?.clientY) || 0) - session.sy;
+            if ((dx * dx + dy * dy) > 16) cleanup();
+        };
+        const onUp = (e2) => {
+            if (!samePointer(e2)) return;
+            cleanup();
+        };
+        session.timer = setTimeout(() => {
+            session.active = true;
+            __tmStopWhiteboardViewportMoveForCardGesture();
+            try { frame.setPointerCapture?.(session.pointerId); } catch (e) {}
+            __tmSuppressNextWhiteboardCardClick(frame, 900);
+            const startEvent = {
+                ...ev,
+                __tmFromLongPress: true,
+                button: 0,
+                clientX: session.sx,
+                clientY: session.sy,
+                currentTarget: frame,
+                target: frame,
+                stopPropagation: () => {
+                    try { ev?.stopPropagation?.(); } catch (e) {}
+                },
+                preventDefault: () => {
+                    try { ev?.preventDefault?.(); } catch (e) {}
+                },
+            };
+            cleanup();
+            try { window.tmWhiteboardFrameMouseDown(startEvent, id, docId); } catch (e) {}
+        }, 500);
+        try { document.addEventListener('pointermove', onMove, true); } catch (e) {}
+        try { document.addEventListener('pointerup', onUp, true); } catch (e) {}
+        try { document.addEventListener('pointercancel', onUp, true); } catch (e) {}
     };
 
     window.tmWhiteboardFrameResizeStart = function(ev, frameId, docId, dir = 'se') {

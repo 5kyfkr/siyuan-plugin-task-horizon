@@ -14,6 +14,7 @@ const IDS = Object.freeze({
     otherDoc: '20260101000007-doc',
     otherList: '20260101000008-list',
     otherTask: '20260101000009-task',
+    personalParentDoc: '20260101000014-doc',
     formattedList: '20260101000010-list',
     formattedTask: '20260101000010-task',
     fuzzyList: '20260101000012-list',
@@ -29,7 +30,8 @@ function createHarness() {
         [IDS.multiList, { id: IDS.multiList, parent_id: IDS.doc, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260101000004', created: '20260101000004', sort: 2 }],
         [IDS.firstTask, { id: IDS.firstTask, parent_id: IDS.multiList, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] First', content: 'First', updated: '20260101000005', created: '20260101000005', sort: 1 }],
         [IDS.secondTask, { id: IDS.secondTask, parent_id: IDS.multiList, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Second', content: 'Second', updated: '20260101000006', created: '20260101000006', sort: 2 }],
-        [IDS.otherDoc, { id: IDS.otherDoc, parent_id: '', root_id: IDS.otherDoc, type: 'd', subtype: '', markdown: '', content: 'Other Doc', hpath: '/Other Doc', updated: '20260101000007', created: '20260101000007', sort: 0 }],
+        [IDS.personalParentDoc, { id: IDS.personalParentDoc, parent_id: '', root_id: IDS.personalParentDoc, type: 'd', subtype: '', markdown: '', content: 'Personal', path: `/${IDS.personalParentDoc}.sy`, hpath: '/Personal', updated: '20260101000014', created: '20260101000014', sort: 0 }],
+        [IDS.otherDoc, { id: IDS.otherDoc, parent_id: '', root_id: IDS.otherDoc, type: 'd', subtype: '', markdown: '', content: 'Other Doc', path: `/${IDS.personalParentDoc}/${IDS.otherDoc}.sy`, hpath: '', updated: '20260101000007', created: '20260101000007', sort: 0 }],
         [IDS.otherList, { id: IDS.otherList, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260101000008', created: '20260101000008', sort: 1 }],
         [IDS.otherTask, { id: IDS.otherTask, parent_id: IDS.otherList, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] 全局同名提醒任务', content: '全局同名提醒任务', updated: '20260101000009', created: '20260101000009', sort: 1 }],
         [IDS.formattedList, { id: IDS.formattedList, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260101000010', created: '20260101000010', sort: 2 }],
@@ -54,7 +56,10 @@ function createHarness() {
         }])],
         ['task-settings.json', JSON.stringify({
             customFieldDefs: [{ id: 'energy', name: 'Energy', type: 'single', options: [{ id: 'high', name: 'High' }], agentWritable: true }],
-            docGroups: [{ id: 'work', name: '工作', docs: [{ id: IDS.doc, recursive: false }] }],
+            docGroups: [
+                { id: 'work', name: '工作', docs: [{ id: IDS.doc, recursive: false }] },
+                { id: 'personal', name: '个人', docs: [{ id: IDS.personalParentDoc, recursive: true }] },
+            ],
             taskMetaAttrKeyAliases: { priority: ['custom-old-priority'] },
             customStatusOptions: [
                 { id: 'todo', name: '待办', color: '#777777', marker: ' ' },
@@ -94,11 +99,12 @@ function createHarness() {
 
     function query(statement) {
         if (/SELECT 1 AS task_horizon_session_probe/.test(statement)) return [{ task_horizon_session_probe: 1 }];
-        if (/SELECT id, box, hpath FROM blocks WHERE type = 'd' AND id IN/.test(statement)) {
+        if (/SELECT id, box, path, hpath FROM blocks WHERE type = 'd' AND id IN/.test(statement)) {
             const ids = Array.from(statement.matchAll(/'(\d{14}-[^']+)'/g)).map((match) => match[1]);
             return ids.map((id) => blocks.get(id)).filter((block) => block?.type === 'd').map((block) => ({
                 id: block.id,
                 box: 'box',
+                path: block.path || `/${block.id}.sy`,
                 hpath: block.hpath,
             }));
         }
@@ -869,9 +875,18 @@ async function run() {
     assert.equal(policyApply.data.policy.durationDefaults.syncToManualDrag, true);
     assert.equal(policyApply.data.policy.groupOverrides.work.defaultCalendarID, 'group:work');
     assert.equal(policyApply.data.policy.documentOverrides[IDS.doc].deadlinePriority.priority, 'high');
+    const groupSnapshot = await harness.call('taskHorizonRegisterDocumentGroupSnapshot', {
+        groups: [
+            { id: 'work', name: '工作', documentIDs: [IDS.doc] },
+            { id: 'personal', name: '个人', documentIDs: [IDS.otherDoc] },
+        ],
+    });
+    assert.equal(groupSnapshot.ok, true);
+    assert.equal(groupSnapshot.data.groupCount, 2);
+    assert.equal(groupSnapshot.data.documentCount, 2);
     const effectivePolicy = await harness.mcpTools.get_task_policy.handler({
         action: 'get',
-        documentIDs: [IDS.doc],
+        documentIDs: [IDS.doc, IDS.otherDoc],
         durationCandidates: [
             { taskID: 'duration-meeting', title: '准备周会', documentID: IDS.doc },
             { taskID: 'duration-writing', title: '写 Q3 复盘报告', documentID: IDS.doc },
@@ -883,9 +898,18 @@ async function run() {
     });
     assert.equal(effectivePolicy.ok, true);
     assert.equal(effectivePolicy.data.effectiveByDocument[IDS.doc].documentGroupID, 'work');
+    assert.deepEqual(Array.from(effectivePolicy.data.effectiveByDocument[IDS.doc].documentGroups, (group) => group.id), ['work']);
+    assert.equal(effectivePolicy.data.effectiveByDocument[IDS.doc].appliedGroupRuleID, 'work');
+    assert.equal(effectivePolicy.data.effectiveByDocument[IDS.doc].membershipSource, 'pluginResolvedSnapshot');
     assert.equal(effectivePolicy.data.effectiveByDocument[IDS.doc].config.defaultCalendarID, 'group:work');
     assert.equal(effectivePolicy.data.effectiveByDocument[IDS.doc].config.customInstructions, '会议前后预留 15 分钟');
     assert.equal(effectivePolicy.data.effectiveByDocument[IDS.doc].config.deadlinePriority.priority, 'high');
+    assert.equal(effectivePolicy.data.effectiveByDocument[IDS.otherDoc].documentGroupID, 'personal');
+    assert.deepEqual(Array.from(effectivePolicy.data.effectiveByDocument[IDS.otherDoc].documentGroups, (group) => group.id), ['personal']);
+    assert.equal(effectivePolicy.data.effectiveByDocument[IDS.otherDoc].appliedGroupRuleID, '');
+    assert.equal(effectivePolicy.data.effectiveByDocument[IDS.otherDoc].membershipSource, 'pluginResolvedSnapshot');
+    assert.equal(effectivePolicy.data.effectiveByDocument[IDS.otherDoc].config.defaultCalendarID, 'default');
+    assert.equal(effectivePolicy.data.effectiveByDocument[IDS.otherDoc].config.customInstructions, '');
     assert.deepEqual(Array.from(effectivePolicy.data.durationEstimates, (item) => [item.taskID, item.minutes, item.source]), [
         ['duration-meeting', 30, 'rule'],
         ['duration-writing', 60, 'rule'],

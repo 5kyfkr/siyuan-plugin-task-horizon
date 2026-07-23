@@ -228,6 +228,7 @@ return;
         } catch (e) {}
 
         if (prevModalSnapshot) {
+            try { __tmDisposeDocTabsRuntime(prevModalSnapshot, { clearHoverTimer: true }); } catch (e) {}
             try {
                 if (prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot')) {
                     globalThis.__tmCalendar?.unmount?.({ preserveRootHtml: !!(keepMountSnapshot || useSoftSwap) });
@@ -862,7 +863,7 @@ return;
                                 ` : ''}
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                                        <span>白板顺序模式</span>
+                                        <span>白板顺序模式（${__tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope) === 'global' ? '全局白板' : '单文档白板'}）</span>
                                         <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.whiteboardSequenceMode ? 'checked' : ''} onchange="tmToggleWhiteboardSequenceMode(this.checked); tmHideMobileMenu();">
                                     </div>
                                 </div>
@@ -1061,10 +1062,11 @@ return;
                         opacity: 1;
                         position: relative;
                         z-index: 1;
-                        will-change: transform, opacity;
                         contain: paint;
-                        backface-visibility: hidden;
                         --tm-doc-tabs-action-width: 30px;
+                    }
+                    .tm-doc-tabs.tm-doc-tabs--transitioning {
+                        will-change: transform, opacity;
                     }
                     .tm-doc-tabs-scroll {
                         min-width: 0;
@@ -1077,8 +1079,6 @@ return;
                         scrollbar-gutter: stable;
                         max-height: 56px;
                         padding-right: var(--tm-doc-tabs-action-width) !important;
-                        opacity: 1;
-                        transition: opacity 0.14s ease;
                     }
                     .tm-doc-tabs--multirow:not(.tm-doc-tabs--collapsed) {
                         align-items: stretch;
@@ -1114,7 +1114,6 @@ return;
                         box-sizing: border-box;
                         background: var(--tm-header-bg);
                         z-index: 5;
-                        transition: opacity 0.14s ease;
                     }
                     .tm-doc-tabs--overflowing .tm-doc-tabs-actions {
                         display: flex;
@@ -1167,14 +1166,8 @@ return;
                         padding-bottom: 0;
                         pointer-events: none;
                     }
-                    .tm-doc-tabs.tm-doc-tabs--hidden .tm-doc-tabs-scroll,
-                    .tm-doc-tabs.tm-doc-tabs--hidden .tm-doc-tabs-actions {
-                        opacity: 0;
-                    }
                     @media (prefers-reduced-motion: reduce) {
                         .tm-doc-tabs,
-                        .tm-doc-tabs-scroll,
-                        .tm-doc-tabs-actions,
                         .tm-doc-tabs-toggle {
                             transition-duration: 0.01ms !important;
                         }

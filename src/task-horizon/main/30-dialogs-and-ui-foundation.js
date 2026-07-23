@@ -4051,21 +4051,113 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
     }
 
+    function __tmClearDocTabsVisibilitySettle(tabs) {
+        if (!(tabs instanceof HTMLElement)) return;
+        try { tabs.closest?.('.tm-modal')?.classList?.remove?.('tm-modal--doc-tabs-transitioning'); } catch (e) {}
+        const onEnd = tabs.__tmDocTabsVisibilityTransitionEnd;
+        if (typeof onEnd === 'function') {
+            try { tabs.removeEventListener('transitionend', onEnd); } catch (e) {}
+        }
+        try {
+            if (tabs.__tmDocTabsVisibilityFallbackTimer) {
+                clearTimeout(tabs.__tmDocTabsVisibilityFallbackTimer);
+            }
+        } catch (e) {}
+        tabs.__tmDocTabsVisibilityTransitionEnd = null;
+        tabs.__tmDocTabsVisibilityFallbackTimer = null;
+    }
+
+    function __tmBeginDocTabsVisibilitySettle(tabs, onSettled) {
+        if (!(tabs instanceof HTMLElement)) return false;
+        __tmClearDocTabsVisibilitySettle(tabs);
+        try { tabs.classList.add('tm-doc-tabs--transitioning'); } catch (e) {}
+        try { tabs.closest?.('.tm-modal')?.classList?.add?.('tm-modal--doc-tabs-transitioning'); } catch (e) {}
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            __tmClearDocTabsVisibilitySettle(tabs);
+            try { tabs.classList.remove('tm-doc-tabs--transitioning'); } catch (e) {}
+            try { onSettled?.(); } catch (e) {}
+        };
+        const onEnd = (event) => {
+            if (event?.target !== tabs) return;
+            const property = String(event?.propertyName || '');
+            if (property && property !== 'max-height' && property !== 'transform') return;
+            finish();
+        };
+        tabs.__tmDocTabsVisibilityTransitionEnd = onEnd;
+        try { tabs.addEventListener('transitionend', onEnd); } catch (e) {}
+        try { tabs.__tmDocTabsVisibilityFallbackTimer = setTimeout(finish, 360); } catch (e) { finish(); }
+        return true;
+    }
+
+    function __tmDisposeDocTabsRuntime(modalEl, options = {}) {
+        const modal = modalEl instanceof Element ? modalEl : null;
+        if (!(modal instanceof HTMLElement)) return;
+        const topbar = modal.querySelector('.tm-filter-rule-bar');
+        const tabs = modal.querySelector('.tm-doc-tabs');
+        const handlers = modal.__tmDocTabsAutoHideHandlers;
+        if (handlers) {
+            try { topbar?.removeEventListener?.('pointerenter', handlers.enterTopbar); } catch (e) {}
+            try { tabs?.removeEventListener?.('pointerenter', handlers.enterTabs); } catch (e) {}
+            try { topbar?.removeEventListener?.('pointerleave', handlers.leave); } catch (e) {}
+            try { tabs?.removeEventListener?.('pointerleave', handlers.leave); } catch (e) {}
+        }
+        modal.__tmDocTabsAutoHideHandlers = null;
+        modal.__tmDocTabsAutoHideBound = false;
+        if (tabs instanceof HTMLElement) {
+            __tmClearDocTabsVisibilitySettle(tabs);
+            try { tabs.__tmDocTabsOverflowResizeObserver?.disconnect?.(); } catch (e) {}
+            try {
+                const rafId = Number(tabs.__tmDocTabsOverflowRaf) || 0;
+                if (rafId) cancelAnimationFrame(rafId);
+            } catch (e) {}
+            tabs.__tmDocTabsOverflowResizeObserver = null;
+            tabs.__tmDocTabsOverflowSchedule = null;
+            tabs.__tmDocTabsOverflowRaf = 0;
+            tabs.__tmDocTabsOverflowLastWidth = null;
+            try { tabs.classList.remove('tm-doc-tabs--transitioning'); } catch (e) {}
+        }
+        if (options?.clearHoverTimer) __tmClearDocTabsAutoHideHoverTimer();
+    }
+
     function __tmBindDocTabsOverflowToggle(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const tabs = modal?.querySelector?.('.tm-doc-tabs');
         const pane = tabs?.querySelector?.('.tm-doc-tabs-scroll');
         if (!(tabs instanceof HTMLElement) || !(pane instanceof HTMLElement)) return;
-        const sync = () => {
-            try { __tmSyncDocTabsOverflowToggle(modal); } catch (e) {}
-        };
-        sync();
-        try { requestAnimationFrame(sync); } catch (e) {}
-        try { setTimeout(sync, 0); } catch (e) {}
-        if (!tabs.__tmDocTabsOverflowResizeObserver && typeof ResizeObserver === 'function') {
+        if (typeof tabs.__tmDocTabsOverflowSchedule === 'function') {
+            tabs.__tmDocTabsOverflowSchedule(true);
+            return;
+        }
+        const schedule = (force = false, widthHint = null) => {
+            const width = widthHint != null && Number.isFinite(Number(widthHint))
+                ? Number(widthHint)
+                : (Number(pane.clientWidth) || 0);
+            const previousWidth = Number(tabs.__tmDocTabsOverflowLastWidth);
+            if (!force && Number.isFinite(previousWidth) && Math.abs(previousWidth - width) < 0.5) return;
+            tabs.__tmDocTabsOverflowLastWidth = width;
+            if (tabs.__tmDocTabsOverflowRaf) return;
+            const run = () => {
+                tabs.__tmDocTabsOverflowRaf = 0;
+                if (!modal.isConnected || !pane.isConnected) return;
+                try { __tmSyncDocTabsOverflowToggle(modal); } catch (e) {}
+            };
             try {
-                const ro = new ResizeObserver(sync);
-                ro.observe(tabs);
+                tabs.__tmDocTabsOverflowRaf = requestAnimationFrame(run);
+            } catch (e) {
+                run();
+            }
+        };
+        tabs.__tmDocTabsOverflowSchedule = schedule;
+        schedule(true);
+        if (typeof ResizeObserver === 'function') {
+            try {
+                const ro = new ResizeObserver((entries) => {
+                    const entry = Array.isArray(entries) ? entries[entries.length - 1] : null;
+                    schedule(false, entry?.contentRect?.width);
+                });
                 ro.observe(pane);
                 tabs.__tmDocTabsOverflowResizeObserver = ro;
             } catch (e) {}
@@ -5208,7 +5300,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!rawId) return null;
         const ext = (extra && typeof extra === 'object') ? extra : {};
         let taskId = '';
-        try { taskId = await __tmResolveTaskIdFromAnyBlockId(rawId); } catch (e) {}
+        try { taskId = await __tmResolveTaskIdFromAnyBlockId(rawId, { preferLocal: false }); } catch (e) {}
 
         let task = null;
         if (taskId) {
@@ -5935,6 +6027,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const failures = [];
         const skippedIds = [];
         const jobs = [];
+        const recurringJobs = [];
         deleteIds.forEach((id) => {
             const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
                 || state.pendingInsertedTasks?.[id]
@@ -5942,6 +6035,16 @@ return Number(state.contextInteractionQuietUntil || 0);
                 || null;
             if (!task) {
                 failures.push({ id, error: new Error('未找到任务') });
+                return;
+            }
+            if (__tmIsRecurringInstanceTask(task)) {
+                const sourceTaskId = String(task?.sourceTaskId || task?.recurringSourceTaskId || '').trim();
+                const completedAt = String(task?.recurringCompletedAt || '').trim();
+                if (!sourceTaskId || !completedAt) {
+                    failures.push({ id, error: new Error('未找到可删除的循环记录') });
+                    return;
+                }
+                recurringJobs.push({ id, sourceTaskId, completedAt });
                 return;
             }
             if (typeof __tmIsCollectedOtherBlockTask === 'function' && __tmIsCollectedOtherBlockTask(task)) {
@@ -5963,7 +6066,27 @@ return Number(state.contextInteractionQuietUntil || 0);
             });
         });
 
-        if (!jobs.length) {
+        const normalDeleteIdSet = new Set(jobs.map((job) => job.id));
+        const recurringJobsBySource = new Map();
+        recurringJobs.forEach((job) => {
+            if (normalDeleteIdSet.has(job.sourceTaskId)) return;
+            if (!recurringJobsBySource.has(job.sourceTaskId)) recurringJobsBySource.set(job.sourceTaskId, []);
+            recurringJobsBySource.get(job.sourceTaskId).push(job);
+        });
+        const recurringDeleteJobs = [];
+        recurringJobsBySource.forEach((sourceJobs, sourceTaskId) => {
+            const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceTaskId, { includePending: true, preferPending: true })
+                || state.pendingInsertedTasks?.[sourceTaskId]
+                || state.flatTasks?.[sourceTaskId]
+                || null;
+            const historyOrder = new Map(__tmNormalizeTaskRepeatHistory(sourceTask?.repeatHistory || sourceTask?.repeat_history || '')
+                .map((item, index) => [String(item?.completedAt || '').trim(), index]));
+            sourceJobs.sort((a, b) => (historyOrder.get(a.completedAt) ?? Number.MAX_SAFE_INTEGER)
+                - (historyOrder.get(b.completedAt) ?? Number.MAX_SAFE_INTEGER));
+            recurringDeleteJobs.push(...sourceJobs);
+        });
+
+        if (!jobs.length && !recurringDeleteJobs.length) {
             const result = { successCount: 0, failureCount: failures.length + skippedIds.length, failures };
             hint(result.failureCount > 0 ? __tmBuildBatchResultHint(result, '批量删除') : '⚠ 未找到可批量删除的任务', result.failureCount > 0 ? 'error' : 'warning');
             return result;
@@ -5991,8 +6114,23 @@ return Number(state.contextInteractionQuietUntil || 0);
                 return Promise.resolve({ id: job.id, ok: false, error: error instanceof Error ? error : new Error(String(error || '删除失败')) });
             }
         });
+        let recurringSuccessCount = 0;
+        for (const job of recurringDeleteJobs) {
+            try {
+                const removed = await __tmDeleteTaskRepeatHistoryEntry(job.sourceTaskId, job.completedAt, {
+                    source: 'multi-select-batch-delete-recurring',
+                });
+                if (removed !== true) throw new Error('循环记录已不存在');
+                recurringSuccessCount += 1;
+            } catch (error) {
+                failures.push({
+                    id: job.id,
+                    error: error instanceof Error ? error : new Error(String(error || '删除循环记录失败')),
+                });
+            }
+        }
         const result = {
-            successCount: jobs.length,
+            successCount: jobs.length + recurringSuccessCount,
             failureCount: failures.length + skippedIds.length,
             failures,
         };
@@ -9627,24 +9765,47 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmBuildWhiteboardSequenceVisibleTaskSet(candidateTasks) {
         const list = Array.isArray(candidateTasks) ? candidateTasks : [];
         if (!list.length) return null;
-        const orderMap = new Map(list.map((t, i) => [String(t?.id || '').trim(), i]));
+        const sequenceScope = __tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope);
+        const useGlobalSequence = sequenceScope === 'global';
+        const sequenceTasks = useGlobalSequence
+            ? (() => {
+                const out = list.slice();
+                const seen = new Set(out.map((task) => String(task?.id || '').trim()).filter(Boolean));
+                Object.values(state.flatTasks || {}).forEach((task) => {
+                    const id = String(task?.id || '').trim();
+                    if (!id || seen.has(id)) return;
+                    seen.add(id);
+                    out.push(task);
+                });
+                return out;
+            })()
+            : list;
+        const orderMap = new Map(sequenceTasks.map((t, i) => [String(t?.id || '').trim(), i]));
         const taskIds = Array.from(orderMap.keys()).filter(Boolean);
         if (!taskIds.length) return null;
 
+        const globalBoard = useGlobalSequence ? __tmGetWhiteboardGlobalBoardState() : null;
+        const globalPlacedTaskIds = (globalBoard?.placedTaskIds && typeof globalBoard.placedTaskIds === 'object') ? globalBoard.placedTaskIds : {};
+        const globalDetachedChildren = (globalBoard?.detachedChildren && typeof globalBoard.detachedChildren === 'object') ? globalBoard.detachedChildren : {};
+        const globalLinks = useGlobalSequence ? __tmGetWhiteboardGlobalTaskLinks() : [];
         const byDoc = new Map();
-        taskIds.forEach((id) => {
-            const did = String(
-                __tmGetTaskDocIdById(id)
-                || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)?.docId
-                || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)?.root_id
-                || state.flatTasks?.[id]?.docId
-                || state.flatTasks?.[id]?.root_id
-                || ''
-            ).trim();
-            if (!did) return;
-            if (!byDoc.has(did)) byDoc.set(did, new Set());
-            byDoc.get(did).add(id);
-        });
+        if (useGlobalSequence) {
+            byDoc.set('__global__', new Set(taskIds));
+        } else {
+            taskIds.forEach((id) => {
+                const did = String(
+                    __tmGetTaskDocIdById(id)
+                    || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)?.docId
+                    || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)?.root_id
+                    || state.flatTasks?.[id]?.docId
+                    || state.flatTasks?.[id]?.root_id
+                    || ''
+                ).trim();
+                if (!did) return;
+                if (!byDoc.has(did)) byDoc.set(did, new Set());
+                byDoc.get(did).add(id);
+            });
+        }
         if (!byDoc.size) return null;
 
         const manualLinksRuntime = __tmGetManualTaskLinksRuntime();
@@ -9652,7 +9813,14 @@ return Number(state.contextInteractionQuietUntil || 0);
         const visible = new Set();
 
         byDoc.forEach((nodes, docId) => {
-            const docLinks = Array.isArray(manualLinksByDoc.get(docId)) ? manualLinksByDoc.get(docId) : [];
+            const docLinks = useGlobalSequence
+                ? globalLinks
+                : (Array.isArray(manualLinksByDoc.get(docId)) ? manualLinksByDoc.get(docId) : []);
+            const isDetachedInScope = (id) => {
+                if (!useGlobalSequence) return __tmIsWhiteboardChildDetached(id);
+                const item = globalDetachedChildren[String(id || '').trim()];
+                return !!(item && typeof item === 'object' && item.detached === true);
+            };
             const linkedDetachedChildren = new Set();
             docLinks.forEach((ln) => {
                 const from = String(ln?.from || '').trim();
@@ -9661,15 +9829,26 @@ return Number(state.contextInteractionQuietUntil || 0);
                     if (!id || !nodes.has(id)) return;
                     const pid = String(__tmResolveWhiteboardTaskParentId(id) || '').trim();
                     if (!pid || !nodes.has(pid)) return;
-                    if (!__tmIsWhiteboardChildDetached(id)) return;
+                    if (!isDetachedInScope(id)) return;
                     linkedDetachedChildren.add(id);
                 });
             });
+            if (useGlobalSequence) {
+                Object.keys(globalDetachedChildren).forEach((id) => {
+                    if (nodes.has(id) && isDetachedInScope(id)) linkedDetachedChildren.add(id);
+                });
+            }
 
             const seqNodes = new Set();
             nodes.forEach((id) => {
                 const pid = String(__tmResolveWhiteboardTaskParentId(id) || '').trim();
                 const hasParentInScope = !!(pid && nodes.has(pid));
+                if (useGlobalSequence) {
+                    if (!globalPlacedTaskIds[id]) return;
+                    const parentPlaced = hasParentInScope && !!globalPlacedTaskIds[pid];
+                    if (!parentPlaced || linkedDetachedChildren.has(id)) seqNodes.add(id);
+                    return;
+                }
                 if (!hasParentInScope || linkedDetachedChildren.has(id)) seqNodes.add(id);
             });
             if (!seqNodes.size) return;
@@ -16721,27 +16900,28 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!__tmDocTabsAutoHideEnabled()) return false;
         __tmClearDocTabsAutoHideHoverTimer();
         const next = visible === true;
+        const unchanged = (state.docTabsAutoVisible === true) === next;
+        if (unchanged) {
+            if (options?.suppressOutsideClick) {
+                state.docTabsAutoHideSuppressClickUntil = Date.now() + 260;
+            }
+            return true;
+        }
+        const modal = state.modal;
+        const tabs = modal?.querySelector?.('.tm-doc-tabs');
+        if (tabs instanceof HTMLElement) {
+            __tmBeginDocTabsVisibilitySettle(tabs, () => {
+                if (!next || state.docTabsAutoVisible !== true || state.modal !== modal || !modal?.isConnected) return;
+                try { __tmBindDocTabsOverflowToggle(modal); } catch (e) {}
+                try { __tmRestoreDocTabScroll(modal, state.docTabsScrollLeft, state.docTabsScrollTop); } catch (e) {}
+                try { __tmEnsureActiveDocTabVisible(modal); } catch (e) {}
+            });
+        }
         state.docTabsAutoVisible = next;
         if (options?.suppressOutsideClick) {
             state.docTabsAutoHideSuppressClickUntil = Date.now() + 260;
         }
-        const applied = __tmApplyDocTabsVisibilityClasses(state.modal);
-        if (next) {
-            const modal = state.modal;
-            const syncLayout = () => {
-                if (state.docTabsAutoVisible !== true || state.modal !== modal) return;
-                try { __tmBindDocTabsOverflowToggle(modal); } catch (e) {}
-                try { __tmRestoreDocTabScroll(modal, state.docTabsScrollLeft, state.docTabsScrollTop); } catch (e) {}
-                try { __tmEnsureActiveDocTabVisible(modal); } catch (e) {}
-            };
-            try {
-                setTimeout(() => {
-                    try { requestAnimationFrame(syncLayout); } catch (e) { syncLayout(); }
-                }, 320);
-            } catch (e) {
-                syncLayout();
-            }
-        }
+        const applied = __tmApplyDocTabsVisibilityClasses(modal);
         if (!applied) render();
         return true;
     }
@@ -16921,6 +17101,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         try {
             const pane = tabs.querySelector?.('.tm-doc-tabs-scroll');
             const button = tabs.querySelector?.('.tm-doc-tabs-toggle');
+            const modal = state.modal;
+            __tmBeginDocTabsVisibilitySettle(tabs, () => {
+                if (state.modal !== modal || !modal?.isConnected) return;
+                try { __tmBindDocTabsOverflowToggle(modal); } catch (e) {}
+                try { __tmRestoreDocTabScroll(modal, state.docTabsScrollLeft, collapsed ? 0 : state.docTabsScrollTop); } catch (e) {}
+                try { __tmEnsureActiveDocTabVisible(modal); } catch (e) {}
+            });
             tabs.classList.toggle('tm-doc-tabs--collapsed', collapsed);
             tabs.classList.toggle('tm-doc-tabs--expanded', !collapsed);
             if (button instanceof HTMLElement) {

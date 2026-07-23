@@ -173,6 +173,7 @@
         policyTokens: new Map(),
         operationTokens: new Map(),
         taskScopes: new Map(),
+        documentGroupSnapshot: null,
         undoRecords: new Map(),
         undoSequence: 0,
         lastUndo: null,
@@ -2297,6 +2298,30 @@
         };
     }
 
+    function registerDocumentGroupSnapshot(input) {
+        const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+        const groups = Array.isArray(source.groups) ? source.groups : [];
+        const membersByGroup = new Map();
+        const namesByGroup = new Map();
+        groups.forEach((group) => {
+            const groupID = text(group && group.id);
+            if (!groupID || membersByGroup.has(groupID)) return;
+            const documentIDs = uniqueStrings(group && (group.documentIDs || group.documentIds))
+                .filter((id) => ID_RE.test(id));
+            membersByGroup.set(groupID, new Set(documentIDs));
+            namesByGroup.set(groupID, text(group && group.name));
+        });
+        state.documentGroupSnapshot = {
+            registeredAt: Date.now(),
+            membersByGroup,
+            namesByGroup,
+        };
+        return {
+            groupCount: membersByGroup.size,
+            documentCount: new Set(Array.from(membersByGroup.values()).flatMap((ids) => Array.from(ids))).size,
+        };
+    }
+
     function resolveTaskScopeToken(value) {
         const scopeToken = text(value);
         if (!scopeToken) return null;
@@ -3274,10 +3299,11 @@
             ...groups.flatMap((group) => group.documents.filter((entry) => entry.recursive).map((entry) => entry.id)),
         ]).filter((id) => ID_RE.test(id));
         if (!ids.length) return new Map();
-        const rows = await sql(`SELECT id, box, hpath FROM blocks WHERE type = 'd' AND id IN (${ids.map((id) => `'${escapeSql(id)}'`).join(',')})`);
+        const rows = await sql(`SELECT id, box, path, hpath FROM blocks WHERE type = 'd' AND id IN (${ids.map((id) => `'${escapeSql(id)}'`).join(',')})`);
         return new Map(rows.map((row) => [text(row.id), {
             id: text(row.id),
             box: text(row.box),
+            path: text(row.path).replace(/\/+$/, ''),
             hpath: text(row.hpath).replace(/\/+$/, ''),
         }]));
     }
@@ -3291,8 +3317,13 @@
             if (entry.id === id) return true;
             if (!entry.recursive || !target) return false;
             const root = metaByID.get(entry.id);
-            if (!root || !root.hpath || root.box !== target.box) return false;
-            return target.hpath === root.hpath || target.hpath.startsWith(`${root.hpath}/`);
+            if (!root || root.box !== target.box) return false;
+            if (root.path && target.path) {
+                const rootPath = root.path.replace(/\.sy$/i, '');
+                return target.path === root.path || target.path.startsWith(`${rootPath}/`);
+            }
+            return !!root.hpath && !!target.hpath
+                && (target.hpath === root.hpath || target.hpath.startsWith(`${root.hpath}/`));
         });
     }
 
@@ -3311,15 +3342,26 @@
         };
         if (!documentIDs.length) return result;
         const metaByID = await policyDocumentMeta(documentIDs, documentGroups);
+        const groupSnapshot = state.documentGroupSnapshot;
+        const useGroupSnapshot = !!groupSnapshot
+            && (Date.now() - Number(groupSnapshot.registeredAt || 0)) < (30 * 60 * 1000)
+            && documentGroups.every((group) => groupSnapshot.membersByGroup.has(group.id));
         documentIDs.forEach((documentID) => {
-            const group = documentGroups.find((item) => policy.groupOverrides[item.id]
-                && documentMatchesPolicyGroup(documentID, item, metaByID)) || null;
+            const matchedGroups = documentGroups.filter((item) => useGroupSnapshot
+                ? groupSnapshot.membersByGroup.get(item.id).has(documentID)
+                : documentMatchesPolicyGroup(documentID, item, metaByID));
+            const primaryGroup = matchedGroups[0] || null;
+            const appliedGroup = matchedGroups.find((item) => policy.groupOverrides[item.id]) || null;
             result.effectiveByDocument[documentID] = {
-                documentGroupID: group?.id || '',
-                documentGroupName: group?.name || '',
+                documentGroupID: primaryGroup?.id || '',
+                documentGroupName: primaryGroup?.name || '',
+                documentGroups: matchedGroups.map((item) => ({ id: item.id, name: item.name })),
+                appliedGroupRuleID: appliedGroup?.id || '',
+                appliedGroupRuleName: appliedGroup?.name || '',
+                membershipSource: useGroupSnapshot ? 'pluginResolvedSnapshot' : 'sqlFallback',
                 config: {
                     ...(policy.global || {}),
-                    ...((group && policy.groupOverrides[group.id]) || {}),
+                    ...((appliedGroup && policy.groupOverrides[appliedGroup.id]) || {}),
                     ...(policy.documentOverrides[documentID] || {}),
                 },
             };
@@ -4079,6 +4121,7 @@
         await siyuan.rpc.bind('taskHorizonSetMcpEnabled', (enabled) => asResult(() => setMcpEnabled(enabled)));
         await siyuan.rpc.bind('taskHorizonSetMcpToolConfig', (input) => asResult(() => setMcpToolConfig(input || {})));
         await siyuan.rpc.bind('taskHorizonRegisterTaskScope', (input) => asResult(() => registerTaskScope(input || {})));
+        await siyuan.rpc.bind('taskHorizonRegisterDocumentGroupSnapshot', (input) => asResult(() => registerDocumentGroupSnapshot(input || {})));
         await siyuan.rpc.bind('taskHorizonResolveTaskBinding', (blockID) => asResult(() => resolveTaskBinding(blockID)));
         await siyuan.rpc.bind('taskHorizonGetTask', (taskID, fields) => asResult(() => getTaskDTO(taskID, fields)));
         await siyuan.rpc.bind('taskHorizonQueryTasks', (input) => asResult(() => queryTaskRows(input || {})));

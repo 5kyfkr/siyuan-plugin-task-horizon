@@ -29,6 +29,7 @@
         'taskHorizonSearchDocuments',
         'taskHorizonGetPolicy',
         'taskHorizonPreviewPolicyPatch',
+        'taskHorizonRegisterDocumentGroupSnapshot',
     ]);
     let kernelAuthRecoveryPromise = null;
     const TASK_CONTEXT_DRAG_TYPES = Object.freeze([
@@ -323,9 +324,30 @@
         if (!source) return '';
         try {
             const html = getMarkdownRenderer()?.ProtylePreviewStr?.('', source);
-            if (html) return html;
+            if (html) return decorateMarkdownCodeBlocks(html);
         } catch (error) {}
         return esc(source).replace(/\n/g, '<br>');
+    }
+
+    function decorateMarkdownCodeBlocks(html) {
+        if (typeof document === 'undefined') return html;
+        const template = document.createElement('template');
+        template.innerHTML = String(html || '');
+        template.content.querySelectorAll('pre.code-block, pre[data-language]').forEach((pre) => {
+            const code = pre.querySelector(':scope > code');
+            if (!code || pre.querySelector('.tm-agent-code-copy')) return;
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'block__icon tm-agent-code-copy ariaLabel';
+            button.dataset.agentAction = 'copy-code-block';
+            button.setAttribute('data-position', 'north');
+            button.setAttribute('aria-label', '复制代码块');
+            button.setAttribute('title', '复制代码块');
+            button.innerHTML = phosphorBoldContextIcon('copy');
+            pre.classList.add('tm-agent-code-block');
+            pre.appendChild(button);
+        });
+        return template.innerHTML;
     }
 
     function normalizeCustomPreset(value) {
@@ -624,13 +646,31 @@
         return id;
     }
 
-    async function loadAutomationConversationEntries(sessionID) {
-        try {
-            const session = await post('/getSession', { id: text(sessionID) });
-            return Array.isArray(session?.entries) ? clone(session.entries) : [];
-        } catch (error) {
-            return [];
-        }
+    async function prepareAutomationConversationTurn(sessionID, prompt, title) {
+        const id = text(sessionID);
+        const now = Date.now();
+        let session = null;
+        try { session = await post('/getSession', { id }); } catch (error) {}
+        const entries = Array.isArray(session?.entries) ? clone(session.entries) : [];
+        const userEntryID = newID();
+        entries.push({ id: userEntryID, type: 'user', content: prompt, timestamp: now });
+        const next = {
+            ...(session && typeof session === 'object' ? clone(session) : {}),
+            id,
+            title: text(session?.title || title) || SIYUAN_DEFAULT_SESSION_TITLE,
+            titled: session?.titled === true,
+            entries,
+            createdAt: Number(session?.createdAt) || now,
+            updatedAt: now,
+            expectedRevision: Number(session?.revision) || 0,
+        };
+        delete next.messages;
+        const saved = await post('/saveSession', next);
+        return {
+            entries,
+            userEntryID,
+            revision: Number(saved?.revision) || next.expectedRevision + 1,
+        };
     }
 
     async function finalizeAutomationConversation(sessionID, title, run = {}) {
@@ -649,11 +689,9 @@
                     session.updatedAt = Date.now();
                 }
                 const baseEntries = Array.isArray(run.baseEntries) ? clone(run.baseEntries) : [];
-                const prompt = text(run.prompt);
                 const markdown = text(run.markdown);
-                if (prompt) baseEntries.push({ id: newID(), type: 'user', content: prompt, timestamp: Date.now() });
                 if (markdown) baseEntries.push({ id: newID(), type: 'assistant', content: markdown, timestamp: Date.now() });
-                if (prompt || markdown) session.entries = baseEntries;
+                if (markdown) session.entries = baseEntries;
                 delete session.messages;
                 session.updatedAt = Date.now();
                 await post('/saveSession', session);
@@ -2029,6 +2067,16 @@
         };
     }
 
+    async function syncDocumentGroupSnapshot() {
+        try {
+            const snapshot = await aiBridge()?.getDocumentGroupSnapshot?.();
+            if (!snapshot || !Array.isArray(snapshot.groups)) return null;
+            return await kernelCall('taskHorizonRegisterDocumentGroupSnapshot', snapshot);
+        } catch (error) {
+            return null;
+        }
+    }
+
     function scheduleCurrentViewContextSync() {
         if (!runtime.context.scope || (runtime.context.scope.type !== 'current_view' && runtime.context.scope.type !== 'current_group')) return;
         clearTimeout(runtime.viewContextSyncTimer);
@@ -2556,6 +2604,29 @@
         return true;
     }
 
+    async function copyCodeBlock(button) {
+        const code = button instanceof HTMLElement
+            ? button.closest('pre.tm-agent-code-block')?.querySelector(':scope > code')
+            : null;
+        const copied = await writeClipboardText(code?.textContent || '');
+        if (!copied) {
+            aiBridge()?.hint?.('复制失败', 'error');
+            return false;
+        }
+        button.classList.add('is-copied');
+        button.setAttribute('aria-label', '已复制');
+        button.setAttribute('title', '已复制');
+        button.innerHTML = phosphorBoldContextIcon('check');
+        setTimeout(() => {
+            if (!button.isConnected) return;
+            button.classList.remove('is-copied');
+            button.setAttribute('aria-label', '复制代码块');
+            button.setAttribute('title', '复制代码块');
+            button.innerHTML = phosphorBoldContextIcon('copy');
+        }, 1600);
+        return true;
+    }
+
     async function invokeFrontendTool(event) {
         const args = event.arguments && typeof event.arguments === 'object' ? event.arguments : {};
         const action = text(args.action);
@@ -2746,6 +2817,7 @@
         const userText = raw || text(preset?.starter);
         if (!userText) return;
         if (!await ensureTaskToolsReadyForSend()) return;
+        await syncDocumentGroupSnapshot();
         if (!runtime.activeSessionID) createSession();
         const currentViewSnapshot = await syncCurrentViewContext();
         if (runtime.context.scope && !text(currentViewSnapshot?.scopeToken)) {
@@ -3392,6 +3464,7 @@
                 }
                 else if (action === 'delete-session') await removeSession(id);
                 else if (action === 'copy-message') await copyMessage(target.dataset.index, target);
+                else if (action === 'copy-code-block') await copyCodeBlock(target);
                 else if (action === 'retry-failed') await retryFailedToolCall(id);
                 else if (action === 'enable-tools') await setToolsEnabled(true);
                 else if (action === 'refresh-capabilities') { runtime.statusText = '正在检测任务工具能力...'; render(); await getCapabilities(); runtime.statusText = ''; render(); }
@@ -3519,9 +3592,19 @@
         const sessionID = persistent
             ? await ensureAutomationConversation(request.sessionID)
             : newID();
-        const baseEntries = persistent
-            ? await loadAutomationConversationEntries(sessionID)
-            : [];
+        let baseEntries = [];
+        let userEntryID = '';
+        let contentRevision;
+        if (persistent) {
+            try {
+                const prepared = await prepareAutomationConversationTurn(sessionID, prompt, request.sessionTitle);
+                baseEntries = prepared.entries;
+                userEntryID = prepared.userEntryID;
+                contentRevision = prepared.revision;
+            } catch (error) {
+                throw new Error(`智能体会话初始化失败：${text(error?.message || error) || '未知错误'}`);
+            }
+        }
         const controller = new AbortController();
         runtime.automationControllers.add(controller);
         const toolCalls = [];
@@ -3534,6 +3617,7 @@
                 sessionID,
                 editorContext: {},
                 pluginActions: [],
+                ...(userEntryID ? { userEntryID, contentRevision } : {}),
             }, async (event) => {
                 if (event.type === 'content') {
                     markdown += String(event.token || '');
@@ -3566,7 +3650,7 @@
             }, controller.signal);
             const output = String(markdown || '').trim();
             if (!output) throw new Error('智能体未返回内容');
-            if (persistent) await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, prompt, markdown: output });
+            if (persistent) await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: output });
             return {
                 title: automationTitle(output, request.title),
                 markdown: output,
@@ -3574,11 +3658,14 @@
                 sessionID,
             };
         } catch (error) {
+            const reportedError = text(error?.message || error) === '网络异常，请稍后再试'
+                ? Object.assign(new Error('智能体请求失败：网络异常，请稍后再试'), { code: error?.code })
+                : error;
             if (persistent) {
-                const failure = String(markdown || '').trim() || `执行失败：${text(error?.message || error) || '未知错误'}`;
-                await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, prompt, markdown: failure });
+                const failure = String(markdown || '').trim() || `执行失败：${text(reportedError?.message || reportedError) || '未知错误'}`;
+                await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: failure });
             }
-            throw error;
+            throw reportedError;
         } finally {
             runtime.automationControllers.delete(controller);
             try { controller.abort(); } catch (error) {}
@@ -3714,6 +3801,7 @@
         hashContent,
         postAgentInteraction,
         chat: (request, onEvent, signal) => client.chat(request, onEvent, signal),
+        runAutomation,
         isScheduledEventCreateIntent,
         isReminderModeChoiceIntent,
         isScheduledEventListIntent,

@@ -890,6 +890,7 @@ if (shouldMarkDirty) {
     // 插件卸载清理
     function __tmCleanup() {
         try { __tmMarkRuntimeCleanupRequested?.(); } catch (e) {}
+        try { __tmDisposeDocTabsRuntime?.(state.modal, { clearHoverTimer: true }); } catch (e) {}
         try { globalThis['siyuan-plugin-task-horizon']?.scheduledEvents?.dispose?.(); } catch (e) {}
         try { __tmCancelBackgroundStorageTimers?.(); } catch (e) {}
         try { __tmCleanupTaskTitleBlockRefJumpDelegation?.(); } catch (e) {}

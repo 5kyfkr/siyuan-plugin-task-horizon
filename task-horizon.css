@@ -16722,7 +16722,6 @@ th[data-col] {
 
 .tm-popup-surface {
     transform-origin: top center;
-    will-change: transform, opacity;
 }
 
 .tm-popup-surface[data-popup-origin="top-left"] {
@@ -16778,12 +16777,6 @@ th[data-col] {
     animation: tmBoxInFromLeft 300ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.tm-main-stage.tm-stage-anim,
-.tm-main-stage.tm-stage-anim--from-right,
-.tm-main-stage.tm-stage-anim--from-left {
-    will-change: transform, opacity;
-}
-
 .tm-main-stage.tm-stage-anim {
     animation: tmBoxFadeSlide 240ms ease-out;
 }
@@ -16825,11 +16818,6 @@ th[data-col] {
 
 .tm-popup-overlay-enter {
     animation: tmPopupOverlayFadeIn 180ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-.tm-popup-surface-enter,
-.tm-popup-surface-enter--sheet {
-    will-change: transform, opacity;
 }
 
 .tm-popup-surface-enter {

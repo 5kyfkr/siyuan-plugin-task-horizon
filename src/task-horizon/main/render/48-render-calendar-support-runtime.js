@@ -1335,6 +1335,18 @@
         if (!hasStartDate && !hasCompletionTime && !hasTaskDateColor) throw new Error('缺少日期字段');
         let resolvedId = requestedId;
         let task = __tmGetCalendarFlatTaskByIdSync(requestedId);
+        if (opts.requireTaskIdentity === true) {
+            let strictResolvedId = '';
+            try { strictResolvedId = String(await __tmResolveTaskIdFromAnyBlockId(requestedId, { preferLocal: false }) || '').trim(); } catch (e) {}
+            if (!strictResolvedId) {
+                if (opts.ignoreMissingTask === true) {
+                    return { id: '', requestedId, skipped: true, reason: 'not-task' };
+                }
+                throw new Error('未找到任务');
+            }
+            resolvedId = strictResolvedId;
+            task = __tmGetCalendarFlatTaskByIdSync(resolvedId);
+        }
         if (!task) {
             try {
                 const nextResolved = await __tmResolveTaskIdFromAnyBlockId(requestedId);

@@ -12,6 +12,7 @@ const sidePanels = fs.readFileSync(path.join(root, 'src/task-horizon/main/render
 const taskList = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js'), 'utf8');
 const dialogFoundation = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
 const externalDragRouting = fs.readFileSync(path.join(root, 'src/task-horizon/main/41-external-task-drag-routing.js'), 'utf8');
+const aiBridgeRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/shell/81-ai-bridge-runtime.js'), 'utf8');
 const calendarView = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
 
 assert.match(workbench, /data-agent-action="open-context-picker"/, 'context add button is missing');
@@ -32,6 +33,8 @@ assert.match(workbench, /data-agent-action="add-current-view"/, 'current view ac
 assert.match(workbench, /taskHorizonQueryTasks[\s\S]*filters: query \? \{ keyword: query \} : \{\}/, 'task search must use structured filters');
 assert.match(workbench, /taskHorizonSearchDocuments[\s\S]*keyword: query/, 'document search must use the fixed kernel RPC');
 assert.match(workbench, /runtime\.context\.documentIDs\.length > 0[\s\S]*getDocumentTaskReadScope[\s\S]*mergeTaskReadScopes[\s\S]*scopeMode: runtime\.context\.documentIDs\.length \? 'documents' : 'tasks'/, 'document context must register the document\'s complete Task Horizon task scope independently of the active task-manager tab');
+assert.match(aiBridgeRuntime, /async function __tmAiGetDocumentGroupSnapshot\(\)[\s\S]*resolveDocIdsFromGroups\(\{ groupId: groupID, includeQuickAddDoc: false \}\)[\s\S]*documentIDs:/, 'AI bridge must reuse the plugin document-group resolver instead of exposing only configured parent documents');
+assert.match(workbench, /async function syncDocumentGroupSnapshot\(\)[\s\S]*getDocumentGroupSnapshot[\s\S]*taskHorizonRegisterDocumentGroupSnapshot[\s\S]*ensureTaskToolsReadyForSend\(\)[\s\S]*await syncDocumentGroupSnapshot\(\)/, 'the workbench must register resolved document-group membership before sending each request');
 assert.match(workbench, /function isTaskContextID\(value\)[\s\S]*isTaskBlockID\(value\) \|\| isVirtualTaskID\(value\)[\s\S]*context\.taskIDs[\s\S]*filter\(isTaskContextID\)/, 'stored contexts must preserve real tasks and read-only recurring virtual tasks');
 assert.match(workbench, /function addContextItem\(kind, id, label\)[\s\S]*kind === 'task' && !isTaskContextID\(targetID\)/, 'manually added task context must accept real and recurring virtual task IDs');
 assert.match(workbench, /TASK_CONTEXT_DRAG_TYPES[\s\S]*application\/x-tm-task-ids[\s\S]*application\/x-tm-whiteboard-pool[\s\S]*application\/x-tm-whiteboard-task/, 'the workbench must recognize list and whiteboard task drag payloads');

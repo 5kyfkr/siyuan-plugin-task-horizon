@@ -1887,7 +1887,7 @@
                     todayDateKey: normalizeTodayDateKey,
                 };
                 normalizeMetrics.optionsPrepMs += (__tmPerfNow() - perfMark);
-                const recurringDueCandidateIds = [];
+                const recurringReconcileCandidateIds = [];
                 if (!MetaStore.data || typeof MetaStore.data !== 'object') MetaStore.data = {};
                 const metaStoreData = MetaStore.data;
                 let metaSeedCount = 0;
@@ -2040,7 +2040,11 @@
                     }
                     const repeatRule = (task.repeatRule && typeof task.repeatRule === 'object') ? task.repeatRule : null;
                     if (!task.done && repeatRule?.enabled && repeatRule.trigger === 'due' && repeatRule.type !== 'none') {
-                        recurringDueCandidateIds.push(String(task.id || '').trim());
+                        recurringReconcileCandidateIds.push(String(task.id || '').trim());
+                    } else if (task.done && repeatRule?.enabled && repeatRule.type !== 'none'
+                        && !(queuedTaskFieldPatch && Object.prototype.hasOwnProperty.call(queuedTaskFieldPatch, 'done'))
+                        && __tmNormalizeTaskCompleteAtValue(task?.taskCompleteAt || task?.task_complete_at || '')) {
+                        recurringReconcileCandidateIds.push(String(task.id || '').trim());
                     }
                     normalizeMetrics.virtualMs += (__tmPerfNow() - perfMark);
                 }
@@ -2541,7 +2545,7 @@
                             try {
                                 if (!(runtimeState?.isCurrentOpenToken?.(switchGroupToken) ?? switchGroupToken === (Number(state.openToken) || 0))) return;
                                 if (String(SettingsStore?.data?.currentGroupId || 'all').trim() !== currentGroupId) return;
-                                await __tmReconcileRecurringTasksOnLoad(recurringDueCandidateIds, {
+                                await __tmReconcileRecurringTasksOnLoad(recurringReconcileCandidateIds, {
                                     todayKey: __tmNormalizeDateOnly(new Date()),
                                 });
                             } catch (e) {}
@@ -2550,13 +2554,13 @@
                 } else {
                     const recurringReconcileStartTime = Date.now();
                     try {
-                        await __tmReconcileRecurringTasksOnLoad(recurringDueCandidateIds, {
+                        await __tmReconcileRecurringTasksOnLoad(recurringReconcileCandidateIds, {
                             todayKey: __tmNormalizeDateOnly(new Date()),
                         });
                     } catch (e) {}
                     __tmPerfTraceMark(perfTrace, 'recurring-reconcile', {
                         durationMs: __tmRoundPerfMs(Date.now() - recurringReconcileStartTime),
-                        taskCount: recurringDueCandidateIds.length,
+                        taskCount: recurringReconcileCandidateIds.length,
                         deferredByPerfFlag: perfTuning.deferRecurringReconcile ? 1 : 0,
                     });
                 }

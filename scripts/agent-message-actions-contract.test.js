@@ -15,6 +15,14 @@ const renderConversationSource = workbench.slice(renderConversationStart, render
 assert.match(workbench, /copy: 'M216,28H88A12/, 'copy action must use the Phosphor Bold copy path');
 assert.match(workbench, /check: 'M232\.49,80\.49l-128,128/, 'copy feedback must use the Phosphor Bold check path');
 assert.match(workbench, /data-agent-action="copy-message" data-index="\$\{Number\(index\)\}"/, 'message copy actions must address the rendered conversation entry');
+assert.match(workbench, /function decorateMarkdownCodeBlocks\(html\)[\s\S]*querySelectorAll\('pre\.code-block, pre\[data-language\]'\)[\s\S]*button\.dataset\.agentAction = 'copy-code-block'/, 'rendered code blocks must receive an independent copy action');
+assert.match(workbench, /async function copyCodeBlock\(button\)[\s\S]*closest\('pre\.tm-agent-code-block'\)[\s\S]*querySelector\(':scope > code'\)[\s\S]*writeClipboardText/, 'code-block copy must copy only the block code text');
+assert.match(workbench, /action === 'copy-code-block'[\s\S]*copyCodeBlock\(target\)/, 'code-block copy actions must be handled by the workbench event delegate');
+assert.match(workbench, /button\.className = 'block__icon tm-agent-code-copy ariaLabel'/, 'code-block copy must reuse the native SiYuan icon-button vocabulary');
+assert.match(styles, /\.tm-agent-code-copy\s*\{[^}]*position: absolute;[^}]*width: 28px;[^}]*border: 0;[^}]*border-radius: 4px;[^}]*box-shadow: none;[^}]*opacity: 0;/, 'code-block copy must remain a quiet overlaid SiYuan-style action');
+assert.doesNotMatch(styles, /\.tm-agent-markdown pre\.tm-agent-code-block\s*\{[^}]*padding-right:/, 'the overlaid code-block copy action must not reserve text width');
+assert.match(styles, /\.tm-agent-code-block:hover > \.tm-agent-code-copy,[\s\S]*opacity: 0\.72;/, 'code-block copy must reveal when the block is hovered or focused');
+assert.match(styles, /@media \(hover: none\), \(pointer: coarse\)[\s\S]*\.tm-agent-code-copy[\s\S]*opacity: 0\.62;/, 'touch users must retain a discoverable code-block copy action');
 assert.match(workbench, /tm-agent-message--user"><div class="tm-agent-message__body">[\s\S]*renderMessageActions\(index, text\(entry\.content\)\)/, 'user copy actions must follow the message body');
 assert.match(workbench, /tm-agent-message--assistant">\$\{todo\}\$\{tools\}<div class="tm-agent-message__body tm-agent-markdown b3-typography">[\s\S]*renderMessageActions\(index, text\(entry\.content\)\)/, 'Agent execution cards must precede the response while copy actions remain at the end');
 assert.match(workbench, /function renderToolGroup\(calls, completedResponse\)[\s\S]*class="tm-agent-tool-group" \$\{completed \? '' : 'open'\}/, 'tool calls must share one expandable execution group');

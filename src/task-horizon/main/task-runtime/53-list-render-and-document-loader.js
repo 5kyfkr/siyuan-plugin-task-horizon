@@ -1731,13 +1731,14 @@ return finish(false, 'noop');
         return null;
     }
 
-    async function __tmResolveTaskBindingFromAnyBlockId(id) {
+    async function __tmResolveTaskBindingFromAnyBlockId(id, options = {}) {
         const bid = String(id || '').trim();
         if (!bid) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
         const resolveTaskAttrHostIdByTask = async (taskId, parentListId = '', source = null) => {
             return await __tmResolveStableTaskAttrHostId(taskId, parentListId, source);
         };
-        const localBinding = __tmResolveLocalTaskBindingFromAnyBlockId(bid);
+        const localBinding = opts.preferLocal === false ? null : __tmResolveLocalTaskBindingFromAnyBlockId(bid);
         if (localBinding) {
             const localTask = (localBinding.task && typeof localBinding.task === 'object') ? localBinding.task : null;
             const taskId = String(localBinding.taskId || '').trim() || bid;
@@ -1805,8 +1806,8 @@ return finish(false, 'noop');
         return String(resolved?.attrHostId || '').trim();
     }
 
-    async function __tmResolveTaskIdFromAnyBlockId(id) {
-        const resolved = await __tmResolveTaskBindingFromAnyBlockId(id);
+    async function __tmResolveTaskIdFromAnyBlockId(id, options = {}) {
+        const resolved = await __tmResolveTaskBindingFromAnyBlockId(id, options);
         return String(resolved?.taskId || '').trim();
     }
 
@@ -2315,11 +2316,82 @@ return finish(false, 'noop');
         }
     };
 
+    function __tmRunSetDonePostCommitEffects(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const targetDone = opts.done === true;
+        if (!tid) return false;
+        if (!targetDone) {
+            try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
+            return false;
+        }
+        if (opts.previousDone === true) return false;
+        const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || state.pendingInsertedTasks?.[tid]
+            || state.flatTasks?.[tid]
+            || ((opts.task && typeof opts.task === 'object') ? opts.task : null);
+        const completedAt = __tmNormalizeTaskCompleteAtValue(
+            opts.completedAt
+            || latestTask?.taskCompleteAt
+            || latestTask?.task_complete_at
+            || '',
+        );
+        let recurringScheduled = false;
+        if (completedAt) {
+            try {
+                let shouldSchedule = !latestTask;
+                if (latestTask) {
+                    const repeatRule = __tmGetTaskRepeatRule(latestTask);
+                    shouldSchedule = !!__tmBuildTaskRepeatAdvancePatch(latestTask, repeatRule, { completedAt });
+                }
+                if (shouldSchedule) {
+                    __tmScheduleRecurringTaskAdvanceAfterCompletion(tid, {
+                        source: opts.source,
+                        completedAt,
+                        scheduleId: String(opts.scheduleId || '').trim(),
+                        expectAdvance: true,
+                    });
+                    recurringScheduled = true;
+                }
+            } catch (e) {}
+        }
+        if (opts.delight !== false) {
+            try { __tmQueueTaskDoneDelight(tid, { done: true, suppressHint: opts.suppressHint, source: opts.source }); } catch (e) {}
+        }
+        try {
+            void Promise.resolve(__tmSettleTomatoAfterTaskDone(tid, {
+                task: latestTask,
+                attrHostId: String(opts.attrHostId || __tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
+                source: String(opts.source || 'set-done').trim() || 'set-done',
+            })).catch(() => null);
+        } catch (e) {}
+        const rewardPriorityScore = Math.max(0, Math.round(Number(opts.rewardPriorityScore) || 0));
+        if (rewardPriorityScore > 0) {
+            try {
+                __tmDispatchTaskCompletedForReward(latestTask, {
+                    taskId: tid,
+                    attrHostId: String(opts.attrHostId || __tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
+                    priorityScore: rewardPriorityScore,
+                    completedAt,
+                    source: String(opts.source || 'set-done').trim() || 'set-done',
+                    previousDone: false,
+                    nextDone: true,
+                });
+            } catch (e) {}
+        }
+        if (opts.skipAutoCompleteParent !== true) {
+            try { void __tmMaybeAutoCompleteParentAfterSubtaskDone(tid, opts).catch(() => null); } catch (e) {}
+        }
+        return recurringScheduled;
+    }
+
     async function __tmSetDoneKernel(id, done, ev, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const targetDone = !!done;
-        const useCalendarLocalRefresh = __tmShouldSyncCalendarDoneInPlace(opts.source);
-        const useLocalRefreshMode = String(opts.refreshMode || '').trim() === 'local';
+        const useLocalRefreshMode = String(opts.refreshMode || '').trim() === 'local'
+            || opts.skipViewRefresh === true
+            || opts.skipSettledRefresh === true;
+        const useCalendarLocalRefresh = !useLocalRefreshMode && __tmShouldSyncCalendarDoneInPlace(opts.source);
         if (ev) {
             ev.stopPropagation();
         }
@@ -2392,28 +2464,18 @@ return finish(false, 'noop');
                     if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
                     state.doneOverrides[String(id)] = !!done;
                 } catch (e) {}
-                if (targetDone) {
-                    try { await __tmSettleTomatoAfterTaskDone(id, { source: opts.source }); } catch (e) {}
-                }
                 try { __tmInvalidateAllSqlCaches(); } catch (e) {}
                 if (opts.suppressHint !== true) {
                     try { hint(__tmBuildTaskDoneSuccessHint(!!done, '✅ 任务已完成'), 'success'); } catch (e) {}
                 }
-                if (targetDone && opts.force !== true) __tmQueueTaskDoneDelight(id, { done: true, suppressHint: opts.suppressHint, source: opts.source });
-                if (targetDone) {
-                    try {
-                        const completedAt = __tmNowInChinaTimezoneIso();
-                        __tmScheduleRecurringTaskAdvanceAfterCompletion(id, {
-                            source: opts.source,
-                            completedAt,
-                            scheduleId: String(opts.scheduleId || '').trim(),
-                        });
-                    } catch (e) {}
-                } else {
-                    try { __tmClearRecurringTaskAdvanceTimer(id); } catch (e) {}
-                }
-                if (targetDone && !taskWasDone && opts.skipAutoCompleteParent !== true) {
-                    try { void __tmMaybeAutoCompleteParentAfterSubtaskDone(id, opts).catch(() => null); } catch (e) {}
+                if (opts.deferCompletionEffects !== true) {
+                    __tmRunSetDonePostCommitEffects(id, {
+                        ...opts,
+                        done: targetDone,
+                        previousDone: taskWasDone,
+                        completedAt: completeAtPatch?.taskCompleteAt || '',
+                        delight: opts.force !== true,
+                    });
                 }
                 if (useCalendarLocalRefresh) {
                     try { globalThis.__tmCalendar?.syncTaskDoneInPlace?.(id, !!done, { allowRefetch: true }); } catch (e) {}
@@ -2431,40 +2493,22 @@ return finish(false, 'noop');
                         }
                     }
                 }
-                return;
+                return true;
             }
             if (opts.suppressHint !== true) hint('❌ 任务不存在', 'error');
             if (ev?.target) ev.target.checked = !done;
-            return;
+            if (opts.force === true) throw new Error('任务不存在');
+            return false;
         }
         const detailScrollSnapshot = __tmCaptureChecklistDetailScrollSnapshot();
         const checklistRenderRestoreSnapshot = __tmCaptureChecklistRenderRestore();
 
-        // 检查全局锁
-        if (GlobalLock.isLocked()) {
-            const waited = opts.force === true ? await __tmWaitForGlobalUnlock(12000) : false;
-            if (!waited) {
-                if (opts.force === true) {
-                    throw new Error('完成状态操作仍在进行中，请稍后重试');
-                }
-                if (opts.suppressHint !== true) hint('⚠ 操作频繁，请等待当前勾选完成后再试', 'warning');
-                if (ev?.target) ev.target.checked = !targetDone;
-                return;
-            }
-        }
-
         if (taskWasDone === targetDone && opts.force !== true) return;
 
-        // 锁定
-        GlobalLock.lock();
         const docId = task.root_id;
-
-        // 关键：保存整个文档树的完整状态（包括所有子任务）
         const doc = state.taskTree.find(d => d.id === docId);
-        if (doc) {
-            TreeProtector.clear();
-            TreeProtector.saveTree(doc.tasks);
-        }
+        let fallbackLocked = false;
+        let fallbackTreeSaved = false;
 
         // 关键修改：先保存原始状态，然后保存到 MetaStore（保持原始状态，等点击完成后再更新）
         const originalMarkdown = Object.prototype.hasOwnProperty.call(opts, 'previousMarkdown')
@@ -2506,12 +2550,9 @@ return finish(false, 'noop');
             content: task.content
         });
 
-        // 关键：同时保存整个文档树的所有任务的属性到 MetaStore
-        // 这样即使思源重新解析列表块，MetaStore 中有完整备份
-        let savedCount = 1;
+        // DOM 回退会触发宿主重新解析列表块，因此仅在回退时保存整棵树。
         const saveAllTasksToMetaRecursive = (tasks) => {
             tasks.forEach(t => {
-                savedCount++;
                 MetaStore.set(t.id, {
                     priority: t.priority || '',
                     duration: t.duration || '',
@@ -2527,10 +2568,6 @@ return finish(false, 'noop');
                 }
             });
         };
-        // 从已经获取的 doc 中获取所有任务并保存
-        if (doc && doc.tasks) {
-            saveAllTasksToMetaRecursive(doc.tasks);
-        }
 
         // 注意：不要在这里 render()，因为还没点击复选框
         // render() 会在从DOM读取实际状态后调用
@@ -2552,6 +2589,18 @@ return finish(false, 'noop');
             // 只有当 API 失败时才尝试查找 DOM（作为回退）
             let taskElement = null;
             if (!apiSuccess) {
+                if (GlobalLock.isLocked()) {
+                    const waited = opts.force === true ? await __tmWaitForGlobalUnlock(12000) : false;
+                    if (!waited) throw new Error('完成状态操作仍在进行中，请稍后重试');
+                }
+                GlobalLock.lock();
+                fallbackLocked = true;
+                if (doc?.tasks) {
+                    TreeProtector.clear();
+                    TreeProtector.saveTree(doc.tasks);
+                    saveAllTasksToMetaRecursive(doc.tasks);
+                    fallbackTreeSaved = true;
+                }
                 // 尝试多种方式找到复选框并点击
                 // 方式1：通过 task.id 直接查询列表项
                 taskElement = globalThis.__tmCompat?.findTaskListItemById?.(id) || null;
@@ -2720,23 +2769,6 @@ return finish(false, 'noop');
                 if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
                 state.doneOverrides[String(id)] = !!actualDone;
             } catch (e) {}
-            if (actualDone) {
-                try { await __tmSettleTomatoAfterTaskDone(id, { source: opts.source }); } catch (e) {}
-            }
-            if (shouldDispatchTaskReward && actualDone) {
-                try {
-                    __tmDispatchTaskCompletedForReward(task, {
-                        taskId: String(id || '').trim(),
-                        attrHostId: taskRewardAttrHostId || String(id || '').trim(),
-                        priorityScore: taskRewardPriorityScore,
-                        completedAt: String(completeAtPatch?.taskCompleteAt || '').trim(),
-                        source: String(opts.source || 'set-done').trim() || 'set-done',
-                        previousDone: originalDone,
-                        nextDone: actualDone,
-                    });
-                } catch (e) {}
-            }
-
             // 递归更新所有子任务的done状态（如果需要）
             const updateChildrenDone = (tasks) => {
                 tasks.forEach(t => {
@@ -2792,21 +2824,19 @@ return finish(false, 'noop');
             if (opts.suppressHint !== true) {
                 hint(__tmBuildTaskDoneSuccessHint(!!actualDone, '✅ 任务已完成'), 'success');
             }
-            if (actualDone) {
-                try {
-                    const completedAt = __tmNowInChinaTimezoneIso();
-                    __tmScheduleRecurringTaskAdvanceAfterCompletion(id, {
-                        source: opts.source,
-                        completedAt,
-                        scheduleId: String(opts.scheduleId || '').trim(),
-                    });
-                } catch (e) {}
-            } else {
-                try { __tmClearRecurringTaskAdvanceTimer(id); } catch (e) {}
+            if (opts.deferCompletionEffects !== true) {
+                __tmRunSetDonePostCommitEffects(id, {
+                    ...opts,
+                    task,
+                    done: actualDone,
+                    previousDone: originalDone,
+                    completedAt: completeAtPatch?.taskCompleteAt || '',
+                    attrHostId: taskRewardAttrHostId,
+                    rewardPriorityScore: taskRewardPriorityScore,
+                    delight: opts.force !== true,
+                });
             }
-            if (actualDone && !originalDone && opts.skipAutoCompleteParent !== true) {
-                try { void __tmMaybeAutoCompleteParentAfterSubtaskDone(id, opts).catch(() => null); } catch (e) {}
-            }
+            return true;
 
         } catch (err) {
             // 恢复
@@ -2826,7 +2856,7 @@ return finish(false, 'noop');
             } catch (e) {}
 
             // 尝试恢复树状态
-            if (doc) {
+            if (fallbackTreeSaved && doc) {
                 TreeProtector.restoreTree(doc.tasks);
             }
 
@@ -2863,13 +2893,16 @@ return finish(false, 'noop');
                 try { __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot); } catch (e) {}
             }
             if (opts.suppressHint !== true) hint(`❌ 操作失败: ${err.message}`, 'error');
+            if (opts.force === true) throw err;
+            return false;
         } finally {
-            // render() 完成后手动解锁
-            requestAnimationFrame(() => {
+            if (fallbackLocked) {
                 requestAnimationFrame(() => {
-                    GlobalLock.unlock();
+                    requestAnimationFrame(() => {
+                        GlobalLock.unlock();
+                    });
                 });
-            });
+            }
         }
     };
 
@@ -3074,6 +3107,15 @@ return finish(false, 'noop');
             && !__tmUndoState?.applying
             ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(taskLike, { force: true })) || 0))
             : 0;
+        let deferRecurringProjectionRefresh = false;
+        if (targetDone && !originalDone) {
+            try {
+                const repeatRule = __tmGetTaskRepeatRule(taskLike);
+                deferRecurringProjectionRefresh = !!__tmBuildTaskRepeatAdvancePatch(taskLike, repeatRule, {
+                    completedAt: String(optimisticPatch.taskCompleteAt || '').trim(),
+                });
+            } catch (e) {}
+        }
         let pendingPromise = null;
         const opPromise = __tmEnqueueQueuedOp({
             type: 'setDone',
@@ -3096,9 +3138,9 @@ return finish(false, 'noop');
                 recordUndo: opts.recordUndo !== false,
                 withFilters: opts.withFilters === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
-                skipViewRefresh: opts.skipViewRefresh === true,
-                skipOptimisticRefresh: opts.skipOptimisticRefresh === true || opts.skipViewRefresh === true,
-                skipSettledRefresh: opts.skipSettledRefresh === true,
+                skipViewRefresh: opts.skipViewRefresh === true || deferRecurringProjectionRefresh,
+                skipOptimisticRefresh: opts.skipOptimisticRefresh === true || opts.skipViewRefresh === true || deferRecurringProjectionRefresh,
+                skipSettledRefresh: opts.skipSettledRefresh === true || deferRecurringProjectionRefresh,
                 refreshAncestorViews: opts.refreshAncestorViews !== false,
             },
             inversePatch,
@@ -3109,54 +3151,21 @@ return finish(false, 'noop');
             },
         });
         const settlePromise = pendingPromise || opPromise;
-        Promise.resolve(settlePromise).then(async () => {
-            if (targetDone) {
-                try { __tmQueueTaskDoneDelight(tid, { done: true, suppressHint: opts.suppressHint, source: opts.source }); } catch (e) {}
-                try {
-                    const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                        || state.pendingInsertedTasks?.[tid]
-                        || state.flatTasks?.[tid]
-                        || taskLike;
-                    if (rewardPriorityScore > 0) {
-                        __tmDispatchTaskCompletedForReward(latestTask, {
-                            taskId: tid,
-                            attrHostId: String(__tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
-                            priorityScore: rewardPriorityScore,
-                            completedAt: String(latestTask?.taskCompleteAt || latestTask?.task_complete_at || '').trim(),
-                            source: String(opts.source || 'set-done-patch').trim() || 'set-done-patch',
-                            previousDone: originalDone,
-                            nextDone: true,
-                        });
-                    }
-                } catch (e) {}
-                const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                    || state.pendingInsertedTasks?.[tid]
-                    || state.flatTasks?.[tid]
-                    || taskLike;
-                if (!originalDone) {
-                    try {
-                        await __tmSettleTomatoAfterTaskDone(tid, {
-                            task: latestTask,
-                            attrHostId: String(__tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
-                            source: String(opts.source || 'set-done-patch').trim() || 'set-done-patch',
-                        });
-                    } catch (e) {}
-                }
-                try {
-                    const completedAt = String(latestTask?.taskCompleteAt || latestTask?.task_complete_at || '').trim()
-                        || __tmNowInChinaTimezoneIso();
-                    __tmScheduleRecurringTaskAdvanceAfterCompletion(tid, {
-                        source: opts.source,
-                        completedAt,
-                        scheduleId: String(opts.scheduleId || '').trim(),
-                    });
-                } catch (e) {}
-                if (!originalDone && opts.skipAutoCompleteParent !== true) {
-                    try { void __tmMaybeAutoCompleteParentAfterSubtaskDone(tid, opts).catch(() => null); } catch (e) {}
-                }
-            } else {
-                try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
-            }
+        Promise.resolve(settlePromise).then(() => {
+            const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+                || state.pendingInsertedTasks?.[tid]
+                || state.flatTasks?.[tid]
+                || taskLike;
+            __tmRunSetDonePostCommitEffects(tid, {
+                ...opts,
+                task: latestTask,
+                done: targetDone,
+                previousDone: originalDone,
+                completedAt: String(latestTask?.taskCompleteAt || latestTask?.task_complete_at || optimisticPatch.taskCompleteAt || '').trim(),
+                attrHostId: String(__tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
+                rewardPriorityScore,
+                delight: true,
+            });
             if (opts.suppressHint !== true) {
                 try { hint(__tmBuildTaskDoneSuccessHint(targetDone, targetDone ? '✅ 任务已完成' : '✅ 已取消完成'), 'success'); } catch (e) {}
             }
@@ -3303,15 +3312,20 @@ if (ev) {
                 wait: opts.wait === true,
                 skipAutoCompleteParent: opts.skipAutoCompleteParent === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
+                skipViewRefresh: opts.skipViewRefresh === true,
+                skipOptimisticRefresh: opts.skipOptimisticRefresh === true,
+                skipSettledRefresh: opts.skipSettledRefresh === true,
+                refreshAncestorViews: opts.refreshAncestorViews !== false,
             });
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
             if (opts.wait === true) await request;
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
             return true;
         } catch (e) {
-hint(`❌ 操作失败: ${e.message}`, 'error');
+            if (opts.suppressHint !== true) hint(`❌ 操作失败: ${e.message}`, 'error');
             if (ev?.target) ev.target.checked = !targetDone;
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e2) {}
+            return false;
         }
     }
 
