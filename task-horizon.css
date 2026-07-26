@@ -14425,6 +14425,8 @@ select.tm-btn-secondary {
 
 .tm-body--timeline #tmTimelineLeftTable tbody td {
     box-sizing: border-box;
+    border-bottom: none;
+    box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
 }
 
 .tm-body--timeline .tm-cell-editable {
@@ -14443,16 +14445,6 @@ select.tm-btn-secondary {
 
 .tm-body--timeline .tm-task-text,
 .tm-body--timeline .tm-task-content-clickable {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.tm-body--timeline .tm-group-row td {
-    height: var(--tm-row-height);
-    max-height: var(--tm-row-height);
-    padding: 0;
-    line-height: var(--tm-row-height);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -14857,7 +14849,7 @@ select.tm-btn-secondary {
     max-height: var(--tm-row-height);
     box-sizing: border-box;
     border-bottom: none;
-    box-shadow: none;
+    box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
     overflow: visible;
     contain: layout style;
 }
@@ -21203,6 +21195,7 @@ th[data-col] {
     flex: 0 0 auto;
 }
 
+.tm-doc-title-marker__group[hidden],
 .tm-doc-title-marker__separator[hidden],
 .tm-doc-title-marker__duration[hidden] {
     display: none;

@@ -224,7 +224,7 @@ Docs & License: https://fullcalendar.io
             /* Misc Table
             --------------------------------------------------------------------------------------------- */
             tableHeaderClass: "fc-forma-RJG",
-            fillerClass: "fc-forma-wsy fc-forma-tfB fc-forma-lMo",
+            fillerClass: "fc-forma-wsy fc-forma-tfB fc-forma-lMo tm-cal-scrollgrid-filler",
             dayNarrowWidth: 100,
             dayHeaderRowClass: "fc-forma-wsy fc-forma-tfB",
             dayRowClass: "fc-forma-wsy fc-forma-tfB",

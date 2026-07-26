@@ -3134,6 +3134,14 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     box-shadow: none !important;
 }
 
+:is(.tm-calendar-host--month-view.fc, .tm-calendar-host--month-view .fc) .fc-dayGridMonth-view.fc-scrollgrid {
+    border-left: 0 !important;
+    border-inline-start: 0 !important;
+    border-right: 0 !important;
+    border-inline-end: 0 !important;
+    box-shadow: none !important;
+}
+
 .tm-calendar-host--month-view .fc .fc-dayGridMonth-view .fc-scrollgrid,
 .tm-calendar-host--month-view.fc .fc-dayGridMonth-view .fc-scrollgrid,
 .tm-calendar-host--month-view .fc .fc-dayGridMonth-view .fc-scrollgrid table,
@@ -3332,7 +3340,12 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     display: none;
 }
 
-:is(.tm-calendar-host.fc, .tm-calendar-host .fc, #tmCalendarSideDockTimeline.fc, #tmCalendarSideDockTimeline .fc) :is(.fc-timegrid-col.fc-day-today, .fc-daygrid-day.fc-day-today) {
+:is(.tm-calendar-host.fc, .tm-calendar-host .fc, #tmCalendarSideDockTimeline.fc, #tmCalendarSideDockTimeline .fc) .fc-timegrid-col.fc-day-today {
+    background-color: color-mix(in srgb, var(--fc-today-bg-color) 22%, transparent) !important;
+    background-image: none !important;
+}
+
+:is(.tm-calendar-host.fc, .tm-calendar-host .fc, #tmCalendarSideDockTimeline.fc, #tmCalendarSideDockTimeline .fc) .fc-daygrid-day.fc-day-today {
     background-color: var(--fc-today-bg-color) !important;
 }
 
@@ -6423,6 +6436,21 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 
 :is(.tm-calendar-host.fc, .tm-calendar-host .fc, #tmCalendarSideDockTimeline.fc, #tmCalendarSideDockTimeline .fc) :is(.fc-timegrid, .fc-timeGridDay-view, .fc-timeGrid3Day-view, .fc-timeGridWorkdays-view, .fc-timeGridWeek-view) .fc-scrollgrid-section-header > *::after {
     right: -1px;
+}
+
+:is(.tm-calendar-host.fc, .tm-calendar-host .fc, #tmCalendarSideDockTimeline.fc, #tmCalendarSideDockTimeline .fc).fc-timegrid.fc-scrollgrid,
+:is(.tm-calendar-host.fc, .tm-calendar-host .fc, #tmCalendarSideDockTimeline.fc, #tmCalendarSideDockTimeline .fc) .fc-timegrid.fc-scrollgrid {
+    border-left: 0 !important;
+    border-inline-start: 0 !important;
+    border-right: 0 !important;
+    border-inline-end: 0 !important;
+    box-shadow: none !important;
+}
+
+:is(.tm-calendar-host.fc, .tm-calendar-host .fc, #tmCalendarSideDockTimeline.fc, #tmCalendarSideDockTimeline .fc) .fc-timegrid .tm-cal-scrollgrid-filler {
+    border-left: 0 !important;
+    border-inline-start: 0 !important;
+    box-shadow: none !important;
 }
 
 /* Event card system:

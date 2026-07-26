@@ -17409,7 +17409,7 @@ if (!state.homepageOpen) return;
     async function __tmResolveDocTopbarTargetGroup(docId) {
         const did = String(docId || '').trim();
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
-        if (!did || !groups.length) return null;
+        if (!did) return null;
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         if (currentGroupId !== 'all') {
             const currentGroup = groups.find((group) => String(group?.id || '').trim() === currentGroupId);
@@ -17440,6 +17440,10 @@ if (!state.homepageOpen) return;
             if (match.matched) {
                 return { groupId: String(group?.id || '').trim(), group, matchedBy: match.matchedBy };
             }
+        }
+        const selectedDocIds = Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
+        if (selectedDocIds.some((id) => String(id || '').trim() === did)) {
+            return { groupId: 'all', group: null, matchedBy: 'selected' };
         }
         return null;
     }

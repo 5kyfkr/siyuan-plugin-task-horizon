@@ -812,12 +812,13 @@
             __tmDocTitleMarkerMembershipInFlight.clear();
         }
         if (opts.tasks === true || opts.duration === true) {
+            const clearDurationCache = opts.duration === true;
             if (!ids) {
                 __tmDocTitleMarkerFocusEpoch += 1;
-                __tmDocTitleMarkerFocusCache.clear();
+                if (clearDurationCache) __tmDocTitleMarkerFocusCache.clear();
             } else {
                 ids.forEach((docId) => {
-                    __tmDocTitleMarkerFocusCache.delete(docId);
+                    if (clearDurationCache) __tmDocTitleMarkerFocusCache.delete(docId);
                     __tmDocTitleMarkerFocusRevisionByDoc.set(docId, __tmGetDocTitleMarkerFocusRevision(docId) + 1);
                 });
             }
@@ -846,7 +847,10 @@
             __tmRemoveDocTitleMarker(controller);
             return;
         }
-        const groupName = String(__tmResolveDocGroupName(target.group) || '').trim() || '未命名分组';
+        const groupId = String(target.groupId || '').trim();
+        const groupName = groupId === 'all'
+            ? ''
+            : (String(__tmResolveDocGroupName(target.group) || '').trim() || '未命名分组');
         const duration = String(durationText || '').trim();
         const pluginOnly = !title.classList.contains('protyle-wysiwyg--attr');
         attr.classList.add('tm-doc-title-attr');
@@ -881,15 +885,18 @@
         const groupEl = marker.querySelector('.tm-doc-title-marker__group');
         const separatorEl = marker.querySelector('.tm-doc-title-marker__separator');
         const durationEl = marker.querySelector('.tm-doc-title-marker__duration');
-        if (groupEl) groupEl.textContent = groupName;
-        if (separatorEl) separatorEl.hidden = !duration;
+        if (groupEl) {
+            groupEl.textContent = groupName;
+            groupEl.hidden = !groupName;
+        }
+        if (separatorEl) separatorEl.hidden = !groupName || !duration;
         if (durationEl) {
             durationEl.textContent = duration;
             durationEl.hidden = !duration;
         }
-        const label = duration
-            ? `任务管理器分组：${groupName}，专注 ${duration}`
-            : `任务管理器分组：${groupName}`;
+        const label = groupName
+            ? (duration ? `任务管理器分组：${groupName}，专注 ${duration}` : `任务管理器分组：${groupName}`)
+            : (duration ? `任务管理器，专注 ${duration}` : '任务管理器');
         marker.setAttribute('aria-label', label);
 
         const refcount = Array.from(attr.children || []).find((child) => child?.classList?.contains?.('protyle-attr--refcount')) || null;
@@ -1019,11 +1026,8 @@
             return;
         }
         const focus = __tmDocTitleMarkerFocusCache.get(context.docId);
-        const focusRevision = __tmGetDocTitleMarkerFocusRevision(context.docId);
         const focusSignature = __tmGetDocTitleMarkerFocusSignature();
         const durationText = SettingsStore.data.enableTomatoIntegration
-            && focus?.epoch === __tmDocTitleMarkerFocusEpoch
-            && focus?.revision === focusRevision
             && focus?.signature === focusSignature
             ? String(focus.text || '').trim()
             : '';

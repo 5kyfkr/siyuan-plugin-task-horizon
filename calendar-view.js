@@ -2452,8 +2452,11 @@
             setInlineStyle(el, prop, val, true);
         };
 
-        rootEl.querySelectorAll('.fc-timegrid .fc-scrollgrid, .fc-timegrid .fc-scrollgrid table').forEach((el) => {
+        rootEl.querySelectorAll('.fc-timegrid.fc-scrollgrid, .fc-timegrid.fc-scrollgrid table, .fc-timegrid .fc-scrollgrid, .fc-timegrid .fc-scrollgrid table').forEach((el) => {
             setImp(el, 'border-left', '0');
+            setImp(el, 'border-inline-start', '0');
+            setImp(el, 'border-right', '0');
+            setImp(el, 'border-inline-end', '0');
             setImp(el, 'border-top', '0');
             setImp(el, 'box-shadow', 'none');
         });
@@ -2474,14 +2477,16 @@
 
         rootEl.querySelectorAll('.fc-timegrid-all-day, .fc-timegrid-allday').forEach((allDayWrap) => {
             if (!(allDayWrap instanceof HTMLElement)) return;
-            const row = allDayWrap.closest('tr');
+            const row = allDayWrap.closest('tr, [role="row"]');
             if (row instanceof HTMLElement) {
+                const isDivRow = row.tagName !== 'TR';
+                const bottomBorder = isDivRow ? '1px solid var(--fc-border-color)' : '0';
                 setImp(row, 'border-top', '1px solid var(--fc-border-color)');
-                setImp(row, 'border-bottom', '0');
+                setImp(row, 'border-bottom', bottomBorder);
                 setImp(row, 'box-shadow', 'none');
-                row.querySelectorAll('th, td').forEach((cell) => {
+                row.querySelectorAll('th, td, [role="rowheader"], [role="gridcell"]').forEach((cell) => {
                     setImp(cell, 'border-top', '1px solid var(--fc-border-color)');
-                    setImp(cell, 'border-bottom', '0');
+                    setImp(cell, 'border-bottom', bottomBorder);
                     setImp(cell, 'box-shadow', 'none');
                 });
                 row.querySelectorAll('.fc-timegrid-axis, .fc-timegrid-axis-frame').forEach((cell) => {

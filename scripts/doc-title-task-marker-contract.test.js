@@ -56,6 +56,24 @@ assert.match(observerSource, /observe\(controller\.attr, \{ childList: true \}\)
 assert.match(observerSource, /observe\(controller\.title, \{ attributes: true, attributeFilter: \['class'\] \}\)/, 'the observer must track native attribute visibility');
 assert.doesNotMatch(observerSource, /subtree:\s*true/, 'the marker must not observe the full Protyle subtree');
 
+const dirtySource = segment(
+    hooks,
+    'function __tmMarkDocTitleMarkersDirty(docIds = null, options = {})',
+    'function __tmRemoveDocTitleMarker',
+);
+assert.match(dirtySource, /const clearDurationCache = opts\.duration === true/, 'only duration configuration changes may clear the displayed focus cache');
+assert.match(dirtySource, /if \(clearDurationCache\) __tmDocTitleMarkerFocusCache\.clear\(\)/, 'global task refreshes must preserve the displayed focus duration');
+assert.match(dirtySource, /if \(clearDurationCache\) __tmDocTitleMarkerFocusCache\.delete\(docId\)/, 'document task refreshes must preserve the displayed focus duration');
+
+const markerSync = segment(
+    hooks,
+    'function __tmSyncDocTitleMarkerController(controller)',
+    'function __tmScheduleDocTitleMarkerSync',
+);
+const durationDisplay = segment(markerSync, 'const durationText =', '__tmRenderDocTitleMarker');
+assert.match(durationDisplay, /focus\?\.signature === focusSignature/, 'cached duration must remain visible while compatible task data refreshes');
+assert.doesNotMatch(durationDisplay, /focus\?\.(?:epoch|revision)/, 'task revisions must not temporarily hide a compatible cached duration');
+
 const markerRender = segment(
     hooks,
     'function __tmRenderDocTitleMarker(controller, target, durationText = \'\')',
@@ -64,11 +82,20 @@ const markerRender = segment(
 assert.match(markerRender, /iconTaskHorizon/, 'the marker must use the Task Horizon icon');
 assert.match(markerRender, /tm-doc-title-marker__group/, 'the marker must show the managed group name');
 assert.match(markerRender, /tm-doc-title-marker__duration/, 'the marker must support optional focus duration');
+assert.match(markerRender, /groupId === 'all'[\s\S]*?groupEl\.hidden = !groupName/, 'documents only in All Documents must hide the group label');
+assert.match(markerRender, /separatorEl\.hidden = !groupName \|\| !duration/, 'icon-only markers must not leave a separator before focus duration');
 assert.match(markerRender, /requireTasks:\s*false/, 'marker clicks must work for managed documents without tasks');
 assert.match(markerRender, /forceLocate:\s*true/, 'marker clicks must locate the managed document group');
 
 assert.match(services, /async function __tmTryApplyDocTopbarManagerTarget\(options = \{\}\)/, 'the existing locator must accept marker options');
 assert.match(services, /if \(opts\.requireTasks !== false\)/, 'the existing breadcrumb must retain its default task guard');
+const targetResolver = segment(
+    services,
+    'async function __tmResolveDocTopbarTargetGroup(docId)',
+    'async function __tmTryApplyDocTopbarManagerTarget',
+);
+assert.match(targetResolver, /SettingsStore\.data\.selectedDocIds/, 'All Documents membership must reuse the configured selected document scope');
+assert.match(targetResolver, /return \{ groupId: 'all', group: null, matchedBy: 'selected' \}/, 'documents only in All Documents must resolve to the icon-only target');
 assert.match(stores, /__tmMarkDocTitleMarkersDirty\?\.\(\[did\], \{ tasks: true \}\)/, 'task cache invalidation must refresh the matching document marker');
 assert.match(stores, /__tmMarkDocTitleMarkersDirty\?\.\(null, \{ scope: true \}\)/, 'scope cache invalidation must refresh marker membership');
 assert.match(settings, /updateEnableTomatoIntegration[\s\S]*__tmMarkDocTitleMarkersDirty\?\.\(null, \{ duration: true \}\)/, 'tomato setting changes must refresh marker duration');
@@ -76,6 +103,7 @@ assert.match(lifecycle, /__tmBindDocTitleMarkers\(\)/, 'marker lifecycle must be
 assert.match(lifecycle, /__tmDestroyDocTitleMarkers\(\)/, 'marker lifecycle must be cleaned up on unload');
 
 assert.match(css, /\.tm-doc-title-marker__group[\s\S]*text-overflow:\s*ellipsis/, 'long group names must be truncated safely');
+assert.match(css, /\.tm-doc-title-marker__group\[hidden\],[\s\S]*display:\s*none/, 'the All Documents marker must not reserve group-label space');
 assert.match(css, /\.tm-doc-title-attr--plugin-only\s*>\s*div/, 'native attribute divs must be hidden when native attributes are disabled');
 assert.doesNotMatch(css, /\.tm-doc-title-attr--plugin-only\s*>\s*:\s*not/, 'plugin-only mode must not hide other plugins\' non-div controls');
 

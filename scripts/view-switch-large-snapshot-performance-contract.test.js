@@ -70,7 +70,13 @@ assert.match(renderRuntime, /const useSoftSwap = isViewSwitchAnim \|\| state\.__
 assert.match(renderRuntime, /__tmBindTimelineStageInteractions\(state\.modal\)/, 'full rendering and the fast path must share timeline stage interaction binding');
 assert.match(renderRuntime, /kind === 'from-left' \? ' tm-stage-anim--from-left' : ''/, 'an empty animation kind must not fall through to the vertical stage animation');
 assert.doesNotMatch(styles, /tmViewFadeIn|tm-stage-anim--fade/, 'the removed large-view fade must not leave dead CSS behind');
+assert.doesNotMatch(styles, /--tm-timeline-row-height/, 'timeline must inherit the same row-height token as the table view');
+assert.doesNotMatch(servicesRuntime, /setTimelineRowHeight|--tm-timeline-row-height/, 'appearance settings must not maintain a separate timeline row height');
 assert.match(styles, /#tmTimelineLeftTable tbody tr \{[\s\S]*?height: var\(--tm-row-height\);[\s\S]*?min-height: var\(--tm-row-height\);[\s\S]*?max-height: var\(--tm-row-height\);/, 'timeline left rows must share the fixed Gantt row height');
+assert.match(styles, /\.tm-body--timeline #tmTimelineLeftTable tbody td \{[^}]*border-bottom:\s*none;[^}]*box-shadow:\s*inset 0 -1px 0 var\(--tm-table-border-color\);/, 'timeline table cells must use an inset separator so collapsed table borders cannot enlarge rows');
+assert.doesNotMatch(styles, /\.tm-body--timeline[^}]*\.tm-group-row td\s*\{/, 'timeline group rows must reuse the table view row geometry without a local override');
+assert.match(ganttRuntime, /tm-gantt-row tm-gantt-row--group[\s\S]*?height:var\(--tm-row-height\);min-height:var\(--tm-row-height\);max-height:var\(--tm-row-height\);/, 'Gantt group rows must use the same row-height token as table group rows');
+assert.match(styles, /\.tm-gantt-row\s*\{[^}]*box-shadow:\s*inset 0 -1px 0 var\(--tm-table-border-color\);/, 'Gantt rows must draw the same inset separator without changing row geometry');
 assert.match(styles, /\.tm-main-stage\.tm-main-stage--view-switch-pending \{[\s\S]*?pointer-events: none;/, 'the pending view must remain visible while preventing stale interactions');
 assert.doesNotMatch(styles, /tm-main-stage--view-switch-pending::after/, 'the pending view must not be covered by a blank paint layer');
 assert.doesNotMatch(styles, /\.tm-main-stage\.tm-main-stage--view-switch-pending \{[^}]*(?:background|opacity|visibility|z-index)\s*:/, 'pending styles must not hide the old view or overlap the mobile bottom navigation');
