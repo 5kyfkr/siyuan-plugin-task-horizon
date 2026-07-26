@@ -24776,11 +24776,10 @@
         return source.user && typeof source.user === 'object' ? source.user : source;
     }
 
-    function cloudSubscriptionExpiryMs(value) {
-        const numeric = Number(value);
-        if (Number.isFinite(numeric) && numeric > 0) return numeric < 100000000000 ? numeric * 1000 : numeric;
-        const parsed = new Date(String(value || '')).getTime();
-        return Number.isFinite(parsed) ? parsed : 0;
+    function isCalendarSubscriptionCloudSubscriber(user) {
+        const status = Number(user?.userSiYuanSubscriptionStatus);
+        const expireTime = Number(user?.userSiYuanProExpireTime);
+        return status === 0 && (expireTime === -1 || expireTime > 0);
     }
 
     async function getCalendarSubscriptionCloudUser() {
@@ -24793,14 +24792,7 @@
         }
         const userId = String(user?.userId || '').trim();
         if (!userId) throw new Error('链滴上传需要先登录思源账号');
-        const subscriptionStatus = String(user?.userSiYuanSubscriptionStatus ?? '').toLowerCase();
-        const oneTimePayStatus = String(user?.userSiYuanOneTimePayStatus ?? '').toLowerCase();
-        const expiry = cloudSubscriptionExpiryMs(user?.userSiYuanProExpireTime);
-        const activeValues = new Set(['1', 'true', 'active', 'valid', 'pro']);
-        const subscribed = activeValues.has(subscriptionStatus)
-            || activeValues.has(oneTimePayStatus)
-            || expiry > Date.now();
-        if (!subscribed) throw new Error('链滴上传需要有效的思源订阅资格');
+        if (!isCalendarSubscriptionCloudSubscriber(user)) throw new Error('链滴上传需要有效的思源订阅资格');
         return { userId, raw: user };
     }
 
@@ -25109,7 +25101,7 @@
                 <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
                     <div class="tm-calendar-settings-label">
                         链滴公开订阅
-                        <div class="tm-calendar-settings-label-desc">任务标题和时间会通过公开 URL 提供。上传前会检查登录与订阅资格，并回读校验文件。</div>
+                        <div class="tm-calendar-settings-label-desc">需要登录思源账号并具有有效订阅。任务标题和时间会通过公开 URL 提供，上传后会回读校验文件。</div>
                     </div>
                     <div class="tm-calendar-ics-inline-status">${s.icsChainPublicConfirmed ? '已确认公开发布' : '启用时需要确认'}</div>
                 </div>
@@ -25117,7 +25109,7 @@
                 <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
                     <div class="tm-calendar-settings-label">
                         WebDAV 目录 URL
-                        <div class="tm-calendar-settings-label-desc">填写用于存放固定文件 task-horizon.ics 的目录地址。</div>
+                        <div class="tm-calendar-settings-label-desc">支持坚果云、NAS 等 WebDAV 服务，请填写用于存放固定文件 task-horizon.ics 的目录地址。</div>
                     </div>
                     <input id="tm-calendar-ics-webdav-url" class="tm-calendar-settings-input" type="url" aria-label="WebDAV 目录 URL" data-tm-cal-setting="calendarIcsWebdavUrl" value="${esc(s.icsWebdavUrl)}" placeholder="https://dav.example.com/calendar/task-ics/">
                 </div>

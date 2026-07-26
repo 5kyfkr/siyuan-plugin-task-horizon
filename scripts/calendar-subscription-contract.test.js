@@ -47,8 +47,22 @@ assert.match(calendar, /CALENDAR_SUBSCRIPTION_WEBDAV_FILE_NAME = 'task-horizon\.
 assert.match(calendar, /if \(!\/\\\.ics\$\/i\.test\(url\.pathname\)\)[\s\S]*CALENDAR_SUBSCRIPTION_WEBDAV_FILE_NAME/, 'WebDAV directory URLs must resolve to the stable ICS file while preserving legacy file URLs');
 assert.match(calendar, /WebDAV 目录 URL[\s\S]*placeholder="https:\/\/dav\.example\.com\/calendar\/task-ics\/"/, 'WebDAV settings must ask for a directory URL and show a directory example');
 assert.doesNotMatch(calendar, /WebDAV 文件 URL/, 'WebDAV settings must not describe the directory as a complete ICS file URL');
+assert.match(calendar, /需要登录思源账号并具有有效订阅。任务标题和时间会通过公开 URL 提供，上传后会回读校验文件。/, 'Chain settings must explain the account and subscription requirement before upload');
+assert.match(calendar, /支持坚果云、NAS 等 WebDAV 服务，请填写用于存放固定文件 task-horizon\.ics 的目录地址。/, 'WebDAV settings must explain compatible services and the generated file location');
 assert.match(calendar, /uploadCloudByAssetsPaths[\s\S]*verifyCalendarSubscriptionRemote/, 'Chain upload must validate the public asset instead of trusting the API envelope');
 assert.doesNotMatch(calendar.slice(calendar.indexOf('const calendarSubscriptionPublisher ='), calendar.indexOf('function renderSettings')), /\bS3\b|calendarIcsS3/i, 'v1 publisher must not introduce S3 support');
+
+const subscriberStart = calendar.indexOf('function isCalendarSubscriptionCloudSubscriber(user)');
+const subscriberEnd = calendar.indexOf('\n    async function getCalendarSubscriptionCloudUser', subscriberStart);
+assert.ok(subscriberStart >= 0 && subscriberEnd > subscriberStart, 'Chain subscription predicate must remain extractable');
+const subscriberBlock = calendar.slice(subscriberStart, subscriberEnd);
+const isCloudSubscriber = Function(`${subscriberBlock}; return isCalendarSubscriptionCloudSubscriber;`)();
+assert.equal(isCloudSubscriber({ userSiYuanSubscriptionStatus: 0, userSiYuanProExpireTime: -1 }), true, 'lifetime subscribers must be accepted');
+assert.equal(isCloudSubscriber({ userSiYuanSubscriptionStatus: 0, userSiYuanProExpireTime: Date.now() + 86400000 }), true, 'active term subscribers must be accepted');
+assert.equal(isCloudSubscriber({ userSiYuanSubscriptionStatus: -1, userSiYuanProExpireTime: -1 }), false, 'non-subscribers must be rejected');
+assert.equal(isCloudSubscriber({ userSiYuanSubscriptionStatus: 2, userSiYuanProExpireTime: Date.now() + 86400000 }), false, 'expired subscription status must be rejected');
+assert.equal(isCloudSubscriber({ userSiYuanSubscriptionStatus: -1, userSiYuanProExpireTime: 0, userSiYuanOneTimePayStatus: 1 }), false, 'one-time feature payment must not be treated as a cloud asset subscription');
+assert.match(calendar, /if \(!isCalendarSubscriptionCloudSubscriber\(user\)\) throw new Error\('链滴上传需要有效的思源订阅资格'\)/, 'Chain publishing must use the kernel-compatible subscription predicate');
 
 const reconcileStart = calendar.indexOf('function reconcileCalendarSubscriptionPublisher');
 const reconcileEnd = calendar.indexOf('\n    const calendarSubscriptionApi', reconcileStart);
