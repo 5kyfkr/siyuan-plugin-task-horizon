@@ -78,3 +78,46 @@ assert.equal(
     null,
     'deleting the final count-limited occurrence must not invent another reminder'
 );
+
+const weeklyFollow = context.__test.__tmNormalizeReminderRecord({
+    ...rawReminder,
+    startDate: '2026-07-20',
+    taskCompletionTime: '2026-07-20',
+    taskRepeatRule: {
+        ...rawReminder.taskRepeatRule,
+        type: 'weekly',
+        anchorDate: '2026-07-20',
+        weekdays: [1, 3, 5],
+    },
+    excludedOccurrences: [{ date: '2026-07-20', time: '09:00' }],
+}, 'task-id');
+const weeklyFollowNext = context.__test.__tmGetNextReminderDateTime(weeklyFollow, new Date('2026-07-20T08:00:00'));
+assert.equal(weeklyFollowNext?.getDate(), 22, 'follow-task reminder projection must preserve the next selected weekday');
+
+const emptyWeeklyFollow = context.__test.__tmNormalizeReminderRecord({
+    ...rawReminder,
+    startDate: '2026-07-20',
+    taskCompletionTime: '2026-07-20',
+    taskRepeatRule: {
+        ...rawReminder.taskRepeatRule,
+        type: 'weekly',
+        anchorDate: '2026-07-20',
+        weekdays: [],
+    },
+    excludedOccurrences: [{ date: '2026-07-20', time: '09:00' }],
+}, 'task-id');
+assert.deepEqual(Array.from(emptyWeeklyFollow.taskRepeatRule.weekdays), [], 'reminder projection must preserve an empty weekday selection');
+const emptyWeeklyFollowNext = context.__test.__tmGetNextReminderDateTime(emptyWeeklyFollow, new Date('2026-07-20T08:00:00'));
+assert.equal(emptyWeeklyFollowNext?.getDate(), 27, 'empty weekly reminders must follow the task due weekday');
+
+const weeklyIndependent = context.__test.__tmNormalizeReminderRecord({
+    enabled: true,
+    interval: 'weekly',
+    every: 2,
+    weekdays: [1, 3],
+    times: ['09:00'],
+    startDate: '2026-07-20',
+}, 'task-id');
+const weeklyIndependentNext = context.__test.__tmGetNextReminderDateTime(weeklyIndependent, new Date('2026-07-22T10:00:00'));
+assert.equal(weeklyIndependentNext?.getDate(), 3, 'independent every-two-week reminders must use Monday-based active weeks');
+assert.equal(weeklyIndependentNext?.getMonth(), 7);

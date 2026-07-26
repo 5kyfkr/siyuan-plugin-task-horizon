@@ -2746,9 +2746,8 @@
         if (next.mode !== 'detail') {
             const barrier = __tmGetBusyTaskDetailBarrier();
             if (barrier) {
-                const detailRefreshed = __tmRefreshVisibleDetailsFromViewRefresh(next, `${String(next.reason || 'view-refresh-detail-busy').trim() || 'view-refresh-detail-busy'}:busy-detail`);
                 __tmScheduleBusyDetailViewRefresh(next);
-                __tmJankViewRefreshFinish('busy-detail-deferred', { detailRefreshed });
+                __tmJankViewRefreshFinish('busy-detail-deferred', { detailRefreshed: false });
                 return true;
             }
         }

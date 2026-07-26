@@ -62,10 +62,10 @@ vm.runInContext(`${source.slice(start, end)}\nthis.applyFollowDraft = __tmApplyF
         repeatRule: task.repeatRule,
     });
     assert.equal(moved.changed, true);
-    assert.equal(writes.length, 1, 'task-linked fields must be written once');
+    assert.equal(writes.length, 1, 'the current task due date must be written once');
     assert.equal(writes[0].patch.completionTime, '2026-07-19');
-    assert.equal(writes[0].patch.repeatRule.type, 'daily');
-    assert.equal(writes[0].patch.repeatState.occurrenceCount, 2);
+    assert.equal(Object.hasOwn(writes[0].patch, 'repeatRule'), false, 'a reminder must not own the task repeat rule');
+    assert.equal(Object.hasOwn(writes[0].patch, 'repeatState'), false, 'a reminder must not own the task repeat state');
     assert.equal(moved.attrHostId, 'host-1');
     assert.equal(moved.taskTitle, 'Canonical task');
 
@@ -75,23 +75,14 @@ vm.runInContext(`${source.slice(start, end)}\nthis.applyFollowDraft = __tmApplyF
     );
 
     const cleared = await context.clearFollowDraft({ taskId: 'task-1' });
-    assert.equal(cleared.changed, true);
-    assert.equal(writes.length, 2, 'follow reminder deletion must write task-linked fields once');
-    assert.equal(writes[1].patch.completionTime, '');
-    assert.equal(writes[1].patch.repeatRule.enabled, false);
-    assert.equal(writes[1].patch.repeatRule.type, 'none');
-    assert.equal(writes[1].patch.repeatState.occurrenceCount, 1);
-    assert.equal(writes[1].patch.repeatState.lastInstanceDue, '');
+    assert.equal(cleared.changed, false);
+    assert.equal(cleared.completionTime, '2026-07-18');
+    assert.equal(cleared.repeatRule.type, 'daily');
+    assert.equal(writes.length, 1, 'deleting a reminder must not clear task-owned fields');
 
-    task = {
-        ...task,
-        completionTime: '',
-        repeatRule: cleared.repeatRule,
-        repeatState: cleared.repeatState,
-    };
     const clearedAgain = await context.clearFollowDraft({ taskId: 'task-1' });
     assert.equal(clearedAgain.changed, false, 'repeated cleanup must be idempotent');
-    assert.equal(writes.length, 2);
+    assert.equal(writes.length, 1);
 
     console.log('reminder follow draft tests passed');
 })().catch((error) => {

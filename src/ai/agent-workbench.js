@@ -2086,6 +2086,14 @@
         }, 80);
     }
 
+    function notifyTaskViewChanged() {
+        const scopeType = text(runtime.context.scope?.type);
+        if (!runtime.mounted || !(runtime.host instanceof HTMLElement) || !runtime.host.isConnected) return false;
+        if (scopeType !== 'current_view' && scopeType !== 'current_group') return false;
+        scheduleCurrentViewContextSync();
+        return true;
+    }
+
     async function enrichContextLabels() {
         const seq = ++runtime.contextLabelSeq;
         const labels = resolvedContextLabels();
@@ -3776,6 +3784,7 @@
         cleanup,
         mountSidebar,
         openSidebar,
+        notifyTaskViewChanged,
         refreshSidebar: async () => { await listSessions(); render(); },
         setConversationFontSize,
         handleTaskContextDragOver,

@@ -875,7 +875,11 @@
         if (!__tmIsMobileDevice()) el.style.top = '35px';
         el.textContent = msg;
         document.body.appendChild(el);
-        setTimeout(() => el.remove(), 2500);
+        const timer = setTimeout(() => __tmRemoveHint(el), 2500);
+        el.addEventListener('click', () => {
+            clearTimeout(timer);
+            __tmRemoveHint(el);
+        }, { once: true });
         return el;
     }
 
@@ -2860,7 +2864,8 @@
         __tmDocExpandCache.set(cacheKey, { t: Date.now(), ids: nextIds });
     }
 
-    function __tmRenderChecklistPreserveScroll() {
+    function __tmRenderChecklistPreserveScroll(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
         const modal = state.modal instanceof Element ? state.modal : null;
         const staged = (state.pendingChecklistRenderRestore && typeof state.pendingChecklistRenderRestore === 'object')
             ? state.pendingChecklistRenderRestore
@@ -2883,7 +2888,7 @@ if (detailTaskId) {
             } catch (e) {}
         }
         try {
-            if (modal && __tmRerenderChecklistInPlace(modal)) {
+            if (modal && __tmRerenderChecklistInPlace(modal, opts)) {
                 state.pendingChecklistRenderRestore = null;
                 return;
             }
@@ -3929,7 +3934,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     async function __tmAutoLoadMoreVisibleRows(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const mode = String(opts.mode || state.viewMode || '').trim();
-        if (mode !== 'list' && mode !== 'checklist') return false;
+        if (mode !== 'list' && mode !== 'checklist' && mode !== 'timeline') return false;
         if (state.listAutoLoadMoreInFlight) return false;
         const now = Date.now();
         if ((now - Number(state.listAutoLoadMoreLastTs || 0)) < 120) return false;
@@ -3938,10 +3943,18 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.listAutoLoadMoreInFlight = true;
         state.listAutoLoadMoreLastTs = now;
         try {
+            if (mode === 'timeline') {
+                const loaded = window.tmTimelineLoadMoreRows?.();
+                if (loaded) __tmScheduleAutoLoadMoreRecheck(mode);
+                return !!loaded;
+            }
             const grown = __tmGrowViewRenderWindow(mode, meta.total);
             if (!grown || grown.limit <= grown.previousLimit) return false;
             if (mode === 'checklist') {
-                __tmRenderChecklistPreserveScroll();
+                __tmRenderChecklistPreserveScroll({
+                    appendOnly: true,
+                    previousLimit: grown.previousLimit,
+                });
             } else if (!__tmRerenderListInPlace(state.modal, {
                 appendOnly: true,
                 previousLimit: grown.previousLimit,
@@ -3955,6 +3968,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     reason: 'list-auto-load-more-hydrate',
                 });
             } catch (e) {}
+            __tmScheduleAutoLoadMoreRecheck(mode);
             return true;
         } catch (e) {
             try {
@@ -3972,21 +3986,58 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
     }
 
+    function __tmGetAutoLoadMoreScrollHost(modalEl, modeInput = '') {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const mode = String(modeInput || state.viewMode || '').trim();
+        if (!(modal instanceof Element)) return null;
+        if (mode === 'checklist') return modal.querySelector('.tm-checklist-scroll');
+        if (mode === 'timeline') return __tmGetTimelineGlobalScrollHost(modal) || modal.querySelector('#tmTimelineLeftBody');
+        if (mode === 'list') return modal.querySelector('.tm-body.tm-body--list');
+        return null;
+    }
+
+    function __tmScheduleAutoLoadMoreRecheck(modeInput = '') {
+        const mode = String(modeInput || state.viewMode || '').trim();
+        try {
+            setTimeout(() => {
+                const currentMode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+                if (currentMode !== mode) return;
+                const pane = __tmGetAutoLoadMoreScrollHost(state.modal, mode);
+                try { pane?.__tmAutoLoadMoreScrollHandler?.(); } catch (e) {}
+            }, 140);
+        } catch (e) {}
+    }
+
+    window.tmChecklistLoadMoreRows = async function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try {
+            return await __tmAutoLoadMoreVisibleRows({
+                mode: 'checklist',
+                source: 'manual-load-more',
+            });
+        } catch (e) {
+            return false;
+        }
+    };
+
     function __tmBindAutoLoadMoreOnScroll(modalEl, modeHint = '') {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
         const mode = String(modeHint || state.viewMode || '').trim();
-        if (mode !== 'list' && mode !== 'checklist') return;
-        const pane = mode === 'checklist'
-            ? modal.querySelector('.tm-checklist-scroll')
-            : modal.querySelector('.tm-body.tm-body--list');
+        if (mode !== 'list' && mode !== 'checklist' && mode !== 'timeline') return;
+        const pane = __tmGetAutoLoadMoreScrollHost(modal, mode);
         if (!(pane instanceof HTMLElement) || pane.__tmAutoLoadMoreScrollBound) return;
         const onScroll = () => {
+            const progressiveJob = state.__tmProgressiveViewRender;
+            if (progressiveJob
+                && String(progressiveJob.mode || '').trim() === mode
+                && progressiveJob.tasksRef === state.filteredTasks) return;
             const meta = __tmGetListAutoLoadMoreState();
             if (meta.remaining <= 0) return;
             const viewport = Math.max(0, Number(pane.clientHeight || 0));
+            if (viewport <= 0) return;
             const maxScrollTop = Math.max(0, Number(pane.scrollHeight || 0) - viewport);
-            if (maxScrollTop <= 0) return;
             const remainingPx = Math.max(0, maxScrollTop - (Number(pane.scrollTop || 0)));
             const thresholdPx = Math.max(96, Math.min(320, Math.round(viewport * 0.35) || 0));
             if (remainingPx > thresholdPx) return;
@@ -4009,6 +4060,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         pane.__tmAutoLoadMoreScrollHandler = onScroll;
         try { requestAnimationFrame(onScroll); } catch (e) {}
     }
+
+    window.__tmBindAutoLoadMoreOnScroll = __tmBindAutoLoadMoreOnScroll;
 
     function __tmBindListScrollVisibility(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
@@ -4629,7 +4682,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 completionTime: task?.completionTime,
             });
             const currentTriggerType = currentRule.enabled && currentRule.type !== 'none'
-                ? currentRule.trigger
+                ? (currentRule.type === 'fsrs' ? 'fsrs' : currentRule.trigger)
                 : 'due';
             const currentRepeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
             const currentEndMode = currentRule.maxOccurrences > 0 ? 'count' : (currentRule.until ? 'date' : 'never');
@@ -4641,14 +4694,15 @@ return Number(state.contextInteractionQuietUntil || 0);
                     <div class="tm-repeat-title">${esc(String(opts.title || '循环设置').trim() || '循环设置')}</div>
                     <div class="tm-repeat-stack">
                         <div class="tm-repeat-field">
-                            <div class="tm-repeat-label">触发方式</div>
+                            <div class="tm-repeat-label">重复方式</div>
                             <select class="tm-repeat-select" data-tm-repeat-field="triggerType">
                                 <option value="due"${currentTriggerType === 'due' ? ' selected' : ''}>到期重复</option>
                                 <option value="complete"${currentTriggerType === 'complete' ? ' selected' : ''}>完成重复</option>
+                                <option value="fsrs"${currentTriggerType === 'fsrs' ? ' selected' : ''}>FSRS 间隔重复</option>
                                 <option value="none"${currentTriggerType === 'none' ? ' selected' : ''}>不循环</option>
                             </select>
                         </div>
-                        <div class="tm-repeat-field">
+                        <div class="tm-repeat-field" data-tm-repeat-frequency-wrap>
                             <div class="tm-repeat-label">循环频率</div>
                             <div class="tm-repeat-inline">
                                 <div class="tm-repeat-inline-prefix">每</div>
@@ -4660,6 +4714,12 @@ return Number(state.contextInteractionQuietUntil || 0);
                                     <option value="monthly"${currentRule.type === 'monthly' ? ' selected' : ''}>月</option>
                                     <option value="yearly"${currentRule.type === 'yearly' ? ' selected' : ''}>年</option>
                                 </select>
+                            </div>
+                        </div>
+                        <div class="tm-repeat-field" data-tm-repeat-weekdays-wrap style="display:${currentRule.type === 'weekly' ? 'flex' : 'none'};flex-direction:column;gap:8px;">
+                            <div class="tm-repeat-label">每周日期</div>
+                            <div class="tm-repeat-weekdays" role="group" aria-label="每周日期">
+                                ${[[1, '一'], [2, '二'], [3, '三'], [4, '四'], [5, '五'], [6, '六'], [0, '日']].map(([weekday, label]) => `<button type="button" class="tm-repeat-weekday ${currentRule.weekdays.includes(weekday) ? 'is-active' : ''}" data-tm-repeat-weekday="${weekday}" aria-pressed="${currentRule.weekdays.includes(weekday) ? 'true' : 'false'}">${label}</button>`).join('')}
                             </div>
                         </div>
                         <div class="tm-repeat-field" data-tm-repeat-calendar-wrap style="display:${(currentRule.type === 'monthly' || currentRule.type === 'yearly') ? 'flex' : 'none'};flex-direction:column;gap:8px;">
@@ -4676,7 +4736,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                                 <button type="button" class="tm-repeat-segment ${currentRule.monthlyMode === 'weekday' ? 'is-active' : ''}" data-tm-repeat-monthly="weekday">${esc(__tmGetTaskRepeatMonthlyModeCaption('weekday', anchorDate))}</button>
                             </div>
                         </div>
-                        <div class="tm-repeat-field">
+                        <div class="tm-repeat-field" data-tm-repeat-end-wrap>
                             <div class="tm-repeat-label">循环截止</div>
                             <select class="tm-repeat-select" data-tm-repeat-field="endMode">
                                 <option value="never"${currentEndMode === 'never' ? ' selected' : ''}>永不结束</option>
@@ -4709,6 +4769,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             const untilEl = modal.querySelector('[data-tm-repeat-field="until"]');
             const maxOccurrencesEl = modal.querySelector('[data-tm-repeat-field="maxOccurrences"]');
             const countWrap = modal.querySelector('[data-tm-repeat-count-wrap]');
+            const frequencyWrap = modal.querySelector('[data-tm-repeat-frequency-wrap]');
+            const endWrap = modal.querySelector('[data-tm-repeat-end-wrap]');
+            const weekdaysWrap = modal.querySelector('[data-tm-repeat-weekdays-wrap]');
             const calendarWrap = modal.querySelector('[data-tm-repeat-calendar-wrap]');
             const monthlyWrap = modal.querySelector('[data-tm-repeat-monthly-wrap]');
             const summaryEl = modal.querySelector('[data-tm-repeat-summary]');
@@ -4716,8 +4779,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             const cancelBtn = modal.querySelector('[data-tm-repeat-action="cancel"]');
             const calendarButtons = Array.from(modal.querySelectorAll('[data-tm-repeat-calendar]')).filter((el) => el instanceof HTMLButtonElement);
             const monthlyButtons = Array.from(modal.querySelectorAll('[data-tm-repeat-monthly]')).filter((el) => el instanceof HTMLButtonElement);
+            const weekdayButtons = Array.from(modal.querySelectorAll('[data-tm-repeat-weekday]')).filter((el) => el instanceof HTMLButtonElement);
             let calendarMode = currentRule.calendarMode || 'solar';
             let monthlyMode = currentRule.monthlyMode || 'date';
+            let weekdays = Array.isArray(currentRule.weekdays) ? currentRule.weekdays.slice() : [];
             let settled = false;
 
             const removeFromStack = __tmModalStackBind(() => cancelBtn?.click?.());
@@ -4744,11 +4809,24 @@ return Number(state.contextInteractionQuietUntil || 0);
                         completionTime: task?.completionTime,
                     });
                 }
+                if (triggerType === 'fsrs') {
+                    return __tmNormalizeTaskRepeatRule({
+                        enabled: true,
+                        trigger: 'complete',
+                        type: 'fsrs',
+                        anchorDate,
+                    }, {
+                        anchorDate,
+                        startDate: task?.startDate,
+                        completionTime: task?.completionTime,
+                    });
+                }
                 return __tmNormalizeTaskRepeatRule({
                     enabled: true,
                     trigger: triggerType,
                     type,
                     every,
+                    weekdays,
                     monthlyMode,
                     calendarMode,
                     until,
@@ -4772,11 +4850,22 @@ return Number(state.contextInteractionQuietUntil || 0);
                     btn.classList.toggle('is-active', value === monthlyMode);
                 });
             };
+            const syncWeekdayButtons = () => {
+                weekdayButtons.forEach((btn) => {
+                    const value = Number(btn.getAttribute('data-tm-repeat-weekday'));
+                    const active = weekdays.includes(value);
+                    btn.classList.toggle('is-active', active);
+                    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+                });
+            };
             const syncUi = () => {
                 const triggerType = String(triggerTypeEl?.value || 'none').trim();
                 const type = __tmNormalizeTaskRepeatType(typeEl?.value || currentRule.type || 'daily');
-                const disabled = triggerType === 'none';
+                const fsrs = triggerType === 'fsrs';
+                const disabled = triggerType === 'none' || fsrs;
                 const endMode = String(endModeEl?.value || 'never').trim();
+                if (frequencyWrap instanceof HTMLElement) frequencyWrap.style.display = fsrs ? 'none' : '';
+                if (endWrap instanceof HTMLElement) endWrap.style.display = fsrs ? 'none' : '';
                 if (everyEl instanceof HTMLInputElement) everyEl.disabled = disabled;
                 if (typeEl instanceof HTMLSelectElement) typeEl.disabled = disabled;
                 if (endModeEl instanceof HTMLSelectElement) endModeEl.disabled = disabled;
@@ -4785,15 +4874,19 @@ return Number(state.contextInteractionQuietUntil || 0);
                     untilEl.style.display = endMode === 'date' ? '' : 'none';
                 }
                 if (maxOccurrencesEl instanceof HTMLInputElement) maxOccurrencesEl.disabled = disabled || endMode !== 'count';
-                if (countWrap instanceof HTMLElement) countWrap.style.display = endMode === 'count' ? 'flex' : 'none';
+                if (countWrap instanceof HTMLElement) countWrap.style.display = !fsrs && endMode === 'count' ? 'flex' : 'none';
+                if (weekdaysWrap instanceof HTMLElement) weekdaysWrap.style.display = (!disabled && type === 'weekly') ? 'flex' : 'none';
                 if (calendarWrap instanceof HTMLElement) calendarWrap.style.display = (!disabled && (type === 'monthly' || type === 'yearly')) ? 'flex' : 'none';
                 if (monthlyWrap instanceof HTMLElement) monthlyWrap.style.display = (!disabled && type === 'monthly' && calendarMode !== 'lunar') ? 'flex' : 'none';
                 syncCalendarButtons();
                 syncMonthlyButtons();
+                syncWeekdayButtons();
                 const draft = readDraft();
                 if (summaryEl instanceof HTMLElement) {
                     summaryEl.textContent = draft.enabled
-                        ? `${__tmGetTaskRepeatSummary(draft, { startDate: task?.startDate, completionTime: task?.completionTime })}。`
+                        ? (draft.type === 'fsrs'
+                            ? '勾选任务表示“良好”；也可从任务菜单选择重来、困难、良好或简单。'
+                            : `${__tmGetTaskRepeatSummary(draft, { startDate: task?.startDate, completionTime: task?.completionTime })}。`)
                         : '当前任务不会自动循环。';
                 }
             };
@@ -4810,6 +4903,18 @@ return Number(state.contextInteractionQuietUntil || 0);
                     syncUi();
                 };
             });
+            weekdayButtons.forEach((btn) => {
+                btn.onclick = () => {
+                    const value = Number(btn.getAttribute('data-tm-repeat-weekday'));
+                    if (!Number.isInteger(value)) return;
+                    if (weekdays.includes(value)) {
+                        weekdays = weekdays.filter((weekday) => weekday !== value);
+                    } else {
+                        weekdays = [...weekdays, value].sort((left, right) => left - right);
+                    }
+                    syncUi();
+                };
+            });
             triggerTypeEl?.addEventListener('change', syncUi);
             typeEl?.addEventListener('change', syncUi);
             everyEl?.addEventListener('input', syncUi);
@@ -4822,6 +4927,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     rule.enabled,
                     rule.type,
                     rule.every,
+                    rule.weekdays,
                     rule.monthlyMode,
                     rule.calendarMode,
                     rule.anchorDate,
@@ -6818,8 +6924,13 @@ return Number(state.contextInteractionQuietUntil || 0);
                 || typeof globalThis.__tmCalendar.openScheduleEditorByTaskId === 'function'));
         const aiEnabled = __tmIsAiFeatureEnabled();
         const isOtherBlock = __tmIsCollectedOtherBlockTask(task);
+        const isRecurringInstance = __tmIsRecurringInstanceTask(task);
         const canDetachSubtask = typeof __tmCanDetachSubtaskFromParent === 'function'
             && __tmCanDetachSubtaskFromParent(task);
+        const repeatRule = __tmNormalizeTaskRepeatRule(task?.repeatRule || task?.repeat_rule || '', {
+            startDate: task?.startDate,
+            completionTime: task?.completionTime,
+        });
 
         actions.push({
             label: task?.pinned ? '取消置顶' : '置顶',
@@ -6843,6 +6954,31 @@ return Number(state.contextInteractionQuietUntil || 0);
                 label: showCompletedSubtasks ? '隐藏已完成子任务' : '显示已完成子任务',
                 icon: showCompletedSubtasks ? 'check-circle-2' : 'circle-dot',
                 run: async () => { await window.tmToggleTaskDetailCompletedSubtasks?.(tid, !showCompletedSubtasks); }
+            });
+        }
+        if (repeatRule.enabled && repeatRule.type === 'fsrs' && !isRecurringInstance) {
+            const reviewAction = (rating, label, icon) => ({
+                label,
+                icon,
+                labelHtml: __tmRenderContextMenuLabel(icon, label),
+                run: async () => {
+                    try {
+                        await window.tmReviewFsrsTask?.(tid, rating, { source: 'task-detail-fsrs-review' });
+                    } catch (error) {
+                        hint(`FSRS 反馈失败：${error?.message || String(error)}`, 'error');
+                    }
+                },
+            });
+            actions.push({
+                label: '复习反馈',
+                icon: 'brain',
+                labelHtml: __tmRenderContextMenuLabel('brain', '复习反馈'),
+                submenu: [
+                    reviewAction(1, '重来', 'rotate-ccw'),
+                    reviewAction(2, '困难', 'gauge'),
+                    reviewAction(3, '良好', 'check'),
+                    reviewAction(4, '简单', 'zap'),
+                ],
             });
         }
         const copyTaskValue = (type) => async () => {
@@ -6956,6 +7092,14 @@ return Number(state.contextInteractionQuietUntil || 0);
                     const result = await __tmRemoveOtherBlocksFromCollection([tid]);
                     if (result.removed > 0) hint(`✅ 已从“${__TM_OTHER_BLOCK_TAB_NAME}”页签移除`, 'success');
                 }
+            });
+        } else if (isRecurringInstance) {
+            actions.push({
+                label: '删除记录',
+                icon: 'trash-2',
+                danger: true,
+                labelHtml: __tmRenderContextMenuLabel('trash-2', '删除记录'),
+                run: async () => { await window.tmDelete?.(tid, { source: 'detail-more-repeat-history-delete' }); }
             });
         } else {
             actions.push({
@@ -10196,9 +10340,31 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
     }
 
-    window.tmSwitchDoc = async function(docId) {
-        if (Number(state.suppressDocTabClickUntil || 0) > Date.now()) return;
+    function __tmResolveDocTabSwitchTarget(docId, options = {}) {
         const nextDocId = String(docId || 'all').trim() || 'all';
+        const invalidFallback = options?.fallbackToAll === false ? '' : 'all';
+        let resolvedDocId = (__tmIsOtherBlockTabId(nextDocId) && !(Array.isArray(state.otherBlocks) && state.otherBlocks.length))
+            ? invalidFallback
+            : nextDocId;
+        if (resolvedDocId !== 'all' && !__tmIsOtherBlockTabId(resolvedDocId)) {
+            const targetDoc = (Array.isArray(state.taskTree) ? state.taskTree : [])
+                .find((doc) => String(doc?.id || '').trim() === resolvedDocId);
+            const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+            const archiveMode = state.docTabsArchiveMode === true;
+            const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+            const allowSpecialNewTaskDoc = !archiveMode && resolvedDocId === globalNewTaskDocId;
+            if (!allowSpecialNewTaskDoc
+                && (!targetDoc || !__tmDocShouldShowInDocTabs(targetDoc, { rule: __tmGetCurrentRule(), archiveMode, groupId: currentGroupId }))) {
+                resolvedDocId = invalidFallback;
+            }
+        }
+        return resolvedDocId;
+    }
+
+    window.tmSwitchDoc = async function(docId, options = {}) {
+        if (Number(state.suppressDocTabClickUntil || 0) > Date.now()) return false;
+        const resolvedDocId = __tmResolveDocTabSwitchTarget(docId, options);
+        if (!resolvedDocId) return false;
         const shouldCollapseDocTabsAfterSwitch = (() => {
             try {
                 const hostInfo = globalThis.__tmRuntimeHost?.getInfo?.() || null;
@@ -10219,21 +10385,6 @@ return Number(state.contextInteractionQuietUntil || 0);
                     tabs.classList.remove('tm-doc-tabs--expanded');
                 }
             } catch (e) {}
-        }
-        let resolvedDocId = (__tmIsOtherBlockTabId(nextDocId) && !(Array.isArray(state.otherBlocks) && state.otherBlocks.length))
-            ? 'all'
-            : nextDocId;
-        if (resolvedDocId !== 'all' && !__tmIsOtherBlockTabId(resolvedDocId)) {
-            const targetDoc = (Array.isArray(state.taskTree) ? state.taskTree : [])
-                .find((doc) => String(doc?.id || '').trim() === resolvedDocId);
-            const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
-            const archiveMode = state.docTabsArchiveMode === true;
-            const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
-            const allowSpecialNewTaskDoc = !archiveMode && resolvedDocId === globalNewTaskDocId;
-            if (!allowSpecialNewTaskDoc
-                && (!targetDoc || !__tmDocShouldShowInDocTabs(targetDoc, { rule: __tmGetCurrentRule(), archiveMode, groupId: currentGroupId }))) {
-                resolvedDocId = 'all';
-            }
         }
         state.activeDocId = resolvedDocId;
         try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
@@ -10264,6 +10415,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 });
             } catch (e) {}
         }
+        return true;
     };
 
     window.tmSwitchDocTabCustomGroup = async function(groupId) {
@@ -17299,6 +17451,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         'dots-three': 'M144,128a16,16,0,1,1-16-16A16,16,0,0,1,144,128ZM60,112a16,16,0,1,0,16,16A16,16,0,0,0,60,112Zm136,0a16,16,0,1,0,16,16A16,16,0,0,0,196,112Z',
         'file-text': 'M216.49,79.52l-56-56A12,12,0,0,0,152,20H56A20,20,0,0,0,36,40V216a20,20,0,0,0,20,20H200a20,20,0,0,0,20-20V88A12,12,0,0,0,216.49,79.52ZM160,57l23,23H160ZM60,212V44h76V92a12,12,0,0,0,12,12h48V212Zm112-80a12,12,0,0,1-12,12H96a12,12,0,0,1,0-24h64A12,12,0,0,1,172,132Zm0,40a12,12,0,0,1-12,12H96a12,12,0,0,1,0-24h64A12,12,0,0,1,172,172Z',
         'flag': 'M40.14,46.88A12,12,0,0,0,36,56V224a12,12,0,0,0,24,0V181.72c22.84-17.12,42.1-9.12,70.68,5,16.23,8,34.74,17.2,54.8,17.2,14.72,0,30.28-4.94,46.38-18.88A12,12,0,0,0,236,176V56a12,12,0,0,0-19.86-9.07c-24.71,21.41-44.53,13.31-74.82-1.68C113.19,31.27,78.17,13.94,40.14,46.88ZM212,170.26c-22.84,17.13-42.1,9.11-70.68-5C118.16,153.76,90.33,140,60,153.87V61.69c22.84-17.12,42.1-9.12,70.68,5,16.23,8,34.74,17.2,54.8,17.2A63,63,0,0,0,212,78.08Z',
+        hash: 'M224,84H180.2l7.61-41.85a12,12,0,0,0-23.62-4.3L155.8,84H116.2l7.61-41.85a12,12,0,1,0-23.62-4.3L91.8,84H48a12,12,0,0,0,0,24H87.44l-7.27,40H32a12,12,0,0,0,0,24H75.8l-7.61,41.85a12,12,0,0,0,9.66,14A11.43,11.43,0,0,0,80,228a12,12,0,0,0,11.8-9.86L100.2,172h39.6l-7.61,41.85a12,12,0,0,0,9.66,14,11.43,11.43,0,0,0,2.16.2,12,12,0,0,0,11.8-9.86L164.2,172H208a12,12,0,0,0,0-24H168.56l7.27-40H224a12,12,0,0,0,0-24Zm-79.83,64H104.56l7.27-40h39.61Z',
         'map': 'M231.38,46.54a12,12,0,0,0-10.29-2.18L161.4,59.28l-60-30a12,12,0,0,0-8.28-.91l-64,16A12,12,0,0,0,20,56V200a12,12,0,0,0,14.91,11.64L94.6,196.72l60,30a12,12,0,0,0,8.28.91l64-16A12,12,0,0,0,236,200V56A12,12,0,0,0,231.38,46.54ZM108,59.42l40,20V196.58l-40-20Zm-64,6,40-10V174.63l-40,10ZM212,190.63l-40,10V81.37l40-10Z',
         'map-pin': 'M128,60a44,44,0,1,0,44,44A44.05,44.05,0,0,0,128,60Zm0,64a20,20,0,1,1,20-20A20,20,0,0,1,128,124Zm0-112a92.1,92.1,0,0,0-92,92c0,77.36,81.64,135.4,85.12,137.83a12,12,0,0,0,13.76,0,259,259,0,0,0,42.18-39C205.15,170.57,220,136.37,220,104A92.1,92.1,0,0,0,128,12Zm31.3,174.71A249.35,249.35,0,0,1,128,216.89a249.35,249.35,0,0,1-31.3-30.18C80,167.37,60,137.31,60,104a68,68,0,0,1,136,0C196,137.31,176,167.37,159.3,186.71Z',
         'menu': 'M228,128a12,12,0,0,1-12,12H40a12,12,0,0,1,0-24H216A12,12,0,0,1,228,128ZM40,76H216a12,12,0,0,0,0-24H40a12,12,0,0,0,0,24ZM216,180H40a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24Z',

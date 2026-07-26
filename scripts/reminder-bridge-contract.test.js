@@ -29,11 +29,24 @@ assert.ok(bridgeStart >= 0 && bridgeEnd > bridgeStart, 'Task Horizon reminder br
 const bridgeBlock = apiSource.slice(bridgeStart, bridgeEnd);
 assert.match(bridgeBlock, /version:\s*1/, 'Task Horizon reminder bridge must publish a version');
 assert.match(bridgeBlock, /completeFromReminder[\s\S]*?__tmMaybeAdvanceRecurringTaskFromReminderRecord\(/, 'Tomato completion must enter the existing Task Horizon completion path once');
-assert.match(repeatRuntimeSource, /version:\s*2/, 'Task Horizon must upgrade the reminder bridge to v2 after recurrence services load');
-assert.match(repeatRuntimeSource, /applyFollowDraft:\s*__tmApplyFollowReminderDraft/, 'bridge v2 must expose atomic follow-draft writes');
-assert.match(repeatRuntimeSource, /clearFollowDraft:\s*__tmClearFollowReminderDraft/, 'bridge v2 must expose atomic follow-draft cleanup');
-assert.match(repeatRuntimeSource, /completionTime,[\s\S]*?\.\.\.repeatPatch/, 'follow-draft writes must update the due date and repeat fields together');
-assert.match(repeatRuntimeSource, /completionTime:\s*''[\s\S]*?\.\.\.repeatPatch/, 'follow-draft cleanup must clear the due date and repeat fields together');
+assert.match(repeatRuntimeSource, /version:\s*3/, 'Task Horizon must upgrade the reminder bridge to v3 after recurrence services load');
+assert.match(repeatRuntimeSource, /taskOwnsRepeatSchedule:\s*true/, 'bridge v3 must declare task-owned recurrence');
+assert.match(repeatRuntimeSource, /applyFollowDraft:\s*__tmApplyFollowReminderDraft/, 'bridge v3 must expose follow-draft writes');
+assert.match(repeatRuntimeSource, /clearFollowDraft:\s*__tmClearFollowReminderDraft/, 'bridge v3 must expose ownership-safe reminder cleanup');
+
+const followDraftStart = repeatRuntimeSource.indexOf('async function __tmApplyFollowReminderDraft');
+const followDraftEnd = repeatRuntimeSource.indexOf('\n    async function __tmClearFollowReminderDraft', followDraftStart);
+assert.ok(followDraftStart >= 0 && followDraftEnd > followDraftStart, 'follow-draft writer must remain extractable');
+const followDraftBlock = repeatRuntimeSource.slice(followDraftStart, followDraftEnd);
+assert.match(followDraftBlock, /__tmApplyTaskMetaPatchWithUndo\(task\.id, \{\s*completionTime,\s*\}/, 'reminder edits may update the current task due date');
+assert.doesNotMatch(followDraftBlock, /repeatPatch|repeatRule:\s*source\.|repeatState:\s*source\./, 'reminder edits must not write task-owned repeat fields');
+
+const clearDraftStart = followDraftEnd + 1;
+const clearDraftEnd = repeatRuntimeSource.indexOf('\n    try {\n        const previousBridge', clearDraftStart);
+assert.ok(clearDraftStart > 0 && clearDraftEnd > clearDraftStart, 'follow-draft cleanup must remain extractable');
+const clearDraftBlock = repeatRuntimeSource.slice(clearDraftStart, clearDraftEnd);
+assert.match(clearDraftBlock, /changed:\s*false/, 'deleting a reminder must not mutate the task schedule');
+assert.doesNotMatch(clearDraftBlock, /__tmApplyTaskMetaPatchWithUndo/, 'deleting a reminder must not clear task dates or recurrence');
 
 for (const removed of [
     '__TM_REMINDER_UPDATE_EVENT_NAMES',

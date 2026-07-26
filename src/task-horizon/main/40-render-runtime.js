@@ -49,7 +49,7 @@ return;
             && (Date.now() - (Number(state.uiAnimTs) || 0) < 500);
         const isTimelineView = state.viewMode === 'timeline';
         if (!isTimelineView) __tmClearTimelineTodayIndicatorTimer();
-        const useSoftSwap = isViewSwitchAnim;
+        const useSoftSwap = isViewSwitchAnim || state.__tmPreserveShellDuringViewSwitchRender === true;
         const currentRenderMode = state.attachmentLibraryOpen ? 'attachments' : (state.homepageOpen ? 'home' : (String(state.viewMode || 'list').trim() || 'list'));
         try {
             if (state.whiteboardPluginFullscreen && (currentRenderMode !== 'whiteboard' || __tmIsWhiteboardAllTabsStreamMode())) {
@@ -568,6 +568,7 @@ return;
             timelineCompactToolbarGroupHtml,
             timelineFloatingToolbarHtml,
             timelineRowModel,
+            timelineFullRowModel,
             mainStageBottomInset,
             bodyWithSideDockHtml,
             multiSelectCount,
@@ -2211,61 +2212,20 @@ return;
         }
         try {
             if (renderMode === 'calendar') {
-                const el = state.modal.querySelector('#tmCalendarRoot');
-                if (el) {
-                    const restoreCalendarScrollAfterMount = () => {
+                __tmMountCalendarViewRoot(state.modal, {
+                    onMounted: (root) => {
+                        if (!shouldRestoreCalendarScroll) return;
                         const apply = () => {
-                            try {
-                                if (!shouldRestoreCalendarScroll) return;
-                                if (!el || !el.querySelectorAll) return;
-                                const preferred = el.querySelector('.fc-timegrid-body .fc-scroller');
-                                const list = Array.from(el.querySelectorAll('.fc-scroller'));
-                                const scroller = (preferred && preferred.scrollHeight > preferred.clientHeight + 1)
-                                    ? preferred
-                                    : (list.find((item) => item && item.scrollHeight > item.clientHeight + 1) || preferred || list[0] || null);
-                                if (!scroller) return;
-                                scroller.scrollTop = savedCalendarScrollTop;
-                                scroller.scrollLeft = savedCalendarScrollLeft;
-                            } catch (e2) {}
+                            const scroller = __tmGetCalendarScrollHost(root);
+                            if (!(scroller instanceof HTMLElement)) return;
+                            scroller.scrollTop = savedCalendarScrollTop;
+                            scroller.scrollLeft = savedCalendarScrollLeft;
                         };
                         apply();
                         try { requestAnimationFrame(() => requestAnimationFrame(apply)); } catch (e2) {}
                         try { setTimeout(apply, 0); } catch (e2) {}
-                    };
-                    const mountCalendar = (attempt = 0) => {
-                        if (!SettingsStore.data.calendarEnabled) {
-                            el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历视图已关闭，可在设置 → 日历中开启。</div>`;
-                        } else if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.mount === 'function') {
-                            const ok = globalThis.__tmCalendar.mount(el, { settingsStore: SettingsStore });
-                            if (!ok) {
-                                el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败，请确认 FullCalendar 已加载。</div>`;
-                            } else {
-                                restoreCalendarScrollAfterMount();
-                            }
-                        } else {
-                            if (attempt < 80) {
-                                if (attempt === 0) {
-                                    el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块加载中...</div>`;
-                                }
-                                try {
-                                    setTimeout(() => {
-                                        try {
-                                            if (!el.isConnected || (state.modal && !state.modal.contains(el))) return;
-                                            mountCalendar(attempt + 1);
-                                        } catch (e2) {}
-                                    }, attempt < 8 ? 80 : 160);
-                                } catch (e2) {}
-                            } else {
-                                el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块未加载。</div>`;
-                            }
-                        }
-                    };
-                    if (!SettingsStore.data.calendarEnabled) {
-                        el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历视图已关闭，可在设置 → 日历中开启。</div>`;
-                    } else {
-                        mountCalendar(0);
-                    }
-                }
+                    },
+                });
             }
             if (renderMode === 'whiteboard') {
                 __tmApplyWhiteboardTransform();
@@ -2375,6 +2335,7 @@ return;
                         headerEl: ganttHeader,
                         bodyEl: ganttBody,
                         rowModel,
+                        rangeRowModel: Array.isArray(timelineFullRowModel) ? timelineFullRowModel : rowModel,
                         getTaskById: (id) => globalThis.__tmRuntimeState?.getFlatTaskById?.(String(id)) || state.flatTasks[String(id)],
                         viewState: state.ganttView,
                         onUpdateTaskDates: async (taskId, patch) => {
@@ -2512,45 +2473,6 @@ return;
                          }
                     }
                 }));
-
-                const syncRowHeights = (force = false) => {
-                    if (!leftBody || !ganttBody) return;
-                    if (!force && Date.now() - (Number(state.__tmFlipTs) || 0) < 320) return;
-                    const leftRows = leftBody.querySelectorAll('tbody tr');
-                    const rightRows = ganttBody.querySelectorAll('.tm-gantt-row,.tm-gantt-row--group');
-                    const n = Math.min(leftRows.length, rightRows.length);
-                    if (n <= 0) return;
-                    for (let i = 0; i < n; i++) {
-                        const lr = leftRows[i];
-                        const rr = rightRows[i];
-                        if (!(lr instanceof Element) || !(rr instanceof Element)) continue;
-                        rr.style.height = '';
-                        rr.style.minHeight = '';
-                        rr.style.maxHeight = '';
-                        if ((lr.style.display || '') === 'none') continue;
-                        const h = lr.getBoundingClientRect?.().height;
-                        if (Number.isFinite(h) && h > 0) {
-                            rr.style.height = `${h}px`;
-                            rr.style.minHeight = `${h}px`;
-                            rr.style.maxHeight = `${h}px`;
-                        }
-                        const bar = rr.querySelector?.('.tm-gantt-bar');
-                        if (bar) {
-                            bar.style.top = 'calc((var(--tm-row-height) - var(--tm-gantt-card-height)) / 2)';
-                            bar.style.transform = 'none';
-                        }
-                    }
-                    try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
-                };
-                try {
-                    syncRowHeights(true);
-                    requestAnimationFrame(() => requestAnimationFrame(() => {
-                        syncRowHeights();
-                        setTimeout(syncRowHeights, 60);
-                        setTimeout(syncRowHeights, 260);
-                        setTimeout(syncRowHeights, 420);
-                    }));
-                } catch (e) {}
 
                 requestAnimationFrame(() => requestAnimationFrame(() => {
                     if (!Number.isFinite(Number(SettingsStore.data.timelineLeftWidth)) || Number(SettingsStore.data.timelineLeftWidth) <= 0) {
@@ -7990,7 +7912,10 @@ return;
             ? !!__tmIsTaskDoneEffective(task)
             : !!task.done;
         menu.appendChild(createItem(__tmRenderContextMenuLabel('check-circle-2', effectiveTaskDone ? '取消完成（仅插件内）' : '标记完成（仅插件内）'), async () => {
-            await tmSetDone(tid, !effectiveTaskDone);
+            await tmSetDone(tid, !effectiveTaskDone, null, {
+                source: 'task-context-done',
+                fsrsRating: !effectiveTaskDone ? 3 : 0,
+            });
         }));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task.pinned ? '取消置顶' : '置顶'), async () => {
             await tmSetPinned(tid, !task.pinned);

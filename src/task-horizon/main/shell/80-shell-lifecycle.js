@@ -2,6 +2,7 @@
         const bindShellEntrances = !(globalThis.__tmRuntimeHost?.getInfo?.()?.isDockHost ?? __tmIsDockHost());
         try { __tmBindUndoShortcut(); } catch (e) {}
         try { __tmBindTabEnterAutoRefresh(); } catch (e) {}
+        try { __tmBindDockSidebarCurrentDocumentFollow(); } catch (e) {}
         if (bindShellEntrances) {
             try { __tmBindWakeReload(); } catch (e) {}
             try { __tmBindNativeDocCheckboxStatusSync(); } catch (e) {}
@@ -257,6 +258,9 @@ if (shouldMarkDirty) {
             state.filterRules = await __tmEnsureFilterRulesLoaded();
         } catch (e) {
             console.error('[初始化] 加载设置失败:', e);
+        }
+        if (bindShellEntrances) {
+            try { __tmBindDocTitleMarkers(); } catch (e) {}
         }
 
         try {
@@ -950,6 +954,8 @@ if (shouldMarkDirty) {
             }
             __tmQuickbarRelayLastTokenByKey.clear();
         } catch (e) {}
+        try { __tmDestroyDocTitleMarkers(); } catch (e) {}
+        try { __tmDestroyDockSidebarCurrentDocumentFollow(); } catch (e) {}
         try {
             if (__tmNativeDocCheckboxSyncClickHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(document, 'click', __tmNativeDocCheckboxSyncClickHandler, true);

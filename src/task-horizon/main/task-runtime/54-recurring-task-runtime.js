@@ -56,6 +56,7 @@
                 lastAdvancedAt: carryCompletedAt,
                 lastInstanceStart: rollbackStart,
                 lastInstanceDue: rollbackDue,
+                fsrsCard: removed.fsrsBefore || currentState.fsrsCard,
             }),
         };
     }
@@ -66,6 +67,7 @@
             rule.enabled,
             rule.type,
             rule.every,
+            rule.weekdays,
             rule.monthlyMode,
             rule.calendarMode,
             rule.anchorDate,
@@ -90,16 +92,31 @@
         } else if (nextRule.maxOccurrences > 0 && nextRule.maxOccurrences < occurrenceCount) {
             throw new Error(`结束次数不能小于当前第 ${occurrenceCount} 次`);
         }
-        const nextState = __tmNormalizeTaskRepeatState({
+        let nextState = __tmNormalizeTaskRepeatState({
             ...currentState,
             occurrenceCount,
             lastInstanceStart: __tmNormalizeDateOnly(task?.startDate || ''),
             lastInstanceDue: __tmNormalizeDateOnly(task?.completionTime || ''),
+            fsrsCard: nextRule.type === 'fsrs' ? currentState.fsrsCard : null,
         });
-        return {
+        const patch = {
             repeatRule: nextRule,
             repeatState: nextState,
         };
+        if (nextRule.type === 'fsrs') {
+            const dueKey = __tmNormalizeDateOnly(task?.completionTime || task?.startDate || new Date());
+            const fsrsTask = {
+                ...task,
+                completionTime: dueKey,
+                repeatState: nextState,
+            };
+            if (scheduleChanged || !nextState.fsrsCard) {
+                nextState = __tmBuildFsrsInitialState(fsrsTask, nextState);
+                patch.repeatState = nextState;
+            }
+            if (!__tmNormalizeDateOnly(task?.completionTime || '')) patch.completionTime = dueKey;
+        }
+        return patch;
     }
 
     async function __tmApplyTaskRepeatRule(taskId, ruleInput, options = {}) {
@@ -299,7 +316,22 @@
         let nextPatch = null;
         let historyHead = matchingHistory;
         if (!alreadyAdvanced) {
-            nextPatch = __tmBuildTaskRepeatAdvancePatch(task, repeatRule, { completedAt });
+            if (repeatRule.type === 'fsrs') {
+                const fsrsRating = __tmNormalizeFsrsRating(opts.fsrsRating);
+                if (!fsrsRating || fsrsRating === 1) return false;
+                const fsrsPatch = __tmBuildFsrsReviewPatch(task, fsrsRating, {
+                    completedAt,
+                    reviewedAt: completedAt,
+                });
+                nextPatch = {
+                    startDate: fsrsPatch.startDate,
+                    completionTime: fsrsPatch.completionTime,
+                    repeatState: fsrsPatch.repeatState,
+                    __fsrsReview: fsrsPatch.review,
+                };
+            } else {
+                nextPatch = __tmBuildTaskRepeatAdvancePatch(task, repeatRule, { completedAt });
+            }
             if (!nextPatch) return false;
             const nextHistory = __tmNormalizeTaskRepeatHistory([
                 {
@@ -321,10 +353,14 @@
                     duration: String(task?.duration || '').trim(),
                     remark: String(task?.remark || '').trim(),
                     docSeq: Number.isFinite(Number(task?.docSeq)) ? Number(task.docSeq) : Number.NaN,
+                    rating: nextPatch.__fsrsReview?.rating || 0,
+                    fsrsBefore: nextPatch.__fsrsReview?.beforeCard || null,
+                    fsrsAfter: nextPatch.__fsrsReview?.afterCard || null,
                 },
                 ...currentHistory,
             ]);
             historyHead = nextHistory[0] || null;
+            delete nextPatch.__fsrsReview;
             nextPatch.repeatHistory = nextHistory;
             await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
                 source: 'task-repeat-advance',
@@ -433,7 +469,7 @@
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
-        if (!rule.enabled || rule.trigger !== 'due' || rule.type === 'none') return null;
+        if (!rule.enabled || rule.trigger !== 'due' || rule.type === 'none' || rule.type === 'fsrs') return null;
         const todayKey = __tmNormalizeDateOnly(options.todayKey || new Date());
         if (!todayKey) return null;
         let nextTask = {
@@ -547,6 +583,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const rule = __tmGetTaskRepeatRule(task);
         if (!rule.enabled || rule.type === 'none') throw new Error('该任务未开启循环');
+        if (rule.type === 'fsrs') throw new Error('FSRS 间隔重复请使用“重来”重新安排');
         const nextPatch = __tmBuildTaskRepeatAdvancePatch(task, rule, {
             advancedAt: String(opts.advancedAt || new Date().toISOString()).trim() || new Date().toISOString(),
             completedAt: String(task?.repeatState?.lastCompletedAt || '').trim(),
@@ -606,36 +643,62 @@
         return await window.tmSetTaskRepeatRule(task.id, nextRule, { source: 'task-repeat-dialog' });
     };
 
+    window.tmReviewFsrsTask = async function(taskId, ratingInput, options = {}) {
+        const task = await __tmResolveTaskForRepeat(taskId);
+        if (!task?.id) throw new Error('未找到任务');
+        const rule = __tmGetTaskRepeatRule(task);
+        if (!rule.enabled || rule.type !== 'fsrs') throw new Error('该任务未开启 FSRS 间隔重复');
+        const rating = __tmNormalizeFsrsRating(ratingInput);
+        if (!rating) throw new Error('FSRS 评分无效');
+        if (task.done) throw new Error('任务已完成，请等待循环推进完成');
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (rating === 1) {
+            const patch = __tmBuildFsrsReviewPatch(task, rating, {
+                reviewedAt: opts.reviewedAt || new Date(),
+            });
+            const result = await __tmApplyTaskMetaPatchWithUndo(task.id, {
+                startDate: patch.startDate,
+                completionTime: patch.completionTime,
+                repeatState: patch.repeatState,
+            }, {
+                source: String(opts.source || 'fsrs-review-again').trim() || 'fsrs-review-again',
+                label: 'FSRS 重来',
+                refresh: opts.refresh !== false,
+                refreshCalendar: opts.refreshCalendar !== false,
+                withFilters: opts.withFilters !== false,
+                hard: false,
+                recordUndo: opts.recordUndo !== false,
+                broadcast: opts.broadcast !== false,
+            });
+            if (opts.suppressHint !== true) hint(`已重新安排到 ${patch.completionTime}`, 'success');
+            return { ...result, rating, nextDue: patch.completionTime, completed: false };
+        }
+        const completed = await window.tmSetDone(task.id, true, null, {
+            source: String(opts.source || 'fsrs-review').trim() || 'fsrs-review',
+            fsrsRating: rating,
+            wait: true,
+            suppressHint: opts.suppressHint === true,
+        });
+        return { rating, completed: completed !== false };
+    };
+
     async function __tmApplyFollowReminderDraft(payload = {}) {
         const source = (payload && typeof payload === 'object') ? payload : {};
         const taskRef = String(source.taskId || source.blockId || source.attrHostId || '').trim();
         if (!taskRef) throw new Error('任务 ID 为空');
-        if (!Object.prototype.hasOwnProperty.call(source, 'repeatRule')) throw new Error('缺少任务循环草稿');
         const task = await __tmResolveTaskForRepeat(taskRef);
         if (!task?.id) throw new Error('未找到任务');
         const completionTime = __tmNormalizeDateOnly(source.completionTime || '');
         if (!completionTime) throw new Error('任务截止日不能为空');
-        const candidateTask = {
-            ...task,
-            completionTime,
-            completion_time: completionTime,
-        };
-        const ruleInput = source.repeatRule && typeof source.repeatRule === 'object'
-            ? source.repeatRule
-            : { enabled: false, type: 'none' };
-        const repeatPatch = __tmBuildTaskRepeatRuleMetaPatch(candidateTask, ruleInput);
         const currentRule = __tmNormalizeTaskRepeatRule(task?.repeatRule, {
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
         const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
         const completionChanged = __tmNormalizeDateOnly(task?.completionTime || '') !== completionTime;
-        const repeatChanged = JSON.stringify(currentRule) !== JSON.stringify(repeatPatch.repeatRule)
-            || JSON.stringify(currentState) !== JSON.stringify(repeatPatch.repeatState);
-        if (completionChanged || repeatChanged) {
+        if (completionChanged) {
             await __tmApplyTaskMetaPatchWithUndo(task.id, {
                 completionTime,
-                ...repeatPatch,
             }, {
                 source: String(source.source || 'tomato-reminder-follow-draft').trim() || 'tomato-reminder-follow-draft',
                 label: '任务提醒联动',
@@ -649,14 +712,14 @@
         try { attrHostId = String(__tmGetTaskAttrHostId(task) || '').trim(); } catch (e) {}
         return {
             ok: true,
-            changed: completionChanged || repeatChanged,
+            changed: completionChanged,
             taskId: String(task.id || taskRef).trim() || taskRef,
             attrHostId: attrHostId || String(task.id || taskRef).trim() || taskRef,
             taskTitle: String(task?.content || task?.raw_content || task?.rawContent || task?.markdown || '任务').trim() || '任务',
             startDate: __tmNormalizeDateOnly(task?.startDate || ''),
             completionTime,
-            repeatRule: repeatPatch.repeatRule,
-            repeatState: repeatPatch.repeatState,
+            repeatRule: currentRule,
+            repeatState: currentState,
         };
     }
 
@@ -666,46 +729,21 @@
         if (!taskRef) throw new Error('任务 ID 为空');
         const task = await __tmResolveTaskForRepeat(taskRef);
         if (!task?.id) throw new Error('未找到任务');
-        const candidateTask = {
-            ...task,
-            completionTime: '',
-            completion_time: '',
-        };
-        const repeatPatch = __tmBuildTaskRepeatRuleMetaPatch(candidateTask, {
-            enabled: false,
-            type: 'none',
-        });
         const currentRule = __tmNormalizeTaskRepeatRule(task?.repeatRule, {
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
         const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
-        const completionChanged = !!__tmNormalizeDateOnly(task?.completionTime || '');
-        const repeatChanged = JSON.stringify(currentRule) !== JSON.stringify(repeatPatch.repeatRule)
-            || JSON.stringify(currentState) !== JSON.stringify(repeatPatch.repeatState);
-        if (completionChanged || repeatChanged) {
-            await __tmApplyTaskMetaPatchWithUndo(task.id, {
-                completionTime: '',
-                ...repeatPatch,
-            }, {
-                source: String(source.source || 'tomato-reminder-follow-delete').trim() || 'tomato-reminder-follow-delete',
-                label: '删除任务提醒联动',
-                refresh: true,
-                refreshCalendar: true,
-                withFilters: true,
-                recordUndo: source.recordUndo !== false,
-            });
-        }
         let attrHostId = '';
         try { attrHostId = String(__tmGetTaskAttrHostId(task) || '').trim(); } catch (e) {}
         return {
             ok: true,
-            changed: completionChanged || repeatChanged,
+            changed: false,
             taskId: String(task.id || taskRef).trim() || taskRef,
             attrHostId: attrHostId || String(task.id || taskRef).trim() || taskRef,
-            completionTime: '',
-            repeatRule: repeatPatch.repeatRule,
-            repeatState: repeatPatch.repeatState,
+            completionTime: __tmNormalizeDateOnly(task?.completionTime || ''),
+            repeatRule: currentRule,
+            repeatState: currentState,
         };
     }
 
@@ -715,12 +753,13 @@
             : {};
         __tmNs.reminderBridge = {
             ...previousBridge,
-            version: 2,
+            version: 3,
             capabilities: Object.freeze({
                 ...(previousBridge.capabilities || {}),
                 completeFromReminder: typeof previousBridge.completeFromReminder === 'function',
                 applyFollowDraft: true,
                 clearFollowDraft: true,
+                taskOwnsRepeatSchedule: true,
             }),
             applyFollowDraft: __tmApplyFollowReminderDraft,
             clearFollowDraft: __tmClearFollowReminderDraft,

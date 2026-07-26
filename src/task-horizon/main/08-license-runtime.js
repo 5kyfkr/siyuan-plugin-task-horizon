@@ -402,9 +402,13 @@
             el.style.background = colors[type] || '#666';
             el.textContent = String(message || '');
             document.body.appendChild(el);
-            setTimeout(() => {
+            const timer = setTimeout(() => {
                 try { el.remove(); } catch (e2) {}
             }, 2500);
+            el.addEventListener('click', () => {
+                clearTimeout(timer);
+                try { el.remove(); } catch (e2) {}
+            }, { once: true });
         } catch (e) {}
     }
 

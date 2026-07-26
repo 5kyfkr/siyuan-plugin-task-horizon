@@ -56,6 +56,73 @@
         </div>`;
     }
 
+    function __tmGetTaskTimeHubRepeatDates(taskLike, datePatch = {}, untilDate = '') {
+        const source = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const patch = (datePatch && typeof datePatch === 'object') ? datePatch : {};
+        const task = {
+            ...source,
+            startDate: __tmNormalizeDateOnly(patch.startDate ?? source.startDate ?? source.start_date ?? ''),
+            completionTime: __tmNormalizeDateOnly(patch.completionTime ?? source.completionTime ?? source.completion_time ?? ''),
+        };
+        try {
+            const until = __tmNormalizeDateOnly(untilDate);
+            if (!until) return [];
+            const rule = __tmGetTaskRepeatRule(task, {
+                startDate: task.startDate,
+                completionTime: task.completionTime,
+            });
+            const base = task.completionTime || task.startDate || rule.anchorDate;
+            const span = __tmGetTaskRepeatLocalDayOrdinal(until) - __tmGetTaskRepeatLocalDayOrdinal(base);
+            const limit = Math.max(42, Math.min(4096, (Number.isFinite(span) ? Math.max(0, span) : 35) + 7));
+            return Array.from(new Set(__tmCollectTaskRepeatPreviewDates(task, { limit, until })
+                .map((value) => __tmNormalizeDateOnly(value))
+                .filter(Boolean)));
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function __tmGetTaskTimeHubFsrsGoodDate(taskLike, reviewedAt = new Date()) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        try {
+            const rule = __tmGetTaskRepeatRule(task);
+            if (!rule.enabled || rule.type !== 'fsrs') return '';
+            const good = __tmBuildFsrsReviewPreviews(task, { reviewedAt })
+                .find((option) => option.rating === 3);
+            return __tmNormalizeDateOnly(good?.completionTime || '');
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmGetTaskTimeHubRepeatChoice(ruleInput) {
+        const rule = __tmNormalizeTaskRepeatRule(ruleInput);
+        if (!rule.enabled || rule.type === 'none') return 'none';
+        if (rule.type === 'fsrs') return 'fsrs';
+        if (rule.every !== 1 || rule.trigger !== 'due') return 'custom';
+        if (rule.type === 'weekly') {
+            const anchor = __tmBuildLocalNoonDateFromKey(rule.anchorDate);
+            const weekdays = Array.isArray(rule.weekdays) ? rule.weekdays : [];
+            if (weekdays.length > 0 && (!anchor || weekdays.length !== 1 || weekdays[0] !== anchor.getDay())) return 'custom';
+        }
+        if (rule.calendarMode === 'lunar' && (rule.type === 'monthly' || rule.type === 'yearly')) {
+            return `lunar-${rule.type}`;
+        }
+        if (rule.type === 'monthly' && rule.monthlyMode === 'weekday') return 'custom';
+        return rule.type;
+    }
+
+    function __tmGetTaskTimeHubUnexpiredSchedule(schedules, nowMs = Date.now()) {
+        const cutoff = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+        const unexpired = (Array.isArray(schedules) ? schedules : []).filter((item) => {
+            const startMs = new Date(item?.start).getTime();
+            const endMs = new Date(item?.end).getTime();
+            const lastMs = Number.isFinite(endMs) ? endMs : startMs;
+            return Number.isFinite(lastMs) && lastMs >= cutoff;
+        });
+        return unexpired.find((item) => item?.allDay !== true) || unexpired[0] || null;
+    }
+
     function __tmRenderTaskTimeHubUntilControlHtml(value = '') {
         const normalized = __tmNormalizeDateOnly(value);
         return `<input class="tm-input tm-task-time-hub__until-date${normalized ? ' has-value' : ''}" type="date" value="${esc(normalized)}" data-tm-time-hub-repeat-until-input aria-label="循环结束日期">`;
@@ -694,18 +761,42 @@
                 }
             } catch (e) {}
             const modal = opts.modal instanceof Element ? opts.modal : state.modal;
+            const patchActiveDetail = (panel) => {
+                if (!(panel instanceof HTMLElement)) return false;
+                const activePopover = panel.__tmTaskDetailActiveInlinePopover;
+                if (!(activePopover instanceof Element) || !document.body.contains(activePopover)) return false;
+                try {
+                    __tmPatchTaskDetailPanelInPlace(panel, tid, {
+                        customStatus: true,
+                        priority: true,
+                        startDate: true,
+                        completionTime: true,
+                        taskCompleteAt: true,
+                        duration: true,
+                        tomatoEstimateCount: true,
+                        tomatoCount: true,
+                        pinned: true,
+                        remark: true,
+                        attachments: true,
+                    });
+                } catch (e) {}
+                return true;
+            };
             if (mode === 'checklist') {
                 if (!__tmAreTaskDetailIdsEquivalent(state.detailTaskId, tid)) return;
+                if (patchActiveDetail(__tmResolveChecklistDetailPanel(modal).panel)) return;
                 try { __tmRefreshChecklistSelectionInPlace(modal, `${source}:hydrated`, { forceRebuild: true }); } catch (e) {}
                 return;
             }
             if (mode === 'task-sheet') {
                 if (!__tmAreTaskDetailIdsEquivalent(state.detailTaskId, tid)) return;
+                if (patchActiveDetail(__tmResolveTaskDetailSheetPanel(modal))) return;
                 try { __tmRefreshTaskDetailSheetInPlace(modal, `${source}:hydrated`, { forceRebuild: true }); } catch (e) {}
                 return;
             }
             if (mode === 'kanban') {
                 if (!__tmAreTaskDetailIdsEquivalent(state.kanbanDetailTaskId, tid)) return;
+                if (patchActiveDetail(modal?.querySelector?.('#tmKanbanDetailPanel'))) return;
                 try { __tmRefreshKanbanDetailInPlace(modal, { source: `${source}:hydrated`, schedulePosition: false }); } catch (e) {}
             }
         }).catch(() => null);
@@ -1307,10 +1398,15 @@
             const month = getHubMonthDate();
             const firstDay = __tmGetTaskTimeHubCalendarFirstDay();
             const gridStart = __tmGetTaskTimeHubMonthGridStart(month, firstDay);
+            const gridEnd = new Date(gridStart.getTime());
+            gridEnd.setDate(gridStart.getDate() + 41);
             const startValue = readTaskDate('startDate');
             const endValue = readTaskDate('completionTime');
+            const calendarTask = { ...(task || {}), startDate: startValue, completionTime: endValue };
             const selectingUntil = hubState.editor === 'end' && hubState.repeatEndMode === 'date';
             const activeValue = selectingUntil ? normalizeDate(hubState.untilDraft) : readTaskDate(hubState.activeField);
+            const nextRepeatValues = selectingUntil || draftMode ? [] : __tmGetTaskTimeHubRepeatDates(calendarTask, {}, toDateKey(gridEnd));
+            const fsrsGoodValue = selectingUntil || draftMode ? '' : __tmGetTaskTimeHubFsrsGoodDate(calendarTask);
             const savedRange = !selectingUntil && startValue && endValue ? sortDateRange(startValue, endValue) : null;
             const dragRange = !selectingUntil && hubState.rangeDrag ? sortDateRange(hubState.rangeDrag.anchor, hubState.rangeDrag.current) : null;
             const days = [];
@@ -1327,6 +1423,8 @@
                     savedRange && key === savedRange.start ? 'is-range-start' : '',
                     savedRange && key === savedRange.end ? 'is-range-end' : '',
                     key === activeValue ? 'is-active' : '',
+                    nextRepeatValues.includes(key) && key !== activeValue ? 'is-next-repeat' : '',
+                    key === fsrsGoodValue ? 'is-fsrs-good' : '',
                     !selectingUntil && key === startValue ? 'is-start' : '',
                     !selectingUntil && key === endValue ? 'is-due' : '',
                     dragRange && isKeyInDateRange(key, dragRange.start, dragRange.end) ? 'is-range-preview' : '',
@@ -1381,19 +1479,28 @@
             const endText = rule?.enabled
                 ? (rule.maxOccurrences > 0 ? __tmGetTaskRepeatProgressText(repeatTask, rule) : (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束'))
                 : '未设置';
+            const currentOccurrenceText = `第 ${__tmNormalizeTaskRepeatState(repeatTask?.repeatState || repeatTask?.repeat_state).occurrenceCount} 次`;
             const cards = [];
             if (!hideRepeat) {
                 cards.push(['repeat', 'repeat', '循环', repeatText]);
-                cards.push(['end', 'calendar-check', '结束', endText]);
+                if (rule.type === 'fsrs') cards.push(['progress', 'hash', '当前轮次', currentOccurrenceText, true]);
+                else cards.push(['end', 'calendar-check', '结束', endText]);
             }
             if (!hideReminder) cards.push(['reminder', 'alarm-clock', '提醒', reminderText]);
             if (!cards.length) return '';
-            return cards.map(([key, icon, label, value]) => `
-                <button type="button" class="tm-task-time-hub__setting ${hubState.editor === key ? 'is-active' : ''} ${disabled ? 'is-disabled' : ''}" data-tm-time-hub-card="${key}"${disabled ? ' disabled aria-disabled="true"' : ''}>
+            return cards.map(([key, icon, label, value, isStatic]) => {
+                const tag = isStatic ? 'div' : 'button';
+                const stateClass = isStatic ? 'is-static' : `${hubState.editor === key ? 'is-active' : ''} ${disabled ? 'is-disabled' : ''}`;
+                const attributes = isStatic
+                    ? ' role="status"'
+                    : ` type="button" data-tm-time-hub-card="${key}"${disabled ? ' disabled aria-disabled="true"' : ''}`;
+                return `
+                <${tag} class="tm-task-time-hub__setting ${stateClass}"${attributes}>
                     <span class="tm-task-time-hub__setting-icon">${__tmTaskDetailTimeHubIcon(icon, 'tm-task-time-hub__icon-svg', 16)}</span>
                     <span class="tm-task-time-hub__setting-text"><span>${esc(label)}</span><strong>${esc(value)}</strong></span>
-                </button>
-            `).join('');
+                </${tag}>
+            `;
+            }).join('');
         };
         const renderScheduleList = () => {
             if (hubState.schedulesLoading) return '<div class="tm-task-time-hub__empty">正在读取日程...</div>';
@@ -1438,18 +1545,12 @@
             if (editor === 'repeat') {
                 if (hideRepeat) return '';
                 const rule = getRepeatRule();
-                const currentType = rule?.enabled ? String(rule.type || 'none') : 'none';
-                const currentCalendarMode = (currentType === 'monthly' || currentType === 'yearly')
-                    ? (String(rule?.calendarMode || '').trim() === 'lunar' ? 'lunar' : 'solar')
-                    : 'solar';
-                const currentChoice = currentCalendarMode === 'lunar' && (currentType === 'monthly' || currentType === 'yearly')
-                    ? `lunar-${currentType}`
-                    : currentType;
-                const choices = [['none', '不循环'], ['daily', '每天'], ['workday', '工作日'], ['weekly', '每周'], ['monthly', '每月'], ['yearly', '每年'], ['lunar-monthly', '农历每月'], ['lunar-yearly', '农历每年']];
+                const currentChoice = __tmGetTaskTimeHubRepeatChoice(rule);
+                const choices = [['none', '不循环'], ['fsrs', 'FSRS 间隔重复'], ['daily', '每天'], ['workday', '工作日'], ['weekly', '每周'], ['monthly', '每月'], ['yearly', '每年'], ['lunar-monthly', '农历每月'], ['lunar-yearly', '农历每年']];
                 return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
                     <div class="tm-task-time-hub__subpanel-title">循环</div>
                     ${choices.map(([type, label]) => `<button type="button" class="tm-task-time-hub__choice ${currentChoice === type ? 'is-selected' : ''}" data-tm-time-hub-repeat="${type}">${esc(label)}</button>`).join('')}
-                    <button type="button" class="tm-task-time-hub__choice" data-tm-time-hub-repeat-custom>自定义循环</button>
+                    <button type="button" class="tm-task-time-hub__choice ${currentChoice === 'custom' ? 'is-selected' : ''}" data-tm-time-hub-repeat-custom>自定义循环</button>
                 </div>`;
             }
             if (editor === 'end') {
@@ -1519,7 +1620,7 @@
                     const tb = new Date(b?.start).getTime();
                     return (Number.isFinite(ta) ? ta : 0) - (Number.isFinite(tb) ? tb : 0);
                 });
-                const first = hubState.schedules.find((it) => it?.allDay !== true) || hubState.schedules[0] || null;
+                const first = __tmGetTaskTimeHubUnexpiredSchedule(hubState.schedules);
                 scheduleText = first ? (first.allDay === true ? '全天' : formatTime(first.start)) : '';
                 hubState.schedulesLoaded = true;
             } catch (e) {
@@ -2256,6 +2357,31 @@
         const titleReadonlyTip = isOtherBlock
             ? '其他块内容请回原文档编辑'
             : (isSnapshotTask ? '快照任务，源任务已删除' : '');
+        const fsrsReviewHtml = (() => {
+            if (titleReadonly || task?.done === true || !curRepeatRule.enabled || curRepeatRule.type !== 'fsrs') return '';
+            if (__tmIsRecurringInstanceTask(task)) return '';
+            const reviewedAt = new Date();
+            const options = __tmBuildFsrsReviewPreviews(task, { reviewedAt });
+            const goodOption = options.find((option) => option.rating === 3) || null;
+            const goodDate = __tmFormatFsrsPreviewDate(goodOption?.completionTime, reviewedAt);
+            return `
+                <div class="tm-task-detail-fsrs" data-tm-detail-fsrs-review>
+                    <div class="tm-task-detail-fsrs__meta">
+                        <span>复习反馈</span>
+                        <span>默认良好 · 下次 <strong>${esc(goodDate)}</strong></span>
+                    </div>
+                    <div class="tm-task-detail-fsrs__row" role="group" aria-label="FSRS 复习反馈">
+                        ${options.map((option) => {
+                            const dateText = __tmFormatFsrsPreviewDate(option.completionTime, reviewedAt);
+                            return `<button type="button" class="tm-task-detail-fsrs__btn tm-task-detail-fsrs__btn--${esc(option.tone)}${option.rating === 3 ? ' is-default' : ''}" data-tm-detail-fsrs-rating="${option.rating}" aria-label="${esc(`${option.label}，预计下次 ${option.completionTime || dateText}`)}" title="${esc(`${option.label} · 预计 ${option.completionTime || dateText}`)}">
+                                <span class="tm-task-detail-fsrs__label">${esc(option.label)}</span>
+                                <span class="tm-task-detail-fsrs__due">${esc(dateText)}</span>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        })();
         const parentLineHtml = __tmBuildTaskDetailParentLineHtml(task);
         const docName = String(task?.docName || task?.doc_name || '').trim();
         const docId = String(task?.root_id || task?.docId || '').trim();
@@ -2355,6 +2481,7 @@
                     <div class="tm-task-detail-header-main">
                         ${parentLineHtml}
                         <textarea class="tm-task-detail-title-input" data-tm-detail="content" ${titleReadonly ? 'readonly' : ''} title="${esc(titleReadonlyTip)}" rows="1">${esc(titleValue)}</textarea>
+                        ${fsrsReviewHtml}
                     </div>
                 </div>
 
@@ -3015,7 +3142,7 @@
             }
             try {
                 const list = await globalThis.__tmCalendar.listTaskSchedulesByTaskId(tid, { futureOnly: true });
-                const first = (Array.isArray(list) ? list : []).find((it) => it?.allDay !== true) || (Array.isArray(list) ? list[0] : null);
+                const first = __tmGetTaskTimeHubUnexpiredSchedule(list);
                 try { root.__tmTaskDetailTimeHubScheduleText = formatTimeHubScheduleText(first); } catch (e) {}
             } catch (e) {
                 try { root.__tmTaskDetailTimeHubScheduleText = ''; } catch (e2) {}
@@ -5792,10 +5919,15 @@
                 const month = getHubMonthDate();
                 const firstDay = __tmGetTaskTimeHubCalendarFirstDay();
                 const gridStart = __tmGetTaskTimeHubMonthGridStart(month, firstDay);
+                const gridEnd = new Date(gridStart.getTime());
+                gridEnd.setDate(gridStart.getDate() + 41);
                 const startValue = readHiddenInputValue('startDate');
                 const endValue = readHiddenInputValue('completionTime');
+                const calendarTask = { ...(getBoundTask() || {}), startDate: startValue, completionTime: endValue };
                 const selectingUntil = hubState.editor === 'end' && hubState.repeatEndMode === 'date';
                 const activeValue = selectingUntil ? __tmNormalizeDateOnly(hubState.untilDraft) : readHiddenInputValue(hubState.activeField);
+                const nextRepeatValues = selectingUntil ? [] : __tmGetTaskTimeHubRepeatDates(calendarTask, {}, toDateKey(gridEnd));
+                const fsrsGoodValue = selectingUntil ? '' : __tmGetTaskTimeHubFsrsGoodDate(calendarTask);
                 const savedRange = !selectingUntil && startValue && endValue ? sortDateRange(startValue, endValue) : null;
                 const dragRange = !selectingUntil && hubState.rangeDrag
                     ? sortDateRange(hubState.rangeDrag.anchor, hubState.rangeDrag.current)
@@ -5814,6 +5946,8 @@
                         savedRange && key === savedRange.start ? 'is-range-start' : '',
                         savedRange && key === savedRange.end ? 'is-range-end' : '',
                         key === activeValue ? 'is-active' : '',
+                        nextRepeatValues.includes(key) && key !== activeValue ? 'is-next-repeat' : '',
+                        key === fsrsGoodValue ? 'is-fsrs-good' : '',
                         !selectingUntil && key === startValue ? 'is-start' : '',
                         !selectingUntil && key === endValue ? 'is-due' : '',
                         dragRange && isKeyInDateRange(key, dragRange.start, dragRange.end) ? 'is-range-preview' : '',
@@ -5868,22 +6002,31 @@
             const endText = rule?.enabled
                 ? (rule.maxOccurrences > 0 ? __tmGetTaskRepeatProgressText(repeatTask, rule) : (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束'))
                 : '未设置';
+            const currentOccurrenceText = `第 ${__tmNormalizeTaskRepeatState(repeatTask?.repeatState || repeatTask?.repeat_state).occurrenceCount} 次`;
             const cards = [];
             if (!hideRepeat) {
                 cards.push(['repeat', 'repeat', '循环', repeatText]);
-                cards.push(['end', 'calendar-check', '结束', endText]);
+                if (rule.type === 'fsrs') cards.push(['progress', 'hash', '当前轮次', currentOccurrenceText, true]);
+                else cards.push(['end', 'calendar-check', '结束', endText]);
             }
             if (!hideReminder) cards.push(['reminder', 'alarm-clock', '提醒', reminderText]);
             if (!cards.length) return '';
-            return cards.map(([key, icon, label, value]) => `
-                <button type="button" class="tm-task-time-hub__setting ${hubState.editor === key ? 'is-active' : ''} ${disabled ? 'is-disabled' : ''}" data-tm-time-hub-card="${key}"${disabled ? ' disabled aria-disabled="true"' : ''}>
+            return cards.map(([key, icon, label, value, isStatic]) => {
+                const tag = isStatic ? 'div' : 'button';
+                const stateClass = isStatic ? 'is-static' : `${hubState.editor === key ? 'is-active' : ''} ${disabled ? 'is-disabled' : ''}`;
+                const attributes = isStatic
+                    ? ' role="status"'
+                    : ` type="button" data-tm-time-hub-card="${key}"${disabled ? ' disabled aria-disabled="true"' : ''}`;
+                return `
+                <${tag} class="tm-task-time-hub__setting ${stateClass}"${attributes}>
                         <span class="tm-task-time-hub__setting-icon">${__tmTaskDetailTimeHubIcon(icon, 'tm-task-time-hub__icon-svg', 16)}</span>
                         <span class="tm-task-time-hub__setting-text">
                             <span>${esc(label)}</span>
                             <strong>${esc(value)}</strong>
                         </span>
-                    </button>
-                `).join('');
+                    </${tag}>
+                `;
+            }).join('');
             };
             const renderScheduleList = () => {
                 if (hubState.schedulesLoading) return '<div class="tm-task-time-hub__empty">正在读取日程...</div>';
@@ -5930,15 +6073,10 @@
             if (editor === 'repeat') {
                 if (hideRepeat) return '';
                 const rule = getRepeatRule();
-                    const currentType = rule?.enabled ? String(rule.type || 'none') : 'none';
-                    const currentCalendarMode = (currentType === 'monthly' || currentType === 'yearly')
-                        ? (String(rule?.calendarMode || '').trim() === 'lunar' ? 'lunar' : 'solar')
-                        : 'solar';
-                    const currentChoice = currentCalendarMode === 'lunar' && (currentType === 'monthly' || currentType === 'yearly')
-                        ? `lunar-${currentType}`
-                        : currentType;
+                    const currentChoice = __tmGetTaskTimeHubRepeatChoice(rule);
                     const choices = [
                         ['none', '不循环'],
+                        ['fsrs', 'FSRS 间隔重复'],
                         ['daily', '每天'],
                         ['workday', '工作日'],
                         ['weekly', '每周'],
@@ -5950,7 +6088,7 @@
                     return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
                         <div class="tm-task-time-hub__subpanel-title">循环</div>
                         ${choices.map(([type, label]) => `<button type="button" class="tm-task-time-hub__choice ${currentChoice === type ? 'is-selected' : ''}" data-tm-time-hub-repeat="${type}">${esc(label)}</button>`).join('')}
-                        <button type="button" class="tm-task-time-hub__choice" data-tm-time-hub-repeat-custom>自定义循环</button>
+                        <button type="button" class="tm-task-time-hub__choice ${currentChoice === 'custom' ? 'is-selected' : ''}" data-tm-time-hub-repeat-custom>自定义循环</button>
                     </div>`;
             }
             if (editor === 'end') {
@@ -6064,6 +6202,7 @@
                         refresh: true,
                         broadcast: false,
                         background: true,
+                        skipDetailPatch: true,
                         skipNoopCheck: true,
                         skipSnapshotPersist: true,
                         skipTaskIndexPersist: true,
@@ -6107,6 +6246,7 @@
                         refresh: true,
                         broadcast: false,
                         background: true,
+                        skipDetailPatch: true,
                         skipNoopCheck: true,
                         skipSnapshotPersist: true,
                         skipTaskIndexPersist: true,
@@ -6147,7 +6287,7 @@
                         return (Number.isFinite(ta) ? ta : 0) - (Number.isFinite(tb) ? tb : 0);
                     });
                     try {
-                        const first = hubState.schedules.find((it) => it?.allDay !== true) || hubState.schedules[0] || null;
+                        const first = __tmGetTaskTimeHubUnexpiredSchedule(hubState.schedules);
                         root.__tmTaskDetailTimeHubScheduleText = formatTimeHubScheduleText(first);
                         syncTimeHubTriggerFace();
                     } catch (e) {}
@@ -7849,6 +7989,28 @@
                 requestAnimationFrame(() => syncAutoHeight(titleTextarea, 36));
             } catch (e) {}
         }
+        const fsrsReviewButtons = Array.from(root.querySelectorAll('[data-tm-detail-fsrs-rating]'));
+        fsrsReviewButtons.forEach((button) => {
+            if (!(button instanceof HTMLButtonElement)) return;
+            on(button, 'click', async (event) => {
+                try { event.preventDefault(); } catch (e) {}
+                try { event.stopPropagation(); } catch (e) {}
+                const rating = __tmNormalizeFsrsRating(button.getAttribute('data-tm-detail-fsrs-rating'));
+                if (!rating || button.disabled) return;
+                fsrsReviewButtons.forEach((item) => {
+                    if (item instanceof HTMLButtonElement) item.disabled = true;
+                });
+                try {
+                    if (typeof window.tmReviewFsrsTask !== 'function') throw new Error('FSRS 反馈功能未就绪');
+                    await window.tmReviewFsrsTask(taskId, rating, { source: 'task-detail-inline-fsrs-review' });
+                } catch (error) {
+                    fsrsReviewButtons.forEach((item) => {
+                        if (item instanceof HTMLButtonElement) item.disabled = false;
+                    });
+                    hint(`FSRS 反馈失败：${error?.message || String(error)}`, 'error');
+                }
+            });
+        });
         const remarkShell = root.querySelector('[data-tm-detail-remark-shell]');
         const remarkPreview = root.querySelector('[data-tm-detail-remark-preview]');
         const remarkActivator = root.querySelector('[data-tm-detail-remark-activator]');
@@ -9145,9 +9307,10 @@ return true;
                 try { root.__tmTaskDetailForceRebuildRetryQueued = false; } catch (e) {}
                 if (!root.isConnected) return;
                 try {
+                    const stillBusy = __tmShouldDeferTaskDetailFallback(root);
                     __tmRefreshVisibleTaskDetailForTask(tid, {
                         forceRebuild: true,
-                        retry: true,
+                        retry: !stillBusy,
                         source: String(source || '').trim() || 'detail-force-rebuild-retry',
                     });
                 } catch (e) {}

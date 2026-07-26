@@ -38,15 +38,26 @@
         return out.slice(0, __TM_QUICK_ADD_RECENT_DOCS_LIMIT);
     }
 
-    function __tmRememberQuickAddRecentDoc(docId, fallback = null) {
-        const meta = __tmResolveQuickAddRecentDocMeta(docId, fallback);
-        if (!meta) return;
-        const existing = __tmGetQuickAddRecentDocs()
-            .filter((entry) => String(entry?.id || '').trim() !== meta.id);
-        const next = [{ ...meta, ts: Date.now() }, ...existing]
-            .slice(0, __TM_QUICK_ADD_RECENT_DOCS_LIMIT);
-        SettingsStore.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(next);
-        Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, SettingsStore.data.quickAddRecentDocs);
+    function __tmGetQuickAddLastLocation() {
+        return __tmNormalizeQuickAddLastLocation(SettingsStore?.data?.quickAddLastLocation);
+    }
+
+    function __tmRememberQuickAddLocation(mode, docId = '') {
+        const location = __tmNormalizeQuickAddLastLocation({ mode, docId });
+        if (!location) return;
+        SettingsStore.data.quickAddLastLocation = location;
+        Storage.set(__TM_QUICK_ADD_LAST_LOCATION_KEY, location);
+        if (location.mode === 'doc') {
+            const meta = __tmResolveQuickAddRecentDocMeta(location.docId);
+            if (meta) {
+                const existing = __tmGetQuickAddRecentDocs()
+                    .filter((entry) => String(entry?.id || '').trim() !== meta.id);
+                const next = [{ ...meta, ts: Date.now() }, ...existing]
+                    .slice(0, __TM_QUICK_ADD_RECENT_DOCS_LIMIT);
+                SettingsStore.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(next);
+                Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, SettingsStore.data.quickAddRecentDocs);
+            }
+        }
         try { SettingsStore.save()?.catch?.(() => {}); } catch (e) {}
     }
 
@@ -74,6 +85,22 @@
         } catch (e) {
             return null;
         }
+    }
+
+    async function __tmResolveQuickAddInitialLocation() {
+        const configured = String(SettingsStore.data.newTaskDocId || '').trim();
+        const fallbackDocId = String(await __tmResolveDefaultDocIdAsync() || '').trim();
+        if (__tmNormalizeNewTaskDefaultLocationMode(SettingsStore.data.newTaskDefaultLocationMode) !== 'lastSelected') {
+            return configured === '__dailyNote__'
+                ? { mode: 'dailyNote', docId: fallbackDocId }
+                : { mode: 'doc', docId: fallbackDocId };
+        }
+        const lastLocation = __tmGetQuickAddLastLocation();
+        if (lastLocation?.mode === 'dailyNote') return { mode: 'dailyNote', docId: fallbackDocId };
+        if (lastLocation?.mode === 'doc' && lastLocation.docId) return lastLocation;
+        return configured === '__dailyNote__'
+            ? { mode: 'dailyNote', docId: fallbackDocId }
+            : { mode: 'doc', docId: fallbackDocId };
     }
 
     function __tmResolveQuickAddDocId() {
@@ -4068,16 +4095,16 @@
             state.quickAddDocPicker = null;
         }
 
-        const configuredNewTaskDoc = String(SettingsStore.data.newTaskDocId || '').trim();
-        const docId = await __tmResolveDefaultDocIdAsync();
-        if (!docId && configuredNewTaskDoc !== '__dailyNote__') {
+        const initialLocation = await __tmResolveQuickAddInitialLocation();
+        const docId = String(initialLocation?.docId || '').trim();
+        if (!docId && initialLocation?.mode !== 'dailyNote') {
             hint('⚠ 请先在设置中选择文档', 'warning');
             showSettings();
             return;
         }
 
-        const initialMode = configuredNewTaskDoc === '__dailyNote__' ? 'dailyNote' : 'doc';
-        const initialDocId = configuredNewTaskDoc === '__dailyNote__' ? (docId || '') : docId;
+        const initialMode = initialLocation?.mode === 'dailyNote' ? 'dailyNote' : 'doc';
+        const initialDocId = docId;
 
         const stOptions = SettingsStore.data.customStatusOptions || [];
         const defaultStatusId = __tmGetDefaultUndoneStatusId(stOptions);
@@ -4494,15 +4521,17 @@
             const entry = state.taskTree.find(d => d.id === docId);
             return entry?.name || '未命名文档';
         };
-        const configuredNewTaskDoc = String(SettingsStore.data.newTaskDocId || '').trim();
-        const defaultDocIsDailyNote = configuredNewTaskDoc === '__dailyNote__';
-        const defaultDocId = defaultDocIsDailyNote
-            ? ''
-            : (__tmResolveConfiguredQuickAddDocId() || __tmResolveDefaultDocId());
+        const defaultUsesLastSelection = __tmNormalizeNewTaskDefaultLocationMode(SettingsStore.data.newTaskDefaultLocationMode) === 'lastSelected';
+        const defaultLocation = await __tmResolveQuickAddInitialLocation();
+        const defaultDocIsDailyNote = defaultLocation?.mode === 'dailyNote';
+        const defaultDocId = String(defaultLocation?.docId || '').trim();
         const defaultDocName = defaultDocIsDailyNote
             ? '今天日记'
             : (defaultDocId ? resolveDocName(defaultDocId) : '未设置');
         const defaultDocReady = defaultDocIsDailyNote || !!defaultDocId;
+        const defaultLocationLabel = defaultUsesLastSelection
+            ? `上次选择：${defaultDocName}`
+            : `默认任务文档：${defaultDocName}`;
         const recentDocs = __tmGetQuickAddRecentDocs();
         const recentSectionHtml = recentDocs.length > 0 ? `
                 <div style="border:1px solid var(--tm-border-color);border-radius:8px;margin-bottom:8px;overflow:hidden;">
@@ -4541,7 +4570,7 @@
                             <div style="margin-left:10px;">${qa.docMode === 'dailyNote' ? '✅' : '◻️'}</div>
                         </div>
                         <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:${defaultDocReady ? 'pointer' : 'not-allowed'};opacity:${defaultDocReady ? 1 : 0.6};" onclick="${defaultDocReady ? `tmQuickAddUseDefaultDoc();tmQuickAddCloseDocPicker();` : ''}">
-                            <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">默认任务文档：${esc(defaultDocName)}</div>
+                            <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(defaultLocationLabel)}</div>
                             <div style="margin-left:10px;">${defaultDocIsDailyNote ? (qa.docMode === 'dailyNote' ? '✅' : '◻️') : (qa.docMode !== 'dailyNote' && qa.docId === defaultDocId ? '✅' : '◻️')}</div>
                         </div>
                     </div>
@@ -4737,7 +4766,7 @@
         // 仅更新本地状态，不修改全局设置
         qa.docId = id;
         qa.docMode = 'doc';
-        __tmRememberQuickAddRecentDoc(id);
+        __tmRememberQuickAddLocation('doc', id);
         // 移除对 updateNewTaskDocId 的调用，避免修改全局新建文档设置
         window.tmQuickAddRenderMeta?.();
         window.tmQuickAddCloseDocPicker?.();
@@ -4747,6 +4776,7 @@
         const qa = state.quickAdd;
         if (!qa) return;
         qa.docMode = 'dailyNote';
+        __tmRememberQuickAddLocation('dailyNote');
         try { window.tmQuickAddCloseDocPicker?.(); } catch (e) {}
         window.tmQuickAddRenderMeta?.();
     };
@@ -4754,20 +4784,21 @@
     window.tmQuickAddUseDefaultDoc = async function() {
         const qa = state.quickAdd;
         if (!qa) return;
-        const configured = String(SettingsStore.data.newTaskDocId || '').trim();
-        if (configured === '__dailyNote__') {
+        const location = await __tmResolveQuickAddInitialLocation();
+        if (location?.mode === 'dailyNote') {
             qa.docMode = 'dailyNote';
+            __tmRememberQuickAddLocation('dailyNote');
             window.tmQuickAddRenderMeta?.();
             return;
         }
-        const id = __tmResolveConfiguredQuickAddDocId() || await __tmResolveDefaultDocIdAsync();
+        const id = String(location?.docId || '').trim();
         if (!id) {
             hint('⚠ 未设置默认任务文档', 'warning');
             return;
         }
         qa.docId = id;
         qa.docMode = 'doc';
-        __tmRememberQuickAddRecentDoc(id);
+        __tmRememberQuickAddLocation('doc', id);
         window.tmQuickAddRenderMeta?.();
     };
 

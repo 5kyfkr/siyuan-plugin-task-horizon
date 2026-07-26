@@ -19,6 +19,7 @@ const FULLCALENDAR_FORMA_THEME_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/fullca
 const FULLCALENDAR_FORMA_BASECOAT_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/themes/forma/palettes/basecoat.css`;
 const BASECOAT_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/basecoat/basecoat.js`;
 const BASECOAT_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/basecoat/basecoat.css`;
+const CALENDAR_SUBSCRIPTION_CORE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/calendar-subscription-core.js`;
 const CALENDAR_VIEW_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.js`;
 const CALENDAR_VIEW_CSS_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.css`;
 const PLUGIN_MANIFEST_PATH = `/data/plugins/${PLUGIN_ID}/plugin.json`;
@@ -29,6 +30,8 @@ const ICON_ID = "iconTaskHorizon";
 const ENTRY_ICON_PRESET_STORAGE_KEY = "tm_entry_icon_preset";
 const DEFAULT_ENTRY_ICON_PRESET = "classic";
 const WINDOW_TOPBAR_ATTR = "data-task-horizon-window-topbar";
+const CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID = "iconTaskHorizonCalendarUpload";
+const CALENDAR_SUBSCRIPTION_TOPBAR_ATTR = "data-task-horizon-calendar-subscription-topbar";
 const CUSTOM_TAB_ID = PLUGIN_ID + TAB_TYPE;
 const TASK_DOCK_TYPE = "::task-horizon-dock";
 const TASK_DOCK_TITLE = "任务侧栏";
@@ -173,6 +176,10 @@ const buildEntryIconSymbols = (value) => {
         `<symbol id="${preset.symbolId}" viewBox="${preset.viewBox}">${preset.body}</symbol>`
     ));
     symbols.unshift(`<symbol id="${ICON_ID}" viewBox="${selected.viewBox}">${selected.body}</symbol>`);
+    symbols.push(`<symbol id="${CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID}" viewBox="0 0 24 24">
+<path d="M12 13v8m-4-4 4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+<path d="M5 16a4 4 0 0 1-.4-7.98A6 6 0 0 1 16.5 6.6 4.5 4.5 0 0 1 18 15.35" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+</symbol>`);
     return symbols.join("\n");
 };
 
@@ -981,6 +988,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._taskPostMainAssetsLoading = null;
         this._taskMainRuntimeRecoveryTimer = null;
         this._taskWindowTopBarLayoutReady = false;
+        this._taskCalendarSubscriptionTopBarElement = null;
+        this._taskCalendarSubscriptionTopBarMeta = { enabled: false, running: false, title: "立即上传日历 ICS" };
         globalThis.__taskHorizonPluginApp = this.app;
         globalThis.__taskHorizonPluginInstance = this;
         globalThis.__taskHorizonPluginIsMobile = runtimeMobile;
@@ -994,6 +1003,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonOpenAssetWithSystem = openTaskHorizonAssetWithSystem;
         globalThis.__taskHorizonOpenTabView = this.openTaskHorizonTab.bind(this);
         globalThis.__taskHorizonSyncWindowTopBar = this.syncWindowTopBar.bind(this);
+        globalThis.__taskHorizonSyncCalendarSubscriptionTopBar = this.syncCalendarSubscriptionTopBar.bind(this);
         globalThis.__taskHorizonHostBridge = createTaskHorizonHostBridge(this);
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
@@ -1076,6 +1086,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     onLayoutReady() {
         this._taskWindowTopBarLayoutReady = true;
         this.syncWindowTopBar();
+        this.syncCalendarSubscriptionTopBar();
     }
 
     registerCommands() {
@@ -1299,6 +1310,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             await loadScriptText(FULLCALENDAR_SCRIPT_PATH, "fullcalendar/fullcalendar.global.js");
             await loadScriptText(FULLCALENDAR_FORMA_THEME_SCRIPT_PATH, "fullcalendar/themes/forma/global.js");
             await loadScriptText(FULLCALENDAR_LOCALES_SCRIPT_PATH, "fullcalendar/locales-all/global.js");
+            await loadScriptText(CALENDAR_SUBSCRIPTION_CORE_SCRIPT_PATH, "calendar-subscription-core.js");
             await loadScriptText(CALENDAR_VIEW_SCRIPT_PATH, "calendar-view.js");
             await loadStyleText(CALENDAR_VIEW_CSS_PATH, "calendar-view.css");
             this._taskPostMainAssetsLoaded = true;
@@ -1691,9 +1703,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         if (!(element instanceof HTMLElement)) return false;
         if (element === this._taskWindowTopBarElement) return true;
         try {
-            if (Array.isArray(this.topBarIcons) && this.topBarIcons.includes(element)) return true;
-        } catch (e) {}
-        try {
             if (element.getAttribute(WINDOW_TOPBAR_ATTR) === "1") {
                 return this.windowTopBarElementHasTaskIcon(element);
             }
@@ -1816,6 +1825,111 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             entries.forEach((element) => this.removeWindowTopBarElement(element));
         } catch (e) {}
         this._taskWindowTopBarElement = null;
+    }
+
+    isCalendarSubscriptionTopBarElement(element) {
+        if (!(element instanceof HTMLElement)) return false;
+        if (element === this._taskCalendarSubscriptionTopBarElement) return true;
+        if (element.getAttribute(CALENDAR_SUBSCRIPTION_TOPBAR_ATTR) === "1") return true;
+        try {
+            return !!element.querySelector?.(`use[href="#${CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID}"]`);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    findCalendarSubscriptionTopBarElements() {
+        const entries = [];
+        const seen = new Set();
+        const push = (element) => {
+            if (!(element instanceof HTMLElement) || seen.has(element) || !this.isCalendarSubscriptionTopBarElement(element)) return;
+            seen.add(element);
+            entries.push(element);
+        };
+        push(this._taskCalendarSubscriptionTopBarElement);
+        try {
+            if (Array.isArray(this.topBarIcons)) this.topBarIcons.forEach(push);
+        } catch (e) {}
+        try {
+            document.querySelectorAll(`[${CALENDAR_SUBSCRIPTION_TOPBAR_ATTR}="1"]`).forEach(push);
+        } catch (e) {}
+        return entries;
+    }
+
+    markCalendarSubscriptionTopBarElement(element) {
+        if (!(element instanceof HTMLElement)) return null;
+        const meta = this._taskCalendarSubscriptionTopBarMeta || {};
+        const title = String(meta.title || "立即上传日历 ICS");
+        try { element.setAttribute(CALENDAR_SUBSCRIPTION_TOPBAR_ATTR, "1"); } catch (e) {}
+        try { element.setAttribute("title", title); } catch (e) {}
+        try { element.setAttribute("aria-label", title); } catch (e) {}
+        try { element.setAttribute("aria-busy", meta.running === true ? "true" : "false"); } catch (e) {}
+        try { element.classList.toggle("tm-calendar-subscription-topbar--running", meta.running === true); } catch (e) {}
+        try { if ("disabled" in element) element.disabled = meta.running === true; } catch (e) {}
+        return element;
+    }
+
+    removeCalendarSubscriptionTopBar() {
+        try {
+            const entries = this.findCalendarSubscriptionTopBarElements();
+            if (this._taskCalendarSubscriptionTopBarElement instanceof HTMLElement && !entries.includes(this._taskCalendarSubscriptionTopBarElement)) {
+                entries.push(this._taskCalendarSubscriptionTopBarElement);
+            }
+            entries.forEach((element) => this.removeWindowTopBarElement(element));
+        } catch (e) {}
+        this._taskCalendarSubscriptionTopBarElement = null;
+    }
+
+    ensureCalendarSubscriptionTopBar() {
+        if (typeof this.addTopBar !== "function") return false;
+        const entries = this.findCalendarSubscriptionTopBarElements();
+        const keeper = entries.includes(this._taskCalendarSubscriptionTopBarElement)
+            ? this._taskCalendarSubscriptionTopBarElement
+            : (entries[0] || null);
+        entries.forEach((element) => {
+            if (element !== keeper) this.removeWindowTopBarElement(element);
+        });
+        if (keeper instanceof HTMLElement && document.contains(keeper)) {
+            this._taskCalendarSubscriptionTopBarElement = keeper;
+            this.markCalendarSubscriptionTopBarElement(keeper);
+            return true;
+        }
+        try {
+            this._taskCalendarSubscriptionTopBarElement = this.addTopBar({
+                icon: CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID,
+                title: String(this._taskCalendarSubscriptionTopBarMeta?.title || "立即上传日历 ICS"),
+                position: "right",
+                callback: () => {
+                    if (this._taskCalendarSubscriptionTopBarMeta?.running === true) return;
+                    const publisher = globalThis.__tmCalendarSubscription;
+                    if (typeof publisher?.publishNow !== "function") return;
+                    void publisher.publishNow({ source: "topbar", force: true, interactive: true });
+                },
+            }) || null;
+            this.markCalendarSubscriptionTopBarElement(this._taskCalendarSubscriptionTopBarElement);
+            return this._taskCalendarSubscriptionTopBarElement instanceof HTMLElement
+                && document.contains(this._taskCalendarSubscriptionTopBarElement);
+        } catch (e) {
+            this._taskCalendarSubscriptionTopBarElement = null;
+            return false;
+        }
+    }
+
+    syncCalendarSubscriptionTopBar(meta) {
+        try { globalThis.__taskHorizonSyncCalendarSubscriptionTopBar = this.syncCalendarSubscriptionTopBar.bind(this); } catch (e) {}
+        if (meta && typeof meta === "object") {
+            this._taskCalendarSubscriptionTopBarMeta = {
+                ...(this._taskCalendarSubscriptionTopBarMeta || {}),
+                ...meta,
+            };
+        }
+        const current = this._taskCalendarSubscriptionTopBarMeta || {};
+        if (!this._taskWindowTopBarLayoutReady
+            || current.enabled !== true) {
+            this.removeCalendarSubscriptionTopBar();
+            return false;
+        }
+        return this.ensureCalendarSubscriptionTopBar();
     }
 
     async openQuickAddTaskWindow() {
@@ -2254,6 +2368,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             }
         } catch (e) {}
         try { this.cancelTaskDockRecovery(); } catch (e) {}
+        try { this.removeCalendarSubscriptionTopBar(); } catch (e) {}
         try { this.removeWindowTopBar(); } catch (e) {}
         try { this.destroyTaskDockFrame(); } catch (e) {}
         try { globalThis.__TaskManagerCleanup?.(); } catch (e) {}
@@ -2284,6 +2399,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonHostBridge; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
         try { delete globalThis.__taskHorizonSyncWindowTopBar; } catch (e) {}
+        try { delete globalThis.__taskHorizonSyncCalendarSubscriptionTopBar; } catch (e) {}
         try { delete globalThis.__taskHorizonCustomTabId; } catch (e) {}
         try { delete globalThis.__taskHorizonTabElement; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}
@@ -2327,10 +2443,9 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
         try {
             const paths = [
-                "/data/storage/petal/siyuan-plugin-task-horizon/task-settings.json",
-                "/data/storage/petal/siyuan-plugin-task-horizon/task-license.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-meta.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-snapshot.json",
+                "/data/storage/petal/siyuan-plugin-task-horizon/diagnostic-logs.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-conversations.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-debug.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-prompt-templates.json",
@@ -2338,7 +2453,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 "/data/storage/petal/siyuan-plugin-task-horizon/agent-mcp-config.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-policy-config.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/agent-scheduled-events.json",
-                "/data/storage/petal/siyuan-plugin-task-horizon/calendar-events.json",
             ];
             await Promise.all(paths.map((path) => fetch("/api/file/removeFile", {
                 method: "POST",

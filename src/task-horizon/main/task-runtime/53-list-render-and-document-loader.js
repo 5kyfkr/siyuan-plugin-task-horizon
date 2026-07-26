@@ -1,7 +1,8 @@
-    function renderTaskList(renderContext = null) {
+    function renderTaskList(renderContext = null, renderOptions = {}) {
         const context = (renderContext && typeof renderContext === 'object')
             ? renderContext
             : __tmBuildListRenderContext();
+        const options = (renderOptions && typeof renderOptions === 'object') ? renderOptions : {};
         const colOrder = (Array.isArray(context.colOrder) && context.colOrder.length)
             ? context.colOrder
             : __tmGetDefaultColumnOrder();
@@ -14,13 +15,16 @@
         const isGloballyLocked = GlobalLock.isLocked();
         const isListView = globalThis.__tmRuntimeState?.isViewMode?.('list') ?? (String(state.viewMode || '').trim() === 'list');
         const virtualThreshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 50;
-        const virtualEnabled = isListView && state.filteredTasks.length > virtualThreshold;
+        const progressiveListRender = state.__tmProgressiveViewRender?.mode === 'list'
+            && state.__tmProgressiveViewRender?.tasksRef === state.filteredTasks;
+        const startTaskRow = Math.max(0, Math.round(Number(options.startTaskRow) || 0));
+        const virtualEnabled = isListView && (progressiveListRender || startTaskRow > 0 || state.filteredTasks.length > virtualThreshold);
         const listStep = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
         const taskRowLimit = virtualEnabled
             ? Math.max(listStep, Math.min(state.filteredTasks.length, Number(state.listRenderLimit) || listStep))
             : Number.POSITIVE_INFINITY;
-        let renderedTaskRows = 0;
-        const hasTaskRowBudget = () => renderedTaskRows < taskRowLimit;
+        let visitedTaskRows = 0;
+        const hasTaskRowBudget = () => visitedTaskRows < taskRowLimit;
         const isDark = __tmIsDarkMode();
         const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
         let currentGroupBg = '';
@@ -231,7 +235,10 @@
 
         // 渲染单行（保持原有 emitRow 逻辑）
         const emitRow = (task, depth, hasChildren, collapsed, options = {}) => {
-            if (!hasTaskRowBudget()) return '';
+            if (!hasTaskRowBudget()) return null;
+            const taskRowIndex = visitedTaskRows;
+            visitedTaskRows += 1;
+            if (taskRowIndex < startTaskRow) return '';
             const opts = (options && typeof options === 'object') ? options : {};
             const { done, content, priority, completionTime, duration, remark, docName, pinned, startDate } = task;
             const taskId = String(task?.id || '').trim();
@@ -450,7 +457,6 @@
                 }
             }
             rowHtml += `</tr>`;
-            renderedTaskRows += 1;
             return rowHtml;
         };
 
@@ -469,8 +475,8 @@
             const showChildren = hasChildren;
 
             const firstRow = emitRow(task, depth, showChildren, collapsed, { inCompletedRootGroup });
-            if (!firstRow) return rows;
-            rows.push(firstRow);
+            if (firstRow === null) return rows;
+            if (firstRow) rows.push(firstRow);
 
             if (showChildren && !collapsed) {
                 childTasks.forEach(child => {
@@ -874,8 +880,8 @@
         }
 
         if (virtualEnabled) {
-            const remain = renderedTaskRows >= taskRowLimit
-                ? Math.max(0, state.filteredTasks.length - renderedTaskRows)
+            const remain = visitedTaskRows >= taskRowLimit
+                ? Math.max(0, state.filteredTasks.length - visitedTaskRows)
                 : 0;
             if (remain > 0) {
                 allRows.push(`<tr class="tm-load-more-row"><td colspan="${colCount}" style="text-align:center;padding:10px;background:var(--tm-header-bg);"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmListLoadMoreRows(event)">继续加载</button></td></tr>`);
@@ -918,7 +924,10 @@
         const currentDone = typeof __tmIsTaskDoneEffective === 'function'
             ? !!__tmIsTaskDoneEffective(task)
             : !!task.done;
-        await window.tmSetDone(tid, !currentDone);
+        await window.tmSetDone(tid, !currentDone, null, {
+            source: 'task-toggle-done',
+            fsrsRating: !currentDone ? 3 : 0,
+        });
     };
 
     function __tmUpdateDoneMarkdown(markdown, done) {
@@ -2341,16 +2350,22 @@ return finish(false, 'noop');
         let recurringScheduled = false;
         if (completedAt) {
             try {
+                const fsrsRating = typeof __tmNormalizeFsrsRating === 'function'
+                    ? __tmNormalizeFsrsRating(opts.fsrsRating)
+                    : 0;
                 let shouldSchedule = !latestTask;
                 if (latestTask) {
                     const repeatRule = __tmGetTaskRepeatRule(latestTask);
-                    shouldSchedule = !!__tmBuildTaskRepeatAdvancePatch(latestTask, repeatRule, { completedAt });
+                    shouldSchedule = repeatRule.type === 'fsrs'
+                        ? fsrsRating >= 2
+                        : !!__tmBuildTaskRepeatAdvancePatch(latestTask, repeatRule, { completedAt });
                 }
                 if (shouldSchedule) {
                     __tmScheduleRecurringTaskAdvanceAfterCompletion(tid, {
                         source: opts.source,
                         completedAt,
                         scheduleId: String(opts.scheduleId || '').trim(),
+                        fsrsRating,
                         expectAdvance: true,
                     });
                     recurringScheduled = true;
@@ -3303,6 +3318,20 @@ if (ev) {
         const currentDone = typeof __tmIsTaskDoneEffective === 'function'
             ? !!__tmIsTaskDoneEffective(task)
             : !!task.done;
+        let fsrsRating = __tmNormalizeFsrsRating(opts.fsrsRating);
+        if (!currentDone && targetDone) {
+            const repeatRule = __tmGetTaskRepeatRule(task);
+            if (repeatRule.type === 'fsrs') {
+                if (!fsrsRating && ev?.target) fsrsRating = 3;
+                if (!fsrsRating) {
+                    if (opts.suppressHint !== true) hint('⚠ FSRS 间隔重复需要明确选择“良好”或其他评分', 'warning');
+                    if (ev?.target) {
+                        try { ev.target.checked = false; } catch (e) {}
+                    }
+                    return false;
+                }
+            }
+        }
         if (currentDone === targetDone) return;
         try {
             const request = __tmQueueSetDoneTask(tid, targetDone, task, {
@@ -3318,6 +3347,7 @@ if (ev) {
                 skipOptimisticRefresh: opts.skipOptimisticRefresh === true,
                 skipSettledRefresh: opts.skipSettledRefresh === true,
                 refreshAncestorViews: opts.refreshAncestorViews !== false,
+                fsrsRating,
             });
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
             if (opts.wait === true) await request;
@@ -4881,25 +4911,65 @@ if (ev) {
     }
 
     // 删除任务
-    window.tmDelete = async function(id) {
+    window.tmDelete = async function(id, options = {}) {
         const tid = String(id || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
         const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
             || state.flatTasks?.[tid]
             || state.pendingInsertedTasks?.[tid]
             || null;
         if (!task) return;
-        if (!__tmEnsureEditableTaskLike(task, '删除任务')) return;
+        const isRecurringInstance = __tmIsRecurringInstanceTask(task);
+        const recurringSourceTaskId = isRecurringInstance
+            ? String(__tmResolveRecurringInstanceSourceTaskId(tid, task) || '').trim()
+            : '';
+        const recurringCompletedAt = isRecurringInstance
+            ? String(task?.recurringCompletedAt || '').trim()
+            : '';
+        if (isRecurringInstance && (!recurringSourceTaskId || !recurringCompletedAt)) {
+            hint('⚠️ 未找到可删除的循环记录', 'warning');
+            return false;
+        }
+        if (!isRecurringInstance && !__tmEnsureEditableTaskLike(task, '删除任务')) return;
         let ok = false;
         try {
-            ok = await showConfirm('删除任务', '确定要删除这个任务吗？此操作不可恢复。');
+            ok = isRecurringInstance
+                ? await showConfirm('删除循环记录', '确定要删除这条循环记录吗？此操作不可恢复。')
+                : await showConfirm('删除任务', '确定要删除这个任务吗？此操作不可恢复。');
         } catch (e) {
             try {
-                ok = !!confirm('确定要删除这个任务吗？此操作不可恢复。');
+                ok = !!confirm(isRecurringInstance
+                    ? '确定要删除这条循环记录吗？此操作不可恢复。'
+                    : '确定要删除这个任务吗？此操作不可恢复。');
             } catch (e2) {
                 ok = false;
             }
         }
-        if (!ok) return;
+        if (!ok) return false;
+
+        if (isRecurringInstance) {
+            try {
+                const removed = await __tmDeleteTaskRepeatHistoryEntry(recurringSourceTaskId, recurringCompletedAt, {
+                    source: String(opts.source || 'task-delete-recurring-instance').trim() || 'task-delete-recurring-instance',
+                });
+                if (removed !== true) {
+                    hint('⚠️ 循环记录已不存在', 'warning');
+                    return false;
+                }
+                try {
+                    __tmRefreshVisibleTaskDetailForTask(tid, {
+                        forceRebuild: true,
+                        skipDefer: true,
+                        source: 'task-delete-recurring-instance',
+                    });
+                } catch (e) {}
+                hint('✅ 已删除循环记录', 'success');
+                return true;
+            } catch (e) {
+                hint(`❌ 删除失败: ${String(e?.message || e || '')}`, 'error');
+                return false;
+            }
+        }
 
         try {
             const snapshot = __tmCaptureTaskLocalSnapshot(tid);
@@ -5586,6 +5656,62 @@ if (ev) {
             wrap.appendChild(row);
             return wrap;
         };
+        const taskRepeatRule = __tmNormalizeTaskRepeatRule(task?.repeatRule || task?.repeat_rule || '', {
+            startDate: task?.startDate,
+            completionTime: task?.completionTime,
+        });
+        const canReviewFsrs = taskRepeatRule.enabled
+            && taskRepeatRule.type === 'fsrs'
+            && !__tmIsRecurringInstanceTask(task);
+        const createFsrsReviewBlock = () => {
+            const wrap = document.createElement('div');
+            wrap.className = 'tm-task-context-fsrs';
+            const title = document.createElement('div');
+            title.className = 'tm-task-context-fsrs__title';
+            const titleText = document.createElement('span');
+            titleText.textContent = '复习反馈';
+            const titleHint = document.createElement('span');
+            titleHint.textContent = '预计下次';
+            title.append(titleText, titleHint);
+            wrap.appendChild(title);
+            const row = document.createElement('div');
+            row.className = 'tm-task-context-fsrs__row';
+            row.setAttribute('role', 'group');
+            row.setAttribute('aria-label', 'FSRS 复习反馈');
+            const reviewedAt = new Date();
+            __tmBuildFsrsReviewPreviews(task, { reviewedAt }).forEach((option) => {
+                const dueDate = option.completionTime;
+                const previewText = __tmFormatFsrsPreviewDate(dueDate, reviewedAt);
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = `tm-task-context-fsrs__btn tm-task-context-fsrs__btn--${option.tone}${option.rating === 3 ? ' is-default' : ''}`;
+                btn.setAttribute('data-tm-fsrs-rating', String(option.rating));
+                btn.setAttribute('aria-label', `${option.label}，预计下次 ${dueDate || previewText}`);
+                btn.title = `${option.label} · 预计 ${dueDate || previewText}`;
+                const label = document.createElement('span');
+                label.className = 'tm-task-context-fsrs__label';
+                label.textContent = option.label;
+                const preview = document.createElement('span');
+                preview.className = 'tm-task-context-fsrs__due';
+                preview.textContent = previewText;
+                btn.append(label, preview);
+                btn.onclick = async (event) => {
+                    event.stopPropagation();
+                    event.preventDefault();
+                    row.querySelectorAll('button').forEach((item) => { item.disabled = true; });
+                    menu.remove();
+                    try {
+                        if (typeof window.tmReviewFsrsTask !== 'function') throw new Error('FSRS 反馈功能未就绪');
+                        await window.tmReviewFsrsTask(taskId, option.rating, { source: 'task-context-fsrs-review' });
+                    } catch (error) {
+                        hint(`FSRS 反馈失败：${error?.message || String(error)}`, 'error');
+                    }
+                };
+                row.appendChild(btn);
+            });
+            wrap.appendChild(row);
+            return wrap;
+        };
         let hasContextTopBlock = false;
         if (tomatoEnabled && timer && typeof timer === 'object') {
             const durations = (() => {
@@ -5646,6 +5772,7 @@ if (ev) {
         if (task) {
             menu.appendChild(createDateBlock());
             menu.appendChild(createPriorityBlock());
+            if (canReviewFsrs) menu.appendChild(createFsrsReviewBlock());
             hasContextTopBlock = true;
         }
 
@@ -5776,26 +5903,8 @@ if (ev) {
             menu.appendChild(createItem(__tmRenderContextMenuLabel('alarm-clock', '提醒'), () => tmReminder(taskId)));
         }
         if (__tmIsRecurringInstanceTask(task)) {
-            menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '删除记录'), async () => {
-                const completedAt = String(task?.recurringCompletedAt || '').trim();
-                const sourceTaskId = String(task?.sourceTaskId || task?.recurringSourceTaskId || '').trim();
-                if (!completedAt || !sourceTaskId) {
-                    hint('⚠️ 未找到可删除的循环记录', 'warning');
-                    return;
-                }
-                let ok = false;
-                try {
-                    ok = await showConfirm('删除循环记录', '确定要删除这条循环记录吗？此操作不可恢复。');
-                } catch (e) {
-                    ok = false;
-                }
-                if (!ok) return;
-                try {
-                    await __tmDeleteTaskRepeatHistoryEntry(sourceTaskId, completedAt, { source: 'context-repeat-history-delete' });
-                    hint('✅ 已删除循环记录', 'success');
-                } catch (e) {
-                    hint(`❌ 删除失败: ${String(e?.message || e || '')}`, 'error');
-                }
+            menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '删除记录'), () => {
+                tmDelete(taskId, { source: 'context-repeat-history-delete' });
             }, true));
         } else {
             menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '删除任务'), () => tmDelete(taskId), true));
@@ -5871,9 +5980,28 @@ if (ev) {
         { id: 'tomato', label: '番茄钟/联动' }
     ]);
 
+    const TM_CALENDAR_SETTINGS_SECTIONS = Object.freeze([
+        { id: 'calendar-general', label: '基础视图' },
+        { id: 'calendar-layout', label: '视图布局' },
+        { id: 'calendar-content', label: '日程与显示' },
+        { id: 'calendar-reminders', label: '提醒通知' },
+        { id: 'calendar-subscription', label: 'ICS 订阅' }
+    ]);
+
+    const TM_APPEARANCE_SETTINGS_SECTIONS = Object.freeze([
+        { id: 'columns', label: '列设置' },
+        { id: 'icons', label: '插件图标' },
+        { id: 'tabs', label: '页签栏' },
+        { id: 'topbar', label: '顶栏按钮' },
+        { id: 'checkbox', label: '任务复选框' },
+        { id: 'colors', label: '配色' }
+    ]);
+
     function __tmGetSettingsSections(tab = state.settingsActiveTab || '') {
         const activeTab = String(tab || '').trim();
         if (activeTab === 'main') return TM_MAIN_SETTINGS_SECTIONS;
+        if (activeTab === 'appearance') return TM_APPEARANCE_SETTINGS_SECTIONS;
+        if (activeTab === 'calendar') return TM_CALENDAR_SETTINGS_SECTIONS;
         if (activeTab !== 'ai') return [];
         const experienceMode = String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
         if (experienceMode === 'legacy') {

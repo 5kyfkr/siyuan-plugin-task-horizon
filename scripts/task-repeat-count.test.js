@@ -71,6 +71,52 @@ const datePatch = buildPatch(firstTask, dateRule);
 assert.equal(datePatch.startDate, '2026-07-19', 'date-based ending must remain unchanged');
 assert.equal(buildPatch({ ...firstTask, ...datePatch }, dateRule), null, 'date-based ending must still stop beyond the end date');
 
+const legacyWeekly = normalizeRule({ enabled: true, type: 'weekly', every: 1, anchorDate: '2026-07-18' });
+assert.deepEqual(Array.from(legacyWeekly.weekdays), [], 'weekly rules without selected weekdays must preserve the empty selection');
+assert.equal(buildPatch({ startDate: '2026-07-18', completionTime: '2026-07-18' }, legacyWeekly).completionTime, '2026-07-25');
+const emptyAlternateWeekly = normalizeRule({ enabled: true, type: 'weekly', every: 2, weekdays: [], anchorDate: '2026-07-18' });
+assert.equal(buildPatch({ completionTime: '2026-07-18' }, emptyAlternateWeekly).completionTime, '2026-08-01', 'empty weekday selection must follow the due date every N weeks');
+
+const multiWeekly = normalizeRule({
+    enabled: true,
+    type: 'weekly',
+    every: 1,
+    weekdays: [5, 1, 3, 3],
+    anchorDate: '2026-07-20',
+});
+assert.deepEqual(Array.from(multiWeekly.weekdays), [1, 3, 5], 'weekly weekdays must be sorted and deduplicated');
+const weeklyWednesday = buildPatch({ startDate: '2026-07-20', completionTime: '2026-07-20' }, multiWeekly);
+assert.equal(weeklyWednesday.completionTime, '2026-07-22', 'the next selected day in the active week must be used');
+const weeklyFriday = buildPatch({ ...weeklyWednesday }, multiWeekly);
+assert.equal(weeklyFriday.completionTime, '2026-07-24');
+const weeklyNextMonday = buildPatch({ ...weeklyFriday }, multiWeekly);
+assert.equal(weeklyNextMonday.completionTime, '2026-07-27', 'the next active week must restart at its first selected day');
+assert.match(getSummary(multiWeekly), /周一、周三、周五/, 'weekly summary must list selected weekdays');
+
+const alternateWeeks = normalizeRule({
+    enabled: true,
+    type: 'weekly',
+    every: 2,
+    weekdays: [1, 3],
+    anchorDate: '2026-07-20',
+});
+assert.equal(
+    buildPatch({ startDate: '2026-07-22', completionTime: '2026-07-22' }, alternateWeeks).completionTime,
+    '2026-08-03',
+    'every-N-week rules must advance by Monday-based active week buckets',
+);
+
+const rangedWeekly = normalizeRule({
+    enabled: true,
+    type: 'weekly',
+    every: 1,
+    weekdays: [3, 5],
+    anchorDate: '2026-07-22',
+});
+const rangedPatch = buildPatch({ startDate: '2026-07-20', completionTime: '2026-07-22' }, rangedWeekly);
+assert.equal(rangedPatch.startDate, '2026-07-22');
+assert.equal(rangedPatch.completionTime, '2026-07-24', 'task date ranges must move together without changing their span');
+
 assert.match(runtimeSource, /occurrenceCount:\s*Math\.max\(1, currentState\.occurrenceCount - 1\)/, 'latest-history rollback must decrement the occurrence count');
 assert.match(runtimeSource, /结束次数不能小于当前第/, 'lowering a live count below progress must be rejected');
 assert.match(runtimeSource, /occurrenceNumber:\s*currentRepeatState\.occurrenceCount/, 'history records must persist their occurrence number');
@@ -80,6 +126,8 @@ assert.match(modelSource, /循环记录\$\{progressText\}/, 'recurring record ba
 assert.match(dialogSource, /data-tm-repeat-field="maxOccurrences"[^>]*max="200"/, 'repeat dialog must cap the count input at 200');
 assert.match(dialogSource, /const currentTriggerType = currentRule\.enabled && currentRule\.type !== 'none'[\s\S]*?: 'due';/, 'an unset repeat rule must default to due-triggered recurrence');
 assert.match(dialogSource, /<option value="due"[\s\S]*?<option value="complete"[\s\S]*?<option value="none"/, 'the non-recurring option must remain last');
+assert.match(dialogSource, /\[\[1, '一'\], \[2, '二'\], \[3, '三'\], \[4, '四'\], \[5, '五'\], \[6, '六'\], \[0, '日'\]\]/, 'repeat dialog must render Monday-first weekday controls');
+assert.doesNotMatch(dialogSource, /weekdays\.length <= 1/, 'repeat dialog must allow clearing every weekday');
 assert.match(detailSource, /data-tm-time-hub-repeat-end-mode="never"/, 'time hub must edit the never-ending mode directly');
 assert.match(detailSource, /data-tm-time-hub-repeat-end-mode="date"/, 'time hub must edit the date-ending mode directly');
 assert.match(detailSource, /data-tm-time-hub-repeat-end-mode="count"/, 'time hub must edit the count-ending mode directly');

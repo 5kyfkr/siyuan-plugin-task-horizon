@@ -863,7 +863,10 @@
 
     function __tmIsTaskHorizonTabActiveNow() {
         try {
-            const header = __tmFindExistingTaskManagerTab?.();
+            const candidate = __tmFindExistingTaskManagerTab?.();
+            const header = candidate instanceof HTMLElement
+                ? candidate
+                : (candidate?.headElement instanceof HTMLElement ? candidate.headElement : null);
             if (!(header instanceof HTMLElement)) return false;
             if (!__tmIsTaskHorizonTabHeaderEl(header)) return false;
             const cls = String(header.className || '');

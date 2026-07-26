@@ -564,7 +564,9 @@ return ok;
             if (!refreshed) refreshed = !!__tmRerenderCurrentViewInPlace(state.modal) || refreshed;
         }
 
-        try { refreshed = !!__tmRefreshVisibleTaskDetailForTask(tid) || refreshed; } catch (e) {}
+        if (opts.skipDetailPatch !== true) {
+            try { refreshed = !!__tmRefreshVisibleTaskDetailForTask(tid) || refreshed; } catch (e) {}
+        }
 if (hasCalendarDatePatch && globalThis.__tmCalendar?.syncTaskDateInPlace) {
             Promise.resolve().then(async () => {
                 const isCalendarView = viewMode === 'calendar';
@@ -594,7 +596,7 @@ if ((syncResult.needsMainRefresh && isCalendarView) || syncResult.needsSideRefre
             }).catch(() => null);
         }
 
-        if (!refreshed || shouldFallback) {
+        if ((!refreshed && opts.skipDetailPatch !== true) || shouldFallback) {
             try {
                 __tmScheduleViewRefresh({
                     mode: 'current',

@@ -718,39 +718,8 @@
     function __tmScheduleMobileBottomViewSwitch(mode) {
         const next = String(mode || '').trim();
         if (!next) return false;
-        const token = (Number(state.mobileBottomViewSwitchToken) || 0) + 1;
-        state.mobileBottomViewSwitchToken = token;
-        try {
-            if (state.mobileBottomViewSwitchTimer) clearTimeout(state.mobileBottomViewSwitchTimer);
-            state.mobileBottomViewSwitchTimer = 0;
-        } catch (e) {}
-        const run = () => {
-            if (token !== (Number(state.mobileBottomViewSwitchToken) || 0)) return;
-            try { state.mobileBottomViewSwitchTimer = 0; } catch (e) {}
-            try { window.tmSwitchViewMode(next); } catch (e) {}
-        };
-        try {
-            if (typeof requestAnimationFrame === 'function') {
-                requestAnimationFrame(() => {
-                    if (token !== (Number(state.mobileBottomViewSwitchToken) || 0)) return;
-                    requestAnimationFrame(() => {
-                        if (token !== (Number(state.mobileBottomViewSwitchToken) || 0)) return;
-                        try { state.mobileBottomViewSwitchTimer = setTimeout(run, 0); } catch (e2) { run(); }
-                    });
-                });
-                return true;
-            }
-        } catch (e) {}
-        try { state.mobileBottomViewSwitchTimer = setTimeout(run, 32); } catch (e) { run(); }
+        try { window.tmSwitchViewMode(next); } catch (e) {}
         return true;
-    }
-
-    function __tmCancelMobileBottomViewSwitch() {
-        state.mobileBottomViewSwitchToken = (Number(state.mobileBottomViewSwitchToken) || 0) + 1;
-        try {
-            if (state.mobileBottomViewSwitchTimer) clearTimeout(state.mobileBottomViewSwitchTimer);
-            state.mobileBottomViewSwitchTimer = 0;
-        } catch (e) {}
     }
 
     window.tmSwitchViewModeFromMobileBottomNav = function(mode, event) {
@@ -765,7 +734,6 @@
         try { __tmOptimisticSelectMobileBottomView(target, next); } catch (e) {}
         const current = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
         if (!state.homepageOpen && !state.attachmentLibraryOpen && current === next) {
-            try { __tmCancelMobileBottomViewSwitch(); } catch (e) {}
             return false;
         }
         try { __tmMarkMobileBottomViewbarSwitching(bar); } catch (e) {}

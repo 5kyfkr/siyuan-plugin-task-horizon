@@ -20,8 +20,8 @@
     });
     const TM_SETTINGS_SEARCH_MAIN_GROUPS = Object.freeze([
         { section: 'display', titles: ['基础显示', '字体大小', '移动端字体', '行高模式', '行高(px)', '父任务名称加粗', '自动换行', '内容行数', '备注行数', '任务标题级别', '完成反馈', '文档名称显示'] },
-        { section: 'new-task', titles: ['新建任务', '新建任务位置', '默认新建文档', '今天日记默认笔记本', '启用“移动内容至今天日记”', '日记追加到底部', '标题分组追加到内容末尾', '新建任务默认置顶', '子任务继承父任务字段'] },
-        { section: 'status', titles: ['状态选项', '勾选完成时状态', '未完成状态默认状态', '子任务全部完成后自动完成父任务'] },
+        { section: 'new-task', titles: ['新建任务', '新建任务位置', '默认新建文档', '今天日记', '上次选择', '今天日记默认笔记本', '启用“移动内容至今天日记”', '日记追加到底部', '标题分组追加到内容末尾', '新建任务默认置顶', '子任务继承父任务字段'] },
+        { section: 'status', titles: ['状态选项', '勾选完成时状态', '未完成状态默认状态', '子任务全部完成后自动完成父任务', '间隔重复', 'FSRS', '目标记忆率', '最大复习间隔', '分散复习日期'] },
         { section: 'layout', titles: ['视图布局', '默认视图', '移动端默认', '自动隐藏页签栏', '页签拖延值上色', '启用 Dock 侧边栏', 'Dock 默认视图', 'Dock 紧凑标题点击跳转', '移动端清单紧凑视图标题点击跳转', '标题点击弹出详情页面', 'Dock 及移动端紧凑右侧字段', '桌面端紧凑右侧字段', '紧凑右侧字体', '时间轴卡片字段', '看板紧凑模式', '清单紧凑模式', '清单紧凑层级线', '看板宽度', '表格和看板宽度填满窗口', '看板卡片字段', '白板卡片字段', '删除任务同步删除白板卡片', '白板顺序依据', '白板文字默认字号', '卡片字段常驻显示', '卡片流最小宽度', '移动端卡片流双栏', '单独已完成看板列', '看板拖动父任务时同步更改子任务状态', '看板内子任务不与父任务分离', '时长显示格式', '实际番茄数属性名', '预计番茄数属性名'] },
         { section: 'search', titles: ['搜索分组', '搜索与分组', '递归文档数上限', '兼容旧版 Win7 思源', '父任务回溯层数', '显示已完成任务', '已完成分组仅显示今天完成', '已完成任务不单独分组', '文档分组下按二级标题子分组', '分组模式增加“按任务名分组”', '分组内置顶任务', '自动识别语义日期（全量分批）', '语义截止默认提醒时间', '父任务按子任务时间参与时间相关排序', '全部折叠展开包含分组', '手动刷新时同步伺服共享设置', '手动刷新时同步当前分组/规则等会话状态'] },
         { section: 'topbar', titles: ['顶栏入口', '文档顶栏按钮(桌面)', '文档顶栏按钮(移动)', '对调文档顶栏长短按', '打开时定位当前文档', '思源窗口顶栏图标(桌面)', '思源窗口顶栏图标(移动)'] },
@@ -64,7 +64,19 @@
         '全天汇总包含番茄/节日',
         '全天提醒时间',
         '跨天任务颜色',
-        '日程跟随文档颜色'
+        '日程跟随文档颜色',
+        '提供方',
+        '日历名称',
+        'WebDAV 目录 URL',
+        'WebDAV 用户名',
+        'WebDAV 密码',
+        '链滴公开订阅',
+        '启用 ICS 上传',
+        '发布方式',
+        '数据范围',
+        '最近成功',
+        '最近错误',
+        '订阅 URL'
     ]);
     const TM_SETTINGS_SEARCH_PAGE_ITEMS = Object.freeze([
         { tab: 'docs', title: '文档分组与管理', desc: '选择分组，管理文档来源、排除文档和搜索优化' },
@@ -1254,19 +1266,22 @@
         })();
         const allDocIdsForNewTask = allDocsForNewTask.map(d => String(d?.id || '').trim()).filter(Boolean);
         const newTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+        const newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(SettingsStore.data.newTaskDefaultLocationMode);
+        const selectedNewTaskLocation = newTaskDefaultLocationMode === 'lastSelected' ? '__lastSelected__' : newTaskDocId;
         const newTaskDailyNoteNotebookId = String(SettingsStore.data.newTaskDailyNoteNotebookId || '').trim();
         const newTaskDocOptions = [
-            `<option value="" ${newTaskDocId ? '' : 'selected'}>未设置</option>`,
-            `<option value="__dailyNote__" ${newTaskDocId === '__dailyNote__' ? 'selected' : ''}>今天日记</option>`
+            `<option value="" ${selectedNewTaskLocation ? '' : 'selected'}>未设置</option>`,
+            `<option value="__dailyNote__" style="font-weight:700;" ${selectedNewTaskLocation === '__dailyNote__' ? 'selected' : ''}>今天日记</option>`,
+            `<option value="__lastSelected__" style="font-weight:700;" ${selectedNewTaskLocation === '__lastSelected__' ? 'selected' : ''}>上次选择</option>`
         ];
         allDocsForNewTask.forEach(docItem => {
             const docId = typeof docItem === 'object' ? docItem.id : docItem;
             const docName = resolveDocName(docId);
-            newTaskDocOptions.push(`<option value="${docId}" ${newTaskDocId === docId ? 'selected' : ''}>${esc(docName)}</option>`);
+            newTaskDocOptions.push(`<option value="${docId}" ${selectedNewTaskLocation === docId ? 'selected' : ''}>${esc(docName)}</option>`);
         });
         if (newTaskDocId && newTaskDocId !== '__dailyNote__' && !allDocIdsForNewTask.includes(newTaskDocId)) {
             const fallbackName = resolveDocName(newTaskDocId);
-            newTaskDocOptions.push(`<option value="${newTaskDocId}" selected>${esc(fallbackName)} (不在当前列表)</option>`);
+            newTaskDocOptions.push(`<option value="${newTaskDocId}" ${selectedNewTaskLocation === newTaskDocId ? 'selected' : ''}>${esc(fallbackName)} (不在当前列表)</option>`);
         }
         const dailyNoteNotebookOptions = [
             `<option value="" ${newTaskDailyNoteNotebookId ? '' : 'selected'}>跟随当前文档所属笔记本</option>`
@@ -1788,7 +1803,8 @@
                     <div class="tm-settings-main">
                         <div class="tm-settings-content">
                     ${activeTab === 'appearance' ? `
-                        <div class="tm-settings-panel tm-width-settings" ${__tmSettingsSearchAttrs('appearance', '列设置', '显示、排序、宽度和自定义列')}>
+                        ${renderSettingsSubtabs()}
+                        <div class="tm-settings-panel tm-width-settings" data-tm-settings-section="columns" ${__tmSettingsSearchAttrs('appearance', '列设置', '显示、排序、宽度和自定义列')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">📏 列设置 (显示/排序/宽度)</div>
                             ${renderColumnWidthSettings()}
                             ${renderSingleFieldSetting(
@@ -1798,12 +1814,12 @@
                                 { style: 'margin-top:12px;', section: 'columns', key: 'appearance-task-meta-attr-migration' }
                             )}
                         </div>
-                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '插件图标', '统一更换顶栏、文档栏、页签、Dock 侧栏和插件顶栏左上角图标')}>
+                        <div class="tm-settings-panel" data-tm-settings-section="icons" ${__tmSettingsSearchAttrs('appearance', '插件图标', '统一更换顶栏、文档栏、页签、Dock 侧栏和插件顶栏左上角图标')}>
                             <div style="font-weight: 600; margin-bottom: 6px;">插件图标</div>
                             <div style="font-size:13px;color:var(--tm-secondary-text);line-height:1.6;margin-bottom:12px;">统一应用于思源窗口顶栏、文档栏、插件页签、Dock 侧栏和插件顶栏左上角。经典图标免费可用，其余预设属于全功能权益。</div>
                             ${renderEntryIconPresetSetting()}
                         </div>
-                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '页签栏', '归档入口位置')}>
+                        <div class="tm-settings-panel" data-tm-settings-section="tabs" ${__tmSettingsSearchAttrs('appearance', '页签栏', '归档入口位置')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">📑 页签栏</div>
                             ${renderSingleFieldSetting(
                                 '归档入口位置',
@@ -1814,7 +1830,7 @@
                                 </select>`
                             )}
                         </div>
-                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '顶栏按钮', '控制新建、搜索、刷新和 AI 工作台按钮的显示')}>
+                        <div class="tm-settings-panel" data-tm-settings-section="topbar" ${__tmSettingsSearchAttrs('appearance', '顶栏按钮', '控制新建、搜索、刷新和 AI 工作台按钮的显示')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">🔘 顶栏按钮</div>
                             ${renderSingleSwitchSetting(
                                 '新建任务按钮',
@@ -1837,7 +1853,7 @@
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('ai') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('ai', this.checked)">`
                             )}
                         </div>
-                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '任务复选框', '使用圆形任务复选框样式，按重要性上色')}>
+                        <div class="tm-settings-panel" data-tm-settings-section="checkbox" ${__tmSettingsSearchAttrs('appearance', '任务复选框', '使用圆形任务复选框样式，按重要性上色')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">☑️ 任务复选框</div>
                             ${renderSingleSwitchSetting(
                                 '圆形任务复选框',
@@ -1850,17 +1866,15 @@
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskCheckboxPriorityColorEnabled !== false ? 'checked' : ''} onchange="updateTaskCheckboxPriorityColorEnabled(this.checked)">`
                             )}
                         </div>
-                        <div class="tm-settings-panel" style="margin-bottom:0;" ${__tmSettingsSearchAttrs('appearance', '配色', '调整主题、看板、时间轴和顶栏颜色')}>
+                        <div class="tm-settings-panel" data-tm-settings-section="colors" style="margin-bottom:0;" ${__tmSettingsSearchAttrs('appearance', '配色', '调整主题、看板、时间轴和顶栏颜色')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">🎨 配色</div>
                             ${renderAppearanceColorSettings()}
                         </div>
                     ` : ''}
 
                     ${activeTab === 'calendar' ? `
-                        <div class="tm-settings-panel" style="margin-bottom:0;" ${__tmSettingsSearchAttrs('calendar', '日历', '日历视图与日程相关设置')}>
-                            <div style="font-weight: 600; margin-bottom: 12px;">🗓️ 日历</div>
-                            <div id="tm-calendar-settings-root"></div>
-                        </div>
+                        ${renderSettingsSubtabs()}
+                        <div id="tm-calendar-settings-root"></div>
                     ` : ''}
 
                     ${activeTab === 'ai' ? `${renderSettingsSubtabs()}${renderAiSettingsPanel()}` : ''}
@@ -2015,7 +2029,7 @@
                         <div class="tm-settings-section-desc">设置快速新建任务时默认写入的文档位置。</div>
                         ${renderSingleFieldSetting(
                             '默认新建文档',
-                            '用于“快速新建任务界面”的默认文档位置，可在新建界面临时切换。',
+                            '用于“快速新建任务界面”的默认位置；选择“上次选择”后，会记住最近一次手动选择的文档或今天日记。',
                             `<select class="b3-select" onchange="updateNewTaskDocIdFromSelect(this.value)" style="width:100%;">
                                 ${newTaskDocOptions.join('')}
                             </select>`,
@@ -2023,7 +2037,7 @@
                         )}
                         <div style="display:flex; gap:8px; margin-top: 8px; align-items:center;">
                             <input id="tmNewTaskDocIdInput" class="b3-text-field" list="tmNewTaskDocIdList"
-                                   value="${esc(newTaskDocId === '__dailyNote__' ? '' : (newTaskDocId || ''))}"
+                                   value="${esc(selectedNewTaskLocation === '__dailyNote__' || selectedNewTaskLocation === '__lastSelected__' ? '' : (newTaskDocId || ''))}"
                                    placeholder="也可直接输入文档ID"
                                    style="flex: 1;">
                             <button class="tm-btn tm-btn-secondary" onclick="tmApplyNewTaskDocIdInput()" style="padding: 6px 10px; font-size: 12px;">应用</button>
@@ -2035,7 +2049,7 @@
                                 const docName = resolveDocName(docId);
                                 return `<option value="${docId}">${esc(docName)}</option>`;
                             }).join('')}
-                            ${newTaskDocId && !allDocIdsForNewTask.includes(newTaskDocId) ? `<option value="${newTaskDocId}"></option>` : ''}
+                            ${newTaskDocId && newTaskDocId !== '__dailyNote__' && !allDocIdsForNewTask.includes(newTaskDocId) ? `<option value="${newTaskDocId}"></option>` : ''}
                         </datalist>
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px;">
                             也可以直接输入文档 ID，适合当前列表里没有加载出来的文档。
@@ -2132,6 +2146,27 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.autoCompleteParentOnSubtasksDone ? 'checked' : ''} onchange="updateAutoCompleteParentOnSubtasksDone(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
+                        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);">
+                            <div class="tm-settings-section-title">FSRS 间隔重复</div>
+                            <div class="tm-settings-section-desc">FSRS 根据实际复习反馈安排下一次日期；参数修改只影响后续评分。</div>
+                            ${renderSingleFieldSetting(
+                                '目标记忆率',
+                                '越高会安排得越频繁，推荐保持 90%。',
+                                `<input class="b3-text-field" type="number" value="${Math.round((Number(SettingsStore.data.fsrsDesiredRetention) || 0.9) * 100)}" min="80" max="97" step="1" onchange="updateFsrsDesiredRetentionPercent(this.value)" style="width:88px;">
+                                 <span class="tm-setting-field-unit">%</span>`
+                            )}
+                            ${renderSingleFieldSetting(
+                                '最大复习间隔',
+                                '限制一次排期最多向后延伸的天数。',
+                                `<input class="b3-text-field" type="number" value="${Math.max(30, Math.min(3650, Number(SettingsStore.data.fsrsMaximumIntervalDays) || 3650))}" min="30" max="3650" step="1" onchange="updateFsrsMaximumIntervalDays(this.value)" style="width:88px;">
+                                 <span class="tm-setting-field-unit">天</span>`
+                            )}
+                            ${renderSingleSwitchSetting(
+                                '分散复习日期',
+                                '为较长间隔加入少量随机扰动，减少大量任务集中在同一天。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.fsrsEnableFuzz === true ? 'checked' : ''} onchange="updateFsrsEnableFuzz(this.checked)">`
+                            )}
+                        </div>
                     </div>
 
                     ${(settingsSearchCurrentSection = 'layout', '')}
@@ -2192,6 +2227,12 @@
                                 </select>`
                             )}
                         </div>
+                        ${renderSingleSwitchSetting(
+                            'Dock侧边栏跟随当前文档',
+                            '开启后，当 Dock 侧边栏正在显示且任务管理器页签未激活时，切换思源文档会同步切换到 Dock 中对应的文档页签；当前文档不在 Dock 当前分组内时保持原视图。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.dockSidebarFollowCurrentDocument ? 'checked' : ''} ${SettingsStore.data.dockSidebarEnabled !== false ? '' : 'disabled'} onchange="updateDockSidebarFollowCurrentDocument(this.checked)">`,
+                            { style: `margin-bottom:10px;opacity:${SettingsStore.data.dockSidebarEnabled !== false ? 1 : 0.6};` }
+                        )}
                         ${renderSingleSwitchSetting(
                             'Dock 紧凑标题点击跳转',
                             '桌面端 Dock 清单紧凑视图中，开启后点击任务名默认跳转文档；若开启下方“标题点击弹出详情页面”则改为打开 Dock 内任务详情抽屉。关闭后保持打开任务详情抽屉。',
@@ -2841,6 +2882,7 @@
             const settingsSubtabs = state.settingsModal.querySelector('.tm-settings-subtabs');
             if (settingsSubtabs) {
                 try { settingsSubtabs.scrollLeft = Number(state.settingsSubtabsScrollLeft) || 0; } catch (e) {}
+                try { __tmBindHorizontalDragScroll(settingsSubtabs); } catch (e) {}
                 settingsSubtabs.addEventListener('scroll', () => {
                     try { state.settingsSubtabsScrollLeft = Number(settingsSubtabs.scrollLeft) || 0; } catch (e2) {}
                 }, { passive: true });
@@ -2889,6 +2931,11 @@
                 const el = state.settingsModal.querySelector('#tm-calendar-settings-root');
                 if (el && globalThis.__tmCalendar && typeof globalThis.__tmCalendar.renderSettings === 'function') {
                     globalThis.__tmCalendar.renderSettings(el, SettingsStore);
+                    try {
+                        requestAnimationFrame(() => {
+                            try { __tmSyncSettingsSectionNav(state.settingsModal); } catch (e2) {}
+                        });
+                    } catch (e) {}
                     if (settingsSearchEnabled) {
                         __tmRefreshSettingsSearchResults(state.settingsModal);
                         __tmRunPendingSettingsSearchFocus(state.settingsModal);

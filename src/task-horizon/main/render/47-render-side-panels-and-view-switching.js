@@ -60,6 +60,34 @@
         `;
     }
 
+    function __tmCalendarDockMountTimeline(timelineRoot) {
+        if (!(timelineRoot instanceof HTMLElement)) return false;
+        if (!globalThis.__tmCalendar || typeof globalThis.__tmCalendar.mountSideDayTimeline !== 'function') return false;
+        const modal = state.modal;
+        const viewMode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+        const dragHost = (() => {
+            if (!(modal instanceof Element)) return null;
+            if (viewMode === 'timeline') return modal.querySelector('#tmTimelineLeftTable tbody');
+            if (viewMode === 'kanban') return modal.querySelector('.tm-body.tm-body--kanban');
+            if (viewMode === 'checklist') return modal.querySelector('.tm-checklist-items');
+            return modal.querySelector('#tmTaskTable tbody');
+        })();
+        return globalThis.__tmCalendar.mountSideDayTimeline(timelineRoot, {
+            settingsStore: SettingsStore,
+            date: __tmCalendarDockGetDateKey(),
+            resolveTask: (taskId) => {
+                const tid = String(taskId || '').trim();
+                return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[tid]
+                    || state.pendingInsertedTasks?.[tid]
+                    || null;
+            },
+            dragHost: dragHost || modal,
+            enableExternalDrag: true,
+            allowInactiveFullLoad: true,
+        });
+    }
+
     function __tmCalendarDockMount(attempt = 0, mountToken = '') {
         const root = state.modal?.querySelector?.('#tmCalendarSideDockPanel');
         if (!(root instanceof HTMLElement)) return;
@@ -89,29 +117,7 @@
             }
             return;
         }
-        const dragHost = (() => {
-            const modal = state.modal;
-            const viewMode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
-            if (!(modal instanceof Element)) return null;
-            if (viewMode === 'timeline') return modal.querySelector('#tmTimelineLeftTable tbody');
-            if (viewMode === 'kanban') return modal.querySelector('.tm-body.tm-body--kanban');
-            if (viewMode === 'checklist') return modal.querySelector('.tm-checklist-items');
-            return modal.querySelector('#tmTaskTable tbody');
-        })();
-        const ok = globalThis.__tmCalendar.mountSideDayTimeline(timelineRoot, {
-            settingsStore: SettingsStore,
-            date: __tmCalendarDockGetDateKey(),
-            resolveTask: (taskId) => {
-                const tid = String(taskId || '').trim();
-                return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                    || state.flatTasks?.[tid]
-                    || state.pendingInsertedTasks?.[tid]
-                    || null;
-            },
-            dragHost: dragHost || state.modal,
-            enableExternalDrag: true,
-            allowInactiveFullLoad: true,
-        });
+        const ok = __tmCalendarDockMountTimeline(timelineRoot);
         if (!ok) {
             timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历初始化失败。</div>`;
             return;
@@ -403,7 +409,19 @@
         return await window.tmOpenHomepage();
     };
 
-    const __TM_BODY_ONLY_VIEW_SWITCH_MODES = new Set(['list', 'checklist', 'timeline', 'kanban']);
+    const __TM_BODY_ONLY_VIEW_SWITCH_MODES = new Set(['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard']);
+
+    function __tmGetCalendarScrollHost(rootEl) {
+        const root = rootEl instanceof Element ? rootEl : null;
+        if (!root) return null;
+        const preferred = root.querySelector('.fc-timegrid-body .fc-scroller');
+        if (preferred instanceof HTMLElement && preferred.scrollHeight > preferred.clientHeight + 1) return preferred;
+        const candidates = Array.from(root.querySelectorAll('.fc-scroller'));
+        return candidates.find((item) => item instanceof HTMLElement && item.scrollHeight > item.clientHeight + 1)
+            || (preferred instanceof HTMLElement ? preferred : null)
+            || candidates.find((item) => item instanceof HTMLElement)
+            || null;
+    }
 
     function __tmCaptureBodyOnlyViewScroll(modeInput, modalEl) {
         const mode = String(modeInput || '').trim();
@@ -431,6 +449,15 @@
             state.viewScroll.kanban = { left: Number(body?.scrollLeft) || 0, cols };
             return;
         }
+        if (mode === 'calendar') {
+            const scroller = __tmGetCalendarScrollHost(modal.querySelector('#tmCalendarRoot'));
+            state.viewScroll.calendar = {
+                top: Number(scroller?.scrollTop) || 0,
+                left: Number(scroller?.scrollLeft) || 0,
+            };
+            return;
+        }
+        if (mode === 'whiteboard') return;
         const pane = mode === 'checklist'
             ? modal.querySelector('.tm-checklist-scroll')
             : modal.querySelector('.tm-body.tm-body--list');
@@ -476,6 +503,16 @@
                 });
                 return;
             }
+            if (mode === 'calendar') {
+                const saved = state.viewScroll?.calendar || {};
+                const scroller = __tmGetCalendarScrollHost(modal.querySelector('#tmCalendarRoot'));
+                if (scroller instanceof HTMLElement) {
+                    scroller.scrollTop = Number(saved.top) || 0;
+                    scroller.scrollLeft = Number(saved.left) || 0;
+                }
+                return;
+            }
+            if (mode === 'whiteboard') return;
             const saved = state.viewScroll?.list || {};
             const pane = mode === 'checklist'
                 ? modal.querySelector('.tm-checklist-scroll')
@@ -494,6 +531,17 @@
     function __tmRenderBodyOnlyViewToolbarExtra(modeInput, scene) {
         const mode = String(modeInput || '').trim();
         if (mode === 'timeline') return scene?.showTopbarTimelineToolbar ? String(scene.timelineCompactToolbarGroupHtml || '') : '';
+        if (mode === 'calendar') {
+            const modal = state.modal instanceof Element ? state.modal : null;
+            const usesCompactToggle = !!(modal && (
+                modal.classList.contains('tm-modal--dock')
+                || modal.classList.contains('tm-modal--mobile')
+                || modal.classList.contains('tm-modal--runtime-mobile')
+                || modal.classList.contains('tm-modal--host-mobile-ui')
+            ));
+            if (usesCompactToggle) return '';
+            return `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>`;
+        }
         if (mode !== 'kanban') return '';
         const boardMode = __tmGetKanbanBoardMode();
         return __tmRenderTopbarSelect({
@@ -520,9 +568,96 @@
         });
     }
 
-    function __tmBindBodyOnlyViewAfterSwitch(modeInput, modalEl) {
+    function __tmShowViewSwitchPendingShell(nextMode) {
+        const modal = state.modal instanceof HTMLElement ? state.modal : null;
+        if (!modal || !modal.isConnected) return null;
+        __tmSyncBodyOnlyViewSwitcherButtons(modal, nextMode);
+        modal.setAttribute('data-tm-view-switch-pending', String(nextMode || '').trim());
+        const stage = modal.querySelector('.tm-main-stage');
+        if (stage instanceof HTMLElement) {
+            stage.classList.add('tm-main-stage--view-switch-pending');
+            stage.setAttribute('aria-busy', 'true');
+        }
+        return modal;
+    }
+
+    function __tmClearViewSwitchPendingShell(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : null;
+        if (!modal) return;
+        modal.removeAttribute('data-tm-view-switch-pending');
+        const stage = modal.querySelector('.tm-main-stage');
+        if (stage instanceof HTMLElement) {
+            stage.classList.remove('tm-main-stage--view-switch-pending');
+            stage.removeAttribute('aria-busy');
+        }
+    }
+
+    function __tmScheduleAfterNextPaint(callback) {
+        if (typeof callback !== 'function') return false;
+        const run = () => {
+            try { callback(); } catch (e) {}
+        };
+        try {
+            requestAnimationFrame(() => requestAnimationFrame(run));
+        } catch (e) {
+            try { setTimeout(run, 0); } catch (e2) { run(); }
+        }
+        return true;
+    }
+
+    function __tmScheduleViewSwitchCommit(generation, nextMode, callback) {
+        const run = () => {
+            if (Number(state.__tmViewSwitchCommitGeneration || 0) !== generation) return;
+            if (String(state.viewMode || '').trim() !== nextMode) return;
+            callback();
+        };
+        try {
+            requestAnimationFrame(() => {
+                try { setTimeout(run, 0); } catch (e) { run(); }
+            });
+        } catch (e) {
+            try { setTimeout(run, 0); } catch (e2) { run(); }
+        }
+        return true;
+    }
+
+    function __tmMountCalendarViewRoot(modalEl, options = {}) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const root = modal?.querySelector?.('#tmCalendarRoot');
+        if (!(root instanceof HTMLElement)) return false;
+        const mount = (attempt = 0) => {
+            if (!root.isConnected || (state.modal && !state.modal.contains(root))) return;
+            if (!SettingsStore.data.calendarEnabled) {
+                root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历视图已关闭，可在设置 → 日历中开启。</div>`;
+                return;
+            }
+            if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.mount === 'function') {
+                const ok = globalThis.__tmCalendar.mount(root, { settingsStore: SettingsStore });
+                if (!ok) {
+                    root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败，请确认 FullCalendar 已加载。</div>`;
+                    return;
+                }
+                try { opts.onMounted?.(root); } catch (e) {}
+                return;
+            }
+            if (attempt >= 80) {
+                root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块未加载。</div>`;
+                return;
+            }
+            if (attempt === 0) {
+                root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块加载中...</div>`;
+            }
+            try { setTimeout(() => mount(attempt + 1), attempt < 8 ? 80 : 160); } catch (e) {}
+        };
+        mount(0);
+        return true;
+    }
+
+    function __tmBindBodyOnlyViewAfterSwitch(modeInput, modalEl, sceneInput = null) {
         const mode = String(modeInput || '').trim();
         const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const scene = (sceneInput && typeof sceneInput === 'object') ? sceneInput : null;
         if (!(modal instanceof Element)) return false;
         if (mode === 'list') {
             if (!(modal.querySelector('.tm-body.tm-body--list') instanceof HTMLElement)) return false;
@@ -535,7 +670,11 @@
             try { __tmBindAutoLoadMoreOnScroll(modal, 'checklist'); } catch (e) {}
             try { __tmRefreshChecklistSelectionInPlace(modal, 'view-switch-body-only', { forceRebuild: true }); } catch (e) {}
         } else if (mode === 'timeline') {
-            if (!__tmRerenderTimelineInPlace(modal)) return false;
+            if (!__tmRerenderTimelineInPlace(modal, {
+                rowModel: scene?.timelineRowModel,
+                rangeRowModel: scene?.timelineFullRowModel,
+                reuseLeftRows: true,
+            })) return false;
             if (!__tmBindTimelineStageInteractions(modal)) return false;
         } else if (mode === 'kanban') {
             if (!(modal.querySelector('.tm-body.tm-body--kanban') instanceof HTMLElement)) return false;
@@ -544,32 +683,143 @@
             try { __tmScheduleKanbanBottomNavAvoidance(modal); } catch (e) {}
             try { __tmRefreshKanbanDetailInPlace(modal, { source: 'view-switch-body-only' }); } catch (e) {}
             try { __tmSyncKanbanHeadingModeSegmentedUi(modal); } catch (e) {}
+        } else if (mode === 'calendar') {
+            if (!__tmMountCalendarViewRoot(modal, {
+                onMounted: () => __tmRestoreBodyOnlyViewScroll('calendar', modal),
+            })) return false;
+        } else if (mode === 'whiteboard') {
+            if (!(modal.querySelector('.tm-body.tm-body--whiteboard') instanceof HTMLElement)) return false;
+            try { __tmBindWhiteboardViewportInput(modal); } catch (e) {}
+            try { __tmApplyWhiteboardTransform(); } catch (e) {}
+            try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
+            try { __tmUpdateWhiteboardNavigator(); } catch (e) {}
         } else {
             return false;
         }
-        try { __tmBindResponsiveTableResize(modal); } catch (e) {}
-        try { __tmApplySearchHighlights(modal, state.searchKeyword); } catch (e) {}
-        try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
-        try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
-        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
-        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
-        try { __tmBindFloatingTooltips(modal); } catch (e) {}
-        try { __tmBindTopbarOverflowTooltips(modal); } catch (e) {}
-        try { __tmSyncCurrentViewDomRenderSignature(mode); } catch (e) {}
+        __tmScheduleAfterNextPaint(() => {
+            if (state.modal !== modal || String(modal.getAttribute('data-tm-render-mode') || '').trim() !== mode) return;
+            try { __tmBindResponsiveTableResize(modal); } catch (e) {}
+            try { __tmApplySearchHighlights(modal, state.searchKeyword); } catch (e) {}
+            try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+            try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+            try { __tmBindFloatingTooltips(modal); } catch (e) {}
+            try { __tmBindTopbarOverflowTooltips(modal); } catch (e) {}
+            try { __tmSyncCurrentViewDomRenderSignature(mode); } catch (e) {}
+        });
         return true;
+    }
+
+    function __tmReleaseDetachedViewStage(stageEl) {
+        const stage = stageEl instanceof HTMLElement ? stageEl : null;
+        if (!stage) return;
+        const clear = () => {
+            try { stage.replaceChildren(); } catch (e) {}
+        };
+        try {
+            if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(clear, { timeout: 500 });
+                return;
+            }
+        } catch (e) {}
+        try { setTimeout(clear, 48); } catch (e) { clear(); }
+    }
+
+    const __TM_PERSISTENT_SIDE_DOCKS = Object.freeze([
+        Object.freeze({ key: 'calendar', selector: '.tm-calendar-side-dock', hostSelector: '#tmCalendarSideDockPanel', scrollSelector: '#tmCalendarSideDockTimeline', sceneKey: 'showCalendarSideDock' }),
+        Object.freeze({ key: 'ai', selector: '.tm-ai-side-dock', hostSelector: '#tmAiSidebarPanel', scrollSelector: '.tm-agent-messages', sceneKey: 'showAiSideDock' }),
+    ]);
+
+    function __tmGetPersistentSideDockScrollHost(key, dockNode, scrollSelector) {
+        const root = dockNode instanceof HTMLElement ? dockNode : null;
+        if (!root) return null;
+        const candidate = root.querySelector(scrollSelector);
+        if (key === 'calendar') return __tmGetCalendarScrollHost(candidate);
+        return candidate instanceof HTMLElement ? candidate : null;
+    }
+
+    function __tmCapturePersistentSideDockScroll(config, dockNode) {
+        const scrollHost = __tmGetPersistentSideDockScrollHost(config.key, dockNode, config.scrollSelector);
+        if (!(scrollHost instanceof HTMLElement)) return null;
+        return {
+            top: Number(scrollHost.scrollTop) || 0,
+            left: Number(scrollHost.scrollLeft) || 0,
+        };
+    }
+
+    function __tmRestorePersistentSideDockScroll(transfers) {
+        const list = Array.isArray(transfers) ? transfers : [];
+        const apply = () => {
+            for (const transfer of list) {
+                if (!transfer?.scrollSnapshot || !(transfer.currentNode instanceof HTMLElement) || !transfer.currentNode.isConnected) continue;
+                const scrollHost = __tmGetPersistentSideDockScrollHost(transfer.key, transfer.currentNode, transfer.scrollSelector);
+                if (!(scrollHost instanceof HTMLElement)) continue;
+                scrollHost.scrollTop = Number(transfer.scrollSnapshot.top) || 0;
+                scrollHost.scrollLeft = Number(transfer.scrollSnapshot.left) || 0;
+            }
+        };
+        try { apply(); } catch (e) {}
+        try { requestAnimationFrame(apply); } catch (e) {}
+    }
+
+    function __tmPreparePersistentSideDockTransfers(currentStage, nextStage, scene) {
+        if (!(currentStage instanceof HTMLElement) || !(nextStage instanceof HTMLElement) || !scene) return null;
+        const transfers = [];
+        for (const config of __TM_PERSISTENT_SIDE_DOCKS) {
+            const currentNodes = Array.from(currentStage.querySelectorAll(config.selector));
+            const nextNodes = Array.from(nextStage.querySelectorAll(config.selector));
+            const expectedCount = scene[config.sceneKey] === true ? 1 : 0;
+            if (currentNodes.length !== expectedCount || nextNodes.length !== expectedCount) return null;
+            if (!expectedCount) continue;
+            const currentNode = currentNodes[0];
+            const placeholderNode = nextNodes[0];
+            if (!(currentNode instanceof HTMLElement) || !(placeholderNode instanceof HTMLElement)) return null;
+            if (!(currentNode.querySelector(config.hostSelector) instanceof HTMLElement)) return null;
+            transfers.push({
+                key: config.key,
+                currentNode,
+                placeholderNode,
+                scrollSelector: config.scrollSelector,
+                scrollSnapshot: __tmCapturePersistentSideDockScroll(config, currentNode),
+            });
+        }
+        return transfers;
+    }
+
+    function __tmCommitPersistentSideDockTransfers(transfers) {
+        const list = Array.isArray(transfers) ? transfers : [];
+        for (const transfer of list) {
+            transfer.placeholderNode.replaceWith(transfer.currentNode);
+        }
+        return list;
+    }
+
+    function __tmSyncPersistentSideDocksAfterViewSwitch(transfers, modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const keys = new Set((Array.isArray(transfers) ? transfers : []).map((item) => String(item?.key || '').trim()));
+        if (keys.has('calendar')) {
+            const timelineRoot = modal?.querySelector?.('#tmCalendarSideDockTimeline');
+            if (timelineRoot instanceof HTMLElement) {
+                try { __tmCalendarDockMountTimeline(timelineRoot); } catch (e) {}
+            }
+        }
+        __tmRestorePersistentSideDockScroll(transfers);
+        if (keys.has('ai')) {
+            __tmScheduleAfterNextPaint(() => {
+                try { globalThis.__tmAI?.notifyTaskViewChanged?.(); } catch (e) {}
+            });
+        }
     }
 
     function __tmTrySwitchViewBodyInPlace(prevModeInput, nextModeInput) {
         const prevMode = String(prevModeInput || '').trim();
         const nextMode = String(nextModeInput || '').trim();
         if (!__TM_BODY_ONLY_VIEW_SWITCH_MODES.has(prevMode) || !__TM_BODY_ONLY_VIEW_SWITCH_MODES.has(nextMode)) return false;
-        if (state.homepageOpen || state.attachmentLibraryOpen || __tmIsMobileDevice() || __tmIsRuntimeMobileClient() || __tmHostUsesMobileUI() || __tmIsDockHost()) return false;
+        if (state.homepageOpen || state.attachmentLibraryOpen) return false;
         const modal = state.modal instanceof HTMLElement ? state.modal : null;
-        if (!modal || !modal.isConnected || modal.classList.contains('tm-modal--mobile') || modal.classList.contains('tm-modal--dock')) return false;
-        const width = Number(modal.getBoundingClientRect?.().width) || Number(modal.clientWidth) || 0;
-        if ((width > 0 && width <= 768) || window.matchMedia?.('(max-width: 768px)')?.matches) return false;
-        if (__tmShouldShowCalendarSideDock() || (state.aiSidebarOpen && __tmShouldShowAiSidebar()) || __tmIsMultiSelectActive()) return false;
-        if (modal.querySelector('.tm-calendar-side-dock,.tm-ai-side-dock,.tm-checklist-sheet--open,.tm-task-detail-inline-popover')) return false;
+        if (!modal || !modal.isConnected) return false;
+        if (modal.querySelector('.tm-ai-mobile-shell,.tm-checklist-sheet--open,.tm-task-detail-inline-popover')) return false;
         const activeDetailPanel = modal.querySelector('#tmChecklistDetailPanel,#tmKanbanDetailPanel,#tmTaskDetailSheetPanel');
         if (activeDetailPanel?.__tmTaskDetailPendingSave === true || activeDetailPanel?.__tmTaskDetailActiveInlinePopover || activeDetailPanel?.__tmTaskDetailNoteActive === true) return false;
         const stage = modal.querySelector('.tm-main-stage');
@@ -577,19 +827,34 @@
         if (!(stage instanceof HTMLElement) || !(toolbarExtra instanceof HTMLElement) || modal.querySelectorAll('.tm-main-stage').length !== 1) return false;
 
         try {
+            const isMobile = !!__tmIsMobileDevice();
+            const isRuntimeMobile = !!__tmIsRuntimeMobileClient();
+            const isDockHost = !!__tmIsDockHost();
+            const isLandscape = !!(isMobile && window.matchMedia?.('(orientation: landscape)')?.matches);
+            const isDesktopNarrow = !!(!isMobile && window.matchMedia?.('(max-width: 768px)')?.matches);
             const scene = __tmBuildRenderSceneContext({
                 bodyAnimClass: '',
                 tableAvailableWidth: Number(state.tableAvailableWidth) || 0,
-                isMobile: false,
-                isDockHost: false,
-                isRuntimeMobile: false,
-                isLandscape: false,
-                isDesktopNarrow: false,
+                isMobile,
+                isDockHost,
+                isRuntimeMobile,
+                isLandscape,
+                isDesktopNarrow,
                 mountEl: modal.classList.contains('tm-modal--tab') ? modal.parentElement : null,
             });
-            if (String(scene?.renderMode || '').trim() !== nextMode || scene.showCalendarSideDock || scene.showAiSideDock || scene.showTaskDetailSheet || scene.showMultiSelectBar) return false;
+            if (String(scene?.renderMode || '').trim() !== nextMode || scene.showMultiSelectBar) return false;
             const bodyHtml = String(scene.mainBodyHtml || '').trim();
             if (!bodyHtml) return false;
+            const nextStage = document.createElement('div');
+            nextStage.className = [
+                'tm-main-stage',
+                scene.showMobileBottomViewBar ? 'tm-main-stage--with-bottom-viewbar' : '',
+                scene.showTimelineFloatingToolbar ? 'tm-main-stage--timeline-mobile-toolbar' : '',
+            ].filter(Boolean).join(' ');
+            nextStage.style.setProperty('--tm-view-bottom-inset', String(scene.mainStageBottomInset || '0px'));
+            nextStage.innerHTML = `${scene.timelineFloatingToolbarHtml || ''}${scene.bodyWithSideDockHtml || bodyHtml}${scene.multiSelectBarHtml || ''}${scene.taskDetailSheetHtml || ''}`;
+            const persistentDockTransfers = __tmPreparePersistentSideDockTransfers(stage, nextStage, scene);
+            if (!persistentDockTransfers) return false;
             __tmCaptureBodyOnlyViewScroll(prevMode, modal);
             try { __tmHideFloatingTooltip(); } catch (e) {}
             if (prevMode === 'timeline') {
@@ -600,13 +865,20 @@
                 try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
             }
             state.listDomRenderSignature = '';
-            stage.className = 'tm-main-stage';
-            stage.style.setProperty('--tm-view-bottom-inset', String(scene.mainStageBottomInset || '0px'));
-            stage.innerHTML = `${scene.timelineFloatingToolbarHtml || ''}${scene.bodyWithSideDockHtml || bodyHtml}${scene.multiSelectBarHtml || ''}${scene.taskDetailSheetHtml || ''}`;
             toolbarExtra.innerHTML = __tmRenderBodyOnlyViewToolbarExtra(nextMode, scene);
+            __tmCommitPersistentSideDockTransfers(persistentDockTransfers);
+            stage.replaceWith(nextStage);
+            const cleanupPreviousView = () => {
+                if (prevMode === 'calendar') {
+                    try { globalThis.__tmCalendar?.unmount?.({ preserveRootHtml: false }); } catch (e) {}
+                }
+            };
+            cleanupPreviousView();
+            __tmReleaseDetachedViewStage(stage);
             modal.setAttribute('data-tm-render-mode', nextMode);
             __tmSyncBodyOnlyViewSwitcherButtons(modal, nextMode);
-            if (!__tmBindBodyOnlyViewAfterSwitch(nextMode, modal)) return false;
+            if (!__tmBindBodyOnlyViewAfterSwitch(nextMode, modal, scene)) return false;
+            __tmSyncPersistentSideDocksAfterViewSwitch(persistentDockTransfers, modal);
             __tmRestoreBodyOnlyViewScroll(nextMode, modal);
             return true;
         } catch (e) {
@@ -625,23 +897,16 @@
     window.tmSwitchViewMode = function(mode) {
         const next = __tmGetSafeViewMode(mode);
         const prev = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+        let forceFullRender = false;
         state.viewModeInitialized = true;
         if (state.homepageOpen) {
             state.homepageOpen = false;
+            forceFullRender = true;
             try { __tmInvalidateHomepageMount(); } catch (e) {}
             try { Storage.set('tm_homepage_open', false); } catch (e) {}
-            if (prev === next) {
-                try { __tmResetViewRenderWindow(next); } catch (e) {}
-                render();
-                return;
-            }
         } else if (state.attachmentLibraryOpen) {
             state.attachmentLibraryOpen = false;
-            if (prev === next) {
-                try { __tmResetViewRenderWindow(next); } catch (e) {}
-                render();
-                return;
-            }
+            forceFullRender = true;
         } else if (prev === next) {
             return;
         }
@@ -654,9 +919,7 @@
             from: prev || 'unknown',
             to: next || 'unknown',
         });
-        const needRefilter = !!SettingsStore.data.whiteboardSequenceMode && (prev === 'whiteboard' || next === 'whiteboard');
         state.viewMode = next;
-        try { __tmResetViewRenderWindow(next); } catch (e) {}
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try {
@@ -667,55 +930,59 @@
         if (next === 'whiteboard') {
             try { __tmCalendarFloatingDragEnd(); } catch (e) {}
         }
-        if (needRefilter) {
-            try { applyFilters(); } catch (e) {}
-        }
-        if (!__tmTrySwitchViewBodyInPlace(prev, next)) render();
-        try {
-            requestAnimationFrame(() => requestAnimationFrame(() => {
+        try { __tmCancelProgressiveViewRender(); } catch (e) {}
+        const generation = Math.max(0, Math.round(Number(state.__tmViewSwitchCommitGeneration) || 0)) + 1;
+        state.__tmViewSwitchCommitGeneration = generation;
+        const pendingModal = __tmShowViewSwitchPendingShell(next);
+        __tmScheduleViewSwitchCommit(generation, next, () => {
+            if (pendingModal && (!pendingModal.isConnected || state.modal !== pendingModal)) {
+                __tmClearViewSwitchPendingShell(pendingModal);
+                return;
+            }
+            let progressiveJob = null;
+            try {
+                const liveModal = state.modal instanceof HTMLElement ? state.modal : null;
+                const renderedMode = String(liveModal?.getAttribute('data-tm-render-mode') || prev || '').trim();
+                if (forceFullRender || renderedMode !== next) {
+                    const needRefilter = !!SettingsStore.data.whiteboardSequenceMode && (renderedMode === 'whiteboard' || next === 'whiteboard');
+                    if (needRefilter) {
+                        try { applyFilters(); } catch (e) {}
+                    }
+                    progressiveJob = __tmStartProgressiveViewRender(next);
+                    try { __tmResetViewRenderWindow(next); } catch (e) {}
+                    if (forceFullRender || !__tmTrySwitchViewBodyInPlace(renderedMode, next)) {
+                        state.__tmPreserveShellDuringViewSwitchRender = true;
+                        try { render(); } finally { state.__tmPreserveShellDuringViewSwitchRender = false; }
+                    }
+                }
+            } finally {
+                __tmClearViewSwitchPendingShell(pendingModal);
+                if (state.modal !== pendingModal) __tmClearViewSwitchPendingShell(state.modal);
+            }
+            try { __tmScheduleProgressiveViewRender(next, progressiveJob); } catch (e) {}
+            __tmScheduleAfterNextPaint(() => {
+                if (Number(state.__tmViewSwitchCommitGeneration || 0) !== generation) return;
                 try {
+                    const viewMode = globalThis.__tmRuntimeState?.getViewMode?.(next || 'unknown') || String(state.viewMode || '').trim() || next || 'unknown';
                     __tmPerfTraceMark(perfTrace, 'view-switch-done', {
                         from: prev || 'unknown',
                         to: next || 'unknown',
-                        viewMode: globalThis.__tmRuntimeState?.getViewMode?.(next || 'unknown') || String(state.viewMode || '').trim() || next || 'unknown',
+                        viewMode,
                     });
                     __tmPerfTraceFinish(perfTrace, {
                         from: prev || 'unknown',
                         to: next || 'unknown',
-                        viewMode: globalThis.__tmRuntimeState?.getViewMode?.(next || 'unknown') || String(state.viewMode || '').trim() || next || 'unknown',
+                        viewMode,
                     });
                 } catch (e) {}
-            }));
-        } catch (e) {
-            try {
-                __tmPerfTraceMark(perfTrace, 'view-switch-done', {
-                    from: prev || 'unknown',
-                    to: next || 'unknown',
-                    viewMode: globalThis.__tmRuntimeState?.getViewMode?.(next || 'unknown') || String(state.viewMode || '').trim() || next || 'unknown',
-                });
-                __tmPerfTraceFinish(perfTrace, {
-                    from: prev || 'unknown',
-                    to: next || 'unknown',
-                    viewMode: globalThis.__tmRuntimeState?.getViewMode?.(next || 'unknown') || String(state.viewMode || '').trim() || next || 'unknown',
-                });
-            } catch (e2) {}
-        }
-        if (next !== 'calendar') {
-            const refreshDock = () => {
-                try { globalThis.__tmCalendar?.refreshSideDayLayout?.(); } catch (e) {}
-                try { globalThis.__tmCalendar?.relayoutSideDayDate?.(); } catch (e) {}
-            };
-            try { requestAnimationFrame(refreshDock); } catch (e) {}
-            try { requestAnimationFrame(() => requestAnimationFrame(refreshDock)); } catch (e) {}
-            try { setTimeout(refreshDock, 0); } catch (e) {}
-            try { setTimeout(refreshDock, 80); } catch (e) {}
-        }
-        if (next === 'whiteboard') {
-            try {
-                requestAnimationFrame(() => {
-                    try { window.tmWhiteboardResetView?.(); } catch (e) {}
-                });
-            } catch (e) {}
-        }
+            });
+            if (next === 'whiteboard') {
+                try {
+                    requestAnimationFrame(() => {
+                        try { window.tmWhiteboardResetView?.(); } catch (e) {}
+                    });
+                } catch (e) {}
+            }
+        });
     };
 

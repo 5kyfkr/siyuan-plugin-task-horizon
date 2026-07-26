@@ -425,7 +425,7 @@
         if (!raw || raw === 'none' || raw === 'once') return 'none';
         if (raw === 'weekday' || raw === 'weekdays') return 'workday';
         if (raw === 'everyday') return 'daily';
-        if (raw === 'daily' || raw === 'workday' || raw === 'weekly' || raw === 'monthly' || raw === 'yearly') return raw;
+        if (raw === 'daily' || raw === 'workday' || raw === 'weekly' || raw === 'monthly' || raw === 'yearly' || raw === 'fsrs') return raw;
         return 'none';
     }
 
@@ -458,15 +458,36 @@
         return Math.max(1, Math.min(200, parsed));
     }
 
+    function __tmNormalizeFsrsCardState(value) {
+        const raw = (value && typeof value === 'object' && !Array.isArray(value)) ? value : null;
+        if (!raw) return null;
+        const due = new Date(raw.due || '');
+        if (Number.isNaN(due.getTime())) return null;
+        const lastReview = raw.last_review ? new Date(raw.last_review) : null;
+        return {
+            due: due.toISOString(),
+            stability: Math.max(0, Number(raw.stability) || 0),
+            difficulty: Math.max(0, Number(raw.difficulty) || 0),
+            elapsed_days: Math.max(0, parseInt(raw.elapsed_days, 10) || 0),
+            scheduled_days: Math.max(0, parseInt(raw.scheduled_days, 10) || 0),
+            reps: Math.max(0, parseInt(raw.reps, 10) || 0),
+            lapses: Math.max(0, parseInt(raw.lapses, 10) || 0),
+            state: Math.max(0, Math.min(3, parseInt(raw.state, 10) || 0)),
+            last_review: lastReview && !Number.isNaN(lastReview.getTime()) ? lastReview.toISOString() : '',
+        };
+    }
+
     function __tmNormalizeTaskRepeatState(value) {
         const raw = __tmParseTaskRepeatJson(value) || {};
+        const fsrsCard = __tmNormalizeFsrsCardState(raw.fsrsCard || raw.fsrs_card || null);
         return {
-            version: 1,
+            version: fsrsCard ? 2 : 1,
             occurrenceCount: Math.max(1, Math.min(200, parseInt(raw.occurrenceCount, 10) || 1)),
             lastCompletedAt: String(raw.lastCompletedAt || '').trim(),
             lastAdvancedAt: String(raw.lastAdvancedAt || '').trim(),
             lastInstanceStart: __tmNormalizeDateOnly(raw.lastInstanceStart || ''),
             lastInstanceDue: __tmNormalizeDateOnly(raw.lastInstanceDue || ''),
+            fsrsCard,
         };
     }
 
@@ -506,6 +527,9 @@
                 duration: String(entry.duration || '').trim(),
                 remark: String(entry.remark || '').trim(),
                 docSeq: Number.isFinite(Number(entry.docSeq)) ? Number(entry.docSeq) : Number.NaN,
+                rating: Math.max(0, Math.min(4, parseInt(entry.rating, 10) || 0)),
+                fsrsBefore: __tmNormalizeFsrsCardState(entry.fsrsBefore || null),
+                fsrsAfter: __tmNormalizeFsrsCardState(entry.fsrsAfter || null),
             };
         }).filter((item) => item.completedAt || item.sourceStart || item.sourceDue || item.nextStart || item.nextDue)
             .slice(0, 30);
@@ -547,6 +571,28 @@
         return Math.max(1, __tmGetTaskRepeatCompletedCount(task) - Math.max(0, Number(orderIndex) || 0));
     }
 
+    function __tmNormalizeTaskRepeatWeekdays(value, fallbackDate = '') {
+        let values = [];
+        if (Array.isArray(value)) {
+            values = value;
+        } else if (typeof value === 'number') {
+            values = [value];
+        } else if (typeof value === 'string' && String(value || '').trim()) {
+            const text = String(value || '').trim();
+            try {
+                const parsed = JSON.parse(text);
+                values = Array.isArray(parsed) ? parsed : [parsed];
+            } catch (e) {
+                values = text.split(',');
+            }
+        }
+        const normalized = Array.from(new Set(values
+            .map((item) => Number(item))
+            .filter((item) => Number.isInteger(item) && item >= 0 && item <= 6)))
+            .sort((left, right) => left - right);
+        return normalized;
+    }
+
     function __tmNormalizeTaskRepeatRule(value, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const valueText = typeof value === 'string' ? String(value || '').trim() : '';
@@ -557,6 +603,7 @@
                 trigger: __tmNormalizeTaskRepeatTrigger(opts.trigger || ''),
                 type: 'none',
                 every: 1,
+                weekdays: [],
                 monthlyMode: 'date',
                 calendarMode: 'solar',
                 until: '',
@@ -582,16 +629,19 @@
             || opts.completionTime
             || new Date()
         );
-        const maxOccurrences = enabled ? __tmNormalizeTaskRepeatMaxOccurrences(raw.maxOccurrences) : 0;
+        const maxOccurrences = enabled && type !== 'fsrs' ? __tmNormalizeTaskRepeatMaxOccurrences(raw.maxOccurrences) : 0;
         return {
             version: 1,
             enabled: enabled && type !== 'none',
-            trigger: __tmNormalizeTaskRepeatTrigger(raw.trigger || opts.trigger || ''),
+            trigger: type === 'fsrs' ? 'complete' : __tmNormalizeTaskRepeatTrigger(raw.trigger || opts.trigger || ''),
             type: enabled ? type : 'none',
             every: __tmNormalizeTaskRepeatEvery(raw.every, type),
+            weekdays: enabled && type === 'weekly'
+                ? __tmNormalizeTaskRepeatWeekdays(raw.weekdays ?? raw.weekDays ?? raw.weekday, fallbackAnchor)
+                : [],
             monthlyMode: __tmNormalizeTaskRepeatMonthlyMode(raw.monthlyMode, type),
             calendarMode: __tmNormalizeTaskRepeatCalendarMode(raw.calendarMode || raw.repeatCalendarMode, type),
-            until: enabled && maxOccurrences === 0 ? __tmNormalizeTaskRepeatUntil(raw.until || raw.repeatUntil || '') : '',
+            until: enabled && type !== 'fsrs' && maxOccurrences === 0 ? __tmNormalizeTaskRepeatUntil(raw.until || raw.repeatUntil || '') : '',
             maxOccurrences,
             anchorDate: fallbackAnchor,
         };
@@ -610,6 +660,59 @@
         if (!m) return null;
         const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
         return Number.isNaN(dt.getTime()) ? null : dt;
+    }
+
+    function __tmGetTaskRepeatMondayStart(dateLike) {
+        const date = dateLike instanceof Date ? new Date(dateLike.getTime()) : __tmBuildLocalNoonDateFromKey(dateLike);
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+        date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+        date.setHours(12, 0, 0, 0);
+        return date;
+    }
+
+    function __tmGetTaskRepeatLocalDayOrdinal(dateLike) {
+        const date = dateLike instanceof Date ? dateLike : __tmBuildLocalNoonDateFromKey(dateLike);
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return Number.NaN;
+        return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+    }
+
+    function __tmShiftTaskRepeatDateKey(dateKey, days) {
+        const date = __tmBuildLocalNoonDateFromKey(dateKey);
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+        date.setDate(date.getDate() + Number(days || 0));
+        return __tmFormatDateKeyFromDate(date);
+    }
+
+    function __tmFindTaskRepeatNextWeeklyDate(baseDate, rule) {
+        const base = baseDate instanceof Date ? new Date(baseDate.getTime()) : __tmBuildLocalNoonDateFromKey(baseDate);
+        if (!(base instanceof Date) || Number.isNaN(base.getTime())) return null;
+        const anchor = __tmBuildLocalNoonDateFromKey(rule?.anchorDate) || base;
+        const baseWeek = __tmGetTaskRepeatMondayStart(base);
+        const anchorWeek = __tmGetTaskRepeatMondayStart(anchor);
+        if (!baseWeek || !anchorWeek) return null;
+        const weekdays = __tmNormalizeTaskRepeatWeekdays(rule?.weekdays, rule?.anchorDate || __tmFormatDateKeyFromDate(anchor));
+        const every = Math.max(1, Number(rule?.every) || 1);
+        if (!weekdays.length) {
+            const next = new Date(base.getTime());
+            next.setDate(next.getDate() + every * 7);
+            return next;
+        }
+        const offsets = weekdays.map((weekday) => (weekday + 6) % 7).sort((left, right) => left - right);
+        const diffWeeks = Math.round((__tmGetTaskRepeatLocalDayOrdinal(baseWeek) - __tmGetTaskRepeatLocalDayOrdinal(anchorWeek)) / 7);
+        let candidateWeek = diffWeeks < 0 ? new Date(anchorWeek.getTime()) : new Date(baseWeek.getTime());
+        if (diffWeeks >= 0) {
+            const remainder = diffWeeks % every;
+            if (remainder !== 0) candidateWeek.setDate(candidateWeek.getDate() + (every - remainder) * 7);
+        }
+        for (let guard = 0; guard < 2; guard += 1) {
+            for (const dayOffset of offsets) {
+                const candidate = new Date(candidateWeek.getTime());
+                candidate.setDate(candidate.getDate() + dayOffset);
+                if (candidate.getTime() > base.getTime() && candidate.getTime() >= anchor.getTime()) return candidate;
+            }
+            candidateWeek.setDate(candidateWeek.getDate() + every * 7);
+        }
+        return null;
     }
 
     function __tmGetTaskRepeatMonthWeekOrdinal(dateLike) {
@@ -819,8 +922,7 @@
                 if (weekday !== 0 && weekday !== 6) remaining -= 1;
             }
         } else if (rule.type === 'weekly') {
-            next = new Date(base.getTime());
-            next.setDate(next.getDate() + rule.every * 7);
+            next = __tmFindTaskRepeatNextWeeklyDate(base, rule);
         } else if (rule.type === 'monthly') {
             next = rule.calendarMode === 'lunar'
                 ? __tmFindTaskRepeatNextLunarMonthlyDate(base, rule)
@@ -844,14 +946,29 @@
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
-        if (!rule.enabled || rule.type === 'none') return null;
+        if (!rule.enabled || rule.type === 'none' || rule.type === 'fsrs') return null;
         const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
         if (rule.maxOccurrences > 0 && currentState.occurrenceCount >= rule.maxOccurrences) return null;
         const prevStart = __tmNormalizeDateOnly(task?.startDate || '');
         const prevDue = __tmNormalizeDateOnly(task?.completionTime || '');
         const fallbackBase = prevDue || prevStart || rule.anchorDate || __tmNormalizeDateOnly(new Date());
-        const nextStart = prevStart ? __tmAdvanceTaskRepeatDateKey(prevStart, rule) : '';
-        let nextDue = prevDue ? __tmAdvanceTaskRepeatDateKey(prevDue, rule) : '';
+        let nextStart = '';
+        let nextDue = '';
+        if (rule.type === 'weekly') {
+            const previousAnchor = prevDue || prevStart || fallbackBase;
+            const nextAnchor = __tmAdvanceTaskRepeatDateKey(previousAnchor, rule);
+            if (nextAnchor) {
+                const deltaDays = __tmGetTaskRepeatLocalDayOrdinal(nextAnchor) - __tmGetTaskRepeatLocalDayOrdinal(previousAnchor);
+                if (Number.isFinite(deltaDays)) {
+                    nextStart = prevStart ? __tmShiftTaskRepeatDateKey(prevStart, deltaDays) : '';
+                    nextDue = prevDue ? __tmShiftTaskRepeatDateKey(prevDue, deltaDays) : '';
+                    if (!prevStart && !prevDue) nextDue = nextAnchor;
+                }
+            }
+        } else {
+            nextStart = prevStart ? __tmAdvanceTaskRepeatDateKey(prevStart, rule) : '';
+            nextDue = prevDue ? __tmAdvanceTaskRepeatDateKey(prevDue, rule) : '';
+        }
         if (!nextDue && !prevStart && !prevDue && fallbackBase) {
             nextDue = __tmAdvanceTaskRepeatDateKey(fallbackBase, rule);
         }
@@ -881,6 +998,7 @@
         if (repeatType === 'weekly') return n > 1 ? `每${n}周` : '每周';
         if (repeatType === 'monthly') return n > 1 ? `每${n}个月` : '每月';
         if (repeatType === 'yearly') return n > 1 ? `每${n}年` : '每年';
+        if (repeatType === 'fsrs') return 'FSRS 间隔重复';
         return '不循环';
     }
 
@@ -897,11 +1015,15 @@
     function __tmGetTaskRepeatSummary(ruleInput, options = {}) {
         const rule = __tmNormalizeTaskRepeatRule(ruleInput, options);
         if (!rule.enabled || rule.type === 'none') return '';
+        if (rule.type === 'fsrs') return 'FSRS 间隔重复';
         const triggerText = rule.trigger === 'complete' ? '完成后' : '到期后';
         const unitText = __tmGetTaskRepeatCalendarUnitLabel(rule.type, rule.every, rule.calendarMode);
         const untilText = rule.until ? ` · 至 ${rule.until}` : '';
         const countText = rule.maxOccurrences > 0 ? ` · 共 ${rule.maxOccurrences} 次` : '';
-        return `${triggerText}${unitText}${untilText}${countText}`;
+        const weekdayText = rule.type === 'weekly' && rule.weekdays.length > 0
+            ? `（${[1, 2, 3, 4, 5, 6, 0].filter((weekday) => rule.weekdays.includes(weekday)).map((weekday) => ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][weekday]).join('、')}）`
+            : '';
+        return `${triggerText}${unitText}${weekdayText}${untilText}${countText}`;
     }
 
     function __tmGetTaskRepeatWeekdayLabel(dateLike) {
@@ -1214,7 +1336,9 @@
             completionTime: task?.completionTime,
         });
         if (!rule.enabled || rule.type === 'none') return [];
-        const limit = Math.max(1, Math.min(8, Number(options.limit) || 5));
+        if (rule.type === 'fsrs') return [];
+        const limit = Math.max(1, Math.min(4096, Number(options.limit) || 5));
+        const untilDate = __tmNormalizeDateOnly(options.until || '');
         const out = [];
         let cursorTask = {
             ...task,
@@ -1230,6 +1354,7 @@
             if (!patch) break;
             const nextDate = __tmNormalizeDateOnly(patch.completionTime || patch.startDate || '');
             if (!nextDate) break;
+            if (untilDate && nextDate > untilDate) break;
             out.push(nextDate);
             cursorTask = {
                 ...cursorTask,
@@ -1237,6 +1362,7 @@
                 completionTime: __tmNormalizeDateOnly(patch.completionTime || ''),
                 repeatState: __tmNormalizeTaskRepeatState(patch.repeatState),
             };
+            if (untilDate && nextDate === untilDate) break;
         }
         return out;
     }

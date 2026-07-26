@@ -39,44 +39,11 @@
         function __tmRenderChecklistBodyHtml() {
             const rowModel = __tmBuildTaskRowModel();
             const completedTodayKey = __tmNormalizeDateOnly(new Date());
-            const filteredTaskById = new Map();
-            try {
-                const visibleDateAliases = [
-                    ['startDate', 'start_date'],
-                    ['completionTime', 'completion_time'],
-                    ['customTime', 'custom_time'],
-                ];
-                const readVisibleDateAlias = (task, camel, snake) => String(task?.[camel] || task?.[snake] || '').trim();
-                const writeVisibleDateAlias = (task, camel, snake, value) => {
-                    if (!task || typeof task !== 'object') return;
-                    task[camel] = value;
-                    task[snake] = value;
-                };
-                Object.values(state.flatTasks || {}).forEach((task) => {
-                    if (!task || typeof task !== 'object') return;
-                    visibleDateAliases.forEach(([camel, snake]) => {
-                        const value = readVisibleDateAlias(task, camel, snake);
-                        if (value) writeVisibleDateAlias(task, camel, snake, value);
-                    });
-                });
-                (Array.isArray(state.filteredTasks) ? state.filteredTasks : []).forEach((task) => {
-                    const taskId = String(task?.id || '').trim();
-                    if (!taskId) return;
-                    filteredTaskById.set(taskId, task);
-                    const flatTask = globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
-                        || state.flatTasks?.[taskId]
-                        || state.pendingInsertedTasks?.[taskId]
-                        || null;
-                    visibleDateAliases.forEach(([camel, snake]) => {
-                        const taskValue = readVisibleDateAlias(task, camel, snake);
-                        const flatValue = readVisibleDateAlias(flatTask, camel, snake);
-                        const value = taskValue || flatValue;
-                        if (!value) return;
-                        writeVisibleDateAlias(task, camel, snake, value);
-                        writeVisibleDateAlias(flatTask, camel, snake, value);
-                    });
-                });
-            } catch (e) {}
+            const filteredTaskById = new Map(
+                (Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
+                    .map((task) => [String(task?.id || '').trim(), task])
+                    .filter(([taskId]) => !!taskId)
+            );
             const checklistVirtualThreshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 50;
             const checklistVirtualEnabled = Array.isArray(state.filteredTasks) && state.filteredTasks.length > checklistVirtualThreshold;
             const checklistStep = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
@@ -577,7 +544,7 @@
                 ? Math.max(0, totalChecklistTaskCount - renderedChecklistTaskCount)
                 : 0;
             const checklistLoadMoreHtml = checklistRemain > 0
-                ? `<div class="tm-checklist-load-more" style="padding:10px 0;text-align:center;"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmListLoadMoreRows(event)">继续加载</button></div>`
+                ? `<div class="tm-checklist-load-more" style="padding:10px 0;text-align:center;"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmChecklistLoadMoreRows(event)">继续加载</button></div>`
                 : '';
             const detailTask = activeId
                 ? (

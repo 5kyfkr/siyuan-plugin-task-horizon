@@ -109,6 +109,10 @@ assert.match(workbench, /phosphorBoldContextIcon\('calendarDots'\)/, 'scheduled-
 plugin.uninstall().then(() => {
     assert.deepEqual(removedSkills, ['task-capture'], 'uninstall must remove only unchanged plugin-owned Agent skills');
     assert.ok(removedFiles.includes('/data/storage/petal/siyuan-plugin-task-horizon/agent-scheduled-events.json'), 'uninstall must remove persisted Agent schedules');
+    assert.ok(removedFiles.includes('/data/storage/petal/siyuan-plugin-task-horizon/diagnostic-logs.json'), 'uninstall must remove diagnostic logs');
+    assert.equal(removedFiles.includes('/data/storage/petal/siyuan-plugin-task-horizon/task-license.json'), false, 'uninstall must preserve the activation license');
+    assert.equal(removedFiles.includes('/data/storage/petal/siyuan-plugin-task-horizon/task-settings.json'), false, 'uninstall must preserve task settings');
+    assert.equal(removedFiles.includes('/data/storage/petal/siyuan-plugin-task-horizon/calendar-events.json'), false, 'uninstall must preserve calendar events');
     console.log('Agent scheduled action tests passed');
 }).catch((error) => {
     console.error(error);

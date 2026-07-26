@@ -11119,6 +11119,26 @@ const wait = !!options.wait;
         return null;
     }
 
+    function __tmNormalizeReminderWeekdays(value, fallbackDate = '') {
+        let values = [];
+        if (Array.isArray(value)) values = value;
+        else if (typeof value === 'number') values = [value];
+        else if (typeof value === 'string' && String(value || '').trim()) {
+            const text = String(value || '').trim();
+            try {
+                const parsed = JSON.parse(text);
+                values = Array.isArray(parsed) ? parsed : [parsed];
+            } catch (e) {
+                values = text.split(',');
+            }
+        }
+        const normalized = Array.from(new Set(values
+            .map((item) => Number(item))
+            .filter((item) => Number.isInteger(item) && item >= 0 && item <= 6)))
+            .sort((left, right) => left - right);
+        return normalized;
+    }
+
     function __tmNormalizeReminderTaskRepeatRule(value) {
         let raw = value;
         if (typeof raw === 'string') {
@@ -11135,16 +11155,20 @@ const wait = !!options.wait;
         const maxOccurrences = enabled
             ? Math.max(0, Math.min(200, parseInt(raw.maxOccurrences, 10) || 0))
             : 0;
+        const anchorDate = __tmNormalizeReminderDateKey(raw.anchorDate || '');
         return {
             enabled: enabled && type !== 'none',
             trigger: String(raw.trigger || '').trim().toLowerCase() === 'complete' ? 'complete' : 'due',
             type,
             every: Math.max(1, Math.min(3650, parseInt(raw.every, 10) || 1)),
+            weekdays: enabled && type === 'weekly'
+                ? __tmNormalizeReminderWeekdays(raw.weekdays ?? raw.weekDays ?? raw.weekday, anchorDate)
+                : [],
             monthlyMode: __tmNormalizeReminderMonthlyMode(raw.monthlyMode || ''),
             calendarMode: __tmNormalizeReminderCalendarMode(raw.calendarMode || raw.repeatCalendarMode || '', type),
             until: maxOccurrences > 0 ? '' : __tmNormalizeReminderDateKey(raw.until || raw.repeatUntil || ''),
             maxOccurrences,
-            anchorDate: __tmNormalizeReminderDateKey(raw.anchorDate || ''),
+            anchorDate,
         };
     }
 
@@ -11420,6 +11444,20 @@ const wait = !!options.wait;
         return __tmNormalizeReminderDateKey(reminder?.createdAt || new Date());
     }
 
+    function __tmGetReminderMondayStart(dateLike) {
+        const date = dateLike instanceof Date ? new Date(dateLike.getTime()) : __tmReminderToDateSafe(dateLike);
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+        date.setHours(0, 0, 0, 0);
+        date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+        return date;
+    }
+
+    function __tmGetReminderLocalDayOrdinal(dateLike) {
+        const date = dateLike instanceof Date ? dateLike : __tmReminderToDateSafe(dateLike);
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return Number.NaN;
+        return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+    }
+
     function __tmGetNextReminderDateTime(reminder, fromDate) {
         if (!reminder?.enabled) return null;
         const times = Array.from(new Set((reminder.times || [])
@@ -11544,31 +11582,38 @@ const wait = !!options.wait;
         if (interval === 'weekly') {
             const anchor = new Date(`${startKey}T00:00:00`);
             if (Number.isNaN(anchor.getTime())) return null;
-            const targetDow = anchor.getDay();
             const fromDay = new Date(from);
             fromDay.setHours(0, 0, 0, 0);
-            const dayMs = 86400000;
-            const dowOffset = (targetDow - fromDay.getDay() + 7) % 7;
-            let candidate = new Date(fromDay);
-            candidate.setDate(candidate.getDate() + dowOffset);
-            if (candidate.getTime() < anchor.getTime()) candidate = new Date(anchor);
-            let diffWeeks = Math.floor((candidate.getTime() - anchor.getTime()) / (dayMs * 7));
-            if (!Number.isFinite(diffWeeks)) diffWeeks = 0;
-            if (diffWeeks < 0) diffWeeks = 0;
-            let offsetWeeks = diffWeeks % every;
-            if (offsetWeeks < 0) offsetWeeks += every;
-            if (offsetWeeks !== 0) candidate.setDate(candidate.getDate() + (every - offsetWeeks) * 7);
+            const startDay = fromDay.getTime() < anchor.getTime() ? new Date(anchor) : fromDay;
+            const anchorWeek = __tmGetReminderMondayStart(anchor);
+            let candidateWeek = __tmGetReminderMondayStart(startDay);
+            if (!anchorWeek || !candidateWeek) return null;
+            let diffWeeks = Math.floor((__tmGetReminderLocalDayOrdinal(candidateWeek) - __tmGetReminderLocalDayOrdinal(anchorWeek)) / 7);
+            if (!Number.isFinite(diffWeeks) || diffWeeks < 0) diffWeeks = 0;
+            const remainder = diffWeeks % every;
+            if (remainder !== 0) candidateWeek.setDate(candidateWeek.getDate() + (every - remainder) * 7);
+            const weekdays = __tmNormalizeReminderWeekdays(
+                repeatRule?.weekdays ?? reminder?.weekdays ?? reminder?.weekDays ?? reminder?.weekday,
+                startKey
+            );
+            const effectiveWeekdays = weekdays.length ? weekdays : [anchor.getDay()];
+            const offsets = effectiveWeekdays.map((weekday) => (weekday + 6) % 7).sort((left, right) => left - right);
             for (let i = 0; i < 104; i += 1) {
-                const candidateKey = __tmNormalizeReminderDateKey(candidate);
-                if (isBeyondEndDate(candidateKey)) return null;
-                if (candidateKey === nowKey) {
-                    const at = pickOnDate(candidateKey, true);
-                    if (at) return at;
-                } else {
-                    const at = pickEarliest(candidateKey);
-                    if (at) return at;
+                for (const dayOffset of offsets) {
+                    const candidate = new Date(candidateWeek);
+                    candidate.setDate(candidate.getDate() + dayOffset);
+                    if (candidate.getTime() < startDay.getTime() || candidate.getTime() < anchor.getTime()) continue;
+                    const candidateKey = __tmNormalizeReminderDateKey(candidate);
+                    if (isBeyondEndDate(candidateKey)) return null;
+                    if (candidateKey === nowKey) {
+                        const at = pickOnDate(candidateKey, true);
+                        if (at) return at;
+                    } else {
+                        const at = pickEarliest(candidateKey);
+                        if (at) return at;
+                    }
                 }
-                candidate.setDate(candidate.getDate() + every * 7);
+                candidateWeek.setDate(candidateWeek.getDate() + every * 7);
             }
             return null;
         }
@@ -11710,6 +11755,7 @@ const wait = !!options.wait;
             repeatMode: 'manual',
             interval: rule.type,
             every: rule.every,
+            weekdays: rule.weekdays,
             monthlyMode: rule.monthlyMode,
             calendarMode: rule.calendarMode,
             startDate: monthlyAnchor || followKey,
@@ -11814,25 +11860,38 @@ const wait = !!options.wait;
             if (interval === 'weekly') {
                 const anchor = new Date(`${startKey}T00:00:00`);
                 if (Number.isNaN(anchor.getTime())) return null;
-                const targetDow = anchor.getDay();
-                const today0 = new Date(to);
-                today0.setHours(0, 0, 0, 0);
-                const back = (today0.getDay() - targetDow + 7) % 7;
-                let candidate = new Date(today0);
-                candidate.setDate(candidate.getDate() - back);
-                if (candidate.getTime() < anchor.getTime()) return null;
-                const dayMs = 86400000;
-                let diffWeeks = Math.floor((candidate.getTime() - anchor.getTime()) / (dayMs * 7));
+                let limitDay = new Date(to);
+                limitDay.setHours(0, 0, 0, 0);
+                if (endKey) {
+                    const endDay = new Date(`${endKey}T00:00:00`);
+                    if (!Number.isNaN(endDay.getTime()) && endDay.getTime() < limitDay.getTime()) limitDay = endDay;
+                }
+                if (limitDay.getTime() < anchor.getTime()) return null;
+                const anchorWeek = __tmGetReminderMondayStart(anchor);
+                let candidateWeek = __tmGetReminderMondayStart(limitDay);
+                if (!anchorWeek || !candidateWeek) return null;
+                let diffWeeks = Math.floor((__tmGetReminderLocalDayOrdinal(candidateWeek) - __tmGetReminderLocalDayOrdinal(anchorWeek)) / 7);
                 if (!Number.isFinite(diffWeeks) || diffWeeks < 0) return null;
                 diffWeeks -= diffWeeks % every;
-                candidate = new Date(anchor);
-                candidate.setDate(candidate.getDate() + diffWeeks * 7);
+                candidateWeek = new Date(anchorWeek);
+                candidateWeek.setDate(candidateWeek.getDate() + diffWeeks * 7);
+                const weekdays = __tmNormalizeReminderWeekdays(
+                    repeatRule?.weekdays ?? reminder?.weekdays ?? reminder?.weekDays ?? reminder?.weekday,
+                    startKey
+                );
+                const effectiveWeekdays = weekdays.length ? weekdays : [anchor.getDay()];
+                const offsets = effectiveWeekdays.map((weekday) => (weekday + 6) % 7).sort((left, right) => right - left);
                 for (let i = 0; i < 104; i += 1) {
-                    const candidateKey = __tmNormalizeReminderDateKey(candidate);
-                    const at = pickLatestOnDate(candidateKey, candidateKey === nowKey);
-                    if (at) return at;
-                    candidate.setDate(candidate.getDate() - every * 7);
-                    if (candidate.getTime() < anchor.getTime()) break;
+                    for (const dayOffset of offsets) {
+                        const candidate = new Date(candidateWeek);
+                        candidate.setDate(candidate.getDate() + dayOffset);
+                        if (candidate.getTime() > limitDay.getTime() || candidate.getTime() < anchor.getTime()) continue;
+                        const candidateKey = __tmNormalizeReminderDateKey(candidate);
+                        const at = pickLatestOnDate(candidateKey, candidateKey === nowKey);
+                        if (at) return at;
+                    }
+                    candidateWeek.setDate(candidateWeek.getDate() - every * 7);
+                    if (candidateWeek.getTime() + 6 * 86400000 < anchor.getTime()) break;
                 }
                 return null;
             }
@@ -12511,6 +12570,7 @@ const wait = !!options.wait;
                     statusPatch,
                     suppressHint: true,
                     source,
+                    fsrsRating: 3,
                 });
                 if (setDoneResult === false) {
                     __tmReminderFollowTaskDoneSignatures.delete(picked.signature);
@@ -17384,14 +17444,17 @@ if (!state.homepageOpen) return;
         return null;
     }
 
-    async function __tmTryApplyDocTopbarManagerTarget() {
-        if (!__tmShouldLocateCurrentDocTabFromDocTopbar()) {
+    async function __tmTryApplyDocTopbarManagerTarget(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.forceLocate !== true && !__tmShouldLocateCurrentDocTabFromDocTopbar()) {
             return { changed: false, reason: 'disabled' };
         }
-        const docId = __tmResolveDocTopbarSourceDocId();
+        const docId = String(opts.docId || __tmResolveDocTopbarSourceDocId() || '').trim();
         if (!docId) return { changed: false, reason: 'no-doc' };
-        const hasTasks = await __tmDocHasTaskBlocks(docId);
-        if (!hasTasks) return { changed: false, reason: 'no-tasks', docId };
+        if (opts.requireTasks !== false) {
+            const hasTasks = await __tmDocHasTaskBlocks(docId);
+            if (!hasTasks) return { changed: false, reason: 'no-tasks', docId };
+        }
         const target = await __tmResolveDocTopbarTargetGroup(docId);
         if (!target?.groupId) return { changed: false, reason: 'group-not-found', docId };
 
@@ -17452,9 +17515,9 @@ if (!state.homepageOpen) return;
         return changed;
     }
 
-    async function __tmOpenManagerFromDocTopbarEntry() {
+    async function __tmOpenManagerFromDocTopbarEntry(options = {}) {
         try {
-            await __tmTryApplyDocTopbarManagerTarget();
+            await __tmTryApplyDocTopbarManagerTarget(options);
         } catch (e) {
             try { console.warn('[task-horizon] doc topbar locate current doc failed', e); } catch (e2) {}
         }
@@ -20433,7 +20496,60 @@ refreshOk = false;
         wechat: '/data/plugins/siyuan-plugin-task-horizon/src/payment/wechat.png',
         alipay: '/data/plugins/siyuan-plugin-task-horizon/src/payment/alipay.png',
     });
+    const TM_BENEFITS_LIFETIME_STANDARD_PRICE_AT = Date.parse('2026-08-01T00:00:00+08:00');
     let __tmBenefitsQrLoadSeq = 0;
+    let __tmBenefitsLifetimeRefreshTimer = 0;
+
+    function __tmGetBenefitsLifetimeOffer(now = Date.now()) {
+        if (Number(now) >= TM_BENEFITS_LIFETIME_STANDARD_PRICE_AT) {
+            return {
+                price: 98,
+                originalPrice: 0,
+                tag: '永久买断',
+                description: '一次付费获得当前插件全功能永久授权，适合把本插件作为主力任务系统的用户。',
+                summary: '扫码转账 98 元后，付款时请提供以下用户名；无法在付款备注提供时，请通过 QQ 群或邮件提供付款信息。',
+            };
+        }
+        return {
+            price: 50,
+            originalPrice: 98,
+            tag: '早鸟推荐',
+            description: '限时早鸟至 2026年7月31日，一次付费获得当前插件全功能永久授权，适合把本插件作为主力任务系统的用户。已捐助达到 50 元可直接联系获取激活码，未达到的补齐差额即可。',
+            summary: '限时早鸟至 2026年7月31日。已捐助达到 50 元可直接联系获取激活码，未达到的补齐差额即可；付款时请提供以下用户名。',
+        };
+    }
+
+    function __tmRenderBenefitsLifetimePrice(offer) {
+        const price = Math.max(0, Number(offer?.price) || 0);
+        const originalPrice = Math.max(0, Number(offer?.originalPrice) || 0);
+        return `${originalPrice ? `<del><strong>${originalPrice}</strong><span>元</span></del>` : ''}<strong>${price}</strong><span>元</span>`;
+    }
+
+    function __tmScheduleBenefitsLifetimeRefresh() {
+        try { clearTimeout(__tmBenefitsLifetimeRefreshTimer); } catch (e) {}
+        __tmBenefitsLifetimeRefreshTimer = 0;
+        const remaining = TM_BENEFITS_LIFETIME_STANDARD_PRICE_AT - Date.now();
+        if (remaining <= 0) return;
+        __tmBenefitsLifetimeRefreshTimer = setTimeout(() => {
+            __tmBenefitsLifetimeRefreshTimer = 0;
+            if (Date.now() < TM_BENEFITS_LIFETIME_STANDARD_PRICE_AT) {
+                __tmScheduleBenefitsLifetimeRefresh();
+                return;
+            }
+            const offer = __tmGetBenefitsLifetimeOffer();
+            document.querySelectorAll('[data-tm-benefits-lifetime-plan]').forEach((plan) => {
+                const tag = plan.querySelector('[data-tm-benefits-lifetime-tag]');
+                const price = plan.querySelector('[data-tm-benefits-lifetime-price]');
+                const description = plan.querySelector('[data-tm-benefits-lifetime-description]');
+                if (tag) tag.textContent = offer.tag;
+                if (price) price.innerHTML = __tmRenderBenefitsLifetimePrice(offer);
+                if (description) description.textContent = offer.description;
+            });
+            const dialog = document.getElementById('tmBenefitsPaymentDialog');
+            const summary = document.getElementById('tmBenefitsPaymentSummary');
+            if (dialog?.dataset?.tmBenefitsPlan === 'lifetime' && summary) summary.textContent = offer.summary;
+        }, Math.min(remaining + 50, 2147483647));
+    }
 
     function __tmGetBenefitsAuthInfo() {
         try {
@@ -20462,6 +20578,8 @@ refreshOk = false;
     function __tmRenderBenefitsSettingsPanel() {
         const auth = __tmGetBenefitsAuthInfo();
         const license = __tmGetBenefitsLicenseState();
+        const lifetimeOffer = __tmGetBenefitsLifetimeOffer();
+        __tmScheduleBenefitsLifetimeRefresh();
         const subject = String(auth?.subject || license?.currentSubject || '').trim();
         const accountText = subject || '未读取到';
         const accountKindText = auth?.loggedIn ? '用户名' : (String(auth?.kind || '') === 'device' ? '设备码' : '用户名/设备码');
@@ -20645,14 +20763,14 @@ refreshOk = false;
                                 </div>
                                 <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('yearly')">扫码付款</button>
                             </div>
-                            <div class="tm-benefits-plan is-featured">
+                            <div class="tm-benefits-plan is-featured" data-tm-benefits-lifetime-plan>
                                 <div>
                                     <div class="tm-benefits-plan-head">
                                         <h3>全功能永久</h3>
-                                        <span class="tm-benefits-tag">早鸟推荐</span>
+                                        <span class="tm-benefits-tag" data-tm-benefits-lifetime-tag>${esc(lifetimeOffer.tag)}</span>
                                     </div>
-                                    <div class="tm-benefits-price"><del><strong>98</strong><span>元</span></del><strong>50</strong><span>元</span></div>
-                                    <p>限时早鸟至 2026年7月31日，一次付费获得当前插件全功能永久授权，适合把本插件作为主力任务系统的用户。已捐助达到 50 元可直接联系获取激活码，未达到的补齐差额即可。</p>
+                                    <div class="tm-benefits-price" data-tm-benefits-lifetime-price>${__tmRenderBenefitsLifetimePrice(lifetimeOffer)}</div>
+                                    <p data-tm-benefits-lifetime-description>${esc(lifetimeOffer.description)}</p>
                                 </div>
                                 <button class="tm-btn tm-btn-primary" type="button" onclick="tmOpenBenefitsPaymentDialog('lifetime')">扫码付款</button>
                             </div>
@@ -20887,6 +21005,7 @@ refreshOk = false;
         const planKey = String(plan || '').trim();
         const auth = __tmGetBenefitsAuthInfo();
         const account = String(auth?.subject || document.getElementById('tmBenefitsAccountValue')?.textContent || '当前用户名').trim();
+        const lifetimeOffer = __tmGetBenefitsLifetimeOffer();
         const plans = {
             trial: {
                 title: '全功能试用授权',
@@ -20904,7 +21023,7 @@ refreshOk = false;
             },
             lifetime: {
                 title: '全功能永久授权',
-                summary: '限时早鸟至 2026年7月31日。已捐助达到 50 元可直接联系获取激活码，未达到的补齐差额即可；付款时请提供以下用户名。',
+                summary: lifetimeOffer.summary,
                 instruction: '付款时提供用户名，或发送至 729373125@qq.com：用户名 + 付款截图',
                 hideQr: false,
                 hideNote: false,
@@ -20913,6 +21032,7 @@ refreshOk = false;
         const meta = plans[planKey] || plans.yearly;
         const dialog = document.getElementById('tmBenefitsPaymentDialog');
         if (!(dialog instanceof HTMLDialogElement)) return false;
+        dialog.dataset.tmBenefitsPlan = planKey;
         const title = document.getElementById('tmBenefitsPaymentTitle');
         const summary = document.getElementById('tmBenefitsPaymentSummary');
         const accountEl = document.getElementById('tmBenefitsPaymentAccount');
@@ -24151,35 +24271,9 @@ refreshOk = false;
             rr.style.display = disp;
         }
 
-        const syncRowHeightsOnce = (force = false) => {
-            if (!force && Date.now() - (Number(state.__tmFlipTs) || 0) < 240) return;
-            const n2 = Math.min(leftRows.length, rightRows.length);
-            for (let i = 0; i < n2; i++) {
-                const lr = leftRows[i];
-                const rr = rightRows[i];
-                if (!(lr instanceof Element) || !(rr instanceof Element)) continue;
-                if ((lr.style.display || '') === 'none') continue;
-                const h = lr.getBoundingClientRect?.().height;
-                if (!Number.isFinite(h) || h <= 0) continue;
-                rr.style.height = `${h}px`;
-                rr.style.minHeight = `${h}px`;
-                rr.style.maxHeight = `${h}px`;
-                const bar = rr.querySelector?.('.tm-gantt-bar');
-                if (bar) {
-                    bar.style.top = 'calc((var(--tm-row-height) - var(--tm-gantt-card-height)) / 2)';
-                    bar.style.transform = 'none';
-                }
-            }
-            try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
-        };
         try {
-            syncRowHeightsOnce(true);
             requestAnimationFrame(() => {
-                syncRowHeightsOnce();
-                if (leftRows.length <= 400) {
-                    setTimeout(syncRowHeightsOnce, 60);
-                    setTimeout(syncRowHeightsOnce, 260);
-                }
+                try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
             });
         } catch (e) {}
 
@@ -24547,48 +24641,34 @@ refreshOk = false;
         stagingTable.innerHTML = `<tbody>${String(nextRowsHtml || '')}</tbody>`;
         const stagingBody = stagingTable.tBodies?.[0];
         if (!(stagingBody instanceof HTMLElement)) return false;
-        const currentRows = Array.from(tbody.children).filter((row) => row instanceof HTMLElement);
         const desiredRows = Array.from(stagingBody.children).filter((row) => row instanceof HTMLElement);
-        if (!currentRows.length || !desiredRows.length) return false;
-
-        const currentMap = new Map();
-        const currentOrder = [];
+        const currentRows = Array.from(tbody.children).filter((row) => row instanceof HTMLElement);
+        const currentKeys = new Set();
         for (const row of currentRows) {
             const key = __tmGetListRowStableKey(row);
             if (!key) return false;
-            if (key === 'control:load-more') continue;
-            if (currentMap.has(key)) return false;
-            currentMap.set(key, row);
-            currentOrder.push(key);
+            if (key === 'control:load-more') {
+                row.remove();
+                continue;
+            }
+            if (currentKeys.has(key)) return false;
+            currentKeys.add(key);
         }
-        const desiredKeys = [];
-        const desiredKeySet = new Set();
+        let insertedCount = 0;
+        let loadMoreRow = null;
         for (const row of desiredRows) {
             const key = __tmGetListRowStableKey(row);
-            if (!key || desiredKeySet.has(key)) return false;
-            desiredKeySet.add(key);
-            desiredKeys.push(key);
+            if (!key) return false;
+            if (key === 'control:load-more') {
+                loadMoreRow = row;
+                continue;
+            }
+            if (currentKeys.has(key)) continue;
+            currentKeys.add(key);
+            tbody.appendChild(row);
+            insertedCount += 1;
         }
-        if (currentOrder.some((key) => !desiredKeySet.has(key))) return false;
-        const commonDesiredOrder = desiredKeys.filter((key) => currentMap.has(key));
-        if (commonDesiredOrder.length !== currentOrder.length
-            || commonDesiredOrder.some((key, index) => key !== currentOrder[index])) return false;
-
-        let cursor = tbody.firstElementChild;
-        let insertedCount = 0;
-        for (let index = 0; index < desiredRows.length; index += 1) {
-            const stagedRow = desiredRows[index];
-            const key = desiredKeys[index];
-            const existing = key === 'control:load-more' ? null : currentMap.get(key);
-            const row = existing || stagedRow;
-            if (!existing) insertedCount += 1;
-            if (row !== cursor) tbody.insertBefore(row, cursor);
-            cursor = row.nextElementSibling;
-        }
-        const keepNodes = new Set(Array.from(tbody.children).slice(0, desiredRows.length));
-        currentRows.forEach((row) => {
-            if (!keepNodes.has(row) && row.parentElement === tbody) row.remove();
-        });
+        if (loadMoreRow) tbody.appendChild(loadMoreRow);
         tbody.dataset.tmLastIncrementalAppendCount = String(Math.max(0, insertedCount));
         return true;
     }
@@ -24627,8 +24707,15 @@ refreshOk = false;
                 SettingsStore.data.columnWidths = SettingsStore.data.calendarColumnWidths;
             } catch (e) {}
         }
+        const currentTaskRowCount = opts.appendOnly === true && !isCalendarTaskTable
+            ? tbody.querySelectorAll('tr[data-id]').length
+            : 0;
         let nextRowsHtml = '';
-        try { nextRowsHtml = renderTaskList(); } catch (e) {
+        try {
+            nextRowsHtml = renderTaskList(null, opts.appendOnly === true
+                ? { startTaskRow: currentTaskRowCount }
+                : {});
+        } catch (e) {
             try {
                 __tmPushDiagnosticLog('list-rerender-renderTaskList-failed', e, {
                     renderSignature,
@@ -24661,7 +24748,9 @@ refreshOk = false;
             if (opts.appendOnly === true && !isCalendarTaskTable) {
                 incrementallyPatched = __tmReconcileListRowsForAppend(tbody, nextRowsHtml, opts);
             }
-            if (!incrementallyPatched) tbody.innerHTML = nextRowsHtml;
+            if (!incrementallyPatched) {
+                tbody.innerHTML = opts.appendOnly === true ? renderTaskList() : nextRowsHtml;
+            }
         } catch (e) {
             try {
                 __tmPushDiagnosticLog('list-rerender-dom-swap-failed', e, {
@@ -24676,11 +24765,16 @@ refreshOk = false;
         try { if (body) body.scrollTop = top; } catch (e) {}
         try { if (body) body.scrollLeft = left; } catch (e) {}
         try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
-        try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
-        try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
-        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
-        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
-        __tmBindFloatingTooltipsAfterLocalRerender(modal);
+        const progressiveAppend = incrementallyPatched
+            && state.__tmProgressiveViewRender?.mode === 'list'
+            && state.__tmProgressiveViewRender?.tasksRef === state.filteredTasks;
+        if (!progressiveAppend) {
+            try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+            try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+            __tmBindFloatingTooltipsAfterLocalRerender(modal);
+        }
         if (renderSignature) {
             try { state.listDomRenderSignature = renderSignature; } catch (e) {}
         }
@@ -24874,11 +24968,13 @@ return true;
             cleanups.splice(0).forEach((cleanup) => cleanup());
             modal.__tmTimelineStageInteractionsCleanup = null;
         };
+        try { globalThis.__tmBindAutoLoadMoreOnScroll?.(modal, 'timeline'); } catch (e) {}
         return true;
     }
 
-    function __tmRerenderTimelineInPlace(modalEl) {
+    function __tmRerenderTimelineInPlace(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const opts = (options && typeof options === 'object') ? options : {};
         if (!modal) return false;
         const leftBody = modal.querySelector('#tmTimelineLeftBody');
         const ganttBody = modal.querySelector('#tmGanttBody');
@@ -25007,50 +25103,78 @@ return true;
             `;
         };
 
-        const rowModel = __tmBuildTaskRowModel();
-        try { globalThis.__tmTimelineRowModel = rowModel; } catch (e) {}
+        const rowModel = Array.isArray(opts.rowModel) ? opts.rowModel : __tmBuildTaskRowModel();
+        const rangeRowModel = Array.isArray(opts.rangeRowModel)
+            ? opts.rangeRowModel
+            : (Array.isArray(state.__tmTimelineFullRowModel) ? state.__tmTimelineFullRowModel : rowModel);
+        if (opts.appendOnly !== true) {
+            try { state.__tmTimelineFullRowModel = rangeRowModel; } catch (e) {}
+            try { globalThis.__tmTimelineRowModel = rangeRowModel; } catch (e) {}
+        }
         const leftRows = [];
-        for (const r of (Array.isArray(rowModel) ? rowModel : [])) {
-            if (r?.type === 'group') {
-                let labelColor = '';
-                if (r.kind === 'doc') labelColor = String(r.labelColor || 'var(--tm-group-doc-label-color)');
-                else if (r.kind === 'task') labelColor = String(r.labelColor || 'var(--tm-primary-color)');
-                else if (r.kind === 'time') labelColor = String(r.labelColor || 'var(--tm-text-color)');
-                else if (r.kind === 'quadrant') {
-                    const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
-                    labelColor = colorMap[String(r.color || '')] || 'var(--tm-text-color)';
-                } else {
-                    labelColor = 'var(--tm-text-color)';
+        if (opts.reuseLeftRows !== true) {
+            for (const r of (Array.isArray(rowModel) ? rowModel : [])) {
+                if (r?.type === 'group') {
+                    let labelColor = '';
+                    if (r.kind === 'doc') labelColor = String(r.labelColor || 'var(--tm-group-doc-label-color)');
+                    else if (r.kind === 'task') labelColor = String(r.labelColor || 'var(--tm-primary-color)');
+                    else if (r.kind === 'time') labelColor = String(r.labelColor || 'var(--tm-text-color)');
+                    else if (r.kind === 'quadrant') {
+                        const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
+                        labelColor = colorMap[String(r.color || '')] || 'var(--tm-text-color)';
+                    } else {
+                        labelColor = 'var(--tm-text-color)';
+                    }
+                    if (r.kind === 'task' && r.groupDocColor) {
+                        currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(r.groupDocColor, isDark) : '';
+                    } else {
+                        currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
+                    }
+                    leftRows.push(renderGroupRow(r));
+                    continue;
                 }
-                // 任务名分组使用文档颜色作为背景
-                if (r.kind === 'task' && r.groupDocColor) {
-                    currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(r.groupDocColor, isDark) : '';
-                } else {
-                    currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
-                }
-                leftRows.push(renderGroupRow(r));
-                continue;
-            }
-            if (r?.type === 'task') {
-                const task = state.flatTasks[r.id];
-                if (task?.root_id) {
-                    const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
-                    if (taskDocColor && enableGroupBg) {
-                        currentGroupBg = __tmGroupBgFromLabelColor(taskDocColor, isDark);
+                if (r?.type === 'task') {
+                    const task = state.flatTasks[r.id];
+                    if (task?.root_id) {
+                        const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
+                        currentGroupBg = (taskDocColor && enableGroupBg)
+                            ? __tmGroupBgFromLabelColor(taskDocColor, isDark)
+                            : '';
                     } else {
                         currentGroupBg = '';
                     }
-                } else {
-                    currentGroupBg = '';
+                    leftRows.push(renderTaskRow(r));
+                    continue;
                 }
-                leftRows.push(renderTaskRow(r));
-                continue;
             }
         }
         const html = leftRows.join('') || `<tr><td colspan="3" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`;
-        try { tbody.innerHTML = html; } catch (e) { return false; }
-        try { __tmSyncTimelineDateColumnWidths(modal); } catch (e) {}
-        try { __tmBindTimelineLeftCollapseInteractions(leftBody); } catch (e) {}
+        try {
+            if (opts.appendOnly === true) {
+                const stagingTable = document.createElement('table');
+                stagingTable.innerHTML = `<tbody>${html}</tbody>`;
+                const existingKeys = new Set(Array.from(tbody.children).map((row) => {
+                    const taskId = String(row?.getAttribute?.('data-id') || '').trim();
+                    if (taskId) return `task:${taskId}`;
+                    const groupKey = String(row?.getAttribute?.('data-group-key') || '').trim();
+                    return groupKey ? `group:${groupKey}` : '';
+                }).filter(Boolean));
+                Array.from(stagingTable.tBodies?.[0]?.children || []).forEach((row) => {
+                    const taskId = String(row?.getAttribute?.('data-id') || '').trim();
+                    const groupKey = String(row?.getAttribute?.('data-group-key') || '').trim();
+                    const key = taskId ? `task:${taskId}` : (groupKey ? `group:${groupKey}` : '');
+                    if (!key || existingKeys.has(key)) return;
+                    existingKeys.add(key);
+                    tbody.appendChild(row);
+                });
+            } else if (opts.reuseLeftRows !== true) {
+                tbody.innerHTML = html;
+            }
+        } catch (e) { return false; }
+        if (opts.appendOnly !== true) {
+            try { __tmSyncTimelineDateColumnWidths(modal); } catch (e) {}
+            try { __tmBindTimelineLeftCollapseInteractions(leftBody); } catch (e) {}
+        }
 
         const view = globalThis.__TaskHorizonGanttView;
         if (view && typeof view.render === 'function' && ganttHeader && ganttBody) {
@@ -25059,6 +25183,8 @@ return true;
                     headerEl: ganttHeader,
                     bodyEl: ganttBody,
                     rowModel,
+                    rangeRowModel,
+                    appendOnly: opts.appendOnly === true,
                     getTaskById: (id) => {
                         const tid = String(id || '').trim();
                         return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
@@ -25144,6 +25270,7 @@ return true;
                 });
             } catch (e) {}
         }
+        if (opts.appendOnly === true) return true;
         __tmScheduleTimelineTodayIndicatorRefresh();
 
         if (useGlobalScroll) {
@@ -25166,43 +25293,6 @@ return true;
             } catch (e) {}
         }
 
-                const syncRowHeights = (force = false) => {
-                    if (!force && Date.now() - (Number(state.__tmFlipTs) || 0) < 320) return;
-                    const leftRowsNow = leftBody.querySelectorAll('tbody tr');
-                    const rightRowsNow = ganttBody.querySelectorAll('.tm-gantt-row,.tm-gantt-row--group');
-            const n = Math.min(leftRowsNow.length, rightRowsNow.length);
-            if (n <= 0) return;
-            for (let i = 0; i < n; i++) {
-                const lr = leftRowsNow[i];
-                const rr = rightRowsNow[i];
-                if (!(lr instanceof Element) || !(rr instanceof Element)) continue;
-                rr.style.height = '';
-                rr.style.minHeight = '';
-                rr.style.maxHeight = '';
-                if ((lr.style.display || '') === 'none') continue;
-                const h = lr.getBoundingClientRect?.().height;
-                if (Number.isFinite(h) && h > 0) {
-                    rr.style.height = `${h}px`;
-                    rr.style.minHeight = `${h}px`;
-                    rr.style.maxHeight = `${h}px`;
-                }
-                const bar = rr.querySelector?.('.tm-gantt-bar');
-                if (bar) {
-                    bar.style.top = 'calc((var(--tm-row-height) - var(--tm-gantt-card-height)) / 2)';
-                    bar.style.transform = 'none';
-                }
-                    }
-                };
-        try {
-            syncRowHeights(true);
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                syncRowHeights();
-                setTimeout(syncRowHeights, 60);
-                setTimeout(syncRowHeights, 260);
-                setTimeout(syncRowHeights, 420);
-            }));
-        } catch (e) {}
-
         try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {
             try { Promise.resolve().then(() => { try { __tmRunFlipAnimation(modal); } catch (e2) {} }); } catch (e2) {}
         }
@@ -25213,6 +25303,26 @@ return true;
         __tmBindFloatingTooltipsAfterLocalRerender(modal);
         return true;
     }
+
+    window.tmTimelineLoadMoreRows = function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        if (String(state.viewMode || '').trim() !== 'timeline') return false;
+        const fullRowModel = Array.isArray(state.__tmTimelineFullRowModel)
+            ? state.__tmTimelineFullRowModel
+            : __tmBuildTaskRowModel();
+        state.__tmTimelineFullRowModel = fullRowModel;
+        const total = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
+        const grown = __tmGrowViewRenderWindow('timeline', total);
+        if (!grown || grown.limit <= grown.previousLimit) return false;
+        const batch = __tmSliceTaskRowModelByTaskWindow(fullRowModel, grown.previousLimit, grown.limit).rows;
+        if (!batch.length) return true;
+        return __tmRerenderTimelineInPlace(state.modal, {
+            rowModel: batch,
+            rangeRowModel: fullRowModel,
+            appendOnly: true,
+        });
+    };
 
     function __tmBuildElementFromHtml(html) {
         const shell = document.createElement('div');
@@ -25376,6 +25486,164 @@ return true;
             if (key && !map.has(key)) map.set(key, child);
         });
         return map;
+    }
+
+    function __tmGetChecklistAppendNodeKey(node) {
+        const el = node instanceof HTMLElement ? node : null;
+        if (!el) return '';
+        if (el.classList.contains('tm-checklist-group-card')) {
+            const key = __tmGetChecklistGroupKeyFromCard(el);
+            return key ? `card:${key}` : '';
+        }
+        if (el.classList.contains('tm-checklist-item')) {
+            const taskId = String(el.getAttribute('data-id') || '').trim();
+            return taskId ? `task:${taskId}` : '';
+        }
+        if (__tmIsChecklistGroupHeader(el)) {
+            return `group:${__tmGetChecklistGroupKeyFromHeader(el)}`;
+        }
+        if (el.classList.contains('tm-task-drop-gap')) {
+            const kind = String(el.getAttribute('data-drop-kind') || '').trim();
+            const target = String(el.getAttribute('data-target-task-id') || '').trim();
+            const depth = String(el.getAttribute('data-depth') || '').trim();
+            return target ? `gap:${kind}:${target}:${depth}` : '';
+        }
+        return '';
+    }
+
+    function __tmIsChecklistNodeKeyPrefix(currentNodes, nextNodes) {
+        const current = Array.isArray(currentNodes) ? currentNodes : [];
+        const next = Array.isArray(nextNodes) ? nextNodes : [];
+        if (current.length > next.length) return false;
+        for (let i = 0; i < current.length; i += 1) {
+            const currentKey = __tmGetChecklistAppendNodeKey(current[i]);
+            const nextKey = __tmGetChecklistAppendNodeKey(next[i]);
+            if (!currentKey || currentKey !== nextKey) return false;
+        }
+        return true;
+    }
+
+    function __tmGetChecklistCardItemsContainer(cardEl) {
+        const card = cardEl instanceof HTMLElement ? cardEl : null;
+        if (!card) return null;
+        return Array.from(card.children || []).find((child) => (
+            child instanceof HTMLElement && child.classList.contains('tm-checklist-group-card-items')
+        )) || null;
+    }
+
+    function __tmGetDirectChecklistContentNodes(itemsEl) {
+        const items = itemsEl instanceof HTMLElement ? itemsEl : null;
+        if (!items) return [];
+        return Array.from(items.children || []).filter((child) => (
+            child instanceof HTMLElement && !child.classList.contains('tm-checklist-load-more')
+        ));
+    }
+
+    function __tmGetChecklistTaskIdSequence(itemsEl) {
+        const items = itemsEl instanceof HTMLElement ? itemsEl : null;
+        if (!items) return [];
+        return Array.from(items.querySelectorAll('.tm-checklist-item[data-id]'))
+            .map((item) => String(item.getAttribute('data-id') || '').trim())
+            .filter(Boolean);
+    }
+
+    function __tmIsStringSequencePrefix(currentValues, nextValues) {
+        const current = Array.isArray(currentValues) ? currentValues : [];
+        const next = Array.isArray(nextValues) ? nextValues : [];
+        if (current.length > next.length) return false;
+        for (let i = 0; i < current.length; i += 1) {
+            if (current[i] !== next[i]) return false;
+        }
+        return true;
+    }
+
+    function __tmCountChecklistTasksInNodes(nodes) {
+        return (Array.isArray(nodes) ? nodes : []).reduce((count, node) => {
+            if (!(node instanceof HTMLElement)) return count;
+            return count
+                + (node.classList.contains('tm-checklist-item') ? 1 : 0)
+                + node.querySelectorAll('.tm-checklist-item[data-id]').length;
+        }, 0);
+    }
+
+    function __tmTryAppendChecklistRenderWindow(modalEl, bodyEl, nextBodyEl, options = {}) {
+        const modal = modalEl instanceof Element ? modalEl : null;
+        const body = bodyEl instanceof HTMLElement ? bodyEl : null;
+        const nextBody = nextBodyEl instanceof HTMLElement ? nextBodyEl : null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const previousLimit = Math.max(0, Math.round(Number(opts.previousLimit) || 0));
+        const nextLimit = Math.max(0, Math.round(Number(state.listRenderLimit) || 0));
+        if (!modal || !body || !nextBody || !previousLimit || nextLimit <= previousLimit) return false;
+        const currentItems = body.querySelector('.tm-checklist-items');
+        const nextItems = nextBody.querySelector('.tm-checklist-items');
+        if (!(currentItems instanceof HTMLElement) || !(nextItems instanceof HTMLElement)) return false;
+
+        const currentTaskIds = __tmGetChecklistTaskIdSequence(currentItems);
+        const nextTaskIds = __tmGetChecklistTaskIdSequence(nextItems);
+        if (currentTaskIds.length > previousLimit || !__tmIsStringSequencePrefix(currentTaskIds, nextTaskIds)) return false;
+
+        const currentNodes = __tmGetDirectChecklistContentNodes(currentItems);
+        const nextNodes = __tmGetDirectChecklistContentNodes(nextItems);
+        if (!__tmIsChecklistNodeKeyPrefix(currentNodes, nextNodes)) return false;
+
+        const cardPlans = [];
+        for (let i = 0; i < currentNodes.length; i += 1) {
+            const currentCard = currentNodes[i];
+            const nextCard = nextNodes[i];
+            if (!currentCard.classList.contains('tm-checklist-group-card')) continue;
+            if (!(nextCard instanceof HTMLElement) || !nextCard.classList.contains('tm-checklist-group-card')) return false;
+            const currentCardItems = __tmGetChecklistCardItemsContainer(currentCard);
+            const nextCardItems = __tmGetChecklistCardItemsContainer(nextCard);
+            const currentCardNodes = currentCardItems ? Array.from(currentCardItems.children || []) : [];
+            const nextCardNodes = nextCardItems ? Array.from(nextCardItems.children || []) : [];
+            if (!__tmIsChecklistNodeKeyPrefix(currentCardNodes, nextCardNodes)) return false;
+            if (nextCardNodes.length > currentCardNodes.length) {
+                if (!(nextCardItems instanceof HTMLElement)) return false;
+                cardPlans.push({
+                    card: currentCard,
+                    container: currentCardItems,
+                    nextContainer: nextCardItems,
+                    nodes: nextCardNodes.slice(currentCardNodes.length),
+                    collapsed: nextCard.classList.contains('tm-checklist-group-card--collapsed'),
+                });
+            }
+        }
+
+        const currentLoadMore = Array.from(currentItems.children || []).find((child) => (
+            child instanceof HTMLElement && child.classList.contains('tm-checklist-load-more')
+        )) || null;
+        const nextLoadMore = Array.from(nextItems.children || []).find((child) => (
+            child instanceof HTMLElement && child.classList.contains('tm-checklist-load-more')
+        )) || null;
+        const topLevelNodes = nextNodes.slice(currentNodes.length);
+        let insertedTaskCount = 0;
+        try {
+            cardPlans.forEach((plan) => {
+                let container = plan.container;
+                if (!(container instanceof HTMLElement)) {
+                    container = plan.nextContainer.cloneNode(false);
+                    plan.card.appendChild(container);
+                }
+                plan.nodes.forEach((node) => container.appendChild(node.cloneNode(true)));
+                plan.card.classList.toggle('tm-checklist-group-card--collapsed', !!plan.collapsed);
+                insertedTaskCount += __tmCountChecklistTasksInNodes(plan.nodes);
+            });
+            topLevelNodes.forEach((node) => {
+                const clone = node.cloneNode(true);
+                if (currentLoadMore instanceof HTMLElement) currentItems.insertBefore(clone, currentLoadMore);
+                else currentItems.appendChild(clone);
+            });
+            insertedTaskCount += __tmCountChecklistTasksInNodes(topLevelNodes);
+            if (!(nextLoadMore instanceof HTMLElement)) {
+                currentLoadMore?.remove?.();
+            } else if (!(currentLoadMore instanceof HTMLElement)) {
+                currentItems.appendChild(nextLoadMore.cloneNode(true));
+            }
+        } catch (e) {
+            return false;
+        }
+        currentItems.dataset.tmLastIncrementalAppendCount = String(Math.max(0, insertedTaskCount));
+        return true;
     }
 
     function __tmInsertChecklistCardByNextOrder(currentItems, nextCards, nextCard) {
@@ -25657,8 +25925,9 @@ return true;
         return true;
     }
 
-    function __tmRerenderChecklistInPlace(modalEl) {
+    function __tmRerenderChecklistInPlace(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const opts = (options && typeof options === 'object') ? options : {};
         if (!(modal instanceof Element)) return false;
         if (String(state.viewMode || '').trim() !== 'checklist') return false;
 const renderBodyHtml = state.renderChecklistBodyHtml;
@@ -25735,6 +26004,21 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             return true;
         }
         __tmClearChecklistProjectionGroupRefresh();
+        if (opts.appendOnly === true && __tmTryAppendChecklistRenderWindow(modal, body, nextBody, opts)) {
+            try { __tmRefreshChecklistSelectionInPlace(modal, 'checklist-window-append'); } catch (e) {}
+            try { pane.__tmChecklistScrollUpdateThumb?.(); } catch (e) {}
+            try { requestAnimationFrame(() => pane.__tmChecklistScrollUpdateThumb?.()); } catch (e) {}
+            try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+            try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+            __tmBindFloatingTooltipsAfterLocalRerender(modal);
+            if (renderSignature) {
+                try { state.listDomRenderSignature = renderSignature; } catch (e) {}
+            }
+            state.pendingChecklistRenderRestore = null;
+            return true;
+        }
         __tmPreserveActiveDetailNotePanelDuringBodySwap(body, nextBody);
         __tmCleanupChecklistScrollFxForEl(pane);
         try { body.replaceWith(nextBody); } catch (e) {

@@ -823,6 +823,14 @@
                 tomatoFocusTaskId,
                 tomatoFocusModeEnabled,
             });
+            const kanbanProgressiveJob = state.__tmProgressiveViewRender;
+            const progressiveKanbanRender = !!kanbanProgressiveJob
+                && String(kanbanProgressiveJob.mode || '').trim() === 'kanban'
+                && kanbanProgressiveJob.tasksRef === state.filteredTasks;
+            if (progressiveKanbanRender) {
+                kanbanProgressiveJob.columns = [];
+                kanbanProgressiveJob.columnCursor = 0;
+            }
             const renderKanbanBoardNavHtml = (items) => {
                 const list = Array.isArray(items) ? items : [];
                 if (list.length <= 1) return '';
@@ -842,7 +850,7 @@
                     </nav>
                 `;
             };
-            if (__tmKanbanColsHtmlCache && __tmKanbanColsHtmlCache.key === kanbanColsCacheKey) {
+            if (!progressiveKanbanRender && __tmKanbanColsHtmlCache && __tmKanbanColsHtmlCache.key === kanbanColsCacheKey) {
                 const cachedNavHtml = String(__tmKanbanColsHtmlCache.navHtml || '');
                 return `
                     <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}${cachedNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" ondragover="tmKanbanAutoScroll(event)">
@@ -1279,8 +1287,20 @@
                 roots.sort(isCompletedStatusCol ? completedRecentCompare : rootCompare);
                 completedRoots.sort(completedRecentCompare);
                 childrenByParent.forEach(arr => sortKanbanItemsByCurrentRule(arr, childCompare));
+                let columnCardRenderLimit = Number.POSITIVE_INFINITY;
+                let columnRenderedCardCount = 0;
+                let columnHasDeferredCards = false;
+                const takeColumnCardRenderSlot = () => {
+                    if (columnRenderedCardCount >= columnCardRenderLimit) {
+                        columnHasDeferredCards = true;
+                        return false;
+                    }
+                    columnRenderedCardCount += 1;
+                    return true;
+                };
 
                 const renderTree = (task, depthInCol, inheritedHideCompleted = false, inCompletedRootGroup = false) => {
+                    if (!takeColumnCardRenderSlot()) return '';
                     const id = String(task?.id || '').trim();
                     const pid = getKanbanParentTaskId(task);
                     const parentInCol = !!(pid && map.has(pid));
@@ -1665,6 +1685,7 @@
                 const renderDoneColumnList = () => {
                     const items = list0.slice().sort(completedRecentCompare);
                     return items.map((task) => {
+                        if (!takeColumnCardRenderSlot()) return '';
                         const id = String(task?.id || '').trim();
                         if (!id) return '';
                         const pid = getKanbanParentTaskId(task);
@@ -1714,50 +1735,8 @@
                     }
                     return result;
                 };
-                // 标题看板模式下，也支持按文档/时间/四象限/任务名分组
-                if (isDoneCol) {
-                    listHtml = renderDoneColumnList();
-                } else if (timeBoardMode && state.quadrantEnabled) {
-                    listHtml = renderGroupedByQuadrant();
-                } else if (timeBoardMode && state.groupByDocName) {
-                    listHtml = renderGroupedByDoc(isAllTabsView ? {} : { hideDocTitle: true });
-                } else if (timeBoardMode && state.groupByTaskName) {
-                    listHtml = renderGroupedByTaskName();
-                } else if (timeBoardMode) {
-                    listHtml = roots.length ? renderUngroupedWithPinned() : '';
-                } else if (headingMode && state.groupByDocName && isAllTabsView) {
-                    // 标题看板模式 + 按文档分组 + 全部视图：每个文档内按二级标题分组，不显示文档标题行
-                    listHtml = renderGroupedByDoc({ dropDoc: true, forceNoHeading: false, hideDocTitle: true, headingMode: true });
-                } else if (headingMode && state.groupByDocName) {
-                    // 标题看板模式 + 按文档分组 + 单个文档：不启用二级标题分组，因为看板本身已经是按二级标题分组的
-                    listHtml = renderGroupedByDoc({ dropDoc: false, forceNoHeading: true, hideDocTitle: true, headingMode: false });
-                } else if (headingMode && state.groupByTime) {
-                    // 标题看板模式 + 按时间分组
-                    listHtml = renderGroupedByTime();
-                } else if (headingMode && state.quadrantEnabled) {
-                    // 标题看板模式 + 四象限分组
-                    listHtml = renderGroupedByQuadrant();
-                } else if (headingMode && state.groupByTaskName) {
-                    // 标题看板模式 + 按任务名分组
-                    listHtml = renderGroupedByTaskName();
-                } else if (headingMode) {
-                    // 标题看板模式 + 不分组
-                    listHtml = roots.length ? renderUngroupedWithPinned() : '';
-                } else if (state.quadrantEnabled) {
-                    listHtml = renderGroupedByQuadrant();
-                } else if (state.groupByDocName) {
-                    listHtml = renderGroupedByDoc(isAllTabsView ? {} : { hideDocTitle: true });
-                } else if (state.groupByTaskName) {
-                    // 按任务名分组
-                    listHtml = renderGroupedByTaskName();
-                } else if (state.groupByTime) {
-                    listHtml = renderGroupedByTime();
-                } else {
-                    // 不分组模式
-                    listHtml = roots.length ? renderUngroupedWithPinned() : '';
-                }
-                listHtml += renderCompletedRootGroup();
-                const count = list0.length;
+                // 列头和分组徽标统一只统计根卡片，嵌套子任务由父任务进度表示。
+                const count = roots.length + completedRoots.length;
                 const kind = isDoneCol
                     ? 'status'
                     : (timeBoardMode ? 'time' : (headingMode ? (String(c?.kind || '').trim() || (isAllTabsView ? 'doc' : 'heading')) : 'status'));
@@ -1771,7 +1750,84 @@
                                 : `heading:${String(c?.docId || '').trim()}:${String(c?.headingId || '__none__').trim() || '__none__'}`)
                             : `status:${String(c?.id || '').trim()}`));
                 const isColumnCollapsed = kanbanCollapsedColumnKeys.has(columnKey);
-                if (headingMode && !isDoneCol && kind === 'doc' && !String(listHtml || '').trim()) {
+                const renderColumnListHtml = (limit = Number.POSITIVE_INFINITY) => {
+                    const rawLimit = Number(limit);
+                    columnCardRenderLimit = Number.isFinite(rawLimit) ? Math.max(1, Math.round(rawLimit)) : Number.POSITIVE_INFINITY;
+                    columnRenderedCardCount = 0;
+                    columnHasDeferredCards = false;
+                    let html = '';
+                    // 标题看板模式下，也支持按文档/时间/四象限/任务名分组
+                    if (isDoneCol) {
+                        html = renderDoneColumnList();
+                    } else if (timeBoardMode && state.quadrantEnabled) {
+                        html = renderGroupedByQuadrant();
+                    } else if (timeBoardMode && state.groupByDocName) {
+                        html = renderGroupedByDoc(isAllTabsView ? {} : { hideDocTitle: true });
+                    } else if (timeBoardMode && state.groupByTaskName) {
+                        html = renderGroupedByTaskName();
+                    } else if (timeBoardMode) {
+                        html = roots.length ? renderUngroupedWithPinned() : '';
+                    } else if (headingMode && state.groupByDocName && isAllTabsView) {
+                        html = renderGroupedByDoc({ dropDoc: true, forceNoHeading: false, hideDocTitle: true, headingMode: true });
+                    } else if (headingMode && state.groupByDocName) {
+                        html = renderGroupedByDoc({ dropDoc: false, forceNoHeading: true, hideDocTitle: true, headingMode: false });
+                    } else if (headingMode && state.groupByTime) {
+                        html = renderGroupedByTime();
+                    } else if (headingMode && state.quadrantEnabled) {
+                        html = renderGroupedByQuadrant();
+                    } else if (headingMode && state.groupByTaskName) {
+                        html = renderGroupedByTaskName();
+                    } else if (headingMode) {
+                        html = roots.length ? renderUngroupedWithPinned() : '';
+                    } else if (state.quadrantEnabled) {
+                        html = renderGroupedByQuadrant();
+                    } else if (state.groupByDocName) {
+                        html = renderGroupedByDoc(isAllTabsView ? {} : { hideDocTitle: true });
+                    } else if (state.groupByTaskName) {
+                        html = renderGroupedByTaskName();
+                    } else if (state.groupByTime) {
+                        html = renderGroupedByTime();
+                    } else {
+                        html = roots.length ? renderUngroupedWithPinned() : '';
+                    }
+                    html += renderCompletedRootGroup();
+                    return {
+                        html,
+                        hasMore: columnHasDeferredCards,
+                        rendered: columnRenderedCardCount,
+                    };
+                };
+                let progressiveColumnLimit = progressiveKanbanRender
+                    ? Math.max(1, Math.round(Number(kanbanProgressiveJob.batchSize) || 10))
+                    : Number.POSITIVE_INFINITY;
+                const initialColumnRender = isColumnCollapsed
+                    ? { html: '', hasMore: false, rendered: 0 }
+                    : renderColumnListHtml(progressiveColumnLimit);
+                listHtml = initialColumnRender.html;
+                if (progressiveKanbanRender && !isColumnCollapsed && initialColumnRender.hasMore) {
+                    __tmRegisterKanbanProgressiveColumn(kanbanProgressiveJob, {
+                        key: columnKey,
+                        loadNextBatch: (modalEl) => {
+                            if (state.__tmProgressiveViewRender !== kanbanProgressiveJob) return { done: true };
+                            if (__tmKanbanGetCollapsedColumnSet().has(columnKey)) return { done: true };
+                            progressiveColumnLimit += Math.max(1, Math.round(Number(kanbanProgressiveJob.batchSize) || 10));
+                            const nextColumnRender = renderColumnListHtml(progressiveColumnLimit);
+                            const modal = modalEl instanceof Element ? modalEl : state.modal;
+                            const column = Array.from(modal?.querySelectorAll?.('.tm-kanban-col') || [])
+                                .find((item) => String(item?.getAttribute?.('data-col-key') || '').trim() === columnKey);
+                            const body = column?.querySelector?.('.tm-kanban-col-body');
+                            if (!(body instanceof HTMLElement)) return { done: true };
+                            const scrollTop = Number(body.scrollTop || 0);
+                            body.innerHTML = nextColumnRender.html || `<div class="tm-kanban-empty">空</div>`;
+                            body.scrollTop = scrollTop;
+                            if (String(state.searchKeyword || '').trim()) {
+                                try { globalThis.__tmApplySearchHighlights?.(body, state.searchKeyword); } catch (e) {}
+                            }
+                            return { done: !nextColumnRender.hasMore };
+                        },
+                    });
+                }
+                if (headingMode && !isDoneCol && kind === 'doc' && !isColumnCollapsed && !String(listHtml || '').trim()) {
                     return '';
                 }
                 const title = isDoneCol
@@ -1955,7 +2011,9 @@
                 `;
             }).join('');
             const kanbanBoardNavHtml = renderKanbanBoardNavHtml(kanbanBoardNavItems);
-            __tmKanbanColsHtmlCache = { key: kanbanColsCacheKey, html: colsHtml, navHtml: kanbanBoardNavHtml };
+            if (!progressiveKanbanRender) {
+                __tmKanbanColsHtmlCache = { key: kanbanColsCacheKey, html: colsHtml, navHtml: kanbanBoardNavHtml };
+            }
 
             return `
                 <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}${kanbanBoardNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" ondragover="tmKanbanAutoScroll(event)">

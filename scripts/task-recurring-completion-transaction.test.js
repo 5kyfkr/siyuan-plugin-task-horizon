@@ -142,6 +142,8 @@ function createAdvanceHarness(task, buildPatch, options = {}) {
         __tmNormalizeTaskCompleteAtValue: (value) => String(value || '').trim(),
         __tmNormalizeTaskRepeatHistory: (value) => Array.isArray(value) ? value : [],
         __tmBuildTaskRepeatAdvancePatch: buildPatch,
+        __tmNormalizeFsrsRating: (value) => Math.max(0, Math.min(4, Number(value) || 0)),
+        __tmBuildFsrsReviewPatch: options.buildFsrsReviewPatch || (() => { throw new Error('unexpected FSRS review'); }),
         __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
         __tmApplyTaskMetaPatchWithUndo: async (_taskId, patch, persistOptions) => {
             calls.persist.push({ patch, options: persistOptions });
@@ -278,10 +280,55 @@ async function testRecurringFailureSchedulesOneFallbackRefresh() {
     assert.equal(hintCount, 1);
 }
 
+async function testFsrsCompletionUsesTheSameRecoverableTransaction() {
+    const completedAt = '2026-07-25T09:00:00.000+08:00';
+    const task = {
+        id: 'task-fsrs',
+        done: true,
+        taskCompleteAt: completedAt,
+        startDate: '2026-07-25',
+        completionTime: '2026-07-25',
+        content: 'Review task',
+        root_id: 'doc-1',
+        repeatRule: { enabled: true, type: 'fsrs', maxOccurrences: 0 },
+        repeatState: { occurrenceCount: 1, lastCompletedAt: '', fsrsCard: { due: 'before' } },
+        repeatHistory: [],
+    };
+    const buildFsrsReviewPatch = () => ({
+        startDate: '2026-07-28',
+        completionTime: '2026-07-28',
+        repeatState: { occurrenceCount: 2, lastCompletedAt: completedAt, fsrsCard: { due: 'after' } },
+        review: {
+            rating: 3,
+            beforeCard: { due: 'before' },
+            afterCard: { due: 'after' },
+        },
+    });
+    const harness = createAdvanceHarness(task, () => { throw new Error('fixed scheduler must not run'); }, { buildFsrsReviewPatch });
+    assert.equal(await harness.advance(task.id, { completedAt, fsrsRating: 3, suppressHint: true }), true);
+    assert.equal(harness.calls.persist.length, 1);
+    assert.equal(harness.calls.persist[0].patch.repeatHistory[0].rating, 3);
+    assert.deepEqual(harness.calls.persist[0].patch.repeatHistory[0].fsrsBefore, { due: 'before' });
+    assert.deepEqual(harness.calls.persist[0].patch.repeatHistory[0].fsrsAfter, { due: 'after' });
+    assert.equal(harness.calls.reset, 1);
+
+    const ungradedTask = {
+        ...task,
+        done: true,
+        repeatState: { occurrenceCount: 1, lastCompletedAt: '' },
+        repeatHistory: [],
+    };
+    const ungraded = createAdvanceHarness(ungradedTask, () => null, { buildFsrsReviewPatch });
+    assert.equal(await ungraded.advance(ungradedTask.id, { completedAt, suppressHint: true }), false);
+    assert.equal(ungraded.calls.persist.length, 0);
+    assert.equal(ungraded.calls.reset, 0);
+}
+
 async function run() {
     testPostCommitRunsOnceAndDoesNotWaitForTomato();
     testRecurringInstanceSyncOnlyTouchesLoadedDocuments();
     await testRecurringAdvanceStateMachine();
+    await testFsrsCompletionUsesTheSameRecoverableTransaction();
     await testRecurringFailureSchedulesOneFallbackRefresh();
 
     const kernel = extractBetween(listSource, 'async function __tmSetDoneKernel(', 'const __tmAutoCompleteParentTaskIdsInFlight');

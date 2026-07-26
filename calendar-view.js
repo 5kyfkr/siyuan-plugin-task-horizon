@@ -47,7 +47,15 @@
         SCHEDULE_MOBILE_REGISTRY_LS_KEY: 'tm-calendar-mobile-notification-registry',
         SCHEDULE_WECHAT_REGISTRY_FILE: '/data/storage/petal/siyuan-plugin-task-horizon/calendar-wechat-reminder-registry.json',
         SCHEDULE_WECHAT_REGISTRY_LS_KEY: 'tm-calendar-wechat-reminder-registry-v1',
+        CALENDAR_SUBSCRIPTION_FILE: '/data/storage/petal/siyuan-plugin-task-horizon/calendar-subscription.ics',
     };
+    const CALENDAR_SUBSCRIPTION_RUNTIME_KEY = 'tm_calendar_ics_runtime_state_v1';
+    const CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY = 'tm_calendar_ics_webdav_password';
+    const CALENDAR_SUBSCRIPTION_WEBDAV_FILE_NAME = 'task-horizon.ics';
+    const CALENDAR_SUBSCRIPTION_SETTINGS_FILE = '/data/storage/petal/siyuan-plugin-task-horizon/task-settings.json';
+    const CALENDAR_SUBSCRIPTION_EVENT_LIMIT = 20000;
+    const CALENDAR_SUBSCRIPTION_FILE_LIMIT = 9 * 1024 * 1024;
+    const CALENDAR_SUBSCRIPTION_DEBOUNCE_MS = 30000;
     const SIDE_DAY_HALF_HOUR_SLOT_HEIGHT = 29;
     const CALENDAR_TIMEGRID_EVENT_MIN_HEIGHT = 30;
     const CALENDAR_TIMEGRID_ALLDAY_EVENT_HEIGHT = 19;
@@ -595,11 +603,12 @@
         '.tm-calendar-floating-mini',
         '.tm-floating-mini-calendar',
     ].join(',');
+    const __tmCalendarModuleLifecycleAbort = new AbortController();
 
     try {
-        document.addEventListener('touchstart', ensureFullCalendarExternalDragHostForEvent, { capture: true, passive: true });
-        document.addEventListener('pointerdown', ensureFullCalendarExternalDragHostForEvent, true);
-        document.addEventListener('mousedown', ensureFullCalendarExternalDragHostForEvent, true);
+        document.addEventListener('touchstart', ensureFullCalendarExternalDragHostForEvent, { capture: true, passive: true, signal: __tmCalendarModuleLifecycleAbort.signal });
+        document.addEventListener('pointerdown', ensureFullCalendarExternalDragHostForEvent, { capture: true, signal: __tmCalendarModuleLifecycleAbort.signal });
+        document.addEventListener('mousedown', ensureFullCalendarExternalDragHostForEvent, { capture: true, signal: __tmCalendarModuleLifecycleAbort.signal });
     } catch (e) {}
 
     function isVisibleCalendarExternalDragMirror(el, hostEl = null) {
@@ -7582,6 +7591,17 @@
         return {
             enabled: !!s.calendarEnabled,
             linkDockTomato: !!s.calendarLinkDockTomato,
+            icsEnabled: !!s.calendarIcsEnabled,
+            icsProvider: String(s.calendarIcsProvider || 'chain').trim() === 'chain' ? 'chain' : 'webdav',
+            icsPublishMode: String(s.calendarIcsPublishMode || '').trim() === 'manual' ? 'manual' : 'auto',
+            icsCalendarName: (() => {
+                const value = String(s.calendarIcsCalendarName || '').trim();
+                return !value || value === 'Task Horizon' ? '任务管理器' : value;
+            })(),
+            icsWebdavUrl: String(s.calendarIcsWebdavUrl || '').trim(),
+            icsWebdavUsername: String(s.calendarIcsWebdavUsername || '').trim(),
+            icsChainFileName: String(s.calendarIcsChainFileName || '').trim(),
+            icsChainPublicConfirmed: s.calendarIcsChainPublicConfirmed === true,
             initialViewDesktop: initialViewDesktop0,
             initialViewMobile: initialViewMobile0,
             firstDay: Number(s.calendarFirstDay) === 0 ? 0 : 1,
@@ -17389,20 +17409,20 @@
                     const parsed = parseDateOnly(nextDate);
                     return parsed ? formatDateKey(parsed) : nextDate;
                 })();
-                try {
-                    if (state.sideDay.adapter?.gotoDate?.(nextDate) !== true) state.sideDay.calendar.gotoDate(nextDate);
-                } catch (e) {}
                 state.sideDay.dateKey = nextDate;
-                if (prevDate && nextDateKey && prevDate !== nextDateKey) {
+                if (!prevDate || !nextDateKey || prevDate !== nextDateKey) {
+                    try {
+                        if (state.sideDay.adapter?.gotoDate?.(nextDate) !== true) state.sideDay.calendar.gotoDate(nextDate);
+                    } catch (e) {}
                     try { clearTimeGridAutoCenterState('sideDay'); } catch (e) {}
                 }
             }
-            try { syncSideDayLayout(rootEl, state.sideDay.calendar, getSettings()); } catch (e) {}
+            const syncReusedSideDayLayout = () => {
+                try { syncSideDayLayout(rootEl, state.sideDay.calendar, getSettings()); } catch (e) {}
+            };
             try {
-                requestAnimationFrame(() => {
-                    try { syncSideDayLayout(rootEl, state.sideDay.calendar, getSettings()); } catch (e2) {}
-                });
-            } catch (e) {}
+                requestAnimationFrame(syncReusedSideDayLayout);
+            } catch (e) { syncReusedSideDayLayout(); }
             return true;
         }
 
@@ -20673,7 +20693,11 @@
         el.style.background = colors[type] || '#666';
         el.textContent = String(msg || '');
         document.body.appendChild(el);
-        setTimeout(() => { try { el.remove(); } catch (e) {} }, 2500);
+        const timer = setTimeout(() => { try { el.remove(); } catch (e) {} }, 2500);
+        el.addEventListener('click', () => {
+            clearTimeout(timer);
+            try { el.remove(); } catch (e) {}
+        }, { once: true });
     }
 
     function getScheduleAllDeviceNotificationEntries(item) {
@@ -24240,6 +24264,834 @@
         state.sidebarOpen = false;
     }
 
+    const calendarSubscriptionPublisher = {
+        bound: false,
+        running: false,
+        runningPromise: null,
+        queued: false,
+        queuedForce: false,
+        queuedInteractive: false,
+        queuedSource: '',
+        dirtySeq: 0,
+        lifecycleToken: 0,
+        debounceTimer: null,
+        startupTimer: null,
+        startupPending: false,
+        dailyTimer: null,
+        scheduleUpdatedListener: null,
+        tomatoUpdatedListener: null,
+        taskAttrUpdatedListener: null,
+        syncEventBus: null,
+        syncHandler: null,
+        settingsContainer: null,
+        runtimeStatus: null,
+    };
+
+    class CalendarSubscriptionStaleError extends Error {
+        constructor(message = '日历 ICS 数据在生成期间发生变化') {
+            super(message);
+            this.name = 'CalendarSubscriptionStaleError';
+        }
+    }
+
+    function loadCalendarSubscriptionRuntimeStatus() {
+        if (calendarSubscriptionPublisher.runtimeStatus) return calendarSubscriptionPublisher.runtimeStatus;
+        let value = {};
+        try {
+            const parsed = JSON.parse(String(localStorage.getItem(CALENDAR_SUBSCRIPTION_RUNTIME_KEY) || '{}'));
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) value = parsed;
+        } catch (e) {}
+        calendarSubscriptionPublisher.runtimeStatus = value;
+        return value;
+    }
+
+    function saveCalendarSubscriptionRuntimeStatus(patch) {
+        const previous = loadCalendarSubscriptionRuntimeStatus();
+        const next = { ...previous, ...(patch && typeof patch === 'object' ? patch : {}) };
+        calendarSubscriptionPublisher.runtimeStatus = next;
+        try { localStorage.setItem(CALENDAR_SUBSCRIPTION_RUNTIME_KEY, JSON.stringify(next)); } catch (e) {}
+        updateCalendarSubscriptionUi();
+        return next;
+    }
+
+    function getLoadedSiyuanPlugins() {
+        const candidates = globalThis.siyuan?.plugins || globalThis.__taskHorizonPluginApp?.plugins || [];
+        if (Array.isArray(candidates)) return candidates;
+        if (candidates && typeof candidates === 'object') return Object.values(candidates);
+        return [];
+    }
+
+    function isDockTomatoPluginLoaded() {
+        return getLoadedSiyuanPlugins().some((plugin) => {
+            const name = String(plugin?.name || plugin?.manifest?.name || '').trim();
+            return name === 'siyuan-plugin-docktomato';
+        });
+    }
+
+    function getCalendarSubscriptionSourceStatusText() {
+        return isDockTomatoPluginLoaded()
+            ? '包含任务管理器日程与底栏番茄钟提醒'
+            : '未启用底栏番茄钟，仅发布任务管理器日程';
+    }
+
+    function getCalendarSubscriptionDisplayUrl(settings = getSettings()) {
+        if (settings.icsProvider === 'webdav') {
+            try {
+                const url = normalizeCalendarSubscriptionWebdavUrl(settings.icsWebdavUrl);
+                url.username = '';
+                url.password = '';
+                return url.toString();
+            } catch (e) {
+                return '';
+            }
+        }
+        const runtimeUrl = String(loadCalendarSubscriptionRuntimeStatus()?.url || '').trim();
+        if (runtimeUrl.includes('assets.b3logfile.com/')) return runtimeUrl;
+        const userId = String(globalThis.siyuan?.user?.userId || '').trim();
+        const fileName = String(settings.icsChainFileName || '').trim();
+        if (!userId || !fileName) return '';
+        return `https://assets.b3logfile.com/siyuan/${encodeURIComponent(userId)}/assets/${encodeURIComponent(fileName)}`;
+    }
+
+    function formatCalendarSubscriptionStatusTime(value) {
+        const date = new Date(String(value || ''));
+        return Number.isNaN(date.getTime()) ? '尚未成功发布' : date.toLocaleString();
+    }
+
+    function syncCalendarSubscriptionTopBar() {
+        const settings = getSettings();
+        const status = loadCalendarSubscriptionRuntimeStatus();
+        const enabled = settings.icsEnabled === true;
+        let title = '立即上传日历 ICS';
+        if (calendarSubscriptionPublisher.running) title = '正在上传日历 ICS';
+        else if (status.lastError) title = `日历 ICS 上传失败：${String(status.lastError).slice(0, 120)}`;
+        try {
+            globalThis.__taskHorizonSyncCalendarSubscriptionTopBar?.({
+                enabled,
+                running: calendarSubscriptionPublisher.running,
+                title,
+            });
+        } catch (e) {}
+    }
+
+    function updateCalendarSubscriptionUi() {
+        syncCalendarSubscriptionTopBar();
+        const container = calendarSubscriptionPublisher.settingsContainer;
+        if (!(container instanceof Element) || !document.contains(container)) return;
+        const settings = getSettings();
+        const status = loadCalendarSubscriptionRuntimeStatus();
+        const setText = (selector, value) => {
+            const element = container.querySelector(selector);
+            if (element) element.textContent = String(value || '');
+        };
+        setText('[data-tm-ics-source-status]', getCalendarSubscriptionSourceStatusText());
+        setText('[data-tm-ics-last-success]', `${formatCalendarSubscriptionStatusTime(status.lastSuccessAt)}${status.lastSuccessAt ? `，${Number(status.eventCount) || 0} 个事件` : ''}`);
+        setText('[data-tm-ics-last-error]', status.lastError ? String(status.lastError) : '无');
+        try {
+            container.querySelector('[data-tm-ics-last-error]')?.classList.toggle('tm-calendar-ics-inline-status--error', !!status.lastError);
+        } catch (e) {}
+        const urlInput = container.querySelector('[data-tm-ics-subscription-url]');
+        if (urlInput instanceof HTMLInputElement) urlInput.value = getCalendarSubscriptionDisplayUrl(settings);
+        const publishButton = container.querySelector('[data-tm-ics-action="publish"]');
+        if (publishButton instanceof HTMLButtonElement) {
+            publishButton.disabled = !settings.icsEnabled || calendarSubscriptionPublisher.running;
+            publishButton.textContent = calendarSubscriptionPublisher.running ? '正在更新' : '立即更新';
+        }
+    }
+
+    async function flushCalendarSubscriptionSettingsStore(store = state.settingsStore) {
+        if (!store) return false;
+        if (typeof store.flushSave === 'function') {
+            store.saveDirty = true;
+            try { if (store.saveTimer) clearTimeout(store.saveTimer); } catch (e) {}
+            store.saveTimer = null;
+            await store.flushSave();
+            return true;
+        }
+        if (typeof store.save === 'function') {
+            await store.save();
+            return true;
+        }
+        return false;
+    }
+
+    function createStableCalendarSubscriptionFileName() {
+        let token = '';
+        try {
+            const bytes = new Uint8Array(12);
+            crypto.getRandomValues(bytes);
+            token = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+        } catch (e) {
+            token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 14)}`;
+        }
+        return `task-horizon-${token}.ics`;
+    }
+
+    async function ensureCalendarSubscriptionChainFileName() {
+        const store = state.settingsStore;
+        const current = String(store?.data?.calendarIcsChainFileName || getSettings().icsChainFileName || '').trim();
+        if (/^[A-Za-z0-9._-]+\.ics$/i.test(current)) return current;
+        if (!store?.data) throw new Error('日历 ICS 上传设置尚未就绪');
+        const next = createStableCalendarSubscriptionFileName();
+        store.data.calendarIcsChainFileName = next;
+        await flushCalendarSubscriptionSettingsStore(store);
+        return next;
+    }
+
+    function buildCalendarSubscriptionRange() {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const start = new Date(today.getTime());
+        start.setDate(start.getDate() - 30);
+        const end = new Date(today.getTime());
+        end.setDate(end.getDate() + 401);
+        return { start, end, startAt: start.getTime(), endAt: end.getTime() };
+    }
+
+    function getScheduleSubscriptionAlarm(item, occurrence, settings, allDay, completed) {
+        if (completed || !settings.scheduleReminderEnabled) return null;
+        const reminderMode = String(item?.reminderMode || '').trim() === 'custom' ? 'custom' : 'inherit';
+        if (allDay) {
+            const enabled = reminderMode === 'custom' ? item?.reminderEnabled === true : settings.allDayReminderEnabled === true;
+            if (!enabled) return null;
+            const parsed = parseReminderTime(settings.allDayReminderTime) || { hh: 9, mm: 0 };
+            const at = new Date(Number(occurrence?.startMs));
+            if (Number.isNaN(at.getTime())) return null;
+            at.setHours(parsed.hh, parsed.mm, 0, 0);
+            return { absoluteAt: at.getTime() };
+        }
+        if (reminderMode === 'custom' && item?.reminderEnabled !== true) return null;
+        const rawMode = reminderMode === 'custom'
+            ? item?.reminderOffsetMin
+            : settings.scheduleReminderDefaultMode;
+        if (reminderMode !== 'custom' && String(rawMode || '').trim() === 'off') return null;
+        const allowed = new Set([0, 5, 10, 15, 30, 60]);
+        const numeric = Number(rawMode);
+        const offset = Number.isFinite(numeric) && allowed.has(numeric) ? numeric : 0;
+        return { trigger: offset > 0 ? `-PT${offset}M` : 'PT0M' };
+    }
+
+    function getLocalDateOrdinal(value) {
+        const date = value instanceof Date ? value : new Date(value);
+        return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+    }
+
+    function addLocalCalendarDays(value, days) {
+        const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+        date.setHours(0, 0, 0, 0);
+        date.setDate(date.getDate() + Math.max(1, Number(days) || 1));
+        return date;
+    }
+
+    async function waitForDockTomatoSubscriptionBridge() {
+        const deadline = Date.now() + 5000;
+        do {
+            if (!isDockTomatoPluginLoaded()) throw new CalendarSubscriptionStaleError('Dock Tomato 状态已变化');
+            const bridge = globalThis.__tomatoReminder;
+            if (Number(bridge?.version) >= 2 && typeof bridge?.listOccurrences === 'function') return bridge;
+            if (Date.now() >= deadline) break;
+            await delay(100);
+        } while (true);
+        throw new Error('Dock Tomato 已启用，但提醒接口尚未就绪，请稍后重试');
+    }
+
+    async function refreshCalendarSubscriptionSharedSettings() {
+        const store = state.settingsStore;
+        if (!store?.data || store.saveDirty || store.saving) return false;
+        let shared = null;
+        try {
+            const raw = await getFileTextRetry(CALENDAR_SUBSCRIPTION_SETTINGS_FILE, 1);
+            shared = JSON.parse(String(raw || ''));
+        } catch (error) {
+            throw new Error('日历 ICS 上传设置读取失败，已停止本次发布');
+        }
+        if (!shared || typeof shared !== 'object' || Array.isArray(shared)) {
+            throw new Error('日历 ICS 上传设置格式无效，已停止本次发布');
+        }
+        const fields = {
+            calendarIcsEnabled: 'boolean',
+            calendarIcsProvider: 'string',
+            calendarIcsPublishMode: 'string',
+            calendarIcsCalendarName: 'string',
+            calendarIcsWebdavUrl: 'string',
+            calendarIcsWebdavUsername: 'string',
+            calendarIcsChainFileName: 'string',
+            calendarIcsChainPublicConfirmed: 'boolean',
+        };
+        let changed = false;
+        for (const [key, type] of Object.entries(fields)) {
+            if (typeof shared[key] !== type) continue;
+            let sharedValue = shared[key];
+            if (key === 'calendarIcsCalendarName' && (!String(sharedValue || '').trim() || String(sharedValue).trim() === 'Task Horizon')) {
+                sharedValue = '任务管理器';
+            } else if (key === 'calendarIcsPublishMode') {
+                sharedValue = String(sharedValue || '').trim() === 'manual' ? 'manual' : 'auto';
+            }
+            if (store.data[key] === sharedValue) continue;
+            store.data[key] = sharedValue;
+            changed = true;
+        }
+        if (changed) {
+            try { store.syncToLocal?.(); } catch (e) {}
+            reconcileCalendarSubscriptionPublisher({ reason: 'shared-settings' });
+        }
+        return changed;
+    }
+
+    async function buildCalendarSubscriptionEvents() {
+        const settings = getSettings();
+        const range = buildCalendarSubscriptionRange();
+        if (state.scheduleCache.inflight) {
+            try { await state.scheduleCache.inflight; } catch (e) {}
+        }
+        state.scheduleCache.loadedAt = 0;
+        const schedules = await loadScheduleAll();
+        if (state.scheduleCache.lastLoadError) throw new Error('日程数据读取失败，已保留上次成功文件');
+        const events = [];
+        for (const item of (Array.isArray(schedules) ? schedules : [])) {
+            const scheduleId = String(item?.id || '').trim();
+            if (!scheduleId) throw new Error('日程数据缺少稳定 ID');
+            const baseStartMs = toMs(item?.start);
+            const baseEndMs = toMs(item?.end);
+            if (!Number.isFinite(baseStartMs) || !Number.isFinite(baseEndMs) || baseEndMs <= baseStartMs) {
+                throw new Error(`日程时间无效：${String(item?.title || scheduleId)}`);
+            }
+            const baseStart = new Date(baseStartMs);
+            const baseEnd = new Date(baseEndMs);
+            const allDay = item?.allDay === true || isAllDayRange(baseStart, baseEnd);
+            const allDaySpan = allDay
+                ? Math.max(1, getLocalDateOrdinal(baseEnd) - getLocalDateOrdinal(baseStart))
+                : 0;
+            const occurrences = collectScheduleOccurrencesInRange(item, range.start, range.end, { limit: 2400 });
+            for (const occurrence of occurrences) {
+                const startAt = Number(occurrence?.startMs);
+                const endAt = Number(occurrence?.endMs);
+                if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt <= startAt) {
+                    throw new Error(`日程时间无效：${String(item?.title || scheduleId)}`);
+                }
+                const completed = isScheduleOccurrenceDone(item, startAt)
+                    || item?.scheduleDone === true
+                    || item?.completed === true
+                    || item?.done === true;
+                const event = {
+                    uidSeed: `schedule:${scheduleId}:${Math.trunc(startAt)}`,
+                    source: 'schedule',
+                    title: normalizeCalendarScheduleTitleText(item?.title, '日程'),
+                    completed,
+                };
+                if (allDay) {
+                    const occurrenceStart = new Date(startAt);
+                    const occurrenceEnd = addLocalCalendarDays(occurrenceStart, allDaySpan);
+                    event.allDay = true;
+                    event.startDate = formatDateKey(occurrenceStart);
+                    event.endDate = formatDateKey(occurrenceEnd);
+                } else {
+                    event.startAt = startAt;
+                    event.endAt = endAt;
+                }
+                event.alarm = getScheduleSubscriptionAlarm(item, occurrence, settings, allDay, completed);
+                events.push(event);
+                if (events.length > CALENDAR_SUBSCRIPTION_EVENT_LIMIT) {
+                    throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
+                }
+            }
+        }
+
+        const tomatoLoaded = isDockTomatoPluginLoaded();
+        let sourceMode = 'schedules-only';
+        if (tomatoLoaded) {
+            sourceMode = 'schedules-and-reminders';
+            const bridge = await waitForDockTomatoSubscriptionBridge();
+            const remaining = Math.max(1, CALENDAR_SUBSCRIPTION_EVENT_LIMIT - events.length);
+            const result = await bridge.listOccurrences({
+                startAt: range.startAt,
+                endAt: range.endAt,
+                limit: remaining,
+            });
+            if (!result || !Array.isArray(result.occurrences)) throw new Error('Dock Tomato 提醒接口返回无效');
+            if (result.truncated === true) throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
+            for (const occurrence of result.occurrences) {
+                const startAt = Number(occurrence?.startAt);
+                const blockId = String(occurrence?.blockId || '').trim();
+                const occurrenceKey = String(occurrence?.occurrenceKey || '').trim();
+                const stableIdentity = String(occurrence?.stableIdentity || '').trim();
+                if (!blockId || !occurrenceKey || !Number.isFinite(startAt) || startAt < range.startAt || startAt >= range.endAt) {
+                    throw new Error('Dock Tomato 提醒接口返回了无效实例');
+                }
+                events.push({
+                    uidSeed: `tomato:${blockId}:${stableIdentity || occurrenceKey}`,
+                    source: 'tomato',
+                    title: String(occurrence?.title || '').trim() || '任务提醒',
+                    startAt,
+                    alarm: { trigger: 'PT0M' },
+                });
+                if (events.length > CALENDAR_SUBSCRIPTION_EVENT_LIMIT) {
+                    throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
+                }
+            }
+        }
+        return { events, sourceMode, tomatoLoaded, range };
+    }
+
+    async function readKernelJsonResponse(response, context) {
+        if (!response?.ok) throw new Error(`${context}失败：HTTP ${Number(response?.status) || 0}`);
+        let payload = null;
+        try { payload = await response.json(); } catch (e) {
+            throw new Error(`${context}失败：响应格式无效`);
+        }
+        if (!payload || Number(payload.code) !== 0) throw new Error(`${context}失败：${String(payload?.msg || payload?.message || '未知错误')}`);
+        return payload.data;
+    }
+
+    async function callKernelJson(path, body, context) {
+        const response = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}),
+        });
+        return await readKernelJsonResponse(response, context);
+    }
+
+    async function putCalendarSubscriptionFile(path, text, mime = 'text/calendar; charset=utf-8') {
+        const normalizedPath = String(path || '').trim();
+        const slash = normalizedPath.lastIndexOf('/');
+        if (!normalizedPath.startsWith('/data/') || slash <= 5) throw new Error('日历 ICS 文件路径无效');
+        const directory = normalizedPath.slice(0, slash);
+        const dirForm = new FormData();
+        dirForm.append('path', directory);
+        dirForm.append('isDir', 'true');
+        await readKernelJsonResponse(await fetch('/api/file/putFile', { method: 'POST', body: dirForm }), '创建日历 ICS 目录');
+        const form = new FormData();
+        form.append('path', normalizedPath);
+        form.append('isDir', 'false');
+        form.append('file', new Blob([String(text ?? '')], { type: mime }));
+        await readKernelJsonResponse(await fetch('/api/file/putFile', { method: 'POST', body: form }), '写入日历 ICS 文件');
+        return true;
+    }
+
+    function encodeBasicAuthorization(username, password) {
+        if (!username && !password) return '';
+        const raw = `${String(username || '')}:${String(password || '')}`;
+        return `Basic ${btoa(unescape(encodeURIComponent(raw)))}`;
+    }
+
+    function isPrivateCalendarSubscriptionHost(hostname) {
+        const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+        if (host === 'localhost' || host === '::1' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
+        if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)) return true;
+        const match = host.match(/^172\.(\d+)\./);
+        return !!match && Number(match[1]) >= 16 && Number(match[1]) <= 31;
+    }
+
+    function normalizeCalendarSubscriptionWebdavUrl(value) {
+        let url = null;
+        try { url = new URL(String(value || '').trim()); } catch (e) {
+            throw new Error('WebDAV 目录地址无效');
+        }
+        if (url.username || url.password) throw new Error('WebDAV 地址中不能包含账号或密码');
+        if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isPrivateCalendarSubscriptionHost(url.hostname))) {
+            throw new Error('WebDAV 公网地址必须使用 HTTPS');
+        }
+        // Keep already-saved file URLs working while new configurations use a directory URL.
+        if (!/\.ics$/i.test(url.pathname)) {
+            url.pathname = `${url.pathname.replace(/\/+$/, '')}/${CALENDAR_SUBSCRIPTION_WEBDAV_FILE_NAME}`;
+        }
+        return url;
+    }
+
+    async function forwardCalendarSubscriptionRequest(url, method, options = {}) {
+        const headers = [];
+        if (options.authorization) headers.push({ Authorization: options.authorization });
+        if (options.contentType) headers.push({ 'Content-Type': options.contentType });
+        const data = await callKernelJson('/api/network/forwardProxy', {
+            url: String(url),
+            method: String(method || 'GET').toUpperCase(),
+            timeout: 30000,
+            headers,
+            contentType: options.contentType || 'text/plain; charset=utf-8',
+            payloadEncoding: 'text',
+            payload: String(options.payload ?? ''),
+            responseEncoding: 'text',
+        }, `${String(method || 'GET').toUpperCase()} 请求`);
+        const status = Number(data?.status);
+        return { status, body: String(data?.body ?? ''), headers: data?.headers || null };
+    }
+
+    function appendCalendarSubscriptionCacheBuster(value, hash) {
+        const url = new URL(String(value));
+        url.searchParams.set('tm-ics', `${String(hash || '').slice(0, 16)}-${Date.now()}`);
+        return url.toString();
+    }
+
+    async function verifyCalendarSubscriptionRemote(url, expectedFileHash, authorization = '') {
+        const core = globalThis.__tmCalendarSubscriptionCore;
+        let lastError = null;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+                const response = await forwardCalendarSubscriptionRequest(
+                    appendCalendarSubscriptionCacheBuster(url, expectedFileHash),
+                    'GET',
+                    { authorization }
+                );
+                if (response.status < 200 || response.status >= 300) throw new Error(`远端回读失败：HTTP ${response.status}`);
+                const remoteHash = await core.hashText(response.body);
+                if (remoteHash !== expectedFileHash) throw new Error('远端文件校验失败，可能仍是旧缓存');
+                return true;
+            } catch (error) {
+                lastError = error;
+                if (attempt < 2) await delay(400 * (attempt + 1));
+            }
+        }
+        throw lastError || new Error('远端文件校验失败');
+    }
+
+    async function uploadCalendarSubscriptionWebdav(target, icsText, fileHash) {
+        const password = (() => {
+            try { return String(localStorage.getItem(CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY) || ''); } catch (e) { return ''; }
+        })();
+        const authorization = encodeBasicAuthorization(target.username, password);
+        const requestOptions = {
+            authorization,
+            contentType: 'text/calendar; charset=utf-8',
+            payload: icsText,
+        };
+        let response = await forwardCalendarSubscriptionRequest(target.url, 'PUT', requestOptions);
+        if (response.status === 409) {
+            const parent = new URL(target.url);
+            parent.search = '';
+            parent.hash = '';
+            parent.pathname = parent.pathname.replace(/[^/]+$/, '');
+            const mkcol = await forwardCalendarSubscriptionRequest(parent.toString(), 'MKCOL', { authorization });
+            if (!((mkcol.status >= 200 && mkcol.status < 300) || mkcol.status === 405)) {
+                throw new Error(`创建 WebDAV 目录失败：HTTP ${mkcol.status}`);
+            }
+            response = await forwardCalendarSubscriptionRequest(target.url, 'PUT', requestOptions);
+        }
+        if (response.status < 200 || response.status >= 300) throw new Error(`WebDAV 上传失败：HTTP ${response.status}`);
+        await verifyCalendarSubscriptionRemote(target.url, fileHash, authorization);
+    }
+
+    function normalizeCloudUserData(value) {
+        const source = value && typeof value === 'object' ? value : {};
+        return source.user && typeof source.user === 'object' ? source.user : source;
+    }
+
+    function cloudSubscriptionExpiryMs(value) {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric) && numeric > 0) return numeric < 100000000000 ? numeric * 1000 : numeric;
+        const parsed = new Date(String(value || '')).getTime();
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    async function getCalendarSubscriptionCloudUser() {
+        let user = normalizeCloudUserData(globalThis.siyuan?.user);
+        try {
+            const current = normalizeCloudUserData(await callKernelJson('/api/setting/getCloudUser', {}, '读取链滴账号'));
+            if (String(current?.userId || '').trim()) user = { ...user, ...current };
+        } catch (error) {
+            if (!String(user?.userId || '').trim()) throw error;
+        }
+        const userId = String(user?.userId || '').trim();
+        if (!userId) throw new Error('链滴上传需要先登录思源账号');
+        const subscriptionStatus = String(user?.userSiYuanSubscriptionStatus ?? '').toLowerCase();
+        const oneTimePayStatus = String(user?.userSiYuanOneTimePayStatus ?? '').toLowerCase();
+        const expiry = cloudSubscriptionExpiryMs(user?.userSiYuanProExpireTime);
+        const activeValues = new Set(['1', 'true', 'active', 'valid', 'pro']);
+        const subscribed = activeValues.has(subscriptionStatus)
+            || activeValues.has(oneTimePayStatus)
+            || expiry > Date.now();
+        if (!subscribed) throw new Error('链滴上传需要有效的思源订阅资格');
+        return { userId, raw: user };
+    }
+
+    async function uploadCalendarSubscriptionChain(target, icsText, fileHash) {
+        const assetPath = `/data/assets/${target.fileName}`;
+        await putCalendarSubscriptionFile(assetPath, icsText);
+        await callKernelJson('/api/asset/uploadCloudByAssetsPaths', {
+            paths: [`assets/${target.fileName}`],
+            ignorePushMsg: true,
+        }, '链滴上传');
+        await verifyCalendarSubscriptionRemote(target.url, fileHash);
+    }
+
+    async function resolveCalendarSubscriptionTarget(settings) {
+        if (settings.icsProvider === 'chain') {
+            if (settings.icsChainPublicConfirmed !== true) throw new Error('请先确认链滴订阅 URL 的公开可访问性');
+            const fileName = await ensureCalendarSubscriptionChainFileName();
+            const cloudUser = await getCalendarSubscriptionCloudUser();
+            const url = `https://assets.b3logfile.com/siyuan/${encodeURIComponent(cloudUser.userId)}/assets/${encodeURIComponent(fileName)}`;
+            return { provider: 'chain', fileName, url, targetKey: `chain:${cloudUser.userId}:${fileName}` };
+        }
+        const url = normalizeCalendarSubscriptionWebdavUrl(settings.icsWebdavUrl);
+        return {
+            provider: 'webdav',
+            url: url.toString(),
+            username: String(settings.icsWebdavUsername || ''),
+            targetKey: `webdav:${url.toString()}`,
+        };
+    }
+
+    function assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, tomatoLoaded) {
+        if (calendarSubscriptionPublisher.dirtySeq !== capturedSeq
+            || calendarSubscriptionPublisher.lifecycleToken !== capturedToken
+            || isDockTomatoPluginLoaded() !== tomatoLoaded) {
+            throw new CalendarSubscriptionStaleError();
+        }
+    }
+
+    async function executeCalendarSubscriptionPublication(options, capturedSeq, capturedToken) {
+        await refreshCalendarSubscriptionSharedSettings();
+        const settings = getSettings();
+        if (!settings.icsEnabled) {
+            throw new CalendarSubscriptionStaleError('日历 ICS 上传已关闭');
+        }
+        const core = globalThis.__tmCalendarSubscriptionCore;
+        if (!core || typeof core.serializeCalendar !== 'function') throw new Error('日历 ICS 核心未加载');
+        const built = await buildCalendarSubscriptionEvents();
+        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded);
+        const target = await resolveCalendarSubscriptionTarget(settings);
+        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded);
+        const semanticHash = await core.hashText(core.stableStringify({
+            calendarName: settings.icsCalendarName,
+            sourceMode: built.sourceMode,
+            events: built.events,
+        }));
+        const previous = loadCalendarSubscriptionRuntimeStatus();
+        if (options.force !== true
+            && !previous.lastError
+            && previous.contentHash === semanticHash
+            && previous.targetKey === target.targetKey) {
+            return { skipped: true, eventCount: built.events.length, sourceMode: built.sourceMode, url: target.url };
+        }
+        const icsText = core.serializeCalendar({
+            calendarName: settings.icsCalendarName,
+            events: built.events,
+            generatedAt: Date.now(),
+        });
+        const byteLength = core.utf8ByteLength(icsText);
+        if (byteLength > CALENDAR_SUBSCRIPTION_FILE_LIMIT) throw new Error('ICS 文件超过 9 MiB 上限');
+        const fileHash = await core.hashText(icsText);
+        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded);
+        if (target.provider === 'chain') await uploadCalendarSubscriptionChain(target, icsText, fileHash);
+        else await uploadCalendarSubscriptionWebdav(target, icsText, fileHash);
+        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded);
+        await putCalendarSubscriptionFile(STORAGE.CALENDAR_SUBSCRIPTION_FILE, icsText);
+        const successAt = new Date().toISOString();
+        saveCalendarSubscriptionRuntimeStatus({
+            contentHash: semanticHash,
+            fileHash,
+            targetKey: target.targetKey,
+            lastSuccessAt: successAt,
+            url: target.url,
+            eventCount: built.events.length,
+            lastError: '',
+            sourceMode: built.sourceMode,
+        });
+        return { skipped: false, eventCount: built.events.length, sourceMode: built.sourceMode, url: target.url, successAt };
+    }
+
+    async function publishCalendarSubscriptionNow(options = {}) {
+        const request = options && typeof options === 'object' ? options : {};
+        if (calendarSubscriptionPublisher.running) {
+            calendarSubscriptionPublisher.queued = true;
+            calendarSubscriptionPublisher.queuedForce ||= request.force === true;
+            calendarSubscriptionPublisher.queuedInteractive ||= request.interactive === true;
+            calendarSubscriptionPublisher.queuedSource = String(request.source || calendarSubscriptionPublisher.queuedSource || 'queued');
+            return calendarSubscriptionPublisher.runningPromise;
+        }
+        calendarSubscriptionPublisher.running = true;
+        let nextRequest = {
+            force: request.force === true,
+            interactive: request.interactive === true,
+            source: String(request.source || 'manual'),
+        };
+        updateCalendarSubscriptionUi();
+        calendarSubscriptionPublisher.runningPromise = (async () => {
+            let lastResult = null;
+            do {
+                calendarSubscriptionPublisher.queued = false;
+                calendarSubscriptionPublisher.queuedForce = false;
+                calendarSubscriptionPublisher.queuedInteractive = false;
+                calendarSubscriptionPublisher.queuedSource = '';
+                const capturedSeq = calendarSubscriptionPublisher.dirtySeq;
+                const capturedToken = calendarSubscriptionPublisher.lifecycleToken;
+                try {
+                    lastResult = await executeCalendarSubscriptionPublication(nextRequest, capturedSeq, capturedToken);
+                    if (nextRequest.interactive) {
+                        toast(lastResult.skipped
+                            ? `日历 ICS 内容无变化，共 ${lastResult.eventCount} 个事件`
+                            : `日历 ICS 已上传，共 ${lastResult.eventCount} 个事件`, 'success');
+                    }
+                } catch (error) {
+                    if (error instanceof CalendarSubscriptionStaleError) {
+                        const currentSettings = getSettings();
+                        if (currentSettings.icsEnabled) {
+                            calendarSubscriptionPublisher.queued = true;
+                            calendarSubscriptionPublisher.queuedForce ||= nextRequest.force;
+                            calendarSubscriptionPublisher.queuedInteractive ||= nextRequest.interactive;
+                        }
+                    } else {
+                        const message = String(error?.message || error || '日历 ICS 上传失败');
+                        saveCalendarSubscriptionRuntimeStatus({ lastError: message });
+                        if (nextRequest.interactive) toast(`日历 ICS 上传失败：${message}`, 'error');
+                        lastResult = { ok: false, error: message };
+                    }
+                }
+                if (!calendarSubscriptionPublisher.queued) break;
+                nextRequest = {
+                    force: calendarSubscriptionPublisher.queuedForce,
+                    interactive: calendarSubscriptionPublisher.queuedInteractive,
+                    source: calendarSubscriptionPublisher.queuedSource || 'queued',
+                };
+            } while (true);
+            return lastResult;
+        })();
+        try {
+            return await calendarSubscriptionPublisher.runningPromise;
+        } finally {
+            calendarSubscriptionPublisher.running = false;
+            calendarSubscriptionPublisher.runningPromise = null;
+            updateCalendarSubscriptionUi();
+        }
+    }
+
+    function scheduleCalendarSubscriptionPublication(delayMs = CALENDAR_SUBSCRIPTION_DEBOUNCE_MS, options = {}) {
+        if (!calendarSubscriptionPublisher.bound) return false;
+        if (calendarSubscriptionPublisher.startupPending && options.allowBeforeStartupReady !== true) return true;
+        if (calendarSubscriptionPublisher.debounceTimer) clearTimeout(calendarSubscriptionPublisher.debounceTimer);
+        calendarSubscriptionPublisher.debounceTimer = setTimeout(() => {
+            calendarSubscriptionPublisher.debounceTimer = null;
+            publishCalendarSubscriptionNow({ source: options.source || 'automatic', force: options.force === true }).catch(() => {});
+        }, Math.max(0, Number(delayMs) || 0));
+        return true;
+    }
+
+    function markCalendarSubscriptionDirty(source = 'change', delayMs = CALENDAR_SUBSCRIPTION_DEBOUNCE_MS) {
+        calendarSubscriptionPublisher.dirtySeq += 1;
+        if (calendarSubscriptionPublisher.running) {
+            calendarSubscriptionPublisher.queued = true;
+            return true;
+        }
+        return scheduleCalendarSubscriptionPublication(delayMs, { source });
+    }
+
+    function armCalendarSubscriptionDailyTimer() {
+        if (!calendarSubscriptionPublisher.bound) return;
+        if (calendarSubscriptionPublisher.dailyTimer) clearTimeout(calendarSubscriptionPublisher.dailyTimer);
+        const next = new Date();
+        next.setDate(next.getDate() + 1);
+        next.setHours(0, 0, 5, 0);
+        calendarSubscriptionPublisher.dailyTimer = setTimeout(() => {
+            calendarSubscriptionPublisher.dailyTimer = null;
+            markCalendarSubscriptionDirty('day-boundary', 0);
+            armCalendarSubscriptionDailyTimer();
+        }, Math.max(1000, next.getTime() - Date.now()));
+    }
+
+    function releaseCalendarSubscriptionStartup(reason = 'startup-ready', delayMs = 0) {
+        if (!calendarSubscriptionPublisher.bound || !calendarSubscriptionPublisher.startupPending) return false;
+        calendarSubscriptionPublisher.startupPending = false;
+        if (calendarSubscriptionPublisher.startupTimer) clearTimeout(calendarSubscriptionPublisher.startupTimer);
+        calendarSubscriptionPublisher.startupTimer = null;
+        markCalendarSubscriptionDirty(reason, delayMs);
+        return true;
+    }
+
+    function bindCalendarSubscriptionPublisher() {
+        if (calendarSubscriptionPublisher.bound) return;
+        calendarSubscriptionPublisher.bound = true;
+        calendarSubscriptionPublisher.startupPending = true;
+        calendarSubscriptionPublisher.lifecycleToken += 1;
+        calendarSubscriptionPublisher.scheduleUpdatedListener = () => markCalendarSubscriptionDirty('schedule-updated');
+        calendarSubscriptionPublisher.tomatoUpdatedListener = () => markCalendarSubscriptionDirty('tomato-reminder-updated');
+        calendarSubscriptionPublisher.taskAttrUpdatedListener = (event) => {
+            const detail = event?.detail || {};
+            const names = [detail.attrKey, detail.attrName, ...(Array.isArray(detail.attrNames) ? detail.attrNames : [])]
+                .map((name) => String(name || '').trim())
+                .filter(Boolean);
+            if (!names.some((name) => [
+                'custom-completion-time',
+                'custom-task-repeat-rule',
+                'custom-task-repeat-state',
+                'custom-tomato-reminder',
+            ].includes(name))) return;
+            markCalendarSubscriptionDirty('task-attr-updated');
+        };
+        window.addEventListener('tm:calendar-schedule-updated', calendarSubscriptionPublisher.scheduleUpdatedListener);
+        window.addEventListener('tomato-reminder-updated', calendarSubscriptionPublisher.tomatoUpdatedListener);
+        window.addEventListener('tm-task-attr-updated', calendarSubscriptionPublisher.taskAttrUpdatedListener);
+        try {
+            const eventBus = globalThis.__taskHorizonHostBridge?.eventBus || globalThis.__taskHorizonHostBridge?.plugin?.eventBus || null;
+            if (eventBus && typeof eventBus.on === 'function') {
+                calendarSubscriptionPublisher.syncHandler = () => {
+                    if (!releaseCalendarSubscriptionStartup('sync-end', 1000)) {
+                        markCalendarSubscriptionDirty('sync-end', 1000);
+                    }
+                };
+                calendarSubscriptionPublisher.syncEventBus = eventBus;
+                eventBus.on('sync-end', calendarSubscriptionPublisher.syncHandler);
+            }
+        } catch (e) {}
+        armCalendarSubscriptionDailyTimer();
+        calendarSubscriptionPublisher.startupTimer = setTimeout(() => {
+            calendarSubscriptionPublisher.startupTimer = null;
+            releaseCalendarSubscriptionStartup('startup-fallback', 0);
+        }, 20000);
+    }
+
+    function unbindCalendarSubscriptionPublisher() {
+        calendarSubscriptionPublisher.bound = false;
+        calendarSubscriptionPublisher.startupPending = false;
+        calendarSubscriptionPublisher.lifecycleToken += 1;
+        calendarSubscriptionPublisher.queued = false;
+        calendarSubscriptionPublisher.queuedForce = false;
+        calendarSubscriptionPublisher.queuedInteractive = false;
+        if (calendarSubscriptionPublisher.debounceTimer) clearTimeout(calendarSubscriptionPublisher.debounceTimer);
+        if (calendarSubscriptionPublisher.startupTimer) clearTimeout(calendarSubscriptionPublisher.startupTimer);
+        if (calendarSubscriptionPublisher.dailyTimer) clearTimeout(calendarSubscriptionPublisher.dailyTimer);
+        calendarSubscriptionPublisher.debounceTimer = null;
+        calendarSubscriptionPublisher.startupTimer = null;
+        calendarSubscriptionPublisher.dailyTimer = null;
+        if (calendarSubscriptionPublisher.scheduleUpdatedListener) {
+            window.removeEventListener('tm:calendar-schedule-updated', calendarSubscriptionPublisher.scheduleUpdatedListener);
+            calendarSubscriptionPublisher.scheduleUpdatedListener = null;
+        }
+        if (calendarSubscriptionPublisher.tomatoUpdatedListener) {
+            window.removeEventListener('tomato-reminder-updated', calendarSubscriptionPublisher.tomatoUpdatedListener);
+            calendarSubscriptionPublisher.tomatoUpdatedListener = null;
+        }
+        if (calendarSubscriptionPublisher.taskAttrUpdatedListener) {
+            window.removeEventListener('tm-task-attr-updated', calendarSubscriptionPublisher.taskAttrUpdatedListener);
+            calendarSubscriptionPublisher.taskAttrUpdatedListener = null;
+        }
+        if (calendarSubscriptionPublisher.syncHandler) {
+            try { calendarSubscriptionPublisher.syncEventBus?.off?.('sync-end', calendarSubscriptionPublisher.syncHandler); } catch (e) {}
+            calendarSubscriptionPublisher.syncHandler = null;
+            calendarSubscriptionPublisher.syncEventBus = null;
+        }
+    }
+
+    function reconcileCalendarSubscriptionPublisher(options = {}) {
+        const settings = getSettings();
+        const shouldBind = settings.icsEnabled === true
+            && settings.icsPublishMode === 'auto';
+        if (shouldBind) bindCalendarSubscriptionPublisher();
+        else unbindCalendarSubscriptionPublisher();
+        updateCalendarSubscriptionUi();
+        if (shouldBind && options.publish === true) markCalendarSubscriptionDirty(options.reason || 'settings', 0);
+        return shouldBind;
+    }
+
+    const calendarSubscriptionApi = Object.freeze({
+        version: 1,
+        publishNow: publishCalendarSubscriptionNow,
+        reconcile: reconcileCalendarSubscriptionPublisher,
+        markDirty: markCalendarSubscriptionDirty,
+        isRunning: () => calendarSubscriptionPublisher.running,
+        getStatus: () => ({ ...loadCalendarSubscriptionRuntimeStatus() }),
+    });
+    globalThis.__tmCalendarSubscription = calendarSubscriptionApi;
+
     function renderSettings(containerEl, settingsStore) {
         if (!containerEl || !(containerEl instanceof Element)) return false;
         state.settingsStore = settingsStore || state.settingsStore || null;
@@ -24248,17 +25100,62 @@
         const visibleRange = getCalendarVisibleSlotRange(s);
         const visibleStartOptions = buildCalendarVisibleTimeOptions(visibleRange.start, false);
         const visibleEndOptions = buildCalendarVisibleTimeOptions(visibleRange.end, true);
+        calendarSubscriptionPublisher.settingsContainer = containerEl;
+        const icsStatus = loadCalendarSubscriptionRuntimeStatus();
+        const icsPassword = (() => {
+            try { return String(localStorage.getItem(CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY) || ''); } catch (e) { return ''; }
+        })();
+        const icsProviderRows = s.icsProvider === 'chain' ? `
+                <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
+                    <div class="tm-calendar-settings-label">
+                        链滴公开订阅
+                        <div class="tm-calendar-settings-label-desc">任务标题和时间会通过公开 URL 提供。上传前会检查登录与订阅资格，并回读校验文件。</div>
+                    </div>
+                    <div class="tm-calendar-ics-inline-status">${s.icsChainPublicConfirmed ? '已确认公开发布' : '启用时需要确认'}</div>
+                </div>
+        ` : `
+                <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
+                    <div class="tm-calendar-settings-label">
+                        WebDAV 目录 URL
+                        <div class="tm-calendar-settings-label-desc">填写用于存放固定文件 task-horizon.ics 的目录地址。</div>
+                    </div>
+                    <input id="tm-calendar-ics-webdav-url" class="tm-calendar-settings-input" type="url" aria-label="WebDAV 目录 URL" data-tm-cal-setting="calendarIcsWebdavUrl" value="${esc(s.icsWebdavUrl)}" placeholder="https://dav.example.com/calendar/task-ics/">
+                </div>
+                <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-label">
+                        WebDAV 用户名
+                        <div class="tm-calendar-settings-label-desc">用于访问 WebDAV 目录，会随日历设置同步。</div>
+                    </div>
+                    <input id="tm-calendar-ics-webdav-user" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="WebDAV 用户名" autocomplete="username" data-tm-cal-setting="calendarIcsWebdavUsername" value="${esc(s.icsWebdavUsername)}">
+                </div>
+                <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-label">
+                        WebDAV 密码
+                        <div class="tm-calendar-settings-label-desc">仅保存在当前设备，不随插件设置同步或导出。</div>
+                    </div>
+                    <input id="tm-calendar-ics-webdav-password" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="password" aria-label="WebDAV 密码" autocomplete="current-password" data-tm-cal-local-setting="webdav-password" value="${esc(icsPassword)}">
+                </div>
+        `;
         const tomatoRows = s.linkDockTomato ? `
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">月视图隐藏番茄钟</div>
+                    <div class="tm-calendar-settings-label">
+                        月视图隐藏番茄钟
+                        <div class="tm-calendar-settings-label-desc">月视图不展开专注、休息与闲置记录，其他视图不受影响。</div>
+                    </div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarMonthAggregate" ${s.monthAggregate ? 'checked' : ''}>
                 </div>
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">显示休息记录</div>
+                    <div class="tm-calendar-settings-label">
+                        显示休息记录
+                        <div class="tm-calendar-settings-label-desc">在日历中显示底栏番茄钟记录的休息时段。</div>
+                    </div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowBreak" ${s.showBreak ? 'checked' : ''}>
                 </div>
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">显示闲置记录</div>
+                    <div class="tm-calendar-settings-label">
+                        显示闲置记录
+                        <div class="tm-calendar-settings-label-desc">在日历中显示底栏番茄钟记录的闲置时段。</div>
+                    </div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowIdle" ${s.showIdle ? 'checked' : ''}>
                 </div>
         ` : '';
@@ -24266,190 +25163,386 @@
         const mobileInitialViewOptions = renderMainCalendarViewOptionHtml(s.initialViewMobile || 'timeGridDay');
         containerEl.innerHTML = `
             <div class="tm-calendar-settings">
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">
-                        任务日期跟随日程
-                        <div class="tm-calendar-settings-label-desc">关联日程变动后同步任务日期：单日只改截止，多日按最早/最晚。</div>
+                <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-general" data-tm-settings-search-key="${encodeURIComponent('calendar||日历')}" data-tm-settings-search-tab="calendar" data-tm-settings-search-title="日历" data-tm-settings-search-desc="日历视图与日程相关设置">
+                    <div class="tm-settings-section-title">🗓️ 基础视图</div>
+                    <div class="tm-settings-section-desc">控制日历入口，以及桌面端、移动端和 Dock 首次进入时的默认视图。</div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            启用日历视图
+                            <div class="tm-calendar-settings-label-desc">控制任务管理器是否提供日历视图入口，关闭不会删除已有日程。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarEnabled" ${s.enabled ? 'checked' : ''}>
                     </div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleDatesFollowSchedule" ${s.scheduleDatesFollowSchedule ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">启用日历视图</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarEnabled" ${s.enabled ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">联通底栏番茄钟</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarLinkDockTomato" ${s.linkDockTomato ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">桌面端默认视图</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarInitialViewDesktop">${desktopInitialViewOptions}</select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">移动端/Dock侧边栏默认视图</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarInitialViewMobile">${mobileInitialViewOptions}</select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">日历起始日</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarFirstDay">
-                        <option value="1" ${Number(s.firstDay) === 1 ? 'selected' : ''}>周一</option>
-                        <option value="0" ${Number(s.firstDay) === 0 ? 'selected' : ''}>周日</option>
-                    </select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">3日视图今天位置</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendar3DayTodayPosition">
-                        <option value="1" ${Number(s.threeDayTodayPosition) === 1 ? 'selected' : ''}>第1日</option>
-                        <option value="2" ${Number(s.threeDayTodayPosition) === 2 ? 'selected' : ''}>第2日</option>
-                        <option value="3" ${Number(s.threeDayTodayPosition) === 3 ? 'selected' : ''}>第3日</option>
-                    </select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">默认折叠桌面端日历左侧侧边栏</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarSidebarCollapsedDesktopDefault" ${s.collapseDesktopSidebarDefault ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">侧边栏默认打开区域</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarSidebarDefaultPage">
-                        <option value="calendar" ${s.defaultSidebarPage === 'calendar' ? 'selected' : ''}>日历区域</option>
-                        <option value="tasks" ${s.defaultSidebarPage === 'tasks' ? 'selected' : ''}>任务区域</option>
-                    </select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">显示起始时间</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarVisibleStartTime">${visibleStartOptions}</select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">显示结束时间</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarVisibleEndTime">${visibleEndOptions}</select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">每小时格子高度</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarHourSlotHeightMode">
-                        <option value="normal" ${s.hourSlotHeightMode === 'normal' ? 'selected' : ''}>标准</option>
-                        <option value="high" ${s.hourSlotHeightMode === 'high' ? 'selected' : ''}>高（+10px）</option>
-                        <option value="higher" ${s.hourSlotHeightMode === 'higher' ? 'selected' : ''}>更高（+20px）</option>
-                        <option value="ultra" ${s.hourSlotHeightMode === 'ultra' ? 'selected' : ''}>超高（+30px）</option>
-                    </select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">月视图自适应行高</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarMonthAdaptiveRowHeight" ${s.monthAdaptiveRowHeight !== false ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row" style="${monthMinVisibleEventsDisabled ? 'opacity:0.55;' : ''}">
-                    <div class="tm-calendar-settings-label">月视图最少展示日程</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarMonthMinVisibleEvents" ${monthMinVisibleEventsDisabled ? 'disabled' : ''}>
-                        <option value="1" ${Number(s.monthMinVisibleEvents) === 1 ? 'selected' : ''}>1 条</option>
-                        <option value="2" ${Number(s.monthMinVisibleEvents) === 2 ? 'selected' : ''}>2 条</option>
-                        <option value="3" ${Number(s.monthMinVisibleEvents) === 3 ? 'selected' : ''}>3 条</option>
-                        <option value="4" ${Number(s.monthMinVisibleEvents) === 4 ? 'selected' : ''}>4 条</option>
-                        <option value="5" ${Number(s.monthMinVisibleEvents) === 5 ? 'selected' : ''}>5 条</option>
-                        <option value="6" ${Number(s.monthMinVisibleEvents) === 6 ? 'selected' : ''}>6 条</option>
-                        <option value="7" ${Number(s.monthMinVisibleEvents) === 7 ? 'selected' : ''}>7 条</option>
-                        <option value="8" ${Number(s.monthMinVisibleEvents) === 8 ? 'selected' : ''}>8 条</option>
-                    </select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">日程默认最大新建时长</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarNewScheduleMaxDurationMin">
-                        <option value="60" ${Number(s.newScheduleMaxDurationMin) === 60 ? 'selected' : ''}>1 小时</option>
-                        <option value="120" ${Number(s.newScheduleMaxDurationMin) === 120 ? 'selected' : ''}>2 小时</option>
-                        <option value="180" ${Number(s.newScheduleMaxDurationMin) === 180 ? 'selected' : ''}>3 小时</option>
-                        <option value="240" ${Number(s.newScheduleMaxDurationMin) === 240 ? 'selected' : ''}>4 小时</option>
-                    </select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">文档中块菜单添加至今天日程的默认时间</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarQuickAddScheduleTimeMode">
-                        <option value="current" ${s.quickAddScheduleTimeMode === 'current' ? 'selected' : ''}>当前时间</option>
-                        <option value="nextHour" ${s.quickAddScheduleTimeMode === 'nextHour' ? 'selected' : ''}>下一个整点</option>
-                        <option value="custom" ${s.quickAddScheduleTimeMode === 'custom' ? 'selected' : ''}>自定义时间</option>
-                    </select>
-                </div>
-                <div class="tm-calendar-settings-row" style="${s.quickAddScheduleTimeMode === 'custom' ? '' : 'opacity:0.55;pointer-events:none;'}">
-                    <div class="tm-calendar-settings-label">自定义添加时间</div>
-                    <input class="tm-calendar-settings-select" style="height:34px;" type="time" data-tm-cal-setting="calendarQuickAddScheduleCustomTime" value="${esc(String(s.quickAddScheduleCustomTime || '09:00'))}" ${s.quickAddScheduleTimeMode === 'custom' ? '' : 'disabled'}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">显示农历</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowLunar" ${s.showLunar ? 'checked' : ''}>
-                </div>
-                ${tomatoRows}
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">显示任务提醒</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskReminders" ${s.showTaskReminders ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">显示跨天任务</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskDates" ${s.showTaskDates ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">显示已完成全天日程</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowCompletedAllDaySchedules" ${s.showCompletedAllDaySchedules !== false ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">全天区隐藏已安排任务</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarHideScheduledTaskDatesInAllDay" ${s.hideScheduledTaskDatesInAllDay ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">其他块显示复选框</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowOtherBlockCheckbox" ${s.showOtherBlockCheckbox ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">日程提醒</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderEnabled" ${s.scheduleReminderEnabled ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                    <div class="tm-calendar-settings-label">日程默认提醒</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarScheduleReminderDefaultMode">
-                        <option value="off" ${String(s.scheduleReminderDefaultMode) === 'off' ? 'selected' : ''}>关闭</option>
-                        <option value="0" ${String(s.scheduleReminderDefaultMode) === '0' ? 'selected' : ''}>准时提醒</option>
-                        <option value="5" ${String(s.scheduleReminderDefaultMode) === '5' ? 'selected' : ''}>5 分钟前</option>
-                        <option value="10" ${String(s.scheduleReminderDefaultMode) === '10' ? 'selected' : ''}>10 分钟前</option>
-                        <option value="15" ${String(s.scheduleReminderDefaultMode) === '15' ? 'selected' : ''}>15 分钟前</option>
-                        <option value="30" ${String(s.scheduleReminderDefaultMode) === '30' ? 'selected' : ''}>30 分钟前</option>
-                        <option value="60" ${String(s.scheduleReminderDefaultMode) === '60' ? 'selected' : ''}>1 小时前</option>
-                    </select>
-                </div>
-                <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                    <div class="tm-calendar-settings-label">系统弹窗提醒</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderSystemEnabled" ${s.scheduleReminderSystemEnabled ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                    <div class="tm-calendar-settings-label" title="标题和时间将以明文发送到思源云端">微信提醒</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderWechatEnabled" ${s.scheduleReminderWechatEnabled ? 'checked' : ''} ${Number(globalThis?.siyuan?.config?.cloudRegion) === 0 ? '' : 'disabled'}>
-                </div>
-                <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                    <div class="tm-calendar-settings-label">全天事件提醒</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarAllDayReminderEnabled" ${s.allDayReminderEnabled ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                    <div class="tm-calendar-settings-label">跨天事项全天提醒</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarTaskDateAllDayReminderEnabled" ${s.taskDateAllDayReminderEnabled ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                    <div class="tm-calendar-settings-label">全天汇总包含番茄/节日</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarAllDaySummaryIncludeExtras" ${s.allDaySummaryIncludeExtras ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row" style="${(s.scheduleReminderEnabled && (s.allDayReminderEnabled || s.taskDateAllDayReminderEnabled)) ? '' : 'opacity:0.55;pointer-events:none;'}">
-                    <div class="tm-calendar-settings-label">全天提醒时间</div>
-                    <input class="tm-calendar-settings-select" style="height:34px;" type="time" data-tm-cal-setting="calendarAllDayReminderTime" value="${esc(String(s.allDayReminderTime || '09:00'))}">
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">跨天任务颜色</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarTaskDateColorMode">
-                        <option value="group" ${s.taskDateColorMode === 'group' ? 'selected' : ''}>跟随文档分组</option>
-                        <option value="gray" ${s.taskDateColorMode === 'gray' ? 'selected' : ''}>统一灰色</option>
-                    </select>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">日程跟随文档颜色</div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleFollowDocColor" ${s.scheduleFollowDocColor ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-hint">
-                    保存按钮会将上述设置写入任务管理器配置。日历编辑需要底栏番茄钟插件提供历史编辑接口。
-                    <br>例如将显示起始时间设为 06:00，即可隐藏 00:00-06:00。
-                </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            桌面端默认视图
+                            <div class="tm-calendar-settings-label-desc">桌面端首次进入日历时打开的视图。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarInitialViewDesktop">${desktopInitialViewOptions}</select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            移动端/Dock侧边栏默认视图
+                            <div class="tm-calendar-settings-label-desc">移动端或 Dock 侧边栏首次进入日历时打开的视图。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarInitialViewMobile">${mobileInitialViewOptions}</select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            日历起始日
+                            <div class="tm-calendar-settings-label-desc">决定周视图和迷你日历每周从哪一天开始。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarFirstDay">
+                            <option value="1" ${Number(s.firstDay) === 1 ? 'selected' : ''}>周一</option>
+                            <option value="0" ${Number(s.firstDay) === 0 ? 'selected' : ''}>周日</option>
+                        </select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            3日视图今天位置
+                            <div class="tm-calendar-settings-label-desc">控制今天在连续 3 日视图中的列位置。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendar3DayTodayPosition">
+                            <option value="1" ${Number(s.threeDayTodayPosition) === 1 ? 'selected' : ''}>第1日</option>
+                            <option value="2" ${Number(s.threeDayTodayPosition) === 2 ? 'selected' : ''}>第2日</option>
+                            <option value="3" ${Number(s.threeDayTodayPosition) === 3 ? 'selected' : ''}>第3日</option>
+                        </select>
+                    </div>
+                </section>
+
+                <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-layout">
+                    <div class="tm-settings-section-title">🪟 视图布局</div>
+                    <div class="tm-settings-section-desc">调整侧边栏、可见时间范围，以及时间格和月视图的显示密度。</div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            默认折叠桌面端日历左侧侧边栏
+                            <div class="tm-calendar-settings-label-desc">桌面端首次进入日历时默认收起左侧侧边栏。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarSidebarCollapsedDesktopDefault" ${s.collapseDesktopSidebarDefault ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            侧边栏默认打开区域
+                            <div class="tm-calendar-settings-label-desc">展开侧边栏时优先显示迷你日历或待安排任务。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarSidebarDefaultPage">
+                            <option value="calendar" ${s.defaultSidebarPage === 'calendar' ? 'selected' : ''}>日历区域</option>
+                            <option value="tasks" ${s.defaultSidebarPage === 'tasks' ? 'selected' : ''}>任务区域</option>
+                        </select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            显示起始时间
+                            <div class="tm-calendar-settings-label-desc">设为 06:00 后，日历不显示 00:00-06:00 时段。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarVisibleStartTime">${visibleStartOptions}</select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            显示结束时间
+                            <div class="tm-calendar-settings-label-desc">设为 22:00 后，日历不显示 22:00 之后的时段。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarVisibleEndTime">${visibleEndOptions}</select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            每小时格子高度
+                            <div class="tm-calendar-settings-label-desc">调整日、周和 3 日视图的纵向时间刻度密度。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarHourSlotHeightMode">
+                            <option value="normal" ${s.hourSlotHeightMode === 'normal' ? 'selected' : ''}>标准</option>
+                            <option value="high" ${s.hourSlotHeightMode === 'high' ? 'selected' : ''}>高（+10px）</option>
+                            <option value="higher" ${s.hourSlotHeightMode === 'higher' ? 'selected' : ''}>更高（+20px）</option>
+                            <option value="ultra" ${s.hourSlotHeightMode === 'ultra' ? 'selected' : ''}>超高（+30px）</option>
+                        </select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            月视图自适应行高
+                            <div class="tm-calendar-settings-label-desc">根据窗口高度自动分配周行高度，开启时忽略下方的最少日程数量。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarMonthAdaptiveRowHeight" ${s.monthAdaptiveRowHeight !== false ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row" style="${monthMinVisibleEventsDisabled ? 'opacity:0.55;' : ''}">
+                        <div class="tm-calendar-settings-label">
+                            月视图最少展示日程
+                            <div class="tm-calendar-settings-label-desc">关闭自适应行高后，每个日期至少直接展示的日程条数。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarMonthMinVisibleEvents" ${monthMinVisibleEventsDisabled ? 'disabled' : ''}>
+                            <option value="1" ${Number(s.monthMinVisibleEvents) === 1 ? 'selected' : ''}>1 条</option>
+                            <option value="2" ${Number(s.monthMinVisibleEvents) === 2 ? 'selected' : ''}>2 条</option>
+                            <option value="3" ${Number(s.monthMinVisibleEvents) === 3 ? 'selected' : ''}>3 条</option>
+                            <option value="4" ${Number(s.monthMinVisibleEvents) === 4 ? 'selected' : ''}>4 条</option>
+                            <option value="5" ${Number(s.monthMinVisibleEvents) === 5 ? 'selected' : ''}>5 条</option>
+                            <option value="6" ${Number(s.monthMinVisibleEvents) === 6 ? 'selected' : ''}>6 条</option>
+                            <option value="7" ${Number(s.monthMinVisibleEvents) === 7 ? 'selected' : ''}>7 条</option>
+                            <option value="8" ${Number(s.monthMinVisibleEvents) === 8 ? 'selected' : ''}>8 条</option>
+                        </select>
+                    </div>
+                </section>
+
+                <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-content">
+                    <div class="tm-settings-section-title">📆 日程与显示</div>
+                    <div class="tm-settings-section-desc">控制日程创建、任务日期联动，以及日历中各类内容和颜色的显示。</div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            任务日期跟随日程
+                            <div class="tm-calendar-settings-label-desc">关联日程变动后同步任务日期：单日只改截止，多日按最早和最晚时间更新。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleDatesFollowSchedule" ${s.scheduleDatesFollowSchedule ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            联通底栏番茄钟
+                            <div class="tm-calendar-settings-label-desc">读取底栏番茄钟的专注、休息、闲置和任务提醒记录。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarLinkDockTomato" ${s.linkDockTomato ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            日程默认最大新建时长
+                            <div class="tm-calendar-settings-label-desc">限制拖入任务或时间格新建日程时的默认最长时长，避免意外跨天。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarNewScheduleMaxDurationMin">
+                            <option value="60" ${Number(s.newScheduleMaxDurationMin) === 60 ? 'selected' : ''}>1 小时</option>
+                            <option value="120" ${Number(s.newScheduleMaxDurationMin) === 120 ? 'selected' : ''}>2 小时</option>
+                            <option value="180" ${Number(s.newScheduleMaxDurationMin) === 180 ? 'selected' : ''}>3 小时</option>
+                            <option value="240" ${Number(s.newScheduleMaxDurationMin) === 240 ? 'selected' : ''}>4 小时</option>
+                        </select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            文档中块菜单添加至今天日程的默认时间
+                            <div class="tm-calendar-settings-label-desc">决定文档块菜单“添加至今天日程”使用的开始时间。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarQuickAddScheduleTimeMode">
+                            <option value="current" ${s.quickAddScheduleTimeMode === 'current' ? 'selected' : ''}>当前时间</option>
+                            <option value="nextHour" ${s.quickAddScheduleTimeMode === 'nextHour' ? 'selected' : ''}>下一个整点</option>
+                            <option value="custom" ${s.quickAddScheduleTimeMode === 'custom' ? 'selected' : ''}>自定义时间</option>
+                        </select>
+                    </div>
+                    <div class="tm-calendar-settings-row" style="${s.quickAddScheduleTimeMode === 'custom' ? '' : 'opacity:0.55;pointer-events:none;'}">
+                        <div class="tm-calendar-settings-label">
+                            自定义添加时间
+                            <div class="tm-calendar-settings-label-desc">仅在上方选择“自定义时间”时生效。</div>
+                        </div>
+                        <input class="tm-calendar-settings-select" style="height:34px;" type="time" data-tm-cal-setting="calendarQuickAddScheduleCustomTime" value="${esc(String(s.quickAddScheduleCustomTime || '09:00'))}" ${s.quickAddScheduleTimeMode === 'custom' ? '' : 'disabled'}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            显示农历
+                            <div class="tm-calendar-settings-label-desc">在日期标题旁显示农历、节气和传统节日信息。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowLunar" ${s.showLunar ? 'checked' : ''}>
+                    </div>
+                    ${tomatoRows}
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            显示任务提醒
+                            <div class="tm-calendar-settings-label-desc">显示底栏番茄钟创建的任务提醒，需先联通底栏番茄钟。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskReminders" ${s.showTaskReminders ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            显示跨天任务
+                            <div class="tm-calendar-settings-label-desc">将带开始或截止日期的任务显示在日历全天区域。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskDates" ${s.showTaskDates ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            显示已完成全天日程
+                            <div class="tm-calendar-settings-label-desc">保留已完成的全天日程，关闭后从全天区域隐藏。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowCompletedAllDaySchedules" ${s.showCompletedAllDaySchedules !== false ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            全天区隐藏已安排任务
+                            <div class="tm-calendar-settings-label-desc">日、周等视图中，已安排具体时段的任务不再重复显示在全天区域。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarHideScheduledTaskDatesInAllDay" ${s.hideScheduledTaskDatesInAllDay ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            其他块显示复选框
+                            <div class="tm-calendar-settings-label-desc">在非任务块创建的日程上显示完成复选框。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowOtherBlockCheckbox" ${s.showOtherBlockCheckbox ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            跨天任务颜色
+                            <div class="tm-calendar-settings-label-desc">设置任务日期事件跟随文档分组颜色，或统一使用灰色。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarTaskDateColorMode">
+                            <option value="group" ${s.taskDateColorMode === 'group' ? 'selected' : ''}>跟随文档分组</option>
+                            <option value="gray" ${s.taskDateColorMode === 'gray' ? 'selected' : ''}>统一灰色</option>
+                        </select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            日程跟随文档颜色
+                            <div class="tm-calendar-settings-label-desc">已关联文档的日程优先使用该文档在侧边栏中的颜色。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleFollowDocColor" ${s.scheduleFollowDocColor ? 'checked' : ''}>
+                    </div>
+                </section>
+
+                <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-reminders">
+                    <div class="tm-settings-section-title">🔔 提醒通知</div>
+                    <div class="tm-settings-section-desc">设置日程的默认提醒提前量、通知渠道，以及全天事项的汇总提醒。</div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            日程提醒
+                            <div class="tm-calendar-settings-label-desc">启用任务管理器的日程通知，关闭后以下提醒方式均不执行。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderEnabled" ${s.scheduleReminderEnabled ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
+                        <div class="tm-calendar-settings-label">
+                            日程默认提醒
+                            <div class="tm-calendar-settings-label-desc">新建日程未单独设置提醒时使用的默认提前量。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarScheduleReminderDefaultMode">
+                            <option value="off" ${String(s.scheduleReminderDefaultMode) === 'off' ? 'selected' : ''}>关闭</option>
+                            <option value="0" ${String(s.scheduleReminderDefaultMode) === '0' ? 'selected' : ''}>准时提醒</option>
+                            <option value="5" ${String(s.scheduleReminderDefaultMode) === '5' ? 'selected' : ''}>5 分钟前</option>
+                            <option value="10" ${String(s.scheduleReminderDefaultMode) === '10' ? 'selected' : ''}>10 分钟前</option>
+                            <option value="15" ${String(s.scheduleReminderDefaultMode) === '15' ? 'selected' : ''}>15 分钟前</option>
+                            <option value="30" ${String(s.scheduleReminderDefaultMode) === '30' ? 'selected' : ''}>30 分钟前</option>
+                            <option value="60" ${String(s.scheduleReminderDefaultMode) === '60' ? 'selected' : ''}>1 小时前</option>
+                        </select>
+                    </div>
+                    <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
+                        <div class="tm-calendar-settings-label">
+                            系统弹窗提醒
+                            <div class="tm-calendar-settings-label-desc">到点后通过当前设备的系统通知显示提醒。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderSystemEnabled" ${s.scheduleReminderSystemEnabled ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
+                        <div class="tm-calendar-settings-label" title="标题和时间将以明文发送到思源云端">
+                            微信提醒
+                            <div class="tm-calendar-settings-label-desc">通过思源云端发送，标题和时间会以明文传输；仅中国区云服务可用。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderWechatEnabled" ${s.scheduleReminderWechatEnabled ? 'checked' : ''} ${Number(globalThis?.siyuan?.config?.cloudRegion) === 0 ? '' : 'disabled'}>
+                    </div>
+                    <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
+                        <div class="tm-calendar-settings-label">
+                            全天事件提醒
+                            <div class="tm-calendar-settings-label-desc">为全天日程在指定时间生成汇总提醒。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarAllDayReminderEnabled" ${s.allDayReminderEnabled ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
+                        <div class="tm-calendar-settings-label">
+                            跨天事项全天提醒
+                            <div class="tm-calendar-settings-label-desc">为任务日期事项在指定时间生成全天提醒。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarTaskDateAllDayReminderEnabled" ${s.taskDateAllDayReminderEnabled ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
+                        <div class="tm-calendar-settings-label">
+                            全天汇总包含番茄/节日
+                            <div class="tm-calendar-settings-label-desc">在全天提醒汇总中一并包含番茄记录和节假日。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarAllDaySummaryIncludeExtras" ${s.allDaySummaryIncludeExtras ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row" style="${(s.scheduleReminderEnabled && (s.allDayReminderEnabled || s.taskDateAllDayReminderEnabled)) ? '' : 'opacity:0.55;pointer-events:none;'}">
+                        <div class="tm-calendar-settings-label">
+                            全天提醒时间
+                            <div class="tm-calendar-settings-label-desc">全天日程和任务日期事项统一触发提醒的时间。</div>
+                        </div>
+                        <input class="tm-calendar-settings-select" style="height:34px;" type="time" data-tm-cal-setting="calendarAllDayReminderTime" value="${esc(String(s.allDayReminderTime || '09:00'))}">
+                    </div>
+                </section>
+
+                <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-subscription">
+                    <div class="tm-calendar-settings-section-title">日历 ICS 上传</div>
+                    <div class="tm-settings-section-desc">生成可供系统日历和第三方日历应用订阅的 ICS 快照，并发布到链滴或 WebDAV。</div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            启用 ICS 上传
+                            <div class="tm-calendar-settings-label-desc">各设备均可发布过去 30 天至未来 400 天的完整日历快照。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsEnabled" ${s.icsEnabled ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            提供方
+                            <div class="tm-calendar-settings-label-desc">选择链滴公开地址，或使用自有 WebDAV 目录保存 ICS 文件。</div>
+                        </div>
+                        <select id="tm-calendar-ics-provider" class="tm-calendar-settings-select" aria-label="提供方" data-tm-cal-setting="calendarIcsProvider">
+                            <option value="webdav" ${s.icsProvider === 'webdav' ? 'selected' : ''}>WebDAV</option>
+                            <option value="chain" ${s.icsProvider === 'chain' ? 'selected' : ''}>链滴</option>
+                        </select>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            日历名称
+                            <div class="tm-calendar-settings-label-desc">订阅到其他日历应用后显示的日历名称。</div>
+                        </div>
+                        <input id="tm-calendar-ics-name" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="日历名称" maxlength="120" data-tm-cal-setting="calendarIcsCalendarName" value="${esc(s.icsCalendarName)}">
+                    </div>
+                    ${icsProviderRows}
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            发布方式
+                            <div class="tm-calendar-settings-label-desc">${s.icsPublishMode === 'manual'
+                                ? '仅在设置页或顶栏点击“立即更新”时生成并上传。'
+                                : '日程、提醒或相关设置变更后 30 秒更新；启动、同步完成和每日跨日会补偿检查，内容未变化时不重复上传。失败会保留上次成功文件，等待下次触发或手动重试。'}</div>
+                        </div>
+                        <div class="tm-calendar-ics-publish-mode" role="radiogroup" aria-label="发布方式">
+                            <label>
+                                <input type="radio" name="tm-calendar-ics-publish-mode" value="auto" data-tm-cal-setting="calendarIcsPublishMode" ${s.icsPublishMode === 'auto' ? 'checked' : ''}>
+                                <span>自动更新</span>
+                            </label>
+                            <label>
+                                <input type="radio" name="tm-calendar-ics-publish-mode" value="manual" data-tm-cal-setting="calendarIcsPublishMode" ${s.icsPublishMode === 'manual' ? 'checked' : ''}>
+                                <span>仅手动更新</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
+                        <div class="tm-calendar-settings-label">
+                            数据范围
+                            <div class="tm-calendar-settings-label-desc">展示当前 ICS 快照包含的数据来源。</div>
+                        </div>
+                        <div class="tm-calendar-ics-inline-status" data-tm-ics-source-status>${getCalendarSubscriptionSourceStatusText()}</div>
+                    </div>
+                    <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
+                        <div class="tm-calendar-settings-label">
+                            最近成功
+                            <div class="tm-calendar-settings-label-desc">最后一次通过远端回读校验的发布时间和事件数。</div>
+                        </div>
+                        <div class="tm-calendar-ics-inline-status" data-tm-ics-last-success>${formatCalendarSubscriptionStatusTime(icsStatus.lastSuccessAt)}${icsStatus.lastSuccessAt ? `，${Number(icsStatus.eventCount) || 0} 个事件` : ''}</div>
+                    </div>
+                    <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
+                        <div class="tm-calendar-settings-label">
+                            最近错误
+                            <div class="tm-calendar-settings-label-desc">显示最近一次失败原因；失败时保留上次成功发布的文件。</div>
+                        </div>
+                        <div class="tm-calendar-ics-inline-status ${icsStatus.lastError ? 'tm-calendar-ics-inline-status--error' : ''}" data-tm-ics-last-error>${esc(icsStatus.lastError || '无')}</div>
+                    </div>
+                    <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
+                        <div class="tm-calendar-settings-label">
+                            订阅 URL
+                            <div class="tm-calendar-settings-label-desc">复制到系统日历或第三方日历应用中订阅。</div>
+                        </div>
+                        <div class="tm-calendar-ics-url-row">
+                            <input id="tm-calendar-ics-url" class="tm-calendar-settings-input" type="text" aria-label="订阅 URL" readonly data-tm-ics-subscription-url value="${esc(getCalendarSubscriptionDisplayUrl(s))}">
+                            <button class="b3-tooltips__nw b3-button b3-button--outline tm-calendar-ics-icon-button" type="button" aria-label="复制订阅 URL" data-tm-ics-action="copy" data-position="parentW" title="复制订阅 URL">
+                                <svg aria-hidden="true"><use href="#iconCopy"></use></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="tm-calendar-settings-row tm-calendar-settings-row--actions">
+                        <span></span>
+                        <button class="tm-btn" type="button" data-tm-ics-action="publish" ${(!s.icsEnabled || calendarSubscriptionPublisher.running) ? 'disabled' : ''}>${calendarSubscriptionPublisher.running ? '正在更新' : '立即更新'}</button>
+                    </div>
+                </section>
             </div>
         `;
 
@@ -24460,7 +25553,15 @@
         containerEl.addEventListener('change', async (e) => {
             const el = e.target;
             const key = String(el?.getAttribute?.('data-tm-cal-setting') || '');
+            const localKey = String(el?.getAttribute?.('data-tm-cal-local-setting') || '');
+            if (localKey === 'webdav-password') {
+                try { localStorage.setItem(CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY, String(el?.value || '')); } catch (e2) {}
+                markCalendarSubscriptionDirty('webdav-password');
+                updateCalendarSubscriptionUi();
+                return;
+            }
             if (!key) return;
+            if (el.type === 'radio' && !el.checked) return;
             const store = state.settingsStore;
             if (!store || !store.data) return;
             if (key === 'calendarScheduleReminderWechatEnabled' && el.checked) {
@@ -24469,6 +25570,16 @@
                     el.checked = false;
                     return;
                 }
+            }
+            if ((key === 'calendarIcsEnabled' && el.checked && String(store.data.calendarIcsProvider || 'chain') === 'chain' && store.data.calendarIcsChainPublicConfirmed !== true)
+                || (key === 'calendarIcsProvider' && String(el.value || '') === 'chain' && store.data.calendarIcsEnabled === true && store.data.calendarIcsChainPublicConfirmed !== true)) {
+                const accepted = window.confirm('链滴订阅会让任务标题和时间通过公开 URL 提供。确认继续使用链滴发布吗？');
+                if (!accepted) {
+                    if (key === 'calendarIcsEnabled') el.checked = false;
+                    else el.value = String(store.data.calendarIcsProvider || 'chain');
+                    return;
+                }
+                store.data.calendarIcsChainPublicConfirmed = true;
             }
             if (key === 'calendarFirstDay') {
                 store.data[key] = String(el.value || '').trim() === '0' ? 0 : 1;
@@ -24493,6 +25604,12 @@
                 store.data[key] = normalizeCalendarMonthMinVisibleEvents(el.value);
             } else if (key === 'calendarSidebarDefaultPage') {
                 store.data[key] = normalizeCalendarSidebarDefaultPage(el.value);
+            } else if (key === 'calendarIcsProvider') {
+                store.data[key] = String(el.value || '').trim() === 'chain' ? 'chain' : 'webdav';
+            } else if (key === 'calendarIcsPublishMode') {
+                store.data[key] = String(el.value || '').trim() === 'manual' ? 'manual' : 'auto';
+            } else if (key === 'calendarIcsCalendarName') {
+                store.data[key] = String(el.value || '').trim() || '任务管理器';
             } else if (el.type === 'checkbox') {
                 store.data[key] = !!el.checked;
             } else {
@@ -24519,7 +25636,13 @@
                 }
             } catch (e2) {}
             try {
-                if (key === 'calendarLinkDockTomato') {
+                if (key.startsWith('calendarIcs')) {
+                    reconcileCalendarSubscriptionPublisher({ reason: `settings:${key}` });
+                    if (store.data.calendarIcsEnabled === true) {
+                        markCalendarSubscriptionDirty(`settings:${key}`);
+                    }
+                    try { renderSettings(containerEl, store); } catch (e2) {}
+                } else if (key === 'calendarLinkDockTomato') {
                     try { renderSettings(containerEl, store); } catch (e2) {}
                     try {
                         const root = state.rootEl;
@@ -24571,6 +25694,12 @@
                         ? (store.data.calendarScheduleReminderWechatEnabled ? 'settings-enable' : 'settings-disable')
                         : 'settings';
                     try { scheduleScheduleReminderRefresh(reminderReason); } catch (e2) {}
+                    if (key === 'calendarScheduleReminderEnabled'
+                        || key === 'calendarScheduleReminderDefaultMode'
+                        || key === 'calendarAllDayReminderEnabled'
+                        || key === 'calendarAllDayReminderTime') {
+                        markCalendarSubscriptionDirty(`settings:${key}`);
+                    }
                 } else if (key === 'calendarScheduleDatesFollowSchedule') {
                     // No visual refresh is required; the flag affects subsequent schedule mutations.
                 } else if (key === 'calendarShowOtherBlockCheckbox' || key === 'calendarHideScheduledTaskDatesInAllDay' || key === 'calendarShowCompletedAllDaySchedules' || key === 'calendarShowTaskReminders' || key === 'calendarTaskDateColorMode' || key === 'calendarScheduleFollowDocColor') {
@@ -24609,21 +25738,70 @@
             } catch (e3) {}
         }, { signal: abort.signal });
 
+        containerEl.addEventListener('click', async (event) => {
+            const button = event.target?.closest?.('[data-tm-ics-action]');
+            if (!(button instanceof HTMLButtonElement)) return;
+            const action = String(button.getAttribute('data-tm-ics-action') || '').trim();
+            if (!action) return;
+            event.preventDefault();
+            if (action === 'publish') {
+                await publishCalendarSubscriptionNow({ source: 'settings', force: true, interactive: true });
+                return;
+            }
+            if (action === 'copy') {
+                const value = String(containerEl.querySelector('[data-tm-ics-subscription-url]')?.value || '').trim();
+                if (!value) {
+                    toast('订阅 URL 尚未生成', 'warning');
+                    return;
+                }
+                try {
+                    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+                    else {
+                        const input = containerEl.querySelector('[data-tm-ics-subscription-url]');
+                        input?.select?.();
+                        if (!document.execCommand('copy')) throw new Error('浏览器未允许复制');
+                    }
+                    toast('订阅 URL 已复制', 'success');
+                } catch (error) {
+                    toast('复制订阅 URL 失败', 'error');
+                }
+            }
+        }, { signal: abort.signal });
+
+        reconcileCalendarSubscriptionPublisher({ reason: 'settings-render' });
+
         return true;
     }
 
     function cleanup() {
+        try { __tmCalendarModuleLifecycleAbort.abort(); } catch (e) {}
         unmountSideDayTimeline();
         unmount();
         try { unbindScheduleReminderEngine(); } catch (e) {}
+        try { unbindCalendarSubscriptionPublisher(); } catch (e) {}
+        try { globalThis.__taskHorizonSyncCalendarSubscriptionTopBar?.({ enabled: false, running: false }); } catch (e) {}
+        if (globalThis.__tmCalendarSubscription === calendarSubscriptionApi) {
+            try { delete globalThis.__tmCalendarSubscription; } catch (e) {}
+        }
         state.settingsAbort?.abort();
         state.settingsAbort = null;
+        if (globalThis.__tmCalendarDebugLog === __tmCalendarDebugLog) {
+            try { delete globalThis.__tmCalendarDebugLog; } catch (e) {}
+        }
     }
 
     function setSettingsStore(settingsStore) {
         state.settingsStore = settingsStore || state.settingsStore || null;
+        if (state.settingsStore?.data) {
+            const calendarName = String(state.settingsStore.data.calendarIcsCalendarName || '').trim();
+            if (!calendarName || calendarName === 'Task Horizon') {
+                state.settingsStore.data.calendarIcsCalendarName = '任务管理器';
+                Promise.resolve(flushCalendarSubscriptionSettingsStore(state.settingsStore)).catch(() => {});
+            }
+        }
         try { bindScheduleReminderEngine(); } catch (e) {}
         try { scheduleScheduleReminderRefresh('set-store'); } catch (e) {}
+        try { reconcileCalendarSubscriptionPublisher({ reason: 'set-store' }); } catch (e) {}
         return true;
     }
 
@@ -25294,4 +26472,7 @@
         showCompletionNotification: showScheduleCompletionNotification,
         showSystemNotification: showScheduleSystemNotification,
     };
+    try {
+        if (globalThis.__taskHorizonSettingsStore) setSettingsStore(globalThis.__taskHorizonSettingsStore);
+    } catch (e) {}
 })();

@@ -360,6 +360,8 @@
             const headerEl = opts?.headerEl;
             const bodyEl = opts?.bodyEl;
             const rowModel = Array.isArray(opts?.rowModel) ? opts.rowModel : [];
+            const rangeRowModel = Array.isArray(opts?.rangeRowModel) ? opts.rangeRowModel : rowModel;
+            const appendOnly = opts?.appendOnly === true;
             const getTaskById = typeof opts?.getTaskById === 'function' ? opts.getTaskById : null;
             const onUpdateTaskDates = typeof opts?.onUpdateTaskDates === 'function' ? opts.onUpdateTaskDates : null;
             const onUpdateTaskMeta = typeof opts?.onUpdateTaskMeta === 'function' ? opts.onUpdateTaskMeta : null;
@@ -413,7 +415,9 @@
                 };
             };
 
-            try { cleanupMap.get(bodyEl)?.(); } catch (e) {}
+            if (!appendOnly) {
+                try { cleanupMap.get(bodyEl)?.(); } catch (e) {}
+            }
 
             const viewState = (opts.viewState && typeof opts.viewState === 'object') ? opts.viewState : {};
             const paddingDays = Number.isFinite(Number(viewState.paddingDays)) ? Number(viewState.paddingDays) : 7;
@@ -421,7 +425,7 @@
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
             const tasks = [];
-            for (const r of rowModel) {
+            for (const r of rangeRowModel) {
                 if (r?.type !== 'task') continue;
                 const t = getTaskById(r.id);
                 if (t) tasks.push(t);
@@ -443,12 +447,14 @@
             try { bodyEl.dataset.tmGanttDayCount = String(dayCount); } catch (e) {}
             try { bodyEl.dataset.tmGanttTotalWidth = String(totalWidth); } catch (e) {}
 
-            headerEl.innerHTML = `
-                <div class="tm-gantt-header-inner" style="width:${totalWidth}px">
-                    <div class="tm-gantt-month-row">${buildMonthHeaderHtml(startTs, dayCount, dayWidth)}</div>
-                    <div class="tm-gantt-day-row">${buildDayCellsHtml(startTs, dayCount, dayWidth)}</div>
-                </div>
-            `;
+            if (!appendOnly) {
+                headerEl.innerHTML = `
+                    <div class="tm-gantt-header-inner" style="width:${totalWidth}px">
+                        <div class="tm-gantt-month-row">${buildMonthHeaderHtml(startTs, dayCount, dayWidth)}</div>
+                        <div class="tm-gantt-day-row">${buildDayCellsHtml(startTs, dayCount, dayWidth)}</div>
+                    </div>
+                `;
+            }
 
             const nowTs = Date.now();
             const todayLeftRaw = ((nowTs - startTs) / DAY_MS) * dayWidth;
@@ -628,6 +634,35 @@
                         ${buildDotHtml('out', outLeft)}
                     </div>
                 `);
+            }
+
+            if (appendOnly) {
+                const inner = bodyEl.querySelector('.tm-gantt-body-inner');
+                if (!(inner instanceof HTMLElement)) return;
+                const existingKeys = new Set(Array.from(inner.querySelectorAll('.tm-gantt-row')).map((row) => {
+                    const taskId = String(row.getAttribute('data-id') || '').trim();
+                    if (taskId) return `task:${taskId}`;
+                    const groupKey = String(row.getAttribute('data-group-key') || '').trim();
+                    return groupKey ? `group:${groupKey}` : '';
+                }).filter(Boolean));
+                const staging = document.createElement('div');
+                staging.innerHTML = rowsHtml.join('');
+                Array.from(staging.children).forEach((row) => {
+                    const taskId = String(row?.getAttribute?.('data-id') || '').trim();
+                    const groupKey = String(row?.getAttribute?.('data-group-key') || '').trim();
+                    const key = taskId ? `task:${taskId}` : (groupKey ? `group:${groupKey}` : '');
+                    if (!key || existingKeys.has(key)) return;
+                    existingKeys.add(key);
+                    inner.appendChild(row);
+                });
+                try {
+                    requestAnimationFrame(() => {
+                        try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+                    });
+                } catch (e) {
+                    try { state.__tmTimelineRenderDeps?.(); } catch (e2) {}
+                }
+                return;
             }
 
             bodyEl.innerHTML = `

@@ -732,6 +732,505 @@
         if (__tmShouldShowWindowTopbarIcon()) __tmTopBarTimer = setTimeout(addTopBarIcon, 1000);
     }
 
+    const __tmDocTitleMarkerControllers = new Map();
+    const __tmDocTitleMarkerMembershipCache = new Map();
+    const __tmDocTitleMarkerMembershipInFlight = new Map();
+    const __tmDocTitleMarkerFocusCache = new Map();
+    const __tmDocTitleMarkerFocusInFlight = new Map();
+    const __tmDocTitleMarkerFocusRevisionByDoc = new Map();
+    let __tmDocTitleMarkerScopeRevision = 0;
+    let __tmDocTitleMarkerFocusEpoch = 0;
+    let __tmDocTitleMarkerLoadedHandler = null;
+    let __tmDocTitleMarkerDestroyedHandler = null;
+    let __tmDocTitleMarkerEventBuses = [];
+
+    function __tmResolveDocTitleMarkerContext(input) {
+        const protyleLike = input?.detail?.protyle || input?.protyle || input || null;
+        const protyle = __tmResolveProtyleElement(protyleLike);
+        if (!(protyle instanceof HTMLElement) || !protyle.isConnected) return null;
+        const runtime = protyleLike?.options ? protyleLike : (protyle?.protyle || null);
+        if (runtime?.options?.render?.title === false) return null;
+        if (runtime?.backlinkData || runtime?.options?.backlinkData) return null;
+        const title = protyle.querySelector('.protyle-title');
+        if (!(title instanceof HTMLElement)) return null;
+        const attr = Array.from(title.children || []).find((child) => child?.classList?.contains?.('protyle-attr')) || null;
+        if (!(attr instanceof HTMLElement)) return null;
+        const docId = String(__tmGetDocIdFromProtyle(protyle) || runtime?.block?.rootID || '').trim();
+        if (!__tmIsLikelyBlockId(docId)) return null;
+        return { protyle, runtime, title, attr, docId };
+    }
+
+    function __tmGetDocTitleMarkerMembershipKey(docId) {
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        return `${__tmDocTitleMarkerScopeRevision}:${currentGroupId}:${String(docId || '').trim()}`;
+    }
+
+    function __tmGetDocTitleMarkerFocusSignature() {
+        const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() === 'hours' ? 'hours' : 'minutes';
+        const attrKey = mode === 'hours'
+            ? String(SettingsStore.data.tomatoSpentAttrKeyHours || '').trim()
+            : String(SettingsStore.data.tomatoSpentAttrKeyMinutes || '').trim();
+        return `${mode}:${attrKey}`;
+    }
+
+    function __tmGetDocTitleMarkerFocusRevision(docId) {
+        return Math.max(0, Number(__tmDocTitleMarkerFocusRevisionByDoc.get(String(docId || '').trim()) || 0) || 0);
+    }
+
+    function __tmFormatDocTitleFocusDuration(tasks, mode = 'minutes') {
+        const list = Array.isArray(tasks) ? tasks : [];
+        const useHours = String(mode || '').trim() === 'hours';
+        let total = 0;
+        list.forEach((task) => {
+            const value = useHours ? task?.tomatoHours ?? task?.tomato_hours : task?.tomatoMinutes ?? task?.tomato_minutes;
+            const amount = typeof __tmParseNumber === 'function' ? __tmParseNumber(value) : Number(value);
+            if (Number.isFinite(amount) && amount > 0) total += amount;
+        });
+        if (useHours) return String(__tmFormatSpentHours(total) || '').trim();
+        return String(__tmFormatSpentMinutes(total) || '').trim();
+    }
+
+    function __tmRefreshDocTitleMarkerControllers(docIds = null) {
+        const ids = Array.isArray(docIds)
+            ? new Set(docIds.map((id) => String(id || '').trim()).filter(Boolean))
+            : null;
+        Array.from(__tmDocTitleMarkerControllers.values()).forEach((controller) => {
+            if (!controller) return;
+            if (ids && !ids.has(String(controller.docId || '').trim())) return;
+            __tmScheduleDocTitleMarkerSync(controller);
+        });
+    }
+
+    function __tmMarkDocTitleMarkersDirty(docIds = null, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const ids = Array.isArray(docIds)
+            ? Array.from(new Set(docIds.map((id) => String(id || '').trim()).filter(Boolean)))
+            : null;
+        if (opts.scope === true) {
+            __tmDocTitleMarkerScopeRevision += 1;
+            __tmDocTitleMarkerMembershipCache.clear();
+            __tmDocTitleMarkerMembershipInFlight.clear();
+        }
+        if (opts.tasks === true || opts.duration === true) {
+            if (!ids) {
+                __tmDocTitleMarkerFocusEpoch += 1;
+                __tmDocTitleMarkerFocusCache.clear();
+            } else {
+                ids.forEach((docId) => {
+                    __tmDocTitleMarkerFocusCache.delete(docId);
+                    __tmDocTitleMarkerFocusRevisionByDoc.set(docId, __tmGetDocTitleMarkerFocusRevision(docId) + 1);
+                });
+            }
+        }
+        __tmRefreshDocTitleMarkerControllers(ids);
+    }
+
+    function __tmRemoveDocTitleMarker(controller) {
+        const attr = controller?.attr;
+        if (!(attr instanceof HTMLElement)) return;
+        try {
+            Array.from(attr.children || []).forEach((child) => {
+                if (child?.classList?.contains?.('tm-doc-title-marker')) child.remove();
+            });
+        } catch (e) {}
+        try {
+            attr.classList.remove('tm-doc-title-attr', 'tm-doc-title-attr--plugin-only');
+        } catch (e) {}
+    }
+
+    function __tmRenderDocTitleMarker(controller, target, durationText = '') {
+        const attr = controller?.attr;
+        const title = controller?.title;
+        const docId = String(controller?.docId || '').trim();
+        if (!(attr instanceof HTMLElement) || !(title instanceof HTMLElement) || !docId || !target?.groupId) {
+            __tmRemoveDocTitleMarker(controller);
+            return;
+        }
+        const groupName = String(__tmResolveDocGroupName(target.group) || '').trim() || '未命名分组';
+        const duration = String(durationText || '').trim();
+        const pluginOnly = !title.classList.contains('protyle-wysiwyg--attr');
+        attr.classList.add('tm-doc-title-attr');
+        attr.classList.toggle('tm-doc-title-attr--plugin-only', pluginOnly);
+
+        const markers = Array.from(attr.children || []).filter((child) => child?.classList?.contains?.('tm-doc-title-marker'));
+        let marker = markers.shift() || null;
+        markers.forEach((item) => {
+            try { item.remove(); } catch (e) {}
+        });
+        if (!(marker instanceof HTMLButtonElement)) {
+            marker = document.createElement('button');
+            marker.type = 'button';
+            marker.className = 'tm-doc-title-marker ariaLabel';
+            marker.setAttribute('contenteditable', 'false');
+            marker.innerHTML = '<svg aria-hidden="true"><use href="#iconTaskHorizon" xlink:href="#iconTaskHorizon"></use></svg><span class="tm-doc-title-marker__group"></span><span class="tm-doc-title-marker__separator" aria-hidden="true">·</span><span class="tm-doc-title-marker__duration"></span>';
+            marker.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const markerDocId = String(marker?.dataset?.docId || '').trim();
+                if (!markerDocId) return;
+                try {
+                    void __tmOpenManagerFromDocTopbarEntry({
+                        docId: markerDocId,
+                        requireTasks: false,
+                        forceLocate: true,
+                    });
+                } catch (e) {}
+            });
+        }
+        marker.dataset.docId = docId;
+        const groupEl = marker.querySelector('.tm-doc-title-marker__group');
+        const separatorEl = marker.querySelector('.tm-doc-title-marker__separator');
+        const durationEl = marker.querySelector('.tm-doc-title-marker__duration');
+        if (groupEl) groupEl.textContent = groupName;
+        if (separatorEl) separatorEl.hidden = !duration;
+        if (durationEl) {
+            durationEl.textContent = duration;
+            durationEl.hidden = !duration;
+        }
+        const label = duration
+            ? `任务管理器分组：${groupName}，专注 ${duration}`
+            : `任务管理器分组：${groupName}`;
+        marker.setAttribute('aria-label', label);
+
+        const refcount = Array.from(attr.children || []).find((child) => child?.classList?.contains?.('protyle-attr--refcount')) || null;
+        if (refcount) {
+            if (marker.parentElement !== attr || marker.nextElementSibling !== refcount) attr.insertBefore(marker, refcount);
+        } else if (marker.parentElement !== attr || attr.lastElementChild !== marker) {
+            attr.appendChild(marker);
+        }
+    }
+
+    function __tmRequestDocTitleMarkerMembership(controller) {
+        const docId = String(controller?.docId || '').trim();
+        if (!docId) return;
+        const key = __tmGetDocTitleMarkerMembershipKey(docId);
+        if (__tmDocTitleMarkerMembershipCache.has(key) || __tmDocTitleMarkerMembershipInFlight.has(key)) return;
+        const scopeRevision = __tmDocTitleMarkerScopeRevision;
+        const promise = new Promise((resolve) => {
+            __tmScheduleIdleTask(async () => {
+                try { resolve(await __tmResolveDocTopbarTargetGroup(docId)); } catch (e) { resolve(null); }
+            }, 600);
+        }).then((target) => {
+            if (scopeRevision === __tmDocTitleMarkerScopeRevision) {
+                __tmDocTitleMarkerMembershipCache.set(key, target?.groupId ? target : null);
+            }
+            return target;
+        }).finally(() => {
+            __tmDocTitleMarkerMembershipInFlight.delete(key);
+            __tmRefreshDocTitleMarkerControllers([docId]);
+        });
+        __tmDocTitleMarkerMembershipInFlight.set(key, promise);
+    }
+
+    function __tmRequestDocTitleMarkerFocus(controller) {
+        const docId = String(controller?.docId || '').trim();
+        if (!docId || !SettingsStore.data.enableTomatoIntegration) return;
+        const signature = __tmGetDocTitleMarkerFocusSignature();
+        const revision = __tmGetDocTitleMarkerFocusRevision(docId);
+        const epoch = __tmDocTitleMarkerFocusEpoch;
+        const cached = __tmDocTitleMarkerFocusCache.get(docId);
+        if (cached && cached.signature === signature && cached.revision === revision && cached.epoch === epoch) return;
+        if (__tmDocTitleMarkerFocusInFlight.has(docId)) return;
+        const promise = new Promise((resolve) => {
+            __tmScheduleIdleTask(async () => {
+                try {
+                    const isStale = () => epoch !== __tmDocTitleMarkerFocusEpoch
+                        || revision !== __tmGetDocTitleMarkerFocusRevision(docId)
+                        || signature !== __tmGetDocTitleMarkerFocusSignature();
+                    if (isStale()) {
+                        resolve(null);
+                        return;
+                    }
+                    const hasTasks = await __tmDocHasTaskBlocks(docId);
+                    if (!hasTasks) {
+                        resolve({ text: '', hasTasks: false });
+                        return;
+                    }
+                    if (isStale()) {
+                        resolve(null);
+                        return;
+                    }
+                    const result = await API.getTasksByDocument(docId, __TM_TASK_INDEX_QUERY_LIMIT, {
+                        fullTree: true,
+                        doneOnly: false,
+                        skipParentTaskJoin: true,
+                        skipDocJoin: true,
+                        customFieldIds: [],
+                    });
+                    const tasks = Array.isArray(result?.tasks) ? result.tasks : [];
+                    const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() === 'hours' ? 'hours' : 'minutes';
+                    resolve({
+                        text: tasks.length > 0 ? __tmFormatDocTitleFocusDuration(tasks, mode) : '',
+                        hasTasks: tasks.length > 0,
+                    });
+                } catch (e) {
+                    resolve(null);
+                }
+            }, 900);
+        }).then((result) => {
+            if (result && epoch === __tmDocTitleMarkerFocusEpoch && revision === __tmGetDocTitleMarkerFocusRevision(docId)) {
+                __tmDocTitleMarkerFocusCache.set(docId, {
+                    ...result,
+                    signature,
+                    revision,
+                    epoch,
+                });
+            }
+            return result;
+        }).finally(() => {
+            __tmDocTitleMarkerFocusInFlight.delete(docId);
+            __tmRefreshDocTitleMarkerControllers([docId]);
+        });
+        __tmDocTitleMarkerFocusInFlight.set(docId, promise);
+    }
+
+    function __tmObserveDocTitleMarkerController(controller, context) {
+        const hostChanged = controller.title !== context.title || controller.attr !== context.attr;
+        controller.docId = context.docId;
+        controller.title = context.title;
+        controller.attr = context.attr;
+        if (!hostChanged && controller.observer) return;
+        try { controller.observer?.disconnect?.(); } catch (e) {}
+        controller.observer = new MutationObserver(() => __tmScheduleDocTitleMarkerSync(controller));
+        controller.observer.observe(controller.attr, { childList: true });
+        controller.observer.observe(controller.title, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    function __tmSyncDocTitleMarkerController(controller) {
+        if (!controller?.protyle?.isConnected) {
+            __tmCleanupDocTitleMarkerController(controller);
+            return;
+        }
+        const context = __tmResolveDocTitleMarkerContext(controller.protyle);
+        if (!context) {
+            __tmRemoveDocTitleMarker(controller);
+            return;
+        }
+        __tmObserveDocTitleMarkerController(controller, context);
+        const membershipKey = __tmGetDocTitleMarkerMembershipKey(context.docId);
+        if (!__tmDocTitleMarkerMembershipCache.has(membershipKey)) {
+            __tmRemoveDocTitleMarker(controller);
+            __tmRequestDocTitleMarkerMembership(controller);
+            return;
+        }
+        const target = __tmDocTitleMarkerMembershipCache.get(membershipKey);
+        if (!target?.groupId) {
+            __tmRemoveDocTitleMarker(controller);
+            return;
+        }
+        const focus = __tmDocTitleMarkerFocusCache.get(context.docId);
+        const focusRevision = __tmGetDocTitleMarkerFocusRevision(context.docId);
+        const focusSignature = __tmGetDocTitleMarkerFocusSignature();
+        const durationText = SettingsStore.data.enableTomatoIntegration
+            && focus?.epoch === __tmDocTitleMarkerFocusEpoch
+            && focus?.revision === focusRevision
+            && focus?.signature === focusSignature
+            ? String(focus.text || '').trim()
+            : '';
+        __tmRenderDocTitleMarker(controller, target, durationText);
+        __tmRequestDocTitleMarkerFocus(controller);
+    }
+
+    function __tmScheduleDocTitleMarkerSync(controller) {
+        if (!controller || controller.raf != null) return;
+        const run = () => {
+            controller.raf = null;
+            try { __tmSyncDocTitleMarkerController(controller); } catch (e) {}
+        };
+        try {
+            controller.raf = requestAnimationFrame(run);
+        } catch (e) {
+            controller.raf = setTimeout(run, 0);
+        }
+    }
+
+    function __tmEnsureDocTitleMarker(input) {
+        const context = __tmResolveDocTitleMarkerContext(input);
+        if (!context) return null;
+        let controller = __tmDocTitleMarkerControllers.get(context.protyle) || null;
+        if (!controller) {
+            controller = {
+                protyle: context.protyle,
+                title: null,
+                attr: null,
+                docId: context.docId,
+                observer: null,
+                raf: null,
+            };
+            __tmDocTitleMarkerControllers.set(context.protyle, controller);
+        }
+        __tmObserveDocTitleMarkerController(controller, context);
+        __tmScheduleDocTitleMarkerSync(controller);
+        return controller;
+    }
+
+    function __tmCleanupDocTitleMarkerController(controller, options = {}) {
+        if (!controller) return;
+        try { controller.observer?.disconnect?.(); } catch (e) {}
+        controller.observer = null;
+        if (controller.raf != null) {
+            try { cancelAnimationFrame(controller.raf); } catch (e) { try { clearTimeout(controller.raf); } catch (e2) {} }
+            controller.raf = null;
+        }
+        if (options.removeMarker !== false) __tmRemoveDocTitleMarker(controller);
+        try { __tmDocTitleMarkerControllers.delete(controller.protyle); } catch (e) {}
+    }
+
+    function __tmDestroyDocTitleMarkers() {
+        const buses = Array.isArray(__tmDocTitleMarkerEventBuses) ? __tmDocTitleMarkerEventBuses : [];
+        buses.forEach((bus) => {
+            if (__tmDocTitleMarkerLoadedHandler) {
+                ['loaded-protyle-static', 'loaded-protyle-dynamic', 'switch-protyle'].forEach((name) => {
+                    try { globalThis.__tmRuntimeEvents?.offEventBus?.(name, __tmDocTitleMarkerLoadedHandler, bus); } catch (e) {}
+                });
+            }
+            if (__tmDocTitleMarkerDestroyedHandler) {
+                try { globalThis.__tmRuntimeEvents?.offEventBus?.('destroy-protyle', __tmDocTitleMarkerDestroyedHandler, bus); } catch (e) {}
+            }
+        });
+        __tmDocTitleMarkerLoadedHandler = null;
+        __tmDocTitleMarkerDestroyedHandler = null;
+        __tmDocTitleMarkerEventBuses = [];
+        Array.from(__tmDocTitleMarkerControllers.values()).forEach((controller) => {
+            __tmCleanupDocTitleMarkerController(controller);
+        });
+        __tmDocTitleMarkerControllers.clear();
+        __tmDocTitleMarkerMembershipCache.clear();
+        __tmDocTitleMarkerMembershipInFlight.clear();
+        __tmDocTitleMarkerFocusCache.clear();
+        __tmDocTitleMarkerFocusInFlight.clear();
+        __tmDocTitleMarkerFocusRevisionByDoc.clear();
+        __tmDocTitleMarkerScopeRevision += 1;
+        __tmDocTitleMarkerFocusEpoch += 1;
+        try {
+            if (globalThis.__tmMarkDocTitleMarkersDirty === __tmMarkDocTitleMarkersDirty) {
+                delete globalThis.__tmMarkDocTitleMarkersDirty;
+            }
+        } catch (e) {}
+    }
+
+    function __tmBindDocTitleMarkers() {
+        __tmDestroyDocTitleMarkers();
+        try { globalThis.__tmMarkDocTitleMarkersDirty = __tmMarkDocTitleMarkersDirty; } catch (e) {}
+        __tmDocTitleMarkerLoadedHandler = (event) => {
+            try { __tmEnsureDocTitleMarker(event); } catch (e) {}
+        };
+        __tmDocTitleMarkerDestroyedHandler = (event) => {
+            try {
+                const protyle = __tmResolveProtyleElement(event?.detail?.protyle || event?.protyle || null);
+                const controller = protyle ? __tmDocTitleMarkerControllers.get(protyle) : null;
+                if (controller) __tmCleanupDocTitleMarkerController(controller);
+            } catch (e) {}
+        };
+        __tmDocTitleMarkerEventBuses = Array.from(new Set(globalThis.__tmHost?.getEventBuses?.() || [globalThis.__tmHost?.getEventBus?.()].filter(Boolean)));
+        __tmDocTitleMarkerEventBuses.forEach((bus) => {
+            ['loaded-protyle-static', 'loaded-protyle-dynamic', 'switch-protyle'].forEach((name) => {
+                try { globalThis.__tmRuntimeEvents?.onEventBus?.(name, __tmDocTitleMarkerLoadedHandler, bus); } catch (e) {}
+            });
+            try { globalThis.__tmRuntimeEvents?.onEventBus?.('destroy-protyle', __tmDocTitleMarkerDestroyedHandler, bus); } catch (e) {}
+        });
+        document.querySelectorAll('.protyle').forEach((protyle) => {
+            try { __tmEnsureDocTitleMarker(protyle); } catch (e) {}
+        });
+    }
+
+    const __TM_DOCK_SIDEBAR_FOLLOW_DELAY_MS = 60;
+    let __tmDockSidebarFollowProtyleHandler = null;
+    let __tmDockSidebarFollowEventBuses = [];
+    let __tmDockSidebarFollowTimer = null;
+    let __tmDockSidebarFollowPendingDocId = '';
+    let __tmDockSidebarFollowRunning = false;
+
+    function __tmCanDockSidebarFollowCurrentDocument() {
+        if (SettingsStore.data.dockSidebarFollowCurrentDocument !== true) return false;
+        if (SettingsStore.data.dockSidebarEnabled === false) return false;
+        const hostInfo = globalThis.__tmRuntimeHost?.getInfo?.() || null;
+        if (!(hostInfo?.isDesktopDockHost ?? __tmIsDesktopDockHost())) return false;
+        if (__tmIsTaskHorizonTabActiveNow()) return false;
+        return __tmIsPluginVisibleNow();
+    }
+
+    function __tmResolveDockSidebarFollowDocId(event) {
+        const runtime = event?.detail?.protyle || event?.protyle || null;
+        const protyle = __tmResolveProtyleElement(runtime);
+        if (!(protyle instanceof HTMLElement) || !protyle.isConnected) return '';
+        if (state.modal instanceof Element && state.modal.contains(protyle)) return '';
+        if (runtime?.backlinkData || runtime?.options?.backlinkData) return '';
+        const activeWindow = globalThis.__tmCompat?.findActiveWindow?.() || null;
+        if (activeWindow instanceof HTMLElement && !activeWindow.contains(protyle)) return '';
+        const docId = String(
+            runtime?.block?.rootID
+            || runtime?.protyle?.block?.rootID
+            || __tmGetDocIdFromProtyle(protyle)
+            || ''
+        ).trim();
+        return __tmIsLikelyBlockId(docId) ? docId : '';
+    }
+
+    function __tmFlushDockSidebarCurrentDocumentFollow() {
+        __tmDockSidebarFollowTimer = null;
+        if (__tmDockSidebarFollowRunning) return;
+        __tmDockSidebarFollowRunning = true;
+        Promise.resolve().then(async () => {
+            while (__tmDockSidebarFollowPendingDocId) {
+                const docId = __tmDockSidebarFollowPendingDocId;
+                __tmDockSidebarFollowPendingDocId = '';
+                if (!__tmCanDockSidebarFollowCurrentDocument()) continue;
+                if (String(state.activeDocId || '').trim() === docId) continue;
+                await window.tmSwitchDoc?.(docId, { fallbackToAll: false });
+            }
+        }).catch(() => null).finally(() => {
+            __tmDockSidebarFollowRunning = false;
+            if (__tmDockSidebarFollowPendingDocId && !__tmDockSidebarFollowTimer) {
+                __tmDockSidebarFollowTimer = setTimeout(__tmFlushDockSidebarCurrentDocumentFollow, 0);
+            }
+        });
+    }
+
+    function __tmScheduleDockSidebarCurrentDocumentFollow(docId) {
+        const targetDocId = String(docId || '').trim();
+        if (!targetDocId) return false;
+        __tmDockSidebarFollowPendingDocId = targetDocId;
+        if (__tmDockSidebarFollowTimer) clearTimeout(__tmDockSidebarFollowTimer);
+        __tmDockSidebarFollowTimer = setTimeout(
+            __tmFlushDockSidebarCurrentDocumentFollow,
+            __TM_DOCK_SIDEBAR_FOLLOW_DELAY_MS
+        );
+        return true;
+    }
+
+    function __tmDestroyDockSidebarCurrentDocumentFollow() {
+        const buses = Array.isArray(__tmDockSidebarFollowEventBuses) ? __tmDockSidebarFollowEventBuses : [];
+        buses.forEach((bus) => {
+            if (!__tmDockSidebarFollowProtyleHandler) return;
+            try { globalThis.__tmRuntimeEvents?.offEventBus?.('switch-protyle', __tmDockSidebarFollowProtyleHandler, bus); } catch (e) {}
+        });
+        if (__tmDockSidebarFollowTimer) {
+            try { clearTimeout(__tmDockSidebarFollowTimer); } catch (e) {}
+        }
+        __tmDockSidebarFollowProtyleHandler = null;
+        __tmDockSidebarFollowEventBuses = [];
+        __tmDockSidebarFollowTimer = null;
+        __tmDockSidebarFollowPendingDocId = '';
+    }
+
+    function __tmBindDockSidebarCurrentDocumentFollow() {
+        __tmDestroyDockSidebarCurrentDocumentFollow();
+        __tmDockSidebarFollowProtyleHandler = (event) => {
+            if (!__tmCanDockSidebarFollowCurrentDocument()) return;
+            const docId = __tmResolveDockSidebarFollowDocId(event);
+            if (!docId || String(state.activeDocId || '').trim() === docId) return;
+            __tmScheduleDockSidebarCurrentDocumentFollow(docId);
+        };
+        __tmDockSidebarFollowEventBuses = Array.from(new Set(
+            globalThis.__tmHost?.getEventBuses?.()
+            || [globalThis.__tmHost?.getEventBus?.()].filter(Boolean)
+        ));
+        __tmDockSidebarFollowEventBuses.forEach((bus) => {
+            try { globalThis.__tmRuntimeEvents?.onEventBus?.('switch-protyle', __tmDockSidebarFollowProtyleHandler, bus); } catch (e) {}
+        });
+    }
+
     async function __tmAddOtherBlocksToSourceDocGroupFromMenu(blockIdsInput, options = {}) {
         const blockIds = __tmNormalizeOtherBlockRefs(Array.isArray(blockIdsInput) ? blockIdsInput : [blockIdsInput]).map((item) => item.id);
         if (!blockIds.length) {

@@ -82,6 +82,7 @@
     const __TM_OTHER_BLOCK_TAB_NAME = '其他块';
     const WHITEBOARD_DATA_CACHE_KEY = 'tm_whiteboard_data_cache';
     const __TM_QUICK_ADD_RECENT_DOCS_KEY = 'tm_quick_add_recent_docs';
+    const __TM_QUICK_ADD_LAST_LOCATION_KEY = 'tm_quick_add_last_location';
     const __TM_QUICK_ADD_RECENT_DOCS_LIMIT = 6;
     const __TM_BUILTIN_COLUMN_DEFAULT_ORDER = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'taskCompleteAt', 'remainingTime', 'tomatoSummary', 'remark', 'attachments'];
     const __TM_BUILTIN_COLUMN_WIDTHS = {
@@ -678,6 +679,19 @@
             out.push(item);
         });
         return out.slice(0, max);
+    }
+
+    function __tmNormalizeQuickAddLastLocation(input) {
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : null;
+        if (!raw) return null;
+        const mode = String(raw.mode || '').trim();
+        if (mode === 'dailyNote') return { mode: 'dailyNote' };
+        const docId = String(raw.docId || '').trim();
+        return mode === 'doc' && docId ? { mode: 'doc', docId } : null;
+    }
+
+    function __tmNormalizeNewTaskDefaultLocationMode(value) {
+        return String(value || '').trim() === 'lastSelected' ? 'lastSelected' : 'configured';
     }
 
     function __tmNormalizeDocDefaultTaskHeadingMap(input) {
@@ -1821,14 +1835,21 @@
         const target = (task && typeof task === 'object') ? task : null;
         if (!target) return target;
         const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
+        const syncVisibleDateAlias = (camel, snake) => {
+            const value = isValidValue(target[camel]) ? target[camel] : target[snake];
+            if (!isValidValue(value)) return;
+            const text = String(value || '').trim();
+            target[camel] = text;
+            target[snake] = text;
+        };
         if (Array.isArray(target.__tmLoadedCustomFieldIds)) {
             target.__tmLoadedCustomFieldIds = Array.from(new Set(target.__tmLoadedCustomFieldIds.map((id) => String(id || '').trim()).filter(Boolean))).sort();
         }
         if (!isValidValue(target.priority) && isValidValue(target.custom_priority)) target.priority = String(target.custom_priority || '').trim();
         if (!isValidValue(target.duration) && isValidValue(target.custom_duration)) target.duration = String(target.custom_duration || '').trim();
         if (!isValidValue(target.remark) && isValidValue(target.custom_remark)) target.remark = String(target.custom_remark || '').trim();
-        if (!isValidValue(target.startDate) && isValidValue(target.start_date)) target.startDate = String(target.start_date || '').trim();
-        if (!isValidValue(target.completionTime) && isValidValue(target.completion_time)) target.completionTime = String(target.completion_time || '').trim();
+        syncVisibleDateAlias('startDate', 'start_date');
+        syncVisibleDateAlias('completionTime', 'completion_time');
         if (!isValidValue(target.taskDateColor) && isValidValue(target.task_date_color)) target.taskDateColor = String(target.task_date_color || '').trim();
         if (!isValidValue(target.taskDateColor) && isValidValue(target.custom_task_date_color)) target.taskDateColor = String(target.custom_task_date_color || '').trim();
         if (isValidValue(target.taskDateColor)) {
@@ -1836,7 +1857,7 @@
             target.custom_task_date_color = target.task_date_color;
         }
         if (!isValidValue(target.taskCompleteAt) && isValidValue(target.task_complete_at)) target.taskCompleteAt = String(target.task_complete_at || '').trim();
-        if (!isValidValue(target.customTime) && isValidValue(target.custom_time)) target.customTime = String(target.custom_time || '').trim();
+        syncVisibleDateAlias('customTime', 'custom_time');
         if (!isValidValue(target.customStatus) && isValidValue(target.custom_status)) target.customStatus = String(target.custom_status || '').trim();
         if (!isValidValue(target.pinned) && isValidValue(target.custom_pinned)) target.pinned = String(target.custom_pinned || '').trim() === '1';
         if (!isValidValue(target.allDayBottom) && isValidValue(target.custom_all_day_bottom)) target.allDayBottom = String(target.custom_all_day_bottom || '').trim() === '1';
@@ -4048,6 +4069,7 @@
     function __tmInvalidateDocScopeCache() {
         try { __tmDocScopeCacheStore = null; } catch (e) {}
         try { __tmDocScopeCacheLoadPromise = null; } catch (e) {}
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { scope: true }); } catch (e) {}
     }
 
     window.__tmInvalidateDocScopeCache = __tmInvalidateDocScopeCache;
@@ -5871,7 +5893,9 @@
         const filteredCount = Array.isArray(state?.filteredTasks) ? state.filteredTasks.length : 0;
         if (filteredCount <= 0) return 0;
         const virtualThreshold = 50;
-        if (filteredCount <= virtualThreshold) return filteredCount;
+        const progressiveListRender = state?.__tmProgressiveViewRender?.mode === mode
+            && state.__tmProgressiveViewRender?.tasksRef === state.filteredTasks;
+        if (filteredCount <= virtualThreshold && !progressiveListRender) return filteredCount;
         const step = Math.max(20, Math.min(1200, Number(state?.listRenderStep) || 20));
         return Math.max(step, Math.min(filteredCount, Number(state?.listRenderLimit) || step));
     }
@@ -7243,6 +7267,7 @@
             defaultViewModeMobile: 'checklist',
             dockSidebarEnabled: true,
             dockDefaultViewMode: 'follow-mobile',
+            dockSidebarFollowCurrentDocument: false,
             dockChecklistCompactTitleJump: true,
             mobileChecklistCompactTitleJump: true,
             desktopChecklistCompactMetaFields: ['completionTime', 'status'],
@@ -7299,6 +7324,9 @@
             docTabProcrastinationTintEnabled: true,
             enableQuickbar: true,
             taskDoneDelightEnabled: true,
+            fsrsDesiredRetention: 0.9,
+            fsrsMaximumIntervalDays: 3650,
+            fsrsEnableFuzz: false,
             aiEnabled: false,
             scheduledEventsSchemaVersion: 1,
             scheduledEvents: [],
@@ -7332,11 +7360,13 @@
             taskDetailCompletedSubtasksVisibilityByTask: {},
             subtaskInheritedFields: __TM_SUBTASK_INHERIT_DEFAULT_FIELDS.slice(),
             newTaskDocId: '',
+            newTaskDefaultLocationMode: 'configured',
             newTaskDailyNoteNotebookId: '',
             newTaskDailyNoteTargetHeadingText: '',
             newTaskDailyNoteAppendToBottom: false,
             deleteTaskRemovesWhiteboardCards: true,
             quickAddRecentDocs: [],
+            quickAddLastLocation: null,
             headingGroupCreateAtSectionEnd: false,
             enableTomatoIntegration: true,
             enablePointsRewardIntegration: false,
@@ -7356,6 +7386,14 @@
             tomatoEstimateAttrKey: 'custom-tomato-estimate-count',
             calendarEnabled: true,
             calendarLinkDockTomato: true,
+            calendarIcsEnabled: false,
+            calendarIcsProvider: 'chain',
+            calendarIcsPublishMode: 'auto',
+            calendarIcsCalendarName: '任务管理器',
+            calendarIcsWebdavUrl: '',
+            calendarIcsWebdavUsername: '',
+            calendarIcsChainFileName: '',
+            calendarIcsChainPublicConfirmed: false,
             calendarInitialView: 'timeGridWeek',
             calendarInitialViewDesktop: 'timeGridWeek',
             calendarInitialViewMobile: 'timeGridDay',
@@ -7876,6 +7914,7 @@
                                 if (typeof cloudData.defaultViewModeMobile === 'string') this.data.defaultViewModeMobile = cloudData.defaultViewModeMobile;
                                 if (typeof cloudData.dockSidebarEnabled === 'boolean') this.data.dockSidebarEnabled = cloudData.dockSidebarEnabled;
                                 if (typeof cloudData.dockDefaultViewMode === 'string') this.data.dockDefaultViewMode = cloudData.dockDefaultViewMode;
+                                if (typeof cloudData.dockSidebarFollowCurrentDocument === 'boolean') this.data.dockSidebarFollowCurrentDocument = cloudData.dockSidebarFollowCurrentDocument;
                                 if (typeof cloudData.dockChecklistCompactTitleJump === 'boolean') this.data.dockChecklistCompactTitleJump = cloudData.dockChecklistCompactTitleJump;
                                 if (typeof cloudData.mobileChecklistCompactTitleJump === 'boolean') {
                                     this.data.mobileChecklistCompactTitleJump = cloudData.mobileChecklistCompactTitleJump;
@@ -7937,6 +7976,13 @@
                                 if (typeof cloudData.docTabProcrastinationTintEnabled === 'boolean') this.data.docTabProcrastinationTintEnabled = cloudData.docTabProcrastinationTintEnabled;
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
                                 if (typeof cloudData.taskDoneDelightEnabled === 'boolean') this.data.taskDoneDelightEnabled = cloudData.taskDoneDelightEnabled;
+                                if (typeof cloudData.fsrsDesiredRetention === 'number') {
+                                    this.data.fsrsDesiredRetention = Math.max(0.8, Math.min(0.97, cloudData.fsrsDesiredRetention));
+                                }
+                                if (typeof cloudData.fsrsMaximumIntervalDays === 'number') {
+                                    this.data.fsrsMaximumIntervalDays = Math.max(30, Math.min(3650, Math.round(cloudData.fsrsMaximumIntervalDays)));
+                                }
+                                if (typeof cloudData.fsrsEnableFuzz === 'boolean') this.data.fsrsEnableFuzz = cloudData.fsrsEnableFuzz;
                                 if (typeof cloudData.enableQuickbarInlineMeta === 'boolean') this.data.enableQuickbarInlineMeta = cloudData.enableQuickbarInlineMeta;
                                 if (typeof cloudData.enableMoveBlockToDailyNote === 'boolean') this.data.enableMoveBlockToDailyNote = cloudData.enableMoveBlockToDailyNote;
                                 if (Array.isArray(cloudData.quickbarInlineFields)) this.data.quickbarInlineFields = cloudData.quickbarInlineFields;
@@ -7959,11 +8005,13 @@
                                 }
                                 if (Array.isArray(cloudData.subtaskInheritedFields)) this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(cloudData.subtaskInheritedFields);
                                 if (typeof cloudData.newTaskDocId === 'string') this.data.newTaskDocId = cloudData.newTaskDocId;
+                                if (typeof cloudData.newTaskDefaultLocationMode === 'string') this.data.newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(cloudData.newTaskDefaultLocationMode);
                                 if (typeof cloudData.newTaskDailyNoteNotebookId === 'string') this.data.newTaskDailyNoteNotebookId = cloudData.newTaskDailyNoteNotebookId;
                                 if (typeof cloudData.newTaskDailyNoteTargetHeadingText === 'string') this.data.newTaskDailyNoteTargetHeadingText = cloudData.newTaskDailyNoteTargetHeadingText;
                                 if (typeof cloudData.newTaskDailyNoteAppendToBottom === 'boolean') this.data.newTaskDailyNoteAppendToBottom = cloudData.newTaskDailyNoteAppendToBottom;
                                 if (typeof cloudData.deleteTaskRemovesWhiteboardCards === 'boolean') this.data.deleteTaskRemovesWhiteboardCards = cloudData.deleteTaskRemovesWhiteboardCards;
                                 if (Array.isArray(cloudData.quickAddRecentDocs)) this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(cloudData.quickAddRecentDocs);
+                                if (cloudData.quickAddLastLocation && typeof cloudData.quickAddLastLocation === 'object') this.data.quickAddLastLocation = __tmNormalizeQuickAddLastLocation(cloudData.quickAddLastLocation);
                                 if (typeof cloudData.headingGroupCreateAtSectionEnd === 'boolean') this.data.headingGroupCreateAtSectionEnd = cloudData.headingGroupCreateAtSectionEnd;
                                 if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
                                 if (typeof cloudData.enablePointsRewardIntegration === 'boolean') this.data.enablePointsRewardIntegration = cloudData.enablePointsRewardIntegration;
@@ -7983,6 +8031,17 @@
                                 if (typeof cloudData.tomatoEstimateAttrKey === 'string') this.data.tomatoEstimateAttrKey = cloudData.tomatoEstimateAttrKey;
                                 if (typeof cloudData.calendarEnabled === 'boolean') this.data.calendarEnabled = cloudData.calendarEnabled;
                                 if (typeof cloudData.calendarLinkDockTomato === 'boolean') this.data.calendarLinkDockTomato = cloudData.calendarLinkDockTomato;
+                                if (typeof cloudData.calendarIcsEnabled === 'boolean') this.data.calendarIcsEnabled = cloudData.calendarIcsEnabled;
+                                if (typeof cloudData.calendarIcsProvider === 'string') this.data.calendarIcsProvider = cloudData.calendarIcsProvider;
+                                if (typeof cloudData.calendarIcsPublishMode === 'string') this.data.calendarIcsPublishMode = String(cloudData.calendarIcsPublishMode).trim() === 'manual' ? 'manual' : 'auto';
+                                if (typeof cloudData.calendarIcsCalendarName === 'string') {
+                                    const calendarName = String(cloudData.calendarIcsCalendarName || '').trim();
+                                    this.data.calendarIcsCalendarName = !calendarName || calendarName === 'Task Horizon' ? '任务管理器' : calendarName;
+                                }
+                                if (typeof cloudData.calendarIcsWebdavUrl === 'string') this.data.calendarIcsWebdavUrl = cloudData.calendarIcsWebdavUrl;
+                                if (typeof cloudData.calendarIcsWebdavUsername === 'string') this.data.calendarIcsWebdavUsername = cloudData.calendarIcsWebdavUsername;
+                                if (typeof cloudData.calendarIcsChainFileName === 'string') this.data.calendarIcsChainFileName = cloudData.calendarIcsChainFileName;
+                                if (typeof cloudData.calendarIcsChainPublicConfirmed === 'boolean') this.data.calendarIcsChainPublicConfirmed = cloudData.calendarIcsChainPublicConfirmed;
                                 if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = __tmNormalizeCalendarInitialView(cloudData.calendarInitialView, this.data.calendarInitialView);
                                 if (typeof cloudData.calendarInitialViewDesktop === 'string') {
                                     this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(cloudData.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
@@ -8311,6 +8370,7 @@
             this.data.defaultViewModeMobile = Storage.get('tm_default_view_mode_mobile', this.data.defaultViewModeMobile || this.data.defaultViewMode);
             this.data.dockSidebarEnabled = !!Storage.get('tm_dock_sidebar_enabled', this.data.dockSidebarEnabled);
             this.data.dockDefaultViewMode = Storage.get('tm_dock_default_view_mode', this.data.dockDefaultViewMode || 'follow-mobile');
+            this.data.dockSidebarFollowCurrentDocument = !!Storage.get('tm_dock_sidebar_follow_current_document', this.data.dockSidebarFollowCurrentDocument);
             this.data.dockChecklistCompactTitleJump = !!Storage.get('tm_dock_checklist_compact_title_jump', this.data.dockChecklistCompactTitleJump);
             this.data.mobileChecklistCompactTitleJump = !!Storage.get('tm_mobile_checklist_compact_title_jump', this.data.mobileChecklistCompactTitleJump ?? this.data.dockChecklistCompactTitleJump);
             this.data.desktopChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(Storage.get('tm_desktop_checklist_compact_meta_fields', this.data.desktopChecklistCompactMetaFields));
@@ -8409,6 +8469,9 @@
             this.data.enableQuickbar = Storage.get('tm_enable_quickbar', true);
             this.data.enableQuickbarInlineMeta = !!Storage.get('tm_enable_quickbar_inline_meta', this.data.enableQuickbarInlineMeta);
             this.data.taskDoneDelightEnabled = Storage.get('tm_task_done_delight_enabled', this.data.taskDoneDelightEnabled);
+            this.data.fsrsDesiredRetention = Math.max(0.8, Math.min(0.97, Number(Storage.get('tm_fsrs_desired_retention', this.data.fsrsDesiredRetention)) || 0.9));
+            this.data.fsrsMaximumIntervalDays = Math.max(30, Math.min(3650, Math.round(Number(Storage.get('tm_fsrs_maximum_interval_days', this.data.fsrsMaximumIntervalDays)) || 3650)));
+            this.data.fsrsEnableFuzz = !!Storage.get('tm_fsrs_enable_fuzz', this.data.fsrsEnableFuzz);
             this.data.enableMoveBlockToDailyNote = !!Storage.get('tm_enable_move_block_to_daily_note', this.data.enableMoveBlockToDailyNote);
             this.data.quickbarInlineFields = Storage.get('tm_quickbar_inline_fields', this.data.quickbarInlineFields) || this.data.quickbarInlineFields;
             this.data.quickbarVisibleItems = Storage.get('tm_quickbar_visible_items', this.data.quickbarVisibleItems) || this.data.quickbarVisibleItems;
@@ -8429,9 +8492,11 @@
             );
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(Storage.get('tm_subtask_inherited_fields', this.data.subtaskInheritedFields));
             this.data.newTaskDocId = Storage.get('tm_new_task_doc_id', '');
+            this.data.newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(Storage.get('tm_new_task_default_location_mode', this.data.newTaskDefaultLocationMode));
             this.data.newTaskDailyNoteNotebookId = String(Storage.get('tm_new_task_daily_note_notebook_id', this.data.newTaskDailyNoteNotebookId) || '').trim();
             this.data.newTaskDailyNoteTargetHeadingText = String(Storage.get('tm_new_task_daily_note_target_heading_text', this.data.newTaskDailyNoteTargetHeadingText) || '').trim();
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(Storage.get(__TM_QUICK_ADD_RECENT_DOCS_KEY, this.data.quickAddRecentDocs));
+            this.data.quickAddLastLocation = __tmNormalizeQuickAddLastLocation(Storage.get(__TM_QUICK_ADD_LAST_LOCATION_KEY, this.data.quickAddLastLocation));
             this.data.docTabSortMode = String(Storage.get('tm_doc_tab_sort_mode', this.data.docTabSortMode) || this.data.docTabSortMode || 'created_desc').trim() || 'created_desc';
             this.data.docDisplayNameMode = String(Storage.get('tm_doc_display_name_mode', this.data.docDisplayNameMode) || this.data.docDisplayNameMode || 'name').trim() || 'name';
             this.data.docTabsArchiveButtonPosition = String(Storage.get('tm_doc_tabs_archive_button_position', this.data.docTabsArchiveButtonPosition) || 'after-docs').trim() === 'before-all' ? 'before-all' : 'after-docs';
@@ -8461,6 +8526,17 @@
             this.data.tomatoEstimateAttrKey = Storage.get('tm_tomato_estimate_attr_key', this.data.tomatoEstimateAttrKey);
             this.data.calendarEnabled = Storage.get('tm_calendar_enabled', this.data.calendarEnabled);
             this.data.calendarLinkDockTomato = Storage.get('tm_calendar_link_docktomato', this.data.calendarLinkDockTomato);
+            this.data.calendarIcsEnabled = !!Storage.get('tm_calendar_ics_enabled', this.data.calendarIcsEnabled);
+            this.data.calendarIcsProvider = String(Storage.get('tm_calendar_ics_provider', this.data.calendarIcsProvider) || 'chain');
+            this.data.calendarIcsPublishMode = String(Storage.get('tm_calendar_ics_publish_mode', this.data.calendarIcsPublishMode) || '').trim() === 'manual' ? 'manual' : 'auto';
+            {
+                const calendarName = String(Storage.get('tm_calendar_ics_calendar_name', this.data.calendarIcsCalendarName) || '').trim();
+                this.data.calendarIcsCalendarName = !calendarName || calendarName === 'Task Horizon' ? '任务管理器' : calendarName;
+            }
+            this.data.calendarIcsWebdavUrl = String(Storage.get('tm_calendar_ics_webdav_url', this.data.calendarIcsWebdavUrl) || '');
+            this.data.calendarIcsWebdavUsername = String(Storage.get('tm_calendar_ics_webdav_username', this.data.calendarIcsWebdavUsername) || '');
+            this.data.calendarIcsChainFileName = String(Storage.get('tm_calendar_ics_chain_file_name', this.data.calendarIcsChainFileName) || '');
+            this.data.calendarIcsChainPublicConfirmed = !!Storage.get('tm_calendar_ics_chain_public_confirmed', this.data.calendarIcsChainPublicConfirmed);
             this.data.calendarInitialView = __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view', this.data.calendarInitialView), this.data.calendarInitialView);
             this.data.calendarInitialViewDesktop = Storage.has('tm_calendar_initial_view_desktop')
                 ? __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view_desktop', this.data.calendarInitialViewDesktop), this.data.calendarInitialView || 'timeGridWeek')
@@ -8788,10 +8864,12 @@
             this.data.defaultViewMode = __tmGetSafeViewMode(this.data.defaultViewMode);
             this.data.defaultViewModeMobile = __tmGetSafeViewMode(this.data.defaultViewModeMobile || this.data.defaultViewMode);
             this.data.dockSidebarEnabled = this.data.dockSidebarEnabled !== false;
+            this.data.dockSidebarFollowCurrentDocument = !!this.data.dockSidebarFollowCurrentDocument;
             Storage.set('tm_default_view_mode', String(this.data.defaultViewMode || 'checklist').trim() || 'checklist');
             Storage.set('tm_default_view_mode_mobile', String(this.data.defaultViewModeMobile || this.data.defaultViewMode || 'checklist').trim() || 'checklist');
             Storage.set('tm_dock_sidebar_enabled', !!this.data.dockSidebarEnabled);
             Storage.set('tm_dock_default_view_mode', String(this.data.dockDefaultViewMode || 'follow-mobile').trim() || 'follow-mobile');
+            Storage.set('tm_dock_sidebar_follow_current_document', this.data.dockSidebarFollowCurrentDocument);
             Storage.set('tm_dock_checklist_compact_title_jump', !!this.data.dockChecklistCompactTitleJump);
             Storage.set('tm_mobile_checklist_compact_title_jump', !!this.data.mobileChecklistCompactTitleJump);
             this.data.desktopChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.desktopChecklistCompactMetaFields);
@@ -8887,6 +8965,9 @@
             Storage.set('tm_enable_quickbar', !!this.data.enableQuickbar);
             Storage.set('tm_enable_quickbar_inline_meta', !!this.data.enableQuickbarInlineMeta);
             Storage.set('tm_task_done_delight_enabled', !!this.data.taskDoneDelightEnabled);
+            Storage.set('tm_fsrs_desired_retention', Math.max(0.8, Math.min(0.97, Number(this.data.fsrsDesiredRetention) || 0.9)));
+            Storage.set('tm_fsrs_maximum_interval_days', Math.max(30, Math.min(3650, Math.round(Number(this.data.fsrsMaximumIntervalDays) || 3650))));
+            Storage.set('tm_fsrs_enable_fuzz', !!this.data.fsrsEnableFuzz);
             Storage.set('tm_enable_move_block_to_daily_note', !!this.data.enableMoveBlockToDailyNote);
             Storage.set('tm_quickbar_inline_fields', Array.isArray(this.data.quickbarInlineFields) ? this.data.quickbarInlineFields : ['custom-status', 'custom-completion-time']);
             Storage.set('tm_quickbar_visible_items', Array.isArray(this.data.quickbarVisibleItems) ? this.data.quickbarVisibleItems : ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-focus-summary', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
@@ -8897,11 +8978,13 @@
             Storage.set(__TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_LEGACY_KEY, {});
             Storage.set('tm_subtask_inherited_fields', __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields, []));
             Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
+            Storage.set('tm_new_task_default_location_mode', __tmNormalizeNewTaskDefaultLocationMode(this.data.newTaskDefaultLocationMode));
             Storage.set('tm_new_task_daily_note_notebook_id', String(this.data.newTaskDailyNoteNotebookId || '').trim());
             Storage.set('tm_new_task_daily_note_target_heading_text', String(this.data.newTaskDailyNoteTargetHeadingText || '').trim());
             Storage.set('tm_new_task_daily_note_append_to_bottom', !!this.data.newTaskDailyNoteAppendToBottom);
             Storage.set('tm_delete_task_removes_whiteboard_cards', this.data.deleteTaskRemovesWhiteboardCards !== false);
             Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs));
+            Storage.set(__TM_QUICK_ADD_LAST_LOCATION_KEY, __tmNormalizeQuickAddLastLocation(this.data.quickAddLastLocation));
             Storage.set('tm_heading_group_create_at_section_end', !!this.data.headingGroupCreateAtSectionEnd);
             Storage.set('tm_doc_tab_sort_mode', String(this.data.docTabSortMode || 'created_desc').trim() || 'created_desc');
             Storage.set('tm_doc_display_name_mode', __tmNormalizeDocDisplayNameMode(this.data.docDisplayNameMode));
@@ -8934,6 +9017,14 @@
             Storage.set('tm_tomato_estimate_attr_key', String(this.data.tomatoEstimateAttrKey || '').trim());
             Storage.set('tm_calendar_enabled', !!this.data.calendarEnabled);
             Storage.set('tm_calendar_link_docktomato', !!this.data.calendarLinkDockTomato);
+            Storage.set('tm_calendar_ics_enabled', !!this.data.calendarIcsEnabled);
+            Storage.set('tm_calendar_ics_provider', String(this.data.calendarIcsProvider || 'chain'));
+            Storage.set('tm_calendar_ics_publish_mode', String(this.data.calendarIcsPublishMode || '').trim() === 'manual' ? 'manual' : 'auto');
+            Storage.set('tm_calendar_ics_calendar_name', String(this.data.calendarIcsCalendarName || '任务管理器'));
+            Storage.set('tm_calendar_ics_webdav_url', String(this.data.calendarIcsWebdavUrl || ''));
+            Storage.set('tm_calendar_ics_webdav_username', String(this.data.calendarIcsWebdavUsername || ''));
+            Storage.set('tm_calendar_ics_chain_file_name', String(this.data.calendarIcsChainFileName || ''));
+            Storage.set('tm_calendar_ics_chain_public_confirmed', !!this.data.calendarIcsChainPublicConfirmed);
             this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
             this.data.calendarInitialViewMobile = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewMobile, 'timeGridDay');
             this.data.calendarInitialView = this.data.calendarInitialViewDesktop;
@@ -9240,6 +9331,8 @@
             this.data.diagnosticLogsEnabled = !!this.data.diagnosticLogsEnabled;
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields);
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs);
+            this.data.newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(this.data.newTaskDefaultLocationMode);
+            this.data.quickAddLastLocation = __tmNormalizeQuickAddLastLocation(this.data.quickAddLastLocation);
             this.data.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap(this.data.docDefaultTaskHeadingByDocId);
             const kw = Number(this.data.kanbanColumnWidth);
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
@@ -9767,6 +9860,7 @@
                 }
             }
             await this.save();
+            try { window.__tmInvalidateDocScopeCache?.(); } catch (e) {}
         },
 
         // 便捷方法：更新当前分组ID
@@ -9786,6 +9880,7 @@
             await this.save();
         }
     };
+    globalThis.__taskHorizonSettingsStore = SettingsStore;
 
     const __TM_TASK_CHECKBOX_PRIORITY_COLOR_STYLE_ID = 'tm-task-checkbox-priority-color-style';
 
@@ -13366,6 +13461,7 @@
             try { __tmClearDocSessionTaskCache(); } catch (e) {}
             try { __tmResolvedDocIdsCache = null; } catch (e) {}
             try { __tmResolvedDocIdsPromise = null; } catch (e) {}
+            try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { tasks: true }); } catch (e) {}
             return;
         }
         try {
@@ -13391,6 +13487,7 @@
         try { __tmClearDocSessionTaskCache(did); } catch (e) {}
         try { __tmResolvedDocIdsCache = null; } catch (e) {}
         try { __tmResolvedDocIdsPromise = null; } catch (e) {}
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.([did], { tasks: true }); } catch (e) {}
     }
 
     function __tmInvalidateAllSqlCaches() {
@@ -13409,6 +13506,7 @@
         try { __tmClearDocSessionTaskCache(); } catch (e) {}
         try { __tmResolvedDocIdsCache = null; } catch (e) {}
         try { __tmResolvedDocIdsPromise = null; } catch (e) {}
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { tasks: true }); } catch (e) {}
     }
 
     function __tmPruneDocSessionTaskCache(options = {}) {

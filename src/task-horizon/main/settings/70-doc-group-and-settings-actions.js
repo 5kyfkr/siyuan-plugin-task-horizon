@@ -1606,6 +1606,25 @@
         showSettings();
     };
 
+    window.updateFsrsDesiredRetentionPercent = async function(value) {
+        const percent = Math.max(80, Math.min(97, Math.round(Number(value) || 90)));
+        SettingsStore.data.fsrsDesiredRetention = percent / 100;
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateFsrsMaximumIntervalDays = async function(value) {
+        SettingsStore.data.fsrsMaximumIntervalDays = Math.max(30, Math.min(3650, Math.round(Number(value) || 3650)));
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateFsrsEnableFuzz = async function(enabled) {
+        SettingsStore.data.fsrsEnableFuzz = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+
     window.updateTaskCheckboxCircleStyleEnabled = async function(enabled) {
         const next = !!enabled;
         SettingsStore.data.taskCheckboxCircleStyleEnabled = next;
@@ -1711,6 +1730,7 @@
     window.updateEnableTomatoIntegration = async function(enabled) {
         SettingsStore.data.enableTomatoIntegration = !!enabled;
         await SettingsStore.save();
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         if (!enabled) state.timerFocusTaskId = '';
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
@@ -1856,6 +1876,7 @@
         const v = String(mode || '').trim();
         SettingsStore.data.tomatoSpentAttrMode = (v === 'hours') ? 'hours' : 'minutes';
         await SettingsStore.save();
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             loadSelectedDocuments();
@@ -1865,6 +1886,7 @@
     window.updateTomatoSpentAttrKeyMinutes = async function(value) {
         SettingsStore.data.tomatoSpentAttrKeyMinutes = String(value || '').trim();
         await SettingsStore.save();
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         if (state.modal && document.body.contains(state.modal)) {
             loadSelectedDocuments();
         }
@@ -1873,6 +1895,7 @@
     window.updateTomatoSpentAttrKeyHours = async function(value) {
         SettingsStore.data.tomatoSpentAttrKeyHours = String(value || '').trim();
         await SettingsStore.save();
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         if (state.modal && document.body.contains(state.modal)) {
             loadSelectedDocuments();
         }
@@ -1961,6 +1984,12 @@
             : 'follow-mobile';
         await SettingsStore.save();
         __tmDispatchDockSettingsChanged('dock-default-view');
+        showSettings();
+    };
+
+    window.updateDockSidebarFollowCurrentDocument = async function(enabled) {
+        SettingsStore.data.dockSidebarFollowCurrentDocument = !!enabled;
+        await SettingsStore.save();
         showSettings();
     };
 
@@ -2310,19 +2339,17 @@
 
     window.updateNewTaskDocId = async function(value, options) {
         const v = String(value || '').trim();
-        SettingsStore.data.newTaskDocId = v;
+        const useLastSelection = v === '__lastSelected__';
+        SettingsStore.data.newTaskDefaultLocationMode = useLastSelection ? 'lastSelected' : 'configured';
+        if (!useLastSelection) SettingsStore.data.newTaskDocId = v;
         await SettingsStore.save();
         const opt = (options && typeof options === 'object') ? options : {};
         if (opt.refreshQuickAdd !== false) {
             const qa = state.quickAdd;
             if (qa) {
-                if (v === '__dailyNote__') {
-                    qa.docMode = 'dailyNote';
-                    qa.docId = qa.docId || __tmResolveDefaultDocId();
-                } else {
-                    qa.docMode = 'doc';
-                    qa.docId = v || __tmResolveDefaultDocId();
-                }
+                const location = await __tmResolveQuickAddInitialLocation();
+                qa.docMode = location?.mode === 'dailyNote' ? 'dailyNote' : 'doc';
+                qa.docId = String(location?.docId || '').trim();
                 try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
             }
         }
@@ -2338,7 +2365,7 @@
         try {
             const input = document.getElementById('tmNewTaskDocIdInput');
             const v = String(value || '').trim();
-            if (input) input.value = v === '__dailyNote__' ? '' : v;
+            if (input) input.value = v === '__dailyNote__' || v === '__lastSelected__' ? '' : v;
         } catch (e) {}
     };
 

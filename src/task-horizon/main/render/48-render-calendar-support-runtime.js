@@ -1522,6 +1522,7 @@
                     patch: viewPatch,
                     withFilters: needsProjectionRefresh ? true : false,
                     reason: refreshReason,
+                    skipDetailPatch: opts.skipDetailPatch === true,
                 });
             } catch (e) {}
             try {
@@ -1612,6 +1613,7 @@
                         patch: viewPatch,
                         withFilters: needsProjectionRefresh ? true : false,
                         reason: refreshReason,
+                        skipDetailPatch: opts.skipDetailPatch === true,
                     });
                 } catch (e) {}
             }

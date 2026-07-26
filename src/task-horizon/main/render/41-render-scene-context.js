@@ -53,7 +53,21 @@
 
         const renderMode = state.attachmentLibraryOpen ? 'attachments' : (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
         const homepageBodyAnimClass = renderMode === 'home' ? '' : bodyAnimClass;
-        const __tmTimelineRowModel = renderMode === 'timeline' ? __tmBuildTaskRowModel() : null;
+        const __tmTimelineFullRowModel = renderMode === 'timeline' ? __tmBuildTaskRowModel() : null;
+        const __tmTimelineProgressive = renderMode === 'timeline'
+            && state.__tmProgressiveViewRender?.mode === 'timeline'
+            && state.__tmProgressiveViewRender?.tasksRef === state.filteredTasks;
+        const __tmTimelineRowModel = __tmTimelineProgressive
+            ? __tmSliceTaskRowModelByTaskWindow(
+                __tmTimelineFullRowModel,
+                0,
+                Math.max(20, Number(state.listRenderLimit) || 20)
+            ).rows
+            : __tmTimelineFullRowModel;
+        if (renderMode === 'timeline') {
+            try { state.__tmTimelineFullRowModel = __tmTimelineFullRowModel; } catch (e) {}
+            try { globalThis.__tmTimelineRowModel = __tmTimelineFullRowModel; } catch (e) {}
+        }
         const mainBodyHtml = renderMode === 'attachments'
             ? __tmRenderAttachmentLibraryBodyHtml({ bodyAnimClass })
             : renderMode === 'home'
@@ -255,6 +269,7 @@
             timelineCompactToolbarGroupHtml,
             timelineFloatingToolbarHtml,
             timelineRowModel: __tmTimelineRowModel,
+            timelineFullRowModel: __tmTimelineFullRowModel,
             mainStageBottomInset,
             bodyWithSideDockHtml,
             multiSelectCount,
