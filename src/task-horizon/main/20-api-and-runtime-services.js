@@ -4541,6 +4541,36 @@
         }
         return await __tmPersistMetaAndAttrsKernel(id, patch, opts);
     }
+    function __tmEnqueueTimelineMutation(operation, options = {}) {
+        const run = typeof operation === 'function' ? operation : null;
+        if (!run) return Promise.resolve(false);
+        const opts = (options && typeof options === 'object') ? options : {};
+        const previous = state.timelineMutationTail instanceof Promise
+            ? state.timelineMutationTail
+            : Promise.resolve();
+        state.timelineMutationPending = Math.max(0, Number(state.timelineMutationPending) || 0) + 1;
+        const current = previous.catch(() => null).then(async () => {
+            state.timelineMutationActive = true;
+            state.timelineMutationActiveLabel = String(opts.label || '').trim();
+            try {
+                return await run();
+            } finally {
+                state.timelineMutationPending = Math.max(0, (Number(state.timelineMutationPending) || 1) - 1);
+                state.timelineMutationActive = false;
+                state.timelineMutationActiveLabel = '';
+            }
+        });
+        const settled = current.then(() => null, () => null);
+        state.timelineMutationTail = settled;
+        settled.then(() => {
+            if (state.timelineMutationTail !== settled) return;
+            state.timelineMutationTail = null;
+            state.timelineMutationActive = false;
+            state.timelineMutationActiveLabel = '';
+        });
+        return current;
+    }
+
     let state = {
         // 数据状态
         taskTree: [],
@@ -4630,9 +4660,21 @@
         mobileViewportRefreshTimer: 0,
         mobileViewportRefreshHandler: null,
         mobileViewportRefreshVisualViewport: null,
+        timelineMobileSidebarExpanded: false,
+        timelineInfiniteRangeShifting: false,
+        timelineMutationTail: null,
+        timelineMutationPending: 0,
+        timelineMutationActive: false,
+        timelineMutationActiveLabel: '',
         ganttView: {
-            dayWidth: 24,
+            scale: 'day',
+            zoomIndex: { day: 2, week: 2, month: 2 },
+            dayWidth: 36,
             paddingDays: 7,
+            pendingAnchor: { dateTs: Date.now(), ratio: 0.35 },
+            rangeScale: '',
+            rangeStartTs: 0,
+            rangeEndTs: 0,
         },
 
         // 筛选状态
@@ -4729,6 +4771,7 @@
         // 白板视图交互状态
         whiteboardLinkFromTaskId: '',
         whiteboardLinkFromDocId: '',
+        whiteboardLinkFromSide: 'out',
         whiteboardLinkPress: null,
         whiteboardLinkPreview: null,
         whiteboardLinkPointerFallback: null,
@@ -9389,6 +9432,16 @@ const wait = !!options.wait;
         return Object.prototype.hasOwnProperty.call(map, t) ? map[t] : null;
     }
 
+    function __tmSemanticHourFromToken(token) {
+        const text = String(token || '').trim();
+        if (/^\d{1,2}$/.test(text)) return Number(text);
+        const digits = { '零': 0, '〇': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+        if (Object.prototype.hasOwnProperty.call(digits, text)) return digits[text];
+        const match = text.match(/^([一二])?十([一二三四五六七八九])?$/);
+        if (!match) return null;
+        return (match[1] ? digits[match[1]] : 1) * 10 + (match[2] ? digits[match[2]] : 0);
+    }
+
     function __tmSemanticAdjustHourByPeriod(hour, period) {
         let hh = Number(hour);
         if (!Number.isFinite(hh) || hh < 0 || hh > 23) return null;
@@ -9435,9 +9488,9 @@ const wait = !!options.wait;
                 };
             }
         }
-        const cn = /(?:^|[^\d])(?:(凌晨|上午|早上|早晨|清晨|今早|今晨|明早|明晨|中午|下午|傍晚|晚上|今晚|明晚|晚|早)\s*)?(\d{1,2})\s*点\s*(半|一刻|三刻|整|(\d{1,2})\s*分?)?/.exec(text);
+        const cn = /(?:^|[^\d])(?:(凌晨|上午|早上|早晨|清晨|今早|今晨|明早|明晨|中午|下午|傍晚|晚上|今晚|明晚|晚|早)\s*)?(\d{1,2}|[零〇一二两三四五六七八九十]{1,3})\s*点\s*(半|一刻|三刻|整|(\d{1,2})\s*分?)?/.exec(text);
         if (!cn) return null;
-        const hour0 = Number(cn[2]);
+        const hour0 = __tmSemanticHourFromToken(cn[2]);
         let minute = 0;
         const suffix = String(cn[3] || '').trim();
         if (suffix === '半') minute = 30;
@@ -9470,7 +9523,7 @@ const wait = !!options.wait;
         const rel = /(今天|今日|今早|今晨|今晚|明天|明早|明晨|明晚|后天|大后天)/.exec(text);
         const dur = /(\d+)\s*(天|日|周|星期|礼拜)\s*后/.exec(text);
         const weekday = /((本周|这周|下周|下下周)?\s*(周|星期|礼拜)\s*([一二三四五六日天1-7]))/.exec(text);
-        const todayPeriod = /(凌晨|上午|早上|早晨|清晨|中午|下午|傍晚|晚上)\s*(?=\d{1,2}\s*(?:[:：]|点))/.exec(text);
+        const todayPeriod = /(凌晨|上午|早上|早晨|清晨|中午|下午|傍晚|晚上)\s*(?=(?:\d{1,2}|[零〇一二两三四五六七八九十]{1,3})\s*(?:[:：]|点))/.exec(text);
         const todayPeriodPrefix = todayPeriod
             ? text.slice(Math.max(0, Number(todayPeriod.index) - 3), Number(todayPeriod.index))
             : '';
@@ -9755,7 +9808,7 @@ const wait = !!options.wait;
             });
             if (payload) return payload;
         }
-        const timeThen = '(?:\\d{1,2}\\s*[:：]\\s*\\d{1,2}|\\d{1,2}\\s*点\\s*(?:半|一刻|三刻|整|\\d{1,2}\\s*分?)?)?';
+        const timeThen = '(?:\\d{1,2}\\s*[:：]\\s*\\d{1,2}|(?:\\d{1,2}|[零〇一二两三四五六七八九十]{1,3})\\s*点\\s*(?:半|一刻|三刻|整|\\d{1,2}\\s*分?)?)?';
         const startBeforeKeyword = /(开始于|开始日期|开始时间|开始|起始|启动|开工时间|开工|从|自)\s*$/;
         const startAfterKeyword = new RegExp(`^\\s*${timeThen}\\s*(开始|起)`);
         const completionBeforeKeyword = /(截止到|截止日期|截止时间|截止|到期|最晚|期限|完成于|交付|ddl|deadline|due)\s*$/i;
@@ -22567,7 +22620,7 @@ refreshOk = false;
             if (!__tmCssColorProbeEl) {
                 const probe = document.createElement('span');
                 probe.setAttribute('aria-hidden', 'true');
-                probe.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none;';
+                probe.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none;transition:none!important;';
                 __tmCssColorProbeEl = probe;
             }
             const host = document.body || document.documentElement;
@@ -24811,40 +24864,11 @@ return true;
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const leftEl = modal?.querySelector?.('.tm-timeline-left');
         if (!(leftEl instanceof HTMLElement)) return 0;
+        if (leftEl.closest?.('.tm-timeline-split--sidebar-collapsed')) return 0;
         const rectWidth = Number(leftEl.getBoundingClientRect?.().width);
         if (Number.isFinite(rectWidth) && rectWidth > 0) return rectWidth;
         const scrollWidth = Number(leftEl.scrollWidth);
         return Number.isFinite(scrollWidth) && scrollWidth > 0 ? scrollWidth : 0;
-    }
-
-    function __tmSyncTimelineMobileGroupStickyOffset(modalEl, options = {}) {
-        const modal = modalEl instanceof Element ? modalEl : state.modal;
-        const scrollHost = __tmGetTimelineGlobalScrollHost(modal);
-        if (!(scrollHost instanceof HTMLElement)) return false;
-        const apply = () => {
-            const offset = Math.max(0, Math.round(Number(scrollHost.scrollLeft) || 0));
-            if (Number(scrollHost.__tmMobileTimelineGroupShiftLast) === offset) return true;
-            try {
-                scrollHost.style.setProperty('--tm-mobile-timeline-group-shift', `${offset}px`);
-                scrollHost.__tmMobileTimelineGroupShiftLast = offset;
-            } catch (e) {
-                return false;
-            }
-            return true;
-        };
-        if (options && options.defer === true) {
-            if (Number(scrollHost.__tmMobileTimelineGroupShiftRaf) > 0) return true;
-            try {
-                scrollHost.__tmMobileTimelineGroupShiftRaf = requestAnimationFrame(() => {
-                    scrollHost.__tmMobileTimelineGroupShiftRaf = 0;
-                    try { apply(); } catch (e) {}
-                });
-            } catch (e) {
-                return apply();
-            }
-            return true;
-        }
-        return apply();
     }
 
     function __tmSyncTimelineDateColumnWidths(modalEl) {
@@ -24904,6 +24928,7 @@ return true;
         const globalScrollHost = __tmGetTimelineGlobalScrollHost(modal);
         const useGlobalScroll = globalScrollHost instanceof HTMLElement;
         const cleanups = [];
+        let infiniteRangeRaf = 0;
         const bind = (target, type, handler, options) => {
             if (!(target instanceof EventTarget) || typeof handler !== 'function') return;
             target.addEventListener(type, handler, options);
@@ -24915,6 +24940,33 @@ return true;
             if (useGlobalScroll || !(ganttHeader instanceof HTMLElement)) return;
             const inner = ganttHeader.querySelector('.tm-gantt-header-inner');
             if (inner instanceof HTMLElement) inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
+        };
+        const scheduleInfiniteRangeShift = () => {
+            if (state.timelineInfiniteRangeShifting || infiniteRangeRaf) return;
+            infiniteRangeRaf = requestAnimationFrame(() => {
+                infiniteRangeRaf = 0;
+                if (state.timelineInfiniteRangeShifting) return;
+                if (ganttBody.classList.contains('tm-gantt-body--dragging-x') || modal.classList.contains('tm-modal--timeline-touch-lock')) return;
+                const totalWidth = Number(ganttBody.dataset?.tmGanttTotalWidth);
+                const viewportWidth = useGlobalScroll
+                    ? Number(globalScrollHost?.clientWidth || 0)
+                    : Number(ganttBody.clientWidth || 0);
+                if (!Number.isFinite(totalWidth) || !Number.isFinite(viewportWidth) || viewportWidth <= 0) return;
+                const leftPaneWidth = useGlobalScroll ? __tmGetTimelineLeftPaneWidth(modal) : 0;
+                const globalScrollLeft = useGlobalScroll ? Number(globalScrollHost?.scrollLeft || 0) : 0;
+                if (useGlobalScroll && leftPaneWidth > 0 && globalScrollLeft < leftPaneWidth) return;
+                const rawScrollLeft = useGlobalScroll
+                    ? globalScrollLeft - leftPaneWidth
+                    : Number(ganttBody.scrollLeft || 0);
+                const timelineScrollLeft = Math.max(0, rawScrollLeft);
+                const scrollableWidth = Math.max(0, totalWidth - viewportWidth);
+                const threshold = Math.min(viewportWidth, Math.max(96, scrollableWidth / 3));
+                if (totalWidth <= viewportWidth + threshold * 2) return;
+                const endDistance = totalWidth - (timelineScrollLeft + viewportWidth);
+                const direction = timelineScrollLeft <= threshold ? -1 : (endDistance <= threshold ? 1 : 0);
+                if (!direction) return;
+                try { globalThis.tmGanttExtendRange?.(direction); } catch (e) {}
+            });
         };
         const onGroupClick = (ev) => {
             const row = ev?.target instanceof Element ? ev.target.closest('.tm-gantt-row--group') : null;
@@ -24933,11 +24985,7 @@ return true;
         };
 
         if (useGlobalScroll) {
-            const syncMobileGroupX = () => {
-                try { __tmSyncTimelineMobileGroupStickyOffset(modal, { defer: true }); } catch (e) {}
-            };
-            try { __tmSyncTimelineMobileGroupStickyOffset(modal); } catch (e) {}
-            bind(globalScrollHost, 'scroll', syncMobileGroupX, { passive: true });
+            bind(globalScrollHost, 'scroll', scheduleInfiniteRangeShift, { passive: true });
         } else if (leftBody instanceof HTMLElement) {
             let syncing = false;
             const syncFromLeft = () => {
@@ -24960,15 +25008,23 @@ return true;
             bind(ganttBody, 'scroll', () => {
                 syncHeaderX();
                 syncFromRight();
+                scheduleInfiniteRangeShift();
             }, { passive: true });
             if (ganttHeader instanceof HTMLElement) bind(ganttHeader, 'wheel', onGanttWheel, { passive: true });
         } else {
-            bind(ganttBody, 'scroll', syncHeaderX, { passive: true });
+            bind(ganttBody, 'scroll', () => {
+                syncHeaderX();
+                scheduleInfiniteRangeShift();
+            }, { passive: true });
             if (ganttHeader instanceof HTMLElement) bind(ganttHeader, 'wheel', onGanttWheel, { passive: true });
         }
         bind(ganttBody, 'click', onGroupClick, true);
+        bind(window, 'pointerup', scheduleInfiniteRangeShift, true);
+        bind(window, 'pointercancel', scheduleInfiniteRangeShift, true);
         syncHeaderX();
         modal.__tmTimelineStageInteractionsCleanup = () => {
+            try { if (infiniteRangeRaf) cancelAnimationFrame(infiniteRangeRaf); } catch (e) {}
+            infiniteRangeRaf = 0;
             cleanups.splice(0).forEach((cleanup) => cleanup());
             modal.__tmTimelineStageInteractionsCleanup = null;
         };
@@ -25228,61 +25284,57 @@ return true;
                                 refresh: false,
                                 refreshCalendar: true,
                                 skipInteractionGate: true,
+                                timelineMutation: true,
                             });
-                            if (hasStartDate) task.startDate = task.start_date = datePatch.startDate;
-                            if (hasCompletionTime) task.completionTime = task.completion_time = datePatch.completionTime;
                         } catch (e) {
                             hint(`❌ 更新失败: ${e.message}`, 'error');
                         }
-                        if (__tmCanUpdateTimelineDatesInPlace(task) && __tmUpdateTimelineTaskInDOM(id)) {
-                            return;
-                        }
-                        __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'timeline-gantt-drag-fallback', taskIds: [id] });
                     },
                     onUpdateTaskMeta: async (taskId, patch) => {
                         const id = String(taskId || '').trim();
                         if (!id || !patch || typeof patch !== 'object') return;
-                        const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-                            || state.flatTasks?.[id]
-                            || state.pendingInsertedTasks?.[id]
-                            || null;
-                        if (!task) return;
                         const hasMilestone = Object.prototype.hasOwnProperty.call(patch, 'milestone');
                         if (!hasMilestone) return;
                         const val = !!patch.milestone;
-                        task.milestone = val;
-                        try {
+                        return await __tmEnqueueTimelineMutation(async () => {
+                            const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                                || state.flatTasks?.[id]
+                                || state.pendingInsertedTasks?.[id]
+                                || null;
+                            if (!task) return;
                             const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
                             if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                            void patchTask(id, { milestone: val ? '1' : '' }, {
+                            return await patchTask(id, { milestone: val ? '1' : '' }, {
                                 source: 'timeline-gantt-meta',
                                 label: '甘特字段',
                                 reason: 'timeline-gantt-meta',
-                                background: true,
-                                wait: false,
+                                background: false,
+                                wait: true,
                                 withFilters: false,
                                 skipSettledRefresh: true,
                                 skipInteractionGate: true,
-                            }).catch((error) => {
-                                try { __tmReportTaskOutboxFailure(error, { action: '甘特字段' }); } catch (e2) {}
                             });
-                        } catch (e) {
+                        }, { label: 'timeline-gantt-meta' }).catch((e) => {
                             hint(`❌ 更新失败: ${e.message}`, 'error');
-                        }
-                        __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'timeline-gantt-meta-fallback', taskIds: [id] });
+                            throw e;
+                        });
                     },
                 });
             } catch (e) {}
         }
         if (opts.appendOnly === true) return true;
         __tmScheduleTimelineTodayIndicatorRefresh();
+        const anchoredLeft = typeof __tmResolveAndConsumeTimelineDateAnchor === 'function'
+            ? __tmResolveAndConsumeTimelineDateAnchor(modal)
+            : null;
+        const restoredLeft = Number.isFinite(anchoredLeft) ? anchoredLeft : savedLeft;
 
         if (useGlobalScroll) {
             try { leftBody.scrollTop = 0; } catch (e) {}
             try { ganttBody.scrollTop = 0; } catch (e) {}
             try { ganttBody.scrollLeft = 0; } catch (e) {}
             try { globalScrollHost.scrollTop = savedTop; } catch (e) {}
-            try { globalScrollHost.scrollLeft = savedLeft; } catch (e) {}
+            try { globalScrollHost.scrollLeft = restoredLeft; } catch (e) {}
             try {
                 const inner = ganttHeader?.querySelector?.('.tm-gantt-header-inner');
                 if (inner) inner.style.transform = '';
@@ -25290,12 +25342,27 @@ return true;
         } else {
             try { leftBody.scrollTop = savedTop; } catch (e) {}
             try { ganttBody.scrollTop = savedTop; } catch (e) {}
-            try { ganttBody.scrollLeft = savedLeft; } catch (e) {}
+            try { ganttBody.scrollLeft = restoredLeft; } catch (e) {}
             try {
                 const inner = ganttHeader?.querySelector?.('.tm-gantt-header-inner');
                 if (inner) inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
             } catch (e) {}
         }
+        try {
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                const deferredAnchoredLeft = typeof __tmResolveAndConsumeTimelineDateAnchor === 'function'
+                    ? __tmResolveAndConsumeTimelineDateAnchor(modal)
+                    : null;
+                const deferredRestoredLeft = Number.isFinite(deferredAnchoredLeft) ? deferredAnchoredLeft : restoredLeft;
+                if (useGlobalScroll) {
+                    try { globalScrollHost.scrollLeft = deferredRestoredLeft; } catch (e) {}
+                    return;
+                }
+                try { ganttBody.scrollLeft = deferredRestoredLeft; } catch (e) {}
+                const inner = ganttHeader?.querySelector?.('.tm-gantt-header-inner');
+                if (inner) inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
+            }));
+        } catch (e) {}
 
         try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {
             try { Promise.resolve().then(() => { try { __tmRunFlipAnimation(modal); } catch (e2) {} }); } catch (e2) {}

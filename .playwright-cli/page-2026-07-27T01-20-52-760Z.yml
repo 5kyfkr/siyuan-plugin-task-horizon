@@ -1,0 +1,272 @@
+- generic [ref=f7e2]:
+  - banner [ref=f7e3]:
+    - generic "任务范围" [ref=f7e4]:
+      - button "工作" [ref=f7e5] [cursor=pointer]
+      - button "时长" [ref=f7e8] [cursor=pointer]
+      - button "按时间" [ref=f7e11] [cursor=pointer]
+    - tablist "任务视图" [ref=f7e14]:
+      - tab "表格" [ref=f7e15] [cursor=pointer]
+      - tab "清单" [ref=f7e16] [cursor=pointer]
+      - tab "看板" [ref=f7e17] [cursor=pointer]
+      - tab "时间轴" [selected] [ref=f7e18] [cursor=pointer]
+      - tab "白板" [ref=f7e19] [cursor=pointer]
+      - tab "日历" [ref=f7e20] [cursor=pointer]
+    - generic "时间轴工具" [ref=f7e21]:
+      - button "隐藏任务侧栏" [ref=f7e22] [cursor=pointer]
+      - group "时间轴尺度" [ref=f7e25]:
+        - button "日" [ref=f7e26] [cursor=pointer]
+        - button "周" [active] [pressed] [ref=f7e27] [cursor=pointer]
+        - button "月" [ref=f7e28] [cursor=pointer]
+      - generic [ref=f7e29]:
+        - button "缩小当前尺度" [ref=f7e30] [cursor=pointer]
+        - button "放大当前尺度" [ref=f7e32] [cursor=pointer]
+      - button "适配任务范围" [ref=f7e36] [cursor=pointer]
+      - button "定位今天" [ref=f7e39] [cursor=pointer]
+    - generic [ref=f7e42]:
+      - button "搜索" [ref=f7e43] [cursor=pointer]
+      - button "刷新" [ref=f7e46] [cursor=pointer]
+      - button "切换深色主题" [ref=f7e49] [cursor=pointer]
+      - button "设置" [ref=f7e52] [cursor=pointer]
+  - main [ref=f7e55]:
+    - region "任务列表" [ref=f7e56]:
+      - row [ref=f7e57]:
+        - columnheader "任务内容" [ref=f7e58]
+        - columnheader "开始" [ref=f7e59]
+        - columnheader "截止" [ref=f7e60]
+      - generic [ref=f7e61]:
+        - row "置顶 6" [ref=f7e750]:
+          - generic [ref=f7e751]:
+            - generic [ref=f7e754]: 置顶
+            - generic [ref=f7e755]: "6"
+        - row "ECVR-FM 单向阀泵测测试 高优先级 · 泵测计划 7月9日 7月21日" [ref=f7e756]:
+          - generic [ref=f7e760]:
+            - generic [ref=f7e761]: ECVR-FM 单向阀泵测测试
+            - generic [ref=f7e762]: 高优先级 · 泵测计划
+          - generic [ref=f7e763]: 7月9日
+          - generic [ref=f7e764]: 7月21日
+        - row "逸云天配置关闭 ECN 配置变更 · 待复核 7月15日 7月30日" [ref=f7e765]:
+          - generic [ref=f7e769]:
+            - generic [ref=f7e770]: 逸云天配置关闭 ECN
+            - generic [ref=f7e771]: 配置变更 · 待复核
+          - generic [ref=f7e772]: 7月15日
+          - generic [ref=f7e773]: 7月30日
+        - row "富仁 can 转脉冲器适配性排查 联调任务 · 负责人已确认 7月23日 8月10日" [ref=f7e774]:
+          - generic [ref=f7e778]:
+            - generic [ref=f7e779]: 富仁 can 转脉冲器适配性排查
+            - generic [ref=f7e780]: 联调任务 · 负责人已确认
+          - generic [ref=f7e781]: 7月23日
+          - generic [ref=f7e782]: 8月10日
+        - row "VFM+ZP 与三项精度排查 精度评审 · 需要样本 8月1日 8月18日" [ref=f7e783]:
+          - generic [ref=f7e787]:
+            - generic [ref=f7e788]: VFM+ZP 与三项精度排查
+            - generic [ref=f7e789]: 精度评审 · 需要样本
+          - generic [ref=f7e790]: 8月1日
+          - generic [ref=f7e791]: 8月18日
+        - row "在线监测 TQC+ 8 加油点设置界面优化 产品优化 · 本周计划 8月14日 8月30日" [ref=f7e792]:
+          - generic [ref=f7e796]:
+            - generic [ref=f7e797]: 在线监测 TQC+ 8 加油点设置界面优化
+            - generic [ref=f7e798]: 产品优化 · 本周计划
+          - generic [ref=f7e799]: 8月14日
+          - generic [ref=f7e800]: 8月30日
+        - row "改造配置会议纪要发出 会议行动项 8月24日 8月26日" [ref=f7e801]:
+          - generic [ref=f7e805]:
+            - generic [ref=f7e806]: 改造配置会议纪要发出
+            - generic [ref=f7e807]: 会议行动项
+          - generic [ref=f7e808]: 8月24日
+          - generic [ref=f7e809]: 8月26日
+        - row "已过期 7" [ref=f7e810]:
+          - generic [ref=f7e811]:
+            - generic [ref=f7e814]: 已过期
+            - generic [ref=f7e815]: "7"
+        - row "胶管导入 ECN 逾期 · 等待数据 6月9日 6月22日" [ref=f7e816]:
+          - generic [ref=f7e820]:
+            - generic [ref=f7e821]: 胶管导入 ECN
+            - generic [ref=f7e822]: 逾期 · 等待数据
+          - generic [ref=f7e823]: 6月9日
+          - generic [ref=f7e824]: 6月22日
+        - row "售后 VFM 统计表更新 逾期 · 售后反馈 6月19日 7月5日" [ref=f7e825]:
+          - generic [ref=f7e829]:
+            - generic [ref=f7e830]: 售后 VFM 统计表更新
+            - generic [ref=f7e831]: 逾期 · 售后反馈
+          - generic [ref=f7e832]: 6月19日
+          - generic [ref=f7e833]: 7月5日
+        - row "两把嘉松枪寄回入库 物流追踪 · 已签收 6月27日 7月9日" [ref=f7e834]:
+          - generic [ref=f7e840]:
+            - generic [ref=f7e841]: 两把嘉松枪寄回入库
+            - generic [ref=f7e842]: 物流追踪 · 已签收
+          - generic [ref=f7e843]: 6月27日
+          - generic [ref=f7e844]: 7月9日
+        - row "泵拆解报告 NP 报告 · 等待结论 7月3日 7月24日" [ref=f7e845]:
+          - generic [ref=f7e849]:
+            - generic [ref=f7e850]: 泵拆解报告 NP
+            - generic [ref=f7e851]: 报告 · 等待结论
+          - generic [ref=f7e852]: 7月3日
+          - generic [ref=f7e853]: 7月24日
+        - row "3 月根据 OPW 测试流程优化泵测试流程 流程优化 · 跨团队 7月19日 9月3日" [ref=f7e854]:
+          - generic [ref=f7e858]:
+            - generic [ref=f7e859]: 3 月根据 OPW 测试流程优化泵测试流程
+            - generic [ref=f7e860]: 流程优化 · 跨团队
+          - generic [ref=f7e861]: 7月19日
+          - generic [ref=f7e862]: 9月3日
+        - row "油枪不回弹故障件排查 故障分析 · 样件已到 7月29日 8月13日" [ref=f7e863]:
+          - generic [ref=f7e867]:
+            - generic [ref=f7e868]: 油枪不回弹故障件排查
+            - generic [ref=f7e869]: 故障分析 · 样件已到
+          - generic [ref=f7e870]: 7月29日
+          - generic [ref=f7e871]: 8月13日
+        - row "对接伟军油气回收改造方案表 方案对接 · 计划确认 8月16日 9月17日" [ref=f7e872]:
+          - generic [ref=f7e876]:
+            - generic [ref=f7e877]: 对接伟军油气回收改造方案表
+            - generic [ref=f7e878]: 方案对接 · 计划确认
+          - generic [ref=f7e879]: 8月16日
+          - generic [ref=f7e880]: 9月17日
+        - row "余 4 天 2" [ref=f7e881]:
+          - generic [ref=f7e882]:
+            - generic [ref=f7e885]: 余 4 天
+            - generic [ref=f7e886]: "2"
+        - row "确认周例会材料与责任人 本周交付 7月27日 7月31日" [ref=f7e887]:
+          - generic [ref=f7e891]:
+            - generic [ref=f7e892]: 确认周例会材料与责任人
+            - generic [ref=f7e893]: 本周交付
+          - generic [ref=f7e894]: 7月27日
+          - generic [ref=f7e895]: 7月31日
+        - row "发布适配性测试阶段结论 里程碑 · 等待签发 7月30日 8月3日" [ref=f7e896]:
+          - generic [ref=f7e900]:
+            - generic [ref=f7e901]: 发布适配性测试阶段结论
+            - generic [ref=f7e902]: 里程碑 · 等待签发
+          - generic [ref=f7e903]: 7月30日
+          - generic [ref=f7e904]: 8月3日
+        - row "后续计划 3" [ref=f7e905]:
+          - generic [ref=f7e906]:
+            - generic [ref=f7e909]: 后续计划
+            - generic [ref=f7e910]: "3"
+        - row "第三季度油枪改造复盘 季度复盘 9月11日 10月4日" [ref=f7e911]:
+          - generic [ref=f7e915]:
+            - generic [ref=f7e916]: 第三季度油枪改造复盘
+            - generic [ref=f7e917]: 季度复盘
+          - generic [ref=f7e918]: 9月11日
+          - generic [ref=f7e919]: 10月4日
+        - row "新版本台架数据对比 版本验证 9月25日 10月17日" [ref=f7e920]:
+          - generic [ref=f7e924]:
+            - generic [ref=f7e925]: 新版本台架数据对比
+            - generic [ref=f7e926]: 版本验证
+          - generic [ref=f7e927]: 9月25日
+          - generic [ref=f7e928]: 10月17日
+        - row "年度供应商样件复核 供应链 · 等待排期 10月9日 10月27日" [ref=f7e929]:
+          - generic [ref=f7e933]:
+            - generic [ref=f7e934]: 年度供应商样件复核
+            - generic [ref=f7e935]: 供应链 · 等待排期
+          - generic [ref=f7e936]: 10月9日
+          - generic [ref=f7e937]: 10月27日
+    - region "甘特时间轴" [ref=f7e250]:
+      - generic [ref=f7e252]:
+        - generic [ref=f7e938]:
+          - generic [ref=f7e939]: 2026年5月
+          - generic [ref=f7e941]: 2026年6月
+          - generic [ref=f7e943]: 2026年7月
+          - generic [ref=f7e945]: 2026年8月
+          - generic [ref=f7e947]: 2026年9月
+          - generic [ref=f7e949]: 2026年10月
+          - generic [ref=f7e951]: 2026年11月
+          - generic [ref=f7e953]: 2026年12月
+        - generic [ref=f7e955]:
+          - generic "5.11–17，W20" [ref=f7e956]: 5.11–17
+          - generic "5.18–24，W21" [ref=f7e958]: 5.18–24
+          - generic "5.25–31，W22" [ref=f7e960]: 5.25–31
+          - generic "6.1–7，W23" [ref=f7e962]: 6.1–7
+          - generic "6.8–14，W24" [ref=f7e964]: 6.8–14
+          - generic "6.15–21，W25" [ref=f7e966]: 6.15–21
+          - generic "6.22–28，W26" [ref=f7e968]: 6.22–28
+          - generic "6.29–7.5，W27" [ref=f7e970]: 6.29–7.5
+          - generic "7.6–12，W28" [ref=f7e972]: 7.6–12
+          - generic "7.13–19，W29" [ref=f7e974]: 7.13–19
+          - generic "7.20–26，W30" [ref=f7e976]: 7.20–26
+          - generic "7.27–8.2，W31" [ref=f7e978]: 7.27–8.2
+          - generic "8.3–9，W32" [ref=f7e980]: 8.3–9
+          - generic "8.10–16，W33" [ref=f7e982]: 8.10–16
+          - generic "8.17–23，W34" [ref=f7e984]: 8.17–23
+          - generic "8.24–30，W35" [ref=f7e986]: 8.24–30
+          - generic "8.31–9.6，W36" [ref=f7e988]: 8.31–9.6
+          - generic "9.7–13，W37" [ref=f7e990]: 9.7–13
+          - generic "9.14–20，W38" [ref=f7e992]: 9.14–20
+          - generic "9.21–27，W39" [ref=f7e994]: 9.21–27
+          - generic "9.28–10.4，W40" [ref=f7e996]: 9.28–10.4
+          - generic "10.5–11，W41" [ref=f7e998]: 10.5–11
+          - generic "10.12–18，W42" [ref=f7e1000]: 10.12–18
+          - generic "10.19–25，W43" [ref=f7e1002]: 10.19–25
+          - generic "10.26–11.1，W44" [ref=f7e1004]: 10.26–11.1
+          - generic "11.2–8，W45" [ref=f7e1006]: 11.2–8
+          - generic "11.9–15，W46" [ref=f7e1008]: 11.9–15
+          - generic "11.16–22，W47" [ref=f7e1010]: 11.16–22
+          - generic "11.23–29，W48" [ref=f7e1012]: 11.23–29
+          - generic "11.30–12.6，W49" [ref=f7e1014]: 11.30–12.6
+          - generic "12.7–13，W50" [ref=f7e1016]: 12.7–13
+          - generic "12.14–20，W51" [ref=f7e1018]: 12.14–20
+          - generic "12.21–27，W52" [ref=f7e1020]: 12.21–27
+      - generic [ref=f7e673]:
+        - button "ECVR-FM 单向阀泵测测试，7月9日至7月21日" [ref=f7e1024]:
+          - generic:
+            - generic: ECVR-FM 单向阀泵测测试
+            - generic: 待处理
+        - button "逸云天配置关闭 ECN，7月15日至7月30日" [ref=f7e1028]:
+          - generic:
+            - generic: 逸云天配置关闭 ECN
+            - generic: 进行
+        - button "富仁 can 转脉冲器适配性排查，7月23日至8月10日" [ref=f7e1032]:
+          - generic:
+            - generic: 富仁 can 转脉冲器适配性排查
+            - generic: 进行
+        - button "VFM+ZP 与三项精度排查，8月1日至8月18日" [ref=f7e1036]:
+          - generic:
+            - generic: VFM+ZP 与三项精度排查
+            - generic: 评审
+        - button "在线监测 TQC+ 8 加油点设置界面优化，8月14日至8月30日" [ref=f7e1040]:
+          - generic:
+            - generic: 在线监测 TQC+ 8 加油点设置界面优化
+            - generic: 待处理
+        - button "改造配置会议纪要发出，8月24日至8月26日" [ref=f7e1044]:
+          - generic: 改造配置会议纪要发出
+        - button "胶管导入 ECN，6月9日至6月22日" [ref=f7e1049]:
+          - generic:
+            - generic: 胶管导入 ECN
+            - generic: 阻塞
+        - button "售后 VFM 统计表更新，6月19日至7月5日" [ref=f7e1053]:
+          - generic:
+            - generic: 售后 VFM 统计表更新
+            - generic: 待处理
+        - button "两把嘉松枪寄回入库，6月27日至7月9日" [ref=f7e1057]:
+          - generic:
+            - generic: 两把嘉松枪寄回入库
+            - generic: 完成
+        - button "泵拆解报告 NP，7月3日至7月24日" [ref=f7e1061]:
+          - generic:
+            - generic: 泵拆解报告 NP
+            - generic: 待处理
+        - button "3 月根据 OPW 测试流程优化泵测试流程，7月19日至9月3日" [ref=f7e1065]:
+          - generic:
+            - generic: 3 月根据 OPW 测试流程优化泵测试流程
+            - generic: 进行
+        - button "油枪不回弹故障件排查，7月29日至8月13日" [ref=f7e1069]:
+          - generic:
+            - generic: 油枪不回弹故障件排查
+            - generic: 待处理
+        - button "对接伟军油气回收改造方案表，8月16日至9月17日" [ref=f7e1073]:
+          - generic:
+            - generic: 对接伟军油气回收改造方案表
+            - generic: 计划
+        - button "确认周例会材料与责任人，7月27日至7月31日" [ref=f7e1078]:
+          - generic: 确认周例会材料与责任人
+        - button "发布适配性测试阶段结论，7月30日至8月3日" [ref=f7e1082]:
+          - generic: 发布适配性测试阶段结论
+        - button "第三季度油枪改造复盘，9月11日至10月4日" [ref=f7e1087]:
+          - generic:
+            - generic: 第三季度油枪改造复盘
+            - generic: 计划
+        - button "新版本台架数据对比，9月25日至10月17日" [ref=f7e1091]:
+          - generic:
+            - generic: 新版本台架数据对比
+            - generic: 计划
+        - button "年度供应商样件复核，10月9日至10月27日" [ref=f7e1095]:
+          - generic:
+            - generic: 年度供应商样件复核
+            - generic: 计划

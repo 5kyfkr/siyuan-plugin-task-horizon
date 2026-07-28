@@ -1,0 +1,443 @@
+- generic [ref=f7e2]:
+  - banner [ref=f7e3]:
+    - generic "任务范围" [ref=f7e4]:
+      - button "工作" [ref=f7e5] [cursor=pointer]
+      - button "时长" [ref=f7e8] [cursor=pointer]
+      - button "按时间" [ref=f7e11] [cursor=pointer]
+    - tablist "任务视图" [ref=f7e14]:
+      - tab "表格" [ref=f7e15] [cursor=pointer]
+      - tab "清单" [ref=f7e16] [cursor=pointer]
+      - tab "看板" [ref=f7e17] [cursor=pointer]
+      - tab "时间轴" [selected] [ref=f7e18] [cursor=pointer]
+      - tab "白板" [ref=f7e19] [cursor=pointer]
+      - tab "日历" [ref=f7e20] [cursor=pointer]
+    - generic "时间轴工具" [ref=f7e21]:
+      - button "隐藏任务侧栏" [ref=f7e22] [cursor=pointer]
+      - group "时间轴尺度" [ref=f7e25]:
+        - button "日" [active] [pressed] [ref=f7e26] [cursor=pointer]
+        - button "周" [ref=f7e27] [cursor=pointer]
+        - button "月" [ref=f7e28] [cursor=pointer]
+      - generic [ref=f7e29]:
+        - button "缩小当前尺度" [ref=f7e30] [cursor=pointer]
+        - button "放大当前尺度" [ref=f7e32] [cursor=pointer]
+      - button "适配任务范围" [ref=f7e36] [cursor=pointer]
+      - button "定位今天" [ref=f7e39] [cursor=pointer]
+    - generic [ref=f7e42]:
+      - button "搜索" [ref=f7e43] [cursor=pointer]
+      - button "刷新" [ref=f7e46] [cursor=pointer]
+      - button "切换深色主题" [ref=f7e49] [cursor=pointer]
+      - button "设置" [ref=f7e52] [cursor=pointer]
+  - main [ref=f7e55]:
+    - region "任务列表" [ref=f7e56]:
+      - row [ref=f7e57]:
+        - columnheader "任务内容" [ref=f7e58]
+        - columnheader "开始" [ref=f7e59]
+        - columnheader "截止" [ref=f7e60]
+      - generic [ref=f7e61]:
+        - row "置顶 6" [ref=f7e1098]:
+          - generic [ref=f7e1099]:
+            - generic [ref=f7e1102]: 置顶
+            - generic [ref=f7e1103]: "6"
+        - row "ECVR-FM 单向阀泵测测试 高优先级 · 泵测计划 7月9日 7月21日" [ref=f7e1104]:
+          - generic [ref=f7e1108]:
+            - generic [ref=f7e1109]: ECVR-FM 单向阀泵测测试
+            - generic [ref=f7e1110]: 高优先级 · 泵测计划
+          - generic [ref=f7e1111]: 7月9日
+          - generic [ref=f7e1112]: 7月21日
+        - row "逸云天配置关闭 ECN 配置变更 · 待复核 7月15日 7月30日" [ref=f7e1113]:
+          - generic [ref=f7e1117]:
+            - generic [ref=f7e1118]: 逸云天配置关闭 ECN
+            - generic [ref=f7e1119]: 配置变更 · 待复核
+          - generic [ref=f7e1120]: 7月15日
+          - generic [ref=f7e1121]: 7月30日
+        - row "富仁 can 转脉冲器适配性排查 联调任务 · 负责人已确认 7月23日 8月10日" [ref=f7e1122]:
+          - generic [ref=f7e1126]:
+            - generic [ref=f7e1127]: 富仁 can 转脉冲器适配性排查
+            - generic [ref=f7e1128]: 联调任务 · 负责人已确认
+          - generic [ref=f7e1129]: 7月23日
+          - generic [ref=f7e1130]: 8月10日
+        - row "VFM+ZP 与三项精度排查 精度评审 · 需要样本 8月1日 8月18日" [ref=f7e1131]:
+          - generic [ref=f7e1135]:
+            - generic [ref=f7e1136]: VFM+ZP 与三项精度排查
+            - generic [ref=f7e1137]: 精度评审 · 需要样本
+          - generic [ref=f7e1138]: 8月1日
+          - generic [ref=f7e1139]: 8月18日
+        - row "在线监测 TQC+ 8 加油点设置界面优化 产品优化 · 本周计划 8月14日 8月30日" [ref=f7e1140]:
+          - generic [ref=f7e1144]:
+            - generic [ref=f7e1145]: 在线监测 TQC+ 8 加油点设置界面优化
+            - generic [ref=f7e1146]: 产品优化 · 本周计划
+          - generic [ref=f7e1147]: 8月14日
+          - generic [ref=f7e1148]: 8月30日
+        - row "改造配置会议纪要发出 会议行动项 8月24日 8月26日" [ref=f7e1149]:
+          - generic [ref=f7e1153]:
+            - generic [ref=f7e1154]: 改造配置会议纪要发出
+            - generic [ref=f7e1155]: 会议行动项
+          - generic [ref=f7e1156]: 8月24日
+          - generic [ref=f7e1157]: 8月26日
+        - row "已过期 7" [ref=f7e1158]:
+          - generic [ref=f7e1159]:
+            - generic [ref=f7e1162]: 已过期
+            - generic [ref=f7e1163]: "7"
+        - row "胶管导入 ECN 逾期 · 等待数据 6月9日 6月22日" [ref=f7e1164]:
+          - generic [ref=f7e1168]:
+            - generic [ref=f7e1169]: 胶管导入 ECN
+            - generic [ref=f7e1170]: 逾期 · 等待数据
+          - generic [ref=f7e1171]: 6月9日
+          - generic [ref=f7e1172]: 6月22日
+        - row "售后 VFM 统计表更新 逾期 · 售后反馈 6月19日 7月5日" [ref=f7e1173]:
+          - generic [ref=f7e1177]:
+            - generic [ref=f7e1178]: 售后 VFM 统计表更新
+            - generic [ref=f7e1179]: 逾期 · 售后反馈
+          - generic [ref=f7e1180]: 6月19日
+          - generic [ref=f7e1181]: 7月5日
+        - row "两把嘉松枪寄回入库 物流追踪 · 已签收 6月27日 7月9日" [ref=f7e1182]:
+          - generic [ref=f7e1188]:
+            - generic [ref=f7e1189]: 两把嘉松枪寄回入库
+            - generic [ref=f7e1190]: 物流追踪 · 已签收
+          - generic [ref=f7e1191]: 6月27日
+          - generic [ref=f7e1192]: 7月9日
+        - row "泵拆解报告 NP 报告 · 等待结论 7月3日 7月24日" [ref=f7e1193]:
+          - generic [ref=f7e1197]:
+            - generic [ref=f7e1198]: 泵拆解报告 NP
+            - generic [ref=f7e1199]: 报告 · 等待结论
+          - generic [ref=f7e1200]: 7月3日
+          - generic [ref=f7e1201]: 7月24日
+        - row "3 月根据 OPW 测试流程优化泵测试流程 流程优化 · 跨团队 7月19日 9月3日" [ref=f7e1202]:
+          - generic [ref=f7e1206]:
+            - generic [ref=f7e1207]: 3 月根据 OPW 测试流程优化泵测试流程
+            - generic [ref=f7e1208]: 流程优化 · 跨团队
+          - generic [ref=f7e1209]: 7月19日
+          - generic [ref=f7e1210]: 9月3日
+        - row "油枪不回弹故障件排查 故障分析 · 样件已到 7月29日 8月13日" [ref=f7e1211]:
+          - generic [ref=f7e1215]:
+            - generic [ref=f7e1216]: 油枪不回弹故障件排查
+            - generic [ref=f7e1217]: 故障分析 · 样件已到
+          - generic [ref=f7e1218]: 7月29日
+          - generic [ref=f7e1219]: 8月13日
+        - row "对接伟军油气回收改造方案表 方案对接 · 计划确认 8月16日 9月17日" [ref=f7e1220]:
+          - generic [ref=f7e1224]:
+            - generic [ref=f7e1225]: 对接伟军油气回收改造方案表
+            - generic [ref=f7e1226]: 方案对接 · 计划确认
+          - generic [ref=f7e1227]: 8月16日
+          - generic [ref=f7e1228]: 9月17日
+        - row "余 4 天 2" [ref=f7e1229]:
+          - generic [ref=f7e1230]:
+            - generic [ref=f7e1233]: 余 4 天
+            - generic [ref=f7e1234]: "2"
+        - row "确认周例会材料与责任人 本周交付 7月27日 7月31日" [ref=f7e1235]:
+          - generic [ref=f7e1239]:
+            - generic [ref=f7e1240]: 确认周例会材料与责任人
+            - generic [ref=f7e1241]: 本周交付
+          - generic [ref=f7e1242]: 7月27日
+          - generic [ref=f7e1243]: 7月31日
+        - row "发布适配性测试阶段结论 里程碑 · 等待签发 7月30日 8月3日" [ref=f7e1244]:
+          - generic [ref=f7e1248]:
+            - generic [ref=f7e1249]: 发布适配性测试阶段结论
+            - generic [ref=f7e1250]: 里程碑 · 等待签发
+          - generic [ref=f7e1251]: 7月30日
+          - generic [ref=f7e1252]: 8月3日
+        - row "后续计划 3" [ref=f7e1253]:
+          - generic [ref=f7e1254]:
+            - generic [ref=f7e1257]: 后续计划
+            - generic [ref=f7e1258]: "3"
+        - row "第三季度油枪改造复盘 季度复盘 9月11日 10月4日" [ref=f7e1259]:
+          - generic [ref=f7e1263]:
+            - generic [ref=f7e1264]: 第三季度油枪改造复盘
+            - generic [ref=f7e1265]: 季度复盘
+          - generic [ref=f7e1266]: 9月11日
+          - generic [ref=f7e1267]: 10月4日
+        - row "新版本台架数据对比 版本验证 9月25日 10月17日" [ref=f7e1268]:
+          - generic [ref=f7e1272]:
+            - generic [ref=f7e1273]: 新版本台架数据对比
+            - generic [ref=f7e1274]: 版本验证
+          - generic [ref=f7e1275]: 9月25日
+          - generic [ref=f7e1276]: 10月17日
+        - row "年度供应商样件复核 供应链 · 等待排期 10月9日 10月27日" [ref=f7e1277]:
+          - generic [ref=f7e1281]:
+            - generic [ref=f7e1282]: 年度供应商样件复核
+            - generic [ref=f7e1283]: 供应链 · 等待排期
+          - generic [ref=f7e1284]: 10月9日
+          - generic [ref=f7e1285]: 10月27日
+    - region "甘特时间轴" [ref=f7e250]:
+      - generic [ref=f7e252]:
+        - generic [ref=f7e1286]:
+          - generic [ref=f7e1287]: 2026年5月
+          - generic [ref=f7e1289]: 2026年6月
+          - generic [ref=f7e1291]: 2026年7月
+          - generic [ref=f7e1293]: 2026年8月
+          - generic [ref=f7e1295]: 2026年9月
+          - generic [ref=f7e1297]: 2026年10月
+          - generic [ref=f7e1299]: 2026年11月
+          - generic [ref=f7e1301]: 2026年12月
+        - generic [ref=f7e1303]:
+          - generic [ref=f7e1304]: "25"
+          - generic [ref=f7e1306]: "26"
+          - generic [ref=f7e1308]: "27"
+          - generic [ref=f7e1310]: "28"
+          - generic [ref=f7e1312]: "29"
+          - generic [ref=f7e1314]: "30"
+          - generic [ref=f7e1316]: "31"
+          - generic [ref=f7e1318]: "1"
+          - generic [ref=f7e1320]: "2"
+          - generic [ref=f7e1322]: "3"
+          - generic [ref=f7e1324]: "4"
+          - generic [ref=f7e1326]: "5"
+          - generic [ref=f7e1328]: "6"
+          - generic [ref=f7e1330]: "7"
+          - generic [ref=f7e1332]: "8"
+          - generic [ref=f7e1334]: "9"
+          - generic [ref=f7e1336]: "10"
+          - generic [ref=f7e1338]: "11"
+          - generic [ref=f7e1340]: "12"
+          - generic [ref=f7e1342]: "13"
+          - generic [ref=f7e1344]: "14"
+          - generic [ref=f7e1346]: "15"
+          - generic [ref=f7e1348]: "16"
+          - generic [ref=f7e1350]: "17"
+          - generic [ref=f7e1352]: "18"
+          - generic [ref=f7e1354]: "19"
+          - generic [ref=f7e1356]: "20"
+          - generic [ref=f7e1358]: "21"
+          - generic [ref=f7e1360]: "22"
+          - generic [ref=f7e1362]: "23"
+          - generic [ref=f7e1364]: "24"
+          - generic [ref=f7e1366]: "25"
+          - generic [ref=f7e1368]: "26"
+          - generic [ref=f7e1370]: "27"
+          - generic [ref=f7e1372]: "28"
+          - generic [ref=f7e1374]: "29"
+          - generic [ref=f7e1376]: "30"
+          - generic [ref=f7e1378]: "1"
+          - generic [ref=f7e1380]: "2"
+          - generic [ref=f7e1382]: "3"
+          - generic [ref=f7e1384]: "4"
+          - generic [ref=f7e1386]: "5"
+          - generic [ref=f7e1388]: "6"
+          - generic [ref=f7e1390]: "7"
+          - generic [ref=f7e1392]: "8"
+          - generic [ref=f7e1394]: "9"
+          - generic [ref=f7e1396]: "10"
+          - generic [ref=f7e1398]: "11"
+          - generic [ref=f7e1400]: "12"
+          - generic [ref=f7e1402]: "13"
+          - generic [ref=f7e1404]: "14"
+          - generic [ref=f7e1406]: "15"
+          - generic [ref=f7e1408]: "16"
+          - generic [ref=f7e1410]: "17"
+          - generic [ref=f7e1412]: "18"
+          - generic [ref=f7e1414]: "19"
+          - generic [ref=f7e1416]: "20"
+          - generic [ref=f7e1418]: "21"
+          - generic [ref=f7e1420]: "22"
+          - generic [ref=f7e1422]: "23"
+          - generic [ref=f7e1424]: "24"
+          - generic [ref=f7e1426]: "25"
+          - generic [ref=f7e1428]: "26"
+          - generic [ref=f7e1430]: "27"
+          - generic [ref=f7e1432]: "28"
+          - generic [ref=f7e1434]: "29"
+          - generic [ref=f7e1436]: "30"
+          - generic [ref=f7e1438]: "31"
+          - generic [ref=f7e1440]: "1"
+          - generic [ref=f7e1442]: "2"
+          - generic [ref=f7e1444]: "3"
+          - generic [ref=f7e1446]: "4"
+          - generic [ref=f7e1448]: "5"
+          - generic [ref=f7e1450]: "6"
+          - generic [ref=f7e1452]: "7"
+          - generic [ref=f7e1454]: "8"
+          - generic [ref=f7e1456]: "9"
+          - generic [ref=f7e1458]: "10"
+          - generic [ref=f7e1460]: "11"
+          - generic [ref=f7e1462]: "12"
+          - generic [ref=f7e1464]: "13"
+          - generic [ref=f7e1466]: "14"
+          - generic [ref=f7e1468]: "15"
+          - generic [ref=f7e1470]: "16"
+          - generic [ref=f7e1472]: "17"
+          - generic [ref=f7e1474]: "18"
+          - generic [ref=f7e1476]: "19"
+          - generic [ref=f7e1478]: "20"
+          - generic [ref=f7e1480]: "21"
+          - generic [ref=f7e1482]: "22"
+          - generic [ref=f7e1484]: "23"
+          - generic [ref=f7e1486]: "24"
+          - generic [ref=f7e1488]: "25"
+          - generic [ref=f7e1490]: "26"
+          - generic [ref=f7e1492]: "27"
+          - generic [ref=f7e1494]: "28"
+          - generic [ref=f7e1496]: "29"
+          - generic [ref=f7e1498]: "30"
+          - generic [ref=f7e1500]: "31"
+          - generic [ref=f7e1502]: "1"
+          - generic [ref=f7e1504]: "2"
+          - generic [ref=f7e1506]: "3"
+          - generic [ref=f7e1508]: "4"
+          - generic [ref=f7e1510]: "5"
+          - generic [ref=f7e1512]: "6"
+          - generic [ref=f7e1514]: "7"
+          - generic [ref=f7e1516]: "8"
+          - generic [ref=f7e1518]: "9"
+          - generic [ref=f7e1520]: "10"
+          - generic [ref=f7e1522]: "11"
+          - generic [ref=f7e1524]: "12"
+          - generic [ref=f7e1526]: "13"
+          - generic [ref=f7e1528]: "14"
+          - generic [ref=f7e1530]: "15"
+          - generic [ref=f7e1532]: "16"
+          - generic [ref=f7e1534]: "17"
+          - generic [ref=f7e1536]: "18"
+          - generic [ref=f7e1538]: "19"
+          - generic [ref=f7e1540]: "20"
+          - generic [ref=f7e1542]: "21"
+          - generic [ref=f7e1544]: "22"
+          - generic [ref=f7e1546]: "23"
+          - generic [ref=f7e1548]: "24"
+          - generic [ref=f7e1550]: "25"
+          - generic [ref=f7e1552]: "26"
+          - generic [ref=f7e1554]: "27"
+          - generic [ref=f7e1556]: "28"
+          - generic [ref=f7e1558]: "29"
+          - generic [ref=f7e1560]: "30"
+          - generic [ref=f7e1562]: "1"
+          - generic [ref=f7e1564]: "2"
+          - generic [ref=f7e1566]: "3"
+          - generic [ref=f7e1568]: "4"
+          - generic [ref=f7e1570]: "5"
+          - generic [ref=f7e1572]: "6"
+          - generic [ref=f7e1574]: "7"
+          - generic [ref=f7e1576]: "8"
+          - generic [ref=f7e1578]: "9"
+          - generic [ref=f7e1580]: "10"
+          - generic [ref=f7e1582]: "11"
+          - generic [ref=f7e1584]: "12"
+          - generic [ref=f7e1586]: "13"
+          - generic [ref=f7e1588]: "14"
+          - generic [ref=f7e1590]: "15"
+          - generic [ref=f7e1592]: "16"
+          - generic [ref=f7e1594]: "17"
+          - generic [ref=f7e1596]: "18"
+          - generic [ref=f7e1598]: "19"
+          - generic [ref=f7e1600]: "20"
+          - generic [ref=f7e1602]: "21"
+          - generic [ref=f7e1604]: "22"
+          - generic [ref=f7e1606]: "23"
+          - generic [ref=f7e1608]: "24"
+          - generic [ref=f7e1610]: "25"
+          - generic [ref=f7e1612]: "26"
+          - generic [ref=f7e1614]: "27"
+          - generic [ref=f7e1616]: "28"
+          - generic [ref=f7e1618]: "29"
+          - generic [ref=f7e1620]: "30"
+          - generic [ref=f7e1622]: "31"
+          - generic [ref=f7e1624]: "1"
+          - generic [ref=f7e1626]: "2"
+          - generic [ref=f7e1628]: "3"
+          - generic [ref=f7e1630]: "4"
+          - generic [ref=f7e1632]: "5"
+          - generic [ref=f7e1634]: "6"
+          - generic [ref=f7e1636]: "7"
+          - generic [ref=f7e1638]: "8"
+          - generic [ref=f7e1640]: "9"
+          - generic [ref=f7e1642]: "10"
+          - generic [ref=f7e1644]: "11"
+          - generic [ref=f7e1646]: "12"
+          - generic [ref=f7e1648]: "13"
+          - generic [ref=f7e1650]: "14"
+          - generic [ref=f7e1652]: "15"
+          - generic [ref=f7e1654]: "16"
+          - generic [ref=f7e1656]: "17"
+          - generic [ref=f7e1658]: "18"
+          - generic [ref=f7e1660]: "19"
+          - generic [ref=f7e1662]: "20"
+          - generic [ref=f7e1664]: "21"
+          - generic [ref=f7e1666]: "22"
+          - generic [ref=f7e1668]: "23"
+          - generic [ref=f7e1670]: "24"
+          - generic [ref=f7e1672]: "25"
+          - generic [ref=f7e1674]: "26"
+          - generic [ref=f7e1676]: "27"
+          - generic [ref=f7e1678]: "28"
+          - generic [ref=f7e1680]: "29"
+          - generic [ref=f7e1682]: "30"
+          - generic [ref=f7e1684]: "1"
+          - generic [ref=f7e1686]: "2"
+          - generic [ref=f7e1688]: "3"
+          - generic [ref=f7e1690]: "4"
+          - generic [ref=f7e1692]: "5"
+          - generic [ref=f7e1694]: "6"
+          - generic [ref=f7e1696]: "7"
+          - generic [ref=f7e1698]: "8"
+          - generic [ref=f7e1700]: "9"
+          - generic [ref=f7e1702]: "10"
+      - generic [ref=f7e673]:
+        - button "ECVR-FM 单向阀泵测测试，7月9日至7月21日" [ref=f7e1706]:
+          - generic:
+            - generic: ECVR-FM 单向阀泵测测试
+            - generic: 待处理
+        - button "逸云天配置关闭 ECN，7月15日至7月30日" [ref=f7e1710]:
+          - generic:
+            - generic: 逸云天配置关闭 ECN
+            - generic: 进行
+        - button "富仁 can 转脉冲器适配性排查，7月23日至8月10日" [ref=f7e1714]:
+          - generic:
+            - generic: 富仁 can 转脉冲器适配性排查
+            - generic: 进行
+        - button "VFM+ZP 与三项精度排查，8月1日至8月18日" [ref=f7e1718]:
+          - generic:
+            - generic: VFM+ZP 与三项精度排查
+            - generic: 评审
+        - button "在线监测 TQC+ 8 加油点设置界面优化，8月14日至8月30日" [ref=f7e1722]:
+          - generic:
+            - generic: 在线监测 TQC+ 8 加油点设置界面优化
+            - generic: 待处理
+        - button "改造配置会议纪要发出，8月24日至8月26日" [ref=f7e1726]:
+          - generic: 改造配置会议纪要发出
+        - button "胶管导入 ECN，6月9日至6月22日" [ref=f7e1731]:
+          - generic:
+            - generic: 胶管导入 ECN
+            - generic: 阻塞
+        - button "售后 VFM 统计表更新，6月19日至7月5日" [ref=f7e1735]:
+          - generic:
+            - generic: 售后 VFM 统计表更新
+            - generic: 待处理
+        - button "两把嘉松枪寄回入库，6月27日至7月9日" [ref=f7e1739]:
+          - generic:
+            - generic: 两把嘉松枪寄回入库
+            - generic: 完成
+        - button "泵拆解报告 NP，7月3日至7月24日" [ref=f7e1743]:
+          - generic:
+            - generic: 泵拆解报告 NP
+            - generic: 待处理
+        - button "3 月根据 OPW 测试流程优化泵测试流程，7月19日至9月3日" [ref=f7e1747]:
+          - generic:
+            - generic: 3 月根据 OPW 测试流程优化泵测试流程
+            - generic: 进行
+        - button "油枪不回弹故障件排查，7月29日至8月13日" [ref=f7e1751]:
+          - generic:
+            - generic: 油枪不回弹故障件排查
+            - generic: 待处理
+        - button "对接伟军油气回收改造方案表，8月16日至9月17日" [ref=f7e1755]:
+          - generic:
+            - generic: 对接伟军油气回收改造方案表
+            - generic: 计划
+        - button "确认周例会材料与责任人，7月27日至7月31日" [ref=f7e1760]:
+          - generic:
+            - generic: 确认周例会材料与责任人
+            - generic: 进行
+        - button "发布适配性测试阶段结论，7月30日至8月3日" [ref=f7e1764]:
+          - generic:
+            - generic: 发布适配性测试阶段结论
+            - generic: 评审
+        - button "第三季度油枪改造复盘，9月11日至10月4日" [ref=f7e1769]:
+          - generic:
+            - generic: 第三季度油枪改造复盘
+            - generic: 计划
+        - button "新版本台架数据对比，9月25日至10月17日" [ref=f7e1773]:
+          - generic:
+            - generic: 新版本台架数据对比
+            - generic: 计划
+        - button "年度供应商样件复核，10月9日至10月27日" [ref=f7e1777]:
+          - generic:
+            - generic: 年度供应商样件复核
+            - generic: 计划

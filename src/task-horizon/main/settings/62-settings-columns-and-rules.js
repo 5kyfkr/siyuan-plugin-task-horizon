@@ -574,6 +574,7 @@
         const compactKey = `customField:${currentFieldId}`;
         SettingsStore.data.customFieldDefs = nextDefs;
         SettingsStore.data.columnOrder = (Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : []).filter((key) => key !== colKey);
+        SettingsStore.data.timelineColumnOrder = (Array.isArray(SettingsStore.data.timelineColumnOrder) ? SettingsStore.data.timelineColumnOrder : []).filter((key) => key !== colKey);
         SettingsStore.data.hiddenColumns = (Array.isArray(SettingsStore.data.hiddenColumns) ? SettingsStore.data.hiddenColumns : []).filter((key) => key !== colKey);
         ['desktopChecklistCompactMetaFields', 'dockChecklistCompactMetaFields', 'mobileChecklistCompactMetaFields'].forEach((settingsKey) => {
             SettingsStore.data[settingsKey] = __tmNormalizeCompactChecklistMetaFields(SettingsStore.data[settingsKey], []).filter((key) => key !== compactKey);
@@ -631,6 +632,7 @@
         );
         SettingsStore.data.customFieldDefs = [];
         SettingsStore.data.columnOrder = (Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : []).filter((key) => !colKeys.has(String(key || '').trim()));
+        SettingsStore.data.timelineColumnOrder = (Array.isArray(SettingsStore.data.timelineColumnOrder) ? SettingsStore.data.timelineColumnOrder : []).filter((key) => !colKeys.has(String(key || '').trim()));
         SettingsStore.data.hiddenColumns = (Array.isArray(SettingsStore.data.hiddenColumns) ? SettingsStore.data.hiddenColumns : []).filter((key) => !colKeys.has(String(key || '').trim()));
         ['desktopChecklistCompactMetaFields', 'dockChecklistCompactMetaFields', 'mobileChecklistCompactMetaFields'].forEach((settingsKey) => {
             SettingsStore.data[settingsKey] = __tmNormalizeCompactChecklistMetaFields(SettingsStore.data[settingsKey], []).filter((key) => !compactKeys.has(String(key || '').trim()));
@@ -1455,13 +1457,71 @@
         renderDialog();
     };
 
-    window.tmShowColumnHeaderContextMenu = function(event, columnKey = '') {
+    async function __tmApplyTimelineColumnOrder(nextOrder, source = 'timeline-columns') {
+        const previousOrder = __tmGetTimelineColumnOrder();
+        const normalizedOrder = __tmNormalizeTimelineColumnOrder(nextOrder);
+        if (normalizedOrder.join('\u0000') === previousOrder.join('\u0000')) return true;
+        const previousPlan = __tmBuildRuntimeCustomFieldLoadPlan({
+            viewMode: 'timeline',
+            colOrder: previousOrder,
+        });
+        SettingsStore.data.timelineColumnOrder = normalizedOrder;
+        SettingsStore.normalizeColumns();
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { await SettingsStore.save(); } catch (e) {}
+        const nextPlan = __tmBuildRuntimeCustomFieldLoadPlan({
+            viewMode: 'timeline',
+            colOrder: __tmGetTimelineColumnOrder(),
+        });
+        if (__tmDoesCustomFieldPlanNeedReload(previousPlan, nextPlan)) {
+            try {
+                await loadSelectedDocuments({
+                    showInlineLoading: false,
+                    source,
+                });
+                return true;
+            } catch (e) {}
+        }
+        render();
+        return true;
+    }
+
+    window.tmSetTimelineColumnVisible = async function(columnKey, visible) {
+        const key = String(columnKey || '').trim();
+        if (!key || !__tmGetKnownColumnKeys().has(key)) return false;
+        const order = __tmGetTimelineColumnOrder();
+        const hasColumn = order.includes(key);
+        if (visible === true) {
+            if (hasColumn) return true;
+            return __tmApplyTimelineColumnOrder(order.concat(key), 'timeline-column-show');
+        }
+        if (!hasColumn) return true;
+        if (order.length <= 1) {
+            hint('时间轴至少需要保留一列', 'info');
+            return false;
+        }
+        return __tmApplyTimelineColumnOrder(order.filter((item) => item !== key), 'timeline-column-hide');
+    };
+
+    window.tmMoveTimelineColumn = async function(columnKey, direction) {
+        const key = String(columnKey || '').trim();
+        const step = Number(direction) < 0 ? -1 : 1;
+        const order = __tmGetTimelineColumnOrder();
+        const index = order.indexOf(key);
+        const nextIndex = index + step;
+        if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return false;
+        [order[index], order[nextIndex]] = [order[nextIndex], order[index]];
+        return __tmApplyTimelineColumnOrder(order, 'timeline-column-move');
+    };
+
+    window.tmShowColumnHeaderContextMenu = function(event, columnKey = '', options = {}) {
         try {
             event?.preventDefault?.();
             event?.stopPropagation?.();
         } catch (e) {}
         const key = String(columnKey || '').trim();
         if (!key) return false;
+        const scope = String(options?.scope || '').trim();
         const existingMenu = document.getElementById('tm-column-context-menu');
         if (existingMenu) existingMenu.remove();
         if (state.columnContextMenuCloseHandler) {
@@ -1506,6 +1566,58 @@
             };
             menu.appendChild(item);
         };
+        const createDivider = () => {
+            const divider = document.createElement('hr');
+            divider.style.cssText = 'margin:4px 0;border:none;border-top:1px solid var(--b3-theme-surface-light);';
+            menu.appendChild(divider);
+        };
+        if (scope === 'timeline') {
+            const order = __tmGetTimelineColumnOrder();
+            const index = order.indexOf(key);
+            if (index > 0) createItem('向左移动', () => { window.tmMoveTimelineColumn(key, -1).catch(() => null); });
+            if (index >= 0 && index < order.length - 1) createItem('向右移动', () => { window.tmMoveTimelineColumn(key, 1).catch(() => null); });
+            createItem(`隐藏“${__tmResolveColumnLabel(key)}”`, () => { window.tmSetTimelineColumnVisible(key, false).catch(() => null); });
+            createDivider();
+
+            const listLabel = document.createElement('div');
+            listLabel.textContent = '显示列';
+            listLabel.style.cssText = 'padding:4px 12px 3px;color:var(--b3-theme-on-surface);font-size:12px;';
+            menu.appendChild(listLabel);
+            const list = document.createElement('div');
+            list.style.cssText = 'display:flex;flex-direction:column;max-height:260px;overflow-y:auto;overscroll-behavior:contain;';
+            __tmGetAllColumnDefs().forEach((def) => {
+                const colKey = String(def?.key || '').trim();
+                if (!colKey) return;
+                const row = document.createElement('label');
+                row.style.cssText = 'display:flex;align-items:center;gap:8px;min-height:30px;padding:2px 12px;cursor:pointer;font-size:13px;color:var(--b3-theme-on-background);box-sizing:border-box;';
+                row.onmouseenter = () => row.style.backgroundColor = 'var(--b3-theme-surface-light)';
+                row.onmouseleave = () => row.style.backgroundColor = 'transparent';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = order.includes(colKey);
+                checkbox.setAttribute('aria-label', `显示${__tmResolveColumnLabel(colKey)}`);
+                checkbox.addEventListener('change', () => {
+                    const requested = checkbox.checked;
+                    window.tmSetTimelineColumnVisible(colKey, requested).then((ok) => {
+                        if (!ok) checkbox.checked = !requested;
+                    }).catch(() => { checkbox.checked = !requested; });
+                });
+                const text = document.createElement('span');
+                text.textContent = __tmResolveColumnLabel(colKey);
+                text.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                row.append(checkbox, text);
+                list.appendChild(row);
+            });
+            menu.appendChild(list);
+            createDivider();
+            createItem('管理自定义列', () => window.tmOpenCustomFieldDialog('', { manager: true }));
+            document.body.appendChild(menu);
+            __tmClampFloatingMenuToViewport(menu, event.clientX, event.clientY, { margin: 8 });
+            const closeHandler = () => close();
+            state.columnContextMenuCloseHandler = closeHandler;
+            __tmScheduleBindOutsideCloseHandler(closeHandler, { ignoreSelector: '#tm-column-context-menu' });
+            return false;
+        }
         const fieldId = __tmParseCustomFieldColumnKey(key);
         const field = fieldId ? __tmGetCustomFieldDefMap().get(fieldId) : null;
         createItem('新增单选列', () => window.tmOpenCustomFieldDialog('', { type: 'single' }));
@@ -1513,16 +1625,12 @@
         createItem('新增文本列', () => window.tmOpenCustomFieldDialog('', { type: 'text' }));
         createItem('管理自定义列', () => window.tmOpenCustomFieldDialog('', { manager: true }));
         if (field) {
-            const divider = document.createElement('hr');
-            divider.style.cssText = 'margin:4px 0;border:none;border-top:1px solid var(--b3-theme-surface-light);';
-            menu.appendChild(divider);
+            createDivider();
             createItem(`编辑“${field.name}”`, () => window.tmOpenCustomFieldDialog(fieldId));
             createItem(`隐藏“${field.name}”`, () => window.toggleColumn(key, false, { refreshSettings: false }));
             createItem(`删除“${field.name}”`, () => { window.tmDeleteCustomFieldById(fieldId).catch(() => null); }, true);
         } else {
-            const divider = document.createElement('hr');
-            divider.style.cssText = 'margin:4px 0;border:none;border-top:1px solid var(--b3-theme-surface-light);';
-            menu.appendChild(divider);
+            createDivider();
             createItem(`隐藏“${__tmResolveColumnLabel(key)}”`, () => window.toggleColumn(key, false, { refreshSettings: false }));
         }
         document.body.appendChild(menu);

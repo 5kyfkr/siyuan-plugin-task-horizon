@@ -1245,7 +1245,6 @@ if (shouldMarkDirty) {
                 '__tmKanbanBoardNavSyncRaf',
                 '__tmChecklistScrollFxRaf',
                 '__tmTableScrollFxRaf',
-                '__tmMobileTimelineGroupShiftRaf',
             ];
             const listenerKeys = [
                 ['__tmAutoLoadMoreScrollHandler', 'scroll'],

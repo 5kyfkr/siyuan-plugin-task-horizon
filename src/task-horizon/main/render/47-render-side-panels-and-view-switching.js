@@ -849,7 +849,7 @@
             nextStage.className = [
                 'tm-main-stage',
                 scene.showMobileBottomViewBar ? 'tm-main-stage--with-bottom-viewbar' : '',
-                scene.showTimelineFloatingToolbar ? 'tm-main-stage--timeline-mobile-toolbar' : '',
+                scene.showTimelineFloatingToolbar ? 'tm-main-stage--timeline-floating-toolbar' : '',
             ].filter(Boolean).join(' ');
             nextStage.style.setProperty('--tm-view-bottom-inset', String(scene.mainStageBottomInset || '0px'));
             nextStage.innerHTML = `${scene.timelineFloatingToolbarHtml || ''}${scene.bodyWithSideDockHtml || bodyHtml}${scene.multiSelectBarHtml || ''}${scene.taskDetailSheetHtml || ''}`;

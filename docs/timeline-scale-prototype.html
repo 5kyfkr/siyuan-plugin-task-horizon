@@ -1,0 +1,1645 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="icon" href="data:,">
+  <title>Task Horizon 时间轴尺度原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: var(--b3-theme-background, oklch(98% 0.006 235));
+      --surface: var(--b3-theme-surface, oklch(96.5% 0.008 235));
+      --surface-strong: var(--b3-theme-surface-light, oklch(93.5% 0.01 235));
+      --surface-raised: oklch(99.2% 0.004 235);
+      --text: var(--b3-theme-on-background, oklch(25% 0.018 235));
+      --text-soft: var(--b3-theme-on-surface, oklch(36% 0.018 235));
+      --muted: var(--b3-theme-on-surface-light, oklch(55% 0.018 235));
+      --primary: var(--b3-theme-primary, oklch(55% 0.14 238));
+      --primary-soft: var(--b3-theme-primary-light, oklch(92.5% 0.04 238));
+      --border: color-mix(in oklch, var(--text) 13%, transparent);
+      --border-soft: color-mix(in oklch, var(--text) 7%, transparent);
+      --grid-line: color-mix(in oklch, var(--text) 7%, transparent);
+      --grid-strong: color-mix(in oklch, var(--text) 14%, transparent);
+      --weekend: color-mix(in oklch, var(--text) 4%, transparent);
+      --weekend-header: color-mix(in oklch, var(--text) 10%, transparent);
+      --current-period: color-mix(in oklch, var(--primary) 8%, transparent);
+      --danger: oklch(58% 0.18 27);
+      --warning: oklch(69% 0.14 72);
+      --success: oklch(57% 0.12 153);
+      --violet: oklch(59% 0.13 292);
+      --row-height: 50px;
+      --header-height: 48px;
+      --task-width: 478px;
+      --toolbar-height: 54px;
+      --control-height: 32px;
+      --shadow: 0 14px 40px color-mix(in oklch, var(--text) 12%, transparent);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: oklch(22% 0.009 240);
+      --surface: oklch(25.5% 0.01 240);
+      --surface-strong: oklch(30% 0.012 240);
+      --surface-raised: oklch(27.5% 0.01 240);
+      --text: oklch(91% 0.009 240);
+      --text-soft: oklch(82% 0.011 240);
+      --muted: oklch(67% 0.012 240);
+      --primary: oklch(70% 0.12 238);
+      --primary-soft: oklch(34% 0.045 238);
+      --border: color-mix(in oklch, var(--text) 15%, transparent);
+      --border-soft: color-mix(in oklch, var(--text) 8%, transparent);
+      --grid-line: color-mix(in oklch, var(--text) 7%, transparent);
+      --grid-strong: color-mix(in oklch, var(--text) 15%, transparent);
+      --weekend: color-mix(in oklch, var(--text) 4.8%, transparent);
+      --weekend-header: color-mix(in oklch, var(--text) 11%, transparent);
+      --current-period: color-mix(in oklch, var(--primary) 10%, transparent);
+      --danger: oklch(68% 0.15 27);
+      --warning: oklch(75% 0.12 72);
+      --success: oklch(68% 0.11 153);
+      --violet: oklch(72% 0.11 292);
+      --shadow: 0 18px 48px oklch(10% 0.01 240 / 0.44);
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button {
+      margin: 0;
+      border: 0;
+      font: inherit;
+      color: inherit;
+      letter-spacing: 0;
+    }
+
+    button:not(:disabled) { cursor: pointer; }
+
+    button:focus-visible,
+    [tabindex="0"]:focus-visible {
+      outline: 2px solid color-mix(in oklch, var(--primary) 78%, transparent);
+      outline-offset: 2px;
+    }
+
+    .icon-sprite {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
+    .icon {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .app-shell {
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      display: grid;
+      grid-template-rows: var(--toolbar-height) minmax(0, 1fr);
+      background: var(--bg);
+      isolation: isolate;
+    }
+
+    .topbar {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--border-soft);
+      background: var(--surface);
+      z-index: 30;
+    }
+
+    .toolbar-section,
+    .control-cluster,
+    .view-switcher,
+    .scale-segmented {
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .toolbar-section { gap: 7px; }
+    .toolbar-section--scope { flex: 0 1 auto; }
+    .toolbar-section--timeline { margin-left: auto; gap: 7px; }
+    .toolbar-section--global { flex: 0 0 auto; gap: 5px; }
+
+    .scope-button,
+    .icon-button,
+    .view-button,
+    .scale-button,
+    .mobile-tool-button,
+    .scale-menu-button {
+      height: var(--control-height);
+      min-height: var(--control-height);
+      border: 1px solid transparent;
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: transparent;
+      transition: background 160ms cubic-bezier(.22,1,.36,1), border-color 160ms cubic-bezier(.22,1,.36,1), color 160ms cubic-bezier(.22,1,.36,1), transform 120ms cubic-bezier(.22,1,.36,1);
+    }
+
+    .scope-button {
+      padding: 0 10px;
+      border-color: var(--border-soft);
+      background: var(--surface-raised);
+      color: var(--text-soft);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .icon-button {
+      width: var(--control-height);
+      min-width: var(--control-height);
+      padding: 0;
+      color: var(--text-soft);
+    }
+
+    .icon-button:hover,
+    .scope-button:hover,
+    .mobile-tool-button:hover,
+    .scale-menu-button:hover {
+      background: color-mix(in oklch, var(--primary-soft) 54%, var(--surface));
+      border-color: var(--border);
+    }
+
+    .icon-button:active,
+    .scope-button:active,
+    .mobile-tool-button:active,
+    .scale-menu-button:active { transform: scale(.96); }
+
+    .icon-button:disabled {
+      opacity: .35;
+      cursor: default;
+    }
+
+    .toolbar-divider {
+      width: 1px;
+      height: 20px;
+      margin: 0 1px;
+      background: var(--border);
+    }
+
+    .view-switcher,
+    .scale-segmented {
+      padding: 2px;
+      border: 1px solid var(--border-soft);
+      border-radius: 8px;
+      background: color-mix(in oklch, var(--surface-strong) 68%, var(--surface));
+    }
+
+    .view-button {
+      padding: 0 9px;
+      height: 28px;
+      min-height: 28px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .view-button.is-active {
+      background: var(--surface-raised);
+      border-color: var(--border-soft);
+      color: var(--text);
+      box-shadow: 0 1px 2px color-mix(in oklch, var(--text) 9%, transparent);
+    }
+
+    .scale-button {
+      min-width: 34px;
+      height: 26px;
+      min-height: 26px;
+      padding: 0 8px;
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .scale-button:hover { color: var(--text); }
+
+    .scale-button.is-active {
+      background: var(--surface-raised);
+      border-color: var(--border-soft);
+      color: var(--primary);
+      box-shadow: 0 1px 2px color-mix(in oklch, var(--text) 8%, transparent);
+    }
+
+    .timeline-main {
+      min-width: 0;
+      min-height: 0;
+      position: relative;
+      display: grid;
+      grid-template-columns: var(--task-width) minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .task-pane,
+    .chart-pane {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: var(--header-height) minmax(0, 1fr);
+      background: var(--bg);
+    }
+
+    .task-pane {
+      position: relative;
+      z-index: 12;
+      border-right: 1px solid var(--border);
+    }
+
+    .timeline-main.is-sidebar-collapsed {
+      grid-template-columns: 0 minmax(0, 1fr);
+    }
+
+    .timeline-main.is-sidebar-collapsed .task-pane {
+      width: 0;
+      overflow: hidden;
+      border-right: 0;
+      visibility: hidden;
+    }
+
+    .task-header,
+    .chart-header-viewport {
+      min-width: 0;
+      min-height: var(--header-height);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .task-header {
+      display: grid;
+      grid-template-columns: minmax(230px, 1fr) 94px 94px;
+      align-items: stretch;
+    }
+
+    .task-header-cell {
+      min-width: 0;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      color: var(--text-soft);
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+      border-right: 1px solid var(--border-soft);
+    }
+
+    .task-header-cell:last-child { border-right: 0; }
+
+    .task-body {
+      min-height: 0;
+      overflow: auto;
+      scrollbar-width: none;
+      overscroll-behavior: contain;
+      background: var(--bg);
+    }
+
+    .task-body::-webkit-scrollbar { width: 0; height: 0; }
+
+    .task-row {
+      height: var(--row-height);
+      min-height: var(--row-height);
+      display: grid;
+      grid-template-columns: minmax(230px, 1fr) 94px 94px;
+      align-items: stretch;
+      background: var(--row-bg, transparent);
+      box-shadow: inset 0 -1px 0 var(--border-soft);
+    }
+
+    .task-row.is-group {
+      color: var(--group-color, var(--text));
+      background: color-mix(in oklch, var(--surface) 91%, var(--group-color, var(--text)) 9%);
+    }
+
+    .task-cell {
+      min-width: 0;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      border-right: 1px solid var(--border-soft);
+      overflow: hidden;
+    }
+
+    .task-cell:last-child { border-right: 0; }
+
+    .group-cell {
+      grid-column: 1 / -1;
+      gap: 7px;
+      font-weight: 700;
+    }
+
+    .group-count {
+      min-width: 22px;
+      height: 20px;
+      padding: 0 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      background: color-mix(in oklch, var(--surface-raised) 82%, var(--group-color) 18%);
+      color: var(--text-soft);
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .task-title-wrap {
+      width: 100%;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .task-check {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 18px;
+      border: 2px solid var(--task-color, var(--muted));
+      border-radius: 50%;
+      background: color-mix(in oklch, var(--bg) 86%, var(--task-color, var(--muted)) 14%);
+    }
+
+    .task-check.is-done {
+      display: grid;
+      place-items: center;
+      border-color: var(--success);
+      background: color-mix(in oklch, var(--success) 18%, var(--bg));
+      color: var(--success);
+    }
+
+    .task-copy {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+
+    .task-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--task-color, var(--text));
+      font-weight: 620;
+    }
+
+    .task-meta {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .date-cell {
+      color: var(--text-soft);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .chart-pane { position: relative; z-index: 1; }
+
+    .chart-header-viewport {
+      overflow: hidden;
+      position: relative;
+      z-index: 8;
+    }
+
+    .chart-header {
+      height: var(--header-height);
+      will-change: transform;
+      user-select: none;
+    }
+
+    .header-row {
+      height: 26px;
+      display: flex;
+    }
+
+    .header-row--lower {
+      height: 22px;
+      box-shadow: inset 0 1px 0 var(--border-soft);
+    }
+
+    .header-cell {
+      flex: 0 0 auto;
+      min-width: 0;
+      position: relative;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+      border-right: 1px solid var(--grid-strong);
+      color: var(--text-soft);
+      white-space: nowrap;
+    }
+
+    .header-cell--upper {
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .header-label {
+      display: inline-block;
+      will-change: transform;
+    }
+
+    .header-cell--lower {
+      justify-content: center;
+      gap: 4px;
+      padding: 0 5px;
+      border-right-color: var(--grid-line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 560;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .header-cell--lower.is-strong { border-right-color: var(--grid-strong); }
+    .header-cell--lower.is-weekend { background: var(--weekend-header); }
+    .header-cell.is-current { background: var(--current-period); }
+
+    .header-cell.is-current .header-date {
+      min-width: 19px;
+      height: 18px;
+      padding: 0 5px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 5px;
+      background: var(--primary);
+      color: var(--surface-raised);
+      font-weight: 720;
+    }
+
+    .chart-scroll {
+      min-height: 0;
+      overflow: auto;
+      position: relative;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+      background: var(--bg);
+    }
+
+    .chart-canvas {
+      min-width: 100%;
+      position: relative;
+      isolation: isolate;
+    }
+
+    .grid-layer,
+    .current-line,
+    .chart-row-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .grid-layer {
+      z-index: 0;
+      display: flex;
+      pointer-events: none;
+    }
+
+    .grid-cell {
+      height: 100%;
+      flex: 0 0 auto;
+      border-right: 1px solid var(--grid-line);
+      background: transparent;
+    }
+
+    .grid-cell.is-weekend { background: var(--weekend); }
+    .grid-cell.is-current { background: var(--current-period); }
+    .grid-cell.is-strong { border-right-color: var(--grid-strong); }
+
+    .current-line {
+      z-index: 2;
+      width: 1px;
+      background: color-mix(in oklch, var(--primary) 72%, transparent);
+      pointer-events: none;
+    }
+
+    .current-line::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -2px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--primary);
+    }
+
+    .chart-row-layer { z-index: 3; }
+
+    .chart-row {
+      height: var(--row-height);
+      min-height: var(--row-height);
+      position: relative;
+      background: var(--row-bg, transparent);
+      box-shadow: inset 0 -1px 0 var(--border-soft);
+    }
+
+    .chart-row.is-group {
+      background: color-mix(in oklch, var(--surface) 91%, var(--group-color, var(--text)) 9%);
+    }
+
+    .chart-canvas[data-scale="day"] .chart-row {
+      background-image: linear-gradient(
+        to right,
+        var(--weekend) 0 var(--weekend-width),
+        transparent var(--weekend-width) 100%
+      );
+      background-size: var(--week-width) 100%;
+      background-position: var(--weekend-offset) 0;
+      background-repeat: repeat-x;
+    }
+
+    .group-chip {
+      position: sticky;
+      left: 10px;
+      top: 0;
+      width: max-content;
+      max-width: min(320px, calc(100vw - 36px));
+      height: var(--row-height);
+      padding: 0 9px;
+      display: none;
+      align-items: center;
+      gap: 7px;
+      color: var(--group-color, var(--text));
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .timeline-main.is-sidebar-collapsed .group-chip { display: inline-flex; }
+
+    .gantt-bar {
+      --bar-color: var(--primary);
+      position: absolute;
+      top: 9px;
+      height: 32px;
+      min-width: 12px;
+      border: 1px solid color-mix(in oklch, var(--bar-color) 45%, var(--border));
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      overflow: visible;
+      color: color-mix(in oklch, var(--text) 80%, var(--bar-color) 20%);
+      background: color-mix(in oklch, var(--surface-raised) 82%, var(--bar-color) 18%);
+      box-shadow: 0 1px 2px color-mix(in oklch, var(--text) 9%, transparent);
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      transition: background 160ms cubic-bezier(.22,1,.36,1), border-color 160ms cubic-bezier(.22,1,.36,1), box-shadow 160ms cubic-bezier(.22,1,.36,1);
+    }
+
+    .gantt-bar:hover,
+    .gantt-bar:focus-visible {
+      border-color: color-mix(in oklch, var(--bar-color) 68%, var(--border));
+      background: color-mix(in oklch, var(--surface-raised) 75%, var(--bar-color) 25%);
+      box-shadow: 0 3px 10px color-mix(in oklch, var(--bar-color) 16%, transparent);
+      z-index: 6;
+    }
+
+    .gantt-bar.is-dragging {
+      cursor: grabbing;
+      z-index: 9;
+      box-shadow: 0 8px 22px color-mix(in oklch, var(--bar-color) 24%, transparent);
+    }
+
+    .bar-content {
+      min-width: 0;
+      height: 100%;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .bar-dot {
+      width: 9px;
+      height: 9px;
+      flex: 0 0 9px;
+      border: 2px solid var(--bar-color);
+      border-radius: 50%;
+      background: var(--surface-raised);
+    }
+
+    .bar-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 680;
+    }
+
+    .bar-status {
+      height: 20px;
+      flex: 0 0 auto;
+      padding: 0 7px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      background: color-mix(in oklch, var(--surface-raised) 72%, var(--bar-color) 28%);
+      color: color-mix(in oklch, var(--text) 72%, var(--bar-color) 28%);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .bar-overflow-label {
+      position: absolute;
+      left: calc(100% + 7px);
+      top: 0;
+      width: max-content;
+      max-width: 190px;
+      height: 30px;
+      display: none;
+      align-items: center;
+      overflow: hidden;
+      color: var(--text-soft);
+      font-size: 11px;
+      font-weight: 620;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .gantt-bar.is-compact .bar-title,
+    .gantt-bar.is-compact .bar-status { display: none; }
+
+    .gantt-bar.is-compact .bar-overflow-label { display: inline-flex; }
+
+    .bar-handle {
+      position: absolute;
+      top: 3px;
+      bottom: 3px;
+      width: 9px;
+      border-radius: 4px;
+      opacity: 0;
+      cursor: ew-resize;
+    }
+
+    .bar-handle::after {
+      content: '';
+      position: absolute;
+      top: 8px;
+      bottom: 8px;
+      left: 4px;
+      width: 1px;
+      background: color-mix(in oklch, var(--bar-color) 70%, var(--text));
+    }
+
+    .bar-handle--start { left: 1px; }
+    .bar-handle--end { right: 1px; }
+
+    .gantt-bar:hover .bar-handle,
+    .gantt-bar:focus-visible .bar-handle,
+    .gantt-bar.is-dragging .bar-handle { opacity: 1; }
+
+    .drag-label {
+      position: absolute;
+      left: 50%;
+      top: -29px;
+      transform: translateX(-50%);
+      height: 24px;
+      padding: 0 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      display: none;
+      align-items: center;
+      background: var(--surface-raised);
+      color: var(--text-soft);
+      box-shadow: var(--shadow);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .gantt-bar.is-dragging .drag-label { display: inline-flex; }
+
+    .mobile-topbar-title,
+    .mobile-toolbar,
+    .mobile-backdrop { display: none; }
+
+    .mobile-toolbar {
+      position: absolute;
+      left: 50%;
+      bottom: max(14px, env(safe-area-inset-bottom));
+      z-index: 40;
+      transform: translateX(-50%);
+      align-items: center;
+      gap: 3px;
+      padding: 4px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-raised);
+      box-shadow: var(--shadow);
+    }
+
+    .mobile-tool-button {
+      width: 44px;
+      min-width: 44px;
+      height: 44px;
+      min-height: 44px;
+      padding: 0;
+      color: var(--text-soft);
+    }
+
+    .mobile-tool-button--scale {
+      width: auto;
+      min-width: 60px;
+      padding: 0 9px;
+      font-weight: 700;
+    }
+
+    .mobile-scale-menu {
+      position: absolute;
+      left: 48px;
+      bottom: 56px;
+      width: 128px;
+      padding: 4px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: grid;
+      gap: 2px;
+      background: var(--surface-raised);
+      box-shadow: var(--shadow);
+      transform-origin: bottom left;
+    }
+
+    .mobile-scale-menu[hidden] { display: none; }
+
+    .scale-menu-button {
+      width: 100%;
+      height: 44px;
+      min-height: 44px;
+      padding: 0 12px;
+      justify-content: flex-start;
+      color: var(--text-soft);
+      font-weight: 620;
+    }
+
+    .scale-menu-button.is-active {
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    @media (max-width: 1180px) {
+      .scope-button[data-optional="true"] { display: none; }
+      .view-button { padding-inline: 7px; }
+      :root { --task-width: 430px; }
+    }
+
+    @media (max-width: 920px) and (min-width: 769px) {
+      .toolbar-section--scope { display: none; }
+      .view-button:not(.is-active) { display: none; }
+      .view-switcher { margin-right: auto; }
+      :root { --task-width: 390px; }
+    }
+
+    @media (max-width: 768px) {
+      :root {
+        --toolbar-height: 52px;
+        --task-width: min(86vw, 360px);
+        --row-height: 52px;
+      }
+
+      .topbar {
+        justify-content: space-between;
+        padding: 0 10px 0 14px;
+      }
+
+      .toolbar-section--scope,
+      .toolbar-section--timeline,
+      .view-switcher,
+      .toolbar-section--global .icon-button:not([data-theme-toggle]) { display: none; }
+
+      .mobile-topbar-title {
+        min-width: 0;
+        display: grid;
+        gap: 1px;
+      }
+
+      .mobile-topbar-title strong {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+      }
+
+      .mobile-topbar-title span {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .timeline-main,
+      .timeline-main.is-sidebar-collapsed {
+        display: block;
+      }
+
+      .chart-pane {
+        width: 100%;
+        height: 100%;
+      }
+
+      .task-pane,
+      .timeline-main.is-sidebar-collapsed .task-pane {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: var(--task-width);
+        visibility: visible;
+        z-index: 28;
+        border-right: 1px solid var(--border);
+        transform: translateX(-102%);
+        transition: transform 200ms cubic-bezier(.22,1,.36,1);
+        box-shadow: none;
+      }
+
+      .timeline-main.is-mobile-sidebar-open .task-pane {
+        transform: translateX(0);
+        box-shadow: 14px 0 34px color-mix(in oklch, var(--text) 16%, transparent);
+      }
+
+      .timeline-main.is-mobile-sidebar-open .mobile-backdrop {
+        position: absolute;
+        inset: 0;
+        z-index: 24;
+        display: block;
+        border: 0;
+        background: color-mix(in oklch, var(--text) 18%, transparent);
+      }
+
+      .task-header { grid-template-columns: minmax(220px, 1fr) 84px; }
+      .task-header-cell:last-child { display: none; }
+      .task-row { grid-template-columns: minmax(220px, 1fr) 84px; }
+      .task-row .task-cell:last-child { display: none; }
+
+      .mobile-toolbar { display: flex; }
+
+      .chart-canvas { height: calc(var(--rows-height) + 86px) !important; }
+      .grid-layer,
+      .current-line,
+      .chart-row-layer { height: var(--rows-height) !important; }
+
+      .group-chip { display: inline-flex; }
+
+      .bar-handle {
+        width: 13px;
+        opacity: 1;
+      }
+
+      .bar-handle::after { left: 6px; }
+    }
+
+    @media (max-width: 370px) {
+      .mobile-toolbar { max-width: calc(100% - 16px); }
+      .mobile-tool-button { width: 42px; min-width: 42px; }
+      .mobile-tool-button--scale { min-width: 56px; }
+    }
+
+    @media (pointer: coarse) {
+      .bar-handle { opacity: 1; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Inline Lucide icon subset for a dependency-free prototype. -->
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-panel-left" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8h10v8H7z"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M8 2v4M16 2v4M3 10h18"/><rect width="18" height="18" x="3" y="4" rx="2"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.42"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.2a2 2 0 0 1-2 0l-.1-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.1.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.7l-.1.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.1-.1a2 2 0 0 1 2 0l.4.2a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.2a2 2 0 0 1 2 0l.1.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.1-.1a2 2 0 0 1-1-1.7v-.5a2 2 0 0 1 1-1.7l.1-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.1.1a2 2 0 0 1-2 0l-.4-.2a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M5 17h14M6 3h12l-2 7 3 3H5l3-3Z"/></symbol>
+    <symbol id="i-ruler" viewBox="0 0 24 24"><path d="m16 2 6 6L8 22l-6-6Z"/><path d="m15 7 2 2M11 11l2 2M7 15l2 2"/></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="mobile-topbar-title">
+        <strong>时间轴</strong>
+        <span data-mobile-summary>全部任务 · 按时间</span>
+      </div>
+
+      <div class="toolbar-section toolbar-section--scope" aria-label="任务范围">
+        <button class="scope-button" type="button">工作 <svg class="icon"><use href="#i-chevron-down"/></svg></button>
+        <button class="scope-button" type="button" data-optional="true">时长 <svg class="icon"><use href="#i-chevron-down"/></svg></button>
+        <button class="scope-button" type="button" data-optional="true">按时间 <svg class="icon"><use href="#i-chevron-down"/></svg></button>
+      </div>
+
+      <div class="view-switcher" role="tablist" aria-label="任务视图">
+        <button class="view-button" type="button" role="tab" aria-selected="false">表格</button>
+        <button class="view-button" type="button" role="tab" aria-selected="false">清单</button>
+        <button class="view-button" type="button" role="tab" aria-selected="false">看板</button>
+        <button class="view-button is-active" type="button" role="tab" aria-selected="true">时间轴</button>
+        <button class="view-button" type="button" role="tab" aria-selected="false">白板</button>
+        <button class="view-button" type="button" role="tab" aria-selected="false">日历</button>
+      </div>
+
+      <div class="toolbar-section toolbar-section--timeline" aria-label="时间轴工具">
+        <button class="icon-button" type="button" data-sidebar-toggle aria-label="隐藏任务侧栏" title="隐藏任务侧栏"><svg class="icon"><use href="#i-panel-left"/></svg></button>
+        <div class="scale-segmented" role="group" aria-label="时间轴尺度">
+          <button class="scale-button" type="button" data-scale="day" aria-pressed="true">日</button>
+          <button class="scale-button" type="button" data-scale="week" aria-pressed="false">周</button>
+          <button class="scale-button" type="button" data-scale="month" aria-pressed="false">月</button>
+        </div>
+        <div class="control-cluster">
+          <button class="icon-button" type="button" data-zoom-out aria-label="缩小当前尺度" title="缩小当前尺度"><svg class="icon"><use href="#i-minus"/></svg></button>
+          <button class="icon-button" type="button" data-zoom-in aria-label="放大当前尺度" title="放大当前尺度"><svg class="icon"><use href="#i-plus"/></svg></button>
+        </div>
+        <span class="toolbar-divider" aria-hidden="true"></span>
+        <button class="icon-button" type="button" data-fit aria-label="适配任务范围" title="适配任务范围"><svg class="icon"><use href="#i-scan"/></svg></button>
+        <button class="icon-button" type="button" data-today aria-label="定位今天" title="定位今天"><svg class="icon"><use href="#i-calendar"/></svg></button>
+      </div>
+
+      <div class="toolbar-section toolbar-section--global">
+        <button class="icon-button" type="button" aria-label="搜索" title="搜索"><svg class="icon"><use href="#i-search"/></svg></button>
+        <button class="icon-button" type="button" aria-label="刷新" title="刷新"><svg class="icon"><use href="#i-refresh"/></svg></button>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换深色主题" title="切换深色主题"><svg class="icon"><use href="#i-moon"/></svg></button>
+        <button class="icon-button" type="button" aria-label="设置" title="设置"><svg class="icon"><use href="#i-settings"/></svg></button>
+      </div>
+    </header>
+
+    <main class="timeline-main" data-timeline-main>
+      <button class="mobile-backdrop" type="button" data-mobile-backdrop aria-label="关闭任务侧栏"></button>
+
+      <section class="task-pane" aria-label="任务列表">
+        <div class="task-header" role="row">
+          <div class="task-header-cell" role="columnheader">任务内容</div>
+          <div class="task-header-cell" role="columnheader">开始</div>
+          <div class="task-header-cell" role="columnheader">截止</div>
+        </div>
+        <div class="task-body" data-task-body></div>
+      </section>
+
+      <section class="chart-pane" aria-label="甘特时间轴">
+        <div class="chart-header-viewport">
+          <div class="chart-header" data-chart-header></div>
+        </div>
+        <div class="chart-scroll" data-chart-scroll>
+          <div class="chart-canvas" data-chart-canvas>
+            <div class="grid-layer" data-grid-layer></div>
+            <div class="current-line" data-current-line></div>
+            <div class="chart-row-layer" data-chart-rows></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="mobile-toolbar" aria-label="移动端时间轴工具">
+        <button class="mobile-tool-button" type="button" data-mobile-sidebar aria-label="显示任务侧栏" title="显示任务侧栏"><svg class="icon"><use href="#i-panel-left"/></svg></button>
+        <div style="position:relative">
+          <button class="mobile-tool-button mobile-tool-button--scale" type="button" data-mobile-scale aria-haspopup="menu" aria-expanded="false">
+            <svg class="icon"><use href="#i-ruler"/></svg><span data-mobile-scale-label>日</span><svg class="icon" style="width:13px"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="mobile-scale-menu" data-mobile-scale-menu role="menu" hidden>
+            <button class="scale-menu-button" type="button" role="menuitem" data-scale="day">日尺度</button>
+            <button class="scale-menu-button" type="button" role="menuitem" data-scale="week">周尺度</button>
+            <button class="scale-menu-button" type="button" role="menuitem" data-scale="month">月尺度</button>
+          </div>
+        </div>
+        <button class="mobile-tool-button" type="button" data-zoom-out aria-label="缩小当前尺度" title="缩小当前尺度"><svg class="icon"><use href="#i-minus"/></svg></button>
+        <button class="mobile-tool-button" type="button" data-zoom-in aria-label="放大当前尺度" title="放大当前尺度"><svg class="icon"><use href="#i-plus"/></svg></button>
+        <button class="mobile-tool-button" type="button" data-fit aria-label="适配任务范围" title="适配任务范围"><svg class="icon"><use href="#i-scan"/></svg></button>
+        <button class="mobile-tool-button" type="button" data-today aria-label="定位今天" title="定位今天"><svg class="icon"><use href="#i-calendar"/></svg></button>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const DAY_MS = 86400000;
+    const SCALE_CONFIG = {
+      day: { label: "日", zoom: [28, 32, 36, 40, 44], snapDays: 1 },
+      week: { label: "周", zoom: [84, 98, 112, 126], snapDays: 1 },
+      month: { label: "月", zoom: [80, 92, 104, 116, 128], snapDays: 7 },
+    };
+
+    const root = document.documentElement;
+    const main = document.querySelector("[data-timeline-main]");
+    const taskBody = document.querySelector("[data-task-body]");
+    const chartScroll = document.querySelector("[data-chart-scroll]");
+    const chartCanvas = document.querySelector("[data-chart-canvas]");
+    const chartHeader = document.querySelector("[data-chart-header]");
+    const gridLayer = document.querySelector("[data-grid-layer]");
+    const chartRows = document.querySelector("[data-chart-rows]");
+    const currentLine = document.querySelector("[data-current-line]");
+    const mobileScaleMenu = document.querySelector("[data-mobile-scale-menu]");
+    const mobileScaleButton = document.querySelector("[data-mobile-scale]");
+    const mobileScaleLabel = document.querySelector("[data-mobile-scale-label]");
+    const themeToggle = document.querySelector("[data-theme-toggle]");
+
+    const startOfDay = (value) => {
+      const d = new Date(value);
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    };
+    const addDays = (value, count) => new Date(startOfDay(value).getTime() + count * DAY_MS);
+    const dayDiff = (a, b) => Math.round((startOfDay(a) - startOfDay(b)) / DAY_MS);
+    const firstOfMonth = (value) => {
+      const d = new Date(value);
+      return new Date(d.getFullYear(), d.getMonth(), 1);
+    };
+    const addMonths = (value, count) => {
+      const d = firstOfMonth(value);
+      return new Date(d.getFullYear(), d.getMonth() + count, 1);
+    };
+    const monthDiff = (a, b) => {
+      const x = firstOfMonth(a);
+      const y = firstOfMonth(b);
+      return (x.getFullYear() - y.getFullYear()) * 12 + x.getMonth() - y.getMonth();
+    };
+    const daysInMonth = (value) => {
+      const d = new Date(value);
+      return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    };
+    const startOfWeek = (value) => {
+      const d = startOfDay(value);
+      const offset = (d.getDay() + 6) % 7;
+      return addDays(d, -offset);
+    };
+    const sameDay = (a, b) => startOfDay(a).getTime() === startOfDay(b).getTime();
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const pad = (value) => String(value).padStart(2, "0");
+    const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[char]);
+
+    const formatShortDate = (value) => {
+      const d = new Date(value);
+      return `${d.getMonth() + 1}月${d.getDate()}日`;
+    };
+    const formatIsoDate = (value) => {
+      const d = new Date(value);
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+    const weekNumber = (value) => {
+      const d = new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
+      const day = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - day);
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      return Math.ceil((((d - yearStart) / DAY_MS) + 1) / 7);
+    };
+
+    const TODAY = startOfDay(new Date());
+    const relativeDate = (offset) => addDays(TODAY, offset);
+    const COLORS = {
+      red: "var(--danger)",
+      amber: "var(--warning)",
+      blue: "var(--primary)",
+      green: "var(--success)",
+      violet: "var(--violet)",
+      muted: "var(--muted)",
+    };
+
+    const rows = [
+      { type: "group", id: "pinned", label: "置顶", count: 6, color: "amber", icon: "pin" },
+      { type: "task", id: "t1", title: "ECVR-FM 单向阀泵测测试", meta: "高优先级 · 泵测计划", start: relativeDate(-18), end: relativeDate(-6), color: "red", status: "待处理" },
+      { type: "task", id: "t2", title: "逸云天配置关闭 ECN", meta: "配置变更 · 待复核", start: relativeDate(-12), end: relativeDate(3), color: "green", status: "进行" },
+      { type: "task", id: "t3", title: "富仁 can 转脉冲器适配性排查", meta: "联调任务 · 负责人已确认", start: relativeDate(-4), end: relativeDate(14), color: "amber", status: "进行" },
+      { type: "task", id: "t4", title: "VFM+ZP 与三项精度排查", meta: "精度评审 · 需要样本", start: relativeDate(5), end: relativeDate(22), color: "red", status: "评审" },
+      { type: "task", id: "t5", title: "在线监测 TQC+ 8 加油点设置界面优化", meta: "产品优化 · 本周计划", start: relativeDate(18), end: relativeDate(34), color: "muted", status: "待处理" },
+      { type: "task", id: "t6", title: "改造配置会议纪要发出", meta: "会议行动项", start: relativeDate(28), end: relativeDate(30), color: "muted", status: "待处理" },
+      { type: "group", id: "overdue", label: "已过期", count: 7, color: "red" },
+      { type: "task", id: "t7", title: "胶管导入 ECN", meta: "逾期 · 等待数据", start: relativeDate(-48), end: relativeDate(-35), color: "amber", status: "阻塞" },
+      { type: "task", id: "t8", title: "售后 VFM 统计表更新", meta: "逾期 · 售后反馈", start: relativeDate(-38), end: relativeDate(-22), color: "amber", status: "待处理" },
+      { type: "task", id: "t9", title: "两把嘉松枪寄回入库", meta: "物流追踪 · 已签收", start: relativeDate(-30), end: relativeDate(-18), color: "blue", status: "完成", done: true },
+      { type: "task", id: "t10", title: "泵拆解报告 NP", meta: "报告 · 等待结论", start: relativeDate(-24), end: relativeDate(-3), color: "muted", status: "待处理" },
+      { type: "task", id: "t11", title: "3 月根据 OPW 测试流程优化泵测试流程", meta: "流程优化 · 跨团队", start: relativeDate(-8), end: relativeDate(38), color: "violet", status: "进行" },
+      { type: "task", id: "t12", title: "油枪不回弹故障件排查", meta: "故障分析 · 样件已到", start: relativeDate(2), end: relativeDate(17), color: "muted", status: "待处理" },
+      { type: "task", id: "t13", title: "对接伟军油气回收改造方案表", meta: "方案对接 · 计划确认", start: relativeDate(20), end: relativeDate(52), color: "muted", status: "计划" },
+      { type: "group", id: "soon", label: "余 4 天", count: 2, color: "blue" },
+      { type: "task", id: "t14", title: "确认周例会材料与责任人", meta: "本周交付", start: relativeDate(0), end: relativeDate(4), color: "blue", status: "进行" },
+      { type: "task", id: "t15", title: "发布适配性测试阶段结论", meta: "里程碑 · 等待签发", start: relativeDate(3), end: relativeDate(7), color: "green", status: "评审" },
+      { type: "group", id: "future", label: "后续计划", count: 3, color: "violet" },
+      { type: "task", id: "t16", title: "第三季度油枪改造复盘", meta: "季度复盘", start: relativeDate(46), end: relativeDate(69), color: "violet", status: "计划" },
+      { type: "task", id: "t17", title: "新版本台架数据对比", meta: "版本验证", start: relativeDate(60), end: relativeDate(82), color: "blue", status: "计划" },
+      { type: "task", id: "t18", title: "年度供应商样件复核", meta: "供应链 · 等待排期", start: relativeDate(74), end: relativeDate(92), color: "green", status: "计划" },
+    ];
+
+    const state = {
+      scale: "day",
+      zoomIndex: { day: 2, week: 2, month: 2 },
+      fitRange: false,
+      sidebarCollapsed: false,
+      mobileSidebarOpen: false,
+      layout: null,
+      drag: null,
+    };
+
+    const taskRows = rows.filter((row) => row.type === "task");
+    const rowHeight = () => Number.parseFloat(getComputedStyle(root).getPropertyValue("--row-height")) || 50;
+
+    function taskBounds() {
+      const starts = taskRows.map((task) => task.start.getTime());
+      const ends = taskRows.map((task) => task.end.getTime());
+      return { min: new Date(Math.min(...starts)), max: new Date(Math.max(...ends)) };
+    }
+
+    function resolveRange(scale, fitRange = false) {
+      const bounds = taskBounds();
+      if (scale === "month") {
+        const before = fitRange ? 1 : 2;
+        const after = fitRange ? 2 : 3;
+        return { start: addMonths(bounds.min, -before), end: addMonths(bounds.max, after + 1) };
+      }
+      if (scale === "week") {
+        const before = fitRange ? 7 : 28;
+        const after = fitRange ? 14 : 56;
+        return { start: startOfWeek(addDays(bounds.min, -before)), end: startOfWeek(addDays(bounds.max, after + 7)) };
+      }
+      const before = fitRange ? 7 : 14;
+      const after = fitRange ? 14 : 45;
+      return { start: startOfWeek(addDays(bounds.min, -before)), end: addDays(bounds.max, after) };
+    }
+
+    function buildLayout(scale = state.scale, zoomIndex = state.zoomIndex[scale], fitRange = state.fitRange) {
+      const config = SCALE_CONFIG[scale];
+      const zoom = config.zoom[clamp(zoomIndex, 0, config.zoom.length - 1)];
+      const range = resolveRange(scale, fitRange);
+      const start = range.start;
+      const end = range.end;
+
+      if (scale === "month") {
+        const count = Math.max(1, monthDiff(end, start));
+        const xForDate = (value) => {
+          const d = startOfDay(value);
+          const index = monthDiff(d, start);
+          const fraction = (d.getDate() - 1) / daysInMonth(d);
+          return clamp((index + fraction) * zoom, 0, count * zoom);
+        };
+        const dateAtX = (x) => {
+          const raw = clamp(x / zoom, 0, count - .0001);
+          const index = Math.floor(raw);
+          const fraction = raw - index;
+          const month = addMonths(start, index);
+          return addDays(month, Math.floor(fraction * daysInMonth(month)));
+        };
+        return { scale, zoom, start, end, totalWidth: count * zoom, count, xForDate, dateAtX };
+      }
+
+      const pxPerDay = scale === "week" ? zoom / 7 : zoom;
+      const count = Math.max(1, dayDiff(end, start));
+      const xForDate = (value) => clamp(dayDiff(value, start) * pxPerDay, 0, count * pxPerDay);
+      const dateAtX = (x) => addDays(start, Math.floor(clamp(x / pxPerDay, 0, count - .0001)));
+      return { scale, zoom, pxPerDay, start, end, totalWidth: count * pxPerDay, count, xForDate, dateAtX };
+    }
+
+    function captureCenterDate() {
+      if (!state.layout || !chartScroll.clientWidth) return TODAY;
+      return state.layout.dateAtX(chartScroll.scrollLeft + chartScroll.clientWidth * .5);
+    }
+
+    function rowStyle(row) {
+      const color = COLORS[row.color] || COLORS.muted;
+      const taskNumber = row.type === "task" ? Number(row.id.slice(1)) : 0;
+      const groupColor = taskNumber >= 7 && taskNumber <= 13
+        ? "var(--danger)"
+        : (taskNumber >= 14 && taskNumber <= 15
+          ? "var(--primary)"
+          : (taskNumber >= 16 ? "var(--violet)" : "var(--warning)"));
+      const bgMix = row.type === "task" ? `color-mix(in oklch, var(--bg) 96%, ${groupColor} 4%)` : "transparent";
+      return `--task-color:${color};--group-color:${color};--row-bg:${bgMix}`;
+    }
+
+    function renderTaskRows() {
+      taskBody.innerHTML = rows.map((row) => {
+        if (row.type === "group") {
+          const icon = row.icon === "pin" ? '<svg class="icon" style="width:15px;height:15px"><use href="#i-pin"/></svg>' : '<svg class="icon" style="width:15px;height:15px"><use href="#i-chevron-down"/></svg>';
+          return `<div class="task-row is-group" style="${rowStyle(row)}" role="row"><div class="task-cell group-cell">${icon}<span>${escapeHtml(row.label)}</span><span class="group-count">${row.count}</span></div></div>`;
+        }
+        return `<div class="task-row" style="${rowStyle(row)}" role="row" data-task-row="${row.id}">
+          <div class="task-cell"><div class="task-title-wrap"><span class="task-check${row.done ? " is-done" : ""}">${row.done ? '<svg class="icon" style="width:11px;height:11px"><use href="#i-check"/></svg>' : ""}</span><span class="task-copy"><span class="task-title">${escapeHtml(row.title)}</span><span class="task-meta">${escapeHtml(row.meta)}</span></span></div></div>
+          <div class="task-cell date-cell">${formatShortDate(row.start)}</div>
+          <div class="task-cell date-cell">${formatShortDate(row.end)}</div>
+        </div>`;
+      }).join("");
+    }
+
+    function monthSegments(layout) {
+      const segments = [];
+      let cursor = firstOfMonth(layout.start);
+      while (cursor < layout.end) {
+        const next = addMonths(cursor, 1);
+        const left = layout.xForDate(cursor);
+        const right = next >= layout.end ? layout.totalWidth : layout.xForDate(next);
+        if (right > left) segments.push({ start: cursor, end: next, left, width: right - left });
+        cursor = next;
+      }
+      return segments;
+    }
+
+    function buildHeader(layout) {
+      const upper = [];
+      const lower = [];
+      if (layout.scale === "day") {
+        monthSegments(layout).forEach((segment) => {
+          upper.push(`<div class="header-cell header-cell--upper" data-start-x="${segment.left}" style="width:${segment.width}px"><span class="header-label">${segment.start.getFullYear()}年${segment.start.getMonth() + 1}月</span></div>`);
+        });
+        for (let d = new Date(layout.start); d < layout.end; d = addDays(d, 1)) {
+          const current = sameDay(d, TODAY);
+          const weekend = d.getDay() === 0 || d.getDay() === 6;
+          const strong = d.getDay() === 0 || d.getDate() === daysInMonth(d);
+          lower.push(`<div class="header-cell header-cell--lower${weekend ? " is-weekend" : ""}${current ? " is-current" : ""}${strong ? " is-strong" : ""}" style="width:${layout.zoom}px"><span class="header-date">${d.getDate()}</span></div>`);
+        }
+      } else if (layout.scale === "week") {
+        monthSegments(layout).forEach((segment) => {
+          upper.push(`<div class="header-cell header-cell--upper" data-start-x="${segment.left}" style="width:${segment.width}px"><span class="header-label">${segment.start.getFullYear()}年${segment.start.getMonth() + 1}月</span></div>`);
+        });
+        for (let d = new Date(layout.start); d < layout.end; d = addDays(d, 7)) {
+          const end = addDays(d, 6);
+          const current = TODAY >= d && TODAY <= end;
+          const range = d.getMonth() === end.getMonth() ? `${d.getMonth() + 1}.${d.getDate()}–${end.getDate()}` : `${d.getMonth() + 1}.${d.getDate()}–${end.getMonth() + 1}.${end.getDate()}`;
+          const week = `W${pad(weekNumber(d))}`;
+          lower.push(`<div class="header-cell header-cell--lower${current ? " is-current" : ""}" title="${week}" aria-label="${range}，${week}" style="width:${layout.zoom}px"><span class="header-date">${range}</span></div>`);
+        }
+      } else {
+        let cursor = new Date(layout.start);
+        while (cursor < layout.end) {
+          const year = cursor.getFullYear();
+          let count = 0;
+          let probe = new Date(cursor);
+          while (probe < layout.end && probe.getFullYear() === year) { count += 1; probe = addMonths(probe, 1); }
+          upper.push(`<div class="header-cell header-cell--upper" data-start-x="${layout.xForDate(cursor)}" style="width:${count * layout.zoom}px"><span class="header-label">${year}年</span></div>`);
+          cursor = probe;
+        }
+        monthSegments(layout).forEach((segment) => {
+          const current = TODAY >= segment.start && TODAY < segment.end;
+          const strong = [2, 5, 8, 11].includes(segment.start.getMonth());
+          lower.push(`<div class="header-cell header-cell--lower${current ? " is-current" : ""}${strong ? " is-strong" : ""}" style="width:${layout.zoom}px"><span class="header-date">${segment.start.getMonth() + 1}月</span></div>`);
+        });
+      }
+      chartHeader.style.width = `${layout.totalWidth}px`;
+      chartHeader.innerHTML = `<div class="header-row">${upper.join("")}</div><div class="header-row header-row--lower">${lower.join("")}</div>`;
+    }
+
+    function buildGrid(layout, height) {
+      const cells = [];
+      if (layout.scale === "day") {
+        for (let d = new Date(layout.start); d < layout.end; d = addDays(d, 1)) {
+          const weekend = d.getDay() === 0 || d.getDay() === 6;
+          const current = sameDay(d, TODAY);
+          const strong = d.getDay() === 0 || d.getDate() === daysInMonth(d);
+          cells.push(`<div class="grid-cell${weekend ? " is-weekend" : ""}${current ? " is-current" : ""}${strong ? " is-strong" : ""}" style="width:${layout.zoom}px"></div>`);
+        }
+      } else if (layout.scale === "week") {
+        for (let d = new Date(layout.start); d < layout.end; d = addDays(d, 7)) {
+          const end = addDays(d, 7);
+          const current = TODAY >= d && TODAY < end;
+          cells.push(`<div class="grid-cell${current ? " is-current" : ""}" style="width:${layout.zoom}px"></div>`);
+        }
+      } else {
+        monthSegments(layout).forEach((segment) => {
+          const current = TODAY >= segment.start && TODAY < segment.end;
+          const strong = [2, 5, 8, 11].includes(segment.start.getMonth());
+          cells.push(`<div class="grid-cell${current ? " is-current" : ""}${strong ? " is-strong" : ""}" style="width:${layout.zoom}px"></div>`);
+        });
+      }
+      gridLayer.style.width = `${layout.totalWidth}px`;
+      gridLayer.style.height = `${height}px`;
+      gridLayer.innerHTML = cells.join("");
+    }
+
+    function barGeometry(task, layout) {
+      const left = layout.xForDate(task.start);
+      let right;
+      if (layout.scale === "month") {
+        const nextDay = addDays(task.end, 1);
+        right = layout.xForDate(nextDay);
+      } else {
+        right = layout.xForDate(addDays(task.end, 1));
+      }
+      return { left, width: Math.max(12, right - left) };
+    }
+
+    function renderChartRows(layout, height) {
+      chartRows.style.width = `${layout.totalWidth}px`;
+      chartRows.style.height = `${height}px`;
+      chartRows.innerHTML = rows.map((row) => {
+        if (row.type === "group") {
+          return `<div class="chart-row is-group" style="${rowStyle(row)}"><span class="group-chip"><svg class="icon" style="width:15px;height:15px"><use href="#${row.icon === "pin" ? "i-pin" : "i-chevron-down"}"/></svg>${escapeHtml(row.label)}<span class="group-count">${row.count}</span></span></div>`;
+        }
+        const geometry = barGeometry(row, layout);
+        const color = COLORS[row.color] || COLORS.blue;
+        return `<div class="chart-row" style="${rowStyle(row)}" data-chart-row="${row.id}"><div class="gantt-bar${geometry.width < 88 ? " is-compact" : ""}" tabindex="0" role="button" aria-label="${escapeHtml(row.title)}，${formatShortDate(row.start)}至${formatShortDate(row.end)}" data-task-id="${row.id}" style="left:${geometry.left}px;width:${geometry.width}px;--bar-color:${color}"><span class="bar-handle bar-handle--start" data-handle="start"></span><span class="bar-content"><span class="bar-dot"></span><span class="bar-title">${escapeHtml(row.title)}</span>${geometry.width > 150 ? `<span class="bar-status">${escapeHtml(row.status)}</span>` : ""}</span><span class="bar-overflow-label">${escapeHtml(row.title)}</span><span class="bar-handle bar-handle--end" data-handle="end"></span><span class="drag-label">${formatShortDate(row.start)} – ${formatShortDate(row.end)}</span></div></div>`;
+      }).join("");
+    }
+
+    function updateControls() {
+      document.querySelectorAll("[data-scale]").forEach((button) => {
+        const active = button.dataset.scale === state.scale;
+        button.classList.toggle("is-active", active);
+        if (button.hasAttribute("aria-pressed")) button.setAttribute("aria-pressed", String(active));
+      });
+      mobileScaleLabel.textContent = SCALE_CONFIG[state.scale].label;
+      document.querySelectorAll("[data-zoom-out]").forEach((button) => { button.disabled = state.zoomIndex[state.scale] <= 0; });
+      document.querySelectorAll("[data-zoom-in]").forEach((button) => { button.disabled = state.zoomIndex[state.scale] >= SCALE_CONFIG[state.scale].zoom.length - 1; });
+      const sidebarToggle = document.querySelector("[data-sidebar-toggle]");
+      const sidebarLabel = state.sidebarCollapsed ? "显示任务侧栏" : "隐藏任务侧栏";
+      sidebarToggle.setAttribute("aria-label", sidebarLabel);
+      sidebarToggle.setAttribute("title", sidebarLabel);
+      const mobileSidebarToggle = document.querySelector("[data-mobile-sidebar]");
+      const mobileSidebarLabel = state.mobileSidebarOpen ? "关闭任务侧栏" : "显示任务侧栏";
+      mobileSidebarToggle.setAttribute("aria-label", mobileSidebarLabel);
+      mobileSidebarToggle.setAttribute("title", mobileSidebarLabel);
+      main.classList.toggle("is-sidebar-collapsed", state.sidebarCollapsed);
+      main.classList.toggle("is-mobile-sidebar-open", state.mobileSidebarOpen);
+    }
+
+    function render({ anchor = null, targetRatio = .5 } = {}) {
+      const priorAnchor = anchor || captureCenterDate();
+      const layout = buildLayout();
+      state.layout = layout;
+      const rowsHeight = rows.length * rowHeight();
+      chartCanvas.dataset.scale = layout.scale;
+      if (layout.scale === "day") {
+        const daysUntilSaturday = (6 - layout.start.getDay() + 7) % 7;
+        chartCanvas.style.setProperty("--weekend-width", `${layout.zoom * 2}px`);
+        chartCanvas.style.setProperty("--week-width", `${layout.zoom * 7}px`);
+        chartCanvas.style.setProperty("--weekend-offset", `${daysUntilSaturday * layout.zoom}px`);
+      }
+      chartCanvas.style.width = `${layout.totalWidth}px`;
+      chartCanvas.style.height = `${rowsHeight}px`;
+      chartCanvas.style.setProperty("--rows-height", `${rowsHeight}px`);
+      renderTaskRows();
+      buildHeader(layout);
+      buildGrid(layout, rowsHeight);
+      renderChartRows(layout, rowsHeight);
+      const todayX = layout.xForDate(addDays(TODAY, .5));
+      currentLine.style.left = `${todayX}px`;
+      currentLine.style.height = `${rowsHeight}px`;
+      updateControls();
+      requestAnimationFrame(() => {
+        const target = layout.xForDate(priorAnchor) - chartScroll.clientWidth * targetRatio;
+        chartScroll.scrollLeft = clamp(target, 0, Math.max(0, layout.totalWidth - chartScroll.clientWidth));
+        syncHeader();
+      });
+    }
+
+    function syncHeader() {
+      chartHeader.style.transform = `translateX(${-chartScroll.scrollLeft}px)`;
+      chartHeader.querySelectorAll(".header-cell--upper").forEach((cell) => {
+        const label = cell.querySelector(".header-label");
+        if (!label) return;
+        const startX = Number(cell.dataset.startX) || 0;
+        const maxOffset = Math.max(0, cell.offsetWidth - label.offsetWidth - 20);
+        const offset = clamp(chartScroll.scrollLeft - startX, 0, maxOffset);
+        label.style.transform = `translateX(${offset}px)`;
+      });
+    }
+
+    function setScale(scale) {
+      if (!SCALE_CONFIG[scale]) return;
+      const anchor = captureCenterDate();
+      state.scale = scale;
+      state.fitRange = false;
+      closeMobileScaleMenu();
+      render({ anchor });
+    }
+
+    function zoom(direction) {
+      const config = SCALE_CONFIG[state.scale];
+      const current = state.zoomIndex[state.scale];
+      const next = clamp(current + direction, 0, config.zoom.length - 1);
+      if (next === current) return;
+      const anchor = captureCenterDate();
+      state.zoomIndex[state.scale] = next;
+      state.fitRange = false;
+      render({ anchor });
+    }
+
+    function fitRange() {
+      const available = Math.max(320, chartScroll.clientWidth - 20);
+      let selected = null;
+      for (const scale of ["day", "week", "month"]) {
+        const config = SCALE_CONFIG[scale];
+        for (let index = config.zoom.length - 1; index >= 0; index -= 1) {
+          const candidate = buildLayout(scale, index, true);
+          if (candidate.totalWidth <= available) { selected = { scale, index }; break; }
+        }
+        if (selected) break;
+      }
+      if (!selected) selected = { scale: "month", index: 0 };
+      state.scale = selected.scale;
+      state.zoomIndex[selected.scale] = selected.index;
+      state.fitRange = true;
+      const bounds = taskBounds();
+      const center = new Date((bounds.min.getTime() + bounds.max.getTime()) / 2);
+      render({ anchor: center });
+    }
+
+    function goToday() {
+      if (!state.layout) return;
+      const target = state.layout.xForDate(TODAY) - chartScroll.clientWidth * .35;
+      chartScroll.scrollTo({ left: clamp(target, 0, Math.max(0, state.layout.totalWidth - chartScroll.clientWidth)), behavior: "smooth" });
+    }
+
+    function toggleSidebar() {
+      if (window.matchMedia("(max-width: 768px)").matches) {
+        state.mobileSidebarOpen = !state.mobileSidebarOpen;
+      } else {
+        const anchor = captureCenterDate();
+        state.sidebarCollapsed = !state.sidebarCollapsed;
+        updateControls();
+        requestAnimationFrame(() => render({ anchor }));
+        return;
+      }
+      updateControls();
+    }
+
+    function openMobileScaleMenu() {
+      const open = mobileScaleMenu.hidden;
+      mobileScaleMenu.hidden = !open;
+      mobileScaleButton.setAttribute("aria-expanded", String(open));
+    }
+
+    function closeMobileScaleMenu() {
+      mobileScaleMenu.hidden = true;
+      mobileScaleButton.setAttribute("aria-expanded", "false");
+    }
+
+    function snappedDeltaDays(dx) {
+      const layout = state.layout;
+      const snap = SCALE_CONFIG[state.scale].snapDays;
+      const rawDays = state.scale === "month" ? dx / (layout.zoom / 30.4375) : dx / layout.pxPerDay;
+      return Math.round(rawDays / snap) * snap;
+    }
+
+    function updateBarPreview(drag, event) {
+      const delta = snappedDeltaDays(event.clientX - drag.pointerX);
+      let start = new Date(drag.originalStart);
+      let end = new Date(drag.originalEnd);
+      if (drag.mode === "move") {
+        start = addDays(start, delta);
+        end = addDays(end, delta);
+      } else if (drag.mode === "start") {
+        start = addDays(start, delta);
+        if (start > end) start = new Date(end);
+      } else {
+        end = addDays(end, delta);
+        if (end < start) end = new Date(start);
+      }
+      drag.nextStart = start;
+      drag.nextEnd = end;
+      const geometry = barGeometry({ start, end }, state.layout);
+      drag.element.style.left = `${geometry.left}px`;
+      drag.element.style.width = `${geometry.width}px`;
+      drag.element.querySelector(".drag-label").textContent = `${formatShortDate(start)} – ${formatShortDate(end)}`;
+    }
+
+    chartRows.addEventListener("pointerdown", (event) => {
+      const bar = event.target.closest(".gantt-bar");
+      if (!bar || event.button !== 0) return;
+      const task = taskRows.find((item) => item.id === bar.dataset.taskId);
+      if (!task) return;
+      const handle = event.target.closest("[data-handle]");
+      state.drag = {
+        element: bar,
+        task,
+        pointerId: event.pointerId,
+        pointerX: event.clientX,
+        originalStart: new Date(task.start),
+        originalEnd: new Date(task.end),
+        nextStart: new Date(task.start),
+        nextEnd: new Date(task.end),
+        mode: handle?.dataset.handle || "move",
+      };
+      bar.classList.add("is-dragging");
+      bar.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+
+    chartRows.addEventListener("pointermove", (event) => {
+      if (!state.drag || state.drag.pointerId !== event.pointerId) return;
+      updateBarPreview(state.drag, event);
+      event.preventDefault();
+    });
+
+    const finishDrag = (event, commit) => {
+      const drag = state.drag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      drag.element.classList.remove("is-dragging");
+      if (commit) {
+        drag.task.start = new Date(drag.nextStart);
+        drag.task.end = new Date(drag.nextEnd);
+      }
+      state.drag = null;
+      const left = chartScroll.scrollLeft;
+      render({ anchor: state.layout.dateAtX(left + chartScroll.clientWidth * .5) });
+    };
+
+    chartRows.addEventListener("pointerup", (event) => finishDrag(event, true));
+    chartRows.addEventListener("pointercancel", (event) => finishDrag(event, false));
+
+    chartRows.addEventListener("keydown", (event) => {
+      const bar = event.target.closest(".gantt-bar");
+      if (!bar || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      const task = taskRows.find((item) => item.id === bar.dataset.taskId);
+      if (!task) return;
+      const direction = event.key === "ArrowLeft" ? -1 : 1;
+      const delta = direction * SCALE_CONFIG[state.scale].snapDays;
+      if (event.shiftKey) {
+        const nextEnd = addDays(task.end, delta);
+        if (nextEnd >= task.start) task.end = nextEnd;
+      } else {
+        task.start = addDays(task.start, delta);
+        task.end = addDays(task.end, delta);
+      }
+      render({ anchor: captureCenterDate() });
+      requestAnimationFrame(() => document.querySelector(`[data-task-id="${task.id}"]`)?.focus());
+      event.preventDefault();
+    });
+
+    let syncingVertical = false;
+    chartScroll.addEventListener("scroll", () => {
+      syncHeader();
+      if (syncingVertical) return;
+      syncingVertical = true;
+      taskBody.scrollTop = chartScroll.scrollTop;
+      syncingVertical = false;
+    }, { passive: true });
+
+    taskBody.addEventListener("scroll", () => {
+      if (syncingVertical) return;
+      syncingVertical = true;
+      chartScroll.scrollTop = taskBody.scrollTop;
+      syncingVertical = false;
+    }, { passive: true });
+
+    document.querySelectorAll("[data-scale]").forEach((button) => button.addEventListener("click", () => setScale(button.dataset.scale)));
+    document.querySelectorAll("[data-zoom-out]").forEach((button) => button.addEventListener("click", () => zoom(-1)));
+    document.querySelectorAll("[data-zoom-in]").forEach((button) => button.addEventListener("click", () => zoom(1)));
+    document.querySelectorAll("[data-fit]").forEach((button) => button.addEventListener("click", fitRange));
+    document.querySelectorAll("[data-today]").forEach((button) => button.addEventListener("click", goToday));
+    document.querySelector("[data-sidebar-toggle]").addEventListener("click", toggleSidebar);
+    document.querySelector("[data-mobile-sidebar]").addEventListener("click", toggleSidebar);
+    document.querySelector("[data-mobile-backdrop]").addEventListener("click", () => { state.mobileSidebarOpen = false; updateControls(); });
+    mobileScaleButton.addEventListener("click", (event) => { event.stopPropagation(); openMobileScaleMenu(); });
+
+    themeToggle.addEventListener("click", () => {
+      const dark = root.getAttribute("data-theme") !== "dark";
+      root.toggleAttribute("data-theme", dark);
+      if (dark) root.setAttribute("data-theme", "dark");
+      const use = themeToggle.querySelector("use");
+      use.setAttribute("href", dark ? "#i-sun" : "#i-moon");
+      themeToggle.setAttribute("aria-label", dark ? "切换浅色主题" : "切换深色主题");
+      themeToggle.setAttribute("title", dark ? "切换浅色主题" : "切换深色主题");
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest("[data-mobile-scale-menu]") && !event.target.closest("[data-mobile-scale]")) closeMobileScaleMenu();
+    });
+
+    window.addEventListener("resize", () => {
+      const anchor = captureCenterDate();
+      if (window.innerWidth > 768) state.mobileSidebarOpen = false;
+      updateControls();
+      render({ anchor });
+    });
+
+    render({ anchor: TODAY, targetRatio: .35 });
+  </script>
+</body>
+</html>

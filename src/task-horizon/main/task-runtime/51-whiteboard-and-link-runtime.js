@@ -6328,7 +6328,9 @@ return false;
                         if (textEl instanceof HTMLElement) textEl.classList.toggle('tm-task-done', !!task.done);
                         touched = true;
                     }
-                    if (Object.prototype.hasOwnProperty.call(patch, 'startDate') || Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
+                    if (Object.prototype.hasOwnProperty.call(patch, 'startDate')
+                        || Object.prototype.hasOwnProperty.call(patch, 'completionTime')
+                        || Object.prototype.hasOwnProperty.call(patch, 'milestone')) {
                         touched = !!__tmUpdateTimelineTaskInDOM(tid) || touched;
                     }
                     if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmApplyTaskTitleOpacityInContainer(row, task) || touched;
@@ -7479,13 +7481,6 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 if (typeof ev.preventDefault === 'function') ev.preventDefault();
             }
         } catch (e) {}
-
-        const isTimelineDateField = field === 'startDate' || field === 'completionTime' || field === 'customTime';
-        const isMobileTimelineCell = __tmIsMobileDevice()
-            && state.viewMode === 'timeline'
-            && td instanceof Element
-            && !!td.closest('.tm-body.tm-body--timeline');
-        if (isMobileTimelineCell && isTimelineDateField) return;
 
         if (!td) return;
         const tid = String(id || '').trim();

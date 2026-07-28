@@ -361,6 +361,18 @@ const getDockHostsByType = (type) => {
     }
 };
 
+const resetTaskDockReloadVisibility = (plugin = null) => {
+    const pluginName = String(plugin?.name || PLUGIN_ID).trim() || PLUGIN_ID;
+    const fullType = `${pluginName}${TASK_DOCK_TYPE}`;
+    try {
+        const pluginDocks = globalThis.siyuan?.storage?.["local-plugin-docks"];
+        const savedDock = pluginDocks?.[pluginName]?.[fullType];
+        if (!savedDock || savedDock.show === false) return;
+        savedDock.show = false;
+        platformUtils?.setStorageVal?.("local-plugin-docks", pluginDocks);
+    } catch (e) {}
+};
+
 const fetchText = async (url, data, timeoutMs = RESOURCE_FETCH_TIMEOUT_MS) => {
     let controller = null;
     let timer = null;
@@ -1084,6 +1096,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     }
 
     onLayoutReady() {
+        resetTaskDockReloadVisibility(this);
         this._taskWindowTopBarLayoutReady = true;
         this.syncWindowTopBar();
         this.syncCalendarSubscriptionTopBar();

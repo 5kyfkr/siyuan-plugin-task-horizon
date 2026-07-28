@@ -2,6 +2,8 @@
     'use strict';
 
     const encoder = typeof TextEncoder === 'function' ? new TextEncoder() : null;
+    const CALENDAR_TIMEZONE = 'Asia/Shanghai';
+    const CALENDAR_TIMEZONE_OFFSET_MS = 8 * 60 * 60 * 1000;
 
     function utf8ByteLength(value) {
         const text = String(value ?? '');
@@ -48,6 +50,13 @@
         const date = value instanceof Date ? new Date(value.getTime()) : new Date(Number(value));
         if (Number.isNaN(date.getTime())) throw new Error('ICS 时间无效');
         return `${date.getUTCFullYear()}${pad2(date.getUTCMonth() + 1)}${pad2(date.getUTCDate())}T${pad2(date.getUTCHours())}${pad2(date.getUTCMinutes())}${pad2(date.getUTCSeconds())}Z`;
+    }
+
+    function formatCalendarTime(value) {
+        const date = value instanceof Date ? new Date(value.getTime()) : new Date(Number(value));
+        if (Number.isNaN(date.getTime())) throw new Error('ICS 时间无效');
+        const local = new Date(date.getTime() + CALENDAR_TIMEZONE_OFFSET_MS);
+        return `${local.getUTCFullYear()}${pad2(local.getUTCMonth() + 1)}${pad2(local.getUTCDate())}T${pad2(local.getUTCHours())}${pad2(local.getUTCMinutes())}${pad2(local.getUTCSeconds())}`;
     }
 
     function formatDateValue(value) {
@@ -121,12 +130,12 @@
         } else {
             const startAt = Number(event?.startAt);
             if (!Number.isFinite(startAt)) throw new Error(`ICS 事件开始时间无效: ${uidSeed}`);
-            lines.push(`DTSTART:${formatUtc(startAt)}`);
+            lines.push(`DTSTART;TZID=${CALENDAR_TIMEZONE}:${formatCalendarTime(startAt)}`);
             const requestedEndAt = Number(event?.endAt);
             const endAt = Number.isFinite(requestedEndAt) && requestedEndAt > startAt
                 ? requestedEndAt
                 : startAt + 60_000;
-            lines.push(`DTEND:${formatUtc(endAt)}`);
+            lines.push(`DTEND;TZID=${CALENDAR_TIMEZONE}:${formatCalendarTime(endAt)}`);
         }
         lines.push(`SUMMARY:${escapeText(title)}`);
         lines.push(`CATEGORIES:${source === 'tomato' ? 'Task Horizon,Task Reminder' : 'Task Horizon,Schedule'}`);
@@ -153,6 +162,17 @@
             'PRODID:-//SiYuan//Task Horizon//CN',
             'CALSCALE:GREGORIAN',
             `X-WR-CALNAME:${escapeText(input.calendarName || '任务管理器')}`,
+            `X-WR-TIMEZONE:${CALENDAR_TIMEZONE}`,
+            'BEGIN:VTIMEZONE',
+            `TZID:${CALENDAR_TIMEZONE}`,
+            `X-LIC-LOCATION:${CALENDAR_TIMEZONE}`,
+            'BEGIN:STANDARD',
+            'TZOFFSETFROM:+0800',
+            'TZOFFSETTO:+0800',
+            'TZNAME:CST',
+            'DTSTART:19700101T000000',
+            'END:STANDARD',
+            'END:VTIMEZONE',
         ];
         for (const event of events) lines.push(...serializeEvent(event, generatedAt));
         lines.push('END:VCALENDAR');
@@ -163,6 +183,7 @@
         version: 1,
         escapeText,
         foldLine,
+        formatCalendarTime,
         formatUtc,
         hashText,
         serializeCalendar,

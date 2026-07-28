@@ -1,0 +1,20 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - heading "Cloud" [level=1] [ref=e4]
+    - textbox "请输入锁屏密码" [active] [ref=e5]
+    - generic [ref=e6]:
+      - checkbox "记住我 30 天" [ref=e7]
+      - generic [ref=e8]: 记住我 30 天
+    - button "解锁访问" [ref=e9] [cursor=pointer]
+    - generic [ref=e10]:
+      - text: 如果你忘记了锁屏密码，请在
+      - link "这里" [ref=e11] [cursor=pointer]:
+        - /url: https://ld246.com/article/1649901726096
+      - text: 寻求帮助
+    - button "退出应用" [ref=e12] [cursor=pointer]
+    - generic [ref=e13]:
+      - text: 由
+      - link "思源笔记" [ref=e14] [cursor=pointer]:
+        - /url: https://b3log.org/siyuan
+      - text: 强力驱动
+  - img "star-bg" [ref=e25]

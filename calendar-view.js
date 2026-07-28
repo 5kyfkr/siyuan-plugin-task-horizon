@@ -24704,22 +24704,87 @@
         return url;
     }
 
+    function isJianguoyunCalendarSubscriptionUrl(value) {
+        try {
+            const hostname = new URL(String(value || '').trim()).hostname.toLowerCase().replace(/\.$/, '');
+            return hostname === 'jianguoyun.com' || hostname.endsWith('.jianguoyun.com');
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function buildCalendarSubscriptionWebdavRequestUrl(value, username, password) {
+        const url = new URL(String(value));
+        if (username || password) {
+            url.username = String(username || '');
+            url.password = String(password || '');
+        }
+        return url.toString();
+    }
+
+    function encodeCalendarSubscriptionUtf8Base64(value) {
+        const bytes = new TextEncoder().encode(String(value ?? ''));
+        const chunks = [];
+        for (let offset = 0; offset < bytes.length; offset += 32768) {
+            chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 32768)));
+        }
+        return btoa(chunks.join(''));
+    }
+
+    function getCalendarSubscriptionWebdavResponseDetail(response) {
+        const body = String(response?.body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!body) return '';
+        return body.length > 180 ? `${body.slice(0, 180)}...` : body;
+    }
+
+    function createCalendarSubscriptionWebdavHttpError(context, response) {
+        const status = Number(response?.status);
+        let hint = '';
+        if (status === 401 || status === 403) {
+            hint = '（请检查用户名、访问权限和坚果云第三方应用密码）';
+        } else if (status === 404) {
+            hint = '（目录或文件路径不存在，或当前账号无权访问）';
+        }
+        const detail = getCalendarSubscriptionWebdavResponseDetail(response);
+        return new Error(`${context}：HTTP ${Number.isFinite(status) ? status : '未知'}${hint}${detail ? `；${detail}` : ''}`);
+    }
+
     async function forwardCalendarSubscriptionRequest(url, method, options = {}) {
         const headers = [];
         if (options.authorization) headers.push({ Authorization: options.authorization });
         if (options.contentType) headers.push({ 'Content-Type': options.contentType });
+        if (options.depth !== undefined) headers.push({ Depth: String(options.depth) });
         const data = await callKernelJson('/api/network/forwardProxy', {
             url: String(url),
             method: String(method || 'GET').toUpperCase(),
             timeout: 30000,
             headers,
             contentType: options.contentType || 'text/plain; charset=utf-8',
-            payloadEncoding: 'text',
+            payloadEncoding: String(options.payloadEncoding || 'text'),
             payload: String(options.payload ?? ''),
             responseEncoding: 'text',
         }, `${String(method || 'GET').toUpperCase()} 请求`);
         const status = Number(data?.status);
         return { status, body: String(data?.body ?? ''), headers: data?.headers || null };
+    }
+
+    async function createCalendarSubscriptionWebdavDirectory(url, authorization) {
+        const response = await forwardCalendarSubscriptionRequest(url, 'MKCOL', { authorization });
+        if ((response.status >= 200 && response.status < 300) || response.status === 405) return true;
+        throw createCalendarSubscriptionWebdavHttpError('创建 WebDAV 目录失败', response);
+    }
+
+    async function ensureCalendarSubscriptionWebdavDirectory(url, authorization) {
+        const response = await forwardCalendarSubscriptionRequest(url, 'PROPFIND', {
+            authorization,
+            depth: 0,
+            contentType: 'application/xml; charset=utf-8',
+            payload: '<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>',
+        });
+        if (response.status >= 200 && response.status < 300) return true;
+        if (response.status === 404) return await createCalendarSubscriptionWebdavDirectory(url, authorization);
+        if (response.status === 405 || response.status === 501) return false;
+        throw createCalendarSubscriptionWebdavHttpError('检查 WebDAV 目录失败', response);
     }
 
     function appendCalendarSubscriptionCacheBuster(value, hash) {
@@ -24728,13 +24793,16 @@
         return url.toString();
     }
 
-    async function verifyCalendarSubscriptionRemote(url, expectedFileHash, authorization = '') {
+    async function verifyCalendarSubscriptionRemote(url, expectedFileHash, authorization = '', options = {}) {
         const core = globalThis.__tmCalendarSubscriptionCore;
         let lastError = null;
         for (let attempt = 0; attempt < 3; attempt += 1) {
             try {
+                const readUrl = options.cacheBust === true
+                    ? appendCalendarSubscriptionCacheBuster(url, expectedFileHash)
+                    : String(url);
                 const response = await forwardCalendarSubscriptionRequest(
-                    appendCalendarSubscriptionCacheBuster(url, expectedFileHash),
+                    readUrl,
                     'GET',
                     { authorization }
                 );
@@ -24755,25 +24823,25 @@
             try { return String(localStorage.getItem(CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY) || ''); } catch (e) { return ''; }
         })();
         const authorization = encodeBasicAuthorization(target.username, password);
+        const requestUrl = buildCalendarSubscriptionWebdavRequestUrl(target.url, target.username, password);
+        const parent = new URL(requestUrl);
+        parent.search = '';
+        parent.hash = '';
+        parent.pathname = parent.pathname.replace(/[^/]+$/, '');
+        await ensureCalendarSubscriptionWebdavDirectory(parent.toString(), authorization);
         const requestOptions = {
             authorization,
             contentType: 'text/calendar; charset=utf-8',
-            payload: icsText,
+            payloadEncoding: 'base64',
+            payload: encodeCalendarSubscriptionUtf8Base64(icsText),
         };
-        let response = await forwardCalendarSubscriptionRequest(target.url, 'PUT', requestOptions);
+        let response = await forwardCalendarSubscriptionRequest(requestUrl, 'PUT', requestOptions);
         if (response.status === 409) {
-            const parent = new URL(target.url);
-            parent.search = '';
-            parent.hash = '';
-            parent.pathname = parent.pathname.replace(/[^/]+$/, '');
-            const mkcol = await forwardCalendarSubscriptionRequest(parent.toString(), 'MKCOL', { authorization });
-            if (!((mkcol.status >= 200 && mkcol.status < 300) || mkcol.status === 405)) {
-                throw new Error(`创建 WebDAV 目录失败：HTTP ${mkcol.status}`);
-            }
-            response = await forwardCalendarSubscriptionRequest(target.url, 'PUT', requestOptions);
+            await createCalendarSubscriptionWebdavDirectory(parent.toString(), authorization);
+            response = await forwardCalendarSubscriptionRequest(requestUrl, 'PUT', requestOptions);
         }
-        if (response.status < 200 || response.status >= 300) throw new Error(`WebDAV 上传失败：HTTP ${response.status}`);
-        await verifyCalendarSubscriptionRemote(target.url, fileHash, authorization);
+        if (response.status < 200 || response.status >= 300) throw createCalendarSubscriptionWebdavHttpError('WebDAV 上传失败', response);
+        await verifyCalendarSubscriptionRemote(requestUrl, fileHash, authorization, { cacheBust: false });
     }
 
     function normalizeCloudUserData(value) {
@@ -24808,7 +24876,7 @@
             paths: [`assets/${target.fileName}`],
             ignorePushMsg: true,
         }, '链滴上传');
-        await verifyCalendarSubscriptionRemote(target.url, fileHash);
+        await verifyCalendarSubscriptionRemote(target.url, fileHash, '', { cacheBust: true });
     }
 
     async function resolveCalendarSubscriptionTarget(settings) {
@@ -25102,6 +25170,7 @@
         const icsPassword = (() => {
             try { return String(localStorage.getItem(CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY) || ''); } catch (e) { return ''; }
         })();
+        const showJianguoyunSubscriptionHint = isJianguoyunCalendarSubscriptionUrl(s.icsWebdavUrl);
         const icsProviderRows = s.icsProvider === 'chain' ? `
                 <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
                     <div class="tm-calendar-settings-label">
@@ -25116,7 +25185,7 @@
                         WebDAV 目录 URL
                         <div class="tm-calendar-settings-label-desc">支持坚果云、NAS 等 WebDAV 服务，请填写用于存放固定文件 task-horizon.ics 的目录地址。</div>
                     </div>
-                    <input id="tm-calendar-ics-webdav-url" class="tm-calendar-settings-input" type="url" aria-label="WebDAV 目录 URL" data-tm-cal-setting="calendarIcsWebdavUrl" value="${esc(s.icsWebdavUrl)}" placeholder="https://dav.example.com/calendar/task-ics/">
+                    <input id="tm-calendar-ics-webdav-url" class="tm-calendar-settings-input" type="url" aria-label="WebDAV 目录 URL" data-tm-cal-setting="calendarIcsWebdavUrl" value="${esc(s.icsWebdavUrl)}" placeholder="https://dav.jianguoyun.com/dav/task-ics/">
                 </div>
                 <div class="tm-calendar-settings-row">
                     <div class="tm-calendar-settings-label">
@@ -25132,6 +25201,12 @@
                     </div>
                     <input id="tm-calendar-ics-webdav-password" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="password" aria-label="WebDAV 密码" autocomplete="current-password" data-tm-cal-local-setting="webdav-password" value="${esc(icsPassword)}">
                 </div>
+                ${showJianguoyunSubscriptionHint ? `<div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
+                    <div class="tm-calendar-settings-label">
+                        坚果云订阅
+                        <div class="tm-calendar-settings-label-desc">此处 WebDAV 地址只用于上传。上传成功后，请在坚果云中为 task-horizon.ics 获取外部分享链接，并使用该链接在日历应用中订阅。</div>
+                    </div>
+                </div>` : ''}
         `;
         const tomatoRows = s.linkDockTomato ? `
                 <div class="tm-calendar-settings-row">

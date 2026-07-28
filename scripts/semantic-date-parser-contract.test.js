@@ -37,7 +37,10 @@ assert.equal(parse('开会 下午3点')?.completionValue, '2026-07-23 15:00');
 assert.equal(parse('傍晚 6:30')?.completionValue, '2026-07-23 18:30');
 assert.equal(parse('明晚8点')?.completionValue, '2026-07-24 20:00');
 assert.equal(parse('明天晚上8点')?.completionValue, '2026-07-24 20:00');
+assert.equal(parse('明天十点半')?.completionValue, '2026-07-24 10:30');
+assert.equal(parse('晚上十点半')?.completionValue, '2026-07-23 22:30');
 assert.equal(parse('昨天晚上8点'), null, 'an unsupported past-day expression must not be rewritten as today');
 assert.equal(parse('8点'), null, 'a bare clock time must not silently assume today');
+assert.equal(parse('十点半'), null, 'a bare Chinese-numeral clock time must not silently assume today');
 
 console.log('semantic date parser contract tests passed');

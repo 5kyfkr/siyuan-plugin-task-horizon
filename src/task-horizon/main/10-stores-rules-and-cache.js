@@ -85,6 +85,7 @@
     const __TM_QUICK_ADD_LAST_LOCATION_KEY = 'tm_quick_add_last_location';
     const __TM_QUICK_ADD_RECENT_DOCS_LIMIT = 6;
     const __TM_BUILTIN_COLUMN_DEFAULT_ORDER = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'taskCompleteAt', 'remainingTime', 'tomatoSummary', 'remark', 'attachments'];
+    const __TM_TIMELINE_DEFAULT_COLUMN_ORDER = Object.freeze(['content', 'startDate', 'completionTime']);
     const __TM_BUILTIN_COLUMN_WIDTHS = {
         pinned: 48,
         content: 360,
@@ -2365,7 +2366,10 @@
         const showCompleted = __tmGetShowCompletedTasksFromSettings(SettingsStore?.data) ? 1 : 0;
         const completedTodayOnly = SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0;
         const completedInlineInGroups = SettingsStore?.data?.completedTasksInlineInGroups === true ? 1 : 0;
-        const colOrder = Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder.join(',') : '';
+        const resolvedColumnOrder = viewMode === 'timeline'
+            ? __tmGetTimelineColumnOrder()
+            : (Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder : []);
+        const colOrder = resolvedColumnOrder.join(',');
         const customFields = Array.isArray(opts.customFieldIds)
             ? opts.customFieldIds.map((id) => String(id || '').trim()).filter(Boolean).sort().join(',')
             : '';
@@ -5178,7 +5182,9 @@
         const viewMode = String(opts.viewMode || state?.viewMode || '').trim();
         const colOrder = Array.isArray(opts.colOrder)
             ? opts.colOrder
-            : (Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder : []);
+            : (viewMode === 'timeline'
+                ? __tmGetTimelineColumnOrder()
+                : (Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder : []));
         const rule = (opts.rule && typeof opts.rule === 'object')
             ? opts.rule
             : (typeof __tmGetCurrentRule === 'function' ? __tmGetCurrentRule() : null);
@@ -5252,7 +5258,9 @@
         const viewMode = String((hasOwn('viewMode') ? opts.viewMode : state?.viewMode) || '').trim();
         const colOrder = Array.isArray(opts.colOrder)
             ? opts.colOrder
-            : (Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder : []);
+            : (viewMode === 'timeline'
+                ? __tmGetTimelineColumnOrder()
+                : (Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder : []));
         let rule = null;
         if (hasOwn('rule')) {
             rule = (opts.rule && typeof opts.rule === 'object') ? opts.rule : null;
@@ -5705,6 +5713,24 @@
 
     function __tmGetKnownColumnKeys() {
         return new Set(__tmGetAllColumnDefs().map((def) => String(def?.key || '').trim()).filter(Boolean));
+    }
+
+    function __tmNormalizeTimelineColumnOrder(input) {
+        const known = __tmGetKnownColumnKeys();
+        const out = [];
+        const seen = new Set();
+        (Array.isArray(input) ? input : []).forEach((item) => {
+            const key = String(item || '').trim();
+            if (!key || !known.has(key) || seen.has(key)) return;
+            seen.add(key);
+            out.push(key);
+        });
+        if (out.length) return out;
+        return __TM_TIMELINE_DEFAULT_COLUMN_ORDER.filter((key) => known.has(key));
+    }
+
+    function __tmGetTimelineColumnOrder() {
+        return __tmNormalizeTimelineColumnOrder(SettingsStore?.data?.timelineColumnOrder);
     }
 
     function __tmResolveColumnLabel(key) {
@@ -7523,6 +7549,7 @@
             timelineSidebarCollapsed: false,
             // 时间轴模式任务内容列宽度（不影响表格视图）
             timelineContentWidth: 360,
+            timelineColumnOrder: __TM_TIMELINE_DEFAULT_COLUMN_ORDER.slice(),
             timelineCardFields: ['title', 'status'],
             timelineForceSortByCompletionNearToday: false,
             groupSortByBestSubtaskTimeInTimeQuadrant: false,
@@ -8206,6 +8233,7 @@
                                 if (typeof cloudData.timelineLeftWidth === 'number') this.data.timelineLeftWidth = cloudData.timelineLeftWidth;
                                 if (typeof cloudData.timelineSidebarCollapsed === 'boolean') this.data.timelineSidebarCollapsed = cloudData.timelineSidebarCollapsed;
                                 if (typeof cloudData.timelineContentWidth === 'number') this.data.timelineContentWidth = cloudData.timelineContentWidth;
+                                if (Array.isArray(cloudData.timelineColumnOrder)) this.data.timelineColumnOrder = cloudData.timelineColumnOrder;
                                 if (Array.isArray(cloudData.timelineCardFields)) this.data.timelineCardFields = __tmNormalizeTimelineCardFields(cloudData.timelineCardFields);
                                 if (typeof cloudData.timelineForceSortByCompletionNearToday === 'boolean') this.data.timelineForceSortByCompletionNearToday = cloudData.timelineForceSortByCompletionNearToday;
                                 if (typeof cloudData.groupSortByBestSubtaskTimeInTimeQuadrant === 'boolean') this.data.groupSortByBestSubtaskTimeInTimeQuadrant = cloudData.groupSortByBestSubtaskTimeInTimeQuadrant;
@@ -8647,6 +8675,7 @@
             this.data.timelineLeftWidth = Storage.get('tm_timeline_left_width', this.data.timelineLeftWidth);
             this.data.timelineSidebarCollapsed = !!Storage.get('tm_timeline_sidebar_collapsed', this.data.timelineSidebarCollapsed);
             this.data.timelineContentWidth = Storage.get('tm_timeline_content_width', this.data.timelineContentWidth);
+            this.data.timelineColumnOrder = Storage.get('tm_timeline_column_order', this.data.timelineColumnOrder);
             this.data.timelineCardFields = __tmNormalizeTimelineCardFields(Storage.get('tm_timeline_card_fields', this.data.timelineCardFields));
             this.data.timelineForceSortByCompletionNearToday = Storage.get('tm_timeline_force_sort_completion_near_today', this.data.timelineForceSortByCompletionNearToday);
             this.data.groupSortByBestSubtaskTimeInTimeQuadrant = Storage.get('tm_group_sort_best_subtask_time_time_quadrant', this.data.groupSortByBestSubtaskTimeInTimeQuadrant);
@@ -9137,6 +9166,7 @@
             Storage.set('tm_timeline_left_width', this.data.timelineLeftWidth);
             Storage.set('tm_timeline_sidebar_collapsed', !!this.data.timelineSidebarCollapsed);
             Storage.set('tm_timeline_content_width', this.data.timelineContentWidth);
+            Storage.set('tm_timeline_column_order', this.data.timelineColumnOrder);
             this.data.timelineCardFields = __tmNormalizeTimelineCardFields(this.data.timelineCardFields);
             Storage.set('tm_timeline_card_fields', this.data.timelineCardFields);
             Storage.set('tm_timeline_force_sort_completion_near_today', !!this.data.timelineForceSortByCompletionNearToday);
@@ -9258,6 +9288,7 @@
             }
             this.data.columnOrder = visibleOrder;
             this.data.hiddenColumns = hiddenColumns;
+            this.data.timelineColumnOrder = __tmNormalizeTimelineColumnOrder(this.data.timelineColumnOrder);
 
             const percentFallback = __tmGetColumnPercentDefaults();
             const pxDefault = __tmGetColumnWidthDefaults();

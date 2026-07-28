@@ -7073,9 +7073,14 @@
         });
     }
 
+    function __tmNormalizeTaskLinkSide(side) {
+        return String(side || '').trim().toLowerCase() === 'in' ? 'in' : 'out';
+    }
+
     function __tmResetLinkDragState() {
         state.whiteboardLinkFromTaskId = '';
         state.whiteboardLinkFromDocId = '';
+        state.whiteboardLinkFromSide = 'out';
         state.whiteboardLinkPress = null;
         state.whiteboardLinkPreview = null;
         __tmUpdateWhiteboardLinkHover('', '');
@@ -7091,6 +7096,7 @@
         const tDocId = String(targetDocId || '').trim();
         state.whiteboardLinkPreview = {
             mode: state.viewMode === 'timeline' ? 'timeline' : 'whiteboard',
+            side: __tmNormalizeTaskLinkSide(state.whiteboardLinkFromSide),
             clientX: Number(ev?.clientX) || 0,
             clientY: Number(ev?.clientY) || 0,
             targetTaskId: tId,
@@ -7100,16 +7106,19 @@
 
     function __tmUpdateTimelineLinkHover(taskId) {
         const id = String(taskId || '').trim();
+        const targetSide = __tmNormalizeTaskLinkSide(state.whiteboardLinkFromSide) === 'in' ? 'out' : 'in';
         state.timelineLinkHoverTaskId = id;
         const body = state.modal?.querySelector?.('#tmGanttBody');
         if (!(body instanceof HTMLElement)) return;
         try {
-            body.querySelectorAll('.tm-gantt-row--link-hover').forEach((el) => el.classList.remove('tm-gantt-row--link-hover'));
+            body.querySelectorAll('.tm-gantt-row--link-hover, .tm-gantt-row--link-hover-in, .tm-gantt-row--link-hover-out').forEach((el) => {
+                el.classList.remove('tm-gantt-row--link-hover', 'tm-gantt-row--link-hover-in', 'tm-gantt-row--link-hover-out');
+            });
         } catch (e) {}
         if (!id) return;
         try {
             const row = body.querySelector(`.tm-gantt-row[data-id="${CSS.escape(id)}"]`);
-            if (row instanceof HTMLElement) row.classList.add('tm-gantt-row--link-hover');
+            if (row instanceof HTMLElement) row.classList.add('tm-gantt-row--link-hover', `tm-gantt-row--link-hover-${targetSide}`);
         } catch (e) {}
     }
 
@@ -7137,10 +7146,11 @@
         state.whiteboardLinkPointerFallback = null;
     }
 
-    function __tmStartTaskLinkPointerFallback(ev, taskId, docId) {
+    function __tmStartTaskLinkPointerFallback(ev, taskId, docId, side) {
         __tmClearTaskLinkPointerFallback();
         const fromTaskId = String(taskId || '').trim();
         const fromDocId = String(docId || '').trim();
+        const fromSide = __tmNormalizeTaskLinkSide(side);
         if (!fromTaskId || !fromDocId) return;
         const pointerIdRaw = Number(ev?.pointerId);
         const pointerId = Number.isFinite(pointerIdRaw) ? pointerIdRaw : null;
@@ -7150,6 +7160,7 @@
             pointerId,
             fromTaskId,
             fromDocId,
+            fromSide,
             sx,
             sy,
             moved: false,
@@ -7160,7 +7171,7 @@
         };
         const samePointer = (e2) => {
             if (!session) return false;
-            if (!Number.isFinite(Number(session.pointerId))) return true;
+            if (session.pointerId === null) return true;
             const cur = Number(e2?.pointerId);
             if (!Number.isFinite(cur)) return true;
             return cur === Number(session.pointerId);
@@ -7241,13 +7252,14 @@
         try { window.addEventListener('blur', onUp, true); } catch (e) {}
     }
 
-    window.tmTaskLinkDotPressStart = function(ev, taskId, docId) {
+    window.tmTaskLinkDotPressStart = function(ev, taskId, docId, side) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.stopImmediatePropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
         state.whiteboardLinkPress = {
             taskId: String(taskId || '').trim(),
             docId: String(docId || '').trim(),
+            side: __tmNormalizeTaskLinkSide(side),
             at: Date.now(),
         };
         const id = String(taskId || '').trim();
@@ -7255,13 +7267,14 @@
         if (!id || !did) return;
         state.whiteboardLinkFromTaskId = id;
         state.whiteboardLinkFromDocId = did;
+        state.whiteboardLinkFromSide = __tmNormalizeTaskLinkSide(side);
         __tmUpdateWhiteboardLinkHover('', '');
         __tmUpdateWhiteboardLinkPreviewFromEvent(ev, '', did);
         __tmScheduleWhiteboardEdgeRedraw();
-        __tmStartTaskLinkPointerFallback(ev, id, did);
+        __tmStartTaskLinkPointerFallback(ev, id, did, state.whiteboardLinkFromSide);
     };
 
-    window.tmTaskLinkDotDragStart = function(ev, taskId, docId) {
+    window.tmTaskLinkDotDragStart = function(ev, taskId, docId, side) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.stopImmediatePropagation?.(); } catch (e) {}
         const fb = state.whiteboardLinkPointerFallback;
@@ -7275,11 +7288,12 @@
         if (!id || !did) return;
         state.whiteboardLinkFromTaskId = id;
         state.whiteboardLinkFromDocId = did;
+        state.whiteboardLinkFromSide = __tmNormalizeTaskLinkSide(side);
         __tmUpdateWhiteboardLinkHover('', '');
         __tmUpdateWhiteboardLinkPreviewFromEvent(ev, '', did);
         try {
             ev.dataTransfer.effectAllowed = 'link';
-            const payload = JSON.stringify({ type: 'tm-task-link', taskId: id, docId: did });
+            const payload = JSON.stringify({ type: 'tm-task-link', taskId: id, docId: did, side: state.whiteboardLinkFromSide });
             ev.dataTransfer.setData('application/x-tm-task-link', payload);
             ev.dataTransfer.setData('text/plain', payload);
         } catch (e) {}
@@ -7338,27 +7352,33 @@
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.stopImmediatePropagation?.(); } catch (e) {}
-        const toId = String(targetTaskId || '').trim();
-        let fromId = '';
-        let fromDocId = '';
+        const targetId = String(targetTaskId || '').trim();
+        let originId = '';
+        let originDocId = '';
+        let originSide = __tmNormalizeTaskLinkSide(state.whiteboardLinkFromSide);
         try {
             const raw = ev?.dataTransfer?.getData?.('application/x-tm-task-link') || ev?.dataTransfer?.getData?.('text/plain');
             if (raw) {
                 const obj = JSON.parse(raw);
                 if (String(obj?.type || '').trim() === 'tm-task-link') {
-                    fromId = String(obj?.taskId || '').trim();
-                    fromDocId = String(obj?.docId || '').trim();
+                    originId = String(obj?.taskId || '').trim();
+                    originDocId = String(obj?.docId || '').trim();
+                    if (String(obj?.side || '').trim()) originSide = __tmNormalizeTaskLinkSide(obj.side);
                 }
             }
         } catch (e) {}
-        if (!fromId) fromId = String(state.whiteboardLinkFromTaskId || '').trim();
-        if (!fromDocId) fromDocId = String(state.whiteboardLinkFromDocId || '').trim();
-        const toDocId = String(targetDocId || '').trim() || __tmGetTaskDocIdById(toId);
-        if (!fromId || !toId || !fromDocId || !toDocId || fromId === toId) {
+        if (!originId) originId = String(state.whiteboardLinkFromTaskId || '').trim();
+        if (!originDocId) originDocId = String(state.whiteboardLinkFromDocId || '').trim();
+        const targetDoc = String(targetDocId || '').trim() || __tmGetTaskDocIdById(targetId);
+        if (!originId || !targetId || !originDocId || !targetDoc || originId === targetId) {
             __tmResetLinkDragState();
             __tmScheduleWhiteboardEdgeRedraw();
             return;
         }
+        const fromId = originSide === 'in' ? targetId : originId;
+        const fromDocId = originSide === 'in' ? targetDoc : originDocId;
+        const toId = originSide === 'in' ? originId : targetId;
+        const toDocId = originSide === 'in' ? originDocId : targetDoc;
         let globalBody = null;
         try {
             const eventNode = ev?.currentTarget instanceof Element
@@ -7374,72 +7394,93 @@
                 }
             } catch (e) {}
         }
-        if (globalBody && typeof __tmGetWhiteboardGlobalTaskLinks === 'function' && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
-            let fromDocIdForGlobal = fromDocId;
-            let toDocIdForGlobal = toDocId;
-            let hasFromNode = false;
-            let hasToNode = false;
-            try {
-                const fromNode = globalBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(fromId)}"]`);
-                const toNode = globalBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(toId)}"]`);
-                hasFromNode = fromNode instanceof Element;
-                hasToNode = toNode instanceof Element;
-                fromDocIdForGlobal = String(fromNode?.getAttribute?.('data-doc-id') || fromDocIdForGlobal || '').trim();
-                toDocIdForGlobal = String(toNode?.getAttribute?.('data-doc-id') || toDocIdForGlobal || '').trim();
-            } catch (e) {}
-            if (hasFromNode && hasToNode) {
-                const manual = __tmGetWhiteboardGlobalTaskLinks();
-                const exists = manual.some(x => String(x?.from || '') === fromId && String(x?.to || '') === toId);
-                if (exists) {
-                    hint('ℹ 该连线已存在', 'info');
-                    __tmResetLinkDragState();
-                    __tmScheduleWhiteboardEdgeRedraw();
+        const isTimelineDrop = String(state.viewMode || '').trim() === 'timeline';
+        if (isTimelineDrop) {
+            __tmResetLinkDragState();
+            __tmScheduleWhiteboardEdgeRedraw();
+        }
+        const resetAfterDrop = () => {
+            if (!isTimelineDrop) __tmResetLinkDragState();
+            if (isTimelineDrop) {
+                try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+            } else {
+                __tmScheduleWhiteboardEdgeRedraw();
+            }
+        };
+        const renderAfterDrop = () => {
+            resetAfterDrop();
+            if (!isTimelineDrop) render();
+        };
+        const commitDrop = async () => {
+            if (globalBody && typeof __tmGetWhiteboardGlobalTaskLinks === 'function' && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
+                let fromDocIdForGlobal = fromDocId;
+                let toDocIdForGlobal = toDocId;
+                let hasFromNode = false;
+                let hasToNode = false;
+                try {
+                    const fromNode = globalBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(fromId)}"]`);
+                    const toNode = globalBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(toId)}"]`);
+                    hasFromNode = fromNode instanceof Element;
+                    hasToNode = toNode instanceof Element;
+                    fromDocIdForGlobal = String(fromNode?.getAttribute?.('data-doc-id') || fromDocIdForGlobal || '').trim();
+                    toDocIdForGlobal = String(toNode?.getAttribute?.('data-doc-id') || toDocIdForGlobal || '').trim();
+                } catch (e) {}
+                if (hasFromNode && hasToNode) {
+                    const manual = __tmGetWhiteboardGlobalTaskLinks();
+                    const exists = manual.some(x => String(x?.from || '') === fromId && String(x?.to || '') === toId);
+                    if (exists) {
+                        hint('ℹ 该连线已存在', 'info');
+                        resetAfterDrop();
+                        return;
+                    }
+                    __tmPushWhiteboardHistorySnapshot('add-link');
+                    manual.push({
+                        id: `global_link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                        from: fromId,
+                        to: toId,
+                        fromDocId: fromDocIdForGlobal,
+                        toDocId: toDocIdForGlobal,
+                        createdAt: String(Date.now()),
+                    });
+                    __tmSetWhiteboardGlobalTaskLinks(manual, '', { keepEmpty: true });
+                    try { await SettingsStore.save(); } catch (e) {}
+                    renderAfterDrop();
                     return;
                 }
-                __tmPushWhiteboardHistorySnapshot('add-link');
-                manual.push({
-                    id: `global_link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                    from: fromId,
-                    to: toId,
-                    fromDocId: fromDocIdForGlobal,
-                    toDocId: toDocIdForGlobal,
-                    createdAt: String(Date.now()),
-                });
-                __tmSetWhiteboardGlobalTaskLinks(manual, '', { keepEmpty: true });
-                try { await SettingsStore.save(); } catch (e) {}
-                __tmResetLinkDragState();
-                render();
+            }
+            const check = __tmCanLinkTasks(fromId, toId);
+            if (!check.ok) {
+                hint(`⚠ ${check.reason}`, 'warning');
+                resetAfterDrop();
                 return;
             }
+            const docId = String(check.docId || '').trim();
+            const manual = __tmGetManualTaskLinks();
+            const exists = manual.some(x => String(x?.from || '') === fromId && String(x?.to || '') === toId && String(x?.docId || '') === docId);
+            if (exists) {
+                hint('ℹ 该连线已存在', 'info');
+                resetAfterDrop();
+                return;
+            }
+            __tmPushWhiteboardHistorySnapshot('add-link');
+            manual.push({
+                id: `link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                from: fromId,
+                to: toId,
+                docId,
+                createdAt: String(Date.now()),
+            });
+            __tmSetManualTaskLinks(manual);
+            if (isTimelineDrop) {
+                try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+            }
+            try { await SettingsStore.save(); } catch (e) {}
+            if (!isTimelineDrop) renderAfterDrop();
+        };
+        if (isTimelineDrop) {
+            return __tmEnqueueTimelineMutation(commitDrop, { label: 'timeline-link-create' });
         }
-        const check = __tmCanLinkTasks(fromId, toId);
-        if (!check.ok) {
-            hint(`⚠ ${check.reason}`, 'warning');
-            __tmResetLinkDragState();
-            __tmScheduleWhiteboardEdgeRedraw();
-            return;
-        }
-        const docId = String(check.docId || '').trim();
-        const manual = __tmGetManualTaskLinks();
-        const exists = manual.some(x => String(x?.from || '') === fromId && String(x?.to || '') === toId && String(x?.docId || '') === docId);
-        if (exists) {
-            hint('ℹ 该连线已存在', 'info');
-            __tmResetLinkDragState();
-            __tmScheduleWhiteboardEdgeRedraw();
-            return;
-        }
-        __tmPushWhiteboardHistorySnapshot('add-link');
-        manual.push({
-            id: `link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            from: fromId,
-            to: toId,
-            docId,
-            createdAt: String(Date.now()),
-        });
-        __tmSetManualTaskLinks(manual);
-        try { await SettingsStore.save(); } catch (e) {}
-        __tmResetLinkDragState();
-        render();
+        return commitDrop();
     };
 
     window.tmWhiteboardRemoveLink = async function(linkId, ev) {
@@ -7508,12 +7549,13 @@
         try { ev?.stopPropagation?.(); } catch (e) {}
         const id = String(linkId || '').trim();
         if (!id) return;
-        const manual = __tmGetManualTaskLinks().filter((x) => String(x?.id || '').trim() !== id);
-        __tmSetManualTaskLinks(manual);
-        if (String(state.timelineSelectedLinkId || '').trim() === id) state.timelineSelectedLinkId = '';
-        try { await SettingsStore.save(); } catch (e) {}
-        try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
-        render();
+        return await __tmEnqueueTimelineMutation(async () => {
+            const manual = __tmGetManualTaskLinks().filter((x) => String(x?.id || '').trim() !== id);
+            __tmSetManualTaskLinks(manual);
+            if (String(state.timelineSelectedLinkId || '').trim() === id) state.timelineSelectedLinkId = '';
+            try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+            try { await SettingsStore.save(); } catch (e) {}
+        }, { label: 'timeline-link-remove' });
     };
 
     function __tmIsWhiteboardCompactSidebarHost() {
@@ -7703,11 +7745,67 @@
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'keydown', onWhiteboardFullscreenKeydown, false); } catch (e) { document.addEventListener('keydown', onWhiteboardFullscreenKeydown, false); }
     } catch (e) {}
 
+    function __tmRevealTimelineSidebarAfterRender(modalEl = null) {
+        const reveal = () => {
+            const modal = modalEl instanceof Element
+                ? modalEl
+                : (state.modal instanceof Element ? state.modal : null);
+            if (!modal?.classList?.contains?.('tm-modal--mobile')) return;
+            const scrollHost = modal.querySelector('.tm-body.tm-body--timeline');
+            if (!(scrollHost instanceof HTMLElement)) return;
+            state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
+            state.viewScroll.timeline = state.viewScroll.timeline && typeof state.viewScroll.timeline === 'object'
+                ? state.viewScroll.timeline
+                : {};
+            state.viewScroll.timeline.left = 0;
+            scrollHost.scrollLeft = 0;
+        };
+        try {
+            reveal();
+            requestAnimationFrame(() => requestAnimationFrame(reveal));
+        } catch (e) {
+            reveal();
+        }
+    }
+
+    function __tmIsTimelineSidebarVisibleInViewport(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : null;
+        const split = modal?.querySelector?.('.tm-timeline-split');
+        const left = modal?.querySelector?.('.tm-timeline-left');
+        const body = modal?.querySelector?.('.tm-body.tm-body--timeline');
+        if (!(split instanceof HTMLElement) || !(left instanceof HTMLElement) || !(body instanceof HTMLElement)) return false;
+        if (split.classList.contains('tm-timeline-split--sidebar-collapsed')) return false;
+        try {
+            const hostRect = body.getBoundingClientRect();
+            const leftRect = left.getBoundingClientRect();
+            const visibleWidth = Math.max(0, Math.min(hostRect.right, leftRect.right) - Math.max(hostRect.left, leftRect.left));
+            if (leftRect.width > 0 && visibleWidth >= Math.min(48, leftRect.width * 0.15)) return true;
+        } catch (e) {}
+        return Number(body.scrollLeft || 0) <= 4;
+    }
+
     window.tmTimelineToggleSidebar = async function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
+        const modal = state.modal instanceof Element ? state.modal : null;
+        const useScrollableDockSidebar = !!(modal?.classList?.contains?.('tm-modal--dock') && modal?.classList?.contains?.('tm-modal--mobile'));
+        if (useScrollableDockSidebar
+            && SettingsStore.data.timelineSidebarCollapsed !== true
+            && !__tmIsTimelineSidebarVisibleInViewport(modal)) {
+            __tmRevealTimelineSidebarAfterRender(modal);
+            return;
+        }
+        const useMobileRuntimeState = !!(modal?.classList?.contains?.('tm-modal--mobile') && !modal?.classList?.contains?.('tm-modal--dock'));
+        if (useMobileRuntimeState) {
+            const expanding = state.timelineMobileSidebarExpanded !== true;
+            state.timelineMobileSidebarExpanded = expanding;
+            render();
+            if (expanding) __tmRevealTimelineSidebarAfterRender(state.modal);
+            return;
+        }
         const next = !SettingsStore.data.timelineSidebarCollapsed;
         SettingsStore.data.timelineSidebarCollapsed = next;
         render();
+        if (!next) __tmRevealTimelineSidebarAfterRender(state.modal);
         try { await SettingsStore.save(); } catch (e) {}
     };
 

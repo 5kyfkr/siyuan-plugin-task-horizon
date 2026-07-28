@@ -31,6 +31,8 @@
         const __tmRenderTimelineBodyHtml = (rowModel) => __tmBuildRenderSceneTimelineBodyHtml({
             bodyAnimClass,
             rowModel,
+            isMobile,
+            isDockHost,
         });
 
         const __tmRenderKanbanBodyHtml = (renderOptions = {}) => __tmBuildRenderSceneKanbanBodyHtml({
@@ -122,37 +124,71 @@
         const showAdaptiveTabDocGroupQuickSelect = !!(__tmMountEl && !isMobile && !isDockHost);
         const showMobileTimelineFloatingToolbar = !!(isMobile && !isDockHost && !isLandscape && renderMode === 'timeline');
         const showDockTimelineFloatingToolbar = !!(isDockHost && renderMode === 'timeline');
-        const showTimelineFloatingToolbar = !!(showMobileTimelineFloatingToolbar || showDockTimelineFloatingToolbar);
+        const showDesktopTimelineFloatingToolbar = !!(!isMobile && !isDockHost && renderMode === 'timeline');
+        const showTimelineFloatingToolbar = !!(showMobileTimelineFloatingToolbar || showDockTimelineFloatingToolbar || showDesktopTimelineFloatingToolbar);
         const showMobileLandscapeTimelineTopbar = !!(isMobile && !isDockHost && isLandscape && renderMode === 'timeline');
         const showDesktopNarrowTimelineTopbar = !!(!isMobile && !isDockHost && isDesktopNarrow && renderMode === 'timeline');
-        const showTopbarTimelineToolbar = !!(renderMode === 'timeline' && !showTimelineFloatingToolbar);
+        const showTopbarTimelineToolbar = !!(!isMobile && !isDockHost && renderMode === 'timeline');
         const topbarAddBtnHtml = `<button class="tm-btn tm-btn-info tm-topbar-add-btn bc-btn bc-btn--sm" onclick="tmAdd()" aria-label="新建任务" data-tm-floating-tooltip-label="新建任务" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;">${__tmRenderLucideIcon('plus')}</button>`;
-        const timelineSidebarToggleLabel = SettingsStore.data.timelineSidebarCollapsed ? '展开时间轴侧栏' : '隐藏时间轴侧栏';
+        const timelineScaleState = globalThis.__TaskHorizonGanttView?.resolveScaleState?.(state.ganttView) || {
+            scale: ['day', 'week', 'month'].includes(String(state.ganttView?.scale || '')) ? String(state.ganttView.scale) : 'day',
+            label: '日',
+            canZoomOut: true,
+            canZoomIn: true,
+        };
+        const timelineScale = timelineScaleState.scale;
+        const useMobileTimelineSidebar = isMobile && !isDockHost;
+        const timelineSidebarCollapsed = useMobileTimelineSidebar
+            ? state.timelineMobileSidebarExpanded !== true
+            : !!SettingsStore.data.timelineSidebarCollapsed;
+        const timelineSidebarToggleLabel = timelineSidebarCollapsed ? '展开时间轴侧栏' : '隐藏时间轴侧栏';
+        const __tmRenderTimelineToolbarIcon = (iconName, size = 14) => `<span class="tm-timeline-toolbar-icon">${__tmPhosphorBoldSvg(iconName, { size, className: 'tm-timeline-toolbar-icon__svg' })}</span>`;
+        const __tmRenderTimelineSidebarToggleButton = ({ buttonClass = '', buttonStyle = '', interactionAttrs = '', clickPrefix = '' } = {}) => {
+            const buttonClassName = ['tm-btn', 'tm-btn-info', 'tm-timeline-toolbar-btn', 'bc-btn', 'bc-btn--sm', String(buttonClass || '').trim()].filter(Boolean).join(' ');
+            const styleAttr = buttonStyle ? ` style="${__tmEscAttr(buttonStyle)}"` : '';
+            return `<button type="button" class="${buttonClassName}" onclick="${String(clickPrefix || '')}tmTimelineToggleSidebar(event)"${styleAttr}${String(interactionAttrs || '')}${__tmBuildTooltipAttrs(timelineSidebarToggleLabel, { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('sidebar')}</button>`;
+        };
         const timelineSidebarToggleButtonHtml = renderMode === 'timeline'
-            ? `<button class="tm-btn tm-btn-info tm-timeline-toolbar-btn bc-btn bc-btn--sm" onclick="tmTimelineToggleSidebar(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(timelineSidebarToggleLabel, { side: 'bottom' })}>${__tmRenderLucideIcon('panel-left')}</button>`
+            ? __tmRenderTimelineSidebarToggleButton({ buttonStyle: 'padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;' })
             : '';
+        const __tmRenderTimelineScaleSegments = () => `<div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="时间轴尺度">${[
+            ['day', '日'],
+            ['week', '周'],
+            ['month', '月'],
+        ].map(([value, label]) => {
+            const active = timelineScale === value;
+            return `<button type="button" class="tm-view-seg-item bc-tabs-trigger ${active ? 'tm-view-seg-item--active' : ''}" data-state="${active ? 'active' : 'inactive'}" data-tm-timeline-scale="${value}" role="tab" aria-selected="${active ? 'true' : 'false'}" onclick="tmGanttSetScale('${value}', event)">${label}</button>`;
+        }).join('')}</div>`;
+        const __tmRenderTimelineScaleMenu = ({ interactionAttrs = '' } = {}) => `<details class="tm-timeline-scale-menu">
+            <summary class="tm-timeline-scale-menu__trigger" aria-label="时间轴尺度：${timelineScaleState.label || '日'}"${String(interactionAttrs || '')}>${__tmRenderTimelineToolbarIcon('ruler')}<span class="tm-timeline-scale-menu__label">${timelineScaleState.label || '日'}</span>${__tmRenderTimelineToolbarIcon('caret-down', 11)}</summary>
+            <div class="tm-timeline-scale-menu__popover" role="menu" aria-label="选择时间轴尺度">${[
+                ['day', '日'],
+                ['week', '周'],
+                ['month', '月'],
+            ].map(([value, label]) => `<button type="button" role="menuitemradio" aria-checked="${timelineScale === value ? 'true' : 'false'}" class="tm-timeline-scale-menu__option${timelineScale === value ? ' is-active' : ''}" onclick="tmGanttSetScale('${value}', event)">${label}</button>`).join('')}</div>
+        </details>`;
         const __tmRenderTimelineToolbarButtons = ({ buttonClass = '', buttonStyle = '', interactionAttrs = '', clickPrefix = '' } = {}) => {
             const buttonClassName = ['tm-btn', 'tm-btn-info', 'tm-timeline-toolbar-btn', 'bc-btn', 'bc-btn--sm', String(buttonClass || '').trim()].filter(Boolean).join(' ');
             const styleAttr = buttonStyle ? ` style="${__tmEscAttr(buttonStyle)}"` : '';
             const extraAttrs = String(interactionAttrs || '');
             const clickStart = String(clickPrefix || '');
             return `
-                <button class="${buttonClassName}" onclick="${clickStart}tmGanttZoomOut()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('缩小', { side: 'bottom' })}>${__tmRenderLucideIcon('minus')}</button>
-                <button class="${buttonClassName}" onclick="${clickStart}tmGanttZoomIn()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('放大', { side: 'bottom' })}>${__tmRenderLucideIcon('plus')}</button>
-                <button class="${buttonClassName}" onclick="${clickStart}tmGanttFit()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('适配范围', { side: 'bottom' })}>${__tmRenderLucideIcon('map')}</button>
-                <button class="${buttonClassName}" onclick="${clickStart}tmGanttToday()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('定位今天', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>
+                <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttZoomOut()"${timelineScaleState.canZoomOut ? '' : ' disabled'}${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('缩小', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('minus')}</button>
+                <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttZoomIn()"${timelineScaleState.canZoomIn ? '' : ' disabled'}${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('放大', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('plus')}</button>
+                <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttFit()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('适配范围', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('corners-out')}</button>
+                <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttToday()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('定位今天', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('calendar-blank')}</button>
             `;
         };
         const __tmRenderTimelineToolbarGroup = ({ includeSidebarToggle = false, buttonClass = '', buttonStyle = '', interactionAttrs = '', clickPrefix = '' } = {}) => {
-            const inner = `${includeSidebarToggle ? timelineSidebarToggleButtonHtml : ''}${__tmRenderTimelineToolbarButtons({ buttonClass, buttonStyle, interactionAttrs, clickPrefix })}`;
+            const inner = `${includeSidebarToggle ? timelineSidebarToggleButtonHtml : ''}${__tmRenderTimelineScaleSegments()}`;
             return inner ? `<div class="tm-timeline-toolbar-group">${inner}</div>` : '';
         };
         const timelineInlineToolbarButtonsHtml = __tmRenderTimelineToolbarButtons({
             buttonStyle: 'padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;'
         });
-        const timelineCompactToolbarButtonsHtml = __tmRenderTimelineToolbarButtons({
+        const timelineCompactToolbarButtonsHtml = `${__tmRenderTimelineScaleMenu()}${__tmRenderTimelineToolbarButtons({
             buttonStyle: 'padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;'
-        });
+        })}`;
         const timelineInlineToolbarGroupHtml = __tmRenderTimelineToolbarGroup({
             includeSidebarToggle: true,
             buttonStyle: 'padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;'
@@ -161,18 +197,25 @@
             includeSidebarToggle: true,
             buttonStyle: 'padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;'
         });
+        const showFloatingTimelineSidebarToggle = !!(isMobile && !showMobileLandscapeTimelineTopbar);
+        const timelineFloatingTouchAttrs = isMobile ? ' onpointerdown="tmTouchTimelineMobileToolbarButton(event)"' : '';
+        const timelineFloatingClickPrefix = isMobile ? 'tmTouchTimelineMobileToolbarButton(event);' : '';
         const timelineFloatingToolbarHtml = showTimelineFloatingToolbar
-            ? `<div class="tm-timeline-mobile-toolbar"><div class="tm-timeline-mobile-toolbar__inner">${__tmRenderTimelineToolbarButtons({
-                buttonClass: 'tm-timeline-mobile-toolbar__btn',
-                interactionAttrs: showMobileTimelineFloatingToolbar ? ' onpointerdown=\"tmTouchTimelineMobileToolbarButton(event)\"' : '',
-                clickPrefix: showMobileTimelineFloatingToolbar ? 'tmTouchTimelineMobileToolbarButton(event);' : ''
+            ? `<div class="tm-timeline-floating-toolbar${showDesktopTimelineFloatingToolbar ? ' tm-timeline-floating-toolbar--desktop' : ''}"><div class="tm-timeline-floating-toolbar__inner">${showFloatingTimelineSidebarToggle ? __tmRenderTimelineSidebarToggleButton({
+                buttonClass: 'tm-timeline-floating-toolbar__btn',
+                interactionAttrs: timelineFloatingTouchAttrs,
+                clickPrefix: timelineFloatingClickPrefix
+            }) : ''}${showDesktopTimelineFloatingToolbar ? '' : __tmRenderTimelineScaleMenu({
+                interactionAttrs: timelineFloatingTouchAttrs
+            })}${__tmRenderTimelineToolbarButtons({
+                buttonClass: 'tm-timeline-floating-toolbar__btn',
+                interactionAttrs: timelineFloatingTouchAttrs,
+                clickPrefix: timelineFloatingClickPrefix
             })}</div></div>`
             : '';
-        const mainStageBottomInset = showTimelineFloatingToolbar
-            ? 'calc(var(--tm-mobile-bottom-viewbar-offset, env(safe-area-inset-bottom, 0px)) + 112px)'
-            : (showMobileBottomViewBar
-                ? 'calc(var(--tm-mobile-bottom-viewbar-offset, env(safe-area-inset-bottom, 0px)) + 52px)'
-                : '0px');
+        const mainStageBottomInset = showMobileBottomViewBar
+            ? 'calc(var(--tm-mobile-bottom-viewbar-offset, env(safe-area-inset-bottom, 0px)) + 52px)'
+            : '0px';
         const bodyWithSideDockHtml = (showCalendarSideDock || showAiSideDock)
             ? `
                 <div class="tm-main-body-with-cal-dock">
@@ -195,7 +238,9 @@
         const multiSelectCount = __tmGetMultiSelectedTaskIds().length;
         const showMultiSelectBar = __tmIsMultiSelectActive() && __tmIsMultiSelectSupportedView();
         const multiSelectBarBottom = showTimelineFloatingToolbar
-            ? 'calc(var(--tm-mobile-bottom-viewbar-offset, env(safe-area-inset-bottom, 0px)) + 108px)'
+            ? (showDesktopTimelineFloatingToolbar
+                ? '72px'
+                : 'calc(var(--tm-mobile-bottom-viewbar-offset, env(safe-area-inset-bottom, 0px)) + 108px)')
             : (showMobileBottomViewBar
                 ? 'calc(var(--tm-mobile-bottom-viewbar-offset, env(safe-area-inset-bottom, 0px)) + 52px)'
                 : '14px');
@@ -256,6 +301,7 @@
             showAdaptiveTabDocGroupQuickSelect,
             showMobileTimelineFloatingToolbar,
             showDockTimelineFloatingToolbar,
+            showDesktopTimelineFloatingToolbar,
             showTimelineFloatingToolbar,
             showMobileLandscapeTimelineTopbar,
             showDesktopNarrowTimelineTopbar,

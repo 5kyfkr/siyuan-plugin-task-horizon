@@ -703,7 +703,7 @@ return;
                                 tooltip: '切换文档分组'
                             }) : ''}
                             ${showCalendarSidebarMobileTopbarToggle ? calendarSidebarCompactButtonHtml : ''}
-                            ${isMobile && renderMode === 'timeline' ? timelineSidebarToggleButtonHtml : ''}
+                            ${isMobile && renderMode === 'timeline' && !showTimelineFloatingToolbar ? timelineSidebarToggleButtonHtml : ''}
                             ${showDesktopNarrowTimelineTopbar ? timelineInlineToolbarGroupHtml : ''}
                         </div>
 
@@ -2044,7 +2044,7 @@ return;
                     }
                 </style>
 
-                <div class="tm-main-stage${stageAnimClass}${showMobileBottomViewBar ? ' tm-main-stage--with-bottom-viewbar' : ''}${showTimelineFloatingToolbar ? ' tm-main-stage--timeline-mobile-toolbar' : ''}" style="--tm-view-bottom-inset:${mainStageBottomInset};">
+                <div class="tm-main-stage${stageAnimClass}${showMobileBottomViewBar ? ' tm-main-stage--with-bottom-viewbar' : ''}${showTimelineFloatingToolbar ? ' tm-main-stage--timeline-floating-toolbar' : ''}" style="--tm-view-bottom-inset:${mainStageBottomInset};">
                     ${timelineFloatingToolbarHtml}
                     ${bodyWithSideDockHtml}
                     ${multiSelectBarHtml}
@@ -2302,6 +2302,7 @@ return;
                 const ganttHeader = state.modal.querySelector('#tmGanttHeader');
                 const timelineScrollHost = __tmGetTimelineGlobalScrollHost(state.modal);
                 const useGlobalScroll = !!timelineScrollHost;
+                let timelineRestoreLeft = desiredLeft;
                 try { __tmBindTimelineLeftCollapseInteractions(leftBody); } catch (e) {}
 
                 if (useGlobalScroll) {
@@ -2316,7 +2317,6 @@ return;
                         timelineScrollHost.scrollTop = desiredTop;
                         timelineScrollHost.scrollLeft = desiredLeft;
                     } catch (e) {}
-                    try { __tmSyncTimelineMobileGroupStickyOffset(state.modal); } catch (e) {}
                 } else {
                     if (leftBody) leftBody.scrollTop = desiredTop;
                     if (ganttBody) {
@@ -2359,58 +2359,54 @@ return;
                             }
                             try {
                                 if (typeof window.tmUpdateTaskDates !== 'function') throw new Error('日期更新接口未就绪');
-                                await window.tmUpdateTaskDates(id, datePatch, {
-                                    source: 'gantt-date-drag',
+                                const result = await window.tmUpdateTaskDates(id, datePatch, {
+                                    source: 'gantt-date-update',
                                     wait: true,
                                     background: false,
                                     refresh: false,
                                     refreshCalendar: true,
                                     skipInteractionGate: true,
                                     forceProjectionRefresh: true,
+                                    timelineMutation: true,
                                 });
-                                if (hasStartDate) task.startDate = task.start_date = datePatch.startDate;
-                                if (hasCompletionTime) task.completionTime = task.completion_time = datePatch.completionTime;
-                                try { __tmRefreshTaskTimeAcrossViews(id, { patch: datePatch, withFilters: true, reason: 'gantt-date-drag' }); } catch (e2) {
-                                    try { __tmScheduleViewRefresh({ mode: 'current', withFilters: true, reason: 'gantt-date-drag' }); } catch (e3) {}
-                                }
-                            } catch (e) {
-                                hint(`❌ 更新失败: ${e.message}`, 'error');
+                                return result;
+                            } catch (error) {
+                                try { hint(`❌ 更新失败: ${error.message}`, 'error'); } catch (e2) {}
+                                try { error.__tmGanttUpdateHinted = true; } catch (e2) {}
+                                throw error;
                             }
                         },
                         onUpdateTaskMeta: async (taskId, patch) => {
                             const id = String(taskId || '').trim();
                             if (!id || !patch || typeof patch !== 'object') return;
-                            const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
-                            if (!task) return;
                             const hasMilestone = Object.prototype.hasOwnProperty.call(patch, 'milestone');
                             if (!hasMilestone) return;
                             const val = !!patch.milestone;
-                            task.milestone = val;
-                            try {
-                                const patch = { milestone: val ? '1' : '' };
+                            const metaPatch = { milestone: val ? '1' : '' };
+                            return await __tmEnqueueTimelineMutation(async () => {
+                                const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
+                                if (!task) return;
                                 const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
                                 if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                                void patchTask(id, patch, {
+                                return await patchTask(id, metaPatch, {
                                     source: 'gantt-milestone-toggle',
                                     reason: 'gantt-milestone-toggle',
                                     label: '甘特里程碑',
-                                    wait: false,
-                                    background: true,
+                                    wait: true,
+                                    background: false,
+                                    withFilters: false,
+                                    skipInteractionGate: true,
                                     skipSettledRefresh: true,
-                                    forceProjectionRefresh: true,
-                                }).catch((error) => {
-                                    try { globalThis.__tmReportTaskOutboxFailure?.(error, { action: '更新甘特里程碑' }); } catch (e2) {}
                                 });
-                                try { __tmRefreshTaskFieldsAcrossViews(id, patch, { withFilters: true, reason: 'gantt-milestone-toggle' }); } catch (e2) {
-                                    try { __tmScheduleViewRefresh({ mode: 'current', withFilters: true, reason: 'gantt-milestone-toggle' }); } catch (e3) {}
-                                }
-                            } catch (e) {
-                                hint(`❌ 更新失败: ${e.message}`, 'error');
-                            }
+                            }, { label: 'gantt-milestone-toggle' });
                         },
                     });
-                    if (!useGlobalScroll) {
-                        try { ganttBody.scrollLeft = desiredLeft; } catch (e) {}
+                    const anchoredLeft = __tmResolveAndConsumeTimelineDateAnchor(state.modal);
+                    if (Number.isFinite(anchoredLeft)) timelineRestoreLeft = anchoredLeft;
+                    if (useGlobalScroll) {
+                        try { timelineScrollHost.scrollLeft = timelineRestoreLeft; } catch (e) {}
+                    } else {
+                        try { ganttBody.scrollLeft = timelineRestoreLeft; } catch (e) {}
                     }
                 }
                 __tmScheduleTimelineTodayIndicatorRefresh();
@@ -2426,24 +2422,14 @@ return;
                         const inner = ganttHeader?.querySelector?.('.tm-gantt-header-inner');
                         if (inner) inner.style.transform = '';
                     } catch (e) {}
-                    try { __tmSyncTimelineMobileGroupStickyOffset(state.modal); } catch (e) {}
                 } else {
                     syncHeaderX();
                 }
 
-                // 强制左侧对齐（如果需要）
-                const forcedLeft = Number(state.ganttView?.__forceScrollLeft);
-                if (Number.isFinite(forcedLeft)) {
-                     if (useGlobalScroll) {
-                         try { timelineScrollHost.scrollLeft = forcedLeft; } catch (e) {}
-                     } else if (ganttBody) {
-                         ganttBody.scrollLeft = forcedLeft;
-                     }
-                     delete state.ganttView.__forceScrollLeft;
-                }
-
                 requestAnimationFrame(() => requestAnimationFrame(() => {
                     try { __tmSyncTimelineDateColumnWidths(state.modal); } catch (e) {}
+                    const deferredAnchoredLeft = __tmResolveAndConsumeTimelineDateAnchor(state.modal);
+                    if (Number.isFinite(deferredAnchoredLeft)) timelineRestoreLeft = deferredAnchoredLeft;
                     if (useGlobalScroll) {
                         try { if (leftBody) leftBody.scrollTop = 0; } catch (e) {}
                         try {
@@ -2454,13 +2440,12 @@ return;
                         } catch (e) {}
                         try {
                             timelineScrollHost.scrollTop = desiredTop;
-                            timelineScrollHost.scrollLeft = desiredLeft;
+                            timelineScrollHost.scrollLeft = timelineRestoreLeft;
                         } catch (e) {}
-                        try { __tmSyncTimelineMobileGroupStickyOffset(state.modal); } catch (e) {}
                     } else {
                         try { if (leftBody) leftBody.scrollTop = desiredTop; } catch (e) {}
                         try { if (ganttBody) ganttBody.scrollTop = desiredTop; } catch (e) {}
-                        try { if (ganttBody) ganttBody.scrollLeft = desiredLeft; } catch (e) {}
+                        try { if (ganttBody) ganttBody.scrollLeft = timelineRestoreLeft; } catch (e) {}
                         try { syncHeaderX(); } catch (e) {}
                     }
                     runFlipAnimationAfterRender();
@@ -6366,15 +6351,106 @@ return;
         });
     };
 
+    function __tmCaptureTimelineDateAnchor(ratio = 0.5) {
+        if (String(state.viewMode || '').trim() !== 'timeline') return null;
+        const modal = state.modal;
+        const body = modal?.querySelector?.('#tmGanttBody');
+        if (!(body instanceof HTMLElement)) return null;
+        const startTs = Number(body.dataset?.tmGanttStartTs);
+        const dayWidth = Number(body.dataset?.tmGanttDayWidth);
+        if (!Number.isFinite(startTs) || !Number.isFinite(dayWidth) || dayWidth <= 0) return null;
+        const safeRatio = Math.max(0, Math.min(1, Number(ratio) || 0));
+        const globalScrollHost = __tmGetTimelineGlobalScrollHost(modal);
+        const useGlobalScroll = !!globalScrollHost;
+        const leftPaneWidth = useGlobalScroll ? __tmGetTimelineLeftPaneWidth(modal) : 0;
+        const viewportWidth = useGlobalScroll
+            ? Number(globalScrollHost?.clientWidth || 0)
+            : Number(body.clientWidth || 0);
+        const scrollLeft = useGlobalScroll
+            ? Number(globalScrollHost?.scrollLeft || 0)
+            : Number(body.scrollLeft || 0);
+        const contentX = useGlobalScroll
+            ? scrollLeft + viewportWidth * safeRatio - leftPaneWidth
+            : scrollLeft + viewportWidth * safeRatio;
+        return {
+            dateTs: startTs + (Math.max(0, contentX) / dayWidth) * 86400000,
+            ratio: safeRatio,
+        };
+    }
+
+    function __tmPrepareTimelineDateAnchor(ratio = 0.5, fallbackDateTs = Date.now()) {
+        if (!(state.ganttView && typeof state.ganttView === 'object')) state.ganttView = {};
+        state.ganttView.pendingAnchor = __tmCaptureTimelineDateAnchor(ratio) || {
+            dateTs: Number(fallbackDateTs) || Date.now(),
+            ratio: Math.max(0, Math.min(1, Number(ratio) || 0)),
+        };
+        return state.ganttView.pendingAnchor;
+    }
+
+    function __tmResolveAndConsumeTimelineDateAnchor(modalEl) {
+        const anchor = state.ganttView?.pendingAnchor;
+        if (!(anchor && typeof anchor === 'object')) return null;
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const body = modal?.querySelector?.('#tmGanttBody');
+        if (!(body instanceof HTMLElement)) return null;
+        const startTs = Number(body.dataset?.tmGanttStartTs);
+        const dayWidth = Number(body.dataset?.tmGanttDayWidth);
+        const totalWidth = Number(body.dataset?.tmGanttTotalWidth) || Number(body.scrollWidth || 0);
+        const dateTs = Number(anchor.dateTs);
+        const ratio = Math.max(0, Math.min(1, Number(anchor.ratio) || 0));
+        if (!Number.isFinite(startTs) || !Number.isFinite(dayWidth) || dayWidth <= 0 || !Number.isFinite(totalWidth) || totalWidth <= 0 || !Number.isFinite(dateTs)) return null;
+        const dateX = ((dateTs - startTs) / 86400000) * dayWidth;
+        const globalScrollHost = __tmGetTimelineGlobalScrollHost(modal);
+        let resolvedLeft = null;
+        if (globalScrollHost) {
+            const leftPaneWidth = __tmGetTimelineLeftPaneWidth(modal);
+            const viewportWidth = Number(globalScrollHost.clientWidth || 0);
+            if (viewportWidth <= 0) return null;
+            const maxLeft = Math.max(0, leftPaneWidth + totalWidth - viewportWidth);
+            resolvedLeft = Math.max(0, Math.min(maxLeft, Math.round(leftPaneWidth + dateX - viewportWidth * ratio)));
+        } else {
+            const viewportWidth = Number(body.clientWidth || 0);
+            if (viewportWidth <= 0) return null;
+            const maxLeft = Math.max(0, totalWidth - viewportWidth);
+            resolvedLeft = Math.max(0, Math.min(maxLeft, Math.round(dateX - viewportWidth * ratio)));
+        }
+        try { state.ganttView.pendingAnchor = null; } catch (e) {}
+        state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
+        state.viewScroll.timeline = {
+            ...(state.viewScroll.timeline && typeof state.viewScroll.timeline === 'object' ? state.viewScroll.timeline : {}),
+            left: resolvedLeft,
+        };
+        return resolvedLeft;
+    }
+
+    window.tmGanttSetScale = function(nextScale, event) {
+        try { event?.stopPropagation?.(); } catch (e) {}
+        try { event?.target?.closest?.('details')?.removeAttribute?.('open'); } catch (e) {}
+        const view = globalThis.__TaskHorizonGanttView;
+        if (typeof view?.setScale !== 'function') return;
+        const before = view.resolveScaleState?.(state.ganttView)?.scale || 'day';
+        const normalizedNext = ['day', 'week', 'month'].includes(String(nextScale || '').trim()) ? String(nextScale).trim() : 'day';
+        if (before === normalizedNext) return;
+        __tmPrepareTimelineDateAnchor(0.5);
+        view.setScale(state.ganttView, normalizedNext);
+        render();
+    };
+
     window.tmGanttZoomIn = function() {
-        const next = Math.min(60, Math.max(10, Math.round((Number(state.ganttView?.dayWidth) || 24) + 4)));
-        state.ganttView.dayWidth = next;
+        const view = globalThis.__TaskHorizonGanttView;
+        const before = view?.resolveScaleState?.(state.ganttView);
+        if (!before?.canZoomIn || typeof view?.stepZoom !== 'function') return;
+        __tmPrepareTimelineDateAnchor(0.5);
+        view.stepZoom(state.ganttView, 1);
         render();
     };
 
     window.tmGanttZoomOut = function() {
-        const next = Math.min(60, Math.max(10, Math.round((Number(state.ganttView?.dayWidth) || 24) - 4)));
-        state.ganttView.dayWidth = next;
+        const view = globalThis.__TaskHorizonGanttView;
+        const before = view?.resolveScaleState?.(state.ganttView);
+        if (!before?.canZoomOut || typeof view?.stepZoom !== 'function') return;
+        __tmPrepareTimelineDateAnchor(0.5);
+        view.stepZoom(state.ganttView, -1);
         render();
     };
 
@@ -6384,14 +6460,10 @@ return;
             const globalScrollHost = __tmGetTimelineGlobalScrollHost(state.modal);
             const useGlobalScroll = !!globalScrollHost;
             const body = state.modal?.querySelector?.('#tmGanttBody');
-            const leftPaneWidth = useGlobalScroll ? __tmGetTimelineLeftPaneWidth(state.modal) : 0;
-            const currentRangeStartTs = Number(body?.dataset?.tmGanttStartTs);
-            const w0 = useGlobalScroll
-                ? Math.max(0, (Number(globalScrollHost?.clientWidth) || 0) - Math.round(leftPaneWidth))
+            const w = useGlobalScroll
+                ? Number(globalScrollHost?.clientWidth || 0)
                 : Number(body?.clientWidth || 0);
-            const w = w0;
             if (!Number.isFinite(w) || w <= 0) {
-                state.ganttView.__forceScrollLeft = 0;
                 render();
                 return;
             }
@@ -6400,8 +6472,7 @@ return;
             const computeRangeTs = view?.computeRangeTs;
             const DAY_MS = Number(view?.DAY_MS) || 86400000;
             const maxDayCount = Math.max(1, Number(view?.TIMELINE_MAX_DAY_COUNT) || 397);
-            if (typeof startOfDayTs !== 'function' || typeof computeRangeTs !== 'function') {
-                state.ganttView.__forceScrollLeft = 0;
+            if (typeof startOfDayTs !== 'function' || typeof computeRangeTs !== 'function' || typeof view?.fitScale !== 'function') {
                 render();
                 return;
             }
@@ -6414,31 +6485,57 @@ return;
                 tasks.push(t);
             }
             const paddingDays = Math.max(0, Number(state.ganttView?.paddingDays) || 0);
-            const rangeOptions = { anchorByStartDate: true, extraFutureMonths: 0 };
-            const range = computeRangeTs(tasks, paddingDays, rangeOptions);
+            const range = computeRangeTs(tasks, paddingDays, { extraFutureMonths: 0 });
             const startTs = startOfDayTs(range?.startTs);
             const endTs = startOfDayTs(range?.endTs);
             if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs < startTs) {
-                state.ganttView.__forceScrollLeft = 0;
                 render();
                 return;
             }
             const dayCount = Math.max(1, Math.min(maxDayCount, Math.round((endTs - startTs) / DAY_MS) + 1));
             const usableW = Math.max(120, w - 24);
-            const next = Math.max(10, Math.min(60, Math.floor(usableW / dayCount)));
-            const scrollOffsetPx = Number.isFinite(currentRangeStartTs)
-                ? Math.max(0, Math.round(((startTs - currentRangeStartTs) / DAY_MS) * next))
+            const fittedScale = view.fitScale(state.ganttView, dayCount, usableW);
+            const fittedDayWidth = Number(fittedScale?.dayWidth);
+            const viewportDayCount = Number.isFinite(fittedDayWidth) && fittedDayWidth > 0
+                ? Math.ceil(w / fittedDayWidth)
                 : 0;
-            state.ganttView.dayWidth = next;
-            try { delete state.ganttView.__rangeOptions; } catch (e) {}
-            state.ganttView.__forceScrollLeft = useGlobalScroll
-                ? Math.max(0, Math.round(leftPaneWidth + scrollOffsetPx))
-                : scrollOffsetPx;
+            const rollingWindowDayCount = Math.max(1, Math.round(Number(fittedScale?.windowDays) || 1));
+            const targetDayCount = Math.min(maxDayCount, Math.max(rollingWindowDayCount, dayCount + viewportDayCount * 2));
+            const extraDays = Math.max(0, targetDayCount - dayCount);
+            const extraDaysBefore = Math.floor(extraDays / 2);
+            const fitStartTs = startTs - extraDaysBefore * DAY_MS;
+            const fitEndTs = endTs + (extraDays - extraDaysBefore) * DAY_MS;
+            if (typeof view?.setRange === 'function') {
+                view.setRange(state.ganttView, fitStartTs, fitEndTs);
+            }
+            state.ganttView.pendingAnchor = {
+                dateTs: startTs + ((endTs - startTs) / 2),
+                ratio: 0.5,
+            };
             render();
         } catch (e) {
-            try { state.ganttView.__forceScrollLeft = 0; } catch (e2) {}
             render();
         }
+    };
+
+    window.tmGanttExtendRange = function(direction) {
+        if (state.viewMode !== 'timeline' || state.timelineInfiniteRangeShifting) return;
+        const view = globalThis.__TaskHorizonGanttView;
+        if (typeof view?.shiftRange !== 'function') return;
+        state.timelineInfiniteRangeShifting = true;
+        __tmPrepareTimelineDateAnchor(0.5);
+        const shifted = view.shiftRange(state.ganttView, direction);
+        if (!shifted) {
+            state.timelineInfiniteRangeShifting = false;
+            return;
+        }
+        const renderedInPlace = typeof __tmRerenderTimelineInPlace === 'function'
+            ? __tmRerenderTimelineInPlace(state.modal, { reuseLeftRows: true })
+            : false;
+        if (!renderedInPlace) render();
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            state.timelineInfiniteRangeShifting = false;
+        }));
     };
 
     window.tmGanttToday = function() {
@@ -6447,7 +6544,14 @@ return;
         const body = state.modal?.querySelector?.('#tmGanttBody');
         if (!body) return;
         const todayLine = body.querySelector('.tm-gantt-today');
-        if (!todayLine) return;
+        if (!todayLine) {
+            const view = globalThis.__TaskHorizonGanttView;
+            if (typeof view?.centerRangeOnDate !== 'function') return;
+            view.centerRangeOnDate(state.ganttView, Date.now(), 0.35);
+            state.ganttView.pendingAnchor = { dateTs: Date.now(), ratio: 0.35 };
+            render();
+            return;
+        }
         const left = Number.parseFloat(String(todayLine.style.left || '').replace('px', ''));
         if (!Number.isFinite(left)) return;
         const leftPaneWidth = useGlobalScroll ? __tmGetTimelineLeftPaneWidth(state.modal) : 0;

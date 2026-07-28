@@ -1,9 +1,97 @@
     (function () {
         const DAY_MS = 86400000;
         const cleanupMap = new WeakMap();
+        const TIMELINE_SCALE_ORDER = ['day', 'week', 'month'];
+        const TIMELINE_AVERAGE_MONTH_DAYS = 365.2425 / 12;
+        const TIMELINE_SCALE_CONFIG = Object.freeze({
+            day: Object.freeze({ label: '日', unitDays: 1, zoomWidths: Object.freeze([28, 32, 36, 40, 44]), snapDays: 1, windowDays: 397 }),
+            week: Object.freeze({ label: '周', unitDays: 7, zoomWidths: Object.freeze([84, 98, 112, 126]), snapDays: 1, windowDays: 1095 }),
+            month: Object.freeze({ label: '月', unitDays: TIMELINE_AVERAGE_MONTH_DAYS, zoomWidths: Object.freeze([80, 92, 104, 116, 128]), snapDays: 7, windowDays: 2192 }),
+        });
 
         function clamp(n, min, max) {
             return Math.max(min, Math.min(max, n));
+        }
+
+        function normalizeTimelineScale(value) {
+            const scale = String(value || '').trim().toLowerCase();
+            return Object.prototype.hasOwnProperty.call(TIMELINE_SCALE_CONFIG, scale) ? scale : 'day';
+        }
+
+        function resolveTimelineScaleState(viewState = {}) {
+            const target = (viewState && typeof viewState === 'object') ? viewState : {};
+            const scale = normalizeTimelineScale(target.scale);
+            const config = TIMELINE_SCALE_CONFIG[scale];
+            const sourceIndexes = (target.zoomIndex && typeof target.zoomIndex === 'object') ? target.zoomIndex : {};
+            const nextIndexes = { day: 2, week: 2, month: 2, ...sourceIndexes };
+            if (!target.zoomIndex && scale === 'day' && Number.isFinite(Number(target.dayWidth))) {
+                const legacyWidth = Number(target.dayWidth);
+                nextIndexes.day = config.zoomWidths.reduce((bestIndex, width, index, widths) => (
+                    Math.abs(width - legacyWidth) < Math.abs(widths[bestIndex] - legacyWidth) ? index : bestIndex
+                ), 0);
+            }
+            const zoomIndex = clamp(Math.round(Number(nextIndexes[scale]) || 0), 0, config.zoomWidths.length - 1);
+            nextIndexes[scale] = zoomIndex;
+            const unitWidth = config.zoomWidths[zoomIndex];
+            const dayWidth = unitWidth / config.unitDays;
+            target.scale = scale;
+            target.zoomIndex = nextIndexes;
+            target.dayWidth = dayWidth;
+            return {
+                scale,
+                label: config.label,
+                zoomIndex,
+                zoomCount: config.zoomWidths.length,
+                unitWidth,
+                dayWidth,
+                snapDays: config.snapDays,
+                windowDays: config.windowDays,
+                canZoomOut: zoomIndex > 0,
+                canZoomIn: zoomIndex < config.zoomWidths.length - 1,
+            };
+        }
+
+        function setTimelineScale(viewState, nextScale) {
+            if (!(viewState && typeof viewState === 'object')) return resolveTimelineScaleState({});
+            viewState.scale = normalizeTimelineScale(nextScale);
+            viewState.rangeScale = '';
+            viewState.rangeStartTs = 0;
+            viewState.rangeEndTs = 0;
+            return resolveTimelineScaleState(viewState);
+        }
+
+        function stepTimelineZoom(viewState, direction) {
+            const current = resolveTimelineScaleState(viewState);
+            const config = TIMELINE_SCALE_CONFIG[current.scale];
+            const delta = Number(direction) > 0 ? 1 : -1;
+            viewState.zoomIndex[current.scale] = clamp(current.zoomIndex + delta, 0, config.zoomWidths.length - 1);
+            return resolveTimelineScaleState(viewState);
+        }
+
+        function fitTimelineScale(viewState, dayCount, usableWidth) {
+            const days = Math.max(1, Number(dayCount) || 1);
+            const width = Math.max(1, Number(usableWidth) || 1);
+            let selectedScale = 'month';
+            let selectedIndex = 0;
+            for (const scale of TIMELINE_SCALE_ORDER) {
+                const config = TIMELINE_SCALE_CONFIG[scale];
+                const fittingIndexes = config.zoomWidths
+                    .map((unitWidth, index) => ({ index, totalWidth: days * (unitWidth / config.unitDays) }))
+                    .filter((item) => item.totalWidth <= width);
+                if (!fittingIndexes.length) continue;
+                selectedScale = scale;
+                selectedIndex = fittingIndexes[fittingIndexes.length - 1].index;
+                break;
+            }
+            viewState.scale = selectedScale;
+            if (!(viewState.zoomIndex && typeof viewState.zoomIndex === 'object')) {
+                viewState.zoomIndex = { day: 2, week: 2, month: 2 };
+            }
+            viewState.zoomIndex[selectedScale] = selectedIndex;
+            viewState.rangeScale = '';
+            viewState.rangeStartTs = 0;
+            viewState.rangeEndTs = 0;
+            return resolveTimelineScaleState(viewState);
         }
 
         function parseDateOnlyToTs(value) {
@@ -35,7 +123,9 @@
         }
 
         const TIMELINE_EXTRA_FUTURE_MONTHS = 1;
-        const TIMELINE_MAX_DAY_COUNT = 397;
+        // The DOM renders one bounded, movable window. Edge scrolling shifts this
+        // window, so navigation is effectively unbounded without an ever-growing DOM.
+        const TIMELINE_MAX_DAY_COUNT = 3653;
 
         function extendTimelineEndTs(baseTs, extraMonths = TIMELINE_EXTRA_FUTURE_MONTHS) {
             const months = Math.max(0, Math.round(Number(extraMonths) || 0));
@@ -105,43 +195,222 @@
             return { startTs, endTs };
         }
 
+        function setTimelineRange(viewState, startTs, endTs, options = {}) {
+            if (!(viewState && typeof viewState === 'object')) return null;
+            const scale = normalizeTimelineScale(options?.scale || viewState.scale);
+            let start = startOfDayTs(startTs);
+            let end = startOfDayTs(endTs);
+            if (!start || !end) return null;
+            if (end < start) [start, end] = [end, start];
+            const requestedDays = Math.max(1, Math.round((end - start) / DAY_MS) + 1);
+            const dayCount = Math.min(TIMELINE_MAX_DAY_COUNT, requestedDays);
+            if (requestedDays > dayCount) {
+                const centerTs = start + ((end - start) / 2);
+                start = startOfDayTs(centerTs - Math.floor(dayCount / 2) * DAY_MS);
+                end = start + (dayCount - 1) * DAY_MS;
+            }
+            viewState.rangeScale = scale;
+            viewState.rangeStartTs = start;
+            viewState.rangeEndTs = end;
+            return { startTs: start, endTs: end, dayCount };
+        }
+
+        function centerTimelineRangeOnDate(viewState, dateTs, ratio = 0.5) {
+            if (!(viewState && typeof viewState === 'object')) return null;
+            const scaleState = resolveTimelineScaleState(viewState);
+            const config = TIMELINE_SCALE_CONFIG[scaleState.scale];
+            const dayCount = clamp(Math.round(config.windowDays), 1, TIMELINE_MAX_DAY_COUNT);
+            const safeRatio = clamp(Number(ratio) || 0, 0, 1);
+            const anchorTs = startOfDayTs(dateTs) || startOfDayTs(Date.now());
+            const startTs = startOfDayTs(anchorTs - Math.floor((dayCount - 1) * safeRatio) * DAY_MS);
+            return setTimelineRange(viewState, startTs, startTs + (dayCount - 1) * DAY_MS, { scale: scaleState.scale });
+        }
+
+        function resolveTimelineRenderRange(taskItems, paddingDays, scaleState, viewState) {
+            const scale = normalizeTimelineScale(scaleState?.scale || viewState?.scale);
+            const storedStart = startOfDayTs(viewState?.rangeStartTs);
+            const storedEnd = startOfDayTs(viewState?.rangeEndTs);
+            if (viewState?.rangeScale === scale && storedStart && storedEnd >= storedStart) {
+                return setTimelineRange(viewState, storedStart, storedEnd, { scale });
+            }
+
+            const taskRange = computeAutoRangeTs(taskItems, paddingDays, { extraFutureMonths: 0 });
+            const taskStart = startOfDayTs(taskRange?.startTs);
+            const taskEnd = startOfDayTs(taskRange?.endTs);
+            const datedTaskCount = (Array.isArray(taskItems) ? taskItems : []).reduce((count, task) => (
+                count + (parseDateOnlyToTs(task?.startDate) || parseDateOnlyToTs(task?.completionTime) ? 1 : 0)
+            ), 0);
+            const pendingAnchorTs = startOfDayTs(viewState?.pendingAnchor?.dateTs);
+            const anchorTs = pendingAnchorTs
+                || (datedTaskCount > 0 && taskStart && taskEnd ? taskStart + ((taskEnd - taskStart) / 2) : startOfDayTs(Date.now()));
+            const config = TIMELINE_SCALE_CONFIG[scale];
+            const dayCount = clamp(Math.round(config.windowDays), 1, TIMELINE_MAX_DAY_COUNT);
+            let startTs = startOfDayTs(anchorTs - Math.floor(dayCount / 2) * DAY_MS);
+            let endTs = startTs + (dayCount - 1) * DAY_MS;
+
+            // Keep the complete task range visible when it already fits in the
+            // bounded window; larger ranges remain reachable by edge scrolling.
+            const taskDayCount = taskStart && taskEnd ? Math.round((taskEnd - taskStart) / DAY_MS) + 1 : 0;
+            if (!pendingAnchorTs && taskDayCount > 0 && taskDayCount <= dayCount) {
+                if (taskStart < startTs) {
+                    startTs = taskStart;
+                    endTs = startTs + (dayCount - 1) * DAY_MS;
+                }
+                if (taskEnd > endTs) {
+                    endTs = taskEnd;
+                    startTs = endTs - (dayCount - 1) * DAY_MS;
+                }
+            }
+            return setTimelineRange(viewState, startTs, endTs, { scale });
+        }
+
+        function shiftTimelineRange(viewState, direction) {
+            if (!(viewState && typeof viewState === 'object')) return null;
+            const scaleState = resolveTimelineScaleState(viewState);
+            const startTs = startOfDayTs(viewState.rangeStartTs);
+            const endTs = startOfDayTs(viewState.rangeEndTs);
+            if (!startTs || !endTs || endTs < startTs || viewState.rangeScale !== scaleState.scale) {
+                return centerTimelineRangeOnDate(viewState, Date.now(), 0.5);
+            }
+            const dayCount = Math.max(1, Math.round((endTs - startTs) / DAY_MS) + 1);
+            const shiftDays = Math.max(28, Math.round(dayCount * 0.3));
+            const delta = (Number(direction) < 0 ? -1 : 1) * shiftDays * DAY_MS;
+            return setTimelineRange(viewState, startTs + delta, endTs + delta, { scale: scaleState.scale });
+        }
+
+        function isSameCalendarDay(aTs, bTs) {
+            const a = new Date(aTs);
+            const b = new Date(bTs);
+            return a.getFullYear() === b.getFullYear()
+                && a.getMonth() === b.getMonth()
+                && a.getDate() === b.getDate();
+        }
+
+        function getIsoWeekNumber(ts) {
+            const d = new Date(ts);
+            const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+            const day = utc.getUTCDay() || 7;
+            utc.setUTCDate(utc.getUTCDate() + 4 - day);
+            const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+            return Math.ceil((((utc - yearStart) / DAY_MS) + 1) / 7);
+        }
+
         function buildDayCellsHtml(startTs, dayCount, dayWidth) {
             const cells = [];
-            let lastMonthKey = '';
+            const todayTs = startOfDayTs(Date.now());
             for (let i = 0; i < dayCount; i++) {
                 const ts = startTs + i * DAY_MS;
                 const d = new Date(ts);
-                const monthKey = `${d.getFullYear()}-${d.getMonth() + 1}`;
-                const isNewMonth = monthKey !== lastMonthKey;
-                if (isNewMonth) lastMonthKey = monthKey;
                 const day = d.getDate();
                 const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                const cls = `tm-gantt-day${isWeekend ? ' tm-gantt-day--weekend' : ''}${isNewMonth ? ' tm-gantt-day--month-start' : ''}`;
-                cells.push(`<div class="${cls}" style="width:${dayWidth}px">${day}</div>`);
+                const isMonthStart = d.getDate() === 1;
+                const isToday = isSameCalendarDay(ts, todayTs);
+                const cls = `tm-gantt-day tm-gantt-period-cell tm-gantt-period-cell--day${isWeekend ? ' tm-gantt-day--weekend' : ''}${isMonthStart ? ' tm-gantt-day--month-start' : ''}${isToday ? ' tm-gantt-period-cell--current' : ''}`;
+                cells.push(`<div class="${cls}" style="left:${i * dayWidth}px;width:${dayWidth}px" aria-label="${d.getFullYear()}年${d.getMonth() + 1}月${day}日"><span class="tm-gantt-date-marker">${day}</span></div>`);
             }
             return cells.join('');
         }
 
-        function buildMonthHeaderHtml(startTs, dayCount, dayWidth) {
-            const parts = [];
-            let i = 0;
-            while (i < dayCount) {
-                const ts = startTs + i * DAY_MS;
-                const d = new Date(ts);
+        function buildTimelinePeriodSegments(startTs, dayCount, period) {
+            const segments = [];
+            let segmentStart = 0;
+            const shouldStartNextSegment = (index) => {
+                const current = new Date(startTs + index * DAY_MS);
+                if (period === 'week') return current.getDay() === 1;
+                const previous = new Date(startTs + (index - 1) * DAY_MS);
+                if (period === 'year') return current.getFullYear() !== previous.getFullYear();
+                return current.getFullYear() !== previous.getFullYear() || current.getMonth() !== previous.getMonth();
+            };
+            for (let i = 1; i <= dayCount; i++) {
+                if (i < dayCount && !shouldStartNextSegment(i)) continue;
+                const startDate = new Date(startTs + segmentStart * DAY_MS);
+                const endDate = new Date(startTs + (i - 1) * DAY_MS);
+                segments.push({ startIndex: segmentStart, spanDays: i - segmentStart, startDate, endDate });
+                segmentStart = i;
+            }
+            return segments;
+        }
+
+        function buildWeekAlignedMonthSegments(startTs, dayCount) {
+            const segments = [];
+            buildTimelinePeriodSegments(startTs, dayCount, 'week').forEach((week) => {
+                const labelTs = week.startDate.getTime() + Math.floor((week.spanDays - 1) / 2) * DAY_MS;
+                const labelDate = new Date(labelTs);
+                const key = `${labelDate.getFullYear()}-${labelDate.getMonth()}`;
+                const previous = segments[segments.length - 1];
+                if (previous?.key === key) {
+                    previous.spanDays += week.spanDays;
+                    previous.endDate = week.endDate;
+                    return;
+                }
+                segments.push({ ...week, key, labelDate });
+            });
+            return segments;
+        }
+
+        function buildMonthHeaderHtml(startTs, dayCount, dayWidth, alignToWeeks = false) {
+            const today = new Date();
+            const segments = alignToWeeks
+                ? buildWeekAlignedMonthSegments(startTs, dayCount)
+                : buildTimelinePeriodSegments(startTs, dayCount, 'month');
+            return segments.map((segment) => {
+                const d = segment.labelDate || segment.startDate;
                 const y = d.getFullYear();
                 const m = d.getMonth();
-                const monthStartTs = new Date(y, m, 1, 0, 0, 0, 0).getTime();
-                const nextMonthTs = new Date(y, m + 1, 1, 0, 0, 0, 0).getTime();
-                const monthEndTs = nextMonthTs - DAY_MS;
-                const startIndex = Math.max(0, Math.floor((monthStartTs - startTs) / DAY_MS));
-                const endIndex = Math.min(dayCount - 1, Math.floor((monthEndTs - startTs) / DAY_MS));
-                const spanDays = endIndex - startIndex + 1;
-                const width = spanDays * dayWidth;
-                const label = `${y}-${String(m + 1).padStart(2, '0')}`;
-                parts.push(`<div class="tm-gantt-month" style="width:${width}px">${label}</div>`);
-                i = endIndex + 1;
-            }
-            return parts.join('');
+                const label = `${y}年${m + 1}月`;
+                const isCurrent = today.getFullYear() === y && today.getMonth() === m;
+                return `<div class="tm-gantt-month tm-gantt-period-cell tm-gantt-period-cell--upper${isCurrent ? ' tm-gantt-period-cell--current-period' : ''}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px">${label}</div>`;
+            }).join('');
+        }
+
+        function buildWeekCellsHtml(startTs, dayCount, dayWidth) {
+            const todayTs = startOfDayTs(Date.now());
+            return buildTimelinePeriodSegments(startTs, dayCount, 'week').map((segment) => {
+                const start = segment.startDate;
+                const end = segment.endDate;
+                const label = `${start.getMonth() + 1}.${start.getDate()}–${end.getMonth() + 1}.${end.getDate()}`;
+                const weekLabel = `W${getIsoWeekNumber(start.getTime())}`;
+                const isCurrent = todayTs >= startOfDayTs(start.getTime()) && todayTs <= startOfDayTs(end.getTime());
+                const cls = `tm-gantt-day tm-gantt-period-cell tm-gantt-period-cell--week${start.getDay() === 1 ? ' tm-gantt-period-cell--boundary' : ''}${isCurrent ? ' tm-gantt-period-cell--current' : ''}`;
+                return `<div class="${cls}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px" title="${weekLabel}" aria-label="${label}，${weekLabel}" data-tm-floating-tooltip-label="${weekLabel}" data-tm-tooltip-side="bottom"><span class="tm-gantt-date-marker tm-gantt-date-marker--period">${label}</span></div>`;
+            }).join('');
+        }
+
+        function buildYearHeaderHtml(startTs, dayCount, dayWidth) {
+            const todayYear = new Date().getFullYear();
+            return buildTimelinePeriodSegments(startTs, dayCount, 'year').map((segment) => {
+                const d = segment.startDate;
+                const year = d.getFullYear();
+                return `<div class="tm-gantt-month tm-gantt-period-cell tm-gantt-period-cell--upper${todayYear === year ? ' tm-gantt-period-cell--current-period' : ''}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px">${year}年</div>`;
+            }).join('');
+        }
+
+        function buildMonthCellsHtml(startTs, dayCount, dayWidth) {
+            const today = new Date();
+            return buildTimelinePeriodSegments(startTs, dayCount, 'month').map((segment) => {
+                const d = segment.startDate;
+                const year = d.getFullYear();
+                const month = d.getMonth();
+                const isCurrent = today.getFullYear() === year && today.getMonth() === month;
+                const isQuarterStart = month % 3 === 0;
+                const cls = `tm-gantt-day tm-gantt-period-cell tm-gantt-period-cell--month${isQuarterStart ? ' tm-gantt-period-cell--strong-boundary' : ''}${isCurrent ? ' tm-gantt-period-cell--current' : ''}`;
+                return `<div class="${cls}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px"><span class="tm-gantt-date-marker tm-gantt-date-marker--period">${month + 1}月</span></div>`;
+            }).join('');
+        }
+
+        function buildTimelineHeaderHtml(scale, startTs, dayCount, dayWidth) {
+            const upperHtml = scale === 'month'
+                ? buildYearHeaderHtml(startTs, dayCount, dayWidth)
+                : buildMonthHeaderHtml(startTs, dayCount, dayWidth, scale === 'week');
+            const lowerHtml = scale === 'week'
+                ? buildWeekCellsHtml(startTs, dayCount, dayWidth)
+                : (scale === 'month'
+                    ? buildMonthCellsHtml(startTs, dayCount, dayWidth)
+                    : buildDayCellsHtml(startTs, dayCount, dayWidth));
+            return `
+                <div class="tm-gantt-month-row tm-gantt-period-row tm-gantt-period-row--upper">${upperHtml}</div>
+                <div class="tm-gantt-day-row tm-gantt-period-row tm-gantt-period-row--lower">${lowerHtml}</div>
+            `;
         }
 
         function getDayIndexByTs(startTs, ts) {
@@ -154,18 +423,37 @@
             return `${d.getMonth() + 1}月${d.getDate()}日`;
         }
 
-        function buildTimelineDayBgHtml(startTs, dayCount, dayWidth) {
+        function resolveTimelineScaleDateRange(pointTs, scaleInput = 'day') {
+            const point = new Date(startOfDayTs(pointTs));
+            if (Number.isNaN(point.getTime())) return null;
+            const scale = normalizeTimelineScale(scaleInput);
+            if (scale === 'week') {
+                const weekday = point.getDay() || 7;
+                const startTs = startOfDayTs(new Date(point.getFullYear(), point.getMonth(), point.getDate() - weekday + 1).getTime());
+                return { startTs, endTs: startOfDayTs(new Date(point.getFullYear(), point.getMonth(), point.getDate() - weekday + 7).getTime()) };
+            }
+            if (scale === 'month') {
+                return {
+                    startTs: startOfDayTs(new Date(point.getFullYear(), point.getMonth(), 1).getTime()),
+                    endTs: startOfDayTs(new Date(point.getFullYear(), point.getMonth() + 1, 0).getTime()),
+                };
+            }
+            const dayTs = startOfDayTs(point.getTime());
+            return { startTs: dayTs, endTs: dayTs };
+        }
+
+        function buildTimelineDayBgHtml(startTs, dayCount, dayWidth, scale = 'day') {
             const cells = [];
-            let lastMonthKey = '';
+            const normalizedScale = normalizeTimelineScale(scale);
+            const today = new Date();
+            const todayTs = startOfDayTs(today.getTime());
             for (let i = 0; i < dayCount; i++) {
                 const ts = startTs + i * DAY_MS;
                 const d = new Date(ts);
-                const monthKey = `${d.getFullYear()}-${d.getMonth() + 1}`;
-                const isNewMonth = monthKey !== lastMonthKey;
-                if (isNewMonth) lastMonthKey = monthKey;
-                const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                const cls = `tm-gantt-day-bg${isWeekend ? ' tm-gantt-day-bg--weekend' : ''}${isNewMonth ? ' tm-gantt-day-bg--month-start' : ''}`;
-                cells.push(`<div class="${cls}" style="width:${dayWidth}px"></div>`);
+                const isWeekend = normalizedScale === 'day' && (d.getDay() === 0 || d.getDay() === 6);
+                const isCurrent = isSameCalendarDay(ts, todayTs);
+                const cls = `tm-gantt-day-bg tm-gantt-grid-cell tm-gantt-grid-cell--${normalizedScale}${isWeekend ? ' tm-gantt-day-bg--weekend' : ''}${isCurrent ? ' tm-gantt-grid-cell--current' : ''}`;
+                cells.push(`<div class="${cls}" style="left:${i * dayWidth}px;width:${dayWidth}px"></div>`);
             }
             return cells.join('');
         }
@@ -308,11 +596,12 @@
             const fadeStart = barWidth;
             const title = buildTimelineTaskBarTitle(layout, visual);
             const milestoneClass = visual.isMilestone ? ' tm-gantt-bar--milestone' : '';
-            return `<div class="tm-gantt-bar tm-gantt-bar--${mode}${isOverflow ? ' tm-gantt-bar--overflowing' : ''}${milestoneClass}" style="left:${Number(layout?.left) || 0}px;width:${barWidth}px;--tm-gantt-bar-fill:${visual.barColor};--tm-gantt-fade-start:${fadeStart}px;" title="${esc(title)}">${buildTimelineTaskBarInnerHtml(task, { ...layout, mode, overflow: isOverflow }, visual)}</div>`;
+            const shortClass = barWidth < 22 ? ' tm-gantt-bar--short' : '';
+            return `<div class="tm-gantt-bar tm-gantt-bar--${mode}${isOverflow ? ' tm-gantt-bar--overflowing' : ''}${shortClass}${milestoneClass}" style="left:${Number(layout?.left) || 0}px;width:${barWidth}px;--tm-gantt-bar-fill:${visual.barColor};--tm-gantt-fade-start:${fadeStart}px;" title="${esc(title)}">${buildTimelineTaskBarInnerHtml(task, { ...layout, mode, overflow: isOverflow }, visual)}</div>`;
         }
 
         function buildTimelineMilestoneHtml(task, layout) {
-            const width = Math.max(1, Number(layout?.width) || Number(layout?.dayWidth) || 1);
+            const width = Math.max(22, Number(layout?.width) || Number(layout?.dayWidth) || 1);
             const pointTs = layout?.endTs || layout?.startTs;
             const centerLeft = Number(layout?.left) || 0;
             return buildTimelineTaskBarHtml(task, {
@@ -325,6 +614,30 @@
             });
         }
 
+        function getTimelineBarLocalGeometry(barEl) {
+            if (!(barEl instanceof HTMLElement)) return null;
+            const rowEl = barEl.closest('.tm-gantt-row');
+            if (!(rowEl instanceof HTMLElement)) return null;
+            const styleLeft = Number.parseFloat(String(barEl.style.left || ''));
+            const styleWidth = Number.parseFloat(String(barEl.style.width || ''));
+            const left = Number.isFinite(styleLeft) ? styleLeft : Number(barEl.offsetLeft);
+            const width = Number.isFinite(styleWidth) ? styleWidth : Number(barEl.offsetWidth);
+            const top = Number(rowEl.offsetTop) + Number(barEl.offsetTop);
+            const height = Number(barEl.offsetHeight);
+            if (![left, width, top, height].every(Number.isFinite)) return null;
+            return { rowEl, left, width, y: top + (height / 2) };
+        }
+
+        function syncTimelineTaskLinkDots(barEl) {
+            const geometry = getTimelineBarLocalGeometry(barEl);
+            if (!geometry) return false;
+            const inDot = geometry.rowEl.querySelector('.tm-task-link-dot--timeline.tm-task-link-dot--in');
+            const outDot = geometry.rowEl.querySelector('.tm-task-link-dot--timeline.tm-task-link-dot--out');
+            if (inDot instanceof HTMLElement) inDot.style.left = `${geometry.left}px`;
+            if (outDot instanceof HTMLElement) outDot.style.left = `${geometry.left + geometry.width}px`;
+            return inDot instanceof HTMLElement || outDot instanceof HTMLElement;
+        }
+
         function applyTimelineTaskBarElement(barEl, task, layout) {
             if (!(barEl instanceof HTMLElement)) return null;
             const visual = getTimelineTaskVisualMeta(task, !!layout?.isDark);
@@ -335,11 +648,12 @@
             const width = Math.max(1, Number(layout?.width) || 0);
             const fadeStart = width;
             const title = buildTimelineTaskBarTitle(layout, visual);
+            const shortClass = width < 22 ? ' tm-gantt-bar--short' : '';
             const keepDragging = barEl.classList.contains('tm-gantt-bar--dragging');
             const keepResizeStart = barEl.classList.contains('tm-gantt-bar--resizing-start');
             const keepResizeEnd = barEl.classList.contains('tm-gantt-bar--resizing-end');
             const keepHintStart = barEl.classList.contains('tm-gantt-bar--hint-start');
-            barEl.className = `tm-gantt-bar tm-gantt-bar--${mode}${isOverflow ? ' tm-gantt-bar--overflowing' : ''}${visual.isMilestone ? ' tm-gantt-bar--milestone' : ''}`;
+            barEl.className = `tm-gantt-bar tm-gantt-bar--${mode}${isOverflow ? ' tm-gantt-bar--overflowing' : ''}${shortClass}${visual.isMilestone ? ' tm-gantt-bar--milestone' : ''}`;
             if (keepDragging) barEl.classList.add('tm-gantt-bar--dragging');
             if (keepResizeStart) barEl.classList.add('tm-gantt-bar--resizing-start');
             if (keepResizeEnd) barEl.classList.add('tm-gantt-bar--resizing-end');
@@ -353,6 +667,7 @@
             barEl.style.setProperty('--tm-gantt-fade-start', `${fadeStart}px`);
             barEl.title = title;
             barEl.innerHTML = buildTimelineTaskBarInnerHtml(task, { ...layout, mode, overflow: isOverflow }, visual);
+            syncTimelineTaskLinkDots(barEl);
             return barEl;
         }
 
@@ -384,7 +699,6 @@
                 }
             })();
             let mobileTimelineTouchLockRelease = null;
-            let groupChipScrollCleanup = null;
             const setMobileTimelineTouchLock = (enabled) => {
                 if (!isMobileTimelineGlobal) return;
                 if (!enabled) {
@@ -397,20 +711,20 @@
                 if (typeof mobileTimelineTouchLockRelease === 'function') return;
                 const modal = mobileTimelineModalEl;
                 if (!(modal instanceof HTMLElement)) return;
-                const touchOpts = { capture: true, passive: false };
-                const pointerOpts = { capture: true, passive: false };
-                const preventMoveDefault = (ev) => {
-                    try {
-                        if (!modal.classList.contains('tm-modal--timeline-touch-lock')) return;
-                    } catch (e) {}
-                    try { ev.preventDefault(); } catch (e) {}
+                const scrollHost = modal.querySelector('.tm-body.tm-body--timeline');
+                const lockedScrollLeft = scrollHost instanceof HTMLElement ? scrollHost.scrollLeft : 0;
+                const lockedScrollTop = scrollHost instanceof HTMLElement ? scrollHost.scrollTop : 0;
+                const restoreLockedScroll = () => {
+                    if (!(scrollHost instanceof HTMLElement)) return;
+                    if (scrollHost.scrollLeft === lockedScrollLeft && scrollHost.scrollTop === lockedScrollTop) return;
+                    scrollHost.scrollLeft = lockedScrollLeft;
+                    scrollHost.scrollTop = lockedScrollTop;
                 };
+                try { globalThis.__tmRuntimeEvents?.on?.(scrollHost, 'scroll', restoreLockedScroll, { passive: true }); } catch (e) {}
                 try { modal.classList.add('tm-modal--timeline-touch-lock'); } catch (e) {}
-                try { globalThis.__tmRuntimeEvents?.on?.(window, 'touchmove', preventMoveDefault, touchOpts); } catch (e) {}
-                try { globalThis.__tmRuntimeEvents?.on?.(window, 'pointermove', preventMoveDefault, pointerOpts); } catch (e) {}
+                restoreLockedScroll();
                 mobileTimelineTouchLockRelease = () => {
-                    try { globalThis.__tmRuntimeEvents?.off?.(window, 'touchmove', preventMoveDefault, touchOpts); } catch (e) {}
-                    try { globalThis.__tmRuntimeEvents?.off?.(window, 'pointermove', preventMoveDefault, pointerOpts); } catch (e) {}
+                    try { globalThis.__tmRuntimeEvents?.off?.(scrollHost, 'scroll', restoreLockedScroll, { passive: true }); } catch (e) {}
                     try { modal.classList.remove('tm-modal--timeline-touch-lock'); } catch (e) {}
                 };
             };
@@ -421,7 +735,10 @@
 
             const viewState = (opts.viewState && typeof opts.viewState === 'object') ? opts.viewState : {};
             const paddingDays = Number.isFinite(Number(viewState.paddingDays)) ? Number(viewState.paddingDays) : 7;
-            const dayWidth = clamp(Number(viewState.dayWidth) || 24, 10, 60);
+            const scaleState = resolveTimelineScaleState(viewState);
+            const scale = scaleState.scale;
+            const dayWidth = scaleState.dayWidth;
+            const snapDays = scaleState.snapDays;
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
             const tasks = [];
@@ -431,12 +748,12 @@
                 if (t) tasks.push(t);
             }
 
-            const range = computeAutoRangeTs(tasks, paddingDays);
+            const range = resolveTimelineRenderRange(tasks, paddingDays, scaleState, viewState);
             const startTs = range.startTs;
             const endTs = range.endTs;
             const dayCount = clamp(Math.round((endTs - startTs) / DAY_MS) + 1, 1, TIMELINE_MAX_DAY_COUNT);
             const totalWidth = dayCount * dayWidth;
-            const showCollapsedGroupLabels = !!SettingsStore.data.timelineSidebarCollapsed;
+            const showCollapsedGroupLabels = !!bodyEl.closest?.('.tm-timeline-split--sidebar-collapsed');
             const timelineMultiSelectedSet = new Set(
                 (Array.isArray(state.timelineMultiSelectedTaskIds) ? state.timelineMultiSelectedTaskIds : [])
                     .map((x) => String(x || '').trim())
@@ -446,19 +763,21 @@
             try { bodyEl.dataset.tmGanttDayWidth = String(dayWidth); } catch (e) {}
             try { bodyEl.dataset.tmGanttDayCount = String(dayCount); } catch (e) {}
             try { bodyEl.dataset.tmGanttTotalWidth = String(totalWidth); } catch (e) {}
+            try { bodyEl.dataset.tmGanttScale = scale; } catch (e) {}
+            try { bodyEl.dataset.tmGanttSnapDays = String(snapDays); } catch (e) {}
+            try { headerEl.dataset.tmGanttScale = scale; } catch (e) {}
 
             if (!appendOnly) {
                 headerEl.innerHTML = `
-                    <div class="tm-gantt-header-inner" style="width:${totalWidth}px">
-                        <div class="tm-gantt-month-row">${buildMonthHeaderHtml(startTs, dayCount, dayWidth)}</div>
-                        <div class="tm-gantt-day-row">${buildDayCellsHtml(startTs, dayCount, dayWidth)}</div>
+                    <div class="tm-gantt-header-inner tm-gantt-header-inner--${scale}" style="width:${totalWidth}px">
+                        ${buildTimelineHeaderHtml(scale, startTs, dayCount, dayWidth)}
                     </div>
                 `;
             }
 
             const nowTs = Date.now();
-            const todayLeftRaw = ((nowTs - startTs) / DAY_MS) * dayWidth;
-            const todayLeft = clamp(todayLeftRaw, 0, totalWidth);
+            const todayIsVisible = nowTs >= startTs && nowTs < endTs + DAY_MS;
+            const todayLeft = ((nowTs - startTs) / DAY_MS) * dayWidth;
             const rowsHtml = [];
             const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
             const isDark = __tmIsDarkMode();
@@ -597,11 +916,20 @@
                 const rowBgStyle = (enableGroupBg && resolvedGroupBg) ? `background:${resolvedGroupBg};` : '';
                 const isPinnedSelected = String(state.timelineDotPinnedTaskId || '').trim() === String(r.id);
                 const selectedCls = isPinnedSelected ? ' tm-gantt-row--selected tm-gantt-row--dot-open' : '';
-                const dotHoverCls = String(state.timelineLinkHoverTaskId || '').trim() === String(r.id) ? ' tm-gantt-row--link-hover' : '';
+                const hoverTargetSide = String(state.whiteboardLinkFromSide || '').trim() === 'in' ? 'out' : 'in';
+                const dotHoverCls = String(state.timelineLinkHoverTaskId || '').trim() === String(r.id)
+                    ? ` tm-gantt-row--link-hover tm-gantt-row--link-hover-${hoverTargetSide}`
+                    : '';
                 const multiSelCls = timelineMultiSelectedSet.has(String(r.id)) ? ' tm-gantt-row--multi-selected' : '';
                 const rowAttrs = `data-id="${String(r.id)}" data-doc-id="${docId}" style="width:${totalWidth}px;height:var(--tm-row-height);min-height:var(--tm-row-height);max-height:var(--tm-row-height);${rowBgStyle}" ondragenter="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragover="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragleave="tmTimelineLinkRowDragLeave(event, '${escSq(String(r.id))}')"`;
-                const buildDotHtml = (kind, leftPx) => `<span class="tm-task-link-dot tm-task-link-dot--timeline tm-task-link-dot--${kind}${state.whiteboardLinkFromTaskId === String(r.id) ? ' tm-task-link-dot--active' : ''}" style="left:${leftPx}px;" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(String(r.id))}', '${escSq(docId)}')" title="连接${kind === 'in' ? '输入' : '输出'}点"></span>`;
+                const buildDotHtml = (kind, leftPx) => `<span class="tm-task-link-dot tm-task-link-dot--timeline tm-task-link-dot--${kind}${state.whiteboardLinkFromTaskId === String(r.id) ? ' tm-task-link-dot--active' : ''}" style="left:${leftPx}px;" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(String(r.id))}', '${escSq(docId)}', '${kind}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(String(r.id))}', '${escSq(docId)}', '${kind}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(String(r.id))}', '${escSq(docId)}')" title="连接${kind === 'in' ? '输入' : '输出'}点"></span>`;
                 if (!aTs && !bTs) {
+                    rowsHtml.push(`<div class="tm-gantt-row${selectedCls}${dotHoverCls}${multiSelCls}" ${rowAttrs}></div>`);
+                    continue;
+                }
+                const visibleStartTs = Math.min(aTs || bTs, bTs || aTs);
+                const visibleEndTs = Math.max(aTs || bTs, bTs || aTs);
+                if (visibleEndTs < startTs || visibleStartTs >= endTs + DAY_MS) {
                     rowsHtml.push(`<div class="tm-gantt-row${selectedCls}${dotHoverCls}${multiSelCls}" ${rowAttrs}></div>`);
                     continue;
                 }
@@ -667,63 +995,12 @@
 
             bodyEl.innerHTML = `
                 <div class="tm-gantt-body-inner" style="width:${totalWidth}px">
-                    <div class="tm-gantt-day-bg-layer">${buildTimelineDayBgHtml(startTs, dayCount, dayWidth)}</div>
-                    <div class="tm-gantt-today" style="left:${todayLeft}px"></div>
+                    <div class="tm-gantt-day-bg-layer" aria-hidden="true">${buildTimelineDayBgHtml(startTs, dayCount, dayWidth, scale)}</div>
+                    ${todayIsVisible ? `<div class="tm-gantt-today" style="left:${todayLeft}px"></div>` : ''}
                     <svg class="tm-gantt-deps" aria-hidden="true"></svg>
                     ${rowsHtml.join('')}
                 </div>
             `;
-
-            let lastGroupChipOffset = -1;
-            let groupChipScrollRaf = 0;
-            const syncGroupChipOffset = () => {
-                let offset = 0;
-                if (isMobileTimelineGlobal) {
-                    const scrollHost = mobileTimelineModalEl?.querySelector?.('.tm-body.tm-body--timeline');
-                    offset = Number(scrollHost?.scrollLeft) || 0;
-                } else {
-                    offset = Number(bodyEl.scrollLeft) || 0;
-                }
-                offset = Math.max(0, Math.round(offset));
-                if (offset === lastGroupChipOffset) return;
-                lastGroupChipOffset = offset;
-                try { bodyEl.style.setProperty('--tm-gantt-group-chip-offset', `${offset}px`); } catch (e) {}
-            };
-            const scheduleGroupChipOffsetSync = () => {
-                if (groupChipScrollRaf) return;
-                try {
-                    groupChipScrollRaf = requestAnimationFrame(() => {
-                        groupChipScrollRaf = 0;
-                        try { syncGroupChipOffset(); } catch (e) {}
-                    });
-                } catch (e) {
-                    groupChipScrollRaf = 0;
-                    try { syncGroupChipOffset(); } catch (e2) {}
-                }
-            };
-            try { syncGroupChipOffset(); } catch (e) {}
-            try {
-                if (isMobileTimelineGlobal) {
-                    const scrollHost = mobileTimelineModalEl?.querySelector?.('.tm-body.tm-body--timeline');
-                    if (scrollHost instanceof HTMLElement) {
-                        const onGroupChipScroll = () => { try { scheduleGroupChipOffsetSync(); } catch (e2) {} };
-                        globalThis.__tmRuntimeEvents?.on?.(scrollHost, 'scroll', onGroupChipScroll, { passive: true });
-                        groupChipScrollCleanup = () => {
-                            try { if (groupChipScrollRaf) cancelAnimationFrame(groupChipScrollRaf); } catch (e2) {}
-                            groupChipScrollRaf = 0;
-                            try { globalThis.__tmRuntimeEvents?.off?.(scrollHost, 'scroll', onGroupChipScroll, { passive: true }); } catch (e2) {}
-                        };
-                    }
-                } else {
-                    const onGroupChipScroll = () => { try { scheduleGroupChipOffsetSync(); } catch (e2) {} };
-                    globalThis.__tmRuntimeEvents?.on?.(bodyEl, 'scroll', onGroupChipScroll, { passive: true });
-                    groupChipScrollCleanup = () => {
-                        try { if (groupChipScrollRaf) cancelAnimationFrame(groupChipScrollRaf); } catch (e2) {}
-                        groupChipScrollRaf = 0;
-                        try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'scroll', onGroupChipScroll, { passive: true }); } catch (e2) {}
-                    };
-                }
-            } catch (e) {}
 
             const renderDependencies = () => {
                 const inner = bodyEl.querySelector('.tm-gantt-body-inner');
@@ -754,13 +1031,11 @@
                     const row = inner.querySelector(`.tm-gantt-row[data-id="${CSS.escape(id)}"]`);
                     if (!(row instanceof Element)) return null;
                     const bar = row.querySelector('.tm-gantt-bar, .tm-gantt-milestone');
-                    const rect = bar instanceof Element ? bar.getBoundingClientRect() : null;
-                    if (!rect) return null;
+                    const geometry = getTimelineBarLocalGeometry(bar);
+                    if (!geometry) return null;
                     return {
-                        x: kind === 'from'
-                            ? (rect.right - rootRect.left)
-                            : (rect.left - rootRect.left),
-                        y: rect.top - rootRect.top + (rect.height / 2),
+                        x: kind === 'from' ? geometry.left + geometry.width : geometry.left,
+                        y: geometry.y,
                     };
                 };
                 const pointsToSmoothPathD = (pts, radius = 10) => {
@@ -900,22 +1175,22 @@
                 const fromTaskId = String(state.whiteboardLinkFromTaskId || '').trim();
                 const preview = state.whiteboardLinkPreview && typeof state.whiteboardLinkPreview === 'object' ? state.whiteboardLinkPreview : null;
                 if (fromTaskId && preview) {
-                    const from = getPt(fromTaskId, 'from');
-                    if (from) {
-                        let to = null;
-                        const targetTaskId = String(preview.targetTaskId || '').trim();
-                        if (targetTaskId) to = getPt(targetTaskId, 'to');
-                        if (!to) {
-                            const cx = Number(preview.clientX);
-                            const cy = Number(preview.clientY);
-                            if (Number.isFinite(cx) && Number.isFinite(cy)) {
-                                to = { x: cx - rootRect.left, y: cy - rootRect.top };
-                            }
-                        }
-                        if (to) {
-                            const d = buildTimelineDep(from, to).d;
-                            previewPath = `<path class="tm-gantt-dep tm-gantt-dep--manual" d="${d}" marker-end="url(#${markerIdOut})"></path>`;
-                        }
+                    const fromSide = String(preview.side || state.whiteboardLinkFromSide || '').trim() === 'in' ? 'in' : 'out';
+                    const targetTaskId = String(preview.targetTaskId || '').trim();
+                    const cx = Number(preview.clientX);
+                    const cy = Number(preview.clientY);
+                    const pointerPt = Number.isFinite(cx) && Number.isFinite(cy)
+                        ? { x: cx - rootRect.left, y: cy - rootRect.top }
+                        : null;
+                    const from = fromSide === 'in'
+                        ? (targetTaskId ? getPt(targetTaskId, 'from') : pointerPt)
+                        : getPt(fromTaskId, 'from');
+                    const to = fromSide === 'in'
+                        ? getPt(fromTaskId, 'to')
+                        : (targetTaskId ? getPt(targetTaskId, 'to') : pointerPt);
+                    if (from && to) {
+                        const d = buildTimelineDep(from, to).d;
+                        previewPath = `<path class="tm-gantt-dep tm-gantt-dep--manual" d="${d}" marker-end="url(#${markerIdOut})"></path>`;
                     }
                 }
                 svg.innerHTML = defs + paths + previewPath;
@@ -990,10 +1265,13 @@
                     `;
                     item.onmouseenter = () => item.style.backgroundColor = 'var(--b3-theme-surface-light)';
                     item.onmouseleave = () => item.style.backgroundColor = 'transparent';
-                    item.onclick = (ev) => {
+                    item.onclick = async (ev) => {
                         ev.stopPropagation();
+                        if (item.dataset.tmBusy === '1') return;
+                        item.dataset.tmBusy = '1';
+                        item.style.pointerEvents = 'none';
                         menu.remove();
-                        onClick?.();
+                        await onClick?.();
                     };
                     return item;
                 };
@@ -1003,7 +1281,9 @@
                         await onUpdateTaskDates(String(taskIdText), { startDate: '', completionTime: '' });
                         try { hint('✅ 已清除时间轴', 'success'); } catch (e3) {}
                     } catch (e2) {
-                        try { hint(`❌ 清除失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                        if (!e2?.__tmGanttUpdateHinted) {
+                            try { hint(`❌ 清除失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                        }
                     }
                 }, true));
 
@@ -1068,10 +1348,15 @@
                 const handleEl = target.closest('.tm-gantt-bar-handle');
                 const barEl = target.closest('.tm-gantt-bar');
                 if (!barEl) return;
-                if (isMobileTimelineGlobal && !handleEl) return;
+                const pointerType = String(e?.pointerType || '').trim().toLowerCase();
+                const useMobileLongPressMove = !!(isMobileTimelineGlobal && !handleEl && pointerType === 'touch');
+                if (isMobileTimelineGlobal && !handleEl && !useMobileLongPressMove) return;
                 const rowEl = barEl.closest('.tm-gantt-row');
                 const taskId = String(rowEl?.getAttribute?.('data-id') || '').trim();
                 if (!taskId) return;
+                if (isMobileTimelineGlobal && handleEl
+                    && !rowEl.classList.contains('tm-gantt-row--selected')
+                    && !rowEl.classList.contains('tm-gantt-row--dot-open')) return;
 
                 const handleType = handleEl?.getAttribute?.('data-handle');
                 const action = handleType === 'start' ? 'start' : handleType === 'end' ? 'end' : 'move';
@@ -1080,9 +1365,11 @@
                 const startTsStr = String(bodyEl.dataset?.tmGanttStartTs || '');
                 const dayWidthStr = String(bodyEl.dataset?.tmGanttDayWidth || '');
                 const dayCountStr = String(bodyEl.dataset?.tmGanttDayCount || '');
+                const snapDaysStr = String(bodyEl.dataset?.tmGanttSnapDays || '');
                 const startTs0 = Number(startTsStr);
                 const dayWidth0 = Number(dayWidthStr);
                 const dayCount0 = Number(dayCountStr);
+                const snapDays0 = Math.max(1, Math.round(Number(snapDaysStr) || 1));
                 if (!Number.isFinite(startTs0) || !Number.isFinite(dayWidth0) || !Number.isFinite(dayCount0) || dayWidth0 <= 0) return;
 
                 const selectedSet = new Set(
@@ -1103,6 +1390,13 @@
 
                 const activeTask = getTaskById(taskId);
                 const startX = e.clientX;
+                const startY = e.clientY;
+                const pointerIdValue = Number(e?.pointerId);
+                const activePointerId = Number.isFinite(pointerIdValue) ? pointerIdValue : null;
+                const pendingScrollHost = useMobileLongPressMove
+                    ? mobileTimelineModalEl?.querySelector?.('.tm-body.tm-body--timeline')
+                    : null;
+                const initialPendingScrollLeft = pendingScrollHost instanceof HTMLElement ? pendingScrollHost.scrollLeft : 0;
                 const initialLeftPx = Number.parseFloat(String(barEl.style.left || '').replace('px', '')) || 0;
                 const initialWidthPx = Number.parseFloat(String(barEl.style.width || '').replace('px', '')) || dayWidth0;
                 const initialStartIdx = clamp(Math.round(initialLeftPx / dayWidth0), 0, dayCount0 - 1);
@@ -1111,10 +1405,31 @@
 
                 let lastStartIdx = initialStartIdx;
                 let lastEndIdx = initialEndIdx;
+                let lastPointerX = startX;
+                let lastPointerY = startY;
                 let raf = 0;
                 let dragging = true;
                 let dragActive = false;
+                let longPressReady = !useMobileLongPressMove;
+                let longPressTimer = 0;
+                let pendingHorizontalScroll = false;
+                let renderedDependencyDeltaDays = null;
                 const dragThreshold = action === 'move' ? 6 : 3;
+                const samePointer = (ev) => {
+                    if (activePointerId == null) return true;
+                    const pointerId = Number(ev?.pointerId);
+                    return !Number.isFinite(pointerId) || pointerId === activePointerId;
+                };
+                const clearLongPressTimer = () => {
+                    if (!longPressTimer) return;
+                    try { clearTimeout(longPressTimer); } catch (e2) {}
+                    longPressTimer = 0;
+                };
+                const syncDraggedDependencies = (deltaDays) => {
+                    if (renderedDependencyDeltaDays === deltaDays) return;
+                    renderedDependencyDeltaDays = deltaDays;
+                    renderDependencies();
+                };
                 const setBarDragState = (targetBar, enabled, dragAction = action) => {
                     if (!(targetBar instanceof HTMLElement)) return;
                     try {
@@ -1220,7 +1535,7 @@
                 const onMove = (ev) => {
                     if (!dragging) return;
                     const dx = (ev.clientX - startX);
-                    const deltaDays = Math.round(dx / dayWidth0);
+                    const deltaDays = Math.round((dx / dayWidth0) / snapDays0) * snapDays0;
                     if (groupMove && groupItems.length > 1) {
                         groupItems.forEach((it) => {
                             const len = Math.max(1, it.initialEndIdx - it.initialStartIdx + 1);
@@ -1232,7 +1547,9 @@
                             it.lastEndIdx = nextEnd;
                             it.barEl.style.left = `${nextStart * dayWidth0}px`;
                             it.barEl.style.width = `${(nextEnd - nextStart + 1) * dayWidth0}px`;
+                            syncTimelineTaskLinkDots(it.barEl);
                         });
+                        syncDraggedDependencies(deltaDays);
                         return;
                     }
                     if (action === 'start') {
@@ -1247,36 +1564,93 @@
                         if (nextEnd > dayCount0 - 1) { nextEnd = dayCount0 - 1; nextStart = nextEnd - len + 1; }
                         applyBar(nextStart, nextEnd);
                     }
+                    syncDraggedDependencies(deltaDays);
                 };
 
-                const onWinPointerMove = (ev) => {
-                    if (!dragging) return;
-                    if (raf) return;
-                    try { ev.preventDefault(); } catch (e) {}
-                    raf = requestAnimationFrame(() => {
-                        raf = 0;
-                        const dx = ev.clientX - startX;
-                        if (!dragActive && Math.abs(dx) < dragThreshold) return;
-                        activateDrag();
-                        onMove(ev);
-                        updateBarDateHint();
-                    });
-                };
-
-                const onUp = async () => {
-                    if (!dragging) return;
-                    dragging = false;
+                const unbindWindowDragEvents = () => {
                     try { globalThis.__tmRuntimeEvents?.off?.(window, 'pointermove', onWinPointerMove, true); } catch (e) {}
                     try { globalThis.__tmRuntimeEvents?.off?.(window, 'pointerup', onUp, true); } catch (e) {}
                     try { globalThis.__tmRuntimeEvents?.off?.(window, 'pointercancel', onUp, true); } catch (e) {}
                     try { globalThis.__tmRuntimeEvents?.off?.(window, 'blur', onUp, true); } catch (e) {}
-                    if (raf) cancelAnimationFrame(raf);
-                    if (!dragActive) return;
+                };
+                const releaseActivePointerCapture = () => {
+                    if (activePointerId == null) return;
+                    try {
+                        if (barEl.hasPointerCapture?.(activePointerId)) barEl.releasePointerCapture?.(activePointerId);
+                    } catch (e) {}
+                };
+
+                const onWinPointerMove = (ev) => {
+                    if (!dragging) return;
+                    if (!samePointer(ev)) return;
+                    if (Number.isFinite(Number(ev?.clientX))) lastPointerX = Number(ev.clientX);
+                    if (Number.isFinite(Number(ev?.clientY))) lastPointerY = Number(ev.clientY);
+                    if (!longPressReady) {
+                        const pendingDx = lastPointerX - startX;
+                        const pendingDy = lastPointerY - startY;
+                        if (pendingHorizontalScroll) {
+                            try { ev.preventDefault(); } catch (e) {}
+                            if (pendingScrollHost instanceof HTMLElement) {
+                                pendingScrollHost.scrollLeft = initialPendingScrollLeft - pendingDx;
+                            }
+                            return;
+                        }
+                        if ((pendingDx * pendingDx + pendingDy * pendingDy) > 16) {
+                            clearLongPressTimer();
+                            if (pendingScrollHost instanceof HTMLElement && Math.abs(pendingDx) > Math.abs(pendingDy)) {
+                                pendingHorizontalScroll = true;
+                                try { ev.preventDefault(); } catch (e) {}
+                                pendingScrollHost.scrollLeft = initialPendingScrollLeft - pendingDx;
+                            } else {
+                                dragging = false;
+                                unbindWindowDragEvents();
+                            }
+                        }
+                        return;
+                    }
+                    if (raf) return;
+                    try { ev.preventDefault(); } catch (e) {}
+                    raf = requestAnimationFrame(() => {
+                        raf = 0;
+                        const dx = lastPointerX - startX;
+                        if (!dragActive && Math.abs(dx) < dragThreshold) return;
+                        activateDrag();
+                        onMove({ clientX: lastPointerX });
+                        updateBarDateHint();
+                    });
+                };
+
+                const onUp = async (ev) => {
+                    if (!dragging) return;
+                    if (!samePointer(ev)) return;
+                    const pointerCanceled = ev?.type === 'pointercancel';
+                    if (!pointerCanceled && Number.isFinite(Number(ev?.clientX))) lastPointerX = Number(ev.clientX);
+                    if (!pointerCanceled && Number.isFinite(Number(ev?.clientY))) lastPointerY = Number(ev.clientY);
+                    clearLongPressTimer();
+                    if (raf) {
+                        cancelAnimationFrame(raf);
+                        raf = 0;
+                    }
+                    const finalDx = lastPointerX - startX;
+                    if (!pointerCanceled && longPressReady && !dragActive && Math.abs(finalDx) >= dragThreshold) activateDrag();
+                    if (!pointerCanceled && dragActive) onMove({ clientX: lastPointerX });
+                    dragging = false;
+                    unbindWindowDragEvents();
+                    releaseActivePointerCapture();
+                    if (!dragActive) {
+                        if (pendingHorizontalScroll) {
+                            try { barEl.dataset.tmSuppressClickUntil = String(Date.now() + 700); } catch (e2) {}
+                        }
+                        return;
+                    }
                     setTimelineDraggingX(false);
                     setMobileTimelineTouchLock(false);
                     setBarDragState(barEl, false);
                     clearBarDateHint();
                     groupItems.forEach((it) => setBarDragState(it.barEl, false));
+                    if (useMobileLongPressMove) {
+                        try { barEl.dataset.tmSuppressClickUntil = String(Date.now() + 700); } catch (e2) {}
+                    }
 
                     if (groupMove && groupItems.length > 1) {
                         const changedItems = groupItems.filter((it) => it.lastStartIdx !== it.initialStartIdx || it.lastEndIdx !== it.initialEndIdx);
@@ -1304,17 +1678,30 @@
                     } catch (e2) {}
                 };
 
-                try {
-                    barEl.setPointerCapture?.(e.pointerId);
-                } catch (e2) {}
+                if (useMobileLongPressMove) {
+                    longPressTimer = setTimeout(() => {
+                        longPressTimer = 0;
+                        if (!dragging) return;
+                        longPressReady = true;
+                        if (activePointerId != null) {
+                            try { barEl.setPointerCapture?.(activePointerId); } catch (e2) {}
+                        }
+                        activateDrag();
+                        updateBarDateHint();
+                    }, 500);
+                } else {
+                    try { barEl.setPointerCapture?.(e.pointerId); } catch (e2) {}
+                }
 
                 globalThis.__tmRuntimeEvents?.on?.(window, 'pointermove', onWinPointerMove, true);
                 globalThis.__tmRuntimeEvents?.on?.(window, 'pointerup', onUp, true);
                 globalThis.__tmRuntimeEvents?.on?.(window, 'pointercancel', onUp, true);
                 globalThis.__tmRuntimeEvents?.on?.(window, 'blur', onUp, true);
 
-                try { e.preventDefault(); } catch (e3) {}
-                try { e.stopPropagation(); } catch (e3) {}
+                if (!useMobileLongPressMove) {
+                    try { e.preventDefault(); } catch (e3) {}
+                    try { e.stopPropagation(); } catch (e3) {}
+                }
             };
 
             const onPanPointerDown = (e) => {
@@ -1398,20 +1785,18 @@
                 const rect = bodyEl.getBoundingClientRect();
                 const relX = e.clientX - rect.left + bodyEl.scrollLeft;
                 const dayIdx = clamp(Math.floor(relX / dayWidth0), 0, dayCount0 - 1);
-                const completionTs = startTs0 + dayIdx * DAY_MS;
-                const completionTime = formatDateOnlyFromTs(completionTs);
-                if (!completionTime) return;
-
-                const task = getTaskById(taskId);
-                const startDateRaw = String(task?.startDate || '').trim();
-                const startTs = parseDateOnlyToTs(startDateRaw);
-                let startDate = startDateRaw;
-                if (!startDate) startDate = completionTime;
-                else if (Number.isFinite(startTs) && startTs > completionTs) startDate = completionTime;
+                const pointTs = startTs0 + dayIdx * DAY_MS;
+                const scale = String(bodyEl.dataset?.tmGanttScale || 'day').trim();
+                const range = resolveTimelineScaleDateRange(pointTs, scale);
+                if (!range) return;
+                const startDate = formatDateOnlyFromTs(range.startTs);
+                const completionTime = formatDateOnlyFromTs(range.endTs);
+                if (!startDate || !completionTime) return;
 
                 try {
                     await onUpdateTaskDates(String(taskId), { startDate, completionTime });
-                    try { hint(`✅ 截止日期：${completionTime}`, 'success'); } catch (e3) {}
+                    const dateLabel = startDate === completionTime ? completionTime : `${startDate} - ${completionTime}`;
+                    try { hint(`✅ 任务日期：${dateLabel}`, 'success'); } catch (e3) {}
                 } catch (e2) {}
             };
 
@@ -1437,6 +1822,14 @@
             const onClick = (e) => {
                 const target = e.target;
                 if (!(target instanceof Element)) return;
+                const suppressedBar = target.closest('.tm-gantt-bar[data-tm-suppress-click-until]');
+                const suppressClickUntil = Number(suppressedBar?.dataset?.tmSuppressClickUntil || 0);
+                if (suppressClickUntil > Date.now()) {
+                    try { delete suppressedBar.dataset.tmSuppressClickUntil; } catch (e2) {}
+                    try { e.preventDefault(); } catch (e2) {}
+                    try { e.stopPropagation(); } catch (e2) {}
+                    return;
+                }
                 if (!target.closest('.tm-gantt-dep-wrap, .tm-gantt-dep, .tm-gantt-dep-remove-btn')
                     && String(state.timelineSelectedLinkId || '').trim()) {
                     state.timelineSelectedLinkId = '';
@@ -1534,7 +1927,6 @@
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'dblclick', onDblClick); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'contextmenu', onContextMenu); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'click', onClick); } catch (e) {}
-                try { groupChipScrollCleanup?.(); } catch (e) {}
                 try { setMobileTimelineTouchLock(false); } catch (e) {}
                 if (state.__tmTimelineRenderDeps === renderDependencies) state.__tmTimelineRenderDeps = null;
             });
@@ -1542,7 +1934,14 @@
 
         globalThis.__TaskHorizonGanttView = {
             render: renderGantt,
+            resolveScaleState: resolveTimelineScaleState,
+            setScale: setTimelineScale,
+            stepZoom: stepTimelineZoom,
+            fitScale: fitTimelineScale,
             computeRangeTs: computeAutoRangeTs,
+            setRange: setTimelineRange,
+            centerRangeOnDate: centerTimelineRangeOnDate,
+            shiftRange: shiftTimelineRange,
             parseDateOnlyToTs,
             formatDateOnlyFromTs,
             formatTimelineHintDate,

@@ -73,6 +73,7 @@ assert.doesNotMatch(styles, /tmViewFadeIn|tm-stage-anim--fade/, 'the removed lar
 assert.doesNotMatch(styles, /--tm-timeline-row-height/, 'timeline must inherit the same row-height token as the table view');
 assert.doesNotMatch(servicesRuntime, /setTimelineRowHeight|--tm-timeline-row-height/, 'appearance settings must not maintain a separate timeline row height');
 assert.match(styles, /#tmTimelineLeftTable tbody tr \{[\s\S]*?height: var\(--tm-row-height\);[\s\S]*?min-height: var\(--tm-row-height\);[\s\S]*?max-height: var\(--tm-row-height\);/, 'timeline left rows must share the fixed Gantt row height');
+assert.match(styles, /\.tm-body--list \.tm-table \.tm-group-row \.tm-group-sticky \{[^}]*box-shadow:\s*none;/, 'table group labels must not draw a short underline inside the full row separator');
 assert.match(styles, /\.tm-body--timeline #tmTimelineLeftTable tbody td \{[^}]*border-bottom:\s*none;[^}]*box-shadow:\s*inset 0 -1px 0 var\(--tm-table-border-color\);/, 'timeline table cells must use an inset separator so collapsed table borders cannot enlarge rows');
 assert.doesNotMatch(styles, /\.tm-body--timeline[^}]*\.tm-group-row td\s*\{/, 'timeline group rows must reuse the table view row geometry without a local override');
 assert.match(ganttRuntime, /tm-gantt-row tm-gantt-row--group[\s\S]*?height:var\(--tm-row-height\);min-height:var\(--tm-row-height\);max-height:var\(--tm-row-height\);/, 'Gantt group rows must use the same row-height token as table group rows');

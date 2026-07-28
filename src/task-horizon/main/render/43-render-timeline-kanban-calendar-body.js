@@ -1,7 +1,29 @@
+    function __tmResolveTimelinePaneLayout(preferredWidth, tableWidth, containerWidth = 0) {
+        const resolvedTableWidth = Math.max(0, Math.round(Number(tableWidth) || 0));
+        if (!resolvedTableWidth) return { width: 0, minWidth: 0, maxWidth: 0, tableWidth: 0 };
+
+        const minWidth = Math.min(320, resolvedTableWidth);
+        const resolvedContainerWidth = Math.max(0, Math.round(Number(containerWidth) || 0));
+        const containerMaxWidth = resolvedContainerWidth > 0
+            ? Math.max(minWidth, resolvedContainerWidth - 420 - 6)
+            : resolvedTableWidth;
+        const maxWidth = Math.max(minWidth, Math.min(resolvedTableWidth, containerMaxWidth));
+        const requestedWidth = Number.isFinite(Number(preferredWidth)) && Number(preferredWidth) > 0
+            ? Math.round(Number(preferredWidth))
+            : resolvedTableWidth;
+        return {
+            width: Math.max(minWidth, Math.min(maxWidth, requestedWidth)),
+            minWidth,
+            maxWidth,
+            tableWidth: resolvedTableWidth,
+        };
+    }
+
     function __tmBuildRenderSceneTimelineBodyHtml(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const bodyAnimClass = String(opts.bodyAnimClass || '');
         const rowModel = Array.isArray(opts.rowModel) ? opts.rowModel : null;
+        const useMobileTimelineSidebar = opts.isMobile === true && opts.isDockHost !== true;
 
         const __tmRenderTimelineBodyHtml = (rowModel) => {
             const widths = SettingsStore.data.columnWidths || {};
@@ -9,14 +31,30 @@
             const leftWidth0 = Number(SettingsStore.data.timelineLeftWidth);
             const timelineContentWidth0 = Number(SettingsStore.data.timelineContentWidth);
             const timelineContentWidth = Number.isFinite(timelineContentWidth0) ? Math.max(10, Math.min(800, Math.round(timelineContentWidth0))) : (Number(widths.content) || 360);
-            const timelineStartW = __tmGetFixedDateColumnWidth('startDate');
-            const timelineEndW = __tmGetFixedDateColumnWidth('completionTime');
-            const leftTableWidth = Math.round(timelineContentWidth + timelineStartW + timelineEndW + 2);
-            const computedAuto = leftTableWidth;
-            const leftWidth = (Number.isFinite(leftWidth0) && leftWidth0 > 0)
-                ? Math.max(360, Math.min(900, Math.round(leftWidth0)))
-                : Math.max(360, Math.min(900, computedAuto));
-            const sidebarCollapsed = !!SettingsStore.data.timelineSidebarCollapsed;
+            const timelineColumnOrder = __tmGetTimelineColumnOrder();
+            const timelineColumnCount = timelineColumnOrder.length;
+            const timelineWidthMap = { ...widths, content: timelineContentWidth };
+            const timelineTableLayout = __tmGetTableWidthLayout(timelineColumnOrder, timelineWidthMap, 0);
+            const leftTableWidth = Math.round(timelineTableLayout.resolvedTotal + 2);
+            const timelineCustomColumnsByKey = new Map(
+                __tmGetAllColumnDefs()
+                    .filter((def) => def?.kind === 'custom')
+                    .map((def) => [String(def?.key || '').trim(), def])
+                    .filter(([key]) => !!key)
+            );
+            const timelineStatusOptions = __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
+            const timelineContainerWidth = (!opts.isMobile && !opts.isDockHost) ? (() => {
+                const values = [];
+                try { values.push(Number(state.modal?.querySelector?.('.tm-main-stage')?.clientWidth) || 0); } catch (e) {}
+                try { values.push(Number(state.modal?.clientWidth) || 0); } catch (e) {}
+                try { values.push(Math.max(0, Number(window.innerWidth) - 48)); } catch (e) {}
+                return values.find((value) => Number.isFinite(value) && value > 0) || 0;
+            })() : 0;
+            const leftPaneLayout = __tmResolveTimelinePaneLayout(leftWidth0, leftTableWidth, timelineContainerWidth);
+            const leftWidth = leftPaneLayout.width;
+            const sidebarCollapsed = useMobileTimelineSidebar
+                ? state.timelineMobileSidebarExpanded !== true
+                : !!SettingsStore.data.timelineSidebarCollapsed;
             const splitClass = sidebarCollapsed ? ' tm-timeline-split--sidebar-collapsed' : '';
             const isDark = __tmIsDarkMode();
             const progressBarColor = __tmGetEffectiveProgressBarColor(isDark);
@@ -91,36 +129,36 @@
                 const isCollapsed = !!row?.collapsed;
                 const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;">${__tmRenderToggleIcon(16, isCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>`;
                 if (row.kind === 'pinned') {
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
                 if (row.kind === 'doc') {
                     const labelColor = String(row.labelColor || 'var(--tm-group-doc-label-color)');
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderDocGroupLabel(row.docId || row.id, row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderDocGroupLabel(row.docId || row.id, row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
                 // 按任务名分组：分组行使用 PHOSPHOR 风格图标
                 if (row.kind === 'task') {
                     const labelColor = String(row.labelColor || 'var(--tm-primary-color)');
                     // 任务名分组：分组行不显示背景色，和文档分组保持一致
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderIconLabel('puzzle', row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderIconLabel('puzzle', row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
                 if (row.kind === 'time') {
                     const labelColor = String(row.labelColor || 'var(--tm-text-color)');
                     const durationSum = String(row.durationSum || '').trim();
                     const timeLabelHtml = String(row.labelHtml || '').trim() || esc(row.label || '');
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${timeLabelHtml}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${timeLabelHtml}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
                 }
                 if (row.kind === 'h2') {
                     const createBtnHtml = __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务');
                     const labelColor = String(row.labelColor || __tmGetHeadingSubgroupLabelColor('var(--tm-group-doc-label-color)', isDark));
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-kind="h2" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderHeadingLevelIconLabel(row.label || '', row.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${createBtnHtml}</div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-kind="h2" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderHeadingLevelIconLabel(row.label || '', row.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${createBtnHtml}</div></td></tr>`;
                 }
                 if (row.kind === 'quadrant') {
                     const durationSum = String(row.durationSum || '').trim();
                     const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
                     const color = colorMap[String(row.color || '')] || 'var(--tm-text-color)';
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:${color};"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}<span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:${color};"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}<span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
                 }
-                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}</div></td></tr>`;
+                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}</div></td></tr>`;
             };
 
             const renderTaskRow = (row) => {
@@ -175,26 +213,103 @@
                 const completedTodayBadgeHtml = row?.inCompletedRootGroup === true
                     ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
                     : '';
-
-                return `
-                    <tr class="tm-timeline-row ${finalRowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">
-                        <td class="tm-task-content-cell" style="width: ${timelineContentWidth}px; min-width: ${timelineContentWidth}px; max-width: ${timelineContentWidth}px; ${contentCellBgStyle}">
-                            <div class="tm-task-cell" style="padding-left:${contentIndent}px">
-                                ${treeGuides}
-                                <span class="${leadingClass}">
-                                    ${leadingRing}
-                                ${__tmRenderTaskCheckbox(task.id, task, { checked: task.done, extraClass: isGloballyLocked ? 'tm-operating' : '' })}
-                                    ${toggle}
-                                </span>
-                                <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
-                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
-                                </span>
-                            </div>
-                        </td>
-                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="startDate" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
-                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>
-                    </tr>
-                `;
+                const getTimelineCellStyle = (columnKey, extra = '') => timelineTableLayout.cellStyle(
+                    columnKey,
+                    `${extra}${columnKey === 'content' ? contentCellBgStyle : otherCellBgStyle}`
+                );
+                const statusOption = timelineColumnOrder.includes('status')
+                    ? __tmResolveTaskStatusDisplayOption(task, timelineStatusOptions, { fallbackColor: '#757575' })
+                    : null;
+                const statusChipStyle = statusOption ? __tmBuildStatusChipStyle(statusOption.color) : '';
+                const remainingInfo = timelineColumnOrder.includes('remainingTime') ? __tmGetTaskRemainingTimeInfo(task) : null;
+                const remainingLabel = String(remainingInfo?.label || '').trim();
+                const taskCompleteAtText = timelineColumnOrder.includes('taskCompleteAt')
+                    ? __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task))
+                    : '';
+                let taskRowHtml = `<tr class="tm-timeline-row ${finalRowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
+                timelineColumnOrder.forEach((columnKey) => {
+                    switch (columnKey) {
+                        case 'pinned':
+                            taskRowHtml += `<td style="${getTimelineCellStyle('pinned', 'text-align:center;')}"><input type="checkbox" ${task.pinned ? 'checked' : ''} onchange="tmSetPinned('${task.id}', this.checked, event)" title="置顶"></td>`;
+                            break;
+                        case 'content':
+                            taskRowHtml += `
+                                <td class="tm-task-content-cell" style="${getTimelineCellStyle('content')}">
+                                    <div class="tm-task-cell" style="padding-left:${contentIndent}px">
+                                        ${treeGuides}
+                                        <span class="${leadingClass}">
+                                            ${leadingRing}
+                                            ${__tmRenderTaskCheckbox(task.id, task, { checked: task.done, extraClass: isGloballyLocked ? 'tm-operating' : '' })}
+                                            ${toggle}
+                                        </span>
+                                        <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
+                                            <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                                        </span>
+                                    </div>
+                                </td>`;
+                            break;
+                        case 'doc':
+                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" style="${getTimelineCellStyle('doc')}" title="点击移动到当前分组其他文档" onclick="tmPickTaskDocInline('${task.id}', this, event)">${esc(task.docName || '')}</td>`;
+                            break;
+                        case 'h2':
+                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" style="${getTimelineCellStyle('h2')}" title="点击切换标题" onclick="tmPickHeadingInline('${task.id}', this, event)">${esc(__tmNormalizeHeadingText(task.h2) || '无')}</td>`;
+                            break;
+                        case 'score':
+                            taskRowHtml += `<td class="tm-task-meta-cell" data-tm-field="score" style="${getTimelineCellStyle('score', 'text-align:center;font-variant-numeric:inherit;')}">${Math.round(__tmEnsureTaskPriorityScore(task))}</td>`;
+                            break;
+                        case 'priority':
+                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-field="priority" style="${getTimelineCellStyle('priority', 'text-align:center;')}" onclick="tmPickPriority('${task.id}', this, event)">${__tmRenderPriorityJira(task.priority, false)}</td>`;
+                            break;
+                        case 'startDate':
+                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="startDate" style="${getTimelineCellStyle('startDate')}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>`;
+                            break;
+                        case 'completionTime':
+                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="${getTimelineCellStyle('completionTime')}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>`;
+                            break;
+                        case 'taskCompleteAt':
+                            taskRowHtml += `<td class="tm-task-meta-cell" data-tm-task-time-field="taskCompleteAt" style="${getTimelineCellStyle('taskCompleteAt')}" title="${esc(taskCompleteAtText)}">${esc(taskCompleteAtText)}</td>`;
+                            break;
+                        case 'remainingTime':
+                            taskRowHtml += `<td class="tm-task-meta-cell" data-tm-task-time-field="remainingTime" style="${getTimelineCellStyle('remainingTime', 'text-align:center;')}" title="${esc(remainingLabel)}">${__tmRenderTaskRemainingTimeInfoHtml(remainingInfo)}</td>`;
+                            break;
+                        case 'tomatoSummary':
+                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="tomatoSummary" style="${getTimelineCellStyle('tomatoSummary', 'text-align:center;font-variant-numeric:inherit;')}" onclick="tmBeginCellEdit('${task.id}','tomatoSummary',this,event)">${__tmGetTaskTomatoSummaryHtml(task)}</td>`;
+                            break;
+                        case 'remark': {
+                            const remark = String(task.remark ?? task.custom_remark ?? task.customRemark ?? '');
+                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-field="remark" style="${getTimelineCellStyle('remark')}" title="${esc(remark)}" onclick="tmBeginCellEdit('${task.id}','remark',this,event)"><span class="tm-task-remark-text">${esc(remark)}</span></td>`;
+                            break;
+                        }
+                        case 'attachments':
+                            taskRowHtml += `<td class="tm-task-meta-cell tm-task-attachments-cell" data-tm-field="attachments" style="${getTimelineCellStyle('attachments')}" onclick="tmOpenTaskDetail('${task.id}', event)">${__tmBuildTaskAttachmentSummaryHtml(task)}</td>`;
+                            break;
+                        case 'status':
+                            taskRowHtml += `<td class="tm-status-cell tm-task-meta-cell" data-tm-field="status" style="${getTimelineCellStyle('status', 'text-align:center;')}" onclick="tmOpenStatusSelect('${task.id}', event)"><span class="tm-status-cell-inner"><span class="tm-status-tag" style="${statusChipStyle}">${esc(statusOption?.name || '')}</span></span></td>`;
+                            break;
+                        default: {
+                            const customColumn = timelineCustomColumnsByKey.get(columnKey);
+                            if (!customColumn) break;
+                            const field = customColumn.field;
+                            const fieldId = String(customColumn.fieldId || '').trim();
+                            const fieldType = String(field?.type || '').trim();
+                            const fieldValue = __tmGetTaskCustomFieldValue(task, fieldId);
+                            const displayHtml = __tmBuildCustomFieldDisplayHtml(field, fieldValue, {
+                                allowEmpty: false,
+                                maxTags: fieldType === 'multi' ? 2 : 1,
+                            });
+                            const textValue = fieldType === 'text'
+                                ? String(__tmNormalizeCustomFieldValue(field, fieldValue) || '').trim()
+                                : '';
+                            const onClick = fieldType === 'text'
+                                ? `tmBeginCellEdit('${task.id}','${columnKey}',this,event)`
+                                : `tmOpenCustomFieldSelect('${task.id}', '${fieldId}', event, this)`;
+                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-custom-field-cell="${esc(fieldId)}" style="${getTimelineCellStyle(columnKey)}" ${textValue ? `title="${esc(textValue)}"` : ''} onclick="${onClick}"><div class="tm-custom-field-cell">${displayHtml}</div></td>`;
+                            break;
+                        }
+                    }
+                });
+                taskRowHtml += '</tr>';
+                return taskRowHtml;
             };
 
             const leftRows = [];
@@ -242,32 +357,46 @@
                 }
             }
             const leftRowsHtml = leftRows.join('');
+            const timelineColgroupHtml = timelineColumnOrder.map((columnKey) => {
+                const idAttr = columnKey === 'content' ? ' id="tmTimelineColContent"' : '';
+                return `<col${idAttr} data-col="${esc(columnKey)}" style="width:${timelineTableLayout.widths[columnKey]}px">`;
+            }).join('');
+            const timelineHeaderHtml = timelineColumnOrder.map((columnKey) => {
+                const label = __tmResolveColumnLabel(columnKey);
+                const escapedKey = String(columnKey).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const align = (columnKey === 'pinned' || columnKey === 'score' || columnKey === 'priority' || columnKey === 'status' || columnKey === 'remainingTime' || columnKey === 'tomatoSummary')
+                    ? 'text-align:center;'
+                    : '';
+                const labelHtml = columnKey === 'pinned' ? __tmRenderInlineIcon('pin') : esc(label || columnKey);
+                const resizeHtml = columnKey === 'content'
+                    ? '<span class="tm-col-resize" onmousedown="tmStartTimelineContentResize(event)"></span>'
+                    : (__tmIsFixedDateColumn(columnKey)
+                        ? ''
+                        : `<span class="tm-col-resize" onmousedown="startColResize(event, '${escapedKey}')"></span>`);
+                return `<th data-col="${esc(columnKey)}" title="${esc(label || columnKey)}" oncontextmenu="tmShowColumnHeaderContextMenu(event, '${escapedKey}', { scope: 'timeline' }); return false;" style="${timelineTableLayout.cellStyle(columnKey, `${align}white-space:nowrap;overflow:hidden;`)}">${labelHtml}${resizeHtml}</th>`;
+            }).join('');
 
             return `
                 <div class="tm-body tm-body--timeline${bodyAnimClass}">
                     <div class="tm-timeline-split${splitClass}">
-                        <div class="tm-timeline-left" style="width:${leftWidth}px">
+                        <div class="tm-timeline-left" style="width:${leftWidth}px;min-width:${leftPaneLayout.minWidth}px;max-width:${leftPaneLayout.maxWidth}px">
                             <div class="tm-timeline-left-body" id="tmTimelineLeftBody">
-                                <table class="tm-table tm-timeline-table-left" id="tmTimelineLeftTable" style="width:${leftTableWidth}px;min-width:${leftTableWidth}px;max-width:${leftTableWidth}px;">
+                                <table class="tm-table tm-timeline-table-left" id="tmTimelineLeftTable" data-tm-table-width="${leftTableWidth}" style="width:${leftTableWidth}px;min-width:${leftTableWidth}px;max-width:${leftTableWidth}px;">
                                     <colgroup>
-                                        <col id="tmTimelineColContent" style="width:${timelineContentWidth}px">
-                                        <col id="tmTimelineColStart" style="width:${timelineStartW}px">
-                                        <col id="tmTimelineColEnd" style="width:${timelineEndW}px">
+                                        ${timelineColgroupHtml}
                                     </colgroup>
                                     <thead>
                                         <tr>
-                                            <th style="width:${timelineContentWidth}px; min-width:${timelineContentWidth}px; max-width:${timelineContentWidth}px;">任务内容<span class="tm-col-resize" onmousedown="tmStartTimelineContentResize(event)"></span></th>
-                                            <th data-col="startDate" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px;">开始日期</th>
-                                            <th data-col="completionTime" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px;">截止日期</th>
+                                            ${timelineHeaderHtml}
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${leftRowsHtml || `<tr><td colspan="3" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`}
+                                        ${leftRowsHtml || `<tr><td colspan="${timelineColumnCount}" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
-                        <div class="tm-timeline-splitter" onmousedown="tmStartTimelineSplitResize(event)" title="拖拽调整宽度"></div>
+                        <div class="tm-timeline-splitter" role="separator" aria-label="调整任务表格宽度" aria-orientation="vertical" aria-valuemin="${leftPaneLayout.minWidth}" aria-valuemax="${leftPaneLayout.maxWidth}" aria-valuenow="${leftWidth}" tabindex="0" onmousedown="tmStartTimelineSplitResize(event)" onkeydown="tmTimelineSplitResizeKeydown(event)" title="拖拽调整宽度"></div>
                         <div class="tm-timeline-right">
                             <div class="tm-timeline-right-header"><div id="tmGanttHeader"></div></div>
                             <div class="tm-timeline-right-body" id="tmGanttBody"></div>

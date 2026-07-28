@@ -743,14 +743,14 @@
 
     window.tmTouchTimelineMobileToolbarButton = function(event) {
         const target = event?.target instanceof Element ? event.target : null;
-        const btn = target?.closest?.('.tm-timeline-mobile-toolbar__btn');
+        const btn = target?.closest?.('.tm-timeline-floating-toolbar__btn');
         if (!(btn instanceof HTMLElement)) return;
         try {
             try { btn.blur?.(); } catch (e2) {}
-            btn.classList.add('tm-timeline-mobile-toolbar__btn--active');
+            btn.classList.add('tm-timeline-floating-toolbar__btn--active');
             if (btn.__tmActiveTimer) clearTimeout(btn.__tmActiveTimer);
             btn.__tmActiveTimer = setTimeout(() => {
-                try { btn.classList.remove('tm-timeline-mobile-toolbar__btn--active'); } catch (e2) {}
+                try { btn.classList.remove('tm-timeline-floating-toolbar__btn--active'); } catch (e2) {}
                 try { btn.blur?.(); } catch (e2) {}
                 try { btn.__tmActiveTimer = 0; } catch (e2) {}
             }, 220);
@@ -1039,6 +1039,24 @@
     let __tmWhiteboardSidebarResizeOnMove = null;
     let __tmWhiteboardSidebarResizeOnUp = null;
 
+    function __tmApplyTimelinePaneLayout(leftEl, splitterEl, layout) {
+        if (!leftEl || !layout) return;
+        leftEl.style.width = `${layout.width}px`;
+        leftEl.style.minWidth = `${layout.minWidth}px`;
+        leftEl.style.maxWidth = `${layout.maxWidth}px`;
+        try {
+            splitterEl?.setAttribute?.('aria-valuemin', String(layout.minWidth));
+            splitterEl?.setAttribute?.('aria-valuemax', String(layout.maxWidth));
+            splitterEl?.setAttribute?.('aria-valuenow', String(layout.width));
+        } catch (e) {}
+    }
+
+    function __tmGetTimelinePaneConstraintWidth(splitEl) {
+        const modal = splitEl?.closest?.('.tm-modal');
+        if (modal?.classList?.contains('tm-modal--dock') || modal?.classList?.contains('tm-modal--mobile')) return 0;
+        return Number(splitEl?.getBoundingClientRect?.().width) || 0;
+    }
+
     window.startColResize = function(event, colName) {
         event.preventDefault();
         event.stopPropagation();
@@ -1047,13 +1065,24 @@
         const startX = event.clientX;
         const startWidth = th.offsetWidth;
         const isCalendar = !!th.closest('.tm-calendar-task-list');
+        const timelineTable = th.closest('#tmTimelineLeftTable');
+        const isTimeline = !!timelineTable;
+        const timelineCol = isTimeline
+            ? Array.from(timelineTable.querySelectorAll('col[data-col]')).find((item) => item.getAttribute('data-col') === colName)
+            : null;
 
         __tmResizeState = {
             colName,
             startX,
             startWidth,
             th,
-            isCalendar
+            isCalendar,
+            isTimeline,
+            timelineTable,
+            timelineCol,
+            timelineTableWidth: isTimeline
+                ? (Number(timelineTable.dataset?.tmTableWidth) || Number.parseFloat(timelineTable.style.width) || startWidth)
+                : 0,
         };
 
         document.addEventListener('mousemove', __tmOnResize);
@@ -1069,6 +1098,25 @@
         __tmResizeState.th.style.width = newWidth + 'px';
         __tmResizeState.th.style.minWidth = newWidth + 'px';
         __tmResizeState.th.style.maxWidth = newWidth + 'px';
+        if (__tmResizeState.isTimeline && __tmResizeState.timelineTable) {
+            if (__tmResizeState.timelineCol) __tmResizeState.timelineCol.style.width = `${newWidth}px`;
+            const total = Math.round(__tmResizeState.timelineTableWidth - __tmResizeState.startWidth + newWidth);
+            const table = __tmResizeState.timelineTable;
+            table.dataset.tmTableWidth = String(total);
+            table.style.width = `${total}px`;
+            table.style.minWidth = `${total}px`;
+            table.style.maxWidth = `${total}px`;
+            const leftEl = table.closest?.('.tm-timeline-left');
+            const splitEl = leftEl?.closest?.('.tm-timeline-split');
+            if (leftEl && splitEl) {
+                const layout = __tmResolveTimelinePaneLayout(
+                    leftEl.getBoundingClientRect().width,
+                    total,
+                    __tmGetTimelinePaneConstraintWidth(splitEl)
+                );
+                __tmApplyTimelinePaneLayout(leftEl, splitEl.querySelector?.('.tm-timeline-splitter'), layout);
+            }
+        }
     }
 
     function __tmStopResize(event) {
@@ -1076,6 +1124,7 @@
 
         const deltaX = event.clientX - __tmResizeState.startX;
         const newWidth = Math.max(10, Math.min(800, Math.round(__tmResizeState.startWidth + deltaX)));
+        const isTimeline = __tmResizeState.isTimeline;
 
         if (__tmResizeState.isCalendar) {
             if (!SettingsStore.data.calendarColumnWidths) SettingsStore.data.calendarColumnWidths = {};
@@ -1091,13 +1140,17 @@
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         __tmResizeState = null;
+        if (isTimeline) render();
     };
 
     window.tmStartTimelineSplitResize = function(event) {
         try { event.preventDefault(); } catch (e) {}
         try { event.stopPropagation(); } catch (e) {}
         const leftEl = state.modal?.querySelector?.('.tm-timeline-left');
-        if (!leftEl) return;
+        const splitEl = leftEl?.closest?.('.tm-timeline-split');
+        const tableEl = leftEl?.querySelector?.('#tmTimelineLeftTable');
+        const splitterEl = splitEl?.querySelector?.('.tm-timeline-splitter');
+        if (!leftEl || !splitEl || !tableEl) return;
         try {
             if (__tmTimelineSplitResizeOnMove) document.removeEventListener('mousemove', __tmTimelineSplitResizeOnMove);
             if (__tmTimelineSplitResizeOnUp) document.removeEventListener('mouseup', __tmTimelineSplitResizeOnUp);
@@ -1106,18 +1159,33 @@
         __tmTimelineSplitResizeOnUp = null;
         const startX = event.clientX;
         const startWidth = leftEl.getBoundingClientRect().width;
-        __tmTimelineSplitResizeState = { startX, startWidth, leftEl };
+        const tableWidth = Number(tableEl.dataset?.tmTableWidth) || Number.parseFloat(tableEl.style.width) || startWidth;
+        const containerWidth = __tmGetTimelinePaneConstraintWidth(splitEl);
+        __tmTimelineSplitResizeState = { startX, startWidth, leftEl, tableWidth, containerWidth, splitterEl };
+
+        const resolveNext = (preferredWidth) => __tmResolveTimelinePaneLayout(
+            preferredWidth,
+            __tmTimelineSplitResizeState?.tableWidth,
+            __tmTimelineSplitResizeState?.containerWidth
+        );
+        const applyNext = (layout) => {
+            if (!__tmTimelineSplitResizeState || !layout) return;
+            __tmApplyTimelinePaneLayout(
+                __tmTimelineSplitResizeState.leftEl,
+                __tmTimelineSplitResizeState.splitterEl,
+                layout
+            );
+        };
 
         const onMove = (ev) => {
             if (!__tmTimelineSplitResizeState) return;
             const dx = ev.clientX - __tmTimelineSplitResizeState.startX;
-            const next = Math.max(360, Math.min(900, Math.round(__tmTimelineSplitResizeState.startWidth + dx)));
-            __tmTimelineSplitResizeState.leftEl.style.width = `${next}px`;
+            applyNext(resolveNext(__tmTimelineSplitResizeState.startWidth + dx));
         };
         const onUp = async (ev) => {
             if (!__tmTimelineSplitResizeState) return;
             const dx = ev.clientX - __tmTimelineSplitResizeState.startX;
-            const next = Math.max(360, Math.min(900, Math.round(__tmTimelineSplitResizeState.startWidth + dx)));
+            const next = resolveNext(__tmTimelineSplitResizeState.startWidth + dx).width;
             __tmTimelineSplitResizeState = null;
             try { document.removeEventListener('mousemove', onMove); } catch (e) {}
             try { document.removeEventListener('mouseup', onUp); } catch (e) {}
@@ -1137,6 +1205,30 @@
         document.body.style.userSelect = 'none';
     };
 
+    window.tmTimelineSplitResizeKeydown = function(event) {
+        if (event?.key !== 'ArrowLeft' && event?.key !== 'ArrowRight') return;
+        try { event.preventDefault(); } catch (e) {}
+        try { event.stopPropagation(); } catch (e) {}
+        const splitterEl = event?.currentTarget;
+        const splitEl = splitterEl?.closest?.('.tm-timeline-split');
+        const leftEl = splitEl?.querySelector?.('.tm-timeline-left');
+        const tableEl = leftEl?.querySelector?.('#tmTimelineLeftTable');
+        if (!splitEl || !leftEl || !tableEl) return;
+
+        const currentWidth = leftEl.getBoundingClientRect().width;
+        const tableWidth = Number(tableEl.dataset?.tmTableWidth) || Number.parseFloat(tableEl.style.width) || currentWidth;
+        const step = event.shiftKey ? 64 : 16;
+        const direction = event.key === 'ArrowRight' ? 1 : -1;
+        const layout = __tmResolveTimelinePaneLayout(
+            currentWidth + direction * step,
+            tableWidth,
+            __tmGetTimelinePaneConstraintWidth(splitEl)
+        );
+        __tmApplyTimelinePaneLayout(leftEl, splitterEl, layout);
+        SettingsStore.data.timelineLeftWidth = layout.width;
+        try { SettingsStore.save().catch(() => {}); } catch (e) {}
+    };
+
     window.tmStartTimelineContentResize = function(event) {
         try { event.preventDefault(); } catch (e) {}
         try { event.stopPropagation(); } catch (e) {}
@@ -1153,6 +1245,7 @@
         const col = state.modal?.querySelector?.('#tmTimelineColContent');
         const startWidth = th.getBoundingClientRect().width;
         const startW = Number.isFinite(startWidth) ? startWidth : th.offsetWidth;
+        const initialTableWidth = Number(table?.dataset?.tmTableWidth) || Number.parseFloat(table?.style?.width) || startW;
 
         const onMove = (ev) => {
             const dx = ev.clientX - startX;
@@ -1161,13 +1254,23 @@
             th.style.width = `${next}px`;
             th.style.minWidth = `${next}px`;
             th.style.maxWidth = `${next}px`;
-            const startW2 = __tmGetFixedDateColumnWidth('startDate');
-            const endW2 = __tmGetFixedDateColumnWidth('completionTime');
-            const total = Math.round(next + startW2 + endW2 + 2);
+            const total = Math.round(initialTableWidth - startW + next);
             if (table) {
+                table.dataset.tmTableWidth = String(total);
                 table.style.width = `${total}px`;
                 table.style.minWidth = `${total}px`;
                 table.style.maxWidth = `${total}px`;
+            }
+            const leftEl = table?.closest?.('.tm-timeline-left');
+            const splitEl = leftEl?.closest?.('.tm-timeline-split');
+            if (leftEl && splitEl) {
+                const layout = __tmResolveTimelinePaneLayout(
+                    leftEl.getBoundingClientRect().width,
+                    total,
+                    __tmGetTimelinePaneConstraintWidth(splitEl)
+                );
+                const splitterEl = splitEl.querySelector?.('.tm-timeline-splitter');
+                __tmApplyTimelinePaneLayout(leftEl, splitterEl, layout);
             }
         };
 

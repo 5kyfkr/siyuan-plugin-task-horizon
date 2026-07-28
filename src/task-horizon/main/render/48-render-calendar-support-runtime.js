@@ -1657,3 +1657,15 @@
         await finishAfterPersist();
         return resultPatch;
     };
+
+    const __tmUpdateTaskDatesCore = window.tmUpdateTaskDates;
+    window.tmUpdateTaskDates = function(taskId, patch = {}, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.timelineMutation !== true) {
+            return __tmUpdateTaskDatesCore(taskId, patch, opts);
+        }
+        return __tmEnqueueTimelineMutation(
+            () => __tmUpdateTaskDatesCore(taskId, patch, { ...opts, timelineMutation: false }),
+            { label: String(opts.source || 'timeline-date').trim() || 'timeline-date' }
+        );
+    };

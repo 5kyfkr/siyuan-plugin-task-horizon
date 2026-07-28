@@ -28,6 +28,12 @@ assert.equal((detailSource.match(/currentChoice === 'custom' \? 'is-selected'/g)
 assert.equal((detailSource.match(/listTaskSchedulesByTaskId\([^\n]+\{ futureOnly: false \}\)/g) || []).length, 2, 'both time hub schedule lists must keep historical schedules available');
 assert.equal((detailSource.match(/__tmGetTaskTimeHubUnexpiredSchedule\(/g) || []).length, 4, 'all task-detail schedule summaries must exclude expired schedules');
 assert.match(detailCss, /\.tm-task-time-hub__day\.is-next-repeat::after[\s\S]*color-mix\(in srgb, var\(--tm-primary-color\) 11%, var\(--tm-card-bg\) 89%\)/, 'next recurring date must use a subtle theme-aware highlight');
+const tableCellEntryStart = detailRefreshCoordinatorSource.indexOf('window.tmBeginCellEdit = function');
+const tableCellEntryEnd = detailRefreshCoordinatorSource.indexOf("if (field === 'tomatoSummary'", tableCellEntryStart);
+assert.ok(tableCellEntryStart >= 0 && tableCellEntryEnd > tableCellEntryStart, 'table cell time hub entry must remain extractable');
+const tableCellEntrySource = detailRefreshCoordinatorSource.slice(tableCellEntryStart, tableCellEntryEnd);
+assert.match(tableCellEntrySource, /field === 'startDate' \|\| field === 'completionTime'[\s\S]*tmOpenTaskTimeHub\(id, td,[\s\S]*activeField: field/, 'start and completion cells must open the shared time hub');
+assert.doesNotMatch(tableCellEntrySource, /isMobileTimelineCell|__tmIsMobileDevice\(\)[\s\S]*return;/, 'mobile timeline date cells must retain the shared time hub entry');
 
 const detailHubStart = detailSource.indexOf('const openTaskTimeHubPopover = (trigger, options = {}) => {');
 const detailHubEnd = detailSource.indexOf("on(document, 'pointerdown'", detailHubStart);
