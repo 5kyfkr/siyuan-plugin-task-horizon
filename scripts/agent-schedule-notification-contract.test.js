@@ -23,6 +23,7 @@ assert.match(calendar, /scheduleUpdatedListener[\s\S]*scheduleScheduleReminderRe
 assert.match(calendar, /function buildScheduleReminderRuntimeTimerKey\([\s\S]*meta\.title/, 'desktop timer identity must include notification content');
 assert.match(calendar, /desiredTimers\.set\(buildScheduleReminderRuntimeTimerKey\(key, pack\), pack\)/, 'desktop timers must use the content-aware runtime key');
 assert.match(calendar, /reconcileSingleScheduleMobileNotification[\s\S]*cancelScheduleMobileNotificationEntries\(validExistingEntries\)/, 'mobile schedule edits must cancel outdated appointments');
+assert.match(calendar, /const existing = registry\[scheduleId\] \|\| getScheduleDeviceSchedule\(item\) \|\| null/, 'mobile reconciliation must prefer the latest local appointment registry');
 assert.match(calendar, /cleanupOrphanScheduleMobileRegistry[\s\S]*cancelScheduleMobileNotificationEntries\(entry\?\.entries\)/, 'mobile schedule deletes must cancel orphaned appointments');
 assert.match(calendar, /diffWechatReminderTargets[\s\S]*removals:[\s\S]*upserts:/, 'WeChat reminders must reconcile removals and updates');
 

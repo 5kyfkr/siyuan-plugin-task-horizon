@@ -991,6 +991,7 @@
                         <section class="tm-whiteboard-doc tm-whiteboard-doc--global" data-doc-id="${esc(globalCanvasDocId)}" data-tm-whiteboard-scope="global" style="border:none;background:transparent;">
                             <div class="tm-whiteboard-doc-body" data-doc-id="${esc(globalCanvasDocId)}" data-tm-whiteboard-scope="global" style="height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(globalCanvasDocId)}')">
                                 <svg class="tm-whiteboard-edges" aria-hidden="true"></svg>
+                                <svg class="tm-whiteboard-edges tm-whiteboard-edges--subtask" aria-hidden="true"></svg>
                                 ${docFrames.map((frame) => renderWhiteboardFrame(frame)).join('')}
                                 ${renderWhiteboardDrawingLayer()}
                                 ${docNotes.map((n, idx) => renderWhiteboardNote(n, idx)).join('')}
@@ -1004,6 +1005,7 @@
                         <section class="tm-whiteboard-doc" data-doc-id="${esc(docId)}" style="border:none;background:transparent;">
                             <div class="tm-whiteboard-doc-body" data-doc-id="${esc(docId)}" style="height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(docId)}')">
                                 <svg class="tm-whiteboard-edges" aria-hidden="true"></svg>
+                                <svg class="tm-whiteboard-edges tm-whiteboard-edges--subtask" aria-hidden="true"></svg>
                                 ${docFrames.map((frame) => renderWhiteboardFrame(frame)).join('')}
                                 ${renderWhiteboardDrawingLayer()}
                                 ${docNotes.map((n, idx) => renderWhiteboardNote(n, idx)).join('')}
@@ -1020,6 +1022,7 @@
                         </header>
                         <div class="tm-whiteboard-doc-body" data-doc-id="${esc(docId)}" data-frame-offset-x="${allView ? Math.round(framePlan.offsetX) : 0}" data-frame-offset-y="${allView ? Math.round(framePlan.offsetY) : 0}" style="height:${Math.round(boardH)}px;min-height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;min-width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(docId)}')">
                             <svg class="tm-whiteboard-edges" aria-hidden="true"></svg>
+                            <svg class="tm-whiteboard-edges tm-whiteboard-edges--subtask" aria-hidden="true"></svg>
                             ${docFrames.map((frame) => renderWhiteboardFrame(frame)).join('')}
                             ${docNotes.map((n, idx) => renderWhiteboardNote(n, idx)).join('')}
                             ${cardEmptyHtml}
@@ -1399,7 +1402,7 @@
                                         data-h2="${esc(groupLabel)}"
                                         data-task-ids="${esc(h2DragTaskIds.join(','))}"
                                         ${h2DragTaskIds.length ? `ondragstart="tmWhiteboardPoolH2DragStart(event, '${escSq(docId)}', '${escSq(groupLabel)}')" ondragend="tmWhiteboardPoolDragEnd(event)"` : ''}
-                                        title="${h2DragTaskIds.length ? '拖动该二级标题及其任务到白板' : ''}">${__tmRenderHeadingLevelInlineIcon(SettingsStore.data.taskHeadingLevel || 'h2', { size: 14, className: 'tm-whiteboard-pool-h2-icon' })}<span class="tm-whiteboard-pool-h2-text">${esc(groupLabel)} · ${items.length}</span></div>
+                                        title="${h2DragTaskIds.length ? '拖动该二级标题及其任务到白板' : ''}">${__tmRenderHeadingLevelIconLabel(groupLabel, SettingsStore.data.taskHeadingLevel || 'h2', { size: 14, className: 'tm-whiteboard-pool-h2-text' })}<span> · ${items.length}</span></div>
                                     ${groupRootIds.map((rid) => renderGroupTaskNode(rid, 0)).join('')}
                                 `;
                             }).join('')}

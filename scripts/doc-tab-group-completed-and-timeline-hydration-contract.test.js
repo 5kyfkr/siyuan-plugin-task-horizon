@@ -57,6 +57,23 @@ assert.match(storeRuntime, /docTabsManualArchiveOnly: data\.docTabsManualArchive
 assert.match(dialogRuntime, /String\(archiveMode \? 1 : 0\),\s*String\(SettingsStore\?\.data\?\.docTabsManualArchiveOnly \? 1 : 0\)/, 'filter render signatures must change when the archive policy changes');
 assert.match(rowModelRuntime, /window\.updateDocTabsManualArchiveOnly[\s\S]*__tmResolveDocTabSwitchTarget\(activeDocId\)[\s\S]*applyFilters\(\)/, 'changing archive policy must validate the active tab and refresh every aggregate scope');
 
+const customGroupRegionPolicySource = segment(
+    dialogRuntime,
+    'function __tmShouldShowDocTabCustomGroupInRegion(group, regionState, archiveMode)',
+    'function __tmBuildDocTabGroupedView(visibleDocs, options = {})'
+);
+const customGroupRegionPolicy = new Function(`${customGroupRegionPolicySource}; return __tmShouldShowDocTabCustomGroupInRegion;`)();
+assert.equal(customGroupRegionPolicy({ showInTabBar: true }, { hasActive: true, hasArchived: false }, false), true, 'active-only tab groups must remain in the active region');
+assert.equal(customGroupRegionPolicy({ showInTabBar: true }, { hasActive: true, hasArchived: false }, true), false, 'active-only tab groups must stay out of the archive region');
+assert.equal(customGroupRegionPolicy({ showInTabBar: true }, { hasActive: false, hasArchived: true }, false), false, 'fully archived tab groups must leave the active region');
+assert.equal(customGroupRegionPolicy({ showInTabBar: true }, { hasActive: false, hasArchived: true }, true), true, 'fully archived tab groups must appear in the archive region');
+assert.equal(customGroupRegionPolicy({ showInTabBar: true }, { hasActive: true, hasArchived: true }, false), true, 'mixed tab groups must remain available in the active region');
+assert.equal(customGroupRegionPolicy({ showInTabBar: true }, { hasActive: true, hasArchived: true }, true), true, 'mixed tab groups must remain available in the archive region');
+assert.equal(customGroupRegionPolicy({ showInTabBar: true }, { hasActive: false, hasArchived: false }, false), true, 'empty configured tab groups must remain editable from the active region');
+assert.equal(customGroupRegionPolicy({ showInTabBar: true }, { hasActive: false, hasArchived: false }, true), false, 'empty tab groups must not appear archived');
+assert.match(dialogRuntime, /__tmGetDocTabCustomGroupRegionState\(group,[\s\S]*__tmShouldShowDocTabCustomGroupInRegion\(group, regionState, archiveMode\)/, 'tab group rendering must use member archive state instead of showInTabBar alone');
+assert.match(dialogRuntime, /activeGroupRegionState[\s\S]*__tmShouldShowDocTabCustomGroupInRegion\(activeGroup, activeGroupRegionState, archiveMode\)[\s\S]*state\.activeDocId = 'all'/, 'an aggregate tab group that moves regions must release the hidden active context');
+
 const timelineHydration = segment(
     viewSwitchRuntime,
     'function __tmScheduleTimelineDateHydrationAfterViewSwitch(generation)',

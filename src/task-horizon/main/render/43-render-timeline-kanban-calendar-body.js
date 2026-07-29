@@ -374,31 +374,53 @@
                 return `<th data-col="${esc(columnKey)}" title="${esc(label || columnKey)}" oncontextmenu="tmShowColumnHeaderContextMenu(event, '${escapedKey}', { scope: 'timeline' }); return false;" style="${timelineTableLayout.cellStyle(columnKey, `${align}white-space:nowrap;overflow:hidden;`)}">${labelHtml}${resizeHtml}</th>`;
             }).join('');
 
+            const timelineLeftHtml = `
+                <div class="tm-timeline-left" style="width:${leftWidth}px;min-width:${leftPaneLayout.minWidth}px;max-width:${leftPaneLayout.maxWidth}px">
+                    <div class="tm-timeline-left-body" id="tmTimelineLeftBody">
+                        <table class="tm-table tm-timeline-table-left" id="tmTimelineLeftTable" data-tm-table-width="${leftTableWidth}" style="width:${leftTableWidth}px;min-width:${leftTableWidth}px;max-width:${leftTableWidth}px;">
+                            <colgroup>
+                                ${timelineColgroupHtml}
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    ${timelineHeaderHtml}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${leftRowsHtml || `<tr><td colspan="${timelineColumnCount}" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            const timelineRightHtml = `
+                <div class="tm-timeline-right">
+                    <div class="tm-timeline-right-header"><div id="tmGanttHeader"></div></div>
+                    <div class="tm-timeline-right-body" id="tmGanttBody"></div>
+                </div>
+            `;
+            const useCompactTimelineOverlay = opts.isMobile === true || opts.isDockHost === true;
+            if (useCompactTimelineOverlay) {
+                return `
+                    <div class="tm-body tm-body--timeline tm-body--timeline-compact${bodyAnimClass}">
+                        <div class="tm-timeline-scroll-host">
+                            <div class="tm-timeline-split tm-timeline-split--compact-canvas${splitClass}">
+                                ${timelineRightHtml}
+                            </div>
+                        </div>
+                        <div class="tm-timeline-sidebar-overlay${sidebarCollapsed ? ' tm-timeline-sidebar-overlay--hidden' : ''}">
+                            ${timelineLeftHtml}
+                        </div>
+                    </div>
+                `;
+            }
+
             return `
                 <div class="tm-body tm-body--timeline${bodyAnimClass}">
                     <div class="tm-timeline-split${splitClass}">
-                        <div class="tm-timeline-left" style="width:${leftWidth}px;min-width:${leftPaneLayout.minWidth}px;max-width:${leftPaneLayout.maxWidth}px">
-                            <div class="tm-timeline-left-body" id="tmTimelineLeftBody">
-                                <table class="tm-table tm-timeline-table-left" id="tmTimelineLeftTable" data-tm-table-width="${leftTableWidth}" style="width:${leftTableWidth}px;min-width:${leftTableWidth}px;max-width:${leftTableWidth}px;">
-                                    <colgroup>
-                                        ${timelineColgroupHtml}
-                                    </colgroup>
-                                    <thead>
-                                        <tr>
-                                            ${timelineHeaderHtml}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${leftRowsHtml || `<tr><td colspan="${timelineColumnCount}" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
+                        ${timelineLeftHtml}
                         <div class="tm-timeline-splitter" role="separator" aria-label="调整任务表格宽度" aria-orientation="vertical" aria-valuemin="${leftPaneLayout.minWidth}" aria-valuemax="${leftPaneLayout.maxWidth}" aria-valuenow="${leftWidth}" tabindex="0" onmousedown="tmStartTimelineSplitResize(event)" onkeydown="tmTimelineSplitResizeKeydown(event)" title="拖拽调整宽度"></div>
-                        <div class="tm-timeline-right">
-                            <div class="tm-timeline-right-header"><div id="tmGanttHeader"></div></div>
-                            <div class="tm-timeline-right-body" id="tmGanttBody"></div>
-                        </div>
+                        ${timelineRightHtml}
                     </div>
                 </div>
             `;

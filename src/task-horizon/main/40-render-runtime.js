@@ -6703,6 +6703,71 @@ return;
         }));
     };
 
+    window.tmGanttFocusTask = function(taskId) {
+        if (state.viewMode !== 'timeline') return false;
+        const id = String(taskId || '').trim();
+        const view = globalThis.__TaskHorizonGanttView;
+        const task = id
+            ? (globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)
+                || state.flatTasks?.[id]
+                || state.pendingInsertedTasks?.[id])
+            : null;
+        const taskStartTs = Number(view?.parseDateOnlyToTs?.(task?.startDate));
+        const taskEndTs = Number(view?.parseDateOnlyToTs?.(task?.completionTime));
+        const firstTs = Math.min(taskStartTs || taskEndTs, taskEndTs || taskStartTs);
+        const lastTs = Math.max(taskStartTs || taskEndTs, taskEndTs || taskStartTs);
+        if (!task || !Number.isFinite(firstTs) || !Number.isFinite(lastTs) || !firstTs || !lastTs) return false;
+
+        const modal = state.modal;
+        const body = modal?.querySelector?.('#tmGanttBody');
+        if (!(body instanceof HTMLElement)) return false;
+        const renderStartTs = Number(body.dataset?.tmGanttStartTs);
+        const dayWidth = Number(body.dataset?.tmGanttDayWidth);
+        const dayCount = Number(body.dataset?.tmGanttDayCount);
+        const totalWidth = Number(body.dataset?.tmGanttTotalWidth) || Number(body.scrollWidth || 0);
+        if (!Number.isFinite(renderStartTs) || !Number.isFinite(dayWidth) || dayWidth <= 0 || !Number.isFinite(dayCount) || dayCount <= 0) return false;
+
+        const globalScrollHost = __tmGetTimelineGlobalScrollHost(modal);
+        const scrollHost = globalScrollHost instanceof HTMLElement ? globalScrollHost : body;
+        const leftPaneWidth = globalScrollHost ? __tmGetTimelineLeftPaneWidth(modal) : 0;
+        const viewportWidth = Math.max(0, Number(scrollHost.clientWidth) || 0);
+        if (viewportWidth <= 0) return false;
+
+        const row = body.querySelector(`.tm-gantt-row[data-id="${CSS.escape(id)}"]`);
+        const bar = row?.querySelector?.('.tm-gantt-bar');
+        const barLeft = Number.parseFloat(String(bar?.style?.left || ''));
+        const barWidth = Number.parseFloat(String(bar?.style?.width || ''));
+        const taskCenterTs = firstTs + ((lastTs - firstTs + 86400000) / 2);
+        const taskCenterX = Number.isFinite(barLeft) && Number.isFinite(barWidth) && barWidth > 0
+            ? barLeft + (barWidth / 2)
+            : ((taskCenterTs - renderStartTs) / 86400000) * dayWidth;
+        const maxLeft = Math.max(0, leftPaneWidth + totalWidth - viewportWidth);
+        const targetLeft = Math.max(0, Math.min(maxLeft, Math.round(leftPaneWidth + taskCenterX - viewportWidth * 0.5)));
+        const renderEndTs = renderStartTs + dayCount * 86400000;
+        const outsideRenderRange = lastTs < renderStartTs || firstTs >= renderEndTs;
+        const rebaseMargin = Math.min(viewportWidth, Math.max(96, maxLeft / 3));
+        const nearRenderedEdge = targetLeft <= rebaseMargin || (maxLeft - targetLeft) <= rebaseMargin;
+
+        if (outsideRenderRange || nearRenderedEdge) {
+            if (typeof view?.centerRangeOnDate !== 'function') return false;
+            view.centerRangeOnDate(state.ganttView, taskCenterTs, 0.5);
+            state.ganttView.pendingAnchor = { dateTs: taskCenterTs, ratio: 0.5 };
+            const renderedInPlace = typeof __tmRerenderTimelineInPlace === 'function'
+                ? __tmRerenderTimelineInPlace(modal, { reuseLeftRows: true })
+                : false;
+            if (!renderedInPlace) render();
+            return true;
+        }
+
+        try {
+            scrollHost.scrollTo({ left: targetLeft, behavior: 'smooth' });
+        } catch (e) {
+            scrollHost.scrollLeft = targetLeft;
+        }
+        return true;
+    };
+
     window.tmGanttToday = function() {
         const globalScrollHost = __tmGetTimelineGlobalScrollHost(state.modal);
         const useGlobalScroll = !!globalScrollHost;

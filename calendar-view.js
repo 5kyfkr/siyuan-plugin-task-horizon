@@ -45,6 +45,8 @@
         SCHEDULE_FILE: '/data/storage/petal/siyuan-plugin-task-horizon/calendar-events.json',
         SCHEDULE_LS_KEY: 'tm-calendar-events',
         SCHEDULE_MOBILE_REGISTRY_LS_KEY: 'tm-calendar-mobile-notification-registry',
+        SCHEDULE_NOTIFICATION_RECORDS_FILE: '/data/storage/petal/siyuan-plugin-task-horizon/calendar-notification-records.json',
+        SCHEDULE_NOTIFICATION_RECORDS_LS_KEY: 'tm-calendar-notification-records-v1',
         SCHEDULE_WECHAT_REGISTRY_FILE: '/data/storage/petal/siyuan-plugin-task-horizon/calendar-wechat-reminder-registry.json',
         SCHEDULE_WECHAT_REGISTRY_LS_KEY: 'tm-calendar-wechat-reminder-registry-v1',
         CALENDAR_SUBSCRIPTION_FILE: '/data/storage/petal/siyuan-plugin-task-horizon/calendar-subscription.ics',
@@ -11811,6 +11813,19 @@
             }
             const parsed = JSON.parse(raw);
             const { out } = normalizeScheduleList(parsed);
+            try {
+                const previous = Array.isArray(state.scheduleCache.list) ? cloneScheduleList(state.scheduleCache.list) : [];
+                const nextById = new Map(out.map((item) => [getScheduleSaveItemId(item), item]).filter(([id]) => !!id));
+                const recordsToRetain = previous.filter((item) => {
+                    const id = getScheduleSaveItemId(item);
+                    const next = id ? nextById.get(id) : null;
+                    return !!id && (!next
+                        || getScheduleNotificationMutationSignature(item) !== getScheduleNotificationMutationSignature(next));
+                });
+                if (recordsToRetain.length > 0) {
+                    await retainScheduleNotificationRecords(recordsToRetain, 'shared-schedule-changed');
+                }
+            } catch (e) {}
             setScheduleCache(out, nextSignature);
             return { changed: nextSignature !== prevSignature, list: cloneScheduleList(out) };
         } catch (e) {
@@ -11930,6 +11945,16 @@
         }
         state.calendarMutationVersion = Math.max(Number(state.calendarMutationVersion) || 0, version);
         suppressReminderCalendarRefetchAfterScheduleMutation(String(opts.reason || 'save-schedule-all').trim() || 'save-schedule-all');
+        let scheduleRecordsToRetain = [];
+        try {
+            const nextById = new Map(list.map((item) => [getScheduleSaveItemId(item), item]).filter(([id]) => !!id));
+            scheduleRecordsToRetain = previousList.filter((previous) => {
+                const id = getScheduleSaveItemId(previous);
+                if (!id) return false;
+                const next = nextById.get(id);
+                return !next || getScheduleNotificationMutationSignature(previous) !== getScheduleNotificationMutationSignature(next);
+            });
+        } catch (e) {}
         const serialized = JSON.stringify(list, null, 2);
         setScheduleCache(list, computeScheduleSourceSignature(serialized));
         try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, serialized); } catch (e) {}
@@ -11950,6 +11975,14 @@
         } catch (e) {
             try { console.warn('[task-horizon] save schedule file failed', e); } catch (e2) {}
             throw e;
+        }
+        if (scheduleRecordsToRetain.length > 0) {
+            try {
+                await retainScheduleNotificationRecords(
+                    scheduleRecordsToRetain,
+                    String(opts.reason || opts.op || 'schedule-changed').trim() || 'schedule-changed'
+                );
+            } catch (e) {}
         }
         try {
             const scheduleId = String(opts.scheduleId || '').trim();
@@ -12573,6 +12606,7 @@
     const SCHEDULE_ALL_DAY_MOBILE_WINDOW_DAYS = 7;
     const SCHEDULE_MOBILE_WINDOW_DAYS = 30;
     const SCHEDULE_ALL_DAY_SUMMARY_REGISTRY_KEY = '__all_day_summary__';
+    const SCHEDULE_NOTIFICATION_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
     function sanitizeScheduleNotificationEntries(entries) {
         const src = Array.isArray(entries) ? entries : [];
@@ -12607,6 +12641,7 @@
                 status: String(schedule.status || '').trim(),
                 canceledAt: String(schedule.canceledAt || '').trim(),
                 cancelReason: String(schedule.cancelReason || '').trim(),
+                sourceSignature: String(schedule.sourceSignature || '').trim(),
                 entries: sanitizeScheduleNotificationEntries(schedule.entries),
             };
         }
@@ -12629,6 +12664,7 @@
                     status: String(schedule.status || '').trim(),
                     canceledAt: String(schedule.canceledAt || '').trim(),
                     cancelReason: String(schedule.cancelReason || '').trim(),
+                    sourceSignature: String(schedule.sourceSignature || '').trim(),
                     entries: sanitizeScheduleNotificationEntries(schedule.entries),
                 };
             }
@@ -12658,6 +12694,7 @@
             status: String(current.status || '').trim(),
             canceledAt: String(current.canceledAt || '').trim(),
             cancelReason: String(current.cancelReason || '').trim(),
+            sourceSignature: String(current.sourceSignature || '').trim(),
             entries: sanitizeScheduleNotificationEntries(current.entries),
         };
         return map;
@@ -12709,6 +12746,183 @@
         }
         delete map[key];
         return null;
+    }
+
+    function normalizeScheduleNotificationRecordLedger(value, nowMs = Date.now()) {
+        const source = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
+        const records = [];
+        for (const raw of (Array.isArray(source.records) ? source.records : [])) {
+            if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+            const entityId = String(raw.entityId || raw.scheduleId || '').trim();
+            if (!entityId) continue;
+            const retainedAtMs = Number(raw.retainedAtMs) || Date.parse(String(raw.retainedAt || '')) || Number(nowMs) || Date.now();
+            const expiresAtMs = Number(raw.expiresAtMs) || Date.parse(String(raw.expiresAt || ''))
+                || (retainedAtMs + SCHEDULE_NOTIFICATION_RECORD_RETENTION_MS);
+            if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Number(nowMs)) continue;
+            records.push({
+                key: String(raw.key || '').trim(),
+                entityId,
+                reason: String(raw.reason || '').trim(),
+                sourcePlanKey: String(raw.sourcePlanKey || '').trim(),
+                retainedAt: new Date(retainedAtMs).toISOString(),
+                retainedAtMs,
+                expiresAt: new Date(expiresAtMs).toISOString(),
+                expiresAtMs,
+                notificationSchedules: sanitizeScheduleNotificationSchedules(raw.notificationSchedules),
+            });
+        }
+        return { version: 1, records };
+    }
+
+    function getScheduleNotificationMutationSignature(item) {
+        const base = (item && typeof item === 'object') ? item : {};
+        return JSON.stringify([
+            String(base.title || '').trim(),
+            String(base.start || '').trim(),
+            String(base.end || '').trim(),
+            base.allDay === true,
+            String(base.reminderMode || '').trim(),
+            base.reminderEnabled === true,
+            Number(base.reminderOffsetMin),
+            getScheduleRepeatType(base),
+            getScheduleRepeatEvery(base, getScheduleRepeatType(base)),
+            getScheduleRepeatUntil(base),
+            getScheduleRepeatMonthlyMode(base, getScheduleRepeatType(base)),
+            getScheduleRepeatCalendarMode(base, getScheduleRepeatType(base)),
+            normalizeScheduleCompletedOccurrences(base.completedOccurrences),
+            normalizeScheduleSkippedOccurrences(base.skippedOccurrences),
+        ]);
+    }
+
+    function getScheduleNotificationRecordEntrySignature(scheduleMap) {
+        return JSON.stringify(
+            Object.entries(sanitizeScheduleNotificationSchedules(scheduleMap))
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([deviceId, schedule]) => [
+                    deviceId,
+                    sanitizeScheduleNotificationEntries(schedule?.entries).map((entry) => [
+                        String(entry?.notificationKey || '').trim(),
+                        normalizeNotificationId(entry?.id),
+                    ]),
+                ])
+        );
+    }
+
+    async function loadScheduleNotificationRecordLedger() {
+        let parsed = null;
+        try {
+            const raw = await getFileTextRetry(STORAGE.SCHEDULE_NOTIFICATION_RECORDS_FILE, 1);
+            if (String(raw || '').trim()) parsed = JSON.parse(raw);
+        } catch (e) {}
+        if (!parsed) {
+            try {
+                const raw = String(localStorage.getItem(STORAGE.SCHEDULE_NOTIFICATION_RECORDS_LS_KEY) || '').trim();
+                if (raw) parsed = JSON.parse(raw);
+            } catch (e) {}
+        }
+        const sourceCount = Array.isArray(parsed?.records) ? parsed.records.length : 0;
+        return { ledger: normalizeScheduleNotificationRecordLedger(parsed || {}), sourceCount };
+    }
+
+    async function saveScheduleNotificationRecordLedger(ledger) {
+        const normalized = normalizeScheduleNotificationRecordLedger(ledger);
+        const serialized = JSON.stringify(normalized, null, 2);
+        try { localStorage.setItem(STORAGE.SCHEDULE_NOTIFICATION_RECORDS_LS_KEY, serialized); } catch (e) {}
+        try {
+            await putFileText(STORAGE.SCHEDULE_NOTIFICATION_RECORDS_FILE, serialized);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function retainScheduleNotificationRecordsNow(items, reason) {
+        const sourceItems = Array.isArray(items) ? items : [items];
+        const loaded = await loadScheduleNotificationRecordLedger();
+        let changed = loaded.sourceCount !== loaded.ledger.records.length;
+        for (const item of sourceItems) {
+            const entityId = String(item?.id || '').trim();
+            if (!entityId) continue;
+            const notificationSchedules = sanitizeScheduleNotificationSchedules(item?.notificationSchedules);
+            const sourcePlanKey = getScheduleNotificationMutationSignature(item);
+            const key = JSON.stringify([
+                entityId,
+                String(reason || '').trim(),
+                sourcePlanKey,
+                getScheduleNotificationRecordEntrySignature(notificationSchedules),
+            ]);
+            if (loaded.ledger.records.some((record) => String(record?.key || '') === key)) continue;
+            const nowMs = Date.now();
+            loaded.ledger.records.push({
+                key,
+                entityId,
+                reason: String(reason || '').trim(),
+                sourcePlanKey,
+                retainedAt: new Date(nowMs).toISOString(),
+                retainedAtMs: nowMs,
+                expiresAt: new Date(nowMs + SCHEDULE_NOTIFICATION_RECORD_RETENTION_MS).toISOString(),
+                expiresAtMs: nowMs + SCHEDULE_NOTIFICATION_RECORD_RETENTION_MS,
+                notificationSchedules,
+            });
+            changed = true;
+        }
+        if (changed) await saveScheduleNotificationRecordLedger(loaded.ledger);
+        return changed;
+    }
+
+    async function reconcileScheduleNotificationRecordLedgerNow() {
+        const loaded = await loadScheduleNotificationRecordLedger();
+        let changed = loaded.sourceCount !== loaded.ledger.records.length;
+        if (isLikelyMobileRuntime() || state.isMobileDevice) {
+            const localRegistry = loadScheduleMobileRegistry();
+            for (const record of loaded.ledger.records) {
+                const current = record.notificationSchedules?.[SCHEDULE_SYNC_DEVICE_ID];
+                if (String(current?.canceledAt || '').trim()) continue;
+                const fallback = localRegistry[String(record.entityId || '').trim()];
+                const fallbackSourceSignature = String(fallback?.sourceSignature || '').trim();
+                const fallbackUpdatedAtMs = Date.parse(String(fallback?.updatedAt || '')) || 0;
+                const fallbackMatches = !!fallback && (
+                    (fallbackSourceSignature && fallbackSourceSignature === String(record.sourcePlanKey || '').trim())
+                    || (!fallbackSourceSignature && fallbackUpdatedAtMs <= Number(record.retainedAtMs || 0))
+                );
+                const source = sanitizeScheduleNotificationEntries(current?.entries).length > 0
+                    ? current
+                    : (fallbackMatches ? fallback : null);
+                const entries = sanitizeScheduleNotificationEntries(source?.entries);
+                if (entries.length === 0) continue;
+                await cancelScheduleMobileNotificationEntries(entries);
+                const canceledAt = new Date().toISOString();
+                record.notificationSchedules[SCHEDULE_SYNC_DEVICE_ID] = {
+                    ...(source || {}),
+                    status: 'canceled',
+                    canceledAt,
+                    cancelReason: String(record.reason || 'remote-change').trim() || 'remote-change',
+                    entries,
+                };
+                changed = true;
+            }
+        }
+        if (changed) await saveScheduleNotificationRecordLedger(loaded.ledger);
+        return changed;
+    }
+
+    let scheduleNotificationRecordLedgerMutation = Promise.resolve();
+    function queueScheduleNotificationRecordLedgerMutation(operation) {
+        const run = scheduleNotificationRecordLedgerMutation.catch(() => {}).then(operation);
+        scheduleNotificationRecordLedgerMutation = run.catch(() => {});
+        return run;
+    }
+
+    async function retainScheduleNotificationRecords(items, reason) {
+        return await queueScheduleNotificationRecordLedgerMutation(
+            () => retainScheduleNotificationRecordsNow(items, reason)
+        );
+    }
+
+    async function reconcileScheduleNotificationRecordLedger() {
+        return await queueScheduleNotificationRecordLedgerMutation(
+            () => reconcileScheduleNotificationRecordLedgerNow()
+        );
     }
 
     function buildScheduleNotificationKey(scheduleId, dateKey, timeKey, atMs) {
@@ -13341,7 +13555,7 @@
         const isMobile = isLikelyMobileRuntime() || state.isMobileDevice;
         if (!isMobile) {
             // 桌面端：清理旧的预约（如果有的话）
-            const existing = getScheduleDeviceSchedule(item) || registry[String(item?.id || '').trim()] || null;
+            const existing = registry[String(item?.id || '').trim()] || getScheduleDeviceSchedule(item) || null;
             const validExistingEntries = sanitizeScheduleNotificationEntries(existing?.entries);
             if (validExistingEntries.length > 0) {
                 await cancelScheduleMobileNotificationEntries(validExistingEntries);
@@ -13353,7 +13567,7 @@
         if (!item || typeof item !== 'object') return { changed: false, item };
         const scheduleId = String(item.id || '').trim();
         if (!scheduleId) return { changed: false, item };
-        const existing = getScheduleDeviceSchedule(item) || registry[scheduleId] || null;
+        const existing = registry[scheduleId] || getScheduleDeviceSchedule(item) || null;
         const validExistingEntries = sanitizeScheduleNotificationEntries(existing?.entries);
         const targets = collectScheduleMobileNotificationTargets(item, settings);
         if (targets.length === 0) {
@@ -13405,6 +13619,7 @@
         }
         const nextSchedule = {
             planKey,
+            sourceSignature: getScheduleNotificationMutationSignature(item),
             updatedAt: new Date().toISOString(),
             status: nextEntries.length > 0 ? 'scheduled' : 'empty',
             canceledAt: '',
@@ -13442,6 +13657,7 @@
         // 只有真正的移动端才执行预约同步
         const isMobile = isLikelyMobileRuntime() || state.isMobileDevice;
         if (!isMobile) {
+            try { await reconcileScheduleNotificationRecordLedger(); } catch (e) {}
             // 桌面端：只清理孤立的预约，不执行预约同步
             try {
                 const list = await loadScheduleAll();
@@ -13456,6 +13672,7 @@
         if (!shouldPreferDeviceNotificationBackend()) return false;
         sr.mobileSyncRunning = true;
         try {
+            try { await reconcileScheduleNotificationRecordLedger(); } catch (e) {}
             const settings = getSettings();
             const list = await loadScheduleAll();
             if (!Array.isArray(list)) {
@@ -13786,6 +14003,7 @@
             return;
         }
         sr.enabled = true;
+        try { await reconcileScheduleNotificationRecordLedger(); } catch (e) {}
 
         // 🔧 修复：桌面端启动时立即清理所有旧的系统通知预约
         // 避免旧的预约在到点时触发通知

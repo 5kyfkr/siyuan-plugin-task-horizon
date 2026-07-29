@@ -25,6 +25,7 @@ const CALENDAR_VIEW_CSS_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.css`;
 const PLUGIN_MANIFEST_PATH = `/data/plugins/${PLUGIN_ID}/plugin.json`;
 const TAB_TYPE = "task-horizon";
 const TAB_TITLE = "任务管理器";
+const COMMAND_OPEN_TASK_HORIZON = "openTaskHorizon";
 const COMMAND_OPEN_QUICK_ADD_TASK_WINDOW = "openQuickAddTaskWindow";
 const ICON_ID = "iconTaskHorizon";
 const ENTRY_ICON_PRESET_STORAGE_KEY = "tm_entry_icon_preset";
@@ -1104,6 +1105,14 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     registerCommands() {
         if (this._commandsRegistered) return;
+        this.addCommand({
+            langKey: COMMAND_OPEN_TASK_HORIZON,
+            langText: "打开任务管理器",
+            hotkey: "",
+            callback: () => {
+                this.openTaskHorizonTab();
+            },
+        });
         this.addCommand({
             langKey: COMMAND_OPEN_QUICK_ADD_TASK_WINDOW,
             langText: "新建任务窗口",

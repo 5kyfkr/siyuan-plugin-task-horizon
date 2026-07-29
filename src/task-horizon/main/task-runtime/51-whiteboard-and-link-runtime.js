@@ -956,6 +956,17 @@
         return String(snap?.parentTaskId || '').trim();
     }
 
+    function __tmIsTaskLinkSourceSubtask(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return false;
+        const task = state.flatTasks?.[id];
+        const level = Number(task?.level);
+        if (Number.isFinite(level) && level > 0) return true;
+        const explicitParentId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+        if (explicitParentId) return true;
+        return !!__tmResolveWhiteboardTaskParentId(id);
+    }
+
     function __tmSetWhiteboardChildDetached(taskId, detached, parentTaskId = '') {
         const id = String(taskId || '').trim();
         if (!id) return;

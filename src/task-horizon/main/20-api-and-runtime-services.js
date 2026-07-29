@@ -24175,8 +24175,7 @@ refreshOk = false;
                 });
                 return true;
             };
-            const row = modal.querySelector(`#tmTaskTable tbody tr[data-group-key="${CSS.escape(key)}"],#tmTimelineLeftTable tbody tr[data-group-key="${CSS.escape(key)}"]`);
-            syncGroupToggle(row);
+            modal.querySelectorAll?.(`#tmTaskTable tbody tr[data-group-key="${CSS.escape(key)}"],#tmTimelineLeftTable tbody tr[data-group-key="${CSS.escape(key)}"],.tm-gantt-row--group[data-group-key="${CSS.escape(key)}"]`)?.forEach?.(syncGroupToggle);
             modal.querySelectorAll?.(`.tm-kanban-group-title[data-group-key="${CSS.escape(key)}"]`)?.forEach?.(syncGroupToggle);
         }
     }
@@ -24342,6 +24341,7 @@ refreshOk = false;
         try {
             requestAnimationFrame(() => {
                 try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+                try { state.__tmTimelineRefreshOffscreenNav?.(); } catch (e) {}
             });
         } catch (e) {}
 
@@ -24858,7 +24858,8 @@ return true;
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
         try {
-            return !!modal.classList.contains('tm-modal--mobile');
+            return !!(modal.querySelector('.tm-timeline-scroll-host')
+                || modal.classList.contains('tm-modal--mobile'));
         } catch (e) {
             return false;
         }
@@ -24867,6 +24868,8 @@ return true;
     function __tmGetTimelineGlobalScrollHost(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!__tmShouldUseGlobalTimelineScroll(modal)) return null;
+        const compactHost = modal?.querySelector?.('.tm-timeline-scroll-host');
+        if (compactHost instanceof HTMLElement) return compactHost;
         const body = modal?.querySelector?.('.tm-body.tm-body--timeline');
         return body instanceof HTMLElement ? body : null;
     }
@@ -24876,6 +24879,9 @@ return true;
         const leftEl = modal?.querySelector?.('.tm-timeline-left');
         if (!(leftEl instanceof HTMLElement)) return 0;
         if (leftEl.closest?.('.tm-timeline-split--sidebar-collapsed')) return 0;
+        // Compact hosts render the task table as an overlay, so it does not
+        // contribute to the timeline's horizontal date coordinate system.
+        if (modal?.querySelector?.('.tm-timeline-scroll-host')) return 0;
         const rectWidth = Number(leftEl.getBoundingClientRect?.().width);
         if (Number.isFinite(rectWidth) && rectWidth > 0) return rectWidth;
         const scrollWidth = Number(leftEl.scrollWidth);

@@ -6705,13 +6705,16 @@
                     });
                 } catch (e) {}
             }
-            const svg = docBody.querySelector('.tm-whiteboard-edges');
-            if (!(svg instanceof SVGElement)) return;
+            const svg = docBody.querySelector('.tm-whiteboard-edges:not(.tm-whiteboard-edges--subtask)');
+            const subtaskSvg = docBody.querySelector('.tm-whiteboard-edges--subtask');
+            if (!(svg instanceof SVGElement) || !(subtaskSvg instanceof SVGElement)) return;
             const width = Math.max(Math.ceil(docBody.scrollWidth), Math.ceil(docBody.clientWidth), 1);
             const height = Math.max(Math.ceil(docBody.scrollHeight), Math.ceil(docBody.clientHeight), 1);
-            try { svg.setAttribute('width', String(width)); } catch (e) {}
-            try { svg.setAttribute('height', String(height)); } catch (e) {}
-            try { svg.setAttribute('viewBox', `0 0 ${width} ${height}`); } catch (e) {}
+            [svg, subtaskSvg].forEach((edgeSvg) => {
+                try { edgeSvg.setAttribute('width', String(width)); } catch (e) {}
+                try { edgeSvg.setAttribute('height', String(height)); } catch (e) {}
+                try { edgeSvg.setAttribute('viewBox', `0 0 ${width} ${height}`); } catch (e) {}
+            });
 
             const links = isGlobalBody && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
                 ? __tmGetWhiteboardGlobalTaskLinks().filter((link) => {
@@ -6767,16 +6770,47 @@
             };
             const obstacleRects = [];
             const rectByTaskId = new Map();
+            const rootTaskIdByTaskId = new Map();
             try {
                 docBody.querySelectorAll('.tm-whiteboard-node[data-task-id]').forEach((el) => {
                     if (!(el instanceof Element)) return;
                     const rid = String(el.getAttribute('data-task-id') || '').trim();
                     const rr = getLocalRect(el);
                     if (!rid || !rr) return;
-                    obstacleRects.push({ taskId: rid, ...rr });
                     rectByTaskId.set(rid, rr);
+                    const rootNode = el.closest('.tm-whiteboard-node--root[data-task-id]');
+                    const rootTaskId = String(rootNode?.getAttribute?.('data-task-id') || rid).trim() || rid;
+                    rootTaskIdByTaskId.set(rid, rootTaskId);
+                    if (rootTaskId === rid) obstacleRects.push({ taskId: rid, ...rr });
                 });
             } catch (e) {}
+            const resolveVisibleTaskId = (taskId, proxyTaskId) => {
+                const id = String(taskId || '').trim();
+                if (id && rectByTaskId.has(id)) return id;
+                const proxyId = String(proxyTaskId || '').trim();
+                return proxyId && rectByTaskId.has(proxyId) ? proxyId : '';
+            };
+            const isSubtaskEndpoint = (taskId, proxyTaskId) => {
+                const id = resolveVisibleTaskId(taskId, proxyTaskId);
+                if (!id) return false;
+                try {
+                    const node = docBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
+                    return !!node?.classList?.contains?.('tm-whiteboard-node--sub');
+                } catch (e) {
+                    return false;
+                }
+            };
+            const subtaskLaneCounts = new Map();
+            const claimSubtaskLane = (taskId, proxyTaskId, side) => {
+                if (!isSubtaskEndpoint(taskId, proxyTaskId)) return 0;
+                const visibleTaskId = resolveVisibleTaskId(taskId, proxyTaskId);
+                const rootTaskId = rootTaskIdByTaskId.get(visibleTaskId) || visibleTaskId;
+                if (!rootTaskId) return 0;
+                const laneKey = `${String(side || '').trim()}:${rootTaskId}`;
+                const laneIndex = Math.max(0, Number(subtaskLaneCounts.get(laneKey)) || 0);
+                subtaskLaneCounts.set(laneKey, laneIndex + 1);
+                return (laneIndex + 1) * 12;
+            };
             const segmentHitsRect = (a, b, rect, pad = 10) => {
                 const l = rect.x - pad;
                 const r = rect.x + rect.w + pad;
@@ -6883,14 +6917,17 @@
                 if (!from || !to) return { d: '', pts: [] };
                 const midY = (from.y + to.y) * 0.5;
                 const gap = 28;
-                const fromRect = (() => {
-                    const id = String(routeMeta?.fromTaskId || routeMeta?.fromProxyTaskId || '').trim();
-                    return id ? (rectByTaskId.get(id) || null) : null;
-                })();
-                const toRect = (() => {
-                    const id = String(routeMeta?.toTaskId || routeMeta?.toProxyTaskId || '').trim();
-                    return id ? (rectByTaskId.get(id) || null) : null;
-                })();
+                const fromVisibleTaskId = resolveVisibleTaskId(routeMeta?.fromTaskId, routeMeta?.fromProxyTaskId);
+                const toVisibleTaskId = resolveVisibleTaskId(routeMeta?.toTaskId, routeMeta?.toProxyTaskId);
+                const fromRootTaskId = rootTaskIdByTaskId.get(fromVisibleTaskId) || fromVisibleTaskId;
+                const toRootTaskId = rootTaskIdByTaskId.get(toVisibleTaskId) || toVisibleTaskId;
+                const fromRect = fromRootTaskId ? (rectByTaskId.get(fromRootTaskId) || null) : null;
+                const toRect = toRootTaskId ? (rectByTaskId.get(toRootTaskId) || null) : null;
+                const fromLaneOffset = Math.max(0, Number(routeMeta?.fromLaneOffset) || 0);
+                const toLaneOffset = Math.max(0, Number(routeMeta?.toLaneOffset) || 0);
+                const laneOffset = Math.max(fromLaneOffset, toLaneOffset, Number(routeMeta?.laneOffset) || 0);
+                const endpointRects = [fromRect, toRect].filter(Boolean);
+                const routeExcludeTaskIds = [...excludeTaskIds, fromRootTaskId, toRootTaskId];
                 const needStartGap = !!(fromRect && toRect)
                     ? ((fromRect.x + fromRect.w) > toRect.x)
                     : ((to.x - from.x) < 80);
@@ -6900,17 +6937,20 @@
                     const pts = [from, { x: x1, y: from.y }, { x: x2, y: to.y }, to];
                     return { d: `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} C ${x1.toFixed(2)} ${from.y.toFixed(2)} ${x2.toFixed(2)} ${to.y.toFixed(2)} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`, pts };
                 }
-                const fx = from.x + gap;
-                const tx = to.x - gap;
+                const fx = fromRect ? Math.max(from.x + gap, fromRect.x + fromRect.w + gap + fromLaneOffset) : (from.x + gap + fromLaneOffset);
+                const tx = toRect ? Math.min(to.x - gap, toRect.x - gap - toLaneOffset) : (to.x - gap - toLaneOffset);
                 const yCandidatesRaw = [from.y, to.y, midY];
                 obstacleRects.forEach((r) => {
-                    yCandidatesRaw.push(r.y - 14);
-                    yCandidatesRaw.push(r.y + r.h + 14);
+                    yCandidatesRaw.push(r.y - 14 - laneOffset);
+                    yCandidatesRaw.push(r.y + r.h + 14 + laneOffset);
                 });
                 const seenY = new Set();
                 const yCandidates = yCandidatesRaw
                     .map((y) => Math.round(Number(y) * 10) / 10)
                     .filter((y) => Number.isFinite(y))
+                    .filter((y) => endpointRects.every((rect) => (
+                        y < (rect.y - 10) || y > (rect.y + rect.h + 10)
+                    )))
                     .filter((y) => {
                         const k = String(y);
                         if (seenY.has(k)) return false;
@@ -6930,7 +6970,7 @@
                     ]);
                 });
                 for (const pts of candidates) {
-                    if (!orthPathHitsObstacle(pts, excludeTaskIds)) {
+                    if (!orthPathHitsObstacle(pts, routeExcludeTaskIds)) {
                         return { d: pointsToSmoothPathD(pts, 10), pts };
                     }
                 }
@@ -6942,20 +6982,25 @@
             };
             const markerIdIn = `tmWbArrowIn_${docId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
             const markerIdOut = `tmWbArrowOut_${docId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-            const defs = `
+            const subtaskMarkerIdIn = `${markerIdIn}_subtask`;
+            const subtaskMarkerIdOut = `${markerIdOut}_subtask`;
+            const buildEdgeDefs = (edgeMarkerIdIn, edgeMarkerIdOut) => `
                 <defs>
-                    <marker id="${esc(markerIdOut)}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <marker id="${esc(edgeMarkerIdOut)}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
                         <path d="M0,0 L8,3 L0,6 Z" fill="var(--tm-primary-color)"></path>
                     </marker>
-                    <marker id="${esc(markerIdIn)}" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
+                    <marker id="${esc(edgeMarkerIdIn)}" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
                         <path d="M8,0 L0,3 L8,6 Z" fill="var(--tm-primary-color)"></path>
                     </marker>
                 </defs>
             `;
+            const defs = buildEdgeDefs(markerIdIn, markerIdOut);
+            const subtaskDefs = buildEdgeDefs(subtaskMarkerIdIn, subtaskMarkerIdOut);
             const selectedLinkId = String(state.whiteboardSelectedLinkId || '').trim();
             const selectedLinkDocId = String(state.whiteboardSelectedLinkDocId || '').trim();
             const multiSelectedLinkSet = new Set((Array.isArray(state.whiteboardMultiSelectedLinkKeys) ? state.whiteboardMultiSelectedLinkKeys : []).map((x) => String(x || '').trim()).filter(Boolean));
             let selectedToolPos = null;
+            const subtaskPaths = [];
             const paths = links.map((link) => {
                 const linkDocId = isGlobalBody && link?.global
                     ? globalCanvasDocId
@@ -6971,11 +7016,22 @@
                     : docId;
                 const fromProxy = __tmFindWhiteboardCollapsedProxyTaskId(link.from, fromProxyDocId);
                 const toProxy = __tmFindWhiteboardCollapsedProxyTaskId(link.to, toProxyDocId);
+                const isSubtaskEdge = isSubtaskEndpoint(link.from, fromProxy) || isSubtaskEndpoint(link.to, toProxy);
+                const fromLaneOffset = claimSubtaskLane(link.from, fromProxy, 'from');
+                const toLaneOffset = claimSubtaskLane(link.to, toProxy, 'to');
                 const routed = buildAvoidPath(
                     from,
                     to,
                     [link.from, link.to, fromProxy, toProxy],
-                    { fromTaskId: link.from, toTaskId: link.to, fromProxyTaskId: fromProxy, toProxyTaskId: toProxy }
+                    {
+                        fromTaskId: link.from,
+                        toTaskId: link.to,
+                        fromProxyTaskId: fromProxy,
+                        toProxyTaskId: toProxy,
+                        fromLaneOffset,
+                        toLaneOffset,
+                        laneOffset: Math.max(fromLaneOffset, toLaneOffset),
+                    }
                 );
                 const d = routed.d;
                 const isSelected = link.manual
@@ -6983,9 +7039,13 @@
                     && selectedLinkDocId === linkDocId
                     && String(link.id || '').trim() === selectedLinkId;
                 const linkKey = `${linkDocId}::${String(link.id || '').trim()}`;
+                const isSubtaskSource = __tmIsTaskLinkSourceSubtask(link.from);
+                const sourceDepthCls = isSubtaskSource
+                    ? ' tm-whiteboard-edge--subtask-source'
+                    : ' tm-whiteboard-edge--root-source';
                 const cls = link.manual
-                    ? `tm-whiteboard-edge tm-whiteboard-edge--manual${isSelected ? ' tm-whiteboard-edge--selected' : ''}${multiSelectedLinkSet.has(linkKey) ? ' tm-whiteboard-multi-selected' : ''}`
-                    : 'tm-whiteboard-edge tm-whiteboard-edge--auto';
+                    ? `tm-whiteboard-edge tm-whiteboard-edge--manual${sourceDepthCls}${isSelected ? ' tm-whiteboard-edge--selected' : ''}${multiSelectedLinkSet.has(linkKey) ? ' tm-whiteboard-multi-selected' : ''}`
+                    : `tm-whiteboard-edge tm-whiteboard-edge--auto${sourceDepthCls}`;
                 const idEsc = String(link.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 const docEsc = String(linkDocId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 const click = link.manual ? `onclick="tmWhiteboardSelectLink('${idEsc}', '${docEsc}', event)"` : '';
@@ -7000,9 +7060,16 @@
                 const hitPath = link.manual
                     ? `<path class="tm-whiteboard-edge tm-whiteboard-edge--hit" d="${d}" ${click}></path>`
                     : '';
-                return `${hitPath}<path class="${cls}" d="${d}" marker-end="url(#${esc(markerIdOut)})"${dataAttrs} ${click}></path>`;
+                const edgeMarkerIdOut = isSubtaskEdge ? subtaskMarkerIdOut : markerIdOut;
+                const pathHtml = `${hitPath}<path class="${cls}" d="${d}" marker-end="url(#${esc(edgeMarkerIdOut)})"${dataAttrs} ${click}></path>`;
+                if (isSubtaskEdge) {
+                    subtaskPaths.push(pathHtml);
+                    return '';
+                }
+                return pathHtml;
             }).join('');
             let previewPath = '';
+            let subtaskPreviewPath = '';
             const fromTaskId = String(state.whiteboardLinkFromTaskId || '').trim();
             const fromDocId = String(state.whiteboardLinkFromDocId || '').trim();
             const preview = state.whiteboardLinkPreview && typeof state.whiteboardLinkPreview === 'object' ? state.whiteboardLinkPreview : null;
@@ -7037,17 +7104,36 @@
                             ? (String(preview.targetDocId || __tmGetTaskDocIdById(targetTaskId) || '').trim() || docId)
                             : docId;
                         const toProxy = targetTaskId ? __tmFindWhiteboardCollapsedProxyTaskId(targetTaskId, toProxyDocId) : '';
+                        const isSubtaskPreview = isSubtaskEndpoint(fromTaskId, fromProxy) || isSubtaskEndpoint(targetTaskId, toProxy);
+                        const fromLaneOffset = claimSubtaskLane(fromTaskId, fromProxy, 'from');
+                        const toLaneOffset = claimSubtaskLane(targetTaskId, toProxy, 'to');
                         const d = buildAvoidPath(
                             from,
                             { x: tx, y: ty },
                             [fromTaskId, fromProxy, targetTaskId, toProxy],
-                            { fromTaskId, toTaskId: targetTaskId, fromProxyTaskId: fromProxy, toProxyTaskId: toProxy }
+                            {
+                                fromTaskId,
+                                toTaskId: targetTaskId,
+                                fromProxyTaskId: fromProxy,
+                                toProxyTaskId: toProxy,
+                                fromLaneOffset,
+                                toLaneOffset,
+                                laneOffset: Math.max(fromLaneOffset, toLaneOffset),
+                            }
                         ).d;
-                        previewPath = `<path class="tm-whiteboard-edge tm-whiteboard-edge--preview" d="${d}" marker-end="url(#${esc(markerIdOut)})"></path>`;
+                        const previewMarkerId = isSubtaskPreview ? subtaskMarkerIdOut : markerIdOut;
+                        const previewSourceIsSubtask = __tmIsTaskLinkSourceSubtask(fromTaskId);
+                        const previewSourceDepthCls = previewSourceIsSubtask
+                            ? ' tm-whiteboard-edge--subtask-source'
+                            : ' tm-whiteboard-edge--root-source';
+                        const previewHtml = `<path class="tm-whiteboard-edge tm-whiteboard-edge--preview${previewSourceDepthCls}" d="${d}" marker-end="url(#${esc(previewMarkerId)})"></path>`;
+                        if (isSubtaskPreview) subtaskPreviewPath = previewHtml;
+                        else previewPath = previewHtml;
                     }
                 }
             }
             svg.innerHTML = defs + paths + previewPath;
+            subtaskSvg.innerHTML = subtaskDefs + subtaskPaths.join('') + subtaskPreviewPath;
             const selectedToolDocId = isGlobalBody ? globalCanvasDocId : docId;
             if (selectedToolPos && selectedLinkId && selectedLinkDocId === selectedToolDocId) {
                 try {
@@ -7745,67 +7831,21 @@
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'keydown', onWhiteboardFullscreenKeydown, false); } catch (e) { document.addEventListener('keydown', onWhiteboardFullscreenKeydown, false); }
     } catch (e) {}
 
-    function __tmRevealTimelineSidebarAfterRender(modalEl = null) {
-        const reveal = () => {
-            const modal = modalEl instanceof Element
-                ? modalEl
-                : (state.modal instanceof Element ? state.modal : null);
-            if (!modal?.classList?.contains?.('tm-modal--mobile')) return;
-            const scrollHost = modal.querySelector('.tm-body.tm-body--timeline');
-            if (!(scrollHost instanceof HTMLElement)) return;
-            state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
-            state.viewScroll.timeline = state.viewScroll.timeline && typeof state.viewScroll.timeline === 'object'
-                ? state.viewScroll.timeline
-                : {};
-            state.viewScroll.timeline.left = 0;
-            scrollHost.scrollLeft = 0;
-        };
-        try {
-            reveal();
-            requestAnimationFrame(() => requestAnimationFrame(reveal));
-        } catch (e) {
-            reveal();
-        }
-    }
-
-    function __tmIsTimelineSidebarVisibleInViewport(modalEl) {
-        const modal = modalEl instanceof Element ? modalEl : null;
-        const split = modal?.querySelector?.('.tm-timeline-split');
-        const left = modal?.querySelector?.('.tm-timeline-left');
-        const body = modal?.querySelector?.('.tm-body.tm-body--timeline');
-        if (!(split instanceof HTMLElement) || !(left instanceof HTMLElement) || !(body instanceof HTMLElement)) return false;
-        if (split.classList.contains('tm-timeline-split--sidebar-collapsed')) return false;
-        try {
-            const hostRect = body.getBoundingClientRect();
-            const leftRect = left.getBoundingClientRect();
-            const visibleWidth = Math.max(0, Math.min(hostRect.right, leftRect.right) - Math.max(hostRect.left, leftRect.left));
-            if (leftRect.width > 0 && visibleWidth >= Math.min(48, leftRect.width * 0.15)) return true;
-        } catch (e) {}
-        return Number(body.scrollLeft || 0) <= 4;
-    }
-
     window.tmTimelineToggleSidebar = async function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         const modal = state.modal instanceof Element ? state.modal : null;
-        const useScrollableDockSidebar = !!(modal?.classList?.contains?.('tm-modal--dock') && modal?.classList?.contains?.('tm-modal--mobile'));
-        if (useScrollableDockSidebar
-            && SettingsStore.data.timelineSidebarCollapsed !== true
-            && !__tmIsTimelineSidebarVisibleInViewport(modal)) {
-            __tmRevealTimelineSidebarAfterRender(modal);
-            return;
-        }
+        if (!(modal instanceof Element)) return;
+        __tmPrepareTimelineDateAnchor(0.5);
         const useMobileRuntimeState = !!(modal?.classList?.contains?.('tm-modal--mobile') && !modal?.classList?.contains?.('tm-modal--dock'));
         if (useMobileRuntimeState) {
             const expanding = state.timelineMobileSidebarExpanded !== true;
             state.timelineMobileSidebarExpanded = expanding;
             render();
-            if (expanding) __tmRevealTimelineSidebarAfterRender(state.modal);
             return;
         }
         const next = !SettingsStore.data.timelineSidebarCollapsed;
         SettingsStore.data.timelineSidebarCollapsed = next;
         render();
-        if (!next) __tmRevealTimelineSidebarAfterRender(state.modal);
         try { await SettingsStore.save(); } catch (e) {}
     };
 

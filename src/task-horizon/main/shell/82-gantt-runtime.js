@@ -604,6 +604,17 @@
             return `<div class="tm-gantt-bar tm-gantt-bar--${mode}${isOverflow ? ' tm-gantt-bar--overflowing' : ''}${milestoneClass}" style="left:${Number(layout?.left) || 0}px;width:${barWidth}px;--tm-gantt-bar-fill:${visual.barColor};--tm-gantt-fade-start:${fadeStart}px;" title="${esc(title)}">${buildTimelineTaskBarInnerHtml(task, { ...layout, mode, overflow: isOverflow }, visual)}</div>`;
         }
 
+        function buildTimelineOffscreenNavHtml(task) {
+            const taskTitle = getTimelineTaskVisualMeta(task).taskTitle || '(无内容)';
+            const label = `定位到任务：${taskTitle}`;
+            return `
+                <button class="tm-gantt-offscreen-nav" type="button" data-tm-gantt-offscreen-nav aria-label="${esc(label)}" title="${esc(label)}" aria-hidden="true" tabindex="-1">
+                    <span class="tm-gantt-offscreen-nav__icon tm-gantt-offscreen-nav__icon--left">${__tmPhosphorBoldSvg('chevron-left', { size: 14, className: 'tm-gantt-offscreen-nav__svg' })}</span>
+                    <span class="tm-gantt-offscreen-nav__icon tm-gantt-offscreen-nav__icon--right">${__tmPhosphorBoldSvg('chevron-right', { size: 14, className: 'tm-gantt-offscreen-nav__svg' })}</span>
+                </button>
+            `;
+        }
+
         function resolveTimelineMilestoneLayout(layout) {
             const width = Math.max(TIMELINE_MIN_RESIZE_WIDTH_PX, Number(layout?.width) || Number(layout?.dayWidth) || 1);
             const pointTs = layout?.endTs || layout?.startTs;
@@ -626,6 +637,7 @@
             if (!(barEl instanceof HTMLElement)) return null;
             const rowEl = barEl.closest('.tm-gantt-row');
             if (!(rowEl instanceof HTMLElement)) return null;
+            if (rowEl.hidden || rowEl.style.display === 'none' || rowEl.getClientRects().length === 0) return null;
             const styleLeft = Number.parseFloat(String(barEl.style.left || ''));
             const styleWidth = Number.parseFloat(String(barEl.style.width || ''));
             const left = Number.isFinite(styleLeft) ? styleLeft : Number(barEl.offsetLeft);
@@ -718,7 +730,8 @@
                 if (typeof mobileTimelineTouchLockRelease === 'function') return;
                 const modal = mobileTimelineModalEl;
                 if (!(modal instanceof HTMLElement)) return;
-                const scrollHost = modal.querySelector('.tm-body.tm-body--timeline');
+                const scrollHost = modal.querySelector('.tm-timeline-scroll-host')
+                    || modal.querySelector('.tm-body.tm-body--timeline');
                 const lockedScrollLeft = scrollHost instanceof HTMLElement ? scrollHost.scrollLeft : 0;
                 const lockedScrollTop = scrollHost instanceof HTMLElement ? scrollHost.scrollTop : 0;
                 const restoreLockedScroll = () => {
@@ -928,8 +941,9 @@
                     ? ` tm-gantt-row--link-hover tm-gantt-row--link-hover-${hoverTargetSide}`
                     : '';
                 const multiSelCls = timelineMultiSelectedSet.has(String(r.id)) ? ' tm-gantt-row--multi-selected' : '';
-                const rowAttrs = `data-id="${String(r.id)}" data-doc-id="${docId}" style="width:${totalWidth}px;height:var(--tm-row-height);min-height:var(--tm-row-height);max-height:var(--tm-row-height);${rowBgStyle}" ondragenter="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragover="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragleave="tmTimelineLinkRowDragLeave(event, '${escSq(String(r.id))}')"`;
+                const rowAttrs = `data-id="${String(r.id)}" data-doc-id="${docId}" data-task-start-ts="${Number(aTs) || 0}" data-task-end-ts="${Number(bTs) || 0}" style="width:${totalWidth}px;height:var(--tm-row-height);min-height:var(--tm-row-height);max-height:var(--tm-row-height);${rowBgStyle}" ondragenter="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragover="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragleave="tmTimelineLinkRowDragLeave(event, '${escSq(String(r.id))}')"`;
                 const buildDotHtml = (kind, leftPx) => `<span class="tm-task-link-dot tm-task-link-dot--timeline tm-task-link-dot--${kind}${state.whiteboardLinkFromTaskId === String(r.id) ? ' tm-task-link-dot--active' : ''}" style="left:${leftPx}px;" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(String(r.id))}', '${escSq(docId)}', '${kind}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(String(r.id))}', '${escSq(docId)}', '${kind}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(String(r.id))}', '${escSq(docId)}')" title="连接${kind === 'in' ? '输入' : '输出'}点"></span>`;
+                const offscreenNavHtml = aTs && bTs ? buildTimelineOffscreenNavHtml(task) : '';
                 if (!aTs && !bTs) {
                     rowsHtml.push(`<div class="tm-gantt-row${selectedCls}${dotHoverCls}${multiSelCls}" ${rowAttrs}></div>`);
                     continue;
@@ -937,7 +951,7 @@
                 const visibleStartTs = Math.min(aTs || bTs, bTs || aTs);
                 const visibleEndTs = Math.max(aTs || bTs, bTs || aTs);
                 if (visibleEndTs < startTs || visibleStartTs >= endTs + DAY_MS) {
-                    rowsHtml.push(`<div class="tm-gantt-row${selectedCls}${dotHoverCls}${multiSelCls}" ${rowAttrs}></div>`);
+                    rowsHtml.push(`<div class="tm-gantt-row${selectedCls}${dotHoverCls}${multiSelCls}" ${rowAttrs}>${offscreenNavHtml}</div>`);
                     continue;
                 }
                 if (isMilestone && eTs0) {
@@ -952,6 +966,7 @@
                             ${buildTimelineMilestoneHtml(task, { left: markerLeft, width, dayWidth, startTs: eTs0, endTs: eTs0, isDark })}
                             ${buildDotHtml('in', inLeft)}
                             ${buildDotHtml('out', outLeft)}
+                            ${offscreenNavHtml}
                         </div>
                     `);
                     continue;
@@ -967,6 +982,7 @@
                         ${buildTimelineTaskBarHtml(task, { left, width, dayWidth, startTs: aTs, endTs: bTs, isDark })}
                         ${buildDotHtml('in', inLeft)}
                         ${buildDotHtml('out', outLeft)}
+                        ${offscreenNavHtml}
                     </div>
                 `);
             }
@@ -993,6 +1009,7 @@
                 try {
                     requestAnimationFrame(() => {
                         try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+                        try { state.__tmTimelineRefreshOffscreenNav?.(); } catch (e) {}
                     });
                 } catch (e) {
                     try { state.__tmTimelineRenderDeps?.(); } catch (e2) {}
@@ -1008,6 +1025,88 @@
                     ${rowsHtml.join('')}
                 </div>
             `;
+
+            const timelineScrollHost = bodyEl.closest('.tm-timeline-scroll-host') || bodyEl;
+            let timelineOffscreenNavRaf = 0;
+            const hideTimelineOffscreenNav = (button) => {
+                if (!(button instanceof HTMLButtonElement)) return;
+                button.classList.remove('tm-gantt-offscreen-nav--visible');
+                button.removeAttribute('data-direction');
+                button.setAttribute('aria-hidden', 'true');
+                button.tabIndex = -1;
+            };
+            const getTimelineRowInterval = (row) => {
+                if (!(row instanceof HTMLElement)) return null;
+                const bar = row.querySelector('.tm-gantt-bar');
+                if (bar instanceof HTMLElement) {
+                    const left = Number.parseFloat(String(bar.style.left || ''));
+                    const width = Number.parseFloat(String(bar.style.width || ''));
+                    if (Number.isFinite(left) && Number.isFinite(width) && width > 0) {
+                        return { left, right: left + width };
+                    }
+                }
+                const taskStartTs = Number(row.dataset.taskStartTs);
+                const taskEndTs = Number(row.dataset.taskEndTs);
+                if (!Number.isFinite(taskStartTs) || !Number.isFinite(taskEndTs) || !taskStartTs || !taskEndTs) return null;
+                const firstTs = Math.min(taskStartTs, taskEndTs);
+                const lastTs = Math.max(taskStartTs, taskEndTs);
+                return {
+                    left: ((firstTs - startTs) / DAY_MS) * dayWidth,
+                    right: (((lastTs - startTs) / DAY_MS) + 1) * dayWidth,
+                };
+            };
+            const refreshTimelineOffscreenNav = () => {
+                const inner = bodyEl.querySelector('.tm-gantt-body-inner');
+                if (!(inner instanceof HTMLElement) || !(timelineScrollHost instanceof HTMLElement)) return;
+                const totalWidth0 = Math.max(0, Number(bodyEl.dataset?.tmGanttTotalWidth) || Number(inner.offsetWidth) || 0);
+                let visibleLeft = 0;
+                let visibleRight = 0;
+                if (timelineScrollHost === bodyEl) {
+                    visibleLeft = Math.max(0, Number(bodyEl.scrollLeft) || 0);
+                    visibleRight = visibleLeft + Math.max(0, Number(bodyEl.clientWidth) || 0);
+                } else {
+                    const hostRect = timelineScrollHost.getBoundingClientRect();
+                    const bodyRect = bodyEl.getBoundingClientRect();
+                    visibleLeft = Math.max(0, hostRect.left - bodyRect.left);
+                    visibleRight = Math.max(visibleLeft, hostRect.right - bodyRect.left);
+                }
+                visibleRight = Math.min(totalWidth0, visibleRight);
+                if (!(visibleRight - visibleLeft > 32)) return;
+
+                bodyEl.querySelectorAll('.tm-gantt-row[data-id]').forEach((row) => {
+                    const button = row.querySelector('[data-tm-gantt-offscreen-nav]');
+                    if (!(button instanceof HTMLButtonElement)) return;
+                    if (!row.isConnected || row.hidden || row.style.display === 'none') {
+                        hideTimelineOffscreenNav(button);
+                        return;
+                    }
+                    const interval = getTimelineRowInterval(row);
+                    const direction = interval?.right <= visibleLeft + 1
+                        ? 'left'
+                        : (interval?.left >= visibleRight - 1 ? 'right' : '');
+                    if (!direction) {
+                        hideTimelineOffscreenNav(button);
+                        return;
+                    }
+                    const edgeLeft = direction === 'left' ? visibleLeft + 8 : visibleRight - 32;
+                    button.style.left = `${Math.round(clamp(edgeLeft, 0, Math.max(0, totalWidth0 - 24)))}px`;
+                    button.dataset.direction = direction;
+                    button.classList.add('tm-gantt-offscreen-nav--visible');
+                    button.setAttribute('aria-hidden', 'false');
+                    button.tabIndex = 0;
+                });
+            };
+            const scheduleTimelineOffscreenNavRefresh = () => {
+                if (timelineOffscreenNavRaf) return;
+                timelineOffscreenNavRaf = requestAnimationFrame(() => {
+                    timelineOffscreenNavRaf = 0;
+                    refreshTimelineOffscreenNav();
+                });
+            };
+            state.__tmTimelineRefreshOffscreenNav = scheduleTimelineOffscreenNavRefresh;
+            globalThis.__tmRuntimeEvents?.on?.(timelineScrollHost, 'scroll', scheduleTimelineOffscreenNavRefresh, { passive: true });
+            globalThis.__tmRuntimeEvents?.on?.(window, 'resize', scheduleTimelineOffscreenNavRefresh, { passive: true });
+            scheduleTimelineOffscreenNavRefresh();
 
             const renderDependencies = () => {
                 const inner = bodyEl.querySelector('.tm-gantt-body-inner');
@@ -1157,9 +1256,13 @@
                     const routed = buildTimelineDep(from, to);
                     const d = routed.d;
                     const isSelected = !!link.manual && String(link.id || '').trim() === selectedTimelineLinkId;
+                    const isSubtaskSource = __tmIsTaskLinkSourceSubtask(link.from);
+                    const sourceDepthCls = isSubtaskSource
+                        ? ' tm-gantt-dep--subtask-source'
+                        : ' tm-gantt-dep--root-source';
                     const cls = link.manual
-                        ? `tm-gantt-dep tm-gantt-dep--manual${isSelected ? ' tm-gantt-dep--selected' : ''}`
-                        : 'tm-gantt-dep tm-gantt-dep--auto';
+                        ? `tm-gantt-dep tm-gantt-dep--manual${sourceDepthCls}${isSelected ? ' tm-gantt-dep--selected' : ''}`
+                        : `tm-gantt-dep tm-gantt-dep--auto${sourceDepthCls}`;
                     if (!link.manual) return `<path class="${cls}" d="${d}" marker-end="url(#${markerIdOut})"></path>`;
                     const idEsc = String(link.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                     const btnPos = getPathTailButtonPos(routed.pts, {
@@ -1197,7 +1300,12 @@
                         : (targetTaskId ? getPt(targetTaskId, 'to') : pointerPt);
                     if (from && to) {
                         const d = buildTimelineDep(from, to).d;
-                        previewPath = `<path class="tm-gantt-dep tm-gantt-dep--manual" d="${d}" marker-end="url(#${markerIdOut})"></path>`;
+                        const previewSourceTaskId = fromSide === 'in' ? targetTaskId : fromTaskId;
+                        const previewSourceIsSubtask = __tmIsTaskLinkSourceSubtask(previewSourceTaskId);
+                        const previewSourceDepthCls = previewSourceIsSubtask
+                            ? ' tm-gantt-dep--subtask-source'
+                            : ' tm-gantt-dep--root-source';
+                        previewPath = `<path class="tm-gantt-dep tm-gantt-dep--manual${previewSourceDepthCls}" d="${d}" marker-end="url(#${markerIdOut})"></path>`;
                     }
                 }
                 svg.innerHTML = defs + paths + previewPath;
@@ -1242,7 +1350,7 @@
                     return;
                 }
                 const barRect = barEl.getBoundingClientRect();
-                const scrollHost = bodyEl.closest('.tm-body.tm-body--timeline') || bodyEl;
+                const scrollHost = bodyEl.closest('.tm-timeline-scroll-host, .tm-body.tm-body--timeline') || bodyEl;
                 const hostRect = scrollHost.getBoundingClientRect();
                 const viewportWidth = Math.max(0, Number(document.documentElement?.clientWidth || window.innerWidth || 0));
                 const viewportHeight = Math.max(0, Number(document.documentElement?.clientHeight || window.innerHeight || 0));
@@ -1374,7 +1482,7 @@
                 }
             };
             selectionToolbar.addEventListener('click', onTimelineSelectionToolbarClick);
-            const selectionToolbarScrollHost = bodyEl.closest('.tm-body.tm-body--timeline');
+            const selectionToolbarScrollHost = bodyEl.closest('.tm-timeline-scroll-host, .tm-body.tm-body--timeline');
             globalThis.__tmRuntimeEvents?.on?.(bodyEl, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true });
             if (selectionToolbarScrollHost && selectionToolbarScrollHost !== bodyEl) {
                 globalThis.__tmRuntimeEvents?.on?.(selectionToolbarScrollHost, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true });
@@ -1590,7 +1698,8 @@
                 const pointerIdValue = Number(e?.pointerId);
                 const activePointerId = Number.isFinite(pointerIdValue) ? pointerIdValue : null;
                 const pendingScrollHost = useMobileLongPressMove
-                    ? mobileTimelineModalEl?.querySelector?.('.tm-body.tm-body--timeline')
+                    ? (mobileTimelineModalEl?.querySelector?.('.tm-timeline-scroll-host')
+                        || mobileTimelineModalEl?.querySelector?.('.tm-body.tm-body--timeline'))
                     : null;
                 const initialPendingScrollLeft = pendingScrollHost instanceof HTMLElement ? pendingScrollHost.scrollLeft : 0;
                 const initialLeftPx = Number.parseFloat(String(barEl.style.left || '').replace('px', '')) || 0;
@@ -1751,6 +1860,7 @@
                             syncTimelineTaskLinkDots(it.barEl);
                         });
                         syncDraggedDependencies(deltaDays);
+                        scheduleTimelineOffscreenNavRefresh();
                         return;
                     }
                     if (action === 'start') {
@@ -1774,6 +1884,7 @@
                         applyBar(nextStart, nextEnd);
                     }
                     syncDraggedDependencies(deltaDays);
+                    scheduleTimelineOffscreenNavRefresh();
                 };
 
                 const unbindWindowDragEvents = () => {
@@ -1919,6 +2030,7 @@
                 if (e && typeof e.button === 'number' && e.button !== 0) return;
                 if (target.closest('.tm-task-link-dot')) return;
                 if (target.closest('.tm-gantt-bar__menu-btn')) return;
+                if (target.closest('[data-tm-gantt-offscreen-nav]')) return;
                 if (target.closest('.tm-gantt-bar, .tm-gantt-bar-handle, .tm-gantt-milestone')) return;
 
                 const startX = e.clientX;
@@ -1977,6 +2089,7 @@
                 if (!onUpdateTaskDates) return;
                 const target = e.target;
                 if (!(target instanceof Element)) return;
+                if (target.closest('[data-tm-gantt-offscreen-nav]')) return;
                 if (target.closest('.tm-gantt-bar__menu-btn')) return;
                 if (target.closest('.tm-gantt-bar, .tm-gantt-bar-handle, .tm-gantt-milestone, .tm-task-link-dot')) return;
                 const rowEl = target.closest('.tm-gantt-row');
@@ -2013,6 +2126,7 @@
                 const target = e.target;
                 if (!(target instanceof Element)) return;
                 if (target.closest('.tm-task-link-dot')) return;
+                if (target.closest('[data-tm-gantt-offscreen-nav]')) return;
                 if (isMobileTimelineGlobal) {
                     if (target.closest('.tm-gantt-row, .tm-gantt-bar, .tm-gantt-bar-handle, .tm-gantt-milestone')) {
                         try { e.preventDefault(); } catch (e2) {}
@@ -2031,6 +2145,17 @@
             const onClick = (e) => {
                 const target = e.target;
                 if (!(target instanceof Element)) return;
+                const offscreenNav = target.closest('[data-tm-gantt-offscreen-nav]');
+                if (offscreenNav instanceof HTMLButtonElement) {
+                    const rowEl0 = offscreenNav.closest('.tm-gantt-row[data-id]');
+                    const taskId0 = String(rowEl0?.getAttribute?.('data-id') || '').trim();
+                    if (taskId0) {
+                        try { e.preventDefault(); } catch (e2) {}
+                        try { e.stopPropagation(); } catch (e2) {}
+                        try { globalThis.tmGanttFocusTask?.(taskId0); } catch (e2) {}
+                    }
+                    return;
+                }
                 const suppressedBar = target.closest('.tm-gantt-bar[data-tm-suppress-click-until]');
                 const suppressClickUntil = Number(suppressedBar?.dataset?.tmSuppressClickUntil || 0);
                 if (suppressClickUntil > Date.now()) {
@@ -2137,6 +2262,8 @@
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'dblclick', onDblClick); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'contextmenu', onContextMenu); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'click', onClick); } catch (e) {}
+                try { globalThis.__tmRuntimeEvents?.off?.(timelineScrollHost, 'scroll', scheduleTimelineOffscreenNavRefresh, { passive: true }); } catch (e) {}
+                try { globalThis.__tmRuntimeEvents?.off?.(window, 'resize', scheduleTimelineOffscreenNavRefresh, { passive: true }); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true }); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(selectionToolbarScrollHost, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true }); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(window, 'resize', scheduleTimelineSelectionToolbarPosition, { passive: true }); } catch (e) {}
@@ -2146,8 +2273,13 @@
                     try { cancelAnimationFrame(selectionToolbarPositionRaf); } catch (e) {}
                     selectionToolbarPositionRaf = 0;
                 }
+                if (timelineOffscreenNavRaf) {
+                    try { cancelAnimationFrame(timelineOffscreenNavRaf); } catch (e) {}
+                    timelineOffscreenNavRaf = 0;
+                }
                 try { setMobileTimelineTouchLock(false); } catch (e) {}
                 if (state.__tmTimelineRenderDeps === renderDependencies) state.__tmTimelineRenderDeps = null;
+                if (state.__tmTimelineRefreshOffscreenNav === scheduleTimelineOffscreenNavRefresh) state.__tmTimelineRefreshOffscreenNav = null;
             });
         }
 

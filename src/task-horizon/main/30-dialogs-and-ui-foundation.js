@@ -1842,6 +1842,36 @@
         return ordered;
     }
 
+    function __tmGetDocTabCustomGroupRegionState(group, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const currentGroupId = String(opts.currentGroupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const docs = (Array.isArray(opts.docs) ? opts.docs : __tmSortDocEntriesForTabs(state?.taskTree || [], currentGroupId))
+            .map((doc) => __tmBuildDocTabGroupedViewDocEntry(doc))
+            .filter((doc) => !!doc?.id);
+        const expanded = opts.expanded instanceof Map ? opts.expanded : __tmExpandDocTabCustomGroup(group, docs);
+        const docStateCache = opts.docStateCache instanceof Map ? opts.docStateCache : null;
+        const globalNewTaskDocId = String(opts.globalNewTaskDocId ?? SettingsStore?.data?.newTaskDocId ?? '').trim();
+        let hasActive = false;
+        let hasArchived = false;
+        for (const doc of docs) {
+            const docId = String(doc?.id || '').trim();
+            if (!docId || !expanded.has(docId) || (globalNewTaskDocId && docId === globalNewTaskDocId)) continue;
+            if (__tmDocShouldShowInDocTabs(doc, { archiveMode: false, groupId: currentGroupId, docStateCache })) hasActive = true;
+            if (__tmDocShouldShowInDocTabs(doc, { archiveMode: true, groupId: currentGroupId, docStateCache })) hasArchived = true;
+            if (hasActive && hasArchived) break;
+        }
+        return { hasActive, hasArchived };
+    }
+
+    function __tmShouldShowDocTabCustomGroupInRegion(group, regionState, archiveMode) {
+        const hasActive = regionState?.hasActive === true;
+        const hasArchived = regionState?.hasArchived === true;
+        if (archiveMode === true) return hasArchived;
+        if (hasActive) return true;
+        if (hasArchived) return false;
+        return group?.showInTabBar === true;
+    }
+
     function __tmBuildDocTabGroupedView(visibleDocs, options = {}) {
         let docs = (Array.isArray(visibleDocs) ? visibleDocs : [])
             .map((doc) => __tmBuildDocTabGroupedViewDocEntry(doc))
@@ -1854,9 +1884,24 @@
         const scopedGroups = __tmGetDocTabCustomGroupsForDocGroup(currentGroupId);
         docs = __tmAugmentDocTabGroupedViewDocs(docs, scopedGroups, { ...options, currentGroupId, activeDocId });
         const docById = new Map(docs.map((doc) => [doc.id, doc]));
+        const archiveMode = options?.archiveMode === undefined
+            ? state?.docTabsArchiveMode === true
+            : options.archiveMode === true;
+        const regionDocs = (Array.isArray(options?.allDocsForTabs)
+            ? options.allDocsForTabs
+            : __tmSortDocEntriesForTabs(state?.taskTree || [], currentGroupId))
+            .map((doc) => __tmBuildDocTabGroupedViewDocEntry(doc))
+            .filter((doc) => !!doc?.id);
 
         scopedGroups.forEach((group) => {
-            const expanded = __tmExpandDocTabCustomGroup(group, docs);
+            const expanded = __tmExpandDocTabCustomGroup(group, [...regionDocs, ...docs]);
+            const regionState = __tmGetDocTabCustomGroupRegionState(group, {
+                ...options,
+                currentGroupId,
+                docs: regionDocs,
+                expanded
+            });
+            if (!__tmShouldShowDocTabCustomGroupInRegion(group, regionState, archiveMode)) return;
             const members = [];
             docs.forEach((doc) => {
                 const relation = expanded.get(doc.id);
@@ -1882,7 +1927,8 @@
                 members,
                 active: !!(isGroupActive || activeMember),
                 aggregateActive: !!isGroupActive,
-                activeMember
+                activeMember,
+                regionState
             });
         });
 
@@ -9487,11 +9533,22 @@ return Number(state.contextInteractionQuietUntil || 0);
         const activeDocIdBeforeFilter = String(state.activeDocId || 'all').trim() || 'all';
         const activeDocTabCustomGroupIdBeforeFilter = __tmParseDocTabCustomGroupActiveId(activeDocIdBeforeFilter);
         if (activeDocTabCustomGroupIdBeforeFilter) {
+            const activeGroupDocsForTabs = __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId);
             const activeGroupDocIds = __tmGetDocTabCustomGroupDocIdSet(activeDocTabCustomGroupIdBeforeFilter, {
                 currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
-                docs: state.taskTree || []
+                docs: activeGroupDocsForTabs
             });
-            if (!activeGroupDocIds.size) {
+            const activeGroup = __tmFindDocTabCustomGroupById(activeDocTabCustomGroupIdBeforeFilter, { currentGroupId });
+            const activeGroupRegionState = activeGroup
+                ? __tmGetDocTabCustomGroupRegionState(activeGroup, {
+                    currentGroupId,
+                    docs: activeGroupDocsForTabs,
+                    docStateCache
+                })
+                : null;
+            if (!activeGroupDocIds.size
+                || !activeGroup
+                || !__tmShouldShowDocTabCustomGroupInRegion(activeGroup, activeGroupRegionState, archiveMode)) {
                 state.activeDocId = 'all';
             }
         } else if (activeDocIdBeforeFilter !== 'all' && !__tmIsOtherBlockTabId(activeDocIdBeforeFilter)) {
@@ -16513,6 +16570,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     let __tmChecklistSheetLastTouchStartAt = 0;
+    let __tmChecklistSheetLastPointerTouchStartAt = 0;
     let __tmChecklistSheetSuppressClickUntil = 0;
     let __tmChecklistSheetSuppressClickHandler = null;
 
@@ -16615,6 +16673,9 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function __tmStartChecklistSheetDrag(ev, source = 'pointer', options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        const usesTouchEvents = source === 'touch';
+        const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
+        const touchInput = usesTouchEvents || source === 'pointer-touch' || pointerType === 'touch';
         if (!opts.skipSheetModeCheck && !__tmChecklistUseSheetMode(state.modal)) {
             return;
         }
@@ -16645,8 +16706,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         const useTrackedSnap = opts.trackFullscreenDrag === true;
         const allowBodySheetGesture = opts.allowBodySheetGesture === true;
         const interactiveTarget = target.closest('input, textarea, select, button, a, label');
-        const touchTextInputTarget = source === 'touch' && !!target.closest('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="range"]), [data-tm-detail="content"], [data-tm-detail="remark"], [data-tm-detail-custom-text-field], [data-tm-detail-subtask-content], [data-tm-detail-subtask-draft-input], [data-tm-detail-remark-shell], [data-tm-detail-remark-preview], [data-tm-detail-remark-activator], [contenteditable="true"]');
-        const touchGestureTarget = source === 'touch' && useTrackedSnap && allowBodySheetGesture && inBody;
+        const touchTextInputTarget = touchInput && !!target.closest('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="range"]), [data-tm-detail="content"], [data-tm-detail="remark"], [data-tm-detail-custom-text-field], [data-tm-detail-subtask-content], [data-tm-detail-subtask-draft-input], [data-tm-detail-remark-shell], [data-tm-detail-remark-preview], [data-tm-detail-remark-activator], [contenteditable="true"]');
+        const touchGestureTarget = touchInput && useTrackedSnap && allowBodySheetGesture && inBody;
         if (interactiveTarget && !(touchTextInputTarget || touchGestureTarget)) {
             return;
         }
@@ -16687,7 +16748,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             let ended = false;
             let trackStylesApplied = false;
             let lastMoveLogAt = 0;
-            if (source === 'touch' && waitForIntent) {
+            if (touchInput && waitForIntent) {
                 metrics = __tmMeasureChecklistSheetDragTrack(sheet);
             }
 
@@ -16699,7 +16760,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 return pointerId === nextPointerId;
             };
             const removeListeners = () => {
-                if (source === 'touch') {
+                if (usesTouchEvents) {
                     try { window.removeEventListener('touchmove', onMove, true); } catch (e) {}
                     try { window.removeEventListener('touchend', onUp, true); } catch (e) {}
                     try { window.removeEventListener('touchcancel', onUp, true); } catch (e) {}
@@ -16730,7 +16791,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     trackStylesApplied = true;
                 }
                 sheet.style.transform = `translateY(${visualOffset}px)`;
-                if (source !== 'touch') {
+                if (!usesTouchEvents) {
                     try {
                         sheet.setPointerCapture?.(ev.pointerId);
                         captured = true;
@@ -16853,7 +16914,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 if (!dragging) {
                     return;
                 }
-                if (source === 'touch') {
+                if (touchInput) {
                     __tmChecklistSheetSuppressClickUntil = Date.now() + 260;
                     try { document.__tmChecklistSheetSuppressClickUntil = __tmChecklistSheetSuppressClickUntil; } catch (e) {}
                 }
@@ -16893,7 +16954,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             };
 
             if (!waitForIntent && !beginDrag(ev)) return;
-            if (source === 'touch') {
+            if (usesTouchEvents) {
                 try { window.addEventListener('touchmove', onMove, { capture: true, passive: false }); } catch (e) {}
                 try { window.addEventListener('touchend', onUp, true); } catch (e) {}
                 try { window.addEventListener('touchcancel', onUp, true); } catch (e) {}
@@ -16934,7 +16995,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { e2.preventDefault?.(); } catch (e) {}
         };
         const onUp = (e2) => {
-            if (source === 'touch') {
+            if (usesTouchEvents) {
                 try { window.removeEventListener('touchmove', onMove, true); } catch (e) {}
                 try { window.removeEventListener('touchend', onUp, true); } catch (e) {}
                 try { window.removeEventListener('touchcancel', onUp, true); } catch (e) {}
@@ -16982,7 +17043,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (movedPx <= 6) return;
             refreshSheet(e2);
         };
-        if (source === 'touch') {
+        if (usesTouchEvents) {
             try { window.addEventListener('touchmove', onMove, { capture: true, passive: false }); } catch (e) {}
             try { window.addEventListener('touchend', onUp, true); } catch (e) {}
             try { window.addEventListener('touchcancel', onUp, true); } catch (e) {}
@@ -16994,18 +17055,33 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
     }
 
-    window.tmChecklistSheetDragStart = function(ev) {
-        if ((Date.now() - __tmChecklistSheetLastTouchStartAt) < 700) return;
+    function __tmStartChecklistSheetPointerDrag(ev, options = {}) {
         const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
-        if (pointerType === 'touch') return;
-        __tmStartChecklistSheetDrag(ev, 'pointer', {
+        if (pointerType === 'touch') {
+            const pointerStartAt = Date.now();
+            if ((pointerStartAt - __tmChecklistSheetLastTouchStartAt) < 700) return;
+            setTimeout(() => {
+                if (__tmChecklistSheetLastTouchStartAt >= pointerStartAt) return;
+                __tmChecklistSheetLastPointerTouchStartAt = Date.now();
+                __tmStartChecklistSheetDrag(ev, 'pointer-touch', options);
+            }, 0);
+            return;
+        }
+        if ((Date.now() - __tmChecklistSheetLastTouchStartAt) < 700) return;
+        __tmStartChecklistSheetDrag(ev, 'pointer', options);
+    }
+
+    window.tmChecklistSheetDragStart = function(ev) {
+        __tmStartChecklistSheetPointerDrag(ev, {
             trackFullscreenDrag: true,
             allowBodySheetGesture: true,
         });
     };
 
     window.tmChecklistSheetTouchStart = function(ev) {
-        __tmChecklistSheetLastTouchStartAt = Date.now();
+        const now = Date.now();
+        if ((now - __tmChecklistSheetLastPointerTouchStartAt) < 700) return;
+        __tmChecklistSheetLastTouchStartAt = now;
         __tmStartChecklistSheetDrag(ev, 'touch', {
             trackFullscreenDrag: true,
             allowBodySheetGesture: true,
@@ -17014,10 +17090,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.tmTaskDetailSheetDragStart = function(ev) {
-        if ((Date.now() - __tmChecklistSheetLastTouchStartAt) < 700) return;
-        const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
-        if (pointerType === 'touch') return;
-        __tmStartChecklistSheetDrag(ev, 'pointer', {
+        __tmStartChecklistSheetPointerDrag(ev, {
             skipSheetModeCheck: true,
             sheetSelector: '#tmTaskDetailSheet',
             bodySelector: '#tmTaskDetailSheetPanel',
@@ -17030,7 +17103,9 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.tmTaskDetailSheetTouchStart = function(ev) {
-        __tmChecklistSheetLastTouchStartAt = Date.now();
+        const now = Date.now();
+        if ((now - __tmChecklistSheetLastPointerTouchStartAt) < 700) return;
+        __tmChecklistSheetLastTouchStartAt = now;
         __tmStartChecklistSheetDrag(ev, 'touch', {
             skipSheetModeCheck: true,
             sheetSelector: '#tmTaskDetailSheet',
@@ -17076,19 +17151,20 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmBindChecklistSheetTouchFallback(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
-        const bindOne = (selector, handler) => {
-            const sheet = modal.querySelector(selector);
-            if (!(sheet instanceof HTMLElement) || sheet.__tmSheetTouchFallbackBound === true) return;
-            const onTouchStart = (event) => {
-                try { handler(event); } catch (e) {}
-            };
-            try {
-                sheet.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
-                sheet.__tmSheetTouchFallbackBound = true;
-            } catch (e) {}
+        if (modal.__tmSheetTouchFallbackBound === true) return;
+        const onTouchStart = (event) => {
+            const target = event?.target instanceof Element ? event.target : null;
+            const sheet = target?.closest?.('#tmChecklistSheet, #tmTaskDetailSheet');
+            if (!(sheet instanceof HTMLElement) || !modal.contains(sheet)) return;
+            const handler = sheet.id === 'tmTaskDetailSheet'
+                ? window.tmTaskDetailSheetTouchStart
+                : window.tmChecklistSheetTouchStart;
+            try { handler?.(event); } catch (e) {}
         };
-        bindOne('#tmChecklistSheet', window.tmChecklistSheetTouchStart);
-        bindOne('#tmTaskDetailSheet', window.tmTaskDetailSheetTouchStart);
+        try {
+            modal.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+            modal.__tmSheetTouchFallbackBound = true;
+        } catch (e) {}
     }
 
     window.__tmBindChecklistSheetTouchFallback = __tmBindChecklistSheetTouchFallback;
