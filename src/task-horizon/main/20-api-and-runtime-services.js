@@ -5234,6 +5234,29 @@
         };
     }
 
+    function __tmBuildQueuedCreateCommitOptions(op, source = '') {
+        const type = String(op?.type || '').trim();
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        const refreshCurrentView = data.refreshCurrentView !== false;
+        const refreshPolicy = (data.refreshPolicy && typeof data.refreshPolicy === 'object')
+            ? { ...data.refreshPolicy }
+            : {
+                current: refreshCurrentView,
+                detail: refreshCurrentView,
+                checklistGroup: !!String(data.parentTaskId || '').trim(),
+                snapshot: data.scheduleSnapshotRefresh !== false && data.skipSnapshotViewStateFilterRefresh !== true,
+            };
+        return {
+            clientId: String(data.clientId || '').trim(),
+            parentTaskId: String(data.parentTaskId || '').trim(),
+            data: { refreshPolicy },
+            refreshCurrentView,
+            scheduleSnapshotRefresh: data.scheduleSnapshotRefresh !== false,
+            skipSnapshotViewStateFilterRefresh: data.skipSnapshotViewStateFilterRefresh === true,
+            source: String(source || `queue-${type || 'create'}-commit-id`).trim() || `queue-${type || 'create'}-commit-id`,
+        };
+    }
+
     function __tmScheduleQueuedCreateOpMissingRealIdReconcile(op, options = {}) {
         const type = String(op?.type || '').trim();
         if (type !== 'createTaskInDoc' && type !== 'createSubtask' && type !== 'createSibling') return false;
@@ -5350,24 +5373,7 @@
                 return;
             }
             const previousId = String((insertedId && insertedId !== realId) ? insertedId : tempId).trim();
-            const commitOptions = {
-                clientId,
-                parentTaskId: String(data.parentTaskId || '').trim(),
-                data: {
-                    refreshPolicy: (data.refreshPolicy && typeof data.refreshPolicy === 'object')
-                        ? data.refreshPolicy
-                        : {
-                            current: data.refreshCurrentView !== false,
-                            detail: data.refreshCurrentView !== false,
-                            checklistGroup: !!String(data.parentTaskId || '').trim(),
-                            snapshot: data.scheduleSnapshotRefresh !== false && data.skipSnapshotViewStateFilterRefresh !== true,
-                        },
-                },
-                refreshCurrentView: data.refreshCurrentView !== false,
-                scheduleSnapshotRefresh: data.scheduleSnapshotRefresh !== false,
-                skipSnapshotViewStateFilterRefresh: data.skipSnapshotViewStateFilterRefresh === true,
-                source: `queue-${type}-real-id-resolve`,
-            };
+            const commitOptions = __tmBuildQueuedCreateCommitOptions(op, `queue-${type}-real-id-resolve`);
             try {
                 if (previousId && previousId !== realId && typeof __tmCommitOptimisticTaskId === 'function') {
                     __tmCommitOptimisticTaskId(previousId, realId, commitOptions);
@@ -5570,7 +5576,7 @@
         if (!Number(op.data.insertedAt)) op.data.insertedAt = Date.now();
         try {
             if (tempId && tempId !== rid && typeof __tmCommitOptimisticTaskId === 'function') {
-                __tmCommitOptimisticTaskId(tempId, rid);
+                __tmCommitOptimisticTaskId(tempId, rid, __tmBuildQueuedCreateCommitOptions(op, `queue-${type}-record-inserted`));
             }
         } catch (e) {}
         try {
@@ -7542,6 +7548,7 @@ onBlockInserted: (info) => {
                 forcePositionRank: true,
                 reason: `queue-${type || 'structural'}-position-reconcile`,
                 deferIfDetailBusy: true,
+                skipViewRefresh: data.skipSettledViewRefresh === true,
             })).catch(() => null);
             return true;
         } catch (e) {
@@ -7632,24 +7639,7 @@ onBlockInserted: (info) => {
                 });
             };
             if (tempId && realId) {
-                __tmCommitOptimisticTaskId(tempId, realId, {
-                    clientId: String(op?.data?.clientId || '').trim(),
-                    parentTaskId: String(op?.data?.parentTaskId || '').trim(),
-                    data: {
-                        refreshPolicy: (op?.data?.refreshPolicy && typeof op.data.refreshPolicy === 'object')
-                            ? op.data.refreshPolicy
-                            : {
-                                current: op?.data?.refreshCurrentView !== false,
-                                detail: op?.data?.refreshCurrentView !== false,
-                                checklistGroup: !!String(op?.data?.parentTaskId || '').trim(),
-                                snapshot: op?.data?.scheduleSnapshotRefresh !== false && op?.data?.skipSnapshotViewStateFilterRefresh !== true,
-                            },
-                    },
-                    refreshCurrentView: op?.data?.refreshCurrentView !== false,
-                    scheduleSnapshotRefresh: op?.data?.scheduleSnapshotRefresh !== false,
-                    skipSnapshotViewStateFilterRefresh: op?.data?.skipSnapshotViewStateFilterRefresh === true,
-                    source: `queue-${type}-commit-id`,
-                });
+                __tmCommitOptimisticTaskId(tempId, realId, __tmBuildQueuedCreateCommitOptions(op, `queue-${type}-commit-id`));
                 try { __tmRemapQueuedOpTaskReferences(tempId, realId); } catch (e) {}
                 try { __tmReplayQueuedOpOptimisticState?.(`queue-${type}-commit-remap`); } catch (e) {}
                 try { __tmScheduleOpQueueDrain(0); } catch (e) {}
@@ -10179,7 +10169,6 @@ const wait = !!options.wait;
         let completionApplied = 0;
         let calendarApplied = 0;
         let reminderApplied = 0;
-        let calendarChanged = false;
         for (const item of chosen) {
             const taskId = String(item?.taskId || '').trim();
             if (!taskId) continue;
@@ -10246,10 +10235,9 @@ const wait = !!options.wait;
                         preferCalendarColor: true,
                         durationMin,
                         allDay: false,
-                        refresh: false,
+                        refresh: true,
                     });
                     calendarApplied += 1;
-                    calendarChanged = true;
                     itemApplied = true;
                 } catch (e) {
                     failures.push(`${taskTitle}：日历写入失败（${String(e?.message || e || '未知错误')}）`);
@@ -10290,32 +10278,17 @@ const wait = !!options.wait;
             if (!docId) return;
             try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
         });
-        try {
-            __tmScheduleViewRefresh({
-                mode: 'current',
-                withFilters: true,
-                reason: 'semantic-date-apply',
-                taskIds: appliedItems.map((item) => String(item?.taskId || '').trim()).filter(Boolean),
-            });
-        } catch (e) {
-            try { __tmScheduleRender({ withFilters: true, reason: 'semantic-date-apply' }); } catch (e2) {}
-        }
-        if (calendarChanged) {
+        if (String(state.viewMode || '').trim() !== 'calendar') {
             try {
-                let refreshPromise = null;
-                if (typeof globalThis.__tmCalendar?.requestRefresh === 'function') {
-                    refreshPromise = globalThis.__tmCalendar.requestRefresh({
-                        reason: 'semantic-date-apply',
-                        main: true,
-                        side: true,
-                        flushTaskPanel: true,
-                        hard: false,
-                    });
-                } else {
-                    refreshPromise = globalThis.__tmCalendar?.refreshInPlace?.({ silent: false, hard: false });
-                }
-                Promise.resolve(refreshPromise).catch(() => null);
-            } catch (e) {}
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: true,
+                    reason: 'semantic-date-apply',
+                    taskIds: appliedItems.map((item) => String(item?.taskId || '').trim()).filter(Boolean),
+                });
+            } catch (e) {
+                try { __tmScheduleRender({ withFilters: true, reason: 'semantic-date-apply' }); } catch (e2) {}
+            }
         }
         return { startApplied, completionApplied, calendarApplied, reminderApplied, failures, appliedItems };
     }
@@ -15593,22 +15566,23 @@ const wait = !!options.wait;
         const opts = (options && typeof options === 'object') ? options : {};
 if (opts.refresh === false) return;
         const calendarOnly = opts.calendarOnly === true;
+        const calendarView = String(state.viewMode || '').trim() === 'calendar';
         let refreshed = false;
         if (opts.refreshCalendar !== false) {
             try {
                 if (globalThis.__tmCalendar && (typeof globalThis.__tmCalendar.requestRefresh === 'function' || typeof globalThis.__tmCalendar.refreshInPlace === 'function')) {
                     __tmRequestCalendarRefresh({
                         reason: String(opts.reason || 'task-mutation').trim() || 'task-mutation',
-                        main: true,
-                        side: true,
-                        flushTaskPanel: true,
+                        main: calendarView,
+                        side: false,
+                        flushTaskPanel: false,
                         hard: opts.hard === true,
                     }, { hard: opts.hard === true });
                     refreshed = true;
                 }
             } catch (e) {}
         }
-        if (!calendarOnly) {
+        if (!calendarOnly && !calendarView) {
             if (state.homepageOpen) {
                 try {
                     __tmScheduleHomepageRefresh(String(opts.reason || 'task-mutation').trim() || 'task-mutation');
@@ -15822,15 +15796,25 @@ if (hasStatusPatch) {
                 }
             }
             if (opts.refreshCalendar !== false && __tmPatchAffectsCalendar(nextPatch)) {
-                try {
-                    __tmRequestCalendarRefresh({
-                        reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
-                        main: String(state.viewMode || '').trim() === 'calendar',
-                        side: __tmShouldShowCalendarSideDock(),
-                        flushTaskPanel: true,
-                        hard: opts.hard === true,
-                    }, { hard: opts.hard === true });
-                } catch (e) {}
+                let syncedInPlace = opts.refresh !== false;
+                if (!syncedInPlace) {
+                    try {
+                        syncedInPlace = __tmSyncVisibleCalendarTaskPatch(context.persistId, nextPatch, {
+                            reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
+                        });
+                    } catch (e) {}
+                }
+                if (!syncedInPlace) {
+                    try {
+                        __tmRequestCalendarRefresh({
+                            reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
+                            main: String(state.viewMode || '').trim() === 'calendar',
+                            side: __tmShouldShowCalendarSideDock(),
+                            flushTaskPanel: false,
+                            hard: opts.hard === true,
+                        }, { hard: opts.hard === true });
+                    } catch (e) {}
+                }
             }
             try {
                 if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate') || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) {
@@ -16520,15 +16504,25 @@ __tmPushStatusDebug('apply-status:start', {
                 }
             }
             if (opts.refreshCalendar !== false && __tmPatchAffectsCalendar(settledPatch)) {
-                try {
-                    __tmRequestCalendarRefresh({
-                        reason: String(opts.source || 'task-status').trim() || 'task-status',
-                        main: String(state.viewMode || '').trim() === 'calendar',
-                        side: __tmShouldShowCalendarSideDock(),
-                        flushTaskPanel: true,
-                        hard: opts.hard === true,
-                    }, { hard: opts.hard === true });
-                } catch (e) {}
+                let syncedInPlace = opts.refresh !== false;
+                if (!syncedInPlace) {
+                    try {
+                        syncedInPlace = __tmSyncVisibleCalendarTaskPatch(context.persistId, settledPatch, {
+                            reason: String(opts.source || 'task-status').trim() || 'task-status',
+                        });
+                    } catch (e) {}
+                }
+                if (!syncedInPlace) {
+                    try {
+                        __tmRequestCalendarRefresh({
+                            reason: String(opts.source || 'task-status').trim() || 'task-status',
+                            main: String(state.viewMode || '').trim() === 'calendar',
+                            side: __tmShouldShowCalendarSideDock(),
+                            flushTaskPanel: false,
+                            hard: opts.hard === true,
+                        }, { hard: opts.hard === true });
+                    } catch (e) {}
+                }
             }
             if (opts.broadcast !== false) {
                 __tmDispatchTaskAttrPatchUpdated(opts.broadcastTaskId || context.requestedId || context.persistId, persistPatch, {
@@ -19774,6 +19768,23 @@ refreshOk = false;
         return false;
     }
 
+    function __tmShouldAlwaysShowTaskDocHeadingGroups() {
+        return SettingsStore?.data?.alwaysShowTaskDocHeadingGroups === true
+            && SettingsStore?.data?.docH2SubgroupEnabled !== false
+            && state.groupByDocName === true;
+    }
+
+    function __tmGetAlwaysVisibleTaskDocHeadingTasks(docId = '') {
+        if (!__tmShouldAlwaysShowTaskDocHeadingGroups()) return [];
+        const did = String(docId || '').trim();
+        return (Array.isArray(state.taskDocHeadingGroupTasks) ? state.taskDocHeadingGroupTasks : [])
+            .filter((task) => {
+                if (!__tmTaskHasResolvedHeading(task)) return false;
+                if (!did) return true;
+                return String(task?.root_id || task?.docId || '').trim() === did;
+            });
+    }
+
     function __tmCollectDocTasksForHeadingCheck(docId, extraTask = null) {
         const did = String(docId || '').trim();
         if (!did) return [];
@@ -20896,7 +20907,7 @@ refreshOk = false;
                         <div class="tm-benefits-note" id="tmBenefitsPaymentNote">
                             <span class="tm-benefits-label">付款时请提供以下用户名</span>
                             <code id="tmBenefitsPaymentAccount">${esc(accountText)}</code>
-                            <span id="tmBenefitsPaymentInstruction" style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;">付款时提供用户名，或发送至 729373125@qq.com：用户名 + 付款截图</span>
+                            <span id="tmBenefitsPaymentInstruction" style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;">付款时提供用户名，或发送邮件至 729373125@qq.com（用户名 + 付款截图）；仅提供用户名且未发邮件时，激活码将通过链滴论坛私信发送。</span>
                         </div>
                     </div>
                     <div class="tm-benefits-qr" id="tmBenefitsPaymentQr">
@@ -21074,14 +21085,14 @@ refreshOk = false;
             yearly: {
                 title: '全功能年付授权',
                 summary: '扫码转账 38 元后，付款时请提供以下用户名；无法在付款备注提供时，请通过 QQ 群或邮件提供付款信息。',
-                instruction: '付款时提供用户名，或发送至 729373125@qq.com：用户名 + 付款截图',
+                instruction: '付款时提供用户名，或发送邮件至 729373125@qq.com（用户名 + 付款截图）；仅提供用户名且未发邮件时，激活码将通过链滴论坛私信发送。',
                 hideQr: false,
                 hideNote: false,
             },
             lifetime: {
                 title: '全功能永久授权',
                 summary: lifetimeOffer.summary,
-                instruction: '付款时提供用户名，或发送至 729373125@qq.com：用户名 + 付款截图',
+                instruction: '付款时提供用户名，或发送邮件至 729373125@qq.com（用户名 + 付款截图）；仅提供用户名且未发邮件时，激活码将通过链滴论坛私信发送。',
                 hideQr: false,
                 hideNote: false,
             },
@@ -25132,9 +25143,7 @@ return true;
             const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
             const baseBg = groupBg || doneSubtaskBg;
             const progressBgStyle = (row.hasChildren && progressPercent > 0)
-                ? (enableGroupBg && groupBg
-                    ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
-                    : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
+                ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                 : '';
             const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
             const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
@@ -25308,8 +25317,8 @@ return true;
                                 source: 'timeline-gantt-meta',
                                 label: '甘特字段',
                                 reason: 'timeline-gantt-meta',
-                                background: false,
-                                wait: true,
+                                background: true,
+                                wait: false,
                                 withFilters: false,
                                 skipSettledRefresh: true,
                                 skipInteractionGate: true,

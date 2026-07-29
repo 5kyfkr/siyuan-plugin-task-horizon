@@ -840,9 +840,10 @@
         if (!docState.hasAny) return false;
         const docId = String(doc?.id || '').trim();
         const groupId = String(options?.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
-        const manuallyArchived = !!(docState.hasUndone && __tmIsDocManuallyArchivedInGroup(docId, groupId));
-        if (options?.archiveMode === true) return !!(docState.isArchived || manuallyArchived);
-        return !!(docState.hasUndone && !manuallyArchived);
+        const manuallyArchived = __tmIsDocManuallyArchivedInGroup(docId, groupId);
+        const automaticallyArchived = SettingsStore?.data?.docTabsManualArchiveOnly !== true && docState.isArchived;
+        if (options?.archiveMode === true) return !!(automaticallyArchived || manuallyArchived);
+        return !!(!automaticallyArchived && !manuallyArchived);
     }
 
     function __tmGetArchiveModeFilterRule(rule, archiveMode = state.docTabsArchiveMode === true) {
@@ -9519,14 +9520,19 @@ return Number(state.contextInteractionQuietUntil || 0);
             });
         };
 
+        const allTaskDocIdsForTabs = new Set();
+        const scopedTaskDocIds = new Set();
         taskTreeForFilter.forEach((doc) => {
             if (archiveMode && !__tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode, groupId: currentGroupId, docStateCache: docTaskStateCache })) return;
+            const docId = String(doc?.id || '').trim();
+            if (docId) allTaskDocIdsForTabs.add(docId);
             const docTasks = [];
             collect(doc.tasks, docTasks);
             allTasksForTabs.push(...docTasks);
             if (isOtherBlocksActive) return;
-            if (isDocTabCustomGroupActive && !activeDocTabCustomGroupDocIds.has(String(doc?.id || '').trim())) return;
+            if (isDocTabCustomGroupActive && !activeDocTabCustomGroupDocIds.has(docId)) return;
             if (!isDocTabCustomGroupActive && activeDocId !== 'all' && doc.id !== activeDocId) return;
+            if (docId) scopedTaskDocIds.add(docId);
             tasks.push(...docTasks);
         });
         if (hasOtherBlocks) {
@@ -9610,6 +9616,26 @@ return Number(state.contextInteractionQuietUntil || 0);
             && !currentRuleIncludesCompleted()
             && !currentRuleAllStatuses()
             && !otherBlocksShowDoneInAllRule;
+        const alwaysShowTaskDocHeadingGroups = SettingsStore.data.alwaysShowTaskDocHeadingGroups === true
+            && SettingsStore.data.docH2SubgroupEnabled !== false
+            && state.groupByDocName === true;
+        if (alwaysShowTaskDocHeadingGroups) {
+            const headingScopeDocIds = taskScopeMatchesTabs ? allTaskDocIdsForTabs : scopedTaskDocIds;
+            const headingTasks = [];
+            const seenHeadingTaskIds = new Set();
+            const addHeadingTask = (task) => {
+                const taskId = String(task?.id || '').trim();
+                const docId = String(task?.root_id || task?.docId || '').trim();
+                if (!taskId || seenHeadingTaskIds.has(taskId) || !headingScopeDocIds.has(docId) || !__tmTaskHasResolvedHeading(task)) return;
+                seenHeadingTaskIds.add(taskId);
+                headingTasks.push(task);
+            };
+            Object.values(taskMap).forEach(addHeadingTask);
+            (taskScopeMatchesTabs ? allTasksForTabs : tasks).forEach(addHeadingTask);
+            state.taskDocHeadingGroupTasks = headingTasks;
+        } else {
+            state.taskDocHeadingGroupTasks = [];
+        }
         const filterVisibleTasks = (list) => {
             const source = Array.isArray(list) ? list : [];
             if (!excludeCompleted) return source;
@@ -9736,6 +9762,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     String(state.currentRule || '').trim(),
                     String(state.searchKeyword || '').trim(),
                     String(archiveMode ? 1 : 0),
+                    String(SettingsStore?.data?.docTabsManualArchiveOnly ? 1 : 0),
                     String(state.groupByDocName ? 1 : 0),
                     String(state.groupByTaskName ? 1 : 0),
                     String(state.groupByTime ? 1 : 0),
@@ -9844,6 +9871,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     String(state.currentRule || '').trim(),
                     String(state.searchKeyword || '').trim(),
                     String(archiveMode ? 1 : 0),
+                    String(SettingsStore?.data?.docTabsManualArchiveOnly ? 1 : 0),
                     String(state.groupByDocName ? 1 : 0),
                     String(state.groupByTaskName ? 1 : 0),
                     String(state.groupByTime ? 1 : 0),
@@ -9914,6 +9942,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 String(state.currentRule || '').trim(),
                 String(state.searchKeyword || '').trim(),
                 String(archiveMode ? 1 : 0),
+                String(SettingsStore?.data?.docTabsManualArchiveOnly ? 1 : 0),
                 String(state.groupByDocName ? 1 : 0),
                 String(state.groupByTaskName ? 1 : 0),
                 String(state.groupByTime ? 1 : 0),
@@ -11809,7 +11838,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             ? (Array.isArray(state.taskTree) ? state.taskTree : []).find((doc) => String(doc?.id || '').trim() === id)
             : null;
         const docTabStateForMenu = docForMenu ? __tmGetDocTaskStateForTabs(docForMenu) : { hasAny: false, hasUndone: false, isArchived: false };
-        const docTabManuallyArchived = !!(docTabStateForMenu.hasUndone && __tmIsDocManuallyArchivedInGroup(id, pinGroupId));
+        const docTabManuallyArchived = __tmIsDocManuallyArchivedInGroup(id, pinGroupId);
+        const canManuallyArchiveDocTab = docTabStateForMenu.hasUndone
+            || (SettingsStore.data.docTabsManualArchiveOnly === true && docTabStateForMenu.hasAny);
 
         if (!isOtherBlocksTab) {
             menu.appendChild(item(__tmRenderContextMenuLabel('file-text', '打开文档'), async () => {
@@ -11818,7 +11849,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             menu.appendChild(item(__tmRenderContextMenuLabel('plus', '新建任务'), () => {
                 try { window.tmQuickAddOpenForDoc?.(id); } catch (e) {}
             }));
-            if (docTabStateForMenu.hasUndone && state.docTabsArchiveMode !== true && !docTabManuallyArchived) {
+            if (canManuallyArchiveDocTab && state.docTabsArchiveMode !== true && !docTabManuallyArchived) {
                 menu.appendChild(item(__tmRenderContextMenuLabel('archive', '归档页签'), async () => {
                     const result = await __tmSetDocManualArchivedForGroup(id, true, pinGroupId);
                     if (result?.changed) hint('✅ 已归档页签', 'success');

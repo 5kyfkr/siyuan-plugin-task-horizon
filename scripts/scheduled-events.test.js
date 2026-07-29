@@ -201,6 +201,12 @@ async function run() {
     }
 
     {
+        const legacy = core.normalizeEvent(event({
+            output: { mode: 'document', documentId: '20260716080000-doc0001' },
+        }));
+        assert.equal(legacy.output.documentMode, 'target', 'legacy document outputs must keep writing to the selected document');
+        assert.equal(legacy.output.insertPosition, 'bottom', 'legacy document outputs must keep appending at the bottom');
+
         const notifications = [];
         core.context.__tmCalendar = {
             showCompletionNotification: async (...args) => {
@@ -223,14 +229,56 @@ async function run() {
         assert.equal(delivered.notificationError, '');
         assert.equal(core.hints.length, 1, 'in-app notification fallback must remain available');
 
+        const documentWrites = [];
         core.context.__tmBackendAdapter = {
-            appendBlock: async () => '20260716090000-block01',
+            appendBlock: async (...args) => {
+                documentWrites.push(['append', ...args]);
+                return '20260716090000-block01';
+            },
+            insertBlock: async (...args) => {
+                documentWrites.push(['insert', ...args]);
+                return '20260716090001-block02';
+            },
         };
+        core.context.API = { getFirstDirectChildIdOfDoc: async () => '' };
         const documentDelivery = await core.deliver(event({
             output: { mode: 'document', documentId: '20260716080000-doc0001' },
         }), { title: '日报', markdown: '今日任务总结。' }, new Date(2026, 6, 16, 9, 0));
         assert.equal(documentDelivery.blockId, '20260716090000-block01');
+        assert.equal(documentWrites[0][0], 'append');
+        assert.equal(documentWrites[0][1], '20260716080000-doc0001');
         assert.equal(notifications.length, 2, 'document delivery must also trigger a system notification');
+
+        core.context.API.getFirstDirectChildIdOfDoc = async () => '20260716070000-first01';
+        const topDelivery = await core.deliver(event({
+            output: { mode: 'document', documentId: '20260716080000-doc0001', insertPosition: 'top' },
+        }), { title: '日报', markdown: '最新总结。' }, new Date(2026, 6, 16, 10, 0));
+        assert.equal(topDelivery.blockId, '20260716090001-block02');
+        assert.deepEqual(documentWrites[1].slice(0, 3), ['insert', '20260716080000-doc0001', '## 2026-07-16 日报\n\n最新总结。']);
+        assert.equal(documentWrites[1][3].nextID, '20260716070000-first01');
+
+        const monthlyCalls = [];
+        core.context.__tmCallTaskHorizonKernelRpc = async (name, input) => {
+            monthlyCalls.push([name, input]);
+            return { available: true, data: { documentID: '20260101000000-month01' } };
+        };
+        core.context.API.getFirstDirectChildIdOfDoc = async () => '';
+        const monthlyDelivery = await core.deliver(event({
+            output: {
+                mode: 'document',
+                documentId: '20260716080000-doc0001',
+                documentMode: 'monthly_child',
+                insertPosition: 'top',
+            },
+        }), { title: '月末日报 · 2026-01-31', markdown: '按计划日期归档。' }, new Date(2026, 0, 31, 23, 59));
+        assert.equal(monthlyDelivery.blockId, '20260716090000-block01', 'an empty monthly document may append for top placement');
+        assert.equal(monthlyCalls[0][0], 'taskHorizonResolveAgentScheduleOutputDocument');
+        assert.deepEqual(JSON.parse(JSON.stringify(monthlyCalls[0][1])), {
+            parentDocumentID: '20260716080000-doc0001',
+            month: '2026-01',
+        }, 'catch-up delivery must resolve the month from the scheduled occurrence');
+        assert.equal(documentWrites.at(-1)[1], '20260101000000-month01');
+        assert.equal(documentWrites.at(-1)[2], '## 月末日报 · 2026-01-31\n\n按计划日期归档。', 'the occurrence date must not be duplicated when the Agent title already contains it');
 
         core.context.__tmCalendar.showCompletionNotification = async () => ({ ok: false, error: '通知权限未开启' });
         const failedNotification = await core.deliver(event(), { title: '日报', markdown: '今日任务总结。' }, new Date(2026, 6, 16, 9, 0));

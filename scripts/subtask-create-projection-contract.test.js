@@ -21,8 +21,8 @@ assert.match(
 );
 assert.match(
     taskCreate,
-    /const refreshIds = \[pid\]\.concat\(tempIds\)\.filter\(Boolean\);[\s\S]*mode: 'current',[\s\S]*withFilters: false,[\s\S]*reason: 'create-subtask-current-optimistic',[\s\S]*taskIds: refreshIds/,
-    'context-menu subtask creation must rerender the current view from optimistic local state'
+    /const refreshIds = \[pid\]\.concat\(tempIds\)\.filter\(Boolean\);[\s\S]*__tmRefreshAfterOptimisticTaskCreate\(refreshIds, 'create-subtask-current-optimistic'\)/,
+    'context-menu subtask creation must use the calendar-aware optimistic projection refresh'
 );
 assert.match(
     taskList,
@@ -31,8 +31,8 @@ assert.match(
 );
 assert.match(
     taskDetail,
-    /const refreshIds = \[parentForCreate\]\.concat\(tempIds\)\.filter\(Boolean\);[\s\S]*__tmInvalidateFilteredTaskDerivedStateCache\?\.\(\);[\s\S]*state\.listDomRenderSignature = '';[\s\S]*mode: 'current',[\s\S]*reason: 'detail-create-subtask-current-optimistic',[\s\S]*taskIds: refreshIds,[\s\S]*bypassDefer: true/,
-    'detail subtask creation must rerender the current view from optimistic local state'
+    /const refreshIds = \[parentForCreate\]\.concat\(tempIds\)\.filter\(Boolean\);[\s\S]*__tmInvalidateFilteredTaskDerivedStateCache\?\.\(\);[\s\S]*state\.listDomRenderSignature = '';[\s\S]*if \(String\(state\.viewMode \|\| ''\)\.trim\(\) !== 'calendar'\)[\s\S]*mode: 'current',[\s\S]*reason: 'detail-create-subtask-current-optimistic',[\s\S]*taskIds: refreshIds,[\s\S]*bypassDefer: true/,
+    'detail subtask creation must rerender non-calendar views without reloading the calendar sidebar'
 );
 assert.match(
     viewRefresh,

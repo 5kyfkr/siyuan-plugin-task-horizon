@@ -2240,9 +2240,20 @@
     window.updateDocH2SubgroupEnabled = async function(enabled) {
         SettingsStore.data.docH2SubgroupEnabled = !!enabled;
         await SettingsStore.save();
+        try { applyFilters(); } catch (e) {}
         if (enabled) {
             try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
         }
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+        }
+    };
+
+    window.updateAlwaysShowTaskDocHeadingGroups = async function(enabled) {
+        SettingsStore.data.alwaysShowTaskDocHeadingGroups = !!enabled;
+        await SettingsStore.save();
+        try { applyFilters(); } catch (e) {}
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
@@ -2820,6 +2831,7 @@
             ev?.stopPropagation?.();
             ev?.preventDefault?.();
         } catch (e) {}
+        const isKanban = String(state.viewMode || '').trim() === 'kanban';
         const isChecklist = String(state.viewMode || '').trim() === 'checklist';
         const isCalendarSidebarChecklist = __tmHasCalendarSidebarChecklist(state.modal);
 
@@ -2831,19 +2843,21 @@
         const action = isCompletedGroup
             ? (__tmIsCompletedRootGroupCollapsed(k0) ? 'expand' : 'collapse')
             : (state.collapsedGroups.has(k0) ? 'expand' : 'collapse');
-        const mode = __tmGetCollapseAnimMode();
+        const mode = isKanban ? 'none' : __tmGetCollapseAnimMode();
         const flipOpts = { kind: 'group', key: k0, action, lite: mode === 'lite' };
         let skipAnim = mode === 'none';
-        try {
-            const tbody = __tmGetActiveTbody(state.modal);
-            const n = __tmCountAffectedRowsForCollapse(tbody, flipOpts, 161);
-            if (n > 240) skipAnim = true;
-            else if (n > 120 && !skipAnim) flipOpts.lite = true;
-        } catch (e) {}
-        if (!skipAnim) {
-            try { __tmPrepareFlipAnimation(flipOpts); } catch (e) {}
-        } else {
-            try { __tmResetFlipState(state.modal); } catch (e) {}
+        if (!isKanban) {
+            try {
+                const tbody = __tmGetActiveTbody(state.modal);
+                const n = __tmCountAffectedRowsForCollapse(tbody, flipOpts, 161);
+                if (n > 240) skipAnim = true;
+                else if (n > 120 && !skipAnim) flipOpts.lite = true;
+            } catch (e) {}
+            if (!skipAnim) {
+                try { __tmPrepareFlipAnimation(flipOpts); } catch (e) {}
+            } else {
+                try { __tmResetFlipState(state.modal); } catch (e) {}
+            }
         }
 
         if (isCompletedGroup) {
@@ -2870,6 +2884,11 @@
                 if (p && typeof p.catch === 'function') p.catch(() => null);
             } catch (e) {}
         };
+        if (isKanban) {
+            persistCollapsedGroups();
+            __tmSetKanbanGroupCollapsedInDom(k0, action === 'collapse', state.modal);
+            return;
+        }
         if (isChecklist) {
             persistCollapsedGroups();
             __tmRenderChecklistPreserveScroll();
@@ -3031,7 +3050,8 @@
             });
             __tmCollapseAllVisibleGroupsIfEnabled();
             __tmKanbanPersistCollapsed();
-            render();
+            if (state.viewMode === 'kanban') __tmSyncKanbanCollapseStateInDom(state.modal);
+            else __tmRerenderWhiteboardInPlace(state.modal);
             return;
         }
         const filteredSet = new Set(state.filteredTasks.map(t => t.id));
@@ -3066,7 +3086,8 @@
             __tmKanbanGetCollapsedSet().clear();
             __tmExpandAllVisibleGroupsIfEnabled();
             __tmKanbanPersistCollapsed();
-            render();
+            if (state.viewMode === 'kanban') __tmSyncKanbanCollapseStateInDom(state.modal);
+            else __tmRerenderWhiteboardInPlace(state.modal);
             return;
         }
         state.collapsedTaskIds = new Set();

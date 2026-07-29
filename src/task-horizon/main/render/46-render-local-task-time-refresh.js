@@ -96,14 +96,15 @@
 
             if (isMilestone && bTs) {
                 if (marker) marker.remove();
-                const milestoneBarLayout = {
+                const milestoneBarLayout = view.resolveTimelineMilestoneLayout?.({
                     ...barLayout,
-                    left: milestoneLeft - (dayWidth0 * 0.5),
+                    left: milestoneLeft,
                     width: dayWidth0,
                     dayWidth: dayWidth0,
                     startTs: bTs,
                     endTs: bTs,
-                };
+                });
+                if (!milestoneBarLayout) return false;
                 if (bar) {
                     view.applyTimelineTaskBarElement?.(bar, task, milestoneBarLayout);
                     try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
@@ -572,13 +573,14 @@ if (hasCalendarDatePatch && globalThis.__tmCalendar?.syncTaskDateInPlace) {
                 const isCalendarView = viewMode === 'calendar';
                 const syncResult = await globalThis.__tmCalendar.syncTaskDateInPlace(tid, {
                     main: isCalendarView,
-                    side: !isCalendarView || __tmShouldShowCalendarSideDock(),
+                    side: __tmShouldShowCalendarSideDock(),
+                    allowRefetch: false,
                 }).catch(() => null);
                 if (!syncResult) {
                     __tmRequestCalendarRefresh({
                         reason: String(opts.reason || 'task-time-calendar-fallback').trim() || 'task-time-calendar-fallback',
                         main: isCalendarView,
-                        side: !isCalendarView || __tmShouldShowCalendarSideDock(),
+                        side: __tmShouldShowCalendarSideDock(),
                         flushTaskPanel: false,
                         hard: false,
                     }, { hard: false });
@@ -594,6 +596,7 @@ if ((syncResult.needsMainRefresh && isCalendarView) || syncResult.needsSideRefre
                     }, { hard: false });
                 }
             }).catch(() => null);
+            if (viewMode === 'calendar') refreshed = true;
         }
 
         if ((!refreshed && opts.skipDetailPatch !== true) || shouldFallback) {

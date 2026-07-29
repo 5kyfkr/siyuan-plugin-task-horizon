@@ -1202,19 +1202,80 @@
         return true;
     }
 
-    function __tmRefreshAfterOptimisticTaskCreate(taskId, reason = 'task-create-optimistic') {
-        const tid = String(taskId || '').trim();
+    function __tmShouldIsolateCalendarTaskCreateRefresh() {
+        if (String(state.viewMode || '').trim() === 'calendar') return true;
+        try {
+            return typeof __tmHasMountedCalendarSideDock === 'function' && __tmHasMountedCalendarSideDock();
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmBuildTaskCreateRefreshPolicy(policy) {
+        const raw = (policy && typeof policy === 'object') ? policy : null;
+        if (!__tmShouldIsolateCalendarTaskCreateRefresh()) return raw || undefined;
+        return {
+            ...(raw || {}),
+            current: false,
+            snapshot: false,
+        };
+    }
+
+    function __tmRefreshAfterOptimisticTaskCreate(taskIds, reason = 'task-create-optimistic', options = {}) {
+        const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [taskIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        const mainCalendarActive = String(state.viewMode || '').trim() === 'calendar';
+        if (mainCalendarActive) {
+            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+            return true;
+        }
+        const opts = (options && typeof options === 'object') ? options : {};
         try {
             __tmScheduleViewRefresh({
                 mode: 'current',
-                withFilters: false,
+                withFilters: opts.withFilters === true,
                 reason: String(reason || 'task-create-optimistic').trim() || 'task-create-optimistic',
-                taskIds: tid ? [tid] : [],
+                taskIds: ids,
             });
             return true;
         } catch (e) {}
-        try { __tmScheduleRender({ withFilters: false, reason }); } catch (e) {}
+        try { __tmScheduleRender({ withFilters: opts.withFilters === true, reason }); } catch (e) {}
         return false;
+    }
+
+    function __tmSyncCommittedCreatedTaskDateInCalendar(taskId) {
+        const tid = String(taskId || '').trim();
+        const isolateCalendarRefresh = __tmShouldIsolateCalendarTaskCreateRefresh();
+        const mainCalendarActive = String(state.viewMode || '').trim() === 'calendar';
+        const calendarSideDockVisible = !mainCalendarActive
+            && typeof __tmHasMountedCalendarSideDock === 'function'
+            && __tmHasMountedCalendarSideDock();
+        if (!tid || !isolateCalendarRefresh) return false;
+        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || state.pendingInsertedTasks?.[tid]
+            || state.flatTasks?.[tid]
+            || null;
+        if (!task) return false;
+        try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+        try {
+            const calendarApi = globalThis.__tmCalendar;
+            if (typeof calendarApi?.syncTaskDatePatchInPlace !== 'function') return false;
+            calendarApi.syncTaskDatePatchInPlace(tid, {
+                startDate: String(task.startDate || task.start_date || '').trim(),
+                completionTime: String(task.completionTime || task.completion_time || '').trim(),
+                taskDateColor: String(task.taskDateColor || task.task_date_color || '').trim(),
+            }, {
+                main: mainCalendarActive,
+                side: calendarSideDockVisible,
+                allowAdd: true,
+                sideSourceRefresh: false,
+                reason: 'task-create-commit-date-patch',
+            });
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
     function __tmEnsureOptimisticSubtaskInFilteredTasks(parentTask, subtask) {
@@ -1527,14 +1588,7 @@
                 let projected = false;
                 try { projected = __tmEnsureOptimisticTaskInFilteredTasks(nextTask) === true; } catch (e) {}
                 if (!projected && payload.skipOptimisticFilterFallback !== true) {
-                    try {
-                        __tmScheduleViewRefresh({
-                            mode: 'current',
-                            withFilters: true,
-                            reason: 'create-task-optimistic-filter-fallback',
-                            taskIds: [tempId],
-                        });
-                    } catch (e) {}
+                    __tmRefreshAfterOptimisticTaskCreate(tempId, 'create-task-optimistic-filter-fallback', { withFilters: true });
                 }
             }
             if (payload.skipOptimisticMainRefresh !== true) {
@@ -1636,6 +1690,7 @@
         }
         try { __tmRemapOptimisticTaskDomId(tmp, rid); } catch (e) {}
         try { __tmRemapWhiteboardTaskId?.(tmp, rid, { persist: false }); } catch (e) {}
+        try { __tmSyncCommittedCreatedTaskDateInCalendar(rid); } catch (e) {}
         try {
             ['detailTaskId', 'kanbanDetailTaskId', 'kanbanDetailAnchorTaskId', 'timerFocusTaskId'].forEach((key) => {
                 if (String(state[key] || '').trim() === tmp) state[key] = rid;
@@ -1664,6 +1719,7 @@
                         checklistGroup: !!String(opts.parentTaskId || task?.parentTaskId || task?.parent_task_id || '').trim(),
                         snapshot: opts.scheduleSnapshotRefresh !== false && opts.skipSnapshotViewStateFilterRefresh !== true,
                         ...((opts.data?.refreshPolicy && typeof opts.data.refreshPolicy === 'object') ? opts.data.refreshPolicy : {}),
+                        ...(__tmShouldIsolateCalendarTaskCreateRefresh() ? { current: false, snapshot: false } : {}),
                     },
                     refreshCurrentView: opts.refreshCurrentView !== false,
                     scheduleSnapshotRefresh: opts.scheduleSnapshotRefresh !== false,
@@ -2154,13 +2210,21 @@
         try {
             const calendarApi = globalThis.__tmCalendar;
             if (calendarApi && typeof calendarApi.syncTaskDateInPlace === 'function') {
-                Promise.resolve(calendarApi.syncTaskDateInPlace(taskId, { main: true, side: true }))
+                const main = String(state.viewMode || '').trim() === 'calendar';
+                const side = typeof __tmShouldShowCalendarSideDock === 'function'
+                    ? __tmShouldShowCalendarSideDock()
+                    : !main;
+                Promise.resolve(calendarApi.syncTaskDateInPlace(taskId, {
+                    main,
+                    side,
+                    allowRefetch: false,
+                }))
                     .then((summary) => {
                         if ((summary?.needsMainRefresh || summary?.needsSideRefresh) && typeof calendarApi.requestRefresh === 'function') {
                             calendarApi.requestRefresh({
                                 reason: 'task-delete-rollback',
-                                main: summary.needsMainRefresh,
-                                side: summary.needsSideRefresh,
+                                main: main && summary.needsMainRefresh,
+                                side: side && summary.needsSideRefresh,
                                 flushTaskPanel: false,
                             });
                         }
@@ -2577,10 +2641,10 @@
             } catch (e) {}
         }
         if (mode === 'child' || mode === 'child-top') {
-            try { __tmScheduleChecklistOptimisticSubtaskRefresh(payload?.targetTaskId, taskId); } catch (e) {}
+            try { __tmScheduleChecklistOptimisticSubtaskRefresh(payload?.targetTaskId, taskId, { force: true }); } catch (e) {}
             try {
                 const previousParentId = String(snap?.parentTaskId || '').trim();
-                if (previousParentId) __tmScheduleChecklistOptimisticSubtaskRefresh(previousParentId, taskId);
+                if (previousParentId) __tmScheduleChecklistOptimisticSubtaskRefresh(previousParentId, taskId, { force: true });
             } catch (e) {}
         }
         if (payload.deferOptimisticRender !== true) {
@@ -2913,16 +2977,7 @@
                 const pendingTask = state.pendingInsertedTasks?.[String(taskId || '').trim()];
                 if (pendingTask) __tmUpsertLocalTask(pendingTask);
             });
-            try {
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: false,
-                    reason: 'heading-create-task-optimistic',
-                    taskIds: createdTaskIds,
-                });
-            } catch (e) {
-                try { __tmScheduleRender({ withFilters: false, reason: 'heading-create-task-optimistic' }); } catch (e2) {}
-            }
+            __tmRefreshAfterOptimisticTaskCreate(createdTaskIds, 'heading-create-task-optimistic');
             hint(taskLines.length > 1 ? `✅ 已创建 ${taskLines.length} 个任务` : '✅ 任务已创建', 'success');
         } catch (e) {
             hint(`❌ 新建任务失败: ${e.message}`, 'error');
@@ -3255,6 +3310,7 @@
         const task = parentInfo.task;
         const docId = String(task?.docId || task?.root_id || '').trim();
         const inheritedPatch = __tmBuildSubtaskInheritedPatch(task);
+        const isolateCalendarRefresh = __tmShouldIsolateCalendarTaskCreateRefresh();
         const shouldWait = hooks.wait !== false;
         let pendingPromise = null;
         const opPromise = __tmEnqueueQueuedOp({
@@ -3273,10 +3329,9 @@
                 skipOptimisticFilterWork: hooks.skipOptimisticFilterWork !== false,
                 skipSettledRefresh: hooks.skipSettledRefresh === true,
                 refreshCurrentView: hooks.refreshCurrentView !== false,
-                scheduleSnapshotRefresh: hooks.scheduleSnapshotRefresh === false ? false : true,
-                refreshPolicy: (hooks.refreshPolicy && typeof hooks.refreshPolicy === 'object')
-                    ? hooks.refreshPolicy
-                    : undefined,
+                scheduleSnapshotRefresh: isolateCalendarRefresh ? false : hooks.scheduleSnapshotRefresh !== false,
+                refreshPolicy: __tmBuildTaskCreateRefreshPolicy(hooks.refreshPolicy),
+                skipSettledViewRefresh: hooks.skipSettledViewRefresh === true || isolateCalendarRefresh,
                 skipSnapshotViewStateFilterRefresh: hooks.skipSnapshotViewStateFilterRefresh === true
                     || hooks.skipOptimisticFilterWork !== false,
             },
@@ -3403,14 +3458,7 @@
         } else {
             try { projected = __tmEnsureOptimisticSubtaskInFilteredTasks(parentTask, nextTask) === true; } catch (e) {}
             if (!projected && opts.skipFilterFallback !== true) {
-                try {
-                    __tmScheduleViewRefresh({
-                        mode: 'current',
-                        withFilters: true,
-                        reason: 'create-subtask-optimistic-filter-fallback',
-                        taskIds: [pid, tid].filter(Boolean),
-                    });
-                } catch (e) {}
+                __tmRefreshAfterOptimisticTaskCreate([pid, tid], 'create-subtask-optimistic-filter-fallback', { withFilters: true });
             }
         }
         try { __tmKanbanColsHtmlCache = null; } catch (e) {}
@@ -3520,12 +3568,7 @@
         try {
             const projected = __tmEnsureOptimisticTaskInFilteredTasks(nextTask) === true;
             if (!projected) {
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: true,
-                    reason: 'create-sibling-optimistic-filter-fallback',
-                    taskIds: [tid],
-                });
+                __tmRefreshAfterOptimisticTaskCreate(tid, 'create-sibling-optimistic-filter-fallback', { withFilters: true });
             }
         } catch (e) {}
         return nextTask;
@@ -3557,6 +3600,7 @@
                 status: 'queued',
             });
         } catch (e) {}
+        const isolateCalendarRefresh = __tmShouldIsolateCalendarTaskCreateRefresh();
         const shouldWait = hooks.wait !== false && optsWait !== false;
         let pendingPromise = null;
         const opPromise = __tmEnqueueQueuedOp({
@@ -3570,6 +3614,9 @@
                 clientId,
                 tempId,
                 skipOptimisticFilterWork: opts.skipOptimisticFilterWork !== false,
+                scheduleSnapshotRefresh: isolateCalendarRefresh ? false : opts.scheduleSnapshotRefresh,
+                refreshPolicy: __tmBuildTaskCreateRefreshPolicy(opts.refreshPolicy),
+                skipSettledViewRefresh: opts.skipSettledViewRefresh === true || isolateCalendarRefresh,
                 skipSnapshotViewStateFilterRefresh: opts.skipSnapshotViewStateFilterRefresh === true
                     || opts.skipOptimisticFilterWork !== false,
             },
@@ -3629,6 +3676,7 @@
             });
         } catch (e) {}
         const docId = String(currentTask.docId || currentTask.root_id || '').trim();
+        const isolateCalendarRefresh = __tmShouldIsolateCalendarTaskCreateRefresh();
         const shouldWait = hooks.wait !== false;
         let pendingPromise = null;
         const opPromise = __tmEnqueueQueuedOp({
@@ -3641,6 +3689,11 @@
                 tempId,
                 content: text,
                 docId,
+                skipSettledRefresh: hooks.skipSettledRefresh === true,
+                refreshCurrentView: hooks.refreshCurrentView !== false,
+                scheduleSnapshotRefresh: isolateCalendarRefresh ? false : hooks.scheduleSnapshotRefresh !== false,
+                refreshPolicy: __tmBuildTaskCreateRefreshPolicy(hooks.refreshPolicy),
+                skipSettledViewRefresh: hooks.skipSettledViewRefresh === true || isolateCalendarRefresh,
                 skipSnapshotViewStateFilterRefresh: hooks.skipSnapshotViewStateFilterRefresh !== false,
             },
         }, {
@@ -3734,14 +3787,7 @@
             });
             const refreshIds = [pid].concat(tempIds).filter(Boolean);
             try { state.listDomRenderSignature = ''; } catch (e) {}
-            try {
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: false,
-                    reason: 'create-subtask-current-optimistic',
-                    taskIds: refreshIds,
-                });
-            } catch (e) {}
+            __tmRefreshAfterOptimisticTaskCreate(refreshIds, 'create-subtask-current-optimistic');
             try {
                 __tmScheduleViewRefresh({
                     mode: 'detail',
@@ -3793,16 +3839,7 @@
                     hint(`❌ 新建同级任务失败: ${err?.message || err || '未知错误'}`, 'error');
                 },
             });
-            try {
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: false,
-                    reason: 'create-sibling-optimistic',
-                    taskIds: [tid, tempId].filter(Boolean),
-                });
-            } catch (e) {
-                try { __tmScheduleRender({ withFilters: false }); } catch (e2) {}
-            }
+            __tmRefreshAfterOptimisticTaskCreate([tid, tempId], 'create-sibling-optimistic');
             hint('✅ 同级任务已创建', 'success');
         } catch (e) {
             hint(`❌ 新建同级任务失败: ${e.message}`, 'error');
@@ -5057,16 +5094,7 @@
                         if (headingPatch) __tmApplyHeadingPatchToTaskLocal(createdTaskId, headingPatch, 'quick-add-default-heading');
                     }
                     })));
-                try {
-                    __tmScheduleViewRefresh({
-                        mode: 'current',
-                        withFilters: false,
-                        reason: 'quick-add-batch-create',
-                        taskIds: createdTaskIds,
-                    });
-                } catch (e) {
-                    try { __tmScheduleRender({ withFilters: false, reason: 'quick-add-batch-create' }); } catch (e2) {}
-                }
+                __tmRefreshAfterOptimisticTaskCreate(createdTaskIds, 'quick-add-batch-create');
                 hint(payload.contents.length > 1 ? `✅ 已创建 ${payload.contents.length} 个任务` : '✅ 任务已创建', 'success');
                 const createdTaskId = createdTaskIds[0] || '';
                 if (payload.openReminderAfterCreate && createdTaskId) {

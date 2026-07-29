@@ -19,11 +19,13 @@ const IDS = Object.freeze({
     formattedTask: '20260101000010-task',
     fuzzyList: '20260101000012-list',
     fuzzyTask: '20260101000013-task',
+    monthlyDoc: '20260101000015-doc',
+    nestedMonthlyDoc: '20260101000016-doc',
 });
 
 function createHarness() {
     const blocks = new Map([
-        [IDS.doc, { id: IDS.doc, parent_id: '', root_id: IDS.doc, type: 'd', subtype: '', markdown: '', content: 'Contract Doc', hpath: '/Contract Doc', updated: '20260101000000', created: '20260101000000', sort: 0 }],
+        [IDS.doc, { id: IDS.doc, parent_id: '', root_id: IDS.doc, type: 'd', subtype: '', markdown: '', content: 'Contract Doc', path: `/${IDS.doc}.sy`, hpath: '/Contract Doc', updated: '20260101000000', created: '20260101000000', sort: 0 }],
         [IDS.singleList, { id: IDS.singleList, parent_id: IDS.doc, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260101000001', created: '20260101000001', sort: 1 }],
         [IDS.singleTask, { id: IDS.singleTask, parent_id: IDS.singleList, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Alpha\n\n  detail', content: 'Alpha detail', updated: '20260101000002', created: '20260101000002', sort: 1 }],
         [IDS.childBlock, { id: IDS.childBlock, parent_id: IDS.singleTask, root_id: IDS.doc, type: 'p', subtype: '', markdown: 'detail', content: 'detail', updated: '20260101000003', created: '20260101000003', sort: 1 }],
@@ -31,6 +33,8 @@ function createHarness() {
         [IDS.firstTask, { id: IDS.firstTask, parent_id: IDS.multiList, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] First', content: 'First', updated: '20260101000005', created: '20260101000005', sort: 1 }],
         [IDS.secondTask, { id: IDS.secondTask, parent_id: IDS.multiList, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Second', content: 'Second', updated: '20260101000006', created: '20260101000006', sort: 2 }],
         [IDS.personalParentDoc, { id: IDS.personalParentDoc, parent_id: '', root_id: IDS.personalParentDoc, type: 'd', subtype: '', markdown: '', content: 'Personal', path: `/${IDS.personalParentDoc}.sy`, hpath: '/Personal', updated: '20260101000014', created: '20260101000014', sort: 0 }],
+        [IDS.monthlyDoc, { id: IDS.monthlyDoc, parent_id: '', root_id: IDS.monthlyDoc, type: 'd', subtype: '', markdown: '', content: '2026-07', path: `/${IDS.personalParentDoc}/${IDS.monthlyDoc}.sy`, hpath: '/Personal/2026-07', updated: '20260101000015', created: '20260101000015', sort: 0 }],
+        [IDS.nestedMonthlyDoc, { id: IDS.nestedMonthlyDoc, parent_id: '', root_id: IDS.nestedMonthlyDoc, type: 'd', subtype: '', markdown: '', content: '2026-08', path: `/${IDS.personalParentDoc}/${IDS.monthlyDoc}/${IDS.nestedMonthlyDoc}.sy`, hpath: '/Personal/2026-07/2026-08', updated: '20260101000016', created: '20260101000016', sort: 0 }],
         [IDS.otherDoc, { id: IDS.otherDoc, parent_id: '', root_id: IDS.otherDoc, type: 'd', subtype: '', markdown: '', content: 'Other Doc', path: `/${IDS.personalParentDoc}/${IDS.otherDoc}.sy`, hpath: '', updated: '20260101000007', created: '20260101000007', sort: 0 }],
         [IDS.otherList, { id: IDS.otherList, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260101000008', created: '20260101000008', sort: 1 }],
         [IDS.otherTask, { id: IDS.otherTask, parent_id: IDS.otherList, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] 全局同名提醒任务', content: '全局同名提醒任务', updated: '20260101000009', created: '20260101000009', sort: 1 }],
@@ -73,6 +77,7 @@ function createHarness() {
     const apiCalls = [];
     let failNextToolRegistration = '';
     let createdBlockSequence = 0;
+    let createdDocumentSequence = 0;
 
     const firstTaskForList = (parentID) => Array.from(blocks.values())
         .filter((block) => block.parent_id === parentID && block.type === 'i' && block.subtype === 't')
@@ -99,6 +104,19 @@ function createHarness() {
 
     function query(statement) {
         if (/SELECT 1 AS task_horizon_session_probe/.test(statement)) return [{ task_horizon_session_probe: 1 }];
+        const agentOutputParentMatch = statement.match(/SELECT id, box, path, hpath FROM blocks WHERE id = '([^']+)' AND type = 'd' LIMIT 1/);
+        if (agentOutputParentMatch) {
+            const block = blocks.get(agentOutputParentMatch[1]);
+            return block?.type === 'd' ? [{ id: block.id, box: 'box', path: block.path, hpath: block.hpath }] : [];
+        }
+        if (/SELECT id, path FROM blocks\s+WHERE type = 'd'/.test(statement)) {
+            const content = statement.match(/content = '([^']+)'/)?.[1]?.replace(/''/g, "'") || '';
+            const prefix = statement.match(/path LIKE '([^']+)%'/)?.[1]?.replace(/''/g, "'") || '';
+            return Array.from(blocks.values())
+                .filter((block) => block.type === 'd' && block.content === content && String(block.path || '').startsWith(prefix))
+                .sort((left, right) => String(left.created || '').localeCompare(String(right.created || '')))
+                .map((block) => ({ id: block.id, path: block.path }));
+        }
         if (/SELECT id, box, path, hpath FROM blocks WHERE type = 'd' AND id IN/.test(statement)) {
             const ids = Array.from(statement.matchAll(/'(\d{14}-[^']+)'/g)).map((match) => match[1]);
             return ids.map((id) => blocks.get(id)).filter((block) => block?.type === 'd').map((block) => ({
@@ -223,6 +241,29 @@ function createHarness() {
             blocks.set(listID, { id: listID, parent_id: parent.id, root_id: rootID, type: 'l', subtype: '', markdown: '', content: '', updated: stamp.slice(0, 14), created: stamp.slice(0, 14), sort: nextSort });
             blocks.set(taskID, { id: taskID, parent_id: listID, root_id: rootID, type: 'i', subtype: 't', markdown: String(body.data || ''), content: title, updated: stamp.slice(0, 14), created: stamp.slice(0, 14), sort: 1 });
             return [{ doOperations: [{ id: listID }] }];
+        }
+        if (pathname === '/api/filetree/createDocWithMd') {
+            const parent = blocks.get(body.parentID);
+            if (!parent || parent.type !== 'd') throw new Error('parent document not found');
+            createdDocumentSequence += 1;
+            const id = `202607210100${String(createdDocumentSequence).padStart(2, '0')}-doc`;
+            const title = String(body.path || '').split('/').filter(Boolean).at(-1) || 'Untitled';
+            const parentPath = String(parent.path || '').replace(/\.sy$/, '');
+            blocks.set(id, {
+                id,
+                parent_id: '',
+                root_id: id,
+                type: 'd',
+                subtype: '',
+                markdown: String(body.markdown || ''),
+                content: title,
+                path: `${parentPath}/${id}.sy`,
+                hpath: `${String(parent.hpath || '').replace(/\/$/, '')}/${title}`,
+                updated: id.slice(0, 14),
+                created: id.slice(0, 14),
+                sort: 0,
+            });
+            return id;
         }
         if (pathname === '/api/block/deleteBlock') {
             const queue = [body.id];
@@ -762,11 +803,40 @@ async function run() {
             prompt: '总结今天完成的任务',
             condition: 'today_has_completed_tasks',
             schedule: { kind: 'daily', time: '19:00' },
-            output: { mode: 'notification' },
+            output: { mode: 'document', documentId: IDS.personalParentDoc, documentMode: 'monthly_child', insertPosition: 'top' },
         },
     });
     assert.equal(createdAgentSchedule.ok, true);
     assert.equal(createdAgentSchedule.data.schedule.time, '19:00');
+    assert.equal(createdAgentSchedule.data.output.documentMode, 'monthly_child');
+    assert.equal(createdAgentSchedule.data.output.insertPosition, 'top');
+    const existingMonthlyOutput = await harness.call('taskHorizonResolveAgentScheduleOutputDocument', {
+        parentDocumentID: IDS.personalParentDoc,
+        month: '2026-07',
+    });
+    assert.equal(existingMonthlyOutput.ok, true);
+    assert.equal(existingMonthlyOutput.data.documentID, IDS.monthlyDoc, 'an existing direct monthly child must be reused');
+    assert.equal(existingMonthlyOutput.data.created, false);
+    const concurrentMonthlyOutputs = await Promise.all([
+        harness.call('taskHorizonResolveAgentScheduleOutputDocument', { parentDocumentID: IDS.personalParentDoc, month: '2026-08' }),
+        harness.call('taskHorizonResolveAgentScheduleOutputDocument', { parentDocumentID: IDS.personalParentDoc, month: '2026-08' }),
+    ]);
+    assert.equal(concurrentMonthlyOutputs.every((result) => result.ok), true);
+    assert.equal(concurrentMonthlyOutputs[0].data.documentID, concurrentMonthlyOutputs[1].data.documentID, 'concurrent resolution must reuse one monthly document');
+    assert.notEqual(concurrentMonthlyOutputs[0].data.documentID, IDS.nestedMonthlyDoc, 'a nested document with the same name must not be reused');
+    assert.equal(harness.apiCalls.filter((item) => item.pathname === '/api/filetree/createDocWithMd').length, 1, 'one direct monthly child must be created');
+    const otherParentOutput = await harness.call('taskHorizonResolveAgentScheduleOutputDocument', {
+        parentDocumentID: IDS.doc,
+        month: '2026-08',
+    });
+    assert.equal(otherParentOutput.ok, true);
+    assert.notEqual(otherParentOutput.data.documentID, concurrentMonthlyOutputs[0].data.documentID, 'different parents must use different monthly documents');
+    const missingParentOutput = await harness.call('taskHorizonResolveAgentScheduleOutputDocument', {
+        parentDocumentID: '20260101999999-missing',
+        month: '2026-08',
+    });
+    assert.equal(missingParentOutput.ok, false);
+    assert.equal(missingParentOutput.error.code, 'NOT_FOUND');
     const listedAgentSchedules = await agentScheduleTool.handler({ action: 'list' });
     assert.equal(listedAgentSchedules.ok, true);
     assert.equal(listedAgentSchedules.data.items.length, 1);

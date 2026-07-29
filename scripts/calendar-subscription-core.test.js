@@ -72,6 +72,24 @@ assert.match(allDay, /DTSTART;VALUE=DATE:20260725/);
 assert.match(allDay, /DTEND;VALUE=DATE:20260727/);
 assert.match(allDay, /TRIGGER;VALUE=DATE-TIME:20260725T010000Z/);
 
+const taskDate = core.serializeCalendar({
+    generatedAt,
+    events: [{
+        uidSeed: 'task-date:t1',
+        source: 'task',
+        title: '任务日期',
+        allDay: true,
+        startDate: '2026-07-25',
+        endDate: '2026-07-28',
+        completed: true,
+    }],
+});
+assert.match(taskDate, /DTSTART;VALUE=DATE:20260725\r\nDTEND;VALUE=DATE:20260728/);
+assert.match(taskDate, /CATEGORIES:Task Horizon,Task Date/);
+assert.match(taskDate, /X-TASK-HORIZON-SOURCE:TASK/);
+assert.match(taskDate, /X-TASK-HORIZON-COMPLETED:TRUE/);
+assert.doesNotMatch(taskDate, /BEGIN:VALARM/);
+
 const completed = core.serializeCalendar({
     generatedAt,
     events: [{

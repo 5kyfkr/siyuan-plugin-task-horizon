@@ -30,7 +30,7 @@
             conversationId: source.conversationId || '',
             condition: source.condition || 'always',
             schedule: source.schedule || { kind: 'daily', date: __tmScheduledLocalDateKey(new Date()), weekday: 1, time: '19:00' },
-            output: source.output || { mode: 'notification', documentId: '' },
+            output: source.output || { mode: 'notification', documentId: '', documentMode: 'target', insertPosition: 'bottom' },
             lastOccurrence: source.lastOccurrence,
             lastRun: source.lastRun,
         });
@@ -161,12 +161,26 @@
                         </div>
                     </div>
                     ${output.mode === 'document' ? `
+                        <div class="tm-scheduled-events-field">
+                            <span>文档组织</span>
+                            <div class="tm-scheduled-events-segmented" role="group" aria-label="文档组织">
+                                <button type="button" class="${output.documentMode === 'target' ? 'is-active' : ''}" data-tm-call="tmScheduledSetDocumentMode" data-tm-args='["target"]'>直接写入</button>
+                                <button type="button" class="${output.documentMode === 'monthly_child' ? 'is-active' : ''}" data-tm-call="tmScheduledSetDocumentMode" data-tm-args='["monthly_child"]'>按月子文档</button>
+                            </div>
+                        </div>
+                        <div class="tm-scheduled-events-field">
+                            <span>插入位置</span>
+                            <div class="tm-scheduled-events-segmented" role="group" aria-label="插入位置">
+                                <button type="button" class="${output.insertPosition === 'bottom' ? 'is-active' : ''}" data-tm-call="tmScheduledSetInsertPosition" data-tm-args='["bottom"]'>文档底部</button>
+                                <button type="button" class="${output.insertPosition === 'top' ? 'is-active' : ''}" data-tm-call="tmScheduledSetInsertPosition" data-tm-args='["top"]'>文档顶部</button>
+                            </div>
+                        </div>
                         <label class="tm-scheduled-events-field">
-                            <span>目标文档</span>
+                            <span>${output.documentMode === 'monthly_child' ? '父文档' : '目标文档'}</span>
                             <select class="b3-select" data-tm-call="tmScheduledPickDocument">${__tmScheduledDocumentOptions(output.documentId)}</select>
                         </label>
                         <label class="tm-scheduled-events-field">
-                            <span>文档 ID</span>
+                            <span>${output.documentMode === 'monthly_child' ? '父文档 ID' : '文档 ID'}</span>
                             <input class="b3-text-field" type="text" value="${esc(output.documentId)}" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["output.documentId"]' placeholder="也可直接输入文档 ID">
                         </label>
                     ` : ''}
@@ -199,7 +213,9 @@
         const events = __tmScheduledSettingsApi()?.list?.() || [];
         const rows = events.map((event) => {
             const status = __tmScheduledStatusMeta(event.lastRun?.status);
-            const outputLabel = event.output?.mode === 'document' ? '写入文档' : '通知展示';
+            const outputLabel = event.output?.mode === 'document'
+                ? `${event.output?.documentMode === 'monthly_child' ? '月度子文档' : '目标文档'} · ${event.output?.insertPosition === 'top' ? '顶部' : '底部'}`
+                : '通知展示';
             const args = esc(JSON.stringify([event.id]));
             return `
                 <div class="tm-scheduled-events-row${event.enabled ? '' : ' is-disabled'}">
@@ -297,6 +313,16 @@
 
     window.tmScheduledSetOutputMode = function (value) {
         window.tmScheduledUpdateDraft('output.mode', value);
+        __tmScheduledRerenderSettings();
+    };
+
+    window.tmScheduledSetDocumentMode = function (value) {
+        window.tmScheduledUpdateDraft('output.documentMode', value);
+        __tmScheduledRerenderSettings();
+    };
+
+    window.tmScheduledSetInsertPosition = function (value) {
+        window.tmScheduledUpdateDraft('output.insertPosition', value);
         __tmScheduledRerenderSettings();
     };
 

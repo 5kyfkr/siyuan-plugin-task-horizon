@@ -6414,14 +6414,88 @@ return false;
         },
     };
 
+    function __tmSyncVisibleCalendarTaskPatch(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!tid || !__tmPatchAffectsCalendar(nextPatch)) return false;
+        const calApi = globalThis.__tmCalendar;
+        if (!calApi) return false;
+        const viewMode = String(state.viewMode || '').trim();
+        const main = viewMode === 'calendar';
+        const side = typeof __tmShouldShowCalendarSideDock === 'function'
+            ? __tmShouldShowCalendarSideDock()
+            : !main;
+        if (!main && !side) return true;
+        const reason = String(opts.reason || 'task-calendar-field-patch').trim() || 'task-calendar-field-patch';
+        const keys = __tmGetPatchFieldKeys(nextPatch);
+        const directTaskDateKeys = new Set(['startDate', 'completionTime', 'taskDateColor']);
+        const hasDirectTaskDatePatch = keys.some((key) => directTaskDateKeys.has(String(key || '').trim()));
+        const hasDonePatch = Object.prototype.hasOwnProperty.call(nextPatch, 'done');
+        const needsVisibleReadback = keys.some((key) => {
+            const normalized = String(key || '').trim();
+            return !directTaskDateKeys.has(normalized) && normalized !== 'done';
+        });
+        let handled = false;
+        const requestFallback = (summary) => {
+            const needsMainRefresh = main && summary?.needsMainRefresh === true;
+            const needsSideRefresh = side && summary?.needsSideRefresh === true;
+            if (!needsMainRefresh && !needsSideRefresh) return;
+            try {
+                calApi.requestRefresh?.({
+                    reason: `${reason}:visible-fallback`,
+                    main: needsMainRefresh,
+                    side: needsSideRefresh,
+                    flushTaskPanel: false,
+                    hard: false,
+                });
+            } catch (e) {}
+        };
+        if (hasDirectTaskDatePatch && typeof calApi.syncTaskDatePatchInPlace === 'function') {
+            try {
+                const summary = calApi.syncTaskDatePatchInPlace(tid, nextPatch, {
+                    reason,
+                    main,
+                    side,
+                    sideSourceRefresh: false,
+                });
+                handled = true;
+                requestFallback(summary);
+            } catch (e) {}
+        }
+        if (hasDonePatch && typeof calApi.syncTaskDoneInPlace === 'function') {
+            try {
+                calApi.syncTaskDoneInPlace(tid, !!nextPatch.done, {
+                    main,
+                    side,
+                    flushTaskPanel: false,
+                    allowRefetch: false,
+                });
+                handled = true;
+            } catch (e) {}
+        }
+        if (needsVisibleReadback && typeof calApi.syncTaskDateInPlace === 'function') {
+            try {
+                Promise.resolve(calApi.syncTaskDateInPlace(tid, {
+                    main,
+                    side,
+                    allowRefetch: false,
+                })).then(requestFallback).catch(() => {
+                    requestFallback({ needsMainRefresh: main, needsSideRefresh: side });
+                });
+                handled = true;
+            } catch (e) {}
+        }
+        return handled;
+    }
+
     function __tmRefreshTaskFieldsAcrossViews(taskId, patch = {}, options = {}) {
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const hasCustomFieldPatch = Object.prototype.hasOwnProperty.call(nextPatch, 'customFieldValues');
-        const hasTaskDatePatch = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate')
-            || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime');
+        const hasCalendarPatch = __tmPatchAffectsCalendar(nextPatch);
         const viewMode = String(state.viewMode || '').trim();
         const refreshWithFilters = __tmShouldRefreshWithFiltersForPatch(tid, nextPatch, opts);
         const needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
@@ -6485,31 +6559,15 @@ refreshed = checklistPatched || refreshed;
             refreshedDetail = !!__tmViewControllers.detail.patchTask(tid, nextPatch);
             refreshed = refreshedDetail || refreshed;
         }
-        if (hasTaskDatePatch) {
+        let calendarPatchedInPlace = false;
+        if (hasCalendarPatch && opts.syncCalendar !== false) {
+            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
             try {
-                const calApi = globalThis.__tmCalendar;
-                const isCalendarView = viewMode === 'calendar';
-                const showSideDock = typeof __tmShouldShowCalendarSideDock === 'function'
-                    ? __tmShouldShowCalendarSideDock()
-                    : !isCalendarView;
-                if (calApi && typeof calApi.syncTaskDatePatchInPlace === 'function') {
-                    try { window.__tmCalendarAllTasksCache = null; } catch (e2) {}
-                    const summary = calApi.syncTaskDatePatchInPlace(tid, nextPatch, {
-                        reason: String(opts.reason || 'task-field-date-optimistic').trim() || 'task-field-date-optimistic',
-                        main: isCalendarView,
-                        side: showSideDock,
-                    });
-                    if ((summary?.needsMainRefresh && isCalendarView) || (summary?.needsSideRefresh && showSideDock)) {
-                        calApi.requestRefresh?.({
-                            reason: String(opts.reason || 'task-field-date-optimistic').trim() || 'task-field-date-optimistic',
-                            main: isCalendarView && summary.needsMainRefresh === true,
-                            side: showSideDock && summary.needsSideRefresh === true,
-                            flushTaskPanel: false,
-                            hard: false,
-                        });
-                    }
-                }
+                calendarPatchedInPlace = __tmSyncVisibleCalendarTaskPatch(tid, nextPatch, {
+                    reason: String(opts.reason || 'task-field-calendar-patch').trim() || 'task-field-calendar-patch',
+                });
             } catch (e) {}
+            if (calendarPatchedInPlace && viewMode === 'calendar') refreshed = true;
         }
         if (hasCustomFieldPatch) {
             __tmQuickbarRefreshDebugLog('custom-field-refresh-patched', {
@@ -6523,7 +6581,7 @@ refreshed = checklistPatched || refreshed;
                 fallbackNeeded,
             });
         }
-        if (fallbackNeeded) {
+        if (fallbackNeeded && !(calendarPatchedInPlace && viewMode === 'calendar')) {
             if (viewMode === 'kanban') {
                 const kanbanRefreshed = __tmRefreshKanbanProjectionPatchNow(tid, nextPatch, {
                     ...opts,
@@ -9086,6 +9144,19 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         render();
     };
 
+    window.updateDocTabsManualArchiveOnly = async function(enabled) {
+        SettingsStore.data.docTabsManualArchiveOnly = !!enabled;
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        if (activeDocId !== 'all' && !__tmIsOtherBlockTabId(activeDocId) && !__tmIsDocTabCustomGroupActiveId(activeDocId)) {
+            state.activeDocId = __tmResolveDocTabSwitchTarget(activeDocId) || 'all';
+        }
+        try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
+        await SettingsStore.save();
+        if (state.settingsModal) showSettings();
+        render();
+    };
+
     window.updateTaskContentWrapMaxLines = async function(value) {
         const n = Math.max(1, Math.min(10, Math.round(Number(value) || 3)));
         SettingsStore.data.taskContentWrapMaxLines = n;
@@ -9471,12 +9542,19 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     function __tmGetArchivedDocIdsForAllTabCompletedTailGroup() {
         if (state.docTabsArchiveMode === true) return new Set();
-        if ((String(state.activeDocId || 'all').trim() || 'all') !== 'all') return new Set();
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        const isAggregateTab = activeDocId === 'all'
+            || (typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(activeDocId));
+        if (!isAggregateTab) return new Set();
+        const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const ids = new Set();
         (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
             const docId = String(doc?.id || '').trim();
             if (!docId) return;
-            if (__tmDocIsArchivedForDocTabs(doc)) ids.add(docId);
+            if (__tmDocShouldShowInDocTabs(doc, {
+                archiveMode: true,
+                groupId: currentGroupId,
+            })) ids.add(docId);
         });
         return ids;
     }
@@ -9535,7 +9613,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
     }
 
     function __tmBuildTaskRowModel() {
-        if (!Array.isArray(state.filteredTasks) || state.filteredTasks.length === 0) return [];
+        const alwaysVisibleHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks();
+        if ((!Array.isArray(state.filteredTasks) || state.filteredTasks.length === 0) && alwaysVisibleHeadingTasks.length === 0) return [];
 
         const isDark = __tmIsDarkMode();
         const timeBaseColor = isDark
@@ -9914,12 +9993,13 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             docsInOrder.forEach(docId => {
                 const docEntry = docEntryById.get(String(docId || '').trim());
                 if (!docEntry) return;
+                const alwaysVisibleDocHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks(docId);
                 const docRootTasks = docRootTasksByDoc.get(String(docId || '').trim()) || [];
                 const docNormal = keepPinnedInGroups ? docRootTasks.slice() : docRootTasks.filter(t => !t.pinned);
                 const activeDocRootTasks = __tmShouldSeparateCompletedRootGroup()
                     ? docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task))
                     : docNormal.slice();
-                if (activeDocRootTasks.length === 0) return;
+                if (activeDocRootTasks.length === 0 && alwaysVisibleDocHeadingTasks.length === 0) return;
                 const docTasks = activeDocRootTasks;
                 const renderDocTasks = sortRowModelGroupItems(activeDocRootTasks.slice());
                 const docName = docEntry.name || '未知文档';
@@ -9937,21 +10017,24 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                     collapsed: !!isCollapsed,
                 });
                 if (!isCollapsed) {
-                    const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, docTasks);
+                    const h2OrderSource = docTasks.concat(alwaysVisibleDocHeadingTasks);
+                    const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, h2OrderSource);
                     if (!useDocH2Subgroup) {
                         walkTaskList(renderDocTasks, 0);
                         return;
                     }
                     const h2Groups = new Map();
-                    const h2OrderSource = docTasks;
                     const h2Buckets = __tmBuildDocHeadingBuckets(h2OrderSource, noHeadingLabel);
+                    h2OrderSource.forEach(task => {
+                        const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                        if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, id: String(b.id || '').trim(), items: [], sourceTask: task });
+                    });
                     docTasks.forEach(task => {
                         const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
-                        if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, id: String(b.id || '').trim(), items: [] });
+                        if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, id: String(b.id || '').trim(), items: [], sourceTask: task });
                         h2Groups.get(b.key).items.push(task);
                     });
                     const orderedH2Buckets = h2Buckets
-                        .filter((bucket) => (h2Groups.get(bucket.key)?.items || []).length > 0)
                         .concat(Array.from(h2Groups.keys())
                             .filter((k) => !h2Buckets.some((b) => b.key === k))
                             .map((k) => ({ key: k, label: String(h2Groups.get(k)?.label || ''), id: String(h2Groups.get(k)?.id || '').trim() })));
@@ -9967,7 +10050,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                             label: String(g.label || ''),
                             docId: String(docId || '').trim(),
                             headingId: String(g.id || bucket.id || '').trim(),
-                            headingRank: Number(items?.[0]?.h2Rank),
+                            headingRank: Number((items?.[0] || g.sourceTask)?.h2Rank),
                             labelColor: __tmGetHeadingSubgroupLabelColor(labelColor, isDark),
                             count: Array.isArray(items) ? items.length : 0,
                             collapsed: !!h2Collapsed,

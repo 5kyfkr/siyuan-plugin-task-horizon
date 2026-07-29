@@ -2392,8 +2392,8 @@ return;
                                     source: 'gantt-milestone-toggle',
                                     reason: 'gantt-milestone-toggle',
                                     label: '甘特里程碑',
-                                    wait: true,
-                                    background: false,
+                                    wait: false,
+                                    background: true,
                                     withFilters: false,
                                     skipInteractionGate: true,
                                     skipSettledRefresh: true,
@@ -2505,25 +2505,10 @@ return;
                 } else if (isKanban) {
                     const kbBody = state.modal.querySelector('.tm-body.tm-body--kanban');
                     const isKanbanSnapHost = !!(kbBody instanceof HTMLElement && __tmIsKanbanColumnSnapMode(kbBody));
-                    const pendingSnapColumnKey = String(state.__tmKanbanPendingSnapColumnKey || '').trim();
-                    if (pendingSnapColumnKey) {
-                        try { delete state.__tmKanbanPendingSnapColumnKey; } catch (e) { state.__tmKanbanPendingSnapColumnKey = ''; }
-                    }
                     const applyHorizontal = (options = {}) => {
                         try {
                             if (kbBody) {
                                 __tmSyncKanbanSnapMetrics(kbBody, { force: true });
-                                const targetColumnLeft = pendingSnapColumnKey
-                                    ? __tmGetKanbanColumnSnapLeftByKey(kbBody, pendingSnapColumnKey)
-                                    : NaN;
-                                if (Number.isFinite(targetColumnLeft)) {
-                                    kbBody.scrollLeft = targetColumnLeft;
-                                    if (options.snap !== false) {
-                                        __tmSnapKanbanToNearestColumn(kbBody, { behavior: 'auto', targetLeft: targetColumnLeft });
-                                    }
-                                    try { __tmSyncKanbanBoardNav(kbBody, { force: true }); } catch (e2) {}
-                                    return;
-                                }
                                 kbBody.scrollLeft = kanbanLeft;
                                 if (options.snap !== false) {
                                     __tmSnapKanbanToNearestColumn(kbBody, { behavior: 'auto' });
@@ -3153,6 +3138,142 @@ return;
         } catch (e) {}
     }
 
+    function __tmGetKanbanBodyForDomSync(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const body = modal?.matches?.('.tm-body.tm-body--kanban')
+            ? modal
+            : modal?.querySelector?.('.tm-body.tm-body--kanban');
+        return body instanceof HTMLElement ? body : null;
+    }
+
+    function __tmSetKanbanTaskCollapsedInDom(taskId, collapsed, modalEl) {
+        const tid = String(taskId || '').trim();
+        const body = __tmGetKanbanBodyForDomSync(modalEl);
+        if (!tid || !body) return false;
+        const escapedId = __tmEscapeCssSelectorValue(tid);
+        const cards = Array.from(body.querySelectorAll(`.tm-kanban-card[data-id="${escapedId}"]`));
+        const focusKeepsExpanded = cards.some((card) => card.classList.contains('tm-timer-focus-ancestor'));
+        const isCollapsed = !!collapsed && !focusKeepsExpanded;
+        let found = false;
+
+        body.querySelectorAll(`[data-tm-kanban-subtasks-owner="${escapedId}"]`).forEach((section) => {
+            found = true;
+            const list = Array.from(section.children || []).find((child) => child?.hasAttribute?.('data-tm-kanban-subtasks-list'));
+            if (list instanceof HTMLElement) {
+                list.hidden = isCollapsed;
+                list.setAttribute('aria-hidden', isCollapsed ? 'true' : 'false');
+            }
+        });
+
+        body.querySelectorAll(`[data-tm-kanban-collapse-owner="${escapedId}"]`).forEach((button) => {
+            found = true;
+            button.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+            button.setAttribute('title', isCollapsed ? '展开子任务' : '折叠子任务');
+            const icon = button.querySelector('.tm-tree-toggle-icon');
+            if (icon instanceof SVGElement) icon.style.transform = `rotate(${isCollapsed ? '0deg' : '90deg'})`;
+        });
+
+        cards.forEach((card) => {
+            found = true;
+            const main = Array.from(card.children || []).find((child) => (
+                child?.classList?.contains('tm-kanban-card-top')
+                || child?.classList?.contains('tm-kanban-subtask-row-main')
+            ));
+            const checkboxWrap = main?.querySelector?.('.tm-task-checkbox-wrap');
+            if (!(checkboxWrap instanceof HTMLElement)) return;
+            const checkboxCollapsed = isCollapsed && card.classList.contains('tm-kanban-card--parent');
+            checkboxWrap.classList.toggle('tm-task-checkbox-wrap--collapsed', checkboxCollapsed);
+            const leadingRing = Array.from(checkboxWrap.children || []).find((child) => child?.classList?.contains('tm-task-leading-ring'));
+            if (checkboxCollapsed && !leadingRing) {
+                const ring = document.createElement('span');
+                ring.className = 'tm-task-leading-ring';
+                ring.setAttribute('aria-hidden', 'true');
+                checkboxWrap.insertBefore(ring, checkboxWrap.firstChild);
+            } else if (!checkboxCollapsed && leadingRing) {
+                leadingRing.remove();
+            }
+        });
+        return found;
+    }
+
+    function __tmSetKanbanGroupCollapsedInDom(groupKey, collapsed, modalEl) {
+        const key = String(groupKey || '').trim();
+        const body = __tmGetKanbanBodyForDomSync(modalEl);
+        if (!key || !body) return false;
+        const escapedKey = __tmEscapeCssSelectorValue(key);
+        const isCollapsed = !!collapsed;
+        let found = false;
+        body.querySelectorAll(`.tm-kanban-group-title[data-group-key="${escapedKey}"]`).forEach((title) => {
+            found = true;
+            title.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+            title.querySelector('.tm-group-toggle')?.classList?.toggle('tm-group-toggle--collapsed', isCollapsed);
+            const group = title.closest('.tm-kanban-group');
+            if (!(group instanceof HTMLElement)) return;
+            const items = Array.from(group.children || []).find((child) => child?.hasAttribute?.('data-tm-kanban-group-items'));
+            if (items instanceof HTMLElement) {
+                items.hidden = isCollapsed;
+                items.setAttribute('aria-hidden', isCollapsed ? 'true' : 'false');
+            }
+        });
+        return found;
+    }
+
+    function __tmSyncKanbanCollapseStateInDom(modalEl) {
+        const body = __tmGetKanbanBodyForDomSync(modalEl);
+        if (!body) return false;
+
+        const taskIds = new Set();
+        body.querySelectorAll('[data-tm-kanban-subtasks-owner]').forEach((section) => {
+            const id = String(section.getAttribute('data-tm-kanban-subtasks-owner') || '').trim();
+            if (id) taskIds.add(id);
+        });
+        const collapsedTaskIds = __tmKanbanGetCollapsedSet();
+        taskIds.forEach((id) => __tmSetKanbanTaskCollapsedInDom(id, collapsedTaskIds.has(id), body));
+
+        const keys = new Set();
+        body.querySelectorAll('.tm-kanban-group-title[data-group-key]').forEach((title) => {
+            const key = String(title.getAttribute('data-group-key') || '').trim();
+            if (key) keys.add(key);
+        });
+        keys.forEach((key) => {
+            const collapsed = __tmIsCompletedRootGroupKey(key)
+                ? __tmIsCompletedRootGroupCollapsed(key)
+                : state.collapsedGroups?.has(key);
+            __tmSetKanbanGroupCollapsedInDom(key, collapsed, body);
+        });
+        return true;
+    }
+
+    function __tmSetKanbanColumnCollapsedInDom(columnKey, collapsed, modalEl) {
+        const key = String(columnKey || '').trim();
+        const body = __tmGetKanbanBodyForDomSync(modalEl);
+        if (!key || !body) return false;
+        const escapedKey = __tmEscapeCssSelectorValue(key);
+        const column = body.querySelector(`.tm-kanban-col[data-col-key="${escapedKey}"]`);
+        if (!(column instanceof HTMLElement)) return false;
+        const isCollapsed = !!collapsed;
+
+        column.classList.toggle('tm-kanban-col--collapsed', isCollapsed);
+        column.querySelectorAll('[data-tm-kanban-column-expanded-content]').forEach((content) => {
+            if (content instanceof HTMLElement) content.hidden = isCollapsed;
+        });
+        column.querySelectorAll('[data-tm-kanban-column-collapsed-content]').forEach((content) => {
+            if (content instanceof HTMLElement) content.hidden = !isCollapsed;
+        });
+
+        try { __tmSyncKanbanSnapMetrics(body, { force: true }); } catch (e) {}
+        const targetLeft = __tmGetKanbanColumnSnapLeftByKey(body, key);
+        if (Number.isFinite(targetLeft)) {
+            try { body.scrollLeft = targetLeft; } catch (e) {}
+            if (__tmIsKanbanColumnSnapMode(body)) {
+                try { __tmSnapKanbanToNearestColumn(body, { behavior: 'auto', targetLeft }); } catch (e) {}
+            }
+        }
+        try { __tmSyncKanbanBoardNav(body, { force: true }); } catch (e) {}
+        try { __tmRememberKanbanViewScroll(modalEl); } catch (e) {}
+        return true;
+    }
+
     window.tmKanbanToggleCollapse = function(id, ev) {
         try {
             ev?.stopPropagation?.();
@@ -3161,12 +3282,12 @@ return;
         const tid = String(id || '').trim();
         if (!tid) return;
         try { __tmMarkHighPriorityInteraction('kanban-task-collapse-toggle', 680); } catch (e) {}
-        try { __tmRememberKanbanViewScroll(state.modal); } catch (e) {}
         const s = __tmKanbanGetCollapsedSet();
-        if (s.has(tid)) s.delete(tid);
-        else s.add(tid);
+        const collapsed = !s.has(tid);
+        if (collapsed) s.add(tid);
+        else s.delete(tid);
         __tmKanbanPersistCollapsed();
-        if (!__tmRerenderKanbanInPlace(state.modal)) render();
+        __tmSetKanbanTaskCollapsedInDom(tid, collapsed, state.modal);
     };
 
     window.tmKanbanToggleColumnCollapse = function(key, ev) {
@@ -3177,11 +3298,11 @@ return;
         const colKey = String(key || '').trim();
         if (!colKey) return;
         const s = __tmKanbanGetCollapsedColumnSet();
-        if (s.has(colKey)) s.delete(colKey);
-        else s.add(colKey);
-        state.__tmKanbanPendingSnapColumnKey = colKey;
+        const collapsed = !s.has(colKey);
+        if (collapsed) s.add(colKey);
+        else s.delete(colKey);
         __tmKanbanPersistCollapsedColumns();
-        render();
+        __tmSetKanbanColumnCollapsedInDom(colKey, collapsed, state.modal);
     };
 
     window.tmKanbanCardDblClick = function(id, ev) {
@@ -5568,9 +5689,21 @@ return;
                 const hadAvoidance = colBody.classList.contains('tm-kanban-col-body--bottom-nav-inset');
                 const contentHeight = __tmMeasureKanbanBottomNavContentHeight(colBody);
                 const availableHeight = __tmMeasureKanbanBottomNavAvailableHeight(colBody, col);
+                let currentAvoidanceInset = 0;
+                if (hadAvoidance) {
+                    try {
+                        const style = window.getComputedStyle?.(colBody);
+                        const paddingBottom = Number.parseFloat(String(style?.paddingBottom || ''));
+                        const basePadding = Number.parseFloat(String(style?.getPropertyValue?.('--tm-kanban-col-body-pad-bottom-base') || ''));
+                        if (Number.isFinite(paddingBottom) && Number.isFinite(basePadding)) {
+                            currentAvoidanceInset = Math.max(0, paddingBottom - basePadding);
+                        }
+                    } catch (e) {}
+                }
+                const availableHeightWithoutAvoidance = Math.max(0, availableHeight - currentAvoidanceInset);
                 const needsAvoidance = navState.active
-                    && availableHeight > 0
-                    && contentHeight > availableHeight + 1;
+                    && availableHeightWithoutAvoidance > 0
+                    && contentHeight > availableHeightWithoutAvoidance + 1;
                 const keepWhilePending = navState.pending && hadAvoidance;
                 const applyAvoidance = needsAvoidance || keepWhilePending;
                 __tmSetKanbanBottomNavAvoidanceClass(colBody, applyAvoidance);
@@ -6423,6 +6556,44 @@ return;
         return resolvedLeft;
     }
 
+    function __tmSyncTimelineToolbarStateInPlace(modalEl = null) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const view = globalThis.__TaskHorizonGanttView;
+        const scaleState = view?.resolveScaleState?.(state.ganttView);
+        if (!(modal instanceof Element) || !scaleState) return false;
+        const scale = String(scaleState.scale || 'day').trim() || 'day';
+        try {
+            modal.querySelectorAll('[data-tm-timeline-scale]').forEach((button) => {
+                const active = String(button.getAttribute('data-tm-timeline-scale') || '').trim() === scale;
+                if (button.classList.contains('tm-view-seg-item')) button.classList.toggle('tm-view-seg-item--active', active);
+                if (button.classList.contains('tm-timeline-scale-menu__option')) button.classList.toggle('is-active', active);
+                if (button.hasAttribute('data-state')) button.setAttribute('data-state', active ? 'active' : 'inactive');
+                if (button.hasAttribute('aria-selected')) button.setAttribute('aria-selected', active ? 'true' : 'false');
+                if (button.hasAttribute('aria-checked')) button.setAttribute('aria-checked', active ? 'true' : 'false');
+            });
+            modal.querySelectorAll('.tm-timeline-scale-menu__label').forEach((label) => {
+                label.textContent = String(scaleState.label || '日');
+            });
+            modal.querySelectorAll('[data-tm-timeline-zoom="out"]').forEach((button) => {
+                button.disabled = !scaleState.canZoomOut;
+            });
+            modal.querySelectorAll('[data-tm-timeline-zoom="in"]').forEach((button) => {
+                button.disabled = !scaleState.canZoomIn;
+            });
+        } catch (e) {
+            return false;
+        }
+        return true;
+    }
+
+    function __tmRerenderTimelineScaleInPlace() {
+        if (state.viewMode !== 'timeline') return false;
+        const rendered = typeof __tmRerenderTimelineInPlace === 'function'
+            && __tmRerenderTimelineInPlace(state.modal, { reuseLeftRows: true });
+        if (rendered) __tmSyncTimelineToolbarStateInPlace(state.modal);
+        return !!rendered;
+    }
+
     window.tmGanttSetScale = function(nextScale, event) {
         try { event?.stopPropagation?.(); } catch (e) {}
         try { event?.target?.closest?.('details')?.removeAttribute?.('open'); } catch (e) {}
@@ -6433,7 +6604,7 @@ return;
         if (before === normalizedNext) return;
         __tmPrepareTimelineDateAnchor(0.5);
         view.setScale(state.ganttView, normalizedNext);
-        render();
+        __tmRerenderTimelineScaleInPlace();
     };
 
     window.tmGanttZoomIn = function() {
@@ -6442,7 +6613,7 @@ return;
         if (!before?.canZoomIn || typeof view?.stepZoom !== 'function') return;
         __tmPrepareTimelineDateAnchor(0.5);
         view.stepZoom(state.ganttView, 1);
-        render();
+        __tmRerenderTimelineScaleInPlace();
     };
 
     window.tmGanttZoomOut = function() {
@@ -6451,11 +6622,11 @@ return;
         if (!before?.canZoomOut || typeof view?.stepZoom !== 'function') return;
         __tmPrepareTimelineDateAnchor(0.5);
         view.stepZoom(state.ganttView, -1);
-        render();
+        __tmRerenderTimelineScaleInPlace();
     };
 
     window.tmGanttFit = function() {
-        if (state.viewMode !== 'timeline') return;
+        if (state.viewMode !== 'timeline') return false;
         try {
             const globalScrollHost = __tmGetTimelineGlobalScrollHost(state.modal);
             const useGlobalScroll = !!globalScrollHost;
@@ -6463,19 +6634,13 @@ return;
             const w = useGlobalScroll
                 ? Number(globalScrollHost?.clientWidth || 0)
                 : Number(body?.clientWidth || 0);
-            if (!Number.isFinite(w) || w <= 0) {
-                render();
-                return;
-            }
+            if (!Number.isFinite(w) || w <= 0) return false;
             const view = globalThis.__TaskHorizonGanttView;
             const startOfDayTs = view?.startOfDayTs;
             const computeRangeTs = view?.computeRangeTs;
             const DAY_MS = Number(view?.DAY_MS) || 86400000;
             const maxDayCount = Math.max(1, Number(view?.TIMELINE_MAX_DAY_COUNT) || 397);
-            if (typeof startOfDayTs !== 'function' || typeof computeRangeTs !== 'function' || typeof view?.fitScale !== 'function') {
-                render();
-                return;
-            }
+            if (typeof startOfDayTs !== 'function' || typeof computeRangeTs !== 'function' || typeof view?.fitScale !== 'function') return false;
             const rowModel = __tmBuildTaskRowModel();
             const tasks = [];
             for (const r of rowModel) {
@@ -6488,10 +6653,7 @@ return;
             const range = computeRangeTs(tasks, paddingDays, { extraFutureMonths: 0 });
             const startTs = startOfDayTs(range?.startTs);
             const endTs = startOfDayTs(range?.endTs);
-            if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs < startTs) {
-                render();
-                return;
-            }
+            if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs < startTs) return false;
             const dayCount = Math.max(1, Math.min(maxDayCount, Math.round((endTs - startTs) / DAY_MS) + 1));
             const usableW = Math.max(120, w - 24);
             const fittedScale = view.fitScale(state.ganttView, dayCount, usableW);
@@ -6512,9 +6674,12 @@ return;
                 dateTs: startTs + ((endTs - startTs) / 2),
                 ratio: 0.5,
             };
-            render();
+            const rendered = typeof __tmRerenderTimelineInPlace === 'function'
+                && __tmRerenderTimelineInPlace(state.modal, { reuseLeftRows: true });
+            if (rendered) __tmSyncTimelineToolbarStateInPlace(state.modal);
+            return !!rendered;
         } catch (e) {
-            render();
+            return false;
         }
     };
 

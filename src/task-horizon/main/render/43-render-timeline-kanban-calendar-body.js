@@ -204,9 +204,7 @@
                 const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
                 const baseBg = groupBg || doneSubtaskBg;
                 const progressBgStyle = (row.hasChildren && progressPercent > 0)
-                    ? (enableGroupBg && groupBg
-                        ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
-                        : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
+                    ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                     : '';
                 const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
                 const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
@@ -1249,6 +1247,9 @@
                     ? __tmIsTaskPinned(task)
                     : (task?.pinned === true || task?.pinned === 1 || task?.pinned === 'true' || task?.pinned === '1');
                 const pinnedCardStyle = isPinnedCard ? ' style="border-left:3px solid var(--tm-danger-color,#d32f2f);"' : '';
+                const completedChildren = Number(directChildStats.completed) || 0;
+                const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
+                const isChildrenCollapsed = !!(totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant);
                 const cardAttrs = `data-id="${id}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ondblclick="tmKanbanCardDblClick('${id}', event)"`;
                 const checkboxHtml = __tmRenderTaskCheckboxWrap(id, task, {
                     checked: task?.done,
@@ -1261,16 +1262,13 @@
                 const cardMetaParts = docChipHtml ? [...metaParts, docChipHtml] : metaParts;
                 const cardMetaHtml = cardMetaParts.length ? `<div class="tm-kanban-card-meta">${cardMetaParts.join('')}</div>` : '';
                 const subtaskMetaHtml = metaParts.length ? `<div class="tm-kanban-subtask-meta">${metaParts.join('')}</div>` : '';
-                const completedChildren = Number(directChildStats.completed) || 0;
-                const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
-                const isChildrenCollapsed = !!(totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant);
                 const subtaskToggleTitle = isChildrenCollapsed ? '展开子任务' : '折叠子任务';
-                const subtaskCountButtonHtml = `<button class="tm-badge tm-badge--count tm-kanban-subtasks-count" type="button" onclick="tmKanbanToggleCollapse('${id}', event)" title="${subtaskToggleTitle}">${completedChildren}/${totalChildren}</button>`;
+                const subtaskCountButtonHtml = `<button class="tm-badge tm-badge--count tm-kanban-subtasks-count" type="button" data-tm-kanban-collapse-owner="${id}" aria-expanded="${isChildrenCollapsed ? 'false' : 'true'}" onclick="tmKanbanToggleCollapse('${id}', event)" title="${subtaskToggleTitle}">${completedChildren}/${totalChildren}</button>`;
                 const subtaskToggleControlHtml = toggleHtml
                     ? `<span class="tm-kanban-subtask-toggle-control">${subtaskCountButtonHtml}${toggleHtml}</span>`
                     : '';
                 const nestedSubtasksHtml = (toggleHtml && totalChildren > 0)
-                    ? `<div class="tm-kanban-subtasks tm-kanban-subtasks--nested"><div class="tm-kanban-subtasks-progress" role="presentation"><span style="width:${childProgressPercent}%"></span></div>${childrenHtml ? `<div class="tm-kanban-subtasks-list">${childrenHtml}</div>` : ''}</div>`
+                    ? `<div class="tm-kanban-subtasks tm-kanban-subtasks--nested" data-tm-kanban-subtasks-owner="${id}"><div class="tm-kanban-subtasks-progress" role="presentation"><span style="width:${childProgressPercent}%"></span></div><div class="tm-kanban-subtasks-list" data-tm-kanban-subtasks-list aria-hidden="${isChildrenCollapsed ? 'true' : 'false'}"${isChildrenCollapsed ? ' hidden' : ''}>${childrenHtml}</div></div>`
                     : '';
 
                 if (isSub) {
@@ -1296,14 +1294,14 @@
                 const childrenCollapsed = !!(isParent && isChildrenCollapsed);
                 const subtasksSectionHtml = isParent && totalChildren > 0
                     ? `
-                        <section class="tm-kanban-subtasks" aria-label="子任务">
-                            <button class="tm-kanban-subtasks-head" type="button" aria-expanded="${childrenCollapsed ? 'false' : 'true'}" onclick="tmKanbanToggleCollapse('${id}', event)" title="${childrenCollapsed ? '展开子任务' : '折叠子任务'}">
+                        <section class="tm-kanban-subtasks" data-tm-kanban-subtasks-owner="${id}" aria-label="子任务">
+                            <button class="tm-kanban-subtasks-head" type="button" data-tm-kanban-collapse-owner="${id}" aria-expanded="${childrenCollapsed ? 'false' : 'true'}" onclick="tmKanbanToggleCollapse('${id}', event)" title="${childrenCollapsed ? '展开子任务' : '折叠子任务'}">
                                 <span class="tm-kanban-subtasks-label">${__tmRenderBadgeIcon('clipboard-list', 14)}<span>子任务</span></span>
                                 <span class="tm-badge tm-badge--count">${completedChildren}/${totalChildren}</span>
                                 <span class="tm-kanban-subtasks-chevron" aria-hidden="true"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:rotate(${childrenCollapsed ? '0deg' : '90deg'});"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                             </button>
                             <div class="tm-kanban-subtasks-progress" role="presentation"><span style="width:${childProgressPercent}%"></span></div>
-                            ${childrenHtml ? `<div class="tm-kanban-subtasks-list">${childrenHtml}</div>` : ''}
+                            <div class="tm-kanban-subtasks-list" data-tm-kanban-subtasks-list aria-hidden="${childrenCollapsed ? 'true' : 'false'}"${childrenCollapsed ? ' hidden' : ''}>${childrenHtml}</div>
                         </section>
                     `
                     : '';
@@ -1463,9 +1461,9 @@
                     const childList = (childrenByParent.get(id) || []).filter((child) => __tmShouldKeepChildTaskVisible(task, child, inheritedHideCompleted));
                     const collapsed = childList.length ? (__tmKanbanGetCollapsedSet().has(id) && !hasTomatoFocusDescendant(id)) : false;
                     const toggleHtml = childList.length
-                        ? `<button class="tm-kanban-subtask-toggle tm-kanban-subtasks-chevron" onclick="tmKanbanToggleCollapse('${id}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:rotate(${collapsed ? '0deg' : '90deg'});"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+                        ? `<button class="tm-kanban-subtask-toggle tm-kanban-subtasks-chevron" data-tm-kanban-collapse-owner="${id}" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="tmKanbanToggleCollapse('${id}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:rotate(${collapsed ? '0deg' : '90deg'});"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
                         : '';
-                    const childrenHtml = (!collapsed && childList.length) ? childList.map(ch => renderTree(ch, depthInCol + 1, hideCompletedDescendants, inCompletedRootGroup)).join('') : '';
+                    const childrenHtml = childList.length ? childList.map(ch => renderTree(ch, depthInCol + 1, hideCompletedDescendants, inCompletedRootGroup)).join('') : '';
                     const cardHtml = renderCard(
                         task,
                         depthInCol,
@@ -1478,6 +1476,10 @@
                         inCompletedRootGroup
                     );
                     return cardHtml;
+                };
+
+                const renderKanbanGroupItems = (itemsHtml, collapsed = false) => {
+                    return `<div class="tm-kanban-group-items" data-tm-kanban-group-items aria-hidden="${collapsed ? 'true' : 'false'}"${collapsed ? ' hidden' : ''}>${String(itemsHtml || '')}</div>`;
                 };
 
                 const renderGroupTitle = (groupKey, titleHtml, count, color, opt = {}) => {
@@ -1497,7 +1499,7 @@
                         ? ` ondragover="tmKanbanGroupDragOver(event)" ondragleave="tmKanbanGroupDragLeave(event)" ondrop="tmKanbanGroupDrop(event)"`
                         : '';
                     return `
-                        <div class="tm-kanban-group-title${dropKind ? ' tm-kanban-group-title--droppable' : ''}" data-group-key="${esc(groupKey)}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="${titleColor ? `color:${titleColor};` : ''}${groupBg ? `background:${groupBg};` : ''}"${dropAttrs}${dropHandlers}>
+                        <div class="tm-kanban-group-title${dropKind ? ' tm-kanban-group-title--droppable' : ''}" data-group-key="${esc(groupKey)}" aria-expanded="${isCollapsed ? 'false' : 'true'}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="${titleColor ? `color:${titleColor};` : ''}${groupBg ? `background:${groupBg};` : ''}"${dropAttrs}${dropHandlers}>
                             <span style="display:inline-flex;align-items:center;min-width:0;padding-left:${leftIndent};">
                                 <span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                                 <span>${titleHtml}</span>
@@ -1511,7 +1513,7 @@
                 const renderPinnedGroupTitle = (groupKey, count) => {
                     const isCollapsed = state.collapsedGroups?.has(groupKey);
                     return `
-                        <div class="tm-kanban-group-title" data-group-key="${esc(groupKey)}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="background:${pinnedGroupBg};">
+                        <div class="tm-kanban-group-title" data-group-key="${esc(groupKey)}" aria-expanded="${isCollapsed ? 'false' : 'true'}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="background:${pinnedGroupBg};">
                             <span style="display:inline-flex;align-items:center;min-width:0;">
                                 <span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                                 <span>${pinnedGroupLabelHtml}</span>
@@ -1526,7 +1528,7 @@
                     const doneGroupKey = __tmBuildCompletedRootGroupKey(`kanban:${String(c.id || '').trim() || 'col'}`);
                     const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
                     const doneTitle = `<span style="color:var(--tm-secondary-text);">已完成任务</span>`;
-                    const doneBody = doneCollapsed ? '' : `<div class="tm-kanban-group-items">${completedRoots.map(t => renderTree(t, 0, false, true)).join('')}</div>`;
+                    const doneBody = renderKanbanGroupItems(completedRoots.map(t => renderTree(t, 0, false, true)).join(''), doneCollapsed);
                     return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)', { collapsed: doneCollapsed })}${doneBody}</div>`;
                 };
                 const pinWithinKanbanGroups = !!SettingsStore.data.pinTasksWithinGroups
@@ -1564,7 +1566,7 @@
                         const pinnedGroupKey = `kanban_${c.id}_doc_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
                         const renderPinnedTree = (t) => renderTree(t, 0);
-                        const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
+                        const pinnedBody = renderKanbanGroupItems(allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
@@ -1596,42 +1598,40 @@
                         const docName = docNameById.get(docId) || '未知文档';
                         const labelColor = docId === '__unknown__' ? 'var(--tm-secondary-text)' : (__tmGetDocColorHex(docId, isDark) || 'var(--tm-group-doc-label-color)');
                         const title = `<span style="display:inline-flex;align-items:center;gap:6px;color:${labelColor};">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${esc(docName)}</span></span>`;
+                        // 在标题看板模式下，即使设置中没有启用 docH2SubgroupEnabled，也启用二级标题分组
+                        const enableH2 = ((!!SettingsStore.data.docH2SubgroupEnabled || headingMode) && !o.forceNoHeading)
+                            && __tmDocHasAnyHeading(docId, items);
                         let body = '';
-                        if (!isCollapsed) {
-                            // 在标题看板模式下，即使设置中没有启用 docH2SubgroupEnabled，也启用二级标题分组
-                            const enableH2 = ((!!SettingsStore.data.docH2SubgroupEnabled || headingMode) && !o.forceNoHeading)
-                                && __tmDocHasAnyHeading(docId, items);
-                            if (!enableH2) {
-                                const groupItems = sortKanbanGroupItems(items.slice(), allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
-                                body = groupItems.length ? `<div class="tm-kanban-group-items">${groupItems.map(t => renderTree(t, 0)).join('')}</div>` : '';
-                            } else {
-                                const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
-                                const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-                                const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
-                                const buckets = __tmBuildDocHeadingBuckets(items, noHeadingLabel);
-                                const grouped = new Map();
-                                items.forEach((task) => {
-                                    const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
-                                    if (!grouped.has(b.key)) grouped.set(b.key, []);
-                                    grouped.get(b.key).push(task);
+                        if (!enableH2) {
+                            const groupItems = sortKanbanGroupItems(items.slice(), allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
+                            body = groupItems.length ? renderKanbanGroupItems(groupItems.map(t => renderTree(t, 0)).join(''), isCollapsed) : '';
+                        } else {
+                            const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
+                            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+                            const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+                            const buckets = __tmBuildDocHeadingBuckets(items, noHeadingLabel);
+                            const grouped = new Map();
+                            items.forEach((task) => {
+                                const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                                if (!grouped.has(b.key)) grouped.set(b.key, []);
+                                grouped.get(b.key).push(task);
+                            });
+                            // 先过滤掉没有任务的 bucket，顺序保持与清单/表格视图一致
+                            const filteredBuckets = buckets.filter(b => (grouped.get(b.key) || []).length > 0);
+                            const sortedBuckets = filteredBuckets;
+                            const h2Html = sortedBuckets.map((bucket) => {
+                                let bucketItems = grouped.get(bucket.key) || [];
+                                if (!bucketItems.length) return '';
+                                bucketItems = sortKanbanGroupItems(bucketItems.slice(), allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
+                                const h2Key = `kanban_${c.id}_doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
+                                const h2Collapsed = state.collapsedGroups?.has(h2Key);
+                                const h2Title = __tmRenderHeadingLevelIconLabel(String(bucket.label || ''), SettingsStore.data.taskHeadingLevel || 'h2', {
+                                    style: 'color:var(--tm-secondary-text);'
                                 });
-                                // 先过滤掉没有任务的 bucket，顺序保持与清单/表格视图一致
-                                const filteredBuckets = buckets.filter(b => (grouped.get(b.key) || []).length > 0);
-                                const sortedBuckets = filteredBuckets;
-                                const h2Html = sortedBuckets.map((bucket) => {
-                                    let bucketItems = grouped.get(bucket.key) || [];
-                                    if (!bucketItems.length) return '';
-                                    bucketItems = sortKanbanGroupItems(bucketItems.slice(), allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
-                                    const h2Key = `kanban_${c.id}_doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
-                                    const h2Collapsed = state.collapsedGroups?.has(h2Key);
-                                    const h2Title = __tmRenderHeadingLevelIconLabel(String(bucket.label || ''), SettingsStore.data.taskHeadingLevel || 'h2', {
-                                        style: 'color:var(--tm-secondary-text);'
-                                    });
-                                    const h2Body = h2Collapsed ? '' : `<div class="tm-kanban-group-items">${bucketItems.map(t => renderTree(t, 0)).join('')}</div>`;
-                                    return `<div class="tm-kanban-group">${renderGroupTitle(h2Key, h2Title, bucketItems.length, '', { indentCh: headingIndent })}${h2Body}</div>`;
-                                }).join('');
-                                body = `<div class="tm-kanban-group-items">${h2Html}</div>`;
-                            }
+                                const h2Body = renderKanbanGroupItems(bucketItems.map(t => renderTree(t, 0)).join(''), h2Collapsed);
+                                return `<div class="tm-kanban-group">${renderGroupTitle(h2Key, h2Title, bucketItems.length, '', { indentCh: headingIndent })}${h2Body}</div>`;
+                            }).join('');
+                            body = renderKanbanGroupItems(h2Html, isCollapsed);
                         }
                         const dropOpt = (headingMode && isAllTabsView && o.dropDoc && docId !== '__unknown__')
                             ? { dropKind: 'doc', dropDocId: docId }
@@ -1668,7 +1668,7 @@
                         const pinnedGroupKey = `kanban_${c.id}_time_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
                         const renderPinnedTree = (t) => renderTree(t, 0);
-                        const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
+                        const pinnedBody = renderKanbanGroupItems(allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
@@ -1691,7 +1691,7 @@
                         const color = getTimeGroupLabelColor(g);
                         const title = `<span style="color:${color};">${esc(g.label || '')}</span>`;
                         const items = sortKanbanGroupItems((Array.isArray(g.items) ? g.items : []).slice(), needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
-                        const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
+                        const body = renderKanbanGroupItems(items.map(t => renderTree(t, 0)).join(''), isCollapsed);
                         return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
                     }).join('');
                     resultHtml += timeGroupsHtml;
@@ -1716,7 +1716,7 @@
                         const pinnedGroupKey = `kanban_${c.id}_quadrant_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
                         const renderPinnedTree = (t) => renderTree(t, 0);
-                        const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
+                        const pinnedBody = renderKanbanGroupItems(allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
@@ -1746,7 +1746,7 @@
                             const color = quadrantColorMap[String(rule.color || '')] || 'var(--tm-text-color)';
                             const title = `<span style="color:${color};">${esc(String(rule.name || k))}</span>`;
                             const items = sortKanbanGroupItems((Array.isArray(g.items) ? g.items : []).slice(), needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
-                            const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
+                            const body = renderKanbanGroupItems(items.map(t => renderTree(t, 0)).join(''), isCollapsed);
                             return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
                         })
                         .join('');
@@ -1772,7 +1772,7 @@
                         const pinnedGroupKey = `kanban_${c.id}_task_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
                         const renderPinnedTree = (t) => renderTree(t, 0);
-                        const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
+                        const pinnedBody = renderKanbanGroupItems(allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
@@ -1798,7 +1798,7 @@
                         const color = groupDocColor || 'var(--tm-primary-color)';
                         const title = `<span style="color:${color};">📝 ${esc(g.content || '')}</span>`;
                         const items = sortKanbanGroupItems((Array.isArray(g.items) ? g.items : []).slice(), sortByIdx);
-                        const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
+                        const body = renderKanbanGroupItems(items.map(t => renderTree(t, 0)).join(''), isCollapsed);
                         return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, g.items.length, color)}${body}</div>`;
                     }).join('');
                     resultHtml += taskNameGroupsHtml;
@@ -1854,7 +1854,7 @@
                         const pinnedGroupKey = `kanban_${c.id}_ungrouped_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
                         const renderPinnedTree = (t) => renderTree(t, 0);
-                        const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
+                        const pinnedBody = renderKanbanGroupItems(allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         result += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
@@ -1926,19 +1926,16 @@
                         rendered: columnRenderedCardCount,
                     };
                 };
-                let progressiveColumnLimit = progressiveKanbanRender
+                let progressiveColumnLimit = progressiveKanbanRender && !isColumnCollapsed
                     ? Math.max(1, Math.round(Number(kanbanProgressiveJob.batchSize) || 10))
                     : Number.POSITIVE_INFINITY;
-                const initialColumnRender = isColumnCollapsed
-                    ? { html: '', hasMore: false, rendered: 0 }
-                    : renderColumnListHtml(progressiveColumnLimit);
+                const initialColumnRender = renderColumnListHtml(progressiveColumnLimit);
                 listHtml = initialColumnRender.html;
-                if (progressiveKanbanRender && !isColumnCollapsed && initialColumnRender.hasMore) {
+                if (progressiveKanbanRender && initialColumnRender.hasMore) {
                     __tmRegisterKanbanProgressiveColumn(kanbanProgressiveJob, {
                         key: columnKey,
                         loadNextBatch: (modalEl) => {
                             if (state.__tmProgressiveViewRender !== kanbanProgressiveJob) return { done: true };
-                            if (__tmKanbanGetCollapsedColumnSet().has(columnKey)) return { done: true };
                             progressiveColumnLimit += Math.max(1, Math.round(Number(kanbanProgressiveJob.batchSize) || 10));
                             const nextColumnRender = renderColumnListHtml(progressiveColumnLimit);
                             const modal = modalEl instanceof Element ? modalEl : state.modal;
@@ -1992,10 +1989,7 @@
                 const colStyleBase = kanbanFillColumns
                     ? `flex:1 0 ${kanbanColW}px;min-width:${kanbanColW}px;max-width:none;`
                     : `width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;`;
-                const collapsedColW = isCompact ? 50 : 56;
-                const colStyle = `${isColumnCollapsed
-                    ? `width:${collapsedColW}px;min-width:${collapsedColW}px;max-width:${collapsedColW}px;flex:0 0 ${collapsedColW}px;`
-                    : colStyleBase}${colTintBg ? `--tm-kanban-col-tint:${colTintBg};` : ''}`;
+                const colStyle = `${colStyleBase}${colTintBg ? `--tm-kanban-col-tint:${colTintBg};` : ''}`;
                 const docIdForTitle = String(c?.docId || c?.id || '').trim();
                 const headingDocId = String(c?.docId || '').trim();
                 const headingIdForCreate = String(c?.headingId || '__none__').trim() || '__none__';
@@ -2094,46 +2088,41 @@
                         ${headerActionsHtml}
                     </div>
                 `;
-                if (isColumnCollapsed) {
-                    const collapsedTitle = isDoneCol ? '已完成' : String(c?.name || title || '').trim();
-                    const collapsedIconInnerHtml = headingMode && !isDoneCol && kind === 'doc'
-                        ? __tmRenderDocIcon(docIdForTitle, { fallbackText: '📄', size: 14 })
-                        : '';
-                    const collapsedIconHtml = collapsedIconInnerHtml
-                        ? `<span class="tm-kanban-col-collapsed-icon" aria-hidden="true">${collapsedIconInnerHtml}</span>`
-                        : '';
-                    return `
-                        <div class="tm-kanban-col tm-kanban-col--collapsed" ${dataAttrs} data-col-key="${esc(columnKey)}" style="${colStyle}" ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
-                            <div class="tm-kanban-col-header tm-kanban-col-header--collapsed"
-                                 style="color:${esc(colTitleColor)};"
-                                 title="展开看板列：${esc(collapsedTitle)}"
-                                 role="button"
-                                 tabindex="0"
-                                 aria-label="展开看板列：${esc(collapsedTitle)}"
-                                 onclick="tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)"
-                                 onkeydown="if(event.key==='Enter'||event.key===' '){tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)}">
-                                <div class="tm-kanban-col-collapsed-label">
-                                    ${collapsedIconHtml}
-                                    <span class="tm-kanban-col-collapsed-title">${esc(collapsedTitle)}</span>
-                                    <span class="tm-badge tm-badge--count">${count}</span>
-                                </div>
-                                <button class="tm-kanban-col-collapse tm-kanban-col-collapse--expand"
-                                        type="button"
-                                        title="展开看板列"
-                                        aria-label="展开看板列：${esc(collapsedTitle)}"
-                                        onclick="tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)">
-                                    ${__tmRenderLucideIcon('arrows-out-line-horizontal')}
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                }
+                const collapsedTitle = isDoneCol ? '已完成' : String(c?.name || title || '').trim();
+                const collapsedIconInnerHtml = headingMode && !isDoneCol && kind === 'doc'
+                    ? __tmRenderDocIcon(docIdForTitle, { fallbackText: '📄', size: 14 })
+                    : '';
+                const collapsedIconHtml = collapsedIconInnerHtml
+                    ? `<span class="tm-kanban-col-collapsed-icon" aria-hidden="true">${collapsedIconInnerHtml}</span>`
+                    : '';
                 return `
-                    <div class="tm-kanban-col" ${dataAttrs} data-col-key="${esc(columnKey)}" style="${colStyle}" ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
-                        <div class="tm-kanban-col-header">
+                    <div class="tm-kanban-col${isColumnCollapsed ? ' tm-kanban-col--collapsed' : ''}" ${dataAttrs} data-col-key="${esc(columnKey)}" style="${colStyle}" ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
+                        <div class="tm-kanban-col-header" data-tm-kanban-column-expanded-content${isColumnCollapsed ? ' hidden' : ''}>
                             ${titleHtml}
                         </div>
-                        <div class="tm-kanban-col-body" ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
+                        <div class="tm-kanban-col-header tm-kanban-col-header--collapsed"
+                             data-tm-kanban-column-collapsed-content${isColumnCollapsed ? '' : ' hidden'}
+                             style="color:${esc(colTitleColor)};"
+                             title="展开看板列：${esc(collapsedTitle)}"
+                             role="button"
+                             tabindex="0"
+                             aria-label="展开看板列：${esc(collapsedTitle)}"
+                             onclick="tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)"
+                             onkeydown="if(event.key==='Enter'||event.key===' '){tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)}">
+                            <div class="tm-kanban-col-collapsed-label">
+                                ${collapsedIconHtml}
+                                <span class="tm-kanban-col-collapsed-title">${esc(collapsedTitle)}</span>
+                                <span class="tm-badge tm-badge--count">${count}</span>
+                            </div>
+                            <button class="tm-kanban-col-collapse tm-kanban-col-collapse--expand"
+                                    type="button"
+                                    title="展开看板列"
+                                    aria-label="展开看板列：${esc(collapsedTitle)}"
+                                    onclick="tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)">
+                                ${__tmRenderLucideIcon('arrows-out-line-horizontal')}
+                            </button>
+                        </div>
+                        <div class="tm-kanban-col-body" data-tm-kanban-column-expanded-content${isColumnCollapsed ? ' hidden' : ''} ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
                             ${listHtml || `<div class="tm-kanban-empty">空</div>`}
                         </div>
                     </div>

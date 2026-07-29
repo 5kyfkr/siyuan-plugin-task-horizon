@@ -1555,6 +1555,8 @@
             output: {
                 mode: text(output.mode || previous.output && previous.output.mode) === 'document' ? 'document' : 'notification',
                 documentId: text(output.documentId || previous.output && previous.output.documentId),
+                documentMode: text(output.documentMode || previous.output && previous.output.documentMode) === 'monthly_child' ? 'monthly_child' : 'target',
+                insertPosition: text(output.insertPosition || previous.output && previous.output.insertPosition) === 'top' ? 'top' : 'bottom',
             },
             lastOccurrence: source.lastOccurrence && typeof source.lastOccurrence === 'object'
                 ? cloneAgentSchedule(source.lastOccurrence)
@@ -1590,6 +1592,48 @@
         const run = state.agentScheduleLane.then(task, task);
         state.agentScheduleLane = run.catch(() => {});
         return run;
+    }
+
+    async function resolveAgentScheduleOutputDocument(input) {
+        const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+        const parentDocumentID = requireID(source.parentDocumentID || source.parentDocumentId, '父文档 ID');
+        const month = text(source.month);
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '月度子文档月份无效，应为 YYYY-MM');
+        }
+        return runAgentScheduleLane(async () => {
+            const parentRows = await sql(`SELECT id, box, path, hpath FROM blocks WHERE id = '${escapeSql(parentDocumentID)}' AND type = 'd' LIMIT 1`);
+            const parent = parentRows[0];
+            if (!parent) throw new DomainError(ERROR.NOT_FOUND, 'AI 定时任务父文档不存在');
+            const box = text(parent.box);
+            const parentPath = text(parent.path);
+            const parentHPath = text(parent.hpath).replace(/\/$/, '');
+            if (!box || !parentPath.endsWith('.sy') || !parentHPath) {
+                throw new DomainError(ERROR.STORAGE_ERROR, '无法解析 AI 定时任务父文档路径');
+            }
+            const childPathPrefix = `${parentPath.slice(0, -3)}/`;
+            const rows = await sql(`
+                SELECT id, path FROM blocks
+                WHERE type = 'd'
+                  AND box = '${escapeSql(box)}'
+                  AND content = '${escapeSql(month)}'
+                  AND path LIKE '${escapeSql(childPathPrefix)}%'
+                ORDER BY created ASC, id ASC
+            `);
+            const existing = rows.find((row) => {
+                const childPath = text(row && row.path);
+                const relative = childPath.startsWith(childPathPrefix) ? childPath.slice(childPathPrefix.length) : '';
+                return relative.endsWith('.sy') && !relative.slice(0, -3).includes('/');
+            });
+            if (existing) return { documentID: requireID(existing.id, '月度子文档 ID'), created: false, month };
+            const created = await api('/api/filetree/createDocWithMd', {
+                notebook: box,
+                path: `${parentHPath}/${month}`,
+                parentID: parentDocumentID,
+                markdown: '',
+            });
+            return { documentID: requireID(created, '月度子文档 ID'), created: true, month };
+        });
     }
 
     async function saveAgentSchedule(input) {
@@ -3873,6 +3917,8 @@
             output: objectSchema({
                 mode: stringSchema('输出方式', ['notification', 'document']),
                 documentId: stringSchema('写入文档 ID'),
+                documentMode: stringSchema('文档组织方式', ['target', 'monthly_child']),
+                insertPosition: stringSchema('插入位置', ['bottom', 'top']),
             }),
         });
         const scheduleMutableFields = {
@@ -4137,6 +4183,7 @@
         await siyuan.rpc.bind('taskHorizonClaimAgentScheduleOccurrence', (input) => asResult(() => claimAgentScheduleOccurrence(input || {})));
         await siyuan.rpc.bind('taskHorizonRenewAgentScheduleOccurrence', (input) => asResult(() => renewAgentScheduleOccurrence(input || {})));
         await siyuan.rpc.bind('taskHorizonFinishAgentScheduleOccurrence', (input) => asResult(() => finishAgentScheduleOccurrence(input || {})));
+        await siyuan.rpc.bind('taskHorizonResolveAgentScheduleOutputDocument', (input) => asResult(() => resolveAgentScheduleOutputDocument(input || {})));
         await siyuan.rpc.bind('taskHorizonPersistUiTaskAttrs', (taskID, attrs) => asResult(() => persistUiTaskAttrs(taskID, attrs || {})));
         await siyuan.rpc.bind('taskHorizonPersistUiBlockOperation', (input) => asResult(() => persistUiBlockOperation(input || {})));
         await siyuan.rpc.bind('taskHorizonMoveTask', (input) => asResult(() => moveTask(input || {})));
@@ -4162,7 +4209,7 @@
     const RPC_NAMES = [
         'taskHorizonGetCapabilities', 'taskHorizonSyncMcpEntitlement', 'taskHorizonSetMcpEnabled', 'taskHorizonSetMcpToolConfig', 'taskHorizonRegisterTaskScope', 'taskHorizonResolveTaskBinding',
         'taskHorizonGetTask', 'taskHorizonQueryTasks', 'taskHorizonSearchDocuments', 'taskHorizonListTaskScopes', 'taskHorizonCreateTask', 'taskHorizonUpdateTask', 'taskHorizonConfigureTaskReminder',
-        'taskHorizonLoadAgentSchedules', 'taskHorizonReplaceAgentSchedules', 'taskHorizonSaveAgentSchedule', 'taskHorizonDeleteAgentSchedule', 'taskHorizonClaimAgentScheduleOccurrence', 'taskHorizonRenewAgentScheduleOccurrence', 'taskHorizonFinishAgentScheduleOccurrence', 'taskHorizonPersistUiTaskAttrs', 'taskHorizonPersistUiBlockOperation',
+        'taskHorizonLoadAgentSchedules', 'taskHorizonReplaceAgentSchedules', 'taskHorizonSaveAgentSchedule', 'taskHorizonDeleteAgentSchedule', 'taskHorizonClaimAgentScheduleOccurrence', 'taskHorizonRenewAgentScheduleOccurrence', 'taskHorizonFinishAgentScheduleOccurrence', 'taskHorizonResolveAgentScheduleOutputDocument', 'taskHorizonPersistUiTaskAttrs', 'taskHorizonPersistUiBlockOperation',
         'taskHorizonMoveTask', 'taskHorizonPreviewDeleteTask', 'taskHorizonDeleteTask',
         'taskHorizonLoadSchedules', 'taskHorizonSaveSchedules', 'taskHorizonQuerySchedules',
         'taskHorizonCreateSchedule', 'taskHorizonUpdateSchedule', 'taskHorizonPreviewDeleteSchedule',

@@ -144,6 +144,8 @@
             output: {
                 mode: String(outputInput.mode || '') === 'document' ? 'document' : 'notification',
                 documentId: String(outputInput.documentId || '').trim(),
+                documentMode: String(outputInput.documentMode || '') === 'monthly_child' ? 'monthly_child' : 'target',
+                insertPosition: String(outputInput.insertPosition || '') === 'top' ? 'top' : 'bottom',
             },
             lastOccurrence: __tmScheduledNormalizeOccurrence(value.lastOccurrence || value.execution),
             lastRun: __tmScheduledNormalizeLastRun(value.lastRun),
@@ -277,6 +279,40 @@
             .slice(0, 240);
     }
 
+    function __tmScheduledMonthKey(value) {
+        const date = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        return `${date.getFullYear()}-${__tmScheduledPad(date.getMonth() + 1)}`;
+    }
+
+    async function __tmScheduledResolveOutputDocument(event, occurrence) {
+        const documentId = String(event?.output?.documentId || '').trim();
+        if (event?.output?.documentMode !== 'monthly_child') return documentId;
+        const month = __tmScheduledMonthKey(occurrence || new Date());
+        const gateway = await __tmScheduledKernelRpc('taskHorizonResolveAgentScheduleOutputDocument', {
+            parentDocumentID: documentId,
+            month,
+        });
+        if (!gateway.available) throw new Error('任务内核不可用，无法创建月度子文档');
+        const resolvedId = String(gateway.data?.documentID || gateway.data?.documentId || '').trim();
+        if (!resolvedId) throw new Error('任务内核未返回月度子文档 ID');
+        return resolvedId;
+    }
+
+    async function __tmScheduledWriteDocument(event, documentId, markdown) {
+        if (event?.output?.insertPosition !== 'top') {
+            return String(await __tmBackendAdapter.appendBlock(documentId, markdown) || '').trim();
+        }
+        const firstChildId = String(await API.getFirstDirectChildIdOfDoc(documentId) || '').trim();
+        if (!firstChildId) {
+            return String(await __tmBackendAdapter.appendBlock(documentId, markdown) || '').trim();
+        }
+        return String(await __tmBackendAdapter.insertBlock(documentId, markdown, {
+            parentID: documentId,
+            nextID: firstChildId,
+        }) || '').trim();
+    }
+
     async function __tmScheduledDeliver(event, result, occurrence) {
         const resultTitle = String(result?.title || event.name || '定时事件').trim();
         const title = `定时事件完成：${String(event.name || '未命名定时事件').trim()}`;
@@ -284,8 +320,9 @@
         let blockId = '';
         if (event.output.mode === 'document') {
             const dateKey = __tmScheduledLocalDateKey(occurrence || new Date());
-            const documentId = String(event.output.documentId || '').trim();
-            blockId = String(await __tmBackendAdapter.appendBlock(documentId, `## ${dateKey} ${resultTitle}\n\n${markdown}`) || '').trim();
+            const documentId = await __tmScheduledResolveOutputDocument(event, occurrence);
+            const heading = resultTitle.includes(dateKey) ? resultTitle : `${dateKey} ${resultTitle}`;
+            blockId = await __tmScheduledWriteDocument(event, documentId, `## ${heading}\n\n${markdown}`);
         }
         const summary = __tmScheduledNotificationSummary(markdown) || title;
         const conversationNote = event.conversationId

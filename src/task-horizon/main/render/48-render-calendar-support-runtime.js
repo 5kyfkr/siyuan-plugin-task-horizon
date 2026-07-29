@@ -382,15 +382,20 @@
         const maxAgeMs = Number.isFinite(Number(opts.maxAgeMs)) ? Math.max(0, Math.floor(Number(opts.maxAgeMs))) : 8000;
         const prev = window.__tmCalendarAllTasksCache;
         const forceFresh = opts.force === true || opts.forceFresh === true;
-        if (!forceFresh && prev && prev.key === key && Array.isArray(prev.tasks) && (Date.now() - (Number(prev.ts) || 0) < maxAgeMs)) {
+        if (!forceFresh && prev && prev.key === key && Array.isArray(prev.tasks)
+            && (opts.requireCompleteCache !== true || prev.complete === true)
+            && (Date.now() - (Number(prev.ts) || 0) < maxAgeMs)) {
             return prev.tasks;
         }
         if (!allDocIds.length) {
-            window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: [] };
+            window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: [], complete: true };
             return [];
         }
         try { await MetaStore.load?.(); } catch (e) {}
         const res = await API.getTasksByDocuments(allDocIds, limit, { doneOnly: false, forceFresh });
+        if (opts.failOnTruncation === true && res?.limitReached) {
+            throw new Error('任务数量超过读取上限');
+        }
         const tasks = Array.isArray(res?.tasks) ? res.tasks : [];
         const out = [];
         for (const task of tasks) {
@@ -409,7 +414,7 @@
             try { normalizeTaskFields(task, task.docName || '未命名文档'); } catch (e) {}
             __tmAppendCalendarTaskAndRepeatHistory(out, task);
         }
-        window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: out };
+        window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: out, complete: !res?.limitReached };
         return out;
     }
 
@@ -824,6 +829,7 @@
                         if (liveTask) done = !!liveTask.done;
                     }
                 } catch (e) {}
+                if (opts.excludeCompleted === true && done) continue;
                 const s0 = __tmNormalizeDateOnly(t?.startDate);
                 const e0 = __tmNormalizeDateOnly(t?.completionTime);
                 if (!s0 && !e0) continue;
@@ -881,7 +887,7 @@
                 const cache = window.__tmCalendarAllTasksCache;
                 const cachedTasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
                 const cacheAgeMs = Date.now() - (Number(cache?.ts) || 0);
-                if (cachedTasks.length > 0) {
+                if (cachedTasks.length > 0 && (opts.requireCompleteCache !== true || cache?.complete === true)) {
                     const events = buildTaskDateEventsFromTasks(cachedTasks, __tmGetCalendarDocsToGroupMapSync());
                     pushTaskDateQueryDiag('taskdate-inactive-cache', {
                         taskCount: cachedTasks.length,
@@ -894,7 +900,7 @@
                 }
                 const candidateMeta = __tmGetCalendarTaskCandidatesSync();
                 const candidateTasks = Array.isArray(candidateMeta?.tasks) ? candidateMeta.tasks : [];
-                if (candidateTasks.length > 0) {
+                if (candidateTasks.length > 0 && opts.requireCompleteCache !== true) {
                     const events = buildTaskDateEventsFromTasks(candidateTasks, candidateMeta?.docsToGroup);
                     pushTaskDateQueryDiag('taskdate-inactive-memory', {
                         taskCount: candidateTasks.length,
@@ -919,7 +925,9 @@
                 const fastMaxStaleMs = Number.isFinite(Number(opts.fastMaxStaleMs))
                     ? Math.max(8000, Math.round(Number(opts.fastMaxStaleMs)))
                     : 300000;
-                if (cachedTasks.length > 0 && cacheAgeMs >= 0 && cacheAgeMs <= fastMaxStaleMs) {
+                if (cachedTasks.length > 0
+                    && (opts.requireCompleteCache !== true || cache?.complete === true)
+                    && cacheAgeMs >= 0 && cacheAgeMs <= fastMaxStaleMs) {
                     const docsToGroup = __tmGetCalendarDocsToGroupMapSync();
                     const events = buildTaskDateEventsFromTasks(cachedTasks, docsToGroup);
                     if (cacheAgeMs > 8000) scheduleTaskDateCacheWarm('taskdate-stale-cache-first');
@@ -933,7 +941,7 @@
                 }
                 const candidateMeta = __tmGetCalendarTaskCandidatesSync();
                 const candidateTasks = Array.isArray(candidateMeta?.tasks) ? candidateMeta.tasks : [];
-                if (candidateTasks.length > 0) {
+                if (candidateTasks.length > 0 && opts.requireCompleteCache !== true) {
                     const events = buildTaskDateEventsFromTasks(candidateTasks, candidateMeta?.docsToGroup);
                     scheduleTaskDateCacheWarm('taskdate-memory-first');
                     pushTaskDateQueryDiag('taskdate-memory', {
@@ -986,7 +994,12 @@
         try { docsToGroup = await getDocsToGroupMap(); } catch (e) {}
 
         let filtered = [];
-        try { filtered = await __tmLoadAllTasksForCalendarCache({ ...opts, forceFresh, maxAgeMs: 8000 }); } catch (e) { filtered = []; }
+        try {
+            filtered = await __tmLoadAllTasksForCalendarCache({ ...opts, forceFresh, maxAgeMs: 8000 });
+        } catch (e) {
+            if (opts.throwOnError === true) throw e;
+            filtered = [];
+        }
         const out = buildTaskDateEventsFromTasks(filtered, docsToGroup);
         pushTaskDateQueryDiag('taskdate-full', {
             taskCount: filtered.length,
@@ -1290,16 +1303,26 @@
         const calApi = globalThis.__tmCalendar;
         if (!calApi) return false;
         const reason = String(opts.reason || opts.source || 'task-date-update').trim() || 'task-date-update';
+        const main = String(state.viewMode || '').trim() === 'calendar';
+        const side = typeof __tmShouldShowCalendarSideDock === 'function'
+            ? __tmShouldShowCalendarSideDock()
+            : !main;
+        if (!main && !side) return true;
         try {
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
             try { __tmInvalidateCalendarTaskDateEventsCache(); } catch (e) {}
             if (typeof calApi.syncTaskDatePatchInPlace === 'function') {
-                const result = calApi.syncTaskDatePatchInPlace(tid, nextPatch, { reason });
+                const result = calApi.syncTaskDatePatchInPlace(tid, nextPatch, {
+                    reason,
+                    main,
+                    side,
+                    sideSourceRefresh: false,
+                });
                 if (result?.needsMainRefresh || result?.needsSideRefresh) {
                     calApi.requestRefresh?.({
                         reason,
-                        main: result.needsMainRefresh === true,
-                        side: result.needsSideRefresh === true,
+                        main: main && result.needsMainRefresh === true,
+                        side: side && result.needsSideRefresh === true,
                         flushTaskPanel: false,
                         hard: opts.hard === true,
                     });
@@ -1307,12 +1330,16 @@
                 return result?.touched === true;
             }
             if (typeof calApi.syncTaskDateInPlace === 'function') {
-                const summary = await calApi.syncTaskDateInPlace(tid, { main: true, side: true });
+                const summary = await calApi.syncTaskDateInPlace(tid, {
+                    main,
+                    side,
+                    allowRefetch: false,
+                });
                 if (summary?.needsMainRefresh || summary?.needsSideRefresh) {
                     calApi.requestRefresh?.({
                         reason,
-                        main: summary.needsMainRefresh === true,
-                        side: summary.needsSideRefresh === true,
+                        main: main && summary.needsMainRefresh === true,
+                        side: side && summary.needsSideRefresh === true,
                         flushTaskPanel: false,
                         hard: opts.hard === true,
                     });

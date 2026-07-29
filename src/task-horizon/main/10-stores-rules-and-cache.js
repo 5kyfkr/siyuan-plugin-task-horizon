@@ -2511,8 +2511,10 @@
             completedInlineInGroups: data.completedTasksInlineInGroups ? 1 : 0,
             taskStructure: __tmBuildTaskSnapshotViewStructureSignature(opts),
             docTabSortMode: String(data.docTabSortMode || '').trim(),
+            docTabsManualArchiveOnly: data.docTabsManualArchiveOnly ? 1 : 0,
             taskHeadingLevel: String(data.taskHeadingLevel || 'h2').trim() || 'h2',
             docH2SubgroupEnabled: data.docH2SubgroupEnabled ? 1 : 0,
+            alwaysShowTaskDocHeadingGroups: data.alwaysShowTaskDocHeadingGroups ? 1 : 0,
             whiteboardSequenceMode: data.whiteboardSequenceMode ? 1 : 0,
             whiteboardSequenceScope: __tmNormalizeWhiteboardSequenceScope(data.whiteboardSequenceScope),
             customTaskOrder: (typeof __tmBuildCustomTaskOrderFingerprint === 'function' && __tmRuleSortsUseCustomOrderField(rule))
@@ -7319,6 +7321,7 @@
             whiteboardAllTabsCardMinWidth: 320,
             whiteboardStreamMobileTwoColumns: true,
             docH2SubgroupEnabled: true,
+            alwaysShowTaskDocHeadingGroups: false,
             groupByTaskName: false,
             groupMode: 'doc',
             collapsedTaskIds: [],
@@ -7418,8 +7421,10 @@
             calendarIcsCalendarName: '任务管理器',
             calendarIcsWebdavUrl: '',
             calendarIcsWebdavUsername: '',
+            calendarIcsWebdavPassword: '',
             calendarIcsChainFileName: '',
             calendarIcsChainPublicConfirmed: false,
+            calendarIcsIncludeTaskDates: false,
             calendarInitialView: 'timeGridWeek',
             calendarInitialViewDesktop: 'timeGridWeek',
             calendarInitialViewMobile: 'timeGridDay',
@@ -7531,6 +7536,8 @@
             docDisplayNameMode: 'name',
             // 归档页签入口位置：before-all | after-docs
             docTabsArchiveButtonPosition: 'after-docs',
+            // 仅通过页签菜单手动归档；完成全部任务时不自动归档
+            docTabsManualArchiveOnly: false,
             // 当前选中的分组ID (UI显示用)
             currentGroupId: 'all',
             // 任务标题级别 (h1-h6)
@@ -7973,6 +7980,8 @@
                                 if (typeof cloudData.whiteboardStreamMobileTwoColumns === 'boolean') this.data.whiteboardStreamMobileTwoColumns = cloudData.whiteboardStreamMobileTwoColumns;
                                 if (typeof cloudData.whiteboardNoteDefaultFontSize === 'number') this.data.whiteboardNoteDefaultFontSize = cloudData.whiteboardNoteDefaultFontSize;
                                 if (typeof cloudData.docH2SubgroupEnabled === 'boolean') this.data.docH2SubgroupEnabled = cloudData.docH2SubgroupEnabled;
+                                if (typeof cloudData.alwaysShowTaskDocHeadingGroups === 'boolean') this.data.alwaysShowTaskDocHeadingGroups = cloudData.alwaysShowTaskDocHeadingGroups;
+                                else if (typeof cloudData.keepCompletedDocHeadingGroupsVisible === 'boolean') this.data.alwaysShowTaskDocHeadingGroups = cloudData.keepCompletedDocHeadingGroupsVisible;
                                 if (typeof cloudData.groupByTaskName === 'boolean') this.data.groupByTaskName = cloudData.groupByTaskName;
                                 if (typeof cloudData.groupMode === 'string') this.data.groupMode = cloudData.groupMode;
                                 if (typeof cloudData.pinTasksWithinGroups === 'boolean') this.data.pinTasksWithinGroups = cloudData.pinTasksWithinGroups;
@@ -8000,6 +8009,7 @@
                                 if (typeof cloudData.taskCheckboxPriorityColorEnabled === 'boolean') this.data.taskCheckboxPriorityColorEnabled = cloudData.taskCheckboxPriorityColorEnabled;
                                 if (typeof cloudData.docTabsAutoHideEnabled === 'boolean') this.data.docTabsAutoHideEnabled = cloudData.docTabsAutoHideEnabled;
                                 if (typeof cloudData.docTabsArchiveButtonPosition === 'string') this.data.docTabsArchiveButtonPosition = String(cloudData.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
+                                if (typeof cloudData.docTabsManualArchiveOnly === 'boolean') this.data.docTabsManualArchiveOnly = cloudData.docTabsManualArchiveOnly;
                                 if (typeof cloudData.docTabProcrastinationTintEnabled === 'boolean') this.data.docTabProcrastinationTintEnabled = cloudData.docTabProcrastinationTintEnabled;
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
                                 if (typeof cloudData.taskDoneDelightEnabled === 'boolean') this.data.taskDoneDelightEnabled = cloudData.taskDoneDelightEnabled;
@@ -8067,8 +8077,10 @@
                                 }
                                 if (typeof cloudData.calendarIcsWebdavUrl === 'string') this.data.calendarIcsWebdavUrl = cloudData.calendarIcsWebdavUrl;
                                 if (typeof cloudData.calendarIcsWebdavUsername === 'string') this.data.calendarIcsWebdavUsername = cloudData.calendarIcsWebdavUsername;
+                                if (typeof cloudData.calendarIcsWebdavPassword === 'string') this.data.calendarIcsWebdavPassword = cloudData.calendarIcsWebdavPassword;
                                 if (typeof cloudData.calendarIcsChainFileName === 'string') this.data.calendarIcsChainFileName = cloudData.calendarIcsChainFileName;
                                 if (typeof cloudData.calendarIcsChainPublicConfirmed === 'boolean') this.data.calendarIcsChainPublicConfirmed = cloudData.calendarIcsChainPublicConfirmed;
+                                if (typeof cloudData.calendarIcsIncludeTaskDates === 'boolean') this.data.calendarIcsIncludeTaskDates = cloudData.calendarIcsIncludeTaskDates;
                                 if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = __tmNormalizeCalendarInitialView(cloudData.calendarInitialView, this.data.calendarInitialView);
                                 if (typeof cloudData.calendarInitialViewDesktop === 'string') {
                                     this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(cloudData.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
@@ -8261,6 +8273,7 @@
                                 if (typeof cloudData.docTabSortMode === 'string') this.data.docTabSortMode = cloudData.docTabSortMode;
                                 if (typeof cloudData.docDisplayNameMode === 'string') this.data.docDisplayNameMode = cloudData.docDisplayNameMode;
                                 if (typeof cloudData.docTabsArchiveButtonPosition === 'string') this.data.docTabsArchiveButtonPosition = String(cloudData.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
+                                if (typeof cloudData.docTabsManualArchiveOnly === 'boolean') this.data.docTabsManualArchiveOnly = cloudData.docTabsManualArchiveOnly;
                                 if (typeof cloudData.aiEnabled === 'boolean') this.data.aiEnabled = cloudData.aiEnabled;
                                 if (Number(cloudData.scheduledEventsSchemaVersion) > 0) this.data.scheduledEventsSchemaVersion = Math.round(Number(cloudData.scheduledEventsSchemaVersion));
                                 if (Array.isArray(cloudData.scheduledEvents)) this.data.scheduledEvents = cloudData.scheduledEvents;
@@ -8430,6 +8443,9 @@
             this.data.whiteboardAllTabsCardMinWidth = Storage.get('tm_whiteboard_all_tabs_card_min_width', this.data.whiteboardAllTabsCardMinWidth);
             this.data.whiteboardStreamMobileTwoColumns = !!Storage.get('tm_whiteboard_stream_mobile_two_columns', this.data.whiteboardStreamMobileTwoColumns);
             this.data.docH2SubgroupEnabled = !!Storage.get('tm_doc_h2_subgroup_enabled', this.data.docH2SubgroupEnabled);
+            this.data.alwaysShowTaskDocHeadingGroups = Storage.has('tm_always_show_task_doc_heading_groups')
+                ? !!Storage.get('tm_always_show_task_doc_heading_groups', this.data.alwaysShowTaskDocHeadingGroups)
+                : !!Storage.get('tm_keep_completed_doc_heading_groups_visible', this.data.alwaysShowTaskDocHeadingGroups);
             this.data.groupByTaskName = !!Storage.get('tm_group_by_taskname', this.data.groupByTaskName);
             this.data.groupMode = Storage.get('tm_group_mode', this.data.groupMode);
             this.data.collapsedTaskIds = Storage.get('tm_collapsed_task_ids', []) || [];
@@ -8528,6 +8544,7 @@
             this.data.docTabSortMode = String(Storage.get('tm_doc_tab_sort_mode', this.data.docTabSortMode) || this.data.docTabSortMode || 'created_desc').trim() || 'created_desc';
             this.data.docDisplayNameMode = String(Storage.get('tm_doc_display_name_mode', this.data.docDisplayNameMode) || this.data.docDisplayNameMode || 'name').trim() || 'name';
             this.data.docTabsArchiveButtonPosition = String(Storage.get('tm_doc_tabs_archive_button_position', this.data.docTabsArchiveButtonPosition) || 'after-docs').trim() === 'before-all' ? 'before-all' : 'after-docs';
+            this.data.docTabsManualArchiveOnly = !!Storage.get('tm_doc_tabs_manual_archive_only', this.data.docTabsManualArchiveOnly);
             this.data.taskAutoWrapEnabled = Storage.get('tm_task_auto_wrap_enabled', this.data.taskAutoWrapEnabled);
             this.data.taskContentWrapMaxLines = Number(Storage.get('tm_task_content_wrap_max_lines', this.data.taskContentWrapMaxLines));
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
@@ -8563,8 +8580,20 @@
             }
             this.data.calendarIcsWebdavUrl = String(Storage.get('tm_calendar_ics_webdav_url', this.data.calendarIcsWebdavUrl) || '');
             this.data.calendarIcsWebdavUsername = String(Storage.get('tm_calendar_ics_webdav_username', this.data.calendarIcsWebdavUsername) || '');
+            try {
+                const rawWebdavPassword = localStorage.getItem('tm_calendar_ics_webdav_password');
+                if (rawWebdavPassword != null) {
+                    let webdavPassword = rawWebdavPassword;
+                    try {
+                        const parsedWebdavPassword = JSON.parse(rawWebdavPassword);
+                        if (typeof parsedWebdavPassword === 'string') webdavPassword = parsedWebdavPassword;
+                    } catch (e) {}
+                    this.data.calendarIcsWebdavPassword = String(webdavPassword || '');
+                }
+            } catch (e) {}
             this.data.calendarIcsChainFileName = String(Storage.get('tm_calendar_ics_chain_file_name', this.data.calendarIcsChainFileName) || '');
             this.data.calendarIcsChainPublicConfirmed = !!Storage.get('tm_calendar_ics_chain_public_confirmed', this.data.calendarIcsChainPublicConfirmed);
+            this.data.calendarIcsIncludeTaskDates = !!Storage.get('tm_calendar_ics_include_task_dates', this.data.calendarIcsIncludeTaskDates);
             this.data.calendarInitialView = __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view', this.data.calendarInitialView), this.data.calendarInitialView);
             this.data.calendarInitialViewDesktop = Storage.has('tm_calendar_initial_view_desktop')
                 ? __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view_desktop', this.data.calendarInitialViewDesktop), this.data.calendarInitialView || 'timeGridWeek')
@@ -8929,6 +8958,7 @@
             Storage.set('tm_whiteboard_all_tabs_card_min_width', Number(this.data.whiteboardAllTabsCardMinWidth) || 320);
             Storage.set('tm_whiteboard_stream_mobile_two_columns', !!this.data.whiteboardStreamMobileTwoColumns);
             Storage.set('tm_doc_h2_subgroup_enabled', !!this.data.docH2SubgroupEnabled);
+            Storage.set('tm_always_show_task_doc_heading_groups', !!this.data.alwaysShowTaskDocHeadingGroups);
             Storage.set('tm_group_by_taskname', !!this.data.groupByTaskName);
             Storage.set('tm_group_mode', String(this.data.groupMode || '').trim() || 'none');
             Storage.set('tm_collapsed_task_ids', this.data.collapsedTaskIds);
@@ -9018,6 +9048,7 @@
             Storage.set('tm_doc_tab_sort_mode', String(this.data.docTabSortMode || 'created_desc').trim() || 'created_desc');
             Storage.set('tm_doc_display_name_mode', __tmNormalizeDocDisplayNameMode(this.data.docDisplayNameMode));
             Storage.set('tm_doc_tabs_archive_button_position', String(this.data.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs');
+            Storage.set('tm_doc_tabs_manual_archive_only', !!this.data.docTabsManualArchiveOnly);
             Storage.set('tm_priority_icon_style', String(this.data.priorityIconStyle || 'jira').trim() === 'flag' ? 'flag' : 'jira');
             Storage.set('tm_task_auto_wrap_enabled', !!this.data.taskAutoWrapEnabled);
             Storage.set('tm_task_content_wrap_max_lines', Number(this.data.taskContentWrapMaxLines) || 3);
@@ -9052,8 +9083,10 @@
             Storage.set('tm_calendar_ics_calendar_name', String(this.data.calendarIcsCalendarName || '任务管理器'));
             Storage.set('tm_calendar_ics_webdav_url', String(this.data.calendarIcsWebdavUrl || ''));
             Storage.set('tm_calendar_ics_webdav_username', String(this.data.calendarIcsWebdavUsername || ''));
+            Storage.set('tm_calendar_ics_webdav_password', String(this.data.calendarIcsWebdavPassword || ''));
             Storage.set('tm_calendar_ics_chain_file_name', String(this.data.calendarIcsChainFileName || ''));
             Storage.set('tm_calendar_ics_chain_public_confirmed', !!this.data.calendarIcsChainPublicConfirmed);
+            Storage.set('tm_calendar_ics_include_task_dates', !!this.data.calendarIcsIncludeTaskDates);
             this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
             this.data.calendarInitialViewMobile = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewMobile, 'timeGridDay');
             this.data.calendarInitialView = this.data.calendarInitialViewDesktop;
@@ -9378,12 +9411,14 @@
             this.data.checklistCompactTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(this.data.checklistCompactTreeGuidesUpdatedAt);
             this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
             this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
+            this.data.alwaysShowTaskDocHeadingGroups = !!this.data.alwaysShowTaskDocHeadingGroups;
             this.data.taskAutoWrapEnabled = this.data.taskAutoWrapEnabled !== false;
             this.data.parentTaskNameBoldEnabled = this.data.parentTaskNameBoldEnabled !== false;
             this.data.taskCheckboxCircleStyleEnabled = !!this.data.taskCheckboxCircleStyleEnabled;
             this.data.taskCheckboxPriorityColorEnabled = this.data.taskCheckboxPriorityColorEnabled !== false;
             this.data.docTabsAutoHideEnabled = !!this.data.docTabsAutoHideEnabled;
             this.data.docTabsArchiveButtonPosition = String(this.data.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
+            this.data.docTabsManualArchiveOnly = !!this.data.docTabsManualArchiveOnly;
             this.data.docTabProcrastinationTintEnabled = this.data.docTabProcrastinationTintEnabled !== false;
             this.data.aiSideDockEnabled = this.data.aiSideDockEnabled !== false;
             {
@@ -17154,9 +17189,9 @@
                     
                     __tmRequestCalendarRefresh({
                         reason: 'task-tx-refresh',
-                        main: true,
-                        side: true,
-                        flushTaskPanel: true,
+                        main: String(state.viewMode || '').trim() === 'calendar',
+                        side: false,
+                        flushTaskPanel: false,
                         hard: false,
                     }, { hard: false });
                 } catch (e) {}

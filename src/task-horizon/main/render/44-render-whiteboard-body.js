@@ -6,6 +6,7 @@
 
         const __tmRenderWhiteboardBodyHtml = () => {
             const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+            const alwaysVisibleHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks();
             try { __tmUpsertWhiteboardTaskSnapshots(filtered, { persist: false }); } catch (e) {}
             const orderMap = new Map(filtered.map((t, i) => [String(t?.id || '').trim(), i]));
             const getOrder = (taskId) => orderMap.get(String(taskId || '').trim()) ?? 999999;
@@ -224,7 +225,13 @@
                     if (list.some((item) => String(item?.id || '').trim() === id)) return;
                     list.push(task);
                 });
-                const visibleDocIds0 = streamDocIds.filter((docId) => (streamByDoc.get(String(docId || '').trim()) || []).length > 0);
+                const alwaysVisibleHeadingDocIds = new Set(alwaysVisibleHeadingTasks
+                    .map((task) => String(task?.root_id || task?.docId || '').trim())
+                    .filter(Boolean));
+                const visibleDocIds0 = streamDocIds.filter((docId) => {
+                    const did = String(docId || '').trim();
+                    return (streamByDoc.get(did) || []).length > 0 || alwaysVisibleHeadingDocIds.has(did);
+                });
                 const orderedVisibleDocIds = __tmGetWhiteboardAllTabsOrderedDocIds(currentGroupId, visibleDocIds0);
                 state.whiteboardAllTabsVisibleDocIds = orderedVisibleDocIds.slice();
                 state.whiteboardAllTabsBaseDocIds = docsInOrder0.slice();
@@ -251,6 +258,8 @@
                 const cols = Array.from({ length: colCount }, () => ({ score: 0, items: [] }));
                 orderedVisibleDocIds.forEach((docId, idx) => {
                     const docTasks = (streamByDoc.get(docId) || []).slice();
+                    const alwaysVisibleDocHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks(docId);
+                    const headingOrderSource = docTasks.concat(alwaysVisibleDocHeadingTasks);
                     const taskById = new Map(docTasks.map((task) => [String(task?.id || '').trim(), task]).filter(([id]) => !!id));
                     const childMap = new Map();
                     const orderById = new Map(docTasks.map((task, order) => [String(task?.id || '').trim(), order]));
@@ -279,8 +288,11 @@
                     const completedRootIds = completedRootTasks
                         .map((task) => String(task?.id || '').trim())
                         .filter(Boolean);
-                    const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, docTasks);
-                    const headingBuckets = useDocH2Subgroup ? __tmBuildDocHeadingBuckets(docTasks, noHeadingLabel) : [];
+                    const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, headingOrderSource);
+                    const headingBuckets = useDocH2Subgroup ? __tmBuildDocHeadingBuckets(headingOrderSource, noHeadingLabel) : [];
+                    const alwaysVisibleHeadingBucketKeys = new Set(alwaysVisibleDocHeadingTasks
+                        .map((task) => String(__tmGetDocHeadingBucket(task, noHeadingLabel)?.key || '').trim())
+                        .filter(Boolean));
                     const rootIdsByHeading = new Map();
                     const headingCountMap = new Map();
                     if (useDocH2Subgroup) {
@@ -356,7 +368,7 @@
                         ? headingBuckets.map((bucket) => {
                             const key = String(bucket?.key || '').trim();
                             const rootIdsInBucket = (rootIdsByHeading.get(key) || []).slice().sort((a, b) => (orderById.get(a) ?? 999999) - (orderById.get(b) ?? 999999));
-                            if (!rootIdsInBucket.length) return '';
+                            if (!rootIdsInBucket.length && !alwaysVisibleHeadingBucketKeys.has(key)) return '';
                             const groupKey = `wb_stream_h2_${docId}_${key}`;
                             const groupCollapsed = state.collapsedGroups?.has(groupKey);
                             const headingCount = Number(headingCountMap.get(key) || rootIdsInBucket.length);

@@ -3,6 +3,7 @@
         const cleanupMap = new WeakMap();
         const TIMELINE_SCALE_ORDER = ['day', 'week', 'month'];
         const TIMELINE_AVERAGE_MONTH_DAYS = 365.2425 / 12;
+        const TIMELINE_MIN_RESIZE_WIDTH_PX = 22;
         const TIMELINE_SCALE_CONFIG = Object.freeze({
             day: Object.freeze({ label: '日', unitDays: 1, zoomWidths: Object.freeze([28, 32, 36, 40, 44]), snapDays: 1, windowDays: 397 }),
             week: Object.freeze({ label: '周', unitDays: 7, zoomWidths: Object.freeze([84, 98, 112, 126]), snapDays: 1, windowDays: 1095 }),
@@ -497,6 +498,9 @@
             const statusChipStyle = statusLabel ? __tmBuildStatusChipStyle(statusOption?.color || '#9ca3af') : '';
             const taskCompleteAtText = showTaskCompleteAt ? resolveTimelineTaskCompleteAtText(task) : '';
             const taskTitle = String(task?.content || '').trim() || '(无内容)';
+            const taskLevel = Number(task?.level);
+            const parentTaskId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+            const isParentTaskTitle = !!task && (Number.isFinite(taskLevel) ? taskLevel === 0 : !parentTaskId);
             return {
                 barColor,
                 statusLabel,
@@ -506,6 +510,7 @@
                 docId,
                 done,
                 isMilestone,
+                isParentTaskTitle,
                 iconName: isMilestone ? 'flag' : (done ? 'circle-check-big' : 'blocks'),
                 showTitle,
                 showLead: showTitle || !!statusLabel || !!taskCompleteAtText,
@@ -543,7 +548,7 @@
                 ? `<span class="${leadClassName}">${__tmRenderLucideIcon(visual.iconName, '', { size: 14 })}</span>`
                 : '';
             const titleHtml = visual.showTitle
-                ? `<span class="tm-gantt-bar__title">${esc(visual.taskTitle)}</span>`
+                ? `<span class="tm-gantt-bar__title${visual.isParentTaskTitle ? ' tm-parent-task-title' : ''}">${esc(visual.taskTitle)}</span>`
                 : '';
             const statusHtml = visual.statusLabel
                 ? `<span class="tm-gantt-bar__status"><span class="tm-status-tag" style="${visual.statusChipStyle}">${esc(visual.statusLabel)}</span></span>`
@@ -596,22 +601,25 @@
             const fadeStart = barWidth;
             const title = buildTimelineTaskBarTitle(layout, visual);
             const milestoneClass = visual.isMilestone ? ' tm-gantt-bar--milestone' : '';
-            const shortClass = barWidth < 22 ? ' tm-gantt-bar--short' : '';
-            return `<div class="tm-gantt-bar tm-gantt-bar--${mode}${isOverflow ? ' tm-gantt-bar--overflowing' : ''}${shortClass}${milestoneClass}" style="left:${Number(layout?.left) || 0}px;width:${barWidth}px;--tm-gantt-bar-fill:${visual.barColor};--tm-gantt-fade-start:${fadeStart}px;" title="${esc(title)}">${buildTimelineTaskBarInnerHtml(task, { ...layout, mode, overflow: isOverflow }, visual)}</div>`;
+            return `<div class="tm-gantt-bar tm-gantt-bar--${mode}${isOverflow ? ' tm-gantt-bar--overflowing' : ''}${milestoneClass}" style="left:${Number(layout?.left) || 0}px;width:${barWidth}px;--tm-gantt-bar-fill:${visual.barColor};--tm-gantt-fade-start:${fadeStart}px;" title="${esc(title)}">${buildTimelineTaskBarInnerHtml(task, { ...layout, mode, overflow: isOverflow }, visual)}</div>`;
         }
 
-        function buildTimelineMilestoneHtml(task, layout) {
-            const width = Math.max(22, Number(layout?.width) || Number(layout?.dayWidth) || 1);
+        function resolveTimelineMilestoneLayout(layout) {
+            const width = Math.max(TIMELINE_MIN_RESIZE_WIDTH_PX, Number(layout?.width) || Number(layout?.dayWidth) || 1);
             const pointTs = layout?.endTs || layout?.startTs;
             const centerLeft = Number(layout?.left) || 0;
-            return buildTimelineTaskBarHtml(task, {
+            return {
                 ...layout,
                 left: centerLeft - (width * 0.5),
                 width,
                 dayWidth: Number(layout?.dayWidth) || width,
                 startTs: pointTs,
                 endTs: pointTs,
-            });
+            };
+        }
+
+        function buildTimelineMilestoneHtml(task, layout) {
+            return buildTimelineTaskBarHtml(task, resolveTimelineMilestoneLayout(layout));
         }
 
         function getTimelineBarLocalGeometry(barEl) {
@@ -648,12 +656,11 @@
             const width = Math.max(1, Number(layout?.width) || 0);
             const fadeStart = width;
             const title = buildTimelineTaskBarTitle(layout, visual);
-            const shortClass = width < 22 ? ' tm-gantt-bar--short' : '';
             const keepDragging = barEl.classList.contains('tm-gantt-bar--dragging');
             const keepResizeStart = barEl.classList.contains('tm-gantt-bar--resizing-start');
             const keepResizeEnd = barEl.classList.contains('tm-gantt-bar--resizing-end');
             const keepHintStart = barEl.classList.contains('tm-gantt-bar--hint-start');
-            barEl.className = `tm-gantt-bar tm-gantt-bar--${mode}${isOverflow ? ' tm-gantt-bar--overflowing' : ''}${shortClass}${visual.isMilestone ? ' tm-gantt-bar--milestone' : ''}`;
+            barEl.className = `tm-gantt-bar tm-gantt-bar--${mode}${isOverflow ? ' tm-gantt-bar--overflowing' : ''}${visual.isMilestone ? ' tm-gantt-bar--milestone' : ''}`;
             if (keepDragging) barEl.classList.add('tm-gantt-bar--dragging');
             if (keepResizeStart) barEl.classList.add('tm-gantt-bar--resizing-start');
             if (keepResizeEnd) barEl.classList.add('tm-gantt-bar--resizing-end');
@@ -1198,8 +1205,189 @@
             renderDependencies();
             state.__tmTimelineRenderDeps = renderDependencies;
             let suppressCtrlClickSelectionToggle = null;
+            let selectionToolbarPositionRaf = 0;
+            const selectionToolbar = (() => {
+                const toolbar = document.createElement('div');
+                toolbar.className = 'tm-timeline-selection-toolbar';
+                toolbar.setAttribute('role', 'toolbar');
+                toolbar.setAttribute('aria-label', '时间轴任务操作');
+                toolbar.hidden = true;
+                toolbar.innerHTML = `
+                    <button type="button" class="tm-timeline-selection-toolbar__btn" data-tm-gantt-selection-action="detail" aria-label="打开任务详情" title="打开任务详情" data-tm-floating-tooltip-label="打开任务详情" data-tm-tooltip-side="bottom">${__tmRenderLucideIcon('file-text')}</button>
+                    <button type="button" class="tm-timeline-selection-toolbar__btn" data-tm-gantt-selection-action="milestone" aria-label="转为里程碑" title="转为里程碑" data-tm-floating-tooltip-label="转为里程碑" data-tm-tooltip-side="bottom">${__tmRenderLucideIcon('flag')}</button>
+                    <button type="button" class="tm-timeline-selection-toolbar__btn tm-timeline-selection-toolbar__btn--danger" data-tm-gantt-selection-action="clear" aria-label="清除起止日期" title="清除起止日期" data-tm-floating-tooltip-label="清除起止日期" data-tm-tooltip-side="bottom">${__tmRenderLucideIcon('trash-2')}</button>
+                `;
+                document.body.appendChild(toolbar);
+                return toolbar;
+            })();
+
+            const isTimelineTaskMilestone = (task, taskId = '') => {
+                const id = String(taskId || task?.id || '').trim();
+                const rowEl = id ? bodyEl.querySelector(`.tm-gantt-row[data-id="${CSS.escape(id)}"]`) : null;
+                const barEl = rowEl?.querySelector?.('.tm-gantt-bar');
+                if (barEl instanceof Element) return barEl.classList.contains('tm-gantt-bar--milestone');
+                const raw = task?.milestone;
+                return typeof raw === 'boolean'
+                    ? raw
+                    : ['1', 'true'].includes(String(raw || '').trim().toLowerCase());
+            };
+
+            const positionTimelineSelectionToolbar = () => {
+                if (!(selectionToolbar instanceof HTMLElement) || selectionToolbar.hidden) return;
+                const taskId = String(selectionToolbar.dataset.tmTaskId || '').trim();
+                const rowEl = taskId ? bodyEl.querySelector(`.tm-gantt-row[data-id="${CSS.escape(taskId)}"]`) : null;
+                const barEl = rowEl?.querySelector?.('.tm-gantt-bar, .tm-gantt-milestone');
+                if (!(barEl instanceof HTMLElement) || !barEl.isConnected) {
+                    selectionToolbar.style.visibility = 'hidden';
+                    return;
+                }
+                const barRect = barEl.getBoundingClientRect();
+                const scrollHost = bodyEl.closest('.tm-body.tm-body--timeline') || bodyEl;
+                const hostRect = scrollHost.getBoundingClientRect();
+                const viewportWidth = Math.max(0, Number(document.documentElement?.clientWidth || window.innerWidth || 0));
+                const viewportHeight = Math.max(0, Number(document.documentElement?.clientHeight || window.innerHeight || 0));
+                const visibleLeft = Math.max(0, hostRect.left);
+                const visibleRight = Math.min(viewportWidth, hostRect.right);
+                const visibleTop = Math.max(0, hostRect.top);
+                const visibleBottom = Math.min(viewportHeight, hostRect.bottom);
+                if (barRect.right < visibleLeft || barRect.left > visibleRight || barRect.bottom < visibleTop || barRect.top > visibleBottom) {
+                    selectionToolbar.style.visibility = 'hidden';
+                    return;
+                }
+                const toolbarRect = selectionToolbar.getBoundingClientRect();
+                const margin = 8;
+                const minLeft = Math.max(margin, visibleLeft + margin);
+                const maxLeft = Math.max(minLeft, Math.min(viewportWidth - toolbarRect.width - margin, visibleRight - toolbarRect.width - margin));
+                const centeredLeft = barRect.left + (barRect.width - toolbarRect.width) * 0.5;
+                const left = clamp(centeredLeft, minLeft, maxLeft);
+                let top = barRect.top - toolbarRect.height - margin;
+                let placement = 'above';
+                if (top < visibleTop + margin) {
+                    top = barRect.bottom + margin;
+                    placement = 'below';
+                }
+                if (top + toolbarRect.height > visibleBottom - margin) {
+                    top = Math.max(visibleTop + margin, barRect.top - toolbarRect.height - margin);
+                    placement = 'above';
+                }
+                selectionToolbar.style.left = `${Math.round(left)}px`;
+                selectionToolbar.style.top = `${Math.round(top)}px`;
+                selectionToolbar.style.visibility = 'visible';
+                selectionToolbar.dataset.tmPlacement = placement;
+            };
+
+            const scheduleTimelineSelectionToolbarPosition = () => {
+                if (selectionToolbarPositionRaf) cancelAnimationFrame(selectionToolbarPositionRaf);
+                selectionToolbarPositionRaf = requestAnimationFrame(() => {
+                    selectionToolbarPositionRaf = 0;
+                    positionTimelineSelectionToolbar();
+                });
+            };
+
+            const syncTimelineSelectionToolbar = (taskId = state.timelineDotPinnedTaskId, milestoneOverride = null) => {
+                if (!(selectionToolbar instanceof HTMLElement)) return;
+                const hasMultiSelection = Array.isArray(state.timelineMultiSelectedTaskIds) && state.timelineMultiSelectedTaskIds.length > 0;
+                const id = hasMultiSelection ? '' : String(taskId || '').trim();
+                const task = id ? getTaskById(id) : null;
+                if (!id || !task) {
+                    selectionToolbar.hidden = true;
+                    selectionToolbar.style.visibility = 'hidden';
+                    selectionToolbar.dataset.tmTaskId = '';
+                    selectionToolbar.dataset.tmMilestone = '';
+                    return;
+                }
+                selectionToolbar.dataset.tmTaskId = id;
+                const detailButton = selectionToolbar.querySelector('[data-tm-gantt-selection-action="detail"]');
+                if (detailButton instanceof HTMLButtonElement) detailButton.disabled = typeof window.tmOpenTaskDetail !== 'function';
+                const milestoneButton = selectionToolbar.querySelector('[data-tm-gantt-selection-action="milestone"]');
+                const isMilestone = typeof milestoneOverride === 'boolean'
+                    ? milestoneOverride
+                    : isTimelineTaskMilestone(task, id);
+                selectionToolbar.dataset.tmMilestone = isMilestone ? '1' : '0';
+                if (milestoneButton instanceof HTMLButtonElement) {
+                    const label = isMilestone ? '还原普通时间轴' : '转为里程碑';
+                    milestoneButton.classList.toggle('tm-timeline-selection-toolbar__btn--active', isMilestone);
+                    milestoneButton.setAttribute('aria-pressed', isMilestone ? 'true' : 'false');
+                    milestoneButton.setAttribute('aria-label', label);
+                    milestoneButton.setAttribute('title', label);
+                    milestoneButton.dataset.tmFloatingTooltipLabel = label;
+                    milestoneButton.disabled = !onUpdateTaskMeta;
+                }
+                const clearButton = selectionToolbar.querySelector('[data-tm-gantt-selection-action="clear"]');
+                if (clearButton instanceof HTMLButtonElement) clearButton.disabled = !onUpdateTaskDates;
+                selectionToolbar.hidden = false;
+                selectionToolbar.style.visibility = 'hidden';
+                positionTimelineSelectionToolbar();
+            };
+
+            const clearTimelineTaskSelection = () => {
+                state.timelineDotPinnedTaskId = '';
+                try { bodyEl.querySelectorAll('.tm-gantt-row--dot-open,.tm-gantt-row--selected').forEach(el => { el.classList.remove('tm-gantt-row--dot-open'); el.classList.remove('tm-gantt-row--selected'); }); } catch (e2) {}
+                syncTimelineSelectionToolbar('');
+            };
+
+            const onTimelineSelectionToolbarClick = async (e) => {
+                const button = e?.target?.closest?.('[data-tm-gantt-selection-action]');
+                if (!(button instanceof HTMLButtonElement) || button.disabled || button.dataset.tmBusy === '1') return;
+                const taskId = String(selectionToolbar?.dataset?.tmTaskId || '').trim();
+                const task = taskId ? getTaskById(taskId) : null;
+                if (!taskId || !task) return;
+                try { e.preventDefault(); } catch (e2) {}
+                try { e.stopPropagation(); } catch (e2) {}
+                button.dataset.tmBusy = '1';
+                button.disabled = true;
+                const action = String(button.dataset.tmGanttSelectionAction || '').trim();
+                try {
+                    if (action === 'detail') {
+                        clearTimelineTaskSelection();
+                        await window.tmOpenTaskDetail?.(taskId, null, { source: 'timeline-selection-toolbar' });
+                        return;
+                    }
+                    if (action === 'milestone' && onUpdateTaskMeta) {
+                        const currentMilestone = selectionToolbar.dataset.tmMilestone === '1'
+                            ? true
+                            : selectionToolbar.dataset.tmMilestone === '0'
+                                ? false
+                                : isTimelineTaskMilestone(task, taskId);
+                        const nextMilestone = !currentMilestone;
+                        if (nextMilestone && !String(task?.completionTime || '').trim()) {
+                            hint('⚠️ 请先设置截止日期后再设为里程碑', 'error');
+                            return;
+                        }
+                        await onUpdateTaskMeta(taskId, { milestone: nextMilestone });
+                        try { hint(nextMilestone ? '✅ 已设为里程碑' : '✅ 已还原普通时间轴', 'success'); } catch (e2) {}
+                        syncTimelineSelectionToolbar(taskId, nextMilestone);
+                        return;
+                    }
+                    if (action === 'clear' && onUpdateTaskDates) {
+                        await onUpdateTaskDates(taskId, { startDate: '', completionTime: '' });
+                        clearTimelineTaskSelection();
+                        try { hint('✅ 已清除时间轴', 'success'); } catch (e2) {}
+                    }
+                } catch (error) {
+                    if (!error?.__tmGanttUpdateHinted) {
+                        try { hint(`❌ 操作失败: ${error?.message || String(error)}`, 'error'); } catch (e2) {}
+                    }
+                } finally {
+                    button.dataset.tmBusy = '';
+                    if (button.isConnected && !selectionToolbar.hidden) button.disabled = false;
+                }
+            };
+            selectionToolbar.addEventListener('click', onTimelineSelectionToolbarClick);
+            const selectionToolbarScrollHost = bodyEl.closest('.tm-body.tm-body--timeline');
+            globalThis.__tmRuntimeEvents?.on?.(bodyEl, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true });
+            if (selectionToolbarScrollHost && selectionToolbarScrollHost !== bodyEl) {
+                globalThis.__tmRuntimeEvents?.on?.(selectionToolbarScrollHost, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true });
+            }
+            globalThis.__tmRuntimeEvents?.on?.(window, 'resize', scheduleTimelineSelectionToolbarPosition, { passive: true });
+            syncTimelineSelectionToolbar();
+
             const setTimelineDraggingX = (on) => {
                 try { bodyEl.classList.toggle('tm-gantt-body--dragging-x', !!on); } catch (e) {}
+                if (selectionToolbar instanceof HTMLElement) {
+                    if (on) selectionToolbar.style.visibility = 'hidden';
+                    else scheduleTimelineSelectionToolbarPosition();
+                }
             };
 
             const openGanttTaskContextMenu = (taskId, anchor) => {
@@ -1210,10 +1398,7 @@
                 if (!(rowEl instanceof Element) || rowEl.classList.contains('tm-gantt-row--group')) return;
                 const task = getTaskById(taskIdText);
                 if (!task) return;
-                const milestoneRaw = task?.milestone;
-                const isMilestone = typeof milestoneRaw === 'boolean'
-                    ? milestoneRaw
-                    : ['1', 'true'].includes(String(milestoneRaw || '').trim().toLowerCase());
+                const isMilestone = isTimelineTaskMilestone(task, taskIdText);
                 const x0 = Number(anchor?.x);
                 const y0 = Number(anchor?.y);
                 const x = Number.isFinite(x0) ? x0 : 12;
@@ -1276,7 +1461,17 @@
                     return item;
                 };
 
-                menu.appendChild(createItem('🧹 清除时间轴（清空起止）', async () => {
+                if (typeof window.tmOpenTaskDetail === 'function') {
+                    menu.appendChild(createItem(__tmRenderContextMenuLabel('file-text', '打开任务详情'), async () => {
+                        try {
+                            await window.tmOpenTaskDetail(String(taskIdText), null, { source: 'timeline-context-menu' });
+                        } catch (e2) {
+                            try { hint(`❌ 打开失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                        }
+                    }));
+                }
+
+                menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '清除时间轴（清空起止）'), async () => {
                     try {
                         await onUpdateTaskDates(String(taskIdText), { startDate: '', completionTime: '' });
                         try { hint('✅ 已清除时间轴', 'success'); } catch (e3) {}
@@ -1383,6 +1578,7 @@
                     state.timelineMultiSelectedTaskIds = Array.from(selectedSet);
                     suppressCtrlClickSelectionToggle = { taskId, at: Date.now() };
                     try { rowEl.classList.add('tm-gantt-row--multi-selected'); } catch (e2) {}
+                    syncTimelineSelectionToolbar('');
                     try { e.preventDefault(); } catch (e3) {}
                     try { e.stopPropagation(); } catch (e3) {}
                     return;
@@ -1402,6 +1598,11 @@
                 const initialStartIdx = clamp(Math.round(initialLeftPx / dayWidth0), 0, dayCount0 - 1);
                 const initialLen = Math.max(1, Math.round(initialWidthPx / dayWidth0));
                 const initialEndIdx = clamp(initialStartIdx + initialLen - 1, 0, dayCount0 - 1);
+                const initialVisibleLen = initialEndIdx - initialStartIdx + 1;
+                const minimumResizeDays = Math.min(
+                    initialVisibleLen,
+                    Math.max(1, Math.ceil(TIMELINE_MIN_RESIZE_WIDTH_PX / dayWidth0))
+                );
 
                 let lastStartIdx = initialStartIdx;
                 let lastEndIdx = initialEndIdx;
@@ -1553,9 +1754,17 @@
                         return;
                     }
                     if (action === 'start') {
-                        applyBar(initialStartIdx + deltaDays, initialEndIdx);
+                        const nextStart = Math.min(
+                            initialStartIdx + deltaDays,
+                            initialEndIdx - minimumResizeDays + 1
+                        );
+                        applyBar(nextStart, initialEndIdx);
                     } else if (action === 'end') {
-                        applyBar(initialStartIdx, initialEndIdx + deltaDays);
+                        const nextEnd = Math.max(
+                            initialEndIdx + deltaDays,
+                            initialStartIdx + minimumResizeDays - 1
+                        );
+                        applyBar(initialStartIdx, nextEnd);
                     } else {
                         const len = Math.max(1, initialEndIdx - initialStartIdx + 1);
                         let nextStart = initialStartIdx + deltaDays;
@@ -1855,8 +2064,7 @@
                 const rowEl = target.closest('.tm-gantt-row');
                 if (!(rowEl instanceof Element) || rowEl.classList.contains('tm-gantt-row--group')) {
                     if (String(state.timelineDotPinnedTaskId || '').trim()) {
-                        state.timelineDotPinnedTaskId = '';
-                        try { bodyEl.querySelectorAll('.tm-gantt-row--dot-open,.tm-gantt-row--selected').forEach(el => { el.classList.remove('tm-gantt-row--dot-open'); el.classList.remove('tm-gantt-row--selected'); }); } catch (e2) {}
+                        clearTimelineTaskSelection();
                     }
                     return;
                 }
@@ -1866,8 +2074,7 @@
                 const isBarClick = !!target.closest('.tm-gantt-bar, .tm-gantt-milestone');
                 if (!isBarClick) {
                     if (String(state.timelineDotPinnedTaskId || '').trim()) {
-                        state.timelineDotPinnedTaskId = '';
-                        try { bodyEl.querySelectorAll('.tm-gantt-row--dot-open,.tm-gantt-row--selected').forEach(el => { el.classList.remove('tm-gantt-row--dot-open'); el.classList.remove('tm-gantt-row--selected'); }); } catch (e2) {}
+                        clearTimelineTaskSelection();
                     }
                     if (!withMultiModifier) {
                         state.timelineMultiSelectedTaskIds = [];
@@ -1883,6 +2090,7 @@
                         suppressCtrlClickSelectionToggle = null;
                         try { e.preventDefault(); } catch (e2) {}
                         try { e.stopPropagation(); } catch (e2) {}
+                        syncTimelineSelectionToolbar('');
                         return;
                     }
                     const set = new Set(
@@ -1899,6 +2107,7 @@
                     } catch (e2) {}
                     try { e.preventDefault(); } catch (e2) {}
                     try { e.stopPropagation(); } catch (e2) {}
+                    syncTimelineSelectionToolbar('');
                     return;
                 }
                 if (Array.isArray(state.timelineMultiSelectedTaskIds) && state.timelineMultiSelectedTaskIds.length) {
@@ -1912,6 +2121,7 @@
                 if (next) {
                     try { rowEl.classList.add('tm-gantt-row--dot-open', 'tm-gantt-row--selected'); } catch (e2) {}
                 }
+                syncTimelineSelectionToolbar(next);
             };
 
             globalThis.__tmRuntimeEvents?.on?.(bodyEl, 'pointerdown', onPointerDown, { passive: false });
@@ -1927,6 +2137,15 @@
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'dblclick', onDblClick); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'contextmenu', onContextMenu); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'click', onClick); } catch (e) {}
+                try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true }); } catch (e) {}
+                try { globalThis.__tmRuntimeEvents?.off?.(selectionToolbarScrollHost, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true }); } catch (e) {}
+                try { globalThis.__tmRuntimeEvents?.off?.(window, 'resize', scheduleTimelineSelectionToolbarPosition, { passive: true }); } catch (e) {}
+                try { selectionToolbar.removeEventListener('click', onTimelineSelectionToolbarClick); } catch (e) {}
+                try { selectionToolbar.remove(); } catch (e) {}
+                if (selectionToolbarPositionRaf) {
+                    try { cancelAnimationFrame(selectionToolbarPositionRaf); } catch (e) {}
+                    selectionToolbarPositionRaf = 0;
+                }
                 try { setMobileTimelineTouchLock(false); } catch (e) {}
                 if (state.__tmTimelineRenderDeps === renderDependencies) state.__tmTimelineRenderDeps = null;
             });
@@ -1950,6 +2169,7 @@
             DAY_MS,
             TIMELINE_MAX_DAY_COUNT,
             resolveTimelineBarLayout,
+            resolveTimelineMilestoneLayout,
             buildTimelineTaskBarHtml,
             buildTimelineMilestoneHtml,
             applyTimelineTaskBarElement,

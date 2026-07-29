@@ -18,104 +18,9 @@
         benefits: '功能权益',
         about: '关于'
     });
-    const TM_SETTINGS_SEARCH_MAIN_GROUPS = Object.freeze([
-        { section: 'display', titles: ['基础显示', '字体大小', '移动端字体', '行高模式', '行高(px)', '父任务名称加粗', '自动换行', '内容行数', '备注行数', '任务标题级别', '完成反馈', '文档名称显示'] },
-        { section: 'new-task', titles: ['新建任务', '新建任务位置', '默认新建文档', '今天日记', '上次选择', '今天日记默认笔记本', '启用“移动内容至今天日记”', '日记追加到底部', '标题分组追加到内容末尾', '新建任务默认置顶', '子任务继承父任务字段'] },
-        { section: 'status', titles: ['状态选项', '勾选完成时状态', '未完成状态默认状态', '子任务全部完成后自动完成父任务', '间隔重复', 'FSRS', '目标记忆率', '最大复习间隔', '分散复习日期'] },
-        { section: 'layout', titles: ['视图布局', '默认视图', '移动端默认', '自动隐藏页签栏', '页签拖延值上色', '启用 Dock 侧边栏', 'Dock 默认视图', 'Dock 紧凑标题点击跳转', '移动端清单紧凑视图标题点击跳转', '标题点击弹出详情页面', 'Dock 及移动端紧凑右侧字段', '桌面端紧凑右侧字段', '紧凑右侧字体', '时间轴卡片字段', '看板紧凑模式', '清单紧凑模式', '清单紧凑层级线', '看板宽度', '表格和看板宽度填满窗口', '看板卡片字段', '白板卡片字段', '删除任务同步删除白板卡片', '白板顺序依据', '白板文字默认字号', '卡片字段常驻显示', '卡片流最小宽度', '移动端卡片流双栏', '单独已完成看板列', '看板拖动父任务时同步更改子任务状态', '看板内子任务不与父任务分离', '时长显示格式', '实际番茄数属性名', '预计番茄数属性名'] },
-        { section: 'search', titles: ['搜索分组', '搜索与分组', '递归文档数上限', '兼容旧版 Win7 思源', '父任务回溯层数', '显示已完成任务', '已完成分组仅显示今天完成', '已完成任务不单独分组', '文档分组下按二级标题子分组', '分组模式增加“按任务名分组”', '分组内置顶任务', '自动识别语义日期（全量分批）', '语义截止默认提醒时间', '父任务按子任务时间参与时间相关排序', '全部折叠展开包含分组', '手动刷新时同步伺服共享设置', '手动刷新时同步当前分组/规则等会话状态'] },
-        { section: 'topbar', titles: ['顶栏入口', '文档顶栏按钮(桌面)', '文档顶栏按钮(移动)', '对调文档顶栏长短按', '打开时定位当前文档', '思源窗口顶栏图标(桌面)', '思源窗口顶栏图标(移动)'] },
-        { section: 'quickbar', titles: ['悬浮条', '任务悬浮条', '启用任务悬浮条', '文档任务行末尾常驻显示', '悬浮条显示图标', '常驻显示字段', '子任务数量显示未完成数', '移动端启用常驻显示'] },
-        { section: 'tomato', titles: ['番茄钟/联动', '番茄钟与插件联动', '启用底栏番茄钟相关功能', '耗时读取模式', '分钟属性名', '小时属性名', '启用凡人修仙传:打卡插件联动', '不联动的文档分组', '启用任务逾期扣分', '截止日过期扣分', '日程过期扣分', '检查时间', '弹窗确认扣分'] }
-    ]);
-    const TM_SETTINGS_SEARCH_CALENDAR_TITLES = Object.freeze([
-        '任务日期跟随日程',
-        '启用日历视图',
-        '联通底栏番茄钟',
-        '桌面端默认视图',
-        '移动端/Dock侧边栏默认视图',
-        '日历起始日',
-        '3日视图今天位置',
-        '默认折叠桌面端日历左侧侧边栏',
-        '侧边栏默认打开区域',
-        '显示起始时间',
-        '显示结束时间',
-        '每小时格子高度',
-        '月视图自适应行高',
-        '月视图最少展示日程',
-        '日程默认最大新建时长',
-        '文档中块菜单添加至今天日程的默认时间',
-        '自定义添加时间',
-        '显示农历',
-        '月视图隐藏番茄钟',
-        '显示休息记录',
-        '显示闲置记录',
-        '显示任务提醒',
-        '显示跨天任务',
-        '显示已完成全天日程',
-        '全天区隐藏已安排任务',
-        '其他块显示复选框',
-        '日程提醒',
-        '日程默认提醒',
-        '系统弹窗提醒',
-        '微信提醒',
-        '全天事件提醒',
-        '跨天事项全天提醒',
-        '全天汇总包含番茄/节日',
-        '全天提醒时间',
-        '跨天任务颜色',
-        '日程跟随文档颜色',
-        '提供方',
-        '日历名称',
-        'WebDAV 目录 URL',
-        'WebDAV 用户名',
-        'WebDAV 密码',
-        '坚果云订阅',
-        '链滴公开订阅',
-        '启用 ICS 上传',
-        '发布方式',
-        '数据范围',
-        '最近成功',
-        '最近错误',
-        '订阅 URL'
-    ]);
-    const TM_SETTINGS_SEARCH_PAGE_ITEMS = Object.freeze([
-        { tab: 'docs', title: '文档分组与管理', desc: '选择分组，管理文档来源、排除文档和搜索优化' },
-        { tab: 'docs', title: '数据导入', desc: '导入滴答 CSV，自动创建文档、二级标题和任务块' },
-        { tab: 'appearance', title: '列设置', desc: '显示、排序、宽度和自定义列' },
-        { tab: 'appearance', title: '插件图标', desc: '统一更换顶栏、文档栏、页签、Dock 侧栏和插件顶栏左上角图标' },
-        { tab: 'appearance', section: 'columns', key: 'appearance-task-meta-attr-migration', title: '高级：内置字段属性名与迁移', desc: '自定义开始日期、截止日期、重要性、状态、完成时间等内置字段属性名，并可选择迁移旧任务字段' },
-        { tab: 'appearance', title: '页签栏', desc: '归档入口位置' },
-        { tab: 'appearance', title: '顶栏按钮', desc: '控制新建、搜索、刷新和 AI 工作台按钮的显示' },
-        { tab: 'appearance', title: '任务复选框', desc: '使用圆形任务复选框样式，按重要性上色' },
-        { tab: 'appearance', title: '配色', desc: '调整主题、看板、时间轴和顶栏颜色' },
-        { tab: 'calendar', title: '日历', desc: '日历视图与日程相关设置' },
-        { tab: 'ai', section: 'ai-mode', title: 'AI 工作方式', desc: '在思源智能体与旧版插件 AI 之间切换' },
-        { tab: 'ai', section: 'ai-agent', title: '思源智能体', desc: '使用思源统一管理的模型、文档处理、会话和通用工具' },
-        { tab: 'ai', section: 'ai-agent', title: '启用 AI 功能', desc: '显示任务管理器内的智能体工作台入口' },
-        { tab: 'ai', section: 'ai-mode', title: '对话字体大小', desc: '调整 AI 对话中用户和助手正文的字号' },
-        { tab: 'ai', section: 'ai-agent', title: '启用任务 MCP 工具', desc: '按任务、日程、提醒、安排规则和统计分组开关思源智能体工具' },
-        { tab: 'ai', section: 'ai-agent', title: '工作流程', desc: '任务收集、计划、复盘和模板' },
-        { tab: 'ai', section: 'ai-connection', title: '供应商', desc: '旧版 AI 的 MiniMax、DeepSeek、OpenAI 兼容和 Anthropic 兼容设置' },
-        { tab: 'ai', section: 'ai-connection', title: 'API Key', desc: '旧版 AI 服务密钥' },
-        { tab: 'ai', section: 'ai-connection', title: 'Base URL', desc: '旧版 AI 服务地址' },
-        { tab: 'ai', section: 'ai-connection', title: '模型', desc: '旧版 AI 模型名称' },
-        { tab: 'ai', section: 'ai-connection', title: '默认上下文模式', desc: '旧版 AI 的附近块或全文上下文' },
-        { tab: 'ai', section: 'ai-scheduled', key: 'ai-scheduled-events', title: '定时事件', desc: '创建、启停、编辑、立即运行并查看自动化结果' },
-        { tab: 'ai', section: 'ai-scheduled', key: 'ai-scheduled-summary', title: '每日完成总结', desc: '每天 19:00 汇总当天实际完成的任务' },
-        { tab: 'ai', section: 'ai-policy', key: 'ai-policy', title: '安排规则', desc: '默认时长、时间地图、固定占用、优先级和默认日历' },
-        { tab: 'rules', title: '规则管理', desc: '筛选规则、排序规则和优先级算法入口' },
-        { tab: 'rules', title: '筛选规则管理', desc: '新建、编辑、应用和删除筛选规则' },
-        { tab: 'rules', title: '时间轴强制按截止日期排序', desc: '时间轴规则排序行为' },
-        { tab: 'quadrant', title: '四象限', desc: '按重要性和截止日期自动分配象限' },
-        { tab: 'quadrant', title: '四象限分组规则', desc: '配置四象限规则' },
-        { tab: 'priority', title: '优先级算法', desc: '配置任务优先级评分权重和规则' },
-        { tab: 'benefits', title: '功能权益', desc: '查看全功能试用、年付、永久权益和付款说明' },
-        { tab: 'benefits', title: '付款说明', desc: '提供用户名，或通过 QQ 群和邮件提供付款信息' },
-        { tab: 'about', title: '关于', desc: '版本、设备识别和诊断信息' },
-        { tab: 'about', title: '复制诊断', desc: '复制设备识别诊断报告' }
-    ]);
-
+    const TM_SETTINGS_SEARCH_INDEX_TABS = Object.freeze(Object.keys(TM_SETTINGS_SEARCH_TAB_LABELS));
+    let __tmSettingsSearchCaptureBuffer = null;
+    let __tmSettingsSearchIndexBuilding = false;
     function __tmNormalizeSettingsSearchTab(tab) {
         const v = String(tab || '').trim();
         if (v === 'scheduled') return 'ai';
@@ -165,6 +70,16 @@
         const descText = __tmPlainSettingsSearchText(desc);
         const section = String(opt?.section || '').trim();
         const key = String(opt?.key || __tmBuildSettingsSearchKey(normalizedTab, titleText, section)).trim();
+        if (Array.isArray(__tmSettingsSearchCaptureBuffer)) {
+            __tmSettingsSearchCaptureBuffer.push({
+                tab: normalizedTab,
+                section,
+                title: titleText,
+                desc: descText,
+                key,
+                rendered: true
+            });
+        }
         return [
             `data-tm-settings-search-key="${esc(key)}"`,
             `data-tm-settings-search-tab="${esc(normalizedTab)}"`,
@@ -185,36 +100,6 @@
         const sectionLabel = __tmGetSettingsSearchSectionLabel(section, tab);
         const haystack = __tmNormalizeSettingsSearchText([title, desc, tabLabel, sectionLabel].filter(Boolean).join(' '));
         return { tab, title, desc, section, key, tabLabel, sectionLabel, haystack, rendered: !!raw.rendered };
-    }
-
-    function __tmGetSettingsSearchStaticEntries() {
-        const entries = [];
-        TM_SETTINGS_SEARCH_PAGE_ITEMS.forEach((item) => {
-            const entry = __tmCreateSettingsSearchEntry(item);
-            if (entry) entries.push(entry);
-        });
-        TM_SETTINGS_SEARCH_MAIN_GROUPS.forEach((group) => {
-            const section = String(group?.section || '').trim();
-            const sectionLabel = __tmGetSettingsSearchSectionLabel(section, 'main');
-            (Array.isArray(group?.titles) ? group.titles : []).forEach((title) => {
-                const entry = __tmCreateSettingsSearchEntry({
-                    tab: 'main',
-                    section,
-                    title,
-                    desc: sectionLabel
-                });
-                if (entry) entries.push(entry);
-            });
-        });
-        TM_SETTINGS_SEARCH_CALENDAR_TITLES.forEach((title) => {
-            const entry = __tmCreateSettingsSearchEntry({
-                tab: 'calendar',
-                title,
-                desc: '日历设置'
-            });
-            if (entry) entries.push(entry);
-        });
-        return entries;
     }
 
     function __tmDecorateCalendarSettingsSearchRows(root) {
@@ -264,7 +149,13 @@
 
     function __tmGetSettingsSearchEntries() {
         const map = new Map();
-        __tmGetSettingsSearchStaticEntries().forEach((entry) => {
+        Object.entries(TM_SETTINGS_SEARCH_TAB_LABELS).forEach(([tab, title]) => {
+            const entry = __tmCreateSettingsSearchEntry({ tab, title, desc: '设置页' });
+            if (!entry) return;
+            map.set(`${entry.tab}:${entry.key}`, entry);
+        });
+        (Array.isArray(state.settingsSearchGeneratedEntries) ? state.settingsSearchGeneratedEntries : []).forEach((entry) => {
+            if (!entry) return;
             map.set(`${entry.tab}:${entry.key}`, entry);
         });
         __tmDecorateCalendarSettingsSearchRows(state.settingsModal);
@@ -319,6 +210,7 @@
         const q = String(query || '').trim();
         const isOpen = !!q && state.settingsSearchResultsOpen !== false;
         if (!isOpen) return '';
+        if (__tmSettingsSearchIndexBuilding) return '';
         const results = __tmGetSettingsSearchResults(q, activeTab);
         if (!results.length) {
             return '<div class="tm-settings-search-empty">未找到设置项</div>';
@@ -1778,7 +1670,7 @@
             `;
         };
 
-        state.settingsModal.innerHTML = `
+        const renderSettingsModalMarkup = () => `
             <div class="tm-settings-box" style="overflow: hidden;">
                 <div class="tm-settings-layout">
                     <div class="tm-settings-sidebar">
@@ -1820,8 +1712,14 @@
                             <div style="font-size:13px;color:var(--tm-secondary-text);line-height:1.6;margin-bottom:12px;">统一应用于思源窗口顶栏、文档栏、插件页签、Dock 侧栏和插件顶栏左上角。经典图标免费可用，其余预设属于全功能权益。</div>
                             ${renderEntryIconPresetSetting()}
                         </div>
-                        <div class="tm-settings-panel" data-tm-settings-section="tabs" ${__tmSettingsSearchAttrs('appearance', '页签栏', '归档入口位置')}>
+                        <div class="tm-settings-panel" data-tm-settings-section="tabs" ${__tmSettingsSearchAttrs('appearance', '页签栏', '手动控制归档 归档入口位置', { section: 'tabs' })}>
                             <div style="font-weight: 600; margin-bottom: 12px;">📑 页签栏</div>
+                            ${renderSingleSwitchSetting(
+                                '手动控制归档',
+                                '开启后，任务全部完成不会自动把文档页签移入归档区；仅通过页签菜单执行归档。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTabsManualArchiveOnly ? 'checked' : ''} onchange="updateDocTabsManualArchiveOnly(this.checked)">`,
+                                { section: 'tabs' }
+                            )}
                             ${renderSingleFieldSetting(
                                 '归档入口位置',
                                 '控制页签栏里归档按钮显示在“全部”页签前，或保留在文档页签后。',
@@ -1889,7 +1787,7 @@
                                     <button class="tm-btn tm-btn-primary" data-tm-action="addNewRule" style="padding: 4px 10px; font-size: 12px;">+ 新建规则</button>
                                 </div>
                             </div>
-                            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--tm-border-color); border-radius:8px; background: var(--tm-card-bg); margin-bottom: 12px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--tm-border-color); border-radius:8px; background: var(--tm-card-bg); margin-bottom: 12px;" ${__tmSettingsSearchAttrs('rules', '时间轴强制按截止日期排序', '时间轴规则排序行为')}>
                                 <div style="font-size:13px; color: var(--tm-text-color);">时间轴强制按截止日期排序（越近今天越靠前）</div>
                                 <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.timelineForceSortByCompletionNearToday ? 'checked' : ''} onchange="tmToggleTimelineForceSortByCompletionNearToday(this.checked)">
                             </div>
@@ -2538,10 +2436,16 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '文档分组下按二级标题子分组',
-                            '用于时间轴、表格、文档流和日历侧边栏。',
+                            '文档分组下按任务标题级别子分组',
+                            '按照“任务标题级别”设置（H1-H6）对子分组，用于时间轴、表格、文档流和日历侧边栏。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docH2SubgroupEnabled !== false ? 'checked' : ''} onchange="updateDocH2SubgroupEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '有任务的标题分组始终显示',
+                            '开启后，在按文档分组时，只要当前“任务标题级别”下的标题包含任务，就始终保留标题分组行，不受任务完成状态或“显示已完成任务”开关影响。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.alwaysShowTaskDocHeadingGroups ? 'checked' : ''} ${SettingsStore.data.docH2SubgroupEnabled !== false ? '' : 'disabled'} onchange="updateAlwaysShowTaskDocHeadingGroups(this.checked)">`,
+                            { style: `margin-bottom:10px;opacity:${SettingsStore.data.docH2SubgroupEnabled !== false ? 1 : 0.6};` }
                         )}
                         ${renderSingleSwitchSetting(
                             '分组模式增加“按任务名分组”',
@@ -2848,6 +2752,44 @@
                 ${renderSettingsActions('tm-settings-actions--mobile')}
             </div>
         `;
+        state.settingsModal.innerHTML = renderSettingsModalMarkup();
+        {
+            const renderedActiveTab = activeTab;
+            const renderedSection = settingsSearchCurrentSection;
+            const capturedEntries = [];
+            __tmSettingsSearchIndexBuilding = true;
+            __tmSettingsSearchCaptureBuffer = capturedEntries;
+            try {
+                TM_SETTINGS_SEARCH_INDEX_TABS
+                    .filter((tab) => !['calendar', 'benefits', 'about'].includes(tab))
+                    .forEach((tab) => {
+                        activeTab = tab;
+                        settingsSearchCurrentSection = '';
+                        renderSettingsModalMarkup();
+                    });
+                const calendarRenderer = globalThis.__tmCalendar?.renderSettings;
+                if (typeof calendarRenderer === 'function') {
+                    const calendarProbe = document.createElement('div');
+                    calendarRenderer(calendarProbe, SettingsStore, { indexOnly: true });
+                    __tmDecorateCalendarSettingsSearchRows(calendarProbe);
+                    __tmCollectRenderedSettingsSearchEntries(calendarProbe).forEach((entry) => capturedEntries.push(entry));
+                }
+            } catch (e) {
+                try { console.warn('[Task Horizon] settings search index build failed', e); } catch (e2) {}
+            } finally {
+                activeTab = renderedActiveTab;
+                settingsSearchCurrentSection = renderedSection;
+                __tmSettingsSearchCaptureBuffer = null;
+                __tmSettingsSearchIndexBuilding = false;
+            }
+            const generatedMap = new Map();
+            capturedEntries.forEach((raw) => {
+                const entry = raw?.haystack ? raw : __tmCreateSettingsSearchEntry(raw);
+                if (!entry) return;
+                generatedMap.set(`${entry.tab}:${entry.key}`, entry);
+            });
+            state.settingsSearchGeneratedEntries = Array.from(generatedMap.values());
+        }
         document.body.appendChild(state.settingsModal);
         if (shouldAnimateOpen) {
             try {

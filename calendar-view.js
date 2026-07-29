@@ -7605,8 +7605,10 @@
             })(),
             icsWebdavUrl: String(s.calendarIcsWebdavUrl || '').trim(),
             icsWebdavUsername: String(s.calendarIcsWebdavUsername || '').trim(),
+            icsWebdavPassword: String(s.calendarIcsWebdavPassword || ''),
             icsChainFileName: String(s.calendarIcsChainFileName || '').trim(),
             icsChainPublicConfirmed: s.calendarIcsChainPublicConfirmed === true,
+            icsIncludeTaskDates: s.calendarIcsIncludeTaskDates === true,
             initialViewDesktop: initialViewDesktop0,
             initialViewMobile: initialViewMobile0,
             firstDay: Number(s.calendarFirstDay) === 0 ? 0 : 1,
@@ -15197,7 +15199,6 @@
         let failed = false;
         let rangeStart = '';
         let rangeEnd = '';
-        const changedTaskIds = new Set();
         let needsLocalMainRefresh = false;
         let needsLocalSideRefresh = false;
 
@@ -15238,7 +15239,6 @@
                 if (result?.skipped === true) continue;
                 synced = true;
                 const changedTaskId = String(result?.id || target.targetId || '').trim();
-                if (changedTaskId) changedTaskIds.add(changedTaskId);
                 try {
                     const eventPatch = {
                         startDate: String(result?.startDate ?? patch.startDate ?? '').trim(),
@@ -15252,7 +15252,7 @@
                         },
                     }));
                 } catch (e) {}
-                if (opt.refresh === false && opt.localTaskDatePatch !== false) {
+                if (opt.localTaskDatePatch !== false) {
                     try {
                         const localPatch = {
                             startDate: String(result?.startDate ?? patch.startDate ?? '').trim(),
@@ -15266,9 +15266,6 @@
                         needsLocalSideRefresh = needsLocalSideRefresh || localResult?.needsSideRefresh === true;
                     } catch (e) {}
                 }
-                if (state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) {
-                    needsLocalSideRefresh = true;
-                }
                 if (!rangeStart || earliest < rangeStart) rangeStart = earliest;
                 if (!rangeEnd || latest > rangeEnd) rangeEnd = latest;
             } catch (err) {
@@ -15277,8 +15274,7 @@
             }
         }
 
-        if (synced && opt.refresh === false) {
-            try { window.__tmCalendarTaskDateForceFreshUntil = Date.now() + 6000; } catch (e) {}
+        if (synced) {
             const refetchResult = __tmRefetchTaskDateSources({
                 main: needsLocalMainRefresh,
                 side: needsLocalSideRefresh,
@@ -15299,31 +15295,8 @@
         }
 
         if (synced && opt.refresh !== false) {
-            let needsMainRefresh = false;
-            let needsSideRefresh = false;
-            for (const taskId of changedTaskIds) {
-                try {
-                    const summary = await syncTaskDateInPlace(taskId, { main: true, side: true });
-                    needsMainRefresh = needsMainRefresh || summary?.needsMainRefresh === true;
-                    needsSideRefresh = needsSideRefresh || summary?.needsSideRefresh === true;
-                } catch (e) {
-                    needsMainRefresh = true;
-                    needsSideRefresh = true;
-                }
-            }
             if (state.wrapEl) {
                 try { scheduleTaskPageRender(state.wrapEl, getSettings()); } catch (e) {}
-            }
-            if (needsMainRefresh || needsSideRefresh) {
-                scheduleCalendarRefresh({
-                    reason: 'calendar-schedule-dates-follow',
-                    main: needsMainRefresh,
-                    side: needsSideRefresh,
-                    flushTaskPanel: false,
-                    rangeStart,
-                    rangeEnd,
-                    version: Number(state.calendarMutationVersion) || 0,
-                });
             }
         }
         if (failed && opt.toast !== false) {
@@ -18600,68 +18573,101 @@
         const cal = calendar || null;
         const scheduleId = String(item?.id || '').trim();
         if (!cal || !scheduleId) return { touched: false, needsRefresh: false };
-        if (String(getScheduleRepeatType(item)).trim() !== 'none') {
-            if (action === 'delete') {
-                const recurringEvents = __tmFindCalendarEventsByScheduleId(cal, scheduleId);
-                if (recurringEvents.length > 0) {
-                    recurringEvents.forEach((eventApi) => {
-                        try { eventApi.remove?.(); } catch (e) {}
-                    });
-                    __tmSyncCalendarUiAfterDirectEventMutation(cal);
-                    return { touched: true, needsRefresh: false };
-                }
-                return { touched: false, needsRefresh: false };
-            }
-            return { touched: false, needsRefresh: true };
-        }
         const visibleRange = __tmGetCalendarVisibleRange(cal);
         const overlaps = !!(visibleRange && hasScheduleOccurrenceInRange(item, visibleRange.start, visibleRange.end));
-        const eventApi = cal.getEventById?.(scheduleId) || null;
+        const existingEvents = __tmFindCalendarEventsByScheduleId(cal, scheduleId);
         if (cal === state.calendar && visibleRange && isMonthScheduleEventRange(visibleRange.start, visibleRange.end)) {
-            const needsRefresh = overlaps || !!eventApi;
+            const needsRefresh = overlaps || existingEvents.length > 0;
             return { touched: false, needsRefresh };
         }
         if (action === 'delete') {
-            if (eventApi) {
-                try { eventApi.remove?.(); } catch (e) {}
-                __tmSyncCalendarUiAfterDirectEventMutation(cal);
-                return { touched: true, needsRefresh: false };
+            if (existingEvents.length > 0) {
+                let removed = false;
+                let removeFailed = false;
+                existingEvents.forEach((eventApi) => {
+                    try {
+                        eventApi.remove?.();
+                        removed = true;
+                    } catch (e) {
+                        removeFailed = true;
+                    }
+                });
+                if (removed) __tmSyncCalendarUiAfterDirectEventMutation(cal);
+                return { touched: removed, needsRefresh: removeFailed };
             }
-            return { touched: false, needsRefresh: overlaps };
+            return { touched: false, needsRefresh: false };
         }
-        if (!eventApi) {
-            return { touched: false, needsRefresh: overlaps };
-        }
-        const nextEvent = __tmBuildSingleScheduleEventsForCalendar(item, cal, settings)
-            .find((entry) => String(entry?.id || '').trim() === scheduleId) || null;
-        if (!nextEvent) {
-            try { eventApi.remove?.(); } catch (e) {}
+        const nextEvents = __tmBuildSingleScheduleEventsForCalendar(item, cal, settings);
+        const nextById = new Map(nextEvents.map((entry) => [String(entry?.id || '').trim(), entry]).filter(([id]) => !!id));
+        const existingById = new Map(existingEvents.map((eventApi) => [String(eventApi?.id || '').trim(), eventApi]).filter(([id]) => !!id));
+        let touched = false;
+        let needsRefresh = false;
+        existingEvents.forEach((eventApi) => {
+            const eventId = String(eventApi?.id || '').trim();
+            if (eventId && nextById.has(eventId)) return;
+            try {
+                eventApi.remove?.();
+                touched = true;
+            } catch (e) {
+                needsRefresh = true;
+            }
+        });
+        const sourceId = cal === state.sideDay?.calendar ? EVENT_SOURCE_IDS.sideSchedule : EVENT_SOURCE_IDS.mainSchedule;
+        const eventSource = cal.getEventSourceById?.(sourceId) || null;
+        nextEvents.forEach((nextEvent) => {
+            const eventId = String(nextEvent?.id || '').trim();
+            const eventApi = eventId ? (existingById.get(eventId) || null) : null;
+            if (!eventApi) {
+                try {
+                    const input = normalizeFullCalendarEventInput(nextEvent);
+                    if (eventSource) cal.addEvent?.(input, eventSource);
+                    else cal.addEvent?.(input);
+                    touched = true;
+                } catch (e) {
+                    needsRefresh = true;
+                }
+                return;
+            }
+            try {
+                eventApi.setProp?.('title', String(nextEvent.title || '').trim() || '日程');
+                setCalendarEventColor(eventApi, getCalendarEventInputColor(nextEvent, 'var(--tm-primary-color)'));
+                if ((Array.isArray(nextEvent.classNames) || nextEvent.className) && typeof eventApi.setProp === 'function') {
+                    setCalendarEventClassName(eventApi, nextEvent.className || nextEvent.classNames);
+                }
+                eventApi.setDates?.(nextEvent.start, nextEvent.end, { allDay: nextEvent.allDay === true });
+                __tmApplyScheduleExtendedPropsInPlace(eventApi, nextEvent);
+                touched = true;
+            } catch (e) {
+                needsRefresh = true;
+            }
+        });
+        if (touched) {
             __tmSyncCalendarUiAfterDirectEventMutation(cal);
-            return { touched: true, needsRefresh: false };
         }
-        try { eventApi.setProp?.('title', String(nextEvent.title || '').trim() || '日程'); } catch (e) {}
-        try { setCalendarEventColor(eventApi, getCalendarEventInputColor(nextEvent, 'var(--tm-primary-color)')); } catch (e) {}
-        try {
-            if ((Array.isArray(nextEvent.classNames) || nextEvent.className) && typeof eventApi.setProp === 'function') {
-                setCalendarEventClassName(eventApi, nextEvent.className || nextEvent.classNames);
-            }
-        } catch (e) {}
-        try { eventApi.setDates?.(nextEvent.start, nextEvent.end, { allDay: nextEvent.allDay === true }); } catch (e) {}
-        try { __tmApplyScheduleExtendedPropsInPlace(eventApi, nextEvent); } catch (e) {}
-        return { touched: true, needsRefresh: false };
+        return { touched, needsRefresh };
     }
 
     function __tmPatchVisibleSingleScheduleInPlace(item, action = 'upsert') {
         const settings = getSettings();
-        const calendars = [
-            { key: 'main', calendar: state.calendar || null },
-            { key: 'side', calendar: state.sideDay?.calendar || null },
-        ];
+        const runtimeViewMode = (() => {
+            try { return String(globalThis.__tmRuntimeState?.getViewMode?.('') || '').trim(); } catch (e) {}
+            return '';
+        })();
+        const mainActive = !!state.calendar && (!runtimeViewMode || runtimeViewMode === 'calendar');
+        const sideActive = !!state.sideDay?.calendar
+            && state.sideDay.calendar !== state.calendar
+            && (!runtimeViewMode || runtimeViewMode !== 'calendar')
+            && (!(state.sideDay.rootEl instanceof HTMLElement) || state.sideDay.rootEl.isConnected);
+        const calendars = [];
+        if (mainActive) calendars.push({ key: 'main', calendar: state.calendar });
+        if (sideActive) calendars.push({ key: 'side', calendar: state.sideDay.calendar });
         const summary = {
             touchedMain: false,
             touchedSide: false,
             needsMainRefresh: false,
             needsSideRefresh: false,
+            mainActive,
+            sideActive,
         };
         calendars.forEach((entry) => {
             const cal = entry.calendar;
@@ -18724,9 +18730,15 @@
             touchedSide: false,
             needsMainRefresh: opt.main !== false,
             needsSideRefresh: opt.side === true,
+            mainActive: !!state.calendar,
+            sideActive: !!state.sideDay?.calendar,
         };
-        let needsMainRefresh = opt.main === true ? true : (patchSummary.needsMainRefresh === true);
-        let needsSideRefresh = opt.side === true ? true : (patchSummary.needsSideRefresh === true);
+        let needsMainRefresh = opt.main === true && patchSummary.mainActive === true && patchSummary.touchedMain !== true
+            ? true
+            : (patchSummary.needsMainRefresh === true);
+        let needsSideRefresh = opt.side === true && patchSummary.sideActive === true && patchSummary.touchedSide !== true
+            ? true
+            : (patchSummary.needsSideRefresh === true);
         if (opt.hard !== true) {
             const refetchResult = __tmRefetchScheduleSources({
                 main: needsMainRefresh && opt.main !== true,
@@ -19055,6 +19067,7 @@
             '__tmTaskDateMilestone',
             '__tmTaskDateReadOnly',
             '__tmRecurringCompletedAt',
+            '__tmTaskDone',
             '__tmDocId',
             'calendarId',
         ].forEach((key) => {
@@ -19275,7 +19288,7 @@
                 try { __tmSyncCalendarUiAfterDirectEventMutation(state.sideDay.calendar); } catch (e) {}
             }
         }
-        if ((touchedSide || needsSideRefresh) && opt.sideSourceRefresh !== false) {
+        if ((touchedSide || needsSideRefresh) && opt.sideSourceRefresh === true) {
             try {
                 scheduleSideDayTaskDateSourceRefresh();
             } catch (e) {}
@@ -19338,7 +19351,7 @@
             } catch (e) {
                 result = { touched: false, needsRefresh: true };
             }
-            if (result.needsRefresh === true) {
+            if (result.needsRefresh === true && opt.allowRefetch !== false) {
                 const refetched = __tmRefetchCalendarSource(target.calendar, target.sourceId);
                 result = {
                     touched: refetched,
@@ -22279,7 +22292,11 @@
         const nextDone = !!done;
         let touched = false;
         let needsRefetch = false;
-        const calendars = collectCalendarsForTaskSync();
+        const calendars = [];
+        if (opt.main !== false && state.calendar) calendars.push(state.calendar);
+        if (opt.side !== false && state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) {
+            calendars.push(state.sideDay.calendar);
+        }
         calendars.forEach((cal) => {
             const events = findCalendarEventsByTaskId(cal, tid);
             events.forEach((eventApi) => {
@@ -22295,7 +22312,7 @@
                 if (applyRenderedEventDoneStateById(eventApi?.id, resolvedDone)) touched = true;
             });
         });
-        if (state.wrapEl instanceof HTMLElement) {
+        if (opt.flushTaskPanel !== false && state.wrapEl instanceof HTMLElement) {
             try { scheduleTaskPageRender(state.wrapEl, getSettings()); } catch (e) {}
         }
         if (needsRefetch && opt.allowRefetch !== false) {
@@ -24286,6 +24303,7 @@
         scheduleUpdatedListener: null,
         tomatoUpdatedListener: null,
         taskAttrUpdatedListener: null,
+        taskProjectionUpdatedListener: null,
         syncEventBus: null,
         syncHandler: null,
         settingsContainer: null,
@@ -24334,8 +24352,14 @@
     }
 
     function getCalendarSubscriptionSourceStatusText() {
-        return isDockTomatoPluginLoaded()
-            ? '包含任务管理器日程与底栏番茄钟提醒'
+        const includesTaskDates = getSettings().icsIncludeTaskDates === true;
+        if (isDockTomatoPluginLoaded()) {
+            return includesTaskDates
+                ? '包含任务管理器日程、任务全天日程与底栏番茄钟提醒'
+                : '包含任务管理器日程与底栏番茄钟提醒';
+        }
+        return includesTaskDates
+            ? '未启用底栏番茄钟，包含任务管理器日程与任务全天日程'
             : '未启用底栏番茄钟，仅发布任务管理器日程';
     }
 
@@ -24520,8 +24544,10 @@
             calendarIcsCalendarName: 'string',
             calendarIcsWebdavUrl: 'string',
             calendarIcsWebdavUsername: 'string',
+            calendarIcsWebdavPassword: 'string',
             calendarIcsChainFileName: 'string',
             calendarIcsChainPublicConfirmed: 'boolean',
+            calendarIcsIncludeTaskDates: 'boolean',
         };
         let changed = false;
         for (const [key, type] of Object.entries(fields)) {
@@ -24543,9 +24569,10 @@
         return changed;
     }
 
-    async function buildCalendarSubscriptionEvents() {
+    async function buildCalendarSubscriptionEvents(options = {}) {
         const settings = getSettings();
         const range = buildCalendarSubscriptionRange();
+        const source = String(options?.source || '').trim();
         if (state.scheduleCache.inflight) {
             try { await state.scheduleCache.inflight; } catch (e) {}
         }
@@ -24602,10 +24629,59 @@
             }
         }
 
+        if (settings.icsIncludeTaskDates) {
+            if (typeof window.tmQueryCalendarTaskDateEvents !== 'function') {
+                throw new Error('任务全天日程接口未就绪，已保留上次成功文件');
+            }
+            let taskDateItems = null;
+            const forceFreshTaskDates = options?.force === true
+                || /^(?:startup|sync-end|day-boundary|settings|task-attr-updated|task-list-updated|task-date-follow-updated|task-completed)/.test(source);
+            try {
+                taskDateItems = await window.tmQueryCalendarTaskDateEvents(range.start, range.end, {
+                    forceFresh: forceFreshTaskDates,
+                    fastFirst: !forceFreshTaskDates,
+                    allowInactiveFullLoad: true,
+                    throwOnError: true,
+                    failOnTruncation: true,
+                    requireCompleteCache: true,
+                    excludeCompleted: true,
+                    source: 'calendar-ics-task-dates',
+                });
+            } catch (error) {
+                throw new Error(`任务全天日程读取失败：${String(error?.message || error || '未知错误')}`);
+            }
+            if (!Array.isArray(taskDateItems)) throw new Error('任务全天日程接口返回无效');
+            for (const item of taskDateItems) {
+                const taskId = String(item?.id || '').trim();
+                const startDate = String(item?.start || '').trim();
+                const endDate = String(item?.endExclusive || item?.end || '').trim();
+                const start = parseDateOnly(startDate);
+                const end = parseDateOnly(endDate);
+                if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())
+                    || !(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
+                    throw new Error(`任务全天日程数据无效：${String(item?.title || taskId || '未知任务')}`);
+                }
+                events.push({
+                    uidSeed: `task-date:${taskId}`,
+                    source: 'task',
+                    title: String(item?.title || '').trim() || '任务',
+                    completed: item?.done === true,
+                    allDay: true,
+                    startDate: formatDateKey(start),
+                    endDate: formatDateKey(end),
+                });
+                if (events.length > CALENDAR_SUBSCRIPTION_EVENT_LIMIT) {
+                    throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
+                }
+            }
+        }
+
         const tomatoLoaded = isDockTomatoPluginLoaded();
-        let sourceMode = 'schedules-only';
+        let sourceMode = settings.icsIncludeTaskDates ? 'schedules-and-task-dates' : 'schedules-only';
         if (tomatoLoaded) {
-            sourceMode = 'schedules-and-reminders';
+            sourceMode = settings.icsIncludeTaskDates
+                ? 'schedules-task-dates-and-reminders'
+                : 'schedules-and-reminders';
             const bridge = await waitForDockTomatoSubscriptionBridge();
             const remaining = Math.max(1, CALENDAR_SUBSCRIPTION_EVENT_LIMIT - events.length);
             const result = await bridge.listOccurrences({
@@ -24819,9 +24895,7 @@
     }
 
     async function uploadCalendarSubscriptionWebdav(target, icsText, fileHash) {
-        const password = (() => {
-            try { return String(localStorage.getItem(CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY) || ''); } catch (e) { return ''; }
-        })();
+        const password = String(target.password || '');
         const authorization = encodeBasicAuthorization(target.username, password);
         const requestUrl = buildCalendarSubscriptionWebdavRequestUrl(target.url, target.username, password);
         const parent = new URL(requestUrl);
@@ -24892,6 +24966,7 @@
             provider: 'webdav',
             url: url.toString(),
             username: String(settings.icsWebdavUsername || ''),
+            password: String(settings.icsWebdavPassword || ''),
             targetKey: `webdav:${url.toString()}`,
         };
     }
@@ -24905,6 +24980,10 @@
     }
 
     async function executeCalendarSubscriptionPublication(options, capturedSeq, capturedToken) {
+        if (state.settingsStore?.saveDirty) {
+            if (typeof state.settingsStore.saveNow === 'function') await state.settingsStore.saveNow();
+            else await flushCalendarSubscriptionSettingsStore(state.settingsStore);
+        }
         await refreshCalendarSubscriptionSharedSettings();
         const settings = getSettings();
         if (!settings.icsEnabled) {
@@ -24912,7 +24991,7 @@
         }
         const core = globalThis.__tmCalendarSubscriptionCore;
         if (!core || typeof core.serializeCalendar !== 'function') throw new Error('日历 ICS 核心未加载');
-        const built = await buildCalendarSubscriptionEvents();
+        const built = await buildCalendarSubscriptionEvents(options);
         assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded);
         const target = await resolveCalendarSubscriptionTarget(settings);
         assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded);
@@ -25075,6 +25154,7 @@
                 .map((name) => String(name || '').trim())
                 .filter(Boolean);
             if (!names.some((name) => [
+                'custom-start-date',
                 'custom-completion-time',
                 'custom-task-repeat-rule',
                 'custom-task-repeat-state',
@@ -25082,9 +25162,19 @@
             ].includes(name))) return;
             markCalendarSubscriptionDirty('task-attr-updated');
         };
+        calendarSubscriptionPublisher.taskProjectionUpdatedListener = (event) => {
+            if (!getSettings().icsIncludeTaskDates) return;
+            const source = event?.type === 'tm:filtered-tasks-updated'
+                ? 'task-list-updated'
+                : (event?.type === 'tm:task-date-follow-updated' ? 'task-date-follow-updated' : 'task-completed');
+            markCalendarSubscriptionDirty(source);
+        };
         window.addEventListener('tm:calendar-schedule-updated', calendarSubscriptionPublisher.scheduleUpdatedListener);
         window.addEventListener('tomato-reminder-updated', calendarSubscriptionPublisher.tomatoUpdatedListener);
         window.addEventListener('tm-task-attr-updated', calendarSubscriptionPublisher.taskAttrUpdatedListener);
+        window.addEventListener('tm:filtered-tasks-updated', calendarSubscriptionPublisher.taskProjectionUpdatedListener);
+        window.addEventListener('task-horizon:task-completed', calendarSubscriptionPublisher.taskProjectionUpdatedListener);
+        window.addEventListener('tm:task-date-follow-updated', calendarSubscriptionPublisher.taskProjectionUpdatedListener);
         try {
             const eventBus = globalThis.__taskHorizonHostBridge?.eventBus || globalThis.__taskHorizonHostBridge?.plugin?.eventBus || null;
             if (eventBus && typeof eventBus.on === 'function') {
@@ -25129,6 +25219,12 @@
             window.removeEventListener('tm-task-attr-updated', calendarSubscriptionPublisher.taskAttrUpdatedListener);
             calendarSubscriptionPublisher.taskAttrUpdatedListener = null;
         }
+        if (calendarSubscriptionPublisher.taskProjectionUpdatedListener) {
+            window.removeEventListener('tm:filtered-tasks-updated', calendarSubscriptionPublisher.taskProjectionUpdatedListener);
+            window.removeEventListener('task-horizon:task-completed', calendarSubscriptionPublisher.taskProjectionUpdatedListener);
+            window.removeEventListener('tm:task-date-follow-updated', calendarSubscriptionPublisher.taskProjectionUpdatedListener);
+            calendarSubscriptionPublisher.taskProjectionUpdatedListener = null;
+        }
         if (calendarSubscriptionPublisher.syncHandler) {
             try { calendarSubscriptionPublisher.syncEventBus?.off?.('sync-end', calendarSubscriptionPublisher.syncHandler); } catch (e) {}
             calendarSubscriptionPublisher.syncHandler = null;
@@ -25157,19 +25253,17 @@
     });
     globalThis.__tmCalendarSubscription = calendarSubscriptionApi;
 
-    function renderSettings(containerEl, settingsStore) {
+    function renderSettings(containerEl, settingsStore, options = {}) {
         if (!containerEl || !(containerEl instanceof Element)) return false;
+        const indexOnly = options?.indexOnly === true;
         state.settingsStore = settingsStore || state.settingsStore || null;
         const s = getSettings();
         const monthMinVisibleEventsDisabled = s.monthAdaptiveRowHeight !== false;
         const visibleRange = getCalendarVisibleSlotRange(s);
         const visibleStartOptions = buildCalendarVisibleTimeOptions(visibleRange.start, false);
         const visibleEndOptions = buildCalendarVisibleTimeOptions(visibleRange.end, true);
-        calendarSubscriptionPublisher.settingsContainer = containerEl;
+        if (!indexOnly) calendarSubscriptionPublisher.settingsContainer = containerEl;
         const icsStatus = loadCalendarSubscriptionRuntimeStatus();
-        const icsPassword = (() => {
-            try { return String(localStorage.getItem(CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY) || ''); } catch (e) { return ''; }
-        })();
         const showJianguoyunSubscriptionHint = isJianguoyunCalendarSubscriptionUrl(s.icsWebdavUrl);
         const icsProviderRows = s.icsProvider === 'chain' ? `
                 <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
@@ -25197,9 +25291,9 @@
                 <div class="tm-calendar-settings-row">
                     <div class="tm-calendar-settings-label">
                         WebDAV 密码
-                        <div class="tm-calendar-settings-label-desc">仅保存在当前设备，不随插件设置同步或导出。</div>
+                        <div class="tm-calendar-settings-label-desc">随插件设置保存并同步到其他设备，不包含在手动导出的设置包中。</div>
                     </div>
-                    <input id="tm-calendar-ics-webdav-password" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="password" aria-label="WebDAV 密码" autocomplete="current-password" data-tm-cal-local-setting="webdav-password" value="${esc(icsPassword)}">
+                    <input id="tm-calendar-ics-webdav-password" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="password" aria-label="WebDAV 密码" autocomplete="current-password" data-tm-cal-setting="calendarIcsWebdavPassword" value="${esc(s.icsWebdavPassword)}">
                 </div>
                 ${showJianguoyunSubscriptionHint ? `<div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
                     <div class="tm-calendar-settings-label">
@@ -25558,6 +25652,13 @@
                         </div>
                         <input id="tm-calendar-ics-name" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="日历名称" maxlength="120" data-tm-cal-setting="calendarIcsCalendarName" value="${esc(s.icsCalendarName)}">
                     </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            同步任务全天日程
+                            <div class="tm-calendar-settings-label-desc">将设置了开始日期或截止日期的未完成任务作为全天事件同步。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsIncludeTaskDates" ${s.icsIncludeTaskDates ? 'checked' : ''}>
+                    </div>
                     ${icsProviderRows}
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">
@@ -25618,20 +25719,24 @@
             </div>
         `;
 
+        if (indexOnly) return true;
+
         state.settingsAbort?.abort();
         const abort = new AbortController();
         state.settingsAbort = abort;
 
+        containerEl.addEventListener('input', (e) => {
+            const el = e.target;
+            if (String(el?.getAttribute?.('data-tm-cal-setting') || '') !== 'calendarIcsWebdavPassword') return;
+            const store = state.settingsStore;
+            if (!store?.data) return;
+            store.data.calendarIcsWebdavPassword = String(el?.value || '');
+            try { store.save?.(); } catch (e2) {}
+        }, { signal: abort.signal });
+
         containerEl.addEventListener('change', async (e) => {
             const el = e.target;
             const key = String(el?.getAttribute?.('data-tm-cal-setting') || '');
-            const localKey = String(el?.getAttribute?.('data-tm-cal-local-setting') || '');
-            if (localKey === 'webdav-password') {
-                try { localStorage.setItem(CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY, String(el?.value || '')); } catch (e2) {}
-                markCalendarSubscriptionDirty('webdav-password');
-                updateCalendarSubscriptionUi();
-                return;
-            }
             if (!key) return;
             if (el.type === 'radio' && !el.checked) return;
             const store = state.settingsStore;
@@ -25865,9 +25970,29 @@
     function setSettingsStore(settingsStore) {
         state.settingsStore = settingsStore || state.settingsStore || null;
         if (state.settingsStore?.data) {
+            let shouldFlush = false;
             const calendarName = String(state.settingsStore.data.calendarIcsCalendarName || '').trim();
             if (!calendarName || calendarName === 'Task Horizon') {
                 state.settingsStore.data.calendarIcsCalendarName = '任务管理器';
+                shouldFlush = true;
+            }
+            if (!String(state.settingsStore.data.calendarIcsWebdavPassword || '')) {
+                try {
+                    const raw = localStorage.getItem(CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY);
+                    if (raw != null && raw !== '') {
+                        let legacyPassword = raw;
+                        try {
+                            const parsed = JSON.parse(raw);
+                            if (typeof parsed === 'string') legacyPassword = parsed;
+                        } catch (e) {}
+                        if (legacyPassword) {
+                            state.settingsStore.data.calendarIcsWebdavPassword = legacyPassword;
+                            shouldFlush = true;
+                        }
+                    }
+                } catch (e) {}
+            }
+            if (shouldFlush) {
                 Promise.resolve(flushCalendarSubscriptionSettingsStore(state.settingsStore)).catch(() => {});
             }
         }

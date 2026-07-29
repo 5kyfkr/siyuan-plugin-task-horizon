@@ -113,10 +113,10 @@
     }
 
     function serializeEvent(event, generatedAt) {
-        const source = String(event?.source || 'schedule').trim().toLowerCase() === 'tomato'
-            ? 'tomato'
-            : 'schedule';
-        const title = String(event?.title || '').trim() || (source === 'tomato' ? '任务提醒' : '日程');
+        const rawSource = String(event?.source || 'schedule').trim().toLowerCase();
+        const source = rawSource === 'tomato' ? 'tomato' : (rawSource === 'task' ? 'task' : 'schedule');
+        const title = String(event?.title || '').trim()
+            || (source === 'tomato' ? '任务提醒' : (source === 'task' ? '任务' : '日程'));
         const uidSeed = String(event?.uidSeed || '').trim();
         if (!uidSeed) throw new Error('ICS 事件缺少 uidSeed');
         const lines = [
@@ -138,7 +138,9 @@
             lines.push(`DTEND;TZID=${CALENDAR_TIMEZONE}:${formatCalendarTime(endAt)}`);
         }
         lines.push(`SUMMARY:${escapeText(title)}`);
-        lines.push(`CATEGORIES:${source === 'tomato' ? 'Task Horizon,Task Reminder' : 'Task Horizon,Schedule'}`);
+        lines.push(`CATEGORIES:${source === 'tomato'
+            ? 'Task Horizon,Task Reminder'
+            : (source === 'task' ? 'Task Horizon,Task Date' : 'Task Horizon,Schedule')}`);
         lines.push(`X-TASK-HORIZON-SOURCE:${source.toUpperCase()}`);
         if (event?.completed === true) lines.push('X-TASK-HORIZON-COMPLETED:TRUE');
         lines.push(...normalizeAlarmLines(event, title));

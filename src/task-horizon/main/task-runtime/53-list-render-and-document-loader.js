@@ -8,7 +8,8 @@
             : __tmGetDefaultColumnOrder();
         const colSet = new Set(colOrder);
         const colCount = Number(context.colCount) || colOrder.length || 7;
-        if (state.filteredTasks.length === 0) {
+        const alwaysVisibleHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks();
+        if (state.filteredTasks.length === 0 && alwaysVisibleHeadingTasks.length === 0) {
             return `<tr><td colspan="${colCount}" style="text-align: center; padding: 40px; color: var(--tm-secondary-text);">暂无任务</td></tr>`;
         }
 
@@ -259,9 +260,7 @@
             const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
             const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
             const progressBgStyle = (hasChildren && progressPercent > 0)
-                ? (enableGroupBg && groupBg
-                    ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
-                    : `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
+                ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                 : '';
             const globalCollectIconHtml = hasContentCol ? __tmRenderGlobalCollectDocTaskInlineIcon(task) : '';
             const renderedContent = hasContentCol ? `${API.renderTaskContentHtml(task.markdown, content)}${globalCollectIconHtml}` : '';
@@ -675,6 +674,7 @@
             docsInOrder.forEach(docId => {
                 const docEntry = docEntryById.get(String(docId || '').trim());
                 if (!docEntry) return;
+                const alwaysVisibleDocHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks(docId);
 
                 // 获取该文档的根任务
                 const docRootTasks = docRootTasksByDoc.get(String(docId || '').trim()) || [];
@@ -684,7 +684,7 @@
                 const activeDocRootTasks = __tmShouldSeparateCompletedRootGroup()
                     ? docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task))
                     : docNormal.slice();
-                if (activeDocRootTasks.length === 0) return;
+                if (activeDocRootTasks.length === 0 && alwaysVisibleDocHeadingTasks.length === 0) return;
                 const docTasks = activeDocRootTasks;
                 const renderDocTasks = sortRenderGroupItems(activeDocRootTasks.slice());
 
@@ -702,7 +702,8 @@
                 // 渲染该文档的任务（如果未折叠）
                 if (!isCollapsed) {
                     currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
-                    const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, docTasks);
+                    const h2OrderSource = docTasks.concat(alwaysVisibleDocHeadingTasks);
+                    const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, h2OrderSource);
                     if (!useDocH2Subgroup) {
                         renderDocTasks.forEach(task => {
                             if (!hasTaskRowBudget()) return;
@@ -710,16 +711,18 @@
                         });
                     } else {
                         const h2Groups = new Map();
-                        const h2OrderSource = docTasks;
                         const h2Buckets = __tmBuildDocHeadingBuckets(h2OrderSource, noHeadingLabel);
+                        h2OrderSource.forEach(task => {
+                                const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                                if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, id: String(b.id || '').trim(), items: [], sourceTask: task });
+                            });
                         docTasks.forEach(task => {
                                 const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
-                                if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, id: String(b.id || '').trim(), items: [] });
+                                if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, id: String(b.id || '').trim(), items: [], sourceTask: task });
                                 h2Groups.get(b.key).items.push(task);
                             });
 
                         const orderedH2Buckets = h2Buckets
-                            .filter((bucket) => (h2Groups.get(bucket.key)?.items || []).length > 0)
                             .concat(Array.from(h2Groups.keys())
                                 .filter((k) => !h2Buckets.some((b) => b.key === k))
                                 .map((k) => ({ key: k, label: String(h2Groups.get(k)?.label || ''), id: String(h2Groups.get(k)?.id || '').trim() })));
@@ -732,7 +735,7 @@
                             const createBtnHtml = __tmBuildHeadingGroupCreateBtnHtml(docId, String(g.id || bucket.id || '').trim(), '在该标题下新建任务');
                             const h2LabelColor = __tmGetHeadingSubgroupLabelColor(labelColor, isDark);
                             const h2Id = String(g.id || bucket.id || '').trim();
-                            const h2Rank = Number(items?.[0]?.h2Rank);
+                            const h2Rank = Number((items?.[0] || g.sourceTask)?.h2Rank);
                             const h2GroupDropAttrs = `data-group-kind="h2" data-group-key="${esc(h2Key)}" data-tm-doc-heading-drop-kind="heading" data-tm-doc-heading-drop-doc="${esc(docId)}" data-tm-doc-heading-drop-heading="${esc(h2Id)}" data-tm-doc-heading-drop-label="${esc(__tmNormalizeHeadingText(g.label || bucket.label || ''))}" data-tm-doc-heading-drop-rank="${Number.isFinite(h2Rank) ? h2Rank : ''}" ondragenter="tmDocHeadingGroupDragOver(event)" ondragover="tmDocHeadingGroupDragOver(event)" ondragleave="tmDocHeadingGroupDragLeave(event)" ondrop="tmDocHeadingGroupDrop(event)"`;
                             allRows.push(`<tr class="tm-group-row" ${h2GroupDropAttrs}><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggleH2}<span class="tm-group-label" style="color:${h2LabelColor};">${__tmRenderHeadingLevelIconLabel(g.label || '', SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Array.isArray(items) ? items.length : 0}</span>${createBtnHtml}</div></td></tr>`);
                             if (!h2Collapsed) {
@@ -942,6 +945,7 @@
 
     let __tmRenderScheduled = false;
     let __tmRenderNeedFilters = false;
+
     function __tmScheduleRender(options = {}) {
         const withFilters = !(options && options.withFilters === false);
         const reason = String(options?.reason || '').trim() || 'scheduled-render';
@@ -1077,7 +1081,11 @@
                 return;
             }
             const renderStarted = started ? __tmJankNow() : 0;
-            render();
+            let preservedCalendarSideDock = false;
+            if (typeof __tmHasMountedCalendarSideDock === 'function' && __tmHasMountedCalendarSideDock()) {
+                try { preservedCalendarSideDock = !!__tmRerenderCurrentViewInPlace(state.modal); } catch (e) {}
+            }
+            if (!preservedCalendarSideDock) render();
             if (renderStarted) renderMs = __tmRoundPerfMs(__tmJankNow() - renderStarted);
             if (jankEnabled) {
                 try {
@@ -2298,12 +2306,20 @@ return finish(false, 'noop');
             try {
                 const calApi = globalThis.__tmCalendar;
                 if (calApi && typeof calApi.syncTaskDateInPlace === 'function') {
-                    const summary = await calApi.syncTaskDateInPlace(persistId, { main: true, side: true });
+                    const main = String(state.viewMode || '').trim() === 'calendar';
+                    const side = typeof __tmShouldShowCalendarSideDock === 'function'
+                        ? __tmShouldShowCalendarSideDock()
+                        : !main;
+                    const summary = await calApi.syncTaskDateInPlace(persistId, {
+                        main,
+                        side,
+                        allowRefetch: false,
+                    });
                     if (summary?.needsMainRefresh || summary?.needsSideRefresh) {
                         calApi.requestRefresh?.({
                             reason: 'toggle-all-day-bottom',
-                            main: summary.needsMainRefresh,
-                            side: summary.needsSideRefresh,
+                            main: main && summary.needsMainRefresh,
+                            side: side && summary.needsSideRefresh,
                             flushTaskPanel: false,
                         });
                     }

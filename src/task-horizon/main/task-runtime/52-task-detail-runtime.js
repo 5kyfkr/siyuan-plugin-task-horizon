@@ -4269,15 +4269,30 @@
                             startDate: String(latestTask?.startDate ?? nextStart ?? '').trim(),
                             completionTime: String(latestTask?.completionTime ?? nextEnd ?? '').trim(),
                         };
-                        if (typeof calApi?.syncTaskDatePatchInPlace === 'function') {
-                            calApi.syncTaskDatePatchInPlace(task.id, calendarPatch, { reason: 'detail-time-save' });
+                        const main = String(state.viewMode || '').trim() === 'calendar';
+                        const side = typeof __tmShouldShowCalendarSideDock === 'function'
+                            ? __tmShouldShowCalendarSideDock()
+                            : !main;
+                        if (typeof __tmSyncVisibleCalendarTaskPatch === 'function') {
+                            __tmSyncVisibleCalendarTaskPatch(task.id, calendarPatch, { reason: 'detail-time-save' });
+                        } else if (typeof calApi?.syncTaskDatePatchInPlace === 'function') {
+                            calApi.syncTaskDatePatchInPlace(task.id, calendarPatch, {
+                                reason: 'detail-time-save',
+                                main,
+                                side,
+                                sideSourceRefresh: false,
+                            });
                         } else if (typeof calApi?.syncTaskDateInPlace === 'function') {
-                            Promise.resolve(calApi.syncTaskDateInPlace(task.id, { main: true, side: true })).then((summary) => {
+                            Promise.resolve(calApi.syncTaskDateInPlace(task.id, {
+                                main,
+                                side,
+                                allowRefetch: false,
+                            })).then((summary) => {
                                 if (summary?.needsMainRefresh || summary?.needsSideRefresh) {
                                     calApi.requestRefresh?.({
                                         reason: 'detail-time-save',
-                                        main: summary.needsMainRefresh === true,
-                                        side: summary.needsSideRefresh === true,
+                                        main: main && summary.needsMainRefresh === true,
+                                        side: side && summary.needsSideRefresh === true,
                                         flushTaskPanel: false,
                                     });
                                 }
@@ -7204,15 +7219,17 @@
                     const refreshIds = [parentForCreate].concat(tempIds).filter(Boolean);
                     try { __tmInvalidateFilteredTaskDerivedStateCache?.(); } catch (e) {}
                     try { state.listDomRenderSignature = ''; } catch (e) {}
-                    try {
-                        __tmScheduleViewRefresh({
-                            mode: 'current',
-                            withFilters: false,
-                            reason: 'detail-create-subtask-current-optimistic',
-                            taskIds: refreshIds,
-                            bypassDefer: true,
-                        });
-                    } catch (e) {}
+                    if (String(state.viewMode || '').trim() !== 'calendar') {
+                        try {
+                            __tmScheduleViewRefresh({
+                                mode: 'current',
+                                withFilters: false,
+                                reason: 'detail-create-subtask-current-optimistic',
+                                taskIds: refreshIds,
+                                bypassDefer: true,
+                            });
+                        } catch (e) {}
+                    }
                     try {
                         __tmScheduleViewRefresh({
                             mode: 'detail',

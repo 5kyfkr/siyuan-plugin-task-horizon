@@ -5,6 +5,12 @@
         return mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'whiteboard';
     }
 
+    function __tmHasMountedCalendarSideDock() {
+        const modal = state.modal instanceof Element ? state.modal : null;
+        if (!modal || !document.body.contains(modal) || !__tmShouldShowCalendarSideDock()) return false;
+        return !!modal.querySelector('.tm-calendar-side-dock #tmCalendarSideDockTimeline');
+    }
+
     function __tmCalendarDockGetDateKey() {
         const raw = String(state.calendarDockDate || '').trim();
         if (raw) return __tmNormalizeDateOnly(raw) || raw;
@@ -621,6 +627,29 @@
         return true;
     }
 
+    function __tmScheduleTimelineDateHydrationAfterViewSwitch(generation) {
+        if (typeof __tmHydrateChecklistVisibleDateAttrs !== 'function') return false;
+        const tasks = Array.isArray(state.filteredTasks) ? state.filteredTasks.slice() : [];
+        if (!tasks.length) return false;
+        const groupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        Promise.resolve(__tmHydrateChecklistVisibleDateAttrs(tasks, {
+            reason: 'view-switch-timeline',
+            force: true,
+        })).then((meta) => {
+            if (!meta?.changed) return;
+            if (Number(state.__tmViewSwitchCommitGeneration || 0) !== generation) return;
+            if (String(state.viewMode || '').trim() !== 'timeline') return;
+            if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== groupId) return;
+            if ((String(state.activeDocId || 'all').trim() || 'all') !== activeDocId) return;
+            __tmScheduleRender({
+                withFilters: true,
+                reason: 'view-switch-timeline-date-hydrated',
+            });
+        }).catch(() => null);
+        return true;
+    }
+
     function __tmMountCalendarViewRoot(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const opts = (options && typeof options === 'object') ? options : {};
@@ -960,6 +989,9 @@
                 if (state.modal !== pendingModal) __tmClearViewSwitchPendingShell(state.modal);
             }
             try { __tmScheduleProgressiveViewRender(next, progressiveJob); } catch (e) {}
+            if (next === 'timeline') {
+                try { __tmScheduleTimelineDateHydrationAfterViewSwitch(generation); } catch (e) {}
+            }
             __tmScheduleAfterNextPaint(() => {
                 if (Number(state.__tmViewSwitchCommitGeneration || 0) !== generation) return;
                 try {

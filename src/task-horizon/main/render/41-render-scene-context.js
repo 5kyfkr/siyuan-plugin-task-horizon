@@ -165,7 +165,7 @@
                 ['day', '日'],
                 ['week', '周'],
                 ['month', '月'],
-            ].map(([value, label]) => `<button type="button" role="menuitemradio" aria-checked="${timelineScale === value ? 'true' : 'false'}" class="tm-timeline-scale-menu__option${timelineScale === value ? ' is-active' : ''}" onclick="tmGanttSetScale('${value}', event)">${label}</button>`).join('')}</div>
+            ].map(([value, label]) => `<button type="button" role="menuitemradio" aria-checked="${timelineScale === value ? 'true' : 'false'}" data-tm-timeline-scale="${value}" class="tm-timeline-scale-menu__option${timelineScale === value ? ' is-active' : ''}" onclick="tmGanttSetScale('${value}', event)">${label}</button>`).join('')}</div>
         </details>`;
         const __tmRenderTimelineToolbarButtons = ({ buttonClass = '', buttonStyle = '', interactionAttrs = '', clickPrefix = '' } = {}) => {
             const buttonClassName = ['tm-btn', 'tm-btn-info', 'tm-timeline-toolbar-btn', 'bc-btn', 'bc-btn--sm', String(buttonClass || '').trim()].filter(Boolean).join(' ');
@@ -173,8 +173,8 @@
             const extraAttrs = String(interactionAttrs || '');
             const clickStart = String(clickPrefix || '');
             return `
-                <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttZoomOut()"${timelineScaleState.canZoomOut ? '' : ' disabled'}${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('缩小', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('minus')}</button>
-                <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttZoomIn()"${timelineScaleState.canZoomIn ? '' : ' disabled'}${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('放大', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('plus')}</button>
+                <button type="button" class="${buttonClassName}" data-tm-timeline-zoom="out" onclick="${clickStart}tmGanttZoomOut()"${timelineScaleState.canZoomOut ? '' : ' disabled'}${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('缩小', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('minus')}</button>
+                <button type="button" class="${buttonClassName}" data-tm-timeline-zoom="in" onclick="${clickStart}tmGanttZoomIn()"${timelineScaleState.canZoomIn ? '' : ' disabled'}${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('放大', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('plus')}</button>
                 <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttFit()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('适配范围', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('corners-out')}</button>
                 <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttToday()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('定位今天', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('calendar-blank')}</button>
             `;

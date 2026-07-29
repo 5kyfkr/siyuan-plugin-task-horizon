@@ -9,14 +9,6 @@ const settingsSource = fs.readFileSync(
 );
 const calendarSource = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
 
-const registryMatch = settingsSource.match(
-    /const TM_SETTINGS_SEARCH_CALENDAR_TITLES = Object\.freeze\(\[([\s\S]*?)\]\);/,
-);
-assert.ok(registryMatch, 'calendar settings search title registry must exist');
-
-const indexedTitles = Array.from(registryMatch[1].matchAll(/'([^']+)'/g), (match) => match[1]);
-assert.ok(indexedTitles.length > 0, 'calendar settings search title registry must not be empty');
-
 const renderStart = calendarSource.indexOf('function renderSettings(');
 const renderEnd = calendarSource.indexOf('\n    function cleanup()', renderStart);
 assert.ok(renderStart >= 0 && renderEnd > renderStart, 'calendar settings renderer must be discoverable');
@@ -27,16 +19,27 @@ const renderedTitles = Array.from(
     (match) => match[1].replace(/\s+/g, ' ').trim(),
 );
 assert.ok(renderedTitles.length > 0, 'calendar settings renderer must expose labeled rows');
-assert.deepEqual(
-    [...new Set(indexedTitles)].sort(),
-    [...new Set(renderedTitles)].sort(),
-    'every rendered calendar setting row must be available to cross-tab settings search',
-);
+assert.ok(renderedTitles.length >= 20, 'calendar settings renderer must expose its complete settings surface');
 
+assert.doesNotMatch(
+    settingsSource,
+    /TM_SETTINGS_SEARCH_(?:PAGE_ITEMS|MAIN_GROUPS|CALENDAR_TITLES)|__tmGetSettingsSearchStaticEntries/,
+    'cross-tab settings search must not depend on manually maintained title registries',
+);
 assert.match(
     settingsSource,
-    /TM_SETTINGS_SEARCH_CALENDAR_TITLES\.forEach\(\(title\) => \{[\s\S]*?tab: 'calendar'/,
-    'calendar setting titles must be added to the static search index',
+    /TM_SETTINGS_SEARCH_INDEX_TABS[\s\S]*?renderSettingsModalMarkup\(\)[\s\S]*?state\.settingsSearchGeneratedEntries/,
+    'settings search must build its cross-tab index from the real settings renderer',
+);
+assert.match(
+    calendarSource,
+    /function renderSettings\(containerEl, settingsStore, options = \{\}\)[\s\S]*?const indexOnly = options\?\.indexOnly === true[\s\S]*?if \(indexOnly\) return true;[\s\S]*?state\.settingsAbort\?\.abort\(\)/,
+    'calendar settings must support an index-only render that exits before event binding and runtime side effects',
+);
+assert.match(
+    settingsSource,
+    /calendarRenderer\(calendarProbe, SettingsStore, \{ indexOnly: true \}\);[\s\S]*?__tmDecorateCalendarSettingsSearchRows\(calendarProbe\);[\s\S]*?__tmCollectRenderedSettingsSearchEntries\(calendarProbe\)/,
+    'calendar search entries must be collected from the index-only rendered rows',
 );
 assert.match(
     settingsSource,
