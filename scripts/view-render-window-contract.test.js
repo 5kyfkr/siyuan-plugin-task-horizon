@@ -67,6 +67,49 @@ assert.deepEqual(Array.from(sliced.rows, (row) => `${row.type}:${row.key || row.
     'group:group-b',
     'task:task-2',
 ], 'timeline slices must retain only group rows introduced inside the selected task window');
+const trailingCollapsedGroupSlice = context.__tmSliceTaskRowModelByTaskWindow([
+    { type: 'group', key: 'doc-a' },
+    { type: 'task', id: 'task-0' },
+    { type: 'task', id: 'task-1' },
+    { type: 'group', key: 'doc-collapsed-tail' },
+], 0, 2);
+assert.deepEqual(Array.from(trailingCollapsedGroupSlice.rows, (row) => `${row.type}:${row.key || row.id}`), [
+    'group:doc-a',
+    'task:task-0',
+    'task:task-1',
+    'group:doc-collapsed-tail',
+], 'the window containing the final visible task must retain trailing collapsed document groups');
+const trailingCollapsedGroupNextSlice = context.__tmSliceTaskRowModelByTaskWindow([
+    { type: 'group', key: 'doc-a' },
+    { type: 'task', id: 'task-0' },
+    { type: 'task', id: 'task-1' },
+    { type: 'group', key: 'doc-collapsed-tail' },
+], 2, 4);
+assert.deepEqual(Array.from(trailingCollapsedGroupNextSlice.rows), [], 'later windows must not append a trailing collapsed document group twice');
+const allCollapsedGroupSlice = context.__tmSliceTaskRowModelByTaskWindow([
+    { type: 'group', key: 'doc-collapsed-a' },
+    { type: 'group', key: 'doc-collapsed-b' },
+], 0, 20);
+assert.deepEqual(Array.from(allCollapsedGroupSlice.rows, (row) => `${row.type}:${row.key}`), [
+    'group:doc-collapsed-a',
+    'group:doc-collapsed-b',
+], 'the first timeline window must retain document groups when every document is collapsed');
+const deferredBoundaryGroups = [
+    { type: 'group', key: 'doc-a' },
+    { type: 'task', id: 'task-0' },
+    { type: 'task', id: 'task-1' },
+    { type: 'group', key: 'doc-b' },
+    { type: 'task', id: 'task-2' },
+];
+assert.deepEqual(Array.from(context.__tmSliceTaskRowModelByTaskWindow(deferredBoundaryGroups, 0, 2).rows, (row) => `${row.type}:${row.key || row.id}`), [
+    'group:doc-a',
+    'task:task-0',
+    'task:task-1',
+], 'groups belonging to a task beyond the window boundary must stay deferred');
+assert.deepEqual(Array.from(context.__tmSliceTaskRowModelByTaskWindow(deferredBoundaryGroups, 2, 4).rows, (row) => `${row.type}:${row.key || row.id}`), [
+    'group:doc-b',
+    'task:task-2',
+], 'a deferred boundary group must appear with its task in the next window');
 context.__tmCancelProgressiveViewRender();
 
 const kanbanJob = context.__tmStartProgressiveViewRender('kanban');

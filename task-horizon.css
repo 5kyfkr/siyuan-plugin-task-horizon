@@ -14745,7 +14745,9 @@ select.tm-btn-secondary {
 }
 
 .tm-body--timeline .tm-group-row .tm-group-sticky {
-    box-shadow: none;
+    /* The sticky label paints over the collapsed table cell, so it must
+       redraw the row separator within its own width. */
+    box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
 }
 
 .tm-gantt-header-inner {

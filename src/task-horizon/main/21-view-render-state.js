@@ -255,19 +255,29 @@
         const rows = [];
         let pendingGroups = [];
         let taskIndex = 0;
+        let stoppedAtWindowEnd = false;
         for (const row of rowModel) {
             if (row?.type === 'group') {
                 pendingGroups.push(row);
                 continue;
             }
             if (row?.type !== 'task') continue;
-            if (taskIndex >= end) break;
+            if (taskIndex >= end) {
+                stoppedAtWindowEnd = true;
+                break;
+            }
             if (taskIndex >= start) {
                 if (pendingGroups.length) rows.push(...pendingGroups);
                 rows.push(row);
             }
             pendingGroups = [];
             taskIndex += 1;
+        }
+        const ownsTrailingGroups = taskIndex === 0
+            ? start === 0 && end > start
+            : taskIndex > start && taskIndex <= end;
+        if (!stoppedAtWindowEnd && pendingGroups.length && ownsTrailingGroups) {
+            rows.push(...pendingGroups);
         }
         return {
             rows,
