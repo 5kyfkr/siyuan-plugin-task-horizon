@@ -316,7 +316,7 @@
             || state.pendingInsertedTasks?.[tid]
             || null;
         const field = __tmGetCustomFieldDefMap().get(fid);
-        if (!tid || !task || !field) return false;
+        if (!tid || !task || !field || !__tmIsCustomFieldApplicableToTask(field, task)) return false;
         const normalized = __tmNormalizeCustomFieldValue(field, nextValue);
         const opts = (options && typeof options === 'object') ? options : {};
         const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit(opts);
@@ -387,7 +387,7 @@
             || state.flatTasks?.[tid]
             || state.pendingInsertedTasks?.[tid]
             || null;
-        if (!(anchorEl instanceof Element) || !field || !task) return;
+        if (!(anchorEl instanceof Element) || !field || !task || !__tmIsCustomFieldApplicableToTask(field, task)) return;
         const selected = __tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task, fid));
         const isMulti = String(field.type || '').trim() === 'multi';
         const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit(options);

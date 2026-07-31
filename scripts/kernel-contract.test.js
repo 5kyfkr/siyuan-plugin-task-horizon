@@ -191,6 +191,12 @@ function createHarness() {
             attrs.set(body.id, { ...(attrs.get(body.id) || {}), ...(body.attrs || {}) });
             return null;
         }
+        if (pathname === '/api/attr/batchSetBlockAttrs') {
+            for (const item of body.blockAttrs || []) {
+                attrs.set(item.id, { ...(attrs.get(item.id) || {}), ...(item.attrs || {}) });
+            }
+            return null;
+        }
         if (pathname === '/api/block/updateTaskListItemMarker') {
             const block = blocks.get(body.id);
             const marker = body.marker === 'X' ? 'x' : String(body.marker || ' ');
@@ -1051,6 +1057,31 @@ async function run() {
     const unknownTaskField = await harness.call('taskHorizonUpdateTask', IDS.singleTask, { arbitrary: 'no' });
     assert.equal(unknownTaskField.ok, false);
     assert.equal(unknownTaskField.error.code, 'INVALID_ARGUMENT');
+
+    const batchAttrsCallStart = harness.apiCalls.length;
+    const batchAttrs = await harness.call('taskHorizonPersistUiBlockOperation', {
+        action: 'batchSetAttrs',
+        entries: [
+            { id: IDS.firstTask, attrs: { 'custom-batch-test': 'first' } },
+            { id: IDS.secondTask, attrs: { 'custom-batch-test': 'second' } },
+        ],
+    });
+    assert.equal(batchAttrs.ok, true);
+    assert.equal(batchAttrs.data.written, 2);
+    assert.equal(harness.attrs.get(IDS.firstTask)['custom-batch-test'], 'first');
+    assert.equal(harness.attrs.get(IDS.secondTask)['custom-batch-test'], 'second');
+    const batchAttrsApiCalls = harness.apiCalls.slice(batchAttrsCallStart);
+    assert.equal(batchAttrsApiCalls.filter((call) => call.pathname === '/api/attr/batchSetBlockAttrs').length, 1);
+    assert.equal(batchAttrsApiCalls.filter((call) => call.pathname === '/api/attr/setBlockAttrs').length, 0);
+    assert.deepEqual(batchAttrsApiCalls[0], {
+        pathname: '/api/attr/batchSetBlockAttrs',
+        body: {
+            blockAttrs: [
+                { id: IDS.firstTask, attrs: { 'custom-batch-test': 'first' } },
+                { id: IDS.secondTask, attrs: { 'custom-batch-test': 'second' } },
+            ],
+        },
+    });
 
     const marker = await harness.call('taskHorizonPersistUiBlockOperation', { action: 'updateMarker', id: IDS.secondTask, marker: '?' });
     assert.equal(marker.ok, true);

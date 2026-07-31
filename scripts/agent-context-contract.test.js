@@ -47,6 +47,7 @@ assert.match(externalDragRouting, /hit\.type === 'agent-context'[\s\S]*handleTas
 assert.match(calendarView, /function updateOfficialExternalTaskDragIndicators[\s\S]*__tmHandleExternalTaskDragOver[\s\S]*function finalizeOfficialExternalTaskDragDrop[\s\S]*__tmHandleExternalTaskDrop/, 'calendar-view pointer dragging must feed the shared external drop routing used by agent context');
 assert.doesNotMatch(workbench, /\/api\/search\/fullTextSearchBlock/, 'context picker must not depend on full-text block search');
 assert.match(workbench, /data-agent-action="finish-context-picker"/, 'multi-select picker must provide a finish action');
+assert.match(workbench, /tm-agent-context-picker__footer">\s*<button[^>]*data-agent-action="finish-context-picker"[^>]*>完成<\/button>\s*<span role="status">/, 'context picker finish action must stay at the left edge before the selection count');
 assert.match(workbench, /const directTaskIDs = omitDirectTaskReferences \? \[\] : taskIDs\.filter\(isTaskBlockID\);[\s\S]*selectedBlockIDs: Array\.from\(new Set\(\[\.\.\.directTaskIDs, \.\.\.documentIDs\]\)\)/, 'small real selections may use native references, while virtual and bulk selections stay behind the complete scope token');
 assert.match(workbench, /get_task_view_context 前端动作/, 'view scope must be passed to the Agent');
 assert.match(workbench, /当前范围含循环虚拟实例[\s\S]*repeatinst ID 作为 taskId[\s\S]*create_schedule[\s\S]*update_schedule[\s\S]*batch_schedules[\s\S]*apply_task_operation_plan[\s\S]*scopeToken/, 'the Agent must receive complete virtual recurring schedule guidance');
@@ -65,6 +66,8 @@ assert.match(workbench, /listen\('wheel'[\s\S]*?closest\?\.\('\.tm-agent-context
 assert.match(styles, /\.tm-agent-context-picker\s*\{/, 'context picker styles are missing');
 assert.match(styles, /\.tm-agent-workbench\.is-task-drag-over \.tm-agent-task-drop-hint\s*\{[\s\S]*border-color:[\s\S]*background:[\s\S]*opacity: 1;/, 'the entire agent workbench must show a clear task drop target');
 assert.match(styles, /\.tm-agent-context-picker__footer\s*\{/, 'multi-select footer styles are missing');
+assert.match(styles, /\.tm-agent-context-picker__footer\s*\{[^}]*justify-content:\s*flex-start;/, 'context picker footer content must stay left aligned to avoid bottom-right overlays');
+assert.match(styles, /\.tm-agent-context-picker__footer \.b3-button\s*\{[^}]*border:\s*1px solid[^}]*background:\s*color-mix\(/, 'context picker finish action must have a visible border and themed background');
 assert.match(styles, /\.tm-agent-context\s*\{[\s\S]*?height: 39px;[\s\S]*?min-height: 39px;/, 'context row height must stay compact');
 assert.match(styles, /\.tm-agent-context\.is-expanded\s*\{[\s\S]*?height: auto;/, 'expanded context area must grow vertically');
 assert.match(styles, /\.tm-agent-context:not\(\.is-expanded\) \.tm-agent-context__items::\-webkit-scrollbar\s*\{[\s\S]*?display: none;[\s\S]*?width: 0;[\s\S]*?height: 0;/, 'collapsed context row must fully hide the native scrollbar');

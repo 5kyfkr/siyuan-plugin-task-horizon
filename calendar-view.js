@@ -480,6 +480,7 @@
             loadedAt: 0,
             inflight: null,
         },
+        reminderCacheEpoch: 0,
         scheduleReminder: {
             enabled: false,
             refreshTimer: null,
@@ -7610,6 +7611,7 @@
             icsWebdavPassword: String(s.calendarIcsWebdavPassword || ''),
             icsChainFileName: String(s.calendarIcsChainFileName || '').trim(),
             icsChainPublicConfirmed: s.calendarIcsChainPublicConfirmed === true,
+            icsIncludeTomatoReminders: s.calendarIcsIncludeTomatoReminders !== false,
             icsIncludeTaskDates: s.calendarIcsIncludeTaskDates === true,
             initialViewDesktop: initialViewDesktop0,
             initialViewMobile: initialViewMobile0,
@@ -12123,10 +12125,12 @@
         const until = now + ms;
         state.reminderCalendarRefetchSuppressedUntil = Math.max(Number(state.reminderCalendarRefetchSuppressedUntil) || 0, until);
         state.reminderCalendarRefetchSuppressedReason = String(reason || 'schedule-mutation').trim() || 'schedule-mutation';
+        const hadPendingRefetch = !!state.tomatoRefetchTimer;
         if (state.tomatoRefetchTimer) {
             try { clearTimeout(state.tomatoRefetchTimer); } catch (e) {}
             state.tomatoRefetchTimer = null;
         }
+        if (hadPendingRefetch) scheduleTomatoRefetch();
     }
 
     function getReminderCalendarRefetchSuppression() {
@@ -18442,7 +18446,7 @@
             const linkedTitle = (linkedTaskTitleMap instanceof Map)
                 ? String((taskId ? linkedTaskTitleMap.get(taskId) : '') || (blockId ? linkedTaskTitleMap.get(blockId) : '') || '').trim()
                 : '';
-            const titleBase = normalizeCalendarScheduleTitleText(linkedTitle || it?.title, '日程');
+            const titleBase = normalizeCalendarScheduleTitleText(it?.title || linkedTitle, '日程');
             const calendarId = String(it?.calendarId || 'default');
             if (!isCalendarEnabled(calendarId, settings)) continue;
             const calColor = defMap.get(calendarId)?.color || 'var(--tm-primary-color)';
@@ -20215,6 +20219,7 @@
         const cache = state.reminderCache || {};
         if (Array.isArray(cache.list) && (now - (cache.loadedAt || 0) < 60000)) return cache.list;
         if (cache.inflight && typeof cache.inflight.then === 'function') return await cache.inflight;
+        const cacheEpoch = Number(state.reminderCacheEpoch) || 0;
         const loader = (async () => {
             let blocks = [];
             try {
@@ -20259,6 +20264,9 @@
                 }
             }
             const safe = await dedupeReminderBlocks(Array.isArray(blocks) ? blocks : []);
+            if ((Number(state.reminderCacheEpoch) || 0) !== cacheEpoch) {
+                return await loadReminderBlocks();
+            }
             state.reminderCache = { list: safe, loadedAt: Date.now(), inflight: null };
             return safe;
         })();
@@ -22226,6 +22234,11 @@
         if (!state.calendar) return;
         const suppressed = getReminderCalendarRefetchSuppression();
         if (suppressed) {
+            if (state.tomatoRefetchTimer) return;
+            state.tomatoRefetchTimer = setTimeout(() => {
+                state.tomatoRefetchTimer = null;
+                scheduleTomatoRefetch();
+            }, Math.max(16, suppressed.remainingMs + 16));
             return;
         }
         if (state.tomatoRefetchTimer) return;
@@ -22242,15 +22255,12 @@
 
     function clearReminderCalendarCache() {
         try {
+            state.reminderCacheEpoch = (Number(state.reminderCacheEpoch) || 0) + 1;
             state.reminderCache = { list: [], loadedAt: 0, inflight: null };
         } catch (e) {}
     }
 
     function scheduleReminderCalendarRefetch() {
-        const suppressed = getReminderCalendarRefetchSuppression();
-        if (suppressed) {
-            return;
-        }
         clearReminderCalendarCache();
         scheduleTomatoRefetch();
     }
@@ -24570,7 +24580,13 @@
     }
 
     function getCalendarSubscriptionSourceStatusText() {
-        const includesTaskDates = getSettings().icsIncludeTaskDates === true;
+        const settings = getSettings();
+        const includesTaskDates = settings.icsIncludeTaskDates === true;
+        if (settings.icsIncludeTomatoReminders !== true) {
+            return includesTaskDates
+                ? '包含任务管理器日程与任务全天日程'
+                : '仅包含任务管理器日程';
+        }
         if (isDockTomatoPluginLoaded()) {
             return includesTaskDates
                 ? '包含任务管理器日程、任务全天日程与底栏番茄钟提醒'
@@ -24765,6 +24781,7 @@
             calendarIcsWebdavPassword: 'string',
             calendarIcsChainFileName: 'string',
             calendarIcsChainPublicConfirmed: 'boolean',
+            calendarIcsIncludeTomatoReminders: 'boolean',
             calendarIcsIncludeTaskDates: 'boolean',
         };
         let changed = false;
@@ -24895,8 +24912,9 @@
         }
 
         const tomatoLoaded = isDockTomatoPluginLoaded();
+        const includeTomatoReminders = settings.icsIncludeTomatoReminders === true;
         let sourceMode = settings.icsIncludeTaskDates ? 'schedules-and-task-dates' : 'schedules-only';
-        if (tomatoLoaded) {
+        if (tomatoLoaded && includeTomatoReminders) {
             sourceMode = settings.icsIncludeTaskDates
                 ? 'schedules-task-dates-and-reminders'
                 : 'schedules-and-reminders';
@@ -25365,19 +25383,24 @@
         calendarSubscriptionPublisher.startupPending = true;
         calendarSubscriptionPublisher.lifecycleToken += 1;
         calendarSubscriptionPublisher.scheduleUpdatedListener = () => markCalendarSubscriptionDirty('schedule-updated');
-        calendarSubscriptionPublisher.tomatoUpdatedListener = () => markCalendarSubscriptionDirty('tomato-reminder-updated');
+        calendarSubscriptionPublisher.tomatoUpdatedListener = () => {
+            if (!getSettings().icsIncludeTomatoReminders) return;
+            markCalendarSubscriptionDirty('tomato-reminder-updated');
+        };
         calendarSubscriptionPublisher.taskAttrUpdatedListener = (event) => {
             const detail = event?.detail || {};
             const names = [detail.attrKey, detail.attrName, ...(Array.isArray(detail.attrNames) ? detail.attrNames : [])]
                 .map((name) => String(name || '').trim())
                 .filter(Boolean);
-            if (!names.some((name) => [
+            const hasTaskProjectionChange = names.some((name) => [
                 'custom-start-date',
                 'custom-completion-time',
                 'custom-task-repeat-rule',
                 'custom-task-repeat-state',
-                'custom-tomato-reminder',
-            ].includes(name))) return;
+            ].includes(name));
+            const hasReminderChange = names.includes('custom-tomato-reminder')
+                && getSettings().icsIncludeTomatoReminders === true;
+            if (!hasTaskProjectionChange && !hasReminderChange) return;
             markCalendarSubscriptionDirty('task-attr-updated');
         };
         calendarSubscriptionPublisher.taskProjectionUpdatedListener = (event) => {
@@ -25876,6 +25899,13 @@
                             <div class="tm-calendar-settings-label-desc">将设置了开始日期或截止日期的未完成任务作为全天事件同步。</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsIncludeTaskDates" ${s.icsIncludeTaskDates ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            同步番茄钟提醒
+                            <div class="tm-calendar-settings-label-desc">将底栏番茄钟中的任务提醒作为带通知的日历事件同步。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsIncludeTomatoReminders" ${s.icsIncludeTomatoReminders ? 'checked' : ''}>
                     </div>
                     ${icsProviderRows}
                     <div class="tm-calendar-settings-row">

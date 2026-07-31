@@ -4076,6 +4076,7 @@
         try { __tmDocScopeCacheStore = null; } catch (e) {}
         try { __tmDocScopeCacheLoadPromise = null; } catch (e) {}
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { scope: true }); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
     }
 
     window.__tmInvalidateDocScopeCache = __tmInvalidateDocScopeCache;
@@ -5254,6 +5255,16 @@
         )).sort();
     }
 
+    function __tmNormalizeCustomFieldScope(input) {
+        if (input == null) return null;
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        return {
+            docIds: __tmNormalizeCustomFieldIdList(source.docIds),
+            docGroupIds: __tmNormalizeCustomFieldIdList(source.docGroupIds),
+            docTabGroupIds: __tmNormalizeCustomFieldIdList(source.docTabGroupIds),
+        };
+    }
+
     function __tmBuildRuntimeCustomFieldLoadPlan(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const hasOwn = (key) => Object.prototype.hasOwnProperty.call(opts, key);
@@ -5418,6 +5429,7 @@
             type,
             options,
             enabled: source.enabled !== false,
+            scope: __tmNormalizeCustomFieldScope(source.scope),
         };
     }
 
@@ -5481,6 +5493,176 @@
 
     function __tmGetCustomFieldDefMap() {
         return __tmGetCustomFieldDefsRuntimeArtifacts().defMap;
+    }
+
+    const __tmCustomFieldScopeRuntime = {
+        ready: false,
+        signature: '',
+        membersByDocGroup: new Map(),
+        membersByDocTabGroup: new Map(),
+        refreshPromise: null,
+    };
+
+    function __tmGetCustomFieldScopeRuntimeSignature() {
+        const defs = __tmGetCustomFieldDefs();
+        const docGroupIds = new Set();
+        const docTabGroupIds = new Set();
+        defs.forEach((field) => {
+            const scope = __tmNormalizeCustomFieldScope(field?.scope);
+            if (!scope) return;
+            scope.docGroupIds.forEach((id) => docGroupIds.add(id));
+            scope.docTabGroupIds.forEach((id) => docTabGroupIds.add(id));
+        });
+        const groups = (Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [])
+            .filter((group) => docGroupIds.has(String(group?.id || '').trim()));
+        const tabGroups = (Array.isArray(SettingsStore?.data?.docTabCustomGroups) ? SettingsStore.data.docTabCustomGroups : [])
+            .filter((group) => docTabGroupIds.has(String(group?.id || '').trim()));
+        try {
+            return JSON.stringify({
+                docGroupIds: Array.from(docGroupIds).sort(),
+                docTabGroupIds: Array.from(docTabGroupIds).sort(),
+                groups,
+                tabGroups,
+                docCount: Array.isArray(state?.allDocuments) ? state.allDocuments.length : 0,
+            });
+        } catch (e) {
+            return `${Array.from(docGroupIds).sort().join(',')}|${Array.from(docTabGroupIds).sort().join(',')}`;
+        }
+    }
+
+    async function __tmRefreshCustomFieldScopeMembership(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const signature = __tmGetCustomFieldScopeRuntimeSignature();
+        const runtime = __tmCustomFieldScopeRuntime;
+        if (opts.force !== true && runtime.ready && runtime.signature === signature) return runtime;
+        if (runtime.refreshPromise) return await runtime.refreshPromise;
+
+        const refreshPromise = Promise.resolve().then(async () => {
+            const defs = __tmGetCustomFieldDefs();
+            const docGroupIds = new Set();
+            const docTabGroupIds = new Set();
+            defs.forEach((field) => {
+                const scope = __tmNormalizeCustomFieldScope(field?.scope);
+                if (!scope) return;
+                scope.docGroupIds.forEach((id) => docGroupIds.add(id));
+                scope.docTabGroupIds.forEach((id) => docTabGroupIds.add(id));
+            });
+
+            if (docTabGroupIds.size && (!Array.isArray(state?.allDocuments) || !state.allDocuments.length)) {
+                try {
+                    const docs = await API?.getAllDocuments?.();
+                    if (Array.isArray(docs) && docs.length) state.allDocuments = docs;
+                } catch (e) {}
+            }
+
+            const configuredDocGroupIds = new Set(
+                (Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [])
+                    .map((group) => String(group?.id || '').trim())
+                    .filter(Boolean)
+            );
+            const membersByDocGroup = new Map();
+            await Promise.all(Array.from(docGroupIds).map(async (groupId) => {
+                if (!configuredDocGroupIds.has(groupId) || typeof resolveDocIdsFromGroups !== 'function') return;
+                let docIds = [];
+                try {
+                    docIds = await resolveDocIdsFromGroups({ groupId, includeQuickAddDoc: false });
+                } catch (e) {
+                    docIds = [];
+                }
+                membersByDocGroup.set(groupId, new Set(__tmNormalizeCustomFieldIdList(docIds)));
+            }));
+
+            const tabGroups = typeof __tmGetDocTabCustomGroups === 'function'
+                ? __tmGetDocTabCustomGroups()
+                : (Array.isArray(SettingsStore?.data?.docTabCustomGroups) ? SettingsStore.data.docTabCustomGroups : []);
+            const membersByDocTabGroup = new Map();
+            Array.from(docTabGroupIds).forEach((groupId) => {
+                const group = tabGroups.find((item) => String(item?.id || '').trim() === groupId) || null;
+                if (!group || typeof __tmExpandDocTabCustomGroup !== 'function') return;
+                const expanded = __tmExpandDocTabCustomGroup(group, Array.isArray(state?.allDocuments) ? state.allDocuments : []);
+                membersByDocTabGroup.set(groupId, new Set(Array.from(expanded.keys())));
+            });
+
+            runtime.membersByDocGroup = membersByDocGroup;
+            runtime.membersByDocTabGroup = membersByDocTabGroup;
+            runtime.ready = true;
+            runtime.signature = __tmGetCustomFieldScopeRuntimeSignature();
+            return runtime;
+        }).finally(() => {
+            if (runtime.refreshPromise === refreshPromise) runtime.refreshPromise = null;
+        });
+        runtime.refreshPromise = refreshPromise;
+        return await refreshPromise;
+    }
+
+    function __tmResolveCustomFieldScopeDocId(taskOrDocId) {
+        if (typeof taskOrDocId === 'string') return String(taskOrDocId || '').trim();
+        const source = (taskOrDocId && typeof taskOrDocId === 'object') ? taskOrDocId : {};
+        return String(source.root_id || source.rootId || source.docId || source.documentId || source.documentID || '').trim();
+    }
+
+    function __tmIsCustomFieldApplicableToDoc(field, docId, runtime = __tmCustomFieldScopeRuntime) {
+        if (!field || field.enabled === false) return false;
+        const scope = __tmNormalizeCustomFieldScope(field.scope);
+        if (!scope) return true;
+        const did = String(docId || '').trim();
+        if (!did) return false;
+        if (scope.docIds.includes(did)) return true;
+        if (scope.docGroupIds.some((groupId) => runtime.membersByDocGroup.get(groupId)?.has(did))) return true;
+        return scope.docTabGroupIds.some((groupId) => runtime.membersByDocTabGroup.get(groupId)?.has(did));
+    }
+
+    function __tmIsCustomFieldApplicableToTask(field, task) {
+        return __tmIsCustomFieldApplicableToDoc(field, __tmResolveCustomFieldScopeDocId(task));
+    }
+
+    function __tmCollectCustomFieldViewDocIds(tasks = null) {
+        const source = Array.isArray(tasks) ? tasks : (Array.isArray(state?.filteredTasks) ? state.filteredTasks : []);
+        const out = new Set();
+        const visit = (task) => {
+            const docId = __tmResolveCustomFieldScopeDocId(task);
+            if (docId) out.add(docId);
+            (Array.isArray(task?.children) ? task.children : []).forEach(visit);
+        };
+        source.forEach((item) => {
+            if (typeof item === 'string') {
+                const docId = String(item || '').trim();
+                if (docId) out.add(docId);
+                return;
+            }
+            visit(item);
+        });
+        const activeDocId = String(state?.activeDocId || '').trim();
+        if (activeDocId === 'all') {
+            __tmNormalizeCustomFieldIdList(state?.__tmLoadedDocIdsForTasks || []).forEach((docId) => out.add(docId));
+        } else if (activeDocId) {
+            const tabGroupDocIds = typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function'
+                ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
+                    allScopes: true,
+                    extraDocs: Array.isArray(state?.allDocuments) ? state.allDocuments : [],
+                })
+                : new Set();
+            if (tabGroupDocIds instanceof Set && tabGroupDocIds.size) {
+                tabGroupDocIds.forEach((docId) => out.add(String(docId || '').trim()));
+            } else if (!activeDocId.startsWith('__')) {
+                out.add(activeDocId);
+            }
+        }
+        return out;
+    }
+
+    function __tmGetEffectiveCustomFieldColumnOrder(columnOrder, tasksOrDocIds = null) {
+        const order = Array.isArray(columnOrder) ? columnOrder.slice() : [];
+        const viewDocIds = __tmCollectCustomFieldViewDocIds(tasksOrDocIds);
+        const fieldMap = __tmGetCustomFieldDefMap();
+        return order.filter((columnKey) => {
+            const fieldId = __tmParseCustomFieldColumnKey(columnKey);
+            if (!fieldId) return true;
+            const field = fieldMap.get(fieldId);
+            if (!field) return false;
+            if (__tmNormalizeCustomFieldScope(field.scope) == null) return true;
+            return Array.from(viewDocIds).some((docId) => __tmIsCustomFieldApplicableToDoc(field, docId));
+        });
     }
 
     function __tmGetCustomFieldAttrKeyMap() {
@@ -5909,10 +6091,13 @@
     }
 
     function __tmGetTaskCustomFieldValue(task, fieldId) {
+        const fid = String(fieldId || '').trim();
+        const field = __tmGetCustomFieldDefMap().get(fid);
+        if (field && !__tmIsCustomFieldApplicableToTask(field, task)) return undefined;
         const values = (task?.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues))
             ? task.customFieldValues
             : {};
-        return values[String(fieldId || '').trim()];
+        return values[fid];
     }
 
     function __tmGetActiveListTaskRenderLimit() {
@@ -7424,6 +7609,7 @@
             calendarIcsWebdavPassword: '',
             calendarIcsChainFileName: '',
             calendarIcsChainPublicConfirmed: false,
+            calendarIcsIncludeTomatoReminders: true,
             calendarIcsIncludeTaskDates: false,
             calendarInitialView: 'timeGridWeek',
             calendarInitialViewDesktop: 'timeGridWeek',
@@ -8080,6 +8266,7 @@
                                 if (typeof cloudData.calendarIcsWebdavPassword === 'string') this.data.calendarIcsWebdavPassword = cloudData.calendarIcsWebdavPassword;
                                 if (typeof cloudData.calendarIcsChainFileName === 'string') this.data.calendarIcsChainFileName = cloudData.calendarIcsChainFileName;
                                 if (typeof cloudData.calendarIcsChainPublicConfirmed === 'boolean') this.data.calendarIcsChainPublicConfirmed = cloudData.calendarIcsChainPublicConfirmed;
+                                if (typeof cloudData.calendarIcsIncludeTomatoReminders === 'boolean') this.data.calendarIcsIncludeTomatoReminders = cloudData.calendarIcsIncludeTomatoReminders;
                                 if (typeof cloudData.calendarIcsIncludeTaskDates === 'boolean') this.data.calendarIcsIncludeTaskDates = cloudData.calendarIcsIncludeTaskDates;
                                 if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = __tmNormalizeCalendarInitialView(cloudData.calendarInitialView, this.data.calendarInitialView);
                                 if (typeof cloudData.calendarInitialViewDesktop === 'string') {
@@ -8593,6 +8780,7 @@
             } catch (e) {}
             this.data.calendarIcsChainFileName = String(Storage.get('tm_calendar_ics_chain_file_name', this.data.calendarIcsChainFileName) || '');
             this.data.calendarIcsChainPublicConfirmed = !!Storage.get('tm_calendar_ics_chain_public_confirmed', this.data.calendarIcsChainPublicConfirmed);
+            this.data.calendarIcsIncludeTomatoReminders = !!Storage.get('tm_calendar_ics_include_tomato_reminders', this.data.calendarIcsIncludeTomatoReminders);
             this.data.calendarIcsIncludeTaskDates = !!Storage.get('tm_calendar_ics_include_task_dates', this.data.calendarIcsIncludeTaskDates);
             this.data.calendarInitialView = __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view', this.data.calendarInitialView), this.data.calendarInitialView);
             this.data.calendarInitialViewDesktop = Storage.has('tm_calendar_initial_view_desktop')
@@ -9086,6 +9274,7 @@
             Storage.set('tm_calendar_ics_webdav_password', String(this.data.calendarIcsWebdavPassword || ''));
             Storage.set('tm_calendar_ics_chain_file_name', String(this.data.calendarIcsChainFileName || ''));
             Storage.set('tm_calendar_ics_chain_public_confirmed', !!this.data.calendarIcsChainPublicConfirmed);
+            Storage.set('tm_calendar_ics_include_tomato_reminders', !!this.data.calendarIcsIncludeTomatoReminders);
             Storage.set('tm_calendar_ics_include_task_dates', !!this.data.calendarIcsIncludeTaskDates);
             this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
             this.data.calendarInitialViewMobile = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewMobile, 'timeGridDay');
@@ -16057,12 +16246,22 @@
         const viewMode = String(state.viewMode || '').trim();
         if (!state.modal || !document.body.contains(state.modal)) return false;
         if (viewMode === 'calendar' && opts.allowCalendar !== true) return false;
+        const renderWindowSnapshot = opts.preserveRenderWindow === true
+            ? __tmCaptureViewRenderWindow(viewMode)
+            : null;
+        const restoreRenderWindow = () => {
+            if (!renderWindowSnapshot) return;
+            try { __tmRestoreViewRenderWindow(renderWindowSnapshot, state.filteredTasks.length); } catch (e) {}
+        };
         try { await __tmFlushSqlTransactionsSafe('doc-incremental-refresh'); } catch (e) {}
         const forcePositionRank = opts.forcePositionRank === true;
         if (!forcePositionRank) {
             try {
                 const taskBlockOk = await __tmRefreshAffectedTaskBlocksIncrementally(opts);
-                if (taskBlockOk) return true;
+                if (taskBlockOk) {
+                    restoreRenderWindow();
+                    return true;
+                }
             } catch (e) {}
         }
         const docIds = await __tmResolveIncrementalRefreshDocIds(targets.docIds, targets.blockIds, {
@@ -16276,6 +16475,7 @@
             });
         } catch (e) {}
         if (opts.withFilters !== false) applyFilters();
+        restoreRenderWindow();
         try {
             const loadedDocIds = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []);
             if (loadedDocIds.some((docId) => docIds.includes(docId))) {

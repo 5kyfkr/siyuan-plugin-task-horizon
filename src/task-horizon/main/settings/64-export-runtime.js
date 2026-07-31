@@ -95,6 +95,7 @@
         'calendarIcsWebdavUsername',
         'calendarIcsChainFileName',
         'calendarIcsChainPublicConfirmed',
+        'calendarIcsIncludeTomatoReminders',
         'calendarIcsIncludeTaskDates',
         'calendarInitialView',
         'calendarInitialViewDesktop',

@@ -7357,6 +7357,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         } catch (e) {}
         const customFieldId = __tmParseCustomFieldColumnKey(field);
         const customField = customFieldId ? __tmGetCustomFieldDefMap().get(customFieldId) : null;
+        if (customField && !__tmIsCustomFieldApplicableToTask(customField, task)) return Promise.resolve(false);
         const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
         if (typeof patchTask !== 'function') return Promise.reject(new Error('任务写入队列未就绪: patchTask'));
         if (customField && String(customField.type || '').trim() === 'text') {
@@ -7560,6 +7561,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         if (!task) return;
         const customFieldId = __tmParseCustomFieldColumnKey(field);
         const customField = customFieldId ? __tmGetCustomFieldDefMap().get(customFieldId) : null;
+        if (customField && !__tmIsCustomFieldApplicableToTask(customField, task)) return;
         const isDeferredTextField = field === 'remark'
             || field === 'duration'
             || field === 'tomatoSummary'

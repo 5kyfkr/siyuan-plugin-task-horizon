@@ -1,0 +1,19 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - article [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]: 单行任务名称
+        - button "..." [ref=e10] [cursor=pointer]
+    - article [ref=e11]:
+      - generic [ref=e12]:
+        - generic [ref=e13]: 这是一个需要在卡片中显示为两行的较长任务名称，用于检查上下边距
+        - button "..." [ref=e17] [cursor=pointer]
+    - article [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e22]:
+          - generic [ref=e23] [cursor=pointer]: 带字段和备注的任务
+          - generic [ref=e24]:
+            - generic [ref=e25] [cursor=pointer]: 进行中
+            - generic [ref=e26] [cursor=pointer]: 今天 18:00
+        - button "..." [ref=e27] [cursor=pointer]
+      - generic [ref=e28]: 备注信息独立显示。

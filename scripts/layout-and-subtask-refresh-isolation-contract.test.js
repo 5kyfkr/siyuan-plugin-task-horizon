@@ -10,6 +10,8 @@ const renderRuntime = read('src/task-horizon/main/40-render-runtime.js');
 const settingsActions = read('src/task-horizon/main/settings/70-doc-group-and-settings-actions.js');
 const uiFoundation = read('src/task-horizon/main/30-dialogs-and-ui-foundation.js');
 const runtimeState = read('src/task-horizon/main/32-runtime-state-and-events.js');
+const runtimeServices = read('src/task-horizon/main/20-api-and-runtime-services.js');
+const stores = read('src/task-horizon/main/10-stores-rules-and-cache.js');
 const taskLoader = read('src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js');
 const taskCreateRuntime = read('src/task-horizon/main/task-runtime/53b-task-create-and-quick-add-runtime.js');
 const kanbanRenderer = read('src/task-horizon/main/render/43-render-timeline-kanban-calendar-body.js');
@@ -82,12 +84,22 @@ assert.match(
 );
 
 const queueRowMove = segment(uiFoundation, 'async function __tmQueueTaskRowMove', 'async function __tmHandleTaskRowDropCore');
-const rowDropReconcile = segment(uiFoundation, 'function __tmScheduleTaskRowDropReconcileRefresh', 'window.tmTaskRowDragOver');
+const rowDropCore = segment(uiFoundation, 'async function __tmHandleTaskRowDropCore', 'window.tmTaskRowDragOver');
+const checklistSubtaskRefresh = segment(taskCreateRuntime, 'function __tmScheduleChecklistOptimisticSubtaskRefresh', 'globalThis.__tmFlushDeferredChecklistOptimisticSubtaskRefresh');
 const optimisticMove = segment(taskCreateRuntime, 'function __tmApplyMoveOptimisticLocal', 'function __tmRollbackMoveOptimisticLocal');
-assert.match(queueRowMove, /shouldRefreshSubtaskViews = moveKind === 'child' \|\| moveKind === 'child-top'/, 'child drops must keep their existing reconciliation path');
-assert.match(queueRowMove, /forceFullReconcile: true/, 'child drops must retain the established settled reconciliation');
-assert.match(rowDropReconcile, /__tmScheduleChecklistOptimisticSubtaskRefresh\?\.\(previousParentTaskId, data\?\.taskId\)[\s\S]*__tmScheduleChecklistOptimisticSubtaskRefresh\?\.\(nextParentTaskId, data\?\.taskId\)[\s\S]*__tmScheduleViewRefresh/, 'task-row reconciliation must retain its established refresh architecture');
-assert.match(optimisticMove, /mode === 'child' \|\| mode === 'child-top'[\s\S]*__tmScheduleChecklistOptimisticSubtaskRefresh\(payload\?\.targetTaskId, taskId, \{ force: true \}\)[\s\S]*__tmScheduleChecklistOptimisticSubtaskRefresh\(previousParentId, taskId, \{ force: true \}\)/, 'optimistic child moves must bypass detail-panel deferral for both affected checklist groups');
+const queuedMove = segment(taskLoader, 'function __tmQueueMoveTask', 'function __tmGetTaskForDetachSubtask');
+const structuralProjection = segment(runtimeServices, 'function __tmRefreshQueuedStructuralProjection', 'function __tmCommitQueuedOp');
+const incrementalRefresh = segment(stores, 'async function __tmRefreshAffectedDocsIncrementally', 'async function __tmFlushSqlTransactionsSafe');
+assert.match(queueRowMove, /payload\.preserveRenderWindow = true/, 'row drops must preserve an already-grown list render window');
+assert.doesNotMatch(queueRowMove, /onQueued|forceFullReconcile|__tmScheduleTaskRowDropReconcileRefresh/, 'row drops must not schedule a second legacy reconciliation at enqueue or settle time');
+assert.doesNotMatch(rowDropCore, /forceOptimisticRender/, 'row-drop core must leave the optimistic redraw to the mutation projection manager');
+assert.doesNotMatch(uiFoundation, /function __tmScheduleTaskRowDropReconcileRefresh/, 'the duplicate legacy row-drop refresh path must be removed');
+assert.match(checklistSubtaskRefresh, /opts\.deferRender === true\) return true;[\s\S]*__tmChecklistOptimisticSubtaskRefreshQueued/, 'row moves must be able to register affected checklist groups without scheduling a competing redraw');
+assert.match(optimisticMove, /checklistRefreshOptions[\s\S]*force: true[\s\S]*deferRender: payload\.preserveRenderWindow === true[\s\S]*__tmScheduleChecklistOptimisticSubtaskRefresh\(payload\?\.targetTaskId, taskId, checklistRefreshOptions\)[\s\S]*__tmScheduleChecklistOptimisticSubtaskRefresh\(previousParentId, taskId, checklistRefreshOptions\)/, 'optimistic child moves must register both affected checklist groups for the single mutation refresh');
+assert.match(optimisticMove, /payload\.preserveRenderWindow === true[\s\S]*__tmCaptureViewRenderWindow[\s\S]*__tmRestoreViewRenderWindow/, 'optimistic row moves must retain the current render limit around filter work');
+assert.match(queuedMove, /preserveRenderWindow: data\.preserveRenderWindow === true \|\| hooks\.preserveRenderWindow === true/, 'the move outbox must carry render-window preservation through settlement');
+assert.match(structuralProjection, /preserveRenderWindow: type === 'moveTask' && data\.preserveRenderWindow === true/, 'settled move reconciliation must preserve the render window');
+assert.match(incrementalRefresh, /__tmCaptureViewRenderWindow\(viewMode\)[\s\S]*restoreRenderWindow[\s\S]*__tmRestoreViewRenderWindow/, 'incremental document refresh must restore the captured render window after refiltering');
 
 const childDropSources = [uiFoundation, runtimeState, taskLoader, taskCreateRuntime].join('\n');
 assert.doesNotMatch(childDropSources, /subtaskDropTraceId|__tmLogSubtaskDrop|\[Task Horizon\]\[subtask-drop\]|forceOptimisticFilterWork/, 'temporary child-drop diagnostics and snapshot experiments must not remain');

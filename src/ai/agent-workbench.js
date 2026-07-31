@@ -2329,8 +2329,8 @@
                 </label>
                 <div class="tm-agent-context-picker__results">${resultHtml}</div>
                 <div class="tm-agent-context-picker__footer">
-                    <span role="status">已选 ${selectedCount} 项</span>
                     <button type="button" class="b3-button b3-button--text" data-agent-action="finish-context-picker">完成</button>
+                    <span role="status">已选 ${selectedCount} 项</span>
                 </div>
             </div>
         </aside>`;

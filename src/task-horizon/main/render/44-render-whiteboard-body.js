@@ -528,6 +528,16 @@
                     .sort((a, b) => getOrder(a) - getOrder(b));
                 const rootSet = new Set(rootIds);
                 const links = isGlobalCanvasDoc ? [] : __tmGetAllTaskLinks({ docId, includeAuto: true });
+                const manualNodeLinks = isGlobalCanvasDoc && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
+                    ? __tmGetWhiteboardGlobalTaskLinks()
+                    : __tmGetAllTaskLinks({ docId, includeAuto: false });
+                const linkedTaskIdSet = new Set();
+                manualNodeLinks.forEach((link) => {
+                    const fromId = String(link?.from || '').trim();
+                    const toId = String(link?.to || '').trim();
+                    if (fromId) linkedTaskIdSet.add(fromId);
+                    if (toId) linkedTaskIdSet.add(toId);
+                });
                 const indeg = new Map(rootIds.map(id => [id, 0]));
                 const adj = new Map(rootIds.map(id => [id, []]));
                 const seenEdge = new Set();
@@ -747,8 +757,7 @@
                     const completedChildren = Number(directChildStats.completed) || 0;
                     const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
                     const collapsed = totalChildren ? __tmKanbanGetCollapsedSet().has(tid) : false;
-                    const linkStats = __tmGetTaskLinkStats(tid, { docId: taskDocId, includeAuto: false });
-                    const hasTaskLinks = (Number(linkStats?.incoming || 0) + Number(linkStats?.outgoing || 0)) > 0;
+                    const hasTaskLinks = linkedTaskIdSet.has(tid);
                     const hasVisibleChildren = children.length > 0;
                     const toggleTitle = collapsed ? '展开子任务' : '折叠子任务';
                     const toggleIconPathHtml = '<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';

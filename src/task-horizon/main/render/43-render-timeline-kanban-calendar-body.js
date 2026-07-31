@@ -1,3 +1,121 @@
+    function __tmRenderTimelineTaskCellsHtml(task, options = {}) {
+        if (!task) return '';
+        const opts = (options && typeof options === 'object') ? options : {};
+        const columnOrder = Array.isArray(opts.columnOrder) ? opts.columnOrder : [];
+        const customColumnsByKey = opts.customColumnsByKey instanceof Map ? opts.customColumnsByKey : new Map();
+        const getCellStyle = typeof opts.getCellStyle === 'function' ? opts.getCellStyle : (() => '');
+        const statusOptions = Array.isArray(opts.statusOptions)
+            ? opts.statusOptions
+            : __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
+        const statusOption = columnOrder.includes('status')
+            ? __tmResolveTaskStatusDisplayOption(task, statusOptions, { fallbackColor: '#757575' })
+            : null;
+        const statusChipStyle = statusOption ? __tmBuildStatusChipStyle(statusOption.color) : '';
+        const remainingInfo = columnOrder.includes('remainingTime') ? __tmGetTaskRemainingTimeInfo(task) : null;
+        const remainingLabel = String(remainingInfo?.label || '').trim();
+        const taskCompleteAtText = columnOrder.includes('taskCompleteAt')
+            ? __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task))
+            : '';
+        let html = '';
+
+        columnOrder.forEach((columnKey) => {
+            switch (columnKey) {
+                case 'pinned':
+                    html += `<td style="${getCellStyle('pinned', 'text-align:center;')}"><input type="checkbox" ${task.pinned ? 'checked' : ''} onchange="tmSetPinned('${task.id}', this.checked, event)" title="置顶"></td>`;
+                    break;
+                case 'content':
+                    html += `<td class="tm-task-content-cell" style="${getCellStyle('content')}">${String(opts.contentHtml || '')}</td>`;
+                    break;
+                case 'doc':
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" style="${getCellStyle('doc')}" title="点击移动到当前分组其他文档" onclick="tmPickTaskDocInline('${task.id}', this, event)">${esc(task.docName || '')}</td>`;
+                    break;
+                case 'h2':
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" style="${getCellStyle('h2')}" title="点击切换标题" onclick="tmPickHeadingInline('${task.id}', this, event)">${esc(__tmNormalizeHeadingText(task.h2) || '无')}</td>`;
+                    break;
+                case 'score':
+                    html += `<td class="tm-task-meta-cell" data-tm-field="score" style="${getCellStyle('score', 'text-align:center;font-variant-numeric:inherit;')}">${Math.round(__tmEnsureTaskPriorityScore(task))}</td>`;
+                    break;
+                case 'priority':
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-field="priority" style="${getCellStyle('priority', 'text-align:center;')}" onclick="tmPickPriority('${task.id}', this, event)">${__tmRenderPriorityJira(task.priority, false)}</td>`;
+                    break;
+                case 'startDate':
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="startDate" style="${getCellStyle('startDate')}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>`;
+                    break;
+                case 'completionTime':
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="${getCellStyle('completionTime')}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>`;
+                    break;
+                case 'taskCompleteAt':
+                    html += `<td class="tm-task-meta-cell" data-tm-task-time-field="taskCompleteAt" style="${getCellStyle('taskCompleteAt')}" title="${esc(taskCompleteAtText)}">${esc(taskCompleteAtText)}</td>`;
+                    break;
+                case 'remainingTime':
+                    html += `<td class="tm-task-meta-cell" data-tm-task-time-field="remainingTime" style="${getCellStyle('remainingTime', 'text-align:center;')}" title="${esc(remainingLabel)}">${__tmRenderTaskRemainingTimeInfoHtml(remainingInfo)}</td>`;
+                    break;
+                case 'tomatoSummary':
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="tomatoSummary" style="${getCellStyle('tomatoSummary', 'text-align:center;font-variant-numeric:inherit;')}" onclick="tmBeginCellEdit('${task.id}','tomatoSummary',this,event)">${__tmGetTaskTomatoSummaryHtml(task)}</td>`;
+                    break;
+                case 'remark': {
+                    const remark = String(task.remark ?? task.custom_remark ?? task.customRemark ?? '');
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-field="remark" style="${getCellStyle('remark')}" title="${esc(remark)}" onclick="tmBeginCellEdit('${task.id}','remark',this,event)"><span class="tm-task-remark-text">${esc(remark)}</span></td>`;
+                    break;
+                }
+                case 'attachments':
+                    html += `<td class="tm-task-meta-cell tm-task-attachments-cell" data-tm-field="attachments" style="${getCellStyle('attachments')}" onclick="tmOpenTaskDetail('${task.id}', event)">${__tmBuildTaskAttachmentSummaryHtml(task)}</td>`;
+                    break;
+                case 'status':
+                    html += `<td class="tm-status-cell tm-task-meta-cell" data-tm-field="status" style="${getCellStyle('status', 'text-align:center;')}" onclick="tmOpenStatusSelect('${task.id}', event)"><span class="tm-status-cell-inner"><span class="tm-status-tag" style="${statusChipStyle}">${esc(statusOption?.name || '')}</span></span></td>`;
+                    break;
+                default: {
+                    const customColumn = customColumnsByKey.get(columnKey);
+                    if (!customColumn) break;
+                    const field = customColumn.field;
+                    const fieldId = String(customColumn.fieldId || '').trim();
+                    const fieldType = String(field?.type || '').trim();
+                    if (!__tmIsCustomFieldApplicableToTask(field, task)) {
+                        html += `<td class="tm-task-meta-cell" data-tm-custom-field-cell="${esc(fieldId)}" style="${getCellStyle(columnKey)}"></td>`;
+                        break;
+                    }
+                    const fieldValue = __tmGetTaskCustomFieldValue(task, fieldId);
+                    const displayHtml = __tmBuildCustomFieldDisplayHtml(field, fieldValue, {
+                        allowEmpty: false,
+                        maxTags: fieldType === 'multi' ? 2 : 1,
+                    });
+                    const textValue = fieldType === 'text'
+                        ? String(__tmNormalizeCustomFieldValue(field, fieldValue) || '').trim()
+                        : '';
+                    const onClick = fieldType === 'text'
+                        ? `tmBeginCellEdit('${task.id}','${columnKey}',this,event)`
+                        : `tmOpenCustomFieldSelect('${task.id}', '${fieldId}', event, this)`;
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-custom-field-cell="${esc(fieldId)}" style="${getCellStyle(columnKey)}" ${textValue ? `title="${esc(textValue)}"` : ''} onclick="${onClick}"><div class="tm-custom-field-cell">${displayHtml}</div></td>`;
+                    break;
+                }
+            }
+        });
+        return html;
+    }
+
+    function __tmBuildTimelineColumnShellHtml(columnOrder, tableLayout) {
+        const order = Array.isArray(columnOrder) ? columnOrder : [];
+        const colgroupHtml = order.map((columnKey) => {
+            const idAttr = columnKey === 'content' ? ' id="tmTimelineColContent"' : '';
+            return `<col${idAttr} data-col="${esc(columnKey)}" style="width:${tableLayout.widths[columnKey]}px">`;
+        }).join('');
+        const headerHtml = order.map((columnKey) => {
+            const label = __tmResolveColumnLabel(columnKey);
+            const escapedKey = String(columnKey).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const align = (columnKey === 'pinned' || columnKey === 'score' || columnKey === 'priority' || columnKey === 'status' || columnKey === 'remainingTime' || columnKey === 'tomatoSummary')
+                ? 'text-align:center;'
+                : '';
+            const labelHtml = columnKey === 'pinned' ? __tmRenderInlineIcon('pin') : esc(label || columnKey);
+            const resizeHtml = columnKey === 'content'
+                ? '<span class="tm-col-resize" onmousedown="tmStartTimelineContentResize(event)"></span>'
+                : (__tmIsFixedDateColumn(columnKey)
+                    ? ''
+                    : `<span class="tm-col-resize" onmousedown="startColResize(event, '${escapedKey}')"></span>`);
+            return `<th data-col="${esc(columnKey)}" title="${esc(label || columnKey)}" oncontextmenu="tmShowColumnHeaderContextMenu(event, '${escapedKey}', { scope: 'timeline' }); return false;" style="${tableLayout.cellStyle(columnKey, `${align}white-space:nowrap;overflow:hidden;`)}">${labelHtml}${resizeHtml}</th>`;
+        }).join('');
+        return { colgroupHtml, headerHtml };
+    }
+
     function __tmResolveTimelinePaneLayout(preferredWidth, tableWidth, containerWidth = 0) {
         const resolvedTableWidth = Math.max(0, Math.round(Number(tableWidth) || 0));
         if (!resolvedTableWidth) return { width: 0, minWidth: 0, maxWidth: 0, tableWidth: 0 };
@@ -31,7 +149,7 @@
             const leftWidth0 = Number(SettingsStore.data.timelineLeftWidth);
             const timelineContentWidth0 = Number(SettingsStore.data.timelineContentWidth);
             const timelineContentWidth = Number.isFinite(timelineContentWidth0) ? Math.max(10, Math.min(800, Math.round(timelineContentWidth0))) : (Number(widths.content) || 360);
-            const timelineColumnOrder = __tmGetTimelineColumnOrder();
+            const timelineColumnOrder = __tmGetEffectiveCustomFieldColumnOrder(__tmGetTimelineColumnOrder(), state.filteredTasks);
             const timelineColumnCount = timelineColumnOrder.length;
             const timelineWidthMap = { ...widths, content: timelineContentWidth };
             const timelineTableLayout = __tmGetTableWidthLayout(timelineColumnOrder, timelineWidthMap, 0);
@@ -215,96 +333,25 @@
                     columnKey,
                     `${extra}${columnKey === 'content' ? contentCellBgStyle : otherCellBgStyle}`
                 );
-                const statusOption = timelineColumnOrder.includes('status')
-                    ? __tmResolveTaskStatusDisplayOption(task, timelineStatusOptions, { fallbackColor: '#757575' })
-                    : null;
-                const statusChipStyle = statusOption ? __tmBuildStatusChipStyle(statusOption.color) : '';
-                const remainingInfo = timelineColumnOrder.includes('remainingTime') ? __tmGetTaskRemainingTimeInfo(task) : null;
-                const remainingLabel = String(remainingInfo?.label || '').trim();
-                const taskCompleteAtText = timelineColumnOrder.includes('taskCompleteAt')
-                    ? __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task))
-                    : '';
+                const contentHtml = `
+                    <div class="tm-task-cell" style="padding-left:${contentIndent}px">
+                        ${treeGuides}
+                        <span class="${leadingClass}">
+                            ${leadingRing}
+                            ${__tmRenderTaskCheckbox(task.id, task, { checked: task.done, extraClass: isGloballyLocked ? 'tm-operating' : '' })}
+                            ${toggle}
+                        </span>
+                        <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
+                            <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                        </span>
+                    </div>`;
                 let taskRowHtml = `<tr class="tm-timeline-row ${finalRowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
-                timelineColumnOrder.forEach((columnKey) => {
-                    switch (columnKey) {
-                        case 'pinned':
-                            taskRowHtml += `<td style="${getTimelineCellStyle('pinned', 'text-align:center;')}"><input type="checkbox" ${task.pinned ? 'checked' : ''} onchange="tmSetPinned('${task.id}', this.checked, event)" title="置顶"></td>`;
-                            break;
-                        case 'content':
-                            taskRowHtml += `
-                                <td class="tm-task-content-cell" style="${getTimelineCellStyle('content')}">
-                                    <div class="tm-task-cell" style="padding-left:${contentIndent}px">
-                                        ${treeGuides}
-                                        <span class="${leadingClass}">
-                                            ${leadingRing}
-                                            ${__tmRenderTaskCheckbox(task.id, task, { checked: task.done, extraClass: isGloballyLocked ? 'tm-operating' : '' })}
-                                            ${toggle}
-                                        </span>
-                                        <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
-                                            <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
-                                        </span>
-                                    </div>
-                                </td>`;
-                            break;
-                        case 'doc':
-                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" style="${getTimelineCellStyle('doc')}" title="点击移动到当前分组其他文档" onclick="tmPickTaskDocInline('${task.id}', this, event)">${esc(task.docName || '')}</td>`;
-                            break;
-                        case 'h2':
-                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" style="${getTimelineCellStyle('h2')}" title="点击切换标题" onclick="tmPickHeadingInline('${task.id}', this, event)">${esc(__tmNormalizeHeadingText(task.h2) || '无')}</td>`;
-                            break;
-                        case 'score':
-                            taskRowHtml += `<td class="tm-task-meta-cell" data-tm-field="score" style="${getTimelineCellStyle('score', 'text-align:center;font-variant-numeric:inherit;')}">${Math.round(__tmEnsureTaskPriorityScore(task))}</td>`;
-                            break;
-                        case 'priority':
-                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-field="priority" style="${getTimelineCellStyle('priority', 'text-align:center;')}" onclick="tmPickPriority('${task.id}', this, event)">${__tmRenderPriorityJira(task.priority, false)}</td>`;
-                            break;
-                        case 'startDate':
-                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="startDate" style="${getTimelineCellStyle('startDate')}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>`;
-                            break;
-                        case 'completionTime':
-                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="${getTimelineCellStyle('completionTime')}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>`;
-                            break;
-                        case 'taskCompleteAt':
-                            taskRowHtml += `<td class="tm-task-meta-cell" data-tm-task-time-field="taskCompleteAt" style="${getTimelineCellStyle('taskCompleteAt')}" title="${esc(taskCompleteAtText)}">${esc(taskCompleteAtText)}</td>`;
-                            break;
-                        case 'remainingTime':
-                            taskRowHtml += `<td class="tm-task-meta-cell" data-tm-task-time-field="remainingTime" style="${getTimelineCellStyle('remainingTime', 'text-align:center;')}" title="${esc(remainingLabel)}">${__tmRenderTaskRemainingTimeInfoHtml(remainingInfo)}</td>`;
-                            break;
-                        case 'tomatoSummary':
-                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="tomatoSummary" style="${getTimelineCellStyle('tomatoSummary', 'text-align:center;font-variant-numeric:inherit;')}" onclick="tmBeginCellEdit('${task.id}','tomatoSummary',this,event)">${__tmGetTaskTomatoSummaryHtml(task)}</td>`;
-                            break;
-                        case 'remark': {
-                            const remark = String(task.remark ?? task.custom_remark ?? task.customRemark ?? '');
-                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-field="remark" style="${getTimelineCellStyle('remark')}" title="${esc(remark)}" onclick="tmBeginCellEdit('${task.id}','remark',this,event)"><span class="tm-task-remark-text">${esc(remark)}</span></td>`;
-                            break;
-                        }
-                        case 'attachments':
-                            taskRowHtml += `<td class="tm-task-meta-cell tm-task-attachments-cell" data-tm-field="attachments" style="${getTimelineCellStyle('attachments')}" onclick="tmOpenTaskDetail('${task.id}', event)">${__tmBuildTaskAttachmentSummaryHtml(task)}</td>`;
-                            break;
-                        case 'status':
-                            taskRowHtml += `<td class="tm-status-cell tm-task-meta-cell" data-tm-field="status" style="${getTimelineCellStyle('status', 'text-align:center;')}" onclick="tmOpenStatusSelect('${task.id}', event)"><span class="tm-status-cell-inner"><span class="tm-status-tag" style="${statusChipStyle}">${esc(statusOption?.name || '')}</span></span></td>`;
-                            break;
-                        default: {
-                            const customColumn = timelineCustomColumnsByKey.get(columnKey);
-                            if (!customColumn) break;
-                            const field = customColumn.field;
-                            const fieldId = String(customColumn.fieldId || '').trim();
-                            const fieldType = String(field?.type || '').trim();
-                            const fieldValue = __tmGetTaskCustomFieldValue(task, fieldId);
-                            const displayHtml = __tmBuildCustomFieldDisplayHtml(field, fieldValue, {
-                                allowEmpty: false,
-                                maxTags: fieldType === 'multi' ? 2 : 1,
-                            });
-                            const textValue = fieldType === 'text'
-                                ? String(__tmNormalizeCustomFieldValue(field, fieldValue) || '').trim()
-                                : '';
-                            const onClick = fieldType === 'text'
-                                ? `tmBeginCellEdit('${task.id}','${columnKey}',this,event)`
-                                : `tmOpenCustomFieldSelect('${task.id}', '${fieldId}', event, this)`;
-                            taskRowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-custom-field-cell="${esc(fieldId)}" style="${getTimelineCellStyle(columnKey)}" ${textValue ? `title="${esc(textValue)}"` : ''} onclick="${onClick}"><div class="tm-custom-field-cell">${displayHtml}</div></td>`;
-                            break;
-                        }
-                    }
+                taskRowHtml += __tmRenderTimelineTaskCellsHtml(task, {
+                    columnOrder: timelineColumnOrder,
+                    customColumnsByKey: timelineCustomColumnsByKey,
+                    getCellStyle: getTimelineCellStyle,
+                    statusOptions: timelineStatusOptions,
+                    contentHtml,
                 });
                 taskRowHtml += '</tr>';
                 return taskRowHtml;
@@ -355,24 +402,9 @@
                 }
             }
             const leftRowsHtml = leftRows.join('');
-            const timelineColgroupHtml = timelineColumnOrder.map((columnKey) => {
-                const idAttr = columnKey === 'content' ? ' id="tmTimelineColContent"' : '';
-                return `<col${idAttr} data-col="${esc(columnKey)}" style="width:${timelineTableLayout.widths[columnKey]}px">`;
-            }).join('');
-            const timelineHeaderHtml = timelineColumnOrder.map((columnKey) => {
-                const label = __tmResolveColumnLabel(columnKey);
-                const escapedKey = String(columnKey).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                const align = (columnKey === 'pinned' || columnKey === 'score' || columnKey === 'priority' || columnKey === 'status' || columnKey === 'remainingTime' || columnKey === 'tomatoSummary')
-                    ? 'text-align:center;'
-                    : '';
-                const labelHtml = columnKey === 'pinned' ? __tmRenderInlineIcon('pin') : esc(label || columnKey);
-                const resizeHtml = columnKey === 'content'
-                    ? '<span class="tm-col-resize" onmousedown="tmStartTimelineContentResize(event)"></span>'
-                    : (__tmIsFixedDateColumn(columnKey)
-                        ? ''
-                        : `<span class="tm-col-resize" onmousedown="startColResize(event, '${escapedKey}')"></span>`);
-                return `<th data-col="${esc(columnKey)}" title="${esc(label || columnKey)}" oncontextmenu="tmShowColumnHeaderContextMenu(event, '${escapedKey}', { scope: 'timeline' }); return false;" style="${timelineTableLayout.cellStyle(columnKey, `${align}white-space:nowrap;overflow:hidden;`)}">${labelHtml}${resizeHtml}</th>`;
-            }).join('');
+            const timelineColumnShell = __tmBuildTimelineColumnShellHtml(timelineColumnOrder, timelineTableLayout);
+            const timelineColgroupHtml = timelineColumnShell.colgroupHtml;
+            const timelineHeaderHtml = timelineColumnShell.headerHtml;
 
             const timelineLeftHtml = `
                 <div class="tm-timeline-left" style="width:${leftWidth}px;min-width:${leftPaneLayout.minWidth}px;max-width:${leftPaneLayout.maxWidth}px">
@@ -1237,7 +1269,7 @@
                     if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoCount">${__tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task))}</span>`);
                 }
                 if (kanbanCardFields.has('h2') && task?.h2) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">${__tmRenderHeadingLevelInlineIcon(task.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })} ${esc(__tmNormalizeHeadingText(task.h2))}</span>`);
-                const docChipHtml = (isAllTabsView && docName)
+                const docChipHtml = (isAllTabsView && !headingMode && docName)
                     ? `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--doc" style="cursor:default;" title="${esc(docName)}"><span class="tm-icon-label">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${esc(docName)}</span></span></span>`
                     : '';
                 const remarkSearchSnippetHtml = !kanbanCardFields.has('remark') && typeof __tmBuildTaskRemarkSearchSnippet === 'function'

@@ -435,6 +435,10 @@
                         const customColumn = customFieldColumnsByKey.get(String(col || '').trim());
                         if (!customColumn) break;
                         const { field, fieldId, fieldType, colKey } = customColumn;
+                        if (!__tmIsCustomFieldApplicableToTask(field, task)) {
+                            rowHtml += `<td class="tm-task-meta-cell" data-tm-custom-field-cell="${esc(fieldId)}" style="${getTableCellStyle(colKey)}"></td>`;
+                            break;
+                        }
                         const fieldValue = __tmGetTaskCustomFieldValue(task, fieldId);
                         const displayHtml = __tmBuildCustomFieldDisplayHtml(field, fieldValue, {
                             allowEmpty: false,
@@ -4136,6 +4140,49 @@ if (ev) {
                 return await window.tmOpenTaskDetail(sourceTaskId, ev, detailOpenOptions);
             }
         }
+
+        // 首页会保留上一个工作区视图的 state.viewMode，不能把首页里的点击误判成看板内详情打开。
+        const activeRenderMode = globalThis.__tmRuntimeState?.getActiveRenderMode?.('') || (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
+        const useTaskDetailSheetMode = !!globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.(activeRenderMode, state.modal);
+        const detailButton = ev?.target?.closest?.('.tm-kanban-more');
+        const detailCard = detailButton?.closest?.('.tm-kanban-card');
+        const isCardDetailButtonClick = !!(detailButton && detailCard && !detailButton.closest('#tmKanbanDetailFloat,#tm-task-detail-overlay,#tmTaskDetailSheet'));
+        const isSameDetailTask = (value) => {
+            const currentId = String(value || '').trim();
+            if (!currentId) return false;
+            try {
+                return typeof __tmAreTaskDetailIdsEquivalent === 'function'
+                    ? __tmAreTaskDetailIdsEquivalent(currentId, tid)
+                    : currentId === tid;
+            } catch (e) {
+                return currentId === tid;
+            }
+        };
+        if (isCardDetailButtonClick) {
+            if (useTaskDetailSheetMode
+                && state.checklistDetailSheetOpen === true
+                && isSameDetailTask(state.detailTaskId)
+                && typeof window.tmTaskDetailSheetClose === 'function') {
+                await window.tmTaskDetailSheetClose?.(ev);
+                return true;
+            }
+            const kanbanDetailFloat = state.modal?.querySelector?.('#tmKanbanDetailFloat');
+            if (activeRenderMode === 'kanban'
+                && !__tmIsMobileDevice()
+                && kanbanDetailFloat instanceof HTMLElement
+                && isSameDetailTask(state.kanbanDetailTaskId)) {
+                __tmCloseKanbanDetailFloating();
+                return true;
+            }
+            const standaloneOverlay = document.getElementById('tm-task-detail-overlay');
+            const standaloneTaskId = String(standaloneOverlay?.__tmTaskDetailTaskId || standaloneOverlay?.dataset?.tmDetailTaskId || standaloneOverlay?.__tmTaskDetailTask?.id || '').trim();
+            if (standaloneOverlay instanceof HTMLElement
+                && isSameDetailTask(standaloneTaskId)
+                && typeof standaloneOverlay.__tmTaskDetailOnClose === 'function') {
+                await standaloneOverlay.__tmTaskDetailOnClose?.();
+                return true;
+            }
+        }
         if (shouldFreshenDetailOpen) {
             try {
                 const freshTask = await __tmRefreshTaskDocForFreshDetail(tid, task, {
@@ -4168,9 +4215,7 @@ if (ev) {
             }
         }
 
-        // 首页会保留上一个工作区视图的 state.viewMode，不能把首页里的点击误判成看板内详情打开。
-        const activeRenderMode = globalThis.__tmRuntimeState?.getActiveRenderMode?.('') || (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
-        if (globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.(activeRenderMode, state.modal)) {
+        if (useTaskDetailSheetMode) {
             await __tmOpenTaskDetailSheetInPlace(tid, { source: `${String(activeRenderMode || 'task').trim() || 'task'}-detail-open` });
             return true;
         }
@@ -4440,6 +4485,7 @@ if (ev) {
                 deferOptimisticRender: data.deferOptimisticRender === true,
                 forceOptimisticRender: data.forceOptimisticRender === true || hooks.forceOptimisticRender === true,
                 skipOptimisticFilterWork: data.skipOptimisticFilterWork === true || hooks.skipOptimisticFilterWork === true,
+                preserveRenderWindow: data.preserveRenderWindow === true || hooks.preserveRenderWindow === true,
                 crossDoc: String(String(task.docId || task.root_id || '').trim() !== targetDocId ? '1' : ''),
             },
         }, {
@@ -5229,14 +5275,12 @@ if (ev) {
         const startPomodoro = timer?.startPomodoro;
         const timerFocusRestoreOptions = { source: 'task-horizon' };
         if (typeof startCountdown === 'function') {
-            state.timerFocusTaskId = resolvedId;
-            try { render(); } catch (e) {}
+            __tmSyncTomatoFocusInPlace(resolvedId);
             startCountdown(resolvedId, taskName, 30, timerFocusRestoreOptions);
             return;
         }
         if (typeof startPomodoro === 'function') {
-            state.timerFocusTaskId = resolvedId;
-            try { render(); } catch (e) {}
+            __tmSyncTomatoFocusInPlace(resolvedId);
             startPomodoro(resolvedId, taskName, 30, timerFocusRestoreOptions);
             return;
         }
@@ -5420,6 +5464,11 @@ if (ev) {
             };
             return item;
         };
+        const appendSectionSeparator = () => {
+            const separator = document.createElement('div');
+            separator.className = 'tm-multi-bulkbar__menu-separator tm-task-context-menu__separator';
+            menu.appendChild(separator);
+        };
 
         const task = taskForMenu
             || globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
@@ -5499,8 +5548,7 @@ if (ev) {
                 return;
             }
             const timerFocusRestoreOptions = { source: 'task-horizon' };
-            state.timerFocusTaskId = timerTaskId;
-            render();
+            __tmSyncTomatoFocusInPlace(timerTaskId);
             if (mode === 'stopwatch') {
                 const startFromTaskBlock = timer?.startFromTaskBlock;
                 const startStopwatch = timer?.startStopwatch;
@@ -5793,20 +5841,25 @@ if (ev) {
         }
 
         if (hasContextTopBlock) {
-            const hrTimer = document.createElement('hr');
-            hrTimer.style.cssText = 'margin: 4px 0; border: none; border-top: 1px solid var(--b3-theme-surface-light);';
-            menu.appendChild(hrTimer);
+            appendSectionSeparator();
         }
 
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task?.pinned ? '取消置顶' : '置顶'), () => tmSetPinned(taskId, !task?.pinned)));
+        if (tomatoEnabled) {
+            menu.appendChild(createItem(__tmRenderContextMenuLabel('alarm-clock', '提醒'), () => tmReminder(taskId)));
+        }
         if (tomatoEnabled && timer && typeof timer === 'object') {
             if (state.timerFocusTaskId) {
                 menu.appendChild(createItem(__tmRenderContextMenuLabel('circle-dot', '取消聚焦'), () => {
-                    state.timerFocusTaskId = '';
-                    render();
+                    __tmSyncTomatoFocusInPlace('');
                 }));
             }
         }
-
+        if (hasChildren) {
+            menu.appendChild(createItem(__tmRenderContextMenuLabel(showCompletedSubtasks ? 'check-circle-2' : 'circle-dot', showCompletedSubtasks ? '隐藏已完成子任务' : '显示已完成子任务'), () => {
+                window.tmToggleTaskDetailCompletedSubtasks?.(taskId, !showCompletedSubtasks);
+            }));
+        }
         menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('clipboard-list', '复制'), () => [
             createItem(__tmRenderContextMenuLabel('cursor-text', '复制纯文本'), () => {
                 void __tmCopyTaskContextValue(taskId, task, 'plain');
@@ -5818,6 +5871,8 @@ if (ev) {
                 void __tmCopyTaskContextValue(taskId, task, 'blockId');
             }),
         ]));
+
+        appendSectionSeparator();
         menu.appendChild(createItem(__tmRenderContextMenuLabel('text-indent', '新建子任务'), () => tmCreateSubtask(taskId)));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('list-bullets', '新建同级任务'), () => tmCreateSiblingTask(taskId)));
         if (canDetachSubtask) {
@@ -5826,12 +5881,6 @@ if (ev) {
                 : '';
             menu.appendChild(createItem(__tmRenderContextMenuLabel('text-outdent', '移出子任务', { iconHtml: detachIconHtml }), () => {
                 window.tmDetachSubtaskFromParent?.(taskId);
-            }));
-        }
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task?.pinned ? '取消置顶' : '置顶'), () => tmSetPinned(taskId, !task?.pinned)));
-        if (hasChildren) {
-            menu.appendChild(createItem(__tmRenderContextMenuLabel(showCompletedSubtasks ? 'check-circle-2' : 'circle-dot', showCompletedSubtasks ? '隐藏已完成子任务' : '显示已完成子任务'), () => {
-                window.tmToggleTaskDetailCompletedSubtasks?.(taskId, !showCompletedSubtasks);
             }));
         }
         if (globalThis.__tmCalendar && (typeof globalThis.__tmCalendar.openScheduleEditor === 'function' || typeof globalThis.__tmCalendar.openScheduleEditorById === 'function' || typeof globalThis.__tmCalendar.openScheduleEditorByTaskId === 'function')) {
@@ -5883,6 +5932,8 @@ if (ev) {
                 }, true));
             }
         }
+
+        appendSectionSeparator();
         if (__tmIsAiFeatureEnabled()) {
             menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('bot', 'AI'), () => [
                 createItem(__tmRenderContextMenuLabel('sparkle', '发送到 AI'), async () => {
@@ -5915,9 +5966,7 @@ if (ev) {
             try { await window.tmJumpToTask?.(taskId); } catch (e) {}
         }));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('square-pen', '修改内容'), () => tmEdit(taskId)));
-        if (tomatoEnabled) {
-            menu.appendChild(createItem(__tmRenderContextMenuLabel('alarm-clock', '提醒'), () => tmReminder(taskId)));
-        }
+        appendSectionSeparator();
         if (__tmIsRecurringInstanceTask(task)) {
             menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '删除记录'), () => {
                 tmDelete(taskId, { source: 'context-repeat-history-delete' });

@@ -1,0 +1,148 @@
+- generic [ref=f2e2]:
+  - banner [ref=f2e3]:
+    - strong [ref=f2e9]: 项目推进
+    - generic [ref=f2e10]:
+      - button "看板卡片字段" [expanded] [ref=f2e11] [cursor=pointer]:
+        - generic [ref=f2e14]: "0"
+      - button "切换主题" [ref=f2e15] [cursor=pointer]
+    - complementary [ref=f2e285]:
+      - generic [ref=f2e286]:
+        - strong [ref=f2e287]: 看板卡片字段
+        - generic [ref=f2e288]: 已选 0/7
+      - generic [ref=f2e289]:
+        - generic [ref=f2e360] [cursor=pointer]:
+          - generic [ref=f2e364]: 重要性
+          - checkbox "重要性"
+        - generic [ref=f2e368] [cursor=pointer]:
+          - generic [ref=f2e372]: 状态
+          - checkbox "状态"
+        - generic [ref=f2e376] [cursor=pointer]:
+          - generic [ref=f2e380]: 截止日期
+          - checkbox "截止日期"
+        - generic [ref=f2e384] [cursor=pointer]:
+          - generic [ref=f2e388]: 专注
+          - checkbox "专注"
+        - generic [ref=f2e392] [cursor=pointer]:
+          - generic [ref=f2e396]: 预计番茄
+          - checkbox "预计番茄"
+        - generic [ref=f2e400] [cursor=pointer]:
+          - generic [ref=f2e404]: 实际番茄
+          - checkbox "实际番茄"
+        - generic [ref=f2e408] [cursor=pointer]:
+          - generic [ref=f2e412]: 备注
+          - checkbox "备注"
+      - generic [ref=f2e346]:
+        - generic [ref=f2e347]:
+          - strong [ref=f2e348]: 空值常驻
+          - generic [ref=f2e349]: 仅限这三个字段
+        - generic [ref=f2e350]:
+          - generic [ref=f2e351] [cursor=pointer]:
+            - checkbox "重要性"
+            - generic [ref=f2e352]: 重要性
+          - generic [ref=f2e353] [cursor=pointer]:
+            - checkbox "状态"
+            - generic [ref=f2e354]: 状态
+          - generic [ref=f2e355] [cursor=pointer]:
+            - checkbox "截止日期"
+            - generic [ref=f2e356]: 截止日期
+      - generic [ref=f2e357]:
+        - button "全不选" [active] [ref=f2e358] [cursor=pointer]
+        - button "恢复默认" [ref=f2e359] [cursor=pointer]
+  - main [ref=f2e18]:
+    - region "任务看板" [ref=f2e19]:
+      - region [ref=f2e416]:
+        - generic [ref=f2e417]:
+          - generic [ref=f2e418]:
+            - strong [ref=f2e419]: 待处理
+            - generic [ref=f2e420]: "3"
+          - button "新任务" [ref=f2e421] [cursor=pointer]
+          - button "更多" [ref=f2e424] [cursor=pointer]
+        - generic [ref=f2e427]:
+          - article [ref=f2e428]:
+            - generic [ref=f2e429]:
+              - button "标记为完成" [ref=f2e430] [cursor=pointer]
+              - generic "整理 V2.9 发布清单" [ref=f2e433]
+              - button "任务详情" [ref=f2e434] [cursor=pointer]
+            - generic [ref=f2e437]:
+              - generic [ref=f2e438]:
+                - generic [ref=f2e439]: 子任务
+                - generic [ref=f2e440]: 0/3
+                - button "折叠子任务" [expanded] [ref=f2e441] [cursor=pointer]
+              - generic [ref=f2e445]:
+                - generic [ref=f2e446]:
+                  - button "标记为完成" [ref=f2e447] [cursor=pointer]
+                  - generic "核对更新记录" [ref=f2e450]
+                  - button "任务详情" [ref=f2e451] [cursor=pointer]
+                - generic [ref=f2e454]:
+                  - button "标记为完成" [ref=f2e455] [cursor=pointer]
+                  - generic "打包插件并校验 manifest" [ref=f2e458]
+                  - button "任务详情" [ref=f2e459] [cursor=pointer]
+                - generic [ref=f2e462]:
+                  - button "标记为完成" [ref=f2e463] [cursor=pointer]
+                  - generic "发布集市版本" [ref=f2e466]
+                  - button "任务详情" [ref=f2e467] [cursor=pointer]
+          - article [ref=f2e470]:
+            - generic [ref=f2e471]:
+              - button "标记为完成" [ref=f2e472] [cursor=pointer]
+              - generic "整理周会纪要" [ref=f2e475]
+              - button "任务详情" [ref=f2e476] [cursor=pointer]
+          - article [ref=f2e479]:
+            - generic [ref=f2e480]:
+              - button "标记为完成" [ref=f2e481] [cursor=pointer]
+              - generic "归类移动端测试反馈并分配处理人" [ref=f2e484]
+              - button "任务详情" [ref=f2e485] [cursor=pointer]
+      - region [ref=f2e488]:
+        - generic [ref=f2e489]:
+          - generic [ref=f2e490]:
+            - strong [ref=f2e491]: 进行中
+            - generic [ref=f2e492]: "3"
+          - button "新任务" [ref=f2e493] [cursor=pointer]
+          - button "更多" [ref=f2e496] [cursor=pointer]
+        - generic [ref=f2e499]:
+          - article [ref=f2e500]:
+            - generic [ref=f2e501]:
+              - button "标记为完成" [ref=f2e502] [cursor=pointer]
+              - generic "看板动态显示字段设置" [ref=f2e505]
+              - button "任务详情" [ref=f2e506] [cursor=pointer]
+            - generic [ref=f2e509]:
+              - generic [ref=f2e510]:
+                - generic [ref=f2e511]: 子任务
+                - generic [ref=f2e512]: 1/2
+                - button "折叠子任务" [expanded] [ref=f2e513] [cursor=pointer]
+              - generic [ref=f2e517]:
+                - generic [ref=f2e518]:
+                  - button "标记为未完成" [ref=f2e519] [cursor=pointer]
+                  - generic "确认卡片紧凑态与展开态" [ref=f2e524]
+                  - button "任务详情" [ref=f2e525] [cursor=pointer]
+                - generic [ref=f2e528]:
+                  - button "标记为完成" [ref=f2e529] [cursor=pointer]
+                  - generic "调整子任务为无边框列表行" [ref=f2e532]
+                  - button "任务详情" [ref=f2e533] [cursor=pointer]
+          - article [ref=f2e536]:
+            - generic [ref=f2e537]:
+              - button "标记为完成" [ref=f2e538] [cursor=pointer]
+              - generic "复测日历订阅全天事件" [ref=f2e541]
+              - button "任务详情" [ref=f2e542] [cursor=pointer]
+          - article [ref=f2e545]:
+            - generic [ref=f2e546]:
+              - button "标记为完成" [ref=f2e547] [cursor=pointer]
+              - generic "统一移动端看板导航反馈" [ref=f2e550]
+              - button "任务详情" [ref=f2e551] [cursor=pointer]
+      - region [ref=f2e554]:
+        - generic [ref=f2e555]:
+          - generic [ref=f2e556]:
+            - strong [ref=f2e557]: 已完成
+            - generic [ref=f2e558]: "2"
+          - button "新任务" [ref=f2e559] [cursor=pointer]
+          - button "更多" [ref=f2e562] [cursor=pointer]
+        - generic [ref=f2e565]:
+          - article [ref=f2e566]:
+            - generic [ref=f2e567]:
+              - button "标记为未完成" [ref=f2e568] [cursor=pointer]
+              - generic "修复时间轴卡片导航定位" [ref=f2e573]
+              - button "任务详情" [ref=f2e574] [cursor=pointer]
+          - article [ref=f2e577]:
+            - generic [ref=f2e578]:
+              - button "标记为未完成" [ref=f2e579] [cursor=pointer]
+              - generic "优化白板子任务连线路由" [ref=f2e584]
+              - button "任务详情" [ref=f2e585] [cursor=pointer]

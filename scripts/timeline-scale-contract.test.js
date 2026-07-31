@@ -50,15 +50,56 @@ assert.match(stores, /timelineColumnOrder: __TM_TIMELINE_DEFAULT_COLUMN_ORDER\.s
 assert.match(stores, /cloudData\.timelineColumnOrder[\s\S]*tm_timeline_column_order[\s\S]*Storage\.set\('tm_timeline_column_order'/, 'timeline column order must round-trip through cloud and local settings');
 const customFieldLoadPlan = segment(stores, 'function __tmCollectCustomFieldLoadPlan', 'function __tmNormalizeCustomFieldIdList');
 assert.match(customFieldLoadPlan, /viewMode === 'timeline'[\s\S]*__tmGetTimelineColumnOrder\(\)/, 'timeline-only custom columns must participate in custom-field loading');
+const timelineColumnShell = segment(body, 'function __tmBuildTimelineColumnShellHtml', 'function __tmResolveTimelinePaneLayout');
+assert.match(timelineColumnShell, /scope: 'timeline'/, 'timeline headers must retain timeline-scoped column actions');
 const timelineColumnActions = segment(columnSettings, 'async function __tmApplyTimelineColumnOrder', 'window.tmShowColumnHeaderContextMenu');
 assert.match(timelineColumnActions, /SettingsStore\.data\.timelineColumnOrder = normalizedOrder/, 'timeline column actions must write the timeline-specific order');
 assert.doesNotMatch(timelineColumnActions, /SettingsStore\.data\.columnOrder\s*=/, 'timeline column actions must not mutate normal table order');
 assert.match(timelineColumnActions, /if \(order\.length <= 1\)[\s\S]*至少需要保留一列/, 'timeline column actions must preserve at least one visible column');
 const timelineColumnMenu = segment(columnSettings, 'window.tmShowColumnHeaderContextMenu', '// 更新列宽度');
 assert.match(timelineColumnMenu, /scope === 'timeline'[\s\S]*向左移动[\s\S]*向右移动[\s\S]*显示列[\s\S]*__tmGetAllColumnDefs\(\)[\s\S]*管理自定义列/, 'timeline headers must expose ordered column selection in their right-click menu');
-assert.match(body, /const timelineColumnOrder = __tmGetTimelineColumnOrder\(\)[\s\S]*__tmGetTableWidthLayout\(timelineColumnOrder, timelineWidthMap, 0\)/, 'timeline table width must derive from its selected columns');
-assert.match(body, /timelineColumnOrder\.forEach\(\(columnKey\) => \{[\s\S]*case 'content':[\s\S]*case 'startDate':[\s\S]*timelineCustomColumnsByKey\.get\(columnKey\)/, 'timeline rows must render built-in and custom cells from the independent order');
-assert.match(body, /timelineHeaderHtml[\s\S]*scope: 'timeline'[\s\S]*colspan="\$\{timelineColumnCount\}"/, 'timeline headers and spanning rows must use the dynamic column count');
+assert.match(body, /const timelineColumnOrder = __tmGetEffectiveCustomFieldColumnOrder\(__tmGetTimelineColumnOrder\(\), state\.filteredTasks\)[\s\S]*__tmGetTableWidthLayout\(timelineColumnOrder, timelineWidthMap, 0\)/, 'timeline table width must derive from its effective scoped columns');
+const timelineTaskCells = segment(body, 'function __tmRenderTimelineTaskCellsHtml', 'function __tmResolveTimelinePaneLayout');
+assert.match(timelineTaskCells, /columnOrder\.forEach\(\(columnKey\) => \{[\s\S]*case 'content':[\s\S]*case 'startDate':[\s\S]*customColumnsByKey\.get\(columnKey\)/, 'the shared timeline row renderer must support built-in and custom cells from the independent order');
+const renderTimelineTaskCells = new Function(`
+    const __tmResolveTaskStatusDisplayOption = () => ({ name: '进行中', color: '#757575' });
+    const __tmBuildStatusChipStyle = () => '';
+    const __tmGetTaskRemainingTimeInfo = () => null;
+    const __tmFormatTaskCompletedAtTime = (value) => String(value || '');
+    const __tmResolveTaskCompletedAtRaw = (task) => task.taskCompleteAt;
+    const __tmRenderPriorityJira = (value) => String(value || '');
+    const __tmFormatTaskTime = (value) => String(value || '');
+    const esc = (value) => String(value ?? '');
+    ${timelineTaskCells}
+    return __tmRenderTimelineTaskCellsHtml;
+`)();
+const sixColumnTimelineRow = renderTimelineTaskCells({
+    id: 'task-1',
+    startDate: '2026-07-29',
+    completionTime: '2026-07-30',
+    taskCompleteAt: '2026-07-30 12:00',
+    priority: 'A',
+}, {
+    columnOrder: ['content', 'startDate', 'completionTime', 'taskCompleteAt', 'status', 'priority'],
+    customColumnsByKey: new Map(),
+    getCellStyle: () => '',
+    statusOptions: [],
+    contentHtml: '<div>任务</div>',
+});
+assert.equal((sixColumnTimelineRow.match(/<td\b/g) || []).length, 6, 'a six-column timeline refresh must render six task cells');
+assert.match(sixColumnTimelineRow, /data-tm-task-time-field="taskCompleteAt"[\s\S]*data-tm-field="status"[\s\S]*data-tm-field="priority"/, 'completion, status, and priority cells must survive a dynamic-row refresh');
+assert.match(body, /__tmRenderTimelineTaskCellsHtml\(task, \{[\s\S]*columnOrder: timelineColumnOrder,[\s\S]*customColumnsByKey: timelineCustomColumnsByKey/, 'initial timeline rows must use the shared dynamic-column renderer');
+assert.match(body, /timelineHeaderHtml[\s\S]*colspan="\$\{timelineColumnCount\}"/, 'timeline headers and spanning rows must use the dynamic column count');
+const timelineLocalRerender = segment(services, 'function __tmRerenderTimelineInPlace', 'window.tmTimelineLoadMoreRows');
+assert.match(timelineLocalRerender, /const timelineColumnOrder = __tmGetEffectiveCustomFieldColumnOrder\(__tmGetTimelineColumnOrder\(\), state\.filteredTasks\)[\s\S]*__tmGetTableWidthLayout\(timelineColumnOrder,[\s\S]*__tmRenderTimelineTaskCellsHtml\(task, \{[\s\S]*columnOrder: timelineColumnOrder/, 'in-place timeline refreshes must rebuild task rows from the effective scoped columns');
+assert.match(timelineLocalRerender, /renderedTimelineColumnOrder[\s\S]*timelineColumnStructureChanged[\s\S]*appendOnly = requestedAppendOnly && !timelineColumnStructureChanged[\s\S]*reuseLeftRows = requestedReuseLeftRows && !timelineColumnStructureChanged/, 'timeline row reuse and append paths must fall back to rebuilding when the effective column structure changes');
+assert.match(timelineLocalRerender, /const rowModel = timelineColumnStructureChanged && requestedAppendOnly \? rangeRowModel : requestedRowModel/, 'a column change during append must rebuild from the full timeline row model');
+assert.match(timelineLocalRerender, /colspan="\$\{timelineColumnCount\}"/, 'in-place timeline group and empty rows must span the active column count');
+assert.doesNotMatch(timelineLocalRerender, /colspan="3"/, 'in-place timeline refreshes must not retain the obsolete three-column span');
+const timelineWidthSync = segment(services, 'function __tmSyncTimelineDateColumnWidths', 'function __tmBindTimelineLeftCollapseInteractions');
+assert.match(timelineWidthSync, /const columnOrder = __tmGetTimelineColumnOrder\(\)[\s\S]*__tmGetTableWidthLayout\(columnOrder,[\s\S]*columnOrder\.forEach\(\(columnKey, index\)/, 'timeline width refreshes must reuse the table-view layout for every selected column');
+assert.match(timelineWidthSync, /tableLayout\.resolvedTotal \+ 2[\s\S]*colgroup col[\s\S]*thead th[\s\S]*tbody tr\[data-id\]/, 'timeline width refreshes must keep the table, colgroup, headers, and task cells aligned');
+assert.doesNotMatch(timelineWidthSync, /contentW \+ startW \+ endW|nth-child\([123]\)|cells\[[012]\]/, 'timeline width refreshes must not squeeze additional columns into the obsolete three-column width');
 assert.match(resizeControls, /const initialTableWidth[\s\S]*initialTableWidth - startW \+ next/, 'timeline content resizing must preserve the widths of every other selected column');
 assert.match(resizeControls, /timelineTable = th\.closest\('#tmTimelineLeftTable'\)[\s\S]*timelineTableWidth[\s\S]*__tmApplyTimelinePaneLayout[\s\S]*if \(isTimeline\) render\(\)/, 'resizing any additional timeline column must update the table and pane constraints immediately');
 
@@ -235,12 +276,19 @@ assert.match(gantt, /getTimelineRowInterval[\s\S]*bar\.style\.left[\s\S]*bar\.st
 assert.match(gantt, /interval\?\.right <= visibleLeft \+ 1[\s\S]*interval\?\.left >= visibleRight - 1[\s\S]*hideTimelineOffscreenNav/, 'only fully offscreen cards may expose a left or right location control');
 assert.match(gantt, /row\.hidden \|\| row\.style\.display === 'none'[\s\S]*hideTimelineOffscreenNav/, 'collapsed parent-task and group rows must not expose offscreen controls');
 assert.match(gantt, /timelineScrollHost, 'scroll', scheduleTimelineOffscreenNavRefresh[\s\S]*window, 'resize', scheduleTimelineOffscreenNavRefresh/, 'scrolling and viewport changes must refresh offscreen controls through one scheduled path');
+assert.match(gantt, /const visibleLeft = Math\.max\(0, Number\(timelineScrollHost\.scrollLeft\) \|\| 0\)[\s\S]*timelineScrollHost\.clientWidth/, 'compact offscreen controls must use stable scroll-host coordinates instead of two moving client rectangles');
+assert.doesNotMatch(gantt, /button\.style\.left\s*=/, 'offscreen controls must not chase touch scrolling by rewriting their horizontal position each frame');
+assert.match(gantt, /roundedViewportWidth !== timelineOffscreenNavViewportWidth[\s\S]*button\.dataset\.direction === direction[\s\S]*return;/, 'offscreen control refreshes must avoid repeated CSS-variable and button-state writes while scrolling');
 assert.match(gantt, /scheduleTimelineOffscreenNavRefresh\(\);[\s\S]*syncDraggedDependencies/, 'live card movement must keep offscreen visibility in sync with the dragged geometry');
 assert.match(gantt, /const offscreenNav = target\.closest\('\[data-tm-gantt-offscreen-nav\]'\)[\s\S]*preventDefault[\s\S]*stopPropagation[\s\S]*tmGanttFocusTask/, 'offscreen controls must center tasks without triggering row selection or drag actions');
 assert.match(render, /window\.tmGanttFocusTask = function[\s\S]*outsideRenderRange \|\| nearRenderedEdge[\s\S]*centerRangeOnDate[\s\S]*pendingAnchor[\s\S]*__tmRerenderTimelineInPlace/, 'tasks beyond the rolling DOM window must rebase around their date and rerender in place');
 assert.match(render, /tmGanttFocusTask[\s\S]*scrollHost\.scrollTo\(\{ left: targetLeft, behavior: 'smooth' \}\)/, 'nearby offscreen tasks must scroll to the viewport center');
+const timelineGestureReset = segment(render, 'function __tmResetTimelineGestureState', 'function __tmRerenderTimelineScaleInPlace');
+assert.match(timelineGestureReset, /tm-modal--timeline-touch-lock[\s\S]*tm-gantt-body--dragging-x[\s\S]*host\.focus[\s\S]*host\.blur/, 'scale rerenders must clear stale touch locks and prime the scroll host for the next horizontal gesture');
+assert.doesNotMatch(timelineGestureReset, /dispatchEvent|style\.touchAction|requestAnimationFrame/, 'scale gesture reset must not synthesize scroll work or duplicate the host touch-action CSS');
 assert.match(services, /__tmTimelineRenderDeps\?\.\(\);[\s\S]*__tmTimelineRefreshOffscreenNav\?\.\(\);/, 'collapse updates must refresh dependency paths and offscreen controls together');
 assert.match(styles, /\.tm-gantt-offscreen-nav \{[\s\S]*z-index: 18;[\s\S]*width: 24px;[\s\S]*height: 24px;[\s\S]*pointer-events: none;/, 'offscreen controls must remain compact, row-local, and inert while hidden');
+assert.match(styles, /\.tm-gantt-offscreen-nav \{[\s\S]*position: sticky;[\s\S]*left: 8px;[\s\S]*\.tm-gantt-offscreen-nav\[data-direction="right"\] \{[\s\S]*--tm-gantt-offscreen-nav-right/, 'left and right controls must use compositor-stable sticky edge positions during touch scrolling');
 assert.match(styles, /\.tm-gantt-offscreen-nav\.tm-gantt-offscreen-nav--visible \{[\s\S]*opacity: 1;[\s\S]*pointer-events: auto;/, 'visible offscreen controls must become operable without reserving row space');
 
 assert.match(styles, /--tm-timeline-month-row-height: 20px;[\s\S]*--tm-timeline-day-row-height: 28px;/, 'timeline headers must use the approved 48px two-level structure');

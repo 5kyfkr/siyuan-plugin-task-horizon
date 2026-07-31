@@ -18,7 +18,7 @@ const buildStart = calendar.indexOf('async function buildCalendarSubscriptionEve
 const buildEnd = calendar.indexOf('\n    async function readKernelJsonResponse', buildStart);
 assert.ok(buildStart >= 0 && buildEnd > buildStart, 'publisher event projection must remain extractable');
 const buildBlock = calendar.slice(buildStart, buildEnd);
-assert.match(buildBlock, /const tomatoLoaded = isDockTomatoPluginLoaded\(\);[\s\S]*if \(tomatoLoaded\) \{[\s\S]*waitForDockTomatoSubscriptionBridge\(\)/, 'Tomato bridge may only be read after the loaded-plugin check succeeds');
+assert.match(buildBlock, /const tomatoLoaded = isDockTomatoPluginLoaded\(\);[\s\S]*const includeTomatoReminders = settings\.icsIncludeTomatoReminders === true;[\s\S]*if \(tomatoLoaded && includeTomatoReminders\) \{[\s\S]*waitForDockTomatoSubscriptionBridge\(\)/, 'Tomato bridge may only be read when reminder synchronization is enabled and the plugin is loaded');
 assert.doesNotMatch(buildBlock, /\/api\/query\/sql|DOCK_TOMATO_FILE|loadReminderBlocks/, 'publisher must not query Tomato SQL or petal fallbacks');
 assert.match(buildBlock, /state\.scheduleCache\.lastLoadError[\s\S]*throw new Error/, 'schedule reads must fail closed');
 assert.match(buildBlock, /result\.truncated === true[\s\S]*throw new Error/, 'truncated Tomato projections must fail publication');
@@ -160,6 +160,7 @@ for (const key of [
     'calendarIcsWebdavUsername',
     'calendarIcsChainFileName',
     'calendarIcsChainPublicConfirmed',
+    'calendarIcsIncludeTomatoReminders',
     'calendarIcsIncludeTaskDates',
 ]) {
     assert.match(settingsStore, new RegExp(`\\b${key}\\b`), `settings store must define ${key}`);
@@ -188,6 +189,15 @@ assert.ok(calendar.indexOf('data-tm-cal-setting="calendarIcsEnabled"') < calenda
 assert.match(settingsStore, /calendarIcsProvider:\s*'chain'/, 'new subscriptions must default to Chain publishing');
 assert.match(settingsStore, /calendarIcsCalendarName:\s*'任务管理器'/, 'new subscriptions must default to the localized task manager name');
 assert.match(settingsStore, /calendarIcsPublishMode:\s*'auto'/, 'new subscriptions must retain automatic publication by default');
+assert.match(settingsStore, /calendarIcsIncludeTomatoReminders:\s*true/, 'Tomato reminder ICS export must default to enabled for backward compatibility');
+assert.match(settingsStore, /typeof cloudData\.calendarIcsIncludeTomatoReminders === 'boolean'/, 'Tomato reminder ICS export must merge from synchronized settings');
+assert.match(settingsStore, /Storage\.get\('tm_calendar_ics_include_tomato_reminders'/, 'Tomato reminder ICS export must load from local settings storage');
+assert.match(settingsStore, /Storage\.set\('tm_calendar_ics_include_tomato_reminders'/, 'Tomato reminder ICS export must save to local settings storage');
+assert.match(calendar, /calendarIcsIncludeTomatoReminders: 'boolean'/, 'publisher startup must refresh the synchronized reminder setting before publication');
+assert.match(calendar, /data-tm-cal-setting="calendarIcsIncludeTomatoReminders"/, 'Tomato reminder ICS export must have a settings switch');
+assert.match(calendar, /同步番茄钟提醒[\s\S]*底栏番茄钟中的任务提醒作为带通知的日历事件同步/, 'reminder ICS settings must explain the included events concisely');
+assert.match(calendar, /icsIncludeTomatoReminders !== true[\s\S]*仅包含任务管理器日程/, 'data scope status must omit Tomato reminders when reminder synchronization is disabled');
+assert.match(calendar, /tomatoUpdatedListener = \(\) => \{[\s\S]*icsIncludeTomatoReminders[\s\S]*markCalendarSubscriptionDirty\('tomato-reminder-updated'\)/, 'Tomato reminder changes must not republish when reminder synchronization is disabled');
 assert.match(settingsStore, /calendarIcsIncludeTaskDates:\s*false/, 'task date ICS export must default to disabled');
 assert.match(settingsStore, /typeof cloudData\.calendarIcsIncludeTaskDates === 'boolean'/, 'task date ICS export must merge from synchronized settings');
 assert.match(settingsStore, /Storage\.get\('tm_calendar_ics_include_task_dates'/, 'task date ICS export must load from local settings storage');

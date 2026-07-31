@@ -31,8 +31,11 @@ const ICON_ID = "iconTaskHorizon";
 const ENTRY_ICON_PRESET_STORAGE_KEY = "tm_entry_icon_preset";
 const DEFAULT_ENTRY_ICON_PRESET = "classic";
 const WINDOW_TOPBAR_ATTR = "data-task-horizon-window-topbar";
+const WINDOW_TOPBAR_ELEMENT_ID = "plugin_siyuan-plugin-task-horizon_task-manager";
 const CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID = "iconTaskHorizonCalendarUpload";
 const CALENDAR_SUBSCRIPTION_TOPBAR_ATTR = "data-task-horizon-calendar-subscription-topbar";
+const CALENDAR_SUBSCRIPTION_TOPBAR_ELEMENT_ID = "plugin_siyuan-plugin-task-horizon_calendar-subscription";
+const SIYUAN_UNPINNED_TOPBAR_STORAGE_KEY = "local-plugintopunpin";
 const CUSTOM_TAB_ID = PLUGIN_ID + TAB_TYPE;
 const TASK_DOCK_TYPE = "::task-horizon-dock";
 const TASK_DOCK_TITLE = "任务侧栏";
@@ -926,6 +929,26 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         return isRuntimeMobileClient(this);
     }
 
+    applyStableTopBarIdentity(element, stableId) {
+        if (!(element instanceof HTMLElement)) return null;
+        try { element.id = stableId; } catch (e) {}
+        let unpinned = false;
+        try {
+            const ids = globalThis.siyuan?.storage?.[SIYUAN_UNPINNED_TOPBAR_STORAGE_KEY];
+            unpinned = Array.isArray(ids) && ids.includes(stableId);
+        } catch (e) {}
+        if (this.isRuntimeMobileClient()) {
+            if (unpinned) {
+                try { element.remove(); } catch (e) {}
+            } else if (!document.contains(element)) {
+                try { document.querySelector("#menuConfigAbout")?.after(element); } catch (e) {}
+            }
+        } else {
+            try { element.classList.toggle("fn__none", unpinned); } catch (e) {}
+        }
+        return element;
+    }
+
     applyEntryIconPreset(value) {
         const preset = getEntryIconPreset(value);
         const symbol = document.querySelector(`svg[data-name="${PLUGIN_ID}"] symbol#${ICON_ID}`);
@@ -1017,6 +1040,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonOpenTabView = this.openTaskHorizonTab.bind(this);
         globalThis.__taskHorizonSyncWindowTopBar = this.syncWindowTopBar.bind(this);
         globalThis.__taskHorizonSyncCalendarSubscriptionTopBar = this.syncCalendarSubscriptionTopBar.bind(this);
+        globalThis.__taskHorizonApplyWindowTopBarIdentity = (element) => this.applyStableTopBarIdentity(element, WINDOW_TOPBAR_ELEMENT_ID);
         globalThis.__taskHorizonHostBridge = createTaskHorizonHostBridge(this);
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
@@ -1764,6 +1788,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { element.setAttribute(WINDOW_TOPBAR_ATTR, "1"); } catch (e) {}
         try { if (!element.getAttribute("aria-label")) element.setAttribute("aria-label", TAB_TITLE); } catch (e) {}
         try { if (!element.getAttribute("title")) element.setAttribute("title", TAB_TITLE); } catch (e) {}
+        this.applyStableTopBarIdentity(element, WINDOW_TOPBAR_ELEMENT_ID);
         return element;
     }
 
@@ -1888,6 +1913,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { element.setAttribute("aria-busy", meta.running === true ? "true" : "false"); } catch (e) {}
         try { element.classList.toggle("tm-calendar-subscription-topbar--running", meta.running === true); } catch (e) {}
         try { if ("disabled" in element) element.disabled = meta.running === true; } catch (e) {}
+        this.applyStableTopBarIdentity(element, CALENDAR_SUBSCRIPTION_TOPBAR_ELEMENT_ID);
         return element;
     }
 
@@ -2422,6 +2448,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
         try { delete globalThis.__taskHorizonSyncWindowTopBar; } catch (e) {}
         try { delete globalThis.__taskHorizonSyncCalendarSubscriptionTopBar; } catch (e) {}
+        try { delete globalThis.__taskHorizonApplyWindowTopBarIdentity; } catch (e) {}
         try { delete globalThis.__taskHorizonCustomTabId; } catch (e) {}
         try { delete globalThis.__taskHorizonTabElement; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}

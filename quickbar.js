@@ -214,6 +214,9 @@
     let inlineMetaScopeDocIds = null;
     let inlineMetaScopeDocIdsTs = 0;
     let inlineMetaScopeDocIdsPromise = null;
+    let quickbarCustomFieldScopeByDoc = new Map();
+    let quickbarCustomFieldScopePromises = new Map();
+    let quickbarCustomFieldScopeRevision = 0;
     let inlineMetaWakeTimer = null;
     let inlineMetaWakeForceRefresh = false;
     let inlineMetaWakeBootstrap = false;
@@ -351,8 +354,9 @@
                     type,
                     options,
                     enabled: sourceField.enabled !== false,
+                    scope: normalizeQuickbarCustomFieldScope(sourceField.scope),
                 };
-            }).filter((field) => field.enabled !== false && field.type !== 'text');
+            }).filter((field) => field.enabled !== false);
         } catch (e) {
             return [];
         }
@@ -367,6 +371,9 @@
     function buildQuickbarCustomFieldConfig(field) {
         const id = String(field?.id || '').trim();
         if (!id) return null;
+        const fieldType = String(field?.type || '').trim() === 'multi'
+            ? 'multi'
+            : (String(field?.type || '').trim() === 'text' ? 'text' : 'single');
         const attrKey = buildQuickbarCustomFieldAttrStorageKey(field?.attrKey || id || field?.name, id);
         const options = (Array.isArray(field?.options) ? field.options : []).map((option) => ({
             value: String(option?.id || '').trim(),
@@ -377,11 +384,11 @@
             name: String(field?.name || id).trim() || id,
             attrKey,
             fieldToken: `customField:${id}`,
-            type: String(field?.type || '').trim() === 'multi' ? 'multi-select' : 'select',
+            type: fieldType === 'multi' ? 'multi-select' : (fieldType === 'text' ? 'text' : 'select'),
             options,
             defaultValue: '',
             customFieldId: id,
-            customFieldType: String(field?.type || '').trim() === 'multi' ? 'multi' : 'single',
+            customFieldType: fieldType,
             customField: field,
         };
     }
@@ -785,6 +792,27 @@
         };
     }
 
+    function isQuickbarCustomFieldConfigApplicable(config, applicableFieldIds = null) {
+        const fieldId = String(config?.customFieldId || '').trim();
+        if (!fieldId) return true;
+        if (config?.customField?.scope == null) return true;
+        if (applicableFieldIds instanceof Set) return applicableFieldIds.has(fieldId);
+        return Array.isArray(applicableFieldIds) && applicableFieldIds.includes(fieldId);
+    }
+
+    function normalizeQuickbarCustomFieldScope(input) {
+        if (input == null) return null;
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const normalizeIds = (value) => Array.from(new Set((Array.isArray(value) ? value : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean))).sort();
+        return {
+            docIds: normalizeIds(source.docIds),
+            docGroupIds: normalizeIds(source.docGroupIds),
+            docTabGroupIds: normalizeIds(source.docTabGroupIds),
+        };
+    }
+
     function hasQuickbarFocusSpentSourceAttr(attrs = {}) {
         const data = attrs && typeof attrs === 'object' ? attrs : {};
         const keys = [
@@ -1095,6 +1123,13 @@
             || key === 'tm_new_task_doc_id';
     }
 
+    function isQuickbarCustomFieldScopeStorageKey(key) {
+        return key === 'tm_custom_field_defs'
+            || key === 'tm_custom_field_defs_version'
+            || key === 'tm_doc_groups'
+            || key === 'tm_doc_tab_custom_groups';
+    }
+
     function clearInlineMetaScopeDocCache() {
         inlineMetaScopeDocIds = null;
         inlineMetaScopeDocIdsTs = 0;
@@ -1130,6 +1165,48 @@
         return '';
     }
 
+    function clearQuickbarCustomFieldScopeCache() {
+        quickbarCustomFieldScopeRevision += 1;
+        quickbarCustomFieldScopeByDoc.clear();
+        quickbarCustomFieldScopePromises.clear();
+    }
+
+    async function ensureQuickbarCustomFieldIdsForDoc(docId) {
+        const did = String(docId || '').trim();
+        if (!did) return new Set();
+        if (quickbarCustomFieldScopeByDoc.has(did)) {
+            return quickbarCustomFieldScopeByDoc.get(did);
+        }
+        if (quickbarCustomFieldScopePromises.has(did)) {
+            return await quickbarCustomFieldScopePromises.get(did);
+        }
+        const getter = globalThis?.['siyuan-plugin-task-horizon']?.quickbarBridge?.getApplicableCustomFieldIdsForDoc;
+        if (typeof getter !== 'function') return new Set();
+        const requestRevision = quickbarCustomFieldScopeRevision;
+        const promise = Promise.resolve(getter(did))
+            .then(async (fieldIds) => {
+                if (requestRevision !== quickbarCustomFieldScopeRevision) {
+                    return await ensureQuickbarCustomFieldIdsForDoc(did);
+                }
+                const next = new Set((Array.isArray(fieldIds) ? fieldIds : [])
+                    .map((fieldId) => String(fieldId || '').trim())
+                    .filter(Boolean));
+                quickbarCustomFieldScopeByDoc.set(did, next);
+                return next;
+            })
+            .catch(() => {
+                quickbarCustomFieldScopeByDoc.delete(did);
+                return new Set();
+            })
+            .finally(() => {
+                if (quickbarCustomFieldScopePromises.get(did) === promise) {
+                    quickbarCustomFieldScopePromises.delete(did);
+                }
+            });
+        quickbarCustomFieldScopePromises.set(did, promise);
+        return await promise;
+    }
+
     async function ensureInlineMetaScopeDocIds(forceRefresh = false) {
         const ttlMs = 5000;
         const now = Date.now();
@@ -1158,15 +1235,6 @@
             });
         inlineMetaScopeDocIdsPromise = p;
         return p;
-    }
-
-    async function isInlineMetaScopeAllowedForBlock(blockEl) {
-        const docId = resolveDocIdFromTaskBlock(blockEl);
-        if (!docId) return true;
-        const scopeDocIds = await ensureInlineMetaScopeDocIds(false);
-        if (!(scopeDocIds instanceof Set)) return true;
-        if (!scopeDocIds.size) return false;
-        return scopeDocIds.has(docId);
     }
 
     function isInlineMetaScopeAllowedForBlockCached(blockEl) {
@@ -3181,6 +3249,7 @@
         let currentTaskId = '';
         let currentTaskName = '';
         let currentProps = {};  // 当前块的所有自定义属性值
+        let currentQuickbarApplicableCustomFieldIds = new Set();
         let currentReminderSnapshot = null;
         let currentReminderRefreshToken = 0;
         let currentFloatBarLoadToken = 0;
@@ -3802,6 +3871,10 @@
 
         __tmQBStatusRenderStorageHandler = (e) => {
             if (!e) return;
+            if (isQuickbarCustomFieldScopeStorageKey(e.key)) {
+                invalidateQuickbarCustomFieldScope();
+                return;
+            }
             if (e.key === 'tm_custom_status_options' || e.key === 'tm_checkbox_undone_status_id') {
                 loadStatusOptions().then(() => {
                     try { renderFloatBar(); } catch (e) {}
@@ -3810,12 +3883,6 @@
                 return;
             }
             if (e.key === 'tm_enable_quickbar_inline_meta' || e.key === 'tm_quickbar_inline_fields' || e.key === 'tm_quickbar_inline_show_on_mobile' || e.key === 'tm_quickbar_subtask_count_unfinished_only') {
-                try { refreshInlineMetaMode(true); } catch (e) {}
-                return;
-            }
-            if (e.key === 'tm_custom_field_defs' || e.key === 'tm_custom_field_defs_version') {
-                invalidateQuickbarInlineSettingsCache();
-                try { renderFloatBar(); } catch (e) {}
                 try { refreshInlineMetaMode(true); } catch (e) {}
                 return;
             }
@@ -3828,6 +3895,7 @@
             if (isInlineMetaScopeStorageKey(e.key)) {
                 clearInlineMetaScopeDocCache();
                 try { refreshInlineMetaMode(true); } catch (e) {}
+                return;
             }
         };
 
@@ -4856,6 +4924,11 @@
         }
 
         function getQuickbarCustomFieldTooltip(config, rawValue) {
+            if (String(config?.customFieldType || '').trim() === 'text') {
+                const name = String(config?.name || '').trim();
+                const valueText = String(rawValue ?? '').trim();
+                return valueText ? `${name}: ${valueText}` : name;
+            }
             const selected = getQuickbarCustomFieldSelectedOptions(config, rawValue);
             const name = String(config?.name || '').trim();
             const valueText = selected.map((option) => String(option?.label || option?.value || '').trim()).filter(Boolean).join(', ');
@@ -5376,6 +5449,15 @@
             const rawValue = String(value ?? '');
             const escapedValue = rawValue.replace(/"/g, '&quot;');
             if (config.customFieldId) {
+                if (String(config.customFieldType || '').trim() === 'text') {
+                    const textValue = rawValue.trim();
+                    if (!textValue) return '';
+                    return `
+                        <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--custom-field" data-inline-attr="${escapedAttr}" data-inline-type="text" data-inline-name="${escapedName}" data-inline-value="${escapedValue}" title="${escapedName}">
+                            <span class="sy-custom-props-inline-chip-value">${esc(truncateInlineValue(textValue, 24))}</span>
+                        </span>
+                    `.trim();
+                }
                 const selected = getQuickbarCustomFieldSelectedOptions(config, rawValue);
                 if (!selected.length) return '';
                 const normalizedValue = Array.isArray(normalizeQuickbarCustomFieldValue(config, rawValue))
@@ -5480,8 +5562,7 @@
                 || hasRecentQuickbarAttrHostDragChange(2500)
                 || hasQuickbarAttrHostDragSnapshots(QUICKBAR_ATTR_HOST_DRAG_RECENT_TTL_MS);
             if (!forceRefresh && !bypassCacheForAttrHostChange && !opts.includeRemark && !opts.skipAttrFallback && inlineMetaCache.has(id)) {
-                const cached = inlineMetaCache.get(id);
-                return cached;
+                return inlineMetaCache.get(id);
             }
             const blockEl = opts.blockEl instanceof Element ? opts.blockEl : getBlockElById(id);
             const shouldUseTaskHorizonBridge = opts.forceFresh === true || forceRefresh || opts.includeRemark === true;
@@ -5934,7 +6015,9 @@
             const id = String(blockId || '').trim();
             if (!id) return Promise.resolve(normalizeCustomProps());
             const shouldUseFreshManagerProps = opts.forceFresh === true || opts.includeRemark === true;
-            if (!forceRefresh && !shouldUseFreshManagerProps && !opts.skipAttrFallback && inlineMetaCache.has(id)) return Promise.resolve(inlineMetaCache.get(id));
+            if (!forceRefresh && !shouldUseFreshManagerProps && !opts.skipAttrFallback && inlineMetaCache.has(id)) {
+                return Promise.resolve(inlineMetaCache.get(id));
+            }
             const inflightKey = shouldUseFreshManagerProps ? `${id}:fresh` : id;
             const inflight = inlineMetaPropsInflight.get(inflightKey);
             if (inflight) return inflight;
@@ -5990,12 +6073,13 @@
             drainInlineMetaPrefetchQueue();
         }
 
-        function renderInlineMetaHtml(cfg, props, blockEl = null) {
+        function renderInlineMetaHtml(cfg, props, blockEl = null, applicableCustomFieldIds = null) {
             const settings = cfg && Array.isArray(cfg.fields) ? cfg : getQuickbarInlineSettings();
             const sourceProps = props && typeof props === 'object' ? props : normalizeCustomProps();
             return settings.fields
                 .map((attrKey) => {
                     const config = getInlineFieldConfig(attrKey);
+                    if (!isQuickbarCustomFieldConfigApplicable(config, applicableCustomFieldIds)) return '';
                     if (String(config?.attrKey || attrKey || '').trim() === 'taskCompleteAt') {
                         if (!shouldShowQuickbarTaskCompleteAt(sourceProps)) return '';
                     }
@@ -6043,6 +6127,7 @@
             visibleSettings.items
                 .map((itemKey) => getQuickbarCustomFieldConfigByToken(itemKey))
                 .filter(Boolean)
+                .filter((config) => isQuickbarCustomFieldConfigApplicable(config, currentQuickbarApplicableCustomFieldIds))
                 .forEach((config) => {
                     mainProps.push(renderPropElement(config, currentProps[config.attrKey]));
                 });
@@ -6091,6 +6176,20 @@
             const attrKey = String(config.attrKey || '').trim();
 
             if (config.customFieldId) {
+                if (String(config.customFieldType || '').trim() === 'text') {
+                    const textValue = String(value ?? '').trim();
+                    const displayValue = textValue ? truncateInlineValue(textValue, 15) : escapedName;
+                    return `
+                        <span class="sy-custom-props-floatbar__prop sy-custom-props-floatbar__prop--custom-field ${textValue ? '' : 'sy-custom-props-floatbar__prop--custom-empty'}"
+                              data-attr="${esc(attrKey)}"
+                              data-type="text"
+                              data-name="${escapedName}"
+                              data-value="${escapedValue}"
+                              ${buildTooltipAttrs(getQuickbarCustomFieldTooltip(config, value))}>
+                            <span class="sy-custom-props-floatbar__prop-value">${esc(displayValue)}</span>
+                        </span>
+                    `;
+                }
                 const tagsHtml = renderQuickbarCustomFieldTags(config, value, 2);
                 const hasValue = !!tagsHtml;
                 return `
@@ -7308,17 +7407,24 @@
             updateCurrentTaskContext(blockEl);
             const blockIdAtOpen = String(currentBlockId || '').trim();
             const taskIdAtOpen = String(resolveCurrentTaskId() || '').trim();
+            const docIdAtOpen = resolveDocIdFromTaskBlock(blockEl);
             const loadToken = ++currentFloatBarLoadToken;
 
-            // 先用缓存/默认值立即显示，避免被异步属性或提醒查询阻塞。
             currentProps = getInlineCachedProps(blockIdAtOpen);
+            currentQuickbarApplicableCustomFieldIds = new Set();
             currentReminderSnapshot = null;
             currentReminderRefreshToken += 1;
+            floatBar.style.display = 'none';
+            hideAllPopups();
 
-            // 渲染悬浮条
+            const applicableCustomFieldIds = await ensureQuickbarCustomFieldIdsForDoc(docIdAtOpen);
+            if (loadToken !== currentFloatBarLoadToken
+                || String(currentBlockId || '').trim() !== blockIdAtOpen
+                || String(resolveCurrentTaskId() || '').trim() !== taskIdAtOpen) return;
+            currentQuickbarApplicableCustomFieldIds = applicableCustomFieldIds;
+
             renderFloatBar();
 
-            // 显示并定位
             floatBar.style.display = 'flex';
             hideAllPopups();
             updatePosition();
@@ -7342,6 +7448,28 @@
                 .catch(() => null);
         }
 
+        async function refreshVisibleQuickbarCustomFieldScope() {
+            if (!floatBar || floatBar.style.display === 'none' || !currentBlockEl) return false;
+            const blockEl = currentBlockEl;
+            const blockId = String(currentBlockId || '').trim();
+            const taskId = String(resolveCurrentTaskId() || '').trim();
+            const loadToken = currentFloatBarLoadToken;
+            const docId = resolveDocIdFromTaskBlock(blockEl);
+            const applicableCustomFieldIds = await ensureQuickbarCustomFieldIdsForDoc(docId);
+            if (!isCurrentFloatBarContext(blockId, taskId, loadToken) || currentBlockEl !== blockEl) return false;
+            currentQuickbarApplicableCustomFieldIds = applicableCustomFieldIds;
+            renderFloatBar();
+            updatePosition();
+            return true;
+        }
+
+        function invalidateQuickbarCustomFieldScope() {
+            clearQuickbarCustomFieldScopeCache();
+            invalidateQuickbarInlineSettingsCache();
+            Promise.resolve(refreshVisibleQuickbarCustomFieldScope()).catch(() => null);
+            try { refreshInlineMetaMode(true); } catch (e) {}
+        }
+
         // 隐藏悬浮条
         function hideFloatBar() {
             clearQuickbarAutoHideTimer();
@@ -7357,6 +7485,7 @@
             currentTaskId = '';
             currentTaskName = '';
             currentProps = {};
+            currentQuickbarApplicableCustomFieldIds = new Set();
             currentReminderSnapshot = null;
             currentReminderRefreshToken += 1;
         }
@@ -8178,6 +8307,7 @@
             inlineMetaScopeDocIds = null;
             inlineMetaScopeDocIdsTs = 0;
             inlineMetaScopeDocIdsPromise = null;
+            clearQuickbarCustomFieldScopeCache();
             inlineMetaActiveTargetsCacheTs = 0;
             inlineMetaActiveTargetsCacheValue = false;
         }
@@ -9788,6 +9918,8 @@
                 inlineMetaLayoutCache.delete(taskId);
                 return;
             }
+            const docId = resolveDocIdFromTaskBlock(blockEl);
+            const applicableCustomFieldIds = await ensureQuickbarCustomFieldIdsForDoc(docId);
             const useOverlayHost = isInlineMetaNativeHostSuppressed(taskId)
                 || !QUICKBAR_INLINE_USE_NATIVE_HOST;
             const hostParent = getInlineHostParent(blockEl);
@@ -9924,7 +10056,7 @@
             const cachedPropsForRender = useEmptyPropsForRender
                 ? normalizeCustomProps()
                 : getInlineCachedProps(taskId);
-            const html = renderInlineMetaHtml(cfg, cachedPropsForRender, blockEl);
+            const html = renderInlineMetaHtml(cfg, cachedPropsForRender, blockEl, applicableCustomFieldIds);
             if (!html) {
                 if (inlineMetaScrolling) return;
                 if (runtimeProps?.props || hasCacheForRender) {
@@ -10677,11 +10809,6 @@
                         if (floatBar && floatBar.style.display !== 'none') renderFloatBar();
                     } catch (err) {}
                 }
-                if (e.key === 'tm_custom_field_defs' || e.key === 'tm_custom_field_defs_version') {
-                    try {
-                        if (floatBar && floatBar.style.display !== 'none') renderFloatBar();
-                    } catch (err) {}
-                }
             };
             window.addEventListener('storage', storageHandler);
         }
@@ -10696,12 +10823,10 @@
             try { refreshInlineMetaMode(true); } catch (e) {}
         };
         globalThis.__taskHorizonQuickbarRefresh = () => {
-            try {
-                if (floatBar && floatBar.style.display !== 'none') {
-                    renderFloatBar();
-                    updatePosition();
-                }
-            } catch (e) {}
+            Promise.resolve(refreshVisibleQuickbarCustomFieldScope()).catch(() => null);
+        };
+        globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope = () => {
+            invalidateQuickbarCustomFieldScope();
         };
         globalThis.__taskHorizonQuickbarInlineStats = () => {
             try { return getQuickbarInlineStats(); } catch (e) { return null; }
@@ -10738,6 +10863,7 @@
             try { delete globalThis.__taskHorizonQuickbarToggle; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarRefreshInline; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarRefresh; } catch (e) {}
+            try { delete globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarInlineStats; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarCleanup; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}

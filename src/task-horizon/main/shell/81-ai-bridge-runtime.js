@@ -720,7 +720,19 @@
                     .filter(Boolean))),
             });
         }
-        return { groups: resolvedGroups };
+        const resolvedTabGroups = (typeof __tmGetDocTabCustomGroups === 'function' ? __tmGetDocTabCustomGroups() : [])
+            .map((group) => {
+                const groupID = String(group?.id || '').trim();
+                if (!groupID || typeof __tmExpandDocTabCustomGroup !== 'function') return null;
+                const members = __tmExpandDocTabCustomGroup(group, Array.isArray(state?.allDocuments) ? state.allDocuments : []);
+                return {
+                    id: groupID,
+                    name: String(group?.name || groupID).trim() || groupID,
+                    documentIDs: Array.from(members.keys()),
+                };
+            })
+            .filter(Boolean);
+        return { groups: resolvedGroups, tabGroups: resolvedTabGroups };
     }
 
     async function __tmAiGetCurrentViewContext() {
@@ -1287,7 +1299,7 @@
         try {
             __tmGetCustomFieldDefs().forEach((field) => {
                 const fieldId = String(field?.id || '').trim();
-                if (!fieldId) return;
+                if (!fieldId || field?.enabled === false) return;
                 const attrKey = __tmBuildCustomFieldAttrStorageKey(field?.attrKey || field?.id || field?.name || 'field', fieldId);
                 if (!attrKey) return;
                 const normalized = __tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task, fieldId));
@@ -1336,6 +1348,16 @@
             attrHostId: String(binding?.attrHostId || __tmGetTaskAttrHostId(task) || taskId || requestedId).trim(),
             props,
         };
+    }
+
+    async function __tmGetQuickbarApplicableCustomFieldIdsForDoc(docId) {
+        const did = String(docId || '').trim();
+        if (!did) return [];
+        await __tmRefreshCustomFieldScopeMembership();
+        return __tmGetCustomFieldDefs()
+            .filter((field) => __tmIsCustomFieldApplicableToDoc(field, did))
+            .map((field) => String(field?.id || '').trim())
+            .filter(Boolean);
     }
 
     function __tmParseQuickbarTaskCreatedTs(task, taskId) {
@@ -1544,6 +1566,9 @@
         },
         async getTaskCustomPropsByAnyId(taskIdOrBlockId, options = {}) {
             return await __tmGetQuickbarTaskCustomPropsByAnyId(taskIdOrBlockId, options);
+        },
+        async getApplicableCustomFieldIdsForDoc(docId) {
+            return await __tmGetQuickbarApplicableCustomFieldIdsForDoc(docId);
         },
         async maybeInheritSubtaskFields(detail = {}) {
             return await __tmQuickbarMaybeInheritSubtaskFields(detail);

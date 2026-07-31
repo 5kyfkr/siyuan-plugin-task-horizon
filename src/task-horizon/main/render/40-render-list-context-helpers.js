@@ -81,6 +81,10 @@ function __tmBuildListRenderContext(options = {}) {
         normalizedColOrder = __tmGetDefaultColumnOrder()
             .filter((col) => !knownColumnKeys || knownColumnKeys.has(col));
     }
+    normalizedColOrder = __tmGetEffectiveCustomFieldColumnOrder(
+        normalizedColOrder,
+        Array.isArray(opts.tasks) ? opts.tasks : state?.filteredTasks
+    );
     const columnWidths = (opts.columnWidths && typeof opts.columnWidths === 'object')
         ? opts.columnWidths
         : (SettingsStore.data.columnWidths || {});

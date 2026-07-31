@@ -3832,9 +3832,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { recalcStats(); } catch (e) {}
             try {
                 const modal = state.modal instanceof Element ? state.modal : null;
-                if (!modal || !__tmRerenderCurrentViewInPlace(modal)) render();
+                if (!modal || !__tmRerenderCurrentViewInPlace(modal)) __tmRenderPreservingCalendarSideDock();
             } catch (e) {
-                try { render(); } catch (e2) {}
+                try { __tmRenderPreservingCalendarSideDock(); } catch (e2) {}
             }
         };
         const schedule = (waitMs) => {
@@ -6860,8 +6860,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             return;
         }
         const timerFocusRestoreOptions = { source: 'task-horizon' };
-        state.timerFocusTaskId = timerTaskId;
-        try { render(); } catch (e) {}
+        __tmSyncTomatoFocusInPlace(timerTaskId);
         if (mode === 'stopwatch') {
             const startFromTaskBlock = timer?.startFromTaskBlock;
             const startStopwatch = timer?.startStopwatch;
@@ -9543,7 +9542,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 ? __tmGetDocTabCustomGroupRegionState(activeGroup, {
                     currentGroupId,
                     docs: activeGroupDocsForTabs,
-                    docStateCache
+                    docStateCache: docTaskStateCache
                 })
                 : null;
             if (!activeGroupDocIds.size
@@ -10569,22 +10568,14 @@ return Number(state.contextInteractionQuietUntil || 0);
     window.tmHandleDocTabCustomGroupClick = async function(event, groupId) {
         const gid = String(groupId || '').trim();
         if (!gid) return;
-        const tabEl = event?.currentTarget instanceof Element
-            ? event.currentTarget
-            : (event?.target instanceof Element ? event.target.closest('[data-tm-doc-tab-group-id]') : null);
-        const isActiveTab = !!(tabEl instanceof HTMLElement && tabEl.classList.contains('active'));
+        const isAggregateActive = __tmParseDocTabCustomGroupActiveId(state.activeDocId) === gid;
         if (__tmIsDocTabCustomGroupMenuOpen(gid)) {
             try { event?.preventDefault?.(); } catch (e) {}
             try { event?.stopPropagation?.(); } catch (e) {}
             __tmHideDocTabMenu();
-            return;
+            if (isAggregateActive) return;
         }
-        if (isActiveTab || __tmParseDocTabCustomGroupActiveId(state.activeDocId) === gid) {
-            try { event?.preventDefault?.(); } catch (e) {}
-            try { event?.stopPropagation?.(); } catch (e) {}
-            __tmShowDocTabCustomGroupMenuAt(gid, event?.clientX, event?.clientY, event);
-            return;
-        }
+        if (isAggregateActive) return;
         await window.tmSwitchDocTabCustomGroup?.(gid);
     };
 
@@ -13645,7 +13636,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                         viewCacheHit: snapshotViewCacheHit ? 1 : 0,
                     });
                     try {
-                        render();
+                        __tmRenderPreservingCalendarSideDock();
                         snapshotRendered = true;
                     } catch (e) {
                         snapshotRendered = false;
@@ -14799,36 +14790,13 @@ return Number(state.contextInteractionQuietUntil || 0);
             && __tmCanUseLightweightMoveProjection(sourceTask, payload);
         payload.skipOptimisticFilterWork = !customPhysicalPlacement && useLightweightProjection;
         payload.forceOptimisticRender = opts.forceOptimisticRender === true;
-        const shouldRefreshSubtaskViews = moveKind === 'child' || moveKind === 'child-top';
-        const reconcilePayload = shouldRefreshSubtaskViews
-            ? {
-                ...payload,
-                snapshot: {
-                    docId: String(sourceTask.root_id || sourceTask.docId || '').trim(),
-                    parentTaskId: String(sourceTask.parentTaskId || sourceTask.parent_task_id || '').trim(),
-                },
-            }
-            : null;
+        payload.preserveRenderWindow = true;
         const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
         if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
         moveTask(sourceId, payload, {
             wait: false,
             forceOptimisticRender: opts.forceOptimisticRender === true,
-            onQueued: () => {
-                if (reconcilePayload) {
-                    __tmScheduleTaskRowDropReconcileRefresh({
-                        ...reconcilePayload,
-                        forceFullReconcile: true,
-                    });
-                }
-            },
             onSuccess: (result) => {
-                if (reconcilePayload) {
-                    __tmScheduleTaskRowDropReconcileRefresh({
-                        ...reconcilePayload,
-                        forceFullReconcile: true,
-                    });
-                }
                 try { opts.onSuccess?.(result); } catch (e) {}
             },
             onError: (err) => {
@@ -14866,16 +14834,14 @@ return Number(state.contextInteractionQuietUntil || 0);
         const ids = __tmFilterDraggedTaskRootIds(validation.sourceIds?.length ? validation.sourceIds : sourceTaskIds);
         if (!ids.length) return null;
         if (ids.length === 1) {
-            return await __tmQueueTaskRowMove(ids[0], targetId, kind, { forceOptimisticRender: true });
+            return await __tmQueueTaskRowMove(ids[0], targetId, kind);
         }
         const results = [];
         let anchorTaskId = targetId;
         let anchorKind = kind;
         for (const sourceId of ids) {
             if (!sourceId || sourceId === anchorTaskId) continue;
-            const result = await __tmQueueTaskRowMove(sourceId, anchorTaskId, anchorKind, {
-                forceOptimisticRender: true,
-            });
+            const result = await __tmQueueTaskRowMove(sourceId, anchorTaskId, anchorKind);
             results.push(result);
             anchorTaskId = sourceId;
             anchorKind = 'after';
@@ -14886,46 +14852,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             batchCount: results.length,
             results,
         };
-    }
-
-    function __tmScheduleTaskRowDropReconcileRefresh(payload = null) {
-        const data = (payload && typeof payload === 'object') ? payload : null;
-        const previousParentTaskId = String(data?.snapshot?.parentTaskId || '').trim();
-        const nextParentTaskId = String(
-            data?.targetParentTaskId
-            || ((String(data?.mode || '').trim() === 'child' || String(data?.mode || '').trim() === 'child-top')
-                ? data?.targetTaskId
-                : '')
-            || ''
-        ).trim();
-        try {
-            [
-                String(data?.targetDocId || '').trim(),
-                String(data?.snapshot?.docId || '').trim(),
-            ].filter(Boolean).forEach((docId) => {
-                try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
-            });
-        } catch (e) {}
-        try {
-            if (previousParentTaskId) __tmScheduleChecklistOptimisticSubtaskRefresh?.(previousParentTaskId, data?.taskId);
-        } catch (e) {}
-        try {
-            if (nextParentTaskId) __tmScheduleChecklistOptimisticSubtaskRefresh?.(nextParentTaskId, data?.taskId);
-        } catch (e) {}
-        try {
-            const ids = [
-                String(data?.taskId || '').trim(),
-                String(data?.targetTaskId || '').trim(),
-                nextParentTaskId,
-                previousParentTaskId,
-            ].filter(Boolean);
-            __tmScheduleViewRefresh({
-                mode: 'current',
-                withFilters: data?.forceFullReconcile === true,
-                reason: 'task-row-drop-reconcile-legacy',
-                taskIds: Array.from(new Set(ids)),
-            });
-        } catch (e) {}
     }
 
     window.tmTaskRowDragOver = function(ev, targetTaskId) {

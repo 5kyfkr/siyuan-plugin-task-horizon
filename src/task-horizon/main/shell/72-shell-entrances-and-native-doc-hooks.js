@@ -260,6 +260,7 @@
         try { if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', '任务管理器'); } catch (e) {}
         try { if (!el.getAttribute('title')) el.setAttribute('title', '任务管理器'); } catch (e) {}
         try { __tmSetUseIcon(el, 'iconTaskHorizon'); } catch (e) {}
+        try { globalThis.__taskHorizonApplyWindowTopBarIdentity?.(el); } catch (e) {}
         return el;
     }
 

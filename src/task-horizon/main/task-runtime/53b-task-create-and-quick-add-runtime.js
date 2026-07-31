@@ -1436,6 +1436,7 @@
             state.__tmChecklistProjectionGroupRefreshUntil = Date.now() + 1500;
             state.listDomRenderSignature = '';
         } catch (e) {}
+        if (opts.deferRender === true) return true;
         if (state.__tmChecklistOptimisticSubtaskRefreshQueued === true) return true;
         state.__tmChecklistOptimisticSubtaskRefreshQueued = true;
         const run = () => {
@@ -1467,10 +1468,12 @@
         };
     }
 
-    function __tmGetQuickAddVisibleOptionCustomFieldDefs() {
+    function __tmGetQuickAddVisibleOptionCustomFieldDefs(docId = state?.quickAdd?.docId) {
+        const targetDocId = String(docId || '').trim();
         const defs = __tmGetCustomFieldDefs().filter((field) => {
             const type = String(field?.type || '').trim();
             return field?.enabled !== false
+                && __tmIsCustomFieldApplicableToDoc(field, targetDocId)
                 && type !== 'text'
                 && Array.isArray(field?.options)
                 && field.options.some((option) => String(option?.id || '').trim());
@@ -2562,6 +2565,9 @@
         const taskId = String(task?.id || payload?.taskId || '').trim();
         const targetDocId = String(payload?.targetDocId || '').trim();
         if (!task || !taskId || !targetDocId) return false;
+        const renderWindowSnapshot = payload.preserveRenderWindow === true
+            ? __tmCaptureViewRenderWindow(state.viewMode)
+            : null;
         const taskAliases = new Set([taskId, task?.id, payload?.taskId, __tmResolveOptimisticTaskId(taskId)]
             .map((id) => String(id || '').trim())
             .filter(Boolean));
@@ -2626,6 +2632,9 @@
         } else {
             try { projectedFilterState = __tmApplyMoveOptimisticFilteredProjection(nextTask, payload) === true; } catch (e) {}
         }
+        if (renderWindowSnapshot) {
+            try { __tmRestoreViewRenderWindow(renderWindowSnapshot, state.filteredTasks.length); } catch (e) {}
+        }
         if (payload.mutationDriven !== true) {
             try {
                 __tmScheduleTaskSnapshotAfterLocalStructurePatch?.({
@@ -2641,10 +2650,14 @@
             } catch (e) {}
         }
         if (mode === 'child' || mode === 'child-top') {
-            try { __tmScheduleChecklistOptimisticSubtaskRefresh(payload?.targetTaskId, taskId, { force: true }); } catch (e) {}
+            const checklistRefreshOptions = {
+                force: true,
+                deferRender: payload.preserveRenderWindow === true,
+            };
+            try { __tmScheduleChecklistOptimisticSubtaskRefresh(payload?.targetTaskId, taskId, checklistRefreshOptions); } catch (e) {}
             try {
                 const previousParentId = String(snap?.parentTaskId || '').trim();
-                if (previousParentId) __tmScheduleChecklistOptimisticSubtaskRefresh(previousParentId, taskId, { force: true });
+                if (previousParentId) __tmScheduleChecklistOptimisticSubtaskRefresh(previousParentId, taskId, checklistRefreshOptions);
             } catch (e) {}
         }
         if (payload.deferOptimisticRender !== true) {

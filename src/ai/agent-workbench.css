@@ -525,7 +525,7 @@
 .tm-agent-context-picker__footer {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 8px;
     min-height: 40px;
     padding-top: 8px;
@@ -540,6 +540,15 @@
 .tm-agent-context-picker__footer .b3-button {
     min-width: 64px;
     height: 30px;
+    border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 45%, var(--tm-agent-border));
+    color: var(--b3-theme-primary);
+    background: color-mix(in srgb, var(--b3-theme-primary) 10%, var(--b3-theme-background));
+}
+
+.tm-agent-context-picker__footer .b3-button:hover,
+.tm-agent-context-picker__footer .b3-button:focus-visible {
+    border-color: color-mix(in srgb, var(--b3-theme-primary) 62%, var(--tm-agent-border));
+    background: color-mix(in srgb, var(--b3-theme-primary) 16%, var(--b3-theme-background));
 }
 
 .tm-agent-context-result {

@@ -605,8 +605,7 @@
         } catch (e) {}
         SettingsStore.normalizeColumns();
         await SettingsStore.save();
-        try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
-        try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
         hint('✅ 自定义列已删除', 'success');
         if (state.settingsModal) showSettings();
         render();
@@ -663,16 +662,232 @@
         } catch (e) {}
         SettingsStore.normalizeColumns();
         await SettingsStore.save();
-        try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
-        try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
         hint('✅ 自定义列设置已清空', 'success');
         if (state.settingsModal) showSettings();
         render();
         return true;
     };
 
-    window.tmOpenCustomFieldDialog = function(fieldId = '', options = {}) {
+    function __tmEnsureCustomFieldScopeDialogStyles() {
+        const styleId = 'tm-custom-field-scope-dialog-styles';
+        let styleEl = document.getElementById(styleId);
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = styleId;
+            styleEl.dataset.tmStyleSource = 'custom-field-scope-dialog';
+            document.head.appendChild(styleEl);
+        }
+        styleEl.textContent = `
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-editor {
+                border-radius: 12px;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-selection {
+                display: grid;
+                gap: 7px;
+                padding: 9px 10px;
+                border: 1px solid var(--b3-border-color, var(--tm-border-color));
+                border-radius: 12px;
+                background: var(--b3-theme-background, var(--tm-bg-color));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-selection__header,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-control__label {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                color: var(--b3-theme-on-surface-light, var(--tm-secondary-text));
+                font-size: 12px;
+                font-weight: 600;
+                line-height: 1.4;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-selection__items {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                min-height: 30px;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-selection__empty,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-empty,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-help {
+                color: var(--b3-theme-on-surface-light, var(--tm-secondary-text));
+                font-size: 12px;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-selection__empty {
+                align-self: center;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-token {
+                display: inline-grid;
+                grid-template-columns: auto minmax(0, 1fr) 14px;
+                align-items: center;
+                gap: 5px;
+                max-width: min(100%, 300px);
+                min-height: 30px;
+                padding: 3px 7px 3px 9px;
+                border: 1px solid color-mix(in srgb, var(--b3-theme-primary, var(--tm-primary-color)) 24%, var(--b3-border-color, var(--tm-border-color)));
+                border-radius: 999px;
+                background: color-mix(in srgb, var(--b3-theme-primary, var(--tm-primary-color)) 8%, var(--b3-theme-background, var(--tm-bg-color)));
+                color: var(--b3-theme-on-surface, var(--tm-text-color));
+                font: inherit;
+                font-size: 12px;
+                cursor: pointer;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-token:hover {
+                border-color: var(--b3-theme-primary, var(--tm-primary-color));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-token__type {
+                color: var(--b3-theme-primary, var(--tm-primary-color));
+                font-weight: 600;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-token__label {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-token svg {
+                width: 13px;
+                height: 13px;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-controls {
+                display: grid;
+                grid-template-columns: minmax(210px, 1.4fr) repeat(2, minmax(150px, 1fr));
+                gap: 9px;
+                min-width: 0;
+                overflow: visible;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-control {
+                position: relative;
+                display: grid;
+                gap: 5px;
+                min-width: 0;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-search-wrap {
+                position: relative;
+                min-width: 0;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-search,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-trigger {
+                box-sizing: border-box;
+                width: 100%;
+                min-width: 0;
+                height: 38px;
+                border: 1px solid var(--b3-border-color, var(--tm-input-border));
+                border-radius: 10px;
+                background: var(--b3-theme-background, var(--tm-input-bg));
+                color: var(--b3-theme-on-surface, var(--tm-text-color));
+                font: inherit;
+                font-size: 13px;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-search {
+                padding: 0 11px;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-trigger {
+                display: flex;
+                align-items: center;
+                justify-content: flex-start;
+                gap: 8px;
+                padding: 0 10px 0 11px;
+                text-align: left;
+                cursor: pointer;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-trigger > span {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-search:hover,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-trigger:hover {
+                border-color: color-mix(in srgb, var(--b3-theme-primary, var(--tm-primary-color)) 50%, var(--b3-border-color, var(--tm-border-color)));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-search:focus,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-search[aria-expanded="true"],
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-trigger[aria-expanded="true"] {
+                border-color: var(--b3-theme-primary, var(--tm-primary-color));
+                outline: 0;
+                box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary, var(--tm-primary-color)) 16%, transparent);
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-menu {
+                position: absolute;
+                z-index: 30;
+                top: calc(100% + 5px);
+                left: 0;
+                box-sizing: border-box;
+                width: 100%;
+                max-height: 220px;
+                overflow: auto;
+                padding: 6px;
+                border: 1px solid var(--b3-border-color, var(--tm-border-color));
+                border-radius: 12px;
+                background: var(--b3-theme-background, var(--tm-bg-color));
+                box-shadow: var(--b3-dialog-shadow, 0 10px 28px rgba(0, 0, 0, 0.18));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-control--documents .tm-custom-field-scope-menu {
+                width: min(440px, calc(100vw - 48px));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-menu[hidden] {
+                display: none;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-choice {
+                display: grid;
+                grid-template-columns: 18px minmax(0, 1fr);
+                align-items: center;
+                gap: 7px;
+                min-height: 34px;
+                padding: 4px 7px;
+                border-radius: 8px;
+                color: var(--b3-theme-on-surface, var(--tm-text-color));
+                font-size: 12px;
+                cursor: pointer;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-choice:hover,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-choice:has(input:checked) {
+                background: var(--b3-theme-surface-light, var(--tm-hover-bg));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-choice input {
+                width: 16px;
+                height: 16px;
+                margin: 0;
+                accent-color: var(--b3-theme-primary, var(--tm-primary-color));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-choice__label {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-empty {
+                padding: 12px 8px;
+                text-align: center;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-scope-help {
+                line-height: 1.5;
+            }
+            @media (max-width: 720px) {
+                #tm-custom-field-dialog-backdrop .tm-custom-field-scope-controls {
+                    grid-template-columns: 1fr;
+                }
+                #tm-custom-field-dialog-backdrop .tm-custom-field-scope-menu,
+                #tm-custom-field-dialog-backdrop .tm-custom-field-scope-control--documents .tm-custom-field-scope-menu {
+                    position: relative;
+                    top: 0;
+                    width: 100%;
+                    margin-top: 1px;
+                }
+                #tm-custom-field-dialog-backdrop .tm-custom-field-scope-token {
+                    max-width: 100%;
+                }
+            }
+        `;
+    }
+
+    window.tmOpenCustomFieldDialog = async function(fieldId = '', options = {}) {
         __tmRemoveElementsById('tm-custom-field-dialog-backdrop');
+        __tmEnsureCustomFieldScopeDialogStyles();
+        if ((!Array.isArray(state.allDocuments) || !state.allDocuments.length) && typeof __tmEnsureAllDocumentsLoaded === 'function') {
+            try { await __tmEnsureAllDocumentsLoaded(false); } catch (e) {}
+        }
         const opts = (options && typeof options === 'object') ? options : {};
         const defs = __tmGetCustomFieldDefs();
         const resolveDraft = (sourceField = null, type = '') => {
@@ -704,6 +919,8 @@
         let currentFieldId = String(fieldId || '').trim();
         const currentField = defs.find((field) => String(field?.id || '').trim() === currentFieldId) || null;
         let draft = resolveDraft(currentField, String(opts.type || '').trim());
+        let scopeDocSearch = '';
+        let openScopePicker = '';
 
         const backdrop = document.createElement('div');
         backdrop.id = 'tm-custom-field-dialog-backdrop';
@@ -720,6 +937,8 @@
         const renderDialog = () => {
             const prevScrollEl = dialog.querySelector('[data-tm-custom-field-dialog-scroll]');
             const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : 0;
+            const prevScopeListScrollTops = new Map(Array.from(dialog.querySelectorAll('[data-tm-custom-field-scope-list]'))
+                .map((list) => [String(list.getAttribute('data-tm-custom-field-scope-list') || ''), Number(list.scrollTop) || 0]));
             const viewportWidth = Math.max(0, window.innerWidth || document.documentElement?.clientWidth || 0);
             const isCompact = viewportWidth > 0 ? viewportWidth <= 720 : __tmIsMobileDevice();
             const isPhone = viewportWidth > 0 ? viewportWidth <= 520 : isCompact;
@@ -744,6 +963,70 @@
                 ? 'multi'
                 : (String(draft.type || '').trim() === 'text' ? 'text' : 'single');
             const supportsOptions = draftType !== 'text';
+            const draftScope = __tmNormalizeCustomFieldScope(draft.scope);
+            const scopeMode = draftScope ? 'selected' : 'global';
+            const selectedScope = draftScope || { docIds: [], docGroupIds: [], docTabGroupIds: [] };
+            const buildScopeChoices = (items, selectedIds, resolveLabel, kind, emptyLabel) => {
+                const selected = new Set(Array.isArray(selectedIds) ? selectedIds : []);
+                const dataAttr = kind === 'doc'
+                    ? 'data-tm-custom-field-scope-docs'
+                    : (kind === 'docGroup' ? 'data-tm-custom-field-scope-doc-groups' : 'data-tm-custom-field-scope-tab-groups');
+                const choices = (Array.isArray(items) ? items : []).map((item) => {
+                    const id = String(item?.id || '').trim();
+                    if (!id) return '';
+                    const label = String(resolveLabel(item) || id).trim() || id;
+                    return `
+                        <label class="tm-custom-field-scope-choice" data-tm-custom-field-scope-choice="${kind}">
+                            <input type="checkbox" ${dataAttr} value="${esc(id)}" ${selected.has(id) ? 'checked' : ''}>
+                            <span class="tm-custom-field-scope-choice__label" title="${esc(label)}">${esc(label)}</span>
+                        </label>
+                    `;
+                }).filter(Boolean);
+                return choices.join('') || `<div class="tm-custom-field-scope-empty">${esc(emptyLabel)}</div>`;
+            };
+            const availableDocs = (Array.isArray(state?.allDocuments) ? state.allDocuments : [])
+                .slice()
+                .sort((a, b) => String(__tmGetDocDisplayName(a, a?.name || '')).localeCompare(String(__tmGetDocDisplayName(b, b?.name || '')), 'zh-Hans-CN'));
+            const availableDocGroups = Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [];
+            const availableDocTabGroups = typeof __tmGetDocTabCustomGroups === 'function' ? __tmGetDocTabCustomGroups() : [];
+            const resolveDocScopeLabel = (doc) => __tmGetDocDisplayName(doc, doc?.name || '未命名文档');
+            const resolveDocGroupScopeLabel = (group) => group?.name || '未命名文档分组';
+            const resolveDocTabGroupScopeLabel = (group) => group?.name || '未命名页签组';
+            const resolveDocScopeSearchResults = (queryInput) => {
+                const query = String(queryInput || '').trim().toLocaleLowerCase();
+                if (!query) return { matches: [], shown: [] };
+                const matches = availableDocs.filter((doc) => String(resolveDocScopeLabel(doc) || '').toLocaleLowerCase().includes(query));
+                return { matches, shown: matches.slice(0, 60) };
+            };
+            const initialDocSearchResults = resolveDocScopeSearchResults(scopeDocSearch);
+            const docScopeChoices = scopeDocSearch
+                ? buildScopeChoices(initialDocSearchResults.shown, selectedScope.docIds, resolveDocScopeLabel, 'doc', '未找到匹配文档')
+                : '';
+            const docGroupScopeChoices = buildScopeChoices(availableDocGroups, selectedScope.docGroupIds, resolveDocGroupScopeLabel, 'docGroup', '没有可选文档分组');
+            const docTabGroupScopeChoices = buildScopeChoices(availableDocTabGroups, selectedScope.docTabGroupIds, resolveDocTabGroupScopeLabel, 'tabGroup', '没有可选页签组');
+            const buildScopeLabelMap = (items, resolveLabel) => new Map((Array.isArray(items) ? items : [])
+                .map((item) => {
+                    const id = String(item?.id || '').trim();
+                    return id ? [id, String(resolveLabel(item) || id).trim() || id] : null;
+                })
+                .filter(Boolean));
+            const docScopeLabelMap = buildScopeLabelMap(availableDocs, resolveDocScopeLabel);
+            const docGroupScopeLabelMap = buildScopeLabelMap(availableDocGroups, resolveDocGroupScopeLabel);
+            const docTabGroupScopeLabelMap = buildScopeLabelMap(availableDocTabGroups, resolveDocTabGroupScopeLabel);
+            const selectedScopeItems = [
+                ...selectedScope.docIds.map((id) => ({ kind: 'doc', type: '文档', id, label: docScopeLabelMap.get(id) || `${id}（已失效）` })),
+                ...selectedScope.docGroupIds.map((id) => ({ kind: 'docGroup', type: '文档分组', id, label: docGroupScopeLabelMap.get(id) || `${id}（已失效）` })),
+                ...selectedScope.docTabGroupIds.map((id) => ({ kind: 'tabGroup', type: '页签组', id, label: docTabGroupScopeLabelMap.get(id) || `${id}（已失效）` })),
+            ];
+            const selectedScopeSummaryHtml = selectedScopeItems.length
+                ? selectedScopeItems.map((item) => `
+                    <button type="button" class="tm-custom-field-scope-token" data-tm-custom-field-scope-remove="${item.kind}" data-tm-scope-id="${esc(item.id)}" title="移除${esc(item.type)}：${esc(item.label)}">
+                        <span class="tm-custom-field-scope-token__type">${esc(item.type)}</span>
+                        <span class="tm-custom-field-scope-token__label">${esc(item.label)}</span>
+                        ${__tmRenderLucideIcon('x')}
+                    </button>
+                `).join('')
+                : '<span class="tm-custom-field-scope-selection__empty">尚未选择范围</span>';
             const listHtml = defsNow.map((field) => {
                 const id = String(field?.id || '').trim();
                 const active = id && id === currentFieldId;
@@ -751,10 +1034,12 @@
                 const fieldTypeLabel = fieldType === 'multi'
                     ? '多选'
                     : (fieldType === 'text' ? '文本' : '单选');
+                const fieldScope = __tmNormalizeCustomFieldScope(field?.scope);
+                const fieldScopeLabel = fieldScope ? '指定范围' : '全部文档';
                 return `
                     <button type="button" data-tm-custom-field-open="${esc(id)}" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid ${active ? 'var(--tm-primary-color)' : 'var(--tm-border-color)'};border-radius:10px;background:${active ? 'var(--tm-hover-bg)' : 'var(--tm-card-bg)'};color:var(--tm-text-color);cursor:pointer;text-align:left;">
                         <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(String(field?.name || id || '未命名自定义列').trim() || '未命名自定义列')}</span>
-                        <span style="font-size:11px;color:var(--tm-secondary-text);flex:none;">${fieldTypeLabel}</span>
+                        <span style="font-size:11px;color:var(--tm-secondary-text);flex:none;">${fieldTypeLabel} · ${fieldScopeLabel}</span>
                     </button>
                 `;
             }).join('');
@@ -808,6 +1093,48 @@
                             <input type="text" data-tm-custom-field-attr-key value="${esc(String(draft.attrKey || '').trim())}" placeholder="例如 location / owner / channel" style="width:100%;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);">
                             <span style="font-size:12px;color:var(--tm-secondary-text);">会写入思源块属性 custom-tm-属性键名。仅支持字母、数字、-；留空时会自动使用稳定的字段 ID。</span>
                         </label>
+                        <div style="display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
+                            <label style="display:flex;flex-direction:column;gap:6px;">
+                                <span style="font-size:12px;color:var(--tm-secondary-text);">生效范围</span>
+                                <select data-tm-custom-field-scope-mode style="width:100%;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:8px;background:var(--tm-input-bg);color:var(--tm-text-color);">
+                                    <option value="global" ${scopeMode === 'global' ? 'selected' : ''}>全部文档</option>
+                                    <option value="selected" ${scopeMode === 'selected' ? 'selected' : ''}>指定文档、文档分组或页签组</option>
+                                </select>
+                            </label>
+                            ${scopeMode === 'selected' ? `
+                                <div class="tm-custom-field-scope-selection">
+                                    <div class="tm-custom-field-scope-selection__header">
+                                        <span>已选择范围</span>
+                                        <span>${selectedScopeItems.length} 项</span>
+                                    </div>
+                                    <div class="tm-custom-field-scope-selection__items">${selectedScopeSummaryHtml}</div>
+                                </div>
+                                <div class="tm-custom-field-scope-controls">
+                                    <div class="tm-custom-field-scope-control tm-custom-field-scope-control--documents" data-tm-custom-field-scope-control="doc">
+                                        <div class="tm-custom-field-scope-control__label"><span>文档</span></div>
+                                        <div class="tm-custom-field-scope-search-wrap">
+                                            <input class="tm-custom-field-scope-search" type="search" data-tm-custom-field-scope-doc-search value="${esc(scopeDocSearch)}" placeholder="搜索并选择文档" autocomplete="off" aria-expanded="${openScopePicker === 'doc' ? 'true' : 'false'}">
+                                        </div>
+                                        <div class="tm-custom-field-scope-menu" data-tm-custom-field-scope-list="doc" data-tm-custom-field-scope-doc-list ${openScopePicker === 'doc' ? '' : 'hidden'}>${scopeDocSearch ? docScopeChoices : '<div class="tm-custom-field-scope-empty">输入文档名称开始搜索</div>'}</div>
+                                    </div>
+                                    <div class="tm-custom-field-scope-control" data-tm-custom-field-scope-control="docGroup">
+                                        <div class="tm-custom-field-scope-control__label"><span>文档分组</span><span>${availableDocGroups.length}</span></div>
+                                        <button type="button" class="tm-custom-field-scope-trigger" data-tm-custom-field-scope-trigger="docGroup" aria-expanded="${openScopePicker === 'docGroup' ? 'true' : 'false'}">
+                                            <span>${selectedScope.docGroupIds.length ? `已选择 ${selectedScope.docGroupIds.length} 项` : '选择文档分组'}</span>
+                                        </button>
+                                        <div class="tm-custom-field-scope-menu" data-tm-custom-field-scope-list="docGroup" ${openScopePicker === 'docGroup' ? '' : 'hidden'}>${docGroupScopeChoices}</div>
+                                    </div>
+                                    <div class="tm-custom-field-scope-control" data-tm-custom-field-scope-control="tabGroup">
+                                        <div class="tm-custom-field-scope-control__label"><span>页签组</span><span>${availableDocTabGroups.length}</span></div>
+                                        <button type="button" class="tm-custom-field-scope-trigger" data-tm-custom-field-scope-trigger="tabGroup" aria-expanded="${openScopePicker === 'tabGroup' ? 'true' : 'false'}">
+                                            <span>${selectedScope.docTabGroupIds.length ? `已选择 ${selectedScope.docTabGroupIds.length} 项` : '选择页签组'}</span>
+                                        </button>
+                                        <div class="tm-custom-field-scope-menu" data-tm-custom-field-scope-list="tabGroup" ${openScopePicker === 'tabGroup' ? '' : 'hidden'}>${docTabGroupScopeChoices}</div>
+                                    </div>
+                                </div>
+                                <span class="tm-custom-field-scope-help">三个范围按并集生效</span>
+                            ` : ''}
+                        </div>
                         ${supportsOptions ? `
                             <div style="display:flex;align-items:${isCompact ? 'stretch' : 'center'};justify-content:space-between;gap:12px;flex-direction:${isCompact ? 'column' : 'row'};">
                                 <div style="min-width:0;">
@@ -835,11 +1162,16 @@
             `;
             const nextScrollEl = dialog.querySelector('[data-tm-custom-field-dialog-scroll]');
             if (nextScrollEl) nextScrollEl.scrollTop = prevScrollTop;
+            dialog.querySelectorAll('[data-tm-custom-field-scope-list]').forEach((list) => {
+                const key = String(list.getAttribute('data-tm-custom-field-scope-list') || '');
+                if (prevScopeListScrollTops.has(key)) list.scrollTop = prevScopeListScrollTops.get(key);
+            });
 
             const readDraftFromDom = () => {
                 const nameInput = dialog.querySelector('[data-tm-custom-field-name]');
                 const typeSelect = dialog.querySelector('[data-tm-custom-field-type]');
                 const attrKeyInput = dialog.querySelector('[data-tm-custom-field-attr-key]');
+                const scopeModeSelect = dialog.querySelector('[data-tm-custom-field-scope-mode]');
                 draft.name = String(nameInput?.value || '').trim();
                 draft.attrKey = String(attrKeyInput?.value || '').trim();
                 const nextType = String(typeSelect?.value || 'single').trim();
@@ -855,6 +1187,27 @@
                         color: __tmNormalizeHexColor(colorEl?.value || option?.color || '', __tmGetCustomFieldPresetColor(index)) || __tmGetCustomFieldPresetColor(index),
                     };
                 });
+                const nextScopeMode = String(scopeModeSelect?.value || 'global').trim();
+                const previousScope = __tmNormalizeCustomFieldScope(draft.scope) || { docIds: [], docGroupIds: [], docTabGroupIds: [] };
+                const readSelectedIds = (selector, previousIds) => {
+                    const checkboxes = Array.from(dialog.querySelectorAll(selector));
+                    const renderedIds = new Set(checkboxes.map((checkbox) => String(checkbox?.value || '').trim()).filter(Boolean));
+                    const selectedIds = (Array.isArray(previousIds) ? previousIds : [])
+                        .map((id) => String(id || '').trim())
+                        .filter((id) => id && !renderedIds.has(id));
+                    checkboxes.forEach((checkbox) => {
+                        const id = String(checkbox?.value || '').trim();
+                        if (id && checkbox.checked) selectedIds.push(id);
+                    });
+                    return Array.from(new Set(selectedIds));
+                };
+                draft.scope = nextScopeMode === 'selected'
+                    ? __tmNormalizeCustomFieldScope({
+                        docIds: readSelectedIds('[data-tm-custom-field-scope-docs]', previousScope.docIds),
+                        docGroupIds: readSelectedIds('[data-tm-custom-field-scope-doc-groups]', previousScope.docGroupIds),
+                        docTabGroupIds: readSelectedIds('[data-tm-custom-field-scope-tab-groups]', previousScope.docTabGroupIds),
+                    })
+                    : null;
             };
             const saveField = async () => {
                 readDraftFromDom();
@@ -895,6 +1248,11 @@
                     hint('⚠️ 请至少保留一个选项', 'warning');
                     return;
                 }
+                const nextScope = __tmNormalizeCustomFieldScope(draft.scope);
+                if (nextScope && !nextScope.docIds.length && !nextScope.docGroupIds.length && !nextScope.docTabGroupIds.length) {
+                    hint('⚠️ 指定范围时请至少选择一个文档、文档分组或页签组', 'warning');
+                    return;
+                }
                 const duplicateAttrField = others.find((field) => __tmNormalizeCustomFieldAttrName(field?.attrKey || field?.id || field?.name || 'field', field?.id || 'field') === attrKey);
                 if (duplicateAttrField) {
                     hint('⚠️ 属性键名已存在，请换一个', 'warning');
@@ -913,6 +1271,7 @@
                         type: draftType,
                         options: optionsList,
                         enabled: true,
+                        scope: nextScope,
                     };
                 });
                 if (!currentFieldId) {
@@ -923,6 +1282,7 @@
                         type: draftType,
                         options: optionsList,
                         enabled: true,
+                        scope: nextScope,
                     });
                 }
                 if (currentFieldId && prevAttrKey && prevAttrKey !== attrKey) {
@@ -931,10 +1291,10 @@
                 SettingsStore.data.customFieldDefs = nextDefs;
                 SettingsStore.normalizeColumns();
                 await SettingsStore.save();
+                await __tmRefreshCustomFieldScopeMembership({ force: true });
                 currentFieldId = nextId;
                 draft = resolveDraft(__tmGetCustomFieldDefs().find((field) => String(field?.id || '').trim() === nextId) || null);
-                try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
-                try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+                try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
                 hint('✅ 自定义列已保存', 'success');
                 if (state.settingsModal) showSettings();
                 render();
@@ -988,11 +1348,78 @@
                 }
                 renderDialog();
             });
+            dialog.querySelector('[data-tm-custom-field-scope-mode]')?.addEventListener('change', () => {
+                readDraftFromDom();
+                openScopePicker = '';
+                renderDialog();
+            });
+            const bindScopeCheckboxes = (root = dialog) => {
+                root.querySelectorAll('[data-tm-custom-field-scope-docs], [data-tm-custom-field-scope-doc-groups], [data-tm-custom-field-scope-tab-groups]').forEach((checkbox) => {
+                    checkbox.addEventListener('change', () => {
+                        openScopePicker = String(checkbox.closest('[data-tm-custom-field-scope-control]')?.getAttribute('data-tm-custom-field-scope-control') || '').trim();
+                        readDraftFromDom();
+                        renderDialog();
+                    });
+                });
+            };
+            const docSearchInput = dialog.querySelector('[data-tm-custom-field-scope-doc-search]');
+            const openDocumentScopeMenu = () => {
+                openScopePicker = 'doc';
+                dialog.querySelectorAll('[data-tm-custom-field-scope-list]').forEach((menu) => {
+                    menu.hidden = String(menu.getAttribute('data-tm-custom-field-scope-list') || '').trim() !== 'doc';
+                });
+                dialog.querySelectorAll('[data-tm-custom-field-scope-trigger]').forEach((trigger) => trigger.setAttribute('aria-expanded', 'false'));
+                if (docSearchInput) docSearchInput.setAttribute('aria-expanded', 'true');
+            };
+            docSearchInput?.addEventListener('focus', openDocumentScopeMenu);
+            docSearchInput?.addEventListener('click', openDocumentScopeMenu);
+            docSearchInput?.addEventListener('input', (event) => {
+                openDocumentScopeMenu();
+                scopeDocSearch = String(event?.target?.value || '').trim().toLocaleLowerCase();
+                const searchResults = resolveDocScopeSearchResults(scopeDocSearch);
+                const listEl = dialog.querySelector('[data-tm-custom-field-scope-doc-list]');
+                if (listEl) {
+                    const selectedDocIds = __tmNormalizeCustomFieldScope(draft.scope)?.docIds || [];
+                    listEl.innerHTML = scopeDocSearch
+                        ? buildScopeChoices(searchResults.shown, selectedDocIds, resolveDocScopeLabel, 'doc', '未找到匹配文档')
+                        : '<div class="tm-custom-field-scope-empty">输入文档名称开始搜索</div>';
+                    listEl.hidden = false;
+                    bindScopeCheckboxes(listEl);
+                }
+            });
+            dialog.querySelectorAll('[data-tm-custom-field-scope-trigger]').forEach((trigger) => {
+                trigger.addEventListener('click', () => {
+                    const kind = String(trigger.getAttribute('data-tm-custom-field-scope-trigger') || '').trim();
+                    const shouldOpen = openScopePicker !== kind;
+                    openScopePicker = shouldOpen ? kind : '';
+                    dialog.querySelectorAll('[data-tm-custom-field-scope-list]').forEach((menu) => {
+                        menu.hidden = String(menu.getAttribute('data-tm-custom-field-scope-list') || '').trim() !== openScopePicker;
+                    });
+                    dialog.querySelectorAll('[data-tm-custom-field-scope-trigger]').forEach((button) => {
+                        button.setAttribute('aria-expanded', String(button.getAttribute('data-tm-custom-field-scope-trigger') || '').trim() === openScopePicker ? 'true' : 'false');
+                    });
+                    if (docSearchInput) docSearchInput.setAttribute('aria-expanded', 'false');
+                });
+            });
+            bindScopeCheckboxes();
+            dialog.querySelectorAll('[data-tm-custom-field-scope-remove]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    readDraftFromDom();
+                    const kind = String(button.getAttribute('data-tm-custom-field-scope-remove') || '').trim();
+                    const id = String(button.getAttribute('data-tm-scope-id') || '').trim();
+                    const key = kind === 'doc' ? 'docIds' : (kind === 'docGroup' ? 'docGroupIds' : 'docTabGroupIds');
+                    if (draft.scope && id) draft.scope[key] = (Array.isArray(draft.scope[key]) ? draft.scope[key] : []).filter((itemId) => itemId !== id);
+                    openScopePicker = '';
+                    renderDialog();
+                });
+            });
             dialog.querySelectorAll('[data-tm-custom-field-open]').forEach((button) => {
                 button.addEventListener('click', () => {
                     readDraftFromDom();
                     currentFieldId = String(button.getAttribute('data-tm-custom-field-open') || '').trim();
                     draft = resolveDraft(__tmGetCustomFieldDefs().find((field) => String(field?.id || '').trim() === currentFieldId) || null);
+                    scopeDocSearch = '';
+                    openScopePicker = '';
                     renderDialog();
                 });
             });
@@ -1001,6 +1428,8 @@
                     readDraftFromDom();
                     currentFieldId = '';
                     draft = resolveDraft(null, String(button.getAttribute('data-tm-custom-field-new') || '').trim());
+                    scopeDocSearch = '';
+                    openScopePicker = '';
                     renderDialog();
                 });
             });
@@ -1034,6 +1463,13 @@
                     renderDialog();
                 });
             });
+            dialog.onclick = (event) => {
+                if (event?.target instanceof Element && event.target.closest('[data-tm-custom-field-scope-control]')) return;
+                openScopePicker = '';
+                dialog.querySelectorAll('[data-tm-custom-field-scope-list]').forEach((menu) => { menu.hidden = true; });
+                dialog.querySelectorAll('[data-tm-custom-field-scope-trigger]').forEach((trigger) => trigger.setAttribute('aria-expanded', 'false'));
+                dialog.querySelector('[data-tm-custom-field-scope-doc-search]')?.setAttribute('aria-expanded', 'false');
+            };
         };
 
         backdrop.addEventListener('click', (event) => {
@@ -1288,8 +1724,7 @@
         const refreshAfterMigration = async () => {
             try { __tmInvalidateAllSqlCaches?.(); } catch (e) {}
             try { __tmClearCustomFieldAttrValueCache?.(); } catch (e) {}
-            try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
-            try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+            try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
             try {
                 if (typeof loadSelectedDocuments === 'function') {
                     await loadSelectedDocuments({ showInlineLoading: false, source: 'task-meta-attr-migration' });
@@ -1765,7 +2200,7 @@
                 }
             } catch (e) {}
             await savePromise;
-            render();
+            __tmRenderPreservingCalendarSideDock();
         } catch (e) {
             try { await savePromise; } catch (e2) {}
             SettingsStore.data.currentGroupId = previousGroupId;
@@ -1915,6 +2350,21 @@
             docs: [],
             calendarSearchOptimization: { enabled: false, days: 90 }
         });
+    };
+
+    window.tmMoveCurrentDocGroup = async function(direction) {
+        const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (currentId === 'all') return false;
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const currentIndex = groups.findIndex((group) => String(group?.id || '').trim() === currentId);
+        const targetIndex = currentIndex + (Number(direction) < 0 ? -1 : 1);
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= groups.length) return false;
+        const nextGroups = groups.slice();
+        [nextGroups[currentIndex], nextGroups[targetIndex]] = [nextGroups[targetIndex], nextGroups[currentIndex]];
+        await SettingsStore.updateDocGroups(nextGroups);
+        try { window.tmRefreshDocGroupTopbarSelects?.(currentId); } catch (e) {}
+        showSettings();
+        return true;
     };
 
     window.renameCurrentGroup = async function() {

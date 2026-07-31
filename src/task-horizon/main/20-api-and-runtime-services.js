@@ -7546,6 +7546,7 @@ onBlockInserted: (info) => {
                 blockIds: Array.from(blockIds),
                 withFilters: true,
                 forcePositionRank: true,
+                preserveRenderWindow: type === 'moveTask' && data.preserveRenderWindow === true,
                 reason: `queue-${type || 'structural'}-position-reconcile`,
                 deferIfDetailBusy: true,
                 skipViewRefresh: data.skipSettledViewRefresh === true,
@@ -18585,8 +18586,7 @@ refreshOk = false;
             const wrapped = function(...args) {
                 const res = original.apply(this, args);
                 try {
-                    state.timerFocusTaskId = '';
-                    if (state.modal && document.body.contains(state.modal)) render();
+                    __tmSyncTomatoFocusInPlace('');
                 } catch (e) {}
                 return res;
             };
@@ -18609,8 +18609,7 @@ refreshOk = false;
         if (__tmTomatoAssociationListenerAdded) return;
         __tmTomatoAssociationHandler = () => {
             try {
-                state.timerFocusTaskId = '';
-                if (state.modal && document.body.contains(state.modal)) render();
+                __tmSyncTomatoFocusInPlace('');
             } catch (e) {}
         };
         __tmTomatoAssociationChangedHandler = (event) => {
@@ -18619,18 +18618,14 @@ refreshOk = false;
                 if (!focusTaskId) return;
                 const nextTaskId = String(event?.detail?.taskBlockId || '').trim();
                 if (nextTaskId === focusTaskId) return;
-                state.timerFocusTaskId = '';
-                __tmClearTomatoFocusRowClasses();
-                if (state.modal && document.body.contains(state.modal)) render();
+                __tmSyncTomatoFocusInPlace('');
             } catch (e) {}
         };
         __tmTomatoFocusModeChangedHandler = (event) => {
             try {
                 const enabled = event?.detail?.enabled !== false;
                 if (enabled) return;
-                state.timerFocusTaskId = '';
-                __tmClearTomatoFocusRowClasses();
-                if (state.modal && document.body.contains(state.modal)) render();
+                __tmSyncTomatoFocusInPlace('');
             } catch (e) {}
         };
         __tmTomatoFocusEndedHandler = (event) => {
@@ -18642,9 +18637,7 @@ refreshOk = false;
                     event?.detail?.databaseBlockId,
                 ].map((value) => String(value || '').trim()).filter(Boolean);
                 if (ids.length > 0 && !ids.includes(focusTaskId)) return;
-                state.timerFocusTaskId = '';
-                __tmClearTomatoFocusRowClasses();
-                if (state.modal && document.body.contains(state.modal)) render();
+                __tmSyncTomatoFocusInPlace('');
             } catch (e) {}
         };
         __tmTomatoFocusRestoredHandler = (event) => {
@@ -18653,9 +18646,7 @@ refreshOk = false;
                 if (!['task-horizon', 'block-menu', 'database-menu'].includes(source)) return;
                 const focusTaskId = String(event?.detail?.taskBlockId || event?.detail?.databaseBlockId || '').trim();
                 if (!focusTaskId) return;
-                state.timerFocusTaskId = focusTaskId;
-                __tmClearTomatoFocusRowClasses();
-                if (state.modal && document.body.contains(state.modal)) render();
+                __tmSyncTomatoFocusInPlace(focusTaskId);
             } catch (e) {}
         };
         __tmTomatoHistoryUpdatedHandler = () => {
@@ -18675,8 +18666,7 @@ refreshOk = false;
         };
         globalThis.__taskHorizonOnTomatoAssociationCleared = () => {
             try {
-                state.timerFocusTaskId = '';
-                if (state.modal && document.body.contains(state.modal)) render();
+                __tmSyncTomatoFocusInPlace('');
             } catch (e) {}
         };
         globalThis.__taskHorizonOnTomatoFocusEnded = (detail) => {
@@ -18691,12 +18681,63 @@ refreshOk = false;
     function __tmClearTomatoFocusRowClasses() {
         try {
             const root = (state.modal && document.body.contains(state.modal)) ? state.modal : document;
-            root.querySelectorAll?.('.tm-timer-dim, .tm-timer-focus')?.forEach?.((el) => {
+            root.querySelectorAll?.('.tm-timer-dim, .tm-timer-focus, .tm-timer-focus-ancestor')?.forEach?.((el) => {
                 try {
-                    el.classList.remove('tm-timer-dim', 'tm-timer-focus');
+                    el.classList.remove('tm-timer-dim', 'tm-timer-focus', 'tm-timer-focus-ancestor');
                 } catch (e) {}
             });
         } catch (e) {}
+    }
+
+    function __tmSyncTomatoFocusInPlace(taskId = '') {
+        const focusTaskId = String(taskId || '').trim();
+        state.timerFocusTaskId = focusTaskId;
+        const modal = state.modal instanceof Element && document.body.contains(state.modal)
+            ? state.modal
+            : null;
+        if (!modal) return false;
+
+        const focusModeEnabled = !!focusTaskId
+            && !!SettingsStore?.data?.enableTomatoIntegration
+            && __tmIsTomatoFocusModeEnabled();
+        const ancestorIds = new Set();
+        if (focusModeEnabled) {
+            let cursor = globalThis.__tmRuntimeState?.getTaskById?.(focusTaskId, { includePending: true, preferPending: true })
+                || state.flatTasks?.[focusTaskId]
+                || state.pendingInsertedTasks?.[focusTaskId]
+                || null;
+            const seen = new Set([focusTaskId]);
+            while (cursor) {
+                const parentId = String(cursor?.parentTaskId || cursor?.parent_task_id || '').trim();
+                if (!parentId || seen.has(parentId)) break;
+                seen.add(parentId);
+                ancestorIds.add(parentId);
+                cursor = globalThis.__tmRuntimeState?.getTaskById?.(parentId, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[parentId]
+                    || state.pendingInsertedTasks?.[parentId]
+                    || null;
+            }
+        }
+
+        const selector = [
+            '.tm-table tr[data-id]:not(.tm-group-row)',
+            '.tm-timeline-row[data-id]:not(.tm-group-row)',
+            '.tm-checklist-item[data-id]',
+            '.tm-kanban-card[data-id]',
+        ].join(',');
+        modal.querySelectorAll(selector).forEach((el) => {
+            el.classList.remove('tm-timer-dim', 'tm-timer-focus', 'tm-timer-focus-ancestor');
+            if (!focusTaskId) return;
+            const id = String(el.getAttribute('data-id') || '').trim();
+            if (id === focusTaskId) {
+                el.classList.add('tm-timer-focus');
+            } else if (focusModeEnabled && el.closest('.tm-body--kanban') && ancestorIds.has(id)) {
+                el.classList.add('tm-timer-focus-ancestor');
+            } else if (focusModeEnabled) {
+                el.classList.add('tm-timer-dim');
+            }
+        });
+        return true;
     }
 
     async function __tmSettleTomatoAfterTaskDone(taskId, options = {}) {
@@ -20824,10 +20865,10 @@ refreshOk = false;
                                 <div>
                                     <div class="tm-benefits-plan-head">
                                         <h3>全功能年付</h3>
-                                        <span class="tm-benefits-tag">灵活</span>
+                                        <span class="tm-benefits-tag">可补差价升级永久</span>
                                     </div>
                                     <div class="tm-benefits-price"><strong>38</strong><span>元 / 年</span></div>
-                                    <p>低成本解锁一年全功能，适合先稳定使用一段时间，再决定是否长期买断。</p>
+                                    <p>38 元解锁一年全功能。后续想长期使用，只需再补 60 元即可升级永久版，本次年费全额抵扣。</p>
                                 </div>
                                 <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('yearly')">扫码付款</button>
                             </div>
@@ -24892,10 +24933,11 @@ return true;
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const table = modal?.querySelector?.('#tmTimelineLeftTable');
         if (!(table instanceof HTMLElement)) return false;
-        const contentW = Math.max(10, Math.min(800, Math.round(Number(SettingsStore.data.timelineContentWidth) || Number(SettingsStore.data.columnWidths?.content) || 360)));
-        const startW = __tmGetFixedDateColumnWidth('startDate');
-        const endW = __tmGetFixedDateColumnWidth('completionTime');
-        const total = Math.round(contentW + startW + endW + 2);
+        const widths = SettingsStore.data.columnWidths || {};
+        const contentW = Math.max(10, Math.min(800, Math.round(Number(SettingsStore.data.timelineContentWidth) || Number(widths.content) || 360)));
+        const columnOrder = __tmGetTimelineColumnOrder();
+        const tableLayout = __tmGetTableWidthLayout(columnOrder, { ...widths, content: contentW }, 0);
+        const total = Math.round(tableLayout.resolvedTotal + 2);
         const setWidth = (el, width) => {
             if (!(el instanceof HTMLElement)) return;
             el.style.width = `${width}px`;
@@ -24903,17 +24945,16 @@ return true;
             el.style.maxWidth = `${width}px`;
         };
         setWidth(table, total);
-        setWidth(modal.querySelector('#tmTimelineColContent'), contentW);
-        setWidth(modal.querySelector('#tmTimelineColStart'), startW);
-        setWidth(modal.querySelector('#tmTimelineColEnd'), endW);
-        setWidth(modal.querySelector('#tmTimelineLeftTable thead th:nth-child(1)'), contentW);
-        setWidth(modal.querySelector('#tmTimelineLeftTable thead th:nth-child(2)'), startW);
-        setWidth(modal.querySelector('#tmTimelineLeftTable thead th:nth-child(3)'), endW);
-        modal.querySelectorAll('#tmTimelineLeftTable tbody tr[data-id]').forEach((row) => {
-            const cells = row?.children || [];
-            setWidth(cells[0], contentW);
-            setWidth(cells[1], startW);
-            setWidth(cells[2], endW);
+        table.dataset.tmTableWidth = String(total);
+        const cols = Array.from(table.querySelectorAll('colgroup col'));
+        const headers = Array.from(table.querySelectorAll('thead th'));
+        const taskRows = Array.from(table.querySelectorAll('tbody tr[data-id]'));
+        columnOrder.forEach((columnKey, index) => {
+            const width = Number(tableLayout.widths[columnKey]) || 0;
+            if (width <= 0) return;
+            setWidth(cols[index], width);
+            setWidth(headers[index], width);
+            taskRows.forEach((row) => setWidth(row?.children?.[index], width));
         });
         return true;
     }
@@ -25052,6 +25093,8 @@ return true;
     function __tmRerenderTimelineInPlace(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const opts = (options && typeof options === 'object') ? options : {};
+        const requestedAppendOnly = opts.appendOnly === true;
+        const requestedReuseLeftRows = opts.reuseLeftRows === true;
         if (!modal) return false;
         const leftBody = modal.querySelector('#tmTimelineLeftBody');
         const ganttBody = modal.querySelector('#tmGanttBody');
@@ -25068,8 +25111,46 @@ return true;
         const isGloballyLocked = GlobalLock.isLocked();
         const timelineContentWidth0 = Number(SettingsStore.data.timelineContentWidth);
         const timelineContentWidth = Number.isFinite(timelineContentWidth0) ? Math.max(10, Math.min(800, Math.round(timelineContentWidth0))) : (Number(widths.content) || 360);
-        const timelineStartW = __tmGetFixedDateColumnWidth('startDate');
-        const timelineEndW = __tmGetFixedDateColumnWidth('completionTime');
+        const timelineColumnOrder = __tmGetEffectiveCustomFieldColumnOrder(__tmGetTimelineColumnOrder(), state.filteredTasks);
+        const timelineColumnCount = timelineColumnOrder.length;
+        const timelineTableLayout = __tmGetTableWidthLayout(timelineColumnOrder, { ...widths, content: timelineContentWidth }, 0);
+        const timelineTable = tbody.closest('table');
+        const renderedTimelineColumnOrder = Array.from(timelineTable?.querySelectorAll?.('thead th[data-col]') || [])
+            .map((header) => String(header?.getAttribute?.('data-col') || '').trim())
+            .filter(Boolean);
+        const timelineColumnStructureChanged = renderedTimelineColumnOrder.length > 0
+            && (renderedTimelineColumnOrder.length !== timelineColumnOrder.length
+                || renderedTimelineColumnOrder.some((columnKey, index) => columnKey !== timelineColumnOrder[index]));
+        const appendOnly = requestedAppendOnly && !timelineColumnStructureChanged;
+        const reuseLeftRows = requestedReuseLeftRows && !timelineColumnStructureChanged;
+        const timelineColumnShell = __tmBuildTimelineColumnShellHtml(timelineColumnOrder, timelineTableLayout);
+        const leftTableWidth = Math.round(timelineTableLayout.resolvedTotal + 2);
+        if (timelineTable instanceof HTMLElement) {
+            const colgroup = timelineTable.querySelector('colgroup');
+            const headerRow = timelineTable.querySelector('thead tr');
+            if (colgroup) colgroup.innerHTML = timelineColumnShell.colgroupHtml;
+            if (headerRow) headerRow.innerHTML = timelineColumnShell.headerHtml;
+            timelineTable.dataset.tmTableWidth = String(leftTableWidth);
+            timelineTable.style.width = `${leftTableWidth}px`;
+            timelineTable.style.minWidth = `${leftTableWidth}px`;
+            timelineTable.style.maxWidth = `${leftTableWidth}px`;
+        }
+        const leftPane = modal.querySelector('.tm-timeline-left');
+        if (leftPane instanceof HTMLElement) {
+            const preferredWidth = Number(SettingsStore.data.timelineLeftWidth);
+            const containerWidth = Number(modal.querySelector('.tm-main-stage')?.clientWidth || modal.clientWidth || window.innerWidth || 0);
+            const paneLayout = __tmResolveTimelinePaneLayout(preferredWidth, leftTableWidth, containerWidth);
+            leftPane.style.width = `${paneLayout.width}px`;
+            leftPane.style.minWidth = `${paneLayout.minWidth}px`;
+            leftPane.style.maxWidth = `${paneLayout.maxWidth}px`;
+        }
+        const timelineCustomColumnsByKey = new Map(
+            __tmGetAllColumnDefs()
+                .filter((def) => def?.kind === 'custom')
+                .map((def) => [String(def?.key || '').trim(), def])
+                .filter(([key]) => !!key)
+        );
+        const timelineStatusOptions = __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
         const isDark = __tmIsDarkMode();
         const progressBarColor = __tmGetEffectiveProgressBarColor(isDark);
         const completedTodayKey = __tmNormalizeDateOnly(new Date());
@@ -25080,38 +25161,42 @@ return true;
                 const isCollapsed = !!row?.collapsed;
                 const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;">${__tmRenderToggleIcon(16, isCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>`;
                 if (row.kind === 'pinned') {
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
                 if (row.kind === 'doc') {
                     const labelColor = String(row.labelColor || 'var(--tm-group-doc-label-color)');
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderDocGroupLabel(row.docId || row.id, row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderDocGroupLabel(row.docId || row.id, row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
             // 按任务名分组：分组行使用 PHOSPHOR 风格图标
             if (row.kind === 'task') {
                 const labelColor = String(row.labelColor || 'var(--tm-primary-color)');
-                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderIconLabel('puzzle', row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderIconLabel('puzzle', row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
             }
             if (row.kind === 'time') {
                 const labelColor = String(row.labelColor || 'var(--tm-text-color)');
                 const durationSum = String(row.durationSum || '').trim();
-                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
+                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
             }
                 if (row.kind === 'h2') {
                     const createBtnHtml = __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务');
                     const labelColor = String(row.labelColor || __tmGetHeadingSubgroupLabelColor('var(--tm-group-doc-label-color)', isDark));
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-kind="h2" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderHeadingLevelIconLabel(row.label || '', row.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${createBtnHtml}</div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-kind="h2" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderHeadingLevelIconLabel(row.label || '', row.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${createBtnHtml}</div></td></tr>`;
                 }
             if (row.kind === 'quadrant') {
                 const durationSum = String(row.durationSum || '').trim();
                 const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
                 const color = colorMap[String(row.color || '')] || 'var(--tm-text-color)';
-                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:${color};"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}<span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
+                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:${color};"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}<span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
             }
-            return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}</div></td></tr>`;
+            return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}</div></td></tr>`;
         };
 
         const renderTaskRow = (row) => {
-            const task = state.flatTasks[row.id];
+            const rowId = String(row?.id || '').trim();
+            const task = globalThis.__tmRuntimeState?.getTaskById?.(rowId, { includePending: true, preferPending: true })
+                || state.flatTasks?.[rowId]
+                || state.pendingInsertedTasks?.[rowId]
+                || null;
             if (!task) return '';
             const isMultiSelected = __tmIsTaskMultiSelected(task.id);
             const depth = Math.max(0, Number(row.depth) || 0);
@@ -25145,7 +25230,7 @@ return true;
             const completedChildren = allChildren.filter(c => c.done).length;
             const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
             const isDoneSubtask = !!task.done && (Math.max(0, Number(row.depth) || 0) > 0);
-            const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
+            const groupBg = enableGroupBg ? currentGroupBg : '';
             const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
             const baseBg = groupBg || doneSubtaskBg;
             const progressBgStyle = (row.hasChildren && progressPercent > 0)
@@ -25156,38 +25241,42 @@ return true;
             const completedTodayBadgeHtml = row?.inCompletedRootGroup === true
                 ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
                 : '';
-
-            return `
-                <tr class="tm-timeline-row ${finalRowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">
-                    <td class="tm-task-content-cell" style="width: ${timelineContentWidth}px; min-width: ${timelineContentWidth}px; max-width: ${timelineContentWidth}px; ${contentCellBgStyle}">
-                            <div class="tm-task-cell" style="padding-left:${contentIndent}px">
-                                ${treeGuides}
-                                <span class="${leadingClass}">
-                                    ${leadingRing}
-                                ${__tmRenderTaskCheckbox(task.id, task, { checked: task.done, extraClass: isGloballyLocked ? 'tm-operating' : '' })}
-                            ${toggle}
-                                </span>
-                            <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
-                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
-                            </span>
-                        </div>
-                    </td>
-                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="startDate" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
-                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>
-                </tr>
-            `;
+            const getTimelineCellStyle = (columnKey, extra = '') => timelineTableLayout.cellStyle(
+                columnKey,
+                `${extra}${columnKey === 'content' ? contentCellBgStyle : otherCellBgStyle}`
+            );
+            const contentHtml = `
+                <div class="tm-task-cell" style="padding-left:${contentIndent}px">
+                    ${treeGuides}
+                    <span class="${leadingClass}">
+                        ${leadingRing}
+                        ${__tmRenderTaskCheckbox(task.id, task, { checked: task.done, extraClass: isGloballyLocked ? 'tm-operating' : '' })}
+                        ${toggle}
+                    </span>
+                    <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
+                        <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                    </span>
+                </div>`;
+            return `<tr class="tm-timeline-row ${finalRowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">${__tmRenderTimelineTaskCellsHtml(task, {
+                columnOrder: timelineColumnOrder,
+                customColumnsByKey: timelineCustomColumnsByKey,
+                getCellStyle: getTimelineCellStyle,
+                statusOptions: timelineStatusOptions,
+                contentHtml,
+            })}</tr>`;
         };
 
-        const rowModel = Array.isArray(opts.rowModel) ? opts.rowModel : __tmBuildTaskRowModel();
+        const requestedRowModel = Array.isArray(opts.rowModel) ? opts.rowModel : __tmBuildTaskRowModel();
         const rangeRowModel = Array.isArray(opts.rangeRowModel)
             ? opts.rangeRowModel
-            : (Array.isArray(state.__tmTimelineFullRowModel) ? state.__tmTimelineFullRowModel : rowModel);
-        if (opts.appendOnly !== true) {
+            : (Array.isArray(state.__tmTimelineFullRowModel) ? state.__tmTimelineFullRowModel : requestedRowModel);
+        const rowModel = timelineColumnStructureChanged && requestedAppendOnly ? rangeRowModel : requestedRowModel;
+        if (!appendOnly) {
             try { state.__tmTimelineFullRowModel = rangeRowModel; } catch (e) {}
             try { globalThis.__tmTimelineRowModel = rangeRowModel; } catch (e) {}
         }
         const leftRows = [];
-        if (opts.reuseLeftRows !== true) {
+        if (!reuseLeftRows) {
             for (const r of (Array.isArray(rowModel) ? rowModel : [])) {
                 if (r?.type === 'group') {
                     let labelColor = '';
@@ -25223,9 +25312,9 @@ return true;
                 }
             }
         }
-        const html = leftRows.join('') || `<tr><td colspan="3" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`;
+        const html = leftRows.join('') || `<tr><td colspan="${timelineColumnCount}" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`;
         try {
-            if (opts.appendOnly === true) {
+            if (appendOnly) {
                 const stagingTable = document.createElement('table');
                 stagingTable.innerHTML = `<tbody>${html}</tbody>`;
                 const existingKeys = new Set(Array.from(tbody.children).map((row) => {
@@ -25242,11 +25331,11 @@ return true;
                     existingKeys.add(key);
                     tbody.appendChild(row);
                 });
-            } else if (opts.reuseLeftRows !== true) {
+            } else if (!reuseLeftRows) {
                 tbody.innerHTML = html;
             }
         } catch (e) { return false; }
-        if (opts.appendOnly !== true) {
+        if (!appendOnly) {
             try { __tmSyncTimelineDateColumnWidths(modal); } catch (e) {}
             try { __tmBindTimelineLeftCollapseInteractions(leftBody); } catch (e) {}
         }
@@ -25259,7 +25348,7 @@ return true;
                     bodyEl: ganttBody,
                     rowModel,
                     rangeRowModel,
-                    appendOnly: opts.appendOnly === true,
+                    appendOnly,
                     getTaskById: (id) => {
                         const tid = String(id || '').trim();
                         return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
@@ -25337,7 +25426,7 @@ return true;
                 });
             } catch (e) {}
         }
-        if (opts.appendOnly === true) return true;
+        if (appendOnly) return true;
         __tmScheduleTimelineTodayIndicatorRefresh();
         const anchoredLeft = typeof __tmResolveAndConsumeTimelineDateAnchor === 'function'
             ? __tmResolveAndConsumeTimelineDateAnchor(modal)

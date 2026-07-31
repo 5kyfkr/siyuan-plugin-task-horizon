@@ -203,6 +203,50 @@
         };
     }
 
+    function __tmGetViewRenderWindowContextKey(mode = '') {
+        const value = String(mode || state?.viewMode || '').trim();
+        const groupId = typeof SettingsStore !== 'undefined'
+            ? String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all'
+            : 'all';
+        return [
+            value,
+            groupId,
+            String(state?.activeDocId || 'all').trim() || 'all',
+            String(state?.currentRule || '').trim(),
+            String(state?.searchKeyword || '').trim(),
+        ].join('|');
+    }
+
+    function __tmCaptureViewRenderWindow(mode = '') {
+        const value = String(mode || state?.viewMode || '').trim();
+        if (!__tmIsListLikeViewMode(value)) return null;
+        const total = Math.max(0, Array.isArray(state?.filteredTasks) ? state.filteredTasks.length : 0);
+        const current = __tmGetViewRenderWindow(value, total);
+        if (!current) return null;
+        return {
+            mode: value,
+            contextKey: __tmGetViewRenderWindowContextKey(value),
+            limit: current.limit,
+            step: Math.max(1, Math.round(Number(state?.listRenderStep) || current.initial)),
+        };
+    }
+
+    function __tmRestoreViewRenderWindow(snapshot, totalInput = null) {
+        const saved = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        const mode = String(saved?.mode || '').trim();
+        if (!saved || !__tmIsListLikeViewMode(mode)) return false;
+        if (String(state?.viewMode || '').trim() !== mode) return false;
+        if (String(saved.contextKey || '') !== __tmGetViewRenderWindowContextKey(mode)) return false;
+        const policy = __tmGetViewRenderWindowPolicy(mode);
+        const total = Number.isFinite(Number(totalInput))
+            ? Math.max(0, Math.round(Number(totalInput)))
+            : Math.max(0, Array.isArray(state?.filteredTasks) ? state.filteredTasks.length : 0);
+        const savedLimit = Math.max(policy.initial, Math.round(Number(saved.limit) || policy.initial));
+        state.listRenderStep = Math.max(1, Math.round(Number(saved.step) || policy.initial));
+        state.listRenderLimit = total > 0 ? Math.min(total, savedLimit) : policy.initial;
+        return true;
+    }
+
     function __tmSliceTaskRowModelByTaskWindow(rowModelInput, startInput = 0, endInput = Number.POSITIVE_INFINITY) {
         const rowModel = Array.isArray(rowModelInput) ? rowModelInput : [];
         const start = Math.max(0, Math.round(Number(startInput) || 0));

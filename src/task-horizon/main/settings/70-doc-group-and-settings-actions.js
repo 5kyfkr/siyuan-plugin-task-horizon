@@ -19,6 +19,7 @@
             }
         } catch (e) {}
         await SettingsStore.save();
+        try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
         if (activeDocTabGroupReset || activeDocTabGroupAffected) {
             try { applyFilters(); } catch (e) {}
         }
@@ -1178,6 +1179,7 @@
         }
 
         await SettingsStore.save();
+        try { window.__tmInvalidateDocScopeCache?.(); } catch (e) {}
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
         showSettings();
     };

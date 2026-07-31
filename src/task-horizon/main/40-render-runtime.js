@@ -89,6 +89,7 @@ return;
             } catch (e) {}
         };
         let prevModalEl = null;
+        let preservedCalendarSideDockTransfer = null;
         const prevModalSnapshot = state.modal instanceof Element ? state.modal : null;
         const prevMountRoot = prevModalSnapshot?.parentElement instanceof Element ? prevModalSnapshot.parentElement : null;
         const nextMountRoot = __tmGetMountRoot();
@@ -228,6 +229,7 @@ return;
         } catch (e) {}
 
         if (prevModalSnapshot) {
+            try { preservedCalendarSideDockTransfer = __tmPrepareCalendarSideDockFullRenderTransfer(prevModalSnapshot); } catch (e) {}
             try { __tmDisposeDocTabsRuntime(prevModalSnapshot, { clearHoverTimer: true }); } catch (e) {}
             try {
                 if (prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot')) {
@@ -2068,6 +2070,11 @@ return;
                 ` : ''}
             </div>
         `;
+        const reusedCalendarSideDock = __tmCommitCalendarSideDockFullRenderTransfer(
+            preservedCalendarSideDockTransfer,
+            state.modal,
+            showCalendarSideDock
+        );
         try { globalThis.__tmApplySearchHighlights?.(state.modal, state.searchKeyword); } catch (e) {}
         try { if (renderMode === 'kanban' && typeof __tmNormalizeKanbanDetailFloatHost === 'function') __tmNormalizeKanbanDetailFloatHost(state.modal); } catch (e) {}
         try { __tmBindPluginHostGestureIsolation(state.modal); } catch (e) {}
@@ -2232,7 +2239,11 @@ return;
                 __tmScheduleWhiteboardEdgeRedraw();
             }
             if (showCalendarSideDock) {
-                __tmCalendarDockMount();
+                if (reusedCalendarSideDock) {
+                    __tmSyncPersistentSideDocksAfterViewSwitch([preservedCalendarSideDockTransfer], state.modal);
+                } else {
+                    __tmCalendarDockMount();
+                }
             } else if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.unmountSideDayTimeline === 'function') {
                 try { globalThis.__tmCalendar.unmountSideDayTimeline(); } catch (e) {}
             }
@@ -6586,11 +6597,34 @@ return;
         return true;
     }
 
+    function __tmResetTimelineGestureState(modalEl = null) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        try { modal.classList.remove('tm-modal--timeline-touch-lock'); } catch (e) {}
+        const body = modal.querySelector('#tmGanttBody');
+        if (body instanceof HTMLElement) {
+            try { body.classList.remove('tm-gantt-body--dragging-x'); } catch (e) {}
+        }
+        const host = __tmGetTimelineGlobalScrollHost(modal) || body;
+        if (!(host instanceof HTMLElement)) return;
+        const addedTabIndex = !host.hasAttribute('tabindex');
+        try {
+            if (addedTabIndex) host.setAttribute('tabindex', '-1');
+            host.focus({ preventScroll: true });
+            host.blur();
+        } catch (e) {} finally {
+            if (addedTabIndex) host.removeAttribute('tabindex');
+        }
+    }
+
     function __tmRerenderTimelineScaleInPlace() {
         if (state.viewMode !== 'timeline') return false;
         const rendered = typeof __tmRerenderTimelineInPlace === 'function'
             && __tmRerenderTimelineInPlace(state.modal, { reuseLeftRows: true });
-        if (rendered) __tmSyncTimelineToolbarStateInPlace(state.modal);
+        if (rendered) {
+            __tmSyncTimelineToolbarStateInPlace(state.modal);
+            __tmResetTimelineGestureState(state.modal);
+        }
         return !!rendered;
     }
 
@@ -7341,6 +7375,7 @@ return;
         try { __tmResolvedDocIdsPromise = null; } catch (e) {}
 
         await SettingsStore.save();
+        try { window.__tmInvalidateDocScopeCache?.(); } catch (e) {}
 
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         if (currentGroupId === gid) {
@@ -8148,8 +8183,7 @@ return;
             const timerTaskId = tid;
             const timerTaskName = String(taskName || '其他块').trim() || '其他块';
             const timerFocusRestoreOptions = { source: 'task-horizon' };
-            state.timerFocusTaskId = timerTaskId;
-            render();
+            __tmSyncTomatoFocusInPlace(timerTaskId);
             if (mode === 'stopwatch') {
                 const startFromTaskBlock = timer?.startFromTaskBlock;
                 const startStopwatch = timer?.startStopwatch;
@@ -8231,8 +8265,7 @@ return;
 
             if (state.timerFocusTaskId) {
                 menu.appendChild(createItem(__tmRenderContextMenuLabel('circle-dot', '取消聚焦'), () => {
-                    state.timerFocusTaskId = '';
-                    render();
+                    __tmSyncTomatoFocusInPlace('');
                 }));
             }
         }

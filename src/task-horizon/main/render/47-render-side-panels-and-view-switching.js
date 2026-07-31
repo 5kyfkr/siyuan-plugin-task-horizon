@@ -824,6 +824,43 @@
         return list;
     }
 
+    function __tmPrepareCalendarSideDockFullRenderTransfer(modalEl) {
+        if (state.__tmPreserveCalendarSideDockDuringRender !== true || !(modalEl instanceof HTMLElement)) return null;
+        const config = __TM_PERSISTENT_SIDE_DOCKS.find((item) => item.key === 'calendar');
+        const nodes = config ? Array.from(modalEl.querySelectorAll(config.selector)) : [];
+        if (!config || nodes.length !== 1) return null;
+        const currentNode = nodes[0];
+        if (!(currentNode instanceof HTMLElement) || !(currentNode.querySelector(config.hostSelector) instanceof HTMLElement)) return null;
+        const transfer = {
+            key: config.key,
+            currentNode,
+            placeholderNode: null,
+            scrollSelector: config.scrollSelector,
+            scrollSnapshot: __tmCapturePersistentSideDockScroll(config, currentNode),
+        };
+        currentNode.remove();
+        return transfer;
+    }
+
+    function __tmCommitCalendarSideDockFullRenderTransfer(transfer, modalEl, showCalendarSideDock) {
+        if (!transfer || showCalendarSideDock !== true || !(modalEl instanceof HTMLElement)) return false;
+        const placeholders = Array.from(modalEl.querySelectorAll('.tm-calendar-side-dock'));
+        if (placeholders.length !== 1 || !(placeholders[0] instanceof HTMLElement)) return false;
+        transfer.placeholderNode = placeholders[0];
+        __tmCommitPersistentSideDockTransfers([transfer]);
+        return true;
+    }
+
+    function __tmRenderPreservingCalendarSideDock() {
+        const previous = state.__tmPreserveCalendarSideDockDuringRender === true;
+        state.__tmPreserveCalendarSideDockDuringRender = true;
+        try {
+            render();
+        } finally {
+            state.__tmPreserveCalendarSideDockDuringRender = previous;
+        }
+    }
+
     function __tmSyncPersistentSideDocksAfterViewSwitch(transfers, modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const keys = new Set((Array.isArray(transfers) ? transfers : []).map((item) => String(item?.key || '').trim()));

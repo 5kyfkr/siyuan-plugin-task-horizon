@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const rowModelRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/51-whiteboard-and-link-runtime.js'), 'utf8');
 const viewSwitchRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/47-render-side-panels-and-view-switching.js'), 'utf8');
 const dialogRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
+const loaderRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/53c-document-loader-runtime.js'), 'utf8');
 const storeRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/10-stores-rules-and-cache.js'), 'utf8');
 const settingsRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/60-settings-screen.js'), 'utf8');
 
@@ -74,6 +75,103 @@ assert.equal(customGroupRegionPolicy({ showInTabBar: true }, { hasActive: false,
 assert.match(dialogRuntime, /__tmGetDocTabCustomGroupRegionState\(group,[\s\S]*__tmShouldShowDocTabCustomGroupInRegion\(group, regionState, archiveMode\)/, 'tab group rendering must use member archive state instead of showInTabBar alone');
 assert.match(dialogRuntime, /activeGroupRegionState[\s\S]*__tmShouldShowDocTabCustomGroupInRegion\(activeGroup, activeGroupRegionState, archiveMode\)[\s\S]*state\.activeDocId = 'all'/, 'an aggregate tab group that moves regions must release the hidden active context');
 
+const activeCustomGroupValidationSource = segment(
+    dialogRuntime,
+    "const activeDocIdBeforeFilter = String(state.activeDocId || 'all').trim() || 'all';",
+    'const isOtherBlocksActive = __tmIsOtherBlockTabId(state.activeDocId) && hasOtherBlocks;'
+);
+const validateActiveCustomGroup = new Function(
+    'state',
+    'SettingsStore',
+    'archiveMode',
+    'currentGroupId',
+    'docTaskStateCache',
+    '__tmParseDocTabCustomGroupActiveId',
+    '__tmSortDocEntriesForTabs',
+    '__tmGetDocTabCustomGroupDocIdSet',
+    '__tmFindDocTabCustomGroupById',
+    '__tmGetDocTabCustomGroupRegionState',
+    '__tmShouldShowDocTabCustomGroupInRegion',
+    `${activeCustomGroupValidationSource}; return state.activeDocId;`
+);
+const runActiveCustomGroupValidation = ({ archiveMode, completedTasksInlineInGroups, groupExists = true, regionVisible = true }) => {
+    const activeId = '__tm_doc_tab_group__:group-a';
+    const state = { activeDocId: activeId, taskTree: [{ id: 'doc-a', tasks: [] }] };
+    const docTaskStateCache = new Map();
+    let receivedCache = null;
+    const result = validateActiveCustomGroup(
+        state,
+        { data: { currentGroupId: 'scope-a', completedTasksInlineInGroups } },
+        archiveMode,
+        'scope-a',
+        docTaskStateCache,
+        () => 'group-a',
+        (docs) => docs,
+        () => new Set(['doc-a']),
+        () => groupExists ? { id: 'group-a' } : null,
+        (_group, options) => { receivedCache = options.docStateCache; return { hasActive: true, hasArchived: true }; },
+        () => regionVisible
+    );
+    return { result, receivedCache, docTaskStateCache };
+};
+for (const archiveMode of [false, true]) {
+    for (const completedTasksInlineInGroups of [false, true]) {
+        const validation = runActiveCustomGroupValidation({ archiveMode, completedTasksInlineInGroups });
+        assert.equal(validation.result, '__tm_doc_tab_group__:group-a', 'valid aggregate tab groups must survive active/archive filtering in either completed-grouping mode');
+        assert.equal(validation.receivedCache, validation.docTaskStateCache, 'aggregate region validation must receive the declared document task-state cache');
+    }
+}
+assert.equal(runActiveCustomGroupValidation({ archiveMode: false, completedTasksInlineInGroups: false, groupExists: false }).result, 'all', 'deleted aggregate tab groups must fall back to all');
+assert.equal(runActiveCustomGroupValidation({ archiveMode: true, completedTasksInlineInGroups: true, regionVisible: false }).result, 'all', 'aggregate tab groups hidden from the current archive region must fall back to all');
+
+const customGroupClickSource = segment(
+    dialogRuntime,
+    'window.tmHandleDocTabCustomGroupClick = async function(event, groupId)',
+    'window.tmSaveCurrentViewProfileToGroup = async function(groupId)'
+);
+const buildCustomGroupClickHandler = new Function(
+    'window',
+    'state',
+    '__tmParseDocTabCustomGroupActiveId',
+    '__tmIsDocTabCustomGroupMenuOpen',
+    '__tmHideDocTabMenu',
+    `${customGroupClickSource}; return window.tmHandleDocTabCustomGroupClick;`
+);
+const runCustomGroupClick = async ({ activeDocId, menuOpen = false }) => {
+    const calls = { hide: 0, switches: [] };
+    const window = {
+        tmSwitchDocTabCustomGroup: async (groupId) => { calls.switches.push(groupId); }
+    };
+    const handler = buildCustomGroupClickHandler(
+        window,
+        { activeDocId },
+        (value) => String(value || '').startsWith('__tm_doc_tab_group__:') ? String(value).slice('__tm_doc_tab_group__:'.length) : '',
+        () => menuOpen,
+        () => { calls.hide += 1; }
+    );
+    await handler({ preventDefault() {}, stopPropagation() {}, clientX: 10, clientY: 20 }, 'group-a');
+    return calls;
+};
+
+const customGroupClickAssertions = Promise.all([
+    runCustomGroupClick({ activeDocId: 'doc-in-group' }),
+    runCustomGroupClick({ activeDocId: 'doc-outside-group' }),
+    runCustomGroupClick({ activeDocId: '__tm_doc_tab_group__:group-a' }),
+    runCustomGroupClick({ activeDocId: 'doc-in-group', menuOpen: true }),
+    runCustomGroupClick({ activeDocId: '__tm_doc_tab_group__:group-a', menuOpen: true })
+]).then(([member, outside, aggregate, memberWithMenu, aggregateWithMenu]) => {
+    assert.deepEqual(member.switches, ['group-a'], 'clicking a highlighted member group must enter the aggregate tab');
+    assert.deepEqual(outside.switches, ['group-a'], 'clicking a group from an outside document must enter the aggregate tab');
+    assert.deepEqual(aggregate.switches, [], 'an already active aggregate tab must not reload itself');
+    assert.equal(memberWithMenu.hide, 1, 'clicking a group body must close its open menu first');
+    assert.deepEqual(memberWithMenu.switches, ['group-a'], 'closing an open menu must not block aggregate navigation from a member document');
+    assert.equal(aggregateWithMenu.hide, 1, 'clicking an active aggregate with an open menu must close it');
+    assert.deepEqual(aggregateWithMenu.switches, [], 'closing the active aggregate menu must not reload the aggregate');
+});
+
+assert.doesNotMatch(customGroupClickSource, /classList\.contains\('active'\)/, 'group-body navigation must not infer aggregate state from shared active styling');
+assert.match(loaderRuntime, /activeDocId !== 'all'[\s\S]*!__tmIsOtherBlockTabId\(activeDocId\)[\s\S]*!__tmIsDocTabCustomGroupActiveId\(activeDocId\)[\s\S]*validDocIds/, 'document reload validation must preserve aggregate tab-group IDs');
+
 const timelineHydration = segment(
     viewSwitchRuntime,
     'function __tmScheduleTimelineDateHydrationAfterViewSwitch(generation)',
@@ -84,4 +182,9 @@ assert.match(timelineHydration, /__tmViewSwitchCommitGeneration[\s\S]*state\.vie
 assert.match(timelineHydration, /if \(!meta\?\.changed\) return;[\s\S]*__tmScheduleRender\(\{[\s\S]*withFilters: true/, 'timeline switches should rerender only when hydration repairs stale task dates');
 assert.match(viewSwitchRuntime, /__tmScheduleProgressiveViewRender\(next, progressiveJob\)[\s\S]*next === 'timeline'[\s\S]*__tmScheduleTimelineDateHydrationAfterViewSwitch\(generation\)/, 'timeline hydration must run after the initial non-blocking view switch commit');
 
-console.log('document-tab completed filtering and timeline hydration contract tests passed');
+customGroupClickAssertions
+    .then(() => console.log('document-tab completed filtering and timeline hydration contract tests passed'))
+    .catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+    });

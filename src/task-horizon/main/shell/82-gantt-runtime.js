@@ -1028,8 +1028,10 @@
 
             const timelineScrollHost = bodyEl.closest('.tm-timeline-scroll-host') || bodyEl;
             let timelineOffscreenNavRaf = 0;
+            let timelineOffscreenNavViewportWidth = -1;
             const hideTimelineOffscreenNav = (button) => {
                 if (!(button instanceof HTMLButtonElement)) return;
+                if (!button.classList.contains('tm-gantt-offscreen-nav--visible') && !button.hasAttribute('data-direction')) return;
                 button.classList.remove('tm-gantt-offscreen-nav--visible');
                 button.removeAttribute('data-direction');
                 button.setAttribute('aria-hidden', 'true');
@@ -1056,22 +1058,21 @@
                 };
             };
             const refreshTimelineOffscreenNav = () => {
-                const inner = bodyEl.querySelector('.tm-gantt-body-inner');
-                if (!(inner instanceof HTMLElement) || !(timelineScrollHost instanceof HTMLElement)) return;
-                const totalWidth0 = Math.max(0, Number(bodyEl.dataset?.tmGanttTotalWidth) || Number(inner.offsetWidth) || 0);
-                let visibleLeft = 0;
-                let visibleRight = 0;
-                if (timelineScrollHost === bodyEl) {
-                    visibleLeft = Math.max(0, Number(bodyEl.scrollLeft) || 0);
-                    visibleRight = visibleLeft + Math.max(0, Number(bodyEl.clientWidth) || 0);
-                } else {
-                    const hostRect = timelineScrollHost.getBoundingClientRect();
-                    const bodyRect = bodyEl.getBoundingClientRect();
-                    visibleLeft = Math.max(0, hostRect.left - bodyRect.left);
-                    visibleRight = Math.max(visibleLeft, hostRect.right - bodyRect.left);
-                }
+                if (!(timelineScrollHost instanceof HTMLElement)) return;
+                const totalWidth0 = Math.max(0, Number(bodyEl.dataset?.tmGanttTotalWidth) || 0);
+                // Compact timelines keep the task table in a separate overlay,
+                // so the scroll host's own content coordinates are the stable
+                // date coordinates during touch scrolling.
+                const visibleLeft = Math.max(0, Number(timelineScrollHost.scrollLeft) || 0);
+                const viewportWidth = Math.max(0, Number(timelineScrollHost.clientWidth) || 0);
+                let visibleRight = visibleLeft + viewportWidth;
                 visibleRight = Math.min(totalWidth0, visibleRight);
                 if (!(visibleRight - visibleLeft > 32)) return;
+                const roundedViewportWidth = Math.round(viewportWidth);
+                if (roundedViewportWidth !== timelineOffscreenNavViewportWidth) {
+                    timelineOffscreenNavViewportWidth = roundedViewportWidth;
+                    bodyEl.style.setProperty('--tm-gantt-offscreen-nav-right', `${Math.max(8, roundedViewportWidth - 32)}px`);
+                }
 
                 bodyEl.querySelectorAll('.tm-gantt-row[data-id]').forEach((row) => {
                     const button = row.querySelector('[data-tm-gantt-offscreen-nav]');
@@ -1088,8 +1089,7 @@
                         hideTimelineOffscreenNav(button);
                         return;
                     }
-                    const edgeLeft = direction === 'left' ? visibleLeft + 8 : visibleRight - 32;
-                    button.style.left = `${Math.round(clamp(edgeLeft, 0, Math.max(0, totalWidth0 - 24)))}px`;
+                    if (button.dataset.direction === direction && button.classList.contains('tm-gantt-offscreen-nav--visible')) return;
                     button.dataset.direction = direction;
                     button.classList.add('tm-gantt-offscreen-nav--visible');
                     button.setAttribute('aria-hidden', 'false');

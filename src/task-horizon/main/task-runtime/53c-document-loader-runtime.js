@@ -613,6 +613,13 @@
             || sourceLabel === 'legacy-switch-doc-group'
             || sourceLabel.startsWith('switch-doc-group:')
             || sourceLabel.startsWith('legacy-switch-doc-group:');
+        const renderLoadedState = () => {
+            if (isSwitchDocGroupLoad) {
+                __tmRenderPreservingCalendarSideDock();
+                return;
+            }
+            render();
+        };
         const isSnapshotCacheVerifyLoad = skipRender
             && forceFreshTasks
             && sourceLabel.indexOf('snapshot-cache:verify') !== -1;
@@ -1020,6 +1027,7 @@
         };
         let allDocIds = [];
         allDocIds = await resolveDocIdsFromGroups(resolveScopeOptions);
+        try { await __tmRefreshCustomFieldScopeMembership({ force: !!state.isRefreshing }); } catch (e) {}
         const otherBlockDocIdSet = new Set();
         (Array.isArray(state.otherBlocks) ? state.otherBlocks : []).forEach((task) => {
             const docId = String(task?.root_id || task?.docId || '').trim();
@@ -1106,7 +1114,7 @@
                     const activeModal = getActiveModal();
                     if (activeModal && isTokenCurrent()) {
                         try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
-                        render();
+                        renderLoadedState();
                         __tmPerfTraceMark(perfTrace, 'snapshot-first-render', {
                             docCount: Number(snapshotMeta.docCount || 0),
                             taskCount: Number(snapshotMeta.taskCount || 0),
@@ -1260,7 +1268,7 @@
                     const activeModal = getActiveModal();
                     if (activeModal && isTokenCurrent()) {
                         try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
-                        render();
+                        renderLoadedState();
                         scheduleDeferredPostLoadWork();
                         __tmPerfTraceMark(perfTrace, 'session-first-render', {
                             docCount: Number(sessionMeta.docCount || 0),
@@ -1291,7 +1299,7 @@
                         const activeModal = getActiveModal();
                         if (activeModal && isTokenCurrent()) {
                             try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
-                            render();
+                            renderLoadedState();
                             scheduleDeferredPostLoadWork();
                             __tmPerfTraceMark(perfTrace, 'doc-session-first-render', {
                                 docCount: Number(docSessionMeta.docCount || 0),
@@ -1350,7 +1358,7 @@
                             patchedTaskIndexView = shouldPatchTaskIndexView
                                 ? !!__tmRerenderCurrentViewInPlace(activeModal)
                                 : false;
-                            if (!patchedTaskIndexView) render();
+                            if (!patchedTaskIndexView) renderLoadedState();
                         }
                         scheduleDeferredPostLoadWork();
                         __tmPerfTraceMark(perfTrace, 'task-index-ready', {
@@ -1400,7 +1408,7 @@
             const activeModal = getActiveModal();
             if (!skipRender && activeModal && isTokenCurrent()) {
                 try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
-                render();
+                renderLoadedState();
                 __tmPerfTraceMark(perfTrace, 'first-render', {
                     filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
                     reason: 'empty-docs',
@@ -2284,7 +2292,10 @@
                 try { __tmReplayQueuedOpOptimisticState?.('after-load-selected-documents'); } catch (e) {}
                 try {
                     const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-                    if (activeDocId && activeDocId !== 'all' && !__tmIsOtherBlockTabId(activeDocId)) {
+                    if (activeDocId
+                        && activeDocId !== 'all'
+                        && !__tmIsOtherBlockTabId(activeDocId)
+                        && !__tmIsDocTabCustomGroupActiveId(activeDocId)) {
                         const validDocIds = new Set((Array.isArray(state.taskTree) ? state.taskTree : [])
                             .map((doc) => String(doc?.id || '').trim())
                             .filter(Boolean));
@@ -2337,7 +2348,7 @@
                                 applyFilters();
                                 const deferredModal = getActiveModal();
                                 if (!skipRender && deferredModal) {
-                                    if (!__tmRerenderCurrentViewInPlace(deferredModal)) render();
+                                    if (!__tmRerenderCurrentViewInPlace(deferredModal)) renderLoadedState();
                                 }
                             } catch (e) {}
                         }, 320);
@@ -2570,7 +2581,7 @@
                     const patchedCurrentView = shouldPatchCurrentView
                         ? !!__tmRerenderCurrentViewInPlace(activeModal)
                         : false;
-                    if (!patchedCurrentView) render();
+                    if (!patchedCurrentView) renderLoadedState();
                     __tmPerfTraceMark(perfTrace, 'first-render', {
                         filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
                         fastBudget: loadBudget.enabled ? 1 : 0,
@@ -2659,7 +2670,7 @@
                         applyFilters();
                         const deferredModal = getActiveModal();
                         if (!skipRender && deferredModal && (runtimeState?.isCurrentOpenToken?.(deferredToken) ?? deferredToken === (Number(state.openToken) || 0))) {
-                            if (!__tmRerenderCurrentViewInPlace(deferredModal)) render();
+                            if (!__tmRerenderCurrentViewInPlace(deferredModal)) renderLoadedState();
                         }
                     }).catch(() => null);
                 }

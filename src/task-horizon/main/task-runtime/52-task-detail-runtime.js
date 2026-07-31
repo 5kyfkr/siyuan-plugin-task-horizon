@@ -2401,7 +2401,9 @@
         );
         const visibleCustomFieldDefs = customFieldDefs.filter((field) => {
             const colKey = __tmBuildCustomFieldColumnKey(field?.id);
-            return !!colKey && visibleColumnSet.has(colKey);
+            return !!colKey
+                && visibleColumnSet.has(colKey)
+                && __tmIsCustomFieldApplicableToTask(field, task);
         });
         const visibleOptionCustomFieldDefs = visibleCustomFieldDefs.filter((field) => String(field?.type || '').trim() !== 'text');
         const visibleTextCustomFieldDefs = visibleCustomFieldDefs.filter((field) => String(field?.type || '').trim() === 'text');
@@ -4042,7 +4044,7 @@
             Object.entries(formState.nextCustomFieldTextValues || {}).forEach(([fieldId, fieldValue]) => {
                 const customFieldId = String(fieldId || '').trim();
                 const field = __tmGetCustomFieldDefMap().get(customFieldId);
-                if (!field || String(field?.type || '').trim() !== 'text') return;
+                if (!field || String(field?.type || '').trim() !== 'text' || !__tmIsCustomFieldApplicableToTask(field, task0)) return;
                 const normalizedNext = String(__tmNormalizeCustomFieldValue(field, fieldValue) || '').trim();
                 const currentValue = String(__tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task0, customFieldId)) || '').trim();
                 if (normalizedNext === currentValue) return;
@@ -8421,7 +8423,7 @@
                 const fieldId = String(textarea.getAttribute('data-tm-detail-custom-text-field') || '').trim();
                 const field = fieldId ? __tmGetCustomFieldDefMap().get(fieldId) : null;
                 const currentTask = getBoundTask();
-                if (!field || !currentTask) return;
+                if (!field || !currentTask || !__tmIsCustomFieldApplicableToTask(field, currentTask)) return;
                 const prevValue = String(__tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(currentTask, fieldId)) || '').trim();
                 const nextValue = String(__tmNormalizeCustomFieldValue(field, textarea.value) || '').trim();
                 if (nextValue === prevValue) return;

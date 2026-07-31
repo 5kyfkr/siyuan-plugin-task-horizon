@@ -749,6 +749,9 @@
             const isAllDocs = currentGroupId === 'all';
             const isNotebookGroup = !!String(currentGroup?.notebookId || '').trim();
             const currentGroupName = isAllDocs ? '全部文档' : (__tmResolveDocGroupName(currentGroup) || '未命名分组');
+            const currentGroupIndex = isAllDocs
+                ? -1
+                : groups.findIndex((group) => String(group?.id || '').trim() === currentGroupId);
             const detailTabs = isAllDocs ? ['sources', 'excluded'] : ['sources', 'excluded', 'optimization'];
             const requestedDetailTab = String(state.settingsDocGroupDetailTab || 'sources').trim();
             const activeDetailTab = detailTabs.includes(requestedDetailTab) ? requestedDetailTab : 'sources';
@@ -930,6 +933,16 @@
                 const canClear = isNotebookGroup || (Array.isArray(currentGroup?.docs) && currentGroup.docs.length > 0);
                 return `
                     <div class="tm-doc-group-manager__detail-actions">
+                        <button type="button" class="tm-doc-group-manager__icon-button"
+                            data-tm-call="tmMoveCurrentDocGroup" data-tm-args='${esc(JSON.stringify([-1]))}'
+                            title="${currentGroupIndex > 0 ? '上移分组' : '已是第一个分组'}" aria-label="上移分组"${currentGroupIndex > 0 ? '' : ' disabled'}>
+                            ${icon('arrow-up', 15)}
+                        </button>
+                        <button type="button" class="tm-doc-group-manager__icon-button"
+                            data-tm-call="tmMoveCurrentDocGroup" data-tm-args='${esc(JSON.stringify([1]))}'
+                            title="${currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1 ? '下移分组' : '已是最后一个分组'}" aria-label="下移分组"${currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1 ? '' : ' disabled'}>
+                            ${icon('arrow-down', 15)}
+                        </button>
                         <button type="button" class="tm-btn tm-btn-secondary tm-doc-group-manager__export" data-tm-action="exportCurrentGroup">
                             ${icon('download', 15)}<span>导出</span>
                         </button>

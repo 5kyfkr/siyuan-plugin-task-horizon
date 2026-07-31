@@ -1,0 +1,190 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e8]:
+      - strong [ref=e9]: 项目推进
+      - generic [ref=e10]: 看板 · 按状态分组
+    - generic [ref=e11]:
+      - button "看板卡片字段" [ref=e12] [cursor=pointer]:
+        - generic [ref=e15]: 字段
+        - generic [ref=e16]: "4"
+      - button "切换主题" [ref=e17] [cursor=pointer]
+    - complementary:
+      - generic:
+        - strong: 看板卡片字段
+        - generic: 已选 4/7
+      - generic:
+        - generic:
+          - generic: 重要性
+          - checkbox "重要性"
+        - generic:
+          - generic: 状态
+          - checkbox "状态" [checked]
+        - generic:
+          - generic: 截止日期
+          - checkbox "截止日期" [checked]
+        - generic:
+          - generic: 专注
+          - checkbox "专注" [checked]
+        - generic:
+          - generic: 预计番茄
+          - checkbox "预计番茄"
+        - generic:
+          - generic: 实际番茄
+          - checkbox "实际番茄"
+        - generic:
+          - generic: 备注
+          - checkbox "备注" [checked]
+      - generic:
+        - generic:
+          - strong: 空值常驻
+          - generic: 仅限这三个字段
+        - generic:
+          - generic:
+            - checkbox "重要性"
+            - generic: 重要性
+          - generic:
+            - checkbox "状态"
+            - generic: 状态
+          - generic:
+            - checkbox "截止日期"
+            - generic: 截止日期
+      - generic:
+        - button "全不选"
+        - button "恢复默认"
+  - main [ref=e20]:
+    - region "任务看板" [ref=e21]:
+      - region [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]:
+            - strong [ref=e25]: 待处理
+            - generic [ref=e26]: "3"
+          - button "新任务" [ref=e27] [cursor=pointer]
+          - button "更多" [ref=e30] [cursor=pointer]
+        - generic [ref=e33]:
+          - article [ref=e34]:
+            - generic [ref=e35]:
+              - button "标记为完成" [ref=e36] [cursor=pointer]
+              - generic [ref=e37]:
+                - generic "整理 V2.9 发布清单" [ref=e39]
+                - generic [ref=e40]:
+                  - generic [ref=e41]: 待处理
+                  - generic [ref=e45]: 今天 16:30
+                  - generic [ref=e49]: 🍅 1/3 · 25m/1h
+                - generic "发布前核对更新记录、安装包和集市说明。" [ref=e53]
+              - button "任务详情" [ref=e56] [cursor=pointer]
+            - generic [ref=e59]:
+              - generic [ref=e60]:
+                - generic [ref=e61]: 子任务
+                - generic [ref=e62]: 0/3
+                - button "折叠子任务" [expanded] [ref=e63] [cursor=pointer]
+              - generic [ref=e67]:
+                - generic [ref=e68]:
+                  - button "标记为完成" [ref=e69] [cursor=pointer]
+                  - generic [ref=e70]:
+                    - generic "核对更新记录" [ref=e72]
+                    - generic [ref=e73]:
+                      - generic [ref=e74]: 进行中
+                      - generic [ref=e78]: 今天 14:00
+                      - generic [ref=e82]: 15m
+                  - button "任务详情" [ref=e86] [cursor=pointer]
+                - generic [ref=e89]:
+                  - button "标记为完成" [ref=e90] [cursor=pointer]
+                  - generic [ref=e91]:
+                    - generic "打包插件并校验 manifest" [ref=e93]
+                    - generic "同时检查版本号。" [ref=e94]
+                  - button "任务详情" [ref=e97] [cursor=pointer]
+                - generic [ref=e100]:
+                  - button "标记为完成" [ref=e101] [cursor=pointer]
+                  - generic "发布集市版本" [ref=e104]
+                  - button "任务详情" [ref=e105] [cursor=pointer]
+          - article [ref=e108]:
+            - generic [ref=e109]:
+              - button "标记为完成" [ref=e110] [cursor=pointer]
+              - generic "整理周会纪要" [ref=e113]
+              - button "任务详情" [ref=e114] [cursor=pointer]
+          - article [ref=e117]:
+            - generic [ref=e118]:
+              - button "标记为完成" [ref=e119] [cursor=pointer]
+              - generic [ref=e120]:
+                - generic "归类移动端测试反馈并分配处理人" [ref=e122]
+                - generic "剩余两项触屏问题需要真机确认。" [ref=e123]
+              - button "任务详情" [ref=e126] [cursor=pointer]
+      - region [ref=e129]:
+        - generic [ref=e130]:
+          - generic [ref=e131]:
+            - strong [ref=e132]: 进行中
+            - generic [ref=e133]: "3"
+          - button "新任务" [ref=e134] [cursor=pointer]
+          - button "更多" [ref=e137] [cursor=pointer]
+        - generic [ref=e140]:
+          - article [ref=e141]:
+            - generic [ref=e142]:
+              - button "标记为完成" [ref=e143] [cursor=pointer]
+              - generic [ref=e144]:
+                - generic "看板动态显示字段设置" [ref=e146]
+                - generic [ref=e147]:
+                  - generic [ref=e148]: 进行中
+                  - generic [ref=e152]: 明天
+                  - generic [ref=e156]: 🍅 2/4 · 45m/2h
+                - generic "看板与白板共用同一套七字段显示规则。" [ref=e160]
+              - button "任务详情" [ref=e163] [cursor=pointer]
+            - generic [ref=e166]:
+              - generic [ref=e167]:
+                - generic [ref=e168]: 子任务
+                - generic [ref=e169]: 1/2
+                - button "折叠子任务" [expanded] [ref=e170] [cursor=pointer]
+              - generic [ref=e174]:
+                - generic [ref=e175]:
+                  - button "标记为未完成" [ref=e176] [cursor=pointer]
+                  - generic [ref=e179]:
+                    - generic "确认卡片紧凑态与展开态" [ref=e181]
+                    - generic [ref=e182]: 完成
+                  - button "任务详情" [ref=e187] [cursor=pointer]
+                - generic [ref=e190]:
+                  - button "标记为完成" [ref=e191] [cursor=pointer]
+                  - generic [ref=e192]:
+                    - generic "调整子任务为无边框列表行" [ref=e194]
+                    - generic [ref=e195]: 今天
+                    - generic "保留拖拽和多选反馈。" [ref=e200]
+                  - button "任务详情" [ref=e203] [cursor=pointer]
+          - article [ref=e206]:
+            - generic [ref=e207]:
+              - button "标记为完成" [ref=e208] [cursor=pointer]
+              - generic [ref=e209]:
+                - generic "复测日历订阅全天事件" [ref=e211]
+                - generic [ref=e212]:
+                  - generic [ref=e213]: 周五 10:00
+                  - generic [ref=e217]: 🍅 3/3 · 1h15m
+              - button "任务详情" [ref=e221] [cursor=pointer]
+          - article [ref=e224]:
+            - generic [ref=e225]:
+              - button "标记为完成" [ref=e226] [cursor=pointer]
+              - generic [ref=e227]:
+                - generic "统一移动端看板导航反馈" [ref=e229]
+                - generic "窄屏保留下一列入口。" [ref=e230]
+              - button "任务详情" [ref=e233] [cursor=pointer]
+      - region [ref=e236]:
+        - generic [ref=e237]:
+          - generic [ref=e238]:
+            - strong [ref=e239]: 已完成
+            - generic [ref=e240]: "2"
+          - button "新任务" [ref=e241] [cursor=pointer]
+          - button "更多" [ref=e244] [cursor=pointer]
+        - generic [ref=e247]:
+          - article [ref=e248]:
+            - generic [ref=e249]:
+              - button "标记为未完成" [ref=e250] [cursor=pointer]
+              - generic [ref=e253]:
+                - generic "修复时间轴卡片导航定位" [ref=e255]
+                - generic [ref=e256]: 完成
+              - button "任务详情" [ref=e261] [cursor=pointer]
+          - article [ref=e264]:
+            - generic [ref=e265]:
+              - button "标记为未完成" [ref=e266] [cursor=pointer]
+              - generic [ref=e269]:
+                - generic "优化白板子任务连线路由" [ref=e271]
+                - generic [ref=e272]:
+                  - generic [ref=e273]: 完成
+                  - generic [ref=e277]: 7月30日
+                - generic "子任务连线使用独立层级。" [ref=e281]
+              - button "任务详情" [ref=e284] [cursor=pointer]

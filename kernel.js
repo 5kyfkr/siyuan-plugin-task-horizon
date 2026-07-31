@@ -1875,9 +1875,12 @@
         }
         if (action === 'batchSetAttrs') {
             const entries = Array.isArray(source.entries) ? source.entries.slice(0, 200) : [];
-            for (const entry of entries) {
-                const id = requireID(entry && entry.id, '块 ID');
-                await setAttrs(id, normalizeExplicitAttrs(entry && entry.attrs));
+            const blockAttrs = entries.map((entry) => ({
+                id: requireID(entry && entry.id, '块 ID'),
+                attrs: normalizeExplicitAttrs(entry && entry.attrs),
+            })).filter((entry) => Object.keys(entry.attrs).length > 0);
+            if (blockAttrs.length > 0) {
+                await api('/api/attr/batchSetBlockAttrs', { blockAttrs });
             }
             return { written: entries.length };
         }
@@ -2345,6 +2348,7 @@
     function registerDocumentGroupSnapshot(input) {
         const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
         const groups = Array.isArray(source.groups) ? source.groups : [];
+        const tabGroups = Array.isArray(source.tabGroups) ? source.tabGroups : [];
         const membersByGroup = new Map();
         const namesByGroup = new Map();
         groups.forEach((group) => {
@@ -2355,14 +2359,30 @@
             membersByGroup.set(groupID, new Set(documentIDs));
             namesByGroup.set(groupID, text(group && group.name));
         });
+        const membersByTabGroup = new Map();
+        const namesByTabGroup = new Map();
+        tabGroups.forEach((group) => {
+            const groupID = text(group && group.id);
+            if (!groupID || membersByTabGroup.has(groupID)) return;
+            const documentIDs = uniqueStrings(group && (group.documentIDs || group.documentIds))
+                .filter((id) => ID_RE.test(id));
+            membersByTabGroup.set(groupID, new Set(documentIDs));
+            namesByTabGroup.set(groupID, text(group && group.name));
+        });
         state.documentGroupSnapshot = {
             registeredAt: Date.now(),
             membersByGroup,
             namesByGroup,
+            membersByTabGroup,
+            namesByTabGroup,
         };
         return {
             groupCount: membersByGroup.size,
-            documentCount: new Set(Array.from(membersByGroup.values()).flatMap((ids) => Array.from(ids))).size,
+            tabGroupCount: membersByTabGroup.size,
+            documentCount: new Set([
+                ...Array.from(membersByGroup.values()).flatMap((ids) => Array.from(ids)),
+                ...Array.from(membersByTabGroup.values()).flatMap((ids) => Array.from(ids)),
+            ]).size,
         };
     }
 
