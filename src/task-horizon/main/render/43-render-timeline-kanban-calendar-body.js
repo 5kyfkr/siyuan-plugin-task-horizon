@@ -141,7 +141,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const bodyAnimClass = String(opts.bodyAnimClass || '');
         const rowModel = Array.isArray(opts.rowModel) ? opts.rowModel : null;
-        const useMobileTimelineSidebar = opts.isMobile === true && opts.isDockHost !== true;
+        const useCompactTimelineSidebarState = opts.isMobile === true || opts.isDockHost === true;
 
         const __tmRenderTimelineBodyHtml = (rowModel) => {
             const widths = SettingsStore.data.columnWidths || {};
@@ -170,7 +170,7 @@
             })() : 0;
             const leftPaneLayout = __tmResolveTimelinePaneLayout(leftWidth0, leftTableWidth, timelineContainerWidth);
             const leftWidth = leftPaneLayout.width;
-            const sidebarCollapsed = useMobileTimelineSidebar
+            const sidebarCollapsed = useCompactTimelineSidebarState
                 ? state.timelineMobileSidebarExpanded !== true
                 : !!SettingsStore.data.timelineSidebarCollapsed;
             const splitClass = sidebarCollapsed ? ' tm-timeline-split--sidebar-collapsed' : '';
@@ -250,8 +250,7 @@
                     return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
                 if (row.kind === 'doc') {
-                    const labelColor = String(row.labelColor || 'var(--tm-group-doc-label-color)');
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderDocGroupLabel(row.docId || row.id, row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                    return __tmRenderTimelineRangeGroupRowHtml(row, timelineColumnCount);
                 }
                 // 按任务名分组：分组行使用 PHOSPHOR 风格图标
                 if (row.kind === 'task') {
@@ -266,9 +265,7 @@
                     return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${timeLabelHtml}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
                 }
                 if (row.kind === 'h2') {
-                    const createBtnHtml = __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务');
-                    const labelColor = String(row.labelColor || __tmGetHeadingSubgroupLabelColor('var(--tm-group-doc-label-color)', isDark));
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-kind="h2" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderHeadingLevelIconLabel(row.label || '', row.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${createBtnHtml}</div></td></tr>`;
+                    return __tmRenderTimelineRangeGroupRowHtml(row, timelineColumnCount);
                 }
                 if (row.kind === 'quadrant') {
                     const durationSum = String(row.durationSum || '').trim();
@@ -345,7 +342,14 @@
                             <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                         </span>
                     </div>`;
-                let taskRowHtml = `<tr class="tm-timeline-row ${finalRowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
+                const taskId = String(task.id || '').trim();
+                const touchDragAttr = __tmShouldUseCustomTouchTaskDrag()
+                    ? ` onpointerdown="tmTaskTouchDragStart(event, '${taskId}')"`
+                    : '';
+                const dragAttrs = __tmShouldUseCustomTouchTaskDrag()
+                    ? ' draggable="false"'
+                    : '';
+                let taskRowHtml = `<tr class="tm-timeline-row ${finalRowClass}" data-id="${taskId}" data-depth="${row.depth}"${dragAttrs}${touchDragAttr} onclick="tmRowClick(event, '${taskId}')" oncontextmenu="tmShowTaskContextMenu(event, '${taskId}')">`;
                 taskRowHtml += __tmRenderTimelineTaskCellsHtml(task, {
                     columnOrder: timelineColumnOrder,
                     customColumnsByKey: timelineCustomColumnsByKey,
@@ -431,6 +435,7 @@
                     <div class="tm-timeline-right-body" id="tmGanttBody"></div>
                 </div>
             `;
+            const timelineScrollbarHtml = '<div class="tm-timeline-scrollbar"><div class="tm-timeline-scrollbar-thumb"></div></div>';
             const useCompactTimelineOverlay = opts.isMobile === true || opts.isDockHost === true;
             if (useCompactTimelineOverlay) {
                 return `
@@ -443,6 +448,7 @@
                         <div class="tm-timeline-sidebar-overlay${sidebarCollapsed ? ' tm-timeline-sidebar-overlay--hidden' : ''}">
                             ${timelineLeftHtml}
                         </div>
+                        ${timelineScrollbarHtml}
                     </div>
                 `;
             }
@@ -454,6 +460,7 @@
                         <div class="tm-timeline-splitter" role="separator" aria-label="调整任务表格宽度" aria-orientation="vertical" aria-valuemin="${leftPaneLayout.minWidth}" aria-valuemax="${leftPaneLayout.maxWidth}" aria-valuenow="${leftWidth}" tabindex="0" onmousedown="tmStartTimelineSplitResize(event)" onkeydown="tmTimelineSplitResizeKeydown(event)" title="拖拽调整宽度"></div>
                         ${timelineRightHtml}
                     </div>
+                    ${timelineScrollbarHtml}
                 </div>
             `;
         };

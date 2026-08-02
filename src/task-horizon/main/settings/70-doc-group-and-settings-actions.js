@@ -2351,6 +2351,7 @@
     };
 
     window.updateNewTaskDocId = async function(value, options) {
+        const previousDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         const v = String(value || '').trim();
         const useLastSelection = v === '__lastSelected__';
         SettingsStore.data.newTaskDefaultLocationMode = useLastSelection ? 'lastSelected' : 'configured';
@@ -2370,6 +2371,16 @@
             if (state.quickAddDocPicker) {
                 try { window.tmQuickAddOpenDocPicker?.(); } catch (e) {}
             }
+        }
+        const nextDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+        if (previousDocId !== nextDocId && state.modal && document.body.contains(state.modal)) {
+            try {
+                await loadSelectedDocuments({
+                    forceRefreshScope: true,
+                    showInlineLoading: false,
+                    source: 'new-task-doc-change',
+                });
+            } catch (e) {}
         }
     };
 

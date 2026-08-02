@@ -49,6 +49,7 @@
         const customFieldColumns = Array.isArray(context.customFieldColumns) ? context.customFieldColumns : [];
         const customFieldColumnsByKey = new Map(customFieldColumns.map((item) => [String(item?.colKey || '').trim(), item]).filter(([key]) => !!key));
         const useCustomTouchTaskDrag = __tmShouldUseCustomTouchTaskDrag();
+        const useDesktopTaskDragLogic = __tmShouldUseDesktopTaskDragLogic();
         const tomatoIntegrationEnabled = !!SettingsStore.data.enableTomatoIntegration;
         const tomatoSpentAttrMode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() || 'minutes';
         const useTomatoSpentHours = tomatoIntegrationEnabled && tomatoSpentAttrMode === 'hours';
@@ -321,7 +322,10 @@
             const touchDragAttr = useCustomTouchTaskDrag
                 ? ` onpointerdown="tmTaskTouchDragStart(event, '${taskId}')"`
                 : '';
-            let rowHtml = `<tr data-id="${taskId}" data-depth="${depth}" class="${finalRowClass}" ${groupBg ? `style="background-color:${groupBg};"` : ''} draggable="true" ondragstart="tmDragTaskStart(event, '${taskId}')" ondragend="tmDragTaskEnd(event)" ondragenter="tmTaskRowDragOver(event, '${taskId}')" ondragover="tmTaskRowDragOver(event, '${taskId}')" ondragleave="tmTaskRowDragLeave(event, '${taskId}')" ondrop="tmTaskRowDrop(event, '${taskId}')"${touchDragAttr} onclick="tmRowClick(event, '${taskId}')" oncontextmenu="tmShowTaskContextMenu(event, '${taskId}')">`;
+            const rowDragAttrs = useDesktopTaskDragLogic
+                ? `draggable="true" ondragstart="tmDragTaskStart(event, '${taskId}')" ondragend="tmDragTaskEnd(event)"`
+                : 'draggable="false"';
+            let rowHtml = `<tr data-id="${taskId}" data-depth="${depth}" class="${finalRowClass}" ${groupBg ? `style="background-color:${groupBg};"` : ''} ${rowDragAttrs} ondragenter="tmTaskRowDragOver(event, '${taskId}')" ondragover="tmTaskRowDragOver(event, '${taskId}')" ondragleave="tmTaskRowDragLeave(event, '${taskId}')" ondrop="tmTaskRowDrop(event, '${taskId}')"${touchDragAttr} onclick="tmRowClick(event, '${taskId}')" oncontextmenu="tmShowTaskContextMenu(event, '${taskId}')">`;
             for (let i = 0; i < colOrder.length; i += 1) {
                 const col = colOrder[i];
                 switch (col) {

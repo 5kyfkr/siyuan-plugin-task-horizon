@@ -7836,8 +7836,8 @@
         const modal = state.modal instanceof Element ? state.modal : null;
         if (!(modal instanceof Element)) return;
         __tmPrepareTimelineDateAnchor(0.5);
-        const useMobileRuntimeState = !!(modal?.classList?.contains?.('tm-modal--mobile') && !modal?.classList?.contains?.('tm-modal--dock'));
-        if (useMobileRuntimeState) {
+        const useCompactRuntimeState = !!(modal?.classList?.contains?.('tm-modal--mobile') || modal?.classList?.contains?.('tm-modal--dock'));
+        if (useCompactRuntimeState) {
             const expanding = state.timelineMobileSidebarExpanded !== true;
             state.timelineMobileSidebarExpanded = expanding;
             render();

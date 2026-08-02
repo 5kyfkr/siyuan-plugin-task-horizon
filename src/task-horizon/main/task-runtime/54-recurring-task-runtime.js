@@ -628,7 +628,10 @@
     };
 
     window.tmEditTaskRepeatRule = async function(taskId, options = {}) {
-        const task = await __tmResolveTaskForRepeat(taskId);
+        const draftTask = options?.draft === true && options?.task && typeof options.task === 'object'
+            ? options.task
+            : null;
+        const task = draftTask || await __tmResolveTaskForRepeat(taskId);
         if (!task?.id) {
             hint('⚠ 未找到任务', 'warning');
             return null;
@@ -637,6 +640,7 @@
             title: String(options?.title || '循环设置').trim() || '循环设置',
         });
         if (nextRule === null) return null;
+        if (draftTask) return nextRule;
         if (!nextRule.enabled || nextRule.type === 'none') {
             return await window.tmClearTaskRepeatRule(task.id, { source: 'task-repeat-dialog' });
         }

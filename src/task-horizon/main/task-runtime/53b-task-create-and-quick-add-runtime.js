@@ -1526,6 +1526,19 @@
         const customFieldValues = typeof __tmNormalizeCreateTaskCustomFieldValues === 'function'
             ? __tmNormalizeCreateTaskCustomFieldValues(payload.customFieldValues)
             : {};
+        let repeatPatch = null;
+        if (payload.repeatRule && typeof payload.repeatRule === 'object' && typeof __tmBuildTaskRepeatRuleMetaPatch === 'function') {
+            try {
+                repeatPatch = __tmBuildTaskRepeatRuleMetaPatch({
+                    startDate: String(payload.startDate || '').trim(),
+                    completionTime: String(payload.completionTime || '').trim(),
+                    repeatRule: '',
+                    repeatState: payload.repeatState,
+                }, payload.repeatRule);
+            } catch (e) {}
+        }
+        const optimisticStartDate = String(repeatPatch?.startDate || payload.startDate || '').trim();
+        const optimisticCompletionTime = String(repeatPatch?.completionTime || payload.completionTime || '').trim();
         const nextTask = {
             id: tempId,
             clientId,
@@ -1537,12 +1550,17 @@
             priority: priority || '',
             duration: '',
             remark: '',
-            startDate: String(payload.startDate || '').trim(),
-            start_date: String(payload.startDate || '').trim(),
-            completionTime: String(payload.completionTime || '').trim(),
+            startDate: optimisticStartDate,
+            start_date: optimisticStartDate,
+            completionTime: optimisticCompletionTime,
+            completion_time: optimisticCompletionTime,
             customTime: '',
             customStatus: String(payload.customStatus || '').trim(),
             customFieldValues,
+            repeatRule: repeatPatch?.repeatRule || __tmNormalizeTaskRepeatRule(''),
+            repeat_rule: repeatPatch?.repeatRule || __tmNormalizeTaskRepeatRule(''),
+            repeatState: repeatPatch?.repeatState || __tmNormalizeTaskRepeatState(payload.repeatState),
+            repeat_state: repeatPatch?.repeatState || __tmNormalizeTaskRepeatState(payload.repeatState),
             taskMarker: initialMarker,
             task_marker: initialMarker,
             docName,
@@ -4165,7 +4183,10 @@
             priority: 'none',
             startDate: '',
             completionTime: '',
-            openReminderAfterCreate: false,
+            repeatRule: __tmNormalizeTaskRepeatRule(''),
+            repeatState: __tmNormalizeTaskRepeatState(null),
+            reminderDraft: null,
+            reminderDraftOpening: false,
             customFieldValues: {},
         };
 
@@ -4217,10 +4238,6 @@
                             </div>
                         </div>
 
-                        <button id="tmQuickAddReminderBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddToggleReminder()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
-                            ⏰ <span>提醒</span>
-                        </button>
-
                         <div id="tmQuickAddCustomFields" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;min-width:0;"></div>
                     </div>
 
@@ -4252,6 +4269,14 @@
                 try { e.stopPropagation(); } catch (e2) {}
                 window.tmQuickAddSubmit?.();
             };
+            input.addEventListener('input', () => {
+                const lines = __tmSplitTaskInputLines(input.value || '');
+                if (lines.length > 1 && state.quickAdd?.reminderDraft) {
+                    state.quickAdd.reminderDraft = null;
+                    hint('⚠ 多条任务不会保留前置提醒设置', 'warning');
+                    window.tmQuickAddRenderMeta?.();
+                }
+            });
         }
 
         state.__quickAddUnstack = __tmModalStackBind(() => window.tmQuickAddClose?.());
@@ -4368,12 +4393,18 @@
                 const ct = ctValue
                     ? (sd && sd !== ctValue ? `${__tmFormatTaskTimeCompact(sd)}-${__tmFormatTaskTimeCompact(ctValue)}` : __tmFormatTaskTime(ctValue))
                     : (sd ? `开始 ${__tmFormatTaskTimeCompact(sd)}` : '日期');
-                dateLabel.textContent = ct;
+                const meta = [ct];
+                try {
+                    const rule = __tmGetTaskRepeatRule({ repeatRule: qa.repeatRule, repeatState: qa.repeatState, startDate: sd, completionTime: ctValue });
+                    if (rule?.enabled && rule.type !== 'none') meta.push(`循环: ${__tmGetTaskRepeatSummary(rule, { startDate: sd, completionTime: ctValue }) || '已设置'}`);
+                } catch (e) {}
+                if (qa.reminderDraft) meta.push('提醒已设置');
+                dateLabel.textContent = meta.join(' · ');
                 dateInput.value = qa.completionTime ? __tmNormalizeDateOnly(qa.completionTime) : '';
 
                 const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
                 if (btn) {
-                    if (qa.startDate || qa.completionTime) {
+                    if (qa.startDate || qa.completionTime || qa.reminderDraft || qa.repeatRule?.enabled) {
                         btn.style.color = 'var(--tm-primary-color)';
                         btn.style.borderColor = 'var(--tm-primary-color)';
                     } else {
@@ -4383,32 +4414,8 @@
                 }
             }
 
-            const reminderBtn = document.getElementById('tmQuickAddReminderBtn');
-            if (reminderBtn) {
-                const enabled = !!SettingsStore.data.enableTomatoIntegration;
-                const active = !!qa.openReminderAfterCreate;
-                reminderBtn.style.opacity = enabled ? '1' : '0.55';
-                reminderBtn.style.cursor = enabled ? 'pointer' : 'not-allowed';
-                reminderBtn.style.color = active ? 'var(--tm-primary-color)' : '';
-                reminderBtn.style.borderColor = active ? 'var(--tm-primary-color)' : '';
-                reminderBtn.style.background = active ? 'color-mix(in srgb, var(--tm-bg-color) 82%, var(--tm-primary-color) 18%)' : '';
-                reminderBtn.title = enabled ? (active ? '提交后打开提醒设置' : '点击后提交时会打开提醒设置') : '番茄钟联动未启用';
-                reminderBtn.innerHTML = `⏰ <span>${active ? '提醒: 开' : '提醒'}</span>`;
-                reminderBtn.disabled = !enabled;
-            }
             __tmRenderQuickAddCustomFields();
         } catch (e) {}
-    };
-
-    window.tmQuickAddToggleReminder = function() {
-        const qa = state.quickAdd;
-        if (!qa) return;
-        if (!SettingsStore.data.enableTomatoIntegration) {
-            hint('⚠ 番茄钟联动已关闭', 'warning');
-            return;
-        }
-        qa.openReminderAfterCreate = !qa.openReminderAfterCreate;
-        window.tmQuickAddRenderMeta?.();
     };
 
     window.tmQuickAddStatusChanged = function(value) {
@@ -4489,9 +4496,7 @@
             await window.tmOpenTaskTimeHub('__tm_quick_add_draft__', btn, {
                 draft: true,
                 activeField: 'completionTime',
-                hideReminder: true,
                 hideSchedule: true,
-                hideRepeat: true,
                 task: {
                     id: '__tm_quick_add_draft__',
                     content: __tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '')[0] || '新建任务',
@@ -4499,6 +4504,8 @@
                     start_date: String(qa.startDate || '').trim(),
                     completionTime: String(qa.completionTime || '').trim(),
                     completion_time: String(qa.completionTime || '').trim(),
+                    repeatRule: qa.repeatRule,
+                    repeatState: qa.repeatState,
                 },
                 onChange: async (payload = {}) => {
                     const patch = (payload?.patch && typeof payload.patch === 'object') ? payload.patch : {};
@@ -4508,7 +4515,75 @@
                     if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
                         qa.completionTime = String(patch.completionTime || '').trim();
                     }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'repeatRule')) {
+                        qa.repeatRule = __tmNormalizeTaskRepeatRule(patch.repeatRule, {
+                            startDate: qa.startDate,
+                            completionTime: qa.completionTime,
+                        });
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'repeatState')) {
+                        qa.repeatState = __tmNormalizeTaskRepeatState(patch.repeatState);
+                    }
                     window.tmQuickAddRenderMeta?.();
+                },
+                getReminderDraft: () => !!qa.reminderDraft,
+                reminderDraftLabel: '已设置',
+                isReminderDisabled: () => !SettingsStore.data.enableTomatoIntegration
+                    || __tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '').length > 1
+                    || globalThis.__tomatoReminder?.capabilities?.draftDialog !== true
+                    || globalThis.__tomatoReminder?.capabilities?.upsertDraft !== true
+                    || typeof globalThis.__tomatoReminder?.showDialog !== 'function'
+                    || typeof globalThis.__tomatoReminder?.upsertDraft !== 'function',
+                getReminderDisabledReason: () => !SettingsStore.data.enableTomatoIntegration
+                    ? '番茄钟联动未启用'
+                    : (__tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '').length > 1
+                        ? '多条任务请创建后分别设置提醒'
+                        : '提醒桥接未就绪，请稍后重试'),
+                onReminderDraftToggle: async ({ enabled } = {}) => {
+                    if (!SettingsStore.data.enableTomatoIntegration) {
+                        hint('⚠ 番茄钟联动已关闭', 'warning');
+                        return;
+                    }
+                    const bridge = globalThis.__tomatoReminder;
+                    if (bridge?.capabilities?.draftDialog !== true
+                        || bridge?.capabilities?.upsertDraft !== true
+                        || typeof bridge?.showDialog !== 'function'
+                        || typeof bridge?.upsertDraft !== 'function') {
+                        hint('⚠ 番茄钟提醒桥接未就绪', 'warning');
+                        return;
+                    }
+                    const lines = __tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '');
+                    if (lines.length > 1) {
+                        hint('⚠ 多条任务请创建后分别设置提醒', 'warning');
+                        return;
+                    }
+                    if (qa.reminderDraftOpening) return;
+                    qa.reminderDraftOpening = true;
+                    window.tmQuickAddRenderMeta?.();
+                    try {
+                        const result = await bridge.showDialog('', lines[0] || '新建任务', {
+                            draft: true,
+                            draftReminder: qa.reminderDraft,
+                            taskOwned: true,
+                            defaultSyncTaskDone: true,
+                            taskContext: {
+                                taskStartDate: String(qa.startDate || '').trim(),
+                                taskCompletionTime: String(qa.completionTime || '').trim(),
+                                taskRepeatRule: qa.repeatRule,
+                                taskRepeatState: qa.repeatState,
+                            },
+                        });
+                        if (result?.action === 'save' && result.draft && typeof result.draft === 'object') {
+                            qa.reminderDraft = { ...result.draft };
+                        } else if (result?.action === 'clear') {
+                            qa.reminderDraft = null;
+                        }
+                    } catch (e) {
+                        hint(`⚠ 提醒设置未保存: ${e?.message || e || '未知错误'}`, 'warning');
+                    } finally {
+                        qa.reminderDraftOpening = false;
+                        window.tmQuickAddRenderMeta?.();
+                    }
                 },
             });
             return;
@@ -5031,14 +5106,40 @@
         return result;
     }
 
+    const __tmWaitForQuickAddRealTaskId = async (taskId) => {
+        const rawId = String(taskId || '').trim();
+        if (!rawId || !rawId.startsWith('tm_tmp_')) return rawId;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            try {
+                const resolved = typeof __tmResolveOutboxTempTaskId === 'function'
+                    ? String(__tmResolveOutboxTempTaskId(rawId) || '').trim()
+                    : (typeof __tmResolveOptimisticTaskId === 'function' ? String(__tmResolveOptimisticTaskId(rawId) || '').trim() : '');
+                if (resolved && resolved !== rawId && !resolved.startsWith('tm_tmp_')) return resolved;
+            } catch (e) {}
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        return '';
+    };
+
     window.tmQuickAddSubmit = async function() {
         const qa = state.quickAdd;
         if (!qa) return;
         if (state.quickAddSubmitting) return;
+        if (qa.reminderDraftOpening) {
+            hint('⚠ 请先完成提醒设置', 'warning');
+            return;
+        }
         const input = document.getElementById('tmQuickAddInput');
         const dateInput = document.getElementById('tmQuickAddDateInput');
         const taskLines = __tmSplitTaskInputLines(input?.value || '');
         if (taskLines.length === 0) return;
+        const hasReminderDraft = !!qa.reminderDraft && taskLines.length === 1;
+        const reminderBridge = globalThis.__tomatoReminder;
+        const canPersistReminder = hasReminderDraft
+            && !!SettingsStore.data.enableTomatoIntegration
+            && reminderBridge?.capabilities?.upsertDraft === true
+            && typeof reminderBridge?.upsertDraft === 'function';
+        if (taskLines.length > 1) qa.reminderDraft = null;
         const startDate = String(qa.startDate || '').trim() ? __tmNormalizeDateOnly(qa.startDate) : '';
         const completionTime = (() => {
             const raw = dateInput instanceof HTMLInputElement
@@ -5059,9 +5160,14 @@
             customFieldValues,
             startDate,
             completionTime,
-            openReminderAfterCreate: !!qa.openReminderAfterCreate,
+            repeatRule: qa.repeatRule,
+            repeatState: qa.repeatState,
+            reminderDraft: canPersistReminder ? { ...qa.reminderDraft } : null,
             contents: taskLines,
         };
+        if (hasReminderDraft && !canPersistReminder) {
+            hint('⚠ 番茄钟提醒桥接未就绪，任务将创建但提醒不会写入', 'warning');
+        }
         window.tmQuickAddClose?.();
         state.quickAddSubmitting = false;
         (async () => {
@@ -5079,6 +5185,7 @@
                     if (!String(targetDocId || '').trim()) throw new Error('获取日记文档失败');
                 }
                 const createdTaskIds = [];
+                let reminderTaskId = '';
                 const createTaskInDoc = globalThis.__tmRequireTaskOutbox?.('createTaskInDoc');
                 if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
                 const insertOptions = await __tmResolveDefaultNewTaskInsertOptions(targetDocId, payload.docMode, { contentCount: payload.contents.length });
@@ -5094,26 +5201,80 @@
                         customFieldValues: payload.customFieldValues,
                         startDate: payload.startDate,
                         completionTime: payload.completionTime,
+                        repeatRule: payload.repeatRule,
+                        repeatState: payload.repeatState,
                         ...createInsertOptions,
-                        wait: false,
+                        wait: payload.reminderDraft ? true : false,
                         skipOptimisticMainRefresh: true,
                         skipOptimisticFilterWork: true,
                         onError: (err) => {
                             hint(`❌ 创建失败: ${err?.message || err || '未知错误'}`, 'error');
                         },
-                    }).then((createdTaskId) => {
+                    }).then(async (createdTaskId) => {
                     if (createdTaskId) {
                         createdTaskIds.push(createdTaskId);
+                        if (payload.reminderDraft) {
+                            reminderTaskId = await __tmWaitForQuickAddRealTaskId(createdTaskId);
+                        }
                         if (headingPatch) __tmApplyHeadingPatchToTaskLocal(createdTaskId, headingPatch, 'quick-add-default-heading');
                     }
                     })));
                 __tmRefreshAfterOptimisticTaskCreate(createdTaskIds, 'quick-add-batch-create');
                 hint(payload.contents.length > 1 ? `✅ 已创建 ${payload.contents.length} 个任务` : '✅ 任务已创建', 'success');
-                const createdTaskId = createdTaskIds[0] || '';
-                if (payload.openReminderAfterCreate && createdTaskId) {
-                    setTimeout(() => {
-                        try { window.tmReminder?.(createdTaskId); } catch (e) {}
-                    }, 80);
+                const createdTaskId = reminderTaskId || '';
+                if (payload.reminderDraft && createdTaskId) {
+                    const draft = {
+                        ...payload.reminderDraft,
+                        blockName: payload.contents[0],
+                    };
+                    let followsTask = false;
+                    try {
+                        followsTask = typeof __tmGetReminderRepeatMode === 'function'
+                            ? __tmGetReminderRepeatMode(draft) === __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK
+                            : (draft.repeatMode === 'followTaskRepeat' || draft.repeatMode === 'follow-task');
+                    } catch (e) {
+                        followsTask = draft.repeatMode === 'followTaskRepeat' || draft.repeatMode === 'follow-task';
+                    }
+                    if (followsTask && !payload.completionTime) {
+                        hint('⚠ 任务已创建，但跟随任务提醒需要先设置截止日期', 'warning');
+                        return;
+                    }
+                    if (followsTask) {
+                        const outbox = globalThis.__tmTaskHorizonOutbox || globalThis.__tmTaskOutbox;
+                        if (typeof outbox?.waitForTaskWrites !== 'function') {
+                            hint('⚠ 任务已创建，但任务字段写入屏障未就绪，提醒未写入', 'warning');
+                            return;
+                        }
+                        const writeBarrier = await outbox.waitForTaskWrites(createdTaskId, {
+                            types: ['attrPatch'],
+                            expected: {
+                                startDate: payload.startDate,
+                                completionTime: payload.completionTime,
+                                repeatRule: payload.repeatRule,
+                            },
+                            timeoutMs: 4000,
+                        });
+                        if (!writeBarrier?.ok) {
+                            hint('⚠ 任务已创建，但任务日期/循环字段仍未确认，提醒未写入', 'warning');
+                            return;
+                        }
+                    }
+                    try {
+                        const result = await reminderBridge.upsertDraft(createdTaskId, {
+                            ...draft,
+                            completionTime: followsTask ? payload.completionTime : draft.completionTime,
+                        }, {
+                            overwrite: true,
+                            source: 'task-horizon-quick-add-draft',
+                        });
+                        if (!result?.ok) {
+                            hint(`⚠ 任务已创建，但提醒写入失败: ${result?.message || '请稍后补设'}`, 'warning');
+                        }
+                    } catch (e) {
+                        hint(`⚠ 任务已创建，但提醒写入失败: ${e?.message || e || '请稍后补设'}`, 'warning');
+                    }
+                } else if (hasReminderDraft) {
+                    hint('⚠ 任务已创建，但等待真实任务 ID 超时，提醒未写入', 'warning');
                 }
             } catch (e) {
                 hint(`❌ 创建失败: ${e.message}`, 'error');

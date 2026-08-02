@@ -151,7 +151,13 @@ return;
             const ganttBody = prevModalSnapshot.querySelector('#tmGanttBody');
             const timelineScrollHost = __tmGetTimelineGlobalScrollHost(prevModalSnapshot);
             if (timelineScrollHost) {
-                savedTimelineScrollTop = Number(timelineScrollHost.scrollTop) || 0;
+                const timelineSidebarOverlay = prevModalSnapshot.querySelector('.tm-timeline-sidebar-overlay');
+                const timelineSidebarVisible = !!(timelineSidebarOverlay
+                    && !timelineSidebarOverlay.classList.contains('tm-timeline-sidebar-overlay--hidden'));
+                const timelineSidebarTop = Number(timelineLeftBody?.scrollTop);
+                savedTimelineScrollTop = (timelineSidebarVisible && Number.isFinite(timelineSidebarTop))
+                    ? Math.max(0, timelineSidebarTop)
+                    : (Number(timelineScrollHost.scrollTop) || 0);
                 savedTimelineScrollLeft = Number(timelineScrollHost.scrollLeft) || 0;
             } else if (timelineLeftBody) {
                 savedTimelineScrollTop = timelineLeftBody.scrollTop;
@@ -2317,7 +2323,7 @@ return;
                 try { __tmBindTimelineLeftCollapseInteractions(leftBody); } catch (e) {}
 
                 if (useGlobalScroll) {
-                    try { if (leftBody) leftBody.scrollTop = 0; } catch (e) {}
+                    try { if (leftBody) leftBody.scrollTop = desiredTop; } catch (e) {}
                     try {
                         if (ganttBody) {
                             ganttBody.scrollTop = 0;
@@ -2387,6 +2393,7 @@ return;
                                 throw error;
                             }
                         },
+                        onUpdateGroupDates: __tmUpdateTimelineGroupDates,
                         onUpdateTaskMeta: async (taskId, patch) => {
                             const id = String(taskId || '').trim();
                             if (!id || !patch || typeof patch !== 'object') return;
@@ -2442,7 +2449,7 @@ return;
                     const deferredAnchoredLeft = __tmResolveAndConsumeTimelineDateAnchor(state.modal);
                     if (Number.isFinite(deferredAnchoredLeft)) timelineRestoreLeft = deferredAnchoredLeft;
                     if (useGlobalScroll) {
-                        try { if (leftBody) leftBody.scrollTop = 0; } catch (e) {}
+                        try { if (leftBody) leftBody.scrollTop = desiredTop; } catch (e) {}
                         try {
                             if (ganttBody) {
                                 ganttBody.scrollTop = 0;
@@ -5225,7 +5232,7 @@ return;
         const scrollThreshold = 4;
         const longPressIntentThreshold = 4;
         const axisLockRatio = 0.75;
-        const longPressMs = 1000;
+        const longPressMs = 500;
         const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
         const isMouseLikePointer = pointerType === 'mouse' || (!pointerType && !__tmIsRuntimeMobileClient());
         const longPressMoveTolerance = isMouseLikePointer
@@ -6591,6 +6598,15 @@ return;
             modal.querySelectorAll('[data-tm-timeline-zoom="in"]').forEach((button) => {
                 button.disabled = !scaleState.canZoomIn;
             });
+            const cardFieldsHidden = state.timelineCardFieldsHidden === true;
+            const cardFieldsLabel = cardFieldsHidden ? '显示时间轴卡片字段' : '隐藏时间轴卡片字段';
+            modal.querySelectorAll('[data-tm-timeline-card-fields-toggle]').forEach((button) => {
+                button.setAttribute('aria-pressed', cardFieldsHidden ? 'true' : 'false');
+                button.setAttribute('aria-label', cardFieldsLabel);
+                __tmApplyTooltipAttrsToElement(button, cardFieldsLabel, { side: 'bottom' });
+                const icon = button.querySelector('.tm-timeline-toolbar-icon');
+                if (icon) icon.innerHTML = __tmPhosphorBoldSvg(cardFieldsHidden ? 'eye-slash' : 'eye', { size: 14, className: 'tm-timeline-toolbar-icon__svg' });
+            });
         } catch (e) {
             return false;
         }
@@ -6641,6 +6657,16 @@ return;
         __tmRerenderTimelineScaleInPlace();
     };
 
+    window.tmTimelineToggleCardFields = function(event) {
+        try { event?.stopPropagation?.(); } catch (e) {}
+        state.timelineCardFieldsHidden = state.timelineCardFieldsHidden !== true;
+        const rendered = state.viewMode === 'timeline'
+            && typeof __tmRerenderTimelineInPlace === 'function'
+            && __tmRerenderTimelineInPlace(state.modal, { reuseLeftRows: true });
+        if (rendered) __tmSyncTimelineToolbarStateInPlace(state.modal);
+        return !!rendered;
+    };
+
     window.tmGanttZoomIn = function() {
         const view = globalThis.__TaskHorizonGanttView;
         const before = view?.resolveScaleState?.(state.ganttView);
@@ -6676,13 +6702,9 @@ return;
             const maxDayCount = Math.max(1, Number(view?.TIMELINE_MAX_DAY_COUNT) || 397);
             if (typeof startOfDayTs !== 'function' || typeof computeRangeTs !== 'function' || typeof view?.fitScale !== 'function') return false;
             const rowModel = __tmBuildTaskRowModel();
-            const tasks = [];
-            for (const r of rowModel) {
-                if (r?.type !== 'task') continue;
-                const t = globalThis.__tmRuntimeState?.getFlatTaskById?.(String(r.id)) || state.flatTasks?.[String(r.id)];
-                if (!t) continue;
-                tasks.push(t);
-            }
+            const tasks = typeof view?.collectRangeItems === 'function'
+                ? view.collectRangeItems(rowModel, (id) => globalThis.__tmRuntimeState?.getFlatTaskById?.(String(id)) || state.flatTasks?.[String(id)])
+                : [];
             const paddingDays = Math.max(0, Number(state.ganttView?.paddingDays) || 0);
             const range = computeRangeTs(tasks, paddingDays, { extraFutureMonths: 0 });
             const startTs = startOfDayTs(range?.startTs);
@@ -6737,22 +6759,11 @@ return;
         }));
     };
 
-    window.tmGanttFocusTask = function(taskId) {
+    function __tmFocusGanttRange(entityId, firstTs, lastTs, rowSelector) {
         if (state.viewMode !== 'timeline') return false;
-        const id = String(taskId || '').trim();
+        const id = String(entityId || '').trim();
         const view = globalThis.__TaskHorizonGanttView;
-        const task = id
-            ? (globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-                || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)
-                || state.flatTasks?.[id]
-                || state.pendingInsertedTasks?.[id])
-            : null;
-        const taskStartTs = Number(view?.parseDateOnlyToTs?.(task?.startDate));
-        const taskEndTs = Number(view?.parseDateOnlyToTs?.(task?.completionTime));
-        const firstTs = Math.min(taskStartTs || taskEndTs, taskEndTs || taskStartTs);
-        const lastTs = Math.max(taskStartTs || taskEndTs, taskEndTs || taskStartTs);
-        if (!task || !Number.isFinite(firstTs) || !Number.isFinite(lastTs) || !firstTs || !lastTs) return false;
-
+        if (!id || !Number.isFinite(firstTs) || !Number.isFinite(lastTs) || !firstTs || !lastTs) return false;
         const modal = state.modal;
         const body = modal?.querySelector?.('#tmGanttBody');
         if (!(body instanceof HTMLElement)) return false;
@@ -6768,16 +6779,16 @@ return;
         const viewportWidth = Math.max(0, Number(scrollHost.clientWidth) || 0);
         if (viewportWidth <= 0) return false;
 
-        const row = body.querySelector(`.tm-gantt-row[data-id="${CSS.escape(id)}"]`);
+        const row = body.querySelector(rowSelector);
         const bar = row?.querySelector?.('.tm-gantt-bar');
         const barLeft = Number.parseFloat(String(bar?.style?.left || ''));
         const barWidth = Number.parseFloat(String(bar?.style?.width || ''));
-        const taskCenterTs = firstTs + ((lastTs - firstTs + 86400000) / 2);
-        const taskCenterX = Number.isFinite(barLeft) && Number.isFinite(barWidth) && barWidth > 0
+        const rangeCenterTs = firstTs + ((lastTs - firstTs + 86400000) / 2);
+        const rangeCenterX = Number.isFinite(barLeft) && Number.isFinite(barWidth) && barWidth > 0
             ? barLeft + (barWidth / 2)
-            : ((taskCenterTs - renderStartTs) / 86400000) * dayWidth;
+            : ((rangeCenterTs - renderStartTs) / 86400000) * dayWidth;
         const maxLeft = Math.max(0, leftPaneWidth + totalWidth - viewportWidth);
-        const targetLeft = Math.max(0, Math.min(maxLeft, Math.round(leftPaneWidth + taskCenterX - viewportWidth * 0.5)));
+        const targetLeft = Math.max(0, Math.min(maxLeft, Math.round(leftPaneWidth + rangeCenterX - viewportWidth * 0.5)));
         const renderEndTs = renderStartTs + dayCount * 86400000;
         const outsideRenderRange = lastTs < renderStartTs || firstTs >= renderEndTs;
         const rebaseMargin = Math.min(viewportWidth, Math.max(96, maxLeft / 3));
@@ -6785,8 +6796,8 @@ return;
 
         if (outsideRenderRange || nearRenderedEdge) {
             if (typeof view?.centerRangeOnDate !== 'function') return false;
-            view.centerRangeOnDate(state.ganttView, taskCenterTs, 0.5);
-            state.ganttView.pendingAnchor = { dateTs: taskCenterTs, ratio: 0.5 };
+            view.centerRangeOnDate(state.ganttView, rangeCenterTs, 0.5);
+            state.ganttView.pendingAnchor = { dateTs: rangeCenterTs, ratio: 0.5 };
             const renderedInPlace = typeof __tmRerenderTimelineInPlace === 'function'
                 ? __tmRerenderTimelineInPlace(modal, { reuseLeftRows: true })
                 : false;
@@ -6800,6 +6811,50 @@ return;
             scrollHost.scrollLeft = targetLeft;
         }
         return true;
+    }
+
+    window.tmGanttFocusTask = function(taskId) {
+        const id = String(taskId || '').trim();
+        const view = globalThis.__TaskHorizonGanttView;
+        const task = id
+            ? (globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)
+                || state.flatTasks?.[id]
+                || state.pendingInsertedTasks?.[id])
+            : null;
+        const startTs = Number(view?.parseDateOnlyToTs?.(task?.startDate));
+        const endTs = Number(view?.parseDateOnlyToTs?.(task?.completionTime));
+        return task ? __tmFocusGanttRange(
+            id,
+            Math.min(startTs || endTs, endTs || startTs),
+            Math.max(startTs || endTs, endTs || startTs),
+            `.tm-gantt-row[data-id="${CSS.escape(id)}"]`
+        ) : false;
+    };
+
+    window.tmGanttFocusGroup = function(entityKind, entityId) {
+        const kind = String(entityKind || '').trim();
+        const id = String(entityId || '').trim();
+        if (!['doc', 'heading'].includes(kind) || !id) return false;
+        const view = globalThis.__TaskHorizonGanttView;
+        const timeline = __tmBuildTimelineRangeMeta(id);
+        if (timeline.state === 'invalid') return false;
+        const startTs = Number(view?.parseDateOnlyToTs?.(timeline.startDate));
+        const endTs = Number(view?.parseDateOnlyToTs?.(timeline.deadline));
+        return __tmFocusGanttRange(
+            id,
+            Math.min(startTs || endTs, endTs || startTs),
+            Math.max(startTs || endTs, endTs || startTs),
+            `.tm-gantt-row[data-tm-entity-kind="${CSS.escape(kind)}"][data-entity-id="${CSS.escape(id)}"]`
+        );
+    };
+
+    window.tmGanttFocusDoc = function(docId) {
+        return window.tmGanttFocusGroup('doc', docId);
+    };
+
+    window.tmGanttFocusHeading = function(headingId) {
+        return window.tmGanttFocusGroup('heading', headingId);
     };
 
     window.tmGanttToday = function() {

@@ -1159,9 +1159,9 @@
             } catch (e) {}
             return rawId;
         };
-        const hideReminder = opts.hideReminder === true || draftMode;
+        const hideReminder = opts.hideReminder === true;
         const hideSchedule = opts.hideSchedule === true || draftMode;
-        const hideRepeat = opts.hideRepeat === true || draftMode;
+        const hideRepeat = opts.hideRepeat === true;
         const scheduleTabLabel = String(opts.scheduleTabLabel || '日程').trim() || '日程';
 
         const todayKey = __tmNormalizeDateOnly(new Date());
@@ -1194,6 +1194,26 @@
             task = {
                 ...(task || {}),
                 ...(Object.prototype.hasOwnProperty.call(patch, 'startDate') ? { startDate: normalizeDate(patch.startDate), start_date: normalizeDate(patch.startDate) } : {}),
+                ...(Object.prototype.hasOwnProperty.call(patch, 'completionTime') ? { completionTime: normalizeDate(patch.completionTime), completion_time: normalizeDate(patch.completionTime) } : {}),
+            };
+        };
+        const writeTaskRepeatLocal = (patch = {}) => {
+            if (!Object.prototype.hasOwnProperty.call(patch, 'repeatRule') && !Object.prototype.hasOwnProperty.call(patch, 'repeatState')) return;
+            const nextRule = Object.prototype.hasOwnProperty.call(patch, 'repeatRule')
+                ? __tmNormalizeTaskRepeatRule(patch.repeatRule, {
+                    startDate: readTaskDate('startDate'),
+                    completionTime: readTaskDate('completionTime'),
+                })
+                : __tmGetTaskRepeatRule(task || {});
+            const nextState = Object.prototype.hasOwnProperty.call(patch, 'repeatState')
+                ? __tmNormalizeTaskRepeatState(patch.repeatState)
+                : __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state);
+            task = {
+                ...(task || {}),
+                repeatRule: nextRule,
+                repeat_rule: nextRule,
+                repeatState: nextState,
+                repeat_state: nextState,
                 ...(Object.prototype.hasOwnProperty.call(patch, 'completionTime') ? { completionTime: normalizeDate(patch.completionTime), completion_time: normalizeDate(patch.completionTime) } : {}),
             };
         };
@@ -1245,11 +1265,39 @@
             try { return __tmPeekTaskReminderSnapshotByAnyId(task || { id: getEffectiveTaskId() || taskId }); } catch (e) { return null; }
         };
         const readReminderValue = () => {
+            if (draftMode && typeof opts.getReminderDraft === 'function') {
+                try { return !!opts.getReminderDraft({ task }); } catch (e) { return false; }
+            }
             const snap = readReminderSnapshot();
             try { return !!(snap?.hasReminder === true || __tmHasReminderMark(task || { id: getEffectiveTaskId() || taskId })); } catch (e) {}
             return snap?.hasReminder === true;
         };
-        const readReminderDisplayValue = () => __tmFormatTaskDetailReminderText(task, readReminderSnapshot());
+        const readReminderDisplayValue = () => {
+            if (draftMode) {
+                if (!readReminderValue()) return '';
+                return String(opts.reminderDraftLabel || '提交后设置').trim() || '提交后设置';
+            }
+            return __tmFormatTaskDetailReminderText(task, readReminderSnapshot());
+        };
+        const reminderDisabled = () => {
+            try {
+                return typeof opts.isReminderDisabled === 'function'
+                    ? opts.isReminderDisabled({ task }) === true
+                    : opts.reminderDisabled === true;
+            } catch (e) {
+                return true;
+            }
+        };
+        const reminderDisabledReason = () => {
+            try {
+                const value = typeof opts.getReminderDisabledReason === 'function'
+                    ? opts.getReminderDisabledReason({ task })
+                    : opts.reminderDisabledReason;
+                return String(value || '提醒暂不可用').trim() || '提醒暂不可用';
+            } catch (e) {
+                return '提醒暂不可用';
+            }
+        };
         const sortDateRange = (left, right) => {
             const a = normalizeDate(left);
             const b = normalizeDate(right);
@@ -1490,10 +1538,12 @@
             if (!cards.length) return '';
             return cards.map(([key, icon, label, value, isStatic]) => {
                 const tag = isStatic ? 'div' : 'button';
-                const stateClass = isStatic ? 'is-static' : `${hubState.editor === key ? 'is-active' : ''} ${disabled ? 'is-disabled' : ''}`;
+                const cardDisabled = disabled || (key === 'reminder' && reminderDisabled());
+                const stateClass = isStatic ? 'is-static' : `${hubState.editor === key ? 'is-active' : ''} ${cardDisabled ? 'is-disabled' : ''}`;
+                const disabledTitle = key === 'reminder' && cardDisabled && reminderDisabled() ? ` title="${esc(reminderDisabledReason())}"` : '';
                 const attributes = isStatic
                     ? ' role="status"'
-                    : ` type="button" data-tm-time-hub-card="${key}"${disabled ? ' disabled aria-disabled="true"' : ''}`;
+                    : ` type="button" data-tm-time-hub-card="${key}"${cardDisabled ? ' disabled aria-disabled="true"' : ''}${disabledTitle}`;
                 return `
                 <${tag} class="tm-task-time-hub__setting ${stateClass}"${attributes}>
                     <span class="tm-task-time-hub__setting-icon">${__tmTaskDetailTimeHubIcon(icon, 'tm-task-time-hub__icon-svg', 16)}</span>
@@ -1673,11 +1723,52 @@
             hubState.activeField = 'completionTime';
             render();
         };
+        const applyDraftRepeatRule = async (ruleInput, source = 'task-time-hub-repeat') => {
+            const candidate = {
+                ...(task || {}),
+                startDate: readTaskDate('startDate'),
+                completionTime: readTaskDate('completionTime'),
+            };
+            let patch = null;
+            try {
+                patch = typeof __tmBuildTaskRepeatRuleMetaPatch === 'function'
+                    ? __tmBuildTaskRepeatRuleMetaPatch(candidate, ruleInput)
+                    : {
+                        repeatRule: __tmNormalizeTaskRepeatRule(ruleInput, candidate),
+                        repeatState: __tmNormalizeTaskRepeatState(candidate.repeatState),
+                    };
+            } catch (e) {
+                hint(`❌ 循环设置失败: ${e.message || e}`, 'error');
+                return null;
+            }
+            writeTaskRepeatLocal(patch || {});
+            await notifyChange(patch || {}, { kind: 'repeat', draft: true, source });
+            hubState.editor = '';
+            render();
+            return patch;
+        };
         const applyRepeatType = async (type) => {
             if (hideRepeat) return;
             const rawType = String(type || '').trim();
             const nextType = rawType === 'lunar-monthly' ? 'monthly' : (rawType === 'lunar-yearly' ? 'yearly' : rawType);
             const nextCalendarMode = (rawType === 'lunar-monthly' || rawType === 'lunar-yearly') ? 'lunar' : 'solar';
+            if (draftMode) {
+                const current = getRepeatRule();
+                const anchorDate = readTaskDate('completionTime') || readTaskDate('startDate') || todayKey;
+                const nextRule = !nextType || nextType === 'none'
+                    ? { ...current, enabled: false, type: 'none', until: '', maxOccurrences: 0 }
+                    : {
+                        ...current,
+                        enabled: true,
+                        type: nextType,
+                        calendarMode: nextCalendarMode,
+                        every: current?.type === nextType && (String(current?.calendarMode || '').trim() || 'solar') === nextCalendarMode ? current.every : 1,
+                        anchorDate,
+                        trigger: current?.trigger || 'due',
+                    };
+                await applyDraftRepeatRule(nextRule, 'task-time-hub');
+                return;
+            }
             try {
                 setBusy(true);
                 if (!nextType || nextType === 'none') {
@@ -1717,6 +1808,15 @@
             const maxOccurrences = mode === 'count' ? (__tmNormalizeTaskRepeatMaxOccurrences(valueInput) || 1) : 0;
             if (mode === 'date' && !until) {
                 hint('⚠ 请选择循环结束日期', 'warning');
+                return;
+            }
+            if (draftMode) {
+                await applyDraftRepeatRule({
+                    ...current,
+                    until,
+                    maxOccurrences,
+                    anchorDate: readTaskDate('completionTime') || readTaskDate('startDate') || todayKey,
+                }, 'task-time-hub-until');
                 return;
             }
             try {
@@ -1877,6 +1977,11 @@
                 if (cardBtn.disabled || cardBtn.getAttribute('aria-disabled') === 'true') return;
                 const key = String(cardBtn.getAttribute('data-tm-time-hub-card') || '').trim();
                 if (key === 'reminder') {
+                    if (draftMode && typeof opts.onReminderDraftToggle === 'function') {
+                        await opts.onReminderDraftToggle({ enabled: readReminderValue(), task });
+                        render();
+                        return;
+                    }
                     try { await window.tmReminder?.(getEffectiveTaskId() || taskId); } finally {
                         await refreshTask();
                         await notifyChange({}, { kind: 'reminder' });
@@ -1900,6 +2005,12 @@
             const reminderBtn = target.closest('[data-tm-time-hub-reminder-open]');
             if (reminderBtn) {
                 try { ev.preventDefault(); } catch (e) {}
+                if (draftMode && typeof opts.onReminderDraftToggle === 'function') {
+                    await opts.onReminderDraftToggle({ enabled: readReminderValue(), task });
+                    hubState.editor = '';
+                    render();
+                    return;
+                }
                 try { await window.tmReminder?.(getEffectiveTaskId() || taskId); } finally {
                     await refreshTask();
                     await notifyChange({}, { kind: 'reminder' });
@@ -1916,6 +2027,20 @@
             const customRepeatBtn = target.closest('[data-tm-time-hub-repeat-custom]');
             if (customRepeatBtn) {
                 try { ev.preventDefault(); } catch (e) {}
+                if (draftMode) {
+                    if (typeof opts.onRepeatCustom === 'function') {
+                        const result = await opts.onRepeatCustom({ task, rule: getRepeatRule() });
+                        if (result) await applyDraftRepeatRule(result, 'task-time-hub-custom');
+                    } else {
+                        const result = await window.tmEditTaskRepeatRule?.(getEffectiveTaskId() || taskId, {
+                            task,
+                            draft: true,
+                            title: '循环设置',
+                        });
+                        if (result) await applyDraftRepeatRule(result, 'task-time-hub-custom');
+                    }
+                    return;
+                }
                 const result = await window.tmEditTaskRepeatRule?.(getEffectiveTaskId() || taskId, { task, title: '循环设置' });
                 if (result) {
                     await refreshTask();

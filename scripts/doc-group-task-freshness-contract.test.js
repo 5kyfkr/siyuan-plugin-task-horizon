@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '..');
 const apiRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/20-api-and-runtime-services.js'), 'utf8');
 const dialogRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
 
-assert.match(apiRuntime, /async getTaskFreshnessByDocuments\(docIds\)[\s\S]*?d\.updated AS doc_updated[\s\S]*?COUNT\(\*\) AS task_count[\s\S]*?MAX\(t\.updated\) AS task_updated/, 'task freshness must use a compact aggregate query');
+assert.match(apiRuntime, /async getTaskFreshnessByDocuments\(docIds\)[\s\S]*?d\.updated AS doc_updated[\s\S]*?COUNT\(DISTINCT t\.id\) AS task_count[\s\S]*?MAX\(t\.updated\) AS task_updated/, 'task freshness must count logical task IDs in its compact aggregate query');
 assert.match(dialogRuntime, /async function __tmProbeCurrentGroupTaskFreshness\(\)[\s\S]*?API\.getTaskFreshnessByDocuments\(docIds\)[\s\S]*?changedDocIds/, 'group switching must compare the rendered snapshot with live task freshness');
 assert.match(dialogRuntime, /status: 'unknown',[\s\S]*?unavailable: true/, 'an unavailable freshness probe must return an explicit unknown state');
 assert.match(dialogRuntime, /freshnessStatus === 'unchanged'[\s\S]*?__tmDocGroupFreshnessFallbackAtByGroup[\s\S]*?now - lastFallbackAt < 60000/, 'unknown freshness must use a per-group cooldown instead of being treated as unchanged');

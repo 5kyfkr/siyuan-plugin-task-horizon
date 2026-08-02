@@ -586,9 +586,8 @@
         '.tm-whiteboard-stream-task-node[data-task-id]',
         '.tm-whiteboard-pool-item[data-task-id]',
     ].join(',');
-    const CALENDAR_EXTERNAL_DRAG_CUSTOM_TOUCH_SOURCE_SELECTOR = '.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]';
+    const CALENDAR_EXTERNAL_DRAG_CUSTOM_TOUCH_SOURCE_SELECTOR = '.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id]';
     const CALENDAR_EXTERNAL_DRAG_MOBILE_ITEM_SELECTOR = [
-        '#tmTimelineLeftTable tbody tr[data-id]',
         '.tm-cal-task[data-task-id]:not(.tm-checklist-item)',
         '.tm-kanban-card[data-id]',
         '.tm-whiteboard-stream-task-head[data-task-id]',

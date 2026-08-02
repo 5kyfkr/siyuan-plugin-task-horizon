@@ -14,6 +14,7 @@ const runtimeServices = read('src/task-horizon/main/20-api-and-runtime-services.
 const stores = read('src/task-horizon/main/10-stores-rules-and-cache.js');
 const taskLoader = read('src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js');
 const taskCreateRuntime = read('src/task-horizon/main/task-runtime/53b-task-create-and-quick-add-runtime.js');
+const checklistRenderer = read('src/task-horizon/main/render/42-render-list-and-checklist-body.js');
 const kanbanRenderer = read('src/task-horizon/main/render/43-render-timeline-kanban-calendar-body.js');
 const styles = read('task-horizon.css');
 
@@ -71,6 +72,10 @@ assert.doesNotMatch(kanbanRenderer, /data-tm-kanban-(?:expanded-(?:width|min-wid
 assert.doesNotMatch(kanbanRenderer, /__tmKanbanGetCollapsedColumnSet\(\)\.has\(columnKey\)/, 'progressive loading must finish a mounted column even while it is hidden');
 assert.match(styles, /\[data-tm-kanban-column-expanded-content\]\[hidden\][\s\S]*display: none !important;/, 'mounted kanban alternatives must honor hidden even when component display rules are more specific');
 assert.equal((styles.match(/^\s*width: var\(--tm-kanban-collapsed-col-width\)/gm) || []).length, 1, 'collapsed column width must have a single CSS source of truth');
+assert.match(checklistRenderer, /const indent = checklistCompact \? depth \* 14 : depth \* 22;/, 'compact checklist hierarchy must keep its 14px indent reference');
+assert.match(styles, /\.tm-kanban\.tm-kanban--clean\s*\{\s*--tm-kanban-subtask-indent:\s*14px;/, 'kanban subtasks must use the compact checklist hierarchy distance without changing whiteboard spacing');
+assert.equal((styles.match(/padding:\s*[45]px 2px [45]px var\(--tm-kanban-subtask-indent\);/g) || []).length, 2, 'regular and compact kanban subtask rows must share the hierarchy indent token');
+assert.match(styles, /\.tm-kanban\.tm-kanban--clean \.tm-kanban-subtask-row-main\s*\{\s*align-items:\s*center;/, 'kanban subtask contents must be vertically centered without changing whiteboard alignment');
 assert.match(
     styles,
     /\.tm-modal\.tm-modal--mobile \.tm-body\.tm-body--kanban \.tm-kanban-col:not\(\.tm-kanban-col--collapsed\)[\s\S]*\[data-tm-host-mode="dock"\] \.tm-body\.tm-body--kanban \.tm-kanban-col:not\(\.tm-kanban-col--collapsed\)/,

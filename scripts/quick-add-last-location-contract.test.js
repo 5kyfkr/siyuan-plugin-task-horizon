@@ -58,6 +58,35 @@ const resolveInitial = (data, lastLocation, fallbackDocId) => vm.runInNewContext
     }
 );
 
+const updateNewTaskDocIdSource = extractFunction(actions, 'window.updateNewTaskDocId = async function');
+async function runUpdateNewTaskDocId(data, value, mounted = true) {
+    const loadCalls = [];
+    const modal = {};
+    const context = {
+        window: {},
+        SettingsStore: {
+            data: { ...data },
+            save: async () => {},
+        },
+        state: { modal },
+        document: {
+            body: {
+                contains: (element) => mounted && element === modal,
+            },
+        },
+        loadSelectedDocuments: async (options) => loadCalls.push(plain(options)),
+    };
+    vm.runInNewContext(`${updateNewTaskDocIdSource};`, context);
+    await context.window.updateNewTaskDocId(value, {
+        refreshQuickAdd: false,
+        refreshPicker: false,
+    });
+    return {
+        data: plain(context.SettingsStore.data),
+        loadCalls,
+    };
+}
+
 (async () => {
     assert.deepEqual(
         plain(await resolveInitial({ newTaskDocId: '__dailyNote__', newTaskDefaultLocationMode: 'configured' }, null, 'doc-fallback')),
@@ -75,6 +104,35 @@ const resolveInitial = (data, lastLocation, fallbackDocId) => vm.runInNewContext
         plain(await resolveInitial({ newTaskDocId: 'doc-fixed', newTaskDefaultLocationMode: 'lastSelected' }, null, 'doc-fixed')),
         { mode: 'doc', docId: 'doc-fixed' }
     );
+
+    const changedDoc = await runUpdateNewTaskDocId({ newTaskDocId: 'doc-old' }, 'doc-new');
+    assert.equal(changedDoc.data.newTaskDocId, 'doc-new');
+    assert.deepEqual(changedDoc.loadCalls, [{
+        forceRefreshScope: true,
+        showInlineLoading: false,
+        source: 'new-task-doc-change',
+    }]);
+
+    const unchangedDoc = await runUpdateNewTaskDocId({ newTaskDocId: 'doc-fixed' }, ' doc-fixed ');
+    assert.equal(unchangedDoc.loadCalls.length, 0);
+
+    const lastSelected = await runUpdateNewTaskDocId({ newTaskDocId: 'doc-fixed' }, '__lastSelected__');
+    assert.equal(lastSelected.data.newTaskDocId, 'doc-fixed');
+    assert.equal(lastSelected.data.newTaskDefaultLocationMode, 'lastSelected');
+    assert.equal(lastSelected.loadCalls.length, 0);
+
+    const dailyNote = await runUpdateNewTaskDocId({ newTaskDocId: 'doc-old' }, '__dailyNote__');
+    assert.equal(dailyNote.data.newTaskDocId, '__dailyNote__');
+    assert.equal(dailyNote.data.newTaskDefaultLocationMode, 'configured');
+    assert.deepEqual(dailyNote.loadCalls, [{
+        forceRefreshScope: true,
+        showInlineLoading: false,
+        source: 'new-task-doc-change',
+    }]);
+
+    const closedManager = await runUpdateNewTaskDocId({ newTaskDocId: 'doc-old' }, 'doc-new', false);
+    assert.equal(closedManager.data.newTaskDocId, 'doc-new');
+    assert.equal(closedManager.loadCalls.length, 0);
 
     assert.match(settings, /<option value="__dailyNote__" style="font-weight:700;"[^>]*>今天日记<\/option>/);
     assert.match(settings, /<option value="__lastSelected__" style="font-weight:700;"[^>]*>上次选择<\/option>/);

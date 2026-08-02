@@ -442,7 +442,9 @@
                     ? `--tm-checklist-compact-indent:${indent}px;`
                     : `margin-left:${indent}px;`;
                 const useDesktopTaskDragLogic = __tmShouldUseDesktopTaskDragLogic();
-                const itemDragAttrs = `draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)"`;
+                const itemDragAttrs = useDesktopTaskDragLogic
+                    ? `draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)"`
+                    : 'draggable="false"';
                 const titleDragAttrs = '';
                 const itemContextMenuAttr = useDesktopTaskDragLogic
                     ? `oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')"`

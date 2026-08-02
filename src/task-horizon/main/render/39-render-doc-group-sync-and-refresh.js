@@ -1007,6 +1007,14 @@ state.openToken = (Number(state.openToken) || 0) + 1;
             } else if (writeProtectionTouched) {
                 try { applyFilters(); } catch (e) {}
             }
+            if (!silent && mode === 'timeline' && state.groupByDocName) {
+                try {
+                    const groupEntityIds = __tmBuildTaskRowModel()
+                        .map((row) => __tmGetTimelineGroupEntity(row)?.entityId || '')
+                        .filter(Boolean);
+                    await __tmLoadDocExpectedMetaBatch(groupEntityIds, true);
+                } catch (e) {}
+            }
             try {
                 await __tmSyncRemoteCollapsedSessionStateIfNeeded({
                     forceRemote: syncedServerState === true,

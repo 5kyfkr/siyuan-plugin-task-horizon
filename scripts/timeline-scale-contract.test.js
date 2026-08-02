@@ -11,16 +11,19 @@ const render = read('src/task-horizon/main/40-render-runtime.js');
 const viewHostPolicies = read('src/task-horizon/main/31-view-host-policies.js');
 const scene = read('src/task-horizon/main/render/41-render-scene-context.js');
 const body = read('src/task-horizon/main/render/43-render-timeline-kanban-calendar-body.js');
+const checklistBody = read('src/task-horizon/main/render/42-render-list-and-checklist-body.js');
 const localTaskTimeRefresh = read('src/task-horizon/main/render/46-render-local-task-time-refresh.js');
 const resizeControls = read('src/task-horizon/main/render/45-render-shell-controls-and-resize.js');
 const interactions = read('src/task-horizon/main/render/49-render-whiteboard-interactions.js');
 const services = read('src/task-horizon/main/20-api-and-runtime-services.js');
+const refreshRuntime = read('src/task-horizon/main/render/39-render-doc-group-sync-and-refresh.js');
 const calendarSupport = read('src/task-horizon/main/render/48-render-calendar-support-runtime.js');
 const taskRuntime = read('src/task-horizon/main/task-runtime/51-whiteboard-and-link-runtime.js');
 const taskDetailLoader = read('src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js');
 const icons = read('src/task-horizon/main/30-dialogs-and-ui-foundation.js');
 const stores = read('src/task-horizon/main/10-stores-rules-and-cache.js');
 const columnSettings = read('src/task-horizon/main/settings/62-settings-columns-and-rules.js');
+const calendarView = read('calendar-view.js');
 const styles = read('task-horizon.css');
 
 const segment = (source, start, end) => {
@@ -43,6 +46,21 @@ assert.match(body, /role="separator"[\s\S]*tabindex="0"[\s\S]*tmTimelineSplitRes
 assert.match(resizeControls, /window\.tmTimelineSplitResizeKeydown[\s\S]*ArrowLeft[\s\S]*ArrowRight[\s\S]*__tmApplyTimelinePaneLayout/, 'keyboard resizing must use the same constrained pane layout');
 assert.match(resizeControls, /function __tmGetTimelinePaneConstraintWidth[\s\S]*tm-modal--dock[\s\S]*tm-modal--mobile[\s\S]*return 0;/, 'Dock and mobile timelines must not inherit the desktop chart-width constraint');
 assert.match(styles, /\.tm-timeline-splitter:focus-visible::before \{[\s\S]*background: var\(--tm-primary-color\);/, 'the keyboard-focusable splitter must use the existing SiYuan focus color');
+assert.match(body, /tm-timeline-scrollbar[\s\S]*tm-timeline-scrollbar-thumb/, 'timeline views must render the floating vertical scrollbar shell');
+assert.match(icons, /function __tmBindTimelineScrollVisibility[\s\S]*__tmGetTimelineGlobalScrollHost\(modal\) \|\| ganttBody[\s\S]*__tmBindVerticalScrollVisibility/, 'timeline scrolling must reuse the existing floating scrollbar binder');
+assert.match(services, /__tmBindTimelineScrollVisibility\(modal\)/, 'timeline stage setup must bind its floating vertical scrollbar');
+const timelineStageInteractions = segment(services, 'function __tmBindTimelineStageInteractions', 'function __tmRerenderTimelineInPlace');
+assert.match(timelineStageInteractions, /syncTimelineTaskHover[\s\S]*#tmTimelineLeftTable tbody tr\[data-id=[\s\S]*#tmGanttBody \.tm-gantt-row\[data-id=[\s\S]*tm-timeline-task-row--hovered/, 'timeline task hover must synchronize the matching table and gantt rows');
+assert.match(timelineStageInteractions, /onTimelinePointerOver[\s\S]*pointerType[\s\S]*touch[\s\S]*onTimelinePointerOut[\s\S]*pointerType[\s\S]*touch/, 'timeline hover synchronization must not create touch hover state');
+assert.match(timelineStageInteractions, /\[leftBody, ganttBody\]\.forEach[\s\S]*bind\(pane, 'pointerover'[\s\S]*bind\(pane, 'pointerout'/, 'timeline hover synchronization must use one delegated pointer binding per pane');
+assert.match(styles, /#tmTimelineLeftTable tbody tr\.tm-timeline-task-row--hovered[\s\S]*background-color: var\(--tm-table-row-hover-bg\)[\s\S]*\.tm-gantt-row\.tm-timeline-task-row--hovered[\s\S]*background: var\(--tm-table-row-hover-bg\)/, 'timeline table and gantt rows must reuse the table-view hover color');
+assert.match(checklistBody, /class="tm-table-scrollbar"><div class="tm-table-scrollbar-thumb"/, 'table view must retain its floating vertical scrollbar shell');
+assert.match(styles, /\.tm-list-pane > \.tm-body\.tm-body--list \{[^}]*scrollbar-gutter: auto;/, 'table view must not reserve a native vertical scrollbar gutter');
+assert.match(styles, /\.tm-body\.tm-body--list::\-webkit-scrollbar \{[^}]*width: 0;[^}]*height: 6px;/, 'table view must hide its native vertical scrollbar while preserving horizontal scrolling');
+assert.match(styles, /\.tm-timeline-right-body \{[^}]*scrollbar-gutter: auto;/, 'desktop timeline view must not reserve a native vertical scrollbar gutter');
+assert.match(styles, /\.tm-timeline-right-body::\-webkit-scrollbar \{[^}]*width: 0;/, 'desktop timeline native vertical scrollbar must not consume horizontal space');
+assert.match(styles, /\.tm-body--timeline-compact \.tm-timeline-scroll-host \{[^}]*scrollbar-gutter: auto;/, 'compact timeline view must not reserve a native vertical scrollbar gutter');
+assert.match(styles, /\.tm-modal\.tm-modal--mobile \.tm-body\.tm-body--timeline-compact,[\s\S]*overflow-y: hidden;[\s\S]*\.tm-modal\.tm-modal--mobile \.tm-body\.tm-body--timeline-compact::\-webkit-scrollbar,[\s\S]*display: none;/, 'compact timeline shells must not become a second visible vertical scroll surface');
 
 assert.match(stores, /__TM_TIMELINE_DEFAULT_COLUMN_ORDER = Object\.freeze\(\['content', 'startDate', 'completionTime'\]\)/, 'timeline columns must retain the current three-column default');
 assert.match(stores, /function __tmNormalizeTimelineColumnOrder[\s\S]*__tmGetKnownColumnKeys\(\)[\s\S]*if \(out\.length\) return out;[\s\S]*__TM_TIMELINE_DEFAULT_COLUMN_ORDER\.filter/, 'timeline column order must deduplicate known columns and recover from an empty configuration');
@@ -129,6 +147,109 @@ assert.match(rangeHelpers, /requestedDays > dayCount[\s\S]*TIMELINE_MAX_DAY_COUN
 assert.match(rangeHelpers, /shiftDays = Math\.max\(28, Math\.round\(dayCount \* 0\.3\)\)/, 'edge navigation must move the existing window instead of growing it');
 assert.match(rangeHelpers, /viewState\.rangeScale = scale[\s\S]*viewState\.rangeStartTs = start[\s\S]*viewState\.rangeEndTs = end/, 'the render window must remain runtime view state');
 
+const collectRangeItemsSource = segment(gantt, 'function collectTimelineRangeItems', 'function setTimelineRange');
+const timelineGroupEntitySource = segment(services, 'function __tmGetTimelineGroupEntity', 'function __tmRenderTimelineRangeGroupRowHtml');
+const getTimelineGroupEntity = new Function('__tmIsOtherBlockTabId', '__tmNormalizeHeadingLevel', 'SettingsStore', `
+    ${timelineGroupEntitySource}
+    return __tmGetTimelineGroupEntity;
+`)(() => false, (value) => String(value || 'h2'), { data: { taskHeadingLevel: 'h2' } });
+const collectRangeItems = new Function('__tmGetTimelineGroupEntity', `${collectRangeItemsSource}; return collectTimelineRangeItems;`)(getTimelineGroupEntity);
+assert.deepEqual(collectRangeItems([
+    { type: 'task', id: 'task-1' },
+    { type: 'group', kind: 'doc', docId: 'doc-range', label: '文档', timelineRange: { state: 'range', startDate: '2026-08-01', deadline: '2026-08-03' } },
+    { type: 'group', kind: 'doc', docId: 'doc-start', label: '文档', timelineRange: { state: 'start', startDate: '2026-08-04', deadline: '' } },
+    { type: 'group', kind: 'heading', headingId: 'ignored-kind', timelineRange: { state: 'range', startDate: '2026-08-01', deadline: '2026-08-02' } },
+    { type: 'group', kind: 'h2', headingId: 'heading-deadline', headingLevel: 'h3', label: '三级标题', timelineRange: { state: 'deadline', startDate: '', deadline: '2026-08-05' } },
+    { type: 'group', kind: 'h2', headingId: '__none__', headingLevel: 'h3', label: '无三级标题', timelineRange: { state: 'range', startDate: '2026-08-01', deadline: '2026-08-05' } },
+    { type: 'group', kind: 'doc', docId: 'doc-invalid', label: '文档', timelineRange: { state: 'invalid', startDate: '2026-08-09', deadline: '2026-08-01' } },
+], (id) => id === 'task-1' ? { id, startDate: '2026-07-31', completionTime: '2026-08-01' } : null), [
+    { id: 'task-1', startDate: '2026-07-31', completionTime: '2026-08-01' },
+    { entityKind: 'doc', entityId: 'doc-range', startDate: '2026-08-01', completionTime: '2026-08-03' },
+    { entityKind: 'doc', entityId: 'doc-start', startDate: '2026-08-04', completionTime: '' },
+    { entityKind: 'heading', entityId: 'heading-deadline', startDate: '', completionTime: '2026-08-05' },
+], 'range collection must include document and real heading dates while ignoring synthetic and invalid groups');
+assert.equal(getTimelineGroupEntity({ type: 'group', kind: 'h2', headingId: '__none__' }), null, 'synthetic no-heading groups must never become persistent timeline entities');
+assert.equal(getTimelineGroupEntity({ type: 'group', kind: 'h2', headingId: 'heading-1', headingLevel: 'h4', label: '标题', timelineRange: {} }).headingLevel, 'h4', 'heading entities must carry the configured heading level');
+
+const timelineRangeMetaSource = segment(services, 'function __tmBuildTimelineRangeMeta', 'function __tmGetTimelineGroupEntity');
+const buildTimelineRangeMeta = new Function('meta', `
+    const __tmGetCachedDocExpectedMeta = () => meta;
+    const __tmNormalizeDocExpectedMeta = (value) => ({ startDate: String(value?.startDate || ''), deadline: String(value?.deadline || '') });
+    const __tmIsDocExpectedRangeInvalid = (value) => !!(value.startDate && value.deadline && value.startDate > value.deadline);
+    ${timelineRangeMetaSource}
+    return __tmBuildTimelineRangeMeta('block');
+`);
+assert.equal(buildTimelineRangeMeta({ startDate: '2026-08-01', deadline: '2026-08-03' }).state, 'range', 'complete group dates must map to a range card');
+assert.equal(buildTimelineRangeMeta({ startDate: '2026-08-01', deadline: '' }).state, 'start', 'a start-only group must map to a start marker');
+assert.equal(buildTimelineRangeMeta({ startDate: '', deadline: '2026-08-03' }).state, 'deadline', 'a deadline-only group must map to a deadline marker');
+assert.equal(buildTimelineRangeMeta({ startDate: '2026-08-03', deadline: '2026-08-01' }).state, 'invalid', 'historical inverted ranges must remain warning-only');
+assert.equal(buildTimelineRangeMeta(null).state, 'empty', 'groups without cached dates must retain the independent group label');
+
+const groupDatePatch = segment(services, 'async function __tmSaveTimelineBlockDatePatch', 'async function __tmSaveDocExpectedMetaPatch');
+assert.match(groupDatePatch, /await __tmLoadDocExpectedMeta\(id\)[\s\S]*__tmIsDocExpectedRangeInvalid\(next\)[\s\S]*TM_INVALID_DOC_DATE_RANGE[\s\S]*setAttrs\(id, attrs\)[\s\S]*__tmRememberDocExpectedMeta\(id, next\)/, 'group date patches must validate the merged range and update both attributes and cache atomically');
+assert.match(services, /function __tmSaveDocExpectedMetaField[\s\S]*__tmSaveTimelineBlockDatePatch\(docId, \{ \[key\]: value \}\)/, 'legacy document context-menu actions must delegate to the atomic block patch');
+assert.match(services, /function __tmScheduleTimelineGroupRangeMetaWarmup[\s\S]*__tmGetTimelineGroupEntity\(row\)[\s\S]*__tmLoadDocExpectedMetaBatch\(ids, force\)[\s\S]*rangeScale = ''[\s\S]*reuseLeftRows: false/, 'missing document and heading metadata must batch once and redraw while preserving the viewport anchor');
+assert.match(services, /const hasExplicitRowModel = Array\.isArray\(opts\.rowModel\);[\s\S]*const requestedRowModel = hasExplicitRowModel \? opts\.rowModel : __tmBuildTaskRowModel\(\);[\s\S]*if \(!hasExplicitRowModel\) state\.__tmTimelineFullRowModel = requestedRowModel;[\s\S]*__tmScheduleTimelineGroupRangeMetaWarmup\(requestedRowModel\)/, 'expanding a document in place must warm newly visible heading metadata while full redraws refresh the cached row model');
+assert.match(refreshRuntime, /!silent && mode === 'timeline' && state\.groupByDocName[\s\S]*__tmGetTimelineGroupEntity\(row\)[\s\S]*__tmLoadDocExpectedMetaBatch\(groupEntityIds, true\)/, 'explicit timeline refresh must force group metadata refresh');
+assert.match(taskRuntime, /kind: 'doc'[\s\S]*timelineRange: __tmBuildTimelineRangeMeta\(docId\)[\s\S]*kind: 'h2'[\s\S]*headingLevel,[\s\S]*timelineRange: __tmBuildTimelineRangeMeta\(headingId\)/, 'document and heading rows must expose the same compact range adapter and configured heading level');
+assert.match(scene, /__tmScheduleTimelineGroupRangeMetaWarmup\(__tmTimelineFullRowModel\)/, 'timeline entry must preheat missing group dates from the full row model');
+assert.match(gantt, /rangeItems = collectTimelineRangeItems\(rangeRowModel, getTaskById\)[\s\S]*resolveTimelineRenderRange\(rangeItems/, 'initial timeline range must use the shared task and group collector');
+assert.match(render, /view\.collectRangeItems\(rowModel,[\s\S]*computeRangeTs\(tasks, paddingDays/, 'fit-range must use the same task and group collector');
+assert.match(gantt, /groupEntity && \['range', 'start', 'deadline'\]\.includes\(timelineState\)\) return ''/, 'a visible group range must replace the collapsed sticky group name');
+assert.match(gantt, /markerClass = isMarker \? ` tm-gantt-group-marker tm-gantt-group-marker--\$\{visual\.state\}`[\s\S]*tm-gantt-bar tm-gantt-bar--group-range/, 'document and heading ranges must share the existing card coordinate geometry');
+const timelineDurationMetaSource = segment(gantt, 'function resolveTimelineDurationMeta', 'function buildTimelineDurationBadgeHtml');
+const resolveTimelineDurationMeta = new Function(`const DAY_MS = 86400000; ${timelineDurationMetaSource}; return resolveTimelineDurationMeta;`)();
+assert.deepEqual(resolveTimelineDurationMeta(0, 0), { days: 1, label: '1', accessibleLabel: '共1天' }, 'same-day cards must display one inclusive day');
+assert.equal(resolveTimelineDurationMeta(0, 86400000).label, '2', 'two occupied date cells must display two days');
+assert.equal(resolveTimelineDurationMeta(0, 29 * 86400000).label, '30', 'thirty days must remain a unitless day count');
+assert.equal(resolveTimelineDurationMeta(0, 30 * 86400000).label, '1个月1天', 'thirty-one days must cross the fixed thirty-day month boundary');
+assert.equal(resolveTimelineDurationMeta(0, 59 * 86400000).label, '2个月', 'exact fixed-month durations must omit a zero-day remainder');
+assert.equal(resolveTimelineDurationMeta(0, 109 * 86400000).label, '3个月20天', 'month labels must retain their remaining days');
+const timelineTaskBarInnerHtml = segment(gantt, 'function buildTimelineTaskBarInnerHtml', 'function buildTimelineTaskBarTitle');
+assert.match(timelineTaskBarInnerHtml, /visual\.isMilestone[\s\S]*__tmRenderLucideIcon\('flag'[\s\S]*buildTimelineDurationBadgeHtml\(layout\?\.startTs, layout\?\.endTs\)/, 'ordinary task cards must replace their leading icon with the always-visible duration badge while milestones retain the flag');
+assert.doesNotMatch(timelineTaskBarInnerHtml, /circle-check-big|blocks/, 'ordinary timeline cards must not retain the obsolete circular lead icons');
+assert.match(gantt, /durationWidth = durationLen[\s\S]*resolveTimelineBarLayout\(layout\?\.width, layout\?\.dayWidth, visual, durationLabel\)/, 'task card layout estimates must include the rendered duration label width');
+const timelineGroupBarHtml = segment(gantt, 'function buildTimelineGroupBarHtml', 'function applyTimelineGroupBarElement');
+assert.doesNotMatch(timelineGroupBarHtml, /<div class="tm-gantt-bar[^>]*tm-gantt-bar--group-range[^>]*data-tm-group-range-trigger/, 'clicking the group timeline card body must not open the date editor');
+assert.match(timelineGroupBarHtml, /<button class="tm-gantt-bar__menu-btn"[^>]*data-tm-group-range-trigger/, 'the group timeline date editor must remain available from the card icon');
+assert.match(timelineGroupBarHtml, /tm-gantt-bar__title[^>]*>\$\{esc\(visual\.title\)\}<\/span>\$\{durationHtml\}<button class="tm-gantt-bar__menu-btn"/, 'document and heading cards must place the shared duration badge after the title and before the date button');
+const applyTimelineGroupBar = segment(gantt, 'function applyTimelineGroupBarElement', 'function buildTimelineOffscreenNavHtml');
+assert.match(applyTimelineGroupBar, /querySelector\('\[data-tm-duration-badge\]'\)[\s\S]*textContent = duration\.label[\s\S]*setAttribute\('aria-label', duration\.accessibleLabel\)/, 'group drag and resize frames must update the existing duration badge without rebuilding the card');
+assert.match(gantt, /const groupRangeTrigger = target\.closest\('\[data-tm-group-range-trigger\]'\)/, 'only explicit group date controls may open the date editor');
+assert.match(gantt, /visual\.state === 'range' && layout\?\.showHandles !== false[\s\S]*showHandles: !isCompactTimelineGlobal/, 'only desktop complete group ranges may render endpoint resize handles');
+assert.match(icons, /window\.tmOpenTimelineGroupRangeEditor[\s\S]*data-tm-doc-date-field="startDate"[\s\S]*data-tm-doc-date-field="deadline"[\s\S]*data-tm-doc-date-action="clear"[\s\S]*__tmSaveTimelineBlockDatePatch/, 'the shared group date popover must support partial dates, clear, cancel, and atomic save');
+const timelineGroupRow = segment(services, 'function __tmRenderTimelineRangeGroupRowHtml', 'async function __tmSaveTimelineBlockDatePatch');
+assert.match(timelineGroupRow, /<span class="tm-group-label tm-doc-timeline-label"[\s\S]*calendarBtn/, 'document and heading names must remain plain collapsible labels while the calendar button owns date editing');
+assert.doesNotMatch(timelineGroupRow, /<button class="tm-group-label tm-doc-timeline-label[\s\S]*data-tm-group-range-trigger/, 'group names must not open the date editor');
+assert.match(timelineGroupRow, /tm-doc-timeline-warning[\s\S]*tm-timeline-group-range-trigger/, 'initial and local timeline table renders must share the warning and calendar controls');
+assert.match(icons, /__tmPhosphorBoldPaths\['calendar-range'\] = __tmPhosphorBoldPaths\['calendar-dots'\]/, 'timeline group date controls must use the bundled Phosphor Bold calendar icon instead of the fallback circle');
+assert.match(icons, /function __tmOpenTimelineGroupRangeEditorFromTrigger[\s\S]*\.tm-gantt-bar__menu-btn\[data-tm-group-range-trigger\][\s\S]*function __tmBindTimelineGroupRangeTouchOpen[\s\S]*addEventListener\('touchend', onTouchEnd, \{ capture: true, passive: false \}\)/, 'mobile timeline group date controls must open from touchend before card gesture handlers can consume the tap');
+const touchTaskDrag = segment(icons, 'function __tmResolveTouchTaskDragSource', 'window.tmTaskTouchDragStart');
+assert.match(touchTaskDrag, /#tmTimelineLeftTable tbody tr\[data-id\]/, 'mobile timeline sidebar rows must use the shared touch drag source adapter');
+assert.match(touchTaskDrag, /const longPressMs = 500/, 'mobile table drags must use a 500ms long press');
+assert.match(calendarView, /CALENDAR_EXTERNAL_DRAG_CUSTOM_TOUCH_SOURCE_SELECTOR[^;]*#tmTimelineLeftTable tbody tr\[data-id\]/, 'mobile timeline sidebar rows must bypass FullCalendar and use the shared 500ms touch drag');
+const calendarMobileDragSelector = segment(calendarView, 'const CALENDAR_EXTERNAL_DRAG_MOBILE_ITEM_SELECTOR', 'const CALENDAR_EXTERNAL_DRAG_MIRROR_SOURCE_CLASS');
+assert.doesNotMatch(calendarMobileDragSelector, /#tmTimelineLeftTable/, 'FullCalendar mobile dragging must not capture timeline sidebar rows before native panning or the 500ms hold');
+assert.match(render, /window\.tmKanbanCardPointerDown[\s\S]*const longPressMs = 500/, 'kanban cards and table rows must share the 500ms touch hold');
+assert.doesNotMatch(touchTaskDrag.slice(0, touchTaskDrag.indexOf('const id = source.taskId')), /preventDefault\(\)/, 'pending table presses must not prevent native scrolling');
+assert.match(touchTaskDrag, /rememberTouchDragStyle\(sourceEl\)[\s\S]*rememberTouchDragStyle\(activeEl\)/, 'touch-action must be disabled only after the long press activates dragging');
+assert.match(taskDetailLoader, /const rowDragAttrs = useDesktopTaskDragLogic[\s\S]*draggable="false"/, 'mobile table rows must disable native HTML5 dragging');
+assert.match(checklistBody, /const itemDragAttrs = useDesktopTaskDragLogic[\s\S]*draggable="false"/, 'mobile checklist rows must disable native HTML5 dragging');
+assert.match(body, /tmTaskTouchDragStart\(event, '\$\{taskId\}'\)[\s\S]*draggable="false"/, 'timeline sidebar rows must use long-press touch drag and disable native dragging');
+const ganttGroupClick = segment(services, 'const onGroupClick = (ev) =>', 'const onGanttWheel');
+assert.match(ganttGroupClick, /data-tm-gantt-offscreen-nav[\s\S]*data-tm-group-range-trigger[\s\S]*button[\s\S]*return;/, 'date controls and offscreen locators must remain independent from group collapse');
+assert.doesNotMatch(ganttGroupClick, /\.tm-gantt-bar\s*,/, 'clicking a timeline group row or its card body must use the same collapse interaction as the sidebar row');
+assert.match(styles, /\.tm-gantt-bar--group-range \.tm-gantt-group-bar__label \{[\s\S]*position: sticky;[\s\S]*left: 8px;/, 'group names must stay inside their range cards and stick within the visible card span');
+const timelineDurationBadgeStyles = segment(styles, '.tm-gantt-duration-badge {', '}');
+for (const declaration of ['flex: 0 0 auto;', 'min-width: 20px;', 'height: 18px;', 'border: 1px solid color-mix(in srgb, var(--tm-gantt-bar-fg) 18%, transparent);', 'border-radius: 5px;', 'background: color-mix(in srgb, var(--tm-gantt-bar-fg) 6%, transparent);', 'color: color-mix(in srgb, var(--tm-gantt-bar-fg) 78%, var(--tm-gantt-bar-fill) 22%);', 'font-weight: 500;', 'font-variant-numeric: tabular-nums;']) {
+    assert.match(timelineDurationBadgeStyles, new RegExp(declaration.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `duration badge must include ${declaration}`);
+}
+assert.match(styles, /\.tm-gantt-bar--group-range \.tm-gantt-group-bar__label \.tm-gantt-bar__title \{[\s\S]*flex: 1 1 auto;[\s\S]*min-width: 0;/, 'group titles must truncate before the duration badge or date button shrinks');
+assert.match(gantt, /tm-gantt-group-chip__date-trigger[\s\S]*data-tm-group-range-trigger[\s\S]*calendar-range/, 'collapsed timeline group names must expose a separate date icon trigger');
+assert.match(styles, /\.tm-gantt-group-chip__date-trigger \{[\s\S]*width: 24px[\s\S]*height: 24px/, 'collapsed timeline group date icons must keep a stable compact hit target');
+assert.match(styles, /\.tm-doc-timeline-range-popover \{[\s\S]*width: min\(304px, calc\(100vw - 16px\)\)/, 'the document date editor must remain compact on mobile and Dock hosts');
+assert.match(styles, /\.tm-doc-timeline-range-popover \{[\s\S]*z-index: 200050 !important;/, 'the group date editor must render above the mobile modal and compact timeline sidebar');
+
 const headerBuilders = segment(gantt, 'function buildDayCellsHtml', 'function getDayIndexByTs');
 assert.match(headerBuilders, /tm-gantt-date-marker/, 'day headers must render only the compact date marker');
 assert.match(headerBuilders, /function buildTimelinePeriodSegments[\s\S]*startIndex: segmentStart, spanDays: i - segmentStart/, 'grouped headers must share one day-index period segmenter');
@@ -166,7 +287,7 @@ const mobileTimelineTouchLockStyles = segment(styles, '.tm-modal.tm-modal--mobil
 assert.doesNotMatch(mobileTimelineTouchLockStyles, /touch-action:|-ms-touch-action:/, 'ending a mobile drag must not be followed by a stale touch-action lock on the scroll host');
 
 const pointerDrag = segment(gantt, 'const onPointerDown = (e) =>', 'const onPanPointerDown = (e) =>');
-assert.match(pointerDrag, /useMobileLongPressMove = !!\(isMobileTimelineGlobal && !handleEl && pointerType === 'touch'\)[\s\S]*isMobileTimelineGlobal && !handleEl && !useMobileLongPressMove/, 'mobile whole-card dragging must be limited to touch long press while resize handles remain direct');
+assert.match(pointerDrag, /compactEntity = isGroupEntity \? isCompactTimelineGlobal : isMobileTimelineGlobal[\s\S]*useMobileLongPressMove = !!\(compactEntity && !handleEl && pointerType === 'touch'\)[\s\S]*isMobileTimelineGlobal && !handleEl && !useMobileLongPressMove/, 'mobile tasks and compact document or heading cards must use the existing touch long-press move path');
 assert.match(pointerDrag, /isMobileTimelineGlobal && handleEl[\s\S]*tm-gantt-row--selected[\s\S]*tm-gantt-row--dot-open[\s\S]*return;/, 'mobile resize handles must reject interaction until the task card is selected');
 assert.match(pointerDrag, /longPressTimer = setTimeout\(\(\) => \{[\s\S]*longPressReady = true;[\s\S]*activateDrag\(\);[\s\S]*\}, 500\);/, 'mobile timeline cards must enter move mode after a 500ms hold');
 assert.match(pointerDrag, /if \(!longPressReady\)[\s\S]*pendingHorizontalScroll[\s\S]*pendingScrollHost\.scrollLeft = initialPendingScrollLeft - pendingDx[\s\S]*pendingDx \* pendingDx \+ pendingDy \* pendingDy\) > 16[\s\S]*Math\.abs\(pendingDx\) > Math\.abs\(pendingDy\)[\s\S]*pendingHorizontalScroll = true[\s\S]*unbindWindowDragEvents\(\);/, 'moving before the hold threshold must route horizontal gestures to timeline scrolling and vertical gestures to native scrolling');
@@ -184,7 +305,9 @@ assert.match(gantt, /function syncTimelineTaskLinkDots[\s\S]*tm-task-link-dot--i
 assert.match(gantt, /const getPt = \(taskId, kind\) => \{[\s\S]*getTimelineBarLocalGeometry\(bar\)[\s\S]*geometry\.left \+ geometry\.width[\s\S]*geometry\.y/, 'dependency paths must consume the same local geometry as their visible endpoints');
 assert.doesNotMatch(gantt, /const getPt = \(taskId, kind\) => \{[\s\S]{0,900}bar\.getBoundingClientRect/, 'dependency paths must not mix viewport coordinates into the scrollable timeline canvas');
 assert.match(gantt, /applyTimelineTaskBarElement[\s\S]*syncTimelineTaskLinkDots\(barEl\);[\s\S]*groupItems\.forEach[\s\S]*it\.barEl\.style\.left[\s\S]*syncTimelineTaskLinkDots\(it\.barEl\);/, 'single and multi-card moves must keep visible mobile link dots attached to their cards');
-assert.match(pointerDrag, /const onUp = async \(ev\) =>[\s\S]*!pointerCanceled && Number\.isFinite\(Number\(ev\?\.clientX\)\)[\s\S]*!pointerCanceled && dragActive\) onMove\(\{ clientX: lastPointerX \}\);[\s\S]*await onUpdateTaskDates/, 'normal pointer release must flush the final resize frame before persisting dates');
+assert.match(pointerDrag, /const onUp = async \(ev\) =>[\s\S]*!pointerCanceled && Number\.isFinite\(Number\(ev\?\.clientX\)\)[\s\S]*!pointerCanceled && dragActive\) onMove\(\{ clientX: lastPointerX \}\);[\s\S]*await updateEntityDates/, 'normal pointer release must flush the final resize frame before persisting task or group dates');
+assert.match(pointerDrag, /const updateEntityDates = isGroupEntity[\s\S]*onUpdateGroupDates \? \(id, patch\) => onUpdateGroupDates\(entityKind, id, patch\)[\s\S]*if \(isGroupEntity\) return;[\s\S]*groupMove = !isGroupEntity/, 'document and heading cards must share task drag geometry while remaining outside task multi-select and dependency updates');
+assert.match(pointerDrag, /groupTimelineState === 'start'[\s\S]*groupTimelineState === 'deadline'[\s\S]*\{ deadline: completionTime \}/, 'single-ended group markers must persist only their own endpoint');
 assert.match(gantt, /data-tm-suppress-click-until[\s\S]*suppressClickUntil > Date\.now\(\)[\s\S]*e\.preventDefault\(\)/, 'releasing a long-pressed timeline card must suppress the synthetic click');
 const doubleClick = segment(gantt, 'const onDblClick = async (e) =>', 'const onContextMenu = (e) =>');
 assert.match(doubleClick, /bodyEl\.dataset\?\.tmGanttScale[\s\S]*resolveTimelineScaleDateRange\(pointTs, scale\)[\s\S]*\{ startDate, completionTime \}/, 'double-click must create the scale-specific date card on the task row');
@@ -245,12 +368,21 @@ assert.match(scene, /const mainStageBottomInset = showMobileBottomViewBar[\s\S]*
 assert.match(scene, /const inner = `\$\{includeSidebarToggle \? timelineSidebarToggleButtonHtml : ''\}\$\{__tmRenderTimelineScaleSegments\(\)\}`;/, 'desktop topbar must contain only sidebar visibility and scale controls');
 assert.match(scene, /const showFloatingTimelineSidebarToggle = !!\(isMobile && !showMobileLandscapeTimelineTopbar\)/, 'only mobile floating controls may repeat the sidebar toggle');
 assert.match(scene, /showFloatingTimelineSidebarToggle \? __tmRenderTimelineSidebarToggleButton[\s\S]*showDesktopTimelineFloatingToolbar \? '' : __tmRenderTimelineScaleMenu/, 'narrow floating toolbars must keep the sidebar toggle first and visible');
-for (const iconName of ['sidebar', 'calendar-blank', 'ruler', 'caret-down', 'corners-out']) {
+assert.match(scene, /__tmRenderTimelineCardFieldsToggleButton[\s\S]*data-tm-timeline-card-fields-toggle[\s\S]*aria-pressed=[\s\S]*timelineCardFieldsHidden \? 'eye-slash' : 'eye'/, 'timeline card-field visibility must use one shared accessible eye toggle');
+assert.match(scene, /__tmRenderTimelineScaleMenu = \(\{ interactionAttrs = '', showRulerIcon = true \}[\s\S]*showRulerIcon \? __tmRenderTimelineToolbarIcon\('ruler'\) : ''/, 'the shared scale menu must support hiding only its ruler icon');
+assert.match(scene, /const timelineCompactToolbarButtonsHtml = `\$\{__tmRenderTimelineScaleMenu\(\{ showRulerIcon: !isMobile \}\)\}[\s\S]*\$\{__tmRenderTimelineToolbarButtons\([\s\S]*\$\{__tmRenderTimelineCardFieldsToggleButton\(/, 'compact controls must remove the mobile ruler and keep the card-field toggle at the right edge');
+assert.match(scene, /timelineFloatingToolbarHtml[\s\S]*showDesktopTimelineFloatingToolbar \? '' : __tmRenderTimelineScaleMenu\(\{[\s\S]*showRulerIcon: !isMobile[\s\S]*__tmRenderTimelineToolbarButtons\([\s\S]*__tmRenderTimelineCardFieldsToggleButton\(/, 'desktop, Dock, and mobile bottom toolbars must keep the card-field toggle at the right edge while retaining the Dock ruler');
+for (const iconName of ['sidebar', 'calendar-blank', 'ruler', 'caret-down', 'corners-out', 'eye', 'eye-slash']) {
     assert.match(icons, new RegExp(`__tmPhosphorBoldPaths\\['${iconName}'\\] =`), `${iconName} must have a real Phosphor Bold path`);
 }
+assert.match(services, /timelineMobileSidebarExpanded: false,\s*timelineCardFieldsHidden: false,/, 'timeline card fields must start visible without adding a persisted setting');
+assert.match(gantt, /const timelineCardFieldSet = state\.timelineCardFieldsHidden === true[\s\S]*\? new Set\(\)[\s\S]*SettingsStore\?\.data\?\.timelineCardFields/, 'hiding timeline card fields must preserve the configured field set');
+const timelineCardFieldsToggle = segment(render, 'window.tmTimelineToggleCardFields = function', 'window.tmGanttZoomIn = function');
+assert.match(timelineCardFieldsToggle, /timelineCardFieldsHidden = state\.timelineCardFieldsHidden !== true[\s\S]*__tmRerenderTimelineInPlace\(state\.modal, \{ reuseLeftRows: true \}\)[\s\S]*__tmSyncTimelineToolbarStateInPlace/, 'the card-field toggle must rerender in place while preserving the timeline scroll state');
+assert.doesNotMatch(timelineCardFieldsToggle, /SettingsStore|timelineCardFields\s*=|\.save\(/, 'the runtime visibility toggle must not overwrite or persist the configured timeline fields');
 
-assert.match(body, /useMobileTimelineSidebar[\s\S]*state\.timelineMobileSidebarExpanded !== true/, 'mobile timelines must start with an effective collapsed sidebar');
-assert.match(interactions, /useMobileRuntimeState[\s\S]*const expanding = state\.timelineMobileSidebarExpanded !== true;[\s\S]*timelineMobileSidebarExpanded = expanding/, 'mobile sidebar toggles must stay runtime-only');
+assert.match(body, /useCompactTimelineSidebarState[\s\S]*opts\.isMobile === true \|\| opts\.isDockHost === true[\s\S]*state\.timelineMobileSidebarExpanded !== true/, 'mobile and dock timelines must start with an effective collapsed sidebar');
+assert.match(interactions, /useCompactRuntimeState[\s\S]*tm-modal--mobile[\s\S]*tm-modal--dock[\s\S]*const expanding = state\.timelineMobileSidebarExpanded !== true;[\s\S]*timelineMobileSidebarExpanded = expanding/, 'mobile and dock sidebar toggles must stay runtime-only');
 assert.match(interactions, /window\.tmTimelineToggleSidebar = async function[\s\S]*__tmPrepareTimelineDateAnchor\(0\.5\);[\s\S]*timelineMobileSidebarExpanded[\s\S]*render\(\);[\s\S]*timelineSidebarCollapsed[\s\S]*render\(\);/, 'timeline sidebar toggles must preserve the center date in mobile, dock, and desktop hosts');
 assert.doesNotMatch(interactions, /RevealTimelineSidebarAfterRender|IsTimelineSidebarVisibleInViewport|viewScroll\.timeline\.left = 0|scrollHost\.scrollLeft = 0/, 'compact sidebar toggles must not reset the timeline to the rendered range start');
 assert.doesNotMatch(interactions, /timelineSidebarDebugSequence|__tmLogTimelineSidebarState|__tmScheduleTimelineSidebarStateLogs|\[Task Horizon\]\[TimelineSidebar\]/, 'temporary timeline sidebar diagnostics must be removed');
@@ -261,8 +393,18 @@ assert.match(body, /useCompactTimelineOverlay[\s\S]*tm-timeline-scroll-host[\s\S
 assert.match(body, /tm-timeline-split tm-timeline-split--compact-canvas\$\{splitClass\}/, 'compact timelines must expose the shared sidebar-collapsed state to visible gantt group labels');
 assert.match(services, /querySelector\?\.\('\.tm-timeline-scroll-host'\)[\s\S]*return compactHost/, 'compact timeline date restoration must target the dedicated timeline scroll host');
 assert.match(styles, /\.tm-body\.tm-body--timeline-compact \{[\s\S]*overflow: hidden;[\s\S]*isolation: isolate;/, 'the compact timeline shell must provide a non-scrolling overlay containing block in mobile and dock hosts');
+assert.doesNotMatch(styles, /\.tm-body\.tm-body--timeline \{[\s\S]{0,220}padding-bottom:/, 'timeline bottom insets must not move the whole timeline shell');
 assert.match(styles, /\.tm-body--timeline-compact \.tm-timeline-sidebar-overlay \{[\s\S]*position: absolute;[\s\S]*inset: 0;[\s\S]*z-index: 30;[\s\S]*background: var\(--tm-bg-color\);/, 'the compact task table must be a viewport-bound opaque layer above the timeline');
 assert.match(styles, /\.tm-body--timeline-compact \.tm-timeline-sidebar-overlay \.tm-timeline-left-body \{[\s\S]*overflow: auto;[\s\S]*overscroll-behavior: contain;/, 'wide custom timeline columns and rows must remain independently scrollable inside the overlay');
+assert.match(styles, /\.tm-body--timeline-compact \.tm-timeline-sidebar-overlay \.tm-timeline-left-body \{[\s\S]*--tm-timeline-sidebar-bottom-inset: max\(0px, calc\(var\(--tm-view-bottom-inset, 0px\) \+ 45px\)\);[\s\S]*padding-bottom: var\(--tm-timeline-sidebar-bottom-inset\);[\s\S]*scroll-padding-bottom: var\(--tm-view-bottom-inset, 0px\);/, 'compact timeline sidebars must reserve the full bottom toolbar inset plus the requested 45px lift');
+assert.match(styles, /\.tm-modal\.tm-modal--mobile \.tm-body\.tm-body--timeline-compact \.tm-timeline-sidebar-overlay \.tm-timeline-left,[\s\S]*width: 100% !important;[\s\S]*max-width: 100% !important;[\s\S]*align-self: stretch;/, 'compact timeline sidebars must override max-content mobile sizing so the table can overflow inside them');
+assert.match(styles, /\.tm-modal\.tm-modal--mobile \.tm-body\.tm-body--timeline-compact \.tm-timeline-sidebar-overlay \.tm-timeline-left-body,[\s\S]*width: 100%;[\s\S]*overflow-x: auto;[\s\S]*overflow-y: auto;[\s\S]*touch-action: pan-x pan-y;/, 'mobile and Dock compact timeline sidebars must remain drag-scrollable on both axes');
+assert.match(styles, /\.tm-body--timeline-compact \.tm-timeline-scroll-host \{[\s\S]*--tm-timeline-canvas-bottom-inset: max\(0px, calc\(var\(--tm-view-bottom-inset, 0px\) \+ 45px\)\);[\s\S]*padding-bottom: var\(--tm-timeline-canvas-bottom-inset\);/, 'compact timeline canvas scrolling must reserve the full bottom toolbar inset plus the requested 45px lift without moving the whole timeline shell');
+assert.match(render, /timelineSidebarOverlay[\s\S]*timelineSidebarVisible[\s\S]*timelineSidebarTop[\s\S]*savedTimelineScrollTop = \(timelineSidebarVisible && Number\.isFinite\(timelineSidebarTop\)\)/, 'compact timeline sidebar toggles must capture the visible table scroll position before full rerender');
+assert.match(render, /if \(useGlobalScroll\) \{[\s\S]*leftBody\) leftBody\.scrollTop = desiredTop;[\s\S]*timelineScrollHost\.scrollTop = desiredTop;[\s\S]*leftBody\) leftBody\.scrollTop = desiredTop;/, 'compact timeline sidebar toggles must restore the table and timeline to the same vertical position after full rerender');
+assert.match(services, /compactSidebarOverlay[\s\S]*compactSidebarVisible[\s\S]*const savedTop = useGlobalScroll[\s\S]*compactSidebarTop[\s\S]*leftBody\.scrollTop = savedTop;[\s\S]*globalScrollHost\.scrollTop = savedTop;/, 'compact timeline row refreshes must preserve the visible table scroll position');
+assert.match(services, /const syncCompactVerticalScroll = \(source, target\) => \{[\s\S]*target\.scrollTop = nextTop;[\s\S]*if \(useGlobalScroll\) \{[\s\S]*syncCompactVerticalScroll\(globalScrollHost, leftBody\);[\s\S]*syncCompactVerticalScroll\(leftBody, globalScrollHost\)/, 'compact timeline and sidebar scroll surfaces must stay vertically linked in both directions');
+assert.doesNotMatch(services, /onCompactSidebarWheel|bind\(leftBody, 'wheel'/, 'compact timeline scroll linkage must preserve native wheel and touch behavior');
 assert.match(services, /scheduleInfiniteRangeShift[\s\S]*tmGanttExtendRange\?\.\(direction\)/, 'timeline scrolling must request a range shift near either edge');
 assert.match(services, /const scrollableWidth = Math\.max\(0, totalWidth - viewportWidth\);[\s\S]*Math\.min\(viewportWidth, Math\.max\(96, scrollableWidth \/ 3\)\)/, 'rolling ranges must rebase before the viewport reaches a rendered edge');
 assert.match(services, /const globalScrollLeft = useGlobalScroll[\s\S]*leftPaneWidth > 0 && globalScrollLeft < leftPaneWidth\) return;/, 'showing the mobile or dock table pane must not trigger an infinite timeline range shift');
@@ -272,6 +414,7 @@ assert.match(services, /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(
 
 assert.match(gantt, /data-task-start-ts="\$\{Number\(aTs\) \|\| 0\}"[\s\S]*data-task-end-ts="\$\{Number\(bTs\) \|\| 0\}"/, 'task rows must retain date coordinates even when their cards fall outside the bounded render window');
 assert.match(gantt, /function buildTimelineOffscreenNavHtml[\s\S]*data-tm-gantt-offscreen-nav[\s\S]*__tmPhosphorBoldSvg\('chevron-left'[\s\S]*__tmPhosphorBoldSvg\('chevron-right'/, 'offscreen task navigation must use compact Phosphor Bold edge controls');
+assert.match(gantt, /tm-gantt-offscreen-nav--group[\s\S]*tm-gantt-offscreen-nav__label[\s\S]*itemTitle/, 'fully offscreen document and heading ranges must expose their names next to the direction arrow');
 assert.match(gantt, /getTimelineRowInterval[\s\S]*bar\.style\.left[\s\S]*bar\.style\.width[\s\S]*taskStartTs[\s\S]*taskEndTs/, 'offscreen detection must prefer live card geometry and fall back to task dates beyond the rendered range');
 assert.match(gantt, /interval\?\.right <= visibleLeft \+ 1[\s\S]*interval\?\.left >= visibleRight - 1[\s\S]*hideTimelineOffscreenNav/, 'only fully offscreen cards may expose a left or right location control');
 assert.match(gantt, /row\.hidden \|\| row\.style\.display === 'none'[\s\S]*hideTimelineOffscreenNav/, 'collapsed parent-task and group rows must not expose offscreen controls');
@@ -281,8 +424,9 @@ assert.doesNotMatch(gantt, /button\.style\.left\s*=/, 'offscreen controls must n
 assert.match(gantt, /roundedViewportWidth !== timelineOffscreenNavViewportWidth[\s\S]*button\.dataset\.direction === direction[\s\S]*return;/, 'offscreen control refreshes must avoid repeated CSS-variable and button-state writes while scrolling');
 assert.match(gantt, /scheduleTimelineOffscreenNavRefresh\(\);[\s\S]*syncDraggedDependencies/, 'live card movement must keep offscreen visibility in sync with the dragged geometry');
 assert.match(gantt, /const offscreenNav = target\.closest\('\[data-tm-gantt-offscreen-nav\]'\)[\s\S]*preventDefault[\s\S]*stopPropagation[\s\S]*tmGanttFocusTask/, 'offscreen controls must center tasks without triggering row selection or drag actions');
-assert.match(render, /window\.tmGanttFocusTask = function[\s\S]*outsideRenderRange \|\| nearRenderedEdge[\s\S]*centerRangeOnDate[\s\S]*pendingAnchor[\s\S]*__tmRerenderTimelineInPlace/, 'tasks beyond the rolling DOM window must rebase around their date and rerender in place');
-assert.match(render, /tmGanttFocusTask[\s\S]*scrollHost\.scrollTo\(\{ left: targetLeft, behavior: 'smooth' \}\)/, 'nearby offscreen tasks must scroll to the viewport center');
+assert.match(gantt, /if \(groupId0\) globalThis\.tmGanttFocusGroup\?\.\(groupKind0, groupId0\)[\s\S]*else globalThis\.tmGanttFocusTask/, 'offscreen controls must route group and task entities through the shared focusing interaction');
+assert.match(render, /function __tmFocusGanttRange[\s\S]*outsideRenderRange \|\| nearRenderedEdge[\s\S]*centerRangeOnDate[\s\S]*pendingAnchor[\s\S]*__tmRerenderTimelineInPlace/, 'entities beyond the rolling DOM window must rebase around their date and rerender in place');
+assert.match(render, /function __tmFocusGanttRange[\s\S]*scrollHost\.scrollTo\(\{ left: targetLeft, behavior: 'smooth' \}\)[\s\S]*window\.tmGanttFocusTask[\s\S]*window\.tmGanttFocusGroup[\s\S]*window\.tmGanttFocusHeading/, 'nearby task, document, and heading ranges must share the same centered scroll helper');
 const timelineGestureReset = segment(render, 'function __tmResetTimelineGestureState', 'function __tmRerenderTimelineScaleInPlace');
 assert.match(timelineGestureReset, /tm-modal--timeline-touch-lock[\s\S]*tm-gantt-body--dragging-x[\s\S]*host\.focus[\s\S]*host\.blur/, 'scale rerenders must clear stale touch locks and prime the scroll host for the next horizontal gesture');
 assert.doesNotMatch(timelineGestureReset, /dispatchEvent|style\.touchAction|requestAnimationFrame/, 'scale gesture reset must not synthesize scroll work or duplicate the host touch-action CSS');

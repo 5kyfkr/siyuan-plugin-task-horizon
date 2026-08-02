@@ -59,12 +59,12 @@
     const __TM_CUSTOM_TASK_ORDER_META_KEY = '__tmCustomTaskOrder';
     const __TM_CUSTOM_TASK_ORDER_VERSION = 1;
     const __TM_CUSTOM_TASK_ORDER_RANK_GAP = 1024;
-    const __TM_TASK_SNAPSHOT_VERSION = 3;
+    const __TM_TASK_SNAPSHOT_VERSION = 4;
     const __TM_TASK_SNAPSHOT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
     const __TM_TASK_SNAPSHOT_MAX_ENTRIES = 20;
     const __TM_TASK_SNAPSHOT_MAX_BYTES = 20 * 1024 * 1024;
     const __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES = 20 * 1024 * 1024;
-    const __TM_TASK_INDEX_VERSION = 4;
+    const __TM_TASK_INDEX_VERSION = 5;
     const __TM_TASK_INDEX_MAX_BYTES = 24 * 1024 * 1024;
     const __TM_TASK_INDEX_MAX_DOCS = 1200;
     const __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES = 10 * 1024 * 1024;
@@ -12628,6 +12628,33 @@
         }
     }
 
+    function __tmDedupeTaskQueryRowsById(rows) {
+        const source = Array.isArray(rows) ? rows : [];
+        if (source.length <= 1) return source;
+        const out = [];
+        const indexById = new Map();
+        source.forEach((row) => {
+            const id = String(row?.id || '').trim();
+            if (!id) {
+                out.push(row);
+                return;
+            }
+            const existingIndex = indexById.get(id);
+            if (existingIndex === undefined) {
+                indexById.set(id, out.length);
+                out.push(row);
+                return;
+            }
+            const existing = out[existingIndex];
+            const existingUpdated = String(existing?.updated || '').trim();
+            const nextUpdated = String(row?.updated || '').trim();
+            if (nextUpdated && (!existingUpdated || nextUpdated > existingUpdated)) {
+                out[existingIndex] = row;
+            }
+        });
+        return out;
+    }
+
     function __tmCloneTaskQueryRows(rows) {
         if (!Array.isArray(rows) || rows.length === 0) return [];
         const out = new Array(rows.length);
@@ -12915,7 +12942,7 @@
             if (!chunk.length) continue;
             const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
             const sql = `
-                SELECT parent_id, COUNT(*) AS task_count
+                SELECT parent_id, COUNT(DISTINCT id) AS task_count
                 FROM blocks
                 WHERE parent_id IN (${idList})
                   AND type = 'i'

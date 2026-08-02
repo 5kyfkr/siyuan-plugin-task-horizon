@@ -56,6 +56,9 @@
         const renderMode = state.attachmentLibraryOpen ? 'attachments' : (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
         const homepageBodyAnimClass = renderMode === 'home' ? '' : bodyAnimClass;
         const __tmTimelineFullRowModel = renderMode === 'timeline' ? __tmBuildTaskRowModel() : null;
+        if (renderMode === 'timeline') {
+            try { __tmScheduleTimelineGroupRangeMetaWarmup(__tmTimelineFullRowModel); } catch (e) {}
+        }
         const __tmTimelineProgressive = renderMode === 'timeline'
             && state.__tmProgressiveViewRender?.mode === 'timeline'
             && state.__tmProgressiveViewRender?.tasksRef === state.filteredTasks;
@@ -137,11 +140,13 @@
             canZoomIn: true,
         };
         const timelineScale = timelineScaleState.scale;
-        const useMobileTimelineSidebar = isMobile && !isDockHost;
-        const timelineSidebarCollapsed = useMobileTimelineSidebar
+        const useCompactTimelineSidebarState = !!(isMobile || isDockHost);
+        const timelineSidebarCollapsed = useCompactTimelineSidebarState
             ? state.timelineMobileSidebarExpanded !== true
             : !!SettingsStore.data.timelineSidebarCollapsed;
         const timelineSidebarToggleLabel = timelineSidebarCollapsed ? '展开时间轴侧栏' : '隐藏时间轴侧栏';
+        const timelineCardFieldsHidden = state.timelineCardFieldsHidden === true;
+        const timelineCardFieldsToggleLabel = timelineCardFieldsHidden ? '显示时间轴卡片字段' : '隐藏时间轴卡片字段';
         const __tmRenderTimelineToolbarIcon = (iconName, size = 14) => `<span class="tm-timeline-toolbar-icon">${__tmPhosphorBoldSvg(iconName, { size, className: 'tm-timeline-toolbar-icon__svg' })}</span>`;
         const __tmRenderTimelineSidebarToggleButton = ({ buttonClass = '', buttonStyle = '', interactionAttrs = '', clickPrefix = '' } = {}) => {
             const buttonClassName = ['tm-btn', 'tm-btn-info', 'tm-timeline-toolbar-btn', 'bc-btn', 'bc-btn--sm', String(buttonClass || '').trim()].filter(Boolean).join(' ');
@@ -151,6 +156,11 @@
         const timelineSidebarToggleButtonHtml = renderMode === 'timeline'
             ? __tmRenderTimelineSidebarToggleButton({ buttonStyle: 'padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;' })
             : '';
+        const __tmRenderTimelineCardFieldsToggleButton = ({ buttonClass = '', buttonStyle = '', interactionAttrs = '', clickPrefix = '' } = {}) => {
+            const buttonClassName = ['tm-btn', 'tm-btn-info', 'tm-timeline-toolbar-btn', 'bc-btn', 'bc-btn--sm', String(buttonClass || '').trim()].filter(Boolean).join(' ');
+            const styleAttr = buttonStyle ? ` style="${__tmEscAttr(buttonStyle)}"` : '';
+            return `<button type="button" class="${buttonClassName}" data-tm-timeline-card-fields-toggle aria-pressed="${timelineCardFieldsHidden ? 'true' : 'false'}" onclick="${String(clickPrefix || '')}tmTimelineToggleCardFields(event)"${styleAttr}${String(interactionAttrs || '')}${__tmBuildTooltipAttrs(timelineCardFieldsToggleLabel, { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon(timelineCardFieldsHidden ? 'eye-slash' : 'eye')}</button>`;
+        };
         const __tmRenderTimelineScaleSegments = () => `<div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="时间轴尺度">${[
             ['day', '日'],
             ['week', '周'],
@@ -159,8 +169,8 @@
             const active = timelineScale === value;
             return `<button type="button" class="tm-view-seg-item bc-tabs-trigger ${active ? 'tm-view-seg-item--active' : ''}" data-state="${active ? 'active' : 'inactive'}" data-tm-timeline-scale="${value}" role="tab" aria-selected="${active ? 'true' : 'false'}" onclick="tmGanttSetScale('${value}', event)">${label}</button>`;
         }).join('')}</div>`;
-        const __tmRenderTimelineScaleMenu = ({ interactionAttrs = '' } = {}) => `<details class="tm-timeline-scale-menu">
-            <summary class="tm-timeline-scale-menu__trigger" aria-label="时间轴尺度：${timelineScaleState.label || '日'}"${String(interactionAttrs || '')}>${__tmRenderTimelineToolbarIcon('ruler')}<span class="tm-timeline-scale-menu__label">${timelineScaleState.label || '日'}</span>${__tmRenderTimelineToolbarIcon('caret-down', 11)}</summary>
+        const __tmRenderTimelineScaleMenu = ({ interactionAttrs = '', showRulerIcon = true } = {}) => `<details class="tm-timeline-scale-menu">
+            <summary class="tm-timeline-scale-menu__trigger" aria-label="时间轴尺度：${timelineScaleState.label || '日'}"${String(interactionAttrs || '')}>${showRulerIcon ? __tmRenderTimelineToolbarIcon('ruler') : ''}<span class="tm-timeline-scale-menu__label">${timelineScaleState.label || '日'}</span>${__tmRenderTimelineToolbarIcon('caret-down', 11)}</summary>
             <div class="tm-timeline-scale-menu__popover" role="menu" aria-label="选择时间轴尺度">${[
                 ['day', '日'],
                 ['week', '周'],
@@ -186,7 +196,9 @@
         const timelineInlineToolbarButtonsHtml = __tmRenderTimelineToolbarButtons({
             buttonStyle: 'padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;'
         });
-        const timelineCompactToolbarButtonsHtml = `${__tmRenderTimelineScaleMenu()}${__tmRenderTimelineToolbarButtons({
+        const timelineCompactToolbarButtonsHtml = `${__tmRenderTimelineScaleMenu({ showRulerIcon: !isMobile })}${__tmRenderTimelineToolbarButtons({
+            buttonStyle: 'padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;'
+        })}${__tmRenderTimelineCardFieldsToggleButton({
             buttonStyle: 'padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;'
         })}`;
         const timelineInlineToolbarGroupHtml = __tmRenderTimelineToolbarGroup({
@@ -206,8 +218,13 @@
                 interactionAttrs: timelineFloatingTouchAttrs,
                 clickPrefix: timelineFloatingClickPrefix
             }) : ''}${showDesktopTimelineFloatingToolbar ? '' : __tmRenderTimelineScaleMenu({
-                interactionAttrs: timelineFloatingTouchAttrs
+                interactionAttrs: timelineFloatingTouchAttrs,
+                showRulerIcon: !isMobile
             })}${__tmRenderTimelineToolbarButtons({
+                buttonClass: 'tm-timeline-floating-toolbar__btn',
+                interactionAttrs: timelineFloatingTouchAttrs,
+                clickPrefix: timelineFloatingClickPrefix
+            })}${__tmRenderTimelineCardFieldsToggleButton({
                 buttonClass: 'tm-timeline-floating-toolbar__btn',
                 interactionAttrs: timelineFloatingTouchAttrs,
                 clickPrefix: timelineFloatingClickPrefix

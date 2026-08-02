@@ -862,7 +862,7 @@
             for (const chunk of chunks) {
                 const idList = chunk.map(id => `'${id}'`).join(',');
                 const sql = `
-                    SELECT root_id, COUNT(*) AS task_count
+                    SELECT root_id, COUNT(DISTINCT id) AS task_count
                     FROM blocks
                     WHERE
                         ${compatTaskTypeCondition}
@@ -915,7 +915,7 @@
                         COALESCE(task_stats.task_updated, '') AS task_updated
                     FROM blocks d
                     LEFT JOIN (
-                        SELECT root_id, COUNT(*) AS task_count, MAX(t.updated) AS task_updated
+                        SELECT root_id, COUNT(DISTINCT t.id) AS task_count, MAX(t.updated) AS task_updated
                         FROM blocks t
                         WHERE
                             t.type = 'i'
@@ -982,7 +982,7 @@
                     COALESCE(parent_counts.parent_list_task_count, 0) as parent_list_task_count,`;
             const parentListJoinSql = `LEFT JOIN blocks AS parent_list ON parent_list.id = task.parent_id
                 LEFT JOIN (
-                    SELECT parent_id, COUNT(*) AS parent_list_task_count
+                    SELECT parent_id, COUNT(DISTINCT id) AS parent_list_task_count
                     FROM blocks
                     WHERE
                         ${compatTaskTypeCondition}
@@ -1128,7 +1128,7 @@
                 console.error(`[查询] 文档 ${did.slice(0, 8)} 查询失败:`, res.msg);
                 return { tasks: [], queryTime };
             }
-            const tasks = Array.isArray(res.data) ? res.data : [];
+            const tasks = __tmDedupeTaskQueryRowsById(Array.isArray(res.data) ? res.data : []);
             if (skipDocJoin || legacyCompat) {
                 const docInfoMap = await __tmBuildDocQueryInfoMapWithFallback([did]);
                 __tmApplyDocQueryInfoToTasks(tasks, docInfoMap);
@@ -1443,7 +1443,7 @@
                 WITH parent_counts AS (
                     SELECT
                         task.parent_id,
-                        COUNT(*) AS parent_list_task_count
+                        COUNT(DISTINCT task.id) AS parent_list_task_count
                     FROM blocks AS task
                     WHERE
                         ${compatTaskAliasTypeCondition('task')}
@@ -1603,7 +1603,7 @@
                     return { tasks: [], queryTime };
                 }
             }
-            let tasks = Array.isArray(res.data) ? res.data : [];
+            let tasks = __tmDedupeTaskQueryRowsById(Array.isArray(res.data) ? res.data : []);
             if (skipDocJoin) {
                 const docInfoMap = await __tmBuildDocQueryInfoMapWithFallback(safeDocIds);
                 __tmApplyDocQueryInfoToTasks(tasks, docInfoMap);
@@ -1697,7 +1697,7 @@
                         LIMIT 1
                     ) as parent_list_type,
                     (
-                        SELECT COUNT(*)
+                        SELECT COUNT(DISTINCT siblings.id)
                         FROM blocks siblings
                         WHERE siblings.parent_id = task.parent_id
                           AND ${compatTaskAliasTypeCondition('siblings')}
@@ -4661,6 +4661,7 @@
         mobileViewportRefreshHandler: null,
         mobileViewportRefreshVisualViewport: null,
         timelineMobileSidebarExpanded: false,
+        timelineCardFieldsHidden: false,
         timelineInfiniteRangeShifting: false,
         timelineMutationTail: null,
         timelineMutationPending: 0,
@@ -5498,6 +5499,22 @@
         if (sd) patch.startDate = sd;
         const ct = String(data.completionTime || '').trim();
         if (ct) patch.completionTime = ct;
+        const repeatRuleInput = data.repeatRule;
+        if (repeatRuleInput && typeof repeatRuleInput === 'object' && typeof __tmBuildTaskRepeatRuleMetaPatch === 'function') {
+            try {
+                const repeatPatch = __tmBuildTaskRepeatRuleMetaPatch({
+                    startDate: sd,
+                    completionTime: ct,
+                    repeatRule: '',
+                    repeatState: data.repeatState,
+                }, repeatRuleInput);
+                if (repeatPatch?.repeatRule?.enabled && repeatPatch.repeatRule.type !== 'none') {
+                    patch.repeatRule = repeatPatch.repeatRule;
+                    patch.repeatState = repeatPatch.repeatState;
+                    if (repeatPatch.completionTime && !patch.completionTime) patch.completionTime = repeatPatch.completionTime;
+                }
+            } catch (e) {}
+        }
         const st0 = String(data.customStatus || '').trim();
         if (st0) {
             try {
@@ -8164,6 +8181,157 @@ const wait = !!options.wait;
         return !__tmHasPendingQueuedOps();
     }
 
+    const __tmTaskWriteSignature = (ruleInput) => {
+        let rule = ruleInput;
+        try {
+            rule = typeof __tmGetTaskRepeatRule === 'function'
+                ? __tmGetTaskRepeatRule({ repeatRule: ruleInput })
+                : ruleInput;
+        } catch (e) {}
+        const source = (rule && typeof rule === 'object') ? rule : {};
+        return JSON.stringify([
+            !!source.enabled,
+            String(source.type || 'none').trim(),
+            Math.max(1, Number(source.every) || 1),
+            Array.isArray(source.weekdays) ? source.weekdays : [],
+            String(source.monthlyMode || 'date').trim(),
+            String(source.calendarMode || 'solar').trim(),
+            String(source.until || '').trim(),
+            Math.max(0, Number(source.maxOccurrences) || 0),
+            String(source.anchorDate || '').trim(),
+        ]);
+    };
+
+    const __tmTaskWriteIds = (taskId) => {
+        const requestedId = String(taskId || '').trim();
+        const ids = new Set(requestedId ? [requestedId] : []);
+        try {
+            const aliases = globalThis.__tmRuntimeState?.getTaskIdAliases?.(requestedId);
+            (Array.isArray(aliases) ? aliases : []).forEach((id) => {
+                const next = String(id || '').trim();
+                if (next) ids.add(next);
+            });
+        } catch (e) {}
+        return ids;
+    };
+
+    const __tmQueuedOpTouchesTask = (op, ids) => {
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        return [
+            data.taskId,
+            data.tempId,
+            data.realId,
+            data.insertedTaskId,
+            data.sourceTaskId,
+        ].some((id) => ids.has(String(id || '').trim()));
+    };
+
+    const __tmReadFreshTaskWriteSnapshot = async (taskId) => {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        try {
+            if (typeof __tmBuildTaskLikeFromBlockId === 'function') {
+                const task = await __tmBuildTaskLikeFromBlockId(tid);
+                if (task && typeof task === 'object') {
+                    // The lightweight task row may omit repeat attrs; read them only for verification.
+                    const attrIds = Array.from(new Set([
+                        String(task.attrHostId || task.attr_host_id || '').trim(),
+                        String(task.id || tid).trim(),
+                    ].filter(Boolean)));
+                    for (const attrId of attrIds) {
+                        try {
+                            const response = await API.call('/api/attr/getBlockAttrs', { id: attrId });
+                            const attrs = response?.code === 0 && response.data && typeof response.data === 'object'
+                                ? response.data
+                                : null;
+                            if (!attrs) continue;
+                            const rawRule = attrs[__TM_TASK_REPEAT_RULE_ATTR] ?? attrs.repeat_rule ?? '';
+                            const rawState = attrs[__TM_TASK_REPEAT_STATE_ATTR] ?? attrs.repeat_state ?? '';
+                            if (String(rawRule || '').trim()) {
+                                task.repeatRule = typeof __tmNormalizeTaskRepeatRule === 'function'
+                                    ? __tmNormalizeTaskRepeatRule(rawRule, {
+                                        startDate: task.startDate,
+                                        completionTime: task.completionTime,
+                                    })
+                                    : rawRule;
+                                task.repeat_rule = task.repeatRule;
+                            }
+                            if (String(rawState || '').trim()) {
+                                task.repeatState = typeof __tmNormalizeTaskRepeatState === 'function'
+                                    ? __tmNormalizeTaskRepeatState(rawState)
+                                    : rawState;
+                                task.repeat_state = task.repeatState;
+                            }
+                            if (String(rawRule || '').trim() || String(rawState || '').trim()) break;
+                        } catch (e) {}
+                    }
+                }
+                return task;
+            }
+        } catch (e) {}
+        try {
+            return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: false, preferPending: false })
+                || state.flatTasks?.[tid]
+                || null;
+        } catch (e) {
+            return null;
+        }
+    };
+
+    const __tmTaskWriteSnapshotMatches = (task, expected = {}) => {
+        if (!task || typeof task !== 'object') return false;
+        const expectedStart = String(expected.startDate || '').trim();
+        const expectedCompletion = String(expected.completionTime || '').trim();
+        const actualStart = String(task.startDate || task.start_date || '').trim();
+        const actualCompletion = String(task.completionTime || task.completion_time || '').trim();
+        if (expectedStart && actualStart !== expectedStart) return false;
+        if (expectedCompletion && actualCompletion !== expectedCompletion) return false;
+        if (Object.prototype.hasOwnProperty.call(expected, 'repeatRule')) {
+            let actualRule = task.repeatRule || task.repeat_rule || null;
+            try {
+                actualRule = typeof __tmGetTaskRepeatRule === 'function' ? __tmGetTaskRepeatRule(task) : actualRule;
+            } catch (e) {}
+            if (__tmTaskWriteSignature(actualRule) !== __tmTaskWriteSignature(expected.repeatRule)) return false;
+        }
+        return true;
+    };
+
+    async function __tmWaitForTaskWrites(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return { ok: false, code: 'INVALID_ARGUMENT', message: '任务 ID 为空' };
+        const opts = (options && typeof options === 'object') ? options : {};
+        const expected = (opts.expected && typeof opts.expected === 'object') ? opts.expected : {};
+        const types = new Set((Array.isArray(opts.types) && opts.types.length ? opts.types : ['attrPatch'])
+            .map((type) => String(type || '').trim())
+            .filter(Boolean));
+        const timeoutMs = Math.max(200, Math.min(10000, Number(opts.timeoutMs) || 4000));
+        const ids = __tmTaskWriteIds(tid);
+        const startedAt = Date.now();
+        let lastTask = null;
+        while (Date.now() - startedAt < timeoutMs) {
+            try { __tmHydrateOpQueue(); } catch (e) {}
+            const pending = Array.isArray(__tmOpQueue?.items) && __tmOpQueue.items.some((op) => {
+                const status = String(op?.status || '').trim();
+                return (status === 'queued' || status === 'running')
+                    && types.has(String(op?.type || '').trim())
+                    && __tmQueuedOpTouchesTask(op, ids);
+            });
+            if (!pending) {
+                lastTask = await __tmReadFreshTaskWriteSnapshot(tid);
+                if (__tmTaskWriteSnapshotMatches(lastTask, expected)) {
+                    return { ok: true, task: lastTask || null };
+                }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 80));
+        }
+        return {
+            ok: false,
+            code: 'TASK_ATTR_WRITE_TIMEOUT',
+            message: '任务字段仍在写入或校验不一致',
+            task: lastTask || null,
+        };
+    }
+
     function __tmGetOutboxStatus() {
         try { __tmHydrateOpQueue(); } catch (e) {}
         const items = Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : [];
@@ -8487,6 +8655,7 @@ const wait = !!options.wait;
             hasPending: __tmHasPendingQueuedOps,
             hasPendingForTask: __tmHasPendingQueuedOpForTask,
             waitIdle: __tmWaitForQueuedOpsIdle,
+            waitForTaskWrites: __tmWaitForTaskWrites,
             enqueue: __tmEnqueueOutboxOp,
             patchTask: __tmOutboxPatchTask,
             patchContent: __tmOutboxPatchContent,
@@ -22724,6 +22893,7 @@ refreshOk = false;
     const __tmDocExpectedMetaCache = new Map();
     const __tmDocExpectedMetaInflight = new Map();
     const __tmDocTabSortMetaWarmupIds = new Set();
+    const __tmTimelineGroupMetaWarmupIds = new Set();
     const __tmDocExpectedMetaLatestRequestToken = new Map();
     let __tmDocExpectedMetaRequestSeq = 0;
 
@@ -23092,19 +23262,177 @@ refreshOk = false;
         return !!(startTs && endTs && endTs < startTs);
     }
 
-    async function __tmSaveDocExpectedMetaField(docId, field, value) {
-        const id = String(docId || '').trim();
+    function __tmBuildTimelineRangeMeta(blockId) {
+        const cached = __tmGetCachedDocExpectedMeta(blockId);
+        const normalized = __tmNormalizeDocExpectedMeta(cached || {});
+        const invalid = __tmIsDocExpectedRangeInvalid(normalized);
+        const stateValue = invalid
+            ? 'invalid'
+            : (normalized.startDate && normalized.deadline)
+                ? 'range'
+                : normalized.startDate
+                    ? 'start'
+                    : normalized.deadline
+                        ? 'deadline'
+                        : 'empty';
+        return {
+            ...normalized,
+            state: stateValue,
+            loaded: !!cached,
+        };
+    }
+
+    function __tmGetTimelineGroupEntity(row) {
+        if (row?.type !== 'group') return null;
+        if (row.kind === 'doc') {
+            const entityId = String(row?.docId || row?.id || '').trim();
+            if (!entityId || __tmIsOtherBlockTabId(entityId)) return null;
+            return {
+                entityKind: 'doc',
+                entityId,
+                headingLevel: '',
+                label: String(row?.label || '').trim() || '未命名文档',
+                timelineRange: row?.timelineRange || {},
+            };
+        }
+        if (row.kind === 'h2') {
+            const entityId = String(row?.headingId || '').trim();
+            if (!entityId || entityId === '__none__') return null;
+            return {
+                entityKind: 'heading',
+                entityId,
+                headingLevel: __tmNormalizeHeadingLevel(row?.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2'),
+                label: String(row?.label || '').trim() || '(空标题)',
+                timelineRange: row?.timelineRange || {},
+            };
+        }
+        return null;
+    }
+
+    function __tmRenderTimelineRangeGroupRowHtml(row, timelineColumnCount) {
+        const entity = __tmGetTimelineGroupEntity(row);
+        const labelColor = String(row?.labelColor || 'var(--tm-group-doc-label-color)');
+        const timeline = entity?.timelineRange || row?.timelineRange || {};
+        const timelineState = String(timeline.state || 'empty');
+        const isCollapsed = !!row?.collapsed;
+        const entityLabel = entity?.entityKind === 'heading' ? '标题' : '文档';
+        const dateSummary = timelineState === 'invalid'
+            ? '日期范围异常：开始日期晚于截止日期'
+            : timeline.startDate && timeline.deadline
+                ? `${timeline.startDate} 至 ${timeline.deadline}`
+                : timeline.startDate
+                    ? `开始于 ${timeline.startDate}`
+                    : timeline.deadline
+                        ? `截止于 ${timeline.deadline}`
+                        : `设置${entityLabel}开始和截止日期`;
+        const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;">${__tmRenderToggleIcon(16, isCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>`;
+        if (!entity) {
+            const createBtnHtml = row?.kind === 'h2' ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务') : '';
+            const labelHtml = row?.kind === 'h2'
+                ? __tmRenderHeadingLevelIconLabel(row?.label || '', row?.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2')
+                : esc(row?.label || '');
+            return `<tr class="tm-group-row tm-timeline-row" data-group-kind="${esc(row?.kind || '')}" data-group-key="${esc(row?.key || '')}"><td colspan="${Number(timelineColumnCount) || 1}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky${row?.kind === 'h2' ? ' tm-group-sticky--heading' : ''}">${toggle}<span class="tm-group-label" style="color:${labelColor};">${labelHtml}</span><span class="tm-badge tm-badge--count">${Number(row?.count) || 0}</span>${createBtnHtml}</div></td></tr>`;
+        }
+        const warningHtml = timelineState === 'invalid'
+            ? `<span class="tm-doc-timeline-warning" title="${esc(dateSummary)}">${__tmRenderLucideIcon('triangle-alert', '', { size: 14 })}</span>`
+            : '';
+        const levelArg = entity.entityKind === 'heading' ? `, '${esc(entity.headingLevel)}'` : '';
+        const openEditor = `tmOpenTimelineGroupRangeEditor(event, '${entity.entityKind}', '${esc(entity.entityId)}'${levelArg})`;
+        const labelHtml = entity.entityKind === 'heading'
+            ? __tmRenderHeadingLevelIconLabel(entity.label, entity.headingLevel)
+            : __tmRenderDocGroupLabel(entity.entityId, entity.label);
+        const createBtnHtml = entity.entityKind === 'heading'
+            ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务')
+            : '';
+        const calendarBtn = `<button class="tm-doc-timeline-trigger tm-timeline-group-range-trigger" type="button" data-tm-group-range-trigger onclick="${openEditor}" aria-label="设置${entityLabel}日期" title="${esc(dateSummary)}">${__tmRenderLucideIcon('calendar-range', '', { size: 14 })}</button>`;
+        const contextMenu = entity.entityKind === 'doc' ? ` oncontextmenu="tmShowDocTabContextMenu(event, '${esc(entity.entityId)}')"` : '';
+        return `<tr class="tm-group-row tm-timeline-row${timelineState === 'invalid' ? ' tm-group-row--doc-date-warning' : ''}" data-group-kind="${esc(row?.kind || '')}" data-group-key="${esc(row?.key || '')}" data-tm-entity-kind="${entity.entityKind}" data-entity-id="${esc(entity.entityId)}"${contextMenu}><td colspan="${Number(timelineColumnCount) || 1}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky${entity.entityKind === 'heading' ? ' tm-group-sticky--heading' : ''}">${toggle}<span class="tm-group-label tm-doc-timeline-label" style="color:${labelColor};" title="${esc(`${entity.label} · ${dateSummary}`)}">${labelHtml}</span>${calendarBtn}<span class="tm-badge tm-badge--count">${Number(row?.count) || 0}</span>${warningHtml}${createBtnHtml}</div></td></tr>`;
+    }
+
+    async function __tmSaveTimelineBlockDatePatch(blockId, patch) {
+        const id = String(blockId || '').trim();
         if (!id) return __tmNormalizeDocExpectedMeta({});
-        const normalizedValue = value ? __tmNormalizeDateOnly(value) : '';
-        const attrKey = field === 'startDate' ? __TM_DOC_EXPECTED_START_ATTR : __TM_DOC_EXPECTED_DEADLINE_ATTR;
-        await __tmBackendAdapter.setAttrs(id, { [attrKey]: normalizedValue });
+        const input = (patch && typeof patch === 'object') ? patch : {};
+        const hasStartDate = Object.prototype.hasOwnProperty.call(input, 'startDate');
+        const hasDeadline = Object.prototype.hasOwnProperty.call(input, 'deadline');
+        if (!hasStartDate && !hasDeadline) {
+            return __tmGetCachedDocExpectedMeta(id) || __tmNormalizeDocExpectedMeta({});
+        }
+        const current = __tmGetCachedDocExpectedMeta(id) || await __tmLoadDocExpectedMeta(id);
+        const next = __tmNormalizeDocExpectedMeta({
+            startDate: hasStartDate ? input.startDate : current?.startDate,
+            deadline: hasDeadline ? input.deadline : current?.deadline,
+        });
+        if (__tmIsDocExpectedRangeInvalid(next)) {
+            const error = new Error('开始日期不能晚于截止日期');
+            error.code = 'TM_INVALID_DOC_DATE_RANGE';
+            throw error;
+        }
+        const attrs = {};
+        if (hasStartDate) attrs[__TM_DOC_EXPECTED_START_ATTR] = next.startDate;
+        if (hasDeadline) attrs[__TM_DOC_EXPECTED_DEADLINE_ATTR] = next.deadline;
+        await __tmBackendAdapter.setAttrs(id, attrs);
         __tmDocExpectedMetaRequestSeq += 1;
         __tmDocExpectedMetaLatestRequestToken.delete(id);
-        const current = __tmGetCachedDocExpectedMeta(id) || __tmNormalizeDocExpectedMeta({});
-        return __tmRememberDocExpectedMeta(id, {
-            ...current,
-            [field === 'startDate' ? 'startDate' : 'deadline']: normalizedValue,
-        });
+        return __tmRememberDocExpectedMeta(id, next);
+    }
+
+    async function __tmSaveDocExpectedMetaPatch(docId, patch) {
+        return await __tmSaveTimelineBlockDatePatch(docId, patch);
+    }
+
+    async function __tmSaveDocExpectedMetaField(docId, field, value) {
+        const key = field === 'startDate' ? 'startDate' : 'deadline';
+        return await __tmSaveTimelineBlockDatePatch(docId, { [key]: value });
+    }
+
+    function __tmScheduleTimelineGroupRangeMetaWarmup(rowModel, force = false) {
+        if (state.viewMode !== 'timeline' || !state.groupByDocName) return false;
+        const ids = Array.from(new Set((Array.isArray(rowModel) ? rowModel : [])
+            .map((row) => __tmGetTimelineGroupEntity(row)?.entityId || '')
+            .filter((id) => id && !__tmIsOtherBlockTabId(id))))
+            .filter((id) => force || (!__tmGetCachedDocExpectedMeta(id) && !__tmTimelineGroupMetaWarmupIds.has(id)));
+        if (!ids.length) return false;
+        ids.forEach((id) => __tmTimelineGroupMetaWarmupIds.add(id));
+        Promise.resolve().then(async () => {
+            try {
+                await __tmLoadDocExpectedMetaBatch(ids, force);
+            } finally {
+                ids.forEach((id) => __tmTimelineGroupMetaWarmupIds.delete(id));
+            }
+            if (state.viewMode !== 'timeline' || !state.groupByDocName) return;
+            try { __tmPrepareTimelineDateAnchor?.(0.5); } catch (e) {}
+            try {
+                if (state.ganttView && typeof state.ganttView === 'object') {
+                    state.ganttView.rangeScale = '';
+                }
+            } catch (e) {}
+            const rerendered = typeof __tmRerenderTimelineInPlace === 'function'
+                ? __tmRerenderTimelineInPlace(state.modal, { reuseLeftRows: false })
+                : false;
+            if (!rerendered) {
+                try { render(); } catch (e) {}
+            }
+        }).catch(() => null);
+        return true;
+    }
+
+    async function __tmUpdateTimelineGroupDates(entityKind, entityId, patch) {
+        try {
+            if (!['doc', 'heading'].includes(String(entityKind || ''))) throw new Error('不支持的分组日期实体');
+            const saved = await __tmSaveTimelineBlockDatePatch(entityId, patch);
+            try { __tmPrepareTimelineDateAnchor?.(0.5); } catch (e) {}
+            const rerendered = typeof __tmRerenderTimelineInPlace === 'function'
+                ? __tmRerenderTimelineInPlace(state.modal, { reuseLeftRows: false })
+                : false;
+            if (!rerendered) {
+                try { render(); } catch (e) {}
+            }
+            return saved;
+        } catch (error) {
+            try { hint(`❌ 更新失败: ${error.message}`, 'error'); } catch (e) {}
+            throw error;
+        }
     }
 
     window.__tmUpdateDocTabProgress = async (docId, elId, expectedElId) => {
@@ -23124,8 +23452,8 @@ refreshOk = false;
 
         const progressPromise = el ? (async () => {
             const sql = `SELECT
-                (SELECT count(*) FROM blocks WHERE root_id = '${docId}' AND type='i' AND subtype='t') as total,
-                (SELECT count(*) FROM blocks WHERE root_id = '${docId}' AND type='i' AND subtype='t' AND markdown LIKE '%[x]%') as completed
+                (SELECT count(DISTINCT id) FROM blocks WHERE root_id = '${docId}' AND type='i' AND subtype='t') as total,
+                (SELECT count(DISTINCT id) FROM blocks WHERE root_id = '${docId}' AND type='i' AND subtype='t' AND markdown LIKE '%[x]%') as completed
                 LIMIT 1`;
             try {
                 const res = await fetch("/api/query/sql", {
@@ -25027,7 +25355,9 @@ return true;
             });
         };
         const onGroupClick = (ev) => {
-            const row = ev?.target instanceof Element ? ev.target.closest('.tm-gantt-row--group') : null;
+            const target = ev?.target instanceof Element ? ev.target : null;
+            if (target?.closest?.('[data-tm-gantt-offscreen-nav], [data-tm-group-range-trigger], [data-tm-doc-range-trigger], button, a, input, select, textarea')) return;
+            const row = target?.closest?.('.tm-gantt-row--group') || null;
             const key = String(row?.getAttribute?.('data-group-key') || '').trim();
             if (key) tmToggleGroupCollapse(key, ev);
         };
@@ -25041,13 +25371,62 @@ return true;
             else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
             ganttBody.scrollLeft += delta;
         };
+        const syncCompactVerticalScroll = (source, target) => {
+            if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement)) return;
+            const maxTop = Math.max(0, (Number(target.scrollHeight) || 0) - (Number(target.clientHeight) || 0));
+            const nextTop = Math.max(0, Math.min(maxTop, Number(source.scrollTop) || 0));
+            if (Math.abs(nextTop - (Number(target.scrollTop) || 0)) < 0.5) return;
+            target.scrollTop = nextTop;
+        };
+        const syncTimelineTaskHover = (taskId = '') => {
+            modal.querySelectorAll('.tm-timeline-task-row--hovered').forEach((row) => row.classList.remove('tm-timeline-task-row--hovered'));
+            const id = String(taskId || '').trim();
+            if (!id) return;
+            const escapedId = CSS.escape(id);
+            modal.querySelectorAll(`#tmTimelineLeftTable tbody tr[data-id="${escapedId}"], #tmGanttBody .tm-gantt-row[data-id="${escapedId}"]`).forEach((row) => {
+                row.classList.add('tm-timeline-task-row--hovered');
+            });
+        };
+        const resolveTimelineHoverTaskId = (target) => {
+            const el = target instanceof Element ? target : null;
+            return String(el?.closest?.('#tmTimelineLeftTable tbody tr[data-id], #tmGanttBody .tm-gantt-row[data-id]')?.getAttribute?.('data-id') || '').trim();
+        };
+        const onTimelinePointerOver = (ev) => {
+            if (String(ev?.pointerType || '').trim() === 'touch') return;
+            syncTimelineTaskHover(resolveTimelineHoverTaskId(ev?.target));
+        };
+        const onTimelinePointerOut = (ev) => {
+            if (String(ev?.pointerType || '').trim() === 'touch') return;
+            const currentId = resolveTimelineHoverTaskId(ev?.target);
+            const nextId = resolveTimelineHoverTaskId(ev?.relatedTarget);
+            if (currentId && currentId === nextId) return;
+            syncTimelineTaskHover(nextId);
+        };
+
+        [leftBody, ganttBody].forEach((pane) => {
+            if (!(pane instanceof HTMLElement)) return;
+            bind(pane, 'pointerover', onTimelinePointerOver);
+            bind(pane, 'pointerout', onTimelinePointerOut);
+        });
 
         if (useGlobalScroll) {
-            bind(globalScrollHost, 'scroll', scheduleInfiniteRangeShift, { passive: true });
+            bind(globalScrollHost, 'scroll', () => {
+                syncTimelineTaskHover();
+                syncCompactVerticalScroll(globalScrollHost, leftBody);
+                scheduleInfiniteRangeShift();
+            }, { passive: true });
+            if (leftBody instanceof HTMLElement) {
+                bind(leftBody, 'scroll', () => {
+                    syncTimelineTaskHover();
+                    syncCompactVerticalScroll(leftBody, globalScrollHost);
+                }, { passive: true });
+                syncCompactVerticalScroll(globalScrollHost, leftBody);
+            }
         } else if (leftBody instanceof HTMLElement) {
             let syncing = false;
             const syncFromLeft = () => {
                 if (syncing) return;
+                syncTimelineTaskHover();
                 syncing = true;
                 requestAnimationFrame(() => {
                     try { ganttBody.scrollTop = leftBody.scrollTop; } catch (e) {}
@@ -25056,6 +25435,7 @@ return true;
             };
             const syncFromRight = () => {
                 if (syncing) return;
+                syncTimelineTaskHover();
                 syncing = true;
                 requestAnimationFrame(() => {
                     try { leftBody.scrollTop = ganttBody.scrollTop; } catch (e) {}
@@ -25083,9 +25463,11 @@ return true;
         modal.__tmTimelineStageInteractionsCleanup = () => {
             try { if (infiniteRangeRaf) cancelAnimationFrame(infiniteRangeRaf); } catch (e) {}
             infiniteRangeRaf = 0;
+            syncTimelineTaskHover();
             cleanups.splice(0).forEach((cleanup) => cleanup());
             modal.__tmTimelineStageInteractionsCleanup = null;
         };
+        try { __tmBindTimelineScrollVisibility(modal); } catch (e) {}
         try { globalThis.__tmBindAutoLoadMoreOnScroll?.(modal, 'timeline'); } catch (e) {}
         return true;
     }
@@ -25104,7 +25486,13 @@ return true;
 
         const globalScrollHost = __tmGetTimelineGlobalScrollHost(modal);
         const useGlobalScroll = !!globalScrollHost;
-        const savedTop = useGlobalScroll ? (Number(globalScrollHost.scrollTop) || 0) : (Number(leftBody.scrollTop) || 0);
+        const compactSidebarOverlay = modal.querySelector('.tm-timeline-sidebar-overlay');
+        const compactSidebarVisible = !!(compactSidebarOverlay
+            && !compactSidebarOverlay.classList.contains('tm-timeline-sidebar-overlay--hidden'));
+        const compactSidebarTop = Number(leftBody.scrollTop);
+        const savedTop = useGlobalScroll
+            ? ((compactSidebarVisible && Number.isFinite(compactSidebarTop)) ? Math.max(0, compactSidebarTop) : (Number(globalScrollHost.scrollTop) || 0))
+            : (Number(leftBody.scrollTop) || 0);
         const savedLeft = useGlobalScroll ? (Number(globalScrollHost.scrollLeft) || 0) : (Number(ganttBody.scrollLeft) || 0);
 
         const widths = SettingsStore.data.columnWidths || {};
@@ -25164,8 +25552,7 @@ return true;
                     return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
                 if (row.kind === 'doc') {
-                    const labelColor = String(row.labelColor || 'var(--tm-group-doc-label-color)');
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderDocGroupLabel(row.docId || row.id, row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                    return __tmRenderTimelineRangeGroupRowHtml(row, timelineColumnCount);
                 }
             // 按任务名分组：分组行使用 PHOSPHOR 风格图标
             if (row.kind === 'task') {
@@ -25178,9 +25565,7 @@ return true;
                 return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
             }
                 if (row.kind === 'h2') {
-                    const createBtnHtml = __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务');
-                    const labelColor = String(row.labelColor || __tmGetHeadingSubgroupLabelColor('var(--tm-group-doc-label-color)', isDark));
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-kind="h2" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderHeadingLevelIconLabel(row.label || '', row.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${createBtnHtml}</div></td></tr>`;
+                    return __tmRenderTimelineRangeGroupRowHtml(row, timelineColumnCount);
                 }
             if (row.kind === 'quadrant') {
                 const durationSum = String(row.durationSum || '').trim();
@@ -25266,10 +25651,15 @@ return true;
             })}</tr>`;
         };
 
-        const requestedRowModel = Array.isArray(opts.rowModel) ? opts.rowModel : __tmBuildTaskRowModel();
+        const hasExplicitRowModel = Array.isArray(opts.rowModel);
+        const requestedRowModel = hasExplicitRowModel ? opts.rowModel : __tmBuildTaskRowModel();
+        if (!hasExplicitRowModel) state.__tmTimelineFullRowModel = requestedRowModel;
         const rangeRowModel = Array.isArray(opts.rangeRowModel)
             ? opts.rangeRowModel
-            : (Array.isArray(state.__tmTimelineFullRowModel) ? state.__tmTimelineFullRowModel : requestedRowModel);
+            : (!hasExplicitRowModel
+                ? requestedRowModel
+                : (Array.isArray(state.__tmTimelineFullRowModel) ? state.__tmTimelineFullRowModel : requestedRowModel));
+        try { __tmScheduleTimelineGroupRangeMetaWarmup(requestedRowModel); } catch (e) {}
         const rowModel = timelineColumnStructureChanged && requestedAppendOnly ? rangeRowModel : requestedRowModel;
         if (!appendOnly) {
             try { state.__tmTimelineFullRowModel = rangeRowModel; } catch (e) {}
@@ -25394,6 +25784,7 @@ return true;
                             hint(`❌ 更新失败: ${e.message}`, 'error');
                         }
                     },
+                    onUpdateGroupDates: __tmUpdateTimelineGroupDates,
                     onUpdateTaskMeta: async (taskId, patch) => {
                         const id = String(taskId || '').trim();
                         if (!id || !patch || typeof patch !== 'object') return;
@@ -25426,7 +25817,10 @@ return true;
                 });
             } catch (e) {}
         }
-        if (appendOnly) return true;
+        if (appendOnly) {
+            try { (globalScrollHost || ganttBody).__tmTimelineScrollUpdateThumb?.(); } catch (e) {}
+            return true;
+        }
         __tmScheduleTimelineTodayIndicatorRefresh();
         const anchoredLeft = typeof __tmResolveAndConsumeTimelineDateAnchor === 'function'
             ? __tmResolveAndConsumeTimelineDateAnchor(modal)
@@ -25434,7 +25828,7 @@ return true;
         const restoredLeft = Number.isFinite(anchoredLeft) ? anchoredLeft : savedLeft;
 
         if (useGlobalScroll) {
-            try { leftBody.scrollTop = 0; } catch (e) {}
+            try { leftBody.scrollTop = savedTop; } catch (e) {}
             try { ganttBody.scrollTop = 0; } catch (e) {}
             try { ganttBody.scrollLeft = 0; } catch (e) {}
             try { globalScrollHost.scrollTop = savedTop; } catch (e) {}
@@ -25475,6 +25869,7 @@ return true;
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        try { (globalScrollHost || ganttBody).__tmTimelineScrollUpdateThumb?.(); } catch (e) {}
         __tmBindFloatingTooltipsAfterLocalRerender(modal);
         return true;
     }

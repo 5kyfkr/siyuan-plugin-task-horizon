@@ -10000,7 +10000,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
         if (state.groupByDocName) {
             const enableDocH2Subgroup = SettingsStore.data.docH2SubgroupEnabled !== false;
-            const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
+            const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
             const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
             const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
             docsInOrder.forEach(docId => {
@@ -10027,6 +10027,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                     label: String(docName),
                     count: docTasks.length,
                     labelColor,
+                    timelineRange: __tmBuildTimelineRangeMeta(docId),
                     collapsed: !!isCollapsed,
                 });
                 if (!isCollapsed) {
@@ -10056,16 +10057,19 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                         const items = Array.isArray(g.items) ? g.items : [];
                         const h2Key = `doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
                         const h2Collapsed = state.collapsedGroups?.has(h2Key);
+                        const headingId = String(g.id || bucket.id || '').trim();
                         rows.push({
                             type: 'group',
                             kind: 'h2',
                             key: h2Key,
                             label: String(g.label || ''),
                             docId: String(docId || '').trim(),
-                            headingId: String(g.id || bucket.id || '').trim(),
+                            headingId,
+                            headingLevel,
                             headingRank: Number((items?.[0] || g.sourceTask)?.h2Rank),
                             labelColor: __tmGetHeadingSubgroupLabelColor(labelColor, isDark),
                             count: Array.isArray(items) ? items.length : 0,
+                            timelineRange: __tmBuildTimelineRangeMeta(headingId),
                             collapsed: !!h2Collapsed,
                         });
                         if (!h2Collapsed) {
