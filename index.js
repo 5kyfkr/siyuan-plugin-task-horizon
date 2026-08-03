@@ -1023,6 +1023,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._taskPostMainAssetsLoaded = false;
         this._taskPostMainAssetsLoading = null;
         this._taskMainRuntimeRecoveryTimer = null;
+        this._taskDataChangedPromise = null;
+        this._taskDataChangedQueued = false;
         this._taskWindowTopBarLayoutReady = false;
         this._taskCalendarSubscriptionTopBarElement = null;
         this._taskCalendarSubscriptionTopBarMeta = { enabled: false, running: false, title: "立即上传日历 ICS" };
@@ -1118,6 +1120,52 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 <path d="M24.485 10.343l-2.828-2.828-5.657 5.657-5.657-5.657-2.828 2.828 5.657 5.657-5.657 5.657 2.828 2.828 5.657-5.657 5.657 5.657 2.828-2.828-5.657-5.657z"></path>
             </symbol>
         `);
+    }
+
+    async onDataChanged() {
+        this._taskDataChangedQueued = true;
+        if (this._taskDataChangedPromise) return await this._taskDataChangedPromise;
+
+        const mountToken = String(globalThis.__taskHorizonMountToken || this._mountToken || "");
+        this._taskDataChangedPromise = (async () => {
+            let refreshed = false;
+            do {
+                this._taskDataChangedQueued = false;
+                try {
+                    if (!hasTaskMainRuntime()) {
+                        const loaded = await ensureTaskMainLoaded();
+                        if (!loaded) {
+                            this.scheduleTaskMainRuntimeRecovery("data-changed", { delayMs: 180 });
+                            continue;
+                        }
+                    }
+                    const reloadSyncedData = globalThis.__taskHorizonReloadSyncedData;
+                    if (typeof reloadSyncedData !== "function") {
+                        console.warn("[task-horizon] synchronized data reload is unavailable");
+                        continue;
+                    }
+                    refreshed = await reloadSyncedData({ reason: "siyuan-data-changed" }) !== false || refreshed;
+                } catch (e) {
+                    console.warn("[task-horizon] synchronized data reload failed", e);
+                } finally {
+                    if (String(globalThis.__taskHorizonMountToken || "") === mountToken) {
+                        try { this.syncWindowTopBar(); } catch (e) {}
+                        try { this.syncCalendarSubscriptionTopBar(); } catch (e) {}
+                    }
+                }
+            } while (this._taskDataChangedQueued
+                && String(globalThis.__taskHorizonMountToken || "") === mountToken);
+            return refreshed;
+        })().finally(() => {
+            this._taskDataChangedPromise = null;
+            if (this._taskDataChangedQueued
+                && String(globalThis.__taskHorizonMountToken || "") === mountToken) {
+                Promise.resolve(this.onDataChanged()).catch((e) => {
+                    console.warn("[task-horizon] queued synchronized data reload failed", e);
+                });
+            }
+        });
+        return await this._taskDataChangedPromise;
     }
 
     onLayoutReady() {
@@ -2388,6 +2436,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     onunload() {
         clearPluginResourceTextCache();
+        this._taskDataChangedQueued = false;
         try { this.destroyEntryIconRuntime(); } catch (e) {}
         try {
             this._mountExistingTabsStopped = true;

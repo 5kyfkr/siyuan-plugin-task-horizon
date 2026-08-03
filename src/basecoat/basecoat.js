@@ -36,13 +36,28 @@
         el.dataset.variant = String(opts.variant || 'info').trim() || 'info';
         const title = String(opts.title || '').trim();
         const description = String(opts.description || '').trim();
+        const actionLabel = String(opts.actionLabel || '').trim();
         el.innerHTML = [
+            '<div class="bc-toast__content">',
             title ? `<div class="bc-toast__title">${escHtml(title)}</div>` : '',
             description ? `<div class="bc-toast__description">${escHtml(description)}</div>` : '',
+            '</div>',
+            actionLabel ? `<button class="bc-toast__action" type="button">${escHtml(actionLabel)}</button>` : '',
         ].join('');
         viewport.appendChild(el);
         const duration = Number.isFinite(Number(opts.duration)) ? Math.max(800, Number(opts.duration)) : 2500;
         const timer = setTimeout(() => removeToast(el), duration);
+        const action = el.querySelector('.bc-toast__action');
+        if (action) {
+            action.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                try { clearTimeout(timer); } catch (e) {}
+                action.disabled = true;
+                removeToast(el);
+                try { Promise.resolve(opts.onAction?.()).catch(() => null); } catch (e) {}
+            });
+        }
         el.addEventListener('click', () => {
             try { clearTimeout(timer); } catch (e) {}
             removeToast(el);

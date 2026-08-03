@@ -4352,7 +4352,7 @@ return false;
                     fallback: false,
                 });
             } catch (e) {
-                try { __tmRefreshVisibleTaskDetailForTask(taskId); } catch (e2) {}
+                try { __tmRefreshVisibleTaskDetailForTask(taskId, { patch: { attachments: true } }); } catch (e2) {}
             }
         }).catch(() => null);
     }
@@ -6316,7 +6316,9 @@ return false;
                     && typeof __tmPatchVisibleTaskDetailSubtaskPriorityInPlace === 'function') {
                     touched = !!__tmPatchVisibleTaskDetailSubtaskPriorityInPlace(taskId) || touched;
                 }
-                touched = !!__tmRefreshVisibleTaskDetailForTask(taskId) || touched;
+                touched = !!__tmRefreshVisibleTaskDetailForTask(taskId, {
+                    patch: nextPatch,
+                }) || touched;
                 return touched;
             },
         },

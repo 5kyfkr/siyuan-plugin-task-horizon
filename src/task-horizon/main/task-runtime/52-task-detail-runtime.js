@@ -2516,14 +2516,25 @@
         const children = Array.isArray(task?.children) ? task.children : [];
         const completedChildren = children.filter((child) => child?.done).length;
         const customFieldDefs = __tmGetCustomFieldDefs();
-        const visibleColumnOrder = Array.isArray(SettingsStore?.data?.columnOrder)
+        const configuredColumnOrder = Array.isArray(SettingsStore?.data?.columnOrder)
             ? SettingsStore.data.columnOrder
-            : __tmGetDefaultColumnOrder();
-        const visibleColumnSet = new Set(
-            (Array.isArray(visibleColumnOrder) ? visibleColumnOrder : [])
-                .map((key) => String(key || '').trim())
-                .filter(Boolean)
-        );
+            : null;
+        const defaultColumnOrder = __tmGetDefaultColumnOrder();
+        const knownColumnKeys = typeof __tmGetKnownColumnKeys === 'function'
+            ? __tmGetKnownColumnKeys()
+            : null;
+        const visibleColumnOrder = [];
+        const visibleColumnSeen = new Set();
+        const appendVisibleColumn = (key) => {
+            const normalizedKey = String(key || '').trim();
+            if (!normalizedKey || visibleColumnSeen.has(normalizedKey)) return;
+            if (knownColumnKeys instanceof Set && !knownColumnKeys.has(normalizedKey)) return;
+            visibleColumnSeen.add(normalizedKey);
+            visibleColumnOrder.push(normalizedKey);
+        };
+        (configuredColumnOrder && configuredColumnOrder.length ? configuredColumnOrder : defaultColumnOrder).forEach(appendVisibleColumn);
+        if (!visibleColumnOrder.length) defaultColumnOrder.forEach(appendVisibleColumn);
+        const visibleColumnSet = new Set(visibleColumnOrder);
         const visibleCustomFieldDefs = customFieldDefs.filter((field) => {
             const colKey = __tmBuildCustomFieldColumnKey(field?.id);
             return !!colKey
@@ -2556,17 +2567,26 @@
                 </div>
             `
             : '';
-        const textCustomFieldsHtml = visibleTextCustomFieldDefs.map((field) => {
+        const textCustomFieldByColumnKey = new Map();
+        visibleTextCustomFieldDefs.forEach((field) => {
+            const fieldId = String(field?.id || '').trim();
+            const columnKey = __tmBuildCustomFieldColumnKey(fieldId);
+            if (fieldId && columnKey) textCustomFieldByColumnKey.set(columnKey, field);
+        });
+        const detailColumnSectionsHtml = visibleColumnOrder.map((columnKey) => {
+            if (columnKey === 'remark') return __tmBuildTaskDetailRemarkSectionHtml(remarkValue, detailTip);
+            const field = textCustomFieldByColumnKey.get(columnKey);
+            if (!field) return '';
             const fieldId = String(field?.id || '').trim();
             if (!fieldId) return '';
             const fieldName = String(field?.name || fieldId).trim() || fieldId;
             const fieldValue = String(__tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task, fieldId)) || '').trim();
             return `
-                <section class="tm-task-detail-section">
+                <section class="tm-task-detail-section" data-tm-detail-custom-field="${esc(fieldId)}">
                     <div class="tm-task-detail-section-head">
                         <div class="tm-task-detail-section-title">${esc(fieldName)}</div>
                     </div>
-                    <textarea class="bc-textarea tm-task-detail-remark" data-tm-detail-custom-text-field="${esc(fieldId)}" rows="1">${esc(fieldValue)}</textarea>
+                    <textarea class="bc-textarea tm-task-detail-custom-textarea" data-tm-detail-custom-text-field="${esc(fieldId)}" rows="1">${esc(fieldValue)}</textarea>
                 </section>
             `;
         }).join('');
@@ -2672,9 +2692,8 @@
                     </div>
                 </section>
 
-                ${__tmBuildTaskDetailRemarkSectionHtml(remarkValue, detailTip)}
+                ${detailColumnSectionsHtml}
                 ${__tmBuildTaskDetailAttachmentSectionHtml(task, detailTip)}
-                ${textCustomFieldsHtml}
                 ${__tmBuildTaskRepeatHistorySectionHtml(task)}
             </div>
         `;
@@ -2766,6 +2785,7 @@
         const abortController = new AbortController();
         try { root.__tmTaskDetailAbortController = abortController; } catch (e) {}
         const sessionId = __tmCreateTaskDetailSession(root, taskId);
+        try { root.__tmTaskDetailPendingSave = false; } catch (e) {}
         const on = (target, type, handler, listenerOptions) => {
             if (!target?.addEventListener) return;
             const nextOptions = listenerOptions ? { ...listenerOptions } : {};
@@ -3024,6 +3044,8 @@
         let activeSaveSerialized = '';
         let queuedSaveRequested = false;
         let queuedSaveOptions = null;
+        let queuedSaveFormState = null;
+        let pendingAutoSaveRequest = null;
         let lastSerialized = '';
         let refreshStatusSelectUi = () => {};
         let refreshPrioritySelectUi = () => {};
@@ -3037,6 +3059,7 @@
             } catch (e) {}
         };
         const setTaskDetailPendingSave = (active, holdMs = null) => {
+            if (Number(root.__tmTaskDetailSessionId || 0) !== Number(sessionId || 0)) return;
             try { root.__tmTaskDetailPendingSave = !!active; } catch (e) {}
             bumpDetailRefreshHold(active ? (holdMs ?? 1800) : (holdMs ?? 420));
             try {
@@ -3527,7 +3550,7 @@
                 const nextId = String(nextTask.id || requestedId).trim() || requestedId;
                 const effectiveNextId = __tmResolveTaskDetailEffectiveId(nextId) || nextId;
                 if (embedded && !root.isConnected) return;
-                if (embedded && (String(state.viewMode || '').trim() === 'checklist' || String(state.viewMode || '').trim() === 'whiteboard')) {
+                if (embedded && (String(root.id || '').trim() === 'tmTaskDetailSheetPanel' || String(state.viewMode || '').trim() === 'checklist' || String(state.viewMode || '').trim() === 'whiteboard')) {
                     const currentDetailId = String(state.detailTaskId || '').trim();
                     state.detailTaskId = effectiveNextId;
                     if (!__tmAreTaskDetailIdsEquivalent(effectiveNextId, currentDetailId)) {
@@ -3703,10 +3726,12 @@
         const resetQueuedSaveRequest = () => {
             queuedSaveRequested = false;
             queuedSaveOptions = createSaveRequestOptions();
+            queuedSaveFormState = null;
         };
-        const queueSaveRequest = (saveOptions = {}) => {
+        const queueSaveRequest = (saveOptions = {}, formState = null) => {
             queuedSaveRequested = true;
             queuedSaveOptions = mergeSaveRequestOptions(queuedSaveOptions, createSaveRequestOptions(saveOptions));
+            if (formState && typeof formState === 'object') queuedSaveFormState = formState;
         };
         resetQueuedSaveRequest();
         const shouldDeferAutoSaveWhileFocused = () => {
@@ -3898,7 +3923,11 @@
                         docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
                     }) || nextTask;
                     syncMetaChipFaces();
-                    try { __tmRefreshVisibleTaskDetailForTask(String(nextTask.id || taskId || '').trim()); } catch (e) {}
+                    try {
+                        __tmRefreshVisibleTaskDetailForTask(String(nextTask.id || taskId || '').trim(), {
+                            patch: { tomatoCount: true },
+                        });
+                    } catch (e) {}
                     break;
                 case __TM_TASK_REPEAT_RULE_ATTR:
                     nextTask.repeatRule = __tmNormalizeTaskRepeatRule(value, {
@@ -4117,6 +4146,30 @@
                 nextCustomFieldTextValues
             };
         };
+        const captureFormStateSnapshot = (formState = null) => {
+            const source = formState && typeof formState === 'object' ? formState : collectFormState();
+            const sourceTask = source.task && typeof source.task === 'object' ? source.task : null;
+            const task = sourceTask ? { ...sourceTask } : null;
+            if (task && sourceTask.customFieldValues && typeof sourceTask.customFieldValues === 'object') {
+                task.customFieldValues = { ...sourceTask.customFieldValues };
+            }
+            if (task && sourceTask.custom_field_values && typeof sourceTask.custom_field_values === 'object') {
+                task.custom_field_values = { ...sourceTask.custom_field_values };
+            }
+            const nextCustomFieldTextValues = Object.freeze({ ...(source.nextCustomFieldTextValues || {}) });
+            if (task) Object.freeze(task);
+            return Object.freeze({
+                ...source,
+                task,
+                nextCustomFieldTextValues,
+            });
+        };
+        const isFormStateForBoundTask = (formState) => {
+            const capturedTaskId = String(formState?.task?.id || '').trim();
+            const expectedTaskId = String(taskId || '').trim();
+            if (!capturedTaskId || !expectedTaskId) return false;
+            return __tmAreTaskDetailIdsEquivalent(capturedTaskId, expectedTaskId);
+        };
         const buildDetailDiff = (taskLike, formState) => {
             const task0 = (taskLike && typeof taskLike === 'object') ? taskLike : {};
             const currentContent = String(task0.content || '').trim();
@@ -4195,13 +4248,27 @@
                 pureTimeOnly,
             };
         };
-        const runSaveOnce = async (saveOptions = true) => {
+        const runSaveOnce = async (saveOptions = true, capturedFormState = null) => {
             const opts = createSaveRequestOptions(saveOptions);
             const showHint = !!opts.showHint;
             const closeAfterSave = !!opts.closeAfterSave;
             const preserveFocus = opts.preserveFocus !== false;
             const skipRerender = !!opts.skipRerender;
-            const formState = collectFormState();
+            const formState = capturedFormState && typeof capturedFormState === 'object'
+                ? capturedFormState
+                : captureFormStateSnapshot();
+            if (!isFormStateForBoundTask(formState)) {
+                try {
+                    __tmPushDetailDebug('detail-save-skip', {
+                        taskId: String(taskId || '').trim(),
+                        capturedTaskId: String(formState?.task?.id || '').trim(),
+                        reason: 'task-id-mismatch',
+                        showHint,
+                    });
+                } catch (e) {}
+                if (showHint) hint('⚠️ 任务已切换，未保存不匹配的数据', 'warning');
+                return false;
+            }
             const {
                 task,
                 nextContent,
@@ -4461,28 +4528,6 @@
                 if (Object.prototype.hasOwnProperty.call(fieldPatch || {}, 'remark')) {
                     syncRemarkSavedState(nextRemark);
                 }
-                const currentSerialized = (() => {
-                    try {
-                        return serializeFormState(collectFormState());
-                    } catch (e) {
-                        return serialized;
-                    }
-                })();
-                if (currentSerialized !== serialized) {
-                    try {
-                        __tmPushDetailDebug('detail-save-queue-follow-up', {
-                            taskId: String(task.id || '').trim(),
-                            previousSerialized: serialized,
-                            currentSerialized,
-                        });
-                    } catch (e) {}
-                    queueSaveRequest({
-                        showHint: false,
-                        closeAfterSave: false,
-                        preserveFocus: true,
-                        skipRerender: true,
-                    });
-                }
                 try {
                     __tmPushDetailDebug('detail-save-success', {
                         taskId: String(task.id || '').trim(),
@@ -4513,13 +4558,16 @@
                 setTaskDetailPendingSave(false);
             }
         };
-        const doSave = async (saveOptions = true) => {
+        const doSave = async (saveOptions = true, capturedFormState = null) => {
             const requestOptions = createSaveRequestOptions(saveOptions);
+            const requestFormState = capturedFormState && typeof capturedFormState === 'object'
+                ? capturedFormState
+                : captureFormStateSnapshot();
             if (savePromise) {
                 setTaskDetailPendingSave(true);
                 const currentSerialized = (() => {
                     try {
-                        return serializeFormState(collectFormState());
+                        return serializeFormState(requestFormState);
                     } catch (e) {
                         return '';
                     }
@@ -4535,9 +4583,15 @@
                     });
                 } catch (e) {}
                 if (needsFollowUpSave) {
-                    queueSaveRequest(requestOptions);
+                    queueSaveRequest(requestOptions, requestFormState);
                 }
                 const result = await savePromise;
+                if (needsFollowUpSave && queuedSaveRequested && !savePromise) {
+                    const nextOptions = queuedSaveOptions;
+                    const nextFormState = queuedSaveFormState;
+                    resetQueuedSaveRequest();
+                    return await doSave(nextOptions, nextFormState);
+                }
                 if (!needsFollowUpSave) {
                     if (result && requestOptions.showHint) hint('✅ 已保存', 'success');
                     if (result && !embedded && requestOptions.closeAfterSave) {
@@ -4547,8 +4601,10 @@
                 return result;
             }
             let initialOptions = requestOptions;
+            let initialFormState = requestFormState;
             if (queuedSaveRequested) {
                 initialOptions = mergeSaveRequestOptions(queuedSaveOptions, initialOptions);
+                initialFormState = requestFormState || queuedSaveFormState;
                 resetQueuedSaveRequest();
             }
             setTaskDetailPendingSave(true);
@@ -4560,6 +4616,7 @@
             } catch (e) {}
             savePromise = (async () => {
                 let nextOptions = initialOptions;
+                let nextFormState = initialFormState;
                 let result = true;
                 while (nextOptions) {
                     try {
@@ -4569,10 +4626,11 @@
                             queuedSaveRequested: !!queuedSaveRequested,
                         });
                     } catch (e) {}
-                    result = await runSaveOnce(nextOptions);
+                    result = await runSaveOnce(nextOptions, nextFormState);
                     if (result === false) return false;
                     if (!queuedSaveRequested) break;
                     nextOptions = queuedSaveOptions;
+                    nextFormState = queuedSaveFormState;
                     resetQueuedSaveRequest();
                 }
                 return result;
@@ -4589,30 +4647,64 @@
                 try { clearTimeout(autoSaveTimer); } catch (e) {}
                 autoSaveTimer = null;
             }
+            pendingAutoSaveRequest = null;
             await doSave({ showHint: true, closeAfterSave: true });
         });
         syncSerializedSnapshot();
+        const firePendingAutoSave = () => {
+            const request = pendingAutoSaveRequest;
+            if (!request?.formState) {
+                autoSaveTimer = null;
+                return;
+            }
+            if (shouldDeferAutoSaveWhileFocused() && isSessionActive(request.formState.task?.id)) {
+                autoSaveTimer = setTimeout(firePendingAutoSave, 1600);
+                return;
+            }
+            autoSaveTimer = null;
+            pendingAutoSaveRequest = null;
+            doSave(request.options, request.formState).catch(() => null);
+        };
         const scheduleAutoSave = () => {
             if (autoSaveTimer) {
                 try { clearTimeout(autoSaveTimer); } catch (e) {}
             }
-            autoSaveTimer = setTimeout(() => {
-                if (shouldDeferAutoSaveWhileFocused()) {
-                    scheduleAutoSave();
-                    return;
-                }
-                autoSaveTimer = null;
-                doSave({ showHint: false, closeAfterSave: false, preserveFocus: true, skipRerender: true }).catch(() => null);
-            }, 1600);
+            pendingAutoSaveRequest = {
+                options: createSaveRequestOptions({ showHint: false, closeAfterSave: false, preserveFocus: true, skipRerender: true }),
+                formState: captureFormStateSnapshot(),
+            };
+            autoSaveTimer = setTimeout(firePendingAutoSave, 1600);
         };
         const flushAutoSaveNow = async (saveOptions = {}) => {
             if (autoSaveTimer) {
                 try { clearTimeout(autoSaveTimer); } catch (e) {}
                 autoSaveTimer = null;
             }
-            return await doSave(saveOptions);
+            const pendingOptions = pendingAutoSaveRequest?.options || null;
+            const pendingFormState = pendingAutoSaveRequest?.formState || null;
+            pendingAutoSaveRequest = null;
+            return await doSave(
+                mergeSaveRequestOptions(pendingOptions, createSaveRequestOptions(saveOptions)),
+                pendingFormState || captureFormStateSnapshot(),
+            );
         };
         try { root.__tmTaskDetailFlushSave = flushAutoSaveNow; } catch (e) {}
+        try {
+            abortController.signal.addEventListener('abort', () => {
+                if (autoSaveTimer) {
+                    try { clearTimeout(autoSaveTimer); } catch (e) {}
+                    autoSaveTimer = null;
+                }
+                const request = pendingAutoSaveRequest;
+                pendingAutoSaveRequest = null;
+                if (request?.formState) {
+                    Promise.resolve().then(() => doSave(request.options, request.formState)).catch(() => null);
+                }
+                try {
+                    if (root.__tmTaskDetailFlushSave === flushAutoSaveNow) delete root.__tmTaskDetailFlushSave;
+                } catch (e) {}
+            }, { once: true });
+        } catch (e) {}
         const isNoteViewCandidate = (candidate, repeatSeriesId = '') => {
             const item = (candidate && typeof candidate === 'object') ? candidate : null;
             if (!item) return false;
@@ -4869,11 +4961,7 @@
                 try { hint('⏳ 任务正在写入，完成后可打开笔记内视图', 'info'); } catch (e) {}
                 return;
             }
-            if (autoSaveTimer) {
-                try { clearTimeout(autoSaveTimer); } catch (e) {}
-                autoSaveTimer = null;
-            }
-            resetQueuedSaveRequest();
+            await flushAutoSaveNow({ showHint: false, closeAfterSave: false, preserveFocus: true, skipRerender: true });
             if (!isSessionActive()) return;
             const currentTaskForNoteView = getBoundTask();
             const recurringSourceTaskId = __tmGetTaskDetailRecurringSourceTaskId(currentTaskForNoteView, requestedId);
@@ -8444,6 +8532,7 @@
                 syncRemarkHeight();
                 syncRemarkPreview(true);
                 syncRemarkSavedState(__tmGetTaskDetailRemarkRaw(root.__tmTaskDetailTask));
+                flushAutoSaveNow({ showHint: false, closeAfterSave: false, preserveFocus: true, skipRerender: true }).catch(() => null);
             });
             if (remarkToolbarToggle instanceof HTMLButtonElement) {
                 on(remarkToolbarToggle, 'mousedown', (ev) => {
@@ -9116,8 +9205,15 @@ return true;
         try { __tmRemoveElementsById('tm-task-detail-overlay'); } catch (e) {}
         try { __tmClearKanbanDetailForTaskSheet(modal); } catch (e) {}
         const source = String(opts.source || '').trim() || 'task-detail-sheet-open';
-        let openingTask = __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true }) || null;
-        if (openingTask) {
+        const providedTask = opts.task && typeof opts.task === 'object'
+            && __tmAreTaskDetailIdsEquivalent(opts.task.id, tid)
+            ? opts.task
+            : null;
+        let openingTask = providedTask
+            || __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
+            || null;
+        const canReuseProvidedTask = !!providedTask && opts.skipFieldAttrs === true;
+        if (openingTask && !canReuseProvidedTask) {
             try {
                 openingTask = await __tmEnsureTaskDetailFieldAttrs(openingTask, {
                     taskId: tid,
@@ -9466,11 +9562,28 @@ return true;
         return false;
     }
 
+    const __TM_TASK_DETAIL_NON_VISUAL_PATCH_KEYS = new Set([
+        'priorityScore',
+        'allDayBottom',
+        'milestone',
+        'taskDateColor',
+        'customTime',
+    ]);
+
     function __tmRefreshVisibleTaskDetailForTask(taskId, options = {}) {
         const tid = String(taskId || '').trim();
         if (!tid) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const forceRebuild = opts.forceRebuild === true;
+        const targetedPatch = !forceRebuild
+            && opts.patch
+            && typeof opts.patch === 'object'
+            && !Array.isArray(opts.patch)
+            && Object.keys(opts.patch).length > 0
+            ? opts.patch
+            : null;
+        const patchKeys = targetedPatch ? Object.keys(targetedPatch) : [];
+        if (targetedPatch && patchKeys.every((key) => __TM_TASK_DETAIL_NON_VISUAL_PATCH_KEYS.has(key))) return false;
         const refreshSource = String(opts.source || '').trim() || (forceRebuild ? 'visible-task-detail-force-rebuild' : 'visible-task-detail-refresh');
         try {
             __tmPushDetailDebug('detail-refresh-enter', {
@@ -9484,7 +9597,7 @@ return true;
             });
         } catch (e) {}
         let refreshed = false;
-        const patchVisibleDetailPanel = (panel) => __tmPatchTaskDetailPanelInPlace(panel, tid, {
+        const defaultDetailPatch = {
             done: true,
             customStatus: true,
             priority: true,
@@ -9499,7 +9612,9 @@ return true;
             attachments: true,
             customFieldValues: true,
             location: true,
-        });
+        };
+        const detailPatch = targetedPatch || defaultDetailPatch;
+        const patchVisibleDetailPanel = (panel) => __tmPatchTaskDetailPanelInPlace(panel, tid, detailPatch);
         if (__tmIsChecklistSelectionContext(state.modal) && __tmAreTaskDetailIdsEquivalent(state.detailTaskId, tid)) {
             const notePanel = __tmResolveChecklistDetailPanel(state.modal).panel;
             const noteTask = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
@@ -9687,22 +9802,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                         } catch (e) {}
                     }
                 } else {
-                    const detailPatched = !!__tmPatchTaskDetailPanelInPlace(overlay, tid, {
-                        done: true,
-                        customStatus: true,
-                        priority: true,
-                        startDate: true,
-                        completionTime: true,
-                        taskCompleteAt: true,
-                        duration: true,
-                        tomatoEstimateCount: true,
-                        tomatoCount: true,
-                        pinned: true,
-                        remark: true,
-                        attachments: true,
-                        customFieldValues: true,
-                        location: true,
-                    });
+                    const detailPatched = !!patchVisibleDetailPanel(overlay);
                     if (!detailPatched) {
                         const task = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
                         if (task && __tmShouldDeferTaskDetailFallback(overlay)) {

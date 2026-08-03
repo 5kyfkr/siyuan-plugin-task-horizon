@@ -1599,6 +1599,45 @@
                 syncTimelineSelectionToolbar('');
             };
 
+            const findTimelineBarAtPointer = (event) => {
+                const x = Number(event?.clientX);
+                const y = Number(event?.clientY);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+                try {
+                    const elements = typeof document.elementsFromPoint === 'function'
+                        ? document.elementsFromPoint(x, y)
+                        : [];
+                    for (const element of elements) {
+                        const bar = element?.closest?.('.tm-gantt-bar');
+                        if (bar instanceof HTMLElement && bodyEl.contains(bar)) return bar;
+                    }
+                } catch (e) {}
+                const target = event?.target instanceof Element ? event.target : null;
+                const row = target?.closest?.('.tm-gantt-row');
+                if (!(row instanceof HTMLElement) || !bodyEl.contains(row)) return null;
+                const containsPoint = (element) => {
+                    if (!(element instanceof Element)) return false;
+                    const rect = element.getBoundingClientRect();
+                    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+                };
+                for (const bar of row.querySelectorAll('.tm-gantt-bar')) {
+                    const surface = bar.querySelector('.tm-gantt-bar__surface');
+                    const label = bar.querySelector('.tm-gantt-bar__label-layer');
+                    if (containsPoint(surface) || containsPoint(label)) return bar;
+                }
+                return null;
+            };
+
+            const onTimelineSelectionOutsidePointerDown = (e) => {
+                const target = e?.target;
+                if (!(target instanceof Element) || selectionToolbar.contains(target)) return;
+                const timelineSurface = target.closest('.tm-gantt-bar, .tm-gantt-milestone, .tm-task-link-dot');
+                if (timelineSurface instanceof Element && bodyEl.contains(timelineSurface)) return;
+                if (!selectionToolbar.hidden || String(state.timelineDotPinnedTaskId || '').trim()) {
+                    clearTimelineTaskSelection();
+                }
+            };
+
             const onTimelineSelectionToolbarClick = async (e) => {
                 const button = e?.target?.closest?.('[data-tm-gantt-selection-action]');
                 if (!(button instanceof HTMLButtonElement) || button.disabled || button.dataset.tmBusy === '1') return;
@@ -1647,6 +1686,7 @@
                 }
             };
             selectionToolbar.addEventListener('click', onTimelineSelectionToolbarClick);
+            globalThis.__tmRuntimeEvents?.on?.(document, 'pointerdown', onTimelineSelectionOutsidePointerDown, true);
             const selectionToolbarScrollHost = bodyEl.closest('.tm-timeline-scroll-host, .tm-body.tm-body--timeline');
             globalThis.__tmRuntimeEvents?.on?.(bodyEl, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true });
             if (selectionToolbarScrollHost && selectionToolbarScrollHost !== bodyEl) {
@@ -1813,7 +1853,8 @@
                 if (target.closest('.tm-task-link-dot')) return;
                 if (target.closest('.tm-gantt-bar__menu-btn')) return;
                 const handleEl = target.closest('.tm-gantt-bar-handle');
-                const barEl = target.closest('.tm-gantt-bar');
+                const directBarEl = target.closest('.tm-gantt-bar');
+                const barEl = directBarEl || findTimelineBarAtPointer(e);
                 if (!barEl) return;
                 const rowEl = barEl.closest('.tm-gantt-row');
                 const entityKind = String(rowEl?.dataset?.tmEntityKind || '').trim();
@@ -2105,6 +2146,7 @@
                             } else {
                                 dragging = false;
                                 unbindWindowDragEvents();
+                                releaseActivePointerCapture();
                             }
                         }
                         return;
@@ -2488,6 +2530,7 @@
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'dblclick', onDblClick); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'contextmenu', onContextMenu); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'click', onClick); } catch (e) {}
+                try { globalThis.__tmRuntimeEvents?.off?.(document, 'pointerdown', onTimelineSelectionOutsidePointerDown, true); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(timelineScrollHost, 'scroll', scheduleTimelineOffscreenNavRefresh, { passive: true }); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(window, 'resize', scheduleTimelineOffscreenNavRefresh, { passive: true }); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true }); } catch (e) {}

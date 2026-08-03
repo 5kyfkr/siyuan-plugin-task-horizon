@@ -3097,12 +3097,16 @@
     left: var(--tm-inline-searchbar-left, 0px);
     right: auto;
     width: var(--tm-inline-searchbar-width, 100vw);
+    max-width: 100vw;
     padding: 0 12px;
+    box-sizing: border-box;
+    z-index: 100010;
 }
 
 .tm-inline-searchbar__inner {
     pointer-events: auto;
     width: min(calc(100% - 8px), 400px);
+    max-width: 100%;
     min-width: 0;
     display: inline-flex;
     align-items: center;
@@ -3133,7 +3137,7 @@
 
 .tm-inline-searchbar__input {
     flex: 1 1 auto;
-    min-width: 120px;
+    min-width: 0;
     height: 26px;
     min-height: 26px;
     padding: 0 8px;
@@ -8081,6 +8085,9 @@ select.tm-btn-secondary {
 }
 
 .tm-kanban-more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: 1px solid var(--tm-border-color);
     background: transparent;
     color: var(--tm-secondary-text);
@@ -10371,6 +10378,31 @@ select.tm-btn-secondary {
     resize: none;
     box-sizing: border-box;
     overflow-y: hidden;
+}
+
+.tm-task-detail-shell .bc-textarea.tm-task-detail-custom-textarea {
+    width: 100%;
+    min-height: 34px;
+    height: auto;
+    max-height: none;
+    padding: 6px 10px;
+    line-height: 1.4;
+    resize: none;
+    box-sizing: border-box;
+    overflow-y: hidden;
+    border-color: var(--tm-input-border);
+    background: color-mix(in srgb, var(--tm-input-bg) 94%, var(--tm-bg-color));
+    color: var(--tm-text-color);
+}
+
+.tm-task-detail-shell .bc-textarea.tm-task-detail-custom-textarea:hover {
+    background: color-mix(in srgb, var(--tm-input-bg) 98%, var(--tm-bg-color));
+}
+
+.tm-task-detail-shell .bc-textarea.tm-task-detail-custom-textarea:focus,
+.tm-task-detail-shell .bc-textarea.tm-task-detail-custom-textarea:focus-visible {
+    border-color: color-mix(in srgb, var(--tm-primary-color) 42%, var(--tm-input-border) 58%);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
 }
 
 .tm-task-detail-remark-shell {
@@ -16871,6 +16903,18 @@ select.tm-btn-secondary {
     box-shadow:
         inset 0 0 0 1px var(--tm-primary-color),
         0 6px 16px color-mix(in srgb, var(--tm-primary-color) 20%, transparent);
+}
+
+.tm-kanban--clean .tm-kanban-subtask-row.tm-kanban-card.tm-timer-focus {
+    box-shadow:
+        inset 0 0 0 1px var(--tm-primary-color),
+        0 4px 12px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
+}
+
+.tm-kanban--clean .tm-kanban-subtask-row.tm-kanban-card.tm-timer-focus:hover {
+    box-shadow:
+        inset 0 0 0 1px var(--tm-primary-color),
+        0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 18%, transparent);
 }
 
 .tm-checklist-item.tm-timer-focus {

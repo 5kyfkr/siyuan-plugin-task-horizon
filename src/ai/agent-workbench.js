@@ -3776,6 +3776,17 @@
     globalThis.tmAiOpenSummary = (docID) => openWorkbench({ presetID: 'task-review', docID });
     globalThis.tmAiOpenChat = (docID) => openWorkbench({ docID });
     globalThis.tmAiShowHistory = async (docID) => openWorkbench({ docID, showHistory: true });
+    const reloadData = async () => {
+        if (saveTimer) {
+            clearTimeout(saveTimer);
+            saveTimer = 0;
+        }
+        try { await runtime.storeLoadPromise; } catch (error) {}
+        await loadStore();
+        runtime.storeLoaded = true;
+        if (runtime.host?.isConnected) render();
+        return true;
+    };
     globalThis.__taskHorizonAiCleanup = cleanup;
     globalThis.__tmAI = {
         loaded: true,
@@ -3786,6 +3797,7 @@
         openSidebar,
         notifyTaskViewChanged,
         refreshSidebar: async () => { await listSessions(); render(); },
+        reloadData,
         setConversationFontSize,
         handleTaskContextDragOver,
         clearTaskContextDropState,

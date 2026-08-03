@@ -884,6 +884,47 @@
         return el;
     }
 
+    function __tmShowActionHint(msg, type, actionLabel, onAction, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const title = String(msg || '').trim();
+        const label = String(actionLabel || '').trim();
+        if (!label || typeof onAction !== 'function') return hint(title, type);
+        try {
+            if (window.__tmBasecoat?.toast) {
+                return window.__tmBasecoat.toast({
+                    title,
+                    variant: String(type || 'info').trim() || 'info',
+                    duration: Math.max(2500, Number(opts.duration) || 6500),
+                    actionLabel: label,
+                    onAction,
+                });
+            }
+        } catch (e) {}
+        const el = document.createElement('div');
+        el.className = 'tm-hint';
+        el.style.background = ({ success: 'var(--tm-success-color)', error: 'var(--tm-danger-color)', info: 'var(--tm-primary-color)', warning: 'var(--tm-warning-color, #f9ab00)' })[type] || '#666';
+        if (!__tmIsMobileDevice()) el.style.top = '35px';
+        const text = document.createElement('span');
+        text.textContent = title;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.style.cssText = 'margin-left:10px;border:0;background:transparent;color:inherit;font:inherit;font-weight:700;cursor:pointer;';
+        el.append(text, button);
+        document.body.appendChild(el);
+        const timer = setTimeout(() => __tmRemoveHint(el), Math.max(2500, Number(opts.duration) || 6500));
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            clearTimeout(timer);
+            __tmRemoveHint(el);
+            try { Promise.resolve(onAction()).catch(() => null); } catch (e) {}
+        }, { once: true });
+        return el;
+    }
+
+    try { globalThis.__tmShowActionHint = __tmShowActionHint; } catch (e) {}
+
     function __tmRemoveHint(hintEl) {
         if (!(hintEl instanceof HTMLElement)) return;
         try { hintEl.remove(); } catch (e) {}
@@ -6522,17 +6563,25 @@ return Number(state.contextInteractionQuietUntil || 0);
             hint('⚠ 请先选择至少一条任务', 'warning');
             return { successCount: 0, failureCount: 0, failures: [] };
         }
-        let ok = false;
-        try {
-            ok = await showConfirm('批量删除任务', `确定要删除选中的 ${selectedIds.length} 条任务吗？此操作不可恢复。`);
-        } catch (e) {
-            try {
-                ok = !!confirm(`确定要删除选中的 ${selectedIds.length} 条任务吗？此操作不可恢复。`);
-            } catch (e2) {
-                ok = false;
-            }
+        const useRecycle = __tmNormalizeTaskDeleteMode(SettingsStore?.data?.taskDeleteMode) === 'recycle';
+        const recycleDocId = useRecycle ? String(SettingsStore?.data?.taskRecycleDocId || '').trim() : '';
+        if (useRecycle && !recycleDocId) {
+            hint('⚠ 请先设置回收站文档', 'warning');
+            return { successCount: 0, failureCount: selectedIds.length, failures: [] };
         }
-        if (!ok) return { successCount: 0, failureCount: 0, failures: [] };
+        if (!useRecycle) {
+            let ok = false;
+            try {
+                ok = await showConfirm('批量删除任务', `确定要删除选中的 ${selectedIds.length} 条任务吗？此操作不可恢复。`);
+            } catch (e) {
+                try {
+                    ok = !!confirm(`确定要删除选中的 ${selectedIds.length} 条任务吗？此操作不可恢复。`);
+                } catch (e2) {
+                    ok = false;
+                }
+            }
+            if (!ok) return { successCount: 0, failureCount: 0, failures: [] };
+        }
 
         const deleteIds = __tmGetTopLevelMultiSelectTaskIds(selectedIds);
         const failures = [];
@@ -6569,6 +6618,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             const snapshot = __tmCaptureTaskLocalSnapshot(id);
             const scheduleCleanupTaskIds = __tmCollectTaskTreeIdsForScheduleCleanup(snapshot?.task || task, id);
             const docId = String(task?.root_id || task?.docId || '').trim();
+            if (useRecycle && docId === recycleDocId) {
+                failures.push({ id, error: new Error('回收站文档不能是任务当前文档') });
+                return;
+            }
             jobs.push({
                 id,
                 docId,
@@ -6585,6 +6638,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             recurringJobsBySource.get(job.sourceTaskId).push(job);
         });
         const recurringDeleteJobs = [];
+        let skippedRecurringDeleteCount = 0;
         recurringJobsBySource.forEach((sourceJobs, sourceTaskId) => {
             const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceTaskId, { includePending: true, preferPending: true })
                 || state.pendingInsertedTasks?.[sourceTaskId]
@@ -6597,9 +6651,26 @@ return Number(state.contextInteractionQuietUntil || 0);
             recurringDeleteJobs.push(...sourceJobs);
         });
 
+        if (useRecycle && recurringDeleteJobs.length > 0) {
+            let deleteRecurring = false;
+            const message = `选中项包含 ${recurringDeleteJobs.length} 条循环完成记录，它们无法移入回收站，是否永久删除？`;
+            try { deleteRecurring = await showConfirm('删除循环记录', message); } catch (e) {
+                try { deleteRecurring = !!confirm(message); } catch (e2) { deleteRecurring = false; }
+            }
+            if (!deleteRecurring) {
+                skippedRecurringDeleteCount = recurringDeleteJobs.length;
+                recurringDeleteJobs.forEach((job) => skippedIds.push(job.id));
+                recurringDeleteJobs.length = 0;
+            }
+        }
+
         if (!jobs.length && !recurringDeleteJobs.length) {
             const result = { successCount: 0, failureCount: failures.length + skippedIds.length, failures };
-            hint(result.failureCount > 0 ? __tmBuildBatchResultHint(result, '批量删除') : '⚠ 未找到可批量删除的任务', result.failureCount > 0 ? 'error' : 'warning');
+            if (skippedRecurringDeleteCount > 0 && failures.length === 0 && skippedIds.length === skippedRecurringDeleteCount) {
+                hint(`已跳过 ${skippedRecurringDeleteCount} 条循环记录`, 'info');
+            } else {
+                hint(result.failureCount > 0 ? __tmBuildBatchResultHint(result, '批量删除') : '⚠ 未找到可批量删除的任务', result.failureCount > 0 ? 'error' : 'warning');
+            }
             return result;
         }
 
@@ -6611,6 +6682,19 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         const pendingDeletes = jobs.map((job) => {
             try {
+                if (useRecycle) {
+                    const lifecycle = globalThis.__tmTaskLifecycle;
+                    if (!lifecycle || typeof lifecycle.archiveDeleted !== 'function') throw new Error('任务归档服务未就绪');
+                    return Promise.resolve(lifecycle.archiveDeleted(job.id, {
+                        snapshot: job.snapshot,
+                        targetDocId: recycleDocId,
+                        scheduleCleanupTaskIds: job.scheduleCleanupTaskIds,
+                        source: 'multi-select-batch-recycle',
+                        wait: true,
+                    }))
+                        .then(() => ({ id: job.id, ok: true }))
+                        .catch((error) => ({ id: job.id, ok: false, error: error instanceof Error ? error : new Error(String(error || '移入回收站失败')) }));
+                }
                 const deleteTask = globalThis.__tmRequireTaskOutbox?.('deleteTask');
                 if (typeof deleteTask !== 'function') throw new Error('任务写入队列未就绪: deleteTask');
                 return Promise.resolve(deleteTask(job.id, {
@@ -6640,21 +6724,59 @@ return Number(state.contextInteractionQuietUntil || 0);
                 });
             }
         }
+        let settledRecycleDeletes = null;
+        if (useRecycle) {
+            settledRecycleDeletes = await Promise.all(pendingDeletes);
+            settledRecycleDeletes.filter((item) => !item?.ok).forEach((item) => {
+                failures.push({
+                    id: String(item?.id || '').trim(),
+                    error: item?.error instanceof Error ? item.error : new Error('移入回收站失败'),
+                });
+            });
+        }
+        const recycledIds = useRecycle
+            ? settledRecycleDeletes.filter((item) => item?.ok).map((item) => String(item.id || '').trim()).filter(Boolean)
+            : [];
         const result = {
-            successCount: jobs.length + recurringSuccessCount,
+            successCount: (useRecycle ? recycledIds.length : jobs.length) + recurringSuccessCount,
             failureCount: failures.length + skippedIds.length,
             failures,
         };
-        Promise.all(pendingDeletes).then((settled) => {
-            const failed = (Array.isArray(settled) ? settled : []).filter((item) => !item?.ok);
-            if (failed.length > 0) {
-                try { hint(`⚠ 批量删除有 ${failed.length} 项写入失败`, 'warning'); } catch (e) {}
-            }
-        }).catch((e) => {
-            try { hint(`⚠ 批量删除写入失败: ${e.message}`, 'warning'); } catch (err) {}
-        });
+        if (!useRecycle) {
+            Promise.all(pendingDeletes).then((settled) => {
+                const failed = (Array.isArray(settled) ? settled : []).filter((item) => !item?.ok);
+                if (failed.length > 0) {
+                    try { hint(`⚠ 批量删除有 ${failed.length} 项写入失败`, 'warning'); } catch (e) {}
+                }
+            }).catch((e) => {
+                try { hint(`⚠ 批量删除写入失败: ${e.message}`, 'warning'); } catch (err) {}
+            });
+        }
         try { __tmScheduleRender({ withFilters: true, reason: 'multi-select-batch-delete' }); } catch (e) {}
-        hint(__tmBuildBatchResultHint(result, '批量删除'), (result.successCount > 0 && result.failureCount <= 0) ? 'success' : (result.successCount > 0 ? 'warning' : 'error'));
+        if (useRecycle && recycledIds.length > 0) {
+            const lifecycle = globalThis.__tmTaskLifecycle;
+            const recycleSummary = [`已移入回收站 ${recycledIds.length} 项`];
+            if (recurringSuccessCount > 0) recycleSummary.push(`已删除循环记录 ${recurringSuccessCount} 项`);
+            if (skippedRecurringDeleteCount > 0) recycleSummary.push(`已跳过循环记录 ${skippedRecurringDeleteCount} 项`);
+            if (failures.length > 0) recycleSummary.push(`失败 ${failures.length} 项`);
+            __tmShowActionHint(
+                recycleSummary.join('，'),
+                result.failureCount > 0 ? 'warning' : 'success',
+                '撤销回收',
+                async () => {
+                    const restored = await Promise.all(recycledIds.map((id) => lifecycle.restoreDeleted(id, {
+                        source: 'multi-select-batch-recycle-undo',
+                        wait: true,
+                    }).then(() => true).catch(() => false)));
+                    const failedCount = restored.filter((ok) => !ok).length;
+                    try { __tmScheduleRender({ withFilters: true, reason: 'multi-select-batch-recycle-undo' }); } catch (e) {}
+                    hint(failedCount > 0 ? `⚠ 有 ${failedCount} 项恢复失败` : `✅ 已恢复 ${restored.length} 项任务`, failedCount > 0 ? 'warning' : 'success');
+                },
+                { duration: 8000 },
+            );
+        } else {
+            hint(__tmBuildBatchResultHint(result, useRecycle ? '移入回收站' : '批量删除'), (result.successCount > 0 && result.failureCount <= 0) ? 'success' : (result.successCount > 0 ? 'warning' : 'error'));
+        }
         return result;
     }
 
@@ -13434,9 +13556,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         try {
             const rect = stage.getBoundingClientRect();
-            const left = Math.max(0, Math.round(Number(rect.left) || 0));
+            const stageLeft = Number(rect.left) || 0;
             const top = Math.max(0, Math.round((Number(rect.top) || 0) + 8));
-            const width = Math.max(0, Math.round(Number(rect.width) || 0));
+            const stageWidth = Math.max(0, Number(rect.width) || 0);
+            const viewportWidth = Math.max(0, Number(window.innerWidth || document.documentElement?.clientWidth || 0));
+            const width = viewportWidth > 0 ? Math.min(stageWidth, viewportWidth) : stageWidth;
+            const maxLeft = viewportWidth > width ? viewportWidth - width : 0;
+            const left = Math.max(0, Math.min(Math.round(stageLeft), Math.round(maxLeft)));
             if (width <= 0) {
                 return true;
             }

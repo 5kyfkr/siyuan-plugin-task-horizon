@@ -1316,6 +1316,12 @@ if (shouldMarkDirty) {
             try { delete window.__tmWhiteboardPoolSearchPressCaptureGuard; } catch (e2) { window.__tmWhiteboardPoolSearchPressCaptureGuard = undefined; }
         } catch (e) {}
         try {
+            if (__tmTomatoFocusRestoreRetryTimer) {
+                clearTimeout(__tmTomatoFocusRestoreRetryTimer);
+                __tmTomatoFocusRestoreRetryTimer = null;
+            }
+        } catch (e) {}
+        try {
             if (__tmTomatoAssociationHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:association-cleared', __tmTomatoAssociationHandler);
                 __tmTomatoAssociationHandler = null;

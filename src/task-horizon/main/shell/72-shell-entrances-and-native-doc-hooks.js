@@ -2590,6 +2590,15 @@
             } else {
                 try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
             }
+            if (wasDoneBefore !== !!domDone) {
+                try {
+                    globalThis.__tmTaskLifecycle?.notifyCompletion?.(tid, !!domDone, {
+                        task,
+                        previousDone: wasDoneBefore,
+                        source: 'native-doc-checkbox-sync',
+                    });
+                } catch (e) {}
+            }
             __tmPushStatusDebug('checkbox-sync:end-local-only', {
                 blockId: rawId,
                 taskId: tid,
@@ -2731,6 +2740,15 @@
             } catch (e) {}
         } else {
             try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
+        }
+        if (wasDoneBefore !== !!domDone) {
+            try {
+                globalThis.__tmTaskLifecycle?.notifyCompletion?.(tid, !!domDone, {
+                    task,
+                    previousDone: wasDoneBefore,
+                    source: 'native-doc-checkbox-sync',
+                });
+            } catch (e) {}
         }
         __tmPushStatusDebug('checkbox-sync:end', {
             blockId: rawId,

@@ -566,7 +566,11 @@ return ok;
         }
 
         if (opts.skipDetailPatch !== true) {
-            try { refreshed = !!__tmRefreshVisibleTaskDetailForTask(tid) || refreshed; } catch (e) {}
+            try {
+                refreshed = !!__tmRefreshVisibleTaskDetailForTask(tid, {
+                    patch,
+                }) || refreshed;
+            } catch (e) {}
         }
 if (hasCalendarDatePatch && globalThis.__tmCalendar?.syncTaskDateInPlace) {
             Promise.resolve().then(async () => {

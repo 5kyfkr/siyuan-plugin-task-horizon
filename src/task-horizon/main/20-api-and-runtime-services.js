@@ -4845,6 +4845,7 @@
         'taskPatch',
         'moveTask',
         'deleteTask',
+        'taskLifecycle',
     ]);
     const __TM_PENDING_INSERTED_TASK_KEEPALIVE_MS = 120000;
     const __TM_OUTBOX_TEMP_REF_WAIT_RETRY_MS = 250;
@@ -6978,6 +6979,11 @@ onBlockInserted: (info) => {
                 backgroundScheduleCleanup: op?.data?.backgroundScheduleCleanup === true,
             });
         }
+        if (type === 'taskLifecycle') {
+            const lifecycle = globalThis.__tmTaskLifecycle;
+            if (!lifecycle || typeof lifecycle.execute !== 'function') throw new Error('任务归档服务未就绪');
+            return await lifecycle.execute(op?.data || {});
+        }
         if (type === 'setDone') {
             return await __tmSetDoneKernel(op?.data?.taskId, !!op?.data?.done, null, {
                 force: true,
@@ -7406,7 +7412,8 @@ onBlockInserted: (info) => {
                 || type === 'createSibling'
                 || type === 'commitTaskId'
                 || type === 'moveTask'
-                || type === 'deleteTask';
+                || type === 'deleteTask'
+                || type === 'taskLifecycle';
             const hasApplyLocalOverride = Object.prototype.hasOwnProperty.call(detail, 'applyLocal');
             const applyLocal = hasApplyLocalOverride
                 ? detail.applyLocal === true
@@ -7697,6 +7704,16 @@ onBlockInserted: (info) => {
         }
         if (type === 'deleteTask') {
             __tmPublishQueuedOpMutation(op, 'commit', { applyLocal: false });
+            __tmRefreshQueuedStructuralProjection(op, {
+                taskId: String(op?.data?.taskId || '').trim(),
+            });
+            return;
+        }
+        if (type === 'taskLifecycle') {
+            __tmPublishQueuedOpMutation(op, 'commit', {
+                taskId: String(op?.data?.taskId || '').trim(),
+                applyLocal: false,
+            });
             __tmRefreshQueuedStructuralProjection(op, {
                 taskId: String(op?.data?.taskId || '').trim(),
             });
@@ -8640,6 +8657,7 @@ const wait = !!options.wait;
         if (key === 'createTaskInDoc' || key === 'createSubtask' || key === 'createSibling') return '创建任务';
         if (key === 'moveTask') return '移动任务';
         if (key === 'deleteTask') return '删除任务';
+        if (key === 'taskLifecycle') return '任务归档';
         if (key === 'contentPatch') return '任务内容';
         if (key === 'setDone') return '完成状态';
         if (key === 'taskPatch' || key === 'attrPatch') return '任务字段';
@@ -16745,6 +16763,20 @@ __tmPushStatusDebug('apply-status:start', {
                     });
                 } catch (e) {}
             }
+            if (prevDone !== nextDone) {
+                try {
+                    const lifecycleTask = globalThis.__tmRuntimeState?.getTaskById?.(context.persistId)
+                        || globalThis.__tmRuntimeState?.getFlatTaskById?.(context.persistId)
+                        || state.flatTasks?.[context.persistId]
+                        || state.pendingInsertedTasks?.[context.persistId]
+                        || task;
+                    globalThis.__tmTaskLifecycle?.notifyCompletion?.(context.persistId, nextDone, {
+                        task: lifecycleTask,
+                        previousDone: prevDone,
+                        source: String(opts.source || 'task-status').trim() || 'task-status',
+                    });
+                } catch (e) {}
+            }
             if (opts.recordUndo !== false && !__tmUndoState.applying) {
                 __tmPushUndoRecord({
                     type: 'taskStatus',
@@ -17272,6 +17304,8 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmTomatoFocusRestoredHandler = null;
     let __tmTomatoHistoryUpdatedHandler = null;
     let __tmTomatoHistoryVersion = 0;
+    let __tmTomatoFocusRestoreRetryTimer = null;
+    const __TM_TOMATO_FOCUS_SESSION_KEY = 'tm_tomato_focus_task';
     let __tmPinnedListenerAdded = false;
     let __tmQuickAddGlobalClickHandler = null;
     let __tmCalendarScheduleUpdatedHandler = null;
@@ -18774,6 +18808,104 @@ refreshOk = false;
         __tmTomatoTimerHooked = true;
     }
 
+    function __tmGetStoredTomatoFocusTaskId() {
+        try {
+            const raw = String(globalThis.sessionStorage?.getItem?.(__TM_TOMATO_FOCUS_SESSION_KEY) || '').trim();
+            if (!raw) return '';
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object') return String(parsed.taskId || '').trim();
+            } catch (e) {}
+            return raw;
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmIsKnownTomatoFocusTaskId(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return false;
+        try {
+            if (globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })) return true;
+            if (globalThis.__tmRuntimeState?.getFlatTaskById?.(id)) return true;
+            if (state.flatTasks?.[id] || state.pendingInsertedTasks?.[id]) return true;
+        } catch (e) {}
+        try {
+            const root = state.modal instanceof Element && document.body.contains(state.modal) ? state.modal : null;
+            if (!root) return false;
+            return Array.from(root.querySelectorAll('[data-id]')).some((el) => String(el.getAttribute('data-id') || '').trim() === id);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmReadActiveTomatoFocusSnapshot() {
+        const timer = globalThis.__tomatoTimer;
+        if (typeof timer?.getActiveFocusSnapshot === 'function') {
+            try {
+                const snapshot = timer.getActiveFocusSnapshot();
+                return snapshot && typeof snapshot === 'object' ? snapshot : null;
+            } catch (e) {
+                return null;
+            }
+        }
+        let timerState = null;
+        let syncSnapshot = null;
+        try { timerState = globalThis.tomatoAudio?.getTimerState?.() || null; } catch (e) {}
+        try { syncSnapshot = globalThis.tomatoSync?.getState?.() || timerState?.syncState || null; } catch (e) {}
+        const mode = String(timerState?.timerMode || syncSnapshot?.mode || '').trim();
+        const status = String(syncSnapshot?.status || '').trim();
+        const active = timerState?.isRunning === true
+            || timerState?.isTimerPaused === true
+            || status === 'RUNNING'
+            || status === 'PAUSED';
+        if (!active || (mode !== 'countdown' && mode !== 'stopwatch')) return null;
+        return {
+            taskBlockId: String(timerState?.taskBlockId || syncSnapshot?.taskBlockId || '').trim(),
+            databaseBlockId: String(timerState?.databaseBlockId || syncSnapshot?.databaseBlockId || '').trim(),
+            mode,
+            source: String(timerState?.focusRestoreSource || '').trim(),
+        };
+    }
+
+    function __tmRestoreTomatoFocusAfterReload(attempt = 0) {
+        if (__tmTomatoFocusRestoreRetryTimer) {
+            try { clearTimeout(__tmTomatoFocusRestoreRetryTimer); } catch (e) {}
+            __tmTomatoFocusRestoreRetryTimer = null;
+        }
+        try { globalThis.__tomatoTimer?.restoreActiveFocus?.('task-horizon-reload'); } catch (e) {}
+        if (String(state.timerFocusTaskId || '').trim()) return true;
+
+        const snapshot = __tmReadActiveTomatoFocusSnapshot();
+        if (snapshot) {
+            const candidateIds = Array.from(new Set([
+                snapshot.taskBlockId,
+                snapshot.databaseBlockId,
+            ].map((value) => String(value || '').trim()).filter(Boolean)));
+            const source = String(snapshot.source || '').trim();
+            const trustedSource = ['task-horizon', 'block-menu', 'database-menu'].includes(source);
+            let focusTaskId = trustedSource ? (candidateIds[0] || '') : '';
+            if (!focusTaskId) focusTaskId = candidateIds.find((id) => __tmIsKnownTomatoFocusTaskId(id)) || '';
+            if (!focusTaskId && candidateIds.length === 0) {
+                const storedTaskId = __tmGetStoredTomatoFocusTaskId();
+                if (__tmIsKnownTomatoFocusTaskId(storedTaskId)) focusTaskId = storedTaskId;
+            }
+            if (focusTaskId) {
+                __tmSyncTomatoFocusInPlace(focusTaskId);
+                return true;
+            }
+        }
+
+        if (attempt < 5) {
+            const delays = [120, 300, 700, 1500, 3000];
+            __tmTomatoFocusRestoreRetryTimer = setTimeout(() => {
+                __tmTomatoFocusRestoreRetryTimer = null;
+                __tmRestoreTomatoFocusAfterReload(attempt + 1);
+            }, delays[attempt] || 3000);
+        }
+        return false;
+    }
+
     function __tmListenTomatoAssociationCleared() {
         if (__tmTomatoAssociationListenerAdded) return;
         __tmTomatoAssociationHandler = () => {
@@ -18845,6 +18977,7 @@ refreshOk = false;
             try { __tmTomatoFocusRestoredHandler({ detail }); } catch (e) {}
         };
         __tmTomatoAssociationListenerAdded = true;
+        __tmRestoreTomatoFocusAfterReload();
     }
 
     function __tmClearTomatoFocusRowClasses() {
@@ -18861,6 +18994,13 @@ refreshOk = false;
     function __tmSyncTomatoFocusInPlace(taskId = '') {
         const focusTaskId = String(taskId || '').trim();
         state.timerFocusTaskId = focusTaskId;
+        try {
+            if (focusTaskId) {
+                globalThis.sessionStorage?.setItem?.(__TM_TOMATO_FOCUS_SESSION_KEY, JSON.stringify({ taskId: focusTaskId }));
+            } else {
+                globalThis.sessionStorage?.removeItem?.(__TM_TOMATO_FOCUS_SESSION_KEY);
+            }
+        } catch (e) {}
         const modal = state.modal instanceof Element && document.body.contains(state.modal)
             ? state.modal
             : null;

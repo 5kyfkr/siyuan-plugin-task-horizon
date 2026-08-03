@@ -1,3 +1,17 @@
+    function __tmRefreshVisibleTaskDetailsForColumnSettings(source = 'column-settings') {
+        const targetIds = typeof __tmCollectVisibleTaskDetailTargetIds === 'function'
+            ? __tmCollectVisibleTaskDetailTargetIds()
+            : [];
+        targetIds.forEach((taskId) => {
+            try {
+                __tmRefreshVisibleTaskDetailForTask(taskId, {
+                    forceRebuild: true,
+                    source,
+                });
+            } catch (e) {}
+        });
+    }
+
     window.toggleColumn = async function(key, show) {
         const options = arguments.length >= 3 ? arguments[2] : {};
         const opts = (options && typeof options === 'object') ? options : {};
@@ -37,8 +51,9 @@
                     showInlineLoading: false,
                     source: 'toggle-column',
                 });
-                return;
             } catch (e) {}
+            __tmRefreshVisibleTaskDetailsForColumnSettings('toggle-column');
+            return;
         } else {
             try {
                 await __tmCommitCustomFieldLoadPlan(prevCustomFieldPlan, nextCustomFieldPlan, {
@@ -47,6 +62,7 @@
             } catch (e) {}
         }
         render();
+        __tmRefreshVisibleTaskDetailsForColumnSettings('toggle-column');
     };
 
     window.moveColumn = function(key, direction) {
@@ -63,6 +79,7 @@
         SettingsStore.save();
         showSettings();
         render();
+        __tmRefreshVisibleTaskDetailsForColumnSettings('move-column');
     };
 
     // ============ 状态选项管理 ============

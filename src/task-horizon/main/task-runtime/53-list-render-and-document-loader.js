@@ -1153,111 +1153,51 @@
         }
     };
 
-    // ============ 树形状态保护器（解决父子任务属性丢失） ============
+    // ============ DOM 回退树状态保护器 ============
     const TreeProtector = {
-        // 操作前保存完整树状态：内容 -> {id, parentId, data, collapsed}
-        snapshot: new Map(),
-        idMapping: new Map(), // oldId -> newId
-        collapsedState: new Map(), // oldId -> boolean
-
-        // 递归保存树
-        saveTree(tasks, parentId = null, level = 0) {
-            tasks.forEach(task => {
-                // 保存关键信息，以内容为key（因为ID会变，内容相对稳定）
-                const key = `${level}:${parentId || 'root'}:${task.content}`;
-                this.snapshot.set(key, {
-                    oldId: task.id,
-                    parentId: parentId,
-                    level: level,
-                    data: {
-                        priority: task.priority || '',
-                        duration: task.duration || '',
-                        remark: task.remark || '',
-                        completionTime: task.completionTime || '',
-                        customTime: task.customTime || '',
-                        customStatus: task.customStatus || ''
-                    },
-                    done: task.done
-                });
-
-                // 保存折叠状态
-                this.collapsedState.set(task.id, state.collapsedTaskIds.has(task.id));
-
-                // 递归保存子任务
-                if (task.children && task.children.length > 0) {
-                    this.saveTree(task.children, task.id, level + 1);
-                }
-            });
-        },
-
-        // 操作后恢复树属性
-        restoreTree(tasks, parentId = null, level = 0) {
-            tasks.forEach(task => {
-                // 构建查找key
-                const key = `${level}:${parentId || 'root'}:${task.content}`;
-                const saved = this.snapshot.get(key);
-
-                if (saved) {
-                    // 建立ID映射
-                    this.idMapping.set(saved.oldId, task.id);
-
-                    // 恢复属性（优先使用保存的，除非新任务已有值）
-                    if (!task.priority && saved.data.priority) task.priority = saved.data.priority;
-                    if (!task.duration && saved.data.duration) task.duration = saved.data.duration;
-                    if (!task.remark && saved.data.remark) task.remark = saved.data.remark;
-                    if (!task.completionTime && saved.data.completionTime) task.completionTime = saved.data.completionTime;
-                    if (!task.customTime && saved.data.customTime) task.customTime = saved.data.customTime;
-                    if (!task.customStatus && saved.data.customStatus) task.customStatus = saved.data.customStatus;
-
-                    // 恢复MetaStore映射
-                if (saved.oldId !== task.id) {
-                    MetaStore.remapId(saved.oldId, task.id);
-                }
-
-            }
-
-                // 递归恢复子任务
-                if (task.children && task.children.length > 0) {
-                    this.restoreTree(task.children, task.id, level + 1);
-                }
-            });
-        },
-
-        // 恢复折叠状态（基于ID映射）
-        restoreCollapsedState() {
-            if (!(this.collapsedState instanceof Map) || this.collapsedState.size === 0) return;
-            const nextCollapsed = new Set(state.collapsedTaskIds || SettingsStore.data.collapsedTaskIds || []);
-            let changed = false;
-            for (const [oldId, wasCollapsed] of this.collapsedState.entries()) {
-                const oldKey = String(oldId || '').trim();
-                if (!oldKey || !this.idMapping.has(oldKey)) continue;
-                const newId = String(this.idMapping.get(oldKey) || oldKey).trim();
-                if (newId && newId !== oldKey && nextCollapsed.delete(oldKey)) changed = true;
-                if (wasCollapsed) {
-                    if (newId && !nextCollapsed.has(newId)) {
-                        nextCollapsed.add(newId);
-                        changed = true;
+        capture(tasks) {
+            const snapshot = new Map();
+            const visit = (items) => {
+                (Array.isArray(items) ? items : []).forEach((task) => {
+                    const taskId = String(task?.id || '').trim();
+                    if (taskId) {
+                        snapshot.set(taskId, {
+                            priority: task.priority || '',
+                            duration: task.duration || '',
+                            remark: task.remark || '',
+                            completionTime: task.completionTime || '',
+                            customTime: task.customTime || '',
+                            customStatus: task.customStatus || '',
+                        });
                     }
-                } else if (newId && nextCollapsed.delete(newId)) {
-                    changed = true;
-                }
-            }
-            state.collapsedTaskIds = nextCollapsed;
-            SettingsStore.data.collapsedTaskIds = [...nextCollapsed];
-            if (changed) {
-                try { __tmMarkCollapseStateChanged(); } catch (e) {}
-                try { Storage.set('tm_collapsed_task_ids', SettingsStore.data.collapsedTaskIds); } catch (e) {}
-                try {
-                    const p = SettingsStore.save();
-                    if (p && typeof p.catch === 'function') p.catch(() => null);
-                } catch (e) {}
-            }
+                    visit(task?.children);
+                });
+            };
+            visit(tasks);
+            return snapshot;
         },
-
-        clear() {
-            this.snapshot.clear();
-            this.idMapping.clear();
-            this.collapsedState.clear();
+        restore(tasks, snapshot) {
+            if (!(snapshot instanceof Map) || snapshot.size === 0) return;
+            const visit = (items) => {
+                (Array.isArray(items) ? items : []).forEach((task) => {
+                    const saved = snapshot.get(String(task?.id || '').trim());
+                    if (saved) {
+                        if (!task.priority && saved.priority) task.priority = saved.priority;
+                        if (!task.duration && saved.duration) task.duration = saved.duration;
+                        if (!task.remark && saved.remark) task.remark = saved.remark;
+                        if (!task.completionTime && saved.completionTime) task.completionTime = saved.completionTime;
+                        if (!task.customTime && saved.customTime) task.customTime = saved.customTime;
+                        if (!task.customStatus && saved.customStatus) task.customStatus = saved.customStatus;
+                    }
+                    visit(task?.children);
+                });
+            };
+            visit(tasks);
+        },
+        clear(snapshot) {
+            if (snapshot instanceof Map) {
+                snapshot.clear();
+            }
         }
     };
 
@@ -2356,15 +2296,24 @@ return finish(false, 'noop');
         const opts = (options && typeof options === 'object') ? options : {};
         const targetDone = opts.done === true;
         if (!tid) return false;
-        if (!targetDone) {
-            try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
-            return false;
-        }
-        if (opts.previousDone === true) return false;
         const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
             || state.pendingInsertedTasks?.[tid]
             || state.flatTasks?.[tid]
             || ((opts.task && typeof opts.task === 'object') ? opts.task : null);
+        if (!targetDone) {
+            try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
+            if (opts.previousDone === true) {
+                try {
+                    globalThis.__tmTaskLifecycle?.notifyCompletion?.(tid, false, {
+                        task: latestTask,
+                        previousDone: true,
+                        source: String(opts.source || 'set-done').trim() || 'set-done',
+                    });
+                } catch (e) {}
+            }
+            return false;
+        }
+        if (opts.previousDone === true) return false;
         const completedAt = __tmNormalizeTaskCompleteAtValue(
             opts.completedAt
             || latestTask?.taskCompleteAt
@@ -2423,6 +2372,13 @@ return finish(false, 'noop');
         if (opts.skipAutoCompleteParent !== true) {
             try { void __tmMaybeAutoCompleteParentAfterSubtaskDone(tid, opts).catch(() => null); } catch (e) {}
         }
+        try {
+            globalThis.__tmTaskLifecycle?.notifyCompletion?.(tid, true, {
+                task: latestTask,
+                previousDone: false,
+                source: String(opts.source || 'set-done').trim() || 'set-done',
+            });
+        } catch (e) {}
         return recurringScheduled;
     }
 
@@ -2549,7 +2505,7 @@ return finish(false, 'noop');
         const docId = task.root_id;
         const doc = state.taskTree.find(d => d.id === docId);
         let fallbackLocked = false;
-        let fallbackTreeSaved = false;
+        let fallbackTreeSnapshot = null;
 
         // 关键修改：先保存原始状态，然后保存到 MetaStore（保持原始状态，等点击完成后再更新）
         const originalMarkdown = Object.prototype.hasOwnProperty.call(opts, 'previousMarkdown')
@@ -2591,25 +2547,6 @@ return finish(false, 'noop');
             content: task.content
         });
 
-        // DOM 回退会触发宿主重新解析列表块，因此仅在回退时保存整棵树。
-        const saveAllTasksToMetaRecursive = (tasks) => {
-            tasks.forEach(t => {
-                MetaStore.set(t.id, {
-                    priority: t.priority || '',
-                    duration: t.duration || '',
-                    remark: t.remark || '',
-                    completionTime: t.completionTime || '',
-                    customTime: t.customTime || '',
-                    customStatus: t.customStatus || '',
-                    done: t.done,
-                    content: t.content
-                });
-                if (t.children && t.children.length > 0) {
-                    saveAllTasksToMetaRecursive(t.children);
-                }
-            });
-        };
-
         // 注意：不要在这里 render()，因为还没点击复选框
         // render() 会在从DOM读取实际状态后调用
         const markdownRetentionPatch = typeof __tmProtectMarkdownMutationTaskFields === 'function'
@@ -2637,38 +2574,10 @@ return finish(false, 'noop');
                 GlobalLock.lock();
                 fallbackLocked = true;
                 if (doc?.tasks) {
-                    TreeProtector.clear();
-                    TreeProtector.saveTree(doc.tasks);
-                    saveAllTasksToMetaRecursive(doc.tasks);
-                    fallbackTreeSaved = true;
+                    fallbackTreeSnapshot = TreeProtector.capture(doc.tasks);
                 }
-                // 尝试多种方式找到复选框并点击
-                // 方式1：通过 task.id 直接查询列表项
+                // 只允许按块 ID 定位，内容相同不代表是同一个任务。
                 taskElement = globalThis.__tmCompat?.findTaskListItemById?.(id) || null;
-
-                // 方式2：遍历所有任务列表项，通过内容匹配
-                if (!taskElement) {
-                    const allItems = document.querySelectorAll('[data-type="NodeListItem"]');
-                    for (const item of allItems) {
-                        const paragraph = item.querySelector('[data-type="NodeParagraph"] > div[contenteditable="true"]');
-                        if (paragraph && paragraph.textContent?.trim() === task.content) {
-                            taskElement = item;
-                            break;
-                        }
-                    }
-                }
-
-                // 方式3：遍历所有 protyle-wysiwyg 下的列表项
-                if (!taskElement) {
-                    const allItems = document.querySelectorAll('.protyle-wysiwyg [data-type="NodeListItem"]');
-                    for (const item of allItems) {
-                        const paragraph = item.querySelector('[data-type="NodeParagraph"] > div[contenteditable="true"]');
-                        if (paragraph && paragraph.textContent?.trim() === task.content) {
-                            taskElement = item;
-                            break;
-                        }
-                    }
-                }
             }
 
             if (taskElement) {
@@ -2897,8 +2806,8 @@ return finish(false, 'noop');
             } catch (e) {}
 
             // 尝试恢复树状态
-            if (fallbackTreeSaved && doc) {
-                TreeProtector.restoreTree(doc.tasks);
+            if (fallbackTreeSnapshot && doc) {
+                TreeProtector.restore(doc.tasks, fallbackTreeSnapshot);
             }
 
             recalcStats();
@@ -2937,6 +2846,7 @@ return finish(false, 'noop');
             if (opts.force === true) throw err;
             return false;
         } finally {
+            TreeProtector.clear(fallbackTreeSnapshot);
             if (fallbackLocked) {
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
@@ -3440,25 +3350,7 @@ if (ev) {
         await MetaStore.saveNow();
     }
 
-    // 通过内容在任务树中查找任务（使用更灵活的匹配）
-    function findTaskByContent(tasks, content, depth = 0) {
-        for (const t of tasks) {
-            // 使用模糊匹配：检查内容是否包含或被包含
-            const oldContent = String(t.content || '').trim();
-            const newContent = String(content || '').trim();
-            // 精确匹配或新内容包含旧内容（旧内容更短）
-            if (oldContent === newContent || (newContent.length > oldContent.length && newContent.includes(oldContent))) {
-                return t;
-            }
-            if (t.children && t.children.length > 0) {
-                const found = findTaskByContent(t.children, content, depth + 1);
-                if (found) return found;
-            }
-        }
-        return null;
-    }
-
-    // ============ 受保护的重载（带树恢复） ============
+    // ============ 受保护的文档任务重载 ============
     // manualRelationships: 可选，Map<childId, parentTaskId>，用于在SQL索引未更新时强制指定父子关系
     // injectedTasks: 可选，Array<Task>，用于在SQL索引未更新时强制注入新任务（乐观更新）
     async function reloadDocTasksProtected(docId, expectId = null, manualRelationships = null, injectedTasks = null, options = {}) {
@@ -3616,31 +3508,7 @@ if (ev) {
             } catch (e) {}
         }
 
-        // 2. 关键：先建立内容到 MetaStore 数据的映射
-        // 因为思源操作后子任务ID可能改变，需要用内容匹配来找回旧ID的MetaStore数据
-        const contentToMeta = new Map();
-
-        // 遍历旧的任务树（如果有的话），建立内容到MetaStore的映射
-        const oldDoc = state.taskTree.find(d => d.id === docId);
-        if (oldDoc && oldDoc.tasks) {
-            const traverseOld = (tasks) => {
-                tasks.forEach(t => {
-                    const key = (t.content || '').trim();
-                    if (key) {
-                        const meta = MetaStore.get(t.id);
-                        if (meta && Object.keys(meta).length > 0) {
-                            contentToMeta.set(key, meta);
-                        }
-                    }
-                    if (t.children && t.children.length > 0) {
-                        traverseOld(t.children);
-                    }
-                });
-            };
-            traverseOld(oldDoc.tasks);
-        }
-
-        // 3. 构建树（保持原有逻辑）
+        // 2. 构建树
         const taskMap = new Map();
         let rootTasks = [];
         const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
@@ -3650,18 +3518,7 @@ if (ev) {
             const parsed = API.parseTaskStatus(t.markdown);
             const taskId = String(t?.id || '').trim();
 
-            // 关键：优先从内容映射读取 MetaStore 数据（因为ID可能已变化）
-            const contentKey = (parsed.content || '').trim();
-            let meta = MetaStore.get(taskId) || {};
-
-            // 如果当前ID没有MetaStore数据，尝试从内容映射找回
-            if (Object.keys(meta).length === 0 && contentKey && contentToMeta.has(contentKey)) {
-                const oldMeta = contentToMeta.get(contentKey);
-                meta = oldMeta;
-
-                // 同时保存到当前ID下，确保后续能直接读取
-                MetaStore.set(taskId, oldMeta);
-            }
+            const meta = MetaStore.get(taskId) || {};
             const allowVisibleDateFallback = __tmHasPendingVisibleDatePersistence(String(t.id || '').trim());
             const oldTaskState = oldTaskStateById.get(taskId) || null;
             const docSeq = Number(t?.doc_seq);
@@ -3796,41 +3653,6 @@ if (ev) {
             rootTasks = Array.from(taskMap.values()).filter((task) => !String(task?.parentTaskId || '').trim());
         }
 
-        // 3. 关键：通过内容匹配恢复旧ID到新ID的映射，并更新MetaStore
-        // 因为思源操作后子任务ID可能改变，需要用内容匹配来找回旧ID
-        const oldIdToNewId = new Map();
-        const newIdToOldId = new Map();
-
-        // 遍历旧的任务树（如果有的话），建立ID映射
-        // 注意：oldDoc 已在前面声明，这里直接使用
-        if (oldDoc && oldDoc.tasks) {
-            const traverseOld = (tasks) => {
-                tasks.forEach(t => {
-                    if (t.content) {
-                        // 在新任务树中找内容相同的任务
-                        const newTask = findTaskByContent(rootTasks, t.content);
-                        if (newTask && newTask.id !== t.id) {
-                            oldIdToNewId.set(t.id, newTask.id);
-                            newIdToOldId.set(newTask.id, t.id);
-
-                            // 如果MetaStore中有旧ID的数据，复制到新ID
-                            const oldMeta = MetaStore.get(t.id);
-                            if (oldMeta) {
-                                // 不覆盖新ID已有的数据
-                                const newMeta = MetaStore.get(newTask.id) || {};
-                                const mergedMeta = { ...oldMeta, ...newMeta };
-                                MetaStore.set(newTask.id, mergedMeta);
-                            }
-                        }
-                    }
-                    if (t.children && t.children.length > 0) {
-                        traverseOld(t.children);
-                    }
-                });
-            };
-            traverseOld(oldDoc.tasks);
-        }
-
         let siblingOrderRanks = new Map();
         try {
             const tasksByDoc = new Map([[String(docId || '').trim(), flatTasks]]);
@@ -3838,17 +3660,12 @@ if (ev) {
         } catch (e) {
             siblingOrderRanks = new Map();
         }
-        TreeProtector.restoreTree(rootTasks);
         __tmRestoreTaskTreeFromMeta(rootTasks);
         if (forceDocFlowOrder && protectedFlowRankMap.size > 0) __tmSortTaskTreeByDocFlow(rootTasks);
         else __tmSortTaskTreeBySiblingRankMap(rootTasks, siblingOrderRanks);
         __tmAssignDocSeqByTree(rootTasks, 0);
 
-        // 4. 恢复折叠状态
-        TreeProtector.restoreCollapsedState();
-        TreeProtector.clear();
-
-        // 5. 更新状态
+        // 3. 更新状态
         const docIndex = state.taskTree.findIndex(d => d.id === docId);
         const docInfo = state.allDocuments.find(d => d.id === docId);
 
@@ -3893,7 +3710,7 @@ if (ev) {
             render();
         }
 
-        // 7. 保存恢复后的数据
+        // 4. 持久化本次重载后的 MetaStore 状态
         if (opts.saveMeta !== false) {
             await MetaStore.saveNow();
         }
@@ -4220,7 +4037,11 @@ if (ev) {
         }
 
         if (useTaskDetailSheetMode) {
-            await __tmOpenTaskDetailSheetInPlace(tid, { source: `${String(activeRenderMode || 'task').trim() || 'task'}-detail-open` });
+            await __tmOpenTaskDetailSheetInPlace(tid, {
+                source: `${String(activeRenderMode || 'task').trim() || 'task'}-detail-open`,
+                task,
+                skipFieldAttrs: true,
+            });
             return true;
         }
         if (activeRenderMode === 'kanban' && !__tmIsMobileDevice()) {
@@ -4953,26 +4774,11 @@ if (ev) {
             if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
             else __tmInvalidateAllSqlCaches();
         } catch (e) {}
-        try {
-            const calendarApi = globalThis.__tmCalendar;
-            if (calendarApi && typeof calendarApi.deleteTaskSchedulesByTaskIds === 'function') {
-                const cleanupPromise = calendarApi.deleteTaskSchedulesByTaskIds(scheduleCleanupTaskIds, {
-                    source: 'task-delete',
-                    reason: 'task-delete-schedules',
-                    side: false,
-                    flushTaskPanel: false,
-                });
-                if (opts.backgroundScheduleCleanup === true) {
-                    Promise.resolve(cleanupPromise).catch((e) => {
-                        try { console.warn('[task-horizon] delete linked schedules after task delete failed', e); } catch (e2) {}
-                    });
-                } else {
-                    await cleanupPromise;
-                }
-            }
-        } catch (e) {
-            try { console.warn('[task-horizon] delete linked schedules after task delete failed', e); } catch (e2) {}
-        }
+        await __tmCleanupDeletedTaskRelations(scheduleCleanupTaskIds, {
+            source: 'task-delete',
+            reason: 'task-delete-schedules',
+            background: opts.backgroundScheduleCleanup === true,
+        });
         return true;
     }
 
@@ -4997,21 +4803,35 @@ if (ev) {
             return false;
         }
         if (!isRecurringInstance && !__tmEnsureEditableTaskLike(task, '删除任务')) return;
-        let ok = false;
-        try {
-            ok = isRecurringInstance
-                ? await showConfirm('删除循环记录', '确定要删除这条循环记录吗？此操作不可恢复。')
-                : await showConfirm('删除任务', '确定要删除这个任务吗？此操作不可恢复。');
-        } catch (e) {
-            try {
-                ok = !!confirm(isRecurringInstance
-                    ? '确定要删除这条循环记录吗？此操作不可恢复。'
-                    : '确定要删除这个任务吗？此操作不可恢复。');
-            } catch (e2) {
-                ok = false;
-            }
+        const useRecycle = !isRecurringInstance
+            && __tmNormalizeTaskDeleteMode(SettingsStore?.data?.taskDeleteMode) === 'recycle';
+        const recycleDocId = useRecycle ? String(SettingsStore?.data?.taskRecycleDocId || '').trim() : '';
+        const taskDocId = String(task?.root_id || task?.docId || '').trim();
+        if (useRecycle && !recycleDocId) {
+            hint('⚠ 请先设置回收站文档', 'warning');
+            return false;
         }
-        if (!ok) return false;
+        if (useRecycle && recycleDocId === taskDocId) {
+            hint('⚠ 回收站文档不能是任务当前文档', 'warning');
+            return false;
+        }
+        if (!useRecycle) {
+            let ok = false;
+            try {
+                ok = isRecurringInstance
+                    ? await showConfirm('删除循环记录', '确定要删除这条循环记录吗？此操作不可恢复。')
+                    : await showConfirm('删除任务', '确定要删除这个任务吗？此操作不可恢复。');
+            } catch (e) {
+                try {
+                    ok = !!confirm(isRecurringInstance
+                        ? '确定要删除这条循环记录吗？此操作不可恢复。'
+                        : '确定要删除这个任务吗？此操作不可恢复。');
+                } catch (e2) {
+                    ok = false;
+                }
+            }
+            if (!ok) return false;
+        }
 
         if (isRecurringInstance) {
             try {
@@ -5033,6 +4853,36 @@ if (ev) {
                 return true;
             } catch (e) {
                 hint(`❌ 删除失败: ${String(e?.message || e || '')}`, 'error');
+                return false;
+            }
+        }
+
+        if (useRecycle) {
+            try {
+                const snapshot = __tmCaptureTaskLocalSnapshot(tid);
+                const scheduleCleanupTaskIds = __tmCollectTaskTreeIdsForScheduleCleanup(snapshot?.task || task, tid);
+                const lifecycle = globalThis.__tmTaskLifecycle;
+                if (!lifecycle || typeof lifecycle.archiveDeleted !== 'function') throw new Error('任务归档服务未就绪');
+                await lifecycle.archiveDeleted(tid, {
+                    task,
+                    snapshot,
+                    targetDocId: recycleDocId,
+                    scheduleCleanupTaskIds,
+                    source: String(opts.source || 'task-recycle').trim() || 'task-recycle',
+                    wait: true,
+                });
+                __tmShowActionHint('任务已移入回收站', 'success', '撤销', async () => {
+                    try {
+                        await lifecycle.restoreDeleted(tid, { source: 'task-recycle-undo', wait: true });
+                        try { __tmScheduleRender({ withFilters: true, reason: 'task-recycle-undo' }); } catch (e) {}
+                        hint('✅ 任务已恢复', 'success');
+                    } catch (error) {
+                        hint(`❌ 恢复失败: ${String(error?.message || error || '')}`, 'error');
+                    }
+                }, { duration: 7000 });
+                return true;
+            } catch (e) {
+                hint(`❌ 移入回收站失败: ${String(e?.message || e || '')}`, 'error');
                 return false;
             }
         }
@@ -6040,7 +5890,7 @@ if (ev) {
 
     const TM_MAIN_SETTINGS_SECTIONS = Object.freeze([
         { id: 'display', label: '基础显示' },
-        { id: 'new-task', label: '新建任务' },
+        { id: 'new-task', label: '新建/归档' },
         { id: 'status', label: '状态选项' },
         { id: 'layout', label: '视图布局' },
         { id: 'search', label: '搜索分组' },

@@ -183,3 +183,67 @@
         }
         return true;
     }
+
+    async function __tmMoveTaskToPlacement(taskId, targetDocId, placement = {}, opts = {}) {
+        const id = String(taskId || '').trim();
+        const did = String(targetDocId || '').trim();
+        if (!id || !did) return false;
+        const target = (placement && typeof placement === 'object') ? placement : {};
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id] || null;
+        if (!task) {
+            try { task = await API.getTaskById(id); } catch (e) { task = null; }
+        }
+        const fromDocId = String(task?.docId || task?.root_id || '').trim();
+        const moveOptions = {};
+        const parentID = String(target.parentID || did).trim() || did;
+        const nextID = String(target.nextID || '').trim();
+        const previousID = String(target.previousID || '').trim();
+        if (parentID) moveOptions.parentID = parentID;
+        if (nextID) moveOptions.nextID = nextID;
+        else if (previousID) moveOptions.previousID = previousID;
+        await __tmMoveBlockViaBackendAdapter(id, moveOptions);
+        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
+        try {
+            [fromDocId, did].filter(Boolean).forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
+        } catch (e) {}
+        try {
+            const name = __tmGetMoveWriterDocName(did);
+            const patch = {
+                root_id: did,
+                docId: did,
+                parentTaskId: String(o.parentTaskId || '').trim(),
+                parent_task_id: String(o.parentTaskId || '').trim(),
+            };
+            if (name) {
+                patch.doc_name = name;
+                patch.docName = name;
+            }
+            if (o.heading && typeof o.heading === 'object') {
+                patch.h2Id = String(o.heading.id || '').trim();
+                patch.h2 = __tmNormalizeHeadingText(o.heading.content || '');
+                patch.h2Rank = Number(o.heading.rank);
+                patch.h2Path = '';
+                patch.h2Sort = Number.NaN;
+                patch.h2Created = '';
+            } else {
+                patch.h2Id = '';
+                patch.h2 = '';
+                patch.h2Path = '';
+                patch.h2Sort = Number.NaN;
+                patch.h2Created = '';
+                patch.h2Rank = Number.NaN;
+            }
+            __tmPatchMovedTaskLocal(id, patch, 'move-task-to-placement');
+            __tmPatchMovedTaskChildrenLocal(task, {
+                root_id: did,
+                docId: did,
+                ...(o.heading && typeof o.heading === 'object'
+                    ? { h2Id: patch.h2Id, h2: patch.h2, h2Rank: patch.h2Rank }
+                    : {}),
+            }, 'move-task-to-placement-child');
+        } catch (e) {}
+        return true;
+    }
+
+    try { globalThis.__tmMoveTaskToPlacement = __tmMoveTaskToPlacement; } catch (e) {}

@@ -7610,6 +7610,7 @@
             icsWebdavPassword: String(s.calendarIcsWebdavPassword || ''),
             icsChainFileName: String(s.calendarIcsChainFileName || '').trim(),
             icsChainPublicConfirmed: s.calendarIcsChainPublicConfirmed === true,
+            icsExcludeCompletedSchedules: s.calendarIcsExcludeCompletedSchedules === true,
             icsIncludeTomatoReminders: s.calendarIcsIncludeTomatoReminders !== false,
             icsIncludeTaskDates: s.calendarIcsIncludeTaskDates === true,
             initialViewDesktop: initialViewDesktop0,
@@ -24780,6 +24781,7 @@
             calendarIcsWebdavPassword: 'string',
             calendarIcsChainFileName: 'string',
             calendarIcsChainPublicConfirmed: 'boolean',
+            calendarIcsExcludeCompletedSchedules: 'boolean',
             calendarIcsIncludeTomatoReminders: 'boolean',
             calendarIcsIncludeTaskDates: 'boolean',
         };
@@ -24839,6 +24841,7 @@
                     || item?.scheduleDone === true
                     || item?.completed === true
                     || item?.done === true;
+                if (settings.icsExcludeCompletedSchedules === true && completed) continue;
                 const event = {
                     uidSeed: `schedule:${scheduleId}:${Math.trunc(startAt)}`,
                     source: 'schedule',
@@ -25891,6 +25894,13 @@
                             <div class="tm-calendar-settings-label-desc">订阅到其他日历应用后显示的日历名称。</div>
                         </div>
                         <input id="tm-calendar-ics-name" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="日历名称" maxlength="120" data-tm-cal-setting="calendarIcsCalendarName" value="${esc(s.icsCalendarName)}">
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            不同步已完成日程
+                            <div class="tm-calendar-settings-label-desc">开启后不再同步已完成日程；重复日程仅排除已完成的实例。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsExcludeCompletedSchedules" ${s.icsExcludeCompletedSchedules ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">

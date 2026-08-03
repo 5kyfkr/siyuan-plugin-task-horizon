@@ -2338,6 +2338,30 @@
         showSettings();
     };
 
+    window.updateTaskDeleteMode = async function(value) {
+        SettingsStore.data.taskDeleteMode = __tmNormalizeTaskDeleteMode(value);
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateTaskRecycleDocId = async function(value) {
+        SettingsStore.data.taskRecycleDocId = String(value || '').trim();
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateTaskCompletionArchiveMode = async function(value) {
+        SettingsStore.data.taskCompletionArchiveMode = __tmNormalizeTaskCompletionArchiveMode(value);
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateTaskCompletionArchiveDocId = async function(value) {
+        SettingsStore.data.taskCompletionArchiveDocId = String(value || '').trim();
+        await SettingsStore.save();
+        showSettings();
+    };
+
     window.updateNewTaskDailyNoteNotebookId = async function(value) {
         SettingsStore.data.newTaskDailyNoteNotebookId = String(value || '').trim();
         await SettingsStore.save();

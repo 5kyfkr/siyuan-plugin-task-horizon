@@ -5531,6 +5531,20 @@
         aiRuntime.host?.querySelector?.('.tm-ai-sidebar')?.style?.setProperty('--tm-ai-conversation-font-size', `${Number((size / 16).toFixed(4))}rem`);
         return size;
     };
+    const reloadData = async () => {
+        try { await ConversationStore.saving; } catch (e) {}
+        try { await PromptTemplateStore.saving; } catch (e) {}
+        ConversationStore.loaded = false;
+        PromptTemplateStore.loaded = false;
+        await Promise.all([
+            ConversationStore.ensureLoaded(),
+            PromptTemplateStore.ensureLoaded(),
+        ]);
+        if (aiRuntime.host?.isConnected) {
+            await refreshSidebar({ activeConversationId: ConversationStore.data.activeId });
+        }
+        return true;
+    };
     globalThis.__taskHorizonAiCleanup = cleanup;
     globalThis.__tmAI = {
         loaded: true,
@@ -5541,6 +5555,7 @@
         mountSidebar,
         openSidebar,
         refreshSidebar,
+        reloadData,
         setConversationFontSize,
         listConversations,
         createConversation,

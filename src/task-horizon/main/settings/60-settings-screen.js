@@ -1937,8 +1937,8 @@
 
                     ${(settingsSearchCurrentSection = 'new-task', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="new-task">
-                        <div class="tm-settings-section-title">📍 新建任务位置</div>
-                        <div class="tm-settings-section-desc">设置快速新建任务时默认写入的文档位置。</div>
+                        <div class="tm-settings-section-title">📍 新建/归档</div>
+                        <div class="tm-settings-section-desc">设置新建任务的默认位置，以及删除和完成任务后的归档方式。</div>
                         ${renderSingleFieldSetting(
                             '默认新建文档',
                             '用于“快速新建任务界面”的默认位置；选择“上次选择”后，会记住最近一次手动选择的文档或今天日记。',
@@ -2026,6 +2026,53 @@
                             ])
                         )}
                     </div>
+                        <div class="tm-settings-section-title" style="margin-top:20px;">任务归档</div>
+                        <div class="tm-settings-section-desc">统一设置删除任务和完成顶层任务后的移动方式。</div>
+                        ${renderSingleFieldSetting(
+                            '删除任务时',
+                            '永久删除仍会二次确认；移入回收站后可从提示中撤销。',
+                            `<select class="b3-select" onchange="updateTaskDeleteMode(this.value)" style="width:220px;max-width:100%;">
+                                <option value="permanent" ${__tmNormalizeTaskDeleteMode(SettingsStore.data.taskDeleteMode) === 'permanent' ? 'selected' : ''}>永久删除</option>
+                                <option value="recycle" ${__tmNormalizeTaskDeleteMode(SettingsStore.data.taskDeleteMode) === 'recycle' ? 'selected' : ''}>移入回收站</option>
+                            </select>`
+                        )}
+                        ${renderSingleFieldSetting(
+                            '回收站文档 ID',
+                            '仅在删除方式为“移入回收站”时使用；清空表示未设置。',
+                            `<input class="b3-text-field" type="text"
+                                    value="${esc(SettingsStore.data.taskRecycleDocId || '')}"
+                                    placeholder="输入回收站文档 ID"
+                                    autocomplete="off" spellcheck="false"
+                                    onchange="updateTaskRecycleDocId(this.value)"
+                                    style="width:100%;"
+                                    ${__tmNormalizeTaskDeleteMode(SettingsStore.data.taskDeleteMode) === 'recycle' ? '' : 'disabled'}>`,
+                            { style: 'margin-top:10px;' }
+                        )}
+                        ${renderSingleFieldSetting(
+                            '完成顶层任务后',
+                            '子任务和循环任务不会自动移动。两种归档位置互斥。',
+                            `<select class="b3-select" onchange="updateTaskCompletionArchiveMode(this.value)" style="width:260px;max-width:100%;">
+                                <option value="none" ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'none' ? 'selected' : ''}>不移动</option>
+                                <option value="document" ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'document' ? 'selected' : ''}>移入指定归档文档</option>
+                                <option value="heading" ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'heading' ? 'selected' : ''}>移到当前文档“已完成”标题下</option>
+                            </select>`,
+                            { style: 'margin-top:10px;' }
+                        )}
+                        ${renderSingleFieldSetting(
+                            '完成归档文档 ID',
+                            '仅在完成后选择“移入指定归档文档”时使用；清空表示未设置。',
+                            `<input class="b3-text-field" type="text"
+                                    value="${esc(SettingsStore.data.taskCompletionArchiveDocId || '')}"
+                                    placeholder="输入完成归档文档 ID"
+                                    autocomplete="off" spellcheck="false"
+                                    onchange="updateTaskCompletionArchiveDocId(this.value)"
+                                    style="width:100%;"
+                                    ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'document' ? '' : 'disabled'}>`,
+                            { style: 'margin-top:10px;' }
+                        )}
+                        <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.5;margin-top:8px;">
+                            创建“已完成”标题时使用基础显示中的任务标题级别；已有标题保留原等级。取消完成后，任务回到来源文档当前的默认新建位置。撤销回收会恢复任务块及属性，不恢复已清理的日程和白板关联。
+                        </div>
                     </div>
 
                     ${(settingsSearchCurrentSection = 'status', '')}

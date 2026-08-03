@@ -26,6 +26,11 @@ assert.match(
     'a task detail sheet mounted after the view render must retain the Touch Event fallback',
 );
 assert.match(
+    detailSource,
+    /String\(root\.id \|\| ''\)\.trim\(\) === 'tmTaskDetailSheetPanel'[\s\S]*?state\.detailTaskId = effectiveNextId;[\s\S]*?__tmRefreshTaskDetailSheetInPlace/,
+    'parent and child navigation inside the shared task detail sheet must refresh that sheet instead of opening a kanban float',
+);
+assert.match(
     gestureSource,
     /const usesTouchEvents = source === 'touch';[\s\S]*?const touchInput = usesTouchEvents \|\| source === 'pointer-touch' \|\| pointerType === 'touch';/,
     'touch semantics must work for both Pointer Events and legacy Touch Events',

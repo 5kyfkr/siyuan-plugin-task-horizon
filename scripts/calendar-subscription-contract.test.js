@@ -24,6 +24,8 @@ assert.match(buildBlock, /state\.scheduleCache\.lastLoadError[\s\S]*throw new Er
 assert.match(buildBlock, /result\.truncated === true[\s\S]*throw new Error/, 'truncated Tomato projections must fail publication');
 assert.match(buildBlock, /CALENDAR_SUBSCRIPTION_EVENT_LIMIT/, 'publisher must enforce the total instance limit');
 assert.match(buildBlock, /stableIdentity \|\| occurrenceKey/, 'adaptive follow-task reminders must keep a stable ICS UID when their date moves');
+assert.match(buildBlock, /const completed = isScheduleOccurrenceDone\(item, startAt\)[\s\S]*item\?\.scheduleDone === true[\s\S]*item\?\.completed === true[\s\S]*item\?\.done === true;\s*if \(settings\.icsExcludeCompletedSchedules === true && completed\) continue;\s*const event = \{/, 'completed schedule filtering must use the canonical schedule and occurrence completion states before projection');
+assert.equal((buildBlock.match(/icsExcludeCompletedSchedules/g) || []).length, 1, 'completed schedule filtering must not affect task dates or Tomato reminders');
 assert.match(buildBlock, /settings\.icsIncludeTaskDates[\s\S]*tmQueryCalendarTaskDateEvents[\s\S]*allowInactiveFullLoad: true[\s\S]*excludeCompleted: true/, 'task date events must be opt-in and exclude completed tasks');
 assert.match(buildBlock, /source: 'task'[\s\S]*allDay: true[\s\S]*startDate[\s\S]*endDate/, 'task date events must be serialized as all-day date ranges');
 assert.match(buildBlock, /throwOnError: true/, 'task date read errors must stop publication');
@@ -160,6 +162,7 @@ for (const key of [
     'calendarIcsWebdavUsername',
     'calendarIcsChainFileName',
     'calendarIcsChainPublicConfirmed',
+    'calendarIcsExcludeCompletedSchedules',
     'calendarIcsIncludeTomatoReminders',
     'calendarIcsIncludeTaskDates',
 ]) {
@@ -189,6 +192,13 @@ assert.ok(calendar.indexOf('data-tm-cal-setting="calendarIcsEnabled"') < calenda
 assert.match(settingsStore, /calendarIcsProvider:\s*'chain'/, 'new subscriptions must default to Chain publishing');
 assert.match(settingsStore, /calendarIcsCalendarName:\s*'任务管理器'/, 'new subscriptions must default to the localized task manager name');
 assert.match(settingsStore, /calendarIcsPublishMode:\s*'auto'/, 'new subscriptions must retain automatic publication by default');
+assert.match(settingsStore, /calendarIcsExcludeCompletedSchedules:\s*false/, 'completed schedule exclusion must default to disabled for backward compatibility');
+assert.match(settingsStore, /typeof cloudData\.calendarIcsExcludeCompletedSchedules === 'boolean'/, 'completed schedule exclusion must merge from synchronized settings');
+assert.match(settingsStore, /Storage\.get\('tm_calendar_ics_exclude_completed_schedules'/, 'completed schedule exclusion must load from local settings storage');
+assert.match(settingsStore, /Storage\.set\('tm_calendar_ics_exclude_completed_schedules'/, 'completed schedule exclusion must save to local settings storage');
+assert.match(calendar, /calendarIcsExcludeCompletedSchedules: 'boolean'/, 'publisher startup must refresh the synchronized completed schedule setting');
+assert.match(calendar, /data-tm-cal-setting="calendarIcsExcludeCompletedSchedules"/, 'completed schedule exclusion must have a settings switch');
+assert.match(calendar, /不同步已完成日程[\s\S]*重复日程仅排除已完成的实例/, 'completed schedule exclusion must explain recurring occurrence behavior');
 assert.match(settingsStore, /calendarIcsIncludeTomatoReminders:\s*true/, 'Tomato reminder ICS export must default to enabled for backward compatibility');
 assert.match(settingsStore, /typeof cloudData\.calendarIcsIncludeTomatoReminders === 'boolean'/, 'Tomato reminder ICS export must merge from synchronized settings');
 assert.match(settingsStore, /Storage\.get\('tm_calendar_ics_include_tomato_reminders'/, 'Tomato reminder ICS export must load from local settings storage');

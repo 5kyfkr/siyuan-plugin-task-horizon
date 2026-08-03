@@ -10,6 +10,8 @@ const services = read('src/task-horizon/main/20-api-and-runtime-services.js');
 const uiFoundation = read('src/task-horizon/main/30-dialogs-and-ui-foundation.js');
 const renderRuntime = read('src/task-horizon/main/40-render-runtime.js');
 const taskRuntime = read('src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js');
+const shellLifecycle = read('src/task-horizon/main/shell/80-shell-lifecycle.js');
+const styles = read('task-horizon.css');
 
 const segment = (source, start, end) => {
     const from = source.indexOf(start);
@@ -34,9 +36,23 @@ for (const [label, source] of [['timer stop/reset hooks', timerHook], ['tomato a
     assert.match(source, /__tmSyncTomatoFocusInPlace\(/, `${label} must use the in-place focus sync`);
     assert.doesNotMatch(source, forbiddenRefresh, `${label} must not redraw the view or calendar`);
 }
+assert.match(tomatoListeners, /__tmTomatoAssociationListenerAdded = true;[\s\S]*__tmRestoreTomatoFocusAfterReload\(\)/, 'listener setup must restore the active tomato focus after a Task Horizon reload');
+
+const reloadRestore = segment(services, 'function __tmReadActiveTomatoFocusSnapshot()', 'function __tmListenTomatoAssociationCleared()');
+assert.match(reloadRestore, /getActiveFocusSnapshot/, 'reload recovery must prefer the live tomato focus snapshot');
+assert.match(reloadRestore, /tomatoSync\?\.getState/, 'reload recovery must support older tomato runtimes through their sync state');
+assert.match(reloadRestore, /__tmGetStoredTomatoFocusTaskId/, 'reload recovery must support task associations that are excluded from tomato sync');
+assert.match(reloadRestore, /__tmIsKnownTomatoFocusTaskId/, 'untrusted legacy associations must match a Task Horizon task before focus is restored');
+assert.match(reloadRestore, /attempt < 5[\s\S]*setTimeout/, 'reload recovery must retry while plugin state is still loading');
+assert.doesNotMatch(reloadRestore, forbiddenRefresh, 'reload focus recovery must not redraw the view or calendar');
+assert.match(shellLifecycle, /__tmTomatoFocusRestoreRetryTimer[\s\S]*clearTimeout/, 'plugin cleanup must cancel pending tomato focus retries');
 
 const clearFocusClasses = segment(services, 'function __tmClearTomatoFocusRowClasses()', 'function __tmSyncTomatoFocusInPlace');
 assert.match(clearFocusClasses, /tm-timer-focus-ancestor/, 'focus cleanup must remove ancestor styling as well');
+
+const focusStateSync = segment(services, 'function __tmSyncTomatoFocusInPlace', 'async function __tmSettleTomatoAfterTaskDone');
+assert.match(focusStateSync, /sessionStorage\?\.setItem[\s\S]*__TM_TOMATO_FOCUS_SESSION_KEY/, 'focus sync must preserve the linked task across a Task Horizon reload');
+assert.match(focusStateSync, /sessionStorage\?\.removeItem[\s\S]*__TM_TOMATO_FOCUS_SESSION_KEY/, 'focus cleanup must remove the stored linked task');
 
 const startSources = [uiFoundation, renderRuntime, taskRuntime].join('\n');
 assert.match(uiFoundation, /function __tmStartTaskDetailQuickTimer[\s\S]*__tmSyncTomatoFocusInPlace\(timerTaskId\)/, 'task detail timer start must sync focus without rendering');
@@ -44,5 +60,8 @@ assert.match(renderRuntime, /const runTaskTimer = async \(minutes, mode = 'count
 assert.match(taskRuntime, /window\.tmStartPomodoro[\s\S]*__tmSyncTomatoFocusInPlace\(resolvedId\)/, 'task timer start must sync focus without rendering');
 assert.match(taskRuntime, /const runTaskTimer = async \(minutes, mode = 'countdown'\)[\s\S]*__tmSyncTomatoFocusInPlace\(timerTaskId\)/, 'task context timer start must sync focus without rendering');
 assert.doesNotMatch(startSources, /timerFocusTaskId\s*=\s*[^;]+;\s*(?:try\s*\{\s*)?render\s*\(/, 'timer entry points must not restore direct render-based focus updates');
+
+assert.match(styles, /\.tm-kanban--clean \.tm-kanban-subtask-row\.tm-kanban-card\.tm-timer-focus\s*\{[\s\S]*?inset 0 0 0 1px var\(--tm-primary-color\)/, 'focused kanban subtasks must retain a full inset border');
+assert.match(styles, /\.tm-kanban--clean \.tm-kanban-subtask-row\.tm-kanban-card\.tm-timer-focus:hover\s*\{[\s\S]*?0 0 0 2px color-mix\(in srgb, var\(--tm-primary-color\) 18%, transparent\)/, 'focused kanban subtasks must retain the hover focus ring');
 
 console.log('tomato focus refresh isolation contract tests passed');

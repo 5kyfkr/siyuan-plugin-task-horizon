@@ -943,6 +943,82 @@
         return true;
     }
 
+    async function __tmReloadSyncedPluginData(options = {}) {
+        const opt = (options && typeof options === 'object') ? options : {};
+        const reason = String(opt.reason || 'siyuan-data-changed').trim() || 'siyuan-data-changed';
+        const preserveSessionState = SettingsStore?.data?.serverSyncSessionStateOnManualRefresh !== true;
+        const sessionSnapshot = preserveSessionState ? __tmCaptureManualRefreshSessionState() : null;
+
+        __tmCancelSettingsStorePendingSave();
+        __tmCancelSimpleStorePendingSave(MetaStore);
+        __tmCancelSimpleStorePendingSave(WhiteboardStore);
+        __tmCancelSimpleStorePendingSave(SemanticDateRecognizedStore);
+        try {
+            WhiteboardStore.touchDirty = false;
+            WhiteboardStore.touchReason = '';
+        } catch (e) {}
+        try { SettingsStore.loaded = false; } catch (e) {}
+        try { MetaStore.loaded = false; } catch (e) {}
+        try { WhiteboardStore.loaded = false; } catch (e) {}
+        try {
+            SemanticDateRecognizedStore.loaded = false;
+            SemanticDateRecognizedStore.loadingPromise = null;
+        } catch (e) {}
+        try { __tmInvalidateTaskSnapshotStoreCache(); } catch (e) {}
+        try { __tmInvalidateTaskIndexStoreCache(); } catch (e) {}
+        try { __tmInvalidateDocScopeCache(); } catch (e) {}
+        try { __tmInvalidateCustomFieldDefsRuntimeCache(); } catch (e) {}
+        try { __tmInvalidateAllSqlCaches(); } catch (e) {}
+
+        await SettingsStore.load({ preferRemoteWhiteboardSameVersion: true });
+        if (preserveSessionState) __tmRestoreManualRefreshSessionState(sessionSnapshot);
+        await Promise.all([
+            MetaStore.load(),
+            WhiteboardStore.load({ preferRemoteSameVersion: true }),
+            SemanticDateRecognizedStore.load(),
+        ]);
+
+        try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
+        try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+        try { __tmApplyTaskCheckboxPriorityColorStyle(SettingsStore?.data?.taskCheckboxPriorityColorEnabled !== false); } catch (e) {}
+        try { globalThis.__tmCalendar?.setSettingsStore?.(SettingsStore); } catch (e) {}
+        try { __tmDispatchDockSettingsChanged(reason); } catch (e) {}
+        try { __tmRefreshShellEntrances(); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
+        try { await globalThis.__tmAI?.reloadData?.({ reason }); } catch (e) {
+            try { console.warn('[task-horizon] synchronized AI data reload failed', e); } catch (e2) {}
+        }
+
+        let refreshedView = false;
+        const liveModal = globalThis.__tmRuntimeState?.getModal?.() || state.modal;
+        let hasLiveView = false;
+        try {
+            hasLiveView = globalThis.__tmRuntimeState?.hasLiveModal?.(liveModal)
+                ?? (liveModal instanceof HTMLElement && document.body.contains(liveModal));
+        } catch (e) {}
+        if (hasLiveView) {
+            refreshedView = await __tmRefreshCore({
+                silent: true,
+                reason,
+                preserveUi: true,
+                skipSharedStateReload: true,
+            });
+        }
+        try {
+            if (state.settingsModal && document.body.contains(state.settingsModal)) showSettings();
+        } catch (e) {}
+        try {
+            window.dispatchEvent(new CustomEvent('tm:task-horizon-data-changed', {
+                detail: { reason, refreshedView: refreshedView === true },
+            }));
+        } catch (e) {}
+        return true;
+    }
+
+    globalThis.__taskHorizonReloadSyncedData = __tmReloadSyncedPluginData;
+
     async function __tmRefreshCore(options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
         const silent = opt.silent === true;
@@ -990,8 +1066,13 @@ state.openToken = (Number(state.openToken) || 0) + 1;
             try { __tmInvalidateAllSqlCaches(); } catch (e) {}
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
             try { await __tmEnsureAllDocumentsLoaded(true); } catch (e) {}
-            const syncedServerState = await __tmMaybeSyncServerSharedStateOnManualRefresh();
-            const reloadedWhiteboardState = await __tmMaybeReloadWhiteboardSharedStateOnManualRefresh(syncedServerState, mode, reason);
+            const skipSharedStateReload = opt.skipSharedStateReload === true;
+            const syncedServerState = skipSharedStateReload
+                ? false
+                : await __tmMaybeSyncServerSharedStateOnManualRefresh();
+            const reloadedWhiteboardState = skipSharedStateReload
+                ? false
+                : await __tmMaybeReloadWhiteboardSharedStateOnManualRefresh(syncedServerState, mode, reason);
             await __tmFlushSqlTransactionsSafe(`refresh-core:${reason}`);
             await loadSelectedDocuments({
                 skipRender: true,

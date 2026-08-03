@@ -334,7 +334,7 @@ async function run() {
     const kernel = extractBetween(listSource, 'async function __tmSetDoneKernel(', 'const __tmAutoCompleteParentTaskIdsInFlight');
     const applyStatus = extractBetween(apiSource, 'async function __tmApplyTaskStatus(', 'async function __tmApplyTaskStatusBatch(');
     assert.ok(kernel.indexOf('__tmUpdateTaskListItemMarkerWithFallback') < kernel.indexOf('GlobalLock.lock()'));
-    assert.ok(kernel.indexOf('__tmUpdateTaskListItemMarkerWithFallback') < kernel.indexOf('TreeProtector.saveTree'));
+    assert.ok(kernel.indexOf('__tmUpdateTaskListItemMarkerWithFallback') < kernel.indexOf('fallbackTreeSnapshot = TreeProtector.capture(doc.tasks)'));
     assert.ok(applyStatus.indexOf('__tmScheduleRecurringTaskAdvanceAfterCompletion') < applyStatus.indexOf('__tmSettleTomatoAfterTaskDone'));
     assert.match(apiSource, /deferCompletionEffects:\s*true/);
     assert.doesNotMatch(recurringSource, /wait:\s*false[\s\S]*task-repeat-advance/);

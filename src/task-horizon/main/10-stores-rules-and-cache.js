@@ -2456,6 +2456,15 @@
         return __tmSetShowCompletedTasksInSettings(__tmGetShowCompletedTasksFromSettings(target), target);
     }
 
+    function __tmNormalizeTaskDeleteMode(value) {
+        return String(value || '').trim() === 'recycle' ? 'recycle' : 'permanent';
+    }
+
+    function __tmNormalizeTaskCompletionArchiveMode(value) {
+        const mode = String(value || '').trim();
+        return mode === 'document' || mode === 'heading' ? mode : 'none';
+    }
+
     function __tmGetTaskSnapshotRuleForView() {
         try {
             const ruleId = String(state?.currentRule ?? SettingsStore?.data?.currentRule ?? '').trim();
@@ -7609,6 +7618,7 @@
             calendarIcsWebdavPassword: '',
             calendarIcsChainFileName: '',
             calendarIcsChainPublicConfirmed: false,
+            calendarIcsExcludeCompletedSchedules: false,
             calendarIcsIncludeTomatoReminders: true,
             calendarIcsIncludeTaskDates: false,
             calendarInitialView: 'timeGridWeek',
@@ -7684,6 +7694,10 @@
             defaultDocId: '',
             defaultDocIdByGroup: {},
             docDefaultTaskHeadingByDocId: {},
+            taskDeleteMode: 'permanent',
+            taskRecycleDocId: '',
+            taskCompletionArchiveMode: 'none',
+            taskCompletionArchiveDocId: '',
             allDocsExcludedDocIds: [],
             // 默认状态选项
             customStatusOptions: [
@@ -8266,6 +8280,7 @@
                                 if (typeof cloudData.calendarIcsWebdavPassword === 'string') this.data.calendarIcsWebdavPassword = cloudData.calendarIcsWebdavPassword;
                                 if (typeof cloudData.calendarIcsChainFileName === 'string') this.data.calendarIcsChainFileName = cloudData.calendarIcsChainFileName;
                                 if (typeof cloudData.calendarIcsChainPublicConfirmed === 'boolean') this.data.calendarIcsChainPublicConfirmed = cloudData.calendarIcsChainPublicConfirmed;
+                                if (typeof cloudData.calendarIcsExcludeCompletedSchedules === 'boolean') this.data.calendarIcsExcludeCompletedSchedules = cloudData.calendarIcsExcludeCompletedSchedules;
                                 if (typeof cloudData.calendarIcsIncludeTomatoReminders === 'boolean') this.data.calendarIcsIncludeTomatoReminders = cloudData.calendarIcsIncludeTomatoReminders;
                                 if (typeof cloudData.calendarIcsIncludeTaskDates === 'boolean') this.data.calendarIcsIncludeTaskDates = cloudData.calendarIcsIncludeTaskDates;
                                 if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = __tmNormalizeCalendarInitialView(cloudData.calendarInitialView, this.data.calendarInitialView);
@@ -8343,6 +8358,10 @@
                                 if (shouldApplyCloudDocGroupState && typeof cloudData.defaultDocId === 'string') this.data.defaultDocId = cloudData.defaultDocId;
                                 if (shouldApplyCloudDocGroupState && cloudData.defaultDocIdByGroup && typeof cloudData.defaultDocIdByGroup === 'object') this.data.defaultDocIdByGroup = cloudData.defaultDocIdByGroup;
                                 if (shouldApplyCloudDocGroupState && cloudData.docDefaultTaskHeadingByDocId && typeof cloudData.docDefaultTaskHeadingByDocId === 'object') this.data.docDefaultTaskHeadingByDocId = cloudData.docDefaultTaskHeadingByDocId;
+                                if (typeof cloudData.taskDeleteMode === 'string') this.data.taskDeleteMode = __tmNormalizeTaskDeleteMode(cloudData.taskDeleteMode);
+                                if (typeof cloudData.taskRecycleDocId === 'string') this.data.taskRecycleDocId = cloudData.taskRecycleDocId;
+                                if (typeof cloudData.taskCompletionArchiveMode === 'string') this.data.taskCompletionArchiveMode = __tmNormalizeTaskCompletionArchiveMode(cloudData.taskCompletionArchiveMode);
+                                if (typeof cloudData.taskCompletionArchiveDocId === 'string') this.data.taskCompletionArchiveDocId = cloudData.taskCompletionArchiveDocId;
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.allDocsExcludedDocIds)) this.data.allDocsExcludedDocIds = cloudData.allDocsExcludedDocIds;
                                 if (cloudData.priorityScoreConfig && typeof cloudData.priorityScoreConfig === 'object') this.data.priorityScoreConfig = cloudData.priorityScoreConfig;
                                 if (cloudData.quadrantConfig && typeof cloudData.quadrantConfig === 'object') this.data.quadrantConfig = cloudData.quadrantConfig;
@@ -8780,6 +8799,7 @@
             } catch (e) {}
             this.data.calendarIcsChainFileName = String(Storage.get('tm_calendar_ics_chain_file_name', this.data.calendarIcsChainFileName) || '');
             this.data.calendarIcsChainPublicConfirmed = !!Storage.get('tm_calendar_ics_chain_public_confirmed', this.data.calendarIcsChainPublicConfirmed);
+            this.data.calendarIcsExcludeCompletedSchedules = !!Storage.get('tm_calendar_ics_exclude_completed_schedules', this.data.calendarIcsExcludeCompletedSchedules);
             this.data.calendarIcsIncludeTomatoReminders = !!Storage.get('tm_calendar_ics_include_tomato_reminders', this.data.calendarIcsIncludeTomatoReminders);
             this.data.calendarIcsIncludeTaskDates = !!Storage.get('tm_calendar_ics_include_task_dates', this.data.calendarIcsIncludeTaskDates);
             this.data.calendarInitialView = __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view', this.data.calendarInitialView), this.data.calendarInitialView);
@@ -8859,6 +8879,10 @@
             this.data.defaultDocId = Storage.get('tm_default_doc_id', '');
             this.data.defaultDocIdByGroup = Storage.get('tm_default_doc_id_by_group', {}) || {};
             this.data.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap(Storage.get('tm_doc_default_task_heading_by_doc_id', this.data.docDefaultTaskHeadingByDocId));
+            this.data.taskDeleteMode = __tmNormalizeTaskDeleteMode(Storage.get('tm_task_delete_mode', this.data.taskDeleteMode));
+            this.data.taskRecycleDocId = String(Storage.get('tm_task_recycle_doc_id', this.data.taskRecycleDocId) || '').trim();
+            this.data.taskCompletionArchiveMode = __tmNormalizeTaskCompletionArchiveMode(Storage.get('tm_task_completion_archive_mode', this.data.taskCompletionArchiveMode));
+            this.data.taskCompletionArchiveDocId = String(Storage.get('tm_task_completion_archive_doc_id', this.data.taskCompletionArchiveDocId) || '').trim();
             this.data.allDocsExcludedDocIds = Storage.get('tm_all_docs_excluded_doc_ids', this.data.allDocsExcludedDocIds) || [];
             this.data.priorityScoreConfig = Storage.get('tm_priority_score_config', this.data.priorityScoreConfig) || this.data.priorityScoreConfig;
             this.data.quadrantConfig = Storage.get('tm_quadrant_config', this.data.quadrantConfig);
@@ -9274,6 +9298,7 @@
             Storage.set('tm_calendar_ics_webdav_password', String(this.data.calendarIcsWebdavPassword || ''));
             Storage.set('tm_calendar_ics_chain_file_name', String(this.data.calendarIcsChainFileName || ''));
             Storage.set('tm_calendar_ics_chain_public_confirmed', !!this.data.calendarIcsChainPublicConfirmed);
+            Storage.set('tm_calendar_ics_exclude_completed_schedules', !!this.data.calendarIcsExcludeCompletedSchedules);
             Storage.set('tm_calendar_ics_include_tomato_reminders', !!this.data.calendarIcsIncludeTomatoReminders);
             Storage.set('tm_calendar_ics_include_task_dates', !!this.data.calendarIcsIncludeTaskDates);
             this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
@@ -9352,6 +9377,10 @@
             Storage.set('tm_default_doc_id', this.data.defaultDocId);
             Storage.set('tm_default_doc_id_by_group', this.data.defaultDocIdByGroup || {});
             Storage.set('tm_doc_default_task_heading_by_doc_id', __tmNormalizeDocDefaultTaskHeadingMap(this.data.docDefaultTaskHeadingByDocId));
+            Storage.set('tm_task_delete_mode', __tmNormalizeTaskDeleteMode(this.data.taskDeleteMode));
+            Storage.set('tm_task_recycle_doc_id', String(this.data.taskRecycleDocId || '').trim());
+            Storage.set('tm_task_completion_archive_mode', __tmNormalizeTaskCompletionArchiveMode(this.data.taskCompletionArchiveMode));
+            Storage.set('tm_task_completion_archive_doc_id', String(this.data.taskCompletionArchiveDocId || '').trim());
             Storage.set('tm_all_docs_excluded_doc_ids', __tmNormalizeDocGroupExcludedDocIds(this.data.allDocsExcludedDocIds));
             Storage.set('tm_priority_score_config', this.data.priorityScoreConfig || {});
             Storage.set('tm_quadrant_config', this.data.quadrantConfig);
@@ -9587,6 +9616,10 @@
             this.data.newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(this.data.newTaskDefaultLocationMode);
             this.data.quickAddLastLocation = __tmNormalizeQuickAddLastLocation(this.data.quickAddLastLocation);
             this.data.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap(this.data.docDefaultTaskHeadingByDocId);
+            this.data.taskDeleteMode = __tmNormalizeTaskDeleteMode(this.data.taskDeleteMode);
+            this.data.taskRecycleDocId = String(this.data.taskRecycleDocId || '').trim();
+            this.data.taskCompletionArchiveMode = __tmNormalizeTaskCompletionArchiveMode(this.data.taskCompletionArchiveMode);
+            this.data.taskCompletionArchiveDocId = String(this.data.taskCompletionArchiveDocId || '').trim();
             const kw = Number(this.data.kanbanColumnWidth);
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
             const wbStreamMinW = Number(this.data.whiteboardAllTabsCardMinWidth);

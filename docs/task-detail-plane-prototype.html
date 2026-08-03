@@ -1,0 +1,1351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Task Horizon 任务详情排版原型</title>
+  <style>
+    :root {
+      --b3-theme-background: oklch(98.5% 0.004 236);
+      --b3-theme-surface: oklch(96.5% 0.006 236);
+      --b3-theme-surface-light: oklch(93.8% 0.008 236);
+      --b3-theme-on-background: oklch(25% 0.018 242);
+      --b3-theme-on-surface: oklch(34% 0.017 242);
+      --b3-theme-on-surface-light: oklch(56% 0.015 242);
+      --b3-theme-primary: oklch(54% 0.14 241);
+      --b3-theme-primary-light: oklch(94% 0.027 241);
+      --b3-border-color: oklch(89.5% 0.009 236);
+      --tm-background: var(--b3-theme-background);
+      --tm-surface: var(--b3-theme-surface);
+      --tm-surface-strong: var(--b3-theme-surface-light);
+      --tm-text: var(--b3-theme-on-background);
+      --tm-text-soft: var(--b3-theme-on-surface);
+      --tm-muted: var(--b3-theme-on-surface-light);
+      --tm-primary: var(--b3-theme-primary);
+      --tm-primary-soft: var(--b3-theme-primary-light);
+      --tm-border: var(--b3-border-color);
+      --tm-border-soft: color-mix(in oklch, var(--tm-border) 66%, transparent);
+      --tm-hover: color-mix(in oklch, var(--tm-primary-soft) 52%, var(--tm-background));
+      --tm-danger: oklch(57% 0.18 27);
+      --tm-danger-soft: oklch(95% 0.026 27);
+      --tm-warning: oklch(64% 0.15 63);
+      --tm-success: oklch(54% 0.12 154);
+      --tm-shadow: 0 24px 70px color-mix(in oklch, var(--tm-text) 11%, transparent);
+      color-scheme: light;
+    }
+
+    [data-theme="dark"] {
+      --b3-theme-background: oklch(22.5% 0.008 242);
+      --b3-theme-surface: oklch(26.5% 0.01 242);
+      --b3-theme-surface-light: oklch(32% 0.012 242);
+      --b3-theme-on-background: oklch(91.5% 0.009 236);
+      --b3-theme-on-surface: oklch(83% 0.01 236);
+      --b3-theme-on-surface-light: oklch(68% 0.012 236);
+      --b3-theme-primary: oklch(69% 0.12 241);
+      --b3-theme-primary-light: oklch(32% 0.04 241);
+      --b3-border-color: oklch(37% 0.012 242);
+      --tm-danger: oklch(70% 0.15 27);
+      --tm-danger-soft: oklch(29% 0.04 27);
+      --tm-warning: oklch(75% 0.12 70);
+      --tm-success: oklch(70% 0.1 154);
+      --tm-shadow: 0 28px 76px color-mix(in oklch, oklch(8% 0.01 242) 58%, transparent);
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+    }
+
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      background: color-mix(in oklch, var(--tm-surface) 72%, var(--tm-background));
+      color: var(--tm-text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      letter-spacing: 0;
+    }
+
+    button,
+    textarea,
+    input {
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    button {
+      color: inherit;
+    }
+
+    button:focus-visible,
+    textarea:focus-visible,
+    [contenteditable="true"]:focus-visible {
+      outline: 2px solid color-mix(in oklch, var(--tm-primary) 38%, transparent);
+      outline-offset: 2px;
+    }
+
+    .icon-sprite {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
+    .icon {
+      width: 16px;
+      height: 16px;
+      display: block;
+      flex: 0 0 auto;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .app-frame {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: grid;
+      grid-template-columns: minmax(196px, 1fr) minmax(640px, 820px) minmax(196px, 1fr);
+      background:
+        linear-gradient(var(--tm-border-soft), var(--tm-border-soft)) 0 52px / 100% 1px no-repeat,
+        color-mix(in oklch, var(--tm-surface) 72%, var(--tm-background));
+    }
+
+    .ambient-pane {
+      min-width: 0;
+      padding: 18px 22px;
+      color: var(--tm-muted);
+      opacity: 0.72;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .ambient-pane--right {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .ambient-mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      height: 30px;
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .ambient-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 3px;
+      background: var(--tm-primary);
+      box-shadow: 10px 0 0 color-mix(in oklch, var(--tm-primary) 52%, var(--tm-surface));
+    }
+
+    .detail-sheet {
+      position: relative;
+      min-width: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      background: var(--tm-background);
+      border-inline: 1px solid var(--tm-border-soft);
+      box-shadow: var(--tm-shadow);
+    }
+
+    .sheet-topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      min-height: 52px;
+      padding: 9px clamp(14px, 3.5vw, 28px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--tm-border-soft);
+      background: color-mix(in oklch, var(--tm-background) 94%, transparent);
+      backdrop-filter: blur(14px);
+    }
+
+    .topbar-leading,
+    .topbar-actions,
+    .breadcrumb,
+    .section-actions {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .topbar-leading {
+      gap: 8px;
+      overflow: hidden;
+    }
+
+    .breadcrumb {
+      gap: 5px;
+      color: var(--tm-muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .breadcrumb span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .breadcrumb strong {
+      color: var(--tm-text-soft);
+      font-weight: 650;
+    }
+
+    .breadcrumb-separator {
+      opacity: 0.55;
+    }
+
+    .topbar-actions {
+      flex: 0 0 auto;
+      gap: 4px;
+    }
+
+    .icon-button,
+    .section-action,
+    .text-button,
+    .property-chip,
+    .attachment-action {
+      border: 1px solid transparent;
+      background: transparent;
+      cursor: pointer;
+      transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+
+    .icon-button {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: 7px;
+      display: inline-grid;
+      place-items: center;
+      color: var(--tm-muted);
+    }
+
+    .icon-button:hover,
+    .section-action:hover,
+    .attachment-action:hover {
+      color: var(--tm-text);
+      background: var(--tm-hover);
+      border-color: var(--tm-border-soft);
+    }
+
+    .detail-content {
+      width: min(100%, 760px);
+      margin: 0 auto;
+      padding: clamp(28px, 5vw, 50px) clamp(20px, 6vw, 54px) max(56px, env(safe-area-inset-bottom));
+    }
+
+    .task-heading {
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .task-check {
+      appearance: none;
+      width: 19px;
+      height: 19px;
+      margin: 7px 0 0;
+      border: 1.7px solid color-mix(in oklch, var(--tm-muted) 72%, var(--tm-border));
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      background: var(--tm-background);
+      transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+    }
+
+    .task-check::after {
+      content: "";
+      width: 8px;
+      height: 4px;
+      border: solid oklch(98% 0.004 236);
+      border-width: 0 0 2px 2px;
+      transform: translateY(-1px) rotate(-45deg) scale(0.45);
+      opacity: 0;
+      transition: transform 160ms ease, opacity 160ms ease;
+    }
+
+    .task-check:hover {
+      border-color: var(--tm-primary);
+      transform: scale(1.05);
+    }
+
+    .task-check:checked {
+      border-color: var(--tm-primary);
+      background: var(--tm-primary);
+    }
+
+    .task-check:checked::after {
+      transform: translateY(-1px) rotate(-45deg) scale(1);
+      opacity: 1;
+    }
+
+    .task-title {
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      outline: 0;
+      color: var(--tm-text);
+      background: transparent;
+      font-size: 25px;
+      font-weight: 700;
+      line-height: 1.34;
+      word-break: break-word;
+    }
+
+    .task-title:focus {
+      border-radius: 4px;
+      box-shadow: 0 0 0 4px var(--tm-primary-soft);
+    }
+
+    .parent-line {
+      margin: 9px 0 0 34px;
+      color: var(--tm-muted);
+      font-size: 12px;
+    }
+
+    .parent-line button {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--tm-primary);
+      cursor: pointer;
+    }
+
+    .description-block {
+      margin: 26px 0 0 34px;
+      max-width: 68ch;
+    }
+
+    .description-viewport {
+      position: relative;
+      display: grid;
+      grid-template-rows: 1fr;
+      overflow: hidden;
+      transition: grid-template-rows 190ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .description-viewport.is-clipped {
+      grid-template-rows: 64px;
+    }
+
+    .description-viewport.is-clipped::after {
+      content: "";
+      position: absolute;
+      inset: auto 0 0;
+      height: 34px;
+      pointer-events: none;
+      background: linear-gradient(to bottom, transparent, var(--tm-background));
+    }
+
+    .description {
+      min-height: 0;
+      color: var(--tm-text-soft);
+      font-size: 14px;
+      line-height: 1.7;
+      word-break: break-word;
+    }
+
+    .description p {
+      margin: 0;
+    }
+
+    .description p + p {
+      margin-top: 8px;
+    }
+
+    .text-button {
+      min-height: 30px;
+      margin-top: 6px;
+      padding: 0 2px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 6px;
+      color: var(--tm-primary);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .text-button:hover {
+      color: color-mix(in oklch, var(--tm-primary) 82%, var(--tm-text));
+      background: var(--tm-primary-soft);
+    }
+
+    .text-button .icon {
+      width: 14px;
+      height: 14px;
+      transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .text-button[aria-expanded="true"] .icon {
+      transform: rotate(180deg);
+    }
+
+    .property-band {
+      margin: 24px 0 0 34px;
+      padding: 12px;
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 8px;
+      background: color-mix(in oklch, var(--tm-surface) 80%, var(--tm-background));
+    }
+
+    .property-list {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .property-chip {
+      min-width: 0;
+      min-height: 31px;
+      max-width: 100%;
+      padding: 0 9px;
+      border-color: var(--tm-border-soft);
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--tm-background);
+      color: var(--tm-text-soft);
+      box-shadow: 0 1px 0 color-mix(in oklch, var(--tm-text) 3%, transparent);
+      white-space: nowrap;
+    }
+
+    .property-chip:hover {
+      border-color: color-mix(in oklch, var(--tm-primary) 30%, var(--tm-border));
+      background: var(--tm-hover);
+      color: var(--tm-text);
+      transform: translateY(-1px);
+    }
+
+    .property-chip .chip-value {
+      min-width: 0;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .property-chip--priority .icon {
+      color: var(--tm-warning);
+    }
+
+    .property-chip--status .status-dot {
+      width: 8px;
+      height: 8px;
+      border: 2px solid var(--tm-primary);
+      border-radius: 50%;
+      box-shadow: inset 0 0 0 2px var(--tm-background);
+      background: var(--tm-primary);
+    }
+
+    .property-chip--due {
+      color: var(--tm-danger);
+      border-color: color-mix(in oklch, var(--tm-danger) 18%, var(--tm-border));
+      background: color-mix(in oklch, var(--tm-danger-soft) 48%, var(--tm-background));
+    }
+
+    .property-chip--tag .icon {
+      color: oklch(56% 0.15 316);
+    }
+
+    .property-advanced {
+      display: grid;
+      grid-template-rows: 0fr;
+      opacity: 0;
+      transition: grid-template-rows 190ms cubic-bezier(0.16, 1, 0.3, 1), opacity 140ms ease;
+    }
+
+    .property-advanced.is-open {
+      grid-template-rows: 1fr;
+      opacity: 1;
+    }
+
+    .property-advanced-inner {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .property-advanced .property-list {
+      padding-top: 7px;
+    }
+
+    .property-more {
+      margin: 8px 0 -2px;
+    }
+
+    .detail-sections {
+      margin-top: 34px;
+      border-top: 1px solid var(--tm-border-soft);
+    }
+
+    .detail-section {
+      border-bottom: 1px solid var(--tm-border-soft);
+    }
+
+    .section-heading {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .section-toggle {
+      min-width: 0;
+      min-height: 42px;
+      margin-left: -8px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: transparent;
+      color: var(--tm-text);
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .section-toggle:hover {
+      background: color-mix(in oklch, var(--tm-surface) 76%, transparent);
+    }
+
+    .section-chevron {
+      width: 16px;
+      height: 16px;
+      color: var(--tm-muted);
+      transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .section-toggle[aria-expanded="false"] .section-chevron {
+      transform: rotate(-90deg);
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 680;
+      line-height: 1.2;
+    }
+
+    .section-count {
+      color: var(--tm-muted);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .section-actions {
+      flex: 0 0 auto;
+      gap: 4px;
+    }
+
+    .section-action,
+    .attachment-action {
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border-radius: 7px;
+      display: inline-grid;
+      place-items: center;
+      color: var(--tm-muted);
+    }
+
+    .section-body {
+      display: grid;
+      grid-template-rows: 1fr;
+      opacity: 1;
+      transition: grid-template-rows 190ms cubic-bezier(0.16, 1, 0.3, 1), opacity 130ms ease;
+    }
+
+    .detail-section.is-collapsed .section-body {
+      grid-template-rows: 0fr;
+      opacity: 0;
+    }
+
+    .section-body-inner {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .section-content {
+      padding: 0 0 20px 24px;
+    }
+
+    .subtask-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .subtask-row {
+      min-width: 0;
+      min-height: 38px;
+      margin-left: -8px;
+      padding: 5px 6px 5px 8px;
+      border-radius: 7px;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      transition: background-color 150ms ease;
+    }
+
+    .subtask-row:hover {
+      background: color-mix(in oklch, var(--tm-surface) 82%, transparent);
+    }
+
+    .subtask-check {
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      border: 1.5px solid color-mix(in oklch, var(--tm-muted) 72%, var(--tm-border));
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: var(--tm-background);
+      cursor: pointer;
+    }
+
+    .subtask-check::after {
+      content: "";
+      width: 7px;
+      height: 3px;
+      border: solid oklch(98% 0.004 236);
+      border-width: 0 0 2px 2px;
+      transform: translateY(-1px) rotate(-45deg) scale(0.45);
+      opacity: 0;
+    }
+
+    .subtask-check:checked {
+      border-color: var(--tm-success);
+      background: var(--tm-success);
+    }
+
+    .subtask-check:checked::after {
+      transform: translateY(-1px) rotate(-45deg) scale(1);
+      opacity: 1;
+    }
+
+    .subtask-copy {
+      min-width: 0;
+    }
+
+    .subtask-title {
+      display: block;
+      overflow: hidden;
+      color: var(--tm-text-soft);
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .subtask-check:checked + .subtask-copy .subtask-title {
+      color: var(--tm-muted);
+      text-decoration: line-through;
+    }
+
+    .subtask-meta {
+      display: block;
+      margin-top: 2px;
+      color: var(--tm-muted);
+      font-size: 11px;
+    }
+
+    .subtask-status {
+      min-width: 0;
+      max-width: 92px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--tm-surface);
+      color: var(--tm-muted);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .subtask-add {
+      min-height: 34px;
+      margin: 5px 0 0 -5px;
+      padding: 0 6px;
+      border: 0;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: transparent;
+      color: var(--tm-muted);
+      cursor: pointer;
+    }
+
+    .subtask-add:hover {
+      background: var(--tm-hover);
+      color: var(--tm-primary);
+    }
+
+    .attachment-list {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .attachment-row {
+      min-width: 0;
+      padding: 10px 10px 10px 12px;
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 7px;
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      background: color-mix(in oklch, var(--tm-surface) 68%, var(--tm-background));
+    }
+
+    .attachment-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      color: var(--tm-primary);
+      background: var(--tm-primary-soft);
+    }
+
+    .attachment-icon--image {
+      color: oklch(58% 0.12 156);
+      background: color-mix(in oklch, oklch(93% 0.035 156) 70%, var(--tm-background));
+    }
+
+    .attachment-copy {
+      min-width: 0;
+    }
+
+    .attachment-name {
+      display: block;
+      overflow: hidden;
+      color: var(--tm-text-soft);
+      font-weight: 550;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .attachment-meta {
+      display: block;
+      margin-top: 1px;
+      color: var(--tm-muted);
+      font-size: 11px;
+    }
+
+    .attachment-actions {
+      display: inline-flex;
+      gap: 2px;
+    }
+
+    .history-list {
+      position: relative;
+      padding-left: 5px;
+    }
+
+    .history-list::before {
+      content: "";
+      position: absolute;
+      top: 16px;
+      bottom: 16px;
+      left: 18px;
+      width: 1px;
+      background: var(--tm-border-soft);
+    }
+
+    .history-row {
+      position: relative;
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 13px;
+      padding: 7px 0 15px;
+    }
+
+    .history-icon {
+      position: relative;
+      z-index: 1;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: var(--tm-muted);
+      background: var(--tm-background);
+    }
+
+    .history-copy {
+      min-width: 0;
+      padding-top: 3px;
+      color: var(--tm-text-soft);
+      word-break: break-word;
+    }
+
+    .history-time {
+      display: block;
+      margin-top: 3px;
+      color: var(--tm-muted);
+      font-size: 11px;
+    }
+
+    .mobile-save {
+      display: none;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: max(20px, env(safe-area-inset-bottom));
+      z-index: 50;
+      min-height: 34px;
+      max-width: min(360px, calc(100vw - 32px));
+      padding: 7px 12px;
+      border: 1px solid var(--tm-border);
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--tm-text);
+      color: var(--tm-background);
+      box-shadow: var(--tm-shadow);
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, 10px);
+      transition: opacity 170ms ease, transform 170ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .toast.is-visible {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    @media (max-width: 1120px) {
+      .app-frame {
+        grid-template-columns: minmax(92px, 1fr) minmax(620px, 820px) minmax(92px, 1fr);
+      }
+
+      .ambient-mark span {
+        display: none;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body {
+        background: var(--tm-background);
+      }
+
+      .app-frame {
+        display: block;
+        background: var(--tm-background);
+      }
+
+      .ambient-pane {
+        display: none;
+      }
+
+      .detail-sheet {
+        min-height: 100vh;
+        min-height: 100dvh;
+        border: 0;
+        box-shadow: none;
+      }
+
+      .sheet-topbar {
+        padding-inline: 10px;
+      }
+
+      .breadcrumb span:first-child,
+      .breadcrumb > .breadcrumb-separator:nth-of-type(2) {
+        display: none;
+      }
+
+      .topbar-actions .icon-button:nth-child(1) {
+        display: none;
+      }
+
+      .detail-content {
+        width: 100%;
+        padding: 26px 18px max(82px, calc(24px + env(safe-area-inset-bottom)));
+      }
+
+      .task-title {
+        font-size: 22px;
+        line-height: 1.36;
+      }
+
+      .description-block {
+        margin-top: 22px;
+      }
+
+      .property-band {
+        margin-top: 20px;
+        margin-inline: 0;
+        padding: 10px;
+      }
+
+      .description-block,
+      .parent-line {
+        margin-left: 0;
+      }
+
+      .property-chip {
+        max-width: 100%;
+      }
+
+      .detail-sections {
+        margin-top: 26px;
+      }
+
+      .section-heading {
+        min-height: 56px;
+      }
+
+      .section-content {
+        padding-left: 16px;
+      }
+
+      .mobile-save {
+        display: none;
+      }
+    }
+
+    @media (max-width: 430px) {
+      .detail-content {
+        padding-inline: 15px;
+      }
+
+      .task-heading {
+        grid-template-columns: 20px minmax(0, 1fr);
+        gap: 10px;
+      }
+
+      .task-check {
+        margin-top: 6px;
+      }
+
+      .task-title {
+        font-size: 20px;
+      }
+
+      .property-list {
+        gap: 6px;
+      }
+
+      .property-chip {
+        min-height: 32px;
+        padding-inline: 8px;
+        font-size: 13px;
+      }
+
+      .section-content {
+        padding-left: 8px;
+      }
+
+      .attachment-row {
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        gap: 8px;
+        padding-left: 9px;
+      }
+
+      .attachment-icon {
+        width: 28px;
+        height: 28px;
+      }
+
+      .attachment-actions .attachment-action:first-child {
+        display: none;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-book-open" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 1 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.6 2.4H5a2.6 2.6 0 0 0-2.6 2.6v7.6a2.6 2.6 0 0 0 .76 1.84l6.4 6.4a2.6 2.6 0 0 0 3.68 0l7.6-7.6a2.6 2.6 0 0 0 0-3.68l-6.4-6.4a2.6 2.6 0 0 0-1.84-.76Z"/><circle cx="7.6" cy="7.6" r="1.2"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M9 21V9"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v5M14 11v5"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M5 3h14M6 3l1 9-3 3h16l-3-3 1-9"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.1 3.4a2 2 0 0 1-1.3 1.3L6.2 8.8l3.4 1.1a2 2 0 0 1 1.3 1.3l1.1 3.4 1.1-3.4a2 2 0 0 1 1.3-1.3l3.4-1.1-3.4-1.1a2 2 0 0 1-1.3-1.3zM5 16l-.6 1.8a1 1 0 0 1-.6.6L2 19l1.8.6a1 1 0 0 1 .6.6L5 22l.6-1.8a1 1 0 0 1 .6-.6L8 19l-1.8-.6a1 1 0 0 1-.6-.6zM19 14l-.7 2.1a1 1 0 0 1-.6.6l-2.1.7 2.1.7a1 1 0 0 1 .6.6l.7 2.1.7-2.1a1 1 0 0 1 .6-.6l2.1-.7-2.1-.7a1 1 0 0 1-.6-.6z"/></symbol>
+  </svg>
+
+  <main class="app-frame">
+    <aside class="ambient-pane" aria-hidden="true">
+      <div class="ambient-mark"><span class="ambient-dot"></span><span>Task Horizon</span></div>
+    </aside>
+
+    <article class="detail-sheet" aria-label="任务详情">
+      <header class="sheet-topbar">
+        <div class="topbar-leading">
+          <button class="icon-button" type="button" aria-label="返回" title="返回">
+            <svg class="icon"><use href="#i-arrow-left"/></svg>
+          </button>
+          <nav class="breadcrumb" aria-label="任务位置">
+            <span>项目任务</span><span class="breadcrumb-separator">/</span>
+            <strong>Task Horizon 2.2</strong><span class="breadcrumb-separator">/</span>
+            <span>界面优化</span>
+          </nav>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-button" type="button" data-action="note" aria-label="笔记内视图" title="笔记内视图">
+            <svg class="icon"><use href="#i-book-open"/></svg>
+          </button>
+          <button class="icon-button" type="button" data-action="theme" aria-label="切换深浅主题" title="切换深浅主题">
+            <svg class="icon theme-icon"><use href="#i-moon"/></svg>
+          </button>
+          <button class="icon-button" type="button" data-action="save" aria-label="保存" title="保存">
+            <svg class="icon"><use href="#i-save"/></svg>
+          </button>
+          <button class="icon-button" type="button" data-action="more" aria-label="更多任务操作" title="更多任务操作">
+            <svg class="icon"><use href="#i-more"/></svg>
+          </button>
+          <button class="icon-button" type="button" aria-label="关闭" title="关闭">
+            <svg class="icon"><use href="#i-x"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="detail-content">
+        <div class="task-heading">
+          <input class="task-check" type="checkbox" aria-label="标记任务完成">
+          <h1 class="task-title" contenteditable="true" spellcheck="false">发布 Task Horizon 2.2，并完成移动端详情页审阅</h1>
+        </div>
+        <div class="parent-line">父任务：<button type="button">完成 2.2 版本发布准备</button></div>
+
+        <div class="description-block">
+          <div class="description-viewport is-clipped" data-description-viewport>
+            <div class="description" contenteditable="true" spellcheck="false">
+              <p>汇总发布前剩余事项，核对手机和平板上的任务详情、子任务编辑与附件操作。</p>
+              <p>完成后更新变更记录，并在发布清单中补充验证结果。移动端优先保证常用字段直接可见，其余信息按需展开。</p>
+            </div>
+          </div>
+          <button class="text-button" type="button" data-action="description" aria-expanded="false">
+            <span>展开备注</span><svg class="icon"><use href="#i-chevron-down"/></svg>
+          </button>
+        </div>
+
+        <div class="property-band" aria-label="任务属性">
+          <div class="property-list">
+            <button class="property-chip property-chip--priority" type="button" title="重要性：高">
+              <svg class="icon"><use href="#i-flag"/></svg><span class="chip-value">高</span>
+            </button>
+            <button class="property-chip property-chip--status" type="button" title="状态：进行中">
+              <span class="status-dot"></span><span class="chip-value">进行中</span>
+            </button>
+            <button class="property-chip" type="button" title="开始日期：8 月 3 日">
+              <svg class="icon"><use href="#i-calendar"/></svg><span class="chip-value">8 月 3 日</span>
+            </button>
+            <button class="property-chip property-chip--due" type="button" title="截止日期：8 月 7 日">
+              <svg class="icon"><use href="#i-calendar"/></svg><span class="chip-value">8 月 7 日</span>
+            </button>
+            <button class="property-chip" type="button" title="预计时长与番茄">
+              <svg class="icon"><use href="#i-clock"/></svg><span class="chip-value">2 小时 · 3 番茄</span>
+            </button>
+            <button class="property-chip property-chip--tag" type="button" title="标签：界面优化">
+              <svg class="icon"><use href="#i-tag"/></svg><span class="chip-value">界面优化</span>
+            </button>
+          </div>
+          <div class="property-advanced" data-property-advanced>
+            <div class="property-advanced-inner">
+              <div class="property-list">
+                <button class="property-chip" type="button" title="重复：每周五">
+                  <svg class="icon"><use href="#i-repeat"/></svg><span class="chip-value">每周五</span>
+                </button>
+                <button class="property-chip" type="button" title="自定义字段：发布版本 2.2">
+                  <svg class="icon"><use href="#i-sparkles"/></svg><span class="chip-value">发布版本 2.2</span>
+                </button>
+                <button class="property-chip" type="button" title="白板大纲：发布路线图">
+                  <svg class="icon"><use href="#i-layout"/></svg><span class="chip-value">发布路线图</span>
+                </button>
+                <button class="property-chip" type="button" title="置顶任务">
+                  <svg class="icon"><use href="#i-pin"/></svg><span class="chip-value">置顶</span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <button class="text-button property-more" type="button" data-action="properties" aria-expanded="false">
+            <span>更多属性</span><svg class="icon"><use href="#i-chevron-down"/></svg>
+          </button>
+        </div>
+
+        <div class="detail-sections">
+          <section class="detail-section" data-section="subtasks">
+            <div class="section-heading">
+              <button class="section-toggle" type="button" aria-expanded="true">
+                <svg class="icon section-chevron"><use href="#i-chevron-down"/></svg>
+                <span class="section-title">子任务</span>
+                <span class="section-count" data-subtask-count>1/3</span>
+              </button>
+              <div class="section-actions">
+                <button class="section-action" type="button" data-action="add-subtask" aria-label="添加子任务" title="添加子任务">
+                  <svg class="icon"><use href="#i-plus"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="section-body">
+              <div class="section-body-inner">
+                <div class="section-content">
+                  <div class="subtask-list" data-subtask-list>
+                    <label class="subtask-row">
+                      <input class="subtask-check" type="checkbox" checked>
+                      <span class="subtask-copy"><span class="subtask-title">核对窄屏下的标题和属性换行</span><span class="subtask-meta">TH-247 · 今天</span></span>
+                      <span class="subtask-status">已完成</span>
+                    </label>
+                    <label class="subtask-row">
+                      <input class="subtask-check" type="checkbox">
+                      <span class="subtask-copy"><span class="subtask-title">检查子任务折叠状态是否正确恢复</span><span class="subtask-meta">TH-251 · 明天</span></span>
+                      <span class="subtask-status">进行中</span>
+                    </label>
+                    <label class="subtask-row">
+                      <input class="subtask-check" type="checkbox">
+                      <span class="subtask-copy"><span class="subtask-title">补充 2.2 版本变更记录与截图</span><span class="subtask-meta">TH-255 · 8 月 7 日</span></span>
+                      <span class="subtask-status">待办</span>
+                    </label>
+                  </div>
+                  <button class="subtask-add" type="button" data-action="add-subtask">
+                    <svg class="icon"><use href="#i-plus"/></svg><span>添加子任务</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="detail-section" data-section="attachments">
+            <div class="section-heading">
+              <button class="section-toggle" type="button" aria-expanded="true">
+                <svg class="icon section-chevron"><use href="#i-chevron-down"/></svg>
+                <span class="section-title">附件</span>
+                <span class="section-count">2</span>
+              </button>
+              <div class="section-actions">
+                <button class="section-action" type="button" data-action="attach" aria-label="添加附件" title="添加附件">
+                  <svg class="icon"><use href="#i-plus"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="section-body">
+              <div class="section-body-inner">
+                <div class="section-content">
+                  <div class="attachment-list">
+                    <div class="attachment-row">
+                      <span class="attachment-icon attachment-icon--image"><svg class="icon"><use href="#i-image"/></svg></span>
+                      <span class="attachment-copy"><span class="attachment-name">移动端详情页对照.png</span><span class="attachment-meta">1.8 MB · 今天 08:26</span></span>
+                      <span class="attachment-actions">
+                        <button class="attachment-action" type="button" aria-label="下载附件" title="下载"><svg class="icon"><use href="#i-download"/></svg></button>
+                        <button class="attachment-action" type="button" aria-label="附件更多操作" title="更多"><svg class="icon"><use href="#i-more"/></svg></button>
+                      </span>
+                    </div>
+                    <div class="attachment-row">
+                      <span class="attachment-icon"><svg class="icon"><use href="#i-file"/></svg></span>
+                      <span class="attachment-copy"><span class="attachment-name">Task-Horizon-2.2-release-checklist.md</span><span class="attachment-meta">12 KB · 昨天 22:41</span></span>
+                      <span class="attachment-actions">
+                        <button class="attachment-action" type="button" aria-label="下载附件" title="下载"><svg class="icon"><use href="#i-download"/></svg></button>
+                        <button class="attachment-action" type="button" aria-label="附件更多操作" title="更多"><svg class="icon"><use href="#i-more"/></svg></button>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="detail-section" data-section="history">
+            <div class="section-heading">
+              <button class="section-toggle" type="button" aria-expanded="true">
+                <svg class="icon section-chevron"><use href="#i-chevron-down"/></svg>
+                <span class="section-title">重复记录</span>
+                <span class="section-count">3</span>
+              </button>
+              <div class="section-actions">
+                <button class="section-action" type="button" aria-label="记录筛选" title="记录筛选">
+                  <svg class="icon"><use href="#i-more"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="section-body">
+              <div class="section-body-inner">
+                <div class="section-content">
+                  <div class="history-list">
+                    <div class="history-row">
+                      <span class="history-icon"><svg class="icon"><use href="#i-calendar"/></svg></span>
+                      <span class="history-copy">完成了 8 月 1 日的发布检查<span class="history-time">2 天前</span></span>
+                    </div>
+                    <div class="history-row">
+                      <span class="history-icon"><svg class="icon"><use href="#i-repeat"/></svg></span>
+                      <span class="history-copy">下次重复时间调整为 8 月 7 日<span class="history-time">5 天前</span></span>
+                    </div>
+                    <div class="history-row">
+                      <span class="history-icon"><svg class="icon"><use href="#i-calendar"/></svg></span>
+                      <span class="history-copy">完成了 7 月 25 日的发布检查<span class="history-time">9 天前</span></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <button class="mobile-save" type="button" data-action="save" aria-label="保存任务详情" title="保存">
+        <svg class="icon"><use href="#i-save"/></svg>
+      </button>
+    </article>
+
+    <aside class="ambient-pane ambient-pane--right" aria-hidden="true">
+      <div class="ambient-mark"><svg class="icon"><use href="#i-layout"/></svg><span>任务详情</span></div>
+    </aside>
+  </main>
+
+  <div class="toast" role="status" aria-live="polite" data-toast>
+    <svg class="icon"><use href="#i-save"/></svg><span>已保存</span>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const toast = document.querySelector('[data-toast]');
+      let toastTimer = 0;
+
+      const showToast = (message, icon = 'save') => {
+        if (!toast) return;
+        toast.querySelector('span').textContent = message;
+        toast.querySelector('use').setAttribute('href', `#i-${icon}`);
+        toast.classList.add('is-visible');
+        window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 1500);
+      };
+
+      const storedTheme = localStorage.getItem('tm-detail-prototype-theme');
+      const initialTheme = storedTheme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      root.dataset.theme = initialTheme;
+
+      const syncThemeIcon = () => {
+        const use = document.querySelector('.theme-icon use');
+        if (use) use.setAttribute('href', root.dataset.theme === 'dark' ? '#i-sun' : '#i-moon');
+      };
+      syncThemeIcon();
+
+      document.querySelectorAll('.section-toggle').forEach((button) => {
+        const section = button.closest('[data-section]');
+        if (!section) return;
+        const key = `tm-detail-section-${section.dataset.section}`;
+        const stored = localStorage.getItem(key);
+        const collapsed = stored === 'collapsed';
+        const body = section.querySelector('.section-body');
+        section.classList.toggle('is-collapsed', collapsed);
+        button.setAttribute('aria-expanded', String(!collapsed));
+        body?.setAttribute('aria-hidden', String(collapsed));
+        if (body) body.inert = collapsed;
+
+        button.addEventListener('click', () => {
+          const nextCollapsed = !section.classList.contains('is-collapsed');
+          section.classList.toggle('is-collapsed', nextCollapsed);
+          button.setAttribute('aria-expanded', String(!nextCollapsed));
+          body?.setAttribute('aria-hidden', String(nextCollapsed));
+          if (body) body.inert = nextCollapsed;
+          localStorage.setItem(key, nextCollapsed ? 'collapsed' : 'expanded');
+        });
+      });
+
+      const descriptionButton = document.querySelector('[data-action="description"]');
+      const descriptionViewport = document.querySelector('[data-description-viewport]');
+      descriptionButton?.addEventListener('click', () => {
+        const expanded = descriptionButton.getAttribute('aria-expanded') === 'true';
+        descriptionButton.setAttribute('aria-expanded', String(!expanded));
+        descriptionButton.querySelector('span').textContent = expanded ? '展开备注' : '收起备注';
+        descriptionViewport?.classList.toggle('is-clipped', expanded);
+      });
+
+      const propertyButton = document.querySelector('[data-action="properties"]');
+      const propertyAdvanced = document.querySelector('[data-property-advanced]');
+      propertyAdvanced?.setAttribute('aria-hidden', 'true');
+      if (propertyAdvanced) propertyAdvanced.inert = true;
+      propertyButton?.addEventListener('click', () => {
+        const expanded = propertyButton.getAttribute('aria-expanded') === 'true';
+        propertyButton.setAttribute('aria-expanded', String(!expanded));
+        propertyButton.querySelector('span').textContent = expanded ? '更多属性' : '收起属性';
+        propertyAdvanced?.classList.toggle('is-open', !expanded);
+        propertyAdvanced?.setAttribute('aria-hidden', String(expanded));
+        if (propertyAdvanced) propertyAdvanced.inert = expanded;
+      });
+
+      document.querySelectorAll('.subtask-check').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          const all = [...document.querySelectorAll('.subtask-check')];
+          const completed = all.filter((item) => item.checked).length;
+          const count = document.querySelector('[data-subtask-count]');
+          if (count) count.textContent = `${completed}/${all.length}`;
+          const status = checkbox.closest('.subtask-row')?.querySelector('.subtask-status');
+          if (status) status.textContent = checkbox.checked ? '已完成' : '待办';
+        });
+      });
+
+      document.addEventListener('click', (event) => {
+        const action = event.target.closest('[data-action]')?.dataset.action;
+        if (!action) return;
+        if (action === 'theme') {
+          root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+          localStorage.setItem('tm-detail-prototype-theme', root.dataset.theme);
+          syncThemeIcon();
+        }
+        if (action === 'save') showToast('已保存');
+        if (action === 'note') showToast('已切换到笔记内视图', 'book-open');
+        if (action === 'add-subtask') showToast('新建子任务', 'plus');
+        if (action === 'attach') showToast('选择附件', 'paperclip');
+        if (action === 'more') showToast('更多任务操作', 'more');
+      });
+    })();
+  </script>
+</body>
+</html>
