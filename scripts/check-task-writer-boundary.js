@@ -47,6 +47,10 @@ const whitelist = [
     reason: 'task writer service modules',
   },
   {
+    test: (rel) => rel === path.join('task-runtime', '56-task-lifecycle-runtime.js'),
+    reason: 'task lifecycle writer for archive and recycle metadata',
+  },
+  {
     test: (rel) => rel === path.join('settings', '61-settings-appearance-and-import.js'),
     reason: 'settings import tools; review before tightening',
   },

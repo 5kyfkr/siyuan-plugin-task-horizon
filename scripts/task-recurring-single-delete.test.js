@@ -28,6 +28,7 @@ function createHarness(task) {
     const window = {};
     const context = vm.createContext({
         state,
+        SettingsStore: { data: { taskDeleteMode: 'permanent' } },
         window,
         globalThis: null,
         confirm: () => true,
@@ -55,6 +56,7 @@ function createHarness(task) {
             options?.onPending?.(pending);
             return pending;
         },
+        __tmNormalizeTaskDeleteMode: (value) => value === 'recycle' ? 'recycle' : 'permanent',
     });
     context.globalThis = context;
     context.__tmRuntimeState = {

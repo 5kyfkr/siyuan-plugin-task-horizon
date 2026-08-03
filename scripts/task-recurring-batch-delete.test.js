@@ -26,6 +26,7 @@ function createHarness(tasks, selectedIds) {
     };
     const context = vm.createContext({
         state,
+        SettingsStore: { data: { taskDeleteMode: 'permanent' } },
         window: {},
         confirm: () => true,
         showConfirm: async () => true,
@@ -47,6 +48,7 @@ function createHarness(tasks, selectedIds) {
         },
         __tmScheduleRender: () => {},
         __tmBuildBatchResultHint: (result) => `${result.successCount}/${result.failureCount}`,
+        __tmNormalizeTaskDeleteMode: (value) => value === 'recycle' ? 'recycle' : 'permanent',
     });
     context.__tmRuntimeState = {
         getTaskById: (id) => state.flatTasks[id] || null,
