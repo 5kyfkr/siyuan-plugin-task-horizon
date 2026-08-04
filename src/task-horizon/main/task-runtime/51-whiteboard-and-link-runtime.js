@@ -10760,9 +10760,12 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             `).join('')
             : `<div class="tm-task-attachment-empty">可拖拽至此处添加附件，也可Ctrl+V粘贴。</div>`;
         return `
-            <section class="tm-task-detail-section" data-tm-detail-attachment-section data-tm-expanded="${expanded ? 'true' : 'false'}" data-tm-attachment-count="${entries.length}">
+            <section class="tm-task-detail-section" data-tm-detail-collapsible-section data-tm-detail-attachment-section data-tm-expanded="${expanded ? 'true' : 'false'}" data-tm-attachment-count="${entries.length}">
                 <div class="tm-task-detail-section-head">
-                    <div class="tm-task-detail-section-title">附件</div>
+                    <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="true">
+                        <span class="tm-task-detail-section-title">附件</span>
+                        <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
+                    </button>
                     <div class="tm-task-detail-section-tools">
                         ${entries.length ? `<span class="tm-task-detail-section-count">${entries.length}</span>` : ''}
                         ${canCollapse ? `<button type="button" class="bc-btn bc-btn--sm tm-task-detail-attachment-toggle" data-tm-detail-attachment-toggle>${expanded ? '收起' : `展开 ${hiddenCount} 个`}</button>` : ''}
@@ -10875,10 +10878,13 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         const source = __tmNormalizeRemarkMarkdown(remarkValue);
         const previewHtml = __tmRenderRemarkMarkdown(source);
         return `
-            <section class="tm-task-detail-section">
+            <section class="tm-task-detail-section" data-tm-detail-collapsible-section>
                 <div class="tm-task-detail-section-head tm-task-detail-remark-head">
                     <div class="tm-task-detail-remark-head-main">
-                        <div class="tm-task-detail-section-title">备注</div>
+                        <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="true">
+                            <span class="tm-task-detail-section-title">备注</span>
+                            <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
+                        </button>
                         <button type="button" class="bc-btn bc-btn--sm tm-task-detail-remark-toolbar-toggle" data-tm-detail-remark-toolbar-toggle${detailTip('格式工具', { ariaLabel: false })}>A</button>
                     </div>
                     <div class="tm-task-detail-remark-toolbar" data-tm-detail-remark-toolbar>${__tmBuildTaskDetailRemarkToolbarHtml()}</div>
@@ -10926,9 +10932,12 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             `;
         }).join('');
         return `
-            <section class="tm-task-detail-section">
+            <section class="tm-task-detail-section" data-tm-detail-collapsible-section>
                 <div class="tm-task-detail-section-head">
-                    <div class="tm-task-detail-section-title">循环完成记录</div>
+                    <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="true">
+                        <span class="tm-task-detail-section-title">循环完成记录</span>
+                        <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
+                    </button>
                     <div class="tm-task-detail-section-tools">
                         <span class="tm-task-detail-section-count">${history.length}</span>
                     </div>

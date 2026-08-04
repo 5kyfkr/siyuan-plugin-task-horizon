@@ -186,6 +186,13 @@
     let inlineMetaObservedTaskBlocks = new Map();
     let inlineMetaVisibleTaskBlocks = new Map();
     let inlineMetaMissingHostSeenAt = new Map();
+    // Embedded query results reuse the source block IDs. Keep their visual
+    // state keyed by the rendered instance so one copy cannot evict another.
+    const inlineMetaProtyleTokens = new WeakMap();
+    const inlineMetaQueryEmbedTokens = new WeakMap();
+    let inlineMetaInstanceTokenSeq = 0;
+    let inlineMetaEmbedContextCache = new Map();
+    let inlineMetaEmbedContextInflight = new Map();
     let inlineMetaNeedSyncBlocks = true;
     let quickbarTaskMetaAttrKeySettingsCache = null;
     let quickbarTaskMetaAttrAliasSettingsCache = null;
@@ -1239,14 +1246,19 @@
 
     function isInlineMetaScopeAllowedForBlockCached(blockEl) {
         const docId = resolveDocIdFromTaskBlock(blockEl);
-        if (!docId) return true;
+        return isInlineMetaScopeAllowedForDocCached(docId);
+    }
+
+    function isInlineMetaScopeAllowedForDocCached(docId) {
+        const did = String(docId || '').trim();
+        if (!did) return true;
         const scopeDocIds = inlineMetaScopeDocIds;
         if (!(scopeDocIds instanceof Set)) {
             try { ensureInlineMetaScopeDocIds(false); } catch (e) {}
             return true;
         }
         if (!scopeDocIds.size) return false;
-        return scopeDocIds.has(docId);
+        return scopeDocIds.has(did);
     }
 
     function hasInlineMetaInBlockHost(node) {
@@ -1282,6 +1294,7 @@
             const id = String(value || '').trim();
             if (id) ids.add(id);
         };
+        const renderKey = String(host?.dataset?.inlineRenderKey || '').trim();
         pushId(host?.dataset?.blockId);
         pushId(host?.dataset?.taskId);
         pushId(host?.dataset?.attrHostId);
@@ -1295,7 +1308,31 @@
                 try { inlineMetaLayoutCache.delete(id); } catch (e) {}
             }
         });
+        if (renderKey) {
+            try { inlineMetaMissingHostSeenAt.delete(renderKey); } catch (e) {}
+            if (clearLayout) {
+                try { inlineMetaLayoutCache.delete(renderKey); } catch (e) {}
+            }
+        }
         return true;
+    }
+
+    function removeInlineMetaHostByRenderKey(renderKey, placement = '') {
+        const key = String(renderKey || '').trim();
+        const expectedPlacement = String(placement || '').trim();
+        if (!key) return 0;
+        let removed = 0;
+        try {
+            document.querySelectorAll('.sy-custom-props-inline-host[data-inline-render-key]').forEach((host) => {
+                if (String(host?.dataset?.inlineRenderKey || '').trim() !== key) return;
+                if (expectedPlacement && String(host?.dataset?.inlinePlacement || '').trim() !== expectedPlacement) return;
+                if (removeInlineMetaHostNode(host, true)) removed += 1;
+            });
+        } catch (e) {}
+        try { inlineMetaMissingHostSeenAt.delete(key); } catch (e) {}
+        try { inlineMetaLayoutCache.delete(key); } catch (e) {}
+        if (removed > 0) invalidateInlineMetaActiveTargetsCache();
+        return removed;
     }
 
     function removeInlineMetaHostByTaskId(taskId, placement = '') {
@@ -1333,12 +1370,13 @@
         invalidateInlineMetaActiveTargetsCache();
     }
 
-    function shouldRunInlineMetaSourceHostDedupe(sourceTaskId, keepAttrHostId, ttlMs = QUICKBAR_INLINE_SOURCE_DEDUPE_TTL_MS) {
+    function shouldRunInlineMetaSourceHostDedupe(sourceTaskId, keepAttrHostId, ttlMs = QUICKBAR_INLINE_SOURCE_DEDUPE_TTL_MS, renderKey = '') {
         const sourceId = String(sourceTaskId || '').trim();
         const keepId = String(keepAttrHostId || '').trim();
         if (!sourceId || !keepId) return false;
         const now = Date.now();
-        const key = `${sourceId}:${keepId}`;
+        const instanceKey = String(renderKey || '').trim();
+        const key = `${sourceId}:${keepId}${instanceKey ? `:${instanceKey}` : ''}`;
         const lastSeenAt = Number(inlineMetaSourceHostDedupeSeenAt.get(key) || 0);
         const safeTtl = Math.max(300, Number(ttlMs) || QUICKBAR_INLINE_SOURCE_DEDUPE_TTL_MS);
         if (lastSeenAt && (now - lastSeenAt) < safeTtl) return false;
@@ -1351,10 +1389,11 @@
         return true;
     }
 
-    function removeInlineMetaHostsBySourceTaskId(sourceTaskId, keepAttrHostId = '', placement = '') {
+    function removeInlineMetaHostsBySourceTaskId(sourceTaskId, keepAttrHostId = '', placement = '', renderKey = '') {
         const id = String(sourceTaskId || '').trim();
         const keepId = String(keepAttrHostId || '').trim();
         const expectedPlacement = String(placement || '').trim();
+        const expectedRenderKey = String(renderKey || '').trim();
         if (!id) return 0;
         const hosts = [];
         const seen = new WeakSet();
@@ -1380,6 +1419,7 @@
         let removed = 0;
         hosts.forEach((host) => {
             if (expectedPlacement && String(host?.dataset?.inlinePlacement || '').trim() !== expectedPlacement) return;
+            if (expectedRenderKey && String(host?.dataset?.inlineRenderKey || '').trim() !== expectedRenderKey) return;
             const hostId = String(host?.dataset?.blockId || '').trim();
             const attrHostId = String(host?.dataset?.attrHostId || '').trim();
             if (keepId && (hostId === keepId || attrHostId === keepId)) return;
@@ -1451,6 +1491,73 @@
     const QUICKBAR_INLINE_MISC_CACHE_TTL_MS = 2 * 60 * 1000;
     const QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT = 360;
     const QUICKBAR_INLINE_RUNTIME_PRUNE_INTERVAL_MS = 5000;
+    const QUICKBAR_INLINE_EMBED_CONTEXT_TTL_MS = 5000;
+
+    function getInlineMetaQueryEmbedEl(blockEl) {
+        if (!(blockEl instanceof Element)) return null;
+        try {
+            return blockEl.closest?.('[data-type="NodeBlockQueryEmbed"]') || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function getInlineMetaInstanceToken(map, el, prefix) {
+        if (!(el instanceof Element) || !(map instanceof WeakMap)) return '';
+        let token = map.get(el);
+        if (!token) {
+            inlineMetaInstanceTokenSeq += 1;
+            token = `${prefix}${inlineMetaInstanceTokenSeq}`;
+            map.set(el, token);
+        }
+        return token;
+    }
+
+    function getInlineMetaRenderKey(blockEl, sourceTaskId) {
+        const fallback = String(sourceTaskId || '').trim();
+        const queryEmbed = getInlineMetaQueryEmbedEl(blockEl);
+        if (!(queryEmbed instanceof Element)) return fallback;
+        let sourceId = fallback;
+        try {
+            const binding = resolveTaskBindingFromBlockEl(blockEl);
+            sourceId = String(binding?.taskId || sourceId || blockEl?.dataset?.nodeId || '').trim();
+        } catch (e) {}
+        if (!sourceId) return '';
+        const protyle = blockEl.closest?.('.protyle');
+        const protyleToken = getInlineMetaInstanceToken(inlineMetaProtyleTokens, protyle, 'p');
+        const queryId = String(queryEmbed?.dataset?.nodeId || queryEmbed?.getAttribute?.('data-node-id') || '').trim()
+            || getInlineMetaInstanceToken(inlineMetaQueryEmbedTokens, queryEmbed, 'q');
+        return `embed|${protyleToken || 'p0'}|${queryId}|${sourceId}`;
+    }
+
+    function isInlineMetaEmbedRenderKey(renderKey) {
+        return String(renderKey || '').trim().startsWith('embed|');
+    }
+
+    function hasInlineMetaPropsCacheForBlock(blockEl, fallbackId = '') {
+        const ids = new Set([String(fallbackId || '').trim()].filter(Boolean));
+        if (getInlineMetaQueryEmbedEl(blockEl)) {
+            try {
+                const binding = resolveTaskBindingFromBlockEl(blockEl);
+                const sourceId = String(binding?.taskId || blockEl?.dataset?.nodeId || '').trim();
+                if (sourceId) ids.add(sourceId);
+                const primaryHostId = String(inlineMetaEmbedContextCache.get(sourceId)?.attrContext?.primaryHostId || '').trim();
+                if (primaryHostId) ids.add(primaryHostId);
+            } catch (e) {}
+        }
+        return Array.from(ids).some((id) => inlineMetaCache.has(id));
+    }
+
+    function clearInlineMetaEmbedContextCache(sourceTaskId = '') {
+        const id = String(sourceTaskId || '').trim();
+        if (id) {
+            inlineMetaEmbedContextCache.delete(id);
+            inlineMetaEmbedContextInflight.delete(id);
+            return;
+        }
+        inlineMetaEmbedContextCache = new Map();
+        inlineMetaEmbedContextInflight = new Map();
+    }
 
     function getListSubtype(el) {
         return String(el?.getAttribute?.('data-subtype') || el?.dataset?.subtype || '').trim().toLowerCase();
@@ -3247,6 +3354,7 @@
         let currentBlockEl = null;
         let currentBlockId = '';
         let currentTaskId = '';
+        let currentTaskBinding = null;
         let currentTaskName = '';
         let currentProps = {};  // 当前块的所有自定义属性值
         let currentQuickbarApplicableCustomFieldIds = new Set();
@@ -3511,19 +3619,23 @@
                 || null;
         }
 
-        function updateCurrentTaskContext(blockEl, attrHostId = '') {
+        function updateCurrentTaskContext(blockEl, attrHostId = '', bindingOverride = null) {
             currentBlockEl = blockEl || null;
-            let binding = null;
-            try {
-                binding = resolveTaskBindingFromBlockEl(blockEl);
-            } catch (e) {
-                binding = null;
+            const hasBindingOverride = !!(bindingOverride && typeof bindingOverride === 'object');
+            let binding = hasBindingOverride ? bindingOverride : null;
+            if (!binding) {
+                try {
+                    binding = resolveTaskBindingFromBlockEl(blockEl);
+                } catch (e) {
+                    binding = null;
+                }
             }
             const fallbackId = String(blockEl?.dataset?.nodeId || '').trim();
             const taskId = String(binding?.taskId || fallbackId).trim();
             const hostId = String(attrHostId || binding?.attrHostId || taskId || fallbackId).trim();
             currentBlockId = hostId || fallbackId;
             currentTaskId = taskId || currentBlockId;
+            currentTaskBinding = hasBindingOverride ? { ...binding } : null;
             try {
                 currentTaskName = getTaskTitleFromBlockEl(blockEl);
             } catch (e) {
@@ -4428,8 +4540,12 @@
             const normalizedValue = isTomatoCountKey
                 ? normalizeTomatoCountValue(value)
                 : value;
-            let saveBinding = null;
-            try { saveBinding = resolveQuickbarAttrBindingFromBlockId(id); } catch (e) { saveBinding = null; }
+            let saveBinding = String(currentBlockId || '').trim() === id && currentTaskBinding
+                ? currentTaskBinding
+                : null;
+            if (!saveBinding) {
+                try { saveBinding = resolveQuickbarAttrBindingFromBlockId(id); } catch (e) { saveBinding = null; }
+            }
             const apiTaskId = String(saveBinding?.taskId || resolveCurrentTaskId() || id).trim() || id;
             const attrTargetHintId = String(saveBinding?.attrHostId || id).trim() || id;
             pushTaskHorizonDebug('refresh', 'quickbar-save:start', {
@@ -4765,8 +4881,12 @@
             const displayKey = normalizeTaskHorizonAttrKeyForDisplay(requestedKey) || requestedKey || key;
             if (!id || !key) return { success: false, viaSharedApi: false };
             const rawValue = value == null ? '' : String(value);
-            let saveBinding = null;
-            try { saveBinding = resolveQuickbarAttrBindingFromBlockId(id); } catch (e) { saveBinding = null; }
+            let saveBinding = String(currentBlockId || '').trim() === id && currentTaskBinding
+                ? currentTaskBinding
+                : null;
+            if (!saveBinding) {
+                try { saveBinding = resolveQuickbarAttrBindingFromBlockId(id); } catch (e) { saveBinding = null; }
+            }
             const apiTaskId = String(saveBinding?.taskId || resolveCurrentTaskId() || id).trim() || id;
             const attrTargetHintId = String(saveBinding?.attrHostId || id).trim() || id;
             const sharedApi = getTaskHorizonSharedApi();
@@ -5140,19 +5260,84 @@
             try {
                 const result = await getter(id, {
                     forceFresh: options?.forceFresh === true,
+                    includeContext: options?.includeContext === true,
                 });
                 const props = result?.props && typeof result.props === 'object'
                     ? normalizeCustomProps(result.props)
                     : null;
                 if (!props) return null;
-                return {
+                const bridged = {
                     props,
                     taskId: String(result?.taskId || id).trim() || id,
                     attrHostId: String(result?.attrHostId || result?.taskId || id).trim() || id,
                 };
+                if (options?.includeContext === true) {
+                    bridged.sourceDocId = String(result?.sourceDocId || '').trim();
+                    bridged.attrContext = result?.attrContext && typeof result.attrContext === 'object'
+                        ? result.attrContext
+                        : null;
+                }
+                return bridged;
             } catch (e) {
                 return null;
             }
+        }
+
+        async function ensureInlineMetaEmbedContext(sourceTaskId, forceFresh = false) {
+            const id = String(sourceTaskId || '').trim();
+            if (!id) return null;
+            const now = Date.now();
+            const cached = inlineMetaEmbedContextCache.get(id);
+            if (!forceFresh && cached && (now - Number(cached.ts || 0)) < QUICKBAR_INLINE_EMBED_CONTEXT_TTL_MS) {
+                return cached;
+            }
+            const inflight = inlineMetaEmbedContextInflight.get(id);
+            if (inflight) return inflight;
+            const request = Promise.resolve(getTaskHorizonBridgeCustomProps(id, {
+                forceFresh: !!forceFresh,
+                includeContext: true,
+            })).then((result) => {
+                const rawContext = result?.attrContext && typeof result.attrContext === 'object'
+                    ? result.attrContext
+                    : null;
+                const primaryHostId = String(rawContext?.primaryHostId || '').trim();
+                const sourceDocId = String(result?.sourceDocId || '').trim();
+                if (!rawContext || !primaryHostId || !sourceDocId) return null;
+                const sourceId = String(result?.taskId || rawContext?.taskId || id).trim() || id;
+                const attrContext = {
+                    ...rawContext,
+                    taskId: sourceId,
+                    primaryHostId,
+                    parentListId: String(rawContext?.parentListId || '').trim(),
+                    state: String(rawContext?.state || '').trim(),
+                    mirrorHostIds: Array.from(new Set((Array.isArray(rawContext?.mirrorHostIds) ? rawContext.mirrorHostIds : [])
+                        .map((value) => String(value || '').trim())
+                        .filter(Boolean))),
+                };
+                const next = {
+                    ...result,
+                    taskId: sourceId,
+                    attrHostId: primaryHostId,
+                    sourceDocId,
+                    attrContext,
+                    ts: Date.now(),
+                };
+                inlineMetaEmbedContextCache.set(id, next);
+                if (sourceId !== id) inlineMetaEmbedContextCache.set(sourceId, next);
+                if (inlineMetaEmbedContextCache.size > 320) {
+                    const cutoff = Date.now() - QUICKBAR_INLINE_EMBED_CONTEXT_TTL_MS;
+                    inlineMetaEmbedContextCache.forEach((entry, cacheId) => {
+                        if (Number(entry?.ts || 0) < cutoff) inlineMetaEmbedContextCache.delete(cacheId);
+                    });
+                }
+                return next;
+            }).catch(() => null).finally(() => {
+                if (inlineMetaEmbedContextInflight.get(id) === request) {
+                    inlineMetaEmbedContextInflight.delete(id);
+                }
+            });
+            inlineMetaEmbedContextInflight.set(id, request);
+            return request;
         }
 
         function resolveQuickbarAttrBindingFromBlockId(blockId) {
@@ -5229,9 +5414,11 @@
             const id = String(blockId || '').trim();
             if (!id) return {};
             const opts = (options && typeof options === 'object') ? options : {};
-            let binding = null;
+            let binding = opts.binding && typeof opts.binding === 'object' ? opts.binding : null;
             if (opts.blockEl instanceof Element) {
-                try { binding = resolveTaskBindingFromBlockEl(opts.blockEl); } catch (e) { binding = null; }
+                if (!binding) {
+                    try { binding = resolveTaskBindingFromBlockEl(opts.blockEl); } catch (e) { binding = null; }
+                }
             }
             if (!binding) binding = resolveQuickbarAttrBindingFromBlockId(id);
             const taskId = String(binding?.taskId || id).trim() || id;
@@ -5565,13 +5752,19 @@
                 return inlineMetaCache.get(id);
             }
             const blockEl = opts.blockEl instanceof Element ? opts.blockEl : getBlockElById(id);
-            const shouldUseTaskHorizonBridge = opts.forceFresh === true || forceRefresh || opts.includeRemark === true;
+            const preferredBinding = opts.binding && typeof opts.binding === 'object' ? opts.binding : null;
+            const shouldUseTaskHorizonBridge = opts.forceFresh === true || forceRefresh || opts.includeRemark === true || opts.includeContext === true;
             let bridgeProps = shouldUseTaskHorizonBridge
-                ? await getTaskHorizonBridgeCustomProps(id, { forceFresh: true })
+                ? await getTaskHorizonBridgeCustomProps(id, {
+                    forceFresh: true,
+                    includeContext: opts.includeContext === true,
+                })
                 : null;
-            let runtimeBinding = null;
+            let runtimeBinding = preferredBinding;
             if (bridgeProps?.props) {
-                try { runtimeBinding = blockEl ? resolveTaskBindingFromBlockEl(blockEl) : resolveQuickbarAttrBindingFromBlockId(id); } catch (e) { runtimeBinding = null; }
+                if (!runtimeBinding) {
+                    try { runtimeBinding = blockEl ? resolveTaskBindingFromBlockEl(blockEl) : resolveQuickbarAttrBindingFromBlockId(id); } catch (e) { runtimeBinding = null; }
+                }
                 if (!shouldUseQuickbarRuntimePropsForBinding(bridgeProps, runtimeBinding)) {
                     pushQuickbarInlineSyncLog('bridge-host-conflict', {
                         taskId: id,
@@ -5607,7 +5800,7 @@
                 let shouldMergeAttrHostAttrs = !props;
                 if (!shouldMergeAttrHostAttrs) {
                     try {
-                        const binding = blockEl ? resolveTaskBindingFromBlockEl(blockEl) : resolveQuickbarAttrBindingFromBlockId(id);
+                        const binding = preferredBinding || (blockEl ? resolveTaskBindingFromBlockEl(blockEl) : resolveQuickbarAttrBindingFromBlockId(id));
                         const taskId = String(binding?.taskId || '').trim();
                         const attrHostId = String(binding?.attrHostId || '').trim();
                         shouldMergeAttrHostAttrs = !!(taskId && attrHostId && taskId !== attrHostId);
@@ -5616,7 +5809,7 @@
                     }
                 }
                 if (shouldMergeAttrHostAttrs) {
-                    const attrs = await getMergedTaskCustomAttrs(id, { blockEl });
+                    const attrs = await getMergedTaskCustomAttrs(id, { blockEl, binding: preferredBinding });
                     props = props
                         ? normalizeCustomProps({ ...props, ...attrs })
                         : normalizeCustomProps(attrs);
@@ -5638,7 +5831,7 @@
             if (props && opts.skipAttrFallback !== true && !mergedAttrHostAttrs
                 && (forceRefresh || opts.forceFresh === true) && !String(props['custom-focus-spent-display'] || '').trim()) {
                 try {
-                    const attrs = await getMergedTaskCustomAttrs(id, { blockEl });
+                    const attrs = await getMergedTaskCustomAttrs(id, { blockEl, binding: preferredBinding });
                     if (hasQuickbarFocusSpentSourceAttr(attrs)) {
                         props = normalizeCustomProps({ ...props, ...attrs });
                         if (attrs?.__tmQuickbarPreferredTaskAttrs === true) {
@@ -5662,6 +5855,10 @@
             let statusBindingForSnapshot = null;
             const resolveStatusBindingForSnapshot = () => {
                 if (statusBindingForSnapshot) return statusBindingForSnapshot;
+                if (preferredBinding) {
+                    statusBindingForSnapshot = preferredBinding;
+                    return statusBindingForSnapshot;
+                }
                 try {
                     statusBindingForSnapshot = blockEl ? resolveTaskBindingFromBlockEl(blockEl) : resolveQuickbarAttrBindingFromBlockId(id);
                 } catch (e) {
@@ -5782,7 +5979,7 @@
             } catch (e) {}
             try {
                 const optimisticIds = [id];
-                const binding = blockEl ? resolveTaskBindingFromBlockEl(blockEl) : resolveQuickbarAttrBindingFromBlockId(id);
+                const binding = preferredBinding || (blockEl ? resolveTaskBindingFromBlockEl(blockEl) : resolveQuickbarAttrBindingFromBlockId(id));
                 optimisticIds.push(binding?.taskId, binding?.attrHostId);
                 props = applyInlineMetaOptimisticPatch(props, optimisticIds, 'getTaskCustomProps');
             } catch (e) {
@@ -5995,12 +6192,26 @@
         function refreshInlineMetaByTaskId(taskId, forceRefresh = false) {
             const id = String(taskId || '').trim();
             if (!id || !isInlineMetaEnabled()) return;
-            const blockEl = getBlockElById(id);
-            if (!blockEl) {
-                requestInlineMetaRender(!!forceRefresh);
-                return;
+            let matched = false;
+            const seen = new WeakSet();
+            try {
+                inlineMetaObservedTaskBlocks.forEach((blockEl) => {
+                    if (!(blockEl instanceof Element) || !blockEl.isConnected || seen.has(blockEl)) return;
+                    let binding = null;
+                    try { binding = resolveTaskBindingFromBlockEl(blockEl); } catch (e) { binding = null; }
+                    const directId = String(blockEl?.dataset?.nodeId || '').trim();
+                    const sourceId = String(binding?.taskId || directId).trim();
+                    const attrHostId = String(binding?.attrHostId || sourceId).trim();
+                    const authoritativeHostId = String(inlineMetaEmbedContextCache.get(sourceId)?.attrContext?.primaryHostId || '').trim();
+                    if (id !== directId && id !== sourceId && id !== attrHostId && id !== authoritativeHostId) return;
+                    seen.add(blockEl);
+                    matched = queueInlineMetaRenderBlock(blockEl, !!forceRefresh, 420) || matched;
+                });
+            } catch (e) {}
+            if (!matched) {
+                const blockEl = getBlockElById(id);
+                if (blockEl) queueInlineMetaRenderBlock(blockEl, !!forceRefresh, 420);
             }
-            queueInlineMetaRenderBlock(blockEl, !!forceRefresh, 420);
             requestInlineMetaRender(!!forceRefresh);
         }
 
@@ -6058,6 +6269,10 @@
             let queued = 0;
             for (let i = 0; i < list.length && queued < maxCount; i += 1) {
                 const blockEl = list[i];
+                // Embedded instances must first obtain the source attrContext;
+                // prefetching from their copied DOM would reintroduce a local
+                // (and potentially wrong) host binding.
+                if (getInlineMetaQueryEmbedEl(blockEl)) continue;
                 const blockId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
                 if (!blockId) continue;
                 if (inlineMetaCache.has(blockId) || inlineMetaPropsInflight.has(blockId) || inlineMetaPrefetchQueuedIds.has(blockId)) continue;
@@ -7483,6 +7698,7 @@
             currentBlockEl = null;
             currentBlockId = '';
             currentTaskId = '';
+            currentTaskBinding = null;
             currentTaskName = '';
             currentProps = {};
             currentQuickbarApplicableCustomFieldIds = new Set();
@@ -7738,7 +7954,13 @@
             const blockId = String(host.dataset.blockId || '').trim();
             const taskId = String(host.dataset.taskId || '').trim();
             const attrHostId = String(host.dataset.attrHostId || blockId).trim();
-            const blockRef = getBlockElById(taskId) || getBlockElById(attrHostId) || getBlockElById(blockId) || host.__tmQuickbarInlineBlockEl || fallbackBlockEl;
+            const preferredBlockEl = host.__tmQuickbarInlineBlockEl instanceof Element && host.__tmQuickbarInlineBlockEl.isConnected
+                ? host.__tmQuickbarInlineBlockEl
+                : null;
+            const blockRef = preferredBlockEl || fallbackBlockEl || getBlockElById(taskId) || getBlockElById(attrHostId) || getBlockElById(blockId);
+            const hostBinding = host.__tmQuickbarInlineBinding && typeof host.__tmQuickbarInlineBinding === 'object'
+                ? host.__tmQuickbarInlineBinding
+                : null;
             const attrKey = String(chip.dataset.inlineAttr || '').trim();
             const config = getInlineFieldConfig(attrKey);
             if (!blockRef || !config) {
@@ -7762,8 +7984,8 @@
                 });
                 return;
             }
-            updateCurrentTaskContext(blockRef, attrHostId || blockId || String(blockRef.dataset.nodeId || '').trim());
-            currentProps = await getTaskCustomProps(currentBlockId, false, { blockEl: blockRef });
+            updateCurrentTaskContext(blockRef, attrHostId || blockId || String(blockRef.dataset.nodeId || '').trim(), hostBinding);
+            currentProps = await getTaskCustomProps(currentBlockId, false, { blockEl: blockRef, binding: hostBinding });
             activePropConfig = config;
             const currentValue = String(chip.dataset.inlineValue || currentProps[attrKey] || '').trim();
             if (config.type === 'select' || config.type === 'multi-select') showSelectMenu(chip, config, currentValue);
@@ -7783,7 +8005,7 @@
                 const targetEl = rawTarget instanceof Element ? rawTarget : rawTarget?.parentElement;
                 const chip = targetEl?.closest?.('.sy-custom-props-inline-chip');
                 if (!chip) return;
-                handleInlineHostPointerDown(host, chip, e, blockEl);
+                handleInlineHostPointerDown(host, chip, e, host.__tmQuickbarInlineBlockEl || null);
             }, true);
         }
 
@@ -7799,6 +8021,7 @@
         function ensureInlineHost(blockEl, options = {}) {
             const preferOverlay = !!(options && options.preferOverlay);
             const blockId = String(options?.blockId || resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
+            const renderKey = String(options?.renderKey || blockId).trim() || blockId;
             if (!blockId) return null;
             const nativeMount = QUICKBAR_INLINE_USE_NATIVE_HOST ? getInlineNativeHostMount(blockEl) : null;
             if (QUICKBAR_INLINE_USE_NATIVE_HOST && !preferOverlay && nativeMount?.parent) {
@@ -7807,6 +8030,8 @@
                 try {
                     const escapedBlockId = CSS.escape(blockId);
                     blockEl.querySelectorAll?.(`.sy-custom-props-inline-host[data-inline-placement="in-block"][data-block-id="${escapedBlockId}"]`).forEach((node) => {
+                        const nodeRenderKey = String(node?.dataset?.inlineRenderKey || blockId).trim() || blockId;
+                        if (nodeRenderKey !== renderKey) return;
                         if (node?.parentElement === nativeMount.parent) return;
                         if (removeInlineMetaHostNode(node, true)) removedLegacyHosts += 1;
                     });
@@ -7822,10 +8047,16 @@
                 } catch (e) {}
                 try { layoutParent.classList.add('sy-custom-props-inline-parent'); } catch (e) {}
                 try {
-                    host = nativeMount.parent.querySelector(`:scope > .sy-custom-props-inline-host[data-inline-placement="in-block"][data-block-id="${CSS.escape(blockId)}"]`);
+                    host = nativeMount.parent.querySelector(`:scope > .sy-custom-props-inline-host[data-inline-placement="in-block"][data-inline-render-key="${CSS.escape(renderKey)}"]`);
+                    if (!host) {
+                        host = nativeMount.parent.querySelector(`:scope > .sy-custom-props-inline-host[data-inline-placement="in-block"][data-block-id="${CSS.escape(blockId)}"]:not([data-inline-render-key])`);
+                    }
                 } catch (e) {
                     host = Array.from(nativeMount.parent.querySelectorAll?.(':scope > .sy-custom-props-inline-host[data-inline-placement="in-block"][data-block-id]') || [])
-                        .find((el) => String(el?.dataset?.blockId || '').trim() === blockId) || null;
+                        .find((el) => {
+                            const elRenderKey = String(el?.dataset?.inlineRenderKey || blockId).trim() || blockId;
+                            return String(el?.dataset?.blockId || '').trim() === blockId && elRenderKey === renderKey;
+                        }) || null;
                 }
                 const createdHost = !host;
                 const previousParentId = String(host?.parentElement?.dataset?.nodeId || '').trim();
@@ -7838,6 +8069,7 @@
                     host.setAttribute('data-block-id', blockId);
                     invalidateInlineMetaActiveTargetsCache();
                 }
+                host.dataset.inlineRenderKey = renderKey;
                 bindInlineHostPointerHandler(host, blockEl);
                 touchInlineMetaHost(host);
                 host.__tmQuickbarInlineLayoutParent = layoutParent;
@@ -7866,7 +8098,13 @@
             }
             const layer = ensureInlineMetaLayer(blockEl);
             if (!layer) return null;
-            let host = layer.querySelector(`.sy-custom-props-inline-host[data-block-id="${blockId}"]`);
+            let host = null;
+            try {
+                host = layer.querySelector(`.sy-custom-props-inline-host[data-inline-render-key="${CSS.escape(renderKey)}"]`);
+                if (!host) {
+                    host = layer.querySelector(`.sy-custom-props-inline-host[data-block-id="${CSS.escape(blockId)}"]:not([data-inline-render-key])`);
+                }
+            } catch (e) {}
             if (!host) {
                 host = document.createElement('span');
                 host.className = 'sy-custom-props-inline-host';
@@ -7877,19 +8115,23 @@
                 invalidateInlineMetaActiveTargetsCache();
                 layer.appendChild(host);
             }
+            host.dataset.inlineRenderKey = renderKey;
             bindInlineHostPointerHandler(host, blockEl);
             touchInlineMetaHost(host);
             return host;
         }
 
-        function removeInlineMetaAlternatePlacementHosts(taskId, keepHost) {
+        function removeInlineMetaAlternatePlacementHosts(taskId, keepHost, renderKey = '') {
             const id = String(taskId || '').trim();
+            const expectedRenderKey = String(renderKey || keepHost?.dataset?.inlineRenderKey || id).trim() || id;
             const keepPlacement = String(keepHost?.dataset?.inlinePlacement || '').trim();
             const removePlacement = keepPlacement === 'in-block' ? 'overlay' : 'in-block';
             if (!id || !keepPlacement) return;
             let removed = false;
             try {
                 document.querySelectorAll(`.sy-custom-props-inline-host[data-block-id="${CSS.escape(id)}"][data-inline-placement="${removePlacement}"]`).forEach((host) => {
+                    const hostRenderKey = String(host?.dataset?.inlineRenderKey || id).trim() || id;
+                    if (hostRenderKey !== expectedRenderKey) return;
                     if (host !== keepHost && removeInlineMetaHostNode(host, false)) removed = true;
                 });
             } catch (e) {}
@@ -7926,9 +8168,10 @@
 
         function queueInlineMetaRenderBlock(blockEl, forceRefresh = false, visibilityBuffer = 0) {
             const taskId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
-            if (!taskId || inlineMetaRenderQueueIds.has(taskId) || inlineMetaRenderActiveIds.has(taskId)) return false;
-            inlineMetaRenderQueueIds.add(taskId);
-            inlineMetaRenderQueue.push({ blockEl, taskId, forceRefresh: !!forceRefresh, visibilityBuffer });
+            const renderKey = getInlineMetaRenderKey(blockEl, taskId);
+            if (!taskId || !renderKey || inlineMetaRenderQueueIds.has(renderKey) || inlineMetaRenderActiveIds.has(renderKey)) return false;
+            inlineMetaRenderQueueIds.add(renderKey);
+            inlineMetaRenderQueue.push({ blockEl, taskId, renderKey, forceRefresh: !!forceRefresh, visibilityBuffer });
             scheduleInlineMetaQueueDrain(0);
             return true;
         }
@@ -7958,14 +8201,14 @@
             while (inlineMetaRenderQueue.length) {
                 if (count >= batchLimit && (now() - startTs) >= frameBudgetMs) break;
                 const item = inlineMetaRenderQueue.shift();
-                inlineMetaRenderQueueIds.delete(item.taskId);
-                if (!item.blockEl?.isConnected || inlineMetaRenderActiveIds.has(item.taskId)) continue;
-                inlineMetaRenderActiveIds.add(item.taskId);
+                inlineMetaRenderQueueIds.delete(item.renderKey);
+                if (!item.blockEl?.isConnected || inlineMetaRenderActiveIds.has(item.renderKey)) continue;
+                inlineMetaRenderActiveIds.add(item.renderKey);
                 count += 1;
                 Promise.resolve(renderInlineMetaForBlock(item.blockEl, item.forceRefresh, item.visibilityBuffer))
                     .catch(() => null)
                     .finally(() => {
-                        inlineMetaRenderActiveIds.delete(item.taskId);
+                        inlineMetaRenderActiveIds.delete(item.renderKey);
                         if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(0);
                     });
             }
@@ -8006,8 +8249,9 @@
             for (let i = 0; i < sourceBlocks.length; i += 1) {
                 const blockEl = sourceBlocks[i];
                 const blockId = String(blockEl?.dataset?.nodeId || '').trim();
-                if (!blockId || seen.has(blockId)) continue;
-                seen.add(blockId);
+                const renderKey = getInlineMetaRenderKey(blockEl, blockId);
+                if (!blockId || !renderKey || seen.has(renderKey)) continue;
+                seen.add(renderKey);
                 if (!isTaskBlockElement(blockEl)) continue;
                 try {
                     const rect = blockEl.getBoundingClientRect();
@@ -8039,8 +8283,9 @@
             for (let i = 0; i < sourceBlocks.length; i += 1) {
                 const blockEl = sourceBlocks[i];
                 const blockId = String(blockEl?.dataset?.nodeId || '').trim();
-                if (!blockId || seen.has(blockId)) continue;
-                seen.add(blockId);
+                const renderKey = getInlineMetaRenderKey(blockEl, blockId);
+                if (!blockId || !renderKey || seen.has(renderKey)) continue;
+                seen.add(renderKey);
                 if (!isTaskBlockElement(blockEl)) continue;
                 try {
                     const rect = blockEl.getBoundingClientRect();
@@ -8116,6 +8361,8 @@
             try {
                 const directId = String(blockEl?.dataset?.nodeId || blockEl?.getAttribute?.('data-node-id') || '').trim();
                 if (directId) ids.add(directId);
+                const renderKey = getInlineMetaRenderKey(blockEl, directId);
+                if (renderKey) ids.add(renderKey);
             } catch (e) {}
             return ids;
         }
@@ -8143,6 +8390,7 @@
             } catch (e) {}
             try {
                 document.querySelectorAll('.sy-custom-props-inline-host[data-block-id]').forEach((host) => {
+                    pushId(host?.dataset?.inlineRenderKey);
                     pushId(host?.dataset?.blockId);
                     pushId(host?.dataset?.taskId);
                     pushId(host?.dataset?.attrHostId);
@@ -8297,6 +8545,7 @@
             try { inlineMetaMissingHostSeenAt.clear(); } catch (e) {}
             try { inlineMetaNativeHostSuppressedUntil.clear(); } catch (e) {}
             try { inlineMetaSourceHostDedupeSeenAt.clear(); } catch (e) {}
+            clearInlineMetaEmbedContextCache();
             try { quickbarAttrHostMigrationSeenAt.clear(); } catch (e) {}
             try { quickbarAttrHostMirrorSyncSeenAt.clear(); } catch (e) {}
             try { quickbarAttrHostDragSnapshots.clear(); } catch (e) {}
@@ -8465,7 +8714,7 @@
                 };
                 hosts.forEach((host) => {
                     if (!(host instanceof HTMLElement)) return;
-                    const owner = String(host?.dataset?.blockId || '').trim();
+                    const owner = String(host?.dataset?.inlineRenderKey || host?.dataset?.blockId || '').trim();
                     if (!owner || keepIds.has(owner)) return;
                     const protyleEl = host.closest?.('.protyle');
                     const activeProtyleHost = !!(protyleEl && activeProtyles.has(protyleEl));
@@ -8488,7 +8737,7 @@
                     const candidates = Array.from(document.querySelectorAll('.sy-custom-props-inline-host[data-block-id]'))
                         .filter((host) => {
                             if (!(host instanceof HTMLElement)) return false;
-                            const owner = String(host?.dataset?.blockId || '').trim();
+                            const owner = String(host?.dataset?.inlineRenderKey || host?.dataset?.blockId || '').trim();
                             if (!owner || keepIds.has(owner)) return false;
                             const blockEl = host.__tmQuickbarInlineBlockEl
                                 || getTaskBlockElementFromTarget(host)
@@ -8573,12 +8822,33 @@
                     if (!(host instanceof HTMLElement)) continue;
                     const owner = String(host.dataset.blockId || '').trim();
                     if (!owner) continue;
+                    const visualOwner = String(host.dataset.inlineRenderKey || owner).trim() || owner;
                     const protyleEl = host.closest?.('.protyle');
                     if (protyleEl && inlineMetaProtyleVisibility.get(protyleEl) === false) continue;
                     if (protyleEl && activeProtyles.size && !activeProtyles.has(protyleEl)) continue;
                     const hostTaskId = String(host.dataset.taskId || '').trim();
                     const hostAttrHostId = String(host.dataset.attrHostId || '').trim();
                     const expectedHostId = hostAttrHostId || owner;
+                    if (isInlineMetaEmbedRenderKey(visualOwner)) {
+                        const localBlock = host.__tmQuickbarInlineBlockEl instanceof Element && host.__tmQuickbarInlineBlockEl.isConnected
+                            ? host.__tmQuickbarInlineBlockEl
+                            : null;
+                        if (localBlock && getInlineMetaRenderKey(localBlock, hostTaskId || owner) === visualOwner) {
+                            inlineMetaMissingHostSeenAt.delete(visualOwner);
+                            continue;
+                        }
+                        const firstSeenAt = Number(inlineMetaMissingHostSeenAt.get(visualOwner) || 0);
+                        if (!firstSeenAt) {
+                            inlineMetaMissingHostSeenAt.set(visualOwner, now);
+                            continue;
+                        }
+                        if ((now - firstSeenAt) < 900) continue;
+                        removeInlineMetaHostNode(host, true);
+                        inlineMetaVisibleTaskBlocks.delete(visualOwner);
+                        inlineMetaObservedTaskBlocks.delete(visualOwner);
+                        removed += 1;
+                        continue;
+                    }
                     if (!shouldDeepValidateNativeHosts && isInlineMetaNativeHostLocallyAnchored(host, owner, hostTaskId)) {
                         inlineMetaMissingHostSeenAt.delete(owner);
                         continue;
@@ -8779,15 +9049,16 @@
             let binding = null;
             try { binding = resolveTaskBindingFromBlockEl(blockEl); } catch (e) { binding = null; }
             const hostId = String(binding?.attrHostId || binding?.taskId || resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
-            if (!hostId) return;
+            const suppressionKey = getInlineMetaRenderKey(blockEl, hostId);
+            if (!hostId || !suppressionKey) return;
             const safeDurationMs = Math.max(300, Math.min(30000, Number(durationMs) || 1800));
             const until = Date.now() + safeDurationMs;
-            inlineMetaNativeHostSuppressedUntil.set(hostId, until);
+            inlineMetaNativeHostSuppressedUntil.set(suppressionKey, until);
             try { Promise.resolve(renderInlineMetaForBlock(blockEl, false, 420)).catch(() => null); } catch (e) {}
             setTimeout(() => {
                 try {
-                    if (Number(inlineMetaNativeHostSuppressedUntil.get(hostId) || 0) <= Date.now()) {
-                        inlineMetaNativeHostSuppressedUntil.delete(hostId);
+                    if (Number(inlineMetaNativeHostSuppressedUntil.get(suppressionKey) || 0) <= Date.now()) {
+                        inlineMetaNativeHostSuppressedUntil.delete(suppressionKey);
                         queueInlineMetaRenderBlock(blockEl, false, 420);
                     }
                 } catch (e) {}
@@ -8961,10 +9232,11 @@
                 entries.forEach((entry) => {
                     const blockEl = entry?.target;
                     const blockId = String(blockEl?.dataset?.nodeId || '').trim();
-                    if (!blockId) return;
+                    const renderKey = getInlineMetaRenderKey(blockEl, blockId);
+                    if (!blockId || !renderKey) return;
                     if (entry.isIntersecting) {
-                        const wasVisible = inlineMetaVisibleTaskBlocks.has(blockId);
-                        inlineMetaVisibleTaskBlocks.set(blockId, blockEl);
+                        const wasVisible = inlineMetaVisibleTaskBlocks.has(renderKey);
+                        inlineMetaVisibleTaskBlocks.set(renderKey, blockEl);
                         // A block just entered the 2400px IO margin. Pre-render
                         // its chip now so a fast scroll that brings several
                         // rows into the viewport at once doesn't reveal blank
@@ -8979,12 +9251,12 @@
                         // which during fast scroll is too late.
                         let renderTaskId = blockId;
                         try { renderTaskId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockId).trim() || blockId; } catch (e) {}
-                        const hasCachedRenderProps = !!renderTaskId && inlineMetaCache.has(renderTaskId);
+                        const hasCachedRenderProps = !!renderTaskId && hasInlineMetaPropsCacheForBlock(blockEl, renderTaskId);
                         if (!wasVisible && (!isInlineMetaScrollSettling() || hasCachedRenderProps) && blockEl instanceof Element && blockEl.isConnected) {
                             try { queueInlineMetaRenderBlock(blockEl, false, 2400); } catch (e) {}
                         }
                     } else {
-                        inlineMetaVisibleTaskBlocks.delete(blockId);
+                        inlineMetaVisibleTaskBlocks.delete(renderKey);
                     }
                 });
             }, {
@@ -9013,22 +9285,26 @@
                     scannedCount += 1;
                     const blockEl = blocks[i];
                     const blockId = String(blockEl?.dataset?.nodeId || '').trim();
-                    if (!blockId || nextBlocks.has(blockId)) continue;
+                    const renderKey = getInlineMetaRenderKey(blockEl, blockId);
+                    if (!blockId || !renderKey || nextBlocks.has(renderKey)) continue;
                     if (!isTaskBlockElement(blockEl)) continue;
                     taskCount += 1;
                     if (isInlineMetaHiddenDoneTaskBlock(blockEl)) {
                         hiddenDoneSkipped += 1;
-                        try { removeInlineMetaHostByTaskId(blockId); } catch (e) {}
-                        inlineMetaLayoutCache.delete(blockId);
+                        try {
+                            if (isInlineMetaEmbedRenderKey(renderKey)) removeInlineMetaHostByRenderKey(renderKey);
+                            else removeInlineMetaHostByTaskId(blockId);
+                        } catch (e) {}
+                        inlineMetaLayoutCache.delete(renderKey);
                         continue;
                     }
-                    nextBlocks.set(blockId, blockEl);
+                    nextBlocks.set(renderKey, blockEl);
                 }
             });
             const io = ensureInlineMetaBlockObserver();
             const isScrolling = inlineMetaScrolling;
-            inlineMetaObservedTaskBlocks.forEach((prevEl, blockId) => {
-                if (nextBlocks.has(blockId)) return;
+            inlineMetaObservedTaskBlocks.forEach((prevEl, renderKey) => {
+                if (nextBlocks.has(renderKey)) return;
                 // During scroll, SiYuan transiently detaches and re-attaches
                 // task rows for lazy-render. A detached pass leaves the
                 // block missing from this scan, so without the guard we'd
@@ -9041,7 +9317,10 @@
                 if (io) {
                     try { io.unobserve(prevEl); } catch (e) {}
                 }
-                inlineMetaVisibleTaskBlocks.delete(blockId);
+                inlineMetaVisibleTaskBlocks.delete(renderKey);
+                if (isInlineMetaEmbedRenderKey(renderKey)) {
+                    try { removeInlineMetaHostByRenderKey(renderKey); } catch (e) {}
+                }
                 // Intentionally NOT deleting inlineMetaLayoutCache here.
                 // The cache stays alive even when the block leaves the
                 // observed scan. Scroll-back-and-forth past SiYuan's
@@ -9058,8 +9337,8 @@
             const syncLightMode = !force && (isScrolling || isInlineMetaScrollSettling() || Date.now() < Number(inlineMetaRecentStructuralUntil || 0));
             const nearQueueLimit = syncLightMode ? 12 : 48;
             const nearRenderCandidates = [];
-            nextBlocks.forEach((nextEl, blockId) => {
-                const prevEl = inlineMetaObservedTaskBlocks.get(blockId);
+            nextBlocks.forEach((nextEl, renderKey) => {
+                const prevEl = inlineMetaObservedTaskBlocks.get(renderKey);
                 if (prevEl === nextEl) return;
                 if (io && prevEl) {
                     try { io.unobserve(prevEl); } catch (e) {}
@@ -9074,9 +9353,10 @@
                 // synchronously here lets us queue the build during
                 // the same mutation-driven render cycle that surfaced
                 // the block.
+                const blockId = String(nextEl?.dataset?.nodeId || '').trim();
                 let renderTaskId = blockId;
                 try { renderTaskId = String(resolveTaskAttrNodeIdForDetail(nextEl) || blockId).trim() || blockId; } catch (e) {}
-                const hasCachedRenderProps = !!renderTaskId && inlineMetaCache.has(renderTaskId);
+                const hasCachedRenderProps = !!renderTaskId && hasInlineMetaPropsCacheForBlock(nextEl, renderTaskId);
                 const canQueueNearRender = !syncLightMode || !inlineMetaScrolling || hasCachedRenderProps;
                 if (canQueueNearRender && nearQueued < nearQueueLimit && nextEl instanceof Element && nextEl.isConnected) {
                     try {
@@ -9096,8 +9376,8 @@
                 // alongside fresh ones, so their cache survives. Schedule
                 // a clean resync at scroll-idle to drop entries that
                 // really did leave.
-                nextBlocks.forEach((nextEl, blockId) => {
-                    inlineMetaObservedTaskBlocks.set(blockId, nextEl);
+                nextBlocks.forEach((nextEl, renderKey) => {
+                    inlineMetaObservedTaskBlocks.set(renderKey, nextEl);
                 });
                 inlineMetaNeedSyncBlocks = true;
             } else {
@@ -9106,8 +9386,8 @@
             }
             if (!io) {
                 if (isScrolling) {
-                    nextBlocks.forEach((nextEl, blockId) => {
-                        inlineMetaVisibleTaskBlocks.set(blockId, nextEl);
+                    nextBlocks.forEach((nextEl, renderKey) => {
+                        inlineMetaVisibleTaskBlocks.set(renderKey, nextEl);
                     });
                 } else {
                     inlineMetaVisibleTaskBlocks = new Map(nextBlocks);
@@ -9362,6 +9642,9 @@
                     && inScrollGrace
                     && !quickbarAttrHostDragActive
                     && !hasRecentQuickbarAttrHostDragChange(2500));
+                if (hasStructuralChange) {
+                    try { clearInlineMetaEmbedContextCache(); } catch (e) {}
+                }
                 if (hasStructuralChange && !inScrollGrace) {
                     try { clearQuickbarTaskBindingCaches(); } catch (e) {}
                     quickbarAttrHostLastStructuralAt = Date.now();
@@ -9561,11 +9844,11 @@
             try { window.addEventListener('pageshow', inlineMetaPageShowHandler, true); } catch (e) {}
         }
 
-        function layoutInlineMetaHost(blockEl, host, taskId, textAnchor, html, forceRefresh = false, visibilityBuffer = 0) {
-            if (!blockEl || !host || !taskId || !textAnchor) return false;
+        function layoutInlineMetaHost(blockEl, host, renderKey, textAnchor, html, forceRefresh = false, visibilityBuffer = 0) {
+            if (!blockEl || !host || !renderKey || !textAnchor) return false;
             const isInBlockHost = String(host?.dataset?.inlinePlacement || '').trim() === 'in-block';
             const textSig = getInlineTextFastSignature(textAnchor);
-            const prevLayout = inlineMetaLayoutCache.get(taskId);
+            const prevLayout = inlineMetaLayoutCache.get(renderKey);
             // Prefer the source string we last wrote over host.innerHTML,
             // which can differ after browser serialization.
             const layoutHtml = String(html ?? prevLayout?.html ?? host._inlineMetaHtml ?? host.innerHTML ?? '');
@@ -9626,7 +9909,7 @@
                 host.style.top = `${top}px`;
                 host.style.maxWidth = maxWidth;
                 host.classList.add('is-ready');
-                inlineMetaLayoutCache.set(taskId, {
+                inlineMetaLayoutCache.set(renderKey, {
                     ts: Date.now(),
                     textSig,
                     widthSig,
@@ -9789,7 +10072,7 @@
                     host.style.top = topPx;
                     host.style.maxWidth = maxWidthPx;
                     host.classList.add('is-ready');
-                    inlineMetaLayoutCache.set(taskId, { ts: Date.now(), textSig, widthSig, viewportSig, html: layoutHtml, layoutRevision, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
+                    inlineMetaLayoutCache.set(renderKey, { ts: Date.now(), textSig, widthSig, viewportSig, html: layoutHtml, layoutRevision, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
                     return true;
                 }
                 // Same preservation as the failure paths above:
@@ -9811,7 +10094,7 @@
             host.style.top = topPx;
             host.style.maxWidth = maxWidthPx;
             host.classList.add('is-ready');
-            inlineMetaLayoutCache.set(taskId, { ts: Date.now(), textSig, widthSig, viewportSig, html: layoutHtml, layoutRevision, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
+            inlineMetaLayoutCache.set(renderKey, { ts: Date.now(), textSig, widthSig, viewportSig, html: layoutHtml, layoutRevision, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
             inlineMetaOccupiedRects.push(candidateRect);
             return true;
         }
@@ -9841,19 +10124,25 @@
                 const host = hosts[i];
                 const taskId = String(host?.dataset?.blockId || '').trim();
                 if (!taskId) continue;
+                const renderKey = String(host?.dataset?.inlineRenderKey || taskId).trim() || taskId;
                 const sourceTaskId = String(host?.dataset?.taskId || '').trim();
                 const attrHostId = String(host?.dataset?.attrHostId || taskId).trim();
-                const liveResolved = resolveQuickbarBindingForHostIds(sourceTaskId, attrHostId, taskId);
-                const blockEl = liveResolved?.blockEl || getBlockElById(sourceTaskId) || getBlockElById(taskId);
+                const preferredBlockEl = host.__tmQuickbarInlineBlockEl instanceof Element && host.__tmQuickbarInlineBlockEl.isConnected
+                    ? host.__tmQuickbarInlineBlockEl
+                    : null;
+                const liveResolved = preferredBlockEl
+                    ? resolveQuickbarBindingForHostIds(sourceTaskId, attrHostId, taskId, preferredBlockEl)
+                    : resolveQuickbarBindingForHostIds(sourceTaskId, attrHostId, taskId);
+                const blockEl = preferredBlockEl || liveResolved?.blockEl || getBlockElById(sourceTaskId) || getBlockElById(taskId);
                 if (liveResolved?.taskId) host.dataset.taskId = liveResolved.taskId;
                 if (liveResolved?.attrHostId) host.dataset.attrHostId = liveResolved.attrHostId;
                 const textAnchor = getInlineTextAnchor(blockEl);
                 if (!blockEl || !textAnchor) {
-                    entries.push({ host, taskId, skip: true });
+                    entries.push({ host, taskId, renderKey, skip: true });
                     missingBlockCount += 1;
                     continue;
                 }
-                inlineMetaMissingHostSeenAt.delete(taskId);
+                inlineMetaMissingHostSeenAt.delete(renderKey);
                 if (inlineMetaScrolling) {
                     try {
                         const rect = blockEl.getBoundingClientRect?.();
@@ -9863,7 +10152,7 @@
                         }
                     } catch (e) {}
                 }
-                entries.push({ host, taskId, blockEl, textAnchor, html: inlineMetaLayoutCache.get(taskId)?.html || host._inlineMetaHtml || host.innerHTML || '', skip: false });
+                entries.push({ host, taskId, renderKey, blockEl, textAnchor, html: inlineMetaLayoutCache.get(renderKey)?.html || host._inlineMetaHtml || host.innerHTML || '', skip: false });
             }
             let laidOut = 0;
             let restored = 0;
@@ -9882,8 +10171,8 @@
                     // fresh position from the next successful pass.
                     continue;
                 }
-                const prevLayout = inlineMetaScrolling ? inlineMetaLayoutCache.get(e.taskId) : null;
-                const ok = layoutInlineMetaHost(e.blockEl, e.host, e.taskId, e.textAnchor, e.html, false);
+                const prevLayout = inlineMetaScrolling ? inlineMetaLayoutCache.get(e.renderKey) : null;
+                const ok = layoutInlineMetaHost(e.blockEl, e.host, e.renderKey, e.textAnchor, e.html, false);
                 if (ok) laidOut += 1;
                 if (!ok && prevLayout) {
                     e.host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
@@ -9901,26 +10190,59 @@
             if (isInlineMetaScrollSettling() && forceRefresh) forceRefresh = false;
             let binding = null;
             try { binding = resolveTaskBindingFromBlockEl(blockEl); } catch (e) { binding = null; }
-            const taskId = String(binding?.attrHostId || binding?.taskId || resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
-            if (!taskId) return;
+            const legacyTaskId = String(binding?.attrHostId || binding?.taskId || resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
+            if (!legacyTaskId) return;
+            const queryEmbed = getInlineMetaQueryEmbedEl(blockEl);
+            const isEmbedded = queryEmbed instanceof Element;
+            let sourceTaskId = String(binding?.taskId || blockEl?.dataset?.nodeId || legacyTaskId).trim();
+            let embedContext = null;
+            if (isEmbedded) {
+                embedContext = await ensureInlineMetaEmbedContext(sourceTaskId, !!forceRefresh);
+                const pendingRenderKey = getInlineMetaRenderKey(blockEl, sourceTaskId);
+                if (!embedContext?.attrContext?.primaryHostId || !embedContext?.sourceDocId) {
+                    if (pendingRenderKey) {
+                        removeInlineMetaHostByRenderKey(pendingRenderKey);
+                        inlineMetaLayoutCache.delete(pendingRenderKey);
+                    }
+                    return;
+                }
+                sourceTaskId = String(embedContext?.taskId || sourceTaskId).trim() || sourceTaskId;
+                const attrContext = embedContext.attrContext;
+                binding = {
+                    ...binding,
+                    taskId: sourceTaskId,
+                    attrHostId: String(attrContext.primaryHostId || sourceTaskId).trim() || sourceTaskId,
+                    parentListId: String(attrContext.parentListId || '').trim(),
+                    attrHostState: String(attrContext.state || '').trim(),
+                    attrHostMigrationSourceId: String(attrContext.mirrorHostIds?.[0] || '').trim(),
+                    parentListTaskCount: Number(attrContext.parentListTaskCount || 0),
+                };
+            }
+            const taskId = String(binding?.attrHostId || binding?.taskId || legacyTaskId).trim();
+            const renderKey = getInlineMetaRenderKey(blockEl, isEmbedded ? sourceTaskId : taskId);
+            if (!taskId || !renderKey) return;
             try { maybeRequestQuickbarSubtaskFieldInheritance(blockEl, binding, 'inline-meta-render'); } catch (e) {}
             const cfg = getQuickbarInlineSettings();
             const hasVisibleDateInlineField = Array.isArray(cfg?.fields)
                 && (cfg.fields.includes('custom-start-date') || cfg.fields.includes('custom-completion-time'));
             if (isInlineMetaHiddenDoneTaskBlock(blockEl)) {
-                removeInlineMetaHostByTaskId(taskId);
-                inlineMetaLayoutCache.delete(taskId);
+                if (isEmbedded) removeInlineMetaHostByRenderKey(renderKey);
+                else removeInlineMetaHostByTaskId(taskId);
+                inlineMetaLayoutCache.delete(renderKey);
                 return;
             }
-            const isInScope = isInlineMetaScopeAllowedForBlockCached(blockEl);
+            const docId = isEmbedded ? String(embedContext?.sourceDocId || '').trim() : resolveDocIdFromTaskBlock(blockEl);
+            const isInScope = isEmbedded
+                ? isInlineMetaScopeAllowedForDocCached(docId)
+                : isInlineMetaScopeAllowedForBlockCached(blockEl);
             if (!isInScope) {
-                removeInlineMetaHostByTaskId(taskId);
-                inlineMetaLayoutCache.delete(taskId);
+                if (isEmbedded) removeInlineMetaHostByRenderKey(renderKey);
+                else removeInlineMetaHostByTaskId(taskId);
+                inlineMetaLayoutCache.delete(renderKey);
                 return;
             }
-            const docId = resolveDocIdFromTaskBlock(blockEl);
             const applicableCustomFieldIds = await ensureQuickbarCustomFieldIdsForDoc(docId);
-            const useOverlayHost = isInlineMetaNativeHostSuppressed(taskId)
+            const useOverlayHost = isInlineMetaNativeHostSuppressed(renderKey)
                 || !QUICKBAR_INLINE_USE_NATIVE_HOST;
             const hostParent = getInlineHostParent(blockEl);
             if (!hostParent) return;
@@ -9931,7 +10253,26 @@
             const attrHostIdForRender = String(binding?.attrHostId || taskId).trim() || taskId;
             const hasRecentAttrHostChange = hasRecentQuickbarAttrHostStructuralChange(5000);
             const hasRecentAttrHostDrag = hasRecentQuickbarAttrHostDragChange(2500);
-            let runtimeProps = getRuntimeTaskCustomProps(taskId, blockEl);
+            const hadEmbedPropsCache = isEmbedded && inlineMetaCache.has(taskId);
+            if (isEmbedded && embedContext?.props && typeof embedContext.props === 'object') {
+                let contextProps = hadEmbedPropsCache && !forceRefresh
+                    ? getInlineCachedProps(taskId)
+                    : normalizeCustomProps(embedContext.props);
+                if (!hadEmbedPropsCache || forceRefresh) {
+                    try {
+                        const authoritativeAttrs = await getMergedTaskCustomAttrs(taskId, { blockEl, binding });
+                        contextProps = normalizeCustomProps({ ...contextProps, ...authoritativeAttrs });
+                    } catch (e) {}
+                }
+                contextProps = applyInlineMetaOptimisticPatch(
+                    contextProps,
+                    [taskId, sourceTaskId, binding?.attrHostId],
+                    'embed-context'
+                );
+                setInlineMetaCache(taskId, contextProps);
+                if (sourceTaskId && sourceTaskId !== taskId) setInlineMetaCache(sourceTaskId, contextProps);
+            }
+            let runtimeProps = isEmbedded ? null : getRuntimeTaskCustomProps(taskId, blockEl);
             if (runtimeProps?.props && !shouldUseQuickbarRuntimePropsForBinding(runtimeProps, binding)) {
                 pushQuickbarInlineSyncLog('runtime-host-conflict', {
                     taskId,
@@ -10040,7 +10381,7 @@
             const includeRemarkForFreshRead = false;
             const useEmptyPropsForRender = !runtimeProps?.props && !hasCacheForRender;
             if (useEmptyPropsForRender && transitionSourceId && hasRecentAttrHostDrag) {
-                Promise.resolve(ensureTaskPropsReady(taskId, true, { skipAttrFallback: false, blockEl, includeRemark: includeRemarkForFreshRead }))
+                Promise.resolve(ensureTaskPropsReady(taskId, true, { skipAttrFallback: false, blockEl, binding, includeRemark: includeRemarkForFreshRead }))
                     .then(() => {
                         try { queueInlineMetaRenderBlock(blockEl, true, visibilityBuffer || 420); } catch (e) {}
                     })
@@ -10060,21 +10401,27 @@
             if (!html) {
                 if (inlineMetaScrolling) return;
                 if (runtimeProps?.props || hasCacheForRender) {
-                    removeInlineMetaHostByTaskId(taskId);
-                    inlineMetaLayoutCache.delete(taskId);
+                    if (isEmbedded) removeInlineMetaHostByRenderKey(renderKey);
+                    else removeInlineMetaHostByTaskId(taskId);
+                    inlineMetaLayoutCache.delete(renderKey);
                     return;
                 }
                 if (!inlineMetaScrolling && (!hasCacheForRender || revalidateCached || forceRefresh)) {
-                    Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: false, blockEl, includeRemark: includeRemarkForFreshRead })).catch(() => null);
+                    Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: false, blockEl, binding, includeRemark: includeRemarkForFreshRead })).catch(() => null);
                 }
                 return;
             }
             const sourceTaskIdForRender = String(binding?.taskId || taskId).trim() || taskId;
             const shouldDedupeSourceHosts = sourceTaskIdForRender
                 && (sourceTaskIdForRender !== attrHostIdForRender || hasRecentAttrHostChange || hasRecentAttrHostDrag)
-                && shouldRunInlineMetaSourceHostDedupe(sourceTaskIdForRender, attrHostIdForRender, hasRecentAttrHostChange || hasRecentAttrHostDrag ? 700 : QUICKBAR_INLINE_SOURCE_DEDUPE_TTL_MS);
+                && shouldRunInlineMetaSourceHostDedupe(
+                    sourceTaskIdForRender,
+                    attrHostIdForRender,
+                    hasRecentAttrHostChange || hasRecentAttrHostDrag ? 700 : QUICKBAR_INLINE_SOURCE_DEDUPE_TTL_MS,
+                    isEmbedded ? renderKey : ''
+                );
             const removedSourceHosts = shouldDedupeSourceHosts
-                ? removeInlineMetaHostsBySourceTaskId(sourceTaskIdForRender, attrHostIdForRender)
+                ? removeInlineMetaHostsBySourceTaskId(sourceTaskIdForRender, attrHostIdForRender, '', isEmbedded ? renderKey : '')
                 : 0;
             if (removedSourceHosts > 0) {
                 pushQuickbarInlineSyncLog('source-host-dedupe', {
@@ -10084,18 +10431,20 @@
                     removed: removedSourceHosts,
                 });
             }
-            const host = ensureInlineHost(blockEl, { preferOverlay: useOverlayHost, blockId: taskId });
+            const host = ensureInlineHost(blockEl, { preferOverlay: useOverlayHost, blockId: taskId, renderKey });
             if (!host) return;
             host.dataset.blockId = taskId;
             host.dataset.taskId = String(binding?.taskId || taskId).trim() || taskId;
             host.dataset.attrHostId = attrHostIdForRender;
+            host.dataset.inlineRenderKey = renderKey;
+            host.__tmQuickbarInlineBinding = isEmbedded ? binding : null;
             // Same comparison fix as applyFreshProps: track the last
             // source string we wrote, not the browser-serialized
             // host.innerHTML. Comparing against innerHTML caused a
             // rewrite every render-during-scroll for stable content,
             // which is the visible chip flicker.
             const htmlChanged = host._inlineMetaHtml !== html;
-            const layoutOk = layoutInlineMetaHost(blockEl, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer);
+            const layoutOk = layoutInlineMetaHost(blockEl, host, renderKey, textAnchor, html, forceRefresh, visibilityBuffer);
             if (Array.isArray(cfg?.fields) && cfg.fields.includes('custom-status')) {
                 pushQuickbarInlineSyncLog('render', {
                     taskId,
@@ -10121,7 +10470,7 @@
                 host._inlineMetaHtml = html;
             }
             if (layoutOk && host.isConnected && String(host.dataset.blockId || '').trim() === taskId) {
-                removeInlineMetaAlternatePlacementHosts(taskId, host);
+                removeInlineMetaAlternatePlacementHosts(taskId, host, renderKey);
             }
             if (runtimeProps?.props || (hasCached && !revalidateCached)) {
                 if (shouldRevalidateRuntimeDateProps && !isInlineMetaScrollSettling()) {
@@ -10135,7 +10484,7 @@
                                 if (now - Number(seenAt || 0) > 30000) inlineMetaRuntimeDateRevalidateSeenAt.delete(key);
                             });
                         }
-                        Promise.resolve(ensureTaskPropsReady(taskId, true, { skipAttrFallback: false, blockEl, includeRemark: includeRemarkForFreshRead }))
+                        Promise.resolve(ensureTaskPropsReady(taskId, true, { skipAttrFallback: false, blockEl, binding, includeRemark: includeRemarkForFreshRead }))
                             .then(() => {
                                 try { queueInlineMetaRenderBlock(blockEl, false, visibilityBuffer || 420); } catch (e) {}
                             })
@@ -10146,7 +10495,7 @@
             }
             if (inlineMetaScrolling && !hasRecentAttrHostDrag) return;
             if (hasRecentAttrHostChange && !hasRecentAttrHostDrag && hasCacheForRender) return;
-            Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: false, blockEl, includeRemark: includeRemarkForFreshRead })).catch(() => null);
+            Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: false, blockEl, binding, includeRemark: includeRemarkForFreshRead })).catch(() => null);
         }
 
         function scheduleInlineMetaRender(forceRefresh = false, immediate = false) {
@@ -10186,7 +10535,7 @@
                         const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                         let renderTaskId = blockId;
                         try { renderTaskId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockId).trim() || blockId; } catch (e) {}
-                        if (renderTaskId && inlineMetaCache.has(renderTaskId)) {
+                        if (renderTaskId && hasInlineMetaPropsCacheForBlock(blockEl, renderTaskId)) {
                             queueInlineMetaRenderBlock(blockEl, false, 360);
                         }
                     }
@@ -10362,6 +10711,7 @@
                             }
                         } catch (e) {}
                         if (hasStructural) {
+                            clearInlineMetaEmbedContextCache();
                             inlineMetaLayoutCache.clear();
                             inlineMetaNeedSyncBlocks = true;
                             if (inlineMetaWsTimer) clearTimeout(inlineMetaWsTimer);

@@ -27,6 +27,9 @@ assert.match(standaloneSource, /const repeatTask = task \|\| \{\};/, 'standalone
 assert.match(detailSource, /window\.tmOpenTaskTimeHub[\s\S]*__tmOpenStandaloneTaskTimeHub/, 'public time hub entry must delegate to the standalone implementation');
 assert.match(standaloneSource, /const hideReminder = opts\.hideReminder === true;/, 'draft time hub must allow reminder settings unless explicitly hidden');
 assert.match(standaloneSource, /const hideRepeat = opts\.hideRepeat === true;/, 'draft time hub must allow repeat settings unless explicitly hidden');
+assert.match(standaloneSource, /const updateDates = typeof opts\.onUpdateDates === 'function'[\s\S]*if \(updateDates\)[\s\S]*await updateDates\(requestedPatch,[\s\S]*writeTaskDatesLocal\(nextPatch\)/, 'non-task date entities must reuse the calendar through one awaited date persistence adapter');
+assert.match(standaloneSource, /tm-task-time-hub-popover--date-only[\s\S]*tm-task-time-hub-popover--group-range/, 'date-only and group-range variants must stay inside the shared time hub');
+assert.match(detailCss, /\.tm-task-time-hub-popover--date-only \.tm-task-time-hub__panel \{[\s\S]*min-height: 0;/, 'date-only calendars must collapse the unused settings area below the month grid');
 assert.match(standaloneSource, /applyDraftRepeatRule[\s\S]*draft: true/, 'draft repeat changes must stay local and notify the new-task owner');
 assert.match(standaloneSource, /onReminderDraftToggle/, 'draft reminder cards must delegate intent to the new-task owner');
 assert.match(recurringSource, /const draftTask = options\?\.draft === true[\s\S]*if \(draftTask\) return nextRule/, 'custom repeat editing must support draft tasks without writing before create');

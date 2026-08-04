@@ -791,13 +791,19 @@
         return String(__tmFormatSpentMinutes(total) || '').trim();
     }
 
-    function __tmRefreshDocTitleMarkerControllers(docIds = null) {
+    function __tmRefreshDocTitleMarkerControllers(docIds = null, options = {}) {
         const ids = Array.isArray(docIds)
             ? new Set(docIds.map((id) => String(id || '').trim()).filter(Boolean))
             : null;
+        const includeEmbedded = options?.includeEmbedded === true;
         Array.from(__tmDocTitleMarkerControllers.values()).forEach((controller) => {
             if (!controller) return;
-            if (ids && !ids.has(String(controller.docId || '').trim())) return;
+            if (ids && !ids.has(String(controller.docId || '').trim())) {
+                const matchesEmbeddedSource = includeEmbedded
+                    && controller.embeddedSourceDocIds instanceof Set
+                    && Array.from(ids).some((id) => controller.embeddedSourceDocIds.has(id));
+                if (!matchesEmbeddedSource) return;
+            }
             __tmScheduleDocTitleMarkerSync(controller);
         });
     }
@@ -824,7 +830,22 @@
                 });
             }
         }
-        __tmRefreshDocTitleMarkerControllers(ids);
+        if (opts.scope === true || opts.tasks === true || opts.duration === true) {
+            Array.from(__tmDocTitleMarkerControllers.values()).forEach((controller) => {
+                if (!controller) return;
+                if (!__tmHasDocTitleEmbeddedState(controller)) return;
+                const hostMatched = !ids || ids.includes(String(controller.docId || '').trim());
+                const embeddedMatched = !ids || (controller.embeddedSourceDocIds instanceof Set
+                    && ids.some((id) => controller.embeddedSourceDocIds.has(id)));
+                if (!hostMatched && !embeddedMatched) return;
+                controller.embeddedFocusRevision = Math.max(0, Number(controller.embeddedFocusRevision || 0)) + 1;
+                controller.embeddedRequestToken = Math.max(0, Number(controller.embeddedRequestToken || 0)) + 1;
+                if (opts.scope === true || opts.duration === true) controller.embeddedFocus = null;
+            });
+        }
+        __tmRefreshDocTitleMarkerControllers(ids, {
+            includeEmbedded: opts.scope === true || opts.tasks === true || opts.duration === true,
+        });
     }
 
     function __tmRemoveDocTitleMarker(controller) {
@@ -878,11 +899,13 @@
                         docId: markerDocId,
                         requireTasks: false,
                         forceLocate: true,
+                        openAll: marker?.dataset?.embeddedOnly === '1',
                     });
                 } catch (e) {}
             });
         }
         marker.dataset.docId = docId;
+        marker.dataset.embeddedOnly = target?.matchedBy === 'embedded' ? '1' : '0';
         const groupEl = marker.querySelector('.tm-doc-title-marker__group');
         const separatorEl = marker.querySelector('.tm-doc-title-marker__separator');
         const durationEl = marker.querySelector('.tm-doc-title-marker__duration');
@@ -895,7 +918,9 @@
             durationEl.textContent = duration;
             durationEl.hidden = !duration;
         }
-        const label = groupName
+        const label = target?.matchedBy === 'embedded'
+            ? (duration ? `任务管理器范围内的嵌入待办，专注 ${duration}` : '任务管理器范围内的嵌入待办')
+            : groupName
             ? (duration ? `任务管理器分组：${groupName}，专注 ${duration}` : `任务管理器分组：${groupName}`)
             : (duration ? `任务管理器，专注 ${duration}` : '任务管理器');
         marker.setAttribute('aria-label', label);
@@ -992,6 +1017,180 @@
         __tmDocTitleMarkerFocusInFlight.set(docId, promise);
     }
 
+    function __tmIsDocTitleEmbeddedTaskFocusEnabled() {
+        return !!SettingsStore.data.enableTomatoIntegration
+            && !!SettingsStore.data.docTitleEmbeddedTaskFocusEnabled;
+    }
+
+    function __tmCollectDocTitleEmbeddedBlockIds(controller) {
+        const root = controller?.embeddedRoot;
+        if (!(root instanceof HTMLElement)) return [];
+        const ids = new Set();
+        const addId = (value) => {
+            const id = String(value || '').trim();
+            if (__tmIsLikelyBlockId(id)) ids.add(id);
+        };
+        root.querySelectorAll('[data-type="NodeBlockQueryEmbed"] .protyle-wysiwyg__embed').forEach((result) => {
+            addId(result.getAttribute('data-id'));
+            result.querySelectorAll('[data-node-id]').forEach((block) => addId(block.getAttribute('data-node-id')));
+        });
+        return Array.from(ids).sort();
+    }
+
+    function __tmDoesDocTitleEmbedMutationAffectResults(records) {
+        const selector = '[data-type="NodeBlockQueryEmbed"], .protyle-wysiwyg__embed';
+        return (Array.isArray(records) ? records : Array.from(records || [])).some((record) => {
+            const target = record?.target instanceof Element ? record.target : record?.target?.parentElement;
+            if (target?.closest?.('[data-type="NodeBlockQueryEmbed"]')) return true;
+            return Array.from(record?.addedNodes || []).concat(Array.from(record?.removedNodes || [])).some((node) => {
+                if (!(node instanceof Element)) return false;
+                return node.matches(selector) || !!node.querySelector(selector);
+            });
+        });
+    }
+
+    function __tmHasDocTitleEmbeddedState(controller) {
+        return !!controller?.embeddedObserver
+            || !!controller?.embeddedRoot
+            || controller?.embeddedTimer != null
+            || !!controller?.embeddedInFlight
+            || !!controller?.embeddedFocus
+            || controller?.embeddedCandidateKey !== null
+            || (controller?.embeddedSourceDocIds instanceof Set && controller.embeddedSourceDocIds.size > 0);
+    }
+
+    function __tmResetDocTitleEmbeddedFocusController(controller) {
+        if (!controller) return;
+        if (!__tmHasDocTitleEmbeddedState(controller)) return;
+        try { controller.embeddedObserver?.disconnect?.(); } catch (e) {}
+        controller.embeddedObserver = null;
+        controller.embeddedRoot = null;
+        if (controller.embeddedTimer != null) {
+            try { clearTimeout(controller.embeddedTimer); } catch (e) {}
+            controller.embeddedTimer = null;
+        }
+        controller.embeddedRequestToken = Math.max(0, Number(controller.embeddedRequestToken || 0)) + 1;
+        controller.embeddedInFlight = null;
+        controller.embeddedCandidateKey = null;
+        controller.embeddedSourceDocIds = new Set();
+        controller.embeddedFocus = null;
+    }
+
+    function __tmObserveDocTitleEmbeddedTasks(controller, context) {
+        if (!__tmIsDocTitleEmbeddedTaskFocusEnabled()) {
+            __tmResetDocTitleEmbeddedFocusController(controller);
+            return false;
+        }
+        const root = context?.protyle?.querySelector?.('.protyle-wysiwyg');
+        if (!(root instanceof HTMLElement)) {
+            __tmResetDocTitleEmbeddedFocusController(controller);
+            return false;
+        }
+        if (controller.embeddedRoot === root && controller.embeddedObserver) return true;
+        __tmResetDocTitleEmbeddedFocusController(controller);
+        controller.embeddedRoot = root;
+        controller.embeddedObserver = new MutationObserver((records) => {
+            if (!__tmDoesDocTitleEmbedMutationAffectResults(records)) return;
+            if (controller.embeddedTimer != null) clearTimeout(controller.embeddedTimer);
+            controller.embeddedTimer = setTimeout(() => {
+                controller.embeddedTimer = null;
+                controller.embeddedCandidateKey = null;
+                controller.embeddedFocus = null;
+                controller.embeddedSourceDocIds = new Set();
+                controller.embeddedRequestToken = Math.max(0, Number(controller.embeddedRequestToken || 0)) + 1;
+                __tmScheduleDocTitleMarkerSync(controller);
+            }, 250);
+        });
+        controller.embeddedObserver.observe(root, { childList: true, subtree: true });
+        return true;
+    }
+
+    function __tmPrepareDocTitleEmbeddedCandidates(controller) {
+        const taskIds = __tmCollectDocTitleEmbeddedBlockIds(controller);
+        const candidateKey = taskIds.join(',');
+        if (controller.embeddedCandidateKey !== candidateKey) {
+            controller.embeddedCandidateKey = candidateKey;
+            controller.embeddedSourceDocIds = new Set();
+            controller.embeddedFocus = null;
+            controller.embeddedRequestToken = Math.max(0, Number(controller.embeddedRequestToken || 0)) + 1;
+        }
+        return taskIds;
+    }
+
+    function __tmGetDocTitleEmbeddedFocusSignature(controller) {
+        return `${__tmDocTitleMarkerScopeRevision}:${__tmGetDocTitleMarkerFocusSignature()}:${String(controller?.embeddedCandidateKey || '')}`;
+    }
+
+    function __tmRequestDocTitleEmbeddedFocus(controller, candidateTaskIds = null) {
+        if (!controller || !__tmIsDocTitleEmbeddedTaskFocusEnabled()) return;
+        const taskIds = Array.isArray(candidateTaskIds)
+            ? candidateTaskIds
+            : __tmPrepareDocTitleEmbeddedCandidates(controller);
+        const signature = __tmGetDocTitleEmbeddedFocusSignature(controller);
+        const revision = Math.max(0, Number(controller.embeddedFocusRevision || 0));
+        if (controller.embeddedFocus?.signature === signature && controller.embeddedFocus?.revision === revision) return;
+        if (controller.embeddedInFlight?.signature === signature && controller.embeddedInFlight?.revision === revision) return;
+        if (!taskIds.length) {
+            controller.embeddedFocus = { signature, revision, text: '', hasTasks: false };
+            return;
+        }
+        const requestToken = Math.max(0, Number(controller.embeddedRequestToken || 0));
+        const request = { signature, revision, requestToken };
+        controller.embeddedInFlight = request;
+        new Promise((resolve) => {
+            __tmScheduleIdleTask(async () => {
+                const isStale = () => !controller?.protyle?.isConnected
+                    || !__tmIsDocTitleEmbeddedTaskFocusEnabled()
+                    || requestToken !== Math.max(0, Number(controller.embeddedRequestToken || 0))
+                    || revision !== Math.max(0, Number(controller.embeddedFocusRevision || 0))
+                    || signature !== __tmGetDocTitleEmbeddedFocusSignature(controller);
+                if (isStale()) {
+                    resolve(null);
+                    return;
+                }
+                try {
+                    const [tasks, managedDocIds] = await Promise.all([
+                        API.getTasksByIds(taskIds),
+                        resolveDocIdsFromGroups({ groupId: 'all', includeQuickAddDoc: true }),
+                    ]);
+                    if (isStale()) {
+                        resolve(null);
+                        return;
+                    }
+                    const managedSet = new Set((Array.isArray(managedDocIds) ? managedDocIds : [])
+                        .map((id) => String(id || '').trim()).filter(Boolean));
+                    const managedTasks = (Array.isArray(tasks) ? tasks : []).filter((task) => {
+                        const sourceDocId = String(task?.root_id || task?.docId || '').trim();
+                        return sourceDocId && managedSet.has(sourceDocId);
+                    });
+                    const sourceDocIds = Array.from(new Set(managedTasks
+                        .map((task) => String(task?.root_id || task?.docId || '').trim()).filter(Boolean)));
+                    const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() === 'hours' ? 'hours' : 'minutes';
+                    resolve({
+                        signature,
+                        revision,
+                        text: managedTasks.length ? __tmFormatDocTitleFocusDuration(managedTasks, mode) : '',
+                        hasTasks: managedTasks.length > 0,
+                        sourceDocIds,
+                    });
+                } catch (e) {
+                    resolve({ signature, revision, text: '', hasTasks: false, sourceDocIds: [] });
+                }
+            }, 900);
+        }).then((result) => {
+            if (!result) return;
+            const isCurrent = requestToken === Math.max(0, Number(controller.embeddedRequestToken || 0))
+                && revision === Math.max(0, Number(controller.embeddedFocusRevision || 0))
+                && signature === __tmGetDocTitleEmbeddedFocusSignature(controller);
+            if (!isCurrent) return;
+            controller.embeddedFocus = result;
+            controller.embeddedSourceDocIds = new Set(result.sourceDocIds || []);
+        }).finally(() => {
+            if (controller.embeddedInFlight === request) controller.embeddedInFlight = null;
+            __tmScheduleDocTitleMarkerSync(controller);
+        });
+    }
+
     function __tmObserveDocTitleMarkerController(controller, context) {
         const hostChanged = controller.title !== context.title || controller.attr !== context.attr;
         controller.docId = context.docId;
@@ -1023,9 +1222,26 @@
         }
         const target = __tmDocTitleMarkerMembershipCache.get(membershipKey);
         if (!target?.groupId) {
-            __tmRemoveDocTitleMarker(controller);
+            if (!__tmObserveDocTitleEmbeddedTasks(controller, context)) {
+                __tmRemoveDocTitleMarker(controller);
+                return;
+            }
+            const embeddedTaskIds = __tmPrepareDocTitleEmbeddedCandidates(controller);
+            const embeddedFocus = controller.embeddedFocus;
+            const embeddedSignature = __tmGetDocTitleEmbeddedFocusSignature(controller);
+            if (embeddedFocus?.hasTasks === true && embeddedFocus?.signature === embeddedSignature) {
+                __tmRenderDocTitleMarker(controller, {
+                    groupId: 'all',
+                    group: null,
+                    matchedBy: 'embedded',
+                }, String(embeddedFocus.text || '').trim());
+            } else {
+                __tmRemoveDocTitleMarker(controller);
+            }
+            __tmRequestDocTitleEmbeddedFocus(controller, embeddedTaskIds);
             return;
         }
+        __tmResetDocTitleEmbeddedFocusController(controller);
         const focus = __tmDocTitleMarkerFocusCache.get(context.docId);
         const focusSignature = __tmGetDocTitleMarkerFocusSignature();
         const durationText = SettingsStore.data.enableTomatoIntegration
@@ -1061,6 +1277,15 @@
                 docId: context.docId,
                 observer: null,
                 raf: null,
+                embeddedObserver: null,
+                embeddedRoot: null,
+                embeddedTimer: null,
+                embeddedRequestToken: 0,
+                embeddedFocusRevision: 0,
+                embeddedInFlight: null,
+                embeddedCandidateKey: null,
+                embeddedSourceDocIds: new Set(),
+                embeddedFocus: null,
             };
             __tmDocTitleMarkerControllers.set(context.protyle, controller);
         }
@@ -1073,6 +1298,7 @@
         if (!controller) return;
         try { controller.observer?.disconnect?.(); } catch (e) {}
         controller.observer = null;
+        __tmResetDocTitleEmbeddedFocusController(controller);
         if (controller.raf != null) {
             try { cancelAnimationFrame(controller.raf); } catch (e) { try { clearTimeout(controller.raf); } catch (e2) {} }
             controller.raf = null;

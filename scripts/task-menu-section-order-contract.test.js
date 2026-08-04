@@ -26,6 +26,8 @@ const contextMenu = segment(
     'window.tmShowTaskContextMenu = function',
     'document.body.appendChild(menu);'
 );
+const listRuntimeSource = read('src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js');
+const uiFoundationSource = read('src/task-horizon/main/30-dialogs-and-ui-foundation.js');
 const detailMoreActions = segment(
     read('src/task-horizon/main/30-dialogs-and-ui-foundation.js'),
     'function __tmBuildTaskDetailMoreActions',
@@ -56,6 +58,34 @@ const aiAndDirectTaskActions = segment(
     "__tmRenderContextMenuLabel('square-pen', '修改内容')"
 );
 assert.doesNotMatch(aiAndDirectTaskActions, /appendSectionSeparator\(\)/, 'detail, jump, and edit must stay directly below AI without a separate section');
+
+const contextCopyMenu = segment(
+    contextMenu,
+    "menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('clipboard-list', '复制')",
+    'appendSectionSeparator();'
+);
+assertOrdered(contextCopyMenu, [
+    "__tmRenderContextMenuLabel('cursor-text', '复制纯文本')",
+    "__tmRenderContextMenuLabel('link-simple', '复制块引用')",
+    "__tmRenderContextMenuLabel('stack-simple', '复制嵌入块')",
+    "__tmRenderContextMenuLabel('file-text', '复制块 ID')",
+], 'task context copy submenu');
+
+const detailCopyMenu = segment(detailMoreActions, 'const copyTaskValue = (type)', 'actions.push({ separator: true });');
+assertOrdered(detailCopyMenu, [
+    "label: '复制纯文本'",
+    "label: '复制块引用'",
+    "label: '复制嵌入块'",
+    "label: '复制块 ID'",
+], 'task detail copy submenu');
+assert.match(detailCopyMenu, /label: '复制嵌入块'[\s\S]*icon: 'stack-simple'[\s\S]*copyTaskValue\('blockEmbed'\)/, 'task detail embed copy must use the stack-simple icon and shared copy mode');
+
+const copyRuntime = segment(listRuntimeSource, 'async function __tmCopyTaskContextValue', 'window.tmStartPomodoro');
+assert.match(copyRuntime, /mode === 'blockEmbed'[\s\S]*__tmResolveRecurringInstanceSourceTaskId\(tid, taskLike\)[\s\S]*text = `\{\{select \* from blocks where id='\$\{embedId\}'\}\}`/, 'embed copy must resolve recurring instances and emit the exact SiYuan query syntax');
+assert.ok(
+    uiFoundationSource.includes("__tmPhosphorBoldPaths['stack-simple'] = 'M10.05,110.42l112,64a12,12,0,0,0,11.9,0l112-64"),
+    'stack-simple must register the original Phosphor Bold path'
+);
 
 assertOrdered(detailMoreActions, [
     "label: task?.pinned ? '取消置顶' : '置顶'",

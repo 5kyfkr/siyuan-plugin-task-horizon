@@ -3904,7 +3904,9 @@ if (ev) {
 
     window.tmOpenTaskDetail = async function(id, ev, options = {}) {
         const detailOpenOptions = (options && typeof options === 'object') ? options : {};
-        const shouldFreshenDetailOpen = detailOpenOptions.forceFresh === true || __tmIsQuickbarTaskDetailOpenEvent(ev);
+        const isQuickbarDetailOpen = String(detailOpenOptions.source || '').trim() === 'quickbar-detail-open'
+            || __tmIsQuickbarTaskDetailOpenEvent(ev);
+        const shouldFreshenDetailOpen = detailOpenOptions.forceFresh === true || isQuickbarDetailOpen;
         try {
             ev?.stopPropagation?.();
             ev?.preventDefault?.();
@@ -3962,9 +3964,10 @@ if (ev) {
             }
         }
 
-        // 首页会保留上一个工作区视图的 state.viewMode，不能把首页里的点击误判成看板内详情打开。
+        // 文档 quickbar 与首页都可能遇到残留的工作区视图状态，只有工作区内部请求才走 Sheet/看板浮层。
         const activeRenderMode = globalThis.__tmRuntimeState?.getActiveRenderMode?.('') || (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
-        const useTaskDetailSheetMode = !!globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.(activeRenderMode, state.modal);
+        const useTaskDetailSheetMode = !isQuickbarDetailOpen
+            && !!globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.(activeRenderMode, state.modal);
         const detailButton = ev?.target?.closest?.('.tm-kanban-more');
         const detailCard = detailButton?.closest?.('.tm-kanban-card');
         const isCardDetailButtonClick = !!(detailButton && detailCard && !detailButton.closest('#tmKanbanDetailFloat,#tm-task-detail-overlay,#tmTaskDetailSheet'));
@@ -4044,7 +4047,7 @@ if (ev) {
             });
             return true;
         }
-        if (activeRenderMode === 'kanban' && !__tmIsMobileDevice()) {
+        if (!isQuickbarDetailOpen && activeRenderMode === 'kanban' && !__tmIsMobileDevice()) {
             if (!__tmOpenKanbanDetailFloatingInPlace(tid, state.modal)) {
                 state.kanbanDetailTaskId = tid;
                 state.kanbanDetailAnchorTaskId = tid;
@@ -5084,6 +5087,20 @@ if (ev) {
             const refText = await __tmGetTaskCopyRefText(tid, taskLike);
             text = `((${tid} '${refText}'))`;
             label = '块引用';
+        } else if (mode === 'blockEmbed') {
+            let embedId = tid;
+            try {
+                const sourceId = typeof __tmResolveRecurringInstanceSourceTaskId === 'function'
+                    ? String(__tmResolveRecurringInstanceSourceTaskId(tid, taskLike) || '').trim()
+                    : '';
+                if (sourceId) embedId = sourceId;
+            } catch (e) {}
+            if (typeof __tmIsLikelyBlockId === 'function' && !__tmIsLikelyBlockId(embedId)) {
+                hint('⚠ 未找到任务块 ID', 'warning');
+                return false;
+            }
+            text = `{{select * from blocks where id='${embedId}'}}`;
+            label = '嵌入块';
         } else if (mode === 'blockId') {
             text = tid;
             label = '块 ID';
@@ -5720,6 +5737,9 @@ if (ev) {
             }),
             createItem(__tmRenderContextMenuLabel('link-simple', '复制块引用'), () => {
                 void __tmCopyTaskContextValue(taskId, task, 'blockRef');
+            }),
+            createItem(__tmRenderContextMenuLabel('stack-simple', '复制嵌入块'), () => {
+                void __tmCopyTaskContextValue(taskId, task, 'blockEmbed');
             }),
             createItem(__tmRenderContextMenuLabel('file-text', '复制块 ID'), () => {
                 void __tmCopyTaskContextValue(taskId, task, 'blockId');

@@ -204,7 +204,25 @@
       text-overflow: ellipsis;
     }
 
-    .breadcrumb strong {
+    .breadcrumb-link {
+      min-width: 0;
+      padding: 2px 3px;
+      border: 0;
+      border-radius: 4px;
+      overflow: hidden;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .breadcrumb-link:hover {
+      background: var(--tm-hover);
+      color: var(--tm-text-soft);
+    }
+
+    .breadcrumb-link--document {
       color: var(--tm-text-soft);
       font-weight: 650;
     }
@@ -220,9 +238,11 @@
 
     .icon-button,
     .section-action,
-    .text-button,
     .property-chip,
-    .attachment-action {
+    .attachment-action,
+    .subtask-open,
+    .remark-tool,
+    .history-delete {
       border: 1px solid transparent;
       background: transparent;
       cursor: pointer;
@@ -241,7 +261,10 @@
 
     .icon-button:hover,
     .section-action:hover,
-    .attachment-action:hover {
+    .attachment-action:hover,
+    .subtask-open:hover,
+    .remark-tool:hover,
+    .history-delete:hover {
       color: var(--tm-text);
       background: var(--tm-hover);
       border-color: var(--tm-border-soft);
@@ -333,82 +356,9 @@
       cursor: pointer;
     }
 
-    .description-block {
-      margin: 26px 0 0 34px;
-      max-width: 68ch;
-    }
-
-    .description-viewport {
-      position: relative;
-      display: grid;
-      grid-template-rows: 1fr;
-      overflow: hidden;
-      transition: grid-template-rows 190ms cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .description-viewport.is-clipped {
-      grid-template-rows: 64px;
-    }
-
-    .description-viewport.is-clipped::after {
-      content: "";
-      position: absolute;
-      inset: auto 0 0;
-      height: 34px;
-      pointer-events: none;
-      background: linear-gradient(to bottom, transparent, var(--tm-background));
-    }
-
-    .description {
-      min-height: 0;
-      color: var(--tm-text-soft);
-      font-size: 14px;
-      line-height: 1.7;
-      word-break: break-word;
-    }
-
-    .description p {
-      margin: 0;
-    }
-
-    .description p + p {
-      margin-top: 8px;
-    }
-
-    .text-button {
-      min-height: 30px;
-      margin-top: 6px;
-      padding: 0 2px;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      border-radius: 6px;
-      color: var(--tm-primary);
-      font-size: 12px;
-      font-weight: 650;
-    }
-
-    .text-button:hover {
-      color: color-mix(in oklch, var(--tm-primary) 82%, var(--tm-text));
-      background: var(--tm-primary-soft);
-    }
-
-    .text-button .icon {
-      width: 14px;
-      height: 14px;
-      transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .text-button[aria-expanded="true"] .icon {
-      transform: rotate(180deg);
-    }
-
     .property-band {
       margin: 24px 0 0 34px;
-      padding: 12px;
-      border: 1px solid var(--tm-border-soft);
-      border-radius: 8px;
-      background: color-mix(in oklch, var(--tm-surface) 80%, var(--tm-background));
+      padding: 0;
     }
 
     .property-list {
@@ -472,15 +422,7 @@
     }
 
     .property-advanced {
-      display: grid;
-      grid-template-rows: 0fr;
-      opacity: 0;
-      transition: grid-template-rows 190ms cubic-bezier(0.16, 1, 0.3, 1), opacity 140ms ease;
-    }
-
-    .property-advanced.is-open {
-      grid-template-rows: 1fr;
-      opacity: 1;
+      display: block;
     }
 
     .property-advanced-inner {
@@ -492,12 +434,8 @@
       padding-top: 7px;
     }
 
-    .property-more {
-      margin: 8px 0 -2px;
-    }
-
     .detail-sections {
-      margin-top: 34px;
+      margin-top: 30px;
       border-top: 1px solid var(--tm-border-soft);
     }
 
@@ -506,7 +444,7 @@
     }
 
     .section-heading {
-      min-height: 54px;
+      min-height: 52px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -545,7 +483,7 @@
     }
 
     .section-title {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 680;
       line-height: 1.2;
     }
@@ -572,6 +510,12 @@
       color: var(--tm-muted);
     }
 
+    .section-action.is-active {
+      border-color: color-mix(in oklch, var(--tm-primary) 22%, var(--tm-border));
+      background: var(--tm-primary-soft);
+      color: var(--tm-primary);
+    }
+
     .section-body {
       display: grid;
       grid-template-rows: 1fr;
@@ -590,7 +534,7 @@
     }
 
     .section-content {
-      padding: 0 0 20px 24px;
+      padding: 0 0 22px 24px;
     }
 
     .subtask-list {
@@ -601,13 +545,13 @@
 
     .subtask-row {
       min-width: 0;
-      min-height: 38px;
+      min-height: 42px;
       margin-left: -8px;
-      padding: 5px 6px 5px 8px;
+      padding: 4px 4px 4px 8px;
       border-radius: 7px;
       display: grid;
       grid-template-columns: 18px minmax(0, 1fr) auto;
-      align-items: center;
+      align-items: start;
       gap: 9px;
       transition: background-color 150ms ease;
     }
@@ -620,7 +564,7 @@
       appearance: none;
       width: 16px;
       height: 16px;
-      margin: 0;
+      margin: 8px 0 0;
       border: 1.5px solid color-mix(in oklch, var(--tm-muted) 72%, var(--tm-border));
       border-radius: 50%;
       display: grid;
@@ -655,11 +599,28 @@
 
     .subtask-title {
       display: block;
-      overflow: hidden;
+      width: 100%;
+      min-height: 32px;
+      padding: 5px 4px;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      outline: 0;
+      resize: none;
       color: var(--tm-text-soft);
+      background: transparent;
       line-height: 1.35;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .subtask-title:hover {
+      border-color: var(--tm-border-soft);
+      background: var(--tm-background);
+    }
+
+    .subtask-title:focus {
+      border-color: color-mix(in oklch, var(--tm-primary) 40%, var(--tm-border));
+      background: var(--tm-background);
+      box-shadow: 0 0 0 3px var(--tm-primary-soft);
     }
 
     .subtask-check:checked + .subtask-copy .subtask-title {
@@ -667,24 +628,21 @@
       text-decoration: line-through;
     }
 
-    .subtask-meta {
-      display: block;
-      margin-top: 2px;
-      color: var(--tm-muted);
-      font-size: 11px;
+    .subtask-trailing {
+      min-height: 32px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
     }
 
-    .subtask-status {
-      min-width: 0;
-      max-width: 92px;
-      padding: 2px 7px;
-      border-radius: 999px;
-      background: var(--tm-surface);
+    .subtask-open {
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border-radius: 6px;
+      display: inline-grid;
+      place-items: center;
       color: var(--tm-muted);
-      font-size: 11px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
     }
 
     .subtask-add {
@@ -704,6 +662,85 @@
     .subtask-add:hover {
       background: var(--tm-hover);
       color: var(--tm-primary);
+    }
+
+    .remark-wrap {
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 7px;
+      overflow: hidden;
+      background: color-mix(in oklch, var(--tm-background) 88%, var(--tm-surface));
+    }
+
+    .remark-toolbar {
+      min-height: 38px;
+      padding: 3px 5px;
+      border-bottom: 1px solid var(--tm-border-soft);
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .remark-toolbar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .remark-toolbar[hidden] {
+      display: none;
+    }
+
+    .remark-tool {
+      width: 30px;
+      height: 30px;
+      flex: 0 0 30px;
+      padding: 0;
+      border-radius: 6px;
+      display: inline-grid;
+      place-items: center;
+      color: var(--tm-muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .remark-tool--italic {
+      font-style: italic;
+      font-family: Georgia, serif;
+      font-size: 15px;
+    }
+
+    .remark-tool--quote {
+      font-family: Georgia, serif;
+      font-size: 18px;
+    }
+
+    .remark-textarea,
+    .custom-textarea {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      resize: vertical;
+      color: var(--tm-text-soft);
+      background: transparent;
+      line-height: 1.65;
+    }
+
+    .remark-textarea {
+      min-height: 132px;
+      padding: 13px 14px 15px;
+    }
+
+    .custom-textarea {
+      min-height: 76px;
+      padding: 11px 12px;
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 7px;
+      background: color-mix(in oklch, var(--tm-background) 88%, var(--tm-surface));
+    }
+
+    .remark-textarea:focus,
+    .custom-textarea:focus {
+      box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--tm-primary) 48%, var(--tm-border));
     }
 
     .attachment-list {
@@ -740,7 +777,18 @@
     }
 
     .attachment-copy {
+      width: 100%;
       min-width: 0;
+      padding: 2px 0;
+      border: 0;
+      overflow: hidden;
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .attachment-copy:hover .attachment-name {
+      color: var(--tm-primary);
     }
 
     .attachment-name {
@@ -764,6 +812,18 @@
       gap: 2px;
     }
 
+    .attachment-list.is-drop-target {
+      outline: 2px solid color-mix(in oklch, var(--tm-primary) 42%, transparent);
+      outline-offset: 5px;
+      border-radius: 5px;
+    }
+
+    .attachment-action:disabled {
+      opacity: 0.3;
+      cursor: default;
+      pointer-events: none;
+    }
+
     .history-list {
       position: relative;
       padding-left: 5px;
@@ -783,7 +843,7 @@
       position: relative;
       min-width: 0;
       display: grid;
-      grid-template-columns: 28px minmax(0, 1fr);
+      grid-template-columns: 28px minmax(0, 1fr) auto;
       gap: 13px;
       padding: 7px 0 15px;
     }
@@ -813,6 +873,28 @@
       margin-top: 3px;
       color: var(--tm-muted);
       font-size: 11px;
+    }
+
+    .history-detail {
+      display: block;
+      margin-top: 3px;
+      color: var(--tm-muted);
+      font-size: 11px;
+    }
+
+    .history-delete {
+      min-height: 28px;
+      padding: 0 7px;
+      border-radius: 6px;
+      align-self: start;
+      color: var(--tm-muted);
+      font-size: 12px;
+    }
+
+    .history-delete:hover {
+      color: var(--tm-danger);
+      background: var(--tm-danger-soft);
+      border-color: color-mix(in oklch, var(--tm-danger) 18%, var(--tm-border));
     }
 
     .mobile-save {
@@ -881,12 +963,9 @@
         padding-inline: 10px;
       }
 
-      .breadcrumb span:first-child,
-      .breadcrumb > .breadcrumb-separator:nth-of-type(2) {
-        display: none;
-      }
-
-      .topbar-actions .icon-button:nth-child(1) {
+      .breadcrumb > span:first-child,
+      .breadcrumb > .breadcrumb-separator:last-of-type,
+      .breadcrumb-link--heading {
         display: none;
       }
 
@@ -900,17 +979,12 @@
         line-height: 1.36;
       }
 
-      .description-block {
-        margin-top: 22px;
-      }
-
       .property-band {
         margin-top: 20px;
         margin-inline: 0;
-        padding: 10px;
+        padding: 0;
       }
 
-      .description-block,
       .parent-line {
         margin-left: 0;
       }
@@ -954,6 +1028,14 @@
         font-size: 20px;
       }
 
+      .breadcrumb {
+        display: none;
+      }
+
+      .topbar-leading {
+        flex: 0 0 auto;
+      }
+
       .property-list {
         gap: 6px;
       }
@@ -969,18 +1051,28 @@
       }
 
       .attachment-row {
-        grid-template-columns: 28px minmax(0, 1fr) auto;
+        grid-template-columns: 28px minmax(0, 1fr);
+        grid-template-areas:
+          "icon copy"
+          ". actions";
         gap: 8px;
         padding-left: 9px;
       }
 
       .attachment-icon {
+        grid-area: icon;
         width: 28px;
         height: 28px;
       }
 
-      .attachment-actions .attachment-action:first-child {
-        display: none;
+      .attachment-copy {
+        grid-area: copy;
+      }
+
+      .attachment-actions {
+        grid-area: actions;
+        justify-self: end;
+        justify-content: flex-end;
       }
     }
 
@@ -1018,6 +1110,17 @@
     <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M5 3h14M6 3l1 9-3 3h16l-3-3 1-9"/></symbol>
     <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.1 3.4a2 2 0 0 1-1.3 1.3L6.2 8.8l3.4 1.1a2 2 0 0 1 1.3 1.3l1.1 3.4 1.1-3.4a2 2 0 0 1 1.3-1.3l3.4-1.1-3.4-1.1a2 2 0 0 1-1.3-1.3zM5 16l-.6 1.8a1 1 0 0 1-.6.6L2 19l1.8.6a1 1 0 0 1 .6.6L5 22l.6-1.8a1 1 0 0 1 .6-.6L8 19l-1.8-.6a1 1 0 0 1-.6-.6zM19 14l-.7 2.1a1 1 0 0 1-.6.6l-2.1.7 2.1.7a1 1 0 0 1 .6.6l.7 2.1.7-2.1a1 1 0 0 1 .6-.6l2.1-.7-2.1-.7a1 1 0 0 1-.6-.6z"/></symbol>
+    <symbol id="i-map-pin" viewBox="0 0 24 24"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-list-ordered" viewBox="0 0 24 24"><path d="M10 6h11M10 12h11M10 18h11M4 6h1V3M4 10h2l-2 2h2M4 17h2l-2 3h2"/></symbol>
+    <symbol id="i-indent" viewBox="0 0 24 24"><path d="M3 6h18M3 12h11M3 18h18M14 9l3 3-3 3"/></symbol>
+    <symbol id="i-outdent" viewBox="0 0 24 24"><path d="M3 6h18M10 12h11M3 18h18M10 9l-3 3 3 3"/></symbol>
   </svg>
 
   <main class="app-frame">
@@ -1028,16 +1131,19 @@
     <article class="detail-sheet" aria-label="任务详情">
       <header class="sheet-topbar">
         <div class="topbar-leading">
-          <button class="icon-button" type="button" aria-label="返回" title="返回">
+          <button class="icon-button" type="button" data-action="back" aria-label="返回" title="返回">
             <svg class="icon"><use href="#i-arrow-left"/></svg>
           </button>
           <nav class="breadcrumb" aria-label="任务位置">
             <span>项目任务</span><span class="breadcrumb-separator">/</span>
-            <strong>Task Horizon 2.2</strong><span class="breadcrumb-separator">/</span>
-            <span>界面优化</span>
+            <button class="breadcrumb-link breadcrumb-link--document" type="button" data-action="open-location" data-location="文档 Task Horizon 2.2">Task Horizon 2.2</button><span class="breadcrumb-separator">/</span>
+            <button class="breadcrumb-link breadcrumb-link--heading" type="button" data-action="open-location" data-location="标题 界面优化">界面优化</button>
           </nav>
         </div>
         <div class="topbar-actions">
+          <button class="icon-button" type="button" data-action="jump" aria-label="跳转到任务块" title="跳转到任务块">
+            <svg class="icon"><use href="#i-map-pin"/></svg>
+          </button>
           <button class="icon-button" type="button" data-action="note" aria-label="笔记内视图" title="笔记内视图">
             <svg class="icon"><use href="#i-book-open"/></svg>
           </button>
@@ -1050,7 +1156,7 @@
           <button class="icon-button" type="button" data-action="more" aria-label="更多任务操作" title="更多任务操作">
             <svg class="icon"><use href="#i-more"/></svg>
           </button>
-          <button class="icon-button" type="button" aria-label="关闭" title="关闭">
+          <button class="icon-button" type="button" data-action="close" aria-label="关闭" title="关闭">
             <svg class="icon"><use href="#i-x"/></svg>
           </button>
         </div>
@@ -1061,62 +1167,50 @@
           <input class="task-check" type="checkbox" aria-label="标记任务完成">
           <h1 class="task-title" contenteditable="true" spellcheck="false">发布 Task Horizon 2.2，并完成移动端详情页审阅</h1>
         </div>
-        <div class="parent-line">父任务：<button type="button">完成 2.2 版本发布准备</button></div>
-
-        <div class="description-block">
-          <div class="description-viewport is-clipped" data-description-viewport>
-            <div class="description" contenteditable="true" spellcheck="false">
-              <p>汇总发布前剩余事项，核对手机和平板上的任务详情、子任务编辑与附件操作。</p>
-              <p>完成后更新变更记录，并在发布清单中补充验证结果。移动端优先保证常用字段直接可见，其余信息按需展开。</p>
-            </div>
-          </div>
-          <button class="text-button" type="button" data-action="description" aria-expanded="false">
-            <span>展开备注</span><svg class="icon"><use href="#i-chevron-down"/></svg>
-          </button>
-        </div>
+        <div class="parent-line">父任务：<button type="button" data-action="open-parent">完成 2.2 版本发布准备</button></div>
 
         <div class="property-band" aria-label="任务属性">
           <div class="property-list">
-            <button class="property-chip property-chip--priority" type="button" title="重要性：高">
+            <button class="property-chip property-chip--priority" type="button" data-action="edit-property" data-property="重要性" title="重要性：高">
               <svg class="icon"><use href="#i-flag"/></svg><span class="chip-value">高</span>
             </button>
-            <button class="property-chip property-chip--status" type="button" title="状态：进行中">
+            <button class="property-chip property-chip--status" type="button" data-action="edit-property" data-property="状态" title="状态：进行中">
               <span class="status-dot"></span><span class="chip-value">进行中</span>
             </button>
-            <button class="property-chip" type="button" title="开始日期：8 月 3 日">
+            <button class="property-chip" type="button" data-action="edit-property" data-property="开始日期" title="开始日期：8 月 3 日">
               <svg class="icon"><use href="#i-calendar"/></svg><span class="chip-value">8 月 3 日</span>
             </button>
-            <button class="property-chip property-chip--due" type="button" title="截止日期：8 月 7 日">
+            <button class="property-chip property-chip--due" type="button" data-action="edit-property" data-property="截止日期" title="截止日期：8 月 7 日">
               <svg class="icon"><use href="#i-calendar"/></svg><span class="chip-value">8 月 7 日</span>
             </button>
-            <button class="property-chip" type="button" title="预计时长与番茄">
+            <button class="property-chip" type="button" data-action="edit-property" data-property="预计时长与番茄" title="预计时长与番茄">
               <svg class="icon"><use href="#i-clock"/></svg><span class="chip-value">2 小时 · 3 番茄</span>
             </button>
-            <button class="property-chip property-chip--tag" type="button" title="标签：界面优化">
+            <button class="property-chip property-chip--tag" type="button" data-action="edit-property" data-property="标签" title="标签：界面优化">
               <svg class="icon"><use href="#i-tag"/></svg><span class="chip-value">界面优化</span>
             </button>
           </div>
           <div class="property-advanced" data-property-advanced>
             <div class="property-advanced-inner">
               <div class="property-list">
-                <button class="property-chip" type="button" title="重复：每周五">
+                <button class="property-chip" type="button" data-action="edit-property" data-property="重复" title="重复：每周五">
                   <svg class="icon"><use href="#i-repeat"/></svg><span class="chip-value">每周五</span>
                 </button>
-                <button class="property-chip" type="button" title="自定义字段：发布版本 2.2">
+                <button class="property-chip" type="button" data-action="edit-property" data-property="提醒" title="提醒：截止前 30 分钟">
+                  <svg class="icon"><use href="#i-bell"/></svg><span class="chip-value">提前 30 分钟</span>
+                </button>
+                <button class="property-chip" type="button" data-action="edit-property" data-property="发布版本" title="自定义字段：发布版本 2.2">
                   <svg class="icon"><use href="#i-sparkles"/></svg><span class="chip-value">发布版本 2.2</span>
                 </button>
-                <button class="property-chip" type="button" title="白板大纲：发布路线图">
+                <button class="property-chip" type="button" data-action="edit-property" data-property="白板大纲" title="白板大纲：发布路线图">
                   <svg class="icon"><use href="#i-layout"/></svg><span class="chip-value">发布路线图</span>
                 </button>
-                <button class="property-chip" type="button" title="置顶任务">
+                <button class="property-chip" type="button" data-action="edit-property" data-property="置顶" title="置顶任务">
                   <svg class="icon"><use href="#i-pin"/></svg><span class="chip-value">置顶</span>
                 </button>
               </div>
             </div>
           </div>
-          <button class="text-button property-more" type="button" data-action="properties" aria-expanded="false">
-            <span>更多属性</span><svg class="icon"><use href="#i-chevron-down"/></svg>
-          </button>
         </div>
 
         <div class="detail-sections">
@@ -1128,6 +1222,9 @@
                 <span class="section-count" data-subtask-count>1/3</span>
               </button>
               <div class="section-actions">
+                <button class="section-action is-active" type="button" data-action="toggle-completed" aria-pressed="true" aria-label="隐藏已完成子任务" title="隐藏已完成子任务">
+                  <svg class="icon"><use href="#i-eye"/></svg>
+                </button>
                 <button class="section-action" type="button" data-action="add-subtask" aria-label="添加子任务" title="添加子任务">
                   <svg class="icon"><use href="#i-plus"/></svg>
                 </button>
@@ -1137,21 +1234,21 @@
               <div class="section-body-inner">
                 <div class="section-content">
                   <div class="subtask-list" data-subtask-list>
-                    <label class="subtask-row">
+                    <div class="subtask-row" data-subtask-id="TH-247">
                       <input class="subtask-check" type="checkbox" checked>
-                      <span class="subtask-copy"><span class="subtask-title">核对窄屏下的标题和属性换行</span><span class="subtask-meta">TH-247 · 今天</span></span>
-                      <span class="subtask-status">已完成</span>
-                    </label>
-                    <label class="subtask-row">
+                      <span class="subtask-copy"><textarea class="subtask-title" rows="1" aria-label="编辑子任务内容">核对窄屏下的标题和属性换行</textarea></span>
+                      <span class="subtask-trailing"><button class="subtask-open" type="button" data-action="open-subtask" data-task-title="核对窄屏下的标题和属性换行" aria-label="打开子任务详情" title="打开子任务详情"><svg class="icon"><use href="#i-chevron-right"/></svg></button></span>
+                    </div>
+                    <div class="subtask-row" data-subtask-id="TH-251">
                       <input class="subtask-check" type="checkbox">
-                      <span class="subtask-copy"><span class="subtask-title">检查子任务折叠状态是否正确恢复</span><span class="subtask-meta">TH-251 · 明天</span></span>
-                      <span class="subtask-status">进行中</span>
-                    </label>
-                    <label class="subtask-row">
+                      <span class="subtask-copy"><textarea class="subtask-title" rows="1" aria-label="编辑子任务内容">检查子任务折叠状态是否正确恢复</textarea></span>
+                      <span class="subtask-trailing"><button class="subtask-open" type="button" data-action="open-subtask" data-task-title="检查子任务折叠状态是否正确恢复" aria-label="打开子任务详情" title="打开子任务详情"><svg class="icon"><use href="#i-chevron-right"/></svg></button></span>
+                    </div>
+                    <div class="subtask-row" data-subtask-id="TH-255">
                       <input class="subtask-check" type="checkbox">
-                      <span class="subtask-copy"><span class="subtask-title">补充 2.2 版本变更记录与截图</span><span class="subtask-meta">TH-255 · 8 月 7 日</span></span>
-                      <span class="subtask-status">待办</span>
-                    </label>
+                      <span class="subtask-copy"><textarea class="subtask-title" rows="1" aria-label="编辑子任务内容">补充 2.2 版本变更记录与截图</textarea></span>
+                      <span class="subtask-trailing"><button class="subtask-open" type="button" data-action="open-subtask" data-task-title="补充 2.2 版本变更记录与截图" aria-label="打开子任务详情" title="打开子任务详情"><svg class="icon"><use href="#i-chevron-right"/></svg></button></span>
+                    </div>
                   </div>
                   <button class="subtask-add" type="button" data-action="add-subtask">
                     <svg class="icon"><use href="#i-plus"/></svg><span>添加子任务</span>
@@ -1161,7 +1258,58 @@
             </div>
           </section>
 
-          <section class="detail-section" data-section="attachments">
+          <section class="detail-section" data-section="remark">
+            <div class="section-heading">
+              <button class="section-toggle" type="button" aria-expanded="false">
+                <svg class="icon section-chevron"><use href="#i-chevron-down"/></svg>
+                <span class="section-title">备注</span>
+                <span class="section-count">Markdown</span>
+              </button>
+              <div class="section-actions">
+                <button class="section-action is-active" type="button" data-action="remark-tools" aria-pressed="true" aria-label="隐藏格式工具" title="隐藏格式工具">A</button>
+              </div>
+            </div>
+            <div class="section-body" aria-hidden="true" inert>
+              <div class="section-body-inner">
+                <div class="section-content">
+                  <div class="remark-wrap">
+                    <div class="remark-toolbar" data-remark-toolbar role="toolbar" aria-label="备注格式工具">
+                      <button class="remark-tool" type="button" data-remark-tool="outdent" aria-label="取消缩进" title="取消缩进"><svg class="icon"><use href="#i-outdent"/></svg></button>
+                      <button class="remark-tool" type="button" data-remark-tool="indent" aria-label="缩进" title="缩进"><svg class="icon"><use href="#i-indent"/></svg></button>
+                      <button class="remark-tool" type="button" data-remark-tool="bullet" aria-label="无序列表" title="无序列表"><svg class="icon"><use href="#i-list"/></svg></button>
+                      <button class="remark-tool" type="button" data-remark-tool="ordered" aria-label="有序列表" title="有序列表"><svg class="icon"><use href="#i-list-ordered"/></svg></button>
+                      <button class="remark-tool" type="button" data-remark-tool="bold" aria-label="粗体" title="粗体">B</button>
+                      <button class="remark-tool remark-tool--italic" type="button" data-remark-tool="italic" aria-label="斜体" title="斜体">I</button>
+                      <button class="remark-tool" type="button" data-remark-tool="code" aria-label="行内代码" title="行内代码">Code</button>
+                      <button class="remark-tool" type="button" data-remark-tool="link" aria-label="链接" title="链接"><svg class="icon"><use href="#i-link"/></svg></button>
+                      <button class="remark-tool remark-tool--quote" type="button" data-remark-tool="quote" aria-label="引用" title="引用">❝</button>
+                    </div>
+                    <textarea class="remark-textarea" data-remark-editor rows="5" aria-label="任务备注">汇总发布前剩余事项，核对手机和平板上的任务详情、子任务编辑与附件操作。
+
+- [ ] 检查窄屏折叠状态
+- [ ] 更新变更记录
+
+相关文档：[2.2 发布清单](siyuan://blocks/20260803082600-release)</textarea>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="detail-section is-collapsed" data-section="custom-field" data-default-collapsed="true">
+            <div class="section-heading">
+              <button class="section-toggle" type="button" aria-expanded="false">
+                <svg class="icon section-chevron"><use href="#i-chevron-down"/></svg>
+                <span class="section-title">验收说明</span>
+                <span class="section-count">自定义字段</span>
+              </button>
+            </div>
+            <div class="section-body" aria-hidden="true" inert>
+              <div class="section-body-inner"><div class="section-content"><textarea class="custom-textarea" rows="2" aria-label="验收说明">手机、平板与桌面端均完成一次完整任务详情操作。</textarea></div></div>
+            </div>
+          </section>
+
+          <section class="detail-section is-collapsed" data-section="attachments" data-default-collapsed="true">
             <div class="section-heading">
               <button class="section-toggle" type="button" aria-expanded="true">
                 <svg class="icon section-chevron"><use href="#i-chevron-down"/></svg>
@@ -1177,21 +1325,23 @@
             <div class="section-body">
               <div class="section-body-inner">
                 <div class="section-content">
-                  <div class="attachment-list">
-                    <div class="attachment-row">
+                  <div class="attachment-list" data-attachment-list>
+                    <div class="attachment-row" data-attachment="移动端详情页对照.png">
                       <span class="attachment-icon attachment-icon--image"><svg class="icon"><use href="#i-image"/></svg></span>
-                      <span class="attachment-copy"><span class="attachment-name">移动端详情页对照.png</span><span class="attachment-meta">1.8 MB · 今天 08:26</span></span>
+                      <button class="attachment-copy" type="button" data-action="open-attachment"><span class="attachment-name">移动端详情页对照.png</span><span class="attachment-meta">assets/移动端详情页对照.png</span></button>
                       <span class="attachment-actions">
-                        <button class="attachment-action" type="button" aria-label="下载附件" title="下载"><svg class="icon"><use href="#i-download"/></svg></button>
-                        <button class="attachment-action" type="button" aria-label="附件更多操作" title="更多"><svg class="icon"><use href="#i-more"/></svg></button>
+                        <button class="attachment-action" type="button" data-action="move-attachment" data-direction="up" disabled aria-label="上移附件" title="上移"><svg class="icon"><use href="#i-arrow-up"/></svg></button>
+                        <button class="attachment-action" type="button" data-action="move-attachment" data-direction="down" aria-label="下移附件" title="下移"><svg class="icon"><use href="#i-arrow-down"/></svg></button>
+                        <button class="attachment-action" type="button" data-action="remove-attachment" aria-label="移除附件" title="移除"><svg class="icon"><use href="#i-trash"/></svg></button>
                       </span>
                     </div>
-                    <div class="attachment-row">
+                    <div class="attachment-row" data-attachment="Task-Horizon-2.2-release-checklist.md">
                       <span class="attachment-icon"><svg class="icon"><use href="#i-file"/></svg></span>
-                      <span class="attachment-copy"><span class="attachment-name">Task-Horizon-2.2-release-checklist.md</span><span class="attachment-meta">12 KB · 昨天 22:41</span></span>
+                      <button class="attachment-copy" type="button" data-action="open-attachment"><span class="attachment-name">Task-Horizon-2.2-release-checklist.md</span><span class="attachment-meta">assets/Task-Horizon-2.2-release-checklist.md</span></button>
                       <span class="attachment-actions">
-                        <button class="attachment-action" type="button" aria-label="下载附件" title="下载"><svg class="icon"><use href="#i-download"/></svg></button>
-                        <button class="attachment-action" type="button" aria-label="附件更多操作" title="更多"><svg class="icon"><use href="#i-more"/></svg></button>
+                        <button class="attachment-action" type="button" data-action="move-attachment" data-direction="up" aria-label="上移附件" title="上移"><svg class="icon"><use href="#i-arrow-up"/></svg></button>
+                        <button class="attachment-action" type="button" data-action="move-attachment" data-direction="down" disabled aria-label="下移附件" title="下移"><svg class="icon"><use href="#i-arrow-down"/></svg></button>
+                        <button class="attachment-action" type="button" data-action="remove-attachment" aria-label="移除附件" title="移除"><svg class="icon"><use href="#i-trash"/></svg></button>
                       </span>
                     </div>
                   </div>
@@ -1200,34 +1350,32 @@
             </div>
           </section>
 
-          <section class="detail-section" data-section="history">
+          <section class="detail-section is-collapsed" data-section="history" data-default-collapsed="true">
             <div class="section-heading">
-              <button class="section-toggle" type="button" aria-expanded="true">
+              <button class="section-toggle" type="button" aria-expanded="false">
                 <svg class="icon section-chevron"><use href="#i-chevron-down"/></svg>
                 <span class="section-title">重复记录</span>
                 <span class="section-count">3</span>
               </button>
-              <div class="section-actions">
-                <button class="section-action" type="button" aria-label="记录筛选" title="记录筛选">
-                  <svg class="icon"><use href="#i-more"/></svg>
-                </button>
-              </div>
             </div>
-            <div class="section-body">
+            <div class="section-body" aria-hidden="true" inert>
               <div class="section-body-inner">
                 <div class="section-content">
                   <div class="history-list">
                     <div class="history-row">
                       <span class="history-icon"><svg class="icon"><use href="#i-calendar"/></svg></span>
-                      <span class="history-copy">完成了 8 月 1 日的发布检查<span class="history-time">2 天前</span></span>
+                      <span class="history-copy">第 3/8 次 · 完成于 8 月 1 日 18:42<span class="history-detail">本次：8 月 1 日 · 已推进到：8 月 7 日</span><span class="history-time">2 天前</span></span>
+                      <button class="history-delete" type="button" data-action="delete-history">删除</button>
                     </div>
                     <div class="history-row">
                       <span class="history-icon"><svg class="icon"><use href="#i-repeat"/></svg></span>
-                      <span class="history-copy">下次重复时间调整为 8 月 7 日<span class="history-time">5 天前</span></span>
+                      <span class="history-copy">第 2/8 次 · 完成于 7 月 25 日 17:10<span class="history-detail">本次：7 月 25 日 · 已推进到：8 月 1 日</span><span class="history-time">9 天前</span></span>
+                      <button class="history-delete" type="button" data-action="delete-history">删除</button>
                     </div>
                     <div class="history-row">
                       <span class="history-icon"><svg class="icon"><use href="#i-calendar"/></svg></span>
-                      <span class="history-copy">完成了 7 月 25 日的发布检查<span class="history-time">9 天前</span></span>
+                      <span class="history-copy">第 1/8 次 · 完成于 7 月 18 日 16:28<span class="history-detail">本次：7 月 18 日 · 已推进到：7 月 25 日</span><span class="history-time">16 天前</span></span>
+                      <button class="history-delete" type="button" data-action="delete-history">删除</button>
                     </div>
                   </div>
                 </div>
@@ -1281,7 +1429,9 @@
         if (!section) return;
         const key = `tm-detail-section-${section.dataset.section}`;
         const stored = localStorage.getItem(key);
-        const collapsed = stored === 'collapsed';
+        const collapsed = stored
+          ? stored === 'collapsed'
+          : section.dataset.defaultCollapsed === 'true';
         const body = section.querySelector('.section-body');
         section.classList.toggle('is-collapsed', collapsed);
         button.setAttribute('aria-expanded', String(!collapsed));
@@ -1298,41 +1448,135 @@
         });
       });
 
-      const descriptionButton = document.querySelector('[data-action="description"]');
-      const descriptionViewport = document.querySelector('[data-description-viewport]');
-      descriptionButton?.addEventListener('click', () => {
-        const expanded = descriptionButton.getAttribute('aria-expanded') === 'true';
-        descriptionButton.setAttribute('aria-expanded', String(!expanded));
-        descriptionButton.querySelector('span').textContent = expanded ? '展开备注' : '收起备注';
-        descriptionViewport?.classList.toggle('is-clipped', expanded);
-      });
+      const updateSubtaskCount = () => {
+        const all = [...document.querySelectorAll('.subtask-check')];
+        const completed = all.filter((item) => item.checked).length;
+        const count = document.querySelector('[data-subtask-count]');
+        if (count) count.textContent = `${completed}/${all.length}`;
+      };
 
-      const propertyButton = document.querySelector('[data-action="properties"]');
-      const propertyAdvanced = document.querySelector('[data-property-advanced]');
-      propertyAdvanced?.setAttribute('aria-hidden', 'true');
-      if (propertyAdvanced) propertyAdvanced.inert = true;
-      propertyButton?.addEventListener('click', () => {
-        const expanded = propertyButton.getAttribute('aria-expanded') === 'true';
-        propertyButton.setAttribute('aria-expanded', String(!expanded));
-        propertyButton.querySelector('span').textContent = expanded ? '更多属性' : '收起属性';
-        propertyAdvanced?.classList.toggle('is-open', !expanded);
-        propertyAdvanced?.setAttribute('aria-hidden', String(expanded));
-        if (propertyAdvanced) propertyAdvanced.inert = expanded;
+      const resizeSubtaskTextareas = () => {
+        document.querySelectorAll('.subtask-title').forEach((textarea) => {
+          textarea.style.height = 'auto';
+          textarea.style.height = `${textarea.scrollHeight + 1}px`;
+        });
+      };
+
+      document.querySelectorAll('.subtask-title').forEach((textarea) => {
+        textarea.addEventListener('input', resizeSubtaskTextareas);
       });
+      resizeSubtaskTextareas();
+      window.addEventListener('resize', () => window.requestAnimationFrame(resizeSubtaskTextareas), { passive: true });
 
       document.querySelectorAll('.subtask-check').forEach((checkbox) => {
         checkbox.addEventListener('change', () => {
-          const all = [...document.querySelectorAll('.subtask-check')];
-          const completed = all.filter((item) => item.checked).length;
-          const count = document.querySelector('[data-subtask-count]');
-          if (count) count.textContent = `${completed}/${all.length}`;
-          const status = checkbox.closest('.subtask-row')?.querySelector('.subtask-status');
-          if (status) status.textContent = checkbox.checked ? '已完成' : '待办';
+          updateSubtaskCount();
+          const completedToggle = document.querySelector('[data-action="toggle-completed"]');
+          if (checkbox.checked && completedToggle?.getAttribute('aria-pressed') === 'false') {
+            checkbox.closest('.subtask-row').hidden = true;
+          }
         });
       });
 
+      const detailTitle = document.querySelector('.task-title');
+      const parentButton = document.querySelector('[data-action="open-parent"]');
+      const detailStack = [];
+
+      const openTaskDetail = (nextTitle, message) => {
+        if (!detailTitle || !nextTitle) return;
+        detailStack.push({ title: detailTitle.textContent, parent: parentButton?.textContent || '' });
+        if (parentButton) parentButton.textContent = detailTitle.textContent;
+        detailTitle.textContent = nextTitle;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        showToast(message, 'chevron-right');
+      };
+
+      const remarkEditor = document.querySelector('[data-remark-editor]');
+      const replaceRemarkSelection = (replacement, from, to, selectionStart, selectionEnd) => {
+        if (!remarkEditor) return;
+        remarkEditor.setRangeText(replacement, from, to, 'preserve');
+        remarkEditor.focus();
+        remarkEditor.setSelectionRange(selectionStart, selectionEnd);
+        remarkEditor.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+
+      document.querySelector('[data-remark-toolbar]')?.addEventListener('click', (event) => {
+        const tool = event.target.closest('[data-remark-tool]')?.dataset.remarkTool;
+        if (!tool || !remarkEditor) return;
+        const value = remarkEditor.value;
+        const start = remarkEditor.selectionStart;
+        const end = remarkEditor.selectionEnd;
+        const selected = value.slice(start, end);
+        const wrappers = { bold: '**', italic: '*', code: '`' };
+
+        if (wrappers[tool]) {
+          const marker = wrappers[tool];
+          const content = selected || (tool === 'code' ? '代码' : '文本');
+          const replacement = `${marker}${content}${marker}`;
+          replaceRemarkSelection(replacement, start, end, start + marker.length, start + marker.length + content.length);
+          return;
+        }
+
+        if (tool === 'link') {
+          const label = selected || '链接文字';
+          const replacement = `[${label}](https://)`;
+          const urlStart = start + label.length + 3;
+          replaceRemarkSelection(replacement, start, end, urlStart, urlStart + 8);
+          return;
+        }
+
+        const lineStart = value.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
+        const nextBreak = value.indexOf('\n', end);
+        const lineEnd = nextBreak === -1 ? value.length : nextBreak;
+        const lines = value.slice(lineStart, lineEnd).split('\n');
+        const transformed = lines.map((line, index) => {
+          if (tool === 'outdent') return line.replace(/^( {1,2}|\t)/, '');
+          if (tool === 'indent') return `  ${line}`;
+          if (tool === 'bullet') return `- ${line}`;
+          if (tool === 'ordered') return `${index + 1}. ${line}`;
+          if (tool === 'quote') return `> ${line}`;
+          return line;
+        }).join('\n');
+        replaceRemarkSelection(transformed, lineStart, lineEnd, lineStart, lineStart + transformed.length);
+      });
+
+      const attachmentList = document.querySelector('[data-attachment-list]');
+      const syncAttachmentControls = () => {
+        const rows = [...document.querySelectorAll('.attachment-row')];
+        rows.forEach((row, index) => {
+          const up = row.querySelector('[data-direction="up"]');
+          const down = row.querySelector('[data-direction="down"]');
+          if (up) up.disabled = index === 0;
+          if (down) down.disabled = index === rows.length - 1;
+        });
+        const count = document.querySelector('[data-section="attachments"] .section-count');
+        if (count) count.textContent = String(rows.length);
+      };
+
+      attachmentList?.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        attachmentList.classList.add('is-drop-target');
+      });
+      attachmentList?.addEventListener('dragleave', () => attachmentList.classList.remove('is-drop-target'));
+      attachmentList?.addEventListener('drop', (event) => {
+        event.preventDefault();
+        attachmentList.classList.remove('is-drop-target');
+        showToast('已接收拖放附件', 'paperclip');
+      });
+      document.addEventListener('paste', (event) => {
+        if (event.clipboardData?.files?.length) showToast('已接收粘贴附件', 'paperclip');
+      });
+
+      document.querySelector('[data-subtask-list]')?.addEventListener('contextmenu', (event) => {
+        const row = event.target.closest('.subtask-row');
+        if (!row) return;
+        event.preventDefault();
+        showToast(`子任务菜单 · ${row.dataset.subtaskId}`, 'more');
+      });
+
       document.addEventListener('click', (event) => {
-        const action = event.target.closest('[data-action]')?.dataset.action;
+        const target = event.target.closest('[data-action]');
+        const action = target?.dataset.action;
         if (!action) return;
         if (action === 'theme') {
           root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -1344,7 +1588,82 @@
         if (action === 'add-subtask') showToast('新建子任务', 'plus');
         if (action === 'attach') showToast('选择附件', 'paperclip');
         if (action === 'more') showToast('更多任务操作', 'more');
+        if (action === 'jump') showToast('已跳转到任务块', 'map-pin');
+        if (action === 'close') showToast('已关闭任务详情', 'x');
+        if (action === 'open-location') showToast(`打开${target.dataset.location}`, 'book-open');
+        if (action === 'edit-property') showToast(`编辑${target.dataset.property}`, 'more');
+        if (action === 'open-subtask') openTaskDetail(target.dataset.taskTitle, '已打开子任务详情');
+        if (action === 'open-parent') openTaskDetail(target.textContent.trim(), '已打开父任务详情');
+
+        if (action === 'back') {
+          const previous = detailStack.pop();
+          if (previous && detailTitle) {
+            detailTitle.textContent = previous.title;
+            if (parentButton) parentButton.textContent = previous.parent;
+            showToast('已返回上一任务', 'arrow-left');
+          } else {
+            showToast('返回任务列表', 'arrow-left');
+          }
+        }
+
+        if (action === 'toggle-completed') {
+          const showCompleted = target.getAttribute('aria-pressed') !== 'true';
+          target.setAttribute('aria-pressed', String(showCompleted));
+          target.classList.toggle('is-active', showCompleted);
+          target.title = showCompleted ? '隐藏已完成子任务' : '显示已完成子任务';
+          target.setAttribute('aria-label', target.title);
+          document.querySelectorAll('.subtask-row').forEach((row) => {
+            row.hidden = !showCompleted && row.querySelector('.subtask-check')?.checked;
+          });
+        }
+
+        if (action === 'remark-tools') {
+          const toolbar = document.querySelector('[data-remark-toolbar]');
+          const visible = target.getAttribute('aria-pressed') !== 'true';
+          target.setAttribute('aria-pressed', String(visible));
+          target.classList.toggle('is-active', visible);
+          target.title = visible ? '隐藏格式工具' : '显示格式工具';
+          target.setAttribute('aria-label', target.title);
+          if (toolbar) toolbar.hidden = !visible;
+        }
+
+        if (action === 'open-attachment') {
+          const name = target.closest('.attachment-row')?.dataset.attachment;
+          showToast(`打开附件 · ${name}`, 'paperclip');
+        }
+
+        if (action === 'move-attachment') {
+          const row = target.closest('.attachment-row');
+          const sibling = target.dataset.direction === 'up' ? row?.previousElementSibling : row?.nextElementSibling;
+          if (row && sibling) {
+            if (target.dataset.direction === 'up') attachmentList.insertBefore(row, sibling);
+            else attachmentList.insertBefore(sibling, row);
+            syncAttachmentControls();
+            showToast('已调整附件顺序', 'paperclip');
+          }
+        }
+
+        if (action === 'remove-attachment') {
+          target.closest('.attachment-row')?.remove();
+          syncAttachmentControls();
+          showToast('已移除附件', 'trash');
+        }
+
+        if (action === 'delete-history') {
+          target.closest('.history-row')?.remove();
+          const rows = document.querySelectorAll('.history-row');
+          const count = document.querySelector('[data-section="history"] .section-count');
+          if (count) count.textContent = String(rows.length);
+          showToast('已删除重复记录', 'trash');
+        }
       });
+
+      document.querySelector('.task-check')?.addEventListener('change', (event) => {
+        showToast(event.target.checked ? '任务已完成' : '任务已恢复');
+      });
+
+      updateSubtaskCount();
+      syncAttachmentControls();
     })();
   </script>
 </body>

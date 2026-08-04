@@ -1520,9 +1520,13 @@
         return { has: true, value: undefined };
     }
 
-    function __tmMergeLocalTaskPatchIntoTask(task) {
+    function __tmMergeLocalTaskPatchIntoTask(task, options = {}) {
         const target = (task && typeof task === 'object') ? task : null;
         if (!target) return target;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const excludedFields = new Set((Array.isArray(opts.excludeFields) ? opts.excludeFields : [])
+            .map((key) => __tmNormalizeLocalPatchFieldKey(key))
+            .filter(Boolean));
         __tmApplyDoneOverrideToTaskIfPresent(target);
         const tid = String(target.id || '').trim();
         const entry = tid ? __tmGetLocalTaskPatchWatermark(tid) : null;
@@ -1533,6 +1537,7 @@
         fields.forEach((field) => {
             const key = __tmNormalizeLocalPatchFieldKey(field);
             if (!key) return;
+            if (excludedFields.has(key)) return;
             if (key.startsWith('customField:')) {
                 const fieldId = key.slice('customField:'.length);
                 if (!fieldId) return;
@@ -4374,6 +4379,7 @@
         'otherBlockRefs',
         'docPinnedByGroup',
         'docTabsManualArchivedByGroup',
+        'docTabsManualUnarchivedByGroup',
         'collapsedTaskIds',
         'kanbanCollapsedTaskIds',
         'kanbanCollapsedColumnKeys',
@@ -4952,8 +4958,15 @@
 
     function __tmGetCollapsedSessionUpdatedAt(data) {
         const src = (data && typeof data === 'object') ? data : {};
-        return __tmParseUpdatedAtNumber(src.collapseStateUpdatedAt)
-            || __tmParseUpdatedAtNumber(src.settingsUpdatedAt);
+        const explicitUpdatedAt = __tmParseUpdatedAtNumber(src.collapseStateUpdatedAt);
+        if (explicitUpdatedAt > 0) return explicitUpdatedAt;
+        const legacyState = __tmBuildCollapsedSessionState(src);
+        const hasLegacyCollapsedState = Object.values(legacyState).some((list) => list.length > 0);
+        return hasLegacyCollapsedState ? __tmParseUpdatedAtNumber(src.settingsUpdatedAt) : 0;
+    }
+
+    function __tmShouldPreferRemoteCollapsedSessionState(localUpdatedAt, remoteUpdatedAt) {
+        return __tmParseUpdatedAtNumber(remoteUpdatedAt) > __tmParseUpdatedAtNumber(localUpdatedAt);
     }
 
     function __tmNormalizeWhiteboardStoreData(input) {
@@ -7592,6 +7605,7 @@
             quickAddLastLocation: null,
             headingGroupCreateAtSectionEnd: false,
             enableTomatoIntegration: true,
+            docTitleEmbeddedTaskFocusEnabled: false,
             enablePointsRewardIntegration: false,
             pointsRewardExcludedGroupIds: [],
             enablePointsPenaltyIntegration: false,
@@ -7727,6 +7741,9 @@
             // 文档页签手动归档（按分组存储，仅影响未完成任务文档页签显示分区）
             // 结构: { [groupId]: ['docId1', 'docId2'] }
             docTabsManualArchivedByGroup: {},
+            // 文档页签手动移出归档（按分组存储，覆盖自动归档状态）
+            // 结构: { [groupId]: ['docId1', 'docId2'] }
+            docTabsManualUnarchivedByGroup: {},
             // 文档页签自定义分组
             // 结构: [{ id: 'uuid', name: '分组名', entries: [{ id: 'docId', includeChildren: boolean }] }]
             docTabCustomGroups: [],
@@ -8087,7 +8104,7 @@
                                     }
                                 );
                                 if (localSettingsUpdatedAt > 0 && cloudSettingsUpdatedAt < localSettingsUpdatedAt) {
-                                    if (cloudCollapseUpdatedAt > localCollapseUpdatedAt) {
+                                    if (__tmShouldPreferRemoteCollapsedSessionState(localCollapseUpdatedAt, cloudCollapseUpdatedAt)) {
                                         __tmAssignCollapsedSessionState(this.data, cloudData);
                                         this.data.collapseStateUpdatedAt = cloudCollapseUpdatedAt;
                                     }
@@ -8134,7 +8151,6 @@
                                     const cloudFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(cloudData.settingsFieldUpdatedAt, cloudData);
                                     this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(cloudFieldMap, cloudData) ? {} : cloudFieldMap;
                                 }
-                                if (cloudCollapseUpdatedAt > 0) this.data.collapseStateUpdatedAt = cloudCollapseUpdatedAt;
                                 // 应用云端数据
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.selectedDocIds)) this.data.selectedDocIds = cloudData.selectedDocIds;
                                 if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
@@ -8187,12 +8203,13 @@
                                 if (typeof cloudData.pinTasksWithinGroups === 'boolean') this.data.pinTasksWithinGroups = cloudData.pinTasksWithinGroups;
                                 if (typeof cloudData.completedTasksTodayOnly === 'boolean') this.data.completedTasksTodayOnly = cloudData.completedTasksTodayOnly;
                                 if (typeof cloudData.completedTasksInlineInGroups === 'boolean') this.data.completedTasksInlineInGroups = cloudData.completedTasksInlineInGroups;
-                                if (cloudCollapseUpdatedAt >= localCollapseUpdatedAt) {
+                                if (__tmShouldPreferRemoteCollapsedSessionState(localCollapseUpdatedAt, cloudCollapseUpdatedAt)) {
                                     if (Array.isArray(cloudData.collapsedTaskIds)) this.data.collapsedTaskIds = cloudData.collapsedTaskIds;
                                     if (Array.isArray(cloudData.kanbanCollapsedTaskIds)) this.data.kanbanCollapsedTaskIds = cloudData.kanbanCollapsedTaskIds;
                                     if (Array.isArray(cloudData.kanbanCollapsedColumnKeys)) this.data.kanbanCollapsedColumnKeys = cloudData.kanbanCollapsedColumnKeys;
                                     if (Array.isArray(cloudData.collapsedGroups)) this.data.collapsedGroups = cloudData.collapsedGroups;
                                     if (Array.isArray(cloudData.expandedCompletedGroups)) this.data.expandedCompletedGroups = cloudData.expandedCompletedGroups;
+                                    this.data.collapseStateUpdatedAt = cloudCollapseUpdatedAt;
                                 }
                                 if (cloudData.currentRule !== undefined) this.data.currentRule = cloudData.currentRule;
                                 if (cloudData.viewProfiles !== undefined) this.data.viewProfiles = cloudData.viewProfiles;
@@ -8251,6 +8268,7 @@
                                 if (cloudData.quickAddLastLocation && typeof cloudData.quickAddLastLocation === 'object') this.data.quickAddLastLocation = __tmNormalizeQuickAddLastLocation(cloudData.quickAddLastLocation);
                                 if (typeof cloudData.headingGroupCreateAtSectionEnd === 'boolean') this.data.headingGroupCreateAtSectionEnd = cloudData.headingGroupCreateAtSectionEnd;
                                 if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
+                                if (typeof cloudData.docTitleEmbeddedTaskFocusEnabled === 'boolean') this.data.docTitleEmbeddedTaskFocusEnabled = cloudData.docTitleEmbeddedTaskFocusEnabled;
                                 if (typeof cloudData.enablePointsRewardIntegration === 'boolean') this.data.enablePointsRewardIntegration = cloudData.enablePointsRewardIntegration;
                                 if (Array.isArray(cloudData.pointsRewardExcludedGroupIds)) this.data.pointsRewardExcludedGroupIds = cloudData.pointsRewardExcludedGroupIds;
                                 if (typeof cloudData.enablePointsPenaltyIntegration === 'boolean') this.data.enablePointsPenaltyIntegration = cloudData.enablePointsPenaltyIntegration;
@@ -8370,6 +8388,7 @@
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.otherBlockRefs)) this.data.otherBlockRefs = cloudData.otherBlockRefs;
                                 if (shouldApplyCloudDocGroupState && cloudData.docPinnedByGroup && typeof cloudData.docPinnedByGroup === 'object') this.data.docPinnedByGroup = cloudData.docPinnedByGroup;
                                 if (shouldApplyCloudDocGroupState && cloudData.docTabsManualArchivedByGroup && typeof cloudData.docTabsManualArchivedByGroup === 'object') this.data.docTabsManualArchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(cloudData.docTabsManualArchivedByGroup);
+                                if (shouldApplyCloudDocGroupState && cloudData.docTabsManualUnarchivedByGroup && typeof cloudData.docTabsManualUnarchivedByGroup === 'object') this.data.docTabsManualUnarchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(cloudData.docTabsManualUnarchivedByGroup);
                                 if (cloudData.currentGroupId) this.data.currentGroupId = cloudData.currentGroupId;
                                 if (cloudData.taskHeadingLevel) this.data.taskHeadingLevel = cloudData.taskHeadingLevel;
                                 if (cloudData.themeConfig && typeof cloudData.themeConfig === 'object') this.data.themeConfig = cloudData.themeConfig;
@@ -8760,6 +8779,7 @@
             this.data.docTabsAutoHideEnabled = !!Storage.get('tm_doc_tabs_auto_hide_enabled', this.data.docTabsAutoHideEnabled);
             this.data.docTabProcrastinationTintEnabled = Storage.get('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled) !== false;
             this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
+            this.data.docTitleEmbeddedTaskFocusEnabled = !!Storage.get('tm_doc_title_embedded_task_focus_enabled', this.data.docTitleEmbeddedTaskFocusEnabled);
             this.data.enablePointsRewardIntegration = !!Storage.get('tm_enable_points_reward_integration', this.data.enablePointsRewardIntegration);
             this.data.pointsRewardExcludedGroupIds = Storage.get('tm_points_reward_excluded_group_ids', this.data.pointsRewardExcludedGroupIds);
             this.data.enablePointsPenaltyIntegration = !!Storage.get('tm_enable_points_penalty_integration', this.data.enablePointsPenaltyIntegration);
@@ -8891,6 +8911,7 @@
             this.data.otherBlockRefs = Storage.get('tm_other_block_refs', this.data.otherBlockRefs) || [];
             this.data.docPinnedByGroup = Storage.get('tm_doc_pinned_by_group', this.data.docPinnedByGroup) || {};
             this.data.docTabsManualArchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(Storage.get('tm_doc_tabs_manual_archived_by_group', this.data.docTabsManualArchivedByGroup));
+            this.data.docTabsManualUnarchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(Storage.get('tm_doc_tabs_manual_unarchived_by_group', this.data.docTabsManualUnarchivedByGroup));
             this.data.currentGroupId = Storage.get('tm_current_group_id', 'all');
             this.data.customStatusOptions = Storage.get('tm_custom_status_options', this.data.customStatusOptions);
             this.data.customDurationOptions = Storage.get('tm_custom_duration_options', this.data.customDurationOptions);
@@ -9272,6 +9293,7 @@
             Storage.set('tm_doc_tabs_auto_hide_enabled', !!this.data.docTabsAutoHideEnabled);
             Storage.set('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled !== false);
             Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
+            Storage.set('tm_doc_title_embedded_task_focus_enabled', !!this.data.docTitleEmbeddedTaskFocusEnabled);
             Storage.set('tm_enable_points_reward_integration', !!this.data.enablePointsRewardIntegration);
             Storage.set('tm_points_reward_excluded_group_ids', Array.isArray(this.data.pointsRewardExcludedGroupIds) ? this.data.pointsRewardExcludedGroupIds : []);
             Storage.set('tm_enable_points_penalty_integration', !!this.data.enablePointsPenaltyIntegration);
@@ -9391,6 +9413,7 @@
             else Storage.remove('tm_other_block_refs');
             Storage.set('tm_doc_pinned_by_group', this.data.docPinnedByGroup || {});
             Storage.set('tm_doc_tabs_manual_archived_by_group', __tmNormalizeDocTabsManualArchivedByGroup(this.data.docTabsManualArchivedByGroup));
+            Storage.set('tm_doc_tabs_manual_unarchived_by_group', __tmNormalizeDocTabsManualArchivedByGroup(this.data.docTabsManualUnarchivedByGroup));
             Storage.set('tm_current_group_id', this.data.currentGroupId);
             __tmNormalizeCheckboxStatusBindingConfig(this.data);
             Storage.set('tm_custom_status_options', this.data.customStatusOptions);
@@ -9606,6 +9629,7 @@
             });
             this.data.docPinnedByGroup = normalizedPinMap;
             this.data.docTabsManualArchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(this.data.docTabsManualArchivedByGroup);
+            this.data.docTabsManualUnarchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(this.data.docTabsManualUnarchivedByGroup);
             const seed = Number(this.data.docColorSeed);
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
             this.data.docDefaultColorScheme.seed = this.data.docColorSeed;
@@ -9930,7 +9954,7 @@
                         this.data.docGroupSettingsUpdatedAt = remoteDocGroupUpdatedAt;
                     }
                 }
-                if (remoteCollapseUpdatedAt > loadedCollapseUpdatedAt && !collapseChangedLocal) {
+                if (__tmShouldPreferRemoteCollapsedSessionState(loadedCollapseUpdatedAt, remoteCollapseUpdatedAt) && !collapseChangedLocal) {
                     __tmAssignCollapsedSessionState(this.data, remoteSettings);
                     this.data.collapseStateUpdatedAt = remoteCollapseUpdatedAt;
                 }
@@ -10136,6 +10160,7 @@
                 this.data.whiteboardGlobalBoardsByGroup = cleanMap(this.data.whiteboardGlobalBoardsByGroup);
                 this.data.whiteboardAllTabsDocOrderByGroup = cleanMap(this.data.whiteboardAllTabsDocOrderByGroup);
                 this.data.docTabsManualArchivedByGroup = cleanMap(this.data.docTabsManualArchivedByGroup);
+                this.data.docTabsManualUnarchivedByGroup = cleanMap(this.data.docTabsManualUnarchivedByGroup);
                 const removedIdSet = new Set(removedIds);
                 this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(this.data.docTabCustomGroups)
                     .filter((group) => !removedIdSet.has(__tmGetDocTabCustomGroupScopeId(group)));
@@ -11641,6 +11666,34 @@
     let __tmTxTaskRefreshInFlight = false;
     let __tmWsTaskTxBatchTimer = null;
     let __tmWsTaskTxBatch = null;
+    const __TM_TASK_TX_OPERATION_LIMIT = 240;
+    const __TM_TASK_TX_BLOCK_ID_LIMIT = 256;
+    const __TM_TASK_TX_DOC_ID_LIMIT = 32;
+    const __TM_TASK_TX_DEBOUNCE_MS = 180;
+    const __TM_TASK_TX_MAX_WAIT_MS = 800;
+    const __TM_TASK_TX_MAX_REFRESH_ATTEMPTS = 3;
+    let __tmTxTaskRefreshGeneration = 0;
+    let __tmTxTaskRefreshAttemptCount = 0;
+    let __tmTxTaskRefreshMeta = {
+        structural: false,
+        committed: false,
+        truncated: false,
+        wholeScopeDirty: false,
+        hiddenDocOnly: false,
+    };
+    function __tmHasActiveLocalTaskFieldWrite(taskId, fieldKeys = []) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        try {
+            if (typeof __tmHasPendingTaskFieldPersistence === 'function'
+                && __tmHasPendingTaskFieldPersistence(tid, fieldKeys)) return true;
+        } catch (e) {}
+        try {
+            if (typeof __tmMutationEngine !== 'undefined'
+                && __tmMutationEngine?.isTaskSuppressed?.(tid) === true) return true;
+        } catch (e) {}
+        return false;
+    }
     const __tmExternalTaskTxBurstState = {
         timestamps: [],
         quietUntil: 0,
@@ -12574,6 +12627,9 @@
                 __tmClearLocalDoneTxSuppression();
                 return false;
             }
+            // Content edits can target the same task while done suppression is armed.
+            // Only explicit attribute transactions are safe to identify as local done echoes.
+            if (!__tmHasOnlyAttrOperationsInTx(payload)) return false;
             const blockIds = Array.from(__tmExtractBlockIdsFromTx(payload) || [])
                 .map((id) => String(id || '').trim())
                 .filter(Boolean);
@@ -12582,14 +12638,7 @@
                 .filter(Boolean);
             const updates = __tmExtractAttrUpdatesFromTx(payload);
             const keys = updates.map((update) => String(update?.key || '').trim()).filter(Boolean);
-            const hasMatchingBlockId = blockIds.some((id) => __tmLocalDoneTxSuppressBlockIds.has(id));
-            const hasMatchingDocIds = docIds.length > 0 && docIds.every((id) => __tmLocalDoneTxSuppressDocIds.has(id));
-            if (!updates.length) {
-                if (hasMatchingBlockId || hasMatchingDocIds) {
-                    return true;
-                }
-                return false;
-            }
+            if (!updates.length) return false;
             const allowedFields = new Set(['customStatus', 'taskCompleteAt']);
             if (updates.length && !updates.every((update) => allowedFields.has(__tmResolveTaskMetaFieldByAttrKey(update?.key)))) {
                 return false;
@@ -14811,6 +14860,7 @@
                 __tmWsTaskTxBatchTimer = null;
             }
             __tmWsTaskTxBatch = null;
+            __tmClearPendingTxRefreshTargets();
         } catch (e) {}
     }
 
@@ -15433,9 +15483,14 @@
                 const s = String(x || '').trim();
                 if (/^[0-9]+-[a-zA-Z0-9]+$/.test(s)) out.add(s);
             });
+            (Array.isArray(v.rootIDs) ? v.rootIDs : []).forEach((x) => {
+                const s = String(x || '').trim();
+                if (/^[0-9]+-[a-zA-Z0-9]+$/.test(s)) out.add(s);
+            });
             const next = [
                 v.data,
                 v.detail,
+                v.context,
                 v.tx,
                 v.payload,
                 v.rows,
@@ -15452,6 +15507,96 @@
         };
         walk(payload, 0);
         return out;
+    }
+
+    function __tmAddBoundedTaskTxIds(target, values, limit) {
+        const max = Math.max(1, Number(limit) || 1);
+        for (const value of values || []) {
+            const id = String(value || '').trim();
+            if (!__tmIsLikelyBlockId(id) || target.has(id)) continue;
+            if (target.size >= max) return false;
+            target.add(id);
+        }
+        return true;
+    }
+
+    function __tmGetWsMainTaskTxDetail(msg) {
+        const detail = (msg?.detail && typeof msg.detail === 'object') ? msg.detail : msg;
+        return (detail && typeof detail === 'object') ? detail : {};
+    }
+
+    function __tmSummarizeWsMainTaskTx(msg) {
+        const detail = __tmGetWsMainTaskTxDetail(msg);
+        const cmd = String(detail?.cmd || msg?.cmd || '').trim().toLowerCase();
+        const docIds = new Set();
+        const blockIds = new Set();
+        let structural = false;
+        let truncated = false;
+        let operationCount = 0;
+        let wholeScopeDirty = false;
+        const addDocIds = (values) => {
+            if (!__tmAddBoundedTaskTxIds(docIds, values, __TM_TASK_TX_DOC_ID_LIMIT)) {
+                wholeScopeDirty = true;
+                docIds.clear();
+            }
+        };
+        const addBlockIds = (values) => {
+            if (!__tmAddBoundedTaskTxIds(blockIds, values, __TM_TASK_TX_BLOCK_ID_LIMIT)) {
+                truncated = true;
+                blockIds.clear();
+            }
+        };
+        const contexts = [detail?.context, msg?.context].filter((value) => value && typeof value === 'object');
+        contexts.forEach((context) => {
+            addDocIds(Array.isArray(context.rootIDs) ? context.rootIDs : []);
+            addDocIds([context.rootID, context.rootId, context.root_id]);
+        });
+        const transactions = Array.isArray(detail?.data) ? detail.data : [];
+        outer: for (const tx of transactions) {
+            const txContext = (tx?.context && typeof tx.context === 'object') ? tx.context : {};
+            addDocIds(Array.isArray(txContext.rootIDs) ? txContext.rootIDs : []);
+            addDocIds([tx?.rootID, tx?.rootId, tx?.root_id]);
+            const operationLists = [tx?.doOperations, tx?.undoOperations];
+            for (const operations of operationLists) {
+                for (const operation of (Array.isArray(operations) ? operations : [])) {
+                    if (operationCount >= __TM_TASK_TX_OPERATION_LIMIT) {
+                        truncated = true;
+                        structural = true;
+                        break outer;
+                    }
+                    operationCount += 1;
+                    const action = String(operation?.action || '').trim().toLowerCase();
+                    if (/(?:insert|delete|move|append|prepend|merge|split|turn)/.test(action)) structural = true;
+                    addDocIds([operation?.rootID, operation?.rootId, operation?.root_id]);
+                    addBlockIds([
+                        operation?.id,
+                        operation?.blockID,
+                        operation?.blockId,
+                        operation?.parentID,
+                        operation?.parentId,
+                        operation?.previousID,
+                        operation?.previousId,
+                        operation?.nextID,
+                        operation?.nextId,
+                    ]);
+                    addBlockIds(Array.isArray(operation?.srcIDs) ? operation.srcIDs : []);
+                    if (truncated) break outer;
+                }
+            }
+        }
+        if (!docIds.size && !wholeScopeDirty) {
+            try { addDocIds(__tmExtractDocIdsFromTx(msg)); } catch (e) {}
+        }
+        return {
+            cmd,
+            docIds,
+            blockIds,
+            structural,
+            truncated,
+            wholeScopeDirty,
+            committed: cmd === 'transactions',
+            operationCount,
+        };
     }
 
     function __tmExtractBlockIdsFromTx(payload) {
@@ -15576,27 +15721,7 @@
 
     function __tmShouldIgnoreWsMainTaskRefreshMessage(msg) {
         const cmd = String(msg?.detail?.cmd || msg?.cmd || '').trim().toLowerCase();
-        if (cmd && cmd !== 'transactions' && cmd !== 'savedoc') return true;
-        if (cmd === 'savedoc') {
-            const saveType = String(
-                msg?.detail?.data?.type
-                || msg?.data?.type
-                || msg?.detail?.type
-                || msg?.type
-                || ''
-            ).trim().toLowerCase();
-            // SiYuan kernel pushes `savedoc(type=tx)` after transaction commit.
-            // The task plugin already reacts to the preceding `transactions` event.
-            // Some document-side edits only surface here, so keep loaded task scopes dirty
-            // when the save payload points at the currently loaded document.
-            if (!saveType || saveType === 'tx') {
-                try {
-                    if (__tmTxTargetsAffectLoadedScope(__tmCollectTxRefreshTargets(msg))) return false;
-                } catch (e) {}
-                return true;
-            }
-        }
-        return false;
+        return cmd !== 'transactions';
     }
 
     async function __tmResolveDocIdsFromBlockIds(blockIds) {
@@ -15631,15 +15756,26 @@
         return out;
     }
 
-    function __tmRememberPendingTxRefreshTargets(docIds = [], blockIds = []) {
-        (Array.isArray(docIds) ? docIds : []).forEach((docId) => {
-            const did = String(docId || '').trim();
-            if (did && __tmIsLikelyBlockId(did)) __tmTxTaskRefreshDocIds.add(did);
-        });
-        (Array.isArray(blockIds) ? blockIds : []).forEach((blockId) => {
-            const bid = String(blockId || '').trim();
-            if (bid && __tmIsLikelyBlockId(bid)) __tmTxTaskRefreshBlockIds.add(bid);
-        });
+    function __tmRememberPendingTxRefreshTargets(docIds = [], blockIds = [], options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!__tmAddBoundedTaskTxIds(__tmTxTaskRefreshDocIds, docIds, __TM_TASK_TX_DOC_ID_LIMIT)) {
+            __tmTxTaskRefreshDocIds.clear();
+            __tmTxTaskRefreshMeta.wholeScopeDirty = true;
+        }
+        if (opts.hiddenDocOnly === true) {
+            __tmTxTaskRefreshBlockIds.clear();
+            __tmTxTaskRefreshMeta.hiddenDocOnly = true;
+        } else if (!__tmAddBoundedTaskTxIds(__tmTxTaskRefreshBlockIds, blockIds, __TM_TASK_TX_BLOCK_ID_LIMIT)) {
+            __tmTxTaskRefreshBlockIds.clear();
+            __tmTxTaskRefreshMeta.truncated = true;
+            __tmTxTaskRefreshMeta.structural = true;
+        }
+        __tmTxTaskRefreshMeta.structural = __tmTxTaskRefreshMeta.structural || opts.structural === true;
+        __tmTxTaskRefreshMeta.committed = __tmTxTaskRefreshMeta.committed || opts.committed === true;
+        __tmTxTaskRefreshMeta.truncated = __tmTxTaskRefreshMeta.truncated || opts.truncated === true;
+        __tmTxTaskRefreshMeta.wholeScopeDirty = __tmTxTaskRefreshMeta.wholeScopeDirty || opts.wholeScopeDirty === true;
+        __tmTxTaskRefreshGeneration += 1;
+        __tmTxTaskRefreshAttemptCount = 0;
     }
 
     function __tmCollectTxRefreshTargets(payload = null, options = {}) {
@@ -15698,6 +15834,8 @@
         return {
             docIds: Array.from(__tmTxTaskRefreshDocIds),
             blockIds: Array.from(__tmTxTaskRefreshBlockIds),
+            generation: __tmTxTaskRefreshGeneration,
+            meta: { ...__tmTxTaskRefreshMeta },
         };
     }
 
@@ -15706,8 +15844,18 @@
         if (!next) {
             __tmTxTaskRefreshDocIds.clear();
             __tmTxTaskRefreshBlockIds.clear();
-            return;
+            __tmTxTaskRefreshMeta = {
+                structural: false,
+                committed: false,
+                truncated: false,
+                wholeScopeDirty: false,
+                hiddenDocOnly: false,
+            };
+            __tmTxTaskRefreshAttemptCount = 0;
+            return true;
         }
+        const generation = Number(next.generation) || 0;
+        if (generation && generation !== __tmTxTaskRefreshGeneration) return false;
         (Array.isArray(next.docIds) ? next.docIds : []).forEach((docId) => {
             const did = String(docId || '').trim();
             if (did) __tmTxTaskRefreshDocIds.delete(did);
@@ -15716,6 +15864,14 @@
             const bid = String(blockId || '').trim();
             if (bid) __tmTxTaskRefreshBlockIds.delete(bid);
         });
+        __tmTxTaskRefreshMeta = {
+            structural: false,
+            committed: false,
+            truncated: false,
+            wholeScopeDirty: false,
+            hiddenDocOnly: false,
+        };
+        return true;
     }
 
     async function __tmResolveIncrementalRefreshDocIds(docIds = [], blockIds = [], options = {}) {
@@ -15775,10 +15931,15 @@
         const maxTasks = Math.max(1, Math.floor(Number(opts.maxTasks || 8) || 8));
         const ids = Array.from(new Set((Array.isArray(blockIds) ? blockIds : [])
             .map((id) => String(id || '').trim())
-            .filter((id) => __tmIsLikelyBlockId(id))));
+            .filter((id) => __tmIsLikelyBlockId(id))))
+            .slice(0, __TM_TASK_TX_BLOCK_ID_LIMIT);
         const out = [];
         const seen = new Set();
+        const affectedDocIds = new Set();
+        const unresolvedBlockIds = [];
         let needsDocRefresh = false;
+        let hasTaskImpact = false;
+        let resolutionFailed = false;
         const loadedDocIds = new Set(
             ((Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0)
                 ? state.__tmLoadedDocIdsForTasks
@@ -15786,14 +15947,20 @@
                 .map((id) => String(id || '').trim())
                 .filter((id) => __tmIsLikelyBlockId(id))
         );
-        const pushTaskId = (taskId0) => {
+        const activeDocId = String(state.activeDocId || '').trim();
+        if (__tmIsLikelyBlockId(activeDocId)) loadedDocIds.add(activeDocId);
+        const pushTaskId = (taskId0, docId0 = '') => {
             const taskId = String(taskId0 || '').trim();
             if (!__tmIsLikelyBlockId(taskId) || seen.has(taskId)) return;
+            const loadedTask = state.flatTasks?.[taskId] || null;
+            const docId = String(docId0 || loadedTask?.root_id || loadedTask?.docId || '').trim();
+            if (docId && loadedDocIds.size > 0 && !loadedDocIds.has(docId)) return;
+            if (docId) affectedDocIds.add(docId);
+            hasTaskImpact = true;
             if (seen.size >= maxTasks) {
                 needsDocRefresh = true;
                 return;
             }
-            const loadedTask = state.flatTasks?.[taskId] || null;
             if (!loadedTask) {
                 needsDocRefresh = true;
                 return;
@@ -15802,35 +15969,131 @@
             out.push(taskId);
         };
         for (const blockId of ids) {
-            if (seen.size > maxTasks) {
-                needsDocRefresh = true;
-                break;
-            }
             if (loadedDocIds.has(blockId)) continue;
             let localBinding = null;
             try { localBinding = __tmResolveLocalTaskBindingFromAnyBlockId(blockId); } catch (e) { localBinding = null; }
             const localTaskId = String(localBinding?.taskId || '').trim();
             if (localTaskId) {
-                pushTaskId(localTaskId);
+                pushTaskId(localTaskId, localBinding?.task?.root_id || localBinding?.task?.docId);
                 continue;
             }
-            let directRow = null;
-            try { directRow = await API.getTaskById(blockId); } catch (e) { directRow = null; }
-            if (directRow && typeof directRow === 'object') {
-                const directTaskId = String(directRow.id || blockId).trim();
-                if (state.flatTasks?.[directTaskId]) pushTaskId(directTaskId);
-                else needsDocRefresh = true;
-                continue;
+            unresolvedBlockIds.push(blockId);
+        }
+        if (unresolvedBlockIds.length > 0) {
+            let impacts = [];
+            try {
+                if (!API || typeof API.resolveTaskChangeImpacts !== 'function') throw new Error('task impact resolver unavailable');
+                impacts = await API.resolveTaskChangeImpacts(unresolvedBlockIds);
+            } catch (e) {
+                impacts = [];
+                resolutionFailed = true;
             }
-            let resolvedTaskId = '';
-            try { resolvedTaskId = await __tmResolveTaskIdFromAnyBlockId(blockId); } catch (e) { resolvedTaskId = ''; }
-            if (resolvedTaskId) {
-                pushTaskId(resolvedTaskId);
-            }
+            (Array.isArray(impacts) ? impacts : []).forEach((impact) => {
+                const docId = String(impact?.docId || '').trim();
+                if (docId && loadedDocIds.has(docId)) affectedDocIds.add(docId);
+                const taskId = String(impact?.taskId || '').trim();
+                if (taskId) pushTaskId(taskId, docId);
+            });
         }
         return {
             taskIds: out,
             needsDocRefresh: needsDocRefresh || out.length > maxTasks,
+            hasTaskImpact,
+            docIds: Array.from(affectedDocIds),
+            resolutionFailed,
+        };
+    }
+
+    function __tmGetLoadedTaskScopeDocIds() {
+        const loadedDocIds = new Set(
+            ((Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0)
+                ? state.__tmLoadedDocIdsForTasks
+                : (Array.isArray(state.taskTree) ? state.taskTree.map((doc) => doc?.id) : []))
+                .map((id) => String(id || '').trim())
+                .filter((id) => __tmIsLikelyBlockId(id))
+        );
+        const activeDocId = String(state.activeDocId || '').trim();
+        if (__tmIsLikelyBlockId(activeDocId)) loadedDocIds.add(activeDocId);
+        return loadedDocIds;
+    }
+
+    async function __tmClassifyPendingTaskTxRefresh(targets = {}) {
+        const raw = (targets && typeof targets === 'object') ? targets : {};
+        const meta = (raw.meta && typeof raw.meta === 'object') ? raw.meta : {};
+        const loadedDocIds = __tmGetLoadedTaskScopeDocIds();
+        const docIds = new Set((Array.isArray(raw.docIds) ? raw.docIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => loadedDocIds.has(id)));
+        const blockIds = Array.from(new Set((Array.isArray(raw.blockIds) ? raw.blockIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => __tmIsLikelyBlockId(id))))
+            .slice(0, __TM_TASK_TX_BLOCK_ID_LIMIT);
+        if (meta.wholeScopeDirty === true) {
+            return {
+                relevant: loadedDocIds.size > 0,
+                docIds: Array.from(loadedDocIds),
+                blockIds: [],
+                resolvedTaskIds: [],
+                forceDocRefresh: true,
+                committed: meta.committed === true,
+            };
+        }
+        if (meta.hiddenDocOnly === true) {
+            return {
+                relevant: docIds.size > 0,
+                docIds: Array.from(docIds),
+                blockIds: [],
+                resolvedTaskIds: [],
+                forceDocRefresh: true,
+                committed: meta.committed === true,
+            };
+        }
+        if (!blockIds.length) {
+            const forceDocRefresh = meta.structural === true || meta.truncated === true;
+            return {
+                relevant: forceDocRefresh && docIds.size > 0,
+                docIds: Array.from(docIds),
+                blockIds: [],
+                resolvedTaskIds: [],
+                forceDocRefresh,
+                committed: meta.committed === true,
+            };
+        }
+        const maxTasks = Math.max(1, Math.floor(Number(__tmGetPerfTuningOptions()?.taskBlockIncrementalMaxTasks) || 8));
+        const resolved = await __tmResolveLoadedTaskIdsFromBlockIds(blockIds, { maxTasks });
+        (Array.isArray(resolved?.docIds) ? resolved.docIds : []).forEach((docId) => {
+            const did = String(docId || '').trim();
+            if (loadedDocIds.has(did)) docIds.add(did);
+        });
+        if (resolved?.resolutionFailed) {
+            return {
+                relevant: docIds.size > 0,
+                docIds: Array.from(docIds),
+                blockIds,
+                resolvedTaskIds: [],
+                forceDocRefresh: true,
+                committed: meta.committed === true,
+            };
+        }
+        if (!resolved?.hasTaskImpact) {
+            const forceDocRefresh = meta.truncated === true;
+            return {
+                relevant: forceDocRefresh && docIds.size > 0,
+                docIds: Array.from(docIds),
+                blockIds: [],
+                resolvedTaskIds: [],
+                forceDocRefresh,
+                committed: meta.committed === true,
+            };
+        }
+        const forceDocRefresh = meta.structural === true || meta.truncated === true || resolved.needsDocRefresh === true;
+        return {
+            relevant: true,
+            docIds: Array.from(docIds),
+            blockIds,
+            resolvedTaskIds: Array.isArray(resolved.taskIds) ? resolved.taskIds.slice() : [],
+            forceDocRefresh,
+            committed: meta.committed === true,
         };
     }
 
@@ -15887,6 +16150,40 @@
             try { __tmApplyTaskHeadingContext(task, ''); } catch (e) {}
         }
         return task;
+    }
+
+    function __tmReadLiveDocumentTaskContentPatch(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid || typeof document === 'undefined') return null;
+        let taskItem = null;
+        try { taskItem = globalThis.__tmCompat?.findTaskListItemById?.(tid) || null; } catch (e) { taskItem = null; }
+        if (!(taskItem instanceof Element) || !taskItem.closest?.('.protyle')) return null;
+        const contentBlock = Array.from(taskItem.children || []).find((child) => {
+            if (!(child instanceof Element)) return false;
+            const type = String(child.getAttribute('data-type') || '').trim();
+            return !!type && type !== 'NodeList' && type !== 'NodeListItem';
+        });
+        if (!(contentBlock instanceof Element)) return null;
+        const editable = contentBlock.matches?.('[contenteditable="true"]')
+            ? contentBlock
+            : contentBlock.querySelector?.('[contenteditable="true"]');
+        const contentNode = editable instanceof Element ? editable : contentBlock;
+        const content = String(contentNode.textContent || '')
+            .replace(/[\u200B\uFEFF]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const inlineHtml = String(contentNode.innerHTML || '').trim();
+        const actionUse = taskItem.querySelector?.('.protyle-action--task use');
+        const actionHref = String(actionUse?.getAttribute?.('href') || actionUse?.getAttribute?.('xlink:href') || '').trim();
+        const done = taskItem.classList?.contains?.('protyle-task--done') || actionHref === '#iconCheck';
+        const marker = done ? 'x' : ' ';
+        return {
+            content,
+            markdown: `- [${marker}] ${inlineHtml || content}`,
+            done: !!done,
+            taskMarker: marker,
+            task_marker: marker,
+        };
     }
 
     function __tmCanPatchTaskBlockIncrementally(prevTask, nextTask) {
@@ -16051,7 +16348,7 @@
                 if (touched) touchedAny = true;
             } catch (e) {}
         });
-        if (!hadEffectivePatch) return false;
+        if (!hadEffectivePatch) return true;
         return touchedAny;
     }
 
@@ -16062,15 +16359,22 @@
         const viewMode = String(state.viewMode || '').trim();
         if (!state.modal || !document.body.contains(state.modal)) return false;
         if (viewMode === 'calendar') return false;
-        try { await __tmFlushSqlTransactionsSafe('task-block-incremental-refresh'); } catch (e) {}
+        if (opts.committed !== true) {
+            try { await __tmFlushSqlTransactionsSafe('task-block-incremental-refresh'); } catch (e) {}
+        }
         const rawBlockIds = Array.isArray(opts.blockIds) ? opts.blockIds : [];
         const blockIds = Array.from(new Set(rawBlockIds
             .map((id) => String(id || '').trim())
             .filter((id) => __tmIsLikelyBlockId(id))));
-        if (!blockIds.length) return false;
+        const preResolvedTaskIds = Array.from(new Set((Array.isArray(opts.resolvedTaskIds) ? opts.resolvedTaskIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => __tmIsLikelyBlockId(id))));
+        if (!blockIds.length && !preResolvedTaskIds.length) return false;
         const maxTasks = Math.max(1, Math.floor(Number(cfg.taskBlockIncrementalMaxTasks) || 8));
         if (blockIds.length > maxTasks * 4) return false;
-        const resolved = await __tmResolveLoadedTaskIdsFromBlockIds(blockIds, { maxTasks });
+        const resolved = preResolvedTaskIds.length > 0
+            ? { taskIds: preResolvedTaskIds, needsDocRefresh: opts.forceDocRefresh === true }
+            : await __tmResolveLoadedTaskIdsFromBlockIds(blockIds, { maxTasks });
         const taskIds = Array.isArray(resolved?.taskIds) ? resolved.taskIds : [];
         if (resolved?.needsDocRefresh || taskIds.length === 0 || taskIds.length > maxTasks) return false;
         const patches = [];
@@ -16098,10 +16402,36 @@
             const prevTask = slot?.task || state.flatTasks?.[taskId] || null;
             if (!slot || !prevTask) return false;
             let row = null;
-            try { row = await API.getTaskById(taskId); } catch (e) { row = null; }
-            if (!row || typeof row !== 'object') return false;
+            try { row = await API.getTaskById(taskId); } catch (e) {
+                row = null;
+            }
+            if (!row || typeof row !== 'object') {
+                return false;
+            }
             const nextTask = __tmPrepareTaskBlockIncrementalRow(row, prevTask, normalizeTaskOptions);
-            try { __tmMergeLocalTaskPatchIntoTask(nextTask); } catch (e) {}
+            const documentContentPatch = opts.committed === true
+                ? __tmReadLiveDocumentTaskContentPatch(taskId)
+                : null;
+            if (documentContentPatch) {
+                nextTask.content = documentContentPatch.content;
+                nextTask.raw_content = documentContentPatch.content;
+                nextTask.markdown = documentContentPatch.markdown;
+                nextTask.done = documentContentPatch.done;
+                nextTask.taskMarker = documentContentPatch.taskMarker;
+                nextTask.task_marker = documentContentPatch.task_marker;
+            }
+            const keepCommittedContent = opts.committed !== true
+                || __tmHasActiveLocalTaskFieldWrite(taskId, ['content', 'markdown']);
+            if (opts.committed === true && !keepCommittedContent) {
+                try { __tmClearLocalTaskPatchWatermark(taskId, { content: '', markdown: '' }); } catch (e) {}
+            }
+            try {
+                __tmMergeLocalTaskPatchIntoTask(nextTask, {
+                    excludeFields: opts.committed === true && !keepCommittedContent
+                        ? ['content', 'markdown']
+                        : [],
+                });
+            } catch (e) {}
             if (!nextTask || !__tmCanPatchTaskBlockIncrementally(prevTask, nextTask)) return false;
             const visiblePatch = __tmBuildTaskBlockVisibleDomPatch(prevTask, nextTask);
             if (visiblePatch === null) return false;
@@ -16313,9 +16643,11 @@
             if (!renderWindowSnapshot) return;
             try { __tmRestoreViewRenderWindow(renderWindowSnapshot, state.filteredTasks.length); } catch (e) {}
         };
-        try { await __tmFlushSqlTransactionsSafe('doc-incremental-refresh'); } catch (e) {}
+        if (opts.committed !== true) {
+            try { await __tmFlushSqlTransactionsSafe('doc-incremental-refresh'); } catch (e) {}
+        }
         const forcePositionRank = opts.forcePositionRank === true;
-        if (!forcePositionRank) {
+        if (!forcePositionRank && opts.forceDocRefresh !== true) {
             try {
                 const taskBlockOk = await __tmRefreshAffectedTaskBlocksIncrementally(opts);
                 if (taskBlockOk) {
@@ -17236,37 +17568,49 @@
 
     function __tmScheduleBatchedTaskIncrementalRefreshFromTx(payload, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const targets = __tmCollectTxRefreshTargets(payload, opts);
-        if ((!targets.docIds || targets.docIds.size === 0) && (!targets.blockIds || targets.blockIds.size === 0)) return false;
+        const targets = opts.targets && typeof opts.targets === 'object'
+            ? opts.targets
+            : __tmCollectTxRefreshTargets(payload, opts);
+        const wholeScopeDirty = opts.wholeScopeDirty === true || targets?.wholeScopeDirty === true;
+        if ((!targets.docIds || targets.docIds.size === 0)
+            && (!targets.blockIds || targets.blockIds.size === 0)
+            && !wholeScopeDirty) return false;
+        const now = Date.now();
         if (!__tmWsTaskTxBatch) {
             __tmWsTaskTxBatch = {
                 docIds: new Set(),
                 blockIds: new Set(),
-                insertedBlockIds: new Set(),
-                delayMs: 80,
+                firstSeenAt: now,
                 source: 'ws-main-batch',
                 forceImmediate: false,
+                structural: false,
+                committed: false,
+                truncated: false,
+                wholeScopeDirty: false,
             };
         }
-        targets.docIds.forEach((docId) => __tmWsTaskTxBatch.docIds.add(docId));
-        targets.blockIds.forEach((blockId) => __tmWsTaskTxBatch.blockIds.add(blockId));
-        targets.insertedBlockIds.forEach((blockId) => __tmWsTaskTxBatch.insertedBlockIds.add(blockId));
-        const forceNow = opts.forceImmediate === true || opts.force === true;
-        let quietWaitMs = 0;
-        if (!forceNow) {
-            try { quietWaitMs = Number(__tmGetExternalTaskTxQuietWaitMs(96)) || 0; } catch (e) { quietWaitMs = 0; }
+        if (!__tmAddBoundedTaskTxIds(__tmWsTaskTxBatch.docIds, targets.docIds || [], __TM_TASK_TX_DOC_ID_LIMIT)) {
+            __tmWsTaskTxBatch.docIds.clear();
+            __tmWsTaskTxBatch.wholeScopeDirty = true;
         }
-        const nextDelayMs = forceNow
-            ? 0
-            : Math.max(0, Number(opts.delayMs ?? 80) || 80, quietWaitMs);
-        __tmWsTaskTxBatch.delayMs = quietWaitMs > 0
-            ? Math.max(Number(__tmWsTaskTxBatch.delayMs ?? 80), nextDelayMs)
-            : Math.min(Number(__tmWsTaskTxBatch.delayMs ?? 80), nextDelayMs);
+        if (!__tmAddBoundedTaskTxIds(__tmWsTaskTxBatch.blockIds, targets.blockIds || [], __TM_TASK_TX_BLOCK_ID_LIMIT)) {
+            __tmWsTaskTxBatch.blockIds.clear();
+            __tmWsTaskTxBatch.truncated = true;
+            __tmWsTaskTxBatch.structural = true;
+        }
+        const forceNow = opts.forceImmediate === true || opts.force === true;
         __tmWsTaskTxBatch.forceImmediate = __tmWsTaskTxBatch.forceImmediate || forceNow;
+        __tmWsTaskTxBatch.structural = __tmWsTaskTxBatch.structural || opts.structural === true || targets?.structural === true;
+        __tmWsTaskTxBatch.committed = __tmWsTaskTxBatch.committed || opts.committed === true || targets?.committed === true;
+        __tmWsTaskTxBatch.truncated = __tmWsTaskTxBatch.truncated || opts.truncated === true || targets?.truncated === true;
+        __tmWsTaskTxBatch.wholeScopeDirty = __tmWsTaskTxBatch.wholeScopeDirty || wholeScopeDirty;
         const source = String(opts.source || '').trim();
         if (source) __tmWsTaskTxBatch.source = source;
-        if (__tmWsTaskTxBatchTimer) return true;
-        const flushDelayMs = Math.max(0, Number(opts.flushDelayMs ?? 16) || 16, quietWaitMs > 0 ? Math.min(240, quietWaitMs) : 0);
+        try {
+            if (__tmWsTaskTxBatchTimer) clearTimeout(__tmWsTaskTxBatchTimer);
+        } catch (e) {}
+        const ageMs = Math.max(0, now - (Number(__tmWsTaskTxBatch.firstSeenAt) || now));
+        const flushDelayMs = forceNow ? 0 : Math.max(0, Math.min(__TM_TASK_TX_DEBOUNCE_MS, __TM_TASK_TX_MAX_WAIT_MS - ageMs));
         __tmWsTaskTxBatchTimer = setTimeout(() => {
             __tmWsTaskTxBatchTimer = null;
             const batch = __tmWsTaskTxBatch;
@@ -17275,10 +17619,13 @@
             __tmScheduleTaskIncrementalRefreshFromTx(null, {
                 docIds: Array.from(batch.docIds || []),
                 blockIds: Array.from(batch.blockIds || []),
-                insertedBlockIds: Array.from(batch.insertedBlockIds || []),
-                delayMs: Number(batch.delayMs ?? 0),
+                delayMs: 0,
                 source: String(batch.source || 'ws-main-batch').trim() || 'ws-main-batch',
                 forceImmediate: batch.forceImmediate === true,
+                structural: batch.structural === true,
+                committed: batch.committed === true,
+                truncated: batch.truncated === true,
+                wholeScopeDirty: batch.wholeScopeDirty === true,
             });
         }, flushDelayMs);
         return true;
@@ -17289,22 +17636,36 @@
         const targets = __tmCollectTxRefreshTargets(payload, opts);
         const docIds = targets.docIds;
         const blockIds = targets.blockIds;
-        const insertedBlockIds = targets.insertedBlockIds;
-        if ((!docIds || docIds.size === 0) && (!blockIds || blockIds.size === 0)) return;
-        __tmRememberPendingTxRefreshTargets(Array.from(docIds || []), Array.from(blockIds || []));
+        const wholeScopeDirty = opts.wholeScopeDirty === true || targets?.wholeScopeDirty === true;
+        if ((!docIds || docIds.size === 0) && (!blockIds || blockIds.size === 0) && !wholeScopeDirty) return;
+        const hidden = opts.hiddenDocOnly === true
+            || (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow());
+        __tmRememberPendingTxRefreshTargets(
+            Array.from(docIds || []),
+            hidden ? [] : Array.from(blockIds || []),
+            {
+                structural: opts.structural === true || targets?.structural === true,
+                committed: opts.committed === true || targets?.committed === true,
+                truncated: opts.truncated === true || targets?.truncated === true,
+                wholeScopeDirty,
+                hiddenDocOnly: hidden,
+            }
+        );
         __tmMarkExternalTaskTxDirty();
+        if (hidden) return;
         try {
             if (__tmTxTaskRefreshTimer) clearTimeout(__tmTxTaskRefreshTimer);
         } catch (e) {}
+        const requestedDelayMs = Number(opts.delayMs);
         const delayMs = (opts.forceImmediate === true || opts.force === true)
             ? 0
-            : Math.max(0, Number(opts.delayMs ?? 280) || 280);
+            : (Number.isFinite(requestedDelayMs) ? Math.max(0, requestedDelayMs) : 280);
         const flushOptions = {
             source: String(opts.source || 'ws-main').trim() || 'ws-main',
             forceImmediate: opts.forceImmediate === true || opts.force === true,
             force: opts.force === true,
             ignoreContextQuiet: opts.ignoreContextQuiet === true,
-            bypassThrottle: opts.bypassThrottle === true,
+            bypassThrottle: opts.bypassThrottle === true || opts.committed === true,
         };
         __tmTxTaskRefreshTimer = setTimeout(() => {
             __tmTxTaskRefreshTimer = null;
@@ -17316,9 +17677,11 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const sourceLabel = String(opts.source || 'ws-main').trim() || 'ws-main';
         const forceImmediate = opts.force === true || opts.forceImmediate === true;
+        const pendingTargets = __tmSnapshotPendingTxRefreshTargets();
+        const committed = pendingTargets?.meta?.committed === true;
         const retryOptions = {
             ignoreContextQuiet: opts.ignoreContextQuiet === true || forceImmediate,
-            bypassThrottle: opts.bypassThrottle === true || forceImmediate,
+            bypassThrottle: opts.bypassThrottle === true || forceImmediate || committed,
         };
         if (__tmTxTaskRefreshInFlight) {
             try {
@@ -17331,24 +17694,12 @@
             return;
         }
 
-        const pendingTargets = __tmSnapshotPendingTxRefreshTargets();
         const pendingDocIds = pendingTargets.docIds;
         const pendingBlockIds = pendingTargets.blockIds;
-        if (!state.externalTaskTxDirty && pendingDocIds.length === 0 && pendingBlockIds.length === 0) return;
-        if (!forceImmediate) {
-            let quietWaitMs = 0;
-            try { quietWaitMs = Number(__tmGetExternalTaskTxQuietWaitMs(96)) || 0; } catch (e) { quietWaitMs = 0; }
-            if (quietWaitMs > 0) {
-                try {
-                    if (__tmTxTaskRefreshTimer) clearTimeout(__tmTxTaskRefreshTimer);
-                } catch (e) {}
-                __tmTxTaskRefreshTimer = setTimeout(() => {
-                    __tmTxTaskRefreshTimer = null;
-                    __tmFlushTaskIncrementalRefreshFromTx(opts).catch(() => {});
-                }, quietWaitMs);
-                return;
-            }
-        }
+        if (!state.externalTaskTxDirty
+            && pendingDocIds.length === 0
+            && pendingBlockIds.length === 0
+            && pendingTargets?.meta?.wholeScopeDirty !== true) return;
         const retryMeta0 = __tmGetTxRefreshRetryMeta(sourceLabel, retryOptions);
         if (!retryMeta0.allowRun) {
             if (retryMeta0.parkUntilScrollIdle) {
@@ -17367,18 +17718,43 @@
             return;
         }
 
+        let refreshAttempted = false;
+        let refreshSucceeded = false;
         __tmTxTaskRefreshInFlight = true;
         try {
-            await __tmRunAutoRefreshIfNeeded(sourceLabel, {
-                affectedDocIds: pendingDocIds,
-                affectedBlockIds: pendingBlockIds,
+            const classified = await __tmClassifyPendingTaskTxRefresh(pendingTargets);
+            if (!classified?.relevant) {
+                if (__tmClearPendingTxRefreshTargets(pendingTargets)) __tmClearExternalTaskTxDirty();
+                return;
+            }
+            try { __tmScheduleCalendarRefetchFromTx(); } catch (e) {}
+            refreshAttempted = true;
+            const refreshed = await __tmRunAutoRefreshIfNeeded(sourceLabel, {
+                affectedDocIds: classified.docIds,
+                affectedBlockIds: classified.blockIds,
+                resolvedTaskIds: classified.resolvedTaskIds,
+                forceDocRefresh: classified.forceDocRefresh === true,
+                committed: classified.committed === true,
+                pendingTargets,
                 force: forceImmediate,
                 ignoreContextQuiet: retryOptions.ignoreContextQuiet,
                 bypassThrottle: retryOptions.bypassThrottle,
             });
+            refreshSucceeded = refreshed === true;
+            __tmTxTaskRefreshAttemptCount = refreshSucceeded
+                ? 0
+                : (__tmTxTaskRefreshAttemptCount + 1);
+        } catch (e) {
+            refreshAttempted = true;
+            __tmTxTaskRefreshAttemptCount += 1;
         } finally {
             __tmTxTaskRefreshInFlight = false;
             if (state.externalTaskTxDirty) {
+                if (refreshAttempted
+                    && !refreshSucceeded
+                    && __tmTxTaskRefreshAttemptCount >= __TM_TASK_TX_MAX_REFRESH_ATTEMPTS) {
+                    return;
+                }
                 const retryMeta = __tmGetTxRefreshRetryMeta(sourceLabel, retryOptions);
                 if (!retryMeta.allowRun && retryMeta.parkUntilVisible) {
                     return;
@@ -17482,26 +17858,42 @@
         try { window.addEventListener('tm:sql-cache-invalidate', __tmSqlCacheInvalidationHandler); } catch (e) {}
         try {
             const seen = new Set();
-            const buses = (globalThis.__tmHost?.getEventBuses?.() || []).map((eb, index) => ({
-                label: `host-${index}`,
-                eb,
-            }));
+            const buses = globalThis.__tmHost?.getEventBuses?.() || [];
             __tmSqlCacheEventBuses = [];
             __tmSqlCacheEventBusHandler = (msg) => {
-                const cmd = String(msg?.detail?.cmd || msg?.cmd || '').trim().toLowerCase();
-                if (__tmShouldIgnoreWsMainTaskRefreshMessage(msg)) {
-                    return;
-                }
-                const txTargets = __tmCollectTxRefreshTargets(msg);
+                if (__tmShouldIgnoreWsMainTaskRefreshMessage(msg)) return;
+                const txTargets = __tmSummarizeWsMainTaskTx(msg);
                 const docIds = txTargets.docIds;
                 const blockIds = txTargets.blockIds;
-                const insertedBlockIds = txTargets.insertedBlockIds;
-                try { __tmRecordExternalTaskTxBurst(txTargets, { source: 'ws-main', cmd }); } catch (e) {}
+                if (docIds && docIds.size > 0) {
+                    docIds.forEach((docId) => {
+                        try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
+                    });
+                    const loadedDocIds = __tmGetLoadedTaskScopeDocIds();
+                    const loadedTargets = Array.from(docIds).filter((docId) => loadedDocIds.has(String(docId || '').trim()));
+                    if (!loadedTargets.length) return;
+                    txTargets.docIds = new Set(loadedTargets);
+                }
+                const pluginVisible = typeof __tmIsPluginVisibleNow !== 'function' || __tmIsPluginVisibleNow();
+                if (!pluginVisible) {
+                    __tmScheduleTaskIncrementalRefreshFromTx(null, {
+                        docIds: Array.from(txTargets.docIds || []),
+                        blockIds: [],
+                        hiddenDocOnly: true,
+                        structural: txTargets.structural === true,
+                        committed: txTargets.committed === true,
+                        truncated: txTargets.truncated === true,
+                        wholeScopeDirty: txTargets.wholeScopeDirty === true || !(txTargets.docIds?.size > 0),
+                        source: 'ws-main-hidden',
+                    });
+                    return;
+                }
                 const hasTxTargets = (docIds && docIds.size > 0) || (blockIds && blockIds.size > 0);
-                const suppressLocalTimeTx = __tmShouldSuppressLocalTimeTx(msg);
-                const suppressLocalDoneTx = !suppressLocalTimeTx && __tmShouldSuppressLocalDoneTx(msg);
-                const suppressLocalMoveTx = !suppressLocalTimeTx && !suppressLocalDoneTx && __tmShouldSuppressLocalMoveTx(msg);
-                const suppressLocalCreateTx = !suppressLocalTimeTx && !suppressLocalDoneTx && !suppressLocalMoveTx && __tmShouldSuppressLocalCreateTx(msg);
+                const allowDetailedTxInspection = txTargets.truncated !== true && txTargets.wholeScopeDirty !== true;
+                const suppressLocalTimeTx = allowDetailedTxInspection && __tmShouldSuppressLocalTimeTx(msg);
+                const suppressLocalDoneTx = allowDetailedTxInspection && !suppressLocalTimeTx && __tmShouldSuppressLocalDoneTx(msg);
+                const suppressLocalMoveTx = allowDetailedTxInspection && !suppressLocalTimeTx && !suppressLocalDoneTx && __tmShouldSuppressLocalMoveTx(msg);
+                const suppressLocalCreateTx = allowDetailedTxInspection && !suppressLocalTimeTx && !suppressLocalDoneTx && !suppressLocalMoveTx && __tmShouldSuppressLocalCreateTx(msg);
                 let txAttrApplyResult = {
                     totalUpdates: 0,
                     applied: false,
@@ -17514,7 +17906,7 @@
                 let isAttrOnlyTx = false;
                 let skipNoopAttrOnlyTx = false;
                 let txAttrUpdates = [];
-                if (!suppressLocalTimeTx && !suppressLocalDoneTx && !suppressLocalMoveTx && !suppressLocalCreateTx) {
+                if (allowDetailedTxInspection && !suppressLocalTimeTx && !suppressLocalDoneTx && !suppressLocalMoveTx && !suppressLocalCreateTx) {
                     let txAttrApplyFailed = false;
                     try {
                         isAttrOnlyTx = __tmHasOnlyAttrOperationsInTx(msg);
@@ -17544,38 +17936,14 @@
                                 Number(txAttrApplyResult.noopCount || 0) + Number(txAttrApplyResult.skippedCount || 0)
                             ) >= Number(txAttrApplyResult.totalUpdates || 0)
                         );
-                    if (!skipNoopAttrOnlyTx) {
-                        __tmMarkExternalTaskTxDirty();
-                    }
                 }
-                if (docIds && docIds.size > 0) docIds.forEach((d) => __tmInvalidateTasksQueryCacheByDocId(d));
-                else __tmInvalidateAllSqlCaches();
-                if (suppressLocalTimeTx || suppressLocalDoneTx || suppressLocalMoveTx || suppressLocalCreateTx) {
-                    if (suppressLocalDoneTx || suppressLocalMoveTx || suppressLocalCreateTx) {
-                        try {
-                            __tmRememberPendingTxRefreshTargets(Array.from(docIds || []), Array.from(blockIds || []));
-                            if (typeof __tmIsPluginVisibleNow !== 'function' || !__tmIsPluginVisibleNow()) __tmMarkExternalTaskTxDirty();
-                        } catch (e) {}
-                    }
-                    return;
-                }
+                if (suppressLocalTimeTx || suppressLocalDoneTx || suppressLocalMoveTx || suppressLocalCreateTx) return;
                 if (skipNoopAttrOnlyTx) return;
                 const fastAttrOnlyRefresh = __tmIsFastAttrOnlyRefreshEligible(txAttrUpdates, txAttrApplyResult, isAttrOnlyTx);
                 if (fastAttrOnlyRefresh) {
                     const skipCalendarTxRefresh = __tmShouldSkipCalendarTxRefreshForTimeEdit(msg);
                     if (!skipCalendarTxRefresh) {
                         __tmScheduleCalendarRefetchFromTx();
-                    }
-                    if (typeof __tmIsPluginVisibleNow === 'function' && __tmIsPluginVisibleNow()) {
-                        try { __tmClearExternalTaskTxDirty(); } catch (e) { try { state.externalTaskTxDirty = false; } catch (e2) {} }
-                    } else {
-                        try {
-                            __tmRememberPendingTxRefreshTargets(
-                                Array.from(docIds || []),
-                                txAttrUpdates.map((update) => update?.taskId)
-                            );
-                            __tmMarkExternalTaskTxDirty();
-                        } catch (e) {}
                     }
                     try {
                         __tmSchedulePersistTaskSnapshot({
@@ -17587,18 +17955,25 @@
                     } catch (e) {}
                     return;
                 }
-                __tmScheduleBatchedTaskIncrementalRefreshFromTx(msg, {
-                    blockIds: txAttrUpdates.map((update) => update?.taskId),
-                    delayMs: 80,
-                    flushDelayMs: 16,
+                if (!__tmAddBoundedTaskTxIds(
+                    txTargets.blockIds,
+                    txAttrUpdates.map((update) => update?.taskId),
+                    __TM_TASK_TX_BLOCK_ID_LIMIT
+                )) {
+                    txTargets.blockIds.clear();
+                    txTargets.truncated = true;
+                    txTargets.structural = true;
+                }
+                __tmScheduleBatchedTaskIncrementalRefreshFromTx(null, {
+                    targets: txTargets,
+                    structural: txTargets.structural === true,
+                    committed: txTargets.committed === true,
+                    truncated: txTargets.truncated === true,
+                    wholeScopeDirty: txTargets.wholeScopeDirty === true,
                     source: 'ws-main-batch',
                 });
-                const skipCalendarTxRefresh = __tmShouldSkipCalendarTxRefreshForTimeEdit(msg);
-                if (!skipCalendarTxRefresh) {
-                    __tmScheduleCalendarRefetchFromTx();
-                }
             };
-            buses.forEach(({ label, eb }) => {
+            buses.forEach((eb) => {
                 if (!eb || typeof eb.on !== 'function') return;
                 if (seen.has(eb)) return;
                 seen.add(eb);

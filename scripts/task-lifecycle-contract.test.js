@@ -224,6 +224,9 @@ async function testHeadingLockAndQueueLane() {
 }
 
 function testStaticContracts() {
+    assert.match(storeSource, /deleteTaskRemovesWhiteboardCards:\s*true/, 'whiteboard card cleanup must default to enabled');
+    assert.match(storeSource, /tm_delete_task_removes_whiteboard_cards'[\s\S]*!== false/, 'missing persisted cleanup setting must remain enabled');
+    assert.match(settingsSource, /deleteTaskRemovesWhiteboardCards !== false \? 'checked' : ''/, 'settings switch must render checked by default');
     for (const key of ['taskDeleteMode', 'taskRecycleDocId', 'taskCompletionArchiveMode', 'taskCompletionArchiveDocId']) {
         assert.match(storeSource, new RegExp(key), `${key} must be persisted`);
         assert.match(settingsSource, new RegExp(key), `${key} must be configurable`);

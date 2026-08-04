@@ -35,6 +35,7 @@
     --tm-cal-event-title-font-size: 11px;
     --tm-cal-event-time-font-size: 10px;
     --tm-calendar-half-hour-slot-height: var(--tm-cal-slot-half-hour-height);
+    --tm-calendar-timegrid-slot-height: calc(var(--tm-calendar-half-hour-slot-height) / 2);
     --tm-calendar-axis-width: var(--tm-cal-axis-width);
     --tm-calendar-month-event-line-height: var(--tm-cal-month-event-line-height);
     --tm-calendar-month-event-row-pitch: calc(var(--tm-calendar-month-event-line-height) + 1px);
@@ -42,8 +43,8 @@
     --tm-calendar-month-bottom-reserve: 4px;
     --tm-calendar-month-visible-event-rows: 3;
     --tm-calendar-month-day-min-height: calc(16px + (var(--tm-calendar-month-event-row-pitch) * var(--tm-calendar-month-visible-event-rows, var(--tm-calendar-month-visible-events, 3))) + var(--tm-calendar-month-more-link-height, var(--tm-calendar-month-event-line-height)) + var(--tm-calendar-month-bottom-reserve, 4px));
-    --fc-slot-min-height: var(--tm-cal-slot-half-hour-height);
-    --fc-timegrid-slot-min-height: var(--tm-cal-slot-half-hour-height);
+    --fc-slot-min-height: var(--tm-calendar-timegrid-slot-height);
+    --fc-timegrid-slot-min-height: var(--tm-calendar-timegrid-slot-height);
 }
 
 .tm-calendar-root,
@@ -2151,8 +2152,8 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 #tmCalendarSideDockTimeline.fc td.fc-timegrid-slot-label,
 #tmCalendarSideDockTimeline.fc td.fc-timegrid-slot-lane {
     position: relative;
-    height: var(--tm-calendar-half-hour-slot-height, 29px);
-    min-height: var(--tm-calendar-half-hour-slot-height, 29px);
+    height: var(--tm-calendar-timegrid-slot-height, 14.5px);
+    min-height: var(--tm-calendar-timegrid-slot-height, 14.5px);
     border-top-style: solid !important;
     border-top-width: 1px !important;
     border-top-color: var(--tm-calendar-grid-border-color, var(--fc-border-color)) !important;
@@ -2187,8 +2188,8 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 #tmCalendarSideDockTimeline .fc .fc-timegrid-slot td,
 #tmCalendarSideDockTimeline.fc .fc-timegrid-slot,
 #tmCalendarSideDockTimeline.fc .fc-timegrid-slot td {
-    height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
-    min-height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
+    height: var(--tm-calendar-timegrid-slot-height, 14.5px) !important;
+    min-height: var(--tm-calendar-timegrid-slot-height, 14.5px) !important;
     border-top-style: solid !important;
     border-top-width: 1px !important;
     border-top-color: var(--tm-calendar-grid-border-color, var(--fc-border-color)) !important;
@@ -2204,8 +2205,8 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 #tmCalendarSideDockTimeline .fc .fc-timegrid-slots td,
 #tmCalendarSideDockTimeline.fc .fc-timegrid-slots tr,
 #tmCalendarSideDockTimeline.fc .fc-timegrid-slots td {
-    height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
-    min-height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
+    height: var(--tm-calendar-timegrid-slot-height, 14.5px) !important;
+    min-height: var(--tm-calendar-timegrid-slot-height, 14.5px) !important;
     border-top-style: solid !important;
     border-top-width: 1px !important;
     border-top-color: var(--tm-calendar-grid-border-color, var(--fc-border-color)) !important;
@@ -2308,8 +2309,8 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 #tmCalendarSideDockTimeline.fc .fc-timegrid-slot-lane,
 #tmCalendarSideDockTimeline.fc .fc-timegrid-slot-label,
 #tmCalendarSideDockTimeline.fc .fc-timegrid-slot-frame {
-    height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
-    min-height: var(--tm-calendar-half-hour-slot-height, 29px) !important;
+    height: var(--tm-calendar-timegrid-slot-height, 14.5px) !important;
+    min-height: var(--tm-calendar-timegrid-slot-height, 14.5px) !important;
 }
 
 .tm-calendar-wrap .fc .fc-timegrid-slot-minor,
@@ -3225,6 +3226,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-wrap,
 .tm-calendar-host {
     --tm-calendar-half-hour-slot-height: var(--tm-cal-slot-half-hour-height, 29px);
+    --tm-calendar-timegrid-slot-height: calc(var(--tm-calendar-half-hour-slot-height) / 2);
     --tm-calendar-now-indicator-dot-size: 10px;
     --tm-calendar-now-indicator-line-width: 2px;
     --tm-calendar-month-visible-events: 3;
@@ -3240,8 +3242,8 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     --tm-calendar-month-day-min-height: calc(var(--tm-calendar-month-day-header-height) + (var(--tm-calendar-month-event-row-pitch) * var(--tm-calendar-month-visible-event-rows, var(--tm-calendar-month-visible-events))) + var(--tm-calendar-month-more-link-height, var(--tm-calendar-month-event-line-height)) + var(--tm-calendar-month-bottom-reserve, 4px));
     --tm-cal-allday-summary-bg: color-mix(in srgb, var(--tm-section-bg) 82%, var(--tm-bg-color) 18%);
     --tm-cal-allday-summary-hover-bg: color-mix(in srgb, var(--tm-section-bg) 64%, var(--tm-bg-color) 36%);
-    --fc-slot-min-height: var(--tm-cal-slot-half-hour-height, 29px);
-    --fc-timegrid-slot-min-height: var(--tm-cal-slot-half-hour-height, 29px);
+    --fc-slot-min-height: var(--tm-calendar-timegrid-slot-height);
+    --fc-timegrid-slot-min-height: var(--tm-calendar-timegrid-slot-height);
     --fc-page-bg-color: var(--tm-bg-color);
     --fc-border-color: var(--tm-calendar-grid-border-color, var(--tm-table-border-color, rgba(0,0,0,0.14)));
     --fc-today-bg-color: color-mix(in srgb, var(--tm-primary-color) 8%, var(--tm-bg-color));
@@ -3264,12 +3266,13 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 
 #tmCalendarSideDockTimeline {
     --tm-calendar-half-hour-slot-height: var(--tm-cal-slot-half-hour-height, 29px);
+    --tm-calendar-timegrid-slot-height: calc(var(--tm-calendar-half-hour-slot-height) / 2);
     --tm-calendar-now-indicator-dot-size: 10px;
     --tm-calendar-now-indicator-line-width: 2px;
     --tm-cal-allday-summary-bg: color-mix(in srgb, var(--tm-section-bg) 82%, var(--tm-bg-color) 18%);
     --tm-cal-allday-summary-hover-bg: color-mix(in srgb, var(--tm-section-bg) 64%, var(--tm-bg-color) 36%);
-    --fc-slot-min-height: var(--tm-cal-slot-half-hour-height, 29px);
-    --fc-timegrid-slot-min-height: var(--tm-cal-slot-half-hour-height, 29px);
+    --fc-slot-min-height: var(--tm-calendar-timegrid-slot-height);
+    --fc-timegrid-slot-min-height: var(--tm-calendar-timegrid-slot-height);
     --fc-page-bg-color: var(--tm-bg-color);
     --fc-border-color: var(--tm-calendar-grid-border-color, var(--tm-table-border-color, rgba(0,0,0,0.14)));
     --fc-today-bg-color: color-mix(in srgb, var(--tm-primary-color) 8%, var(--tm-bg-color));

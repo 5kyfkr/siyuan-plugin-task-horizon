@@ -977,6 +977,11 @@
                 delete manualArchiveMap[currentId];
                 SettingsStore.data.docTabsManualArchivedByGroup = manualArchiveMap;
             }
+            const manualUnarchiveMap = __tmNormalizeDocTabsManualArchivedByGroup(SettingsStore.data.docTabsManualUnarchivedByGroup);
+            if (manualUnarchiveMap[currentId]) {
+                delete manualUnarchiveMap[currentId];
+                SettingsStore.data.docTabsManualUnarchivedByGroup = manualUnarchiveMap;
+            }
             delete group.notebookId;
             await SettingsStore.updateDocGroups(groups);
             showSettings();
@@ -996,6 +1001,7 @@
             if (removedDocId) {
                 group.excludedDocIds = __tmGetGroupExcludedDocIds(group).filter((id) => id !== removedDocId);
                 __tmClearDocManualArchivedInGroups(removedDocId, currentId);
+                __tmClearDocManualUnarchivedInGroups(removedDocId, currentId);
             }
             await SettingsStore.updateDocGroups(groups);
             showSettings();
@@ -1021,6 +1027,7 @@
         }
         group.excludedDocIds = __tmGetGroupExcludedDocIds(group).filter((item) => item !== id);
         __tmClearDocManualArchivedInGroups(id, currentId);
+        __tmClearDocManualUnarchivedInGroups(id, currentId);
         await SettingsStore.updateDocGroups(groups);
         showSettings();
     };
@@ -1095,10 +1102,10 @@
         const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const result = await __tmSetDocExcludedForGroup(docId, false, currentId);
         if (!result?.changed) {
-            hint('⚠ 该文档不在排除列表中', 'warning');
+            hint('⚠ 该文档未被隐藏', 'warning');
             return;
         }
-        hint('✅ 已从排除列表移出，文档会重新显示', 'success');
+        hint('✅ 已恢复显示文档页签', 'success');
     };
 
     window.removeDocFromAll = async function(docId) {
@@ -1165,6 +1172,9 @@
         try {
             if (__tmClearDocManualArchivedInGroups(id)) changed = true;
         } catch (e) {}
+        try {
+            if (__tmClearDocManualUnarchivedInGroups(id)) changed = true;
+        } catch (e) {}
 
         try {
             if (String(SettingsStore.data.defaultDocId || '').trim() === id) {
@@ -1184,11 +1194,186 @@
         showSettings();
     };
 
-    // 手动添加文档ID（增强版）
+    function __tmGetSettingsDocPickerRoot() {
+        const root = state.settingsModal?.querySelector?.('[data-tm-doc-picker]');
+        return root instanceof HTMLElement ? root : null;
+    }
+
+    function __tmGetSettingsDocPickerDialog() {
+        const dialog = state.settingsModal?.querySelector?.('[data-tm-doc-picker-dialog]');
+        return dialog instanceof HTMLElement ? dialog : null;
+    }
+
+    window.tmOpenSettingsDocPicker = function() {
+        const dialog = __tmGetSettingsDocPickerDialog();
+        if (!dialog) return;
+        state.settingsDocPickerReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        dialog.hidden = false;
+        dialog.setAttribute('aria-hidden', 'false');
+        try {
+            state.__settingsDocPickerUnstack?.();
+            state.__settingsDocPickerUnstack = __tmModalStackBind(() => window.tmCloseSettingsDocPicker?.());
+        } catch (e) {}
+        try {
+            __tmApplyPopupOpenAnimation(dialog, dialog.querySelector('.tm-doc-group-manager__picker-dialog-box'), {
+                mode: window.matchMedia?.('(max-width: 640px)')?.matches ? 'sheet' : 'center'
+            });
+        } catch (e) {}
+        requestAnimationFrame(() => {
+            try { dialog.querySelector('[data-tm-doc-picker-search-input]')?.focus?.(); } catch (e) {}
+        });
+    };
+
+    window.tmCloseSettingsDocPicker = function(options = {}) {
+        const dialog = __tmGetSettingsDocPickerDialog();
+        try { state.__settingsDocPickerUnstack?.(); } catch (e) {}
+        state.__settingsDocPickerUnstack = null;
+        if (dialog) {
+            dialog.hidden = true;
+            dialog.setAttribute('aria-hidden', 'true');
+        }
+        const returnFocus = state.settingsDocPickerReturnFocus;
+        state.settingsDocPickerReturnFocus = null;
+        if (options.restoreFocus !== false && returnFocus instanceof HTMLElement && document.body.contains(returnFocus)) {
+            try { returnFocus.focus(); } catch (e) {}
+        }
+    };
+
+    function __tmUpdateSettingsDocPickerSelectionUi(root) {
+        if (!(root instanceof HTMLElement)) return;
+        const groupId = String(root.dataset.tmDocPickerGroupId || 'all').trim() || 'all';
+        const selectedIds = __tmPrepareSettingsDocPickerDraft(groupId);
+        const count = root.querySelector('[data-tm-doc-picker-selected-count]');
+        const addButton = root.querySelector('[data-tm-action="tmAddSelectedSettingsDocs"]');
+        if (count) count.textContent = `已选择 ${selectedIds.size} 项`;
+        if (addButton instanceof HTMLButtonElement) addButton.disabled = selectedIds.size === 0;
+    }
+
+    window.tmToggleSettingsDocPickerSelection = function(docId, selected) {
+        const root = __tmGetSettingsDocPickerRoot();
+        if (!root) return;
+        const id = String(docId || '').trim();
+        if (!id) return;
+        const groupId = String(root.dataset.tmDocPickerGroupId || 'all').trim() || 'all';
+        const selectedIds = __tmPrepareSettingsDocPickerDraft(groupId);
+        if (selected === true) selectedIds.add(id);
+        else selectedIds.delete(id);
+        __tmUpdateSettingsDocPickerSelectionUi(root);
+    };
+
+    window.tmFilterSettingsDocPicker = function(value) {
+        const root = __tmGetSettingsDocPickerRoot();
+        if (!root) return;
+        const query = String(value || '');
+        root.querySelectorAll('[data-tm-doc-picker-row]').forEach((row) => {
+            row.dataset.tmDocPickerDirectMatch = __tmSettingsDocPickerMatches(row.dataset.tmDocPickerSearch, query) ? 'true' : 'false';
+        });
+        Array.from(root.querySelectorAll('[data-tm-doc-picker-item]')).reverse().forEach((item) => {
+            const row = item.matches('details')
+                ? item.querySelector(':scope > summary [data-tm-doc-picker-row]')
+                : item.querySelector(':scope > [data-tm-doc-picker-row]');
+            const directMatch = row?.dataset?.tmDocPickerDirectMatch === 'true';
+            const hasVisibleChild = item.matches('details')
+                && !!item.querySelector(':scope > .tm-doc-group-manager__picker-children > [data-tm-doc-picker-item]:not([hidden])');
+            const visible = directMatch || hasVisibleChild;
+            item.hidden = !visible;
+            if (query.trim() && visible && item instanceof HTMLDetailsElement) item.open = true;
+        });
+        let visibleNotebooks = 0;
+        root.querySelectorAll('[data-tm-doc-picker-notebook]').forEach((notebook) => {
+            const visible = !!notebook.querySelector('[data-tm-doc-picker-item]:not([hidden])');
+            notebook.hidden = !visible;
+            if (visible) visibleNotebooks += 1;
+            if (query.trim() && visible && notebook instanceof HTMLDetailsElement) notebook.open = true;
+        });
+        const clear = root.querySelector('.tm-doc-group-manager__picker-search button');
+        const empty = root.querySelector('[data-tm-doc-picker-empty]');
+        if (clear instanceof HTMLElement) clear.hidden = !query.trim();
+        if (empty instanceof HTMLElement) empty.hidden = visibleNotebooks > 0;
+    };
+
+    window.tmClearSettingsDocPickerSearch = function() {
+        const root = __tmGetSettingsDocPickerRoot();
+        const input = root?.querySelector?.('[data-tm-doc-picker-search-input]');
+        if (input instanceof HTMLInputElement) input.value = '';
+        window.tmFilterSettingsDocPicker('');
+        try { input?.focus?.(); } catch (e) {}
+    };
+
+    window.tmRefreshSettingsDocPicker = async function() {
+        const root = __tmGetSettingsDocPickerRoot();
+        const button = root?.querySelector?.('[data-tm-action="tmRefreshSettingsDocPicker"]');
+        if (button instanceof HTMLButtonElement) button.disabled = true;
+        root?.querySelector?.('[data-tm-doc-picker-tree]')?.setAttribute?.('aria-busy', 'true');
+        try {
+            await __tmEnsureAllDocumentsLoaded(true);
+        } finally {
+            if (state.settingsModal && document.body.contains(state.settingsModal)) {
+                window.tmCloseSettingsDocPicker({ restoreFocus: false });
+                showSettings();
+                requestAnimationFrame(() => window.tmOpenSettingsDocPicker?.());
+            }
+        }
+    };
+
+    window.tmAddSelectedSettingsDocs = async function() {
+        const root = __tmGetSettingsDocPickerRoot();
+        if (!root) return;
+        const groupId = String(root.dataset.tmDocPickerGroupId || 'all').trim() || 'all';
+        const selectedIds = Array.from(__tmPrepareSettingsDocPickerDraft(groupId));
+        if (!selectedIds.length) {
+            hint('⚠ 请先选择文档', 'warning');
+            return;
+        }
+        const recursive = groupId !== 'all' && root.querySelector('[data-tm-doc-picker-recursive]')?.checked === true;
+        const addButton = root.querySelector('[data-tm-action="tmAddSelectedSettingsDocs"]');
+        if (addButton instanceof HTMLButtonElement) addButton.disabled = true;
+        try {
+            if (groupId === 'all') {
+                const previousIds = new Set((Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds : [])
+                    .map((id) => String(id || '').trim()).filter(Boolean));
+                const nextIdSet = new Set(previousIds);
+                selectedIds.forEach((id) => nextIdSet.add(id));
+                const nextIds = Array.from(nextIdSet);
+                const added = nextIds.length - previousIds.size;
+                if (!added) {
+                    hint('⚠ 所选文档已添加', 'warning');
+                    return;
+                }
+                await SettingsStore.updateDocIds(nextIds);
+                state.selectedDocIds = nextIds.slice();
+                try { window.__tmInvalidateDocScopeCache?.(); } catch (e) {}
+                try { await loadSelectedDocuments(); } catch (e) {}
+                try { render(); } catch (e) {}
+                __tmSettingsDocPickerDraft.selectedIds.clear();
+                window.tmCloseSettingsDocPicker({ restoreFocus: false });
+                if (state.settingsModal) showSettings();
+                hint(`✅ 已添加 ${added} 个文档`, 'success');
+                return;
+            }
+            const result = await __tmAddDocsToGroup(selectedIds, groupId, {
+                recursive,
+                forceRefresh: true,
+                refreshSettings: false
+            });
+            if (result.added > 0) {
+                __tmSettingsDocPickerDraft.selectedIds.clear();
+                window.tmCloseSettingsDocPicker({ restoreFocus: false });
+                if (state.settingsModal) showSettings();
+                hint(`✅ 已添加 ${result.added} 个文档`, 'success');
+            }
+        } catch (e) {
+            hint(`❌ 添加文档失败: ${e?.message || '未知错误'}`, 'error');
+        } finally {
+            if (addButton instanceof HTMLButtonElement && document.body.contains(addButton)) addButton.disabled = false;
+        }
+    };
+
+    // 手动添加文档ID（兼容旧入口）
     window.addManualDoc = async function() {
         const input = document.getElementById('manualDocId');
         const recursiveCheck = document.getElementById('recursiveCheck');
-        const docId = input.value.trim();
+        const docId = String(input?.value || '').trim();
         const isRecursive = recursiveCheck ? recursiveCheck.checked : false;
 
         if (!docId) {
@@ -1240,7 +1425,7 @@
             showSettings(); // 重新渲染设置界面
         });
 
-        input.value = '';
+        if (input) input.value = '';
         if (recursiveCheck) recursiveCheck.checked = false;
         hint('✅ 已添加文档', 'success');
     };
@@ -1273,7 +1458,7 @@
                 existed += 1;
                 return;
             }
-            group.docs.push({ id: docId, recursive: false });
+            group.docs.push({ id: docId, recursive: options.recursive === true });
             added += 1;
         });
 
@@ -1298,7 +1483,7 @@
             if (currentGroupId === targetGroupId || currentGroupId === 'all' || options.forceRefresh) {
                 await loadSelectedDocuments();
                 render();
-                if (state.settingsModal) showSettings();
+                if (state.settingsModal && options.refreshSettings !== false) showSettings();
             }
         } catch (e) {}
 
@@ -1738,6 +1923,13 @@
         if (state.modal && document.body.contains(state.modal)) {
             try { render(); } catch (e) {}
         }
+    };
+
+    window.updateDocTitleEmbeddedTaskFocusEnabled = async function(enabled) {
+        SettingsStore.data.docTitleEmbeddedTaskFocusEnabled = !!enabled;
+        await SettingsStore.save();
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { scope: true, duration: true }); } catch (e) {}
+        showSettings();
     };
 
     window.updateEnablePointsRewardIntegration = async function(enabled) {
@@ -3138,6 +3330,7 @@
     };
 
     window.closeSettings = function() {
+        try { window.tmCloseSettingsDocPicker?.({ restoreFocus: false }); } catch (e) {}
         state.__settingsUnstack?.();
         state.__settingsUnstack = null;
         state.statusOptionDraft = null;

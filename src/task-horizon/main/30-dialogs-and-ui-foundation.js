@@ -841,9 +841,12 @@
         const docId = String(doc?.id || '').trim();
         const groupId = String(options?.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const manuallyArchived = __tmIsDocManuallyArchivedInGroup(docId, groupId);
+        const manuallyUnarchived = __tmIsDocManuallyUnarchivedInGroup(docId, groupId);
         const automaticallyArchived = SettingsStore?.data?.docTabsManualArchiveOnly !== true && docState.isArchived;
+        if (manuallyUnarchived) return options?.archiveMode === true ? false : true;
+        if (manuallyArchived) return options?.archiveMode === true;
         if (options?.archiveMode === true) return !!(automaticallyArchived || manuallyArchived);
-        return !!(!automaticallyArchived && !manuallyArchived);
+        return !!(!automaticallyArchived);
     }
 
     function __tmGetArchiveModeFilterRule(rule, archiveMode = state.docTabsArchiveMode === true) {
@@ -1092,9 +1095,18 @@
         return true;
     }
 
+    function __tmRefreshCalendarDocGroupNames() {
+        try {
+            return globalThis.__tmCalendar?.refreshDocGroupNames?.(__tmResolveDocGroupName) === true;
+        } catch (e) {
+            return false;
+        }
+    }
+
     async function __tmRefreshNotebookCache(force = false) {
         const now = Date.now();
         if (!force && Array.isArray(state.notebooks) && state.notebooks.length > 0 && (now - (Number(state.notebooksFetchedAt) || 0) < 60000)) {
+            __tmRefreshCalendarDocGroupNames();
             return state.notebooks;
         }
         if (state.notebooksLoadingPromise) return state.notebooksLoadingPromise;
@@ -1108,6 +1120,7 @@
             } finally {
                 state.notebooksLoadingPromise = null;
             }
+            __tmRefreshCalendarDocGroupNames();
             return state.notebooks;
         })();
         return state.notebooksLoadingPromise;
@@ -1169,10 +1182,22 @@
         return Array.isArray(map[gid]) ? map[gid] : [];
     }
 
+    function __tmGetManualUnarchivedDocIdsForGroup(groupId = SettingsStore?.data?.currentGroupId) {
+        const gid = String(groupId || 'all').trim() || 'all';
+        const map = __tmNormalizeDocTabsManualArchivedByGroup(SettingsStore?.data?.docTabsManualUnarchivedByGroup);
+        return Array.isArray(map[gid]) ? map[gid] : [];
+    }
+
     function __tmIsDocManuallyArchivedInGroup(docId, groupId = SettingsStore?.data?.currentGroupId) {
         const id = String(docId || '').trim();
         if (!id) return false;
         return __tmGetManualArchivedDocIdsForGroup(groupId).includes(id);
+    }
+
+    function __tmIsDocManuallyUnarchivedInGroup(docId, groupId = SettingsStore?.data?.currentGroupId) {
+        const id = String(docId || '').trim();
+        if (!id) return false;
+        return __tmGetManualUnarchivedDocIdsForGroup(groupId).includes(id);
     }
 
     function __tmClearDocManualArchivedInGroups(docId, groupId = '') {
@@ -1192,6 +1217,26 @@
             else delete map[groupKey];
         });
         if (changed) SettingsStore.data.docTabsManualArchivedByGroup = map;
+        return changed;
+    }
+
+    function __tmClearDocManualUnarchivedInGroups(docId, groupId = '') {
+        const id = String(docId || '').trim();
+        if (!id) return false;
+        const map = __tmNormalizeDocTabsManualArchivedByGroup(SettingsStore?.data?.docTabsManualUnarchivedByGroup);
+        const gid = String(groupId || '').trim();
+        const keys = gid ? [gid] : Object.keys(map);
+        let changed = false;
+        keys.forEach((key) => {
+            const groupKey = String(key || '').trim() || 'all';
+            const list = Array.isArray(map[groupKey]) ? map[groupKey] : [];
+            const next = list.filter((item) => item !== id);
+            if (next.length === list.length) return;
+            changed = true;
+            if (next.length > 0) map[groupKey] = next;
+            else delete map[groupKey];
+        });
+        if (changed) SettingsStore.data.docTabsManualUnarchivedByGroup = map;
         return changed;
     }
 
@@ -3432,7 +3477,8 @@ return false;
 return Number(state.contextInteractionQuietUntil || 0);
     }
 
-    function __tmGetEnterAutoRefreshDelayMeta(source = '') {
+    function __tmGetEnterAutoRefreshDelayMeta(source = '', options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
         const now = Date.now();
         const reasons = [];
         let waitMs = 0;
@@ -3445,7 +3491,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             reasons.push('scroll-active');
             waitMs = Math.max(waitMs, __tmGetDeferredMainViewRefreshDelay({ mode: 'current', reason: source }));
         }
-        if (__tmTabEnterAutoRefreshInFlight) {
+        if (opts.ignoreAutoRefreshInFlight !== true && __tmTabEnterAutoRefreshInFlight) {
             reasons.push('auto-refresh-in-flight');
             waitMs = Math.max(waitMs, 180);
         }
@@ -3494,7 +3540,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                 };
             }
         } catch (e) {}
-        const delayMeta = __tmGetEnterAutoRefreshDelayMeta(sourceLabel);
+        const delayMeta = __tmGetEnterAutoRefreshDelayMeta(sourceLabel, {
+            ignoreAutoRefreshInFlight: opts.ignoreAutoRefreshInFlight === true,
+        });
         if (delayMeta.shouldDelay) {
             const delayReason = String(delayMeta.reason || '').trim() || 'context-quiet';
             return {
@@ -6153,15 +6201,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         return false;
     }
 
-    function __tmCloseTimelineGroupRangeEditor() {
-        try { document.getElementById('tm-doc-timeline-range-popover')?.remove?.(); } catch (e) {}
-        const handler = state.timelineGroupRangeCloseHandler;
-        if (handler) {
-            try { __tmClearOutsideCloseHandler(handler); } catch (e) {}
-            state.timelineGroupRangeCloseHandler = null;
-        }
-    }
-
     window.tmOpenTimelineGroupRangeEditor = async function(event, entityKind, entityId, headingLevel = '') {
         try { event?.preventDefault?.(); } catch (e) {}
         try { event?.stopPropagation?.(); } catch (e) {}
@@ -6178,110 +6217,44 @@ return Number(state.contextInteractionQuietUntil || 0);
             || target?.textContent
             || ''
         ).trim();
-        const level = __tmNormalizeHeadingLevel(headingLevel || row?.dataset?.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2');
         const entityLabel = kind === 'heading' ? '标题' : '文档';
         const displayLabel = visibleLabel || (kind === 'doc' ? __tmGetDocDisplayName(id, '文档') : '(空标题)');
-        const anchorRect = target?.getBoundingClientRect?.() || null;
-        const pointerX = Number(event?.clientX);
-        const pointerY = Number(event?.clientY);
         try { __tmHideDocTabContextMenu(); } catch (e) {}
-        __tmCloseTimelineGroupRangeEditor();
-
         const expectedMeta = await __tmLoadDocExpectedMeta(id);
-        const popup = document.createElement('div');
-        popup.id = 'tm-doc-timeline-range-popover';
-        popup.className = 'b3-menu tm-doc-timeline-range-popover';
-        popup.setAttribute('role', 'dialog');
-        popup.setAttribute('aria-label', `设置${entityLabel}日期`);
-        const titleHtml = kind === 'heading'
-            ? __tmRenderHeadingLevelIconLabel(displayLabel, level)
-            : __tmRenderDocGroupLabel(id, displayLabel);
-        popup.innerHTML = `
-            <div class="tm-doc-timeline-range-popover__title">${titleHtml}</div>
-            <label class="tm-doc-timeline-range-field"><span>开始日期</span><input class="b3-text-field" type="date" data-tm-doc-date-field="startDate" value="${esc(expectedMeta.startDate || '')}"></label>
-            <label class="tm-doc-timeline-range-field"><span>截止日期</span><input class="b3-text-field" type="date" data-tm-doc-date-field="deadline" value="${esc(expectedMeta.deadline || '')}"></label>
-            <div class="tm-doc-timeline-range-error" role="alert" hidden></div>
-            <div class="tm-doc-timeline-range-actions">
-                <button class="b3-button b3-button--cancel" type="button" data-tm-doc-date-action="clear">清除</button>
-                <span class="fn__flex-1"></span>
-                <button class="b3-button b3-button--cancel" type="button" data-tm-doc-date-action="cancel">取消</button>
-                <button class="b3-button b3-button--text" type="button" data-tm-doc-date-action="save">保存</button>
-            </div>
-        `;
-        document.body.appendChild(popup);
-
-        const startInput = popup.querySelector('[data-tm-doc-date-field="startDate"]');
-        const deadlineInput = popup.querySelector('[data-tm-doc-date-field="deadline"]');
-        const errorEl = popup.querySelector('.tm-doc-timeline-range-error');
-        const saveBtn = popup.querySelector('[data-tm-doc-date-action="save"]');
-        const setError = (message = '') => {
-            if (!(errorEl instanceof HTMLElement)) return;
-            errorEl.textContent = String(message || '');
-            errorEl.hidden = !message;
+        if (!(target instanceof HTMLElement) || typeof window.tmOpenTaskTimeHub !== 'function') {
+            try { hint('⚠ 日期面板未就绪', 'warning'); } catch (e) {}
+            return false;
+        }
+        const taskLike = {
+            id,
+            content: displayLabel,
+            startDate: String(expectedMeta.startDate || '').trim(),
+            start_date: String(expectedMeta.startDate || '').trim(),
+            completionTime: String(expectedMeta.deadline || '').trim(),
+            completion_time: String(expectedMeta.deadline || '').trim(),
         };
-        const savePatch = async (patch, successMessage) => {
-            try {
-                if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = true;
-                await __tmSaveTimelineBlockDatePatch(id, patch);
-                __tmCloseTimelineGroupRangeEditor();
+        const popover = await window.tmOpenTaskTimeHub(id, target, {
+            task: taskLike,
+            activeField: taskLike.startDate ? 'completionTime' : 'startDate',
+            hideSchedule: true,
+            hideRepeat: true,
+            hideReminder: true,
+            groupRange: true,
+            ariaLabel: `设置${entityLabel}日期`,
+            dateUpdateLabel: `${entityLabel}日期`,
+            onUpdateDates: async (patch = {}) => {
+                const groupPatch = {};
+                if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) groupPatch.startDate = patch.startDate;
+                if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) groupPatch.deadline = patch.completionTime;
+                const saved = await __tmSaveTimelineBlockDatePatch(id, groupPatch);
                 __tmRefreshAfterTimelineGroupDateChange();
-                try { hint(successMessage, 'success'); } catch (e) {}
-                return true;
-            } catch (e) {
-                setError(e?.message || '保存失败');
-                if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = false;
-                return false;
-            }
-        };
-        popup.onclick = (ev) => {
-            const action = ev?.target?.closest?.('[data-tm-doc-date-action]')?.getAttribute?.('data-tm-doc-date-action');
-            if (!action) return;
-            try { ev.preventDefault(); } catch (e) {}
-            if (action === 'cancel') {
-                __tmCloseTimelineGroupRangeEditor();
-                return;
-            }
-            if (action === 'clear') {
-                savePatch({ startDate: '', deadline: '' }, `✅ ${entityLabel}日期已清除`);
-                return;
-            }
-            const startDate = __tmNormalizeDateOnly(startInput?.value || '');
-            const deadline = __tmNormalizeDateOnly(deadlineInput?.value || '');
-            savePatch({ startDate, deadline }, `✅ ${entityLabel}日期已更新`);
-        };
-        popup.onkeydown = (ev) => {
-            if (ev.key === 'Escape') {
-                try { ev.preventDefault(); } catch (e) {}
-                __tmCloseTimelineGroupRangeEditor();
-            } else if (ev.key === 'Enter') {
-                try { ev.preventDefault(); } catch (e) {}
-                saveBtn?.click?.();
-            }
-        };
-        [startInput, deadlineInput].forEach((input) => {
-            if (!(input instanceof HTMLInputElement)) return;
-            input.oninput = () => setError('');
-            input.onclick = () => { try { input.showPicker?.(); } catch (e) {} };
+                return {
+                    startDate: saved.startDate,
+                    completionTime: saved.deadline,
+                };
+            },
         });
-
-        const x = anchorRect
-            ? anchorRect.left
-            : (Number.isFinite(pointerX) ? pointerX : Math.round(window.innerWidth / 2));
-        const y = anchorRect
-            ? anchorRect.bottom + 8
-            : (Number.isFinite(pointerY) ? pointerY : Math.round(window.innerHeight / 2));
-        try { __tmClampFloatingMenuToViewport(popup, x, y, { margin: 8 }); } catch (e) {}
-        const closeHandler = (ev) => {
-            if (popup.contains(ev?.target)) return;
-            __tmCloseTimelineGroupRangeEditor();
-        };
-        state.timelineGroupRangeCloseHandler = closeHandler;
-        __tmScheduleBindOutsideCloseHandler(closeHandler, {
-            capture: true,
-            ignoreSelector: '#tm-doc-timeline-range-popover, [data-tm-group-range-trigger], .tm-doc-timeline-trigger',
-        });
-        try { startInput?.focus?.(); } catch (e) {}
-        return true;
+        return !!popover;
     };
 
     window.tmOpenDocTimelineRangeEditor = function(event, docId) {
@@ -7363,6 +7336,12 @@ return Number(state.contextInteractionQuietUntil || 0);
                     icon: 'link-simple',
                     labelHtml: __tmRenderContextMenuLabel('link-simple', '复制块引用'),
                     run: copyTaskValue('blockRef')
+                },
+                {
+                    label: '复制嵌入块',
+                    icon: 'stack-simple',
+                    labelHtml: __tmRenderContextMenuLabel('stack-simple', '复制嵌入块'),
+                    run: copyTaskValue('blockEmbed')
                 },
                 {
                     label: '复制块 ID',
@@ -12183,6 +12162,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const pinGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const pinnedInGroup = __tmIsDocPinnedInGroup(id, pinGroupId);
         const excludedInGroup = __tmIsDocExcludedInGroup(id, pinGroupId);
+        const excludeDocMenuLabel = '隐藏文档页签';
         const excludeRestoreTargetLabel = pinGroupId === 'all' ? '全部文档设置' : '文档分组设置';
         const docCustomProfile = __tmGetStoredDocViewProfile(id);
         const docTabGroupProfileMatch = __tmGetDocTabCustomGroupViewProfileMatchForDoc(id, pinGroupId);
@@ -12200,8 +12180,11 @@ return Number(state.contextInteractionQuietUntil || 0);
             : null;
         const docTabStateForMenu = docForMenu ? __tmGetDocTaskStateForTabs(docForMenu) : { hasAny: false, hasUndone: false, isArchived: false };
         const docTabManuallyArchived = __tmIsDocManuallyArchivedInGroup(id, pinGroupId);
+        const docTabManuallyUnarchived = __tmIsDocManuallyUnarchivedInGroup(id, pinGroupId);
         const canManuallyArchiveDocTab = docTabStateForMenu.hasUndone
-            || (SettingsStore.data.docTabsManualArchiveOnly === true && docTabStateForMenu.hasAny);
+            || (SettingsStore.data.docTabsManualArchiveOnly === true && docTabStateForMenu.hasAny)
+            || docTabManuallyUnarchived;
+        const canMoveDocOutOfArchiveTab = docTabManuallyArchived || docTabStateForMenu.isArchived;
 
         if (!isOtherBlocksTab) {
             menu.appendChild(item(__tmRenderContextMenuLabel('file-text', '打开文档'), async () => {
@@ -12210,17 +12193,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             menu.appendChild(item(__tmRenderContextMenuLabel('plus', '新建任务'), () => {
                 try { window.tmQuickAddOpenForDoc?.(id); } catch (e) {}
             }));
-            if (canManuallyArchiveDocTab && state.docTabsArchiveMode !== true && !docTabManuallyArchived) {
-                menu.appendChild(item(__tmRenderContextMenuLabel('archive', '归档页签'), async () => {
-                    const result = await __tmSetDocManualArchivedForGroup(id, true, pinGroupId);
-                    if (result?.changed) hint('✅ 已归档页签', 'success');
-                }));
-            } else if (state.docTabsArchiveMode === true && docTabManuallyArchived) {
-                menu.appendChild(item(__tmRenderContextMenuLabel('archive-restore', '移出归档区'), async () => {
-                    const result = await __tmSetDocManualArchivedForGroup(id, false, pinGroupId);
-                    if (result?.changed) hint('✅ 已移出归档区', 'success');
-                }));
-            }
             menu.appendChild(item(__tmRenderContextMenuLabel('settings', `新建任务默认标题：${__tmSummarizeDocDefaultTaskHeading(id)}`), async () => {
                 await __tmOpenDocDefaultTaskHeadingPicker(id);
             }));
@@ -12275,14 +12247,36 @@ return Number(state.contextInteractionQuietUntil || 0);
                 } catch (e) {}
                 await loadSelectedDocuments();
             }));
-            menu.appendChild(item(__tmRenderContextMenuLabel('eye-off', '排除当前文档'), async () => {
+            if (canManuallyArchiveDocTab && state.docTabsArchiveMode !== true && !docTabManuallyArchived) {
+                menu.appendChild(item(__tmRenderContextMenuLabel('archive', '归档页签'), async () => {
+                    const result = docTabManuallyUnarchived && SettingsStore.data.docTabsManualArchiveOnly !== true
+                        && !docTabStateForMenu.hasUndone
+                        ? await __tmSetDocManualUnarchivedForGroup(id, false, pinGroupId)
+                        : await __tmSetDocManualArchivedForGroup(id, true, pinGroupId);
+                    if (result?.changed) hint('✅ 已归档页签', 'success');
+                }));
+            } else if (state.docTabsArchiveMode === true && canMoveDocOutOfArchiveTab && !docTabManuallyUnarchived) {
+                menu.appendChild(item(__tmRenderContextMenuLabel('tray-arrow-up', '移出归档页签'), async () => {
+                    let result;
+                    if (docTabManuallyArchived) {
+                        result = await __tmSetDocManualArchivedForGroup(id, false, pinGroupId);
+                        if (result?.changed && docTabStateForMenu.isArchived && SettingsStore.data.docTabsManualArchiveOnly !== true) {
+                            result = await __tmSetDocManualUnarchivedForGroup(id, true, pinGroupId);
+                        }
+                    } else {
+                        result = await __tmSetDocManualUnarchivedForGroup(id, true, pinGroupId);
+                    }
+                    if (result?.changed) hint('✅ 已移出归档页签', 'success');
+                }));
+            }
+            menu.appendChild(item(__tmRenderContextMenuLabel('eye-off', excludeDocMenuLabel), async () => {
                 if (excludedInGroup) {
-                    hint(`ℹ 当前文档已在排除列表中，恢复显示请到${excludeRestoreTargetLabel}中移出排除列表`, 'info');
+                    hint(`ℹ 当前文档已隐藏，恢复显示请到${excludeRestoreTargetLabel}中恢复`, 'info');
                     return;
                 }
                 const result = await __tmSetDocExcludedForGroup(id, true, pinGroupId);
                 if (!result?.changed) return;
-                hint(`✅ 已排除当前文档。恢复显示请到${excludeRestoreTargetLabel}中移出排除列表`, 'success');
+                hint(`✅ 已隐藏文档页签。恢复显示请到${excludeRestoreTargetLabel}中恢复`, 'success');
             }));
 
             const tabGroupHr = document.createElement('hr');
@@ -17826,6 +17820,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     __tmPhosphorBoldPaths['calendar-star'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28Zm-4,176H52V52H68a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16Zm-27.08-94.35-27.42-2.12L139,83.25a12,12,0,0,0-22,0L106.5,107.53l-27.42,2.12a12,12,0,0,0-6.72,21.22l20.58,17-6.25,25.26a12,12,0,0,0,17.73,13.22L128,172.46l23.58,13.88a12,12,0,0,0,17.73-13.22l-6.25-25.26,20.58-17a12,12,0,0,0-6.72-21.22Zm-35,24.51a12,12,0,0,0-4,12.13l1.21,4.89-5.07-3a12.06,12.06,0,0,0-12.18,0l-5.07,3,1.21-4.89a12,12,0,0,0-4-12.13l-3.47-2.87,5-.39a12,12,0,0,0,10.09-7.21l2.33-5.4,2.33,5.4a12,12,0,0,0,10.09,7.21l5,.39Z';
     __tmPhosphorBoldPaths['calendar-dots'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Zm92-76a16,16,0,1,1-16-16A16,16,0,0,1,144,128Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,192,128ZM96,176a16,16,0,1,1-16-16A16,16,0,0,1,96,176Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,144,176Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,192,176Z';
     __tmPhosphorBoldPaths['calendar-range'] = __tmPhosphorBoldPaths['calendar-dots'];
+    __tmPhosphorBoldPaths['stack-simple'] = 'M10.05,110.42l112,64a12,12,0,0,0,11.9,0l112-64a12,12,0,0,0,0-20.84l-112-64a12,12,0,0,0-11.9,0l-112,64a12,12,0,0,0,0,20.84Zm118-60.6L215.81,100,128,150.18,40.19,100Zm122.42,92.23A12,12,0,0,1,246,158.42l-112,64a12,12,0,0,1-11.9,0l-112-64A12,12,0,1,1,22,137.58l106,60.6,106-60.6A12,12,0,0,1,250.42,142.05Z';
     __tmPhosphorBoldPaths['chat-circle-text'] = 'M172,108a12,12,0,0,1-12,12H96a12,12,0,0,1,0-24h64A12,12,0,0,1,172,108Zm-12,28H96a12,12,0,0,0,0,24h64a12,12,0,0,0,0-24Zm76-8A108,108,0,0,1,78.77,224.15L46.34,235A20,20,0,0,1,21,209.66l10.81-32.43A108,108,0,1,1,236,128Zm-24,0A84,84,0,1,0,55.27,170.06a12,12,0,0,1,1,9.81l-9.93,29.79,29.79-9.93a12.1,12.1,0,0,1,3.8-.62,12,12,0,0,1,6,1.62A84,84,0,0,0,212,128Z';
     __tmPhosphorBoldPaths['calendar-x'] = 'M160.49,136.49,145,152l15.52,15.51a12,12,0,0,1-17,17L128,169l-15.51,15.52a12,12,0,0,1-17-17L111,152,95.51,136.49a12,12,0,1,1,17-17L128,135l15.51-15.52a12,12,0,1,1,17,17ZM228,48V208a20,20,0,0,1-20,20H48a20,20,0,0,1-20-20V48A20,20,0,0,1,48,28H68V24a12,12,0,0,1,24,0v4h72V24a12,12,0,0,1,24,0v4h20A20,20,0,0,1,228,48ZM52,52V76H204V52H188a12,12,0,0,1-24,0H92a12,12,0,0,1-24,0ZM204,204V100H52V204Z';
     __tmPhosphorBoldPaths['arrow-up'] = 'M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z';
@@ -17860,6 +17855,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     __tmPhosphorBoldPaths['text-h-five'] = 'M252,180a40,40,0,0,1-40,40,39.53,39.53,0,0,1-28.57-11.6,12,12,0,1,1,17.14-16.8A15.54,15.54,0,0,0,212,196a16,16,0,0,0,0-32,15.54,15.54,0,0,0-11.43,4.4A12,12,0,0,1,180.16,158l8-48A12,12,0,0,1,200,100h40a12,12,0,0,1,0,24H210.17l-2.71,16.23A45.39,45.39,0,0,1,212,140,40,40,0,0,1,252,180ZM144,44a12,12,0,0,0-12,12v48H52V56a12,12,0,0,0-24,0V176a12,12,0,0,0,24,0V128h80v48a12,12,0,0,0,24,0V56A12,12,0,0,0,144,44Z';
     __tmPhosphorBoldPaths['text-h-six'] = 'M217.06,140.33l13.24-22.18a12,12,0,1,0-20.6-12.3l-32.25,54c-.09.15-.17.31-.25.47a40,40,0,1,0,39.86-20ZM212,196a16,16,0,1,1,16-16A16,16,0,0,1,212,196ZM156,56V176a12,12,0,0,1-24,0V128H52v48a12,12,0,0,1-24,0V56a12,12,0,0,1,24,0v48h80V56a12,12,0,0,1,24,0Z';
     __tmPhosphorBoldPaths['tray-arrow-down'] = 'M208,28H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28Zm-4,24v92H179.31a19.86,19.86,0,0,0-14.14,5.86L147,168H109L90.83,149.86A19.86,19.86,0,0,0,76.69,144H52V52ZM52,204V168H75l18.14,18.14A19.86,19.86,0,0,0,107.31,192h41.38a19.86,19.86,0,0,0,14.14-5.86L181,168h23v36Zm35.51-87.51a12,12,0,0,1,17-17L116,111V76a12,12,0,0,1,24,0v35l11.51-11.52a12,12,0,0,1,17,17l-32,32a12,12,0,0,1-17,0Z';
+    __tmPhosphorBoldPaths['tray-arrow-up'] = 'M208,28H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28Zm-4,24v92H179.31a19.86,19.86,0,0,0-14.14,5.86L147,168H109L90.83,149.86A19.86,19.86,0,0,0,76.69,144H52V52ZM52,204V168H75l18.14,18.14A19.86,19.86,0,0,0,107.31,192h41.38a19.86,19.86,0,0,0,14.14-5.86L181,168h23v36Zm35.51-87.51a12,12,0,0,1,0-17l32-32a12,12,0,0,1,17,0l32,32a12,12,0,0,1-17,17L140,105v35a12,12,0,0,1-24,0V105l-11.51,11.52A12,12,0,0,1,87.51,116.49Z';
     __tmPhosphorBoldPaths['trash'] = 'M216,48H180V36A28,28,0,0,0,152,8H104A28,28,0,0,0,76,36V48H40a12,12,0,0,0,0,24h4V208a20,20,0,0,0,20,20H192a20,20,0,0,0,20-20V72h4a12,12,0,0,0,0-24ZM100,36a4,4,0,0,1,4-4h48a4,4,0,0,1,4,4V48H100Zm88,168H68V72H188ZM116,104v64a12,12,0,0,1-24,0V104a12,12,0,0,1,24,0Zm48,0v64a12,12,0,0,1-24,0V104a12,12,0,0,1,24,0Z';
     __tmPhosphorBoldPaths['trash-2'] = __tmPhosphorBoldPaths['trash'];
 

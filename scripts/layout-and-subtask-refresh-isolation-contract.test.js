@@ -76,6 +76,7 @@ assert.match(checklistRenderer, /const indent = checklistCompact \? depth \* 14 
 assert.match(styles, /\.tm-kanban\.tm-kanban--clean\s*\{\s*--tm-kanban-subtask-indent:\s*14px;/, 'kanban subtasks must use the compact checklist hierarchy distance without changing whiteboard spacing');
 assert.equal((styles.match(/padding:\s*[45]px 2px [45]px var\(--tm-kanban-subtask-indent\);/g) || []).length, 2, 'regular and compact kanban subtask rows must share the hierarchy indent token');
 assert.match(styles, /\.tm-kanban\.tm-kanban--clean \.tm-kanban-subtask-row-main\s*\{\s*align-items:\s*center;/, 'kanban subtask contents must be vertically centered without changing whiteboard alignment');
+assert.match(styles, /\.tm-kanban\.tm-kanban--clean \.tm-kanban-subtask-row-main > \.tm-task-checkbox-wrap,\s*\.tm-kanban\.tm-kanban--clean \.tm-kanban-subtask-row-main > \.tm-task-checkbox-wrap \.tm-task-checkbox\s*\{\s*margin-top:\s*0;/, 'kanban subtask checkbox wrappers and inputs must not retain the font-size offset while their row is vertically centered');
 assert.match(
     styles,
     /\.tm-modal\.tm-modal--mobile \.tm-body\.tm-body--kanban \.tm-kanban-col:not\(\.tm-kanban-col--collapsed\)[\s\S]*\[data-tm-host-mode="dock"\] \.tm-body\.tm-body--kanban \.tm-kanban-col:not\(\.tm-kanban-col--collapsed\)/,

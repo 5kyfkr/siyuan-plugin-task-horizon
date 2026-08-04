@@ -88,6 +88,7 @@ assert.match(dialogRuntime, /const deferForScroll = __tmShouldDeferMainViewRefre
 assert.doesNotMatch(dialogRuntime, /source: 'switch-doc-group:snapshot-cache'/, 'group switching must not use the unconditional full task snapshot verifier');
 assert.match(styles, /\.tm-table td \{[\s\S]*?border-bottom: 1px solid var\(--tm-table-border-color\);[\s\S]*?box-shadow: none;/, 'ordinary table cells must use the cheaper border separator');
 assert.match(styles, /\.tm-body\.tm-body--list #tmTaskTable tbody tr\[data-id\] \{[\s\S]*?content-visibility: auto;[\s\S]*?contain-intrinsic-size: auto var\(--tm-row-height\);/, 'large table views must skip rendering offscreen task row contents');
+assert.match(styles, /\.tm-body--kanban \.tm-kanban-card:not\(\.tm-kanban-card--sub\) \{[\s\S]*?flex-shrink: 0;/, 'root kanban cards must not shrink below their content height in overflowing columns');
 assert.match(styles, /\.tm-kanban-card:not\(\.tm-kanban-card--sub\) \{[\s\S]*?content-visibility: auto;[\s\S]*?contain-intrinsic-size: auto 96px;/, 'kanban content visibility must remain limited to root cards');
 assert.doesNotMatch(styles, /(?:tm-modal--mobile|tm-modal--dock)[^{]*\.tm-kanban-card\s*(?:,|\{)[^}]*content-visibility:\s*auto;/, 'mobile kanban content visibility must not target nested subtask cards');
 assert.match(styles, /\.tm-kanban--clean \.tm-kanban-subtask-row\.tm-kanban-card \{[\s\S]*?content-visibility: visible;[\s\S]*?contain-intrinsic-size: none;/, 'nested kanban cards must bypass Android WebView content-visibility placeholders');

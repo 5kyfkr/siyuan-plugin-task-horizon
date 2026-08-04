@@ -37,23 +37,37 @@ const buildVisibilityPolicy = new Function(
     'SettingsStore',
     '__tmIsTaskDoneEffective',
     '__tmIsDocManuallyArchivedInGroup',
+    '__tmIsDocManuallyUnarchivedInGroup',
     `${docTabVisibility}; return __tmDocShouldShowInDocTabs;`
 );
 const doneDoc = { id: 'doc-a', tasks: [{ id: 'task-a', done: true, children: [] }] };
-const automaticPolicy = buildVisibilityPolicy({ data: { currentGroupId: 'group-a', docTabsManualArchiveOnly: false } }, (task) => task.done === true, () => false);
+const automaticPolicy = buildVisibilityPolicy({ data: { currentGroupId: 'group-a', docTabsManualArchiveOnly: false } }, (task) => task.done === true, () => false, () => false);
 assert.equal(automaticPolicy(doneDoc, { archiveMode: false }), false, 'completed documents should remain automatically archived by default');
 assert.equal(automaticPolicy(doneDoc, { archiveMode: true }), true, 'completed documents should appear in the archive by default');
-const manualPolicy = buildVisibilityPolicy({ data: { currentGroupId: 'group-a', docTabsManualArchiveOnly: true } }, (task) => task.done === true, () => false);
+const manualPolicy = buildVisibilityPolicy({ data: { currentGroupId: 'group-a', docTabsManualArchiveOnly: true } }, (task) => task.done === true, () => false, () => false);
 assert.equal(manualPolicy(doneDoc, { archiveMode: false }), true, 'manual archive control should keep completed document tabs active');
 assert.equal(manualPolicy(doneDoc, { archiveMode: true }), false, 'manual archive control should not auto-add completed documents to the archive');
-const manuallyArchivedPolicy = buildVisibilityPolicy({ data: { currentGroupId: 'group-a', docTabsManualArchiveOnly: true } }, (task) => task.done === true, () => true);
+const manuallyArchivedPolicy = buildVisibilityPolicy({ data: { currentGroupId: 'group-a', docTabsManualArchiveOnly: true } }, (task) => task.done === true, () => true, () => false);
 assert.equal(manuallyArchivedPolicy(doneDoc, { archiveMode: false }), false, 'explicitly archived completed documents should leave the active tabs');
 assert.equal(manuallyArchivedPolicy(doneDoc, { archiveMode: true }), true, 'explicitly archived completed documents should remain recoverable from the archive');
+const manuallyUnarchivedPolicy = buildVisibilityPolicy({ data: { currentGroupId: 'group-a', docTabsManualArchiveOnly: false } }, (task) => task.done === true, () => false, () => true);
+assert.equal(manuallyUnarchivedPolicy(doneDoc, { archiveMode: false }), true, 'manually unarchived completed documents should return to active tabs');
+assert.equal(manuallyUnarchivedPolicy(doneDoc, { archiveMode: true }), false, 'manually unarchived completed documents should leave the archive tabs');
 assert.match(dialogRuntime, /canManuallyArchiveDocTab[\s\S]*docTabsManualArchiveOnly === true[\s\S]*docTabStateForMenu\.hasAny/, 'completed tabs must keep the manual archive menu action when automatic archiving is disabled');
+assert.match(dialogRuntime, /移出归档页签[\s\S]*__tmSetDocManualUnarchivedForGroup/, 'archive-tab context menus must expose a manual unarchive action for automatically archived documents');
+const unarchiveMenuIndex = dialogRuntime.indexOf("__tmRenderContextMenuLabel('tray-arrow-up', '移出归档页签')");
+const archiveMenuIndex = dialogRuntime.indexOf("__tmRenderContextMenuLabel('archive', '归档页签')");
+const hideTabMenuIndex = dialogRuntime.indexOf("__tmRenderContextMenuLabel('eye-off', excludeDocMenuLabel)");
+assert.notEqual(unarchiveMenuIndex, -1, 'manual unarchive must use the Phosphor tray-arrow-up icon');
+assert.notEqual(archiveMenuIndex, -1, 'active document tabs must retain the manual archive action');
+assert.ok(archiveMenuIndex < hideTabMenuIndex, 'manual archive must render directly before hide document tab');
+assert.ok(unarchiveMenuIndex < hideTabMenuIndex, 'manual unarchive must render directly before hide document tab');
+assert.match(dialogRuntime, /__tmPhosphorBoldPaths\['tray-arrow-up'\]\s*=/, 'the tray-arrow-up bold asset path must be registered');
 assert.match(settingsRuntime, /手动控制归档[\s\S]*updateDocTabsManualArchiveOnly\(this\.checked\)/, 'settings must expose the archive policy through the native switch pattern');
 assert.match(settingsRuntime, /__tmSettingsSearchCaptureBuffer\.push\([\s\S]*TM_SETTINGS_SEARCH_INDEX_TABS[\s\S]*renderSettingsModalMarkup\(\)/, 'manual archive control must be discoverable through the renderer-generated cross-tab search index');
 assert.match(settingsRuntime, /__tmSettingsSearchAttrs\('appearance', '页签栏',[\s\S]*\{ section: 'tabs' \}\)[\s\S]*'手动控制归档',[\s\S]*\{ section: 'tabs' \}/, 'manual archive search results must target the page-tabs section and setting row');
 assert.match(storeRuntime, /docTabsManualArchiveOnly: false[\s\S]*tm_doc_tabs_manual_archive_only[\s\S]*docTabsManualArchiveOnly = !!this\.data\.docTabsManualArchiveOnly/, 'manual archive control must have a backward-compatible default and normalized local persistence');
+assert.match(storeRuntime, /docTabsManualUnarchivedByGroup[\s\S]*tm_doc_tabs_manual_unarchived_by_group/, 'manual unarchive overrides must be persisted');
 assert.match(storeRuntime, /docTabsManualArchiveOnly: data\.docTabsManualArchiveOnly \? 1 : 0/, 'snapshot view signatures must separate automatic and manual archive policies');
 assert.match(dialogRuntime, /String\(archiveMode \? 1 : 0\),\s*String\(SettingsStore\?\.data\?\.docTabsManualArchiveOnly \? 1 : 0\)/, 'filter render signatures must change when the archive policy changes');
 assert.match(rowModelRuntime, /window\.updateDocTabsManualArchiveOnly[\s\S]*__tmResolveDocTabSwitchTarget\(activeDocId\)[\s\S]*applyFilters\(\)/, 'changing archive policy must validate the active tab and refresh every aggregate scope');

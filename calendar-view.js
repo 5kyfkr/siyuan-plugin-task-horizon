@@ -59,6 +59,7 @@
     const CALENDAR_SUBSCRIPTION_FILE_LIMIT = 9 * 1024 * 1024;
     const CALENDAR_SUBSCRIPTION_DEBOUNCE_MS = 30000;
     const SIDE_DAY_HALF_HOUR_SLOT_HEIGHT = 29;
+    const CALENDAR_TIMEGRID_SLOT_MINUTES = 15;
     const CALENDAR_TIMEGRID_EVENT_MIN_HEIGHT = 30;
     const CALENDAR_TIMEGRID_ALLDAY_EVENT_HEIGHT = 19;
     const CALENDAR_TIMEGRID_ALLDAY_SURFACE_SELECTOR = '.fc-timegrid-all-day, .fc-timegrid-allday, .fc-timegrid-all-day-events';
@@ -375,6 +376,7 @@
         taskDraggableAbort: null,
         taskDraggableHosts: [],
         settingsStore: null,
+        docGroupNameResolver: null,
         opts: null,
         tomatoListener: null,
         reminderRefreshListener: null,
@@ -1745,7 +1747,7 @@
     function __tmApplyTimeGridHeightLayout(rootEl, settings) {
         if (!(rootEl instanceof HTMLElement)) return false;
         const nextSettings = settings || getSettings();
-        const slotHeight = getCalendarHalfHourSlotHeight(nextSettings);
+        const slotHeight = getCalendarTimeGridSlotHeight(nextSettings);
         const contentHeight = getCalendarTimeGridContentHeight(nextSettings);
         const slotNodes = Array.from(rootEl.querySelectorAll('.fc-timegrid-slots tr, .fc-timegrid-slots td, .fc-timegrid-slot, .fc-timegrid-slot-lane, .fc-timegrid-slot-label, .fc-timegrid-slot-frame'));
         const contentNodes = Array.from(rootEl.querySelectorAll('.fc-timegrid-body, .fc-timegrid-cols, .fc-timegrid-cols table, .fc-timegrid-slots, .fc-timegrid-slots table'));
@@ -1770,6 +1772,9 @@
             try { node.style.setProperty('min-height', `${slotHeight}px`, 'important'); } catch (e) {}
             try { node.style.setProperty('max-height', `${slotHeight}px`, 'important'); } catch (e) {}
             try { node.style.setProperty('box-sizing', 'border-box', 'important'); } catch (e) {}
+            if (node.classList.contains('tm-cal-timegrid-slot-quarter')) {
+                try { node.style.setProperty('border-top', '0', 'important'); } catch (e) {}
+            }
         }
         for (const node of contentNodes) {
             if (!(node instanceof HTMLElement)) continue;
@@ -3101,7 +3106,7 @@
             anchorKey = `${formatDateKey(start)}|${formatDateKey(end)}`;
         }
         return {
-            key: [scope, viewType, anchorKey, visibleRange.start, visibleRange.end, getCalendarHalfHourSlotHeight(settings || getSettings())].join('|'),
+            key: [scope, viewType, anchorKey, visibleRange.start, visibleRange.end, getCalendarTimeGridSlotHeight(settings || getSettings())].join('|'),
             viewType,
             targetDate: new Date(),
             startMinutes,
@@ -3145,12 +3150,15 @@
         const startMinutes = parseCalendarTimeToMinutes(visibleRange.slotMinTime);
         const endMinutes = parseCalendarTimeToMinutes(visibleRange.slotMaxTime);
         if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) return null;
-        const slotHeight = Math.max(1, Number(getCalendarHalfHourSlotHeight(nextSettings)) || 1);
+        const slotHeight = Math.max(1, Number(getCalendarTimeGridSlotHeight(nextSettings)) || 1);
         const scroller = rootEl instanceof HTMLElement ? getTimeGridBodyScroller(rootEl) : null;
         const clientHeight = scroller instanceof HTMLElement ? Number(scroller.clientHeight || 0) : 0;
         const visibleMinutes = Math.min(
             endMinutes - startMinutes,
-            Math.max(30, clientHeight > 0 ? (clientHeight * 30 / slotHeight) : 360)
+            Math.max(
+                CALENDAR_TIMEGRID_SLOT_MINUTES * 2,
+                clientHeight > 0 ? (clientHeight * CALENDAR_TIMEGRID_SLOT_MINUTES / slotHeight) : 360
+            )
         );
         const nowMinutesRaw = getDateMinutesOfDay(new Date());
         if (!Number.isFinite(nowMinutesRaw)) return null;
@@ -3229,7 +3237,7 @@
         let targetContentY = NaN;
         {
             const nextSettings = settings || getSettings();
-            const slotHeight = getTimeGridSlotHeight(rootEl, getCalendarHalfHourSlotHeight(nextSettings));
+            const slotHeight = getTimeGridSlotHeight(rootEl, getCalendarTimeGridSlotHeight(nextSettings));
             const nowMinutesRaw = getDateMinutesOfDay(targetDate);
             const nowMinutes = Math.min(guard.endMinutes, Math.max(guard.startMinutes, nowMinutesRaw));
             const slotsEl = rootEl.querySelector('.fc-timegrid-slots');
@@ -3239,7 +3247,7 @@
                 const offsetTop = (slotsRect.top - scrollerRect.top) + Number(scroller.scrollTop || 0);
                 if (Number.isFinite(offsetTop)) contentStartY = Math.max(0, offsetTop);
                 if (Number.isFinite(contentStartY)) {
-                    targetContentY = contentStartY + ((nowMinutes - guard.startMinutes) / 30) * slotHeight;
+                    targetContentY = contentStartY + ((nowMinutes - guard.startMinutes) / CALENDAR_TIMEGRID_SLOT_MINUTES) * slotHeight;
                 }
             }
         }
@@ -3954,6 +3962,13 @@
         ]);
     }
 
+    function getCalendarQuarterHourSlotClass(info) {
+        const date = info?.date;
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+        const minute = date.getMinutes();
+        return minute === 15 || minute === 45 ? 'tm-cal-timegrid-slot-quarter' : '';
+    }
+
     function getFullCalendarCompatClassOptions() {
         return {
             className: 'fc',
@@ -4002,12 +4017,14 @@
                 'fc-timegrid-slot',
                 'fc-timegrid-slot-label',
                 info?.isMinor ? 'fc-timegrid-slot-minor' : '',
+                getCalendarQuarterHourSlotClass(info),
             ]),
             slotHeaderInnerClass: 'fc-timegrid-slot-label-frame fc-timegrid-slot-label-cushion',
             slotLaneClass: (info) => joinCalendarClassName([
                 'fc-timegrid-slot',
                 'fc-timegrid-slot-lane',
                 info?.isMinor ? 'fc-timegrid-slot-minor' : '',
+                getCalendarQuarterHourSlotClass(info),
             ]),
             allDayHeaderClass: 'fc-timegrid-axis',
             allDayHeaderInnerClass: 'fc-timegrid-axis-frame fc-timegrid-axis-cushion',
@@ -6017,7 +6034,7 @@
     function applyCalendarSlotMinHeightOption(calendar, settings) {
         if (!calendar) return false;
         const nextSettings = settings || getSettings();
-        const slotHeight = getCalendarHalfHourSlotHeight(nextSettings);
+        const slotHeight = getCalendarTimeGridSlotHeight(nextSettings);
         try { calendar.setOption('slotMinHeight', slotHeight); } catch (e) {}
         try { calendar.setOption('eventMinHeight', getCalendarTimeGridEventMinHeight(nextSettings)); } catch (e) {}
         return true;
@@ -6026,9 +6043,11 @@
     function getTimeGridSlotLayoutOptions(settings) {
         const nextSettings = settings || getSettings();
         const visibleRange = getCalendarVisibleSlotRange(nextSettings);
+        const slotDuration = formatCalendarDurationFromMinutes(CALENDAR_TIMEGRID_SLOT_MINUTES);
         return {
-            slotDuration: '00:30:00',
-            slotMinHeight: getCalendarHalfHourSlotHeight(nextSettings),
+            slotDuration,
+            snapDuration: slotDuration,
+            slotMinHeight: getCalendarTimeGridSlotHeight(nextSettings),
             eventMinHeight: getCalendarTimeGridEventMinHeight(nextSettings),
             // Half-hour starts need half-hour label containers so the following hour labels can render.
             slotHeaderInterval: getCalendarSlotHeaderInterval(visibleRange),
@@ -6132,6 +6151,10 @@
         return SIDE_DAY_HALF_HOUR_SLOT_HEIGHT + (CALENDAR_HOUR_SLOT_HEIGHT_DELTA_MAP[mode] / 2);
     }
 
+    function getCalendarTimeGridSlotHeight(settings) {
+        return getCalendarHalfHourSlotHeight(settings) / 2;
+    }
+
     function getCalendarTimeGridEventMinHeight(settings) {
         const slotHeight = getCalendarHalfHourSlotHeight(settings || getSettings());
         // FullCalendar uses eventMinHeight-expanded verticals for lane collision.
@@ -6143,9 +6166,11 @@
     function applyCalendarSlotHeightStyle(rootEl, settings) {
         if (!(rootEl instanceof HTMLElement)) return false;
         const nextSettings = settings || getSettings();
-        const slotHeight = getCalendarHalfHourSlotHeight(nextSettings);
+        const halfHourSlotHeight = getCalendarHalfHourSlotHeight(nextSettings);
+        const slotHeight = getCalendarTimeGridSlotHeight(nextSettings);
         const contentHeight = getCalendarTimeGridContentHeight(nextSettings);
-        try { rootEl.style.setProperty('--tm-calendar-half-hour-slot-height', `${slotHeight}px`); } catch (e) {}
+        try { rootEl.style.setProperty('--tm-calendar-half-hour-slot-height', `${halfHourSlotHeight}px`); } catch (e) {}
+        try { rootEl.style.setProperty('--tm-calendar-timegrid-slot-height', `${slotHeight}px`); } catch (e) {}
         try { rootEl.style.setProperty('--tm-calendar-timegrid-content-height', `${contentHeight}px`); } catch (e) {}
         return true;
     }
@@ -7088,8 +7113,8 @@
         const totalMinutes = Number.isFinite(minMinutes) && Number.isFinite(maxMinutes) && maxMinutes > minMinutes
             ? (maxMinutes - minMinutes)
             : 24 * 60;
-        const slotCount = Math.max(1, Math.round(totalMinutes / 30));
-        return slotCount * getCalendarHalfHourSlotHeight(settings);
+        const slotCount = Math.max(1, Math.round(totalMinutes / CALENDAR_TIMEGRID_SLOT_MINUTES));
+        return slotCount * getCalendarTimeGridSlotHeight(settings);
     }
 
     function getSideDayContentHeight(settings) {
@@ -7097,7 +7122,7 @@
     }
 
     function getTimeGridSlotHeight(rootEl, fallback) {
-        const safeFallback = Number.isFinite(Number(fallback)) ? Number(fallback) : getCalendarHalfHourSlotHeight();
+        const safeFallback = Number.isFinite(Number(fallback)) ? Number(fallback) : getCalendarTimeGridSlotHeight();
         if (!(rootEl instanceof HTMLElement)) return safeFallback;
         const selectors = [
             '.fc-timegrid-slots tr',
@@ -7881,7 +7906,11 @@
         if (Array.isArray(groups)) {
             for (const g of groups) {
                 const gid = String(g?.id || '').trim();
-                const name = String(g?.name || '').trim();
+                let resolvedName = '';
+                try {
+                    if (typeof state.docGroupNameResolver === 'function') resolvedName = state.docGroupNameResolver(g);
+                } catch (e) {}
+                const name = String(resolvedName || g?.name || '').trim();
                 if (!gid || !name) continue;
                 list.push({ id: calendarIdForGroup(gid), name, color: hashColor(gid) });
             }
@@ -8540,6 +8569,18 @@
             } catch (e) {}
         });
         state.taskDraggable = draggables.length ? draggables : null;
+    }
+
+    function refreshDocGroupNames(resolveName) {
+        if (typeof resolveName === 'function') state.docGroupNameResolver = resolveName;
+        const wrap = state.wrapEl;
+        if (!wrap) return false;
+        try {
+            renderSidebar(wrap, getSettings());
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
     function renderTaskPage(wrap, settings) {
@@ -17000,7 +17041,7 @@
             const offsetY = (yp - wrapRect.top) + scrollTop;
             const slotHeight = getTimeGridSlotHeight(root);
             const slotIndex = Math.max(0, Math.floor(offsetY / slotHeight));
-            const startMinutes = getVisibleStartMinutes() + slotIndex * 30;
+            const startMinutes = getVisibleStartMinutes() + slotIndex * CALENDAR_TIMEGRID_SLOT_MINUTES;
             const hh = Math.floor(startMinutes / 60);
             const mm = startMinutes % 60;
             const dt = new Date(`${dateStr}T${pad2(hh)}:${pad2(mm)}:00`);
@@ -17149,10 +17190,10 @@
         const slotHeight = Math.max(1, Number(getTimeGridSlotHeight(root)) || 1);
         const top = allDay
             ? 0
-            : Math.max(0, (slotsRect.top - layerRect.top) - scrollTop + ((eventStartMinutes - startMinutesBase) / 30) * slotHeight);
+            : Math.max(0, (slotsRect.top - layerRect.top) - scrollTop + ((eventStartMinutes - startMinutesBase) / CALENDAR_TIMEGRID_SLOT_MINUTES) * slotHeight);
         const height = allDay
             ? Math.max(22, ((allDayWrap instanceof HTMLElement) ? allDayWrap.getBoundingClientRect().height : 26) - 4)
-            : Math.max(18, (previewDurationMin / 30) * slotHeight - 2);
+            : Math.max(18, (previewDurationMin / CALENDAR_TIMEGRID_SLOT_MINUTES) * slotHeight - 2);
         try { titleEl.textContent = title; } catch (e) {}
         try { ghost.style.display = 'block'; } catch (e) {}
         try { ghost.style.top = `${Math.round(top)}px`; } catch (e) {}
@@ -26913,6 +26954,7 @@
         setScheduleAllDayBottomById,
         reassignScheduleLinkedTask,
         setSettingsStore,
+        refreshDocGroupNames,
         scheduleDefaultViewForCurrentHost,
         requestRefresh: scheduleCalendarRefresh,
         refreshInPlace,

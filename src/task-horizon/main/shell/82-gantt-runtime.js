@@ -320,6 +320,14 @@
             return Math.ceil((((utc - yearStart) / DAY_MS) + 1) / 7);
         }
 
+        function formatTimelineHeaderUpperLabel(scaleInput, ts) {
+            const d = new Date(ts);
+            if (Number.isNaN(d.getTime())) return '';
+            return normalizeTimelineScale(scaleInput) === 'month'
+                ? `${d.getFullYear()}年`
+                : `${d.getFullYear()}年${d.getMonth() + 1}月`;
+        }
+
         function buildDayCellsHtml(startTs, dayCount, dayWidth) {
             const cells = [];
             const todayTs = startOfDayTs(Date.now());
@@ -373,16 +381,24 @@
             return segments;
         }
 
+        function buildTimelineHeaderUpperSegments(scaleInput, startTs, dayCount) {
+            const scale = normalizeTimelineScale(scaleInput);
+            if (scale === 'month') return buildTimelinePeriodSegments(startTs, dayCount, 'year');
+            return scale === 'week'
+                ? buildWeekAlignedMonthSegments(startTs, dayCount)
+                : buildTimelinePeriodSegments(startTs, dayCount, 'month');
+        }
+
         function buildMonthHeaderHtml(startTs, dayCount, dayWidth, alignToWeeks = false) {
             const today = new Date();
             const segments = alignToWeeks
-                ? buildWeekAlignedMonthSegments(startTs, dayCount)
-                : buildTimelinePeriodSegments(startTs, dayCount, 'month');
+                ? buildTimelineHeaderUpperSegments('week', startTs, dayCount)
+                : buildTimelineHeaderUpperSegments('day', startTs, dayCount);
             return segments.map((segment) => {
                 const d = segment.labelDate || segment.startDate;
                 const y = d.getFullYear();
                 const m = d.getMonth();
-                const label = `${y}年${m + 1}月`;
+                const label = formatTimelineHeaderUpperLabel('day', d.getTime());
                 const isCurrent = today.getFullYear() === y && today.getMonth() === m;
                 return `<div class="tm-gantt-month tm-gantt-period-cell tm-gantt-period-cell--upper${isCurrent ? ' tm-gantt-period-cell--current-period' : ''}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px">${label}</div>`;
             }).join('');
@@ -403,10 +419,11 @@
 
         function buildYearHeaderHtml(startTs, dayCount, dayWidth) {
             const todayYear = new Date().getFullYear();
-            return buildTimelinePeriodSegments(startTs, dayCount, 'year').map((segment) => {
+            return buildTimelineHeaderUpperSegments('month', startTs, dayCount).map((segment) => {
                 const d = segment.startDate;
                 const year = d.getFullYear();
-                return `<div class="tm-gantt-month tm-gantt-period-cell tm-gantt-period-cell--upper${todayYear === year ? ' tm-gantt-period-cell--current-period' : ''}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px">${year}年</div>`;
+                const label = formatTimelineHeaderUpperLabel('month', d.getTime());
+                return `<div class="tm-gantt-month tm-gantt-period-cell tm-gantt-period-cell--upper${todayYear === year ? ' tm-gantt-period-cell--current-period' : ''}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px">${label}</div>`;
             }).join('');
         }
 
@@ -433,7 +450,10 @@
                     ? buildMonthCellsHtml(startTs, dayCount, dayWidth)
                     : buildDayCellsHtml(startTs, dayCount, dayWidth));
             return `
-                <div class="tm-gantt-month-row tm-gantt-period-row tm-gantt-period-row--upper">${upperHtml}</div>
+                <div class="tm-gantt-month-row tm-gantt-period-row tm-gantt-period-row--upper">
+                    <div class="tm-gantt-header-period-sticky" data-tm-gantt-header-period-sticky aria-hidden="true">${formatTimelineHeaderUpperLabel(scale, startTs)}</div>
+                    ${upperHtml}
+                </div>
                 <div class="tm-gantt-day-row tm-gantt-period-row tm-gantt-period-row--lower">${lowerHtml}</div>
             `;
         }
@@ -921,6 +941,52 @@
                     </div>
                 `;
             }
+
+            const upperSegments = buildTimelineHeaderUpperSegments(scale, startTs, dayCount);
+            const upperCells = Array.from(headerEl.querySelectorAll?.('.tm-gantt-period-cell--upper') || []);
+            let stickyLabelText = '';
+            let stickyLabelWidth = 0;
+            let stickySegmentIndex = -1;
+            const syncStickyHeaderPeriod = (scrollLeftInput = 0) => {
+                const sticky = headerEl.querySelector?.('[data-tm-gantt-header-period-sticky]');
+                if (!(sticky instanceof HTMLElement)) return;
+                const scrollLeft = clamp(Number(scrollLeftInput) || 0, 0, Math.max(0, totalWidth - 1));
+                const dayIndex = clamp(Math.floor(scrollLeft / dayWidth), 0, Math.max(0, dayCount - 1));
+                const visibleTs = startTs + dayIndex * DAY_MS;
+                const label = formatTimelineHeaderUpperLabel(scale, visibleTs);
+                if (stickyLabelText !== label) {
+                    stickyLabelText = label;
+                    stickyLabelWidth = 0;
+                    sticky.textContent = label;
+                }
+                const upperSegmentIndex = upperSegments.findIndex((segment) => (
+                    dayIndex >= segment.startIndex && dayIndex < segment.startIndex + segment.spanDays
+                ));
+                const resolvedSegmentIndex = upperSegmentIndex >= 0 ? upperSegmentIndex : Math.max(0, upperSegments.length - 1);
+                const upperSegment = upperSegments[resolvedSegmentIndex];
+                if (stickySegmentIndex !== resolvedSegmentIndex) {
+                    upperCells[stickySegmentIndex]?.classList?.remove?.('tm-gantt-period-cell--sticky-source');
+                    upperCells[resolvedSegmentIndex]?.classList?.add?.('tm-gantt-period-cell--sticky-source');
+                    stickySegmentIndex = resolvedSegmentIndex;
+                }
+                if (stickyLabelWidth <= 0) stickyLabelWidth = Math.ceil(sticky.getBoundingClientRect().width);
+                const segmentStartPx = upperSegment ? upperSegment.startIndex * dayWidth : 0;
+                const segmentEndPx = upperSegment
+                    ? (upperSegment.startIndex + upperSegment.spanDays) * dayWidth
+                    : totalWidth;
+                const maxLabelLeft = Math.max(segmentStartPx, segmentEndPx - stickyLabelWidth);
+                const labelLeft = clamp(scrollLeft, segmentStartPx, maxLabelLeft);
+                sticky.style.transform = `translate3d(${labelLeft}px, 0, 0)`;
+                const visibleDate = new Date(visibleTs);
+                const today = new Date();
+                const isCurrent = scale === 'month'
+                    ? visibleDate.getFullYear() === today.getFullYear()
+                    : (visibleDate.getFullYear() === today.getFullYear() && visibleDate.getMonth() === today.getMonth());
+                sticky.classList.toggle('tm-gantt-period-cell--current-period', isCurrent);
+            };
+            try { headerEl.__tmSyncGanttStickyPeriod = syncStickyHeaderPeriod; } catch (e) {}
+            const currentScrollHost = bodyEl.closest?.('.tm-timeline-scroll-host');
+            syncStickyHeaderPeriod(currentScrollHost instanceof HTMLElement ? currentScrollHost.scrollLeft : bodyEl.scrollLeft);
 
             const nowTs = Date.now();
             const todayIsVisible = nowTs >= startTs && nowTs < endTs + DAY_MS;

@@ -110,12 +110,28 @@ vm.runInContext(`${sliceSource(
     assert.match(quickbarSource, /quickbarCustomFieldScopeByDoc = new Map\(\)[\s\S]*quickbarCustomFieldScopePromises = new Map\(\)/, 'quickbar must keep one applicability cache and in-flight request per root document');
     assert.match(quickbarSource, /\.map\(\(itemKey\) => getQuickbarCustomFieldConfigByToken\(itemKey\)\)[\s\S]*\.filter\(Boolean\)[\s\S]*\.filter\(\(config\) => isQuickbarCustomFieldConfigApplicable\(config, currentQuickbarApplicableCustomFieldIds\)\)/, 'quickbar must discard non-custom entries before applying custom field scope filters');
     const quickbarBridgeGetterSource = sliceSource(quickbarSource, 'async function getTaskHorizonBridgeCustomProps', 'function resolveQuickbarAttrBindingFromBlockId');
+    let bridgeGetterOptions = null;
     const getTaskHorizonBridgeCustomProps = new Function('getTaskHorizonSharedApi', 'normalizeCustomProps', `${quickbarBridgeGetterSource}; return getTaskHorizonBridgeCustomProps;`)(
-        () => ({ quickbarBridge: { getTaskCustomPropsByAnyId: async () => ({ props: { status: 'todo' }, taskId: 'task-a', attrHostId: 'host-a', applicableCustomFieldIds: ['direct'] }) } }),
+        () => ({ quickbarBridge: { getTaskCustomPropsByAnyId: async (_id, options) => {
+            bridgeGetterOptions = options;
+            return {
+                props: { status: 'todo' },
+                taskId: 'task-a',
+                attrHostId: 'host-a',
+                sourceDocId: 'doc-source',
+                attrContext: { taskId: 'task-a', primaryHostId: 'host-a', state: 'state1-parent' },
+                applicableCustomFieldIds: ['direct'],
+            };
+        } } }),
         (value) => value,
     );
     const bridgedProps = await getTaskHorizonBridgeCustomProps('task-a', { forceFresh: true });
     assert.equal(bridgedProps?.applicableCustomFieldIds, undefined, 'task property snapshots must not carry document applicability metadata');
+    assert.equal(bridgedProps?.sourceDocId, undefined, 'ordinary quickbar reads must not opt into source context');
+    const contextualProps = await getTaskHorizonBridgeCustomProps('task-a', { includeContext: true });
+    assert.equal(bridgeGetterOptions?.includeContext, true, 'embedded quickbar reads must opt into source context explicitly');
+    assert.equal(contextualProps?.sourceDocId, 'doc-source', 'embedded quickbar reads must preserve the source document ID');
+    assert.equal(contextualProps?.attrContext?.primaryHostId, 'host-a', 'embedded quickbar reads must preserve the authoritative attr host');
     assert.match(quickbarSource, /function renderInlineMetaHtml\(cfg, props, blockEl = null, applicableCustomFieldIds = null\)[\s\S]*isQuickbarCustomFieldConfigApplicable\(config, applicableCustomFieldIds\)[\s\S]*renderInlineMetaField/, 'persistent quickbar fields must receive document applicability separately from task properties');
     const quickbarApplicabilitySource = sliceSource(quickbarSource, 'function isQuickbarCustomFieldConfigApplicable', 'function normalizeQuickbarCustomFieldScope');
     const isQuickbarFieldApplicable = new Function(`${quickbarApplicabilitySource}; return isQuickbarCustomFieldConfigApplicable;`)();
@@ -153,7 +169,7 @@ vm.runInContext(`${sliceSource(
     const floatBarSource = sliceSource(quickbarSource, 'async function showFloatBar', 'async function refreshVisibleQuickbarCustomFieldScope');
     assert.match(floatBarSource, /resolveDocIdFromTaskBlock\(blockEl\)[\s\S]*await ensureQuickbarCustomFieldIdsForDoc\(docIdAtOpen\)[\s\S]*currentQuickbarApplicableCustomFieldIds = applicableCustomFieldIds[\s\S]*renderFloatBar\(\)[\s\S]*floatBar\.style\.display = 'flex'/, 'floating quickbar must resolve document scope before its first visible render');
     const inlineRenderSource = sliceSource(quickbarSource, 'async function renderInlineMetaForBlock', 'function scheduleInlineMetaRender');
-    assert.match(inlineRenderSource, /resolveDocIdFromTaskBlock\(blockEl\)[\s\S]*await ensureQuickbarCustomFieldIdsForDoc\(docId\)[\s\S]*renderInlineMetaHtml\(cfg, cachedPropsForRender, blockEl, applicableCustomFieldIds\)/, 'persistent fields must reuse document scope independently of task property snapshots');
+    assert.match(inlineRenderSource, /isEmbedded \? String\(embedContext\?\.sourceDocId[\s\S]*: resolveDocIdFromTaskBlock\(blockEl\)[\s\S]*await ensureQuickbarCustomFieldIdsForDoc\(docId\)[\s\S]*renderInlineMetaHtml\(cfg, cachedPropsForRender, blockEl, applicableCustomFieldIds\)/, 'persistent fields must use source scope only for embedded instances');
     assert.doesNotMatch(quickbarSource, /__tmApplicableCustomFieldIds|canReuseQuickbarPropsCache|hasScopedCustomFields/, 'quickbar must not fall back to per-task applicability state');
     assert.doesNotMatch(quickbarSource, /async function isInlineMetaScopeAllowedForBlock\(/, 'quickbar must not retain the unused async inline scope wrapper');
     assert.equal((quickbarSource.match(/isQuickbarCustomFieldConfigApplicable\(config, currentQuickbarApplicableCustomFieldIds\)/g) || []).length, 1, 'floating quickbar must apply custom field scope only once');
@@ -173,6 +189,7 @@ vm.runInContext(`${sliceSource(
     assert.match(bridgeSource, /getApplicableCustomFieldIdsForDoc\(docId\)[\s\S]*__tmGetQuickbarApplicableCustomFieldIdsForDoc\(docId\)/, 'the shared quickbar bridge must expose document-level applicability');
     const taskPropsBridgeSource = sliceSource(bridgeSource, 'async function __tmGetQuickbarTaskCustomPropsByAnyId', 'async function __tmGetQuickbarApplicableCustomFieldIdsForDoc');
     assert.doesNotMatch(taskPropsBridgeSource, /__tmRefreshCustomFieldScopeMembership|applicableCustomFieldIds|__tmGetApplicableCustomFieldDefsForTask/, 'task property reads must not recompute document scope');
+    assert.match(taskPropsBridgeSource, /opts\.includeContext === true[\s\S]*__tmResolveTaskAttrContext\([\s\S]*result\.sourceDocId[\s\S]*result\.attrContext/, 'the bridge must resolve source context only when explicitly requested');
     assert.match(kernelSource, /membersByTabGroup[\s\S]*tabGroupCount/, 'the kernel membership snapshot must include tab groups');
 
     process.stdout.write('custom field scope contract tests passed\n');

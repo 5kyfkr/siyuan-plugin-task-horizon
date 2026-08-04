@@ -2430,19 +2430,15 @@ return;
                 __tmScheduleTimelineTodayIndicatorRefresh();
 
                 const syncHeaderX = () => {
-                    if (useGlobalScroll || !ganttBody || !ganttHeader) return;
+                    if (!ganttBody || !ganttHeader) return;
+                    const scrollLeft = useGlobalScroll
+                        ? (Number(timelineScrollHost?.scrollLeft) || 0)
+                        : (Number(ganttBody.scrollLeft) || 0);
                     const inner = ganttHeader.querySelector('.tm-gantt-header-inner');
-                    if (!inner) return;
-                    inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
+                    if (inner) inner.style.transform = useGlobalScroll ? '' : `translateX(${-scrollLeft}px)`;
+                    try { ganttHeader.__tmSyncGanttStickyPeriod?.(scrollLeft); } catch (e) {}
                 };
-                if (useGlobalScroll) {
-                    try {
-                        const inner = ganttHeader?.querySelector?.('.tm-gantt-header-inner');
-                        if (inner) inner.style.transform = '';
-                    } catch (e) {}
-                } else {
-                    syncHeaderX();
-                }
+                syncHeaderX();
 
                 requestAnimationFrame(() => requestAnimationFrame(() => {
                     try { __tmSyncTimelineDateColumnWidths(state.modal); } catch (e) {}
@@ -2460,6 +2456,7 @@ return;
                             timelineScrollHost.scrollTop = desiredTop;
                             timelineScrollHost.scrollLeft = timelineRestoreLeft;
                         } catch (e) {}
+                        try { syncHeaderX(); } catch (e) {}
                     } else {
                         try { if (leftBody) leftBody.scrollTop = desiredTop; } catch (e) {}
                         try { if (ganttBody) ganttBody.scrollTop = desiredTop; } catch (e) {}
@@ -7409,6 +7406,7 @@ return;
                 SettingsStore.data.docPinnedByGroup = pinMap;
             }
             try { __tmClearDocManualArchivedInGroups(id, gid); } catch (e) {}
+            try { __tmClearDocManualUnarchivedInGroups(id, gid); } catch (e) {}
 
             if (isAllGroup) {
                 if (String(SettingsStore.data.defaultDocId || '').trim() === id) {
@@ -7461,6 +7459,10 @@ return;
         else next.delete(id);
         if (had === !!archived) return { changed: false, reason: had ? 'already-set' : 'already-cleared' };
 
+        if (archived) {
+            try { __tmClearDocManualUnarchivedInGroups(id, gid); } catch (e) {}
+        }
+
         const map = { ...map0 };
         const ids = __tmNormalizeDocGroupExcludedDocIds(Array.from(next));
         if (ids.length > 0) map[gid] = ids;
@@ -7485,6 +7487,42 @@ return;
         }
 
         return { changed: true, reason: archived ? 'manual-archived' : 'manual-restored' };
+    }
+
+    async function __tmSetDocManualUnarchivedForGroup(docId, unarchived, groupId) {
+        const id = String(docId || '').trim();
+        const gid = String(groupId || 'all').trim() || 'all';
+        if (!id || !gid) return { changed: false, reason: 'invalid' };
+
+        const map0 = __tmNormalizeDocTabsManualArchivedByGroup(SettingsStore?.data?.docTabsManualUnarchivedByGroup);
+        const next = new Set(Array.isArray(map0[gid]) ? map0[gid] : []);
+        const had = next.has(id);
+        if (unarchived) next.add(id);
+        else next.delete(id);
+        if (had === !!unarchived) return { changed: false, reason: had ? 'already-set' : 'already-cleared' };
+
+        if (unarchived) {
+            try { __tmClearDocManualArchivedInGroups(id, gid); } catch (e) {}
+        }
+        const map = { ...map0 };
+        const ids = __tmNormalizeDocGroupExcludedDocIds(Array.from(next));
+        if (ids.length > 0) map[gid] = ids;
+        else delete map[gid];
+        SettingsStore.data.docTabsManualUnarchivedByGroup = map;
+        await SettingsStore.save();
+
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (currentGroupId === gid) {
+            if (unarchived && state.docTabsArchiveMode === true && String(state.activeDocId || '').trim() === id) {
+                state.activeDocId = 'all';
+            }
+            try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
+            try { await __tmApplyCurrentContextViewProfile(); } catch (e) {}
+            try { applyFilters(); } catch (e) {}
+            try { render(); } catch (e) {}
+        }
+
+        return { changed: true, reason: unarchived ? 'manual-unarchived' : 'manual-unarchive-cleared' };
     }
 
     function __tmNormalizeOtherBlockRefs(input) {

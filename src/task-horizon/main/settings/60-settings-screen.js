@@ -1,5 +1,106 @@
     const TM_SETTINGS_SEARCH_MAX_RESULTS = 12;
     const __tmAgentMcpExpandedToolGroups = new Set();
+    const __tmSettingsDocPickerDraft = { groupId: '', selectedIds: new Set() };
+
+    function __tmNormalizeSettingsDocPickerText(value) {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        try { return text.normalize('NFKC').toLowerCase(); } catch (e) { return text.toLowerCase(); }
+    }
+
+    function __tmSettingsDocPickerMatches(haystack, query) {
+        const normalizedQuery = __tmNormalizeSettingsDocPickerText(query);
+        return !normalizedQuery || __tmNormalizeSettingsDocPickerText(haystack).includes(normalizedQuery);
+    }
+
+    function __tmNormalizeSettingsDocPickerPath(value) {
+        const path = String(value || '').trim().replace(/\\/g, '/').replace(/\/+$/g, '');
+        if (!path) return '';
+        return path.startsWith('/') ? path : `/${path}`;
+    }
+
+    function __tmBuildSettingsDocPickerTree(documents = [], notebooks = []) {
+        const notebookMeta = new Map();
+        (Array.isArray(notebooks) ? notebooks : []).forEach((item, index) => {
+            const id = String(item?.id || item?.box || '').trim();
+            if (!id) return;
+            notebookMeta.set(id, {
+                name: String(item?.name || item?.title || id).trim() || id,
+                order: index
+            });
+        });
+
+        const groups = new Map();
+        (Array.isArray(documents) ? documents : []).forEach((doc) => {
+            const id = String(doc?.id || '').trim();
+            const notebookId = String(doc?.notebook || doc?.box || doc?.notebookId || '').trim();
+            if (!id || !notebookId) return;
+            if (!groups.has(notebookId)) {
+                const meta = notebookMeta.get(notebookId);
+                groups.set(notebookId, {
+                    id: notebookId,
+                    name: meta?.name || notebookId,
+                    order: Number.isFinite(meta?.order) ? meta.order : Number.MAX_SAFE_INTEGER,
+                    nodesById: new Map(),
+                    roots: []
+                });
+            }
+            const group = groups.get(notebookId);
+            if (group.nodesById.has(id)) return;
+            const path = __tmNormalizeSettingsDocPickerPath(doc?.path || doc?.hpath);
+            const fallbackName = path.split('/').filter(Boolean).pop() || '未命名文档';
+            group.nodesById.set(id, {
+                id,
+                notebookId,
+                name: String(doc?.name || doc?.content || fallbackName).trim() || fallbackName,
+                alias: String(doc?.alias || '').trim(),
+                path,
+                sort: Number(doc?.sort),
+                doc,
+                children: []
+            });
+        });
+
+        const sortNodes = (nodes) => {
+            nodes.sort((a, b) => {
+                const aSort = Number.isFinite(a.sort) ? a.sort : Number.MAX_SAFE_INTEGER;
+                const bSort = Number.isFinite(b.sort) ? b.sort : Number.MAX_SAFE_INTEGER;
+                return aSort - bSort || a.name.localeCompare(b.name, 'zh-CN');
+            });
+            nodes.forEach((node) => sortNodes(node.children));
+        };
+
+        groups.forEach((group) => {
+            const pathMap = new Map();
+            group.nodesById.forEach((node) => {
+                if (node.path) pathMap.set(node.path, node);
+            });
+            group.nodesById.forEach((node) => {
+                const splitAt = node.path.lastIndexOf('/');
+                const parentPath = splitAt > 0 ? node.path.slice(0, splitAt) : '';
+                const parent = parentPath ? pathMap.get(parentPath) : null;
+                if (parent && parent !== node) parent.children.push(node);
+                else group.roots.push(node);
+            });
+            sortNodes(group.roots);
+            delete group.nodesById;
+        });
+
+        return Array.from(groups.values()).sort((a, b) => (
+            a.order - b.order || a.name.localeCompare(b.name, 'zh-CN')
+        ));
+    }
+
+    function __tmPrepareSettingsDocPickerDraft(groupId, existingIds = []) {
+        const normalizedGroupId = String(groupId || 'all').trim() || 'all';
+        if (__tmSettingsDocPickerDraft.groupId !== normalizedGroupId) {
+            __tmSettingsDocPickerDraft.groupId = normalizedGroupId;
+            __tmSettingsDocPickerDraft.selectedIds.clear();
+        }
+        const existing = existingIds instanceof Set ? existingIds : new Set(existingIds);
+        existing.forEach((id) => __tmSettingsDocPickerDraft.selectedIds.delete(String(id || '').trim()));
+        return __tmSettingsDocPickerDraft.selectedIds;
+    }
+
     window.tmSetAgentMcpToolGroupExpanded = function(groupID, expanded) {
         const id = String(groupID || '').trim();
         if (!id) return;
@@ -512,6 +613,7 @@
         let savedSettingsSubtabsScrollLeft = Number(state.settingsSubtabsScrollLeft) || 0;
         let shouldRestoreSettingsSearchFocus = false;
         if (state.settingsModal) {
+            try { window.tmCloseSettingsDocPicker?.({ restoreFocus: false }); } catch (e) {}
             try {
                 state.__settingsUnstack?.();
                 state.__settingsUnstack = null;
@@ -556,6 +658,10 @@
         const currentGroup = currentGroupId === 'all'
             ? null
             : (groups.find((g) => String(g?.id || '').trim() === String(currentGroupId || '').trim()) || null);
+        if (shouldAnimateOpen) {
+            __tmSettingsDocPickerDraft.groupId = String(currentGroupId || 'all').trim() || 'all';
+            __tmSettingsDocPickerDraft.selectedIds.clear();
+        }
         const currentGroupCalendarOptimization = __tmGetGroupCalendarSearchOptimization(currentGroup);
         const currentGroupExcludedDocIds = __tmGetExcludedDocIdsForGroup(currentGroupId);
         let activeTab = 'docs';
@@ -743,6 +849,7 @@
             return doc ? __tmGetDocDisplayName(doc, doc.name || '未知文档') : '未知文档';
         };
 
+        let settingsDocPickerDialogMarkup = '';
         const renderDocumentGroupManager = () => {
             const searchEnabled = groups.length >= 6;
             const searchQuery = searchEnabled ? String(state.settingsDocGroupQuery || '').trim().toLowerCase() : '';
@@ -794,6 +901,66 @@
                 if (!searchQuery) return true;
                 return String(__tmResolveDocGroupName(group) || '').toLowerCase().includes(searchQuery);
             }).length;
+            const currentDocIdSet = new Set(currentDocs.map((docItem) => {
+                const kind = String((typeof docItem === 'object' ? docItem?.kind : '') || 'doc').trim() || 'doc';
+                return kind === 'doc' ? String((typeof docItem === 'object' ? docItem?.id : docItem) || '').trim() : '';
+            }).filter(Boolean));
+            const docPickerDraft = __tmPrepareSettingsDocPickerDraft(currentGroupId, currentDocIdSet);
+            const docPickerTree = __tmBuildSettingsDocPickerTree(state.allDocuments, state.notebooks);
+            const renderDocPickerNode = (node, depth = 0) => {
+                const docId = String(node?.id || '').trim();
+                if (!docId) return '';
+                const displayName = __tmGetDocDisplayName(node.doc, node.name || '未命名文档');
+                const alreadyAdded = currentDocIdSet.has(docId);
+                const checked = alreadyAdded || docPickerDraft.has(docId);
+                const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+                const searchText = [displayName, node.name, node.alias, node.path, docId].filter(Boolean).join(' ');
+                const rowTag = hasChildren ? 'span' : 'div';
+                const row = `
+                    <${rowTag} class="tm-doc-group-manager__picker-row${alreadyAdded ? ' is-added' : ''}"
+                        data-tm-doc-picker-row data-tm-doc-picker-search="${esc(searchText)}"
+                        style="--tm-doc-picker-depth:${Math.max(0, depth)}">
+                        <span class="tm-doc-group-manager__picker-indent" aria-hidden="true"></span>
+                        ${hasChildren
+                            ? `<span class="tm-doc-group-manager__picker-chevron" aria-hidden="true">${icon('chevron-right', 14)}</span>`
+                            : '<span class="tm-doc-group-manager__picker-chevron-placeholder" aria-hidden="true"></span>'}
+                        <label class="tm-doc-group-manager__picker-label" onclick="event.stopPropagation()">
+                            <input type="checkbox" data-tm-doc-picker-checkbox value="${esc(docId)}"
+                                ${checked ? 'checked' : ''}${alreadyAdded ? ' disabled' : ''}
+                                onchange="tmToggleSettingsDocPickerSelection('${escSq(docId)}', this.checked)">
+                            <span class="tm-doc-group-manager__picker-doc-icon">${icon('file-text', 14)}</span>
+                            <span class="tm-doc-group-manager__picker-name" title="${esc(node.path || displayName)}">${esc(displayName)}</span>
+                            ${alreadyAdded ? '<span class="tm-doc-group-manager__picker-status">已添加</span>' : ''}
+                        </label>
+                    </${rowTag}>
+                `;
+                if (!hasChildren) {
+                    return `<div class="tm-doc-group-manager__picker-item" data-tm-doc-picker-item>${row}</div>`;
+                }
+                return `
+                    <details class="tm-doc-group-manager__picker-item tm-doc-group-manager__picker-branch" data-tm-doc-picker-item>
+                        <summary>${row}</summary>
+                        <div class="tm-doc-group-manager__picker-children">
+                            ${node.children.map((child) => renderDocPickerNode(child, depth + 1)).join('')}
+                        </div>
+                    </details>
+                `;
+            };
+            const countDocPickerNodes = (nodes) => (Array.isArray(nodes) ? nodes : [])
+                .reduce((count, node) => count + 1 + countDocPickerNodes(node.children), 0);
+            const renderDocPickerNotebook = (group) => `
+                <details class="tm-doc-group-manager__picker-notebook" data-tm-doc-picker-notebook>
+                    <summary>
+                        <span class="tm-doc-group-manager__picker-chevron" aria-hidden="true">${icon('chevron-right', 14)}</span>
+                        <span class="tm-doc-group-manager__picker-notebook-icon">${icon('archive', 14)}</span>
+                        <span class="tm-doc-group-manager__picker-notebook-name">${esc(group.name)}</span>
+                        <span class="tm-doc-group-manager__picker-notebook-count">${countDocPickerNodes(group.roots)}</span>
+                    </summary>
+                    <div class="tm-doc-group-manager__picker-notebook-docs">
+                        ${group.roots.map((node) => renderDocPickerNode(node, 0)).join('')}
+                    </div>
+                </details>
+            `;
             const renderSourceRows = () => {
                 if (!currentDocs.length) {
                     return '<div class="tm-doc-group-manager__empty">暂无文档来源。可在上方添加文档，或从思源文档菜单加入当前分组。</div>';
@@ -859,29 +1026,71 @@
                         </div>
                     </div>
                 ` : `
-                    <div class="tm-doc-group-manager__add-form">
-                        <input type="text" id="manualDocId" class="tm-doc-group-manager__input" placeholder="输入文档 ID" aria-label="文档 ID">
-                        ${isAllDocs ? '' : `
-                            <label class="tm-doc-group-manager__recursive">
-                                <input class="b3-switch fn__flex-center" type="checkbox" id="recursiveCheck">
-                                <span>包含子文档</span>
-                            </label>
-                        `}
-                        <button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__add-button" data-tm-action="addManualDoc">
-                            ${icon('plus', 15)}<span>添加</span>
+                    <div class="tm-doc-group-manager__picker-trigger-row">
+                        <button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__picker-trigger"
+                            data-tm-action="tmOpenSettingsDocPicker">
+                            <span>选择文档</span>
                         </button>
                     </div>
-                    <div class="tm-doc-group-manager__hint">
-                        ${isAllDocs
-                            ? '添加到全部文档的兼容来源；需要包含子文档时，请先选择一个自定义分组。'
-                            : '在思源中打开文档，从文档菜单复制 ID。'}
-                    </div>
                 `;
+                if (!isNotebookGroup) {
+                    settingsDocPickerDialogMarkup = `
+                    <div class="tm-doc-group-manager__picker-dialog" data-tm-doc-picker-dialog hidden aria-hidden="true"
+                        onclick="if (event.target === this) tmCloseSettingsDocPicker()">
+                        <section class="tm-doc-group-manager__picker-dialog-box" role="dialog" aria-modal="true" aria-labelledby="tmSettingsDocPickerTitle">
+                            <header class="tm-doc-group-manager__picker-dialog-head">
+                                <h3 id="tmSettingsDocPickerTitle">选择文档</h3>
+                                <button type="button" class="tm-doc-group-manager__picker-dialog-close"
+                                    data-tm-action="tmCloseSettingsDocPicker" title="关闭" aria-label="关闭">
+                                    ${icon('x', 17)}
+                                </button>
+                            </header>
+                            <div class="tm-doc-group-manager__picker" data-tm-doc-picker data-tm-doc-picker-group-id="${esc(currentGroupId)}">
+                        <div class="tm-doc-group-manager__picker-toolbar">
+                            <div class="tm-doc-group-manager__picker-search">
+                                <span aria-hidden="true">${icon('search', 14)}</span>
+                                <input type="search" placeholder="搜索文档名称、路径或 ID" aria-label="搜索文档"
+                                    autocomplete="off" spellcheck="false" data-tm-doc-picker-search-input data-tm-call="tmFilterSettingsDocPicker">
+                                <button type="button" data-tm-action="tmClearSettingsDocPickerSearch" title="清除搜索" aria-label="清除搜索" hidden>${icon('x', 14)}</button>
+                            </div>
+                            <button type="button" class="tm-doc-group-manager__picker-refresh" data-tm-action="tmRefreshSettingsDocPicker"
+                                title="刷新文档列表" aria-label="刷新文档列表">${icon('refresh-cw', 15)}</button>
+                        </div>
+                        <div class="tm-doc-group-manager__picker-tree" data-tm-doc-picker-tree aria-busy="${state.settingsDocPickerDocumentsLoading ? 'true' : 'false'}">
+                            ${state.settingsDocPickerDocumentsLoading && !docPickerTree.length ? `
+                                <div class="tm-doc-group-manager__picker-skeleton" aria-label="正在加载文档">
+                                    <span></span><span></span><span></span>
+                                </div>
+                            ` : docPickerTree.length
+                                ? docPickerTree.map(renderDocPickerNotebook).join('')
+                                : '<div class="tm-doc-group-manager__picker-empty">没有可选择的文档</div>'}
+                            <div class="tm-doc-group-manager__picker-empty" data-tm-doc-picker-empty hidden>没有匹配的文档</div>
+                        </div>
+                        <div class="tm-doc-group-manager__picker-footer">
+                            ${isAllDocs ? '<span></span>' : `
+                                <label class="tm-doc-group-manager__recursive">
+                                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-doc-picker-recursive>
+                                    <span>包含子文档</span>
+                                </label>
+                            `}
+                            <div class="tm-doc-group-manager__picker-actions">
+                                <span class="tm-doc-group-manager__picker-selected" data-tm-doc-picker-selected-count>已选择 ${docPickerDraft.size} 项</span>
+                                <button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__add-button"
+                                    data-tm-action="tmAddSelectedSettingsDocs"${docPickerDraft.size ? '' : ' disabled'}>
+                                    ${icon('plus', 15)}<span>添加所选</span>
+                                </button>
+                            </div>
+                        </div>
+                            </div>
+                        </section>
+                    </div>
+                    `;
+                }
                 return `${addForm}${renderSourceRows()}`;
             };
             const renderExcludedPane = () => {
                 if (!currentGroupExcludedDocIds.length) {
-                    return '<div class="tm-doc-group-manager__empty">暂无排除文档。右击任务管理器中的文档页签可以快速排除。</div>';
+                    return '<div class="tm-doc-group-manager__empty">暂无隐藏的文档页签。右击任务管理器中的文档页签可以快速隐藏。</div>';
                 }
                 return `
                     <div class="tm-doc-group-manager__pane-intro">
@@ -972,7 +1181,7 @@
                 ? renderExcludedPane()
                 : (activeDetailTab === 'optimization' ? renderOptimizationPane() : renderSourcePane());
             return `
-                <section class="tm-settings-panel tm-doc-group-manager" ${__tmSettingsSearchAttrs('docs', '文档分组与管理', '常驻分组列表、文档来源、排除文档和搜索优化')}>
+                <section class="tm-settings-panel tm-doc-group-manager" ${__tmSettingsSearchAttrs('docs', '文档分组与管理', '常驻分组列表、文档来源、隐藏文档页签和搜索优化')}>
                     <div class="tm-doc-group-manager__heading">
                         <div>
                             <div class="tm-settings-section-title">${icon('list-bullets', 18)}<span>文档分组与管理</span></div>
@@ -1024,7 +1233,7 @@
                             </div>
                             <div class="tm-doc-group-manager__tabs" role="tablist" aria-label="分组详情">
                                 ${renderDetailTab('sources', '文档来源', currentDocs.length)}
-                                ${renderDetailTab('excluded', '排除文档', currentGroupExcludedDocIds.length)}
+                                ${renderDetailTab('excluded', '隐藏文档页签', currentGroupExcludedDocIds.length)}
                                 ${isAllDocs ? '' : renderDetailTab('optimization', '搜索优化')}
                             </div>
                             <div class="tm-doc-group-manager__pane" role="tabpanel">
@@ -1202,7 +1411,23 @@
             dailyNoteNotebookOptions.push(`<option value="${newTaskDailyNoteNotebookId}" selected>${esc(__tmGetNotebookDisplayName(newTaskDailyNoteNotebookId, newTaskDailyNoteNotebookId))} (不在当前列表)</option>`);
         }
         if (activeTab === 'main' || activeTab === 'docs') {
-            try { __tmEnsureAllDocumentsLoaded(false); } catch (e) {}
+            try {
+                if (!Array.isArray(state.allDocuments) || !state.allDocuments.length) {
+                    if (!state.settingsDocPickerDocumentsLoading) {
+                        state.settingsDocPickerDocumentsLoading = true;
+                        let loadedDocuments = false;
+                        Promise.resolve(__tmEnsureAllDocumentsLoaded(false))
+                            .then((docs) => { loadedDocuments = Array.isArray(docs) && docs.length > 0; })
+                            .catch(() => null)
+                            .finally(() => {
+                                state.settingsDocPickerDocumentsLoading = false;
+                                if (loadedDocuments && state.settingsModal && document.body.contains(state.settingsModal)) showSettings();
+                            });
+                    }
+                } else {
+                    __tmEnsureAllDocumentsLoaded(false).catch(() => null);
+                }
+            } catch (e) {}
         }
         let settingsSearchCurrentSection = '';
         const renderSettingsSubtabs = () => {
@@ -2581,6 +2806,11 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonLocateCurrentDocTab ? 'checked' : ''} onchange="updateDocTopbarButtonLocateCurrentDocTab(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
+                            '统计嵌入待办专注时长',
+                            '开启后，任务管理器范围内的待办通过嵌入块显示在其他文档中时，也会在该文档右上角汇总显示专注时长。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTitleEmbeddedTaskFocusEnabled ? 'checked' : ''} ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateDocTitleEmbeddedTaskFocusEnabled(this.checked)">`
+                        )}
+                        ${renderSingleSwitchSetting(
                             '思源窗口顶栏图标(桌面)',
                             '控制桌面端思源窗口顶栏中的任务管理入口。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.windowTopbarIconDesktop !== false ? 'checked' : ''} onchange="updateWindowTopbarIconDesktop(this.checked)">`
@@ -2811,6 +3041,7 @@
                 </div>
                 ${renderSettingsActions('tm-settings-actions--mobile')}
             </div>
+            ${settingsDocPickerDialogMarkup}
         `;
         state.settingsModal.innerHTML = renderSettingsModalMarkup();
         {

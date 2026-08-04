@@ -143,7 +143,8 @@
                 id: String(item?.id || '').trim()
             })).filter((item) => item.id),
             docPinnedByGroup: __tmNormalizeDocPinnedByGroupForSync(data.docPinnedByGroup),
-            docTabsManualArchivedByGroup: __tmNormalizeDocTabsManualArchivedByGroupForSync(data.docTabsManualArchivedByGroup)
+            docTabsManualArchivedByGroup: __tmNormalizeDocTabsManualArchivedByGroupForSync(data.docTabsManualArchivedByGroup),
+            docTabsManualUnarchivedByGroup: __tmNormalizeDocTabsManualArchivedByGroupForSync(data.docTabsManualUnarchivedByGroup)
         };
     }
 
@@ -180,6 +181,12 @@
             Object.keys(manualArchivedByGroup).forEach((key) => {
                 if (Array.isArray(manualArchivedByGroup[key])) count += manualArchivedByGroup[key].length;
             });
+            const manualUnarchivedByGroup = data.docTabsManualUnarchivedByGroup && typeof data.docTabsManualUnarchivedByGroup === 'object'
+                ? data.docTabsManualUnarchivedByGroup
+                : {};
+            Object.keys(manualUnarchivedByGroup).forEach((key) => {
+                if (Array.isArray(manualUnarchivedByGroup[key])) count += manualUnarchivedByGroup[key].length;
+            });
             return count;
         }
         const group = groups.find((item) => String(item?.id || '').trim() === gid);
@@ -187,8 +194,12 @@
             ? data.docTabsManualArchivedByGroup
             : {};
         const manualArchivedCount = Array.isArray(manualArchivedByGroup[gid]) ? manualArchivedByGroup[gid].length : 0;
-        if (!group) return manualArchivedCount;
-        return (Array.isArray(group.docs) ? group.docs.length : 0) + (String(group.notebookId || '').trim() ? 1 : 0) + manualArchivedCount;
+        const manualUnarchivedByGroup = data.docTabsManualUnarchivedByGroup && typeof data.docTabsManualUnarchivedByGroup === 'object'
+            ? data.docTabsManualUnarchivedByGroup
+            : {};
+        const manualUnarchivedCount = Array.isArray(manualUnarchivedByGroup[gid]) ? manualUnarchivedByGroup[gid].length : 0;
+        if (!group) return manualArchivedCount + manualUnarchivedCount;
+        return (Array.isArray(group.docs) ? group.docs.length : 0) + (String(group.notebookId || '').trim() ? 1 : 0) + manualArchivedCount + manualUnarchivedCount;
     }
 
     function __tmIsDocGroupSnapshotEmpty(snapshot) {
@@ -203,6 +214,9 @@
             return false;
         }
         if (data.docTabsManualArchivedByGroup && Object.keys(data.docTabsManualArchivedByGroup).some((key) => Array.isArray(data.docTabsManualArchivedByGroup[key]) && data.docTabsManualArchivedByGroup[key].length > 0)) {
+            return false;
+        }
+        if (data.docTabsManualUnarchivedByGroup && Object.keys(data.docTabsManualUnarchivedByGroup).some((key) => Array.isArray(data.docTabsManualUnarchivedByGroup[key]) && data.docTabsManualUnarchivedByGroup[key].length > 0)) {
             return false;
         }
         const groups = Array.isArray(data.docGroups) ? data.docGroups : [];
@@ -305,6 +319,7 @@
         targetData.otherBlockRefs = __tmNormalizeOtherBlockRefs(snapshot.otherBlockRefs);
         targetData.docPinnedByGroup = __tmSafeCloneJson(snapshot.docPinnedByGroup, {});
         targetData.docTabsManualArchivedByGroup = __tmSafeCloneJson(snapshot.docTabsManualArchivedByGroup, {});
+        targetData.docTabsManualUnarchivedByGroup = __tmSafeCloneJson(snapshot.docTabsManualUnarchivedByGroup, {});
         const remoteDocGroupUpdatedAt = __tmGetDocGroupSettingsUpdatedAt(source, {
             fallbackSettingsUpdatedAt: source?.settingsUpdatedAt,
             useSettingsFallback: false,
@@ -555,18 +570,22 @@
         };
     }
 
-    function __tmRestoreManualRefreshSessionState(snapshot) {
+    function __tmRestoreManualRefreshSessionState(snapshot, options = {}) {
         const saved = (snapshot && typeof snapshot === 'object') ? snapshot : null;
         if (!saved || !SettingsStore?.data) return;
+        const opt = (options && typeof options === 'object') ? options : {};
+        const restoreCollapse = opt.restoreCollapse !== false;
         SettingsStore.data.currentGroupId = String(saved.currentGroupId || 'all').trim() || 'all';
         SettingsStore.data.currentRule = saved.currentRule ?? null;
-        SettingsStore.data.collapsedTaskIds = Array.isArray(saved.collapsedTaskIds) ? saved.collapsedTaskIds.slice() : [];
-        SettingsStore.data.collapsedGroups = Array.isArray(saved.collapsedGroups) ? saved.collapsedGroups.slice() : [];
-        SettingsStore.data.expandedCompletedGroups = Array.isArray(saved.expandedCompletedGroups) ? saved.expandedCompletedGroups.slice() : [];
-        SettingsStore.data.kanbanCollapsedTaskIds = Array.isArray(saved.kanbanCollapsedTaskIds) ? saved.kanbanCollapsedTaskIds.slice() : [];
-        SettingsStore.data.kanbanCollapsedColumnKeys = Array.isArray(saved.kanbanCollapsedColumnKeys) ? saved.kanbanCollapsedColumnKeys.slice() : [];
-        SettingsStore.data.collapseStateUpdatedAt = __tmParseUpdatedAtNumber(saved.collapseStateUpdatedAt)
-            || __tmGetCollapsedSessionUpdatedAt(SettingsStore.data);
+        if (restoreCollapse) {
+            SettingsStore.data.collapsedTaskIds = Array.isArray(saved.collapsedTaskIds) ? saved.collapsedTaskIds.slice() : [];
+            SettingsStore.data.collapsedGroups = Array.isArray(saved.collapsedGroups) ? saved.collapsedGroups.slice() : [];
+            SettingsStore.data.expandedCompletedGroups = Array.isArray(saved.expandedCompletedGroups) ? saved.expandedCompletedGroups.slice() : [];
+            SettingsStore.data.kanbanCollapsedTaskIds = Array.isArray(saved.kanbanCollapsedTaskIds) ? saved.kanbanCollapsedTaskIds.slice() : [];
+            SettingsStore.data.kanbanCollapsedColumnKeys = Array.isArray(saved.kanbanCollapsedColumnKeys) ? saved.kanbanCollapsedColumnKeys.slice() : [];
+            SettingsStore.data.collapseStateUpdatedAt = __tmParseUpdatedAtNumber(saved.collapseStateUpdatedAt)
+                || __tmGetCollapsedSessionUpdatedAt(SettingsStore.data);
+        }
         SettingsStore.data.groupMode = String(saved.groupMode || 'none').trim() || 'none';
         SettingsStore.data.groupByDocName = !!saved.groupByDocName;
         SettingsStore.data.groupByTime = !!saved.groupByTime;
@@ -949,6 +968,7 @@
         const preserveSessionState = SettingsStore?.data?.serverSyncSessionStateOnManualRefresh !== true;
         const sessionSnapshot = preserveSessionState ? __tmCaptureManualRefreshSessionState() : null;
 
+        try { await SettingsStore.saveNow?.(); } catch (e) {}
         __tmCancelSettingsStorePendingSave();
         __tmCancelSimpleStorePendingSave(MetaStore);
         __tmCancelSimpleStorePendingSave(WhiteboardStore);
@@ -971,7 +991,7 @@
         try { __tmInvalidateAllSqlCaches(); } catch (e) {}
 
         await SettingsStore.load({ preferRemoteWhiteboardSameVersion: true });
-        if (preserveSessionState) __tmRestoreManualRefreshSessionState(sessionSnapshot);
+        if (preserveSessionState) __tmRestoreManualRefreshSessionState(sessionSnapshot, { restoreCollapse: false });
         await Promise.all([
             MetaStore.load(),
             WhiteboardStore.load({ preferRemoteSameVersion: true }),

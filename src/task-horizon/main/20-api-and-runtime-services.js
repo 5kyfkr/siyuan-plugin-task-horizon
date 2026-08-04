@@ -1677,6 +1677,51 @@
             return out;
         },
 
+        async getTasksByIds(ids) {
+            const taskIds = Array.from(new Set((Array.isArray(ids) ? ids : [])
+                .map((id) => String(id || '').trim())
+                .filter((id) => /^[0-9]+-[a-zA-Z0-9]+$/.test(id))));
+            if (!taskIds.length) return [];
+            const rows = [];
+            const chunkSize = 300;
+            for (let i = 0; i < taskIds.length; i += chunkSize) {
+                const chunk = taskIds.slice(i, i + chunkSize);
+                const idList = chunk.map((id) => `'${id}'`).join(',');
+                const sql = `
+                    SELECT
+                        task.id,
+                        task.parent_id,
+                        task.root_id,
+                        (
+                            SELECT parent_list.type
+                            FROM blocks parent_list
+                            WHERE parent_list.id = task.parent_id
+                            LIMIT 1
+                        ) as parent_list_type,
+                        (
+                            SELECT COUNT(DISTINCT siblings.id)
+                            FROM blocks siblings
+                            WHERE siblings.parent_id = task.parent_id
+                              AND siblings.type = 'i'
+                              AND siblings.subtype = 't'
+                        ) as parent_list_task_count
+                    FROM blocks AS task
+                    WHERE task.type = 'i'
+                      AND task.subtype = 't'
+                      AND task.id IN (${idList})
+                    LIMIT ${chunk.length}
+                `;
+                const res = await this.call('/api/query/sql', { stmt: sql });
+                if (res.code !== 0 || !Array.isArray(res.data)) {
+                    throw new Error(res?.msg || '批量读取嵌入任务失败');
+                }
+                rows.push(...res.data);
+            }
+            try { await __tmApplyTaskAttrHostOverrides(rows); } catch (e) {}
+            const rowMap = new Map(rows.map((row) => [String(row?.id || '').trim(), row]));
+            return taskIds.map((id) => rowMap.get(id)).filter(Boolean);
+        },
+
         async getTaskById(id) {
             const tid = String(id || '').trim();
             if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(tid)) return null;
@@ -2934,6 +2979,56 @@
             const res = await this.call('/api/query/sql', { stmt: sql });
             if (res.code === 0 && Array.isArray(res.data)) return res.data;
             return [];
+        },
+
+        async resolveTaskChangeImpacts(ids) {
+            const blockIds = Array.from(new Set((Array.isArray(ids) ? ids : [])
+                .map((id) => String(id || '').trim())
+                .filter((id) => /^[0-9]+-[a-zA-Z0-9]+$/.test(id))))
+                .slice(0, 256);
+            if (!blockIds.length) return [];
+            const quoted = blockIds.map((id) => `'${id}'`).join(',');
+            const sql = `
+                WITH RECURSIVE task_ancestors(source_id, id, parent_id, root_id, type, subtype, depth) AS (
+                    SELECT b.id, b.id, b.parent_id, b.root_id, b.type, b.subtype, 0
+                    FROM blocks b
+                    WHERE b.id IN (${quoted})
+                    UNION ALL
+                    SELECT a.source_id, p.id, p.parent_id, p.root_id, p.type, p.subtype, a.depth + 1
+                    FROM task_ancestors a
+                    INNER JOIN blocks p ON p.id = a.parent_id
+                    WHERE a.depth < 16
+                      AND a.parent_id IS NOT NULL
+                      AND a.parent_id != ''
+                      AND a.parent_id != a.id
+                )
+                SELECT source_id, id, root_id, type, subtype, depth
+                FROM task_ancestors
+                WHERE depth = 0 OR (type = 'i' AND subtype = 't')
+                ORDER BY source_id ASC, depth ASC
+            `;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            if (res.code !== 0 || !Array.isArray(res.data)) {
+                throw new Error(res?.msg || '批量解析任务变更失败');
+            }
+            const impactMap = new Map();
+            res.data.forEach((row) => {
+                const blockId = String(row?.source_id || '').trim();
+                if (!blockId) return;
+                const current = impactMap.get(blockId) || {
+                    blockId,
+                    taskId: '',
+                    docId: String(row?.root_id || '').trim(),
+                };
+                if (!current.docId) current.docId = String(row?.root_id || '').trim();
+                if (!current.taskId
+                    && String(row?.type || '').trim().toLowerCase() === 'i'
+                    && String(row?.subtype || '').trim().toLowerCase() === 't') {
+                    current.taskId = String(row?.id || '').trim();
+                }
+                impactMap.set(blockId, current);
+            });
+            return blockIds.map((blockId) => impactMap.get(blockId)).filter(Boolean);
         },
 
         async getOtherBlocksByIds(ids) {
@@ -17704,13 +17799,16 @@ if (!state.homepageOpen) return;
         if (opts.forceLocate !== true && !__tmShouldLocateCurrentDocTabFromDocTopbar()) {
             return { changed: false, reason: 'disabled' };
         }
-        const docId = String(opts.docId || __tmResolveDocTopbarSourceDocId() || '').trim();
+        const openAll = opts.openAll === true;
+        const docId = openAll ? 'all' : String(opts.docId || __tmResolveDocTopbarSourceDocId() || '').trim();
         if (!docId) return { changed: false, reason: 'no-doc' };
-        if (opts.requireTasks !== false) {
+        if (!openAll && opts.requireTasks !== false) {
             const hasTasks = await __tmDocHasTaskBlocks(docId);
             if (!hasTasks) return { changed: false, reason: 'no-tasks', docId };
         }
-        const target = await __tmResolveDocTopbarTargetGroup(docId);
+        const target = openAll
+            ? { groupId: 'all', group: null, matchedBy: 'embedded' }
+            : await __tmResolveDocTopbarTargetGroup(docId);
         if (!target?.groupId) return { changed: false, reason: 'group-not-found', docId };
 
         const prevGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
@@ -18412,6 +18510,16 @@ async function __tmRefreshAfterWake(reason) {
             docIds: Array.isArray(options?.affectedDocIds) ? options.affectedDocIds.slice() : Array.from(__tmTxTaskRefreshDocIds),
             blockIds: Array.isArray(options?.affectedBlockIds) ? options.affectedBlockIds.slice() : Array.from(__tmTxTaskRefreshBlockIds),
         };
+        const pendingClearTargets = (options?.pendingTargets && typeof options.pendingTargets === 'object')
+            ? options.pendingTargets
+            : pendingTargets;
+        const clearExternalPending = () => {
+            const cleared = typeof __tmClearPendingTxRefreshTargets === 'function'
+                ? __tmClearPendingTxRefreshTargets(pendingClearTargets)
+                : true;
+            if (cleared !== false) __tmClearExternalTaskTxDirty();
+            return cleared !== false;
+        };
         const hasActiveDetailNoteView = (() => {
             try {
                 if (String(state?.taskDetailNoteView?.mode || '').trim() === 'note'
@@ -18423,16 +18531,17 @@ async function __tmRefreshAfterWake(reason) {
         __tmTabEnterAutoRefreshInFlight = true;
         const startedAt = __tmPerfNow();
         try {
-            await new Promise((resolve) => setTimeout(resolve, hadQuickbarDirty ? 200 : 80));
+            const settleDelayMs = hadQuickbarDirty ? 200 : (options?.committed === true ? 0 : 80);
+            if (settleDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, settleDelayMs));
             const lateGateMeta = __tmGetBackgroundRefreshGateMeta(sourceLabel, {
                 ignoreContextQuiet: options?.ignoreContextQuiet === true,
+                ignoreAutoRefreshInFlight: true,
             });
             if (!lateGateMeta.allowRun) {
                 return false;
             }
             if (hasActiveDetailNoteView && hadExternalDirty) {
-                __tmClearExternalTaskTxDirty();
-                __tmClearPendingTxRefreshTargets(pendingTargets);
+                clearExternalPending();
                 return true;
             }
             if (!hadQuickbarDirty && hadExternalDirty) {
@@ -18445,10 +18554,12 @@ async function __tmRefreshAfterWake(reason) {
                         deferIfDetailBusy: options?.deferIfDetailBusy !== false,
                         allowCalendar: hasActiveDetailNoteView,
                         invalidateCalendarCache: hasActiveDetailNoteView,
+                        resolvedTaskIds: Array.isArray(options?.resolvedTaskIds) ? options.resolvedTaskIds.slice() : [],
+                        forceDocRefresh: options?.forceDocRefresh === true,
+                        committed: options?.committed === true,
                     });
                     if (incrementalOk) {
-                        __tmClearExternalTaskTxDirty();
-                        __tmClearPendingTxRefreshTargets(pendingTargets);
+                        clearExternalPending();
                         return true;
                     }
                 } catch (e) {}
@@ -18460,8 +18571,8 @@ async function __tmRefreshAfterWake(reason) {
             });
             if (ok) {
                 if (hadQuickbarDirty) __tmClearQuickbarModifications();
-                if (hadExternalDirty) __tmClearExternalTaskTxDirty();
-                __tmClearPendingTxRefreshTargets(pendingTargets);
+                if (hadExternalDirty) clearExternalPending();
+                else __tmClearPendingTxRefreshTargets(pendingClearTargets);
             }
             return ok;
         } finally {
@@ -25463,9 +25574,15 @@ return true;
             });
         };
         const syncHeaderX = () => {
-            if (useGlobalScroll || !(ganttHeader instanceof HTMLElement)) return;
-            const inner = ganttHeader.querySelector('.tm-gantt-header-inner');
-            if (inner instanceof HTMLElement) inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
+            if (!(ganttHeader instanceof HTMLElement)) return;
+            const scrollLeft = useGlobalScroll
+                ? (Number(globalScrollHost?.scrollLeft) || 0)
+                : (Number(ganttBody.scrollLeft) || 0);
+            if (!useGlobalScroll) {
+                const inner = ganttHeader.querySelector('.tm-gantt-header-inner');
+                if (inner instanceof HTMLElement) inner.style.transform = `translateX(${-scrollLeft}px)`;
+            }
+            try { ganttHeader.__tmSyncGanttStickyPeriod?.(scrollLeft); } catch (e) {}
         };
         const scheduleInfiniteRangeShift = () => {
             if (state.timelineInfiniteRangeShifting || infiniteRangeRaf) return;
@@ -25551,6 +25668,7 @@ return true;
 
         if (useGlobalScroll) {
             bind(globalScrollHost, 'scroll', () => {
+                syncHeaderX();
                 syncTimelineTaskHover();
                 syncCompactVerticalScroll(globalScrollHost, leftBody);
                 scheduleInfiniteRangeShift();
@@ -25967,24 +26085,27 @@ return true;
             : null;
         const restoredLeft = Number.isFinite(anchoredLeft) ? anchoredLeft : savedLeft;
 
+        const syncTimelineHeaderPosition = () => {
+            const scrollLeft = useGlobalScroll
+                ? (Number(globalScrollHost?.scrollLeft) || 0)
+                : (Number(ganttBody.scrollLeft) || 0);
+            const inner = ganttHeader?.querySelector?.('.tm-gantt-header-inner');
+            if (inner) inner.style.transform = useGlobalScroll ? '' : `translateX(${-scrollLeft}px)`;
+            try { ganttHeader?.__tmSyncGanttStickyPeriod?.(scrollLeft); } catch (e) {}
+        };
+
         if (useGlobalScroll) {
             try { leftBody.scrollTop = savedTop; } catch (e) {}
             try { ganttBody.scrollTop = 0; } catch (e) {}
             try { ganttBody.scrollLeft = 0; } catch (e) {}
             try { globalScrollHost.scrollTop = savedTop; } catch (e) {}
             try { globalScrollHost.scrollLeft = restoredLeft; } catch (e) {}
-            try {
-                const inner = ganttHeader?.querySelector?.('.tm-gantt-header-inner');
-                if (inner) inner.style.transform = '';
-            } catch (e) {}
+            syncTimelineHeaderPosition();
         } else {
             try { leftBody.scrollTop = savedTop; } catch (e) {}
             try { ganttBody.scrollTop = savedTop; } catch (e) {}
             try { ganttBody.scrollLeft = restoredLeft; } catch (e) {}
-            try {
-                const inner = ganttHeader?.querySelector?.('.tm-gantt-header-inner');
-                if (inner) inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
-            } catch (e) {}
+            syncTimelineHeaderPosition();
         }
         try {
             requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -25994,11 +26115,11 @@ return true;
                 const deferredRestoredLeft = Number.isFinite(deferredAnchoredLeft) ? deferredAnchoredLeft : restoredLeft;
                 if (useGlobalScroll) {
                     try { globalScrollHost.scrollLeft = deferredRestoredLeft; } catch (e) {}
+                    syncTimelineHeaderPosition();
                     return;
                 }
                 try { ganttBody.scrollLeft = deferredRestoredLeft; } catch (e) {}
-                const inner = ganttHeader?.querySelector?.('.tm-gantt-header-inner');
-                if (inner) inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
+                syncTimelineHeaderPosition();
             }));
         } catch (e) {}
 

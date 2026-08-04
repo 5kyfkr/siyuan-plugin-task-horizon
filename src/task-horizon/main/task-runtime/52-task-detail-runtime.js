@@ -1162,6 +1162,7 @@
         const hideReminder = opts.hideReminder === true;
         const hideSchedule = opts.hideSchedule === true || draftMode;
         const hideRepeat = opts.hideRepeat === true;
+        const updateDates = typeof opts.onUpdateDates === 'function' ? opts.onUpdateDates : null;
         const scheduleTabLabel = String(opts.scheduleTabLabel || '日程').trim() || '日程';
 
         const todayKey = __tmNormalizeDateOnly(new Date());
@@ -1360,9 +1361,9 @@
         let suppressNextDayClick = false;
         let busy = false;
         const popover = document.createElement('div');
-        popover.className = `tm-task-detail-inline-popover tm-task-time-hub-popover${draftMode ? ' tm-task-time-hub-popover--draft' : ''}${opts.contextDate === true ? ' tm-task-time-hub-popover--context-date' : ''}`;
+        popover.className = `tm-task-detail-inline-popover tm-task-time-hub-popover${draftMode ? ' tm-task-time-hub-popover--draft' : ''}${hideSchedule ? ' tm-task-time-hub-popover--date-only' : ''}${opts.contextDate === true ? ' tm-task-time-hub-popover--context-date' : ''}${opts.groupRange === true ? ' tm-task-time-hub-popover--group-range' : ''}`;
         popover.setAttribute('role', 'dialog');
-        popover.setAttribute('aria-label', '任务时间中心');
+        popover.setAttribute('aria-label', String(opts.ariaLabel || '任务时间中心').trim() || '任务时间中心');
         let lastTriggerRect = null;
         const abort = new AbortController();
         const on = (target, type, handler, opt = {}) => {
@@ -1682,6 +1683,29 @@
             }
         };
         const updateDatePatch = async (patch, source = 'task-time-hub') => {
+            if (updateDates) {
+                const requestedPatch = {};
+                if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) requestedPatch.startDate = normalizeDate(patch.startDate);
+                if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) requestedPatch.completionTime = normalizeDate(patch.completionTime);
+                setBusy(true);
+                try {
+                    const result = await updateDates(requestedPatch, {
+                        taskId: getEffectiveTaskId() || taskId,
+                        requestedTaskId: String(taskIdOrBlockId || taskId).trim(),
+                        task,
+                        source,
+                    });
+                    const nextPatch = {
+                        startDate: normalizeDate(result?.startDate ?? (Object.prototype.hasOwnProperty.call(requestedPatch, 'startDate') ? requestedPatch.startDate : readTaskDate('startDate'))),
+                        completionTime: normalizeDate(result?.completionTime ?? (Object.prototype.hasOwnProperty.call(requestedPatch, 'completionTime') ? requestedPatch.completionTime : readTaskDate('completionTime'))),
+                    };
+                    writeTaskDatesLocal(nextPatch);
+                    await notifyChange(nextPatch, { kind: 'date', source });
+                    return nextPatch;
+                } finally {
+                    setBusy(false);
+                }
+            }
             if (draftMode) {
                 const nextPatch = {};
                 if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) nextPatch.startDate = normalizeDate(patch.startDate);
@@ -1712,16 +1736,34 @@
                 if (!backgroundDateCommit) setBusy(false);
             }
         };
+        const reportDateUpdateError = (error) => {
+            const label = String(opts.dateUpdateLabel || '日期').trim() || '日期';
+            try { hint(`❌ ${label}更新失败: ${error?.message || error}`, 'error'); } catch (e) {}
+        };
         const updateDateField = async (field, value) => {
-            const key = value ? normalizeDate(value) : '';
-            await updateDatePatch({ [field]: key }, 'task-time-hub-date');
-            render();
+            try {
+                const key = value ? normalizeDate(value) : '';
+                await updateDatePatch({ [field]: key }, 'task-time-hub-date');
+                render();
+                return true;
+            } catch (error) {
+                reportDateUpdateError(error);
+                render();
+                return false;
+            }
         };
         const updateDateRange = async (left, right) => {
-            const range = sortDateRange(left, right);
-            await updateDatePatch({ startDate: range.start, completionTime: range.end }, 'task-time-hub-range');
-            hubState.activeField = 'completionTime';
-            render();
+            try {
+                const range = sortDateRange(left, right);
+                await updateDatePatch({ startDate: range.start, completionTime: range.end }, 'task-time-hub-range');
+                hubState.activeField = 'completionTime';
+                render();
+                return true;
+            } catch (error) {
+                reportDateUpdateError(error);
+                render();
+                return false;
+            }
         };
         const applyDraftRepeatRule = async (ruleInput, source = 'task-time-hub-repeat') => {
             const candidate = {
@@ -2582,9 +2624,12 @@
             const fieldName = String(field?.name || fieldId).trim() || fieldId;
             const fieldValue = String(__tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task, fieldId)) || '').trim();
             return `
-                <section class="tm-task-detail-section" data-tm-detail-custom-field="${esc(fieldId)}">
+                <section class="tm-task-detail-section" data-tm-detail-collapsible-section data-tm-detail-custom-field="${esc(fieldId)}">
                     <div class="tm-task-detail-section-head">
-                        <div class="tm-task-detail-section-title">${esc(fieldName)}</div>
+                        <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="true">
+                            <span class="tm-task-detail-section-title">${esc(fieldName)}</span>
+                            <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
+                        </button>
                     </div>
                     <textarea class="bc-textarea tm-task-detail-custom-textarea" data-tm-detail-custom-text-field="${esc(fieldId)}" rows="1">${esc(fieldValue)}</textarea>
                 </section>
@@ -2679,9 +2724,12 @@
                     </div>
                     ${customFieldsHtml}
                 </div>
-                <section class="tm-task-detail-section tm-task-detail-section--subtasks ${children.length ? '' : 'tm-task-detail-section--subtasks-empty'}">
+                <section class="tm-task-detail-section tm-task-detail-section--subtasks ${children.length ? '' : 'tm-task-detail-section--subtasks-empty'}" data-tm-detail-collapsible-section>
                     <div class="tm-task-detail-section-head">
-                        <div class="tm-task-detail-section-title">子任务</div>
+                        <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="true">
+                            <span class="tm-task-detail-section-title">子任务</span>
+                            <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
+                        </button>
                         <div class="tm-task-detail-section-tools">
                             ${children.length ? `<span class="tm-task-detail-section-count">${completedChildren}/${children.length}</span>` : ''}
                         </div>
@@ -2795,6 +2843,38 @@
                 try { target.addEventListener(type, handler, nextOptions); } catch (e2) {}
             }
         };
+        const setSectionExpanded = (section, expanded) => {
+            if (!(section instanceof HTMLElement)) return;
+            const head = section.querySelector(':scope > .tm-task-detail-section-head');
+            const toggle = section.querySelector('[data-tm-detail-section-toggle]');
+            const nextExpanded = !!expanded;
+            if (!nextExpanded) {
+                const active = document.activeElement;
+                if (active instanceof HTMLElement && section.contains(active) && !(head instanceof HTMLElement && head.contains(active))) {
+                    try { active.blur(); } catch (e) {}
+                }
+            }
+            section.classList.toggle('is-collapsed', !nextExpanded);
+            if (toggle instanceof HTMLButtonElement) toggle.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+            Array.from(section.children).forEach((child) => {
+                if (!(child instanceof HTMLElement) || child === head) return;
+                child.hidden = !nextExpanded;
+            });
+        };
+        root.querySelectorAll('[data-tm-detail-collapsible-section]').forEach((section) => {
+            const toggle = section.querySelector('[data-tm-detail-section-toggle]');
+            setSectionExpanded(section, !(section.classList.contains('is-collapsed') || toggle?.getAttribute('aria-expanded') === 'false'));
+        });
+        on(root, 'click', (ev) => {
+            const toggle = ev.target instanceof Element
+                ? ev.target.closest('[data-tm-detail-section-toggle]')
+                : null;
+            if (!(toggle instanceof HTMLButtonElement) || !root.contains(toggle)) return;
+            const section = toggle.closest('[data-tm-detail-collapsible-section]');
+            if (!(section instanceof HTMLElement)) return;
+            try { ev.preventDefault(); } catch (e) {}
+            setSectionExpanded(section, toggle.getAttribute('aria-expanded') !== 'true');
+        });
         const onClose = typeof opts.onClose === 'function' ? opts.onClose : null;
         const isSessionActive = (expectedTaskId = taskId, extraOptions = {}) => {
             const expectedId = String(expectedTaskId || taskId || '').trim();
@@ -3172,8 +3252,8 @@
                 btn.type = 'button';
                 btn.className = 'bc-btn bc-btn--sm tm-task-detail-subtask-visibility-btn';
                 btn.setAttribute('data-tm-detail-toggle-completed-subtasks', '');
-                tools.insertBefore(btn, count);
             }
+            tools.insertBefore(btn, count);
             btn.classList.remove('is-active');
             btn.setAttribute('aria-pressed', showCompletedSubtasks ? 'false' : 'true');
             btn.innerHTML = __tmRenderLucideIcon(showCompletedSubtasks ? 'check-circle-2' : 'circle');

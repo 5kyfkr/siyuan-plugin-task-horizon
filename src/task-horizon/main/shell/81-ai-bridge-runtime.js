@@ -1342,12 +1342,29 @@
         }
         const props = __tmBuildQuickbarTaskCustomProps(task);
         if (!props) return null;
-        return {
+        const result = {
             requestedId,
             taskId: String(task?.id || taskId || requestedId).trim(),
             attrHostId: String(binding?.attrHostId || __tmGetTaskAttrHostId(task) || taskId || requestedId).trim(),
             props,
         };
+        if (opts.includeContext === true && task && typeof task === 'object') {
+            let attrContext = null;
+            try {
+                if (typeof __tmResolveTaskAttrContext === 'function') {
+                    attrContext = await __tmResolveTaskAttrContext(
+                        result.taskId,
+                        task?.parent_id || task?.parentId || '',
+                        task
+                    );
+                }
+            } catch (e) {
+                attrContext = null;
+            }
+            result.sourceDocId = String(task?.root_id || task?.docId || task?.rootId || '').trim();
+            result.attrContext = attrContext;
+        }
+        return result;
     }
 
     async function __tmGetQuickbarApplicableCustomFieldIdsForDoc(docId) {

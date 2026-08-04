@@ -217,7 +217,8 @@ const applyTimelineGroupBar = segment(gantt, 'function applyTimelineGroupBarElem
 assert.match(applyTimelineGroupBar, /querySelector\('\[data-tm-duration-badge\]'\)[\s\S]*textContent = duration\.label[\s\S]*setAttribute\('aria-label', duration\.accessibleLabel\)/, 'group drag and resize frames must update the existing duration badge without rebuilding the card');
 assert.match(gantt, /const groupRangeTrigger = target\.closest\('\[data-tm-group-range-trigger\]'\)/, 'only explicit group date controls may open the date editor');
 assert.match(gantt, /visual\.state === 'range' && layout\?\.showHandles !== false[\s\S]*showHandles: !isCompactTimelineGlobal/, 'only desktop complete group ranges may render endpoint resize handles');
-assert.match(icons, /window\.tmOpenTimelineGroupRangeEditor[\s\S]*data-tm-doc-date-field="startDate"[\s\S]*data-tm-doc-date-field="deadline"[\s\S]*data-tm-doc-date-action="clear"[\s\S]*__tmSaveTimelineBlockDatePatch/, 'the shared group date popover must support partial dates, clear, cancel, and atomic save');
+assert.match(icons, /window\.tmOpenTimelineGroupRangeEditor[\s\S]*tmOpenTaskTimeHub\(id, target[\s\S]*hideSchedule: true[\s\S]*hideRepeat: true[\s\S]*hideReminder: true[\s\S]*onUpdateDates[\s\S]*groupPatch\.deadline = patch\.completionTime[\s\S]*__tmSaveTimelineBlockDatePatch/, 'document and heading ranges must reuse the shared date calendar without schedule, repeat, reminder, or repeat-end controls');
+assert.doesNotMatch(icons, /tm-doc-date-field|tm-doc-date-action/, 'the group date editor must not retain a second native-input implementation');
 const timelineGroupRow = segment(services, 'function __tmRenderTimelineRangeGroupRowHtml', 'async function __tmSaveTimelineBlockDatePatch');
 assert.match(timelineGroupRow, /<span class="tm-group-label tm-doc-timeline-label"[\s\S]*calendarBtn/, 'document and heading names must remain plain collapsible labels while the calendar button owns date editing');
 assert.doesNotMatch(timelineGroupRow, /<button class="tm-group-label tm-doc-timeline-label[\s\S]*data-tm-group-range-trigger/, 'group names must not open the date editor');
@@ -247,8 +248,9 @@ for (const declaration of ['flex: 0 0 auto;', 'min-width: 20px;', 'height: 18px;
 assert.match(styles, /\.tm-gantt-bar--group-range \.tm-gantt-group-bar__label \.tm-gantt-bar__title \{[\s\S]*flex: 1 1 auto;[\s\S]*min-width: 0;/, 'group titles must truncate before the duration badge or date button shrinks');
 assert.match(gantt, /tm-gantt-group-chip__date-trigger[\s\S]*data-tm-group-range-trigger[\s\S]*calendar-range/, 'collapsed timeline group names must expose a separate date icon trigger');
 assert.match(styles, /\.tm-gantt-group-chip__date-trigger \{[\s\S]*width: 24px[\s\S]*height: 24px/, 'collapsed timeline group date icons must keep a stable compact hit target');
-assert.match(styles, /\.tm-doc-timeline-range-popover \{[\s\S]*width: min\(304px, calc\(100vw - 16px\)\)/, 'the document date editor must remain compact on mobile and Dock hosts');
-assert.match(styles, /\.tm-doc-timeline-range-popover \{[\s\S]*z-index: 200050 !important;/, 'the group date editor must render above the mobile modal and compact timeline sidebar');
+assert.match(styles, /\.tm-task-time-hub-popover--date-only \.tm-task-time-hub__tabs \{[\s\S]*grid-template-columns: minmax\(0, 1fr\)/, 'date-only time hubs must use a full-width single date tab');
+assert.match(styles, /\.tm-task-time-hub-popover--group-range \{[\s\S]*z-index: 200050;/, 'the shared group date calendar must render above the mobile modal and compact timeline sidebar');
+assert.doesNotMatch(styles, /\.tm-doc-timeline-range-popover/, 'obsolete group-specific date popover styles must be removed');
 
 const headerBuilders = segment(gantt, 'function buildDayCellsHtml', 'function getDayIndexByTs');
 assert.match(headerBuilders, /tm-gantt-date-marker/, 'day headers must render only the compact date marker');
@@ -413,7 +415,7 @@ assert.match(services, /const globalScrollLeft = useGlobalScroll[\s\S]*leftPaneW
 assert.doesNotMatch(services, /__tmSyncTimelineMobileGroupStickyOffset|__tmMobileTimelineGroupShift/, 'mobile timeline group labels must not use frame-delayed scroll compensation');
 assert.match(services, /tm-gantt-body--dragging-x[\s\S]*tm-modal--timeline-touch-lock/, 'range shifts must wait until existing mouse and touch drags finish');
 assert.match(gantt, /findTimelineBarAtPointer[\s\S]*elementsFromPoint[\s\S]*querySelectorAll\('.tm-gantt-bar'\)[\s\S]*tm-gantt-bar__surface[\s\S]*tm-gantt-bar__label-layer[\s\S]*const directBarEl = target\.closest\('.tm-gantt-bar'\);[\s\S]*directBarEl \|\| findTimelineBarAtPointer\(e\)/, 'timeline card pointerdown must recover visible bar surfaces and overflow labels when an overlay owns the hit target');
-assert.match(services, /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) => \{[\s\S]*inner\.style\.transform = `translateX\(\$\{-ganttBody\.scrollLeft\}px\)`/, 'in-place range shifts must resync the header after layout settles');
+assert.match(services, /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) => \{[\s\S]*syncTimelineHeaderPosition\(\)/, 'in-place range shifts must resync the header and sticky period label after layout settles');
 
 assert.match(gantt, /data-task-start-ts="\$\{Number\(aTs\) \|\| 0\}"[\s\S]*data-task-end-ts="\$\{Number\(bTs\) \|\| 0\}"/, 'task rows must retain date coordinates even when their cards fall outside the bounded render window');
 assert.match(gantt, /function buildTimelineOffscreenNavHtml[\s\S]*data-tm-gantt-offscreen-nav[\s\S]*__tmPhosphorBoldSvg\('chevron-left'[\s\S]*__tmPhosphorBoldSvg\('chevron-right'/, 'offscreen task navigation must use compact Phosphor Bold edge controls');
@@ -439,6 +441,21 @@ assert.match(styles, /\.tm-gantt-offscreen-nav \{[\s\S]*position: sticky;[\s\S]*
 assert.match(styles, /\.tm-gantt-offscreen-nav\.tm-gantt-offscreen-nav--visible \{[\s\S]*opacity: 1;[\s\S]*pointer-events: auto;/, 'visible offscreen controls must become operable without reserving row space');
 
 assert.match(styles, /--tm-timeline-month-row-height: 20px;[\s\S]*--tm-timeline-day-row-height: 28px;/, 'timeline headers must use the approved 48px two-level structure');
+const headerUpperLabelSource = segment(gantt, 'function formatTimelineHeaderUpperLabel', 'function buildDayCellsHtml');
+const formatTimelineHeaderUpperLabel = new Function('normalizeTimelineScale', `${headerUpperLabelSource}; return formatTimelineHeaderUpperLabel;`)(
+    (value) => ['day', 'week', 'month'].includes(String(value || '')) ? String(value) : 'day'
+);
+const august2026 = new Date(2026, 7, 5, 12, 0, 0, 0).getTime();
+assert.equal(formatTimelineHeaderUpperLabel('day', august2026), '2026年8月', 'day headers must expose the visible year and month');
+assert.equal(formatTimelineHeaderUpperLabel('week', august2026), '2026年8月', 'week headers must expose the visible year and month');
+assert.equal(formatTimelineHeaderUpperLabel('month', august2026), '2026年', 'month headers must expose the visible year above month cells');
+assert.match(gantt, /data-tm-gantt-header-period-sticky/, 'timeline headers must render a dedicated pinned upper-period label');
+assert.match(gantt, /const syncStickyHeaderPeriod[\s\S]*stickyLabelWidth[\s\S]*segmentStartPx[\s\S]*segmentEndPx - stickyLabelWidth[\s\S]*labelLeft = clamp\(scrollLeft, segmentStartPx, maxLabelLeft\)[\s\S]*translate3d\(\$\{labelLeft\}px, 0, 0\)[\s\S]*__tmSyncGanttStickyPeriod = syncStickyHeaderPeriod/, 'the upper period text must stay visible until its own width reaches the period boundary');
+assert.doesNotMatch(gantt, /sticky\.style\.width/, 'the upper period text must not be progressively clipped by a shrinking overlay width');
+assert.match(timelineStageInteractions, /useGlobalScroll[\s\S]*globalScrollHost\?\.scrollLeft[\s\S]*__tmSyncGanttStickyPeriod\?\.\(scrollLeft\)[\s\S]*bind\(globalScrollHost, 'scroll',[\s\S]*syncHeaderX\(\)/, 'desktop and compact scroll hosts must update the same sticky period label');
+assert.match(styles, /\.tm-gantt-month-row::after \{[\s\S]*height: 1px;[\s\S]*background: color-mix/, 'the upper timeline header row must draw a separator above the day, week, or month row');
+assert.match(styles, /\.tm-gantt-header-period-sticky \{[\s\S]*position: absolute;[\s\S]*width: max-content;[\s\S]*background: transparent;[\s\S]*overflow: visible;[\s\S]*will-change: transform;/, 'the pinned period label must remain plain unclipped text rather than a header-colored region');
+assert.match(styles, /\.tm-gantt-period-cell--upper\.tm-gantt-period-cell--sticky-source \{[\s\S]*color: transparent;/, 'the source period label must hide while its sticky text copy is active');
 assert.match(styles, /\.tm-gantt-period-cell \{[\s\S]*box-sizing: border-box;/, 'grouped header widths must include their padding and separator borders');
 assert.match(styles, /\.tm-gantt-period-cell \{[\s\S]*position: absolute;[\s\S]*top: 0;/, 'header cells must avoid cumulative fractional flex rounding');
 assert.match(styles, /\.tm-gantt-day-bg-layer \{[\s\S]*z-index: 1;[\s\S]*pointer-events: none;/, 'calendar background columns must stay separate from task row content');

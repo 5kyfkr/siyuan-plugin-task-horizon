@@ -29,7 +29,7 @@
     const TM_SETTINGS_EXPORT_VERSION = 1;
     const TM_SETTINGS_EXPORT_MODULES = Object.freeze([
         { id: 'settings', label: '常规设置', desc: '常规、外观、规则、状态、自定义字段、视图布局、白板、优先级等。', defaultChecked: true },
-        { id: 'docGroups', label: '文档分组', desc: '文档分组、默认文档、排除文档、文档颜色、页签排序/钉住等。', defaultChecked: true },
+        { id: 'docGroups', label: '文档分组', desc: '文档分组、默认文档、隐藏文档页签、文档颜色、页签排序/钉住等。', defaultChecked: true },
         { id: 'ai', label: 'AI 接入设置', desc: 'AI 供应商、API Key、Base URL、模型、上下文与排期窗口。', defaultChecked: false },
         { id: 'aiData', label: 'AI 数据', desc: '智能体自定义预设与安排规则；旧版模式下为提示词和会话记录。', defaultChecked: false },
         { id: 'scheduledEvents', label: '定时事件', desc: '仅导出事件定义，不包含执行状态和最近结果。', defaultChecked: true },
@@ -42,6 +42,8 @@
         'docTabCustomGroups',
         'otherBlockRefs',
         'docPinnedByGroup',
+        'docTabsManualArchivedByGroup',
+        'docTabsManualUnarchivedByGroup',
         'docTabSortMode',
         'docDisplayNameMode',
         'currentGroupId',
