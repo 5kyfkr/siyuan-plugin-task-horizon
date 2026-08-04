@@ -514,7 +514,7 @@ async function run() {
     assert.match(listRuntimeSource, /effectiveTaskDone[\s\S]*originalDone[\s\S]*inversePatch\.done = originalDone/);
     assert.match(listRuntimeSource, /const currentDone = typeof __tmIsTaskDoneEffective[\s\S]*if \(currentDone === targetDone\) return/);
     assert.ok((storesSource.match(/__tmApplyDoneOverrideToTaskIfPresent\((?:task|target)\)/g) || []).length >= 4);
-    assert.match(storesSource, /function __tmMergeLocalTaskPatchIntoTask\(task\)[\s\S]*__tmApplyDoneOverrideToTaskIfPresent\(target\)/);
+    assert.match(storesSource, /function __tmMergeLocalTaskPatchIntoTask\(task, options = \{\}\)[\s\S]*__tmApplyDoneOverrideToTaskIfPresent\(target\)/);
     assert.doesNotMatch(documentLoaderSource, /state\.doneOverrides\s*=\s*\{\}/);
     const whiteboardSetDoneSource = extractFunction(whiteboardInteractionSource, 'window.tmWhiteboardSetDone');
     assert.match(whiteboardSetDoneSource, /window\.tmSetDone\(tid, !!checked, ev/);
