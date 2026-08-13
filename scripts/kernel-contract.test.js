@@ -613,7 +613,7 @@ function createHarness(options = {}) {
 async function run() {
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugin.json'), 'utf8'));
     assert.ok(Array.isArray(manifest.kernels) && manifest.kernels.includes('all'), 'plugin.json must enable the kernel plugin on supported backends');
-    assert.equal(manifest.minAppVersion, '3.7.3', 'the release must require the SiYuan version whose plugin readOnly and startup RPC contracts were reviewed');
+    assert.equal(manifest.minAppVersion, '3.8.0', 'the release must require the SiYuan version whose plugin readOnly and startup RPC contracts were reviewed');
 
     const harness = createHarness();
     await harness.start();
