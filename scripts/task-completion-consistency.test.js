@@ -34,6 +34,10 @@ const documentLoaderSource = fs.readFileSync(
     path.join(root, 'src', 'task-horizon', 'main', 'task-runtime', '53c-document-loader-runtime.js'),
     'utf8',
 );
+const nativeDocHooksSource = fs.readFileSync(
+    path.join(root, 'src', 'task-horizon', 'main', 'shell', '72-shell-entrances-and-native-doc-hooks.js'),
+    'utf8',
+);
 const whiteboardInteractionSource = fs.readFileSync(
     path.join(root, 'src', 'task-horizon', 'main', 'render', '49-render-whiteboard-interactions.js'),
     'utf8',
@@ -44,6 +48,14 @@ const taskDetailSource = fs.readFileSync(
 );
 const renderRuntimeSource = fs.readFileSync(
     path.join(root, 'src', 'task-horizon', 'main', '40-render-runtime.js'),
+    'utf8',
+);
+const stateRuntimeSource = fs.readFileSync(
+    path.join(root, 'src', 'task-horizon', 'main', '32-runtime-state-and-events.js'),
+    'utf8',
+);
+const kanbanRenderSource = fs.readFileSync(
+    path.join(root, 'src', 'task-horizon', 'main', 'render', '43-render-timeline-kanban-calendar-body.js'),
     'utf8',
 );
 
@@ -262,6 +274,7 @@ async function testMarkerReadbackAndFallback() {
         __tmHandleStaleTaskBlockForRefresh: async () => {},
         __tmBuildStaleTaskBlockError: () => new Error('stale task'),
         __tmCallTaskHorizonKernelRpc: async () => ({ available: false, data: null }),
+        __tmGetActiveTaskMutationLaneId: (id) => String(id || ''),
     });
     context.globalThis = context;
     vm.runInContext(extractFunction(apiSource, '__tmNormalizeTaskStatusMarker'), context);
@@ -275,12 +288,11 @@ async function testMarkerReadbackAndFallback() {
     vm.runInContext(extractFunction(apiSource, '__tmUpdateTaskListItemMarkerWithFallback'), context);
 
     let markdown = '- {: id="task-1"}[X] Task';
-    let markerApiCalls = 0;
+    let gatewayCalls = 0;
     let blockFallbackCalls = 0;
     context.API = {
         async getBlockKramdown() { return markdown; },
         parseTaskStatus(value) { return { marker: parseMarker(value) }; },
-        async updateTaskListItemMarker() { markerApiCalls += 1; },
     };
     context.__tmBackendAdapter = {
         async updateBlock(id, nextMarkdown) {
@@ -289,16 +301,17 @@ async function testMarkerReadbackAndFallback() {
             return { id };
         },
     };
-    const result = await context.__tmUpdateTaskListItemMarkerWithFallback('task-1', '?');
-    assert.equal(markerApiCalls, 1);
-    assert.equal(blockFallbackCalls, 1, 'false-positive marker API success must use the block fallback');
-    assert.equal(result.usedFallback, true);
-    assert.equal(parseMarker(markdown), '?');
-    assert.match(markdown, /^- \{: id="task-1"\}\[\?\] Task$/, 'marker fallback must preserve block IAL');
+    context.__tmExecuteTaskCommandGateway = async () => { gatewayCalls += 1; };
+    await assert.rejects(
+        () => context.__tmUpdateTaskListItemMarkerWithFallback('task-1', '?'),
+        /回读确认|TASK_MARKER_VERIFY_FAILED|marker/,
+    );
+    assert.equal(gatewayCalls, 1, 'a false-positive success must not trigger a second write');
+    assert.equal(blockFallbackCalls, 0, 'normal mode must not overwrite the whole block after verification fails');
 
     const fallbackCallsBeforeCanonicalX = blockFallbackCalls;
-    context.API.updateTaskListItemMarker = async () => {
-        markerApiCalls += 1;
+    context.__tmExecuteTaskCommandGateway = async () => {
+        gatewayCalls += 1;
         markdown = '* [x] Task';
     };
     const canonicalXResult = await context.__tmUpdateTaskListItemMarkerWithFallback('task-1', 'X');
@@ -324,20 +337,38 @@ async function testMarkerReadbackAndFallback() {
 }
 
 function testLocalMirrorPatch() {
-    const flat = { id: 'task-1', done: false, taskMarker: ' ', task_marker: ' ', markdown: '* [ ] Task' };
+    const flat = { id: 'task-1', done: false, taskMarker: ' ', task_marker: ' ', markdown: '* [ ] Task', customFieldValues: {}, __customFieldRawValues: {} };
     const pending = { ...flat };
     const treeTask = { ...flat, children: [] };
     const filteredClone = { ...flat, children: [] };
-    const context = vm.createContext({
-        state: {
+    const state = {
             flatTasks: { 'task-1': flat },
             pendingInsertedTasks: { 'task-1': pending },
             taskTree: [{ id: 'doc-1', tasks: [treeTask] }],
             filteredTasks: [filteredClone],
-        },
+    };
+    const context = vm.createContext({
+        state,
         __tmNormalizeQueueTaskValue: (key, value) => value,
         __tmNormalizeTaskStatusMarker: (value, fallback = ' ') => Array.from(String(value ?? fallback))[0] || fallback,
         __tmNormalizeCompatTaskStatusMarker: (value, fallback = ' ') => Array.from(String(value ?? fallback))[0] || fallback,
+        __tmGetCustomFieldDefMap: () => new Map([['effort', { id: 'effort', type: 'number' }]]),
+        __tmNormalizeCustomFieldValue: (_field, value) => Number(value),
+        __tmSerializeCustomFieldValue: (_field, value) => String(value),
+        __tmTaskStore: {
+            mutateLocal(taskId, mutate) {
+                const visit = (task) => {
+                    if (!task || typeof task !== 'object') return;
+                    if (task.id === taskId) mutate(task);
+                    (Array.isArray(task.children) ? task.children : []).forEach(visit);
+                };
+                visit(state.flatTasks[taskId]);
+                visit(state.pendingInsertedTasks[taskId]);
+                state.taskTree.forEach((doc) => (doc.tasks || []).forEach(visit));
+                state.filteredTasks.forEach(visit);
+                return true;
+            },
+        },
     });
     vm.runInContext(extractFunction(apiSource, '__tmApplyQueuedTaskFieldPatchToTask'), context);
     vm.runInContext(extractFunction(apiSource, '__tmApplyTaskFieldPatchToLocalMirrors'), context);
@@ -347,6 +378,9 @@ function testLocalMirrorPatch() {
         task_marker: '?',
         markdown: '* [?] Task',
         customStatus: 'waiting',
+        customFieldValues: { effort: 3 },
+        tomatoMinutes: '25',
+        tomatoHours: '1',
     });
     for (const task of [flat, pending, treeTask, filteredClone]) {
         assert.equal(task.done, true);
@@ -355,48 +389,32 @@ function testLocalMirrorPatch() {
         assert.equal(task.markdown, '* [?] Task');
         assert.equal(task.customStatus, 'waiting');
         assert.equal(task.custom_status, 'waiting');
+        assert.equal(task.customFieldValues.effort, 3);
+        assert.equal(task.__customFieldRawValues.effort, '3');
+        assert.equal(task.tomatoMinutes, '25');
+        assert.equal(task.tomato_minutes, '25');
+        assert.equal(task.tomatoHours, '1');
+        assert.equal(task.tomato_hours, '1');
     }
 }
 
 function testSetDoneQueueMergePreservesRollbackState() {
-    const context = vm.createContext({ __tmWritePlanner: {} });
-    vm.runInContext(extractFunction(apiSource, '__tmMergeQueuedOp'), context);
-    const target = {
-        type: 'setDone',
-        data: {
-            done: false,
-            previousDone: true,
-            previousMarker: '?',
-            previousMarkdown: '* [?] Task',
-            previousStatusId: 'waiting',
-        },
-        inversePatch: { done: true },
-    };
-    const next = {
-        type: 'setDone',
-        data: {
-            done: true,
-            previousDone: false,
-            previousMarker: ' ',
-            previousMarkdown: '* [ ] Task',
-            previousStatusId: 'todo',
-        },
-        inversePatch: { done: false },
-    };
-    assert.equal(context.__tmMergeQueuedOp(target, next), true);
-    assert.equal(target.data.done, true);
-    assert.equal(target.data.previousDone, true);
-    assert.equal(target.data.previousMarker, '?');
-    assert.equal(target.data.previousMarkdown, '* [?] Task');
-    assert.equal(target.data.previousStatusId, 'waiting');
-    assert.equal(target.inversePatch.done, true);
-    assert.equal(Object.keys(target.inversePatch).length, 1);
+    const coalesceSource = extractFunction(apiSource, '__tmTryCoalesceQueuedSetDone');
+    assert.match(coalesceSource, /String\(op\.status \|\| ''\)\.trim\(\) !== 'queued'/,
+        'only the one not-yet-running completion writer may absorb a newer intent');
+    assert.match(coalesceSource, /def\.inversePatch[\s\S]*op\.inversePatch/,
+        'coalescing must preserve the rollback baseline captured before the first optimistic patch');
+    assert.match(coalesceSource, /op\.optimisticApplied = false;[\s\S]*__tmApplySimpleOptimisticPresentation\(op\)/,
+        'the final completion intent must replace the existing optimistic overlay immediately');
 }
 
 async function testSetDoneIngressSerialization() {
     const context = vm.createContext({
         Map,
         Promise,
+        Object,
+        String,
+        window: {},
         __tmSetDoneIngressByTask: new Map(),
     });
     vm.runInContext(extractFunction(listRuntimeSource, '__tmRunSetDoneIngress'), context);
@@ -418,6 +436,24 @@ async function testSetDoneIngressSerialization() {
     releaseFirst();
     await Promise.all([first, second]);
     assert.deepEqual(order, ['first:marker', 'first:status', 'second:marker', 'second:status']);
+
+    const requestedStates = [];
+    context.__tmSetDoneFromUi = async (_taskId, targetDone) => {
+        requestedStates.push(targetDone);
+        return true;
+    };
+    vm.runInContext(extractFunction(listRuntimeSource, 'window.tmSetDone'), context);
+    const makeEvent = (checked) => ({
+        target: { type: 'checkbox', checked },
+        stopPropagation() {},
+    });
+    await Promise.all([
+        context.window.tmSetDone('task-1', true, makeEvent(true)),
+        context.window.tmSetDone('task-1', false, makeEvent(false)),
+        context.window.tmSetDone('task-1', true, makeEvent(true)),
+    ]);
+    assert.deepEqual(requestedStates, [true, false, true],
+        'serialized completion ingress must preserve every captured checkbox intent in order');
 }
 
 function testDoneOverrideSurvivesStaleReload() {
@@ -460,6 +496,12 @@ function testTaskCheckboxRenderUsesLiveDoneState() {
         __tmRuntimeState: {
             getTaskById: () => ({ id: 'task-1', done: true }),
         },
+        __tmTaskBoundary: {
+            getTask: () => ({ id: 'task-1', done: true }),
+        },
+        __tmTaskStore: {
+            getProjected: () => ({ id: 'task-1', done: true }),
+        },
         __tmBuildTaskCheckboxStyle: () => '',
         esc: (value) => String(value ?? ''),
     });
@@ -472,7 +514,185 @@ function testTaskCheckboxRenderUsesLiveDoneState() {
 
     state.doneOverrides['task-1'] = false;
     const overrideHtml = context.__tmRenderTaskCheckbox('task-1', staleTask, { checked: true });
-    assert.doesNotMatch(overrideHtml, / checked/);
+    assert.match(overrideHtml, / checked/,
+        'checkbox rendering must use the TaskStore projection instead of a stale compatibility override');
+}
+
+function testNativeDocCheckboxUsesTaskStoreProjection() {
+    const mutations = [];
+    const task = {
+        id: 'task-1',
+        root_id: 'doc-1',
+        done: false,
+        taskMarker: ' ',
+        task_marker: ' ',
+        markdown: '- [ ] Task',
+    };
+    const context = vm.createContext({
+        globalThis: null,
+        state: { doneOverrides: {} },
+        __tmTaskBoundary: { getTask: () => task },
+        __tmTaskStore: {
+            applyMutation(mutation) { mutations.push(mutation); },
+        },
+        __tmBuildTaskMarkdownWithMarker: (_task, marker) => `- [${marker}] Task`,
+        __tmMarkLocalTaskPatchWatermark: () => true,
+    });
+    context.globalThis = context;
+    vm.runInContext(extractFunction(nativeDocHooksSource, '__tmApplyNativeDocCheckboxTaskStorePatch'), context);
+    vm.runInContext(extractFunction(nativeDocHooksSource, '__tmApplyNativeDocCheckboxDomProjection'), context);
+
+    assert.equal(context.__tmApplyNativeDocCheckboxDomProjection('task-1', true), true);
+    assert.equal(context.__tmApplyNativeDocCheckboxDomProjection('task-1', false), true);
+    assert.deepEqual(mutations.map((mutation) => mutation.patch.done), [true, false],
+        'native document checkbox transitions must enter TaskStore in DOM order');
+    assert.deepEqual(mutations.map((mutation) => mutation.patch.taskMarker), ['X', ' ']);
+    assert.ok(mutations.every((mutation) => mutation.phase === 'local'),
+        'native document checkbox transitions must be local authoritative projections');
+    assert.equal(Object.prototype.hasOwnProperty.call(context.state.doneOverrides, 'task-1'), false,
+        'native document transitions must not create legacy completion overrides');
+}
+
+function testDoneDomPatchTargetsOwnProjectedCheckbox() {
+    class FakeElement {
+        constructor(classes = []) {
+            const values = new Set(classes);
+            this.classList = {
+                contains: (name) => values.has(name),
+                toggle: (name, enabled) => enabled ? values.add(name) : values.delete(name),
+            };
+            this.attrs = new Map();
+            this.innerHTML = '';
+        }
+
+        getAttribute(name) { return this.attrs.get(name) || ''; }
+        setAttribute(name, value) { this.attrs.set(name, String(value)); }
+    }
+    class FakeInput extends FakeElement {
+        constructor(checked) {
+            super(['tm-task-checkbox']);
+            this.checked = checked;
+        }
+    }
+
+    const ownCheckbox = new FakeInput(true);
+    const descendantCheckbox = new FakeInput(true);
+    const title = new FakeElement(['tm-task-content-clickable', 'tm-task-done', 'is-done']);
+    title.innerHTML = '<span class="tm-task-reminder-emoji">badge</span>';
+    const titleButton = new FakeElement(['tm-checklist-title-button', 'tm-task-done']);
+    const titleWrap = new FakeElement(['tm-checklist-title', 'tm-task-done']);
+    const root = new FakeElement(['tm-checklist-item', 'tm-checklist-item--done']);
+    root.attrs.set('data-id', 'task-1');
+    root.querySelector = (selector) => {
+        if (selector.includes('data-task-id="task-1"')) return ownCheckbox;
+        if (selector === '.tm-task-checkbox') return descendantCheckbox;
+        return null;
+    };
+    root.querySelectorAll = (selector) => selector.includes('.tm-checklist-title')
+        ? [titleWrap, titleButton, title]
+        : [];
+    const context = vm.createContext({
+        Element: FakeElement,
+        HTMLElement: FakeElement,
+        HTMLInputElement: FakeInput,
+        CSS: { escape: (value) => String(value) },
+        globalThis: null,
+        __tmTaskProjectionEngine: {
+            isTaskCompleted: (task) => String(task?.taskMarker || '') === 'X',
+        },
+        __tmTaskStore: {
+            getProjected: (taskId) => taskId === 'task-1'
+                ? { id: 'task-1', content: 'Task', markdown: '- [ ] Task', done: false, taskMarker: ' ', task_marker: ' ' }
+                : null,
+        },
+        __tmDoesTaskDomTargetBelongToTask: () => true,
+    });
+    context.globalThis = context;
+    vm.runInContext(extractFunction(writerRuntimeSource, '__tmIsTaskCompletedForProjection'), context);
+    vm.runInContext(extractFunction(writerRuntimeSource, '__tmUpdateTaskDoneInDOM'), context);
+
+    assert.equal(context.__tmUpdateTaskDoneInDOM(root, { id: 'task-1', done: true, taskMarker: 'X' }), true);
+    assert.equal(ownCheckbox.checked, false,
+        'a stale completed receipt must not replace the latest canceled completion projection');
+    assert.equal(descendantCheckbox.checked, true,
+        'a parent or duplicated card patch must not overwrite a descendant task checkbox');
+    assert.equal(title.classList.contains('tm-task-done'), false,
+        'canceling completion must clear the title completion class');
+    assert.equal(title.classList.contains('is-done'), false,
+        'canceling completion must clear legacy title completion classes');
+    assert.equal(root.classList.contains('tm-checklist-item--done'), false,
+        'canceling completion must clear the checklist row completion style');
+    assert.equal(titleWrap.classList.contains('tm-task-done'), false);
+    assert.equal(titleButton.classList.contains('tm-task-done'), false);
+    assert.equal(title.innerHTML, '<span class="tm-task-reminder-emoji">badge</span>',
+        'completion patches must preserve view-specific inline badges while clearing stale title styling');
+}
+
+function testTaskDetailCompletionReadsUseLatestProjection() {
+    const projectedChild = {
+        id: 'task-child',
+        done: false,
+        taskMarker: ' ',
+        task_marker: ' ',
+        markdown: '- [ ] Child',
+        children: [],
+    };
+    const staleChild = {
+        id: 'task-child',
+        done: true,
+        taskMarker: 'X',
+        task_marker: 'X',
+        markdown: '- [X] Child',
+        children: [],
+    };
+    const projectedParent = {
+        id: 'task-parent',
+        done: false,
+        taskMarker: ' ',
+        task_marker: ' ',
+    };
+    const structuralParent = {
+        id: 'task-parent',
+        done: true,
+        taskMarker: 'X',
+        task_marker: 'X',
+        children: [staleChild],
+    };
+    const context = vm.createContext({
+        globalThis: null,
+        __tmTaskProjectionEngine: {
+            isTaskCompleted: (task) => String(task?.taskMarker || '') === 'X',
+        },
+        __tmTaskStore: {
+            getProjected: (taskId) => taskId === 'task-child'
+                ? projectedChild
+                : (taskId === 'task-parent' ? projectedParent : null),
+        },
+        __tmTaskBoundary: {
+            getTask: (taskId) => taskId === 'task-child'
+                ? staleChild
+                : (taskId === 'task-parent' ? structuralParent : null),
+        },
+        __tmResolveTaskDetailEffectiveId: (taskId) => taskId,
+        __tmCountTaskDetailRawSubtasks: (task) => Array.isArray(task?.children) ? task.children.length : 0,
+        __tmPreferWhiteboardSnapshotForPlaceholderTask: (task) => task,
+        __tmTaskStateKernel: { getTask: () => null },
+    });
+    context.globalThis = context;
+    vm.runInContext(extractFunction(writerRuntimeSource, '__tmIsTaskCompletedForProjection'), context);
+    vm.runInContext(extractFunction(writerRuntimeSource, '__tmBuildTaskDetailSubtaskTree'), context);
+    vm.runInContext(extractFunction(taskDetailSource, '__tmGetTaskDetailTaskById'), context);
+
+    const tree = context.__tmBuildTaskDetailSubtaskTree([staleChild], true);
+    assert.equal(tree[0]?.taskMarker, ' ',
+        'detail subtask rebuilding must prefer the latest child projection over a stale completed snapshot');
+    assert.equal(context.__tmGetTaskDetailTaskById('task-child')?.taskMarker, ' ',
+        'detail task reads must prefer the latest projection over the raw task boundary');
+    const parent = context.__tmGetTaskDetailTaskById('task-parent');
+    assert.equal(parent?.taskMarker, ' ',
+        'detail root fields must still come from the latest projection');
+    assert.deepEqual(Array.from(parent?.children || [], (child) => child.id), ['task-child'],
+        'a shallow field projection must preserve the richer raw detail subtree');
 }
 
 async function run() {
@@ -483,38 +703,88 @@ async function run() {
     await testSetDoneIngressSerialization();
     testDoneOverrideSurvivesStaleReload();
     testTaskCheckboxRenderUsesLiveDoneState();
+    testNativeDocCheckboxUsesTaskStoreProjection();
+    testDoneDomPatchTargetsOwnProjectedCheckbox();
+    testTaskDetailCompletionReadsUseLatestProjection();
     assert.match(doneRuntimeSource, /function __tmApplyDoneStateToLocalMirrors[\s\S]*__tmApplyTaskFieldPatchToLocalMirrors/);
     assert.match(listRuntimeSource, /previousMarker:[\s\S]*previousMarkdown:/);
     const setDoneKernelSource = extractFunction(listRuntimeSource, '__tmSetDoneKernel');
     assert.match(setDoneKernelSource, /await __tmPersistMetaAndAttrsKernel\(id, touchPatch[\s\S]*set-done-status-link/);
-    assert.doesNotMatch(setDoneKernelSource, /__tmRequireTaskOutbox\?\.\('patchTask'\)/);
+    assert.doesNotMatch(setDoneKernelSource, /__tmRequireTaskMutation\?\.\('patchTask'\)/);
     assert.match(setDoneKernelSource, /await __tmPersistMetaAndAttrsKernel\(id, touchPatch[\s\S]*catch \(statusErr\)[\s\S]*__tmUpdateTaskListItemMarkerWithFallback\(id, originalMarker\)[\s\S]*throw statusErr/);
     assert.doesNotMatch(setDoneKernelSource, /ev\.preventDefault\(\)/);
     assert.match(setDoneKernelSource, /if \(taskWasDone === targetDone && opts\.force !== true\) return/);
     assert.match(setDoneKernelSource, /type: 'setDone'[\s\S]*patch: undoPatch[\s\S]*inversePatch/);
-    assert.match(writerRuntimeSource, /inlineQueuedPersist:[^\n]+[\s\S]*skipNoopCheck: opts\.skipNoopCheck === true[\s\S]*previousStatusId:/);
-    assert.match(writerRuntimeSource, /skipFlush: opts\.skipFlush === true,[\s\S]*skipNoopCheck: opts\.skipNoopCheck === true,[\s\S]*attrTargetId:/);
-    assert.match(apiSource, /skipNoopCheck: op\?\.data\?\.skipNoopCheck === true,[\s\S]*opts\.skipNoopCheck !== true && prevStatusId === nextStatusId/);
+    assert.match(writerRuntimeSource, /__tmBuildTaskCommandPlan\(tid, nextPatch, opts\)[\s\S]*statusBefore:[\s\S]*skipNoopCheck: opts\.skipNoopCheck === true,[\s\S]*attrTargetId:/,
+        'the unified mutation definition must carry status baseline and attribute routing options together');
+    assert.match(writerRuntimeSource, /type: 'taskPatch'[\s\S]*data: \{[\s\S]*statusBefore:[\s\S]*\},[\s\S]*inversePatch/,
+        'a task field write and its rollback baseline must remain one queued operation');
+    assert.match(apiSource, /function __tmPrepareSetDoneMutationData[\s\S]*data\.previousStatusId = previousStatusId/,
+        'the set-done command must capture its kernel baseline before execution');
+    assert.match(writerRuntimeSource, /statusPatch\.customStatus[\s\S]*targetStatus[\s\S]*normalizedPatch\.done = __tmIsTaskMarkerDone\(targetMarker\)/,
+        'custom status changes must derive done from the target marker before choosing the mutation path');
     assert.match(apiSource, /__tmRollbackDoneOptimisticLocal\([\s\S]*previousMarker:[\s\S]*previousMarkdown:/);
-    const applyTaskStatusSource = extractFunction(apiSource, '__tmApplyTaskStatus');
-    assert.match(applyTaskStatusSource, /!prevDone && nextDone[\s\S]*__tmScheduleRecurringTaskAdvanceAfterCompletion\(context\.persistId/,
-        'changing a status marker from empty to non-empty must schedule recurring-task advancement');
-    assert.ok(applyTaskStatusSource.indexOf('__tmApplyTaskStatusLocalState(') < applyTaskStatusSource.indexOf('__tmScheduleRecurringTaskAdvanceAfterCompletion('),
-        'status completion must update local done state before recurring-task advancement is scheduled');
-    assert.match(applyTaskStatusSource, /prevDone && !nextDone[\s\S]*__tmClearRecurringTaskAdvanceTimer\(context\.persistId\)/,
+    assert.doesNotMatch(apiSource, /function __tmApplyTaskStatus\(/,
+        'the removed marker-then-attrs status writer must not return');
+    const committedEffectsSource = extractFunction(listRuntimeSource, '__tmRunCommittedSetDoneEffects');
+    assert.match(committedEffectsSource, /!targetDone[\s\S]*__tmClearRecurringTaskAdvanceTimer\(tid\)/,
         'changing a status marker back to empty must cancel pending recurring-task advancement');
+    assert.match(committedEffectsSource, /previousDone === true[\s\S]*rewardPriorityScore[\s\S]*repeatRule/,
+        'status completion effects must remain behind the committed set-done transition');
+    const nativeCheckboxSyncSource = extractFunction(nativeDocHooksSource, '__tmSyncNativeDocCheckboxLinkedStatus');
+    const nativeCheckboxLocalStateSource = extractFunction(nativeDocHooksSource, '__tmApplyNativeDocCheckboxLocalState');
+    assert.doesNotMatch(nativeDocHooksSource, /__tmNativeDocCheckboxSyncIgnoreMap|__tmConsumeNativeDocCheckboxStatusSyncIgnore/,
+        'the unreachable plugin-origin checkbox ignore queue must not return');
+    assert.match(nativeCheckboxSyncSource, /const persistedAttrsBefore = await __tmReadDocCheckboxBlockAttrs/,
+        'native checkbox synchronization must still reconcile against persisted task attributes');
+    assert.doesNotMatch(nativeCheckboxLocalStateSource, /doneOverrides/,
+        'native document checkbox state must not create a compatibility override');
+    assert.match(nativeDocHooksSource, /globalThis\.__tmTaskStore\?\.applyMutation\?\./,
+        'native document checkbox state must use the shared TaskStore mutation path');
+    assert.doesNotMatch(nativeDocHooksSource, /__tmPushNativeDocCheckboxTrace|__tmPushDiagnosticLog/,
+        'temporary native checkbox diagnostics must not ship in production runtime');
     assert.doesNotMatch(taskModelSource, /pendingDoneWrite[\s\S]*disabledAttr/);
-    assert.match(taskModelSource, /state\.doneOverrides[\s\S]*preferPending: true[\s\S]*__tmIsTaskDoneEffective[\s\S]*checkedAttr/);
+    assert.doesNotMatch(extractFunction(taskModelSource, '__tmRenderTaskCheckbox'), /doneOverrides/);
+    assert.match(taskModelSource, /__tmTaskStore\?\.getProjected\?\.[\s\S]*__tmTaskBoundary\?\.getTask\?\.[\s\S]*__tmIsTaskDoneEffective[\s\S]*checkedAttr/);
     assert.match(taskModelSource, /data-task-id=/);
+    assert.doesNotMatch(writerRuntimeSource, /checkbox\.checked\s*=\s*!!task\.done/,
+        'mounted view checkboxes must use the shared effective completion projection');
+    const viewControllersSource = writerRuntimeSource.slice(
+        writerRuntimeSource.indexOf('const __tmViewControllers ='),
+        writerRuntimeSource.indexOf('function __tmSyncVisibleCalendarTaskPatch(', writerRuntimeSource.indexOf('const __tmViewControllers =')),
+    );
+    assert.doesNotMatch(viewControllersSource, /const task = __tmTaskStateKernel\.getTask\(/,
+        'view field controllers must not render status, completion time, or styling from the raw task mirror');
+    assert.ok((viewControllersSource.match(/__tmTaskStore\?\.getProjected\?\./g) || []).length >= 5,
+        'list, checklist, timeline, kanban, and whiteboard controllers must prefer the shared task projection');
+    const kanbanProjectionSource = extractFunction(writerRuntimeSource, '__tmTryApplyKanbanOptimisticProjectionInPlace');
+    assert.match(kanbanProjectionSource, /storedProjection[\s\S]*taskMarker[\s\S]*projectedTask\[field\] = storedProjection\[field\]/,
+        'kanban visibility must preserve the latest projected completion fields over an older refresh patch');
     assert.doesNotMatch(listRuntimeSource, /ignored while pending/);
     assert.doesNotMatch(listRuntimeSource, /hasPendingDoneWrite/);
     assert.doesNotMatch(listRuntimeSource, /ignored stale checkbox state/);
-    assert.match(listRuntimeSource, /const targetDone = input \? !liveDone : !!done[\s\S]*input\.checked = targetDone[\s\S]*__tmSetDoneFromUi\(tid, targetDone/);
-    assert.match(listRuntimeSource, /const setDoneOptions = input[\s\S]*wait: true[\s\S]*__tmSetDoneFromUi\(tid, targetDone, ev, setDoneOptions\)/);
+    assert.match(listRuntimeSource, /const targetDone = !!done[\s\S]*input\.checked = targetDone[\s\S]*__tmSetDoneFromUi\(tid, targetDone/);
+    assert.doesNotMatch(extractFunction(listRuntimeSource, 'window.tmSetDone'), /!liveDone/);
+    assert.match(listRuntimeSource, /const setDoneOptions = input[\s\S]*wait: false[\s\S]*__tmSetDoneFromUi\(tid, targetDone, ev, setDoneOptions\)/,
+        'checkbox input must release after optimistic enqueue while the task lane preserves kernel order');
+    assert.match(doneRuntimeSource, /targetStatusId[\s\S]*targetMarker = __tmNormalizeCompatTaskStatusMarker[\s\S]*__tmApplyDoneStateToLocalMirrors\(tid, task, done, targetMarker\)/,
+        'optimistic completion must use the configured status marker instead of a generic marker');
+    const buildSetDoneSource = extractFunction(listRuntimeSource, '__tmBuildSetDoneQueuedDefinition');
+    assert.match(buildSetDoneSource, /const projectionPatch = \{[\s\S]*taskMarker: targetMarker,[\s\S]*task_marker: targetMarker,[\s\S]*markdown: __tmBuildTaskMarkdownWithMarker\(taskLike, targetMarker\)/,
+        'the completion overlay must atomically override marker and markdown with done/status');
+    assert.match(buildSetDoneSource, /patch: optimisticPatch,[\s\S]*projectionPatch,/,
+        'completion persistence and presentation fields must remain in one command but separate patches');
     assert.match(listRuntimeSource, /effectiveTaskDone[\s\S]*originalDone[\s\S]*inversePatch\.done = originalDone/);
-    assert.match(listRuntimeSource, /const currentDone = typeof __tmIsTaskDoneEffective[\s\S]*if \(currentDone === targetDone\) return/);
+    assert.match(listRuntimeSource, /const currentDone = typeof __tmIsTaskDoneEffective[\s\S]*const explicitCheckboxIntent[\s\S]*if \(currentDone === targetDone && !explicitCheckboxIntent\) return/,
+        'an explicit checkbox intent must enter the mutation queue even when a local projection already matches it');
     assert.ok((storesSource.match(/__tmApplyDoneOverrideToTaskIfPresent\((?:task|target)\)/g) || []).length >= 4);
-    assert.match(storesSource, /function __tmMergeLocalTaskPatchIntoTask\(task, options = \{\}\)[\s\S]*__tmApplyDoneOverrideToTaskIfPresent\(target\)/);
+    assert.match(storesSource, /function __tmMergeLocalTaskPatchIntoTask\(task\)[\s\S]*__tmApplyDoneOverrideToTaskIfPresent\(target\)/);
+    const globalLockSource = listRuntimeSource.slice(
+        listRuntimeSource.indexOf('const GlobalLock ='),
+        listRuntimeSource.indexOf('// ============ DOM 回退树状态保护器'),
+    );
+    assert.doesNotMatch(globalLockSource, /querySelectorAll|\.disabled\s*=|classList\.(?:add|remove)\('tm-operating'/,
+        'the legacy fallback lock must not disable task checkboxes globally');
     assert.doesNotMatch(documentLoaderSource, /state\.doneOverrides\s*=\s*\{\}/);
     const whiteboardSetDoneSource = extractFunction(whiteboardInteractionSource, 'window.tmWhiteboardSetDone');
     assert.match(whiteboardSetDoneSource, /window\.tmSetDone\(tid, !!checked, ev/);
@@ -525,6 +795,14 @@ async function run() {
     assert.doesNotMatch(storesSource, /\[Task Horizon\]\[setDone\]/);
     assert.doesNotMatch(listRuntimeSource, /\[Task Horizon\]\[setDone\]/);
     assert.doesNotMatch(doneRuntimeSource, /\[Task Horizon\]\[setDone\]/);
+    for (const source of [stateRuntimeSource, taskDetailSource, kanbanRenderSource]) {
+        assert.doesNotMatch(source, /CompletionRestore|__tmCompletionRestoreDirectTrace/,
+            'temporary completion-restore console tracing must not ship in production runtime');
+    }
+    assert.doesNotMatch(writerRuntimeSource, /KanbanCompletion|__tmLogKanbanCompletionDirect/,
+        'temporary kanban completion console tracing must not ship in production runtime');
+    assert.doesNotMatch(stateRuntimeSource, /pushTaskTrace\('mutation'/,
+        'the mutation bus must not duplicate every mutation into two in-memory logs');
     console.log('task completion consistency tests passed');
 }
 

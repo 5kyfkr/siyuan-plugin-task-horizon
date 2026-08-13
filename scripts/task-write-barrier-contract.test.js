@@ -7,7 +7,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'task-horizon', 'main', '20-api-and-runtime-services.js'), 'utf8');
 const start = source.indexOf('    const __tmTaskWriteSignature =');
-const end = source.indexOf('\n    function __tmGetOutboxStatus()', start);
+const end = source.indexOf('\n    function __tmGetMutationStatus()', start);
 assert.ok(start >= 0 && end > start, 'task write barrier must remain extractable');
 const block = source.slice(start, end);
 
@@ -32,10 +32,10 @@ const buildContext = (taskRef) => {
         Date,
         setTimeout,
         clearTimeout,
-        __tmOpQueue: { hydrated: true, items: [] },
-        __tmHydrateOpQueue: () => {},
+        __tmActiveMutations: new Map(),
+        __tmEnsureQueuedOpPromise: (op) => op.promise,
+        __tmMutationGetTask: () => context.task,
         __tmGetTaskRepeatRule: (task) => normalizeRule(task?.repeatRule || task),
-        __tmBuildTaskLikeFromBlockId: async () => context.task,
         __tmRuntimeState: { getTaskIdAliases: () => [] },
         state: { flatTasks: {} },
     });
@@ -56,12 +56,20 @@ const buildContext = (taskRef) => {
 
 (async () => {
     const context = buildContext('task-1');
-    context.__tmOpQueue.items.push({
-        type: 'attrPatch',
+    let settleWrite;
+    const activeWrite = {
+        id: 'write-1',
+        type: 'taskPatch',
         status: 'running',
         data: { taskId: 'task-1' },
-    });
-    setTimeout(() => { context.__tmOpQueue.items = []; }, 120);
+        promise: new Promise((resolve) => { settleWrite = resolve; }),
+    };
+    context.__tmActiveMutations.set(activeWrite.id, activeWrite);
+    setTimeout(() => {
+        context.__tmActiveMutations.delete(activeWrite.id);
+        settleWrite(true);
+    }, 120);
+    const waitStartedAt = Date.now();
     const waited = await context.waitForTaskWrites('task-1', {
         expected: {
             startDate: '2026-08-01',
@@ -71,12 +79,15 @@ const buildContext = (taskRef) => {
         timeoutMs: 1000,
     });
     assert.equal(waited.ok, true, 'barrier must wait for the matching task write and validate fields');
+    assert.ok(Date.now() - waitStartedAt >= 100, 'barrier must not ignore the unified taskPatch writer');
 
     const unrelated = buildContext('task-2');
-    unrelated.__tmOpQueue.items.push({
-        type: 'attrPatch',
+    unrelated.__tmActiveMutations.set('other-write', {
+        id: 'other-write',
+        type: 'taskPatch',
         status: 'running',
         data: { taskId: 'other-task' },
+        promise: new Promise(() => {}),
     });
     const unrelatedResult = await unrelated.waitForTaskWrites('task-2', {
         expected: { completionTime: '2026-08-03' },
@@ -91,7 +102,7 @@ const buildContext = (taskRef) => {
         timeoutMs: 220,
     });
     assert.equal(mismatchResult.ok, false, 'barrier must fail closed when expected fields never settle');
-    assert.equal(mismatchResult.code, 'TASK_ATTR_WRITE_TIMEOUT');
+    assert.equal(mismatchResult.code, 'TASK_WRITE_MISMATCH');
 
     console.log('task write barrier contract tests passed');
 })().catch((error) => {

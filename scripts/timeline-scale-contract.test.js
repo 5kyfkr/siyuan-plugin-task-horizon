@@ -53,6 +53,7 @@ const timelineStageInteractions = segment(services, 'function __tmBindTimelineSt
 assert.match(timelineStageInteractions, /syncTimelineTaskHover[\s\S]*#tmTimelineLeftTable tbody tr\[data-id=[\s\S]*#tmGanttBody \.tm-gantt-row\[data-id=[\s\S]*tm-timeline-task-row--hovered/, 'timeline task hover must synchronize the matching table and gantt rows');
 assert.match(timelineStageInteractions, /onTimelinePointerOver[\s\S]*pointerType[\s\S]*touch[\s\S]*onTimelinePointerOut[\s\S]*pointerType[\s\S]*touch/, 'timeline hover synchronization must not create touch hover state');
 assert.match(timelineStageInteractions, /\[leftBody, ganttBody\]\.forEach[\s\S]*bind\(pane, 'pointerover'[\s\S]*bind\(pane, 'pointerout'/, 'timeline hover synchronization must use one delegated pointer binding per pane');
+assert.match(timelineStageInteractions, /__tmBindAutoLoadMoreOnScroll\?\.\(modal, 'timeline'\)[\s\S]*__tmResetTimelineGestureState\(modal\)/, 'initial timeline stage binding must release stale drag state before accepting horizontal input');
 assert.match(styles, /#tmTimelineLeftTable tbody tr\.tm-timeline-task-row--hovered[\s\S]*background-color: var\(--tm-table-row-hover-bg\)[\s\S]*\.tm-gantt-row\.tm-timeline-task-row--hovered[\s\S]*background: var\(--tm-table-row-hover-bg\)/, 'timeline table and gantt rows must reuse the table-view hover color');
 assert.match(checklistBody, /class="tm-table-scrollbar"><div class="tm-table-scrollbar-thumb"/, 'table view must retain its floating vertical scrollbar shell');
 assert.match(styles, /\.tm-list-pane > \.tm-body\.tm-body--list \{[^}]*scrollbar-gutter: auto;/, 'table view must not reserve a native vertical scrollbar gutter');
@@ -114,6 +115,9 @@ assert.match(timelineLocalRerender, /renderedTimelineColumnOrder[\s\S]*timelineC
 assert.match(timelineLocalRerender, /const rowModel = timelineColumnStructureChanged && requestedAppendOnly \? rangeRowModel : requestedRowModel/, 'a column change during append must rebuild from the full timeline row model');
 assert.match(timelineLocalRerender, /colspan="\$\{timelineColumnCount\}"/, 'in-place timeline group and empty rows must span the active column count');
 assert.doesNotMatch(timelineLocalRerender, /colspan="3"/, 'in-place timeline refreshes must not retain the obsolete three-column span');
+assert.match(timelineLocalRerender, /__tmBindFloatingTooltipsAfterLocalRerender\(modal\);[\s\S]*__tmResetTimelineGestureState\(modal\);/, 'timeline in-place redraws must clear stale drag state before users can pan again');
+const timelineToday = segment(render, 'window.tmGanttToday = function()', 'function __tmNormalizeTaskPriorityValue');
+assert.match(timelineToday, /body\.dispatchEvent\(new Event\('scroll'\)\)[\s\S]*__tmResetTimelineGestureState\(state\.modal\)/, 'today navigation must release stale drag state after repositioning the timeline');
 const timelineWidthSync = segment(services, 'function __tmSyncTimelineDateColumnWidths', 'function __tmBindTimelineLeftCollapseInteractions');
 assert.match(timelineWidthSync, /const columnOrder = __tmGetTimelineColumnOrder\(\)[\s\S]*__tmGetTableWidthLayout\(columnOrder,[\s\S]*columnOrder\.forEach\(\(columnKey, index\)/, 'timeline width refreshes must reuse the table-view layout for every selected column');
 assert.match(timelineWidthSync, /tableLayout\.resolvedTotal \+ 2[\s\S]*colgroup col[\s\S]*thead th[\s\S]*tbody tr\[data-id\]/, 'timeline width refreshes must keep the table, colgroup, headers, and task cells aligned');
@@ -139,6 +143,8 @@ assert.deepEqual(resolveTimelineMilestoneLayout({ left: 100, width: 2.6, dayWidt
 assert.match(gantt, /function buildTimelineMilestoneHtml\(task, layout\) \{[\s\S]*buildTimelineTaskBarHtml\(task, resolveTimelineMilestoneLayout\(layout\)\)/, 'full milestone renders must use the shared minimum-width layout');
 assert.match(gantt, /resolveTimelineMilestoneLayout,[\s\S]*buildTimelineMilestoneHtml,/, 'local timeline updates must be able to reuse milestone geometry');
 const localTimelineUpdate = segment(localTaskTimeRefresh, 'function __tmUpdateTimelineTaskInDOM', 'function __tmCanUpdateTaskTimeInListLike');
+assert.match(localTimelineUpdate, /row\.querySelector\('\[data-tm-task-time-field="startDate"\]'\)[\s\S]*row\.querySelector\('\[data-tm-task-time-field="completionTime"\]'\)/, 'in-place date refreshes must target timeline cells by field when columns are reordered');
+assert.doesNotMatch(localTimelineUpdate, /querySelectorAll\('td'\)|tds\[[12]\]/, 'in-place date refreshes must not assume start and due dates occupy the second and third columns');
 assert.match(localTimelineUpdate, /view\.resolveTimelineMilestoneLayout\?\.\(\{[\s\S]*left: milestoneLeft,[\s\S]*width: dayWidth0,[\s\S]*if \(!milestoneBarLayout\) return false;/, 'in-place milestone conversion must use the same centered minimum-width layout as a full render');
 assert.doesNotMatch(localTimelineUpdate, /left: milestoneLeft - \(dayWidth0 \* 0\.5\)/, 'in-place milestone conversion must not pre-offset the date center before shared layout resolution');
 
@@ -335,10 +341,10 @@ assert.match(styles, /\.tm-timeline-selection-toolbar__btn--danger \{[\s\S]*colo
 const timelineDateCallback = segment(render, 'onUpdateTaskDates: async (taskId, patch) =>', 'onUpdateTaskMeta: async (taskId, patch) =>');
 assert.match(timelineDateCallback, /const result = await window\.tmUpdateTaskDates[\s\S]*timelineMutation: true,[\s\S]*return result;/, 'timeline date callbacks must enter the shared serial mutation queue and propagate completion');
 assert.match(timelineDateCallback, /error\.__tmGanttUpdateHinted = true;[\s\S]*throw error;/, 'timeline date callbacks must preserve existing error feedback while propagating failures');
-assert.doesNotMatch(timelineDateCallback, /task\.startDate = task\.start_date|task\.completionTime = task\.completion_time|__tmRefreshTaskTimeAcrossViews/, 'timeline callbacks must not repeat the outbox optimistic date patch');
+assert.doesNotMatch(timelineDateCallback, /task\.startDate = task\.start_date|task\.completionTime = task\.completion_time|__tmRefreshTaskTimeAcrossViews/, 'timeline callbacks must not repeat the mutation optimistic date patch');
 const timelineMetaCallback = segment(render, 'onUpdateTaskMeta: async (taskId, patch) =>', '});\n                    const anchoredLeft');
 assert.match(timelineMetaCallback, /const metaPatch = \{ milestone: val \? '1' : '' \};[\s\S]*__tmEnqueueTimelineMutation\(async \(\) =>[\s\S]*return await patchTask[\s\S]*wait: false,[\s\S]*background: true,/, 'milestone callbacks must enqueue in serial order but release timeline interactions after the optimistic task patch is queued');
-assert.doesNotMatch(timelineMetaCallback, /wait: true,[\s\S]*background: false,/, 'milestone persistence must not hold the shared timeline queue until the background outbox settles');
+assert.doesNotMatch(timelineMetaCallback, /wait: true,[\s\S]*background: false,/, 'milestone persistence must not hold the shared timeline queue until the background mutation settles');
 const legacyTimelineMetaCallback = segment(services, 'onUpdateTaskMeta: async (taskId, patch) =>', '});\n            } catch (e) {}');
 assert.match(legacyTimelineMetaCallback, /__tmEnqueueTimelineMutation\(async \(\) =>[\s\S]*return await patchTask[\s\S]*background: true,[\s\S]*wait: false,/, 'the fallback timeline renderer must also release interactions after optimistic milestone enqueue');
 const timelinePatchTask = segment(taskRuntime, 'timeline: {', 'kanban: {');
@@ -450,12 +456,13 @@ assert.equal(formatTimelineHeaderUpperLabel('day', august2026), '2026年8月', '
 assert.equal(formatTimelineHeaderUpperLabel('week', august2026), '2026年8月', 'week headers must expose the visible year and month');
 assert.equal(formatTimelineHeaderUpperLabel('month', august2026), '2026年', 'month headers must expose the visible year above month cells');
 assert.match(gantt, /data-tm-gantt-header-period-sticky/, 'timeline headers must render a dedicated pinned upper-period label');
+assert.match(gantt, /tm-gantt-period-cell--upper[\s\S]*tm-gantt-period-label/, 'upper period source text must use a dedicated layer that can hide its theme-provided shadow');
 assert.match(gantt, /const syncStickyHeaderPeriod[\s\S]*stickyLabelWidth[\s\S]*segmentStartPx[\s\S]*segmentEndPx - stickyLabelWidth[\s\S]*labelLeft = clamp\(scrollLeft, segmentStartPx, maxLabelLeft\)[\s\S]*translate3d\(\$\{labelLeft\}px, 0, 0\)[\s\S]*__tmSyncGanttStickyPeriod = syncStickyHeaderPeriod/, 'the upper period text must stay visible until its own width reaches the period boundary');
 assert.doesNotMatch(gantt, /sticky\.style\.width/, 'the upper period text must not be progressively clipped by a shrinking overlay width');
 assert.match(timelineStageInteractions, /useGlobalScroll[\s\S]*globalScrollHost\?\.scrollLeft[\s\S]*__tmSyncGanttStickyPeriod\?\.\(scrollLeft\)[\s\S]*bind\(globalScrollHost, 'scroll',[\s\S]*syncHeaderX\(\)/, 'desktop and compact scroll hosts must update the same sticky period label');
 assert.match(styles, /\.tm-gantt-month-row::after \{[\s\S]*height: 1px;[\s\S]*background: color-mix/, 'the upper timeline header row must draw a separator above the day, week, or month row');
 assert.match(styles, /\.tm-gantt-header-period-sticky \{[\s\S]*position: absolute;[\s\S]*width: max-content;[\s\S]*background: transparent;[\s\S]*overflow: visible;[\s\S]*will-change: transform;/, 'the pinned period label must remain plain unclipped text rather than a header-colored region');
-assert.match(styles, /\.tm-gantt-period-cell--upper\.tm-gantt-period-cell--sticky-source \{[\s\S]*color: transparent;/, 'the source period label must hide while its sticky text copy is active');
+assert.match(styles, /\.tm-gantt-period-cell--upper\.tm-gantt-period-cell--sticky-source \.tm-gantt-period-label \{[\s\S]*opacity: 0;/, 'the source period glyph and its inherited text shadow must disappear together while the sticky copy is active');
 assert.match(styles, /\.tm-gantt-period-cell \{[\s\S]*box-sizing: border-box;/, 'grouped header widths must include their padding and separator borders');
 assert.match(styles, /\.tm-gantt-period-cell \{[\s\S]*position: absolute;[\s\S]*top: 0;/, 'header cells must avoid cumulative fractional flex rounding');
 assert.match(styles, /\.tm-gantt-day-bg-layer \{[\s\S]*z-index: 1;[\s\S]*pointer-events: none;/, 'calendar background columns must stay separate from task row content');

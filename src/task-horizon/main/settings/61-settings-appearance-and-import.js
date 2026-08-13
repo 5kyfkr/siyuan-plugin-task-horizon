@@ -32,26 +32,6 @@
         hint(ok ? '✅ 诊断信息已复制' : '❌ 复制失败，请手动展开 JSON 复制', ok ? 'success' : 'error');
         return ok;
     };
-    window.tmUpdateDiagnosticLogsEnabled = async function(enabled) {
-        const next = enabled === true;
-        SettingsStore.data.diagnosticLogsEnabled = next;
-        await SettingsStore.save();
-        if (next) {
-            try { await __tmSaveDiagnosticLogFile('enabled'); } catch (e) {}
-            try { __tmScheduleDiagnosticLogFileSave('enabled'); } catch (e) {}
-        } else {
-            try { __tmCancelDiagnosticLogFileSave(); } catch (e) {}
-            try { __tmClearPerfTraces(); } catch (e) {}
-            try { __tmClearDiagnosticLogs(); } catch (e) {}
-        }
-        hint(next ? '✅ 已开启性能与关键路径诊断日志' : '✅ 已关闭性能与关键路径诊断日志', 'success');
-        showSettings();
-    };
-    window.tmClearDiagnosticLogs = function() {
-        try { __tmClearPerfTraces(); } catch (e) {}
-        try { __tmClearDiagnosticLogs(); } catch (e) {}
-        hint('✅ 诊断日志已清空', 'success');
-    };
     window.tmSwitchSettingsTab = function(tab) {
         const prev = state.settingsActiveTab || 'docs';
         if (tab === 'main') {
@@ -1537,7 +1517,7 @@
         const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
         const levelNum = Number((String(headingLevel).match(/^h([1-6])$/) || [])[1]) || 2;
         const hashes = '#'.repeat(Math.max(1, Math.min(6, levelNum)));
-        const insertedId = await __tmAppendBlockWithRetry(did, `${hashes} ${text}`);
+        const insertedId = await __tmAppendBlockOnce(did, `${hashes} ${text}`);
         const headingId = await __tmEnsureTickTickImportHeadingId(insertedId);
         try { await __tmWarmKanbanDocHeadings([did], { force: true }); } catch (e) {}
         return headingId;
@@ -1557,11 +1537,11 @@
             const placement = {};
             if (previousID) placement.previousID = previousID;
             if (nextID) placement.nextID = nextID;
-            insertedId = await __tmInsertBlockWithRetry(targetParentId, md, placement);
+            insertedId = await __tmInsertBlockOnce(targetParentId, md, placement);
         } else if (opts.appendToBottom === true) {
-            insertedId = await __tmAppendBlockWithRetry(targetParentId, md);
+            insertedId = await __tmAppendBlockOnce(targetParentId, md);
         } else {
-            insertedId = await __tmAppendBlockWithRetry(targetParentId, md);
+            insertedId = await __tmAppendBlockOnce(targetParentId, md);
         }
         const resolvedId = await __tmResolveInsertedTaskBlockId(insertedId);
         return await __tmEnsureTickTickImportTaskId(resolvedId || insertedId);
@@ -1634,7 +1614,7 @@
             if (doneStatusPatch && typeof doneStatusPatch === 'object') Object.assign(patch, doneStatusPatch);
         }
         if (Object.keys(patch).length > 0) {
-            taskId = await __tmPersistNewTaskAttrsWithRetry(taskId, patch, null, { skipFlush: true });
+            taskId = await __tmPersistNewTaskAttrsOnce(taskId, patch, null, { skipFlush: true });
         }
         if (summary && typeof summary === 'object') {
             summary.tasks += 1;

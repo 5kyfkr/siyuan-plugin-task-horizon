@@ -31,6 +31,11 @@ try {
         if (-not $path.StartsWith($sourceRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
             throw "Manifest script escaped source root: $relativePath"
         }
+        $repoRelativePath = ('src/task-horizon/' + ([string]$relativePath).Replace('\', '/'))
+        $trackedPath = @(& git -C $root ls-files -- $repoRelativePath)
+        if ($LASTEXITCODE -ne 0 -or -not ($trackedPath -contains $repoRelativePath)) {
+            throw "Manifest script is not tracked by Git: $repoRelativePath"
+        }
         $null = $builder.AppendLine((Get-Content -Raw -Encoding UTF8 -LiteralPath $path))
     }
     [System.IO.File]::WriteAllText($tempFile, $builder.ToString(), (New-Object System.Text.UTF8Encoding($false)))

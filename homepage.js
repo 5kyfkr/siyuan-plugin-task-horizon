@@ -3422,11 +3422,14 @@
 
     function getTaskCandidateIds(task) {
         const ids = [];
+        const isRecurringInstance = task?.isRecurringInstance === true
+            || String(task?.id || "").startsWith("repeatinst:");
         const push = (value) => {
             const id = String(value || "").trim();
             if (id && !ids.includes(id)) ids.push(id);
         };
         push(task?.id);
+        if (isRecurringInstance) return ids;
         push(task?.blockId);
         push(task?.block_id);
         push(task?.attrHostId);

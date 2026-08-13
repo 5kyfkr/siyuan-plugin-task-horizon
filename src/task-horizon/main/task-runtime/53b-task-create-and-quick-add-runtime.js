@@ -111,6 +111,11 @@
         return __tmResolveDefaultDocId();
     }
 
+    function __tmResolveQuickAddDefaultCompletionTime(referenceDate = new Date()) {
+        if (SettingsStore.data.quickAddDefaultCompletionToday !== true) return '';
+        return __tmNormalizeDateOnly(referenceDate);
+    }
+
     function __tmResolveConfiguredDailyNoteNotebookId() {
         const configured = String(SettingsStore.data.newTaskDailyNoteNotebookId || '').trim();
         if (!configured) return '';
@@ -167,67 +172,30 @@
         return seedId;
     }
 
-    async function __tmPersistNewTaskAttrsWithRetry(taskId, patch, resolveId, options = {}) {
+    async function __tmPersistNewTaskAttrsOnce(taskId, patch, resolveId, options = {}) {
         const payload = (patch && typeof patch === 'object') ? patch : {};
         const opts = (options && typeof options === 'object') ? options : {};
         if (!Object.keys(payload).length) return String(taskId || '').trim();
         let currentId = String(taskId || '').trim();
-        let lastErr = null;
-        if (opts.background === true) {
-            const enqueueAttrs = (targetId) => {
-                const tid = String(targetId || '').trim();
-                if (!tid) return false;
-                try {
-                    const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
-                    if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                    patchTask(tid, payload, {
-                        ...opts,
-                        source: String(opts.source || 'create-task-attrs').trim() || 'create-task-attrs',
-                        background: true,
-                        wait: false,
-                        docId: String(opts.docId || '').trim(),
-                        skipFlush: opts.skipFlush === true,
-                        mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
-                    });
-                    return true;
-                } catch (e) {
-                    lastErr = e;
-                    return false;
-                }
-            };
-            if (enqueueAttrs(currentId)) return currentId;
-            if (resolveId) {
-                try {
-                    const nextId = String(await resolveId() || '').trim();
-                    if (nextId) currentId = nextId;
-                    if (enqueueAttrs(currentId)) return currentId;
-                } catch (e) {
-                    lastErr = e;
-                }
-            }
-            throw lastErr || new Error('保存属性失败');
+        if (!currentId && resolveId) {
+            currentId = String(await resolveId() || '').trim();
         }
-        for (let i = 0; i < 5; i += 1) {
-            try {
-                if (resolveId && i > 0) {
-                    const nextId = String(await resolveId() || '').trim();
-                    if (nextId) currentId = nextId;
-                }
-                if (!currentId) throw new Error('未找到任务块');
-                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
-                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
-                await patchTask(currentId, payload, {
-                    ...opts,
-                    source: String(opts.source || 'create-task-attrs').trim() || 'create-task-attrs',
-                    wait: opts.wait !== false,
-                });
-                return currentId;
-            } catch (e) {
-                lastErr = e;
-                await new Promise((resolve) => setTimeout(resolve, 180 + i * 220));
-            }
+        if (!currentId) throw new Error('未找到任务块');
+        const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
+        if (typeof patchTask !== 'function') throw new Error('任务写入服务未就绪: patchTask');
+        const write = patchTask(currentId, payload, {
+            ...opts,
+            source: String(opts.source || 'create-task-attrs').trim() || 'create-task-attrs',
+            background: opts.background === true,
+            wait: opts.background === true ? false : opts.wait !== false,
+            docId: String(opts.docId || '').trim(),
+            skipFlush: opts.skipFlush === true,
+            mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
+        });
+        if (opts.background !== true) {
+            await write;
         }
-        throw lastErr || new Error('保存属性失败');
+        return currentId;
     }
 
     function __tmUpsertLocalTask(task) {
@@ -255,7 +223,17 @@
     }
 
     function __tmIsOptimisticTempTaskId(taskId) {
-        return String(taskId || '').trim().startsWith('tm_tmp_');
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        if (tid.startsWith('tm_tmp_')) return true;
+        try {
+            const identity = globalThis.__tmTaskIdentity?.get?.(tid);
+            return !!state.pendingInsertedTasks?.[tid]
+                && !!identity
+                && String(identity.status || '').trim() !== 'committed';
+        } catch (e) {
+            return false;
+        }
     }
 
     function __tmGetOptimisticTaskIdRemapStore() {
@@ -325,22 +303,13 @@
         let task = null;
         aliases.forEach((id) => {
             if (task) return;
-            task = state.flatTasks?.[id] || null;
-        });
-        aliases.forEach((id) => {
-            if (task) return;
-            task = state.pendingInsertedTasks?.[id] || null;
+            task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
         });
         aliases.forEach((id) => {
             if (task) return;
             task = (Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
                 .find((item) => String(item?.id || '').trim() === id) || null;
         });
-        if (!task) {
-            try {
-                task = globalThis.__tmRuntimeState?.getTaskById?.(rawId, { includePending: true, preferPending: true }) || null;
-            } catch (e) {}
-        }
         const id = String((resolvedId && resolvedId !== rawId) ? resolvedId : (task?.id || resolvedId || rawId || '')).trim();
         return { id, task, rawId, resolvedId, aliases: Array.from(aliases) };
     }
@@ -411,6 +380,21 @@
             attachOne(state.flatTasks?.[id]);
             attachOne(state.pendingInsertedTasks?.[id]);
         });
+        try {
+            const walkTaskTree = (tasks) => {
+                for (const task of (Array.isArray(tasks) ? tasks : [])) {
+                    if (parentIds.has(String(task?.id || '').trim())) {
+                        attachOne(task);
+                        return true;
+                    }
+                    if (walkTaskTree(task?.children)) return true;
+                }
+                return false;
+            };
+            for (const doc of (Array.isArray(state.taskTree) ? state.taskTree : [])) {
+                if (walkTaskTree(doc?.tasks)) break;
+            }
+        } catch (e) {}
         try {
             (Array.isArray(state.filteredTasks) ? state.filteredTasks : []).forEach((task) => {
                 if (parentIds.has(String(task?.id || '').trim())) attachOne(task);
@@ -536,20 +520,11 @@
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : null;
         if (!tid || !nextPatch) return false;
-        let changed = false;
-        const apply = (task) => {
-            if (!task || typeof task !== 'object') return;
-            Object.assign(task, nextPatch);
-            changed = true;
-        };
-        try { apply(globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })); } catch (e) {}
-        try { apply(state.flatTasks?.[tid]); } catch (e) {}
-        try { apply(state.pendingInsertedTasks?.[tid]); } catch (e) {}
         try {
-            globalThis.__tmTaskStore?.patchPending?.(tid, nextPatch, { source });
-            globalThis.__tmTaskStore?.patchLocal?.(tid, nextPatch, { source });
-        } catch (e) {}
-        return changed;
+            return globalThis.__tmTaskStore?.patchLocal?.(tid, nextPatch, { source }) === true;
+        } catch (e) {
+            return false;
+        }
     }
 
     function __tmRestoreTaskSubtreeIntoFlatMap(task) {
@@ -791,38 +766,76 @@
         return rankMap;
     }
 
+    function __tmCompareTasksBySiblingRankMap(a, b, rankMap = null) {
+        const ranks = rankMap instanceof Map ? rankMap : null;
+        const parentRankA = __tmGetTaskParentScopedRank(ranks, a);
+        const parentRankB = __tmGetTaskParentScopedRank(ranks, b);
+        const localRankA = __tmGetTaskLocalSiblingRank(ranks, a);
+        const localRankB = __tmGetTaskLocalSiblingRank(ranks, b);
+        const parentA = String(a?.parentTaskId || a?.parent_task_id || '').trim();
+        const parentB = String(b?.parentTaskId || b?.parent_task_id || '').trim();
+        const listA = String(a?.parent_id || a?.parentId || '').trim();
+        const listB = String(b?.parent_id || b?.parentId || '').trim();
+        const canCompareByParentRank = !!parentA && parentA === parentB;
+        if (canCompareByParentRank) {
+            if (Number.isFinite(parentRankA) && Number.isFinite(parentRankB) && parentRankA !== parentRankB) return parentRankA - parentRankB;
+            if (Number.isFinite(parentRankA) && !Number.isFinite(parentRankB)) return -1;
+            if (!Number.isFinite(parentRankA) && Number.isFinite(parentRankB)) return 1;
+        }
+        // When parent-level merged order is unavailable, same-list local ranks are
+        // still safe within a single child NodeList.
+        const canCompareByLocalSiblingRank = !!listA && listA === listB;
+        if (canCompareByLocalSiblingRank) {
+            if (Number.isFinite(localRankA) && Number.isFinite(localRankB) && localRankA !== localRankB) return localRankA - localRankB;
+            if (Number.isFinite(localRankA) && !Number.isFinite(localRankB)) return -1;
+            if (!Number.isFinite(localRankA) && Number.isFinite(localRankB)) return 1;
+        }
+        return __tmCompareSiblingTasksByBlockOrder(a, b);
+    }
+
     function __tmSortTaskTreeBySiblingRankMap(tasks, rankMap = null) {
         const ranks = rankMap instanceof Map ? rankMap : null;
         const list = Array.isArray(tasks) ? tasks : [];
-        const compare = (a, b) => {
-            const parentRankA = __tmGetTaskParentScopedRank(ranks, a);
-            const parentRankB = __tmGetTaskParentScopedRank(ranks, b);
-            const localRankA = __tmGetTaskLocalSiblingRank(ranks, a);
-            const localRankB = __tmGetTaskLocalSiblingRank(ranks, b);
-            const parentA = String(a?.parentTaskId || a?.parent_task_id || '').trim();
-            const parentB = String(b?.parentTaskId || b?.parent_task_id || '').trim();
-            const listA = String(a?.parent_id || a?.parentId || '').trim();
-            const listB = String(b?.parent_id || b?.parentId || '').trim();
-            const canCompareByParentRank = !!parentA && parentA === parentB;
-            if (canCompareByParentRank) {
-                if (Number.isFinite(parentRankA) && Number.isFinite(parentRankB) && parentRankA !== parentRankB) return parentRankA - parentRankB;
-                if (Number.isFinite(parentRankA) && !Number.isFinite(parentRankB)) return -1;
-                if (!Number.isFinite(parentRankA) && Number.isFinite(parentRankB)) return 1;
-            }
-            // When parent-level merged order is unavailable, same-list local ranks are
-            // still safe within a single child NodeList.
-            const canCompareByLocalSiblingRank = !!listA && listA === listB;
-            if (canCompareByLocalSiblingRank) {
-                if (Number.isFinite(localRankA) && Number.isFinite(localRankB) && localRankA !== localRankB) return localRankA - localRankB;
-                if (Number.isFinite(localRankA) && !Number.isFinite(localRankB)) return -1;
-                if (!Number.isFinite(localRankA) && Number.isFinite(localRankB)) return 1;
-            }
-            return __tmCompareSiblingTasksByBlockOrder(a, b);
-        };
-        list.sort(compare);
+        list.sort((a, b) => __tmCompareTasksBySiblingRankMap(a, b, ranks));
         list.forEach((task) => {
             if (Array.isArray(task?.children) && task.children.length > 0) {
                 __tmSortTaskTreeBySiblingRankMap(task.children, ranks);
+            }
+        });
+        return list;
+    }
+
+    function __tmSortTaskTreeByExistingOrder(tasks, previousTasks, rankMap = null) {
+        const list = Array.isArray(tasks) ? tasks : [];
+        const previousList = Array.isArray(previousTasks) ? previousTasks : [];
+        const ranks = rankMap instanceof Map ? rankMap : null;
+        const previousById = new Map();
+        const previousRankById = new Map();
+        previousList.forEach((task, index) => {
+            const taskId = String(task?.id || '').trim();
+            if (!taskId || previousRankById.has(taskId)) return;
+            previousRankById.set(taskId, index);
+            previousById.set(taskId, task);
+        });
+        const currentIds = new Set(list.map((task) => String(task?.id || '').trim()).filter(Boolean));
+        const hasSameSiblingIds = list.length === previousList.length
+            && currentIds.size === list.length
+            && previousRankById.size === previousList.length
+            && Array.from(currentIds).every((taskId) => previousRankById.has(taskId));
+        if (hasSameSiblingIds) {
+            list.sort((a, b) => {
+                const rankA = previousRankById.get(String(a?.id || '').trim());
+                const rankB = previousRankById.get(String(b?.id || '').trim());
+                return rankA - rankB;
+            });
+        } else {
+            list.sort((a, b) => __tmCompareTasksBySiblingRankMap(a, b, ranks));
+        }
+        list.forEach((task) => {
+            const taskId = String(task?.id || '').trim();
+            const previousTask = taskId ? previousById.get(taskId) : null;
+            if (Array.isArray(task?.children) && task.children.length > 0) {
+                __tmSortTaskTreeByExistingOrder(task.children, previousTask?.children, ranks);
             }
         });
         return list;
@@ -948,31 +961,6 @@
         return true;
     }
 
-    function __tmCanUseLightweightCreateProjection(task) {
-        const nextTask = (task && typeof task === 'object') ? task : null;
-        if (!nextTask) return false;
-        const docId = String(nextTask.root_id || nextTask.docId || '').trim();
-        if (!docId) return false;
-        if (!__tmIsDocInCurrentTaskScope(docId)) return false;
-        if (String(state.searchKeyword || '').trim()) return false;
-        if (state.docTabsArchiveMode === true) return false;
-        if (__tmIsOtherBlockTabId(state.activeDocId)) return false;
-        const currentRule = typeof __tmGetCurrentRule === 'function' ? __tmGetCurrentRule() : null;
-        if (currentRule && !__tmIsAllRuleLike(currentRule)) return false;
-        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-        const customGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
-            ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
-                currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
-                docs: state.taskTree || []
-            })
-            : null;
-        if (customGroupDocIds instanceof Set && customGroupDocIds.size) {
-            if (!customGroupDocIds.has(docId)) return false;
-        } else if (activeDocId !== 'all' && activeDocId !== docId) return false;
-        if (nextTask.done === true && state.showCompletedTasks !== true) return false;
-        return true;
-    }
-
     function __tmIsDocInCurrentTaskScope(docId) {
         const did = String(docId || '').trim();
         if (!did) return false;
@@ -986,222 +974,6 @@
             .some((doc) => String(doc?.id || '').trim() === did);
     }
 
-    function __tmCanUseLightweightMoveProjection(taskOrId, payload = {}) {
-        const data = (payload && typeof payload === 'object') ? payload : {};
-        const tid = String((taskOrId && typeof taskOrId === 'object') ? taskOrId.id : taskOrId || '').trim();
-        const task = (taskOrId && typeof taskOrId === 'object')
-            ? taskOrId
-            : (
-                globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                || state.flatTasks?.[tid]
-                || state.pendingInsertedTasks?.[tid]
-                || null
-            );
-        const sourceDocId = String(data?.snapshot?.docId || data.sourceDocId || data.docId || task?.root_id || task?.docId || '').trim();
-        const targetDocId = String(data.targetDocId || '').trim();
-        if (!tid || !task || !targetDocId) return false;
-        if (String(state.searchKeyword || '').trim()) return false;
-        if (state.docTabsArchiveMode === true) return false;
-        if (__tmIsOtherBlockTabId(state.activeDocId)) return false;
-        const currentRule = typeof __tmGetCurrentRule === 'function' ? __tmGetCurrentRule() : null;
-        if (currentRule && !__tmIsAllRuleLike(currentRule)) return false;
-        if (task.done === true && state.showCompletedTasks !== true) return false;
-        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-        const customGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
-            ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
-                currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
-                docs: state.taskTree || []
-            })
-            : null;
-        if (customGroupDocIds instanceof Set && customGroupDocIds.size) {
-            return customGroupDocIds.has(sourceDocId) || customGroupDocIds.has(targetDocId);
-        }
-        return activeDocId === 'all' || activeDocId === sourceDocId || activeDocId === targetDocId;
-    }
-
-    function __tmSyncMoveAffectedDocTabs(sourceDocId, targetDocId) {
-        const ids = Array.from(new Set([sourceDocId, targetDocId]
-            .map((id) => String(id || '').trim())
-            .filter(Boolean)));
-        if (!ids.length) return false;
-        const nextIds = new Set((Array.isArray(state.filteredDocIdsForTabs) ? state.filteredDocIdsForTabs : [])
-            .map((id) => String(id || '').trim())
-            .filter(Boolean));
-        const docMap = new Map((Array.isArray(state.taskTree) ? state.taskTree : [])
-            .map((doc) => [String(doc?.id || '').trim(), doc])
-            .filter(([id]) => !!id));
-        const currentRule = typeof __tmGetCurrentRule === 'function' ? __tmGetCurrentRule() : null;
-        const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
-        let changed = false;
-        ids.forEach((docId) => {
-            const doc = docMap.get(docId) || null;
-            let shouldShow = false;
-            try {
-                shouldShow = typeof __tmDocShouldShowInDocTabs === 'function'
-                    ? __tmDocShouldShowInDocTabs(doc, {
-                        rule: currentRule,
-                        archiveMode: state.docTabsArchiveMode === true,
-                        groupId: currentGroupId,
-                    })
-                    : !!(doc && Array.isArray(doc.tasks) && doc.tasks.length > 0);
-            } catch (e) {
-                shouldShow = !!(doc && Array.isArray(doc.tasks) && doc.tasks.length > 0);
-            }
-            if (shouldShow && !nextIds.has(docId)) {
-                nextIds.add(docId);
-                changed = true;
-            } else if (!shouldShow && nextIds.delete(docId)) {
-                changed = true;
-            }
-        });
-        if (!changed) return false;
-        state.filteredDocIdsForTabs = Array.from(nextIds);
-        try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
-        try { state.listDomRenderSignature = ''; } catch (e) {}
-        return true;
-    }
-
-    function __tmApplyMoveOptimisticFilteredProjection(task, payload = {}) {
-        const nextTask = (task && typeof task === 'object') ? task : null;
-        const data = (payload && typeof payload === 'object') ? payload : {};
-        const tid = String(nextTask?.id || data.taskId || '').trim();
-        if (!tid || !nextTask || !Array.isArray(state.filteredTasks)) return false;
-        if (!__tmCanUseLightweightMoveProjection(nextTask, data)) return false;
-        const targetDocId = String(nextTask.root_id || nextTask.docId || data.targetDocId || '').trim();
-        const sourceDocId = String(data?.snapshot?.docId || data.sourceDocId || data.docId || '').trim();
-        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-        const customGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
-            ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
-                currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
-                docs: state.taskTree || []
-            })
-            : null;
-        const shouldVisible = (customGroupDocIds instanceof Set && customGroupDocIds.size)
-            ? customGroupDocIds.has(targetDocId)
-            : (activeDocId === 'all' || activeDocId === targetDocId);
-        const movedTaskIds = [];
-        const collectMovedTaskIds = (item) => {
-            if (!item || typeof item !== 'object') return;
-            const id = String(item?.id || '').trim();
-            if (id) movedTaskIds.push(id);
-            (Array.isArray(item.children) ? item.children : []).forEach(collectMovedTaskIds);
-        };
-        collectMovedTaskIds(nextTask);
-        Array.from(new Set(movedTaskIds)).forEach((id) => {
-            try { __tmRemoveTaskFromFilteredLocalState(id); } catch (e) {}
-        });
-        if (shouldVisible) {
-            const existing = new Set((Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
-                .map((item) => String(item?.id || '').trim())
-                .filter(Boolean));
-            const insertItems = [];
-            const addOne = (item) => {
-                const id = String(item?.id || '').trim();
-                if (!id || existing.has(id)) return;
-                existing.add(id);
-                insertItems.push(item);
-            };
-            const walk = (item) => {
-                if (!item || typeof item !== 'object') return;
-                addOne(item);
-                (Array.isArray(item.children) ? item.children : []).forEach(walk);
-            };
-            walk(nextTask);
-            const findFlatIndex = (taskId) => {
-                const id = String(taskId || '').trim();
-                if (!id) return -1;
-                return state.filteredTasks.findIndex((item) => String(item?.id || '').trim() === id);
-            };
-            const collectSubtreeIdSet = (taskId) => {
-                const root = __tmResolveOptimisticTaskForLocalUse(taskId)?.task || null;
-                const ids = new Set();
-                const walkIds = (item) => {
-                    if (!item || typeof item !== 'object') return;
-                    const id = String(item?.id || '').trim();
-                    if (id) ids.add(id);
-                    (Array.isArray(item.children) ? item.children : []).forEach(walkIds);
-                };
-                walkIds(root);
-                const rawId = String(taskId || '').trim();
-                if (rawId) ids.add(rawId);
-                return ids;
-            };
-            const indexAfterSubtree = (taskId) => {
-                const ids = collectSubtreeIdSet(taskId);
-                let maxIndex = -1;
-                state.filteredTasks.forEach((item, index) => {
-                    if (ids.has(String(item?.id || '').trim())) maxIndex = Math.max(maxIndex, index);
-                });
-                if (maxIndex >= 0) return maxIndex + 1;
-                const idx = findFlatIndex(taskId);
-                return idx >= 0 ? idx + 1 : state.filteredTasks.length;
-            };
-            const resolveInsertIndex = () => {
-                const mode = String(data.mode || '').trim();
-                const targetId = String(data.targetTaskId || '').trim();
-                if (mode === 'before') {
-                    const idx = findFlatIndex(targetId);
-                    return idx >= 0 ? idx : state.filteredTasks.length;
-                }
-                if (mode === 'after') return indexAfterSubtree(targetId);
-                if (mode === 'child-top') {
-                    const idx = findFlatIndex(targetId);
-                    return idx >= 0 ? idx + 1 : state.filteredTasks.length;
-                }
-                if (mode === 'child') {
-                    const lastChildId = String(data.targetLastDirectChildId || '').trim();
-                    if (lastChildId) return indexAfterSubtree(lastChildId);
-                    const idx = findFlatIndex(targetId);
-                    return idx >= 0 ? idx + 1 : state.filteredTasks.length;
-                }
-                return state.filteredTasks.length;
-            };
-            if (insertItems.length) {
-                const insertIndex = Math.max(0, Math.min(state.filteredTasks.length, resolveInsertIndex()));
-                state.filteredTasks.splice(insertIndex, 0, ...insertItems);
-            }
-            const mode = String(data.mode || '').trim();
-            if (mode === 'child' || mode === 'child-top') {
-                const parentId = String(data.targetTaskId || nextTask.parentTaskId || nextTask.parent_task_id || '').trim();
-                if (parentId) {
-                    const parentInfo = __tmResolveOptimisticTaskForLocalUse(parentId);
-                    const parentTask = parentInfo.task
-                        || state.filteredTasks.find((item) => {
-                            const itemId = String(item?.id || '').trim();
-                            return itemId && (itemId === parentId || itemId === parentInfo.id || (Array.isArray(parentInfo.aliases) && parentInfo.aliases.includes(itemId)));
-                        })
-                        || null;
-                    if (parentTask) {
-                        try {
-                            nextTask.parentTaskId = String(parentTask.id || parentInfo.id || parentId).trim();
-                            nextTask.parent_task_id = nextTask.parentTaskId;
-                        } catch (e) {}
-                        try { __tmAttachOptimisticChildToParentCandidates(parentTask, parentId, nextTask, { atTop: mode === 'child-top' }); } catch (e) {}
-                    }
-                }
-            }
-        }
-        try { __tmSyncMoveAffectedDocTabs(sourceDocId, targetDocId); } catch (e) {}
-        try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
-        try { state.listDomRenderSignature = ''; } catch (e) {}
-        return true;
-    }
-
-    function __tmEnsureOptimisticTaskInFilteredTasks(task) {
-        const nextTask = (task && typeof task === 'object') ? task : null;
-        const tid = String(nextTask?.id || '').trim();
-        if (!tid || !Array.isArray(state.filteredTasks)) return false;
-        if (!__tmCanUseLightweightCreateProjection(nextTask)) return false;
-        if (state.filteredTasks.some((item) => String(item?.id || '').trim() === tid)) {
-            try { state.listDomRenderSignature = ''; } catch (e) {}
-            return true;
-        }
-        state.filteredTasks.push(nextTask);
-        try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
-        try { state.listDomRenderSignature = ''; } catch (e) {}
-        return true;
-    }
-
     function __tmShouldIsolateCalendarTaskCreateRefresh() {
         if (String(state.viewMode || '').trim() === 'calendar') return true;
         try {
@@ -1209,39 +981,6 @@
         } catch (e) {
             return false;
         }
-    }
-
-    function __tmBuildTaskCreateRefreshPolicy(policy) {
-        const raw = (policy && typeof policy === 'object') ? policy : null;
-        if (!__tmShouldIsolateCalendarTaskCreateRefresh()) return raw || undefined;
-        return {
-            ...(raw || {}),
-            current: false,
-            snapshot: false,
-        };
-    }
-
-    function __tmRefreshAfterOptimisticTaskCreate(taskIds, reason = 'task-create-optimistic', options = {}) {
-        const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [taskIds])
-            .map((id) => String(id || '').trim())
-            .filter(Boolean)));
-        const mainCalendarActive = String(state.viewMode || '').trim() === 'calendar';
-        if (mainCalendarActive) {
-            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
-            return true;
-        }
-        const opts = (options && typeof options === 'object') ? options : {};
-        try {
-            __tmScheduleViewRefresh({
-                mode: 'current',
-                withFilters: opts.withFilters === true,
-                reason: String(reason || 'task-create-optimistic').trim() || 'task-create-optimistic',
-                taskIds: ids,
-            });
-            return true;
-        } catch (e) {}
-        try { __tmScheduleRender({ withFilters: opts.withFilters === true, reason }); } catch (e) {}
-        return false;
     }
 
     function __tmSyncCommittedCreatedTaskDateInCalendar(taskId) {
@@ -1252,10 +991,7 @@
             && typeof __tmHasMountedCalendarSideDock === 'function'
             && __tmHasMountedCalendarSideDock();
         if (!tid || !isolateCalendarRefresh) return false;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[tid]
-            || state.flatTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
         if (!task) return false;
         try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
         try {
@@ -1278,188 +1014,8 @@
         }
     }
 
-    function __tmEnsureOptimisticSubtaskInFilteredTasks(parentTask, subtask) {
-        const parentInfo = __tmResolveOptimisticTaskForLocalUse(parentTask?.id || subtask?.parentTaskId || subtask?.parent_task_id || '');
-        const parentForProjection = parentInfo.task || parentTask;
-        const parentId = String(parentForProjection?.id || parentInfo.id || '').trim();
-        const tid = String(subtask?.id || '').trim();
-        const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : null;
-        if (!parentId || !tid || !filtered) return false;
-        try {
-            subtask.parentTaskId = parentId;
-            subtask.parent_task_id = parentId;
-        } catch (e) {}
-        try { __tmAttachOptimisticChildToParentCandidates(parentForProjection, parentId, subtask); } catch (e) {}
-        const parentAliases = (() => {
-            try {
-                const aliases = globalThis.__tmRuntimeState?.getTaskIdAliases?.(parentId);
-                if (Array.isArray(aliases) && aliases.length) return aliases.map((id) => String(id || '').trim()).filter(Boolean);
-            } catch (e) {}
-            const rawParentId = String(parentTask?.id || subtask?.parentTaskId || subtask?.parent_task_id || '').trim();
-            const resolvedParentId = __tmResolveOptimisticTaskId(rawParentId) || rawParentId;
-            return Array.from(new Set([parentId, rawParentId, resolvedParentId].map((id) => String(id || '').trim()).filter(Boolean)));
-        })();
-        const parentVisible = filtered.some((task) => parentAliases.includes(String(task?.id || '').trim()))
-            || parentAliases.some((id) => !!state.pendingInsertedTasks?.[id] || !!state.flatTasks?.[id]);
-        if (!parentVisible) return false;
-        if (!filtered.some((task) => parentAliases.includes(String(task?.id || '').trim()))) {
-            if (parentForProjection && typeof parentForProjection === 'object') filtered.push(parentForProjection);
-        }
-        if (!filtered.some((task) => String(task?.id || '').trim() === tid)) {
-            filtered.push(subtask);
-            try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
-            try { state.listDomRenderSignature = ''; } catch (e) {}
-            return true;
-        }
-        try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
-        try { state.listDomRenderSignature = ''; } catch (e) {}
-        return true;
-    }
-
-    function __tmIsChecklistDetailPanelOpenForRefreshDefer() {
-        try {
-            if (state.checklistDetailSheetOpen === true) return true;
-            const tid = String(state.detailTaskId || '').trim();
-            if (!tid) return false;
-            const modal = state.modal;
-            return !!(modal instanceof Element && modal.querySelector?.('#tmChecklistDetailPanel, #tmChecklistSheetPanel, #tmTaskDetailSheetPanel'));
-        } catch (e) {
-            return false;
-        }
-    }
-
-    function __tmFlushDeferredChecklistOptimisticSubtaskRefresh(reason = '') {
-        const pending = state.__tmChecklistOptimisticSubtaskRefreshPending;
-        if (!(pending && typeof pending === 'object')) return false;
-        const parentIds = Array.isArray(pending.parentIds) ? pending.parentIds : [];
-        const subtaskIds = Array.isArray(pending.subtaskIds) ? pending.subtaskIds : [];
-        state.__tmChecklistOptimisticSubtaskRefreshPending = null;
-        const ids = Array.from(new Set([...parentIds, ...subtaskIds].map((id) => String(id || '').trim()).filter(Boolean)));
-        if (!ids.length) return false;
-        return __tmScheduleChecklistOptimisticSubtaskRefresh(parentIds[0] || ids[0], subtaskIds[0] || '', { force: true });
-    }
-
-    function __tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush(reason = '') {
-        if (!(state.__tmChecklistOptimisticSubtaskRefreshPending && typeof state.__tmChecklistOptimisticSubtaskRefreshPending === 'object')) return false;
-        if (state.__tmChecklistOptimisticSubtaskFlushTimer) return true;
-        const run = () => {
-            state.__tmChecklistOptimisticSubtaskFlushTimer = 0;
-            if (!(state.__tmChecklistOptimisticSubtaskRefreshPending && typeof state.__tmChecklistOptimisticSubtaskRefreshPending === 'object')) return;
-            if (__tmIsChecklistDetailPanelOpenForRefreshDefer()) {
-                __tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush(reason || 'detail-still-open');
-                return;
-            }
-            try {
-                const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
-                    ? __tmGetHighPriorityInteractionWaitMs(80)
-                    : 0;
-                if (interactionWait > 0) {
-                    state.__tmChecklistOptimisticSubtaskFlushTimer = setTimeout(run, Math.max(180, Math.min(1200, interactionWait)));
-                    return;
-                }
-            } catch (e) {}
-            try {
-                if (typeof __tmShouldDeferMainViewRefreshForActiveScroll === 'function'
-                    && __tmShouldDeferMainViewRefreshForActiveScroll({ mode: 'current', reason: String(reason || 'checklist-subtask-deferred-flush').trim() || 'checklist-subtask-deferred-flush' })) {
-                    state.__tmChecklistOptimisticSubtaskFlushTimer = setTimeout(run, 520);
-                    return;
-                }
-            } catch (e) {}
-            __tmFlushDeferredChecklistOptimisticSubtaskRefresh(reason || 'deferred-flush');
-        };
-        state.__tmChecklistOptimisticSubtaskFlushTimer = setTimeout(() => {
-            try {
-                if (typeof __tmScheduleIdleTask === 'function') {
-                    __tmScheduleIdleTask(run, 180);
-                } else {
-                    run();
-                }
-            } catch (e) {
-                run();
-            }
-        }, 420);
-        return true;
-    }
-
-    function __tmScheduleChecklistOptimisticSubtaskRefresh(parentTaskId, subtaskId, options = {}) {
-        if (String(state.viewMode || '').trim() !== 'checklist') return false;
-        if (!(state.modal instanceof Element) || !document.body.contains(state.modal)) return false;
-        const opts = (options && typeof options === 'object') ? options : {};
-        const ids = [];
-        [parentTaskId, subtaskId].forEach((rawId) => {
-            const id = String(rawId || '').trim();
-            if (!id) return;
-            ids.push(id);
-            try {
-                const aliases = globalThis.__tmRuntimeState?.getTaskIdAliases?.(id);
-                if (Array.isArray(aliases)) {
-                    aliases.forEach((aliasId) => {
-                        const nextId = String(aliasId || '').trim();
-                        if (nextId) ids.push(nextId);
-                    });
-                }
-            } catch (e) {}
-            try {
-                const resolvedId = String(__tmResolveOptimisticTaskId?.(id) || '').trim();
-                if (resolvedId) ids.push(resolvedId);
-            } catch (e) {}
-        });
-        const refreshIds = Array.from(new Set(ids.filter(Boolean)));
-        if (!refreshIds.length) return false;
-        if (opts.force !== true && __tmIsChecklistDetailPanelOpenForRefreshDefer()) {
-            try {
-                const pending = (state.__tmChecklistOptimisticSubtaskRefreshPending && typeof state.__tmChecklistOptimisticSubtaskRefreshPending === 'object')
-                    ? state.__tmChecklistOptimisticSubtaskRefreshPending
-                    : { parentIds: [], subtaskIds: [], taskIds: [] };
-                const add = (key, values) => {
-                    const current = Array.isArray(pending[key]) ? pending[key] : [];
-                    pending[key] = Array.from(new Set(current.concat(values).map((id) => String(id || '').trim()).filter(Boolean)));
-                };
-                add('parentIds', [parentTaskId]);
-                add('subtaskIds', [subtaskId]);
-                add('taskIds', refreshIds);
-                pending.updatedAt = Date.now();
-                state.__tmChecklistOptimisticSubtaskRefreshPending = pending;
-                state.__tmChecklistProjectionGroupRefreshTaskIds = Array.from(new Set(((state.__tmChecklistProjectionGroupRefreshTaskIds || []).concat(refreshIds)).map((id) => String(id || '').trim()).filter(Boolean)));
-                state.__tmChecklistProjectionGroupRefreshUntil = Date.now() + 30000;
-                state.listDomRenderSignature = '';
-            } catch (e) {}
-            return true;
-        }
-        try {
-            const current = Array.isArray(state.__tmChecklistProjectionGroupRefreshTaskIds)
-                ? state.__tmChecklistProjectionGroupRefreshTaskIds
-                : [];
-            const merged = new Set(current.map((id) => String(id || '').trim()).filter(Boolean));
-            refreshIds.forEach((id) => merged.add(id));
-            state.__tmChecklistProjectionGroupRefreshTaskIds = Array.from(merged);
-            state.__tmChecklistProjectionGroupRefreshUntil = Date.now() + 1500;
-            state.listDomRenderSignature = '';
-        } catch (e) {}
-        if (opts.deferRender === true) return true;
-        if (state.__tmChecklistOptimisticSubtaskRefreshQueued === true) return true;
-        state.__tmChecklistOptimisticSubtaskRefreshQueued = true;
-        const run = () => {
-            state.__tmChecklistOptimisticSubtaskRefreshQueued = false;
-            if (String(state.viewMode || '').trim() !== 'checklist') return;
-            if (!(state.modal instanceof Element) || !document.body.contains(state.modal)) return;
-            try { state.listDomRenderSignature = ''; } catch (e) {}
-            try { __tmRerenderChecklistInPlace(state.modal); } catch (e) {}
-        };
-        try {
-            if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
-            else setTimeout(run, 0);
-        } catch (e) {
-            try { setTimeout(run, 0); } catch (e2) {}
-        }
-        return true;
-    }
-
-    globalThis.__tmFlushDeferredChecklistOptimisticSubtaskRefresh = __tmFlushDeferredChecklistOptimisticSubtaskRefresh;
-    globalThis.__tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush = __tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush;
-
     function __tmGetMoveTargetHeadingMeta(payload = {}) {
-        const targetTask = state.flatTasks?.[String(payload.targetTaskId || '').trim()] || null;
+        const targetTask = globalThis.__tmTaskBoundary?.getTask?.(String(payload.targetTaskId || '').trim()) || null;
         const rank0 = Number(payload.targetHeadingRank);
         return {
             h2Id: String(payload.targetHeadingId || targetTask?.h2Id || '').trim(),
@@ -1602,19 +1158,6 @@
                 insertBeforeId: String(payload.insertBeforeId || '').trim(),
                 insertAfterId: String(payload.insertAfterId || '').trim(),
             });
-            if (payload.skipOptimisticFilterWork !== true) {
-                try { recalcStats(); } catch (e) {}
-                try { applyFilters(); } catch (e) {}
-            } else {
-                let projected = false;
-                try { projected = __tmEnsureOptimisticTaskInFilteredTasks(nextTask) === true; } catch (e) {}
-                if (!projected && payload.skipOptimisticFilterFallback !== true) {
-                    __tmRefreshAfterOptimisticTaskCreate(tempId, 'create-task-optimistic-filter-fallback', { withFilters: true });
-                }
-            }
-            if (payload.skipOptimisticMainRefresh !== true) {
-                __tmRefreshAfterOptimisticTaskCreate(tempId, 'create-task-optimistic');
-            }
         }
         return nextTask;
     }
@@ -1668,7 +1211,7 @@
             try { recalcStats(); } catch (e) {}
         }
         if (opts.filter !== false) {
-            try { applyFilters(); } catch (e) {}
+            try { __tmRecomputeTaskProjection({ reason: 'local-task-remove' }); } catch (e) {}
         }
         return removed;
     }
@@ -1678,15 +1221,9 @@
         const rid = String(realId || '').trim();
         if (!tmp || !rid || tmp === rid) return false;
         const opts = (options && typeof options === 'object') ? options : {};
-        let pendingDoneRequest = null;
         try { __tmRememberOptimisticTaskIdRemap(tmp, rid); } catch (e) {}
         try { __tmTransferVisibleDateFallbackTaskId(tmp, rid); } catch (e) {}
         const wasDeletedBeforeCommit = __tmIsPendingDeletedTaskId(tmp) || __tmIsPendingDeletedTaskId(rid);
-        try {
-            if (state.pendingInsertedTasks?.[tmp]?.__tmPendingDoneRequest) {
-                pendingDoneRequest = { ...state.pendingInsertedTasks[tmp].__tmPendingDoneRequest };
-            }
-        } catch (e) {}
         let remappedLocal = false;
         try {
             remappedLocal = !!globalThis.__tmTaskStore?.commitTaskId?.(tmp, rid, {
@@ -1698,7 +1235,6 @@
         if (!remappedLocal) {
             try { __tmRemapTaskId(tmp, rid); } catch (e) { return false; }
         }
-        try { globalThis.__tmTaskStore?.deletePendingProps?.(rid, '__tmPendingDoneRequest'); } catch (e) {}
         if (wasDeletedBeforeCommit) {
             try { __tmRememberPendingDeletedTaskIds([tmp, rid], { source: 'create-commit-after-delete' }); } catch (e) {}
             try { __tmRemoveTaskFromLocalState(tmp, { recalc: false, filter: false }); } catch (e) {}
@@ -1718,7 +1254,7 @@
             });
         } catch (e) {}
         try {
-            const task = state.flatTasks?.[rid] || state.pendingInsertedTasks?.[rid] || null;
+            const task = globalThis.__tmTaskBoundary?.getTask?.(rid) || null;
             const identity = globalThis.__tmTaskIdentity?.get?.(rid)
                 || globalThis.__tmTaskIdentity?.get?.(tmp)
                 || null;
@@ -1732,43 +1268,14 @@
                 parentTaskId: String(opts.parentTaskId || task?.parentTaskId || task?.parent_task_id || '').trim(),
                 docId: String(task?.docId || task?.root_id || '').trim(),
                 source: String(opts.source || 'commit-optimistic-task-id').trim() || 'commit-optimistic-task-id',
-                data: {
-                    ...((opts.data && typeof opts.data === 'object') ? opts.data : {}),
-                    refreshPolicy: {
-                        current: opts.refreshCurrentView !== false,
-                        detail: opts.refreshCurrentView !== false,
-                        checklistGroup: !!String(opts.parentTaskId || task?.parentTaskId || task?.parent_task_id || '').trim(),
-                        snapshot: opts.scheduleSnapshotRefresh !== false && opts.skipSnapshotViewStateFilterRefresh !== true,
-                        ...((opts.data?.refreshPolicy && typeof opts.data.refreshPolicy === 'object') ? opts.data.refreshPolicy : {}),
-                        ...(__tmShouldIsolateCalendarTaskCreateRefresh() ? { current: false, snapshot: false } : {}),
-                    },
-                    refreshCurrentView: opts.refreshCurrentView !== false,
-                    scheduleSnapshotRefresh: opts.scheduleSnapshotRefresh !== false,
-                    skipSnapshotViewStateFilterRefresh: opts.skipSnapshotViewStateFilterRefresh === true,
-                },
             }, {
                 applyLocal: false,
             });
         } catch (e) {}
         try {
-            const task = state.flatTasks?.[rid] || state.pendingInsertedTasks?.[rid] || null;
+            const task = globalThis.__tmTaskBoundary?.getTask?.(rid) || null;
             __tmRefreshCommittedOptimisticTaskScore(rid, { parentTaskId: task?.parentTaskId || '' }).catch(() => null);
         } catch (e) {}
-        if (pendingDoneRequest && pendingDoneRequest.done === true) {
-            try {
-                const task = state.flatTasks?.[rid] || state.pendingInsertedTasks?.[rid] || null;
-                if (task && typeof task === 'object') task.done = false;
-                setTimeout(async () => {
-                    try {
-                        await __tmRefreshCommittedOptimisticTaskScore(rid, { parentTaskId: task?.parentTaskId || '' });
-                        window.tmSetDone?.(rid, true, null, {
-                            ...pendingDoneRequest.options,
-                            source: String(pendingDoneRequest.options?.source || 'pending-create-set-done').trim() || 'pending-create-set-done',
-                        });
-                    } catch (e) {}
-                }, 0);
-            } catch (e) {}
-        }
         return true;
     }
 
@@ -1779,7 +1286,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         let latest = null;
         try { latest = await __tmBuildTaskLikeFromBlockId(tid); } catch (e) { latest = null; }
-        const local = state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
+        const local = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         const task = (latest && typeof latest === 'object')
             ? latest
             : ((local && typeof local === 'object') ? local : null);
@@ -1843,7 +1350,7 @@
             } catch (e) {}
         }
         try {
-            const parent = parentTaskId ? (state.flatTasks?.[parentTaskId] || null) : null;
+            const parent = parentTaskId ? (globalThis.__tmTaskBoundary?.getTask?.(parentTaskId) || null) : null;
             if (parent && Array.isArray(parent.children)) {
                 const idx = parent.children.findIndex((child) => String(child?.id || '').trim() === tid);
                 if (idx >= 0) parent.children[idx] = { ...parent.children[idx], ...task };
@@ -1944,18 +1451,12 @@
         };
         (Array.isArray(state.taskTree) ? state.taskTree : []).some((doc) => walk(doc?.tasks, doc?.id, ''));
         if (!foundTask) {
-            foundTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                || state.flatTasks?.[tid]
-                || state.pendingInsertedTasks?.[tid]
-                || null;
+            foundTask = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
             if (foundTask && typeof foundTask === 'object') {
                 parentTaskId = String(foundTask.parentTaskId || foundTask.parent_task_id || '').trim();
                 docId = String(foundTask.docId || foundTask.root_id || '').trim();
                 if (parentTaskId) {
-                    const parent = globalThis.__tmRuntimeState?.getTaskById?.(parentTaskId, { includePending: true, preferPending: true })
-                        || state.flatTasks?.[parentTaskId]
-                        || state.pendingInsertedTasks?.[parentTaskId]
-                        || null;
+                    const parent = globalThis.__tmTaskBoundary?.getTask?.(parentTaskId) || null;
                     if (Array.isArray(parent?.children)) {
                         index = parent.children.findIndex((item) => String(item?.id || '').trim() === tid);
                     }
@@ -1963,14 +1464,8 @@
             }
         }
         if (!foundTask) return null;
-        let cloned = null;
-        try {
-            cloned = JSON.parse(JSON.stringify(foundTask));
-        } catch (e) {
-            cloned = { ...foundTask };
-        }
         return {
-            task: cloned,
+            task: foundTask,
             taskId: tid,
             parentTaskId,
             docId,
@@ -2060,6 +1555,7 @@
     function __tmRememberPendingDeletedTaskIds(taskIds, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const expiresAt = Math.max(Date.now() + 45000, Number(opts.expiresAt) || 0);
+        const rootTaskId = String(opts.rootTaskId || '').trim();
         const store = __tmEnsurePendingDeletedTaskStore();
         const ids = Array.isArray(taskIds) ? taskIds : [taskIds];
         ids.forEach((id) => {
@@ -2067,6 +1563,7 @@
             if (!tid) return;
             store[tid] = {
                 taskId: tid,
+                rootTaskId: rootTaskId || tid,
                 expiresAt,
                 source: String(opts.source || 'delete-optimistic').trim() || 'delete-optimistic',
             };
@@ -2082,11 +1579,14 @@
 
     function __tmForgetPendingDeletedTaskIds(taskIds) {
         const store = __tmEnsurePendingDeletedTaskStore();
-        const ids = Array.isArray(taskIds) ? taskIds : [taskIds];
-        ids.forEach((id) => {
-            const tid = String(id || '').trim();
-            if (!tid) return;
-            try { delete store[tid]; } catch (e) {}
+        const ids = new Set((Array.isArray(taskIds) ? taskIds : [taskIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        Object.keys(store).forEach((key) => {
+            const taskId = String(key || '').trim();
+            const rootTaskId = String(store[key]?.rootTaskId || '').trim();
+            if (!ids.has(taskId) && !ids.has(rootTaskId)) return;
+            try { delete store[key]; } catch (e) {}
         });
         return true;
     }
@@ -2116,6 +1616,8 @@
             : tid.replace(/["\\]/g, '\\$&');
         const selectors = [
             `.tm-checklist-item[data-id="${escId}"]`,
+            `.tm-task-detail-subtask-row[data-tm-detail-subtask-menu="${escId}"]`,
+            `.tm-task-detail-subtask [data-tm-detail-subtask-content="${escId}"]`,
             `#tmTimelineLeftTable tbody tr[data-id="${escId}"]`,
             `#tmTaskTable tbody tr[data-id="${escId}"]`,
             `.tm-kanban-card[data-id="${escId}"]`,
@@ -2131,7 +1633,7 @@
         const removeTargets = new Set();
         nodes.forEach((node) => {
             const target = node.closest(
-                '.tm-checklist-item,.tm-kanban-card,.tm-whiteboard-stream-task-node,.tm-whiteboard-node,.tm-whiteboard-pool-item,tr,[data-id],[data-task-id]'
+                '.tm-task-detail-subtask,.tm-checklist-item,.tm-kanban-card,.tm-whiteboard-stream-task-node,.tm-whiteboard-node,.tm-whiteboard-pool-item,tr,[data-id],[data-task-id]'
             );
             if (target instanceof HTMLElement) removeTargets.add(target);
         });
@@ -2153,7 +1655,10 @@
                 ...(Array.isArray(fallback.scheduleCleanupTaskIds) ? fallback.scheduleCleanupTaskIds : []),
             ]);
             deletedIds = ids;
-            __tmRememberPendingDeletedTaskIds(ids, { source: 'task-delete-optimistic' });
+            __tmRememberPendingDeletedTaskIds(ids, {
+                source: 'task-delete-optimistic',
+                rootTaskId: tid,
+            });
             const calendarApi = globalThis.__tmCalendar;
             if (calendarApi && typeof calendarApi.removeTaskDateEventsByTaskIds === 'function') {
                 calendarApi.removeTaskDateEventsByTaskIds(ids, {
@@ -2163,7 +1668,12 @@
                 });
             }
         } catch (e) {}
-        if (!deletedIds.length) __tmRememberPendingDeletedTaskIds(tid, { source: 'task-delete-optimistic' });
+        if (!deletedIds.length) {
+            __tmRememberPendingDeletedTaskIds(tid, {
+                source: 'task-delete-optimistic',
+                rootTaskId: tid,
+            });
+        }
         if (SettingsStore.data.deleteTaskRemovesWhiteboardCards !== false) {
             try {
                 __tmDeleteWhiteboardSnapshotTasks(deletedIds.length ? deletedIds : [tid]);
@@ -2200,7 +1710,7 @@
             try { __tmForgetPendingDeletedTaskIds(taskId); } catch (e2) {}
         }
         if (snap.parentTaskId) {
-            const parent = state.flatTasks?.[String(snap.parentTaskId || '').trim()] || null;
+            const parent = globalThis.__tmTaskBoundary?.getTask?.(String(snap.parentTaskId || '').trim()) || null;
             if (parent) {
                 if (!Array.isArray(parent.children)) parent.children = [];
                 const idx = Math.max(0, Math.min(parent.children.length, Number(snap.index) || 0));
@@ -2225,7 +1735,7 @@
         }
         if (opts.mutationDriven !== true) {
             try { recalcStats(); } catch (e) {}
-            try { applyFilters(); } catch (e) {}
+            try { __tmRecomputeTaskProjection({ reason: 'local-task-upsert' }); } catch (e) {}
             try { __tmScheduleRender({ withFilters: true }); } catch (e) {}
         }
         try {
@@ -2322,10 +1832,7 @@
     function __tmApplyDoneOptimisticLocal(taskId, done, statusPatch = null, source = '', options = {}) {
         const tid = String(taskId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[tid]
-            || state.flatTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
         if (!task) return false;
         const nextStatusPatch = (statusPatch && typeof statusPatch === 'object' && !Array.isArray(statusPatch)) ? statusPatch : null;
         const retentionPatch = typeof __tmProtectMarkdownMutationTaskFields === 'function'
@@ -2339,7 +1846,18 @@
                 source: String(source || 'done-local').trim() || 'done-local',
             });
         }
-        const doneStatePatch = __tmApplyDoneStateToLocalMirrors(tid, task, done);
+        let targetMarker = null;
+        const targetStatusId = String(nextStatusPatch?.customStatus || '').trim();
+        if (targetStatusId) {
+            const targetStatus = __tmFindStatusOptionById(targetStatusId);
+            if (targetStatus) {
+                targetMarker = __tmNormalizeCompatTaskStatusMarker(
+                    targetStatus.marker,
+                    __tmGuessStatusOptionDefaultMarker(targetStatus),
+                );
+            }
+        }
+        const doneStatePatch = __tmApplyDoneStateToLocalMirrors(tid, task, done, targetMarker);
         try {
             if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
             state.doneOverrides[tid] = !!done;
@@ -2372,10 +1890,7 @@
     function __tmRollbackDoneOptimisticLocal(taskId, inversePatch, source = '', options = {}) {
         const tid = String(taskId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[tid]
-            || state.flatTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
         if (!task) return false;
         const prevPatch = (inversePatch && typeof inversePatch === 'object' && !Array.isArray(inversePatch)) ? inversePatch : {};
         const prevDone = !!(Object.prototype.hasOwnProperty.call(prevPatch, 'done') ? prevPatch.done : task.done);
@@ -2577,15 +2092,21 @@
         return true;
     }
 
+    function __tmCloneTaskTreeForMove(task) {
+        if (!task || typeof task !== 'object') return task;
+        const clone = { ...task };
+        if (Array.isArray(task.children)) {
+            clone.children = task.children.map((child) => __tmCloneTaskTreeForMove(child));
+        }
+        return clone;
+    }
+
     function __tmApplyMoveOptimisticLocal(payload = {}) {
         const snap = payload?.snapshot;
         const task = snap?.task;
         const taskId = String(task?.id || payload?.taskId || '').trim();
         const targetDocId = String(payload?.targetDocId || '').trim();
         if (!task || !taskId || !targetDocId) return false;
-        const renderWindowSnapshot = payload.preserveRenderWindow === true
-            ? __tmCaptureViewRenderWindow(state.viewMode)
-            : null;
         const taskAliases = new Set([taskId, task?.id, payload?.taskId, __tmResolveOptimisticTaskId(taskId)]
             .map((id) => String(id || '').trim())
             .filter(Boolean));
@@ -2601,7 +2122,7 @@
             preservePending = Array.from(taskAliases).some((id) => !!state.pendingInsertedTasks?.[id]);
         } catch (e) {}
         __tmRemoveTaskFromLocalState(taskId, { recalc: false, filter: false });
-        const nextTask = JSON.parse(JSON.stringify(task));
+        const nextTask = __tmCloneTaskTreeForMove(task);
         __tmApplyMovePayloadToTaskRecursive(nextTask, payload, true);
         const rawMode = String(payload?.mode || '').trim();
         const mode = String(globalThis.__tmTaskStore?.normalizeMoveMode?.(rawMode) || (rawMode === 'doc' ? 'docTop' : rawMode)).trim();
@@ -2642,45 +2163,6 @@
                 try { __tmRebuildLocalDocTree(docId); } catch (e) {}
             });
         } catch (e) {}
-        let projectedFilterState = false;
-        const requiresFilteredRebuild = payload.customOrderPlacement === true;
-        if (payload.skipOptimisticFilterWork !== true || requiresFilteredRebuild) {
-            try { recalcStats(); } catch (e) {}
-            try { applyFilters(); } catch (e) {}
-        } else {
-            try { projectedFilterState = __tmApplyMoveOptimisticFilteredProjection(nextTask, payload) === true; } catch (e) {}
-        }
-        if (renderWindowSnapshot) {
-            try { __tmRestoreViewRenderWindow(renderWindowSnapshot, state.filteredTasks.length); } catch (e) {}
-        }
-        if (payload.mutationDriven !== true) {
-            try {
-                __tmScheduleTaskSnapshotAfterLocalStructurePatch?.({
-                    docIds: state.__tmLoadedDocIdsForTasks,
-                    groupId: SettingsStore?.data?.currentGroupId || 'all',
-                    activeDocId: state?.activeDocId || 'all',
-                    queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
-                    source: 'move-task-optimistic',
-                    delayMs: 360,
-                    idleDelayMs: 120,
-                    protectMs: 30000,
-                });
-            } catch (e) {}
-        }
-        if (mode === 'child' || mode === 'child-top') {
-            const checklistRefreshOptions = {
-                force: true,
-                deferRender: payload.preserveRenderWindow === true,
-            };
-            try { __tmScheduleChecklistOptimisticSubtaskRefresh(payload?.targetTaskId, taskId, checklistRefreshOptions); } catch (e) {}
-            try {
-                const previousParentId = String(snap?.parentTaskId || '').trim();
-                if (previousParentId) __tmScheduleChecklistOptimisticSubtaskRefresh(previousParentId, taskId, checklistRefreshOptions);
-            } catch (e) {}
-        }
-        if (payload.deferOptimisticRender !== true) {
-            try { __tmScheduleRender({ withFilters: payload.skipOptimisticFilterWork !== true && !projectedFilterState }); } catch (e) {}
-        }
         return true;
     }
 
@@ -2708,7 +2190,7 @@
         return rolledBack;
     }
 
-    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, customFieldValues, atTop, appendToBottom, insertParentId, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
+    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, customFieldValues, atTop, appendToBottom, insertParentId, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, requestedTaskId = '', requestedContainerId = '', initialAttrs = null, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
         const parentDocId = String(docId || '').trim();
         let targetParentId = String(insertParentId || parentDocId).trim() || parentDocId;
         const text = String(content || '').trim();
@@ -2721,6 +2203,8 @@
             ? __tmNormalizeTaskStatusMarker(requestedStatusOption.marker, __tmGuessStatusOptionDefaultMarker(requestedStatusOption))
             : ' ';
         const md = `- [${initialMarker}] ${text}`;
+        const stableTaskId = String(requestedTaskId || '').trim();
+        const stableContainerId = String(requestedContainerId || '').trim();
 
         let nextID = String(insertBeforeId || '').trim();
         let previousID = String(insertAfterId || '').trim();
@@ -2748,24 +2232,37 @@
         if (!nextID && atTop) {
             try { nextID = String(await API.getFirstDirectChildIdOfDoc(parentDocId) || '').trim(); } catch (e) { nextID = ''; }
         }
-        try { __tmMarkLocalCreateTxSuppressionIds([parentDocId, targetParentId, headingAnchorId, nextID, previousID].filter(Boolean), [parentDocId], 2600); } catch (e) {}
         const placement = nextID || (previousID ? { previousID, parentID: targetParentId } : undefined);
-        const insertedId = columnHeadingId
-            ? await __tmInsertTaskBelowColumnHeading(targetParentId, columnHeadingId, md)
-            : (appendAtBottom && !atTop && !nextID && !previousID
-                ? await __tmAppendBlockWithRetry(targetParentId, md)
-                : await __tmInsertBlockWithRetry(targetParentId, md, placement));
+        const alreadyInserted = !columnHeadingId && stableTaskId && await __tmIsTaskListItemBlockId(stableTaskId);
+        const useStableDom = !!stableTaskId;
+        const blockData = useStableDom
+            ? API.generateTaskDOM(stableTaskId, text, __tmIsTaskMarkerDone(initialMarker), { attrs: initialAttrs })
+            : md;
+        const blockOptions = useStableDom ? { dataType: 'dom', requestedID: stableTaskId } : {};
+        const insertedId = alreadyInserted
+            ? stableTaskId
+            : (columnHeadingId
+                ? await __tmInsertTaskBelowColumnHeading(targetParentId, columnHeadingId, md, {
+                    requestedTaskId: stableTaskId,
+                    requestedContainerId: stableContainerId,
+                    content: text,
+                    done: __tmIsTaskMarkerDone(initialMarker),
+                    attrs: initialAttrs,
+                })
+                : (appendAtBottom && !atTop && !nextID && !previousID
+                    ? await __tmAppendBlockOnce(targetParentId, blockData, blockOptions)
+                    : await __tmInsertBlockOnce(targetParentId, blockData, placement, blockOptions)));
         try {
             if (typeof onBlockInserted === 'function') {
                 await Promise.resolve(onBlockInserted({ insertedId, docId: parentDocId, insertParentId: targetParentId, insertBeforeId: nextID || '', insertAfterId: previousID || '' }));
             }
         } catch (e) {}
-        // 某些端会返回外层列表块 ID；outbox 场景会把真实任务 ID 解析交给后台短探测，避免卡住 UI。
-        let taskId = insertedId;
-        if (deferResolveInsertedTaskId !== true) {
+        // Stable DOM creation already knows the task block ID. Legacy Markdown
+        // callers resolve an outer list ID before continuing.
+        let taskId = useStableDom ? stableTaskId : insertedId;
+        if (!useStableDom && deferResolveInsertedTaskId !== true) {
             taskId = await __tmResolveInsertedTaskBlockId(insertedId);
         }
-        try { __tmMarkLocalCreateTxSuppressionIds([parentDocId, insertedId, taskId, nextID, previousID].filter(Boolean), [parentDocId], 2600); } catch (e) {}
         try {
             if (deferResolveInsertedTaskId !== true && typeof onInserted === 'function') {
                 await Promise.resolve(onInserted({ taskId, insertedId, docId: parentDocId }));
@@ -2807,7 +2304,7 @@
             h2Created: '',
         };
         if (Object.keys(patch).length > 0 && deferCreateAttrs !== true) {
-            taskId = await __tmPersistNewTaskAttrsWithRetry(taskId, patch, async () => await __tmResolveInsertedTaskBlockId(insertedId), {
+            taskId = await __tmPersistNewTaskAttrsOnce(taskId, patch, async () => await __tmResolveInsertedTaskBlockId(insertedId), {
                 background: true,
                 docId: parentDocId,
                 source: 'create-task-attrs',
@@ -2869,7 +2366,7 @@
         if (localInsert !== false) {
             __tmUpsertLocalTask(newTask);
             try { recalcStats(); } catch (e) {}
-            try { applyFilters(); } catch (e) {}
+            try { __tmRecomputeTaskProjection({ reason: 'quick-add-local-insert' }); } catch (e) {}
             if (state.modal) render();
         }
         if (scheduleSnapshotRefresh !== false) {
@@ -2947,7 +2444,8 @@
         try {
             const useSectionEnd = !!SettingsStore.data.headingGroupCreateAtSectionEnd;
             const createdTaskIds = [];
-            const createTaskInDoc = globalThis.__tmRequireTaskOutbox?.('createTaskInDoc');
+            let createSettled = [];
+            const createTaskInDoc = globalThis.__tmRequireTaskMutation?.('createTaskInDoc');
             if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
             if (hid && hid !== '__none__') {
                 const placement = await __tmResolveHeadingGroupInsertPlacement(did, hid, SettingsStore.data.taskHeadingLevel || 'h2');
@@ -2957,7 +2455,7 @@
                     const insertAfterId = useSectionEnd ? '' : String(placement.insertAfterID || hid || '').trim();
                     const appendToBottom = useSectionEnd && placement.appendToBottom === true;
                     const orderedLines = insertAfterId ? taskLines.slice().reverse() : taskLines;
-                    await Promise.all(orderedLines.map((line) => createTaskInDoc({
+                    createSettled = await Promise.allSettled(orderedLines.map((line) => createTaskInDoc({
                             docId: did,
                             content: line,
                             insertParentId: String(placement.parentID || did).trim(),
@@ -2967,110 +2465,83 @@
                             targetHeadingId: headingPatch?.h2Id || '',
                             targetHeading: headingPatch?.h2 || '',
                             targetHeadingRank: Number(headingPatch?.h2Rank),
-                            pinned: false,
-                            wait: false,
-                            skipOptimisticMainRefresh: true,
-                            skipOptimisticFilterWork: true,
-                            onError: (err) => {
-                                hint(`❌ 新建任务失败: ${err?.message || err || '未知错误'}`, 'error');
-                            },
+                            wait: true,
+                            showErrorHint: false,
                         }).then((taskId) => {
-                        createdTaskIds.push(taskId);
-                        if (headingPatch) __tmApplyHeadingPatchToTaskLocal(taskId, headingPatch, 'heading-create-task-local');
+                            createdTaskIds.push(taskId);
+                            try {
+                                if (headingPatch) __tmApplyHeadingPatchToTaskLocal(taskId, headingPatch, 'heading-create-task-local');
+                            } catch (e) {}
+                            return taskId;
                         })));
                 }
             }
-            if (createdTaskIds.length === 0) {
-                await Promise.all(taskLines.slice().reverse().map((line) => createTaskInDoc({
+            if (createSettled.length === 0) {
+                createSettled = await Promise.allSettled(taskLines.slice().reverse().map((line) => createTaskInDoc({
                         docId: did,
                         content: line,
                         atTop: true,
-                        pinned: false,
-                        wait: false,
-                        skipOptimisticMainRefresh: true,
-                        skipOptimisticFilterWork: true,
-                        onError: (err) => {
-                            hint(`❌ 新建任务失败: ${err?.message || err || '未知错误'}`, 'error');
-                        },
+                        wait: true,
+                        showErrorHint: false,
                     }).then((taskId) => {
-                    createdTaskIds.push(taskId);
-                    if (!hid || hid === '__none__') {
-                        const task = state.pendingInsertedTasks?.[String(taskId || '').trim()];
-                        if (task) {
-                            task.h2 = '';
-                            task.h2Id = '';
-                            globalThis.__tmTaskStore?.patchPending?.(taskId, { h2: '', h2Id: '' }, { source: 'heading-create-clear-pending-heading' });
-                        }
-                    }
+                        createdTaskIds.push(taskId);
+                        try {
+                            if (!hid || hid === '__none__') {
+                                const task = state.pendingInsertedTasks?.[String(taskId || '').trim()];
+                                if (task) {
+                                    task.h2 = '';
+                                    task.h2Id = '';
+                                    globalThis.__tmTaskStore?.patchPending?.(taskId, { h2: '', h2Id: '' }, { source: 'heading-create-clear-pending-heading' });
+                                }
+                            }
+                        } catch (e) {}
+                        return taskId;
                     })));
             }
             createdTaskIds.forEach((taskId) => {
-                const pendingTask = state.pendingInsertedTasks?.[String(taskId || '').trim()];
-                if (pendingTask) __tmUpsertLocalTask(pendingTask);
+                try {
+                    const pendingTask = state.pendingInsertedTasks?.[String(taskId || '').trim()];
+                    if (pendingTask) __tmUpsertLocalTask(pendingTask);
+                } catch (e) {}
             });
-            __tmRefreshAfterOptimisticTaskCreate(createdTaskIds, 'heading-create-task-optimistic');
+            const createFailures = createSettled.filter((item) => item.status === 'rejected');
+            if (createFailures.length > 0) {
+                const firstError = createFailures[0]?.reason;
+                if (createdTaskIds.length === 0) {
+                    throw firstError instanceof Error ? firstError : new Error(String(firstError || '任务创建失败'));
+                }
+                const message = String(firstError?.message || firstError || '').trim();
+                hint(`⚠ 已创建 ${createdTaskIds.length} 个任务，${createFailures.length} 个失败${message ? `: ${message}` : ''}`, 'warning');
+                return;
+            }
             hint(taskLines.length > 1 ? `✅ 已创建 ${taskLines.length} 个任务` : '✅ 任务已创建', 'success');
         } catch (e) {
             hint(`❌ 新建任务失败: ${e.message}`, 'error');
         }
     };
 
-    function __tmShouldRetryBlockMutationError(error) {
-        const msg = String(error?.message || error || '').toLowerCase();
-        return msg.includes('tree not found')
-            || msg.includes('invalid id argument')
-            || msg.includes('invalid id')
-            || msg.includes('id argument')
-            || msg.includes('not found')
-            || msg.includes('找不到');
-    }
-
-    async function __tmAppendBlockWithRetry(parentId, md, options = {}) {
+    async function __tmAppendBlockOnce(parentId, data, options = {}) {
         const targetParentId = String(parentId || '').trim();
-        const markdown = String(md || '').trim();
+        const blockData = String(data || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
         if (!targetParentId) throw new Error('未找到目标块');
-        if (!markdown) throw new Error('内容为空');
-        let lastErr = null;
-        const retryDelays = Array.isArray(opts.retryDelays) && opts.retryDelays.length
-            ? opts.retryDelays
-            : [120, 300, 520, 860, 1280];
-        for (let i = 0; i <= retryDelays.length; i += 1) {
-            try {
-                return await __tmBackendAdapter.appendBlock(targetParentId, markdown);
-            } catch (e) {
-                lastErr = e;
-                const retryable = __tmShouldRetryBlockMutationError(e);
-                if (!retryable || i >= retryDelays.length) break;
-                try { await __tmBackendAdapter.flushTransaction(); } catch (e2) {}
-                await new Promise((resolve) => setTimeout(resolve, retryDelays[i]));
-            }
-        }
-        throw lastErr || new Error('追加块失败');
+        if (!blockData) throw new Error('内容为空');
+        return await __tmBackendAdapter.appendBlock(targetParentId, blockData, {
+            dataType: opts.dataType,
+            requestedID: opts.requestedID,
+        });
     }
 
-    async function __tmInsertBlockWithRetry(parentId, md, placement, options = {}) {
+    async function __tmInsertBlockOnce(parentId, data, placement, options = {}) {
         const targetParentId = String(parentId || '').trim();
-        const markdown = String(md || '').trim();
+        const blockData = String(data || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
         if (!targetParentId) throw new Error('未找到目标块');
-        if (!markdown) throw new Error('内容为空');
-        let lastErr = null;
-        const retryDelays = Array.isArray(opts.retryDelays) && opts.retryDelays.length
-            ? opts.retryDelays
-            : [120, 300, 520, 860, 1280];
-        for (let i = 0; i <= retryDelays.length; i += 1) {
-            try {
-                return await __tmBackendAdapter.insertBlock(targetParentId, markdown, placement);
-            } catch (e) {
-                lastErr = e;
-                const retryable = __tmShouldRetryBlockMutationError(e);
-                if (!retryable || i >= retryDelays.length) break;
-                try { await __tmBackendAdapter.flushTransaction(); } catch (e2) {}
-                await new Promise((resolve) => setTimeout(resolve, retryDelays[i]));
-            }
-        }
-        throw lastErr || new Error('插入块失败');
+        if (!blockData) throw new Error('内容为空');
+        return await __tmBackendAdapter.insertBlock(targetParentId, blockData, placement, {
+            dataType: opts.dataType,
+            requestedID: opts.requestedID,
+        });
     }
 
     async function __tmResolveLiveHeadingInsertStructure(headingId, fallbackParentId) {
@@ -3096,20 +2567,45 @@
         return { parentID, layout };
     }
 
-    async function __tmInsertTaskBelowColumnHeading(columnParentId, headingId, md) {
+    async function __tmInsertTaskBelowColumnHeading(columnParentId, headingId, md, options = {}) {
         const parentID = String(columnParentId || '').trim();
         const hid = String(headingId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const requestedTaskId = String(opts.requestedTaskId || '').trim();
+        const requestedContainerId = String(opts.requestedContainerId || '').trim();
         let wrapperID = '';
         if (!parentID || !hid) throw new Error('未找到超级块目标标题');
         try {
-            const insertedID = String(await __tmInsertBlockWithRetry(parentID, `{{{row\n${md}\n}}}`, hid) || '').trim();
-            if (!insertedID) throw new Error('创建超级块列容器失败');
-            wrapperID = insertedID;
+            if (requestedContainerId) {
+                try {
+                    const rows = await API.getBlocksByIds([requestedContainerId]);
+                    const row = (Array.isArray(rows) ? rows : []).find((item) => String(item?.id || '').trim() === requestedContainerId);
+                    if (String(row?.type || '').trim() === 's') wrapperID = requestedContainerId;
+                } catch (e) {}
+            }
+            if (!wrapperID) {
+                const wrapperData = requestedTaskId && requestedContainerId
+                    ? `<div data-node-id="${requestedContainerId}" data-type="NodeSuperBlock" class="sb" data-sb-layout="row">
+${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs: opts.attrs })}
+<div class="protyle-attr" contenteditable="false"></div>
+</div>`
+                    : `{{{row\n${md}\n}}}`;
+                const insertedID = String(await __tmInsertBlockOnce(
+                    parentID,
+                    wrapperData,
+                    hid,
+                    {
+                        ...(requestedContainerId ? { dataType: 'dom', requestedID: requestedContainerId } : {}),
+                    }
+                ) || '').trim();
+                if (!insertedID) throw new Error('创建超级块列容器失败');
+                wrapperID = requestedContainerId || insertedID;
+            }
             try {
-                const rows = await API.getBlocksByIds([insertedID]);
-                const insertedRow = (Array.isArray(rows) ? rows : []).find((row) => String(row?.id || '').trim() === insertedID);
+                const rows = await API.getBlocksByIds([wrapperID]);
+                const insertedRow = (Array.isArray(rows) ? rows : []).find((row) => String(row?.id || '').trim() === wrapperID);
                 if (String(insertedRow?.type || '').trim() !== 's') {
-                    wrapperID = String(insertedRow?.parent_id || insertedID).trim() || insertedID;
+                    wrapperID = String(insertedRow?.parent_id || wrapperID).trim() || wrapperID;
                 }
             } catch (e) {}
             let firstChildID = '';
@@ -3120,7 +2616,14 @@
                 if (firstChildID) break;
             }
             if (!firstChildID) throw new Error('未找到超级块列内的新任务');
-            await __tmBackendAdapter.moveBlock(hid, { nextID: firstChildID, parentID: wrapperID });
+            let headingMoved = false;
+            try {
+                const rows = await API.getBlocksByIds([hid]);
+                headingMoved = String(rows?.[0]?.parent_id || '').trim() === wrapperID;
+            } catch (e) {}
+            if (!headingMoved) {
+                await __tmBackendAdapter.moveBlock(hid, { nextID: firstChildID, parentID: wrapperID });
+            }
             return wrapperID;
         } catch (e) {
             if (wrapperID) {
@@ -3149,18 +2652,57 @@
             : __tmBuildSubtaskInheritedPatch(parentTask);
 
         const parentDocId = String(parentTask.docId || parentTask.root_id || '').trim();
-        try { __tmMarkLocalCreateTxSuppressionIds([pid], [parentDocId].filter(Boolean), 2600); } catch (e) {}
-        const insertedId = await __tmAppendBlockWithRetry(pid, `- [ ] ${text}`);
+        const stableTaskId = String(opts.requestedTaskId || '').trim();
+        let childListId = String(opts.requestedContainerId || '').trim();
+        if (!childListId) {
+            try {
+                const directChildren = await API.getChildBlocks(pid);
+                const childLists = (Array.isArray(directChildren) ? directChildren : []).filter((block) => (
+                    String(block?.id || '').trim()
+                    && String(block?.type || '').trim().toLowerCase() === 'l'
+                ));
+                childListId = String(childLists[childLists.length - 1]?.id || '').trim();
+            } catch (e) {}
+        }
+        if (!childListId) {
+            try { childListId = String(await API.getChildListIdOfTask(pid) || '').trim(); } catch (e) { childListId = ''; }
+        }
+        const alreadyInserted = stableTaskId && await __tmIsTaskListItemBlockId(stableTaskId);
+        let insertedId = stableTaskId || '';
+        if (!alreadyInserted && stableTaskId) {
+            const requestedListId = String(opts.requestedContainerId || '').trim() || __tmNewTaskBlockId();
+            const itemData = API.generateTaskDOM(stableTaskId, text, false, {
+                itemOnly: true,
+                attrs: opts.initialAttrs,
+            });
+            const listData = API.generateTaskDOM(stableTaskId, text, false, {
+                listId: childListId || requestedListId,
+                attrs: opts.initialAttrs,
+            });
+            const createSubtask = __tmBackendAdapter?.createSubtask;
+            if (typeof createSubtask !== 'function') throw new Error('内核子任务写入服务未就绪');
+            const result = await createSubtask(
+                pid,
+                stableTaskId,
+                childListId || requestedListId,
+                listData,
+                itemData,
+                { previousTaskID: String(opts.insertAfterTaskId || '').trim() },
+            );
+            childListId = String(result?.listID || childListId || requestedListId).trim();
+            insertedId = stableTaskId;
+        } else if (!alreadyInserted && !stableTaskId) {
+            insertedId = await __tmAppendBlockOnce(pid, `- [ ] ${text}`);
+        }
         try {
             if (typeof opts.onBlockInserted === 'function') {
-                await Promise.resolve(opts.onBlockInserted({ insertedId, docId: parentDocId, parentTaskId: pid }));
+                await Promise.resolve(opts.onBlockInserted({ insertedId, docId: parentDocId, parentTaskId: pid, listId: childListId }));
             }
         } catch (e) {}
-        let taskId = insertedId;
-        if (opts.deferResolveInsertedTaskId !== true) {
+        let taskId = stableTaskId || insertedId;
+        if (!stableTaskId && opts.deferResolveInsertedTaskId !== true) {
             taskId = await __tmResolveInsertedTaskBlockId(insertedId);
         }
-        try { __tmMarkLocalCreateTxSuppressionIds([pid, insertedId, taskId].filter(Boolean), [parentDocId].filter(Boolean), 2600); } catch (e) {}
         try {
             if (opts.deferResolveInsertedTaskId !== true && typeof opts.onInserted === 'function') {
                 await Promise.resolve(opts.onInserted({ taskId, insertedId, docId: parentDocId, parentTaskId: pid }));
@@ -3178,7 +2720,7 @@
                     mirrorTaskAttrs: false,
                 }
                 : {};
-            const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+            const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
             if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
             const persistPromise = patchTask(taskId, attrPatch, {
                 ...persistOptions,
@@ -3232,9 +2774,8 @@
             if (parentId) return parentId;
         } catch (e) {}
         const cachedListId = String(
-            globalThis.__tmRuntimeState?.getFlatTaskById?.(resolvedTid)?.parent_id
-            || state.flatTasks?.[resolvedTid]?.parent_id
-            || globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })?.parent_id
+            globalThis.__tmTaskBoundary?.getTask?.(resolvedTid)?.parent_id
+            || globalThis.__tmTaskBoundary?.getTask?.(tid)?.parent_id
             || ''
         ).trim();
         if (cachedListId) {
@@ -3250,34 +2791,57 @@
     }
 
     async function __tmCreateSiblingTaskForTaskKernel(taskId, content, options = {}) {
-        const sourceInfo = __tmResolveOptimisticTaskForLocalUse(taskId);
-        const sourceTaskId = String(sourceInfo.id || sourceInfo.resolvedId || sourceInfo.rawId || taskId || '').trim();
+        const rawSourceTaskId = String(taskId || '').trim();
+        let authoritativeSourceTask = null;
+        if (rawSourceTaskId) {
+            try {
+                const rows = await API.getBlocksByIds([rawSourceTaskId]);
+                const row = Array.isArray(rows) ? rows[0] : null;
+                if (String(row?.id || '').trim() === rawSourceTaskId
+                    && String(row?.type || '').trim().toLowerCase() === 'i'
+                    && String(row?.subtype || '').trim().toLowerCase() === 't') {
+                    authoritativeSourceTask = row;
+                }
+            } catch (e) {}
+        }
+        const sourceInfo = authoritativeSourceTask
+            ? { id: rawSourceTaskId, resolvedId: rawSourceTaskId, rawId: rawSourceTaskId, task: null }
+            : __tmResolveOptimisticTaskForLocalUse(rawSourceTaskId);
+        const sourceTaskId = String(sourceInfo.id || sourceInfo.resolvedId || sourceInfo.rawId || rawSourceTaskId).trim();
         const currentTask = sourceInfo.task
-            || globalThis.__tmRuntimeState?.getTaskById?.(sourceTaskId, { includePending: true, preferPending: true })
-            || state.flatTasks?.[sourceTaskId]
-            || state.pendingInsertedTasks?.[sourceTaskId]
+            || globalThis.__tmTaskBoundary?.getTask?.(sourceTaskId)
+            || authoritativeSourceTask
             || null;
         if (!sourceTaskId || !currentTask) throw new Error('未找到当前任务');
         const text = String(content || '').trim();
         if (!text) throw new Error('请输入任务内容');
         const opts = (options && typeof options === 'object') ? options : {};
+        const stableTaskId = String(opts.requestedTaskId || '').trim();
 
         const listId = await __tmResolveTaskListBlockId(sourceTaskId);
         if (!listId) throw new Error('未找到当前任务所在的任务列表');
 
         const currentDocId = String(currentTask.docId || currentTask.root_id || '').trim();
-        try { __tmMarkLocalCreateTxSuppressionIds([sourceTaskId, listId], [currentDocId].filter(Boolean), 2600); } catch (e) {}
-        const insertedId = await __tmInsertBlockWithRetry(listId, `- [ ] ${text}`, { previousID: sourceTaskId });
+        const alreadyInserted = stableTaskId && await __tmIsTaskListItemBlockId(stableTaskId);
+        const insertedId = alreadyInserted
+            ? stableTaskId
+            : await __tmInsertBlockOnce(
+                listId,
+                stableTaskId ? API.generateTaskDOM(stableTaskId, text, false) : `- [ ] ${text}`,
+                { previousID: sourceTaskId },
+                {
+                    ...(stableTaskId ? { dataType: 'dom', requestedID: stableTaskId } : {}),
+                }
+            );
         try {
             if (typeof opts.onBlockInserted === 'function') {
                 await Promise.resolve(opts.onBlockInserted({ insertedId, docId: currentDocId, sourceTaskId, listId }));
             }
         } catch (e) {}
-        let nextTaskId = insertedId;
-        if (opts.deferResolveInsertedTaskId !== true) {
+        let nextTaskId = stableTaskId || insertedId;
+        if (!stableTaskId && opts.deferResolveInsertedTaskId !== true) {
             nextTaskId = await __tmResolveInsertedTaskBlockId(insertedId);
         }
-        try { __tmMarkLocalCreateTxSuppressionIds([sourceTaskId, listId, insertedId, nextTaskId].filter(Boolean), [currentDocId].filter(Boolean), 2600); } catch (e) {}
         try {
             if (opts.deferResolveInsertedTaskId !== true && typeof opts.onInserted === 'function') {
                 await Promise.resolve(opts.onInserted({ taskId: nextTaskId, insertedId, docId: currentDocId, sourceTaskId }));
@@ -3317,6 +2881,16 @@
         return await __tmQueueCreateSiblingTask(taskId, content, opts);
     }
 
+    function __tmNewTaskBlockId() {
+        const createId = globalThis.Lute?.NewNodeID || globalThis.window?.Lute?.NewNodeID;
+        if (typeof createId !== 'function') {
+            throw new Error('当前思源版本不支持预生成块 ID，任务创建已暂停');
+        }
+        const id = String(createId.call(globalThis.Lute || globalThis.window?.Lute) || '').trim();
+        if (!/^\d{14}-[a-z0-9]{7}$/i.test(id)) throw new Error('思源返回的预生成块 ID 无效');
+        return id;
+    }
+
     function __tmQueueCreateSubtask(parentTaskId, content, options = {}) {
         const rawPid = String(parentTaskId || '').trim();
         const parentInfo = __tmResolveOptimisticTaskForLocalUse(rawPid);
@@ -3324,11 +2898,18 @@
         const text = String(content || '').trim();
         if (!rawPid || !pid) throw new Error('未找到父任务');
         if (!text) throw new Error('请输入子任务内容');
-        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && (__tmIsOutboxTaskPendingDeleted(rawPid) || __tmIsOutboxTaskPendingDeleted(pid))) {
+        if (typeof __tmIsMutationTaskPendingDeleted === 'function' && (__tmIsMutationTaskPendingDeleted(rawPid) || __tmIsMutationTaskPendingDeleted(pid))) {
             throw new Error('父任务正在删除，无法新建子任务');
         }
         const hooks = (options && typeof options === 'object') ? options : {};
-        const tempId = __tmGenerateTempTaskId('subtask');
+        const parentTask = parentInfo.task;
+        const currentChildren = Array.isArray(parentTask?.children) ? parentTask.children : [];
+        const previousChild = currentChildren.length > 0 ? currentChildren[currentChildren.length - 1] : null;
+        const insertAfterTaskId = String(previousChild?.id || '').trim();
+        const requestedContainerId = String(previousChild?.parent_id || previousChild?.parentId || '').trim()
+            || __tmNewTaskBlockId();
+        const requestedTaskId = __tmNewTaskBlockId();
+        const tempId = requestedTaskId;
         const clientId = String(globalThis.__tmTaskIdentity?.createClientId?.('subtask') || __tmGenerateTempTaskId('client')).trim();
         try {
             globalThis.__tmTaskIdentity?.remember?.({
@@ -3338,10 +2919,8 @@
                 status: 'queued',
             });
         } catch (e) {}
-        const task = parentInfo.task;
-        const docId = String(task?.docId || task?.root_id || '').trim();
-        const inheritedPatch = __tmBuildSubtaskInheritedPatch(task);
-        const isolateCalendarRefresh = __tmShouldIsolateCalendarTaskCreateRefresh();
+        const docId = String(parentTask?.docId || parentTask?.root_id || '').trim();
+        const inheritedPatch = __tmBuildSubtaskInheritedPatch(parentTask);
         const shouldWait = hooks.wait !== false;
         let pendingPromise = null;
         const opPromise = __tmEnqueueQueuedOp({
@@ -3352,19 +2931,14 @@
                 parentTaskId: pid,
                 clientId,
                 tempId,
+                requestedTaskId,
+                requestedContainerId,
+                insertAfterTaskId,
                 content: text,
                 docId,
                 inheritedPatch,
                 skipInteractionGate: hooks.skipInteractionGate !== false,
-                skipOptimisticMainRefresh: hooks.skipOptimisticMainRefresh === true,
-                skipOptimisticFilterWork: hooks.skipOptimisticFilterWork !== false,
-                skipSettledRefresh: hooks.skipSettledRefresh === true,
-                refreshCurrentView: hooks.refreshCurrentView !== false,
-                scheduleSnapshotRefresh: isolateCalendarRefresh ? false : hooks.scheduleSnapshotRefresh !== false,
-                refreshPolicy: __tmBuildTaskCreateRefreshPolicy(hooks.refreshPolicy),
-                skipSettledViewRefresh: hooks.skipSettledViewRefresh === true || isolateCalendarRefresh,
-                skipSnapshotViewStateFilterRefresh: hooks.skipSnapshotViewStateFilterRefresh === true
-                    || hooks.skipOptimisticFilterWork !== false,
+                suppressHint: true,
             },
         }, {
             wait: shouldWait,
@@ -3378,7 +2952,6 @@
             try { state.collapsedTaskIds?.delete?.(pid); } catch (e) {}
             try { if (rawPid !== pid) state.collapsedTaskIds?.delete?.(rawPid); } catch (e) {}
             const realId = String(result?.realId || tempId).trim() || tempId;
-            try { globalThis.__tmTaskIdentity?.commit?.({ clientId, tempId, blockId: realId }); } catch (e) {}
             try {
                 hooks.onSuccess?.(realId, {
                     clientId,
@@ -3412,7 +2985,7 @@
         if (!rawPid || !pid || !tid || !text || !parentTask) {
             return false;
         }
-        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && (__tmIsOutboxTaskPendingDeleted(rawPid) || __tmIsOutboxTaskPendingDeleted(pid))) {
+        if (typeof __tmIsMutationTaskPendingDeleted === 'function' && (__tmIsMutationTaskPendingDeleted(rawPid) || __tmIsMutationTaskPendingDeleted(pid))) {
             return false;
         }
         try {
@@ -3454,6 +3027,8 @@
             docName: parentTask.docName || '',
             root_id: parentTask.root_id || parentTask.docId || '',
             docId: parentTask.docId || parentTask.root_id || '',
+            parent_id: String(opts.parentListId || '').trim(),
+            parentId: String(opts.parentListId || '').trim(),
             parentTaskId: pid,
             parent_task_id: pid,
             created: new Date().toISOString(),
@@ -3482,22 +3057,6 @@
             });
         } catch (e) {}
         if (!insertedPending) return null;
-        let projected = false;
-        if (opts.skipFilterWork !== true) {
-            try { recalcStats(); } catch (e) {}
-            try { applyFilters(); } catch (e) {}
-        } else {
-            try { projected = __tmEnsureOptimisticSubtaskInFilteredTasks(parentTask, nextTask) === true; } catch (e) {}
-            if (!projected && opts.skipFilterFallback !== true) {
-                __tmRefreshAfterOptimisticTaskCreate([pid, tid], 'create-subtask-optimistic-filter-fallback', { withFilters: true });
-            }
-        }
-        try { __tmKanbanColsHtmlCache = null; } catch (e) {}
-        if (opts.skipMainRefresh !== true) {
-            __tmRefreshAfterOptimisticTaskCreate(tid, 'create-subtask-optimistic');
-        } else {
-            __tmScheduleChecklistOptimisticSubtaskRefresh(pid, tid);
-        }
         return nextTask;
     }
 
@@ -3507,15 +3066,12 @@
         const text = String(content || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
         const clientId = String(opts.clientId || '').trim();
-        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[sid]
-            || state.pendingInsertedTasks?.[sid]
-            || null;
+        const sourceTask = globalThis.__tmTaskBoundary?.getTask?.(sid);
         if (!sid || !tid || !text || !sourceTask) return false;
-        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && __tmIsOutboxTaskPendingDeleted(sid)) return false;
+        if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(sid)) return false;
 
         const parentTaskId = String(sourceTask.parentTaskId || '').trim();
-        if (parentTaskId && typeof __tmIsOutboxTaskPendingDeleted === 'function' && __tmIsOutboxTaskPendingDeleted(parentTaskId)) return false;
+        if (parentTaskId && typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(parentTaskId)) return false;
         try {
             globalThis.__tmTaskIdentity?.remember?.({
                 clientId,
@@ -3525,12 +3081,7 @@
             });
         } catch (e) {}
         const parentTask = parentTaskId
-            ? (
-                globalThis.__tmRuntimeState?.getTaskById?.(parentTaskId, { includePending: true, preferPending: true })
-                || state.flatTasks?.[parentTaskId]
-                || state.pendingInsertedTasks?.[parentTaskId]
-                || null
-            )
+            ? globalThis.__tmTaskBoundary?.getTask?.(parentTaskId)
             : null;
         const nextTask = {
             id: tid,
@@ -3596,12 +3147,6 @@
                 __tmUpsertLocalTask(nextTask);
             }
         }
-        try {
-            const projected = __tmEnsureOptimisticTaskInFilteredTasks(nextTask) === true;
-            if (!projected) {
-                __tmRefreshAfterOptimisticTaskCreate(tid, 'create-sibling-optimistic-filter-fallback', { withFilters: true });
-            }
-        } catch (e) {}
         return nextTask;
     }
 
@@ -3621,7 +3166,9 @@
         const content = String(opts.content || '').trim();
         if (!docId) throw new Error('未设置文档');
         if (!content) throw new Error('请输入任务内容');
-        const tempId = __tmGenerateTempTaskId('task');
+        const requestedTaskId = __tmNewTaskBlockId();
+        const tempId = requestedTaskId;
+        const requestedContainerId = __tmNewTaskBlockId();
         const clientId = String(globalThis.__tmTaskIdentity?.createClientId?.('task') || __tmGenerateTempTaskId('client')).trim();
         try {
             globalThis.__tmTaskIdentity?.remember?.({
@@ -3631,7 +3178,6 @@
                 status: 'queued',
             });
         } catch (e) {}
-        const isolateCalendarRefresh = __tmShouldIsolateCalendarTaskCreateRefresh();
         const shouldWait = hooks.wait !== false && optsWait !== false;
         let pendingPromise = null;
         const opPromise = __tmEnqueueQueuedOp({
@@ -3644,12 +3190,11 @@
                 content,
                 clientId,
                 tempId,
-                skipOptimisticFilterWork: opts.skipOptimisticFilterWork !== false,
-                scheduleSnapshotRefresh: isolateCalendarRefresh ? false : opts.scheduleSnapshotRefresh,
-                refreshPolicy: __tmBuildTaskCreateRefreshPolicy(opts.refreshPolicy),
-                skipSettledViewRefresh: opts.skipSettledViewRefresh === true || isolateCalendarRefresh,
-                skipSnapshotViewStateFilterRefresh: opts.skipSnapshotViewStateFilterRefresh === true
-                    || opts.skipOptimisticFilterWork !== false,
+                requestedTaskId,
+                requestedContainerId,
+                showErrorHint: opts.showErrorHint !== false
+                    && typeof hooks.onError !== 'function'
+                    && typeof optsOnError !== 'function',
             },
         }, {
             wait: shouldWait,
@@ -3664,7 +3209,6 @@
         const settlePromise = pendingPromise || opPromise;
         settlePromise.then((result) => {
             const realId = String(result?.realId || tempId).trim() || tempId;
-            try { globalThis.__tmTaskIdentity?.commit?.({ clientId, tempId, blockId: realId }); } catch (e) {}
             try { hooks.onSuccess?.(realId, result); } catch (e) {}
             try { optsOnSuccess?.(realId, result); } catch (e) {}
         }).catch((e) => {
@@ -3683,20 +3227,18 @@
         const tid = String(taskId || '').trim();
         const text = String(content || '').trim();
         const hooks = (options && typeof options === 'object') ? options : {};
-        const currentTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const currentTask = globalThis.__tmTaskBoundary?.getTask?.(tid);
         if (!tid || !currentTask) throw new Error('未找到当前任务');
         if (!text) throw new Error('请输入任务内容');
-        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && __tmIsOutboxTaskPendingDeleted(tid)) {
+        if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) {
             throw new Error('当前任务正在删除，无法新建同级任务');
         }
         const parentTaskId = String(currentTask.parentTaskId || '').trim();
-        if (parentTaskId && typeof __tmIsOutboxTaskPendingDeleted === 'function' && __tmIsOutboxTaskPendingDeleted(parentTaskId)) {
+        if (parentTaskId && typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(parentTaskId)) {
             throw new Error('父任务正在删除，无法新建同级任务');
         }
-        const tempId = __tmGenerateTempTaskId('sibling');
+        const requestedTaskId = __tmNewTaskBlockId();
+        const tempId = requestedTaskId;
         const clientId = String(globalThis.__tmTaskIdentity?.createClientId?.('sibling') || __tmGenerateTempTaskId('client')).trim();
         try {
             globalThis.__tmTaskIdentity?.remember?.({
@@ -3707,7 +3249,6 @@
             });
         } catch (e) {}
         const docId = String(currentTask.docId || currentTask.root_id || '').trim();
-        const isolateCalendarRefresh = __tmShouldIsolateCalendarTaskCreateRefresh();
         const shouldWait = hooks.wait !== false;
         let pendingPromise = null;
         const opPromise = __tmEnqueueQueuedOp({
@@ -3718,14 +3259,10 @@
                 sourceTaskId: tid,
                 clientId,
                 tempId,
+                requestedTaskId,
                 content: text,
                 docId,
-                skipSettledRefresh: hooks.skipSettledRefresh === true,
-                refreshCurrentView: hooks.refreshCurrentView !== false,
-                scheduleSnapshotRefresh: isolateCalendarRefresh ? false : hooks.scheduleSnapshotRefresh !== false,
-                refreshPolicy: __tmBuildTaskCreateRefreshPolicy(hooks.refreshPolicy),
-                skipSettledViewRefresh: hooks.skipSettledViewRefresh === true || isolateCalendarRefresh,
-                skipSnapshotViewStateFilterRefresh: hooks.skipSnapshotViewStateFilterRefresh !== false,
+                suppressHint: true,
             },
         }, {
             wait: shouldWait,
@@ -3737,7 +3274,6 @@
         const settlePromise = pendingPromise || opPromise;
         settlePromise.then((result) => {
             const realId = String(result?.realId || tempId).trim() || tempId;
-            try { globalThis.__tmTaskIdentity?.commit?.({ clientId, tempId, blockId: realId }); } catch (e) {}
             try { hooks.onSuccess?.(realId); } catch (e) {}
             if (hooks.silent !== true) hint('✅ 同级任务已创建', 'success');
         }).catch((e) => {
@@ -3758,10 +3294,7 @@
         } catch (e) {}
 
         const pid = String(parentTaskId || '').trim();
-        const parentTask = globalThis.__tmRuntimeState?.getTaskById?.(pid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[pid]
-            || state.pendingInsertedTasks?.[pid]
-            || null;
+        const parentTask = globalThis.__tmTaskBoundary?.getTask?.(pid);
         if (!pid || !parentTask) {
             hint('❌ 未找到父任务', 'error');
             return;
@@ -3781,52 +3314,24 @@
         }
 
         try {
-            const tempIds = [];
-            const createSubtask = globalThis.__tmRequireTaskOutbox?.('createSubtask');
+            const createSubtask = globalThis.__tmRequireTaskMutation?.('createSubtask');
             if (typeof createSubtask !== 'function') throw new Error('任务写入队列未就绪: createSubtask');
-            taskLines.forEach((line) => {
-                createSubtask(pid, line, {
+            const createSettled = await Promise.allSettled(taskLines.map((line) => createSubtask(pid, line, {
                     silent: true,
-                    wait: false,
+                    wait: true,
                     skipInteractionGate: true,
-                    skipOptimisticMainRefresh: true,
-                    skipOptimisticFilterWork: true,
-                    skipSettledRefresh: true,
-                    refreshCurrentView: false,
-                    scheduleSnapshotRefresh: false,
-                    skipSnapshotViewStateFilterRefresh: true,
-                    refreshPolicy: {
-                        current: false,
-                        detail: false,
-                        checklistGroup: true,
-                        snapshot: false,
-                        withFilters: false,
-                    },
-                    onQueued: (tempId) => {
-                        const tid = String(tempId || '').trim();
-                        if (tid) tempIds.push(tid);
-                        try {
-                            if (typeof __tmScheduleChecklistOptimisticSubtaskRefresh === 'function') {
-                                __tmScheduleChecklistOptimisticSubtaskRefresh(pid, tid);
-                            }
-                        } catch (e) {}
-                    },
-                    onError: (err) => {
-                        hint(`❌ 新建子任务失败: ${err?.message || err || '未知错误'}`, 'error');
-                    },
-                });
-            });
-            const refreshIds = [pid].concat(tempIds).filter(Boolean);
-            try { state.listDomRenderSignature = ''; } catch (e) {}
-            __tmRefreshAfterOptimisticTaskCreate(refreshIds, 'create-subtask-current-optimistic');
-            try {
-                __tmScheduleViewRefresh({
-                    mode: 'detail',
-                    withFilters: false,
-                    reason: 'create-subtask-detail-optimistic',
-                    taskIds: refreshIds,
-                });
-            } catch (e) {}
+                })));
+            const createFailures = createSettled.filter((item) => item.status === 'rejected');
+            const successCount = createSettled.length - createFailures.length;
+            if (createFailures.length > 0) {
+                const firstError = createFailures[0]?.reason;
+                if (successCount === 0) {
+                    throw firstError instanceof Error ? firstError : new Error(String(firstError || '子任务创建失败'));
+                }
+                const message = String(firstError?.message || firstError || '').trim();
+                hint(`⚠ 已新增 ${successCount} 个子任务，${createFailures.length} 个失败${message ? `: ${message}` : ''}`, 'warning');
+                return;
+            }
             hint(taskLines.length > 1 ? `✅ 已新增 ${taskLines.length} 个子任务` : '✅ 已新增', 'success');
         } catch (e) {
             hint(`❌ 新建子任务失败: ${e.message}`, 'error');
@@ -3840,10 +3345,7 @@
         } catch (e) {}
 
         const tid = String(taskId || '').trim();
-        const currentTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const currentTask = globalThis.__tmTaskBoundary?.getTask?.(tid);
         if (!tid || !currentTask) {
             hint('❌ 未找到当前任务', 'error');
             return;
@@ -3859,18 +3361,11 @@
         }
 
         try {
-            let tempId = '';
-            __tmQueueCreateSiblingTask(tid, nextText, {
+            await __tmQueueCreateSiblingTask(tid, nextText, {
                 silent: true,
-                wait: false,
-                onQueued: (queuedId) => {
-                    tempId = String(queuedId || '').trim();
-                },
-                onError: (err) => {
-                    hint(`❌ 新建同级任务失败: ${err?.message || err || '未知错误'}`, 'error');
-                },
+                wait: true,
+                showErrorHint: false,
             });
-            __tmRefreshAfterOptimisticTaskCreate([tid, tempId], 'create-sibling-optimistic');
             hint('✅ 同级任务已创建', 'success');
         } catch (e) {
             hint(`❌ 新建同级任务失败: ${e.message}`, 'error');
@@ -4051,6 +3546,7 @@
         const isMulti = String(field?.type || '').trim() === 'multi';
         const current = __tmNormalizeCustomFieldValue(field, qa.customFieldValues?.[fid]);
         const draft = new Set(Array.isArray(current) ? current : (String(current || '').trim() ? [String(current || '').trim()] : []));
+        const expandedIds = __tmGetDefaultExpandedCustomFieldOptionIds(field);
         const syncQuickAddValue = () => {
             if (!qa.customFieldValues || typeof qa.customFieldValues !== 'object' || Array.isArray(qa.customFieldValues)) {
                 qa.customFieldValues = {};
@@ -4072,12 +3568,13 @@
             editor.style.zIndex = '100020';
             editor.style.minWidth = '0';
             editor.style.width = 'auto';
-            editor.style.maxWidth = `${Math.max(180, Math.min(260, (window.innerWidth || 320) - 24))}px`;
+            editor.style.maxWidth = `${Math.max(180, Math.min(300, (window.innerWidth || 320) - 24))}px`;
             editor.style.padding = '6px';
             const wrap = document.createElement('div');
             wrap.style.display = 'flex';
             wrap.style.flexDirection = 'column';
             wrap.style.gap = '4px';
+            wrap.style.width = '100%';
             const title = document.createElement('div');
             title.style.cssText = 'font-size:12px;color:var(--tm-secondary-text);padding:0 2px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
             title.textContent = String(field?.name || fid || '自定义列').trim() || '自定义列';
@@ -4086,25 +3583,12 @@
             list.style.display = 'flex';
             list.style.flexDirection = 'column';
             list.style.gap = '3px';
+            list.style.width = '100%';
             wrap.appendChild(list);
             const renderOptions = () => {
-                list.innerHTML = '';
-                (Array.isArray(field?.options) ? field.options : []).forEach((opt) => {
-                    const optionId = String(opt?.id || '').trim();
-                    if (!optionId) return;
-                    const optionBtn = document.createElement('button');
-                    optionBtn.type = 'button';
-                    optionBtn.className = 'tm-status-option-btn tm-custom-field-inline-option';
-                    optionBtn.style.fontSize = '12px';
-                    optionBtn.style.textAlign = 'left';
-                    optionBtn.style.width = '100%';
-                    optionBtn.setAttribute('data-selected', draft.has(optionId) ? 'true' : 'false');
-                    const chip = document.createElement('span');
-                    chip.className = 'tm-status-tag tm-custom-field-inline-chip';
-                    chip.style.cssText = __tmBuildStatusChipStyle(opt?.color || '#9ca3af');
-                    chip.textContent = `${String(opt?.name || optionId).trim() || optionId}${draft.has(optionId) ? '  ✓' : ''}`;
-                    optionBtn.appendChild(chip);
-                    optionBtn.onclick = () => {
+                __tmRenderCustomFieldOptionTreePicker(list, field, draft, {
+                    expandedIds,
+                    onToggle: (optionId) => {
                         if (isMulti) {
                             if (draft.has(optionId)) draft.delete(optionId);
                             else draft.add(optionId);
@@ -4116,8 +3600,7 @@
                         draft.add(optionId);
                         syncQuickAddValue();
                         close();
-                    };
-                    list.appendChild(optionBtn);
+                    },
                 });
             };
             renderOptions();
@@ -4182,7 +3665,7 @@
             customStatus: defaultStatusId,
             priority: 'none',
             startDate: '',
-            completionTime: '',
+            completionTime: __tmResolveQuickAddDefaultCompletionTime(),
             repeatRule: __tmNormalizeTaskRepeatRule(''),
             repeatState: __tmNormalizeTaskRepeatState(null),
             reminderDraft: null,
@@ -4992,7 +4475,7 @@
         }
         const headingLevel = __tmNormalizeDailyNoteCreateHeadingLevel();
         const levelNum = Number((headingLevel.match(/^h([1-6])$/) || [])[1]) || 2;
-        const headingId = String(await __tmAppendBlockWithRetry(did, `${'#'.repeat(levelNum)} ${targetText}`) || '').trim();
+        const headingId = String(await __tmAppendBlockOnce(did, `${'#'.repeat(levelNum)} ${targetText}`) || '').trim();
         if (!headingId) throw new Error('创建日记目标标题失败');
         const headingPatch = __tmBuildHeadingPatchFromPlacement({
             heading: {
@@ -5111,8 +4594,8 @@
         if (!rawId || !rawId.startsWith('tm_tmp_')) return rawId;
         for (let attempt = 0; attempt < 20; attempt += 1) {
             try {
-                const resolved = typeof __tmResolveOutboxTempTaskId === 'function'
-                    ? String(__tmResolveOutboxTempTaskId(rawId) || '').trim()
+                const resolved = typeof __tmResolveMutationTempTaskId === 'function'
+                    ? String(__tmResolveMutationTempTaskId(rawId) || '').trim()
                     : (typeof __tmResolveOptimisticTaskId === 'function' ? String(__tmResolveOptimisticTaskId(rawId) || '').trim() : '');
                 if (resolved && resolved !== rawId && !resolved.startsWith('tm_tmp_')) return resolved;
             } catch (e) {}
@@ -5186,14 +4669,14 @@
                 }
                 const createdTaskIds = [];
                 let reminderTaskId = '';
-                const createTaskInDoc = globalThis.__tmRequireTaskOutbox?.('createTaskInDoc');
+                const createTaskInDoc = globalThis.__tmRequireTaskMutation?.('createTaskInDoc');
                 if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
                 const insertOptions = await __tmResolveDefaultNewTaskInsertOptions(targetDocId, payload.docMode, { contentCount: payload.contents.length });
                 const normalizedInsertOptions = (insertOptions && typeof insertOptions === 'object') ? insertOptions : {};
                 const { headingPatch, ...createInsertOptions } = normalizedInsertOptions;
                 const insertAfterId = String(createInsertOptions.insertAfterId || '').trim();
                 const createContents = insertAfterId ? payload.contents.slice().reverse() : payload.contents;
-                await Promise.all(createContents.map((content) => createTaskInDoc({
+                const createSettled = await Promise.allSettled(createContents.map((content) => createTaskInDoc({
                         docId: targetDocId,
                         content,
                         priority: payload.priority,
@@ -5204,22 +4687,30 @@
                         repeatRule: payload.repeatRule,
                         repeatState: payload.repeatState,
                         ...createInsertOptions,
-                        wait: payload.reminderDraft ? true : false,
-                        skipOptimisticMainRefresh: true,
-                        skipOptimisticFilterWork: true,
-                        onError: (err) => {
-                            hint(`❌ 创建失败: ${err?.message || err || '未知错误'}`, 'error');
-                        },
+                        wait: true,
+                        showErrorHint: false,
                     }).then(async (createdTaskId) => {
-                    if (createdTaskId) {
-                        createdTaskIds.push(createdTaskId);
-                        if (payload.reminderDraft) {
-                            reminderTaskId = await __tmWaitForQuickAddRealTaskId(createdTaskId);
+                        if (createdTaskId) {
+                            createdTaskIds.push(createdTaskId);
+                            if (payload.reminderDraft) {
+                                reminderTaskId = await __tmWaitForQuickAddRealTaskId(createdTaskId);
+                            }
+                            try {
+                                if (headingPatch) __tmApplyHeadingPatchToTaskLocal(createdTaskId, headingPatch, 'quick-add-default-heading');
+                            } catch (e) {}
                         }
-                        if (headingPatch) __tmApplyHeadingPatchToTaskLocal(createdTaskId, headingPatch, 'quick-add-default-heading');
-                    }
+                        return createdTaskId;
                     })));
-                __tmRefreshAfterOptimisticTaskCreate(createdTaskIds, 'quick-add-batch-create');
+                const createFailures = createSettled.filter((item) => item.status === 'rejected');
+                if (createFailures.length > 0) {
+                    const firstError = createFailures[0]?.reason;
+                    if (createdTaskIds.length === 0) {
+                        throw firstError instanceof Error ? firstError : new Error(String(firstError || '任务创建失败'));
+                    }
+                    const message = String(firstError?.message || firstError || '').trim();
+                    hint(`⚠ 已创建 ${createdTaskIds.length} 个任务，${createFailures.length} 个失败${message ? `: ${message}` : ''}`, 'warning');
+                    return;
+                }
                 hint(payload.contents.length > 1 ? `✅ 已创建 ${payload.contents.length} 个任务` : '✅ 任务已创建', 'success');
                 const createdTaskId = reminderTaskId || '';
                 if (payload.reminderDraft && createdTaskId) {
@@ -5240,13 +4731,13 @@
                         return;
                     }
                     if (followsTask) {
-                        const outbox = globalThis.__tmTaskHorizonOutbox || globalThis.__tmTaskOutbox;
-                        if (typeof outbox?.waitForTaskWrites !== 'function') {
+                        const mutation = globalThis.__tmTaskMutations;
+                        if (typeof mutation?.waitForTaskWrites !== 'function') {
                             hint('⚠ 任务已创建，但任务字段写入屏障未就绪，提醒未写入', 'warning');
                             return;
                         }
-                        const writeBarrier = await outbox.waitForTaskWrites(createdTaskId, {
-                            types: ['attrPatch'],
+                        const writeBarrier = await mutation.waitForTaskWrites(createdTaskId, {
+                            types: ['taskPatch'],
                             expected: {
                                 startDate: payload.startDate,
                                 completionTime: payload.completionTime,

@@ -14,18 +14,18 @@ const styles = read('task-horizon.css');
 
 assert.match(
     linkRuntime,
-    /function __tmIsTaskLinkSourceSubtask[\s\S]*?Number\.isFinite\(level\)[\s\S]*?__tmResolveWhiteboardTaskParentId/,
-    'whiteboard and timeline must share one source-depth classifier',
+    /function __tmIsTaskLinkEndpointSubtask[\s\S]*?Number\.isFinite\(level\)[\s\S]*?__tmResolveWhiteboardTaskParentId/,
+    'whiteboard and timeline must share one endpoint-depth classifier',
 );
 assert.match(
     whiteboard,
-    /const isSubtaskSource = __tmIsTaskLinkSourceSubtask\(link\.from\)[\s\S]*?tm-whiteboard-edge--subtask-source/,
-    'whiteboard paths must mark links whose real source is a subtask',
+    /const fromIsSubtask = isSubtaskEndpoint\(link\.from, fromProxy\)[\s\S]*?const toIsSubtask = isSubtaskEndpoint\(link\.to, toProxy\)[\s\S]*?const isSubtaskEdge = fromIsSubtask \|\| toIsSubtask[\s\S]*?tm-whiteboard-edge--subtask-endpoint/,
+    'whiteboard paths must mark links whose source or target is a subtask',
 );
 assert.match(
     whiteboard,
-    /previewSourceIsSubtask[\s\S]*?tm-whiteboard-edge--subtask-source/,
-    'whiteboard link previews must use the same source-depth style',
+    /const routeFromIsSubtask = isSubtaskEndpoint\(routeFromTaskId, routeFromProxy\)[\s\S]*?const routeToIsSubtask = isSubtaskEndpoint\(routeToTaskId, routeToProxy\)[\s\S]*?const isSubtaskPreview = routeFromIsSubtask \|\| routeToIsSubtask[\s\S]*?tm-whiteboard-edge--subtask-endpoint/,
+    'whiteboard link previews must use the same endpoint-depth style',
 );
 assert.match(
     whiteboardBody,
@@ -39,24 +39,21 @@ assert.match(
 );
 assert.match(
     timeline,
-    /const isSubtaskSource = __tmIsTaskLinkSourceSubtask\(link\.from\)[\s\S]*?tm-gantt-dep--subtask-source/,
-    'timeline paths must mark links whose real source is a subtask',
+    /const hasSubtaskEndpoint = __tmIsTaskLinkEndpointSubtask\(link\.from\)[\s\S]*?\|\| __tmIsTaskLinkEndpointSubtask\(link\.to\)[\s\S]*?tm-gantt-dep--subtask-endpoint/,
+    'timeline paths must mark links whose source or target is a subtask',
 );
 assert.match(
     timeline,
-    /const previewSourceTaskId = fromSide === 'in' \? targetTaskId : fromTaskId[\s\S]*?tm-gantt-dep--subtask-source/,
-    'timeline previews must classify the source after input-side direction reversal',
+    /const previewFromTaskId = fromSide === 'in' \? targetTaskId : fromTaskId[\s\S]*?const previewToTaskId = fromSide === 'in' \? fromTaskId : targetTaskId[\s\S]*?__tmIsTaskLinkEndpointSubtask[\s\S]*?tm-gantt-dep--subtask-endpoint/,
+    'timeline previews must classify both endpoints after input-side direction reversal',
 );
 assert.match(
     styles,
-    /\.tm-whiteboard-edge\.tm-whiteboard-edge--subtask-source\s*\{[\s\S]*?stroke-dasharray:\s*6 4;/,
-    'whiteboard subtask-source links must be dashed',
+    /\.tm-whiteboard-edge\.tm-whiteboard-edge--subtask-endpoint\s*\{[\s\S]*?stroke-dasharray:\s*6 4;/,
+    'whiteboard links with any subtask endpoint must be dashed',
 );
-assert.match(
-    styles,
-    /\.tm-whiteboard-edge\.tm-whiteboard-edge--root-source\s*\{[\s\S]*?stroke-dasharray:\s*none;/,
-    'whiteboard root-source links must stay solid even when they are automatic',
-);
+assert.doesNotMatch(whiteboard, /tm-whiteboard-edge--root-source/, 'whiteboard root links must use the solid base style without a redundant class');
+assert.doesNotMatch(styles, /\.tm-whiteboard-edge\.tm-whiteboard-edge--root-source/, 'whiteboard must not keep a redundant root-link override');
 assert.match(
     styles,
     /\.tm-whiteboard\.tm-kanban--clean \.tm-whiteboard-subcard\.tm-whiteboard-card--selected,\s*\.tm-whiteboard\.tm-kanban--clean \.tm-whiteboard-node--sub\.tm-whiteboard-node--has-links\s*\{[\s\S]*?border-color:\s*var\(--tm-primary-color\);[\s\S]*?box-shadow:\s*inset 0 0 0 2px color-mix\(in srgb, var\(--tm-primary-color\) 18%, transparent\);/,
@@ -64,13 +61,15 @@ assert.match(
 );
 assert.match(
     styles,
-    /\.tm-gantt-dep\.tm-gantt-dep--subtask-source\s*\{[\s\S]*?stroke-dasharray:\s*6 4;/,
-    'timeline subtask-source links must be dashed',
+    /\.tm-gantt-dep\.tm-gantt-dep--subtask-endpoint\s*\{[\s\S]*?stroke-dasharray:\s*6 4;/,
+    'timeline links with any subtask endpoint must be dashed',
 );
-assert.match(
-    styles,
-    /\.tm-gantt-dep\.tm-gantt-dep--root-source\s*\{[\s\S]*?stroke-dasharray:\s*none;/,
-    'timeline root-source links must stay solid even when they are automatic',
-);
+assert.doesNotMatch(timeline, /tm-gantt-dep--root-source/, 'timeline root links must use the solid base style without a redundant class');
+assert.doesNotMatch(styles, /\.tm-gantt-dep\.tm-gantt-dep--root-source/, 'timeline must not keep a redundant root-link override');
+assert.doesNotMatch(styles, /\.tm-whiteboard-edge\.tm-whiteboard-edge--auto\s*\{[^}]*stroke-dasharray:/, 'whiteboard auto links must inherit endpoint dash styling');
+assert.doesNotMatch(styles, /\.tm-whiteboard-edge\.tm-whiteboard-edge--preview\s*\{[^}]*stroke-dasharray:/, 'whiteboard previews must inherit endpoint dash styling');
+assert.doesNotMatch(styles, /\.tm-gantt-dep\.tm-gantt-dep--auto\s*\{[^}]*stroke-dasharray:/, 'timeline auto links must inherit endpoint dash styling');
+assert.doesNotMatch(whiteboard, /markerIdIn|subtaskMarkerIdIn|marker-start=/, 'whiteboard must not define unused input markers');
+assert.doesNotMatch(timeline, /markerIdIn|marker-start=/, 'timeline must not define unused input markers');
 
 console.log('task link depth style contract tests passed');

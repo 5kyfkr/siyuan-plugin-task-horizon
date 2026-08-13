@@ -21,9 +21,12 @@ const IDS = Object.freeze({
     fuzzyTask: '20260101000013-task',
     monthlyDoc: '20260101000015-doc',
     nestedMonthlyDoc: '20260101000016-doc',
+    paragraphTitleTask: '20260101000017-task',
+    childList: '20260101000018-list',
+    childTask: '20260101000019-task',
 });
 
-function createHarness() {
+function createHarness(options = {}) {
     const blocks = new Map([
         [IDS.doc, { id: IDS.doc, parent_id: '', root_id: IDS.doc, type: 'd', subtype: '', markdown: '', content: 'Contract Doc', path: `/${IDS.doc}.sy`, hpath: '/Contract Doc', updated: '20260101000000', created: '20260101000000', sort: 0 }],
         [IDS.singleList, { id: IDS.singleList, parent_id: IDS.doc, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260101000001', created: '20260101000001', sort: 1 }],
@@ -42,6 +45,9 @@ function createHarness() {
         [IDS.formattedTask, { id: IDS.formattedTask, parent_id: IDS.formattedList, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] **Formatted Reminder Task**', content: 'Formatted Reminder Task', updated: '20260101000011', created: '20260101000011', sort: 1 }],
         [IDS.fuzzyList, { id: IDS.fuzzyList, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260101000012', created: '20260101000012', sort: 3 }],
         [IDS.fuzzyTask, { id: IDS.fuzzyTask, parent_id: IDS.fuzzyList, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] 准备发布说明', content: '准备发布说明', updated: '20260101000013', created: '20260101000013', sort: 1 }],
+        [IDS.paragraphTitleTask, { id: IDS.paragraphTitleTask, parent_id: IDS.fuzzyList, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '- [ ] \n    6646\n\n  - [ ] 323232', content: '6646 323232', updated: '20260101000017', created: '20260101000017', sort: 2 }],
+        [IDS.childList, { id: IDS.childList, parent_id: IDS.singleTask, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260101000018', created: '20260101000018', sort: 2 }],
+        [IDS.childTask, { id: IDS.childTask, parent_id: IDS.childList, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Existing child', content: 'Existing child', updated: '20260101000019', created: '20260101000019', sort: 1 }],
     ]);
     const attrs = new Map([
         [IDS.singleList, { 'custom-existing-extension': 'keep-me' }],
@@ -59,7 +65,16 @@ function createHarness() {
             extension: 'keep-me',
         }])],
         ['task-settings.json', JSON.stringify({
-            customFieldDefs: [{ id: 'energy', name: 'Energy', type: 'single', options: [{ id: 'high', name: 'High' }], agentWritable: true }],
+            customFieldDefs: [{
+                id: 'energy', name: 'Energy', type: 'single', agentWritable: true,
+                options: [
+                    { id: 'high', name: 'High', parentId: 'reading' },
+                    { id: 'reading', name: 'Reading', parentId: 'invest' },
+                    { id: 'invest', name: 'Investment' },
+                    { id: 'legacy', name: 'Legacy', parentId: 'archive' },
+                    { id: 'archive', name: 'Archive', archived: true },
+                ],
+            }],
             docGroups: [
                 { id: 'work', name: '工作', docs: [{ id: IDS.doc, recursive: false }] },
                 { id: 'personal', name: '个人', docs: [{ id: IDS.personalParentDoc, recursive: true }] },
@@ -76,6 +91,9 @@ function createHarness() {
     const mcpTools = {};
     const apiCalls = [];
     let failNextToolRegistration = '';
+    let failNextTransaction = false;
+    let skipNextTransaction = false;
+    let skipNextMove = false;
     let createdBlockSequence = 0;
     let createdDocumentSequence = 0;
 
@@ -97,9 +115,83 @@ function createHarness() {
             doc_name: blocks.get(task.root_id)?.content || '',
             doc_path: blocks.get(task.root_id)?.hpath || '',
             parent_type: parent?.type || '',
+            parent_task_id: blocks.get(parent?.parent_id)?.type === 'i' ? parent.parent_id : '',
             parent_task_count: siblings.length,
             first_task_id: firstTaskForList(task.parent_id)?.id || '',
         };
+    }
+
+    const escapeHtml = (value) => String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    const decodeHtml = (value) => String(value || '')
+        .replace(/&quot;/g, '"')
+        .replace(/&gt;/g, '>')
+        .replace(/&lt;/g, '<')
+        .replace(/&amp;/g, '&');
+
+    function taskBlockDOM(id) {
+        const block = blocks.get(id);
+        if (!block) return '';
+        const rawMarker = String(block.markdown || '').match(/^\s*[*+-]\s+\[([^\]\r\n]?)\]/)?.[1] || ' ';
+        const marker = String(rawMarker).toLowerCase() === 'x' ? 'X' : rawMarker;
+        const done = marker !== ' ';
+        const title = id === IDS.paragraphTitleTask
+            ? String(block.markdown.split(/\r?\n/)[1] || '').trim()
+            : String(block.markdown || '').replace(/^\s*[*+-]\s+\[[^\]]\]\s*/, '').split(/\r?\n/)[0].trim();
+        return `<div data-task="${marker}" data-marker="*" data-subtype="t" data-node-id="${id}" data-type="NodeListItem" class="li${done ? ' protyle-task--done' : ''}"><div class="protyle-action protyle-action--task"><svg><use xlink:href="#icon${done ? 'Check' : 'Uncheck'}"></use></svg></div><div data-node-id="${id.slice(0, 14)}-paragraph" data-type="NodeParagraph" class="p"><div contenteditable="true">${escapeHtml(title)}</div><div class="protyle-attr" contenteditable="false"></div></div><div class="protyle-attr" contenteditable="false"></div></div>`;
+    }
+
+    function applyTaskDOMUpdate(id, dom) {
+        const block = blocks.get(id);
+        if (!block) throw new Error('update source not found');
+        const domMarker = String(dom || '').match(/\bdata-task="([^"]*)"/)?.[1] || ' ';
+        const marker = domMarker === 'X' ? 'x' : domMarker;
+        const title = decodeHtml(String(dom || '').match(/data-type="NodeParagraph"[\s\S]*?<div contenteditable="true">([\s\S]*?)<\/div>/)?.[1] || '').replace(/<[^>]+>/g, '');
+        const lines = String(block.markdown || '').split(/\r?\n/);
+        if (/^\s*[*+-]\s+\[[^\]]\]\s*$/.test(lines[0] || '') && lines.length > 1) {
+            lines[0] = String(lines[0]).replace(/\[[^\]]\]/, `[${marker}]`);
+            lines[1] = `${String(lines[1]).match(/^\s*/)?.[0] || ''}${title}`;
+        } else {
+            lines[0] = String(lines[0] || '* [ ]').replace(/^(\s*[*+-]\s+)\[[^\]]\][\s\S]*$/, `$1[${marker}] ${title}`);
+        }
+        block.markdown = lines.join('\n');
+        block.content = title;
+        block.updated = String(Number(block.updated) + 1).padStart(14, '0');
+    }
+
+    function moveBlock(body) {
+        const block = blocks.get(body.id);
+        if (!block) throw new Error('move source not found');
+        let parent;
+        let insertIndex = 0;
+        if (body.previousID) {
+            const previous = blocks.get(body.previousID);
+            if (!previous) throw new Error('move previous block not found');
+            parent = blocks.get(previous.parent_id);
+            const siblings = Array.from(blocks.values())
+                .filter((item) => item.parent_id === previous.parent_id && item.id !== block.id)
+                .sort((left, right) => left.sort - right.sort || String(left.created || '').localeCompare(String(right.created || '')) || left.id.localeCompare(right.id));
+            insertIndex = siblings.findIndex((item) => item.id === previous.id) + 1;
+            siblings.splice(insertIndex, 0, block);
+            block.parent_id = previous.parent_id;
+            block.root_id = previous.root_id;
+            siblings.forEach((item, index) => { item.sort = index + 1; });
+            return;
+        }
+        if (body.parentID) {
+            parent = blocks.get(body.parentID);
+            if (!parent) throw new Error('move parent block not found');
+            const siblings = Array.from(blocks.values())
+                .filter((item) => item.parent_id === parent.id && item.id !== block.id)
+                .sort((left, right) => left.sort - right.sort || String(left.created || '').localeCompare(String(right.created || '')) || left.id.localeCompare(right.id));
+            siblings.unshift(block);
+            block.parent_id = parent.id;
+            block.root_id = parent.type === 'd' ? parent.id : parent.root_id;
+            siblings.forEach((item, index) => { item.sort = index + 1; });
+        }
     }
 
     function query(statement) {
@@ -154,12 +246,51 @@ function createHarness() {
             const block = blocks.get(blockMatch[1]);
             return block ? [{ id: block.id, parent_id: block.parent_id, root_id: block.root_id, type: block.type, subtype: block.subtype }] : [];
         }
-        const siblingsMatch = statement.match(/SELECT id FROM blocks WHERE parent_id = '([^']+)' ORDER BY sort ASC, created ASC, id ASC/);
-        if (siblingsMatch) {
+        const duplicateListMatch = statement.match(/SELECT id, parent_id, type FROM blocks WHERE id = '([^']+)'/);
+        if (duplicateListMatch) {
+            const block = blocks.get(duplicateListMatch[1]);
+            return block ? [{ id: block.id, parent_id: block.parent_id, type: block.type }] : [];
+        }
+        const headingSectionMatch = statement.match(/SELECT id, type, subtype FROM blocks\s+WHERE parent_id = '([^']+)'/);
+        if (headingSectionMatch) {
             return Array.from(blocks.values())
-                .filter((block) => block.parent_id === siblingsMatch[1] && (!/type = 'i'/.test(statement) || (block.type === 'i' && block.subtype === 't')))
+                .filter((block) => block.parent_id === headingSectionMatch[1])
+                .sort((left, right) => left.sort - right.sort || String(left.created || '').localeCompare(String(right.created || '')) || left.id.localeCompare(right.id))
+                .map((block) => ({ id: block.id, type: block.type, subtype: block.subtype }));
+        }
+        const ancestorBatchMatch = statement.match(/WITH RECURSIVE ancestors\(id, parent_id, depth\)[\s\S]*SELECT id, parent_id, 0 FROM blocks WHERE id = '([^']+)'[\s\S]*SELECT id FROM ancestors WHERE id IN \(([^)]+)\)/);
+        if (ancestorBatchMatch) {
+            const sourceIDs = new Set(Array.from(ancestorBatchMatch[2].matchAll(/'([^']+)'/g)).map((match) => match[1]));
+            let current = blocks.get(ancestorBatchMatch[1]);
+            while (current) {
+                if (sourceIDs.has(current.id)) return [{ id: current.id }];
+                current = blocks.get(current.parent_id);
+            }
+            return [];
+        }
+        const siblingsMatch = statement.match(/SELECT id FROM blocks\s+WHERE parent_id = '([^']+)'([\s\S]*?)ORDER BY sort ASC, created ASC, id ASC/);
+        if (siblingsMatch) {
+            const excludedIDs = new Set(Array.from(siblingsMatch[2].matchAll(/id <> '([^']+)'/g)).map((match) => match[1]));
+            const notIn = siblingsMatch[2].match(/id NOT IN \(([^)]+)\)/)?.[1] || '';
+            Array.from(notIn.matchAll(/'([^']+)'/g)).forEach((match) => excludedIDs.add(match[1]));
+            return Array.from(blocks.values())
+                .filter((block) => block.parent_id === siblingsMatch[1]
+                    && !excludedIDs.has(block.id)
+                    && (!/type = 'l'/.test(statement) || block.type === 'l')
+                    && (!/type = 'i'/.test(statement) || (block.type === 'i' && block.subtype === 't')))
                 .sort((left, right) => left.sort - right.sort)
-                .slice(0, /LIMIT 2/.test(statement) ? 2 : undefined)
+                .slice(0, /LIMIT 1/.test(statement) ? 1 : (/LIMIT 2/.test(statement) ? 2 : undefined))
+                .map((block) => ({ id: block.id }));
+        }
+        const lastChildMatch = statement.match(/SELECT id FROM blocks\s+WHERE parent_id = '([^']+)'([\s\S]*?)ORDER BY sort DESC, created DESC, id DESC LIMIT 1/);
+        if (lastChildMatch) {
+            const excludedIDs = new Set();
+            const notIn = lastChildMatch[2].match(/id NOT IN \(([^)]+)\)/)?.[1] || '';
+            Array.from(notIn.matchAll(/'([^']+)'/g)).forEach((match) => excludedIDs.add(match[1]));
+            return Array.from(blocks.values())
+                .filter((block) => block.parent_id === lastChildMatch[1] && !excludedIDs.has(block.id))
+                .sort((left, right) => right.sort - left.sort || String(right.created || '').localeCompare(String(left.created || '')) || right.id.localeCompare(left.id))
+                .slice(0, 1)
                 .map((block) => ({ id: block.id }));
         }
         const insertedTreeMatch = statement.match(/WITH RECURSIVE tree[\s\S]*SELECT '([^']+)', 0/);
@@ -180,6 +311,32 @@ function createHarness() {
             }
             return [];
         }
+        const taskTreeMatch = statement.match(/WITH RECURSIVE task_tree\(id, depth\)[\s\S]*SELECT id, 0 FROM blocks WHERE id = '([^']+)'/);
+        if (taskTreeMatch) {
+            const queue = [{ id: taskTreeMatch[1], depth: 0 }];
+            const seen = new Set();
+            const tasks = [];
+            while (queue.length) {
+                const current = queue.shift();
+                if (!current?.id || seen.has(current.id) || current.depth > 128) continue;
+                seen.add(current.id);
+                const block = blocks.get(current.id);
+                if (!block) continue;
+                if (block.type === 'i' && block.subtype === 't') {
+                    tasks.push({ id: block.id, depth: current.depth, sort: block.sort, created: block.created });
+                }
+                Array.from(blocks.values())
+                    .filter((item) => item.parent_id === current.id)
+                    .sort((left, right) => left.sort - right.sort)
+                    .forEach((item) => queue.push({ id: item.id, depth: current.depth + 1 }));
+            }
+            return tasks
+                .sort((left, right) => left.depth - right.depth
+                    || left.sort - right.sort
+                    || String(left.created || '').localeCompare(String(right.created || ''))
+                    || left.id.localeCompare(right.id))
+                .map((item) => ({ id: item.id }));
+        }
         throw new Error(`Unhandled SQL in contract test: ${statement}`);
     }
 
@@ -187,6 +344,77 @@ function createHarness() {
         apiCalls.push({ pathname, body: JSON.parse(JSON.stringify(body || {})) });
         if (pathname === '/api/query/sql') return query(String(body.stmt || ''));
         if (pathname === '/api/attr/getBlockAttrs') return { ...(attrs.get(body.id) || {}) };
+        if (pathname === '/api/block/getBlockDOM') return { dom: taskBlockDOM(body.id) };
+        if (pathname === '/api/block/getChildBlocks') {
+            return Array.from(blocks.values())
+                .filter((block) => block.parent_id === body.id)
+                .sort((left, right) => left.sort - right.sort || String(left.created || '').localeCompare(String(right.created || '')) || left.id.localeCompare(right.id))
+                .map((block) => ({ id: block.id, type: block.type, subType: block.subtype }));
+        }
+        if (pathname === '/api/transactions') {
+            if (failNextTransaction) {
+                failNextTransaction = false;
+                throw new Error('injected transaction failure');
+            }
+            if (skipNextTransaction) {
+                skipNextTransaction = false;
+                return null;
+            }
+            for (const transaction of body.transactions || []) {
+                for (const operation of transaction.doOperations || []) {
+                    if (operation.action === 'setAttrs') {
+                        const nextAttrs = JSON.parse(String(operation.data || '{}'));
+                        attrs.set(operation.id, { ...(attrs.get(operation.id) || {}), ...nextAttrs });
+                    } else if (operation.action === 'update') {
+                        applyTaskDOMUpdate(operation.id, operation.data);
+                    } else if (operation.action === 'move') {
+                        await api('/api/block/moveBlock', operation);
+                    } else if (operation.action === 'delete') {
+                        await api('/api/block/deleteBlock', operation);
+                    } else if (operation.action === 'insert') {
+                        const parent = blocks.get(operation.parentID || blocks.get(operation.previousID)?.parent_id);
+                        if (!parent) throw new Error('insert parent not found');
+                        const rootID = parent.type === 'd' ? parent.id : parent.root_id;
+                        const dom = String(operation.data || '');
+                        const insertedID = String(operation.id || dom.match(/data-node-id="([^"]+)"/)?.[1] || '');
+                        const isList = /data-type="NodeList"/.test(dom) && !/data-node-id="[^"]+"[^>]*data-type="NodeListItem"/.test(dom.split('>')[0] || '');
+                        blocks.set(insertedID, {
+                            id: insertedID,
+                            parent_id: parent.id,
+                            root_id: rootID,
+                            type: isList ? 'l' : 'i',
+                            subtype: isList ? '' : 't',
+                            markdown: isList ? '' : '* [ ] Inserted',
+                            content: isList ? '' : 'Inserted',
+                            updated: insertedID.slice(0, 14),
+                            created: insertedID.slice(0, 14),
+                            sort: 1,
+                        });
+                        if (isList) {
+                            const taskMatch = dom.match(/<div[^>]*data-node-id="([^"]+)"[^>]*data-type="NodeListItem"/);
+                            const taskID = String(taskMatch?.[1] || '');
+                            if (taskID) {
+                                const marker = String(dom.match(/\bdata-task="([^"]*)"/)?.[1] || ' ');
+                                const title = decodeHtml(String(dom.match(/data-type="NodeParagraph"[\s\S]*?<div contenteditable="true">([\s\S]*?)<\/div>/)?.[1] || '').replace(/<[^>]+>/g, ''));
+                                blocks.set(taskID, {
+                                    id: taskID,
+                                    parent_id: insertedID,
+                                    root_id: rootID,
+                                    type: 'i',
+                                    subtype: 't',
+                                    markdown: `* [${marker === 'X' ? 'x' : marker}] ${title}`,
+                                    content: title,
+                                    updated: taskID.slice(0, 14),
+                                    created: taskID.slice(0, 14),
+                                    sort: 1,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        }
         if (pathname === '/api/attr/setBlockAttrs') {
             attrs.set(body.id, { ...(attrs.get(body.id) || {}), ...(body.attrs || {}) });
             return null;
@@ -216,24 +444,57 @@ function createHarness() {
             return null;
         }
         if (pathname === '/api/block/moveBlock') {
-            const block = blocks.get(body.id);
-            if (!block) throw new Error('move source not found');
-            if (body.previousID) {
-                const previous = blocks.get(body.previousID);
-                if (!previous) throw new Error('move previous block not found');
-                block.parent_id = previous.parent_id;
-                block.root_id = previous.root_id;
-                block.sort = previous.sort + 0.1;
-            } else if (body.parentID) {
-                const parent = blocks.get(body.parentID);
-                if (!parent) throw new Error('move parent block not found');
-                block.parent_id = parent.id;
-                block.root_id = parent.type === 'd' ? parent.id : parent.root_id;
-                const childSorts = Array.from(blocks.values()).filter((item) => item.parent_id === parent.id && item.id !== block.id).map((item) => item.sort);
-                block.sort = childSorts.length ? Math.min(...childSorts) - 1 : 1;
+            if (skipNextMove) {
+                skipNextMove = false;
+                return null;
             }
+            moveBlock(body);
             return null;
         }
+        if (pathname === '/api/block/insertBlock') {
+            const previous = blocks.get(body.previousID);
+            const parent = previous ? blocks.get(previous.parent_id) : blocks.get(body.parentID);
+            if (!parent) throw new Error('insert parent not found');
+            createdBlockSequence += 1;
+            const stamp = `202607200200${String(createdBlockSequence).padStart(2, '0')}`;
+            const listID = `${stamp}-list`;
+            const taskID = `${stamp}-task`;
+            const rootID = parent.type === 'd' ? parent.id : parent.root_id;
+            const siblings = Array.from(blocks.values())
+                .filter((item) => item.parent_id === parent.id)
+                .sort((left, right) => left.sort - right.sort);
+            const previousIndex = previous ? siblings.findIndex((item) => item.id === previous.id) : -1;
+            siblings.splice(previousIndex + 1, 0, {
+                id: listID,
+                parent_id: parent.id,
+                root_id: rootID,
+                type: 'l',
+                subtype: 't',
+                markdown: '',
+                content: '',
+                updated: stamp.slice(0, 14),
+                created: stamp.slice(0, 14),
+                sort: 0,
+            });
+            siblings.forEach((item, index) => {
+                item.sort = index + 1;
+                blocks.set(item.id, item);
+            });
+            blocks.set(taskID, {
+                id: taskID,
+                parent_id: listID,
+                root_id: rootID,
+                type: 'i',
+                subtype: 't',
+                markdown: String(body.data || ''),
+                content: '',
+                updated: stamp.slice(0, 14),
+                created: stamp.slice(0, 14),
+                sort: 1,
+            });
+            return [{ doOperations: [{ id: listID }] }];
+        }
+        if (pathname === '/api/sqlite/flushTransaction') return null;
         if (pathname === '/api/block/appendBlock') {
             const parent = blocks.get(body.parentID);
             if (!parent) throw new Error('append parent not found');
@@ -290,16 +551,20 @@ function createHarness() {
             async bind(name, handler) { rpcCalls[name] = handler; },
             async unbind(name) { delete rpcCalls[name]; },
         },
-        mcp: {
-            async registerTool(name, schema, handler) {
+        agent: options.agentAvailable === false ? undefined : {
+            async registerCapability(name, schema, handler) {
                 if (failNextToolRegistration === name) {
                     failNextToolRegistration = '';
                     throw new Error(`register failed: ${name}`);
                 }
                 mcpTools[name] = { schema, handler };
             },
-            async unregisterTool(name) { delete mcpTools[name]; },
+            async unregisterCapability(name) { delete mcpTools[name]; },
         },
+        mcp: options.legacyMcpAvailable === true ? {
+            async registerTool(name, schema, handler) { mcpTools[name] = { schema, handler }; },
+            async unregisterTool(name) { delete mcpTools[name]; },
+        } : undefined,
         storage: {
             async get(name) {
                 if (!storage.has(name)) throw new Error('not found');
@@ -339,6 +604,9 @@ function createHarness() {
         start,
         storage,
         failNextRegistration(name) { failNextToolRegistration = name; },
+        failTransactionOnce() { failNextTransaction = true; },
+        skipTransactionOnce() { skipNextTransaction = true; },
+        skipMoveOnce() { skipNextMove = true; },
     };
 }
 
@@ -358,6 +626,23 @@ async function run() {
     assert.equal(initialCapabilities.data.registeredToolCount, 0, 'kernel startup must not restore MCP tools before entitlement verification');
     assert.equal(initialCapabilities.data.toolGroups.length, 6);
 
+    const unsupportedHarness = createHarness({ agentAvailable: false });
+    await unsupportedHarness.start();
+    const unsupportedCapabilities = await unsupportedHarness.call('taskHorizonGetCapabilities');
+    assert.equal(unsupportedCapabilities.ok, true);
+    assert.equal(unsupportedCapabilities.data.mcpAvailable, false);
+    const unsupportedEntitlement = await unsupportedHarness.call('taskHorizonSyncMcpEntitlement', { allowed: true });
+    assert.equal(unsupportedEntitlement.ok, false, 'missing Agent capability APIs must fail without a runtime TypeError');
+    assert.equal(unsupportedEntitlement.error.code, 'UNSUPPORTED');
+    assert.match(unsupportedEntitlement.error.message, /Agent 能力接口/);
+
+    const legacyHarness = createHarness({ agentAvailable: false, legacyMcpAvailable: true });
+    await legacyHarness.start();
+    assert.equal((await legacyHarness.call('taskHorizonGetCapabilities')).data.mcpAvailable, true);
+    const legacyEntitlement = await legacyHarness.call('taskHorizonSyncMcpEntitlement', { allowed: true });
+    assert.equal(legacyEntitlement.ok, true, 'legacy siyuan.mcp runtimes must remain supported');
+    assert.equal(legacyHarness.mcpTools.query_tasks.schema.readOnly, true);
+
     const freeEnable = await harness.call('taskHorizonSetMcpEnabled', true);
     assert.equal(freeEnable.ok, false, 'an unauthorized kernel client must not enable MCP tools');
     assert.equal(freeEnable.error.code, 'UNSUPPORTED');
@@ -371,9 +656,14 @@ async function run() {
     assert.equal(proEntitlement.data.mcpEnabled, true, 'verified Pro entitlement must restore the persisted MCP preference');
     assert.equal(proEntitlement.data.registeredToolCount, 21);
     assert.equal(proEntitlement.data.toolGroups.flatMap((group) => group.tools).find((tool) => tool.name === 'query_tasks').readOnly, true);
-    assert.equal(harness.mcpTools.query_tasks.schema.readOnly, true, 'SiYuan 3.7.3 requires plugin read tools to declare readOnly explicitly');
-    assert.equal(harness.mcpTools.aggregate_task_stats.schema.readOnly, true);
-    assert.notEqual(harness.mcpTools.create_task.schema.readOnly, true, 'write tools must not claim to be read-only');
+    assert.equal(harness.mcpTools.query_tasks.schema.effects.localRead, true, 'plugin read capabilities must declare localRead');
+    assert.equal(harness.mcpTools.aggregate_task_stats.schema.effects.localRead, true);
+    assert.equal(harness.mcpTools.create_task.schema.effects.localWrite, true, 'plugin write capabilities must declare localWrite');
+    assert.equal(harness.mcpTools.delete_task.schema.actionEffects.get.localRead, true, 'mixed capabilities must declare read actions precisely');
+    assert.equal(harness.mcpTools.delete_task.schema.actionEffects.delete.localWrite, true, 'mixed capabilities must declare write actions precisely');
+    assert.equal(harness.mcpTools.manage_agent_schedules.schema.actionEffects.list.localRead, true);
+    assert.equal(harness.mcpTools.manage_agent_schedules.schema.actionEffects.create.localWrite, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(harness.mcpTools.query_tasks.schema, 'readOnly'), false, 'legacy MCP metadata must not leak into Agent capability config');
 
     const statsOff = await harness.call('taskHorizonSetMcpToolConfig', { groupID: 'stats', enabled: false });
     assert.equal(statsOff.ok, true);
@@ -409,7 +699,7 @@ async function run() {
     const resolved = await harness.call('taskHorizonResolveTaskBinding', IDS.childBlock);
     assert.equal(resolved.ok, true);
     assert.equal(resolved.data.taskID, IDS.singleTask);
-    assert.equal(resolved.data.primaryHostID, IDS.singleList);
+    assert.equal(resolved.data.primaryHostID, IDS.singleTask);
 
     const invalidCreateTarget = await harness.call('taskHorizonCreateTask', { title: 'Invalid target', documentID: IDS.childBlock });
     assert.equal(invalidCreateTarget.ok, false);
@@ -456,6 +746,28 @@ async function run() {
     const moveUndoRequest = harness.apiCalls.filter((item) => item.pathname === '/api/block/moveBlock').at(-1)?.body || {};
     assert.equal(moveUndoRequest.nextID, undefined, 'move undo must use the same SiYuan-compatible placement resolver');
 
+    const authoritativeMove = await harness.call('taskHorizonMoveTask', {
+        taskID: IDS.secondTask,
+        previousID: IDS.firstTask,
+        authoritative: true,
+        recordUndo: false,
+    });
+    assert.equal(authoritativeMove.ok, true);
+    assert.equal(authoritativeMove.data.authoritative, true);
+    assert.equal(authoritativeMove.data.placement.parentListID, IDS.multiList);
+    assert.equal(authoritativeMove.data.placement.previousSiblingID, IDS.firstTask);
+    assert.equal(authoritativeMove.data.placement.documentID, IDS.doc);
+    assert.equal(authoritativeMove.data.task.parentListID, IDS.multiList);
+    assert.equal(authoritativeMove.data.task.previousSiblingID, IDS.firstTask);
+
+    const moveKernelSource = fs.readFileSync(path.join(__dirname, '..', 'kernel.js'), 'utf8');
+    assert.match(moveKernelSource, /const parentTask = await getTaskRow\(parentID\)/,
+        'child moves must retain the target parent document as authoritative placement');
+    assert.match(moveKernelSource, /previousSiblingID: position === 'bottom' \? lastSiblingID : ''[\s\S]*nextSiblingID: position === 'top' \? firstSiblingID : ''/,
+        'existing child lists must return their real requested sibling edge');
+    assert.match(moveKernelSource, /previousSiblingID: '',[\s\S]*nextSiblingID: '',[\s\S]*firstTaskID: id,[\s\S]*documentID: text\(parentTask\.root_id\)/,
+        'a newly created child list must report the task as its first and only child');
+
     const documents = await harness.call('taskHorizonSearchDocuments', { keyword: 'Contract', limit: 20 });
     assert.equal(documents.ok, true);
     assert.equal(documents.data.items.length, 1);
@@ -464,23 +776,86 @@ async function run() {
 
     const single = await harness.call('taskHorizonUpdateTask', IDS.singleTask, { priority: 'high' });
     assert.equal(single.ok, true);
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-priority'], 'high');
+    assert.equal(harness.attrs.get(IDS.singleList)['custom-priority'], undefined);
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], 'high');
     assert.equal(harness.attrs.get(IDS.singleList)['custom-existing-extension'], 'keep-me');
+
+    const paragraphTitle = await harness.call('taskHorizonGetTask', IDS.paragraphTitleTask);
+    assert.equal(paragraphTitle.ok, true);
+    assert.equal(paragraphTitle.data.title, '6646', 'a task title stored in its own paragraph must exclude nested child text');
+    const renamedParagraphTitle = await harness.call('taskHorizonUpdateTask', IDS.paragraphTitleTask, { title: 'Renamed parent' });
+    assert.equal(renamedParagraphTitle.ok, true);
+    assert.equal(renamedParagraphTitle.data.task.title, 'Renamed parent');
+    assert.equal(harness.blocks.get(IDS.paragraphTitleTask).markdown, '- [ ] \n    Renamed parent\n\n  - [ ] 323232', 'renaming must preserve the empty marker layout and nested child task');
 
     const first = await harness.call('taskHorizonUpdateTask', IDS.firstTask, { startDate: '2026-07-14' });
     assert.equal(first.ok, true);
     assert.equal(harness.attrs.get(IDS.firstTask)['custom-start-date'], '2026-07-14');
-    assert.equal(harness.attrs.get(IDS.multiList)['custom-start-date'], '2026-07-14');
+    assert.equal(harness.attrs.get(IDS.multiList)?.['custom-start-date'], undefined);
 
     const second = await harness.call('taskHorizonUpdateTask', IDS.secondTask, { completionTime: '2026-07-20' });
     assert.equal(second.ok, true);
     assert.equal(harness.attrs.get(IDS.secondTask)['custom-completion-time'], '2026-07-20');
-    assert.equal(harness.attrs.get(IDS.multiList)['custom-completion-time'], undefined);
+    assert.equal(harness.attrs.get(IDS.multiList)?.['custom-completion-time'], undefined);
 
     const custom = await harness.call('taskHorizonUpdateTask', IDS.singleTask, { customFieldValues: { energy: 'high' } });
     assert.equal(custom.ok, true);
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-tm-energy'], 'High');
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-tm-energy'], 'High');
+
+    const statusInProgress = await harness.call('taskHorizonMutateTask', {
+        action: 'patch',
+        taskID: IDS.firstTask,
+        patch: { customStatus: 'in_progress' },
+    });
+    assert.equal(statusInProgress.ok, true);
+    assert.equal(statusInProgress.data.outcome, 'committed');
+    assert.equal(statusInProgress.data.task.customStatus, 'in_progress');
+    assert.equal(statusInProgress.data.task.customStatusName, '进行中');
+    assert.equal(statusInProgress.data.task.done, true, 'a non-space SiYuan task marker is checked');
+    assert.match(harness.blocks.get(IDS.firstTask).markdown, /^\* \[\?\] First/);
+    assert.equal(harness.attrs.get(IDS.firstTask)['custom-status'], 'in_progress');
+    assert.ok(harness.attrs.get(IDS.firstTask)['custom-task-complete-at']);
+    const statusTransaction = harness.apiCalls.filter((item) => item.pathname === '/api/transactions').at(-1)?.body;
+    assert.deepEqual(Array.from(statusTransaction.transactions[0].doOperations.map((item) => item.action)), ['update', 'setAttrs'],
+        'status marker and attrs must share one kernel transaction');
+
+    const statusDone = await harness.call('taskHorizonMutateTask', {
+        action: 'patch',
+        taskID: IDS.firstTask,
+        patch: { customStatus: 'done' },
+    });
+    assert.equal(statusDone.ok, true);
+    assert.equal(statusDone.data.outcome, 'committed');
+    assert.match(harness.blocks.get(IDS.firstTask).markdown, /^\* \[[xX]\] First/);
+    assert.equal(harness.attrs.get(IDS.firstTask)['custom-status'], 'done');
+
+    const statusTodo = await harness.call('taskHorizonMutateTask', {
+        action: 'patch',
+        taskID: IDS.firstTask,
+        patch: { customStatus: 'todo' },
+    });
+    assert.equal(statusTodo.ok, true);
+    assert.equal(statusTodo.data.outcome, 'committed');
+    assert.equal(statusTodo.data.task.done, false);
+    assert.match(harness.blocks.get(IDS.firstTask).markdown, /^\* \[ \] First/);
+    assert.equal(harness.attrs.get(IDS.firstTask)['custom-status'], 'todo');
+    assert.equal(harness.attrs.get(IDS.firstTask)['custom-task-complete-at'], '');
+
+    const statusBeforeFailedTransaction = {
+        markdown: harness.blocks.get(IDS.firstTask).markdown,
+        attrs: { ...(harness.attrs.get(IDS.firstTask) || {}) },
+    };
+    harness.failTransactionOnce();
+    const failedStatus = await harness.call('taskHorizonMutateTask', {
+        action: 'patch',
+        taskID: IDS.firstTask,
+        patch: { customStatus: 'in_progress' },
+    });
+    assert.equal(failedStatus.ok, true, 'the command gateway returns a typed failure receipt');
+    assert.notEqual(failedStatus.data.outcome, 'committed');
+    assert.equal(harness.blocks.get(IDS.firstTask).markdown, statusBeforeFailedTransaction.markdown);
+    assert.deepEqual(harness.attrs.get(IDS.firstTask), statusBeforeFailedTransaction.attrs,
+        'a rejected transaction must not partially update status attrs');
 
     harness.attrs.set(IDS.singleList, {
         ...harness.attrs.get(IDS.singleList),
@@ -540,6 +915,14 @@ async function run() {
     assert.equal(readable.data.customFieldDefinitions[0].type, 'single');
     assert.equal(readable.data.customFieldDefinitions[0].options[0].id, 'high');
     assert.equal(readable.data.customFieldDefinitions[0].options[0].label, 'High');
+    assert.equal(readable.data.customFieldDefinitions[0].options[0].parentID, 'reading');
+    assert.equal(readable.data.customFieldDefinitions[0].options[0].depth, 2);
+    assert.equal(readable.data.customFieldDefinitions[0].options[0].path, 'Investment / Reading / High');
+    assert.deepEqual(Array.from(readable.data.customFieldDefinitions[0].options[0].ancestorIDs), ['invest', 'reading']);
+    assert.equal(readable.data.customFieldDefinitions[0].options.find((option) => option.id === 'legacy').effectiveArchived, true);
+    const customFieldDefinitionsResult = await harness.call('taskHorizonGetCustomFieldDefinitions');
+    assert.equal(customFieldDefinitionsResult.ok, true);
+    assert.equal(customFieldDefinitionsResult.data[0].options[0].path, 'Investment / Reading / High');
 
     const reminderTool = harness.mcpTools.configure_task_reminder;
     assert.ok(reminderTool, 'configure_task_reminder must be registered');
@@ -574,7 +957,7 @@ async function run() {
     assert.equal(reusedGlobalTask.data.taskReused, true);
     assert.equal(reusedGlobalTask.data.taskCreated, false);
     assert.equal(Array.from(harness.blocks.values()).filter((block) => block.type === 'i' && block.subtype === 't').length, tasksBeforeReuse, 'reusing a global exact-title task must not create another task');
-    assert.equal(JSON.parse(harness.attrs.get(IDS.otherList)['custom-tomato-reminder']).taskId, IDS.otherTask);
+    assert.equal(JSON.parse(harness.attrs.get(IDS.otherTask)['custom-tomato-reminder']).taskId, IDS.otherTask);
     const reusedFormattedTask = await reminderTool.handler({
         action: 'apply',
         operation: 'set',
@@ -683,7 +1066,7 @@ async function run() {
     assert.equal(reminderExecute.data.reminder.followAnchor, 'completionTime');
     assert.equal(reminderExecute.data.reminder.followDayOffset, 0);
     assert.equal(reminderExecute.data.reminder.syncTaskDone, true);
-    const followedReminder = JSON.parse(harness.attrs.get(IDS.singleList)['custom-tomato-reminder']);
+    const followedReminder = JSON.parse(harness.attrs.get(IDS.singleTask)['custom-tomato-reminder']);
     assert.equal(followedReminder.repeatMode, 'followTaskRepeat');
     assert.equal(followedReminder.syncTaskDone, true);
     assert.equal(followedReminder.followAnchor, 'completionTime');
@@ -692,13 +1075,11 @@ async function run() {
     assert.equal(followedReminder.blockContent, 'Alpha');
     assert.equal(reminderExecute.data.completionTime, '2026-07-20');
     assert.equal(reminderExecute.data.completionChanged, true);
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-completion-time'], '2026-07-20', 'execute must write the requested reminder date as the task deadline');
-    assert.equal(harness.attrs.get(IDS.singleTask)['custom-completion-time'], '2026-07-20', 'the derived deadline must follow normal task mirroring');
-    assert.equal(followedReminder.extension, 'keep-reminder-extension');
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-completion-time'], '2026-07-20', 'execute must write the requested reminder date on the task block');
+    assert.equal(harness.attrs.get(IDS.singleList)['custom-completion-time'], '', 'canonical writes must not mirror the deadline to the legacy parent list');
     assert.equal(followedReminder.at, undefined, 'stale legacy time aliases must be cleared');
-    assert.equal(harness.attrs.get(IDS.singleList).bookmark, '⏰');
-    assert.equal(harness.attrs.get(IDS.singleTask)['custom-tomato-reminder'], '', 'a reminder must exist only on the real attribute host');
-    assert.equal(harness.attrs.get(IDS.singleTask).bookmark, '', 'the stale mirrored reminder mark must be removed');
+    assert.equal(harness.attrs.get(IDS.singleTask).bookmark, '⏰');
+    assert.equal(JSON.parse(harness.attrs.get(IDS.singleList)['custom-tomato-reminder']).extension, 'keep-reminder-extension', 'legacy parent data must remain available for backward-compatible reads');
 
     const clearFollowReminder = await reminderTool.handler({
         action: 'apply',
@@ -707,7 +1088,6 @@ async function run() {
     });
     assert.equal(clearFollowReminder.ok, true);
     assert.equal(clearFollowReminder.data.completionCleared, true, 'clearing a follow-task reminder must clear its synchronized deadline');
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-completion-time'], '');
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-completion-time'], '');
 
     const independentPreview = await reminderTool.handler({
@@ -735,12 +1115,12 @@ async function run() {
         previewToken: independentPreview.data.previewToken,
     });
     assert.equal(independentExecute.ok, true);
-    const independentReminder = JSON.parse(harness.attrs.get(IDS.singleList)['custom-tomato-reminder']);
+    const independentReminder = JSON.parse(harness.attrs.get(IDS.singleTask)['custom-tomato-reminder']);
     assert.equal(independentReminder.repeatMode, 'manual');
     assert.equal(independentReminder.syncTaskDone, false);
     assert.equal(independentReminder.taskRepeatRule, null);
     assert.deepEqual(independentReminder.completedOccurrences, []);
-    assert.equal(harness.attrs.get(IDS.singleTask)['custom-tomato-reminder'], '', 'independent reminders must not be mirrored to the task block');
+    assert.equal(independentReminder.taskId, IDS.singleTask, 'independent reminders must use the task block as their canonical host');
 
     harness.attrs.set(IDS.singleList, { ...harness.attrs.get(IDS.singleList), 'custom-completion-time': '2026-08-15' });
     harness.attrs.set(IDS.singleTask, { ...harness.attrs.get(IDS.singleTask), 'custom-completion-time': '2026-08-15' });
@@ -755,10 +1135,10 @@ async function run() {
         previewToken: clearPreview.data.previewToken,
     });
     assert.equal(clearExecute.ok, true);
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-tomato-reminder'], '');
-    assert.equal(harness.attrs.get(IDS.singleList).bookmark, '');
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-tomato-reminder'], '');
+    assert.equal(harness.attrs.get(IDS.singleTask).bookmark, '');
     assert.equal(clearExecute.data.completionCleared, false, 'clearing an independent reminder must not clear the task deadline');
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-completion-time'], '2026-08-15');
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-completion-time'], '2026-08-15');
 
     harness.attrs.set(IDS.multiList, {
         ...harness.attrs.get(IDS.multiList),
@@ -785,8 +1165,7 @@ async function run() {
     const movedMultiReminder = JSON.parse(harness.attrs.get(IDS.firstTask)['custom-tomato-reminder']);
     assert.equal(movedMultiReminder.taskId, IDS.firstTask);
     assert.equal(movedMultiReminder.legacyExtension, 'keep-on-move', 'host migration must preserve unknown reminder fields');
-    assert.equal(harness.attrs.get(IDS.multiList)['custom-tomato-reminder'], '', 'multi-task reminders must be removed from the parent-list mirror');
-    assert.equal(harness.attrs.get(IDS.multiList).bookmark, '');
+    assert.equal(JSON.parse(harness.attrs.get(IDS.multiList)['custom-tomato-reminder']).legacyExtension, 'keep-on-move', 'legacy parent-list metadata must not be destructively cleared');
 
     const agentScheduleTool = harness.mcpTools.manage_agent_schedules;
     assert.ok(agentScheduleTool, 'manage_agent_schedules must be registered');
@@ -1047,7 +1426,7 @@ async function run() {
         'custom-data-assets-th-meta': '[]',
     });
     assert.equal(uiAttrs.ok, true);
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-data-assets-th-0'], 'assets/example.png');
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-data-assets-th-0'], 'assets/example.png');
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-task-repeat-rule'], '{"enabled":true}');
 
     const unsafeUiAttrs = await harness.call('taskHorizonPersistUiTaskAttrs', IDS.singleTask, { 'custom-unregistered': 'no' });
@@ -1204,7 +1583,7 @@ async function run() {
     });
     assert.equal(batchPreview.ok, true);
     assert.equal(batchPreview.data.previewOnly, true);
-    assert.notEqual(harness.attrs.get(IDS.singleList)['custom-priority'], 'preview-only');
+    assert.notEqual(harness.attrs.get(IDS.singleTask)['custom-priority'], 'preview-only');
 
     const batchExecute = await harness.mcpTools.batch_tasks.handler({
         action: 'apply',
@@ -1212,11 +1591,11 @@ async function run() {
         operations: [{ kind: 'update', taskID: IDS.singleTask, patch: { priority: 'batch-value' } }],
     });
     assert.equal(batchExecute.ok, true);
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-priority'], 'batch-value');
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], 'batch-value');
     assert.equal(batchExecute.data.items[0].changes.refresh.action, 'update');
     const batchUndo = await harness.call('taskHorizonUndoLastMutation', {});
     assert.equal(batchUndo.ok, true);
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-priority'], 'high');
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], 'high');
     assert.equal(batchUndo.data.data.items[0].refresh.action, 'update');
 
     const deleteWithoutToken = await harness.mcpTools.delete_task.handler({ action: 'delete', phase: 'execute', taskID: IDS.singleTask });
@@ -1236,24 +1615,286 @@ async function run() {
     assert.deepEqual(Array.from(deletedDirectTask.data.refresh.taskIDs), [directCreate.data.task.id]);
     assert.deepEqual(Array.from(deletedDirectTask.data.refresh.documentIDs), [IDS.doc]);
 
+    const subtreeListID = '20260811000000-list';
+    const subtreeParentID = '20260811000001-task';
+    const subtreeChildListID = '20260811000002-list';
+    const subtreeChildID = '20260811000003-task';
+    harness.blocks.set(subtreeListID, { id: subtreeListID, parent_id: IDS.doc, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260811000000', created: '20260811000000', sort: 20 });
+    harness.blocks.set(subtreeParentID, { id: subtreeParentID, parent_id: subtreeListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Delete parent', content: 'Delete parent', updated: '20260811000001', created: '20260811000001', sort: 1 });
+    harness.blocks.set(subtreeChildListID, { id: subtreeChildListID, parent_id: subtreeParentID, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260811000002', created: '20260811000002', sort: 1 });
+    harness.blocks.set(subtreeChildID, { id: subtreeChildID, parent_id: subtreeChildListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Delete child', content: 'Delete child', updated: '20260811000003', created: '20260811000003', sort: 1 });
+    harness.storage.set('calendar-events.json', JSON.stringify([
+        ...JSON.parse(harness.storage.get('calendar-events.json')),
+        { id: 'schedule-delete-parent', taskId: subtreeParentID },
+        { id: 'schedule-delete-child', taskId: subtreeChildID },
+    ]));
+    const subtreePreview = await harness.mcpTools.delete_task.handler({ action: 'get', phase: 'preview', taskID: subtreeParentID });
+    assert.equal(subtreePreview.ok, true);
+    assert.deepEqual(Array.from(subtreePreview.data.deletedTaskIDs), [subtreeParentID, subtreeChildID]);
+    assert.equal(subtreePreview.data.linkedScheduleCount, 2, 'delete preview must include schedules linked to descendant tasks');
+    const subtreeDelete = await harness.mcpTools.delete_task.handler({
+        action: 'delete',
+        phase: 'execute',
+        taskID: subtreeParentID,
+        previewToken: subtreePreview.data.previewToken,
+    });
+    assert.equal(subtreeDelete.ok, true);
+    assert.equal(harness.blocks.has(subtreeParentID), false);
+    assert.equal(harness.blocks.has(subtreeChildID), false);
+    assert.deepEqual(Array.from(subtreeDelete.data.refresh.taskIDs), [subtreeParentID, subtreeChildID]);
+    const schedulesAfterSubtreeDelete = JSON.parse(harness.storage.get('calendar-events.json'));
+    assert.equal(schedulesAfterSubtreeDelete.some((item) => item.taskId === subtreeParentID || item.taskId === subtreeChildID), false);
+
+    const partialListID = '20260811000004-list';
+    const partialTaskID = '20260811000005-task';
+    harness.blocks.set(partialListID, { id: partialListID, parent_id: IDS.doc, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260811000004', created: '20260811000004', sort: 21 });
+    harness.blocks.set(partialTaskID, { id: partialTaskID, parent_id: partialListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Partial delete', content: 'Partial delete', updated: '20260811000005', created: '20260811000005', sort: 1 });
+    harness.storage.set('calendar-events.json', '{invalid json');
+    try {
+        const partialDelete = await harness.call('taskHorizonMutateTask', { action: 'delete', taskID: partialTaskID });
+        assert.equal(partialDelete.ok, true);
+        assert.equal(partialDelete.data.outcome, 'committed', 'a deleted block must remain committed when schedule cleanup fails');
+        assert.equal(harness.blocks.has(partialTaskID), false);
+        assert.equal(partialDelete.data.value.cleanupWarnings.some((item) => item.step === 'delete-task-schedules'), true);
+    } finally {
+        harness.storage.set('calendar-events.json', JSON.stringify(schedulesAfterSubtreeDelete));
+    }
+
     const done = await harness.call('taskHorizonUpdateTask', IDS.singleTask, { done: true });
     assert.equal(done.ok, true);
     assert.equal(done.data.refresh.action, 'update');
     assert.match(harness.blocks.get(IDS.singleTask).markdown, /^\* \[x\]/);
-    assert.match(harness.attrs.get(IDS.singleList)['custom-task-complete-at'], /^\d{4}-\d{2}-\d{2}T/);
+    assert.match(harness.attrs.get(IDS.singleTask)['custom-task-complete-at'], /^\d{4}-\d{2}-\d{2}T/);
 
     const undone = await harness.call('taskHorizonUpdateTask', IDS.singleTask, { done: false });
     assert.equal(undone.ok, true);
     assert.match(harness.blocks.get(IDS.singleTask).markdown, /^\* \[ \]/);
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-task-complete-at'], '');
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-task-complete-at'], '');
 
     const guardedUpdate = await harness.call('taskHorizonUpdateTask', IDS.singleTask, { priority: 'undo-guard' });
     assert.equal(guardedUpdate.ok, true);
-    harness.attrs.set(IDS.singleList, { ...harness.attrs.get(IDS.singleList), 'custom-priority': 'external-change' });
+    harness.attrs.set(IDS.singleTask, { ...harness.attrs.get(IDS.singleTask), 'custom-priority': 'external-change' });
     const conflictedUndo = await harness.call('taskHorizonUndoLastMutation', {});
     assert.equal(conflictedUndo.ok, false);
     assert.equal(conflictedUndo.error.code, 'CONFLICT');
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-priority'], 'external-change');
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], 'external-change');
+
+    const headingWithListID = '20260813000000-heading';
+    const headingListID = '20260813000001-list';
+    const headingExistingTaskID = '20260813000002-task';
+    const headingSourceListID = '20260813000003-list';
+    const headingSourceTaskID = '20260813000004-task';
+    harness.blocks.set(headingWithListID, { id: headingWithListID, parent_id: IDS.doc, root_id: IDS.doc, type: 'h', subtype: 'h2', markdown: '## Existing target', content: 'Existing target', updated: '20260813000000', created: '20260813000000', sort: 40 });
+    harness.blocks.set(headingListID, { id: headingListID, parent_id: IDS.doc, root_id: IDS.doc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000001', created: '20260813000001', sort: 41 });
+    harness.blocks.set(headingExistingTaskID, { id: headingExistingTaskID, parent_id: headingListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Existing target task', content: 'Existing target task', updated: '20260813000002', created: '20260813000002', sort: 1 });
+    harness.blocks.set(headingSourceListID, { id: headingSourceListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000003', created: '20260813000003', sort: 40 });
+    harness.blocks.set(headingSourceTaskID, { id: headingSourceTaskID, parent_id: headingSourceListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Move to existing target', content: 'Move to existing target', updated: '20260813000004', created: '20260813000004', sort: 1 });
+    const moveToExistingHeadingList = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: headingSourceTaskID,
+        mode: 'heading',
+        headingID: headingWithListID,
+        targetDocumentID: IDS.doc,
+        requestedListID: '20260813000005-list',
+        authoritative: true,
+    });
+    assert.equal(moveToExistingHeadingList.ok, true);
+    assert.equal(moveToExistingHeadingList.data.outcome, 'committed');
+    assert.equal(harness.blocks.get(headingSourceTaskID).parent_id, headingSourceListID,
+        'heading moves must preserve the task inside its source list');
+    assert.equal(harness.blocks.get(headingSourceListID).parent_id, IDS.doc,
+        'the source task list must move into the target document');
+    const existingHeadingMoveCall = harness.apiCalls
+        .filter((item) => item.pathname === '/api/block/moveBlock')
+        .at(-1);
+    assert.equal(existingHeadingMoveCall?.body?.previousID, headingWithListID,
+        'an unrelated task list after the heading must never replace the heading anchor');
+    assert.equal(existingHeadingMoveCall?.body?.id, headingSourceListID,
+        'a list item must not be moved directly under a document');
+
+    const emptyHeadingID = '20260813000006-heading';
+    const followingHeadingID = '20260813000007-heading';
+    const emptyHeadingSourceListID = '20260813000008-list';
+    const emptyHeadingSourceTaskID = '20260813000009-task';
+    const requestedHeadingListID = '20260813000010-list';
+    harness.blocks.set(emptyHeadingID, { id: emptyHeadingID, parent_id: IDS.doc, root_id: IDS.doc, type: 'h', subtype: 'h2', markdown: '## Empty target', content: 'Empty target', updated: '20260813000006', created: '20260813000006', sort: 50 });
+    harness.blocks.set(followingHeadingID, { id: followingHeadingID, parent_id: IDS.doc, root_id: IDS.doc, type: 'h', subtype: 'h2', markdown: '## Following', content: 'Following', updated: '20260813000007', created: '20260813000007', sort: 60 });
+    harness.blocks.set(emptyHeadingSourceListID, { id: emptyHeadingSourceListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000008', created: '20260813000008', sort: 50 });
+    harness.blocks.set(emptyHeadingSourceTaskID, { id: emptyHeadingSourceTaskID, parent_id: emptyHeadingSourceListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Move to empty target', content: 'Move to empty target', updated: '20260813000009', created: '20260813000009', sort: 1 });
+    const moveToEmptyHeading = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: emptyHeadingSourceTaskID,
+        mode: 'heading',
+        headingID: emptyHeadingID,
+        targetDocumentID: IDS.doc,
+        requestedListID: requestedHeadingListID,
+        authoritative: true,
+    });
+    assert.equal(moveToEmptyHeading.ok, true);
+    assert.equal(moveToEmptyHeading.data.outcome, 'committed');
+    assert.equal(harness.blocks.get(emptyHeadingSourceTaskID).parent_id, emptyHeadingSourceListID,
+        'an empty heading must accept the moved task list directly after the heading');
+    assert.equal(harness.blocks.get(emptyHeadingSourceListID).parent_id, IDS.doc);
+    const emptyHeadingCalls = harness.apiCalls.filter((item) => (
+        item.pathname === '/api/block/insertBlock'
+        || item.pathname === '/api/block/moveBlock'
+        || item.pathname === '/api/block/deleteBlock'
+    ));
+    assert.equal(emptyHeadingCalls.some((item) => item.pathname === '/api/block/insertBlock'), false,
+        'an independent source list must not create a scaffold task list');
+
+    const failedHeadingID = '20260813000011-heading';
+    const failedSourceListID = '20260813000012-list';
+    const failedSourceTaskID = '20260813000013-task';
+    harness.blocks.set(failedHeadingID, { id: failedHeadingID, parent_id: IDS.doc, root_id: IDS.doc, type: 'h', subtype: 'h2', markdown: '## Failed target', content: 'Failed target', updated: '20260813000011', created: '20260813000011', sort: 70 });
+    harness.blocks.set(failedSourceListID, { id: failedSourceListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000012', created: '20260813000012', sort: 60 });
+    harness.blocks.set(failedSourceTaskID, { id: failedSourceTaskID, parent_id: failedSourceListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Must remain at source', content: 'Must remain at source', updated: '20260813000013', created: '20260813000013', sort: 1 });
+    harness.skipMoveOnce();
+    const rejectedHeadingMove = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: failedSourceTaskID,
+        mode: 'heading',
+        headingID: failedHeadingID,
+        targetDocumentID: IDS.doc,
+        authoritative: true,
+    });
+    assert.equal(rejectedHeadingMove.ok, true);
+    assert.equal(rejectedHeadingMove.data.outcome, 'conflict',
+        'a structure-rejected move that returns code zero must not be reported as committed');
+    assert.equal(harness.blocks.get(failedSourceListID).parent_id, IDS.otherDoc);
+
+    const restoreSourceListID = '20260813000014-list';
+    const restoreSourceTaskID = '20260813000015-task';
+    harness.blocks.set(restoreSourceListID, { id: restoreSourceListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000014', created: '20260813000014', sort: 80 });
+    harness.blocks.set(restoreSourceTaskID, { id: restoreSourceTaskID, parent_id: restoreSourceListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Restore to default position', content: 'Restore to default position', updated: '20260813000015', created: '20260813000015', sort: 1 });
+    const restoreToDocument = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: restoreSourceTaskID,
+        mode: 'document-list',
+        targetDocumentID: IDS.doc,
+        sourceDocumentID: IDS.otherDoc,
+        sourceListID: restoreSourceListID,
+        authoritative: true,
+    });
+    assert.equal(restoreToDocument.ok, true);
+    assert.equal(restoreToDocument.data.outcome, 'committed');
+    assert.equal(harness.blocks.get(restoreSourceTaskID).parent_id, restoreSourceListID,
+        'restoring a completed task must preserve the task inside its independent list');
+    assert.equal(harness.blocks.get(restoreSourceListID).parent_id, IDS.doc);
+    const restoreMoveCall = harness.apiCalls
+        .filter((item) => item.pathname === '/api/block/moveBlock')
+        .at(-1);
+    assert.equal(restoreMoveCall?.body?.id, restoreSourceListID,
+        'restoring to the default document position must move the outer list, not the task item');
+    assert.equal(restoreMoveCall?.body?.parentID, IDS.doc);
+
+    const rejectedRestoreListID = '20260813000016-list';
+    const rejectedRestoreTaskID = '20260813000017-task';
+    harness.blocks.set(rejectedRestoreListID, { id: rejectedRestoreListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000016', created: '20260813000016', sort: 90 });
+    harness.blocks.set(rejectedRestoreTaskID, { id: rejectedRestoreTaskID, parent_id: rejectedRestoreListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Reject false success', content: 'Reject false success', updated: '20260813000017', created: '20260813000017', sort: 1 });
+    harness.skipMoveOnce();
+    const rejectedRestore = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: rejectedRestoreTaskID,
+        mode: 'document-list',
+        targetDocumentID: IDS.doc,
+        sourceDocumentID: IDS.otherDoc,
+        sourceListID: rejectedRestoreListID,
+        authoritative: true,
+    });
+    assert.equal(rejectedRestore.ok, true);
+    assert.equal(rejectedRestore.data.outcome, 'conflict',
+        'a document-list move that was not applied must not be reported as committed');
+    assert.equal(harness.blocks.get(rejectedRestoreListID).parent_id, IDS.otherDoc);
+
+    const batchTransactionStart = harness.apiCalls.filter((item) => item.pathname === '/api/transactions').length;
+    const batchMove = await harness.call('taskHorizonMutateTask', {
+        action: 'batchMove',
+        taskIDs: [IDS.firstTask, IDS.secondTask],
+        parentTaskID: IDS.singleTask,
+        requestedListID: IDS.childList,
+        mode: 'child',
+    });
+    assert.equal(batchMove.ok, true);
+    assert.equal(batchMove.data.outcome, 'committed');
+    assert.equal(batchMove.data.value.transactionCount, 1, 'an existing child list must use one kernel transaction');
+    assert.equal(batchMove.data.value.results.length, 2);
+    const batchTransactions = harness.apiCalls
+        .filter((item) => item.pathname === '/api/transactions')
+        .slice(batchTransactionStart);
+    assert.equal(batchTransactions.length, 1, 'batch child moves must issue one transactions request');
+    assert.equal(batchTransactions[0].body.transactions.length, 1, 'batch child moves must use one atomic transaction');
+    assert.deepEqual(
+        batchTransactions[0].body.transactions[0].doOperations
+            .filter((operation) => operation.action === 'move')
+            .map((operation) => operation.id),
+        [IDS.secondTask, IDS.firstTask],
+        'move operations must be reversed around the stable target anchor',
+    );
+    const childOrder = Array.from(harness.blocks.values())
+        .filter((block) => block.parent_id === IDS.childList)
+        .sort((left, right) => left.sort - right.sort)
+        .map((block) => block.id);
+    assert.deepEqual(childOrder, [IDS.childTask, IDS.firstTask, IDS.secondTask]);
+    assert.deepEqual(
+        batchMove.data.value.results.map((item) => item.placement.parentListID),
+        [IDS.childList, IDS.childList],
+    );
+
+    const newBatchListID = '20260812000000-list';
+    const newBatchFirstID = '20260812000001-task';
+    const newBatchSecondID = '20260812000002-task';
+    const newBatchParentID = '20260812000003-task';
+    const requestedChildListID = '20260812000004-list';
+    harness.blocks.set(newBatchListID, { id: newBatchListID, parent_id: IDS.doc, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260812000000', created: '20260812000000', sort: 30 });
+    harness.blocks.set(newBatchFirstID, { id: newBatchFirstID, parent_id: newBatchListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Batch first', content: 'Batch first', updated: '20260812000001', created: '20260812000001', sort: 1 });
+    harness.blocks.set(newBatchSecondID, { id: newBatchSecondID, parent_id: newBatchListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Batch second', content: 'Batch second', updated: '20260812000002', created: '20260812000002', sort: 2 });
+    harness.blocks.set(newBatchParentID, { id: newBatchParentID, parent_id: newBatchListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Batch parent', content: 'Batch parent', updated: '20260812000003', created: '20260812000003', sort: 3 });
+    const createBatchTransactionStart = harness.apiCalls.filter((item) => item.pathname === '/api/transactions').length;
+    const createBatchMove = await harness.call('taskHorizonMutateTask', {
+        action: 'batchMove',
+        taskIDs: [newBatchFirstID, newBatchSecondID],
+        parentTaskID: newBatchParentID,
+        requestedListID: requestedChildListID,
+        mode: 'child',
+    });
+    assert.equal(createBatchMove.ok, true);
+    assert.equal(createBatchMove.data.outcome, 'committed');
+    assert.equal(createBatchMove.data.value.transactionCount, 1, 'creating a child list and moving all selected tasks must remain atomic');
+    const createBatchTransactions = harness.apiCalls
+        .filter((item) => item.pathname === '/api/transactions')
+        .slice(createBatchTransactionStart);
+    assert.equal(createBatchTransactions.length, 1);
+    assert.deepEqual(
+        createBatchTransactions[0].body.transactions[0].doOperations.map((operation) => operation.action),
+        ['delete', 'insert', 'move'],
+    );
+    assert.deepEqual(
+        Array.from(harness.blocks.values())
+            .filter((block) => block.parent_id === requestedChildListID)
+            .sort((left, right) => left.sort - right.sort)
+            .map((block) => block.id),
+        [newBatchFirstID, newBatchSecondID],
+    );
+
+    const rejectedBatchListID = '20260812000005-list';
+    const rejectedBatchFirstID = '20260812000006-task';
+    const rejectedBatchSecondID = '20260812000007-task';
+    harness.blocks.set(rejectedBatchListID, { id: rejectedBatchListID, parent_id: IDS.doc, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260812000005', created: '20260812000005', sort: 31 });
+    harness.blocks.set(rejectedBatchFirstID, { id: rejectedBatchFirstID, parent_id: rejectedBatchListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Rejected first', content: 'Rejected first', updated: '20260812000006', created: '20260812000006', sort: 1 });
+    harness.blocks.set(rejectedBatchSecondID, { id: rejectedBatchSecondID, parent_id: rejectedBatchListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Rejected second', content: 'Rejected second', updated: '20260812000007', created: '20260812000007', sort: 2 });
+    harness.skipTransactionOnce();
+    const uncommittedBatchMove = await harness.call('taskHorizonMutateTask', {
+        action: 'batchMove',
+        taskIDs: [rejectedBatchFirstID, rejectedBatchSecondID],
+        parentTaskID: IDS.singleTask,
+        requestedListID: IDS.childList,
+        mode: 'child',
+    });
+    assert.equal(uncommittedBatchMove.ok, true);
+    assert.notEqual(uncommittedBatchMove.data.outcome, 'committed', 'an HTTP-successful but unapplied transaction must not be acknowledged');
+    assert.equal(harness.blocks.get(rejectedBatchFirstID).parent_id, rejectedBatchListID);
+    assert.equal(harness.blocks.get(rejectedBatchSecondID).parent_id, rejectedBatchListID);
 
     const downgraded = await harness.call('taskHorizonSyncMcpEntitlement', { allowed: false });
     assert.equal(downgraded.ok, true);

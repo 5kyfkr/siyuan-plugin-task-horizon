@@ -60,7 +60,7 @@ assert.match(
     /data-tm-detail-custom-field="\$\{esc\(fieldId\)\}"[\s\S]*data-tm-detail-section-toggle[\s\S]*data-tm-detail-custom-text-field/,
     'text custom fields must remain editable inside collapsible sections',
 );
-const visibilitySyncStart = detailSource.indexOf('const syncSubtaskVisibilityToggle = () => {');
+const visibilitySyncStart = detailSource.indexOf('const syncSubtaskVisibilityToggle = (');
 const visibilitySyncEnd = detailSource.indexOf('\n        let activeInlinePopover', visibilitySyncStart);
 assert.ok(visibilitySyncStart >= 0 && visibilitySyncEnd > visibilitySyncStart, 'completed-subtasks visibility sync must remain extractable');
 const visibilitySyncSource = detailSource.slice(visibilitySyncStart, visibilitySyncEnd);
@@ -90,6 +90,19 @@ for (const marker of [
     '可拖拽至此处添加附件，也可Ctrl+V粘贴。',
 ]) {
     assert.ok(attachmentBuilder.includes(marker), `attachment detail must preserve ${marker}`);
+}
+assert.match(
+    detailSource,
+    /const syncAttachmentSectionPaths = [\s\S]*__tmApplyTaskAttachmentPathsToTask\(nextTask, nextPaths,[\s\S]*return syncAttachmentSection\(nextTask\)/,
+    'attachment actions must render their explicit optimistic path snapshot instead of rereading a stale bound task',
+);
+for (const source of ['paste', 'drop', 'add', 'remove', 'move']) {
+    const actionIndex = detailSource.indexOf(`source: 'detail-attachment-${source}'`);
+    const syncIndex = detailSource.indexOf('syncAttachmentSectionPaths(task, nextPaths)', actionIndex);
+    assert.ok(
+        actionIndex >= 0 && syncIndex > actionIndex && syncIndex - actionIndex < 240,
+        `${source} attachment actions must refresh from the requested next paths`,
+    );
 }
 
 const remarkBuilderStart = helperSource.indexOf('function __tmBuildTaskDetailRemarkSectionHtml(');

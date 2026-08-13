@@ -10,6 +10,7 @@
         deletedGroupOverrides: new Set(),
         preview: null,
         error: '',
+        storageState: '',
         saving: false,
         savingTarget: '',
     };
@@ -21,6 +22,7 @@
     const __TM_AGENT_POLICY_MAX_DAILY_RANGES = 5;
     const __TM_AGENT_DURATION_MINUTES_MIN = 15;
     const __TM_AGENT_DURATION_MINUTES_MAX = 480;
+    const __TM_AGENT_POLICY_CACHE_KEY = 'tm_agent_policy_cache_v1';
 
     function __tmAgentPolicyDefaultWeeklyAvailability() {
         return Object.fromEntries(__TM_AGENT_POLICY_DAYS.map(([key]) => [key, '09:00-12:00, 14:00-18:00']));
@@ -58,6 +60,22 @@
 
     function __tmAgentPolicyClone(value, fallback = null) {
         try { return JSON.parse(JSON.stringify(value)); } catch (e) { return fallback; }
+    }
+
+    function __tmAgentPolicyReadCache() {
+        try {
+            const value = Storage.get(__TM_AGENT_POLICY_CACHE_KEY, null);
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+            return __tmAgentPolicyNormalize(value);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmAgentPolicyWriteCache(policy) {
+        const normalized = __tmAgentPolicyNormalize(policy);
+        try { Storage.set(__TM_AGENT_POLICY_CACHE_KEY, normalized); } catch (e) {}
+        return normalized;
     }
 
     function __tmAgentPolicyKernelMethod(name) {
@@ -117,26 +135,54 @@
         return !!policy?.groupOverrides?.[scope.id];
     }
 
+    function __tmAgentPolicyApplyLoaded(policy, storageState = 'valid') {
+        const normalized = __tmAgentPolicyNormalize(policy);
+        __tmAgentPolicyView.policy = normalized;
+        __tmAgentPolicyView.draft = __tmAgentPolicyClone(normalized, __tmAgentPolicyNormalize(null));
+        __tmAgentPolicyView.loaded = true;
+        __tmAgentPolicyView.error = '';
+        __tmAgentPolicyView.storageState = storageState;
+        __tmAgentPolicyView.preview = null;
+        __tmAgentPolicyView.deletedDocumentOverrides.clear();
+        __tmAgentPolicyView.deletedGroupOverrides.clear();
+        if (!__tmAgentPolicyScopeExists(normalized, __tmAgentPolicyView.selectedScope)) {
+            __tmAgentPolicyView.selectedScope = 'global';
+        }
+        return normalized;
+    }
+
     async function __tmLoadAgentPolicySettings(force = false) {
         if (__tmAgentPolicyView.loading) return __tmAgentPolicyView.loading;
         if (__tmAgentPolicyView.loaded && !force) return __tmAgentPolicyView.policy;
-        __tmAgentPolicyView.loading = __tmAgentPolicyCall('taskHorizonGetPolicy').then((policy) => {
-            const normalized = __tmAgentPolicyNormalize(policy);
-            __tmAgentPolicyView.policy = normalized;
-            __tmAgentPolicyView.draft = __tmAgentPolicyClone(normalized, __tmAgentPolicyNormalize(null));
-            __tmAgentPolicyView.loaded = true;
-            __tmAgentPolicyView.error = '';
-            __tmAgentPolicyView.preview = null;
-            __tmAgentPolicyView.deletedDocumentOverrides.clear();
-            __tmAgentPolicyView.deletedGroupOverrides.clear();
-            if (!__tmAgentPolicyScopeExists(normalized, __tmAgentPolicyView.selectedScope)) {
-                __tmAgentPolicyView.selectedScope = 'global';
+        const cached = __tmAgentPolicyReadCache();
+        if (cached && !__tmAgentPolicyView.loaded) __tmAgentPolicyApplyLoaded(cached, 'cache');
+        __tmAgentPolicyView.loading = (async () => {
+            try {
+                let policy = await __tmAgentPolicyCall('taskHorizonGetPolicy');
+                const storageState = String(policy?.__storageState || 'valid').trim() || 'valid';
+                if (storageState === 'missing' && cached) {
+                    policy = await __tmAgentPolicyCall('taskHorizonRestorePolicy', cached);
+                }
+                const normalized = __tmAgentPolicyApplyLoaded(policy, storageState === 'missing' && cached ? 'restored' : storageState);
+                if (storageState !== 'missing' || cached) __tmAgentPolicyWriteCache(normalized);
+                return normalized;
+            } catch (error) {
+                if (cached && String(error?.code || '') === 'STORAGE_CORRUPT') {
+                    try {
+                        const restored = await __tmAgentPolicyCall('taskHorizonRestorePolicy', cached);
+                        const normalized = __tmAgentPolicyApplyLoaded(restored, 'restored');
+                        __tmAgentPolicyWriteCache(normalized);
+                        return normalized;
+                    } catch (restoreError) {}
+                }
+                if (cached) {
+                    __tmAgentPolicyApplyLoaded(cached, 'cache');
+                    return cached;
+                }
+                __tmAgentPolicyView.error = String(error?.message || error || '安排规则读取失败');
+                return null;
             }
-            return normalized;
-        }).catch((error) => {
-            __tmAgentPolicyView.error = String(error?.message || error || '安排规则读取失败');
-            return null;
-        }).finally(() => {
+        })().finally(() => {
             __tmAgentPolicyView.loading = null;
         });
         return __tmAgentPolicyView.loading;
@@ -657,6 +703,7 @@
             __tmAgentPolicyView.policy = saved;
             __tmAgentPolicyView.draft.revision = saved.revision;
             __tmAgentPolicyView.draft.durationDefaults = __tmAgentPolicyClone(saved.durationDefaults, __tmAgentPolicyDefaultDurationDefaults());
+            __tmAgentPolicyWriteCache(saved);
             __tmAgentPolicyView.error = '';
             hint('任务默认时长已保存', 'success');
             return true;
@@ -705,6 +752,7 @@
             __tmAgentPolicyView.policy = saved;
             __tmAgentPolicyView.draft = __tmAgentPolicyClone(saved, __tmAgentPolicyNormalize(null));
             __tmAgentPolicyView.draft.durationDefaults = pendingDurationDefaults;
+            __tmAgentPolicyWriteCache(saved);
             __tmAgentPolicyView.deletedDocumentOverrides.clear();
             __tmAgentPolicyView.deletedGroupOverrides.clear();
             __tmAgentPolicyView.error = '';

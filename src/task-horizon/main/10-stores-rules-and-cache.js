@@ -20,6 +20,12 @@
             } catch (e) {
             }
         },
+        setSerialized(key, serialized) {
+            try {
+                localStorage.setItem(key, String(serialized ?? 'null'));
+            } catch (e) {
+            }
+        },
         remove(key) {
             try {
                 localStorage.removeItem(key);
@@ -54,11 +60,14 @@
     const TASK_SNAPSHOT_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-snapshot.json`;
     const TASK_INDEX_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-index.json`;
     const DOC_SCOPE_CACHE_FILE_PATH = `${PLUGIN_STORAGE_DIR}/doc-scope-cache.json`;
-    const DIAGNOSTIC_LOG_FILE_PATH = `${PLUGIN_STORAGE_DIR}/diagnostic-logs.json`;
     const __TM_CUSTOM_ORDER_SORT_FIELD = 'customOrder';
     const __TM_CUSTOM_TASK_ORDER_META_KEY = '__tmCustomTaskOrder';
     const __TM_CUSTOM_TASK_ORDER_VERSION = 1;
     const __TM_CUSTOM_TASK_ORDER_RANK_GAP = 1024;
+    const __TM_META_ORPHAN_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+    const __TM_META_ORPHAN_CLEANUP_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+    const __TM_META_ORPHAN_CLEANUP_MAX_IDS = 1000;
+    const __TM_META_ORPHAN_CLEANUP_BATCH_SIZE = 250;
     const __TM_TASK_SNAPSHOT_VERSION = 4;
     const __TM_TASK_SNAPSHOT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
     const __TM_TASK_SNAPSHOT_MAX_ENTRIES = 20;
@@ -477,8 +486,16 @@
         return String(Math.max(0, Math.floor(num)));
     }
 
+    function __tmNormalizeActualTomatoCountValue(value) {
+        const raw = String(value ?? '').trim();
+        if (!raw) return '';
+        const num = Number(raw);
+        if (!Number.isFinite(num) || num <= 0) return '';
+        return String(Math.round(num * 10) / 10);
+    }
+
     function __tmGetTomatoCountDisplay(value) {
-        const normalized = __tmNormalizeTomatoCountValue(value);
+        const normalized = __tmNormalizeActualTomatoCountValue(value);
         return normalized ? `🍅 ${normalized}` : '';
     }
 
@@ -487,7 +504,24 @@
     }
 
     function __tmGetTaskTomatoCount(task) {
-        return __tmNormalizeTomatoCountValue(task?.tomatoCount ?? task?.tomato_count ?? '');
+        const values = typeof __tmGetTaskTomatoFocusValues === 'function'
+            ? __tmGetTaskTomatoFocusValues(task)
+            : task;
+        if (SettingsStore?.data?.tomatoActualCountBySpentEnabled !== false) {
+            const mode = String(SettingsStore?.data?.tomatoSpentAttrMode || 'minutes').trim() === 'hours'
+                ? 'hours'
+                : 'minutes';
+            const amount = Number(mode === 'hours' ? values?.tomatoHours : values?.tomatoMinutes);
+            if (!Number.isFinite(amount) || amount <= 0) return '';
+            const focusMinutes = mode === 'hours' ? amount * 60 : amount;
+            let defaultTomatoMinutes = 30;
+            try {
+                const configured = Number(globalThis.__dockTomato?.getDefaultTomatoTimeMinutes?.());
+                if (Number.isFinite(configured) && configured > 0) defaultTomatoMinutes = configured;
+            } catch (e) {}
+            return __tmNormalizeActualTomatoCountValue(focusMinutes / defaultTomatoMinutes);
+        }
+        return __tmNormalizeTomatoCountValue(values?.tomatoCount ?? values?.tomato_count ?? '');
     }
 
     function __tmGetMeasureFontFromStyle(style) {
@@ -1351,6 +1385,7 @@
 
     const __TM_LOCAL_TASK_PATCH_WATERMARK_TTL_MS = 20 * 1000;
     const __TM_LOCAL_TASK_PATCH_WATERMARK_MAX = 256;
+    let __tmLocalTaskPatchWatermarkRevision = 0;
 
     function __tmNormalizeLocalPatchFieldKey(key) {
         const raw = String(key || '').trim();
@@ -1362,34 +1397,7 @@
         if (raw === 'customFieldValues') return raw;
         const metaField = __tmResolveTaskMetaFieldByAttrKey(raw);
         if (metaField) return metaField;
-        const map = {
-            custom_priority: 'priority',
-            'custom-priority': 'priority',
-            custom_duration: 'duration',
-            'custom-duration': 'duration',
-            custom_remark: 'remark',
-            'custom-remark': 'remark',
-            start_date: 'startDate',
-            'custom-start-date': 'startDate',
-            custom_start_date: 'startDate',
-            completion_time: 'completionTime',
-            'custom-completion-time': 'completionTime',
-            custom_completion_time: 'completionTime',
-            task_date_color: 'taskDateColor',
-            custom_task_date_color: 'taskDateColor',
-            'custom-task-date-color': 'taskDateColor',
-            task_complete_at: 'taskCompleteAt',
-            custom_time: 'customTime',
-            custom_status: 'customStatus',
-            'custom-status': 'customStatus',
-            custom_pinned: 'pinned',
-            'custom-pinned': 'pinned',
-            custom_all_day_bottom: 'allDayBottom',
-            'custom-all-day-bottom': 'allDayBottom',
-            'task-complete-at': 'taskCompleteAt',
-            raw_content: 'content',
-        };
-        return map[raw] || raw;
+        return globalThis.__tmTaskFieldSchema?.normalizeField?.(raw) || raw;
     }
 
     function __tmGetPatchFieldKeysForTaskPatch(patch = {}) {
@@ -1451,10 +1459,30 @@
         });
         map.set(tid, {
             t: now,
+            revision: ++__tmLocalTaskPatchWatermarkRevision,
             fields: Array.from(fields),
             values,
             source: String(opts.source || opts.reason || '').trim(),
         });
+        return true;
+    }
+
+    function __tmClearLocalTaskPatchWatermarkFields(taskId, fieldKeys = []) {
+        const tid = String(taskId || '').trim();
+        const map = state.__tmLocalTaskPatchWatermarks instanceof Map ? state.__tmLocalTaskPatchWatermarks : null;
+        if (!tid || !map) return false;
+        const keys = Array.from(new Set((Array.isArray(fieldKeys) ? fieldKeys : [fieldKeys])
+            .map((key) => __tmNormalizeLocalPatchFieldKey(key))
+            .filter(Boolean)));
+        if (!keys.length) return false;
+        const entry = map.get(tid);
+        if (!entry || !Array.isArray(entry.fields)) return false;
+        const remove = new Set(keys);
+        const fields = entry.fields.filter((key) => !remove.has(key));
+        const values = { ...((entry.values && typeof entry.values === 'object' && !Array.isArray(entry.values)) ? entry.values : {}) };
+        remove.forEach((key) => { try { delete values[key]; } catch (e) {} });
+        if (fields.length) map.set(tid, { ...entry, fields, values });
+        else map.delete(tid);
         return true;
     }
 
@@ -1467,15 +1495,7 @@
             map.delete(tid);
             return true;
         }
-        const entry = map.get(tid);
-        if (!entry || !Array.isArray(entry.fields)) return false;
-        const remove = new Set(keys);
-        const fields = entry.fields.filter((key) => !remove.has(key));
-        const values = { ...((entry.values && typeof entry.values === 'object' && !Array.isArray(entry.values)) ? entry.values : {}) };
-        remove.forEach((key) => { try { delete values[key]; } catch (e) {} });
-        if (fields.length) map.set(tid, { ...entry, fields, values, t: Date.now() });
-        else map.delete(tid);
-        return true;
+        return __tmClearLocalTaskPatchWatermarkFields(tid, keys);
     }
 
     function __tmGetLocalTaskPatchWatermark(taskId) {
@@ -1485,6 +1505,19 @@
         __tmPruneLocalTaskPatchWatermarks();
         const entry = map.get(tid);
         return entry && typeof entry === 'object' ? entry : null;
+    }
+
+    function __tmCaptureLocalTaskPatchWatermarkRevisions() {
+        const revisions = new Map();
+        const map = state.__tmLocalTaskPatchWatermarks instanceof Map ? state.__tmLocalTaskPatchWatermarks : null;
+        if (!map) return revisions;
+        __tmPruneLocalTaskPatchWatermarks();
+        map.forEach((entry, taskId) => {
+            const tid = String(taskId || '').trim();
+            if (!tid || !entry || typeof entry !== 'object') return;
+            revisions.set(tid, Math.max(0, Number(entry.revision) || 0));
+        });
+        return revisions;
     }
 
     function __tmTaskHasLocalPatchWatermark(taskId) {
@@ -1520,13 +1553,69 @@
         return { has: true, value: undefined };
     }
 
-    function __tmMergeLocalTaskPatchIntoTask(task, options = {}) {
+    function __tmConfirmLocalTaskPatchWatermarkFromTask(taskId, task, options = {}) {
+        const tid = String(taskId || task?.id || '').trim();
+        const source = (task && typeof task === 'object') ? task : null;
+        const entry = tid ? __tmGetLocalTaskPatchWatermark(tid) : null;
+        if (!source || !entry || !Array.isArray(entry.fields)) return [];
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (Object.prototype.hasOwnProperty.call(opts, 'readWatermarkRevision')) {
+            const readRevision = Math.max(0, Number(opts.readWatermarkRevision) || 0);
+            const currentRevision = Math.max(0, Number(entry.revision) || 0);
+            if (currentRevision !== readRevision) return [];
+        }
+        if (typeof __tmReadQueuedVerificationField !== 'function'
+            || typeof __tmQueuedVerificationValuesMatch !== 'function') return [];
+        const values = (entry.values && typeof entry.values === 'object' && !Array.isArray(entry.values))
+            ? entry.values
+            : {};
+        const customValues = (values.customFieldValues && typeof values.customFieldValues === 'object' && !Array.isArray(values.customFieldValues))
+            ? values.customFieldValues
+            : {};
+        const rawSourceCustomValues = (source.customFieldValues && typeof source.customFieldValues === 'object' && !Array.isArray(source.customFieldValues))
+            ? source.customFieldValues
+            : ((source.custom_field_values && typeof source.custom_field_values === 'object' && !Array.isArray(source.custom_field_values))
+                ? source.custom_field_values
+                : ((source.__customFieldRawValues && typeof source.__customFieldRawValues === 'object' && !Array.isArray(source.__customFieldRawValues))
+                    ? source.__customFieldRawValues
+                    : {}));
+        const sourceCustomValues = typeof __tmNormalizeQueueTaskValue === 'function'
+            ? __tmNormalizeQueueTaskValue('customFieldValues', rawSourceCustomValues)
+            : rawSourceCustomValues;
+        const confirmed = [];
+        entry.fields.forEach((field) => {
+            const key = __tmNormalizeLocalPatchFieldKey(field);
+            if (!key) return;
+            let hasExpected = Object.prototype.hasOwnProperty.call(values, key);
+            let expected = hasExpected ? values[key] : undefined;
+            let actual;
+            if (key.startsWith('customField:')) {
+                const fieldId = key.slice('customField:'.length);
+                if (!fieldId) return;
+                if (!hasExpected && Object.prototype.hasOwnProperty.call(customValues, fieldId)) {
+                    hasExpected = true;
+                    expected = customValues[fieldId];
+                }
+                actual = sourceCustomValues[fieldId];
+            } else if (key === 'customFieldValues') {
+                actual = sourceCustomValues;
+            } else {
+                actual = __tmReadQueuedVerificationField(source, key);
+            }
+            if (!hasExpected) return;
+            if (__tmQueuedVerificationValuesMatch(key, actual, expected)) confirmed.push(key);
+        });
+        if (confirmed.length) __tmClearLocalTaskPatchWatermarkFields(tid, confirmed);
+        return confirmed;
+    }
+
+    function __tmMergeLocalTaskPatchIntoTask(task) {
         const target = (task && typeof task === 'object') ? task : null;
         if (!target) return target;
-        const opts = (options && typeof options === 'object') ? options : {};
-        const excludedFields = new Set((Array.isArray(opts.excludeFields) ? opts.excludeFields : [])
-            .map((key) => __tmNormalizeLocalPatchFieldKey(key))
-            .filter(Boolean));
+        try {
+            const projected = globalThis.__tmTaskStore?.projectRead?.(target);
+            if (projected && projected !== target) Object.assign(target, projected);
+        } catch (e) {}
         __tmApplyDoneOverrideToTaskIfPresent(target);
         const tid = String(target.id || '').trim();
         const entry = tid ? __tmGetLocalTaskPatchWatermark(tid) : null;
@@ -1537,7 +1626,6 @@
         fields.forEach((field) => {
             const key = __tmNormalizeLocalPatchFieldKey(field);
             if (!key) return;
-            if (excludedFields.has(key)) return;
             if (key.startsWith('customField:')) {
                 const fieldId = key.slice('customField:'.length);
                 if (!fieldId) return;
@@ -1556,6 +1644,13 @@
                 if (live.customFieldValues && typeof live.customFieldValues === 'object' && !Array.isArray(live.customFieldValues)) {
                     target.customFieldValues = { ...((target.customFieldValues && typeof target.customFieldValues === 'object' && !Array.isArray(target.customFieldValues)) ? target.customFieldValues : {}), ...live.customFieldValues };
                 }
+                return;
+            }
+            if (key === 'attachments') {
+                __tmApplyTaskAttachmentPathsToTask(target, __tmGetTaskAttachmentPaths(live), {
+                    meta: __tmGetTaskAttachmentMetaMap(live),
+                    attrsLoaded: true,
+                });
                 return;
             }
             if (!Object.prototype.hasOwnProperty.call(live, key)) return;
@@ -1578,6 +1673,8 @@
             }
             else if (key === 'content') {
                 target.content = live[key];
+                target.raw_content = String(live.raw_content ?? live.rawContent ?? live[key] ?? '').trim();
+                target.rawContent = String(live.rawContent ?? live.raw_content ?? live[key] ?? '').trim();
                 if (Object.prototype.hasOwnProperty.call(live, 'markdown')) target.markdown = live.markdown;
             }
             else if (key === 'markdown') target.markdown = live[key];
@@ -1595,6 +1692,10 @@
             else if (key === 'customStatus') target.custom_status = live[key];
             else if (key === 'pinned') target.custom_pinned = live[key] ? '1' : '';
             else if (key === 'allDayBottom') target.custom_all_day_bottom = live[key] ? '1' : '';
+            else if (key === 'tomatoEstimateCount') target.tomato_estimate_count = live[key];
+            else if (key === 'repeatRule') target.repeat_rule = live[key];
+            else if (key === 'repeatState') target.repeat_state = live[key];
+            else if (key === 'repeatHistory') target.repeat_history = live[key];
         });
         return target;
     }
@@ -1934,6 +2035,7 @@
                 return globalThis.__tmTaskStore.replaceFlat(nextFlat, {
                     mergeOtherBlocks: opts.mergeOtherBlocks !== false,
                     normalizeKeys: opts.normalizeKeys === true,
+                    authoritative: opts.authoritative === true,
                 });
             }
         } catch (e) {}
@@ -2649,10 +2751,6 @@
         if (!ids) {
             return null;
         }
-        const flat = state?.flatTasks && typeof state.flatTasks === 'object' ? state.flatTasks : {};
-        const pendingInserted = state?.pendingInsertedTasks && typeof state.pendingInsertedTasks === 'object'
-            ? state.pendingInsertedTasks
-            : {};
         const filtered = [];
         const missingIds = [];
         for (const id of ids) {
@@ -2662,10 +2760,7 @@
                     continue;
                 }
             } catch (e) {}
-            const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-                || flat[id]
-                || pendingInserted[id]
-                || null;
+            const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
             if (!task) {
                 missingIds.push(id);
                 continue;
@@ -2684,13 +2779,6 @@
             .filter(Boolean);
         state.listRenderSignature = String(view.listRenderSignature || '');
         try { __tmResetViewRenderWindow(state.viewMode, filtered.length); } catch (e) {}
-        state.__tmLastFilterPerf = {
-            cacheHit: 'snapshot-view',
-            totalMs: 0,
-            orderedCount: filtered.length,
-            filteredDocTabCount: state.filteredDocIdsForTabs.length,
-            missingSnapshotViewTaskCount: missingIds.length,
-        };
         state.__tmTaskSnapshotViewRestoredAt = Date.now();
         try { window.dispatchEvent(new CustomEvent('tm:filtered-tasks-updated')); } catch (e) {}
         return {
@@ -3154,14 +3242,6 @@
         __tmTaskSnapshotStoreLoadPromise = Promise.resolve()
             .then(async () => {
                 const raw = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
-                if (__tmTaskSnapshotStoreCache
-                    && Date.now() < (Number(__tmTaskSnapshotStoreLocalMutationUntil || 0) || 0)) {
-                    const localUpdatedAt = Number(__tmTaskSnapshotStoreCache?.updatedAt || 0) || 0;
-                    const rawUpdatedAt = __tmGetTaskSnapshotStoreUpdatedAt(raw);
-                    if (localUpdatedAt > rawUpdatedAt) {
-                        return __tmTaskSnapshotStoreCache;
-                    }
-                }
                 const store = __tmBuildTaskSnapshotStore(raw);
                 __tmTaskSnapshotStoreCache = store;
                 __tmTaskSnapshotStoreLoadedAt = Date.now();
@@ -3175,13 +3255,13 @@
                     const storeBytes = __tmEstimateJsonByteSize(store);
                     if (rawBytes > (storeBytes + 1024)) {
                         __tmScheduleIdleTask(async () => {
-                            const latestMeta = await __tmPeekTaskSnapshotStoreVersionMeta({ cachedOnly: false });
-                            const latestSignature = String(latestMeta?.versionSignature || '').trim();
-                            const storeSignature = __tmGetTaskSnapshotStoreVersionSignature(store);
-                            if (latestSignature && storeSignature && latestSignature !== storeSignature) {
-                                return;
-                            }
-                            await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
+                            await __tmWithTaskSnapshotWriteLock(async () => {
+                                const latestMeta = await __tmPeekTaskSnapshotStoreVersionMeta({ cachedOnly: false });
+                                const latestSignature = String(latestMeta?.versionSignature || '').trim();
+                                const storeSignature = __tmGetTaskSnapshotStoreVersionSignature(store);
+                                if (latestSignature && storeSignature && latestSignature !== storeSignature) return false;
+                                return await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
+                            });
                         }, 2200);
                     }
                 } catch (e) {}
@@ -3193,57 +3273,8 @@
         return await __tmTaskSnapshotStoreLoadPromise;
     }
 
-    function __tmUpsertCurrentTaskSnapshotStoreCache(options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
-        let taskCount = 0;
-        try { taskCount = Object.keys(__tmBuildFlatTasksFromTaskSnapshotTree(state.taskTree)).length; } catch (e) {}
-        if (!__tmCanPersistTaskSnapshotProjection(docIds, taskCount, opts)) return false;
-        try { __tmMergeLocalTaskPatchIntoTaskStateForSnapshot(); } catch (e) {}
-        let payload = __tmBuildTaskSnapshotPayload({
-            docIds,
-            groupId: opts.groupId || SettingsStore?.data?.currentGroupId || 'all',
-            activeDocId: opts.activeDocId || state?.activeDocId || 'all',
-            queryLimit: opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT,
-        });
-        if (!payload || !String(payload.scopeKey || '').trim()) return false;
-        const previousStore = __tmTaskSnapshotStoreCache || __tmCreateEmptyTaskSnapshotStore();
-        payload = __tmAttachTaskSnapshotViewState(payload, {
-            groupId: payload.groupId,
-            activeDocId: payload.activeDocId,
-            previousSnapshot: previousStore?.snapshots?.[payload.scopeKey],
-        }) || payload;
-        const payloadFlatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(Array.isArray(payload.taskTree) ? payload.taskTree : []);
-        const payloadCoverage = __tmGetTaskCountCoverageStatus(payload.docIds || docIds, Object.keys(payloadFlatTasks).length, opts);
-        if (!payloadCoverage.ok) return false;
-        const payloadBytes = __tmEstimateJsonByteSize(__tmBuildTaskSnapshotRecordForStore(payload, {
-            docs: {},
-            otherBlockSets: {},
-        }) || payload);
-        if (payloadBytes > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) return false;
-        const now = Date.now();
-        payload.updatedAt = now;
-        const nextRawStore = {
-            ...(previousStore && typeof previousStore === 'object' ? previousStore : {}),
-            updatedAt: now,
-            snapshots: {
-                ...((previousStore?.snapshots && typeof previousStore.snapshots === 'object') ? previousStore.snapshots : {}),
-                [payload.scopeKey]: payload,
-            },
-        };
-        const nextStore = __tmBuildTaskSnapshotStore(nextRawStore);
-        __tmTaskSnapshotStoreCache = nextStore;
-        __tmTaskSnapshotStoreLoadedAt = now;
-        __tmTaskSnapshotStoreLocalMutationUntil = Math.max(
-            Number(__tmTaskSnapshotStoreLocalMutationUntil || 0) || 0,
-            now + Math.max(4000, Number(opts.protectMs || 30000) || 30000)
-        );
-        return true;
-    }
-
     function __tmScheduleTaskSnapshotAfterLocalStructurePatch(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const updated = __tmUpsertCurrentTaskSnapshotStoreCache(opts);
         try {
             __tmSchedulePersistTaskSnapshot({
                 ...opts,
@@ -3256,7 +3287,7 @@
                 refreshViewStateBeforeSave: opts.refreshViewStateBeforeSave === true,
             });
         } catch (e) {}
-        return updated;
+        return true;
     }
 
     async function __tmPeekTaskSnapshotStoreVersionMeta(options = {}) {
@@ -4168,6 +4199,7 @@
     let __tmTaskIndexStoreLoadPromise = null;
     let __tmTaskIndexSaveTimer = null;
     let __tmTaskIndexSaveInFlight = false;
+    let __tmTaskIndexSaveGeneration = 0;
 
     async function __tmLoadTaskIndexStore(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
@@ -4294,70 +4326,99 @@
         const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
         if (!docIds.length) return false;
         if (docIds.length > __TM_TASK_INDEX_MAX_DOCS) return false;
-        const docsById = new Map((Array.isArray(state.taskTree) ? state.taskTree : [])
-            .map((doc) => [String(doc?.id || '').trim(), doc])
-            .filter(([docId]) => __tmIsLikelyBlockId(docId)));
-        const allDocInfoById = new Map((Array.isArray(state.allDocuments) ? state.allDocuments : [])
-            .map((doc) => [String(doc?.id || '').trim(), doc])
-            .filter(([docId]) => __tmIsLikelyBlockId(docId)));
-        const nextEntries = [];
-        docIds.forEach((docId) => {
-            const hasTaskTreeDoc = docsById.has(docId);
-            const docInfo = allDocInfoById.get(docId) || {};
-            const doc = docsById.get(docId) || {
-                id: docId,
-                name: String(docInfo?.name || '').trim(),
-                alias: __tmNormalizeDocAliasValue(docInfo?.alias),
-                icon: __tmNormalizeDocIconValue(docInfo?.icon),
-                created: String(docInfo?.created || '').trim(),
-                updated: String(docInfo?.updated || '').trim(),
-                tasks: [],
-            };
-            const entry = __tmBuildTaskIndexDocEntry({
-                ...doc,
-                docUpdated: String(doc?.docUpdated || doc?.updated || docInfo?.updated || docInfo?.docUpdated || '').trim(),
-            }, { ...opts, inTaskTree: hasTaskTreeDoc });
-            const expectedCount = __tmGetExpectedTaskCountFromMap(__tmGetExpectedTaskCountMapFromOptions(opts), docId);
-            if (entry && Number.isFinite(expectedCount) && Math.max(0, Math.round(Number(entry.taskCount || 0) || 0)) < expectedCount) return;
-            if (entry && __tmEstimateJsonByteSize(entry) > __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES) return;
-            if (entry) nextEntries.push(entry);
-        });
-        if (!nextEntries.length) return false;
-        try {
-            __tmRememberTaskIndexEntriesInMemory(nextEntries, {
-                keepDocIds: nextEntries.map((entry) => entry?.id),
-            });
-        } catch (e) {}
         try {
             if (__tmTaskIndexSaveTimer) clearTimeout(__tmTaskIndexSaveTimer);
         } catch (e) {}
+        const saveGeneration = ++__tmTaskIndexSaveGeneration;
         const delayMs = Math.max(120, Number(opts.delayMs || 700) || 700);
         __tmTaskIndexSaveTimer = setTimeout(() => {
             __tmTaskIndexSaveTimer = null;
-            if (__tmTaskIndexSaveInFlight) {
-                __tmSchedulePersistTaskIndex({ ...opts, delayMs: 1000 });
-                return;
-            }
-            __tmTaskIndexSaveInFlight = true;
-            Promise.resolve()
-                .then(async () => {
-                    const raw = await __tmReadJsonFile(TASK_INDEX_FILE_PATH);
-                    const store = __tmNormalizeTaskIndexStore(raw || __tmTaskIndexStoreCache);
-                    nextEntries.forEach((entry) => {
-                        store.docs[entry.id] = entry;
+            const runSave = () => {
+                if (saveGeneration !== __tmTaskIndexSaveGeneration) return;
+                let backgroundWaitMs = 0;
+                try { backgroundWaitMs = Math.max(backgroundWaitMs, __tmGetHighPriorityInteractionWaitMs(120)); } catch (e) {}
+                try {
+                    if (typeof __tmShouldDeferMainViewRefreshForActiveScroll === 'function'
+                        && __tmShouldDeferMainViewRefreshForActiveScroll({ mode: 'current', reason: 'task-index-persist' })) {
+                        backgroundWaitMs = Math.max(backgroundWaitMs, 520);
+                    }
+                } catch (e) {}
+                try { backgroundWaitMs = Math.max(backgroundWaitMs, __tmGetExternalTaskTxQuietWaitMs(120)); } catch (e) {}
+                try {
+                    if (typeof __tmMutationEngine !== 'undefined'
+                        && __tmMutationEngine?.hasActiveWrites?.() === true) {
+                        backgroundWaitMs = Math.max(backgroundWaitMs, 420);
+                    }
+                } catch (e) {}
+                if (backgroundWaitMs > 0 || __tmTaskIndexSaveInFlight) {
+                    __tmSchedulePersistTaskIndex({
+                        ...opts,
+                        docIds,
+                        delayMs: Math.max(420, backgroundWaitMs || 1000),
                     });
-                    store.version = __TM_TASK_INDEX_VERSION;
-                    store.updatedAt = Date.now();
-                    const nextStore = __tmPruneTaskIndexStoreToLimits(store, {
+                    return;
+                }
+
+                const docsById = new Map((Array.isArray(state.taskTree) ? state.taskTree : [])
+                    .map((doc) => [String(doc?.id || '').trim(), doc])
+                    .filter(([docId]) => __tmIsLikelyBlockId(docId)));
+                const allDocInfoById = new Map((Array.isArray(state.allDocuments) ? state.allDocuments : [])
+                    .map((doc) => [String(doc?.id || '').trim(), doc])
+                    .filter(([docId]) => __tmIsLikelyBlockId(docId)));
+                const expectedCountMap = __tmGetExpectedTaskCountMapFromOptions(opts);
+                const nextEntries = [];
+                docIds.forEach((docId) => {
+                    const hasTaskTreeDoc = docsById.has(docId);
+                    const docInfo = allDocInfoById.get(docId) || {};
+                    const doc = docsById.get(docId) || {
+                        id: docId,
+                        name: String(docInfo?.name || '').trim(),
+                        alias: __tmNormalizeDocAliasValue(docInfo?.alias),
+                        icon: __tmNormalizeDocIconValue(docInfo?.icon),
+                        created: String(docInfo?.created || '').trim(),
+                        updated: String(docInfo?.updated || '').trim(),
+                        tasks: [],
+                    };
+                    const entry = __tmBuildTaskIndexDocEntry({
+                        ...doc,
+                        docUpdated: String(doc?.docUpdated || doc?.updated || docInfo?.updated || docInfo?.docUpdated || '').trim(),
+                    }, { ...opts, inTaskTree: hasTaskTreeDoc });
+                    const expectedCount = __tmGetExpectedTaskCountFromMap(expectedCountMap, docId);
+                    if (entry && Number.isFinite(expectedCount)
+                        && Math.max(0, Math.round(Number(entry.taskCount || 0) || 0)) < expectedCount) return;
+                    if (entry && __tmEstimateJsonByteSize(entry) > __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES) return;
+                    if (entry) nextEntries.push(entry);
+                });
+                if (!nextEntries.length || saveGeneration !== __tmTaskIndexSaveGeneration) return;
+                try {
+                    __tmRememberTaskIndexEntriesInMemory(nextEntries, {
                         keepDocIds: nextEntries.map((entry) => entry?.id),
                     });
-                    __tmTaskIndexStoreCache = nextStore;
-                    await __tmWriteJsonFile(TASK_INDEX_FILE_PATH, nextStore);
-                })
-                .catch(() => null)
-                .finally(() => {
-                    __tmTaskIndexSaveInFlight = false;
-                });
+                } catch (e) {}
+                __tmTaskIndexSaveInFlight = true;
+                Promise.resolve()
+                    .then(async () => {
+                        const raw = await __tmReadJsonFile(TASK_INDEX_FILE_PATH);
+                        if (saveGeneration !== __tmTaskIndexSaveGeneration) return;
+                        const store = __tmNormalizeTaskIndexStore(raw || __tmTaskIndexStoreCache);
+                        nextEntries.forEach((entry) => {
+                            store.docs[entry.id] = entry;
+                        });
+                        store.version = __TM_TASK_INDEX_VERSION;
+                        store.updatedAt = Date.now();
+                        const nextStore = __tmPruneTaskIndexStoreToLimits(store, {
+                            keepDocIds: nextEntries.map((entry) => entry?.id),
+                        });
+                        __tmTaskIndexStoreCache = nextStore;
+                        await __tmWriteJsonFile(TASK_INDEX_FILE_PATH, nextStore);
+                    })
+                    .catch(() => null)
+                    .finally(() => {
+                        __tmTaskIndexSaveInFlight = false;
+                    });
+            };
+            const idleDelayMs = Math.max(180, Number(opts.idleDelayMs ?? Math.max(900, delayMs)) || Math.max(900, delayMs));
+            try { __tmScheduleIdleTask(runSave, idleDelayMs); } catch (e) { setTimeout(runSave, 0); }
         }, delayMs);
         return true;
     }
@@ -4365,6 +4426,9 @@
     const __TM_SETTINGS_FIELD_SYNC_EXCLUDED_KEYS = new Set([
         'settingsUpdatedAt',
         'settingsFieldUpdatedAt',
+        'checklistCompactTitleOpenDetailPage',
+        'dockChecklistCompactTitleJump',
+        'mobileChecklistCompactTitleJump',
         'docGroupSettingsUpdatedAt',
         'collapseStateUpdatedAt',
         'customFieldDefsVersion',
@@ -4407,6 +4471,98 @@
         'whiteboardSequenceMode',
         'whiteboardSequenceScope',
     ]);
+
+    const __TM_LEGACY_TASK_TITLE_SETTING_KEYS = Object.freeze([
+        'checklistCompactTitleOpenDetailPage',
+        'dockChecklistCompactTitleJump',
+        'mobileChecklistCompactTitleJump',
+    ]);
+
+    function __tmNormalizeTaskTitleClickAction(value, fallback = 'jump') {
+        const normalizedFallback = String(fallback || '').trim() === 'detail' ? 'detail' : 'jump';
+        const raw = String(value || '').trim().toLowerCase();
+        return raw === 'jump' || raw === 'detail' ? raw : normalizedFallback;
+    }
+
+    function __tmNormalizeTaskTitleClickOverride(value, fallback = 'inherit') {
+        const normalizedFallback = ['inherit', 'jump', 'detail'].includes(String(fallback || '').trim())
+            ? String(fallback || '').trim()
+            : 'inherit';
+        const raw = String(value || '').trim().toLowerCase();
+        return raw === 'inherit' || raw === 'jump' || raw === 'detail' ? raw : normalizedFallback;
+    }
+
+    function __tmMigrateLegacyTaskTitleClickSettings(target, source = target) {
+        const out = (target && typeof target === 'object') ? target : {};
+        const src = (source && typeof source === 'object') ? source : {};
+        const hasOwn = (key) => Object.prototype.hasOwnProperty.call(src, key);
+        const hasNewSettings = hasOwn('taskTitleClickAction')
+            || hasOwn('dockTaskTitleClickAction')
+            || hasOwn('mobileTaskTitleClickAction');
+        const hasLegacySettings = __TM_LEGACY_TASK_TITLE_SETTING_KEYS.some(hasOwn);
+        let migrated = false;
+
+        if (hasNewSettings) {
+            out.taskTitleClickAction = __tmNormalizeTaskTitleClickAction(
+                hasOwn('taskTitleClickAction') ? src.taskTitleClickAction : out.taskTitleClickAction,
+                'jump'
+            );
+            out.dockTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(
+                hasOwn('dockTaskTitleClickAction') ? src.dockTaskTitleClickAction : out.dockTaskTitleClickAction,
+                'inherit'
+            );
+            out.mobileTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(
+                hasOwn('mobileTaskTitleClickAction') ? src.mobileTaskTitleClickAction : out.mobileTaskTitleClickAction,
+                'inherit'
+            );
+            migrated = hasLegacySettings;
+        } else if (hasLegacySettings) {
+            const openDetail = hasOwn('checklistCompactTitleOpenDetailPage')
+                ? src.checklistCompactTitleOpenDetailPage === true
+                : false;
+            const dockJump = hasOwn('dockChecklistCompactTitleJump')
+                ? src.dockChecklistCompactTitleJump === true
+                : true;
+            const mobileJump = hasOwn('mobileChecklistCompactTitleJump')
+                ? src.mobileChecklistCompactTitleJump === true
+                : dockJump;
+            const globalAction = openDetail ? 'detail' : 'jump';
+            const dockAction = openDetail ? 'detail' : (dockJump ? 'jump' : 'detail');
+            const mobileAction = openDetail ? 'detail' : (mobileJump ? 'jump' : 'detail');
+            out.taskTitleClickAction = globalAction;
+            out.dockTaskTitleClickAction = dockAction === globalAction ? 'inherit' : dockAction;
+            out.mobileTaskTitleClickAction = mobileAction === globalAction ? 'inherit' : mobileAction;
+
+            const rawMap = (src.settingsFieldUpdatedAt && typeof src.settingsFieldUpdatedAt === 'object' && !Array.isArray(src.settingsFieldUpdatedAt))
+                ? src.settingsFieldUpdatedAt
+                : {};
+            const nextMap = (out.settingsFieldUpdatedAt && typeof out.settingsFieldUpdatedAt === 'object' && !Array.isArray(out.settingsFieldUpdatedAt))
+                ? { ...out.settingsFieldUpdatedAt }
+                : {};
+            const globalTs = __tmParseUpdatedAtNumber(rawMap.checklistCompactTitleOpenDetailPage);
+            const dockTs = Math.max(globalTs, __tmParseUpdatedAtNumber(rawMap.dockChecklistCompactTitleJump));
+            const mobileTs = Math.max(globalTs, __tmParseUpdatedAtNumber(rawMap.mobileChecklistCompactTitleJump));
+            if (globalTs > 0) nextMap.taskTitleClickAction = Math.max(__tmParseUpdatedAtNumber(nextMap.taskTitleClickAction), globalTs);
+            if (dockTs > 0) nextMap.dockTaskTitleClickAction = Math.max(__tmParseUpdatedAtNumber(nextMap.dockTaskTitleClickAction), dockTs);
+            if (mobileTs > 0) nextMap.mobileTaskTitleClickAction = Math.max(__tmParseUpdatedAtNumber(nextMap.mobileTaskTitleClickAction), mobileTs);
+            out.settingsFieldUpdatedAt = nextMap;
+            migrated = true;
+        } else {
+            out.taskTitleClickAction = __tmNormalizeTaskTitleClickAction(out.taskTitleClickAction, 'jump');
+            out.dockTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(out.dockTaskTitleClickAction, 'inherit');
+            out.mobileTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(out.mobileTaskTitleClickAction, 'inherit');
+        }
+
+        const fieldMap = (out.settingsFieldUpdatedAt && typeof out.settingsFieldUpdatedAt === 'object' && !Array.isArray(out.settingsFieldUpdatedAt))
+            ? { ...out.settingsFieldUpdatedAt }
+            : {};
+        __TM_LEGACY_TASK_TITLE_SETTING_KEYS.forEach((key) => {
+            if (Object.prototype.hasOwnProperty.call(out, key)) delete out[key];
+            if (Object.prototype.hasOwnProperty.call(fieldMap, key)) delete fieldMap[key];
+        });
+        out.settingsFieldUpdatedAt = fieldMap;
+        return migrated;
+    }
 
     function __tmIsSettingsFieldSyncKey(key) {
         const normalized = String(key || '').trim();
@@ -4543,10 +4699,14 @@
             const to = String(link.to || '').trim();
             const docId = String(link.docId || '').trim();
             if (!from || !to || !docId || from === to) return null;
+            const fromAnchor = String(link.fromAnchor || '').trim().toLowerCase() === 'bottom' ? 'bottom' : '';
+            const toAnchor = String(link.toAnchor || '').trim().toLowerCase() === 'top' ? 'top' : '';
             return {
                 id: String(link.id || '').trim() || `link_${docId}_${from}_${to}`,
                 from,
                 to,
+                ...(fromAnchor ? { fromAnchor } : {}),
+                ...(toAnchor ? { toAnchor } : {}),
                 docId,
                 createdAt: String(link.createdAt || Date.now()),
             };
@@ -4781,16 +4941,65 @@
             const createdAt = String(link.createdAt || '').trim() || String(Date.now());
             const idRaw = String(link.id || '').trim();
             const id = idRaw || `global_link_${from}_${to}_${index}`;
+            const fromAnchor = String(link.fromAnchor || '').trim().toLowerCase() === 'bottom' ? 'bottom' : '';
+            const toAnchor = String(link.toAnchor || '').trim().toLowerCase() === 'top' ? 'top' : '';
             return {
                 id,
                 from,
                 to,
+                ...(fromAnchor ? { fromAnchor } : {}),
+                ...(toAnchor ? { toAnchor } : {}),
                 fromDocId: String(link.fromDocId || '').trim(),
                 toDocId: String(link.toDocId || '').trim(),
                 createdAt,
                 manual: true,
             };
         }).filter(Boolean);
+    }
+
+    function __tmNormalizeWhiteboardLinkedTaskSnapshotMap(input) {
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const out = {};
+        Object.keys(raw).forEach((key) => {
+            const id = String(key || '').trim();
+            const value = raw[key];
+            if (!id || !value || typeof value !== 'object' || Array.isArray(value)) return;
+            const docId = String(value.docId || value.root_id || '').trim();
+            const content = String(value.content || value.raw_content || '').trim();
+            if (!docId || !content) return;
+            const parentTaskId = Object.prototype.hasOwnProperty.call(value, 'parentTaskId')
+                ? String(value.parentTaskId || '').trim()
+                : String(value.parent_task_id || '').trim();
+            out[id] = {
+                id,
+                docId,
+                root_id: docId,
+                content,
+                markdown: String(value.markdown || '').trim(),
+                raw_content: String(value.raw_content || content).trim() || content,
+                parentTaskId,
+                h2: String(value.h2 || '').trim(),
+                h2Id: String(value.h2Id || '').trim(),
+                h2Path: String(value.h2Path || '').trim(),
+                h2Sort: Number.isFinite(Number(value.h2Sort)) ? Number(value.h2Sort) : 0,
+                h2Created: String(value.h2Created || '').trim(),
+                h2Rank: Number.isFinite(Number(value.h2Rank)) ? Number(value.h2Rank) : 0,
+                headingLevel: String(value.headingLevel || '').trim(),
+                startDate: String(value.startDate || value.start_date || '').trim(),
+                completionTime: String(value.completionTime || value.completion_time || '').trim(),
+                done: !!value.done,
+                priority: String(value.priority || value.custom_priority || '').trim(),
+                customStatus: String(value.customStatus || value.custom_status || '').trim(),
+                remark: String(value.remark || value.custom_remark || '').trim(),
+                duration: String(value.duration || value.custom_duration || '').trim(),
+                customTime: String(value.customTime || value.custom_time || '').trim(),
+                tomatoEstimateCount: Number.isFinite(Number(value.tomatoEstimateCount)) ? Number(value.tomatoEstimateCount) : 0,
+                tomatoCount: Number.isFinite(Number(value.tomatoCount)) ? Number(value.tomatoCount) : 0,
+                focusDuration: Number.isFinite(Number(value.focusDuration)) ? Number(value.focusDuration) : 0,
+                updatedAt: String(value.updatedAt || Date.now()),
+            };
+        });
+        return out;
     }
 
     function __tmNormalizeWhiteboardGlobalBoardState(input) {
@@ -4808,6 +5017,7 @@
             drawings: __tmNormalizeWhiteboardDrawingArray(raw.drawings || raw.whiteboardDrawings),
             frames: __tmNormalizeWhiteboardFrameArray(raw.frames || raw.whiteboardFrames),
             links: __tmNormalizeWhiteboardGlobalLinkArray(raw.links || raw.whiteboardLinks),
+            linkedTaskSnapshots: __tmNormalizeWhiteboardLinkedTaskSnapshotMap(raw.linkedTaskSnapshots),
             detachedChildren: __tmNormalizeWhiteboardDetachedChildrenMap(raw.detachedChildren || raw.whiteboardDetachedChildren),
             view,
         };
@@ -4821,6 +5031,7 @@
             const board = __tmNormalizeWhiteboardGlobalBoardState(raw[k]);
             const hasContent = __tmIsPlainObjectWithKeys(board.nodePos)
                 || __tmIsPlainObjectWithKeys(board.placedTaskIds)
+                || __tmIsPlainObjectWithKeys(board.linkedTaskSnapshots)
                 || __tmIsPlainObjectWithKeys(board.detachedChildren)
                 || (Array.isArray(board.notes) && board.notes.length > 0)
                 || (Array.isArray(board.drawings) && board.drawings.length > 0)
@@ -5269,6 +5480,97 @@
         };
     }
 
+    // Shared read plan for full and incremental document loads.  The loader still
+    // owns when to fetch/apply each part; this helper only keeps the requirements
+    // derived from the current rule and view in one place.
+    function __tmBuildTaskEnhanceLoadPlan(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const viewMode = String(opts.viewMode || state?.viewMode || '').trim();
+        let rule = (opts.rule && typeof opts.rule === 'object') ? opts.rule : null;
+        if (!rule && typeof __tmGetCurrentRule === 'function') {
+            try { rule = __tmGetCurrentRule(); } catch (e) {}
+        }
+        if (!rule && state?.currentRule && Array.isArray(state.filterRules)) {
+            rule = state.filterRules.find((item) => item?.id === state.currentRule) || null;
+        }
+        const normalizedRuleSorts = typeof __tmGetNormalizedRuleSorts === 'function'
+            ? __tmGetNormalizedRuleSorts(rule)
+            : (Array.isArray(rule?.sort) ? rule.sort : []);
+        const isUngroup = !state.groupByDocName
+            && !state.groupByTaskName
+            && !state.groupByTime
+            && !state.quadrantEnabled;
+        const hasExplicitSort = typeof __tmRuleHasExplicitSort === 'function'
+            ? __tmRuleHasExplicitSort(rule)
+            : normalizedRuleSorts.length > 0;
+        const ruleNeedsFlowRank = normalizedRuleSorts.some((item) => String(item?.field || '').trim() === 'docSeq');
+        const ruleNeedsDocumentTieBreak = normalizedRuleSorts.length > 0;
+        const forceFlowRank = opts.forceFlowRank === true;
+        const needFlowRank = forceFlowRank
+            || ruleNeedsFlowRank
+            || ruleNeedsDocumentTieBreak
+            || (!hasExplicitSort && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled));
+        const colOrder = Array.isArray(opts.colOrder)
+            ? opts.colOrder
+            : (Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder : []);
+        const docHeadingSubgroupActive = !!state.groupByDocName && SettingsStore?.data?.docH2SubgroupEnabled !== false;
+        const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'
+            ? __tmGetKanbanBoardMode() === 'heading'
+            : !!SettingsStore?.data?.kanbanHeadingGroupMode;
+        const compactMetaNeedsH2 = typeof __tmShouldLoadCompactChecklistHeadingContext === 'function'
+            && __tmShouldLoadCompactChecklistHeadingContext();
+        const needH2 = colOrder.includes('h2')
+            || normalizedRuleSorts.some((item) => String(item?.field || '').trim() === 'h2')
+            || docHeadingSubgroupActive
+            || kanbanHeadingGroupingActive
+            || compactMetaNeedsH2;
+        const ruleNeedsH2Sort = Array.isArray(rule?.sort)
+            && rule.sort.some((item) => String(item?.field || '').trim() === 'h2');
+        return {
+            viewMode,
+            rule,
+            normalizedRuleSorts,
+            isUngroup,
+            hasExplicitSort,
+            ruleNeedsFlowRank,
+            ruleNeedsDocumentTieBreak,
+            needFlowRank,
+            colOrder,
+            docHeadingSubgroupActive,
+            kanbanHeadingGroupingActive,
+            compactMetaNeedsH2,
+            needH2,
+            ruleNeedsH2Sort,
+            customFieldLoadPlan: __tmCollectCustomFieldLoadPlan({
+                viewMode,
+                colOrder,
+                rule,
+            }),
+        };
+    }
+
+    function __tmBuildRuleSortContext(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        let rule = (opts.rule && typeof opts.rule === 'object') ? opts.rule : null;
+        if (!rule && typeof __tmGetCurrentRule === 'function') {
+            try { rule = __tmGetCurrentRule(); } catch (e) {}
+        }
+        if (!rule && state?.currentRule && Array.isArray(state.filterRules)) {
+            rule = state.filterRules.find((item) => item?.id === state.currentRule) || null;
+        }
+        return {
+            rule,
+            hasExplicitSort: typeof __tmRuleHasExplicitSort === 'function'
+                ? __tmRuleHasExplicitSort(rule)
+                : (Array.isArray(rule?.sort) && rule.sort.length > 0),
+            runtime: {
+                fieldInfoCache: new Map(),
+                valueMemo: new WeakMap(),
+                timeSortMemo: new Map(),
+            },
+        };
+    }
+
     function __tmNormalizeCustomFieldIdList(list) {
         return Array.from(new Set(
             (Array.isArray(list) ? list : [])
@@ -5413,7 +5715,217 @@
             id,
             name: baseName,
             color,
+            parentId: String(source.parentId || '').trim(),
+            archived: source.archived === true,
         };
+    }
+
+    const __TM_CUSTOM_FIELD_OPTION_MAX_DEPTH = 3;
+
+    function __tmSanitizeCustomFieldOptionHierarchy(options) {
+        const source = Array.isArray(options) ? options : [];
+        const normalized = source.map((option) => ({
+            ...option,
+            parentId: String(option?.parentId || '').trim(),
+            archived: option?.archived === true,
+        }));
+        const optionById = new Map(normalized
+            .map((option) => [String(option?.id || '').trim(), option])
+            .filter(([id]) => !!id));
+
+        normalized.forEach((option) => {
+            const id = String(option?.id || '').trim();
+            const parentId = String(option?.parentId || '').trim();
+            if (!parentId || parentId === id || !optionById.has(parentId)) option.parentId = '';
+        });
+
+        // Root every member of a cycle. Descendants keep their direct parent and
+        // remain attached to whichever cycle member becomes a root.
+        const checked = new Set();
+        normalized.forEach((option) => {
+            const startId = String(option?.id || '').trim();
+            if (!startId || checked.has(startId)) return;
+            const path = [];
+            const pathIndex = new Map();
+            let cursorId = startId;
+            while (cursorId && optionById.has(cursorId) && !checked.has(cursorId)) {
+                if (pathIndex.has(cursorId)) {
+                    path.slice(pathIndex.get(cursorId)).forEach((cycleId) => {
+                        const cycleOption = optionById.get(cycleId);
+                        if (cycleOption) cycleOption.parentId = '';
+                    });
+                    break;
+                }
+                pathIndex.set(cursorId, path.length);
+                path.push(cursorId);
+                cursorId = String(optionById.get(cursorId)?.parentId || '').trim();
+            }
+            path.forEach((id) => checked.add(id));
+        });
+
+        const resolveDepth = (id) => {
+            let depth = 0;
+            let cursorId = String(optionById.get(id)?.parentId || '').trim();
+            const seen = new Set([id]);
+            while (cursorId && optionById.has(cursorId) && !seen.has(cursorId)) {
+                seen.add(cursorId);
+                depth += 1;
+                cursorId = String(optionById.get(cursorId)?.parentId || '').trim();
+            }
+            return depth;
+        };
+        // Only detach the first node that exceeds the limit. Its descendants
+        // stay together as a subtree after depth is recalculated.
+        let changed = true;
+        while (changed) {
+            const overDepth = normalized.map((option, index) => ({
+                option,
+                index,
+                depth: resolveDepth(String(option?.id || '').trim()),
+            })).filter((item) => item.depth >= __TM_CUSTOM_FIELD_OPTION_MAX_DEPTH);
+            if (!overDepth.length) {
+                changed = false;
+                continue;
+            }
+            overDepth.sort((a, b) => a.depth - b.depth || a.index - b.index);
+            overDepth[0].option.parentId = '';
+        }
+        return normalized;
+    }
+
+    function __tmBuildCustomFieldOptionRuntime(fieldOrOptions) {
+        const options = __tmSanitizeCustomFieldOptionHierarchy(Array.isArray(fieldOrOptions)
+            ? fieldOrOptions
+            : (Array.isArray(fieldOrOptions?.options) ? fieldOrOptions.options : []));
+        const optionById = new Map();
+        const childrenByParentId = new Map([['', []]]);
+        options.forEach((option) => {
+            const id = String(option?.id || '').trim();
+            if (!id) return;
+            optionById.set(id, option);
+            if (!childrenByParentId.has(id)) childrenByParentId.set(id, []);
+        });
+        options.forEach((option) => {
+            const id = String(option?.id || '').trim();
+            if (!id) return;
+            const parentId = optionById.has(String(option?.parentId || '').trim())
+                ? String(option.parentId || '').trim()
+                : '';
+            if (!childrenByParentId.has(parentId)) childrenByParentId.set(parentId, []);
+            childrenByParentId.get(parentId).push(option);
+        });
+
+        const depthById = new Map();
+        const pathById = new Map();
+        const ancestorIdsById = new Map();
+        const effectiveArchivedById = new Map();
+        const orderedOptions = [];
+        const visit = (option, depth, ancestorIds, ancestorNames, ancestorArchived) => {
+            const id = String(option?.id || '').trim();
+            if (!id) return;
+            const name = String(option?.name || id).trim() || id;
+            const archived = ancestorArchived || option?.archived === true;
+            depthById.set(id, depth);
+            ancestorIdsById.set(id, ancestorIds.slice());
+            pathById.set(id, [...ancestorNames, name].join(' / '));
+            effectiveArchivedById.set(id, archived);
+            orderedOptions.push(option);
+            (childrenByParentId.get(id) || []).forEach((child) => {
+                visit(child, depth + 1, [...ancestorIds, id], [...ancestorNames, name], archived);
+            });
+        };
+        (childrenByParentId.get('') || []).forEach((option) => visit(option, 0, [], [], false));
+        return {
+            options: orderedOptions,
+            optionById,
+            childrenByParentId,
+            depthById,
+            pathById,
+            ancestorIdsById,
+            effectiveArchivedById,
+        };
+    }
+
+    function __tmFlattenCustomFieldOptionTree(fieldOrOptions) {
+        return __tmBuildCustomFieldOptionRuntime(fieldOrOptions).options.map((option) => ({ ...option }));
+    }
+
+    function __tmMoveCustomFieldOptionSubtree(options, move) {
+        const runtime = __tmBuildCustomFieldOptionRuntime(options);
+        const sourceId = String(move?.sourceId || '').trim();
+        const targetParentId = String(move?.targetParentId || '').trim();
+        const source = runtime.optionById.get(sourceId);
+        const targetParent = targetParentId ? runtime.optionById.get(targetParentId) : null;
+        if (!source) return { ok: false, reason: 'missing-source', options: runtime.options };
+        if (targetParentId && !targetParent) return { ok: false, reason: 'missing-parent', options: runtime.options };
+        const sourceDescendantIds = new Set(runtime.options
+            .filter((option) => (runtime.ancestorIdsById.get(String(option?.id || '').trim()) || []).includes(sourceId))
+            .map((option) => String(option?.id || '').trim()));
+        if (sourceId === targetParentId || sourceDescendantIds.has(targetParentId)) {
+            return { ok: false, reason: 'cycle', options: runtime.options };
+        }
+        const subtreeIds = new Set([sourceId, ...sourceDescendantIds]);
+        const sourceDepth = Number(runtime.depthById.get(sourceId) || 0);
+        const subtreeRelativeDepth = runtime.options.reduce((max, option) => {
+            const id = String(option?.id || '').trim();
+            if (!subtreeIds.has(id)) return max;
+            return Math.max(max, Number(runtime.depthById.get(id) || 0) - sourceDepth);
+        }, 0);
+        const nextDepth = targetParentId ? Number(runtime.depthById.get(targetParentId) || 0) + 1 : 0;
+        if (nextDepth + subtreeRelativeDepth >= __TM_CUSTOM_FIELD_OPTION_MAX_DEPTH) {
+            return { ok: false, reason: 'max-depth', options: runtime.options };
+        }
+
+        const oldParentId = String(source?.parentId || '').trim();
+        const oldSiblings = (runtime.childrenByParentId.get(oldParentId) || []).slice();
+        const oldIndex = oldSiblings.findIndex((option) => String(option?.id || '').trim() === sourceId);
+        const siblingLists = new Map(Array.from(runtime.childrenByParentId.entries())
+            .map(([parentId, children]) => [parentId, children.slice()]));
+        siblingLists.set(oldParentId, oldSiblings.filter((option) => String(option?.id || '').trim() !== sourceId));
+        if (!siblingLists.has(targetParentId)) siblingLists.set(targetParentId, []);
+        const targetSiblings = siblingLists.get(targetParentId);
+        let targetIndex = Number.isFinite(Number(move?.targetSiblingIndex))
+            ? Math.max(0, Math.floor(Number(move.targetSiblingIndex)))
+            : targetSiblings.length;
+        if (oldParentId === targetParentId && oldIndex >= 0 && oldIndex < targetIndex) targetIndex -= 1;
+        targetIndex = Math.min(targetSiblings.length, targetIndex);
+        targetSiblings.splice(targetIndex, 0, source);
+
+        const clones = new Map(runtime.options.map((option) => {
+            const id = String(option?.id || '').trim();
+            return [id, { ...option, parentId: id === sourceId ? targetParentId : String(option?.parentId || '').trim() }];
+        }));
+        const nextOptions = [];
+        const visit = (parentId) => {
+            (siblingLists.get(parentId) || []).forEach((option) => {
+                const id = String(option?.id || '').trim();
+                const clone = clones.get(id);
+                if (!clone) return;
+                nextOptions.push(clone);
+                visit(id);
+            });
+        };
+        visit('');
+        const moved = oldParentId !== targetParentId || oldIndex !== targetIndex;
+        return { ok: true, moved, options: nextOptions };
+    }
+
+    function __tmResolveCustomFieldRollupOptionIds(field, rawValue) {
+        const runtime = __tmBuildCustomFieldOptionRuntime(field);
+        const normalized = __tmNormalizeCustomFieldValue(field, rawValue);
+        const directIds = Array.isArray(normalized)
+            ? normalized.map((value) => String(value || '').trim()).filter(Boolean)
+            : (String(normalized || '').trim() ? [String(normalized || '').trim()] : []);
+        const rollupIds = [];
+        const seen = new Set();
+        directIds.forEach((id) => {
+            [...(runtime.ancestorIdsById.get(id) || []), id].forEach((value) => {
+                if (!value || seen.has(value)) return;
+                seen.add(value);
+                rollupIds.push(value);
+            });
+        });
+        return { directIds, rollupIds };
     }
 
     function __tmNormalizeCustomFieldDef(field, index = 0, seenIds = null, seenAttrKeys = null) {
@@ -5441,9 +5953,9 @@
             ? 'multi'
             : (rawType === 'text' ? 'text' : 'single');
         const optionSeen = new Set();
-        const options = (Array.isArray(source.options) ? source.options : [])
+        const options = __tmFlattenCustomFieldOptionTree((Array.isArray(source.options) ? source.options : [])
             .map((item, optionIndex) => __tmNormalizeCustomFieldOption(item, optionIndex, optionSeen))
-            .filter(Boolean);
+            .filter(Boolean));
         return {
             id,
             name,
@@ -5468,6 +5980,7 @@
         defs: [],
         defMap: new Map(),
         attrKeyMap: new Map(),
+        optionRuntimeMap: new Map(),
     };
     const __tmCustomFieldAttrValueCache = new Map();
 
@@ -5481,6 +5994,7 @@
         __tmCustomFieldDefsRuntimeCache.defs = [];
         __tmCustomFieldDefsRuntimeCache.defMap = new Map();
         __tmCustomFieldDefsRuntimeCache.attrKeyMap = new Map();
+        __tmCustomFieldDefsRuntimeCache.optionRuntimeMap = new Map();
         try { __tmClearCustomFieldAttrValueCache(); } catch (e) {}
     }
 
@@ -5494,18 +6008,21 @@
         const defs = __tmNormalizeCustomFieldDefs(input);
         const defMap = new Map();
         const attrKeyMap = new Map();
+        const optionRuntimeMap = new Map();
         defs.forEach((field) => {
             const id = String(field?.id || '').trim();
             if (id) defMap.set(id, field);
             const fieldId = __tmNormalizeCustomFieldId(field?.id, 'field');
             const attrKey = __tmNormalizeCustomFieldAttrName(field?.attrKey || fieldId || field?.name || 'field', fieldId || 'field');
             if (attrKey) attrKeyMap.set(attrKey, field);
+            if (id) optionRuntimeMap.set(id, __tmBuildCustomFieldOptionRuntime(field));
         });
         cache.input = input;
         cache.version = version;
         cache.defs = defs;
         cache.defMap = defMap;
         cache.attrKeyMap = attrKeyMap;
+        cache.optionRuntimeMap = optionRuntimeMap;
         return cache;
     }
 
@@ -5515,6 +6032,13 @@
 
     function __tmGetCustomFieldDefMap() {
         return __tmGetCustomFieldDefsRuntimeArtifacts().defMap;
+    }
+
+    function __tmGetCustomFieldOptionRuntime(fieldOrId) {
+        const id = typeof fieldOrId === 'string' ? String(fieldOrId || '').trim() : String(fieldOrId?.id || '').trim();
+        const cache = __tmGetCustomFieldDefsRuntimeArtifacts();
+        if (id && cache.optionRuntimeMap.has(id)) return cache.optionRuntimeMap.get(id);
+        return __tmBuildCustomFieldOptionRuntime(fieldOrId);
     }
 
     const __tmCustomFieldScopeRuntime = {
@@ -5725,6 +6249,49 @@
         return __tmNormalizeCustomFieldDefs(out);
     }
 
+    function __tmGetCustomFieldHierarchyMetadataScore(field) {
+        return (Array.isArray(field?.options) ? field.options : []).reduce((score, option) => (
+            score
+            + (String(option?.parentId || '').trim() ? 2 : 0)
+            + (option?.archived === true ? 1 : 0)
+        ), 0);
+    }
+
+    function __tmMergeSameVersionCustomFieldDefs(localInput, remoteInput) {
+        const local = __tmCloneCustomFieldDefs(localInput);
+        const remote = __tmCloneCustomFieldDefs(remoteInput);
+        const remoteById = new Map(remote
+            .map((field) => [String(field?.id || '').trim(), field])
+            .filter(([fieldId]) => !!fieldId));
+        const seen = new Set();
+        const merged = local.map((localField) => {
+            const fieldId = String(localField?.id || '').trim();
+            if (fieldId) seen.add(fieldId);
+            const remoteField = remoteById.get(fieldId);
+            if (!remoteField) return localField;
+            return __tmGetCustomFieldHierarchyMetadataScore(remoteField) > __tmGetCustomFieldHierarchyMetadataScore(localField)
+                ? remoteField
+                : localField;
+        });
+        remote.forEach((field) => {
+            const fieldId = String(field?.id || '').trim();
+            if (!fieldId || seen.has(fieldId)) return;
+            seen.add(fieldId);
+            merged.push(field);
+        });
+        return __tmNormalizeCustomFieldDefs(merged);
+    }
+
+    function __tmHasRicherCustomFieldHierarchy(candidateInput, otherInput) {
+        const otherById = new Map(__tmCloneCustomFieldDefs(otherInput)
+            .map((field) => [String(field?.id || '').trim(), field])
+            .filter(([fieldId]) => !!fieldId));
+        return __tmCloneCustomFieldDefs(candidateInput).some((field) => {
+            const fieldId = String(field?.id || '').trim();
+            return __tmGetCustomFieldHierarchyMetadataScore(field) > __tmGetCustomFieldHierarchyMetadataScore(otherById.get(fieldId));
+        });
+    }
+
     function __tmMergeCustomFieldDefsThreeWay(baseInput, localInput, remoteInput, options = {}) {
         const prefer = String(options.prefer || 'local').trim() === 'remote' ? 'remote' : 'local';
         const base = __tmCloneCustomFieldDefs(baseInput);
@@ -5807,25 +6374,32 @@
             return {
                 defs: local,
                 version: localVersion,
+                repairRemote: false,
             };
         }
         if (remoteVersion > localVersion) {
             return {
                 defs: remote,
                 version: remoteVersion,
+                repairRemote: false,
             };
         }
         if (localVersion > remoteVersion) {
+            const defs = remoteVersion === 0 && remote.length
+                ? __tmMergeLegacyCustomFieldDefs(local, remote)
+                : local;
             return {
-                defs: remoteVersion === 0 && remote.length
-                    ? __tmMergeLegacyCustomFieldDefs(local, remote)
-                    : local,
+                defs,
                 version: localVersion,
+                repairRemote: __tmGetCustomFieldDefsFingerprint(defs) !== __tmGetCustomFieldDefsFingerprint(remote),
             };
         }
+        const defs = __tmMergeSameVersionCustomFieldDefs(local, remote);
         return {
-            defs: __tmMergeLegacyCustomFieldDefs(local, remote),
+            defs,
             version: Math.max(localVersion, remoteVersion),
+            repairRemote: __tmHasRicherCustomFieldHierarchy(local, remote)
+                && __tmGetCustomFieldDefsFingerprint(defs) !== __tmGetCustomFieldDefsFingerprint(remote),
         };
     }
 
@@ -5860,8 +6434,16 @@
         __tmCustomFieldAttrBackfillInFlight.add(tid);
         Promise.resolve().then(async () => {
             try {
-                await __tmPersistMetaAndAttrsKernel(tid, { customFieldValues: patch }, {
-                    touchMetaStore: false,
+                const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
+                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                await patchTask(tid, { customFieldValues: patch }, {
+                    source: 'custom-field-attr-backfill',
+                    label: '自定义字段迁移',
+                    wait: true,
+                    background: false,
+                    optimistic: false,
+                    broadcast: false,
+                    skipInteractionGate: true,
                     skipFlush: true,
                 });
                 if (!task.__customFieldRawValues || typeof task.__customFieldRawValues !== 'object' || Array.isArray(task.__customFieldRawValues)) {
@@ -6013,6 +6595,10 @@
                 if (optionName && optionName === token) matchedByName = option;
             }
         }
+        const runtime = __tmBuildCustomFieldOptionRuntime(def);
+        for (const [optionId, path] of runtime.pathById.entries()) {
+            if (path === token) return runtime.optionById.get(optionId) || null;
+        }
         return matchedByName;
     }
 
@@ -6128,9 +6714,7 @@
         const filteredCount = Array.isArray(state?.filteredTasks) ? state.filteredTasks.length : 0;
         if (filteredCount <= 0) return 0;
         const virtualThreshold = 50;
-        const progressiveListRender = state?.__tmProgressiveViewRender?.mode === mode
-            && state.__tmProgressiveViewRender?.tasksRef === state.filteredTasks;
-        if (filteredCount <= virtualThreshold && !progressiveListRender) return filteredCount;
+        if (filteredCount <= virtualThreshold) return filteredCount;
         const step = Math.max(20, Math.min(1200, Number(state?.listRenderStep) || 20));
         return Math.max(step, Math.min(filteredCount, Number(state?.listRenderLimit) || step));
     }
@@ -6356,12 +6940,81 @@
         return __tmBuildCustomFieldTagsHtml(def, rawValue, opts);
     }
 
+    function __tmNormalizeMetaPriorityForStore(value) {
+        const raw = String(value ?? '').trim();
+        if (!raw) return '';
+        return ['none', '无', 'null', 'undefined'].includes(raw.toLowerCase()) ? '' : raw;
+    }
+
+    function __tmCompactTaskMetaEntry(entry) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+        const next = { ...entry };
+        if (Object.prototype.hasOwnProperty.call(next, 'priority')) {
+            const priority = __tmNormalizeMetaPriorityForStore(next.priority);
+            if (priority) next.priority = priority;
+            else delete next.priority;
+        }
+        Object.keys(next).forEach((key) => {
+            const value = next[key];
+            if (value === null || value === undefined) {
+                delete next[key];
+                return;
+            }
+            if (typeof value === 'string') {
+                const text = value.trim();
+                if (!text || text === 'null' || text === 'undefined') delete next[key];
+            }
+        });
+        if (next.customFieldValues && typeof next.customFieldValues === 'object'
+            && !Array.isArray(next.customFieldValues) && Object.keys(next.customFieldValues).length === 0) {
+            delete next.customFieldValues;
+        }
+        return Object.keys(next).length ? next : null;
+    }
+
+    function __tmCompactTaskMetaStoreData(raw) {
+        const source = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+        const data = {};
+        let changed = source !== raw;
+        Object.entries(source).forEach(([id, entry]) => {
+            if (id === __TM_CUSTOM_TASK_ORDER_META_KEY) {
+                data[id] = entry;
+                return;
+            }
+            const compacted = __tmCompactTaskMetaEntry(entry);
+            if (!compacted) {
+                changed = true;
+                return;
+            }
+            data[id] = compacted;
+            if (!changed) {
+                const sourceKeys = Object.keys(entry);
+                const compactedKeys = Object.keys(compacted);
+                changed = sourceKeys.length !== compactedKeys.length
+                    || compactedKeys.some((key) => compacted[key] !== entry[key]);
+            }
+        });
+        return { data, changed };
+    }
+
+    const __tmInitialMetaCacheSource = Storage.get('tm_meta_cache', {}) || {};
+    const __tmInitialMetaCacheState = __tmCompactTaskMetaStoreData(__tmInitialMetaCacheSource);
+    const __tmInitialMetaCache = __tmInitialMetaCacheState.data;
     const MetaStore = {
-        data: Storage.get('tm_meta_cache', {}) || {},
+        data: __tmInitialMetaCache,
         loaded: false,
         saving: false,
         saveTimer: null,
-        lastFingerprint: __tmGetSettingsFieldFingerprint(Storage.get('tm_meta_cache', {}) || {}),
+        saveDirty: false,
+        savePromise: null,
+        savePromiseResolve: null,
+        mutationRevision: 0,
+        lastSerialized: JSON.stringify(__tmInitialMetaCache),
+        initialCompactionDirty: __tmInitialMetaCacheState.changed,
+        orphanCleanupScheduled: false,
+        orphanCleanupRunning: false,
+        orphanCleanupLastAt: 0,
+        orphanCleanupCursor: 0,
 
         async load() {
             if (this.loaded) return;
@@ -6381,10 +7034,15 @@
                         try {
                             const json = JSON.parse(text);
                             if (json && typeof json === 'object' && Object.keys(json).length > 0) {
-                                this.data = json;
-                                Storage.set('tm_meta_cache', this.data);
-                                this.lastFingerprint = __tmGetSettingsFieldFingerprint(this.data || {});
+                                const compacted = __tmCompactTaskMetaStoreData(json);
+                                this.data = compacted.data;
+                                const serialized = JSON.stringify(this.data || {});
+                                Storage.setSerialized('tm_meta_cache', serialized);
+                                this.lastSerialized = compacted.changed ? JSON.stringify(json) : serialized;
+                                this.initialCompactionDirty = false;
                                 this.loaded = true;
+                                if (compacted.changed) this.scheduleSave();
+                                this.scheduleOrphanCleanup();
                                 return;
                             }
                         } catch (parseError) {
@@ -6395,8 +7053,16 @@
             }
 
             // 云端没有数据，使用本地缓存（已在初始化时加载）
-            this.lastFingerprint = __tmGetSettingsFieldFingerprint(this.data || {});
+            const serialized = JSON.stringify(this.data || {});
+            this.lastSerialized = this.initialCompactionDirty
+                ? JSON.stringify(__tmInitialMetaCacheSource || {})
+                : serialized;
             this.loaded = true;
+            if (this.initialCompactionDirty) {
+                this.initialCompactionDirty = false;
+                this.scheduleSave();
+            }
+            this.scheduleOrphanCleanup();
         },
 
         get(id) {
@@ -6496,15 +7162,17 @@
             }
         },
 
-        mergeFromTaskIfMissing(task) {
+        mergeFromTaskIfMissing(task, options = {}) {
             if (!task?.id) return;
             const existing = this.get(task.id);
             if (existing) return;
+            const opts = (options && typeof options === 'object') ? options : {};
             const candidate = {};
-            if (task.priority) candidate.priority = task.priority;
-            if (task.pinned !== undefined) candidate.pinned = task.pinned;
-            if (task.allDayBottom !== undefined) candidate.allDayBottom = task.allDayBottom;
-            if (task.milestone !== undefined) candidate.milestone = task.milestone;
+            const priority = __tmNormalizeMetaPriorityForStore(task.priority || task.custom_priority || task.customPriority || '');
+            if (priority) candidate.priority = priority;
+            if (task.pinned === true || task.pinned === '1' || task.pinned === 1) candidate.pinned = true;
+            if (task.allDayBottom === true || task.allDayBottom === '1' || task.allDayBottom === 1) candidate.allDayBottom = true;
+            if (task.milestone === true || task.milestone === '1' || task.milestone === 1) candidate.milestone = true;
             if (task.duration) candidate.duration = task.duration;
             if (task.tomatoEstimateCount) candidate.tomatoEstimateCount = __tmNormalizeTomatoCountValue(task.tomatoEstimateCount);
             if (task.tomatoCount) candidate.tomatoCount = __tmNormalizeTomatoCountValue(task.tomatoCount);
@@ -6513,11 +7181,16 @@
             if (task.taskCompleteAt) candidate.taskCompleteAt = task.taskCompleteAt;
             if (task.customTime) candidate.customTime = task.customTime;
             if (task.customStatus) candidate.customStatus = task.customStatus;
-            if (task.repeatRule && typeof task.repeatRule === 'object') candidate.repeatRule = __tmNormalizeTaskRepeatRule(task.repeatRule, {
+            const repeatRule = (task.repeatRule && typeof task.repeatRule === 'object')
+                ? __tmNormalizeTaskRepeatRule(task.repeatRule, {
                 startDate: task?.startDate,
                 completionTime: task?.completionTime,
-            });
-            if (task.repeatState && typeof task.repeatState === 'object') candidate.repeatState = __tmNormalizeTaskRepeatState(task.repeatState);
+                })
+                : null;
+            if (repeatRule?.enabled && repeatRule.type !== 'none') candidate.repeatRule = repeatRule;
+            if (repeatRule?.enabled && task.repeatState && typeof task.repeatState === 'object') {
+                candidate.repeatState = __tmNormalizeTaskRepeatState(task.repeatState);
+            }
             if (Array.isArray(task.repeatHistory) && task.repeatHistory.length) candidate.repeatHistory = __tmNormalizeTaskRepeatHistory(task.repeatHistory);
             if (__tmGetTaskAttachmentPaths(task).length) candidate.attachments = __tmGetTaskAttachmentPaths(task);
             {
@@ -6529,7 +7202,9 @@
             }
             if (Object.keys(candidate).length === 0) return;
             this.data[task.id] = candidate;
-            this.scheduleSave();
+            this.mutationRevision += 1;
+            if (opts.save !== false) this.scheduleSave();
+            return true;
         },
 
         set(id, patch) {
@@ -6554,9 +7229,12 @@
                 });
                 nextPatch.customFieldValues = mergedCustomValues;
             }
-            const next = { ...prev, ...nextPatch };
-            if (__tmGetSettingsFieldFingerprint(next) === __tmGetSettingsFieldFingerprint(prev)) return;
-            this.data[id] = next;
+            const merged = { ...prev, ...nextPatch };
+            const next = id === __TM_CUSTOM_TASK_ORDER_META_KEY ? merged : __tmCompactTaskMetaEntry(merged);
+            if (__tmGetSettingsFieldFingerprint(next || {}) === __tmGetSettingsFieldFingerprint(prev)) return;
+            if (next) this.data[id] = next;
+            else delete this.data[id];
+            this.mutationRevision += 1;
             this.scheduleSave();
         },
 
@@ -6567,23 +7245,132 @@
                 this.data[newId] = this.data[oldId];
             }
             if (this.data[oldId]) delete this.data[oldId];
+            this.mutationRevision += 1;
             this.scheduleSave();
         },
 
+        deleteTaskIds(taskIds, options = {}) {
+            const opts = (options && typeof options === 'object') ? options : {};
+            const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [taskIds])
+                .map((id) => String(id || '').trim())
+                .filter((id) => id && id !== __TM_CUSTOM_TASK_ORDER_META_KEY)));
+            let changed = false;
+            ids.forEach((id) => {
+                if (!Object.prototype.hasOwnProperty.call(this.data || {}, id)) return;
+                delete this.data[id];
+                changed = true;
+            });
+            if (changed) this.mutationRevision += 1;
+            if (changed && opts.save !== false) this.scheduleSave();
+            return changed;
+        },
+
+        scheduleOrphanCleanup() {
+            if (!this.loaded || this.orphanCleanupScheduled || this.orphanCleanupRunning) return;
+            if ((Date.now() - Number(this.orphanCleanupLastAt || 0)) < __TM_META_ORPHAN_CLEANUP_INTERVAL_MS) return;
+            this.orphanCleanupScheduled = true;
+            const run = () => {
+                this.orphanCleanupScheduled = false;
+                this.cleanupOrphans().catch(() => null);
+            };
+            try {
+                if (typeof globalThis?.requestIdleCallback === 'function') {
+                    globalThis.requestIdleCallback(run, { timeout: 2000 });
+                    return;
+                }
+            } catch (e) {}
+            setTimeout(run, 1000);
+        },
+
+        async cleanupOrphans() {
+            if (!this.loaded || this.orphanCleanupRunning) return 0;
+            this.orphanCleanupRunning = true;
+            this.orphanCleanupLastAt = Date.now();
+            try {
+                if (typeof API === 'undefined' || typeof API?.call !== 'function') return 0;
+                const cutoffDate = new Date(Date.now() - __TM_META_ORPHAN_CLEANUP_MIN_AGE_MS);
+                const pad = (value) => String(value).padStart(2, '0');
+                const cutoffStamp = `${cutoffDate.getFullYear()}${pad(cutoffDate.getMonth() + 1)}${pad(cutoffDate.getDate())}${pad(cutoffDate.getHours())}${pad(cutoffDate.getMinutes())}${pad(cutoffDate.getSeconds())}`;
+                const candidates = Object.keys(this.data || {}).filter((id) => (
+                    id !== __TM_CUSTOM_TASK_ORDER_META_KEY
+                    && __TM_TASK_ATTACHMENT_BLOCK_ID_PATTERN.test(id)
+                    && id.slice(0, 14) < cutoffStamp
+                ));
+                if (!candidates.length) return 0;
+                const start = Math.max(0, Number(this.orphanCleanupCursor) || 0) % candidates.length;
+                const ordered = candidates.slice(start).concat(candidates.slice(0, start));
+                const selected = ordered.slice(0, __TM_META_ORPHAN_CLEANUP_MAX_IDS);
+                const selectedEntries = new Map(selected.map((id) => [id, this.data?.[id]]));
+                this.orphanCleanupCursor = (start + selected.length) % candidates.length;
+                const staleIds = [];
+                for (let i = 0; i < selected.length; i += __TM_META_ORPHAN_CLEANUP_BATCH_SIZE) {
+                    const chunk = selected.slice(i, i + __TM_META_ORPHAN_CLEANUP_BATCH_SIZE);
+                    const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+                    let res = null;
+                    try {
+                        res = await API.call('/api/query/sql', {
+                            stmt: `SELECT id FROM blocks WHERE id IN (${idList}) LIMIT ${chunk.length}`,
+                        });
+                    } catch (e) {
+                        continue;
+                    }
+                    if (res?.code !== 0 || !Array.isArray(res.data)) continue;
+                    const existingIds = new Set(res.data.map((row) => String(row?.id || '').trim()).filter(Boolean));
+                    chunk.forEach((id) => {
+                        if (!existingIds.has(id)
+                            && Object.prototype.hasOwnProperty.call(this.data || {}, id)
+                            && this.data[id] === selectedEntries.get(id)) staleIds.push(id);
+                    });
+                }
+                if (!staleIds.length) return 0;
+                this.deleteTaskIds(staleIds);
+                return staleIds.length;
+            } finally {
+                this.orphanCleanupRunning = false;
+            }
+        },
+
+        ensureSavePromise() {
+            if (!this.savePromise) {
+                this.savePromise = new Promise((resolve) => {
+                    this.savePromiseResolve = resolve;
+                });
+            }
+            return this.savePromise;
+        },
+
         scheduleSave() {
+            this.saveDirty = true;
+            this.mutationRevision += 1;
+            this.scheduleOrphanCleanup();
+            const pending = this.ensureSavePromise();
             try {
                 if (this.saveTimer) clearTimeout(this.saveTimer);
             } catch (e) {}
             this.saveTimer = setTimeout(() => {
                 this.saveTimer = null;
-                this.saveNow();
+                this.flushSave();
             }, 500);
+            return pending;
         },
 
         async saveNow() {
-            if (this.saving) return;
+            try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
+            this.saveTimer = null;
+            if (this.saving) return this.savePromise || undefined;
+            if (!this.saveDirty) return this.savePromise || undefined;
+            const pending = this.ensureSavePromise();
+            this.flushSave();
+            return pending;
+        },
+
+        async flushSave() {
+            if (this.saving) return this.savePromise || undefined;
+            if (!this.saveDirty) return this.savePromise || undefined;
+            this.ensureSavePromise();
             this.saving = true;
-            const prevFingerprint = String(this.lastFingerprint || '');
+            this.saveDirty = false;
+            let saveSucceeded = true;
             try {
                 try {
                     const remoteMeta = await __tmReadJsonFile(META_FILE_PATH);
@@ -6594,9 +7381,14 @@
                     if (__tmGetSettingsFieldFingerprint(mergedCustomOrder) !== __tmGetSettingsFieldFingerprint(this.data?.[__TM_CUSTOM_TASK_ORDER_META_KEY] || {})) {
                         if (!this.data || typeof this.data !== 'object') this.data = {};
                         this.data[__TM_CUSTOM_TASK_ORDER_META_KEY] = mergedCustomOrder;
+                        this.mutationRevision += 1;
                     }
                 } catch (e) {}
-                Storage.set('tm_meta_cache', this.data || {});
+
+                const serialized = JSON.stringify(this.data || {});
+                const writtenRevision = this.mutationRevision;
+                if (serialized === String(this.lastSerialized || '')) return;
+                Storage.setSerialized('tm_meta_cache', serialized);
                 const formDir = new FormData();
                 formDir.append('path', PLUGIN_STORAGE_DIR);
                 formDir.append('isDir', 'true');
@@ -6605,15 +7397,30 @@
                 const form = new FormData();
                 form.append('path', META_FILE_PATH);
                 form.append('isDir', 'false');
-                form.append('file', new Blob([JSON.stringify(this.data || {}, null, 2)], { type: 'application/json' }));
+                form.append('file', new Blob([serialized], { type: 'application/json' }));
                 const metaPutRes = await fetch('/api/file/putFile', { method: 'POST', body: form });
-                const nextFingerprint = __tmGetSettingsFieldFingerprint(this.data || {});
-                if (metaPutRes && metaPutRes.ok && nextFingerprint !== prevFingerprint) {
-                    this.lastFingerprint = nextFingerprint;
-                    try { __tmMarkMobileCloseSyncDirty('meta-save'); } catch (e) {}
-                }
-            } catch (e) {} finally {
+                if (!metaPutRes?.ok) throw new Error('meta-save-failed');
+                this.lastSerialized = serialized;
+                if (this.mutationRevision === writtenRevision) this.saveDirty = false;
+                try { __tmMarkMobileCloseSyncDirty('meta-save'); } catch (e) {}
+            } catch (e) {
+                saveSucceeded = false;
+                this.saveDirty = true;
+            } finally {
                 this.saving = false;
+                if (this.saveDirty && saveSucceeded) {
+                    try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
+                    this.saveTimer = setTimeout(() => {
+                        this.saveTimer = null;
+                        this.flushSave();
+                    }, 50);
+                    return;
+                }
+                try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
+                this.saveTimer = null;
+                try { this.savePromiseResolve?.(); } catch (e) {}
+                this.savePromise = null;
+                this.savePromiseResolve = null;
             }
         }
     };
@@ -6959,16 +7766,8 @@
         const targetId = String(targetTaskId || '').trim();
         const mode = String(kind || '').trim();
         if (!ruleId || !sourceId || !targetId || sourceId === targetId) return { ok: false, reason: 'invalid' };
-        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId)
-            || state.flatTasks?.[sourceId]
-            || state.pendingInsertedTasks?.[sourceId]
-            || null;
-        const targetTask = globalThis.__tmRuntimeState?.getTaskById?.(targetId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId)
-            || state.flatTasks?.[targetId]
-            || state.pendingInsertedTasks?.[targetId]
-            || null;
+        const sourceTask = globalThis.__tmTaskBoundary?.getTask?.(sourceId) || null;
+        const targetTask = globalThis.__tmTaskBoundary?.getTask?.(targetId) || null;
         const sourceDocId = String(sourceTask?.docId || sourceTask?.root_id || '').trim();
         const targetDocId = String(targetTask?.docId || targetTask?.root_id || '').trim();
         if (!sourceDocId || !targetDocId) return { ok: false, reason: 'missing-doc' };
@@ -7013,16 +7812,8 @@
         const targetId = String(targetTaskId || '').trim();
         const mode = String(kind || '').trim();
         if (!ruleId || !sourceId || !targetId || sourceId === targetId) return { ok: false, reason: 'invalid' };
-        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId)
-            || state.flatTasks?.[sourceId]
-            || state.pendingInsertedTasks?.[sourceId]
-            || null;
-        const targetTask = globalThis.__tmRuntimeState?.getTaskById?.(targetId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId)
-            || state.flatTasks?.[targetId]
-            || state.pendingInsertedTasks?.[targetId]
-            || null;
+        const sourceTask = globalThis.__tmTaskBoundary?.getTask?.(sourceId) || null;
+        const targetTask = globalThis.__tmTaskBoundary?.getTask?.(targetId) || null;
         const sourceDocId = String(sourceTask?.docId || sourceTask?.root_id || '').trim();
         const targetDocId = String(targetTask?.docId || targetTask?.root_id || '').trim();
         if (!sourceDocId || !targetDocId) return { ok: false, reason: 'missing-doc' };
@@ -7494,7 +8285,6 @@
             queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
             recursiveDocLimit: 2000,
             legacyWin7CompatMode: false,
-            diagnosticLogsEnabled: false,
             taskParentLookupDepth: TM_TASK_PARENT_LOOKUP_DEPTH_DEFAULT,
             groupByDocName: true,
             groupByTime: false,
@@ -7503,13 +8293,13 @@
             dockSidebarEnabled: true,
             dockDefaultViewMode: 'follow-mobile',
             dockSidebarFollowCurrentDocument: false,
-            dockChecklistCompactTitleJump: true,
-            mobileChecklistCompactTitleJump: true,
+            taskTitleClickAction: 'jump',
+            dockTaskTitleClickAction: 'inherit',
+            mobileTaskTitleClickAction: 'inherit',
             desktopChecklistCompactMetaFields: ['completionTime', 'status'],
             dockChecklistCompactMetaFields: ['completionTime', 'status'],
             mobileChecklistCompactMetaFields: ['completionTime', 'status'],
             checklistCompactRightFontSize: 'large',
-            checklistCompactTitleOpenDetailPage: false,
             enabledViews: ['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'],
             kanbanCompactMode: false,
             checklistCompactMode: true,
@@ -7591,6 +8381,7 @@
             aiScheduleWindows: ['09:00-18:00'],
             aiSideDockEnabled: true,
             pinNewTasksByDefault: false,
+            quickAddDefaultCompletionToday: false,
             enableMoveBlockToDailyNote: false,
             taskDetailShowCompletedSubtasks: __TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_DEFAULT,
             taskDetailCompletedSubtasksVisibilityByTask: {},
@@ -7617,6 +8408,7 @@
             pointsPenaltyCheckOnStartup: false,
             pointsPenaltyConfirmModalEnabled: true,
             tomatoSpentAttrMode: 'minutes',
+            tomatoActualCountBySpentEnabled: true,
             tomatoSpentAttrKeyMinutes: 'custom-tomato-minutes',
             tomatoSpentAttrKeyHours: 'custom-tomato-time',
             tomatoCountAttrKey: 'custom-tomato-count',
@@ -8049,6 +8841,7 @@
                 payload.kanbanBoardMode = mode;
                 payload.kanbanHeadingGroupMode = mode === 'heading';
             } catch (e) {}
+            __tmMigrateLegacyTaskTitleClickSettings(payload, payload);
             return payload;
         },
 
@@ -8059,7 +8852,8 @@
 
             // 先从本地缓存加载一份作为兜底（避免云端旧版本配置缺字段导致覆盖丢失）
             // 云端数据存在时，再用云端字段覆盖本地字段
-            try { this.loadFromLocal(); } catch (e) {}
+            let migratedLegacyTaskTitleClickSettings = false;
+            try { migratedLegacyTaskTitleClickSettings = this.loadFromLocal() === true; } catch (e) {}
 
             // 从云端加载设置（优先）
             try {
@@ -8076,6 +8870,8 @@
                         try {
                             const cloudData = JSON.parse(text);
                             if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
+                                migratedLegacyTaskTitleClickSettings = __tmMigrateLegacyTaskTitleClickSettings(cloudData, cloudData)
+                                    || migratedLegacyTaskTitleClickSettings;
                                 const localSettingsBeforeCloud = __tmCloneJsonSafe(this.data, { ...(this.data || {}) });
                                 const localSettingsUpdatedAt = Number(this.data.settingsUpdatedAt) || 0;
                                 const cloudSettingsUpdatedAt = Number(cloudData.settingsUpdatedAt) || 0;
@@ -8140,8 +8936,7 @@
                                     this.refreshCollapsedStateSyncState();
                                     this.refreshSettingsFieldSyncState();
                                     this.loaded = true;
-                                    try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-local-newer'); } catch (e) {}
-                                    if (migratedLegacyTopbarDefaults) {
+                                    if (migratedLegacyTopbarDefaults || migratedLegacyTaskTitleClickSettings || resolvedCustomFieldSchema.repairRemote === true) {
                                         try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
                                     }
                                     return;
@@ -8156,7 +8951,6 @@
                                 if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
                                 if (typeof cloudData.recursiveDocLimit === 'number') this.data.recursiveDocLimit = cloudData.recursiveDocLimit;
                                 if (typeof cloudData.legacyWin7CompatMode === 'boolean') this.data.legacyWin7CompatMode = cloudData.legacyWin7CompatMode;
-                                if (typeof cloudData.diagnosticLogsEnabled === 'boolean') this.data.diagnosticLogsEnabled = cloudData.diagnosticLogsEnabled;
                                 if (typeof cloudData.taskParentLookupDepth === 'number') this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(cloudData.taskParentLookupDepth);
                                 if (typeof cloudData.groupByDocName === 'boolean') this.data.groupByDocName = cloudData.groupByDocName;
                                 if (typeof cloudData.groupByTime === 'boolean') this.data.groupByTime = cloudData.groupByTime;
@@ -8165,17 +8959,13 @@
                                 if (typeof cloudData.dockSidebarEnabled === 'boolean') this.data.dockSidebarEnabled = cloudData.dockSidebarEnabled;
                                 if (typeof cloudData.dockDefaultViewMode === 'string') this.data.dockDefaultViewMode = cloudData.dockDefaultViewMode;
                                 if (typeof cloudData.dockSidebarFollowCurrentDocument === 'boolean') this.data.dockSidebarFollowCurrentDocument = cloudData.dockSidebarFollowCurrentDocument;
-                                if (typeof cloudData.dockChecklistCompactTitleJump === 'boolean') this.data.dockChecklistCompactTitleJump = cloudData.dockChecklistCompactTitleJump;
-                                if (typeof cloudData.mobileChecklistCompactTitleJump === 'boolean') {
-                                    this.data.mobileChecklistCompactTitleJump = cloudData.mobileChecklistCompactTitleJump;
-                                } else {
-                                    this.data.mobileChecklistCompactTitleJump = this.data.dockChecklistCompactTitleJump;
-                                }
+                                if (typeof cloudData.taskTitleClickAction === 'string') this.data.taskTitleClickAction = __tmNormalizeTaskTitleClickAction(cloudData.taskTitleClickAction);
+                                if (typeof cloudData.dockTaskTitleClickAction === 'string') this.data.dockTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(cloudData.dockTaskTitleClickAction);
+                                if (typeof cloudData.mobileTaskTitleClickAction === 'string') this.data.mobileTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(cloudData.mobileTaskTitleClickAction);
                                 if (Array.isArray(cloudData.desktopChecklistCompactMetaFields)) this.data.desktopChecklistCompactMetaFields = cloudData.desktopChecklistCompactMetaFields;
                                 if (Array.isArray(cloudData.dockChecklistCompactMetaFields)) this.data.dockChecklistCompactMetaFields = cloudData.dockChecklistCompactMetaFields;
                                 if (Array.isArray(cloudData.mobileChecklistCompactMetaFields)) this.data.mobileChecklistCompactMetaFields = cloudData.mobileChecklistCompactMetaFields;
                                 if (typeof cloudData.checklistCompactRightFontSize === 'string') this.data.checklistCompactRightFontSize = __tmNormalizeChecklistCompactRightFontSize(cloudData.checklistCompactRightFontSize);
-                                if (typeof cloudData.checklistCompactTitleOpenDetailPage === 'boolean') this.data.checklistCompactTitleOpenDetailPage = cloudData.checklistCompactTitleOpenDetailPage;
                                 if (Array.isArray(cloudData.enabledViews)) this.data.enabledViews = __tmNormalizeEnabledViews(cloudData.enabledViews);
                                 if (typeof cloudData.kanbanCompactMode === 'boolean') this.data.kanbanCompactMode = cloudData.kanbanCompactMode;
                                 if (typeof cloudData.checklistCompactMode === 'boolean') this.data.checklistCompactMode = cloudData.checklistCompactMode;
@@ -8245,6 +9035,7 @@
                                 if (typeof cloudData.quickbarSubtaskCountUnfinishedOnly === 'boolean') this.data.quickbarSubtaskCountUnfinishedOnly = cloudData.quickbarSubtaskCountUnfinishedOnly;
                                 if (typeof cloudData.aiSideDockEnabled === 'boolean') this.data.aiSideDockEnabled = cloudData.aiSideDockEnabled;
                                 if (typeof cloudData.pinNewTasksByDefault === 'boolean') this.data.pinNewTasksByDefault = cloudData.pinNewTasksByDefault;
+                                if (typeof cloudData.quickAddDefaultCompletionToday === 'boolean') this.data.quickAddDefaultCompletionToday = cloudData.quickAddDefaultCompletionToday;
                                 if (typeof cloudData.taskDetailShowCompletedSubtasks === 'boolean') {
                                     this.data.taskDetailShowCompletedSubtasks = cloudData.taskDetailShowCompletedSubtasks;
                                 }
@@ -8280,6 +9071,7 @@
                                 if (typeof cloudData.pointsPenaltyCheckOnStartup === 'boolean') this.data.pointsPenaltyCheckOnStartup = cloudData.pointsPenaltyCheckOnStartup;
                                 if (typeof cloudData.pointsPenaltyConfirmModalEnabled === 'boolean') this.data.pointsPenaltyConfirmModalEnabled = cloudData.pointsPenaltyConfirmModalEnabled;
                                 if (typeof cloudData.tomatoSpentAttrMode === 'string') this.data.tomatoSpentAttrMode = cloudData.tomatoSpentAttrMode;
+                                if (typeof cloudData.tomatoActualCountBySpentEnabled === 'boolean') this.data.tomatoActualCountBySpentEnabled = cloudData.tomatoActualCountBySpentEnabled;
                                 if (typeof cloudData.tomatoSpentAttrKeyMinutes === 'string') this.data.tomatoSpentAttrKeyMinutes = cloudData.tomatoSpentAttrKeyMinutes;
                                 if (typeof cloudData.tomatoSpentAttrKeyHours === 'string') this.data.tomatoSpentAttrKeyHours = cloudData.tomatoSpentAttrKeyHours;
                                 if (typeof cloudData.tomatoCountAttrKey === 'string') this.data.tomatoCountAttrKey = cloudData.tomatoCountAttrKey;
@@ -8588,8 +9380,7 @@
                                 this.refreshSettingsFieldSyncState();
                                 this.loaded = true;
                                 __tmApplyEntryIconPreset(this.data.entryIconPreset);
-                                try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-cloud'); } catch (e) {}
-                                if (migratedLegacyTopbarDefaults || restoredLocalSettingFields.length > 0) {
+                                if (migratedLegacyTopbarDefaults || migratedLegacyTaskTitleClickSettings || restoredLocalSettingFields.length > 0 || resolvedCustomFieldSchema.repairRemote === true) {
                                     try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
                                 }
                                 return;
@@ -8609,8 +9400,7 @@
             this.refreshSettingsFieldSyncState();
             this.loaded = true;
             __tmApplyEntryIconPreset(this.data.entryIconPreset);
-            try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-fallback'); } catch (e) {}
-            if (migratedLegacyTopbarDefaults) {
+            if (migratedLegacyTopbarDefaults || migratedLegacyTaskTitleClickSettings) {
                 try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
             }
         },
@@ -8618,8 +9408,22 @@
         // 从本地缓存加载
         loadFromLocal() {
             this.data.settingsUpdatedAt = Number(Storage.get('tm_settings_updated_at', this.data.settingsUpdatedAt)) || 0;
+            const rawSettingsFieldUpdatedAt = Storage.get('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt);
+            this.data.settingsFieldUpdatedAt = rawSettingsFieldUpdatedAt;
+            const localTaskTitleSettings = { settingsFieldUpdatedAt: rawSettingsFieldUpdatedAt };
+            [
+                ['tm_task_title_click_action', 'taskTitleClickAction'],
+                ['tm_dock_task_title_click_action', 'dockTaskTitleClickAction'],
+                ['tm_mobile_task_title_click_action', 'mobileTaskTitleClickAction'],
+                ['tm_checklist_compact_title_open_detail_page', 'checklistCompactTitleOpenDetailPage'],
+                ['tm_dock_checklist_compact_title_jump', 'dockChecklistCompactTitleJump'],
+                ['tm_mobile_checklist_compact_title_jump', 'mobileChecklistCompactTitleJump'],
+            ].forEach(([storageKey, settingKey]) => {
+                if (Storage.has(storageKey)) localTaskTitleSettings[settingKey] = Storage.get(storageKey, undefined);
+            });
+            const migratedLegacyTaskTitleClickSettings = __tmMigrateLegacyTaskTitleClickSettings(this.data, localTaskTitleSettings);
             {
-                const localFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(Storage.get('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt), this.data);
+                const localFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
                 this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(localFieldMap, this.data) ? {} : localFieldMap;
             }
             this.data.docGroupSettingsUpdatedAt = Number(Storage.get('tm_doc_group_settings_updated_at', this.data.docGroupSettingsUpdatedAt)) || 0;
@@ -8628,7 +9432,6 @@
             this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
             this.data.recursiveDocLimit = Storage.get('tm_recursive_doc_limit', this.data.recursiveDocLimit);
             this.data.legacyWin7CompatMode = !!Storage.get('tm_legacy_win7_compat_mode', this.data.legacyWin7CompatMode);
-            this.data.diagnosticLogsEnabled = !!Storage.get('tm_diagnostic_logs_enabled', this.data.diagnosticLogsEnabled);
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(Storage.get('tm_task_parent_lookup_depth', this.data.taskParentLookupDepth));
             this.data.groupByDocName = Storage.get('tm_group_by_docname', true);
             this.data.groupByTime = Storage.get('tm_group_by_time', false);
@@ -8637,13 +9440,13 @@
             this.data.dockSidebarEnabled = !!Storage.get('tm_dock_sidebar_enabled', this.data.dockSidebarEnabled);
             this.data.dockDefaultViewMode = Storage.get('tm_dock_default_view_mode', this.data.dockDefaultViewMode || 'follow-mobile');
             this.data.dockSidebarFollowCurrentDocument = !!Storage.get('tm_dock_sidebar_follow_current_document', this.data.dockSidebarFollowCurrentDocument);
-            this.data.dockChecklistCompactTitleJump = !!Storage.get('tm_dock_checklist_compact_title_jump', this.data.dockChecklistCompactTitleJump);
-            this.data.mobileChecklistCompactTitleJump = !!Storage.get('tm_mobile_checklist_compact_title_jump', this.data.mobileChecklistCompactTitleJump ?? this.data.dockChecklistCompactTitleJump);
+            this.data.taskTitleClickAction = __tmNormalizeTaskTitleClickAction(this.data.taskTitleClickAction);
+            this.data.dockTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(this.data.dockTaskTitleClickAction);
+            this.data.mobileTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(this.data.mobileTaskTitleClickAction);
             this.data.desktopChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(Storage.get('tm_desktop_checklist_compact_meta_fields', this.data.desktopChecklistCompactMetaFields));
             this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(Storage.get('tm_dock_checklist_compact_meta_fields', this.data.dockChecklistCompactMetaFields));
             this.data.mobileChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(Storage.get('tm_mobile_checklist_compact_meta_fields', this.data.mobileChecklistCompactMetaFields));
             this.data.checklistCompactRightFontSize = __tmNormalizeChecklistCompactRightFontSize(Storage.get('tm_checklist_compact_right_font_size', this.data.checklistCompactRightFontSize));
-            this.data.checklistCompactTitleOpenDetailPage = !!Storage.get('tm_checklist_compact_title_open_detail_page', this.data.checklistCompactTitleOpenDetailPage);
             this.data.enabledViews = __tmNormalizeEnabledViews(Storage.get('tm_enabled_views', this.data.enabledViews));
             this.data.kanbanCompactMode = !!Storage.get('tm_kanban_compact_mode', this.data.kanbanCompactMode);
             this.data.checklistCompactMode = !!Storage.get('tm_checklist_compact_mode', this.data.checklistCompactMode);
@@ -8747,6 +9550,7 @@
             this.data.quickbarInlineShowOnMobile = !!Storage.get('tm_quickbar_inline_show_on_mobile', this.data.quickbarInlineShowOnMobile);
             this.data.quickbarSubtaskCountUnfinishedOnly = !!Storage.get('tm_quickbar_subtask_count_unfinished_only', this.data.quickbarSubtaskCountUnfinishedOnly);
             this.data.pinNewTasksByDefault = Storage.get('tm_pin_new_tasks_by_default', false);
+            this.data.quickAddDefaultCompletionToday = !!Storage.get('tm_quick_add_default_completion_today', this.data.quickAddDefaultCompletionToday);
             const legacyCompletedSubtasksVisibility = Storage.get(__TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_LEGACY_KEY, this.data.taskDetailCompletedSubtasksVisibilityByTask);
             this.data.taskDetailCompletedSubtasksVisibilityByTask = (legacyCompletedSubtasksVisibility && typeof legacyCompletedSubtasksVisibility === 'object' && !Array.isArray(legacyCompletedSubtasksVisibility))
                 ? legacyCompletedSubtasksVisibility
@@ -8791,6 +9595,7 @@
             this.data.pointsPenaltyCheckOnStartup = !!Storage.get('tm_points_penalty_check_on_startup', this.data.pointsPenaltyCheckOnStartup);
             this.data.pointsPenaltyConfirmModalEnabled = !!Storage.get('tm_points_penalty_confirm_modal_enabled', this.data.pointsPenaltyConfirmModalEnabled);
             this.data.tomatoSpentAttrMode = Storage.get('tm_tomato_spent_attr_mode', 'minutes');
+            this.data.tomatoActualCountBySpentEnabled = Storage.get('tm_tomato_actual_count_by_spent_enabled', this.data.tomatoActualCountBySpentEnabled) !== false;
             this.data.tomatoSpentAttrKeyMinutes = Storage.get('tm_tomato_spent_attr_key_minutes', this.data.tomatoSpentAttrKeyMinutes);
             this.data.tomatoSpentAttrKeyHours = Storage.get('tm_tomato_spent_attr_key_hours', this.data.tomatoSpentAttrKeyHours);
             this.data.tomatoCountAttrKey = Storage.get('tm_tomato_count_attr_key', this.data.tomatoCountAttrKey);
@@ -9133,10 +9938,36 @@
             }
             this.normalizeColumns();
             try { __tmApplyTaskCheckboxPriorityColorStyle(this.data.taskCheckboxPriorityColorEnabled !== false); } catch (e) {}
+            return migratedLegacyTaskTitleClickSettings;
         },
 
         // 同步到本地缓存
+        syncLocalFields(fieldNames) {
+            const fields = new Set((Array.isArray(fieldNames) ? fieldNames : [fieldNames])
+                .map((field) => String(field || '').trim())
+                .filter(Boolean));
+            const writers = {
+                whiteboardView: () => Storage.set('tm_whiteboard_view', this.data.whiteboardView || { x: 64, y: 40, zoom: 1 }),
+                whiteboardNodePos: () => Storage.set('tm_whiteboard_node_pos', this.data.whiteboardNodePos || {}),
+                whiteboardPlacedTaskIds: () => Storage.set('tm_whiteboard_placed_task_ids', this.data.whiteboardPlacedTaskIds || {}),
+                whiteboardNotes: () => Storage.set('tm_whiteboard_notes', Array.isArray(this.data.whiteboardNotes) ? this.data.whiteboardNotes : []),
+                whiteboardDrawings: () => Storage.set('tm_whiteboard_drawings', Array.isArray(this.data.whiteboardDrawings) ? this.data.whiteboardDrawings : []),
+                whiteboardFrames: () => Storage.set('tm_whiteboard_frames', Array.isArray(this.data.whiteboardFrames) ? this.data.whiteboardFrames : []),
+                whiteboardDocFrameSize: () => Storage.set('tm_whiteboard_doc_frame_size', this.data.whiteboardDocFrameSize || {}),
+                whiteboardLinks: () => Storage.set('tm_whiteboard_links', Array.isArray(this.data.whiteboardLinks) ? this.data.whiteboardLinks : []),
+                whiteboardDetachedChildren: () => Storage.set('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren || {}),
+                whiteboardDrawingConfig: () => Storage.set('tm_whiteboard_drawing_config', __tmNormalizeWhiteboardDrawingConfig(this.data.whiteboardDrawingConfig)),
+                whiteboardNavigatorHidden: () => Storage.set('tm_whiteboard_navigator_hidden', !!this.data.whiteboardNavigatorHidden),
+                whiteboardAllTabsDocOrderByGroup: () => Storage.set('tm_whiteboard_all_tabs_doc_order_by_group', this.data.whiteboardAllTabsDocOrderByGroup || {}),
+                whiteboardGlobalBoardsByGroup: () => Storage.set('tm_whiteboard_global_boards_by_group', this.data.whiteboardGlobalBoardsByGroup || {}),
+            };
+            fields.forEach((field) => {
+                try { writers[field]?.(); } catch (e) {}
+            });
+        },
+
         syncToLocal() {
+            __tmMigrateLegacyTaskTitleClickSettings(this.data, this.data);
             Storage.set('tm_settings_updated_at', Number(this.data.settingsUpdatedAt) || 0);
             this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
             Storage.set('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt);
@@ -9146,7 +9977,6 @@
             this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
             Storage.set('tm_recursive_doc_limit', this.data.recursiveDocLimit);
             Storage.set('tm_legacy_win7_compat_mode', !!this.data.legacyWin7CompatMode);
-            Storage.set('tm_diagnostic_logs_enabled', !!this.data.diagnosticLogsEnabled);
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
             Storage.set('tm_task_parent_lookup_depth', this.data.taskParentLookupDepth);
             Storage.set('tm_group_by_docname', this.data.groupByDocName);
@@ -9161,8 +9991,15 @@
             Storage.set('tm_dock_sidebar_enabled', !!this.data.dockSidebarEnabled);
             Storage.set('tm_dock_default_view_mode', String(this.data.dockDefaultViewMode || 'follow-mobile').trim() || 'follow-mobile');
             Storage.set('tm_dock_sidebar_follow_current_document', this.data.dockSidebarFollowCurrentDocument);
-            Storage.set('tm_dock_checklist_compact_title_jump', !!this.data.dockChecklistCompactTitleJump);
-            Storage.set('tm_mobile_checklist_compact_title_jump', !!this.data.mobileChecklistCompactTitleJump);
+            this.data.taskTitleClickAction = __tmNormalizeTaskTitleClickAction(this.data.taskTitleClickAction);
+            this.data.dockTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(this.data.dockTaskTitleClickAction);
+            this.data.mobileTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(this.data.mobileTaskTitleClickAction);
+            Storage.set('tm_task_title_click_action', this.data.taskTitleClickAction);
+            Storage.set('tm_dock_task_title_click_action', this.data.dockTaskTitleClickAction);
+            Storage.set('tm_mobile_task_title_click_action', this.data.mobileTaskTitleClickAction);
+            Storage.remove('tm_dock_checklist_compact_title_jump');
+            Storage.remove('tm_mobile_checklist_compact_title_jump');
+            Storage.remove('tm_checklist_compact_title_open_detail_page');
             this.data.desktopChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.desktopChecklistCompactMetaFields);
             this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.dockChecklistCompactMetaFields);
             this.data.mobileChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.mobileChecklistCompactMetaFields, this.data.dockChecklistCompactMetaFields);
@@ -9171,7 +10008,6 @@
             Storage.set('tm_dock_checklist_compact_meta_fields', this.data.dockChecklistCompactMetaFields);
             Storage.set('tm_mobile_checklist_compact_meta_fields', this.data.mobileChecklistCompactMetaFields);
             Storage.set('tm_checklist_compact_right_font_size', this.data.checklistCompactRightFontSize);
-            Storage.set('tm_checklist_compact_title_open_detail_page', !!this.data.checklistCompactTitleOpenDetailPage);
             Storage.set('tm_enabled_views', this.data.enabledViews);
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
             Storage.set('tm_checklist_compact_mode', !!this.data.checklistCompactMode);
@@ -9266,6 +10102,7 @@
             Storage.set('tm_quickbar_inline_show_on_mobile', !!this.data.quickbarInlineShowOnMobile);
             Storage.set('tm_quickbar_subtask_count_unfinished_only', !!this.data.quickbarSubtaskCountUnfinishedOnly);
             Storage.set('tm_pin_new_tasks_by_default', !!this.data.pinNewTasksByDefault);
+            Storage.set('tm_quick_add_default_completion_today', !!this.data.quickAddDefaultCompletionToday);
             Storage.set(__TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_STORAGE_KEY, __tmNormalizeTaskDetailShowCompletedSubtasksSetting(this.data.taskDetailShowCompletedSubtasks));
             Storage.set(__TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_LEGACY_KEY, {});
             Storage.set('tm_subtask_inherited_fields', __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields, []));
@@ -9305,6 +10142,7 @@
             Storage.set('tm_points_penalty_check_on_startup', !!this.data.pointsPenaltyCheckOnStartup);
             Storage.set('tm_points_penalty_confirm_modal_enabled', !!this.data.pointsPenaltyConfirmModalEnabled);
             Storage.set('tm_tomato_spent_attr_mode', String(this.data.tomatoSpentAttrMode || 'minutes'));
+            Storage.set('tm_tomato_actual_count_by_spent_enabled', this.data.tomatoActualCountBySpentEnabled !== false);
             Storage.set('tm_tomato_spent_attr_key_minutes', String(this.data.tomatoSpentAttrKeyMinutes || '').trim());
             Storage.set('tm_tomato_spent_attr_key_hours', String(this.data.tomatoSpentAttrKeyHours || '').trim());
             Storage.set('tm_tomato_count_attr_key', String(this.data.tomatoCountAttrKey || '').trim());
@@ -9634,7 +10472,6 @@
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
             this.data.docDefaultColorScheme.seed = this.data.docColorSeed;
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
-            this.data.diagnosticLogsEnabled = !!this.data.diagnosticLogsEnabled;
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields);
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs);
             this.data.newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(this.data.newTaskDefaultLocationMode);
@@ -9655,6 +10492,7 @@
             this.data.taskCardDateOnlyWithValue = !this.data.taskCardAlwaysShowFields.includes('date');
             this.data.checklistCompactTreeGuides = !!this.data.checklistCompactTreeGuides;
             this.data.checklistCompactTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(this.data.checklistCompactTreeGuidesUpdatedAt);
+            __tmMigrateLegacyTaskTitleClickSettings(this.data, this.data);
             this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
             this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
             this.data.alwaysShowTaskDocHeadingGroups = !!this.data.alwaysShowTaskDocHeadingGroups;
@@ -9923,6 +10761,7 @@
                 const collapseChangedLocal = __tmGetCollapsedSessionStateFingerprint(this.data) !== prevCollapseFingerprint;
                 const loadedCollapseUpdatedAt = __tmParseUpdatedAtNumber(this.loadedCollapseUpdatedAt);
                 const remoteSettings = await __tmReadJsonFile(SETTINGS_FILE_PATH);
+                __tmMigrateLegacyTaskTitleClickSettings(remoteSettings, remoteSettings);
                 const remoteDocGroupUpdatedAt = __tmGetDocGroupSettingsUpdatedAt(remoteSettings, {
                     fallbackSettingsUpdatedAt: remoteSettings?.settingsUpdatedAt,
                     useSettingsFallback: true,
@@ -9971,6 +10810,13 @@
                         : (Array.isArray(remoteSettings?.customFieldDefs)
                             ? __tmCloneCustomFieldDefs(remoteSettings.customFieldDefs)
                             : this.data.customFieldDefs);
+                } else if (remoteCustomFieldDefsVersion === loadedCustomFieldDefsVersion
+                    && !customFieldDefsChangedLocal
+                    && Array.isArray(remoteSettings?.customFieldDefs)) {
+                    this.data.customFieldDefs = __tmMergeSameVersionCustomFieldDefs(
+                        this.data.customFieldDefs,
+                        remoteSettings.customFieldDefs
+                    );
                 } else if (remoteCustomFieldDefsVersion === 0
                     && loadedCustomFieldDefsVersion > 0
                     && Array.isArray(remoteSettings?.customFieldDefs)
@@ -10161,6 +11007,7 @@
                 this.data.whiteboardAllTabsDocOrderByGroup = cleanMap(this.data.whiteboardAllTabsDocOrderByGroup);
                 this.data.docTabsManualArchivedByGroup = cleanMap(this.data.docTabsManualArchivedByGroup);
                 this.data.docTabsManualUnarchivedByGroup = cleanMap(this.data.docTabsManualUnarchivedByGroup);
+                try { globalThis.__tmGlobalWhiteboardTaskSource?.forgetGroups?.(removedIds); } catch (e) {}
                 const removedIdSet = new Set(removedIds);
                 this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(this.data.docTabCustomGroups)
                     .filter((group) => !removedIdSet.has(__tmGetDocTabCustomGroupScopeId(group)));
@@ -10674,13 +11521,26 @@
                         customFieldId: fieldId,
                     };
                 }
-                const optionIds = Array.isArray(field?.options)
-                    ? field.options.map((option) => String(option?.id || '').trim()).filter(Boolean)
-                    : [];
-                const optionLabels = (Array.isArray(field?.options) ? field.options : []).reduce((acc, option) => {
+                const optionRuntime = typeof __tmBuildCustomFieldOptionRuntime === 'function'
+                    ? __tmBuildCustomFieldOptionRuntime(field)
+                    : {
+                        options: Array.isArray(field?.options) ? field.options : [],
+                        pathById: new Map((Array.isArray(field?.options) ? field.options : []).map((option) => {
+                            const id = String(option?.id || '').trim();
+                            return [id, String(option?.name || id).trim() || id];
+                        }).filter(([id]) => !!id)),
+                    };
+                const optionIds = optionRuntime.options.map((option) => String(option?.id || '').trim()).filter(Boolean);
+                const optionLabels = optionRuntime.options.reduce((acc, option) => {
                     const id = String(option?.id || '').trim();
                     if (!id) return acc;
-                    acc[id] = String(option?.name || id).trim() || id;
+                    acc[id] = optionRuntime.pathById.get(id) || String(option?.name || id).trim() || id;
+                    return acc;
+                }, {});
+                const optionAliases = optionRuntime.options.reduce((acc, option) => {
+                    const id = String(option?.id || '').trim();
+                    const name = String(option?.name || '').trim();
+                    if (id && name && !Object.prototype.hasOwnProperty.call(acc, name)) acc[name] = id;
                     return acc;
                 }, {});
                 return {
@@ -10689,6 +11549,7 @@
                     type: 'select',
                     options: optionIds,
                     optionLabels,
+                    optionAliases,
                     customFieldId: fieldId,
                     multi: customFieldType === 'multi',
                     allowEmpty: true,
@@ -10940,6 +11801,7 @@
         normalizeSelectFieldValues(fieldValue, rawValue) {
             const fieldInfo = (fieldValue && typeof fieldValue === 'object') ? fieldValue : this.getFieldInfo(fieldValue);
             const optionLabels = (fieldInfo?.optionLabels && typeof fieldInfo.optionLabels === 'object') ? fieldInfo.optionLabels : {};
+            const optionAliases = (fieldInfo?.optionAliases && typeof fieldInfo.optionAliases === 'object') ? fieldInfo.optionAliases : {};
             const labelToValue = new Map();
             Object.entries(optionLabels).forEach(([value, label]) => {
                 const text = String(label || '').trim();
@@ -10951,7 +11813,7 @@
                 const raw = String(input ?? '').trim();
                 if (!raw) return '';
                 if (Object.prototype.hasOwnProperty.call(optionLabels, raw)) return raw;
-                return labelToValue.get(raw) || raw;
+                return String(optionAliases[raw] || labelToValue.get(raw) || raw).trim();
             };
             let list = [];
             if (Array.isArray(rawValue)) {
@@ -11303,8 +12165,24 @@
                 return 0;
             };
 
+            const compareDocumentOrderTie = (a, b) => {
+                const aDocId = String(a?.root_id || a?.docId || '').trim();
+                const bDocId = String(b?.root_id || b?.docId || '').trim();
+                if (aDocId && bDocId && aDocId !== bDocId) return 0;
+                if (typeof __tmCompareTasksByDocFlow === 'function') {
+                    try {
+                        const flow = __tmCompareTasksByDocFlow(a, b);
+                        if (flow !== 0) return flow;
+                    } catch (e) {}
+                }
+                const aSeq = Number(a?.docSeq ?? a?.doc_seq);
+                const bSeq = Number(b?.docSeq ?? b?.doc_seq);
+                if (Number.isFinite(aSeq) && Number.isFinite(bSeq) && aSeq !== bSeq) return aSeq - bSeq;
+                return 0;
+            };
+
             if (__tmRuleUsesDocFlowSort(rule)) {
-                return [...source].sort(pinnedSort);
+                return [...source].sort((a, b) => pinnedSort(a, b) || compareDocumentOrderTie(a, b));
             }
 
             if (typeof __tmRuleUsesCustomOrderSort === 'function' && __tmRuleUsesCustomOrderSort(rule)) {
@@ -11314,7 +12192,7 @@
             const timeSortMemo = opts.timeSortMemo instanceof Map ? opts.timeSortMemo : new Map();
             const sortRules = __tmGetNormalizedRuleSorts(rule);
             if (!sortRules.length) {
-                return [...source].sort(pinnedSort);
+                return [...source].sort((a, b) => pinnedSort(a, b) || compareDocumentOrderTie(a, b));
             }
 
             const fieldInfoCache = opts.fieldInfoCache instanceof Map ? opts.fieldInfoCache : new Map();
@@ -11400,7 +12278,9 @@
                 if (ctx.useEffectiveCompletionTime) {
                     raw = __tmGetTaskEffectiveCompletionTimeSortValue(task, { field: ctx.field, memo: timeSortMemo });
                 } else if (ctx.field === 'priorityScore') {
-                    raw = __tmEnsureTaskPriorityScore(task, { timeInfoMemo: timeSortMemo });
+                    // Task mirrors are updated in place. Derive this key from the
+                    // current fields so an older score cache cannot win a sort.
+                    raw = __tmEnsureTaskPriorityScore(task, { timeInfoMemo: timeSortMemo, force: true });
                 } else if (isDurationSortField(ctx.field)) {
                     raw = buildTaskDurationSortKey(task);
                 } else if (ctx.kind === 'customSelect') {
@@ -11541,6 +12421,8 @@
                         return sortRule.order === 'desc' ? -result : result;
                     }
                 }
+                const documentOrder = compareDocumentOrderTie(left.task, right.task);
+                if (documentOrder !== 0) return documentOrder;
                 return left.index - right.index;
             });
 
@@ -11630,7 +12512,54 @@
         }
     };
 
+    const __TM_TASK_QUERY_CACHE_MAX_ENTRIES = 18;
+    const __TM_TASK_QUERY_CACHE_MAX_WEIGHT = 30000;
     const __tmTasksQueryCache = new Map();
+
+    function __tmGetTaskQueryCache(key, ttlMs) {
+        const entry = __tmTasksQueryCache.get(key);
+        if (!entry) return null;
+        const ttl = Math.max(1, Number(entry.ttl) || Number(ttlMs) || 1);
+        if (!entry.t || (Date.now() - Number(entry.t)) >= ttl) {
+            __tmTasksQueryCache.delete(key);
+            return null;
+        }
+        __tmTasksQueryCache.delete(key);
+        __tmTasksQueryCache.set(key, entry);
+        return entry;
+    }
+
+    function __tmRememberTaskQueryCache(key, value) {
+        const entry = (value && typeof value === 'object') ? value : {};
+        const taskCount = Array.isArray(entry?.v?.tasks) ? entry.v.tasks.length : 0;
+        const docCount = entry.docIdSet instanceof Set ? entry.docIdSet.size : 0;
+        entry.weight = Math.max(1, taskCount + docCount);
+        if (entry.weight > __TM_TASK_QUERY_CACHE_MAX_WEIGHT) {
+            __tmTasksQueryCache.delete(key);
+            return entry;
+        }
+        if (__tmTasksQueryCache.has(key)) __tmTasksQueryCache.delete(key);
+        __tmTasksQueryCache.set(key, entry);
+
+        const now = Date.now();
+        let totalWeight = 0;
+        for (const [cacheKey, cached] of __tmTasksQueryCache.entries()) {
+            const ttl = Math.max(1, Number(cached?.ttl) || 1);
+            if (!cached?.t || (now - Number(cached.t)) >= ttl) {
+                __tmTasksQueryCache.delete(cacheKey);
+                continue;
+            }
+            totalWeight += Math.max(1, Number(cached?.weight) || 1);
+        }
+        while (__tmTasksQueryCache.size > __TM_TASK_QUERY_CACHE_MAX_ENTRIES || totalWeight > __TM_TASK_QUERY_CACHE_MAX_WEIGHT) {
+            const oldestKey = __tmTasksQueryCache.keys().next().value;
+            if (oldestKey === undefined) break;
+            const oldest = __tmTasksQueryCache.get(oldestKey);
+            totalWeight -= Math.max(1, Number(oldest?.weight) || 1);
+            __tmTasksQueryCache.delete(oldestKey);
+        }
+        return entry;
+    }
     const __tmDocExpandCache = new Map();
     const __tmResolvedDocIdsCacheMap = new Map();
     const __tmGroupSessionTaskCache = new Map();
@@ -11680,20 +12609,9 @@
         truncated: false,
         wholeScopeDirty: false,
         hiddenDocOnly: false,
+        insertedBlockIds: [],
+        deletedBlockIds: [],
     };
-    function __tmHasActiveLocalTaskFieldWrite(taskId, fieldKeys = []) {
-        const tid = String(taskId || '').trim();
-        if (!tid) return false;
-        try {
-            if (typeof __tmHasPendingTaskFieldPersistence === 'function'
-                && __tmHasPendingTaskFieldPersistence(tid, fieldKeys)) return true;
-        } catch (e) {}
-        try {
-            if (typeof __tmMutationEngine !== 'undefined'
-                && __tmMutationEngine?.isTaskSuppressed?.(tid) === true) return true;
-        } catch (e) {}
-        return false;
-    }
     const __tmExternalTaskTxBurstState = {
         timestamps: [],
         quietUntil: 0,
@@ -11701,11 +12619,12 @@
         lastSource: '',
     };
     let __tmTaskSnapshotSaveTimer = null;
+    let __tmTaskSnapshotSaveGeneration = 0;
     let __tmTaskSnapshotSaveInFlight = false;
+    let __tmTaskSnapshotWriteTail = Promise.resolve();
     let __tmTaskSnapshotStoreCache = null;
     let __tmTaskSnapshotStoreLoadPromise = null;
     let __tmTaskSnapshotStoreLoadedAt = 0;
-    let __tmTaskSnapshotStoreLocalMutationUntil = 0;
     let __tmTaskSnapshotFileMetaSignatureCache = '';
     let __tmTaskSnapshotFileMetaCheckPromise = null;
     const __tmTaskSnapshotPersistSignatureCache = new Map();
@@ -11718,13 +12637,21 @@
     let __tmLocalDoneTxSuppressUntil = 0;
     const __tmLocalDoneTxSuppressBlockIds = new Set();
     const __tmLocalDoneTxSuppressDocIds = new Set();
-    let __tmLocalMoveTxSuppressUntil = 0;
-    const __tmLocalMoveTxSuppressBlockIds = new Set();
-    const __tmLocalMoveTxSuppressDocIds = new Set();
-    let __tmLocalCreateTxSuppressUntil = 0;
-    const __tmLocalCreateTxSuppressBlockIds = new Set();
-    const __tmLocalCreateTxSuppressDocIds = new Set();
     const __tmRecentVisibleDateFallbackTasks = new Map();
+
+    function __tmWithTaskSnapshotWriteLock(callback) {
+        if (typeof callback !== 'function') return Promise.resolve(false);
+        const run = async () => {
+            const locks = globalThis.navigator?.locks;
+            if (locks && typeof locks.request === 'function') {
+                return await locks.request('task-horizon:task-snapshot-write', { mode: 'exclusive' }, callback);
+            }
+            return await callback();
+        };
+        const queued = __tmTaskSnapshotWriteTail.then(run, run);
+        __tmTaskSnapshotWriteTail = queued.then(() => undefined, () => undefined);
+        return queued;
+    }
 
     function __tmClearAttrHostResolutionCache() {
         try { __tmAttrHostParentResolutionCache.clear(); } catch (e) {}
@@ -11933,33 +12860,6 @@
         return Object.keys(source).some((key) => __tmIsVisibleDatePatchKey(key));
     }
 
-    function __tmGetQueuedVisibleDatePatchTaskIds(op) {
-        if (!op || !['queued', 'running'].includes(String(op.status || '').trim())) return [];
-        const type = String(op.type || '').trim();
-        if (type !== 'attrPatch' && type !== 'taskPatch' && type !== 'setDone') return [];
-        const tid = String(op?.data?.taskId || '').trim();
-        if (!tid) return [];
-        if (!__tmPatchHasVisibleDateField(op?.data?.patch) && !__tmPatchHasVisibleDateField(op?.data?.statusPatch)) return [];
-        const ids = new Set([tid]);
-        try {
-            if (typeof __tmGetOutboxTaskIdAliases === 'function') {
-                __tmGetOutboxTaskIdAliases(tid).forEach((alias) => {
-                    const aid = String(alias || '').trim();
-                    if (aid) ids.add(aid);
-                });
-            }
-        } catch (e) {}
-        return Array.from(ids);
-    }
-
-    function __tmIsQuickbarRefreshDebugEnabled() {
-        return false;
-    }
-
-    function __tmQuickbarRefreshDebugLog(tag, payload = {}) {
-        return;
-    }
-
     function __tmPruneRecentVisibleDateFallbackTasks(maxAgeMs = 20000) {
         const now = Date.now();
         const ttl = Math.max(1000, Number(maxAgeMs) || 20000);
@@ -11995,9 +12895,7 @@
         if (state.pendingInsertedTasks?.[tid]) return true;
         const recentTs = Number(__tmRecentVisibleDateFallbackTasks.get(tid) || 0);
         if (recentTs && (Date.now() - recentTs) <= 20000) return true;
-        if (__tmTaskHasLocalPatchWatermarkForFields(tid, ['startDate', 'completionTime', 'customTime'])) return true;
-        const items = Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : [];
-        return items.some((op) => __tmGetQueuedVisibleDatePatchTaskIds(op).includes(tid));
+        return __tmTaskHasLocalPatchWatermarkForFields(tid, ['startDate', 'completionTime', 'customTime']);
     }
 
     function __tmBuildVisibleDateFallbackTaskIdSet() {
@@ -12027,15 +12925,6 @@
                     if (fields.has('startDate') || fields.has('completionTime') || fields.has('customTime')) out.add(tid);
                 });
             }
-        } catch (e) {}
-        try {
-            const items = Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : [];
-            items.forEach((op) => {
-                __tmGetQueuedVisibleDatePatchTaskIds(op).forEach((tid) => {
-                    if (!tid) return;
-                    out.add(tid);
-                });
-            });
         } catch (e) {}
         return out;
     }
@@ -12332,19 +13221,9 @@
             unresolved.push({ taskId, attrKey, attrValue });
         });
         result.unresolvedCount = unresolved.length;
-        const refreshOrDeferView = (refreshUpdates = [], phase = 'direct') => {
+        const refreshOrDeferView = (refreshUpdates = []) => {
             const sourceUpdates = Array.isArray(refreshUpdates) ? refreshUpdates : [];
             if (!sourceUpdates.length) return;
-            if (__tmShouldDeferTaskFieldRefreshWork()) {
-                try {
-                    __tmScheduleViewRefresh({
-                        mode: 'current',
-                        withFilters: true,
-                        reason: phase === 'resolved' ? 'tx-attr-update-resolved' : 'tx-attr-update',
-                    });
-                } catch (e) {}
-                return;
-            }
             refreshView(sourceUpdates);
         };
         const refreshView = (refreshUpdates = []) => {
@@ -12355,21 +13234,26 @@
                 const taskId = String(update?.taskId || '').trim();
                 const patch = __tmChangeFeed.buildPatchFromAttr(taskId, update?.key, update?.value);
                 if (!taskId || !patch) return;
-                mergedByTask.set(taskId, __tmWritePlanner.mergeTaskPatches(mergedByTask.get(taskId) || {}, patch));
+                mergedByTask.set(taskId, __tmMergeTaskMutationPatches(mergedByTask.get(taskId) || {}, patch));
             });
             if (mergedByTask.size === 0) return;
             mergedByTask.forEach((patch, taskId) => {
                 try {
-                    __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
-                        withFilters: true,
-                        reason: 'tx-attr-update',
-                        forceProjectionRefresh: __tmDoesPatchAffectProjection(taskId, patch),
-                        fallback: true,
+                    const task = globalThis.__tmTaskStore?.getProjected?.(taskId)
+                        || globalThis.__tmTaskBoundary?.getTask?.(taskId)
+                        || null;
+                    globalThis.__tmTaskMutationBus?.publish?.({
+                        type: 'taskPatch',
+                        phase: 'local',
+                        taskId,
+                        docId: String(task?.root_id || task?.docId || '').trim(),
+                        source: 'tx-attr-update',
+                        patch: { ...patch },
                     });
                 } catch (e) {}
             });
         };
-        if (applied) refreshOrDeferView(appliedUpdates, 'direct');
+        if (applied) refreshOrDeferView(appliedUpdates);
         if (unresolved.length) {
             Promise.resolve().then(async () => {
                 let resolvedApplied = false;
@@ -12395,7 +13279,7 @@
                         }
                     } catch (e) {}
                 }
-                if (resolvedApplied) refreshOrDeferView(resolvedUpdates, 'resolved');
+                if (resolvedApplied) refreshOrDeferView(resolvedUpdates);
             }).catch(() => null);
         }
         result.applied = applied;
@@ -12463,162 +13347,6 @@
         __tmLocalDoneTxSuppressDocIds.clear();
     }
 
-    function __tmMarkLocalMoveTxSuppressionIds(ids = [], docIds = [], ttlMs = 2200) {
-        (Array.isArray(ids) ? ids : []).forEach((id) => {
-            const bid = String(id || '').trim();
-            if (bid && __tmIsLikelyBlockId(bid)) __tmLocalMoveTxSuppressBlockIds.add(bid);
-        });
-        (Array.isArray(docIds) ? docIds : []).forEach((docId) => {
-            const did = String(docId || '').trim();
-            if (did && __tmIsLikelyBlockId(did)) __tmLocalMoveTxSuppressDocIds.add(did);
-        });
-        __tmLocalMoveTxSuppressUntil = Date.now() + Math.max(400, Number(ttlMs) || 2200);
-    }
-
-    function __tmClearLocalMoveTxSuppression() {
-        __tmLocalMoveTxSuppressUntil = 0;
-        __tmLocalMoveTxSuppressBlockIds.clear();
-        __tmLocalMoveTxSuppressDocIds.clear();
-    }
-
-    function __tmMarkLocalCreateTxSuppressionIds(ids = [], docIds = [], ttlMs = 2200) {
-        (Array.isArray(ids) ? ids : []).forEach((id) => {
-            const bid = String(id || '').trim();
-            if (bid && __tmIsLikelyBlockId(bid)) __tmLocalCreateTxSuppressBlockIds.add(bid);
-        });
-        (Array.isArray(docIds) ? docIds : []).forEach((docId) => {
-            const did = String(docId || '').trim();
-            if (did && __tmIsLikelyBlockId(did)) __tmLocalCreateTxSuppressDocIds.add(did);
-        });
-        __tmLocalCreateTxSuppressUntil = Date.now() + Math.max(400, Number(ttlMs) || 2200);
-    }
-
-    function __tmClearLocalCreateTxSuppression() {
-        __tmLocalCreateTxSuppressUntil = 0;
-        __tmLocalCreateTxSuppressBlockIds.clear();
-        __tmLocalCreateTxSuppressDocIds.clear();
-    }
-
-    function __tmGetLocalCreateTxSuppressionWaitMs(paddingMs = 120) {
-        const until = Number(__tmLocalCreateTxSuppressUntil || 0);
-        if (!until) return 0;
-        const wait = until - Date.now();
-        if (!(wait > 0)) {
-            __tmClearLocalCreateTxSuppression();
-            return 0;
-        }
-        const pad = Math.max(0, Math.min(300, Math.round(Number(paddingMs) || 0)));
-        return Math.max(120, Math.min(3200, Math.ceil(wait) + pad));
-    }
-
-    function __tmTxLooksLikeBlockCreate(payload) {
-        let found = false;
-        const createActions = new Set([
-            'insert',
-            'insertblock',
-            'append',
-            'appendblock',
-            'prepend',
-            'prependblock',
-            'create',
-            'createblock',
-        ]);
-        const walk = (node, depth) => {
-            if (found || depth > 7 || !node) return;
-            if (Array.isArray(node)) {
-                node.forEach((item) => walk(item, depth + 1));
-                return;
-            }
-            if (typeof node !== 'object') return;
-            const data = (node.data && typeof node.data === 'object' && !Array.isArray(node.data)) ? node.data : null;
-            const action = String(
-                node.action
-                || node.cmd
-                || node.operation
-                || node.op
-                || data?.action
-                || data?.cmd
-                || data?.operation
-                || ''
-            ).trim().toLowerCase();
-            if (action) {
-                if (createActions.has(action) || (action.includes('insert') && !action.includes('delete'))) {
-                    found = true;
-                    return;
-                }
-            }
-            [
-                node.data,
-                node.detail,
-                node.tx,
-                node.payload,
-                node.rows,
-                node.ops,
-                node.operations,
-                node.doOperations,
-                node.undoOperations,
-                node.children,
-                node.items,
-                node.srcs,
-                node.dsts,
-            ].forEach((next) => walk(next, depth + 1));
-        };
-        try { walk(payload, 0); } catch (e) {}
-        return found;
-    }
-
-    function __tmShouldSuppressLocalCreateTx(payload) {
-        try {
-            const until = Number(__tmLocalCreateTxSuppressUntil || 0);
-            if (!until || Date.now() > until) {
-                __tmClearLocalCreateTxSuppression();
-                return false;
-            }
-            const updates = __tmExtractAttrUpdatesFromTx(payload);
-            if (updates.length) return false;
-            const blockIds = Array.from(__tmExtractBlockIdsFromTx(payload) || [])
-                .map((id) => String(id || '').trim())
-                .filter(Boolean);
-            const docIds = Array.from(__tmExtractDocIdsFromTx(payload) || [])
-                .map((id) => String(id || '').trim())
-                .filter(Boolean);
-            const hasMatchingBlockId = blockIds.some((id) => __tmLocalCreateTxSuppressBlockIds.has(id));
-            const hasMatchingDocIds = docIds.length > 0 && docIds.every((id) => __tmLocalCreateTxSuppressDocIds.has(id));
-            const looksLikeCreate = __tmTxLooksLikeBlockCreate(payload);
-            const createDocMatch = docIds.length === 0 || docIds.some((id) => __tmLocalCreateTxSuppressDocIds.has(id));
-            const ok = hasMatchingBlockId || hasMatchingDocIds || (looksLikeCreate && createDocMatch);
-            return ok;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    function __tmShouldSuppressLocalMoveTx(payload) {
-        try {
-            const until = Number(__tmLocalMoveTxSuppressUntil || 0);
-            if (!until || Date.now() > until) {
-                __tmClearLocalMoveTxSuppression();
-                return false;
-            }
-            const updates = __tmExtractAttrUpdatesFromTx(payload);
-            if (updates.length) {
-                return false;
-            }
-            const blockIds = Array.from(__tmExtractBlockIdsFromTx(payload) || [])
-                .map((id) => String(id || '').trim())
-                .filter(Boolean);
-            const docIds = Array.from(__tmExtractDocIdsFromTx(payload) || [])
-                .map((id) => String(id || '').trim())
-                .filter(Boolean);
-            const hasMatchingBlockId = blockIds.some((id) => __tmLocalMoveTxSuppressBlockIds.has(id));
-            const hasMatchingDocIds = docIds.length > 0 && docIds.every((id) => __tmLocalMoveTxSuppressDocIds.has(id));
-            const ok = hasMatchingBlockId || hasMatchingDocIds;
-            if (ok) __tmClearLocalMoveTxSuppression();
-            return ok;
-        } catch (e) {
-            return false;
-        }
-    }
 
     function __tmShouldSuppressLocalDoneTx(payload) {
         try {
@@ -12691,20 +13419,19 @@
         }
     }
 
-    function __tmShouldSkipCalendarTxRefreshForTimeEdit(payload) {
+    function __tmShouldSkipCalendarTxRefreshForAppliedAttrPatch(payload) {
         try {
-            const viewMode = String(state.viewMode || '').trim();
-            if (viewMode === 'calendar') {
-                return false;
-            }
             const updates = __tmExtractAttrUpdatesFromTx(payload);
             if (!updates.length) {
                 return false;
             }
-            const keys = updates.map((update) => String(update?.key || '').trim());
-            const allowedFields = new Set(['startDate', 'completionTime', 'taskDateColor', 'taskCompleteAt', 'duration', 'customTime', 'customStatus', 'pinned', 'allDayBottom']);
-            const ok = updates.every((update) => allowedFields.has(__tmResolveTaskMetaFieldByAttrKey(update?.key)));
-            return ok;
+            return updates.every((update) => {
+                const attrKey = String(update?.key || '').trim();
+                if (!attrKey) return false;
+                if (attrKey === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || attrKey === __TM_TASK_ATTR_HOST_OWNER_ATTR) return true;
+                if (__tmResolveTaskMetaFieldByAttrKey(attrKey)) return true;
+                try { return !!__tmGetCustomFieldDefByAttrStorageKey(attrKey); } catch (e) { return false; }
+            });
         } catch (e) {
             return false;
         }
@@ -13479,6 +14206,7 @@
 
     async function __tmQueryCustomFieldAttrRowsByTaskIds(taskIds, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        const forceFresh = opts.forceFresh === true;
         const allDefs = __tmGetCustomFieldDefs();
         const requestedFieldIdSet = Array.isArray(opts.fieldIds)
             ? new Set(opts.fieldIds.map((id) => String(id || '').trim()).filter(Boolean))
@@ -13538,7 +14266,8 @@
                 : [];
             const cachedFieldIdSet = new Set(cachedFieldIds);
             const cacheSatisfied = !!(
-                cached
+                !forceFresh
+                && cached
                 && Number(cached.version) === version
                 && (nowTs - Number(cached.t || 0)) < cacheTtlMs
                 && cached.values
@@ -13599,7 +14328,8 @@
         }
         uncachedTaskIds.forEach((taskId) => {
             const cached = __tmCustomFieldAttrValueCache.get(taskId);
-            const cachedValues = (cached
+            const cachedValues = (!forceFresh
+                && cached
                 && Number(cached.version) === version
                 && (nowTs - Number(cached.t || 0)) < cacheTtlMs
                 && cached.values
@@ -13607,7 +14337,8 @@
                 && !Array.isArray(cached.values))
                 ? cached.values
                 : null;
-            const cachedFieldIds = (cached
+            const cachedFieldIds = (!forceFresh
+                && cached
                 && Number(cached.version) === version
                 && (nowTs - Number(cached.t || 0)) < cacheTtlMs
                 && Array.isArray(cached.fieldIds))
@@ -13812,6 +14543,7 @@
         const did = String(docId || '').trim();
         if (!did) {
             try { __tmTasksQueryCache.clear(); } catch (e) {}
+            try { __tmInvalidateDocProgressCache(); } catch (e) {}
             try { __tmDocHasTaskQueryCache.clear(); } catch (e) {}
             try { __tmDocEnhanceSnapshotCache.clear(); } catch (e) {}
             try { __tmTaskDocMapCache.clear(); } catch (e) {}
@@ -13837,6 +14569,7 @@
             }
         } catch (e) {}
         try { __tmDocHasTaskQueryCache.delete(did); } catch (e) {}
+        try { __tmInvalidateDocProgressCache(did); } catch (e) {}
         try {
             for (const [k] of __tmDocEnhanceSnapshotCache.entries()) {
                 if (String(k || '').startsWith(`${did}:`)) __tmDocEnhanceSnapshotCache.delete(k);
@@ -13856,6 +14589,7 @@
 
     function __tmInvalidateAllSqlCaches() {
         try { __tmTasksQueryCache.clear(); } catch (e) {}
+        try { __tmInvalidateDocProgressCache(); } catch (e) {}
         try { __tmDocHasTaskQueryCache.clear(); } catch (e) {}
         try { __tmDocEnhanceSnapshotCache.clear(); } catch (e) {}
         try { __tmTaskDocMapCache.clear(); } catch (e) {}
@@ -14020,24 +14754,6 @@
     };
     const __TM_TASK_HORIZON_DEBUG_RELAY_STORAGE_KEY = '__tmTaskHorizonDebugRelay';
     const __TM_TASK_HORIZON_ATTR_RELAY_STORAGE_KEY = '__tmTaskHorizonAttrRelay';
-    const __tmPerfTraceStore = {
-        log: [],
-        limit: 80,
-        seq: 0,
-    };
-    const __tmDiagnosticLogStore = {
-        log: [],
-        limit: 200,
-        seq: 0,
-    };
-    const __tmDiagnosticLogFileState = {
-        timer: 0,
-        saving: false,
-        pending: false,
-        lastSavedAt: 0,
-        lastSaveOk: false,
-    };
-
     function __tmGetDebugChannelPersistKey(channel) {
         const key = String(channel || '').trim();
         if (key === 'status') return 'tm_task_horizon_debug_status';
@@ -14075,7 +14791,7 @@
     } catch (e) {}
 
     function __tmCloneDebugValue(value, depth = 0) {
-        if (depth > 4) return '[MaxDepth]';
+        if (depth > 10) return '[MaxDepth]';
         if (value == null) return value;
         const type = typeof value;
         if (type === 'string' || type === 'number' || type === 'boolean') return value;
@@ -14107,6 +14823,201 @@
         } catch (e) {
             return '[Unserializable]';
         }
+    }
+
+    function __tmGetDocumentTaskDomSelector() {
+        return '[data-type="NodeListItem"][data-subtype="t"][data-node-id], .li[data-subtype="t"][data-node-id]';
+    }
+
+    function __tmReadTaskIdsFromEditorRoot(root) {
+        if (!root || typeof root.querySelectorAll !== 'function') return [];
+        const selector = __tmGetDocumentTaskDomSelector();
+        return Array.from(root.querySelectorAll(selector)).filter((item) => {
+            try {
+                return !item.closest?.('[data-type="NodeBlockQueryEmbed"], .protyle-wysiwyg__embed');
+            } catch (e) {
+                return true;
+            }
+        })
+            .map((item) => String(item?.getAttribute?.('data-node-id') || '').trim())
+            .filter(Boolean);
+    }
+
+    function __tmCaptureEditorDocumentTaskOrder(docIds) {
+        const ids = Array.from(new Set((Array.isArray(docIds) ? docIds : [docIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)))
+            .slice(0, 12);
+        if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return [];
+        const roots = Array.from(document.querySelectorAll('.protyle-wysiwyg'));
+        return ids.map((docId) => {
+            let matchedRoot = null;
+            let matchedBy = '';
+            for (const root of roots) {
+                const protyle = root.closest?.('.protyle') || root.parentElement;
+                let resolvedDocId = '';
+                try {
+                    resolvedDocId = typeof __tmGetDocIdFromProtyle === 'function'
+                        ? String(__tmGetDocIdFromProtyle(protyle) || '').trim()
+                        : '';
+                } catch (e) {}
+                const candidates = [
+                    resolvedDocId,
+                    root.getAttribute?.('data-node-id'),
+                    root.getAttribute?.('data-doc-id'),
+                    protyle?.getAttribute?.('data-node-id'),
+                    protyle?.getAttribute?.('data-doc-id'),
+                    protyle?.querySelector?.('.protyle-title[data-node-id]')?.getAttribute?.('data-node-id'),
+                ].map((value) => String(value || '').trim()).filter(Boolean);
+                if (candidates.includes(docId)) {
+                    matchedRoot = root;
+                    matchedBy = 'document-id';
+                    break;
+                }
+                if (!matchedRoot && root.querySelector?.(`[data-node-id="${docId}"]`)) {
+                    matchedRoot = root;
+                    matchedBy = 'contains-document-block';
+                }
+            }
+            return {
+                docId,
+                matched: !!matchedRoot,
+                taskIds: __tmReadTaskIdsFromEditorRoot(matchedRoot),
+            };
+        });
+    }
+
+    function __tmApplyEditorDocumentTaskOrderToFlowRankMap(flowRankMap, snapshots, taskIds = null) {
+        const target = flowRankMap instanceof Map ? flowRankMap : new Map();
+        const allowed = taskIds instanceof Set
+            ? taskIds
+            : (Array.isArray(taskIds) ? new Set(taskIds.map((id) => String(id || '').trim()).filter(Boolean)) : null);
+        let applied = 0;
+        (Array.isArray(snapshots) ? snapshots : []).forEach((snapshot) => {
+            if (snapshot?.matched !== true) return;
+            const orderedTaskIds = Array.isArray(snapshot?.taskIds) ? snapshot.taskIds : [];
+            orderedTaskIds.forEach((taskId0, index) => {
+                const taskId = String(taskId0 || '').trim();
+                if (!taskId || (allowed && !allowed.has(taskId))) return;
+                target.set(taskId, index + 1);
+                applied += 1;
+            });
+        });
+        return applied;
+    }
+
+    function __tmBuildEditorDocumentTaskIdMap(snapshots) {
+        const out = new Map();
+        (Array.isArray(snapshots) ? snapshots : []).forEach((snapshot) => {
+            const docId = String(snapshot?.docId || '').trim();
+            if (!docId || snapshot?.matched !== true) return;
+            const taskIds = Array.isArray(snapshot?.taskIds) ? snapshot.taskIds : [];
+            out.set(docId, new Set(taskIds
+                .map((taskId) => String(taskId || '').trim())
+                .filter(Boolean)));
+        });
+        return out;
+    }
+
+    function __tmCollectMissingEditorTaskIds(rows, editorTaskIdsByDoc) {
+        const map = editorTaskIdsByDoc instanceof Map ? editorTaskIdsByDoc : new Map();
+        if (map.size <= 0) return [];
+        const sqlTaskIdsByDoc = new Map();
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+            const docId = String(row?.root_id || row?.docId || '').trim();
+            const taskId = String(row?.id || '').trim();
+            if (!docId || !taskId || !map.has(docId)) return;
+            if (!sqlTaskIdsByDoc.has(docId)) sqlTaskIdsByDoc.set(docId, new Set());
+            sqlTaskIdsByDoc.get(docId).add(taskId);
+        });
+        const missing = [];
+        map.forEach((taskIds, docId) => {
+            const sqlTaskIds = sqlTaskIdsByDoc.get(docId) || new Set();
+            taskIds.forEach((taskId) => {
+                if (!sqlTaskIds.has(taskId)) missing.push(taskId);
+            });
+        });
+        return missing;
+    }
+
+    function __tmBuildLoadedDocumentTaskIdMap(docIds) {
+        const requested = new Set((Array.isArray(docIds) ? docIds : [docIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        const out = new Map();
+        requested.forEach((docId) => out.set(docId, new Set()));
+        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
+            const docId = String(doc?.id || '').trim();
+            if (!docId || !requested.has(docId)) return;
+            const taskIds = out.get(docId) || new Set();
+            const stack = Array.isArray(doc?.tasks) ? doc.tasks.slice() : [];
+            while (stack.length > 0) {
+                const task = stack.pop();
+                const taskId = String(task?.id || '').trim();
+                if (task?.__tmPendingInserted !== true && __tmIsLikelyBlockId(taskId)) taskIds.add(taskId);
+                if (Array.isArray(task?.children) && task.children.length > 0) {
+                    task.children.forEach((child) => stack.push(child));
+                }
+            }
+            out.set(docId, taskIds);
+        });
+        return out;
+    }
+
+    function __tmBuildDocumentTaskIdMapFromRows(rows, docIds) {
+        const requested = new Set((Array.isArray(docIds) ? docIds : [docIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        const out = new Map();
+        requested.forEach((docId) => out.set(docId, new Set()));
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+            const docId = String(row?.root_id || row?.docId || '').trim();
+            const taskId = String(row?.id || '').trim();
+            if (!requested.has(docId) || !__tmIsLikelyBlockId(taskId)) return;
+            out.get(docId).add(taskId);
+        });
+        return out;
+    }
+
+    function __tmDiffDocumentTaskIdMaps(previousTaskIdsByDoc, nextTaskIdsByDoc) {
+        const beforeMap = previousTaskIdsByDoc instanceof Map ? previousTaskIdsByDoc : new Map();
+        const afterMap = nextTaskIdsByDoc instanceof Map ? nextTaskIdsByDoc : new Map();
+        const docIds = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+        const documents = [];
+        const addedTaskIds = [];
+        const removedTaskIds = [];
+        docIds.forEach((docId0) => {
+            const docId = String(docId0 || '').trim();
+            if (!docId) return;
+            const before = beforeMap.get(docId) instanceof Set ? beforeMap.get(docId) : new Set();
+            const after = afterMap.get(docId) instanceof Set ? afterMap.get(docId) : new Set();
+            const added = Array.from(after).filter((taskId) => !before.has(taskId));
+            const removed = Array.from(before).filter((taskId) => !after.has(taskId));
+            if (added.length <= 0 && removed.length <= 0) return;
+            addedTaskIds.push(...added);
+            removedTaskIds.push(...removed);
+            documents.push({
+                docId,
+                beforeCount: before.size,
+                afterCount: after.size,
+                addedTaskIds: added,
+                removedTaskIds: removed,
+            });
+        });
+        return {
+            changed: documents.length > 0,
+            documents,
+            addedTaskIds,
+            removedTaskIds,
+        };
+    }
+
+    function __tmFilterDeletedTaskRowsForDocumentRefresh(rows, deletedTaskIds = null) {
+        const deleted = deletedTaskIds instanceof Set ? deletedTaskIds : new Set();
+        return (Array.isArray(rows) ? rows : []).filter((row) => {
+            const taskId = String(row?.id || '').trim();
+            return !!taskId && !deleted.has(taskId);
+        });
     }
 
     function __tmBuildDebugEntry(channel, tag, payload) {
@@ -14205,10 +15116,6 @@
         return __tmPushDebugChannel('status', tag, payload);
     }
 
-    function __tmPushAttrHostReadLog(tag, payload = {}) {
-        return null;
-    }
-
     function __tmDescribeDebugElement(element) {
         const el = element instanceof Element ? element : null;
         if (!(el instanceof Element)) return '';
@@ -14221,199 +15128,8 @@
     }
 
     function __tmPushDetailDebug(tag, payload = {}) {
-        return __tmPushDebugChannel('detail', tag, payload);
-    }
-
-    function __tmIsJankDebugEnabled() {
-        return false;
-    }
-
-    function __tmPushJankDebug(tag, payload = {}) {
-        return null;
-    }
-
-    function __tmIsDiagnosticLogsEnabled() {
-        try {
-            return SettingsStore?.data?.diagnosticLogsEnabled === true;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    function __tmIsMobileDiagnosticLogFileTarget() {
-        try {
-            if (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice()) return true;
-        } catch (e) {}
-        try {
-            const kind = String(globalThis.__taskHorizonRuntimeClientKind || '').trim();
-            if (kind && kind !== 'desktop-browser') return true;
-        } catch (e) {}
-        try {
-            if (globalThis.__taskHorizonPluginIsMobile === true) return true;
-        } catch (e) {}
-        try {
-            if (globalThis.__taskHorizonPluginIsNativeMobile === true) return true;
-        } catch (e) {}
-        try {
-            if (window?.siyuan?.mobile) return true;
-        } catch (e) {}
-        try {
-            if (globalThis?.JSAndroid || globalThis?.JSHarmony || globalThis?.webkit?.messageHandlers) return true;
-        } catch (e) {}
-        try {
-            const ua = String(navigator?.userAgent || '');
-            if (/Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua)) return true;
-        } catch (e) {}
-        try {
-            const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
-            const coarse = !!window?.matchMedia?.('(pointer: coarse)')?.matches;
-            const width = Number(window?.innerWidth || document.documentElement?.clientWidth || 0) || 0;
-            if ((coarse || maxTouchPoints > 0) && (!width || width <= 1200)) return true;
-        } catch (e) {}
-        return false;
-    }
-
-    function __tmShouldAutoSaveDiagnosticLogFile() {
-        return __tmIsDiagnosticLogsEnabled() && __tmIsMobileDiagnosticLogFileTarget();
-    }
-
-    function __tmBuildDiagnosticLogFilePayload(reason = '') {
-        const now = Date.now();
-        let runtimeClientKind = '';
-        try {
-            runtimeClientKind = typeof __tmGetRuntimeClientKind === 'function'
-                ? String(__tmGetRuntimeClientKind() || '')
-                : '';
-        } catch (e) {}
-        return {
-            version: 1,
-            reason: String(reason || '').trim(),
-            updatedAt: now,
-            updatedTime: new Date(now).toISOString(),
-            path: DIAGNOSTIC_LOG_FILE_PATH,
-            client: {
-                isMobile: __tmIsMobileDiagnosticLogFileTarget(),
-                runtimeClientKind,
-                userAgent: (() => {
-                    try { return String(navigator?.userAgent || ''); } catch (e) { return ''; }
-                })(),
-            },
-            perfTraces: __tmDumpPerfTraces(20),
-            currentPerfTrace: __tmClonePerfTrace(globalThis.__tmTaskHorizonPerfTraceCurrent || null),
-            diagnosticLogs: __tmDumpDiagnosticLogs(Number(__tmDiagnosticLogStore.limit) || 200),
-        };
-    }
-
-    async function __tmSaveDiagnosticLogFile(reason = '') {
-        if (!__tmShouldAutoSaveDiagnosticLogFile()) return false;
-        if (__tmDiagnosticLogFileState.saving) {
-            __tmDiagnosticLogFileState.pending = true;
-            return false;
-        }
-        __tmDiagnosticLogFileState.saving = true;
-        __tmDiagnosticLogFileState.pending = false;
-        try {
-            const ok = await __tmWriteJsonFile(DIAGNOSTIC_LOG_FILE_PATH, __tmBuildDiagnosticLogFilePayload(reason));
-            const now = Date.now();
-            __tmDiagnosticLogFileState.lastSavedAt = now;
-            __tmDiagnosticLogFileState.lastSaveOk = ok === true;
-            try {
-                globalThis.__tmTaskHorizonDiagnosticLogFile = {
-                    path: DIAGNOSTIC_LOG_FILE_PATH,
-                    lastSavedAt: now,
-                    lastSaveOk: ok === true,
-                };
-            } catch (e) {}
-            return ok === true;
-        } catch (e) {
-            __tmDiagnosticLogFileState.lastSaveOk = false;
-            return false;
-        } finally {
-            __tmDiagnosticLogFileState.saving = false;
-            if (__tmDiagnosticLogFileState.pending && __tmShouldAutoSaveDiagnosticLogFile()) {
-                __tmScheduleDiagnosticLogFileSave('pending');
-            }
-        }
-    }
-
-    function __tmScheduleDiagnosticLogFileSave(reason = '') {
-        if (!__tmShouldAutoSaveDiagnosticLogFile()) return false;
-        __tmDiagnosticLogFileState.pending = true;
-        if (__tmDiagnosticLogFileState.timer) return true;
-        __tmDiagnosticLogFileState.timer = setTimeout(() => {
-            __tmDiagnosticLogFileState.timer = 0;
-            const run = () => {
-                __tmSaveDiagnosticLogFile(reason).catch(() => null);
-            };
-            try { __tmScheduleIdleTask(run, 1600); } catch (e) { setTimeout(run, 0); }
-        }, 1200);
-        return true;
-    }
-
-    function __tmCancelDiagnosticLogFileSave() {
-        try {
-            if (__tmDiagnosticLogFileState.timer) clearTimeout(__tmDiagnosticLogFileState.timer);
-        } catch (e) {}
-        __tmDiagnosticLogFileState.timer = 0;
-        __tmDiagnosticLogFileState.pending = false;
-        return { ok: true, path: DIAGNOSTIC_LOG_FILE_PATH };
-    }
-
-    function __tmTouchDiagnosticLogFileWhenEnabled(reason = '') {
-        if (!__tmIsDiagnosticLogsEnabled()) return false;
-        const label = String(reason || '').trim() || 'enabled';
-        const run = () => {
-            __tmSaveDiagnosticLogFile(label).catch(() => null);
-        };
-        try { setTimeout(run, 0); } catch (e) { try { run(); } catch (err) {} }
-        return true;
-    }
-
-    function __tmBuildDiagnosticLogEntry(scope, payload = {}, context = {}) {
-        const now = Date.now();
-        const ctx = (context && typeof context === 'object') ? context : {};
-        return {
-            id: ++__tmDiagnosticLogStore.seq,
-            scope: String(scope || '').trim() || 'diagnostic',
-            ts: now,
-            time: new Date(now).toISOString(),
-            viewMode: String(state?.viewMode || '').trim(),
-            activeDocId: String(state?.activeDocId || '').trim(),
-            currentGroupId: String(SettingsStore?.data?.currentGroupId || '').trim(),
-            isMobile: typeof __tmIsMobileDevice === 'function' ? !!__tmIsMobileDevice() : false,
-            context: __tmCloneDebugValue(ctx),
-            payload: __tmCloneDebugValue(payload),
-        };
-    }
-
-    function __tmPushDiagnosticLog(scope, payload = {}, context = {}) {
-        if (!__tmIsDiagnosticLogsEnabled()) return null;
-        const entry = __tmBuildDiagnosticLogEntry(scope, payload, context);
-        __tmDiagnosticLogStore.log.push(entry);
-        if (__tmDiagnosticLogStore.log.length > __tmDiagnosticLogStore.limit) {
-            __tmDiagnosticLogStore.log.splice(0, __tmDiagnosticLogStore.log.length - __tmDiagnosticLogStore.limit);
-        }
-        try {
-            globalThis.__tmTaskHorizonDiagnosticLog = __tmDiagnosticLogStore.log;
-            globalThis.__tmTaskHorizonDiagnosticLast = entry;
-        } catch (e) {}
-        try { __tmScheduleDiagnosticLogFileSave('diagnostic-log'); } catch (e) {}
-        return entry;
-    }
-
-    function __tmDumpDiagnosticLogs(limit = 20) {
-        const count = Math.max(1, Math.min(Number(__tmDiagnosticLogStore.limit) || 200, Number(limit) || 20));
-        return __tmDiagnosticLogStore.log.slice(-count).map((entry) => __tmCloneDebugValue(entry)).filter(Boolean);
-    }
-
-    function __tmClearDiagnosticLogs() {
-        __tmDiagnosticLogStore.log.length = 0;
-        try {
-            globalThis.__tmTaskHorizonDiagnosticLog = __tmDiagnosticLogStore.log;
-            globalThis.__tmTaskHorizonDiagnosticLast = null;
-        } catch (e) {}
-        try { __tmScheduleDiagnosticLogFileSave('clear-diagnostic-logs'); } catch (e) {}
-        return { ok: true, size: 0 };
+        const normalizedTag = String(tag || '').trim() || 'unknown';
+        return __tmPushDebugChannel('detail', normalizedTag, payload);
     }
 
     try {
@@ -14441,21 +15157,6 @@
         try { delete globalThis.tmTaskHorizonStatusDebugClear; } catch (e) {}
         try { delete globalThis.__tmTaskHorizonStatusDebugLog; } catch (e) {}
         try { delete globalThis.__tmTaskHorizonStatusDebugLast; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonPerfTrace; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonPerfTraceLast; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonPerfTraceCurrent; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonPerfCreate; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonPerfMark; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonPerfFinish; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonDiagnosticLog; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonDiagnosticLast; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonDiagnosticPush; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonDiagnosticLogFile; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonDiagnosticDump; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonDiagnosticClear; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonDiagnosticLatest; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonDiagnosticSaveFile; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonDiagnosticFileStatus; } catch (e) {}
     } catch (e) {}
 
     try {
@@ -14480,89 +15181,12 @@
         globalThis.tmTaskHorizonDetailDebugClear = function() {
             return __tmClearDebugChannel('detail');
         };
-        globalThis.__tmTaskHorizonPerfTrace = __tmPerfTraceStore.log;
-        globalThis.__tmTaskHorizonPerfTraceLast = null;
-        globalThis.__tmTaskHorizonPerfTraceCurrent = null;
-        globalThis.__tmTaskHorizonPerfCreate = function(name, meta = {}) {
-            return __tmCreatePerfTrace(name, meta);
-        };
-        globalThis.__tmTaskHorizonPerfMark = function(trace, tag, payload = {}) {
-            return __tmPerfTraceMark(trace, tag, payload);
-        };
-        globalThis.__tmTaskHorizonPerfFinish = function(trace, detail = {}) {
-            return __tmPerfTraceFinish(trace, detail);
-        };
-        globalThis.tmTaskHorizonPerfDump = function(limit = 5) {
-            return __tmDumpPerfTraces(limit);
-        };
-        globalThis.tmTaskHorizonPerfClear = function() {
-            return __tmClearPerfTraces();
-        };
-        globalThis.tmTaskHorizonPerfLatest = function() {
-            return __tmClonePerfTrace(globalThis.__tmTaskHorizonPerfTraceLast || null);
-        };
-        globalThis.__tmTaskHorizonDiagnosticLog = __tmDiagnosticLogStore.log;
-        globalThis.__tmTaskHorizonDiagnosticLast = null;
-        globalThis.__tmTaskHorizonDiagnosticPush = function(scope, payload = {}, context = {}) {
-            return __tmPushDiagnosticLog(scope, payload, context);
-        };
-        globalThis.tmTaskHorizonDiagnosticDump = function(limit = 20) {
-            return __tmDumpDiagnosticLogs(limit);
-        };
-        globalThis.tmTaskHorizonDiagnosticClear = function() {
-            return __tmClearDiagnosticLogs();
-        };
-        globalThis.tmTaskHorizonDiagnosticLatest = function() {
-            return __tmCloneDebugValue(globalThis.__tmTaskHorizonDiagnosticLast || null);
-        };
-        globalThis.tmTaskHorizonDiagnosticSaveFile = function(reason = 'manual') {
-            return __tmSaveDiagnosticLogFile(reason);
-        };
-        globalThis.tmTaskHorizonDiagnosticFileStatus = function() {
-            return __tmCloneDebugValue({
-                path: DIAGNOSTIC_LOG_FILE_PATH,
-                autoSaveEnabled: __tmShouldAutoSaveDiagnosticLogFile(),
-                lastSavedAt: __tmDiagnosticLogFileState.lastSavedAt,
-                lastSaveOk: __tmDiagnosticLogFileState.lastSaveOk,
-                pending: __tmDiagnosticLogFileState.pending || !!__tmDiagnosticLogFileState.timer,
-            });
-        };
         globalThis.tmTaskHorizonStats = function() {
             return __tmGetStatsSnapshot();
         };
         if (!window.tmTaskHorizonPerf || typeof window.tmTaskHorizonPerf !== 'object') {
             window.tmTaskHorizonPerf = {};
         }
-        window.tmTaskHorizonPerf.dump = function(limit = 5) {
-            return __tmDumpPerfTraces(limit);
-        };
-        window.tmTaskHorizonPerf.clear = function() {
-            return __tmClearPerfTraces();
-        };
-        window.tmTaskHorizonPerf.latest = function() {
-            return __tmClonePerfTrace(globalThis.__tmTaskHorizonPerfTraceLast || null);
-        };
-        window.tmTaskHorizonPerf.stats = function() {
-            return __tmGetStatsSnapshot();
-        };
-        if (!window.tmTaskHorizonDiagnostic || typeof window.tmTaskHorizonDiagnostic !== 'object') {
-            window.tmTaskHorizonDiagnostic = {};
-        }
-        window.tmTaskHorizonDiagnostic.dump = function(limit = 20) {
-            return __tmDumpDiagnosticLogs(limit);
-        };
-        window.tmTaskHorizonDiagnostic.clear = function() {
-            return __tmClearDiagnosticLogs();
-        };
-        window.tmTaskHorizonDiagnostic.latest = function() {
-            return __tmCloneDebugValue(globalThis.__tmTaskHorizonDiagnosticLast || null);
-        };
-        window.tmTaskHorizonDiagnostic.saveFile = function(reason = 'manual') {
-            return __tmSaveDiagnosticLogFile(reason);
-        };
-        window.tmTaskHorizonDiagnostic.fileStatus = function() {
-            return globalThis.tmTaskHorizonDiagnosticFileStatus();
-        };
         window.tmTaskHorizonDetailDebug = {
             enable(enabled = true) {
                 return __tmSetDebugChannelEnabled('detail', enabled);
@@ -14590,150 +15214,8 @@
         return Date.now();
     }
 
-    function __tmClonePerfTrace(trace) {
-        const src = (trace && typeof trace === 'object') ? trace : null;
-        if (!src) return null;
-        return {
-            id: Number(src.id || 0),
-            name: String(src.name || '').trim() || 'trace',
-            createdAt: Number(src.createdAt || 0),
-            createdTime: String(src.createdTime || ''),
-            meta: __tmCloneDebugValue(src.meta || {}),
-            finished: src.finished === true,
-            totalMs: __tmRoundPerfMs(src.totalMs || 0),
-            marks: Array.isArray(src.marks)
-                ? src.marks.map((mark) => ({
-                    index: Number(mark?.index || 0),
-                    tag: String(mark?.tag || '').trim(),
-                    time: String(mark?.time || ''),
-                    sinceStartMs: __tmRoundPerfMs(mark?.sinceStartMs || 0),
-                    sincePrevMs: __tmRoundPerfMs(mark?.sincePrevMs || 0),
-                    payload: __tmCloneDebugValue(mark?.payload || {}),
-                }))
-                : [],
-            finishDetail: __tmCloneDebugValue(src.finishDetail || {}),
-        };
-    }
-
-    function __tmPushPerfTrace(trace) {
-        const entry = __tmClonePerfTrace(trace);
-        if (!entry) return null;
-        __tmPerfTraceStore.log.push(entry);
-        if (__tmPerfTraceStore.log.length > __tmPerfTraceStore.limit) {
-            __tmPerfTraceStore.log.splice(0, __tmPerfTraceStore.log.length - __tmPerfTraceStore.limit);
-        }
-        try {
-            globalThis.__tmTaskHorizonPerfTrace = __tmPerfTraceStore.log;
-            globalThis.__tmTaskHorizonPerfTraceLast = entry;
-            globalThis.__tmTaskHorizonPerfTraceCurrent = null;
-        } catch (e) {}
-        try { __tmScheduleDiagnosticLogFileSave('perf-trace'); } catch (e) {}
-        return entry;
-    }
-
-    function __tmCreatePerfTrace(name = '', meta = {}) {
-        if (!__tmIsDiagnosticLogsEnabled()) return null;
-        const now = Date.now();
-        const trace = {
-            id: ++__tmPerfTraceStore.seq,
-            name: String(name || '').trim() || 'trace',
-            createdAt: now,
-            createdTime: new Date(now).toISOString(),
-            startPerf: __tmPerfNow(),
-            marks: [],
-            meta: __tmCloneDebugValue(meta || {}),
-            finished: false,
-            totalMs: 0,
-            finishDetail: null,
-        };
-        try {
-            globalThis.__tmTaskHorizonPerfTrace = __tmPerfTraceStore.log;
-            globalThis.__tmTaskHorizonPerfTraceCurrent = trace;
-        } catch (e) {}
-        return trace;
-    }
-
-    function __tmPerfTraceMark(trace, tag = '', payload = {}) {
-        if (!__tmIsDiagnosticLogsEnabled()) return trace;
-        const target = (trace && typeof trace === 'object') ? trace : null;
-        if (!target || target.finished === true) return trace;
-        const now = Date.now();
-        const perfNow = __tmPerfNow();
-        const prev = Array.isArray(target.marks) && target.marks.length ? target.marks[target.marks.length - 1] : null;
-        const entry = {
-            index: Array.isArray(target.marks) ? target.marks.length + 1 : 1,
-            tag: String(tag || '').trim() || 'mark',
-            at: now,
-            time: new Date(now).toISOString(),
-            perfNow,
-            sinceStartMs: __tmRoundPerfMs(perfNow - Number(target.startPerf || perfNow)),
-            sincePrevMs: __tmRoundPerfMs(prev ? (perfNow - Number(prev.perfNow || perfNow)) : 0),
-            payload: __tmCloneDebugValue(payload || {}),
-        };
-        if (!Array.isArray(target.marks)) target.marks = [];
-        target.marks.push(entry);
-        try { globalThis.__tmTaskHorizonPerfTraceCurrent = target; } catch (e) {}
-        return trace;
-    }
-
-    function __tmPerfTraceFinish(trace, detail = {}) {
-        if (!__tmIsDiagnosticLogsEnabled()) return trace;
-        const target = (trace && typeof trace === 'object') ? trace : null;
-        if (!target) return trace;
-        if (target.finished === true) return __tmClonePerfTrace(target);
-        const perfNow = __tmPerfNow();
-        target.finished = true;
-        target.totalMs = __tmRoundPerfMs(perfNow - Number(target.startPerf || perfNow));
-        target.finishDetail = __tmCloneDebugValue(detail || {});
-        const entry = __tmPushPerfTrace(target);
-        return entry || __tmClonePerfTrace(target);
-    }
-
-    function __tmDumpPerfTraces(limit = 5) {
-        const count = Math.max(1, Math.min(80, Number(limit) || 5));
-        const traces = __tmPerfTraceStore.log.slice(-count).map((trace) => __tmClonePerfTrace(trace)).filter(Boolean);
-        return traces;
-    }
-
-    function __tmClearPerfTraces() {
-        __tmPerfTraceStore.log.length = 0;
-        try {
-            globalThis.__tmTaskHorizonPerfTrace = __tmPerfTraceStore.log;
-            globalThis.__tmTaskHorizonPerfTraceLast = null;
-            globalThis.__tmTaskHorizonPerfTraceCurrent = null;
-        } catch (e) {}
-        try { __tmScheduleDiagnosticLogFileSave('clear-perf-traces'); } catch (e) {}
-        return { ok: true, size: 0 };
-    }
-
     function __tmGetStatsSnapshot() {
         return __tmCloneDebugValue(state?.stats || {});
-    }
-
-    function __tmGetPerfTraceMarkPayload(tag = 'normalize', trace = null) {
-        const targetTrace = (trace && typeof trace === 'object')
-            ? trace
-            : (globalThis.__tmTaskHorizonPerfTraceLast || null);
-        const marks = Array.isArray(targetTrace?.marks) ? targetTrace.marks : [];
-        const query = String(tag || '').trim();
-        let mark = null;
-        if (/^\d+$/.test(query)) {
-            const index = Math.max(1, Number(query));
-            mark = marks.find((item) => Number(item?.index || 0) === index) || null;
-        } else {
-            for (let i = marks.length - 1; i >= 0; i -= 1) {
-                const item = marks[i];
-                if (String(item?.tag || '').trim() === query) {
-                    mark = item;
-                    break;
-                }
-            }
-        }
-        return __tmCloneDebugValue(mark?.payload || null);
-    }
-
-    function __tmDumpPerfTraceMarkPayload(tag = 'normalize', trace = null) {
-        return __tmGetPerfTraceMarkPayload(tag, trace);
     }
 
     function __tmMarkHighPriorityInteraction(reason = '', durationMs = 360) {
@@ -14847,12 +15329,14 @@
                 clearTimeout(__tmTaskIndexSaveTimer);
                 __tmTaskIndexSaveTimer = null;
             }
+            __tmTaskIndexSaveGeneration += 1;
         } catch (e) {}
         try {
             if (__tmTaskSnapshotSaveTimer) {
                 clearTimeout(__tmTaskSnapshotSaveTimer);
                 __tmTaskSnapshotSaveTimer = null;
             }
+            __tmTaskSnapshotSaveGeneration += 1;
         } catch (e) {}
         try {
             if (__tmWsTaskTxBatchTimer) {
@@ -15153,7 +15637,9 @@
             if (!idSet.has(docId)) return;
             const task = { ...row };
             const taskId = String(task.id || '').trim();
-            const prevTask = taskId ? (state.flatTasks?.[taskId] || null) : null;
+            const prevTask = taskId
+                ? (globalThis.__tmTaskBoundary?.getTask?.(taskId, { includePending: false, preferPending: false }) || null)
+                : null;
             if (taskId) {
                 taskIds.push(taskId);
                 taskDocMap.set(taskId, docId);
@@ -15534,6 +16020,7 @@
         let truncated = false;
         let operationCount = 0;
         let wholeScopeDirty = false;
+        const actions = new Set();
         const addDocIds = (values) => {
             if (!__tmAddBoundedTaskTxIds(docIds, values, __TM_TASK_TX_DOC_ID_LIMIT)) {
                 wholeScopeDirty = true;
@@ -15566,6 +16053,7 @@
                     }
                     operationCount += 1;
                     const action = String(operation?.action || '').trim().toLowerCase();
+                    if (action && actions.size < 24) actions.add(action);
                     if (/(?:insert|delete|move|append|prepend|merge|split|turn)/.test(action)) structural = true;
                     addDocIds([operation?.rootID, operation?.rootId, operation?.root_id]);
                     addBlockIds([
@@ -15587,15 +16075,22 @@
         if (!docIds.size && !wholeScopeDirty) {
             try { addDocIds(__tmExtractDocIdsFromTx(msg)); } catch (e) {}
         }
+        let deletedBlockIds = new Set();
+        try { deletedBlockIds = __tmExtractDeletedBlockIdsFromTx(msg); } catch (e) { deletedBlockIds = new Set(); }
+        let insertedBlockIds = new Set();
+        try { insertedBlockIds = __tmExtractInsertedBlockIdsFromTx(msg); } catch (e) { insertedBlockIds = new Set(); }
         return {
             cmd,
             docIds,
             blockIds,
+            insertedBlockIds,
+            deletedBlockIds,
             structural,
             truncated,
             wholeScopeDirty,
             committed: cmd === 'transactions',
             operationCount,
+            actions: Array.from(actions),
         };
     }
 
@@ -15643,6 +16138,49 @@
             ].forEach((x) => walk(x, depth + 1));
         };
         walk(payload, 0);
+        return out;
+    }
+
+    function __tmExtractDeletedBlockIdsFromTx(payload) {
+        const out = new Set();
+        const add = (value) => {
+            const id = String(value || '').trim();
+            if (id && __tmIsLikelyBlockId(id)) out.add(id);
+        };
+        const collect = (value, depth = 0) => {
+            if (!value || depth > 5) return;
+            if (Array.isArray(value)) {
+                value.forEach((item) => collect(item, depth + 1));
+                return;
+            }
+            if (typeof value === 'object') {
+                add(value.id);
+                add(value.blockID);
+                add(value.blockId);
+                Object.values(value).forEach((item) => collect(item, depth + 1));
+                return;
+            }
+            const text = String(value || '');
+            const re = /(?:data-node-id|id)\s*=\s*["']([0-9]+-[a-zA-Z0-9]+)["']/g;
+            let match = re.exec(text);
+            while (match) {
+                add(match[1]);
+                match = re.exec(text);
+            }
+        };
+        const detail = __tmGetWsMainTaskTxDetail(payload);
+        const transactions = Array.isArray(detail?.data) ? detail.data : [];
+        transactions.forEach((tx) => {
+            (Array.isArray(tx?.doOperations) ? tx.doOperations : []).forEach((operation) => {
+                const action = String(operation?.action || '').trim().toLowerCase();
+                if (!action.includes('delete') && !action.includes('remove')) return;
+                add(operation?.id);
+                add(operation?.blockID);
+                add(operation?.blockId);
+                (Array.isArray(operation?.srcIDs) ? operation.srcIDs : []).forEach(add);
+                collect(operation?.data);
+            });
+        });
         return out;
     }
 
@@ -15762,10 +16300,8 @@
             __tmTxTaskRefreshDocIds.clear();
             __tmTxTaskRefreshMeta.wholeScopeDirty = true;
         }
-        if (opts.hiddenDocOnly === true) {
-            __tmTxTaskRefreshBlockIds.clear();
-            __tmTxTaskRefreshMeta.hiddenDocOnly = true;
-        } else if (!__tmAddBoundedTaskTxIds(__tmTxTaskRefreshBlockIds, blockIds, __TM_TASK_TX_BLOCK_ID_LIMIT)) {
+        if (opts.hiddenDocOnly === true) __tmTxTaskRefreshMeta.hiddenDocOnly = true;
+        if (!__tmAddBoundedTaskTxIds(__tmTxTaskRefreshBlockIds, blockIds, __TM_TASK_TX_BLOCK_ID_LIMIT)) {
             __tmTxTaskRefreshBlockIds.clear();
             __tmTxTaskRefreshMeta.truncated = true;
             __tmTxTaskRefreshMeta.structural = true;
@@ -15774,6 +16310,14 @@
         __tmTxTaskRefreshMeta.committed = __tmTxTaskRefreshMeta.committed || opts.committed === true;
         __tmTxTaskRefreshMeta.truncated = __tmTxTaskRefreshMeta.truncated || opts.truncated === true;
         __tmTxTaskRefreshMeta.wholeScopeDirty = __tmTxTaskRefreshMeta.wholeScopeDirty || opts.wholeScopeDirty === true;
+        __tmTxTaskRefreshMeta.insertedBlockIds = Array.from(new Set((Array.isArray(__tmTxTaskRefreshMeta.insertedBlockIds) ? __tmTxTaskRefreshMeta.insertedBlockIds : [])
+            .concat(Array.isArray(opts.insertedBlockIds) ? opts.insertedBlockIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => __tmIsLikelyBlockId(id)))).slice(0, __TM_TASK_TX_BLOCK_ID_LIMIT);
+        __tmTxTaskRefreshMeta.deletedBlockIds = Array.from(new Set((Array.isArray(__tmTxTaskRefreshMeta.deletedBlockIds) ? __tmTxTaskRefreshMeta.deletedBlockIds : [])
+            .concat(Array.isArray(opts.deletedBlockIds) ? opts.deletedBlockIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => __tmIsLikelyBlockId(id)))).slice(0, __TM_TASK_TX_BLOCK_ID_LIMIT);
         __tmTxTaskRefreshGeneration += 1;
         __tmTxTaskRefreshAttemptCount = 0;
     }
@@ -15823,7 +16367,7 @@
         for (const blockId of blockIds) {
             const bid = String(blockId || '').trim();
             if (loadedDocIds.has(bid)) return true;
-            const task = state.flatTasks?.[bid];
+            const task = globalThis.__tmTaskBoundary?.getTask?.(bid, { includePending: false, preferPending: false });
             const taskDocId = String(task?.root_id || task?.docId || '').trim();
             if (taskDocId && loadedDocIds.has(taskDocId)) return true;
         }
@@ -15850,6 +16394,8 @@
                 truncated: false,
                 wholeScopeDirty: false,
                 hiddenDocOnly: false,
+                insertedBlockIds: [],
+                deletedBlockIds: [],
             };
             __tmTxTaskRefreshAttemptCount = 0;
             return true;
@@ -15870,6 +16416,8 @@
             truncated: false,
             wholeScopeDirty: false,
             hiddenDocOnly: false,
+            insertedBlockIds: [],
+            deletedBlockIds: [],
         };
         return true;
     }
@@ -15952,7 +16500,7 @@
         const pushTaskId = (taskId0, docId0 = '') => {
             const taskId = String(taskId0 || '').trim();
             if (!__tmIsLikelyBlockId(taskId) || seen.has(taskId)) return;
-            const loadedTask = state.flatTasks?.[taskId] || null;
+            const loadedTask = globalThis.__tmTaskBoundary?.getTask?.(taskId, { includePending: false, preferPending: false }) || null;
             const docId = String(docId0 || loadedTask?.root_id || loadedTask?.docId || '').trim();
             if (docId && loadedDocIds.size > 0 && !loadedDocIds.has(docId)) return;
             if (docId) affectedDocIds.add(docId);
@@ -16020,6 +16568,9 @@
     async function __tmClassifyPendingTaskTxRefresh(targets = {}) {
         const raw = (targets && typeof targets === 'object') ? targets : {};
         const meta = (raw.meta && typeof raw.meta === 'object') ? raw.meta : {};
+        const preserveExistingSiblingOrder = meta.structural !== true
+            && meta.truncated !== true
+            && meta.wholeScopeDirty !== true;
         const loadedDocIds = __tmGetLoadedTaskScopeDocIds();
         const docIds = new Set((Array.isArray(raw.docIds) ? raw.docIds : [])
             .map((id) => String(id || '').trim())
@@ -16030,32 +16581,38 @@
             .slice(0, __TM_TASK_TX_BLOCK_ID_LIMIT);
         if (meta.wholeScopeDirty === true) {
             return {
+                reason: 'whole-scope-dirty',
                 relevant: loadedDocIds.size > 0,
                 docIds: Array.from(loadedDocIds),
                 blockIds: [],
                 resolvedTaskIds: [],
                 forceDocRefresh: true,
+                preserveExistingSiblingOrder: false,
                 committed: meta.committed === true,
             };
         }
         if (meta.hiddenDocOnly === true) {
             return {
+                reason: 'hidden-document-dirty',
                 relevant: docIds.size > 0,
                 docIds: Array.from(docIds),
                 blockIds: [],
                 resolvedTaskIds: [],
                 forceDocRefresh: true,
+                preserveExistingSiblingOrder,
                 committed: meta.committed === true,
             };
         }
         if (!blockIds.length) {
             const forceDocRefresh = meta.structural === true || meta.truncated === true;
             return {
+                reason: forceDocRefresh ? 'structural-document-targets' : 'no-block-targets',
                 relevant: forceDocRefresh && docIds.size > 0,
                 docIds: Array.from(docIds),
                 blockIds: [],
                 resolvedTaskIds: [],
                 forceDocRefresh,
+                preserveExistingSiblingOrder: false,
                 committed: meta.committed === true,
             };
         }
@@ -16067,32 +16624,41 @@
         });
         if (resolved?.resolutionFailed) {
             return {
+                reason: 'task-impact-resolution-failed',
                 relevant: docIds.size > 0,
                 docIds: Array.from(docIds),
                 blockIds,
                 resolvedTaskIds: [],
                 forceDocRefresh: true,
+                preserveExistingSiblingOrder,
                 committed: meta.committed === true,
             };
         }
         if (!resolved?.hasTaskImpact) {
-            const forceDocRefresh = meta.truncated === true;
+            // The block index can trail a committed insert/delete/move transaction.
+            // A structural transaction with a known loaded document must still reload
+            // that document even when the new task block is not queryable yet.
+            const forceDocRefresh = meta.structural === true || meta.truncated === true;
             return {
+                reason: forceDocRefresh ? 'structural-index-not-visible' : 'no-task-impact',
                 relevant: forceDocRefresh && docIds.size > 0,
                 docIds: Array.from(docIds),
                 blockIds: [],
                 resolvedTaskIds: [],
                 forceDocRefresh,
+                preserveExistingSiblingOrder: false,
                 committed: meta.committed === true,
             };
         }
         const forceDocRefresh = meta.structural === true || meta.truncated === true || resolved.needsDocRefresh === true;
         return {
+            reason: forceDocRefresh ? 'task-impact-document-refresh' : 'task-impact-field-refresh',
             relevant: true,
             docIds: Array.from(docIds),
             blockIds,
             resolvedTaskIds: Array.isArray(resolved.taskIds) ? resolved.taskIds.slice() : [],
             forceDocRefresh,
+            preserveExistingSiblingOrder,
             committed: meta.committed === true,
         };
     }
@@ -16103,6 +16669,28 @@
         const taskId = String(target.id || '').trim();
         if (!taskId || !state.doneOverrides || typeof state.doneOverrides !== 'object') return false;
         if (!Object.prototype.hasOwnProperty.call(state.doneOverrides, taskId)) return false;
+        try {
+            const store = globalThis.__tmTaskStore;
+            if (store && typeof store.hasPendingCompletionOverlay === 'function') {
+                const hasPendingCompletion = store.hasPendingCompletionOverlay(taskId) === true;
+                const watermark = typeof __tmGetLocalTaskPatchWatermark === 'function'
+                    ? __tmGetLocalTaskPatchWatermark(taskId)
+                    : null;
+                const watermarkFields = new Set(Array.isArray(watermark?.fields) ? watermark.fields : []);
+                const protectsCompletion = watermarkFields.has('done')
+                    || watermarkFields.has('taskMarker')
+                    || watermarkFields.has('task_marker');
+                const watermarkSource = String(watermark?.source || '').trim().toLowerCase();
+                const nativeDocumentWatermark = watermarkSource === 'native-document'
+                    || watermarkSource.startsWith('native-document-')
+                    || watermarkSource === 'native-doc-checkbox'
+                    || watermarkSource.startsWith('native-doc-checkbox-');
+                if (!hasPendingCompletion && (!protectsCompletion || nativeDocumentWatermark)) {
+                    delete state.doneOverrides[taskId];
+                    return false;
+                }
+            }
+        } catch (e) {}
         const nextDone = !!state.doneOverrides[taskId];
         if (!!target.done === nextDone) return false;
         target.done = nextDone;
@@ -16115,6 +16703,69 @@
             target.task_marker = ' ';
         }
         return true;
+    }
+
+    function __tmBuildAuthoritativeTaskConfirmationCandidate(row, options = {}) {
+        const source = (row && typeof row === 'object') ? row : null;
+        if (!source) return null;
+        const task = { ...source };
+        const taskId = String(task.id || '').trim();
+        if (!taskId) return null;
+        if (task.__customFieldRawValues && typeof task.__customFieldRawValues === 'object' && !Array.isArray(task.__customFieldRawValues)) {
+            task.__customFieldRawValues = { ...task.__customFieldRawValues };
+        }
+        if (Array.isArray(task.attachments)) task.attachments = task.attachments.slice();
+        try {
+            const parsed = API.parseTaskStatus(task.markdown);
+            task.done = !!parsed.done;
+            task.content = parsed.content;
+            const parsedMarker = __tmNormalizeTaskStatusMarker(parsed?.marker, '');
+            if (parsedMarker) {
+                task.taskMarker = parsedMarker;
+                task.task_marker = parsedMarker;
+            }
+        } catch (e) {}
+        const opts = (options && typeof options === 'object') ? options : {};
+        const documentContentPatch = (opts.documentContentPatch && typeof opts.documentContentPatch === 'object')
+            ? opts.documentContentPatch
+            : null;
+        if (documentContentPatch) {
+            task.content = documentContentPatch.content;
+            task.raw_content = documentContentPatch.content;
+            task.markdown = documentContentPatch.markdown;
+            task.done = documentContentPatch.done;
+            task.taskMarker = documentContentPatch.taskMarker;
+            task.task_marker = documentContentPatch.task_marker;
+        }
+        return task;
+    }
+
+    function __tmBuildStructuredAuthoritativeTaskList(authoritativeTasksById, docReplacements) {
+        const source = authoritativeTasksById instanceof Map ? authoritativeTasksById : new Map();
+        const replacements = Array.isArray(docReplacements) ? docReplacements : [];
+        const ordered = [];
+        const visited = new Set();
+        const attach = (task) => {
+            const taskId = String(task?.id || '').trim();
+            const authoritative = taskId ? source.get(taskId) : null;
+            if (!authoritative) return null;
+            if (visited.has(taskId)) return authoritative;
+            visited.add(taskId);
+            authoritative.children = (Array.isArray(task?.children) ? task.children : [])
+                .map(attach)
+                .filter(Boolean);
+            ordered.push(authoritative);
+            return authoritative;
+        };
+        replacements.forEach((entry) => {
+            (Array.isArray(entry?.nextDoc?.tasks) ? entry.nextDoc.tasks : []).forEach(attach);
+        });
+        source.forEach((task, taskId) => {
+            if (visited.has(taskId)) return;
+            task.children = [];
+            ordered.push(task);
+        });
+        return ordered;
     }
 
     function __tmPrepareTaskBlockIncrementalRow(row, prevTask, normalizeOptions) {
@@ -16152,17 +16803,33 @@
         return task;
     }
 
-    function __tmReadLiveDocumentTaskContentPatch(taskId) {
-        const tid = String(taskId || '').trim();
-        if (!tid || typeof document === 'undefined') return null;
-        let taskItem = null;
-        try { taskItem = globalThis.__tmCompat?.findTaskListItemById?.(tid) || null; } catch (e) { taskItem = null; }
-        if (!(taskItem instanceof Element) || !taskItem.closest?.('.protyle')) return null;
-        const contentBlock = Array.from(taskItem.children || []).find((child) => {
+    function __tmFindLiveDocumentTaskContentBlock(taskItem) {
+        if (!(taskItem instanceof Element)) return null;
+        try {
+            const editable = Array.from(taskItem.querySelectorAll?.('[contenteditable="true"]') || []).find((candidate) => {
+                if (!(candidate instanceof Element)) return false;
+                const owner = candidate.closest?.('[data-type="NodeListItem"], .li[data-node-id]');
+                return owner === taskItem;
+            });
+            if (editable instanceof Element) return editable;
+        } catch (e) {}
+        return Array.from(taskItem.children || []).find((child) => {
             if (!(child instanceof Element)) return false;
             const type = String(child.getAttribute('data-type') || '').trim();
             return !!type && type !== 'NodeList' && type !== 'NodeListItem';
-        });
+        }) || null;
+    }
+
+    function __tmReadLiveDocumentTaskContentPatch(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid || typeof document === 'undefined') return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        let taskItem = opts.taskItem instanceof Element ? opts.taskItem : null;
+        if (!taskItem) {
+            try { taskItem = globalThis.__tmCompat?.findTaskListItemById?.(tid) || null; } catch (e) { taskItem = null; }
+        }
+        if (!(taskItem instanceof Element) || !taskItem.closest?.('.protyle')) return null;
+        const contentBlock = __tmFindLiveDocumentTaskContentBlock(taskItem);
         if (!(contentBlock instanceof Element)) return null;
         const editable = contentBlock.matches?.('[contenteditable="true"]')
             ? contentBlock
@@ -16184,6 +16851,66 @@
             taskMarker: marker,
             task_marker: marker,
         };
+    }
+
+    function __tmApplyLiveDocumentTaskContentPatch(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const prevTask = tid
+            ? (globalThis.__tmTaskBoundary?.getTask?.(tid, { includePending: false, preferPending: false }) || null)
+            : null;
+        if (!tid || !prevTask) return false;
+        const livePatch = (opts.patch && typeof opts.patch === 'object')
+            ? opts.patch
+            : __tmReadLiveDocumentTaskContentPatch(tid, { taskItem: opts.taskItem });
+        if (!livePatch) return false;
+        const nextContent = String(livePatch.content ?? '').replace(/[\u200B\uFEFF]/g, '').trim();
+        const nextMarkdown = String(livePatch.markdown ?? prevTask.markdown ?? '').trim();
+        const prevContent = String(prevTask.content ?? prevTask.raw_content ?? '').trim();
+        const prevMarkdown = String(prevTask.markdown ?? '').trim();
+        if (nextContent === prevContent && nextMarkdown === prevMarkdown) return true;
+
+        const source = String(opts.source || 'native-document-content').trim() || 'native-document-content';
+        const presentationPatch = { content: nextContent, markdown: nextMarkdown };
+        try {
+            __tmMarkLocalTaskPatchWatermark(tid, presentationPatch, { source });
+        } catch (e) {}
+
+        const statePatch = {
+            content: nextContent,
+            raw_content: nextContent,
+            rawContent: nextContent,
+            markdown: nextMarkdown,
+        };
+        let applied = false;
+        try {
+            applied = globalThis.__tmTaskStore?.patchLocal?.(tid, statePatch, { source }) === true;
+        } catch (e) {}
+        if (!applied) {
+            Object.assign(prevTask, statePatch);
+            try { globalThis.__tmTaskStore?.upsertLocal?.(prevTask, { status: source }); } catch (e) {}
+        }
+        const affectedDocId = String(prevTask.root_id || prevTask.docId || '').trim();
+        if (affectedDocId) {
+            try { __tmInvalidateTasksQueryCacheByDocId(affectedDocId); } catch (e) {}
+        }
+        try {
+            if (typeof __tmRefreshContentPatchPresentation === 'function') {
+                __tmRefreshContentPatchPresentation(tid, presentationPatch, {
+                    withFilters: true,
+                    source,
+                    allowMountedInactive: true,
+                }, source);
+            } else {
+                __tmRefreshTaskFieldsAcrossViews(tid, presentationPatch, {
+                    withFilters: true,
+                    reason: source,
+                    fallback: true,
+                    allowMountedInactive: true,
+                });
+            }
+        } catch (e) {}
+        return true;
     }
 
     function __tmCanPatchTaskBlockIncrementally(prevTask, nextTask) {
@@ -16298,7 +17025,6 @@
         const keys = Object.keys(nextPatch);
         if (!tid) return false;
         if (!keys.length) return true;
-        if (typeof __tmRefreshTaskFieldsAcrossViews !== 'function') return false;
         const viewMode = String(state.viewMode || '').trim();
         if (viewMode === 'calendar') return false;
         const supportedByView = {
@@ -16312,21 +17038,13 @@
         if (!supported || keys.some((key) => !supported.has(String(key || '').trim()))) return false;
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'done') && !__tmGetShowCompletedTasksFromSettings()) return false;
         if (viewMode === 'kanban' && (Object.prototype.hasOwnProperty.call(nextPatch, 'done') || Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus'))) return false;
-        try {
-            if (typeof __tmDoesPatchNeedProjectionRefresh === 'function'
-                && __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, { withFilters: false })) return false;
-        } catch (e) {
-            return false;
-        }
         return true;
     }
 
     function __tmApplyTaskBlockDomPatches(patches = [], reason = '') {
         if (!Array.isArray(patches) || patches.length === 0) return true;
-        if (typeof __tmRefreshTaskFieldsAcrossViews !== 'function') return false;
         const sourceReason = String(reason || 'task-block-dom-patch').trim() || 'task-block-dom-patch';
         let hadEffectivePatch = false;
-        let touchedAny = false;
         for (const item of patches) {
             const taskId = String(item?.taskId || '').trim();
             const patch = (item?.patch && typeof item.patch === 'object') ? item.patch : {};
@@ -16338,29 +17056,40 @@
             if (!Object.keys(patch).length) return;
             hadEffectivePatch = true;
             try {
-                const touched = __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
-                    withFilters: false,
-                    reason: sourceReason,
-                    forceProjectionRefresh: false,
-                    fallback: false,
-                    skipDetailPatch: true,
+                const task = globalThis.__tmTaskStore?.getProjected?.(taskId)
+                    || globalThis.__tmTaskBoundary?.getTask?.(taskId)
+                    || null;
+                globalThis.__tmTaskMutationBus?.publish?.({
+                    type: 'taskPatch',
+                    phase: 'local',
+                    taskId,
+                    docId: String(task?.root_id || task?.docId || '').trim(),
+                    source: sourceReason,
+                    patch: { ...patch },
                 });
-                if (touched) touchedAny = true;
             } catch (e) {}
         });
         if (!hadEffectivePatch) return true;
-        return touchedAny;
+        return true;
     }
 
     async function __tmRefreshAffectedTaskBlocksIncrementally(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        const commitView = opts.commitView !== false && opts.refreshView !== false;
+        const isCurrent = typeof opts.isCurrent === 'function' ? opts.isCurrent : null;
+        const guardCurrent = () => {
+            if (!isCurrent) return true;
+            try { return isCurrent() !== false; } catch (e) { return false; }
+        };
         const cfg = __tmGetPerfTuningOptions();
         if (!cfg.taskBlockIncrementalRefresh) return false;
         const viewMode = String(state.viewMode || '').trim();
         if (!state.modal || !document.body.contains(state.modal)) return false;
         if (viewMode === 'calendar') return false;
-        if (opts.committed !== true) {
+        if (!guardCurrent()) return false;
+        if (opts.committed !== true && opts.skipFlush !== true) {
             try { await __tmFlushSqlTransactionsSafe('task-block-incremental-refresh'); } catch (e) {}
+            if (!guardCurrent()) return false;
         }
         const rawBlockIds = Array.isArray(opts.blockIds) ? opts.blockIds : [];
         const blockIds = Array.from(new Set(rawBlockIds
@@ -16375,8 +17104,21 @@
         const resolved = preResolvedTaskIds.length > 0
             ? { taskIds: preResolvedTaskIds, needsDocRefresh: opts.forceDocRefresh === true }
             : await __tmResolveLoadedTaskIdsFromBlockIds(blockIds, { maxTasks });
+        if (!guardCurrent()) return false;
         const taskIds = Array.isArray(resolved?.taskIds) ? resolved.taskIds : [];
         if (resolved?.needsDocRefresh || taskIds.length === 0 || taskIds.length > maxTasks) return false;
+        const readDocIds = Array.from(new Set([
+            ...(Array.isArray(opts.docIds) ? opts.docIds : []),
+            ...taskIds.map((taskId) => {
+                const task = globalThis.__tmTaskStore?.getProjected?.(taskId)
+                    || globalThis.__tmTaskBoundary?.getTask?.(taskId)
+                    || null;
+                return task?.root_id || task?.docId || '';
+            }),
+        ].map((id) => String(id || '').trim()).filter(Boolean)));
+        const taskStoreReadToken = globalThis.__tmTaskStore?.captureRead?.(readDocIds) || null;
+        const taskStoreReadCurrent = () => !taskStoreReadToken
+            || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true;
         const patches = [];
         const rule0 = state.currentRule ? state.filterRules.find((rule) => rule.id === state.currentRule) : null;
         const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
@@ -16397,21 +17139,29 @@
             visibleDateFallbackTaskIds: __tmBuildVisibleDateFallbackTaskIdSet(),
             todayDateKey: __tmNormalizeDateOnly(new Date()),
         };
+        try { taskIds.forEach((taskId) => __tmCustomFieldAttrValueCache.delete(taskId)); } catch (e) {}
         for (const taskId of taskIds) {
             const slot = __tmFindLoadedTaskTreeSlot(taskId);
-            const prevTask = slot?.task || state.flatTasks?.[taskId] || null;
+            const prevTask = slot?.task
+                || globalThis.__tmTaskBoundary?.getTask?.(taskId, { includePending: false, preferPending: false })
+                || null;
             if (!slot || !prevTask) return false;
+            const readWatermarkRevision = Math.max(0, Number(__tmGetLocalTaskPatchWatermark(taskId)?.revision) || 0);
             let row = null;
             try { row = await API.getTaskById(taskId); } catch (e) {
                 row = null;
             }
+            if (!guardCurrent() || !taskStoreReadCurrent()) return false;
             if (!row || typeof row !== 'object') {
                 return false;
             }
-            const nextTask = __tmPrepareTaskBlockIncrementalRow(row, prevTask, normalizeTaskOptions);
             const documentContentPatch = opts.committed === true
+                && __tmTaskHasLocalPatchWatermarkForFields(taskId, ['content', 'markdown', 'done'])
                 ? __tmReadLiveDocumentTaskContentPatch(taskId)
                 : null;
+            const authoritativeTask = __tmBuildAuthoritativeTaskConfirmationCandidate(row, { documentContentPatch });
+            const nextTask = __tmPrepareTaskBlockIncrementalRow(row, prevTask, normalizeTaskOptions);
+            if (!nextTask || !authoritativeTask) return false;
             if (documentContentPatch) {
                 nextTask.content = documentContentPatch.content;
                 nextTask.raw_content = documentContentPatch.content;
@@ -16420,23 +17170,18 @@
                 nextTask.taskMarker = documentContentPatch.taskMarker;
                 nextTask.task_marker = documentContentPatch.task_marker;
             }
-            const keepCommittedContent = opts.committed !== true
-                || __tmHasActiveLocalTaskFieldWrite(taskId, ['content', 'markdown']);
-            if (opts.committed === true && !keepCommittedContent) {
-                try { __tmClearLocalTaskPatchWatermark(taskId, { content: '', markdown: '' }); } catch (e) {}
-            }
             try {
-                __tmMergeLocalTaskPatchIntoTask(nextTask, {
-                    excludeFields: opts.committed === true && !keepCommittedContent
-                        ? ['content', 'markdown']
-                        : [],
+                __tmConfirmLocalTaskPatchWatermarkFromTask(taskId, authoritativeTask, {
+                    readWatermarkRevision,
                 });
             } catch (e) {}
-            if (!nextTask || !__tmCanPatchTaskBlockIncrementally(prevTask, nextTask)) return false;
+            try { __tmMergeLocalTaskPatchIntoTask(nextTask); } catch (e) {}
+            if (!__tmCanPatchTaskBlockIncrementally(prevTask, nextTask)) return false;
             const visiblePatch = __tmBuildTaskBlockVisibleDomPatch(prevTask, nextTask);
             if (visiblePatch === null) return false;
-            patches.push({ taskId, nextTask, patch: visiblePatch });
+            patches.push({ taskId, nextTask, authoritativeTask, patch: visiblePatch });
         }
+        if (!guardCurrent() || !taskStoreReadCurrent()) return false;
         if (!patches.length) return false;
         const changedDocIds = new Set();
         patches.forEach((patch) => {
@@ -16444,21 +17189,36 @@
             if (__tmIsLikelyBlockId(docId)) changedDocIds.add(docId);
         });
         if (!changedDocIds.size) return false;
+        try {
+            globalThis.__tmTaskStore?.acceptAuthoritative?.(
+                patches.map((item) => item.authoritativeTask).filter(Boolean),
+                { docIds: Array.from(changedDocIds) },
+            );
+        } catch (e) {}
+        // This path is entered only after __tmCanPatchTaskBlockIncrementally
+        // confirmed that document, parent and sibling order did not change.
+        // The task object is already replaced in place, so rebuilding each
+        // document tree here only repeats a full traversal for a field patch.
         changedDocIds.forEach((docId) => {
             try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
-            try { __tmRebuildLocalDocTree(docId); } catch (e) {}
         });
         try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
-        try { recalcStats(); } catch (e) {}
+        const affectsCompletionStats = patches.some((item) => (
+            Object.prototype.hasOwnProperty.call(item?.patch || {}, 'done')
+            || Object.prototype.hasOwnProperty.call(item?.patch || {}, 'customStatus')
+        ));
+        if (affectsCompletionStats) {
+            try { recalcStats(); } catch (e) {}
+        }
         state.deferredListCustomFieldIds = String(state.viewMode || '').trim() === 'list'
             ? customFieldLoadPlan0.deferredListFieldIds.slice()
             : [];
-        const canPatchDomOnly = __tmApplyTaskBlockDomPatches(
+        const canPatchDomOnly = commitView && __tmApplyTaskBlockDomPatches(
             patches,
             String(opts.reason || 'task-block-incremental-refresh').trim() || 'task-block-incremental-refresh'
         );
-        if (opts.withFilters !== false && !canPatchDomOnly) {
-            try { applyFilters(); } catch (e) {}
+        if (commitView && opts.withFilters !== false && !canPatchDomOnly) {
+            try { __tmRecomputeTaskProjection({ reason: String(opts.reason || 'task-block-incremental-refresh').trim() || 'task-block-incremental-refresh' }); } catch (e) {}
             try {
                 __tmScheduleDeferredVisibleListCustomFieldHydration({
                     delayMs: 120,
@@ -16467,25 +17227,10 @@
                 });
             } catch (e) {}
         }
-        try {
-            __tmSchedulePersistTaskIndex({
-                docIds: Array.from(changedDocIds),
-                queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
-                delayMs: 250,
-            });
-        } catch (e) {}
-        try {
-            const loadedDocIds = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []);
-            if (loadedDocIds.some((docId) => changedDocIds.has(docId))) {
-                __tmSchedulePersistTaskSnapshot({
-                    docIds: loadedDocIds,
-                    groupId: SettingsStore?.data?.currentGroupId || 'all',
-                    queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
-                    delayMs: 420,
-                });
-            }
-        } catch (e) {}
-        if (!canPatchDomOnly && opts.skipViewRefresh !== true) {
+        // Startup caches are derived data. Persist them after a full document
+        // refresh, not after every incremental field confirmation; rebuilding
+        // either cache here turns each small mutation into a later long task.
+        if (commitView && !canPatchDomOnly) {
             try {
                 __tmScheduleViewRefresh({
                     mode: 'current',
@@ -16592,7 +17337,7 @@
 
     function __tmQueueExternalSubtaskInheritedPatches(targets = [], options = {}) {
         const list = Array.isArray(targets) ? targets.filter((item) => item && typeof item === 'object') : [];
-        if (!list.length || typeof __tmQueueAttrPatch !== 'function') return 0;
+        if (!list.length) return 0;
         const opts = (options && typeof options === 'object') ? options : {};
         const now = Date.now();
         __tmPruneInheritedSubtaskPatchQueuedIds(now);
@@ -16604,17 +17349,17 @@
             const queueKey = `${taskId}:${attrTargetId || taskId}`;
             if (!taskId || !Object.keys(patch).length || state.inheritedSubtaskPatchQueuedIds?.[queueKey]) return;
             try {
+                const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
+                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
                 state.inheritedSubtaskPatchQueuedIds[queueKey] = now;
-                __tmQueueAttrPatch(taskId, patch, {
+                patchTask(taskId, patch, {
                     docId: String(item.docId || item?.task?.root_id || item?.task?.docId || opts.docId || '').trim(),
                     source: String(opts.source || 'quickbar-subtask-inherit-attrs').trim() || 'quickbar-subtask-inherit-attrs',
                     attrTargetId,
                     background: true,
                     skipInteractionGate: true,
                     mirrorTaskAttrs: false,
-                    renderOptimistic: true,
-                    optimisticProjectionRefresh: true,
-                    withFilters: false,
+                    optimistic: true,
                     skipSnapshotPersist: false,
                     skipTaskIndexPersist: false,
                     wait: false,
@@ -16629,13 +17374,26 @@
 
     async function __tmRefreshAffectedDocsIncrementally(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        const commitView = opts.commitView !== false && opts.refreshView !== false;
+        const isCurrent = typeof opts.isCurrent === 'function' ? opts.isCurrent : null;
+        const guardCurrent = () => {
+            if (!isCurrent) return true;
+            try { return isCurrent() !== false; } catch (e) { return false; }
+        };
         const targets = {
             docIds: Array.isArray(opts.docIds) ? opts.docIds.slice() : [],
             blockIds: Array.isArray(opts.blockIds) ? opts.blockIds.slice() : [],
         };
         const viewMode = String(state.viewMode || '').trim();
-        if (!state.modal || !document.body.contains(state.modal)) return false;
-        if (viewMode === 'calendar' && opts.allowCalendar !== true) return false;
+        if (!state.modal || !document.body.contains(state.modal)) {
+            return false;
+        }
+        if (viewMode === 'calendar' && opts.allowCalendar !== true) {
+            return false;
+        }
+        if (!guardCurrent()) {
+            return false;
+        }
         const renderWindowSnapshot = opts.preserveRenderWindow === true
             ? __tmCaptureViewRenderWindow(viewMode)
             : null;
@@ -16643,13 +17401,20 @@
             if (!renderWindowSnapshot) return;
             try { __tmRestoreViewRenderWindow(renderWindowSnapshot, state.filteredTasks.length); } catch (e) {}
         };
-        if (opts.committed !== true) {
+        if (opts.committed !== true || opts.forceDocRefresh === true) {
             try { await __tmFlushSqlTransactionsSafe('doc-incremental-refresh'); } catch (e) {}
+            if (!guardCurrent()) return false;
         }
-        const forcePositionRank = opts.forcePositionRank === true;
+        let forcePositionRank = opts.forcePositionRank === true
+            || (opts.forceDocRefresh === true && opts.preserveExistingSiblingOrder !== true);
         if (!forcePositionRank && opts.forceDocRefresh !== true) {
             try {
-                const taskBlockOk = await __tmRefreshAffectedTaskBlocksIncrementally(opts);
+                const taskBlockOk = await __tmRefreshAffectedTaskBlocksIncrementally({
+                    ...opts,
+                    // The outer refresh already crossed the SQL visibility barrier.
+                    skipFlush: true,
+                });
+                if (!guardCurrent()) return false;
                 if (taskBlockOk) {
                     restoreRenderWindow();
                     return true;
@@ -16659,8 +17424,19 @@
         const docIds = await __tmResolveIncrementalRefreshDocIds(targets.docIds, targets.blockIds, {
             allowUnloadedDocIds: opts.allowUnloadedDocIds === true,
         });
-        if (!docIds.length) return false;
-        if (docIds.length > 12) return false;
+        if (!guardCurrent()) return false;
+        if (!docIds.length) {
+            return false;
+        }
+        if (docIds.length > 12) {
+            return false;
+        }
+        let editorOrderSnapshots = (forcePositionRank || opts.forceDocRefresh === true)
+            ? __tmCaptureEditorDocumentTaskOrder(docIds, { maxTasks: 80 })
+            : [];
+        const taskStoreReadToken = globalThis.__tmTaskStore?.captureRead?.(docIds) || null;
+        const taskStoreReadCurrent = () => !taskStoreReadToken
+            || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true;
         docIds.forEach((docId) => {
             try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
         });
@@ -16668,31 +17444,31 @@
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
         }
 
-        const queryLimit = __tmGetIncrementalTaskQueryLimit(docIds);
+        let queryLimit = __tmGetIncrementalTaskQueryLimit(docIds);
+        const previousTaskIdsByDoc = __tmBuildLoadedDocumentTaskIdMap(docIds);
         const rule0 = state.currentRule ? state.filterRules.find((rule) => rule.id === state.currentRule) : null;
-        const normalizedRuleSorts0 = __tmGetNormalizedRuleSorts(rule0);
-        const isUngroup = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
-        const ruleNeedsFlowRank = normalizedRuleSorts0.some((item) => String(item?.field || '').trim() === 'docSeq');
-        const needFlowRank = forcePositionRank || !!ruleNeedsFlowRank || (!__tmRuleHasExplicitSort(rule0) && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled));
-        const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
-        const docHeadingSubgroupActive = !!state.groupByDocName && SettingsStore.data.docH2SubgroupEnabled !== false;
-        const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'
-            ? __tmGetKanbanBoardMode() === 'heading'
-            : !!SettingsStore.data.kanbanHeadingGroupMode;
-        const compactMetaNeedsH2 = typeof __tmShouldLoadCompactChecklistHeadingContext === 'function'
-            && __tmShouldLoadCompactChecklistHeadingContext();
-        const needH2 = colOrder0.includes('h2')
-            || normalizedRuleSorts0.some((item) => String(item?.field || '').trim() === 'h2')
-            || docHeadingSubgroupActive
-            || kanbanHeadingGroupingActive
-            || compactMetaNeedsH2;
-        const customFieldLoadPlan0 = __tmCollectCustomFieldLoadPlan({
+        const enhanceLoadPlan0 = __tmBuildTaskEnhanceLoadPlan({
             viewMode,
-            colOrder: colOrder0,
+            colOrder: Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [],
             rule: rule0,
+            forceFlowRank: forcePositionRank,
         });
+        let {
+            normalizedRuleSorts: normalizedRuleSorts0,
+            isUngroup,
+            ruleNeedsFlowRank,
+            ruleNeedsDocumentTieBreak,
+            needFlowRank,
+            colOrder: colOrder0,
+            docHeadingSubgroupActive,
+            kanbanHeadingGroupingActive,
+            compactMetaNeedsH2,
+            needH2,
+        } = enhanceLoadPlan0;
+        const customFieldLoadPlan0 = enhanceLoadPlan0.customFieldLoadPlan;
         const bulkCustomFieldIds0 = customFieldLoadPlan0.bulkFieldIds;
-        const res = await API.getTasksByDocuments(docIds, queryLimit, {
+        const readWatermarkRevisions = __tmCaptureLocalTaskPatchWatermarkRevisions();
+        const queryTasks = () => API.getTasksByDocuments(docIds, queryLimit, {
             doneOnly: false,
             forceFresh: true,
             // parent list 子任务首次增量刷新时必须直接带回真实 parent_task_id，
@@ -16701,7 +17477,93 @@
             skipDocJoin: true,
             customFieldIds: bulkCustomFieldIds0,
         });
-        const rows = Array.isArray(res?.tasks) ? res.tasks.slice() : [];
+        let res = await queryTasks();
+        let limitReachedDocIds = (Array.isArray(res?.limitReachedDocIds) ? res.limitReachedDocIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean);
+        if (limitReachedDocIds.length > 0 && queryLimit < __TM_TASK_INDEX_QUERY_LIMIT) {
+            queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
+            res = await queryTasks();
+            if (!guardCurrent() || !taskStoreReadCurrent()) return false;
+            limitReachedDocIds = (Array.isArray(res?.limitReachedDocIds) ? res.limitReachedDocIds : [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean);
+        }
+        if (limitReachedDocIds.length > 0) {
+            return false;
+        }
+        let editorTaskIdsByDoc = (forcePositionRank || opts.forceDocRefresh === true)
+            ? __tmBuildEditorDocumentTaskIdMap(editorOrderSnapshots)
+            : new Map();
+        let editorTaskIds = new Set(Array.from(editorTaskIdsByDoc.values()).flatMap((taskIds) => Array.from(taskIds)));
+        const expectedInsertedTaskIds = Array.from(new Set((Array.isArray(opts.insertedBlockIds) ? opts.insertedBlockIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => editorTaskIds.has(id))));
+        let missingInsertedTaskIds = Array.from(new Set(
+            __tmCollectMissingEditorTaskIds(res?.tasks, editorTaskIdsByDoc).concat(expectedInsertedTaskIds.filter((id) =>
+                !(Array.isArray(res?.tasks) ? res.tasks : []).some((task) => String(task?.id || '').trim() === id)))
+        ));
+        if (missingInsertedTaskIds.length > 0) {
+            await new Promise((resolve) => setTimeout(resolve, 120));
+            try { await __tmFlushSqlTransactionsSafe('doc-incremental-refresh-retry'); } catch (e) {}
+            docIds.forEach((docId) => {
+                try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
+            });
+            if (!guardCurrent() || !taskStoreReadCurrent()) return false;
+            res = await queryTasks();
+            limitReachedDocIds = (Array.isArray(res?.limitReachedDocIds) ? res.limitReachedDocIds : [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean);
+            if (limitReachedDocIds.length > 0) {
+                return false;
+            }
+            missingInsertedTaskIds = Array.from(new Set(
+                __tmCollectMissingEditorTaskIds(res?.tasks, editorTaskIdsByDoc).concat(expectedInsertedTaskIds.filter((id) =>
+                    !(Array.isArray(res?.tasks) ? res.tasks : []).some((task) => String(task?.id || '').trim() === id)))
+            ));
+        }
+        if (!guardCurrent() || !taskStoreReadCurrent()) return false;
+        const deletedBlockIds = new Set((Array.isArray(opts.deletedBlockIds) ? opts.deletedBlockIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        const rawRows = __tmFilterDeletedTaskRowsForDocumentRefresh(res?.tasks, deletedBlockIds);
+        const taskSetDiff = __tmDiffDocumentTaskIdMaps(
+            previousTaskIdsByDoc,
+            __tmBuildDocumentTaskIdMapFromRows(rawRows, docIds),
+        );
+        if (taskSetDiff.changed) {
+            forcePositionRank = true;
+            needFlowRank = true;
+            if (editorOrderSnapshots.length <= 0) {
+                editorOrderSnapshots = __tmCaptureEditorDocumentTaskOrder(docIds, { maxTasks: 80 });
+                editorTaskIdsByDoc = __tmBuildEditorDocumentTaskIdMap(editorOrderSnapshots);
+                editorTaskIds = new Set(Array.from(editorTaskIdsByDoc.values()).flatMap((taskIds) => Array.from(taskIds)));
+            }
+        }
+        if (missingInsertedTaskIds.length > 0) {
+            return false;
+        }
+        const authoritativeTasksById = new Map();
+        const liveDocumentContentPatches = new Map();
+        rawRows.forEach((row) => {
+            const taskId = String(row?.id || '').trim();
+            if (!taskId) return;
+            const hasLocalWatermark = __tmTaskHasLocalPatchWatermark(taskId);
+            const documentContentPatch = hasLocalWatermark && opts.committed === true
+                && __tmTaskHasLocalPatchWatermarkForFields(taskId, ['content', 'markdown', 'done'])
+                ? __tmReadLiveDocumentTaskContentPatch(taskId)
+                : null;
+            const candidate = __tmBuildAuthoritativeTaskConfirmationCandidate(row, { documentContentPatch });
+            if (candidate) authoritativeTasksById.set(taskId, candidate);
+            if (documentContentPatch) liveDocumentContentPatches.set(taskId, documentContentPatch);
+        });
+        let rows = rawRows.slice();
+        try {
+            rows = globalThis.__tmTaskStore?.mergePendingStructuralRows?.(rows, {
+                docIds,
+                reason: String(opts.reason || 'incremental-doc-refresh').trim(),
+            }) || rows;
+        } catch (e) {}
         const enhanceTargets0 = __tmCollectTaskEnhanceTargets(rows);
         const taskIds0 = enhanceTargets0.taskIds;
         const taskDocMap0 = enhanceTargets0.taskDocMap;
@@ -16713,6 +17575,7 @@
                     taskDocMap: taskDocMap0,
                     needH2,
                     needFlow: needFlowRank,
+                    forceFresh: forcePositionRank || opts.forceDocRefresh === true,
                 });
                 h2ContextMap = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
                 taskFlowRankMap = bundle?.taskFlowRankMap instanceof Map ? bundle.taskFlowRankMap : new Map();
@@ -16720,7 +17583,11 @@
                 h2ContextMap = new Map();
                 taskFlowRankMap = new Map();
             }
+            if (!guardCurrent() || !taskStoreReadCurrent()) return false;
         }
+        const editorFlowRankApplied = forcePositionRank
+            ? __tmApplyEditorDocumentTaskOrderToFlowRankMap(taskFlowRankMap, editorOrderSnapshots, new Set(taskIds0))
+            : 0;
 
         const tasksByDoc = new Map();
         const nextFlatTasksByDoc = new Map();
@@ -16742,7 +17609,9 @@
         rows.forEach((task) => {
             if (!task || !task.root_id) return;
             const taskId = String(task.id || '').trim();
-            const prevTask = taskId ? (state.flatTasks?.[taskId] || null) : null;
+            const prevTask = taskId
+                ? (globalThis.__tmTaskBoundary?.getTask?.(taskId, { includePending: false, preferPending: false }) || null)
+                : null;
             const flowRank = Number(taskFlowRankMap.get(taskId));
             __tmApplyResolvedFlowRankIfNeeded(task, flowRank);
 
@@ -16753,6 +17622,15 @@
             if (parsedMarker) {
                 task.taskMarker = parsedMarker;
                 task.task_marker = parsedMarker;
+            }
+            const documentContentPatch = liveDocumentContentPatches.get(taskId) || null;
+            if (documentContentPatch) {
+                task.content = documentContentPatch.content;
+                task.raw_content = documentContentPatch.content;
+                task.markdown = documentContentPatch.markdown;
+                task.done = documentContentPatch.done;
+                task.taskMarker = documentContentPatch.taskMarker;
+                task.task_marker = documentContentPatch.task_marker;
             }
             __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask);
             __tmApplyDoneOverrideToTaskIfPresent(task);
@@ -16768,6 +17646,15 @@
             } else {
                 __tmApplyTaskHeadingContext(task, '');
             }
+            try {
+                const authoritativeTask = authoritativeTasksById.get(taskId) || null;
+                if (authoritativeTask) {
+                    __tmConfirmLocalTaskPatchWatermarkFromTask(taskId, authoritativeTask, {
+                        readWatermarkRevision: readWatermarkRevisions.get(taskId) || 0,
+                    });
+                }
+            } catch (e) {}
+            try { __tmMergeLocalTaskPatchIntoTask(task); } catch (e) {}
 
             if (!tasksByDoc.has(task.root_id)) tasksByDoc.set(task.root_id, []);
             tasksByDoc.get(task.root_id).push(task);
@@ -16794,10 +17681,10 @@
         } catch (e) {
             siblingOrderRanks = new Map();
         }
+        if (!guardCurrent() || !taskStoreReadCurrent()) return false;
+        const docReplacements = [];
         for (const docId of docIds) {
             const rawTasks = tasksByDoc.get(docId) || [];
-            const existingDoc = state.taskTree.find((doc) => doc.id === docId) || null;
-            const cachedDoc = allDocuments.find((doc) => doc.id === docId) || null;
             let rootTasks = [];
             try {
                 const parentLinkResolved = await __tmResolveDocTaskParentLinks(rawTasks, {
@@ -16810,6 +17697,9 @@
             } catch (e) {
                 rootTasks = Array.isArray(rawTasks) ? rawTasks.slice() : [];
             }
+            if (!guardCurrent() || !taskStoreReadCurrent()) return false;
+            const existingDoc = state.taskTree.find((doc) => doc.id === docId) || null;
+            const cachedDoc = allDocuments.find((doc) => doc.id === docId) || null;
             const calcLevel = (tasks, level) => {
                 (Array.isArray(tasks) ? tasks : []).forEach((task) => {
                     task.level = level;
@@ -16818,13 +17708,17 @@
                     }
                 });
             };
-            const preferResolvedFlowOrder = __tmShouldUseResolvedFlowRankForDoc(docId)
+            const preferResolvedFlowOrder = (forcePositionRank || __tmShouldUseResolvedFlowRankForDoc(docId))
                 && rawTasks.some((task) => taskFlowRankMap.has(String(task?.id || '').trim()));
-            if (preferResolvedFlowOrder) __tmSortTaskTreeByDocFlow(rootTasks);
-            else __tmSortTaskTreeBySiblingRankMap(rootTasks, siblingOrderRanks);
+            if (opts.preserveExistingSiblingOrder === true && !forcePositionRank && existingDoc) {
+                __tmSortTaskTreeByExistingOrder(rootTasks, existingDoc.tasks, siblingOrderRanks);
+            } else if (preferResolvedFlowOrder) {
+                __tmSortTaskTreeByDocFlow(rootTasks);
+            } else {
+                __tmSortTaskTreeBySiblingRankMap(rootTasks, siblingOrderRanks);
+            }
             calcLevel(rootTasks, 0);
             __tmAssignDocSeqByTree(rootTasks, 0);
-
             const nextDoc = {
                 id: docId,
                 name: String(cachedDoc?.name || existingDoc?.name || rawTasks?.[0]?.docName || '未命名文档').trim() || '未命名文档',
@@ -16833,30 +17727,52 @@
                 created: String(cachedDoc?.created || existingDoc?.created || '').trim(),
                 tasks: rootTasks,
             };
-            const existingIndex = state.taskTree.findIndex((doc) => doc.id === docId);
             const shouldKeepDoc = rawTasks.length > 0 || !!existingDoc || (quickAddDocId && quickAddDocId === docId);
-            if (existingIndex >= 0) {
-                if (shouldKeepDoc) state.taskTree[existingIndex] = nextDoc;
-                else state.taskTree.splice(existingIndex, 1);
-            } else if (shouldKeepDoc) {
-                state.taskTree.push(nextDoc);
-            }
+            docReplacements.push({ docId, nextDoc, shouldKeepDoc });
         }
+        if (!guardCurrent() || !taskStoreReadCurrent()) return false;
+        let nextTaskTree = Array.isArray(state.taskTree) ? state.taskTree.slice() : [];
+        docReplacements.forEach(({ docId, nextDoc, shouldKeepDoc }) => {
+            const existingIndex = nextTaskTree.findIndex((doc) => doc.id === docId);
+            if (existingIndex >= 0) {
+                if (shouldKeepDoc) nextTaskTree[existingIndex] = nextDoc;
+                else nextTaskTree.splice(existingIndex, 1);
+            } else if (shouldKeepDoc) {
+                nextTaskTree.push(nextDoc);
+            }
+        });
         try {
-            state.taskTree = __tmSortDocEntriesByPinned(
-                state.taskTree || [],
+            nextTaskTree = __tmSortDocEntriesByPinned(
+                nextTaskTree,
                 String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all'
             );
         } catch (e) {}
+        state.taskTree = nextTaskTree;
         __tmInvalidateFilteredTaskDerivedStateCache();
 
         docIds.forEach((docId) => {
             try { globalThis.__tmTaskStore?.removeFlatByDoc?.(docId); } catch (e) {}
             (nextFlatTasksByDoc.get(docId) || []).forEach((task) => {
-                try { globalThis.__tmTaskStore?.upsertLocal?.(task, { status: 'partial-index-reload' }); } catch (e) {}
+                try {
+                    globalThis.__tmTaskStore?.upsertLocal?.(task, {
+                        status: 'partial-index-reload',
+                        replaceStructure: true,
+                    });
+                } catch (e) {}
             });
         });
         __tmReplaceFlatTasksThroughTaskStore(globalThis.__tmTaskStore?.getFlatMap?.() || state.flatTasks || {});
+        try {
+            const structuredAuthoritativeTasks = __tmBuildStructuredAuthoritativeTaskList(
+                authoritativeTasksById,
+                docReplacements,
+            );
+            globalThis.__tmTaskStore?.acceptAuthoritative?.(structuredAuthoritativeTasks, {
+                docIds,
+                replaceDocuments: true,
+                replaceStructure: true,
+            });
+        } catch (e) {}
         state.stats.queryTime = Number(res?.queryTime) || 0;
         recalcStats();
         try {
@@ -16866,7 +17782,7 @@
                 delayMs: 300,
             });
         } catch (e) {}
-        if (opts.withFilters !== false) applyFilters();
+        if (commitView && opts.withFilters !== false) __tmRecomputeTaskProjection({ reason: String(opts.reason || 'incremental-doc-refresh').trim() || 'incremental-doc-refresh' });
         restoreRenderWindow();
         try {
             const loadedDocIds = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []);
@@ -16882,7 +17798,7 @@
         state.deferredListCustomFieldIds = String(state.viewMode || '').trim() === 'list'
             ? customFieldLoadPlan0.deferredListFieldIds.slice()
             : [];
-        if (opts.withFilters !== false) {
+        if (commitView && opts.withFilters !== false) {
             try {
                 __tmScheduleDeferredVisibleListCustomFieldHydration({
                     delayMs: 180,
@@ -16891,8 +17807,22 @@
                 });
             } catch (e) {}
         }
-        if (opts.skipViewRefresh !== true) {
+        if (commitView) {
             try {
+                if (viewMode === 'checklist' && targets.blockIds.length > 0) {
+                    const currentIds = Array.isArray(state.__tmChecklistProjectionGroupRefreshTaskIds)
+                        ? state.__tmChecklistProjectionGroupRefreshTaskIds
+                        : [];
+                    state.__tmChecklistProjectionGroupRefreshTaskIds = Array.from(new Set(currentIds
+                        .concat(targets.blockIds)
+                        .map((id) => String(id || '').trim())
+                        .filter(Boolean)));
+                    state.__tmChecklistProjectionGroupRefreshUntil = Math.max(
+                        Number(state.__tmChecklistProjectionGroupRefreshUntil) || 0,
+                        Date.now() + 1500
+                    );
+                    state.listDomRenderSignature = '';
+                }
                 __tmScheduleViewRefresh({
                     mode: 'current',
                     withFilters: false,
@@ -16915,7 +17845,6 @@
                 : await API.call('/api/sqlite/flushTransaction', {});
             if (res && res.code !== 0) {
                 try { console.warn('[task-horizon] flushTransaction failed', reason || 'unknown', res?.msg || res); } catch (e) {}
-                try { __tmPushDiagnosticLog('flush-transaction-failed', res, { reason: String(reason || '').trim() }); } catch (e) {}
                 return false;
             }
             // Give the attributes query a brief moment to observe the flushed rows.
@@ -16923,7 +17852,6 @@
             return true;
         } catch (e) {
             try { console.warn('[task-horizon] flushTransaction error', reason || 'unknown', e); } catch (err) {}
-            try { __tmPushDiagnosticLog('flush-transaction-error', e, { reason: String(reason || '').trim() }); } catch (err) {}
             return false;
         }
     }
@@ -16984,14 +17912,21 @@
         if (!ids.length) return false;
         if (!Array.isArray(state.taskTree) || state.taskTree.length === 0) return false;
         if (state.__tmCacheFirstPaintNeedsVerify && opts.allowCacheFirstPaintPersist !== true) return false;
-        if (opts.allowPendingOutboxPersist !== true) {
+        if (opts.allowPendingMutationPersist !== true) {
             try {
-                if (globalThis.__tmTaskOutbox?.hasPending?.({
+                if (globalThis.__tmTaskMutations?.hasPending?.({
                     includeSettlingCreateOps: true,
                     includeInteractionGateBypassOps: true,
                 })) {
                     return false;
                 }
+            } catch (e) {}
+            try {
+                if (typeof __tmMutationEngine !== 'undefined'
+                    && __tmMutationEngine?.hasActiveWrites?.() === true) return false;
+            } catch (e) {}
+            try {
+                if (globalThis.__tmTaskMutations?.hasPending?.()) return false;
             } catch (e) {}
         }
         try {
@@ -17006,15 +17941,11 @@
         const groupId = String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const activeDocId = String(opts.activeDocId || state?.activeDocId || 'all').trim() || 'all';
         const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
-        let taskCount = 0;
-        try {
-            const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(state.taskTree);
-            taskCount = Object.keys(flatTasks).length;
-        } catch (e) {}
-        if (!__tmCanPersistTaskSnapshotProjection(docIds, taskCount, opts)) return false;
+        if (!docIds.length) return false;
         try {
             if (__tmTaskSnapshotSaveTimer) clearTimeout(__tmTaskSnapshotSaveTimer);
         } catch (e) {}
+        const saveGeneration = ++__tmTaskSnapshotSaveGeneration;
         const delayMs = Math.max(200, Number(opts.delayMs || 900) || 900);
         const scheduledGroupId = groupId;
         const scheduledDocKey = docIds.join(',');
@@ -17022,13 +17953,45 @@
         __tmTaskSnapshotSaveTimer = setTimeout(() => {
             __tmTaskSnapshotSaveTimer = null;
             const runSave = () => {
+                if (saveGeneration !== __tmTaskSnapshotSaveGeneration) return;
+                let backgroundWaitMs = 0;
+                try { backgroundWaitMs = Math.max(backgroundWaitMs, __tmGetHighPriorityInteractionWaitMs(120)); } catch (e) {}
+                try {
+                    if (typeof __tmShouldDeferMainViewRefreshForActiveScroll === 'function'
+                        && __tmShouldDeferMainViewRefreshForActiveScroll({ mode: 'current' })) {
+                        backgroundWaitMs = Math.max(backgroundWaitMs, 520);
+                    }
+                } catch (e) {}
+                try { backgroundWaitMs = Math.max(backgroundWaitMs, __tmGetExternalTaskTxQuietWaitMs(120)); } catch (e) {}
+                try {
+                    if (typeof __tmMutationEngine !== 'undefined'
+                        && __tmMutationEngine?.hasActiveWrites?.() === true) {
+                        backgroundWaitMs = Math.max(backgroundWaitMs, 420);
+                    }
+                } catch (e) {}
+                try {
+                    if (globalThis.__tmTaskMutations?.hasPending?.()) {
+                        backgroundWaitMs = Math.max(backgroundWaitMs, 420);
+                    }
+                } catch (e) {}
+                if (backgroundWaitMs > 0) {
+                    __tmSchedulePersistTaskSnapshot({
+                        ...opts,
+                        docIds,
+                        groupId: scheduledGroupId,
+                        activeDocId: scheduledActiveDocId,
+                        delayMs: Math.max(320, backgroundWaitMs),
+                    });
+                    return;
+                }
                 if (__tmTaskSnapshotSaveInFlight) {
                     __tmSchedulePersistTaskSnapshot({ ...opts, delayMs: 1200 });
                     return;
                 }
                 __tmTaskSnapshotSaveInFlight = true;
                 Promise.resolve()
-                    .then(async () => {
+                    .then(() => __tmWithTaskSnapshotWriteLock(async () => {
+                    if (saveGeneration !== __tmTaskSnapshotSaveGeneration) return;
                     const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
                     const currentActiveDocId = String(state?.activeDocId || 'all').trim() || 'all';
                     const currentLoadedDocKey = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []).join(',');
@@ -17042,13 +18005,19 @@
                         || hasUnexpectedTreeDoc) {
                         return;
                     }
+                    let taskCount = 0;
+                    try {
+                        const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(state.taskTree);
+                        taskCount = Object.keys(flatTasks).length;
+                    } catch (e) {}
+                    if (!__tmCanPersistTaskSnapshotProjection(docIds, taskCount, opts)) return;
                     if (opts.mergeLocalPatchesBeforeSave !== false) {
                         try { __tmMergeLocalTaskPatchIntoTaskStateForSnapshot(); } catch (e) {}
                     }
                     if (opts.refreshViewStateBeforeSave === true) {
                         try {
-                            if (typeof applyFilters === 'function') {
-                                applyFilters();
+                            if (typeof __tmRecomputeTaskProjection === 'function') {
+                                __tmRecomputeTaskProjection({ reason: 'snapshot-refresh-view-state' });
                             }
                         } catch (e) {}
                     }
@@ -17059,6 +18028,7 @@
                         queryLimit: opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT,
                     });
                     const rawStore = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
+                    if (saveGeneration !== __tmTaskSnapshotSaveGeneration) return;
                     const store = __tmBuildTaskSnapshotStore(rawStore);
                     payload = __tmAttachTaskSnapshotViewState(payload, {
                         groupId: payload?.groupId || scheduledGroupId,
@@ -17077,26 +18047,9 @@
                     const payloadBytes = __tmEstimateJsonByteSize(pooledPayloadPreview || payload);
                     if (payloadBytes > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) {
                         try {
-                            __tmTaskSnapshotStoreCache = store;
                             const prunedSaved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
-                            if (!prunedSaved) {
-                                __tmPushDiagnosticLog('task-snapshot-prune-write-returned-false', {
-                                    payloadBytes,
-                                    limitBytes: __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES,
-                                }, {
-                                    groupId: scheduledGroupId,
-                                    activeDocId: scheduledActiveDocId,
-                                    docKey: scheduledDocKey,
-                                });
-                            }
-                        } catch (e) {
-                            __tmPushDiagnosticLog('task-snapshot-prune-write-failed', e, {
-                                groupId: scheduledGroupId,
-                                activeDocId: scheduledActiveDocId,
-                                docKey: scheduledDocKey,
-                                payloadBytes,
-                            });
-                        }
+                            if (prunedSaved) __tmTaskSnapshotStoreCache = store;
+                        } catch (e) {}
                         return;
                     }
                     const snapshotUpdatedAt = Date.now();
@@ -17104,32 +18057,19 @@
                     store.snapshots[payload.scopeKey] = payload;
                     store.updatedAt = snapshotUpdatedAt;
                     const nextStore = __tmBuildTaskSnapshotStore(store);
-                    __tmTaskSnapshotStoreCache = nextStore;
+                    if (saveGeneration !== __tmTaskSnapshotSaveGeneration) return;
                     const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
-                    if (!saved) {
-                        __tmPushDiagnosticLog('task-snapshot-write-returned-false', {
-                            scopeKey: String(payload?.scopeKey || '').trim(),
-                            payloadBytes,
-                        }, {
-                            groupId: scheduledGroupId,
-                            activeDocId: scheduledActiveDocId,
-                            docKey: scheduledDocKey,
-                        });
+                    if (saved) {
+                        const cachedUpdatedAt = Number(__tmTaskSnapshotStoreCache?.updatedAt || 0) || 0;
+                        if (cachedUpdatedAt <= snapshotUpdatedAt) {
+                            __tmTaskSnapshotStoreCache = nextStore;
+                        }
+                        if (persistSignature) {
+                            try { __tmTaskSnapshotPersistSignatureCache.set(payload.scopeKey, persistSignature); } catch (e) {}
+                        }
                     }
-                    if (saved && (Number(__tmTaskSnapshotStoreCache?.updatedAt || 0) || 0) <= snapshotUpdatedAt) {
-                        __tmTaskSnapshotStoreLocalMutationUntil = 0;
-                    }
-                    if (persistSignature) {
-                        try { __tmTaskSnapshotPersistSignatureCache.set(payload.scopeKey, persistSignature); } catch (e) {}
-                    }
-                    })
-                    .catch((e) => {
-                    __tmPushDiagnosticLog('task-snapshot-persist-failed', e, {
-                        groupId: scheduledGroupId,
-                        activeDocId: scheduledActiveDocId,
-                        docKey: scheduledDocKey,
-                    });
-                    })
+                    }))
+                    .catch(() => null)
                     .finally(() => {
                     __tmTaskSnapshotSaveInFlight = false;
                     });
@@ -17148,13 +18088,13 @@
             opts.parentDocId,
             opts.targetDocId,
         ];
-        const task = tid ? (state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null) : null;
+        const task = tid ? (globalThis.__tmTaskBoundary?.getTask?.(tid) || null) : null;
         candidates.push(task?.docId, task?.root_id);
         const parentTaskId = String(opts.parentTaskId || task?.parentTaskId || '').trim();
-        const parentTask = parentTaskId ? (state.flatTasks?.[parentTaskId] || state.pendingInsertedTasks?.[parentTaskId] || null) : null;
+        const parentTask = parentTaskId ? (globalThis.__tmTaskBoundary?.getTask?.(parentTaskId) || null) : null;
         candidates.push(parentTask?.docId, parentTask?.root_id);
         const sourceTaskId = String(opts.sourceTaskId || opts.siblingOfTaskId || '').trim();
-        const sourceTask = sourceTaskId ? (state.flatTasks?.[sourceTaskId] || state.pendingInsertedTasks?.[sourceTaskId] || null) : null;
+        const sourceTask = sourceTaskId ? (globalThis.__tmTaskBoundary?.getTask?.(sourceTaskId) || null) : null;
         candidates.push(sourceTask?.docId, sourceTask?.root_id);
         return candidates
             .map((id) => String(id || '').trim())
@@ -17283,6 +18223,9 @@
         let changed = false;
         const refreshedDocIds = [];
         for (const [docId, entries] of pendingByDoc.entries()) {
+            const taskStoreReadToken = globalThis.__tmTaskStore?.captureRead?.([docId]) || null;
+            const taskStoreReadCurrent = () => !taskStoreReadToken
+                || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true;
             try { __tmClearGroupSessionTaskCache(docId); } catch (e) {}
             try { __tmClearDocSessionTaskCache(docId); } catch (e) {}
             let docEntry = __tmCloneLoadedTaskSnapshotDocEntry(docId);
@@ -17290,14 +18233,17 @@
                 && entries.every((entry) => __tmTaskSnapshotDocEntryHasTask(docEntry, entry.taskId));
             if (!allTasksLoaded && opts.fetchFreshDoc !== false) {
                 const freshDocEntry = await __tmFetchTaskSnapshotDocEntryForCreatedTask(docId);
+                if (!taskStoreReadCurrent()) continue;
                 if (freshDocEntry) docEntry = freshDocEntry;
             }
             if (!docEntry) continue;
+            if (!taskStoreReadCurrent()) continue;
             const resolvedEntries = entries.filter((entry) => __tmTaskSnapshotDocEntryHasTask(docEntry, entry.taskId));
             if (resolvedEntries.length === 0) continue;
             const updated = await __tmApplyCreatedTaskDocSnapshotRefresh(docEntry, {
                 source: String(opts.source || 'switch-doc-group-created-task').trim() || 'switch-doc-group-created-task',
             });
+            if (!taskStoreReadCurrent()) continue;
             resolvedEntries.forEach((entry) => {
                 __tmForgetPendingCreatedTaskSnapshotRefresh(entry.taskId, docId);
             });
@@ -17385,62 +18331,55 @@
         if (!doc || !__tmIsLikelyBlockId(docId)) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         try {
-            const rawStore = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
-            const store = __tmBuildTaskSnapshotStore(rawStore);
-            const snapshots = Object.values(store?.snapshots || {});
-            if (!snapshots.length) return false;
-            const now = Date.now();
-            let changed = false;
-            snapshots.forEach((snapshot) => {
-                const materialized = __tmMaterializeTaskSnapshotRecord(snapshot, store);
-                if (!__tmIsUsableTaskSnapshot(materialized)) return;
-                const snapshotDocIds = __tmNormalizeTaskSnapshotDocIds(
-                    Array.isArray(materialized.docIds) && materialized.docIds.length
-                        ? materialized.docIds
-                        : (Array.isArray(materialized.taskTree) ? materialized.taskTree.map((item) => item?.id) : [])
-                );
-                if (!snapshotDocIds.includes(docId)) return;
-                const nextDoc = __tmCloneTaskSnapshotValue(doc, 0);
-                if (!nextDoc) return;
-                let replaced = false;
-                const nextTaskTree = (Array.isArray(materialized.taskTree) ? materialized.taskTree : [])
-                    .map((item) => {
-                        if (String(item?.id || '').trim() !== docId) return item;
-                        replaced = true;
-                        return nextDoc;
-                    });
-                if (!replaced) nextTaskTree.push(nextDoc);
-                const nextSnapshot = {
-                    ...materialized,
-                    taskTree: nextTaskTree,
-                    updatedAt: now,
-                };
-                if (opts.keepViewState !== true) {
-                    delete nextSnapshot.viewState;
-                    delete nextSnapshot.viewStates;
+            return await __tmWithTaskSnapshotWriteLock(async () => {
+                const rawStore = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
+                const store = __tmBuildTaskSnapshotStore(rawStore);
+                const snapshots = Object.values(store?.snapshots || {});
+                if (!snapshots.length) return false;
+                const now = Date.now();
+                let changed = false;
+                snapshots.forEach((snapshot) => {
+                    const materialized = __tmMaterializeTaskSnapshotRecord(snapshot, store);
+                    if (!__tmIsUsableTaskSnapshot(materialized)) return;
+                    const snapshotDocIds = __tmNormalizeTaskSnapshotDocIds(
+                        Array.isArray(materialized.docIds) && materialized.docIds.length
+                            ? materialized.docIds
+                            : (Array.isArray(materialized.taskTree) ? materialized.taskTree.map((item) => item?.id) : [])
+                    );
+                    if (!snapshotDocIds.includes(docId)) return;
+                    const nextDoc = __tmCloneTaskSnapshotValue(doc, 0);
+                    if (!nextDoc) return;
+                    let replaced = false;
+                    const nextTaskTree = (Array.isArray(materialized.taskTree) ? materialized.taskTree : [])
+                        .map((item) => {
+                            if (String(item?.id || '').trim() !== docId) return item;
+                            replaced = true;
+                            return nextDoc;
+                        });
+                    if (!replaced) nextTaskTree.push(nextDoc);
+                    const nextSnapshot = {
+                        ...materialized,
+                        taskTree: nextTaskTree,
+                        updatedAt: now,
+                    };
+                    if (opts.keepViewState !== true) {
+                        delete nextSnapshot.viewState;
+                        delete nextSnapshot.viewStates;
+                    }
+                    store.snapshots[nextSnapshot.scopeKey] = nextSnapshot;
+                    changed = true;
+                });
+                if (!changed) return false;
+                store.updatedAt = now;
+                const nextStore = __tmBuildTaskSnapshotStore(store);
+                const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
+                if (!saved) {
+                    return false;
                 }
-                store.snapshots[nextSnapshot.scopeKey] = nextSnapshot;
-                changed = true;
+                __tmTaskSnapshotStoreCache = nextStore;
+                return true;
             });
-            if (!changed) return false;
-            store.updatedAt = now;
-            const nextStore = __tmBuildTaskSnapshotStore(store);
-            __tmTaskSnapshotStoreCache = nextStore;
-            const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
-            if (!saved) {
-                __tmPushDiagnosticLog('task-snapshot-update-created-doc-write-returned-false', {
-                    docId,
-                    source: String(opts.source || '').trim(),
-                });
-            }
-            return true;
         } catch (e) {
-            try {
-                __tmPushDiagnosticLog('task-snapshot-update-created-doc-failed', e, {
-                    docId,
-                    source: String(opts.source || '').trim(),
-                });
-            } catch (e2) {}
             return false;
         }
     }
@@ -17512,7 +18451,7 @@
                                         taskIds: [tid].filter(Boolean),
                                     });
                                 } catch (e2) {
-                                    try { if (typeof applyFilters === 'function') applyFilters(); } catch (e3) {}
+                                    try { if (typeof __tmRecomputeTaskProjection === 'function') __tmRecomputeTaskProjection({ reason: 'task-cache-reconcile' }); } catch (e3) {}
                                 }
                             }
                         } else if (opts.refreshCurrentView !== false) {
@@ -17581,6 +18520,8 @@
                 docIds: new Set(),
                 blockIds: new Set(),
                 firstSeenAt: now,
+                insertedBlockIds: new Set(),
+                deletedBlockIds: new Set(),
                 source: 'ws-main-batch',
                 forceImmediate: false,
                 structural: false,
@@ -17604,6 +18545,8 @@
         __tmWsTaskTxBatch.committed = __tmWsTaskTxBatch.committed || opts.committed === true || targets?.committed === true;
         __tmWsTaskTxBatch.truncated = __tmWsTaskTxBatch.truncated || opts.truncated === true || targets?.truncated === true;
         __tmWsTaskTxBatch.wholeScopeDirty = __tmWsTaskTxBatch.wholeScopeDirty || wholeScopeDirty;
+        __tmAddBoundedTaskTxIds(__tmWsTaskTxBatch.insertedBlockIds, opts.insertedBlockIds || targets?.insertedBlockIds || [], __TM_TASK_TX_BLOCK_ID_LIMIT);
+        __tmAddBoundedTaskTxIds(__tmWsTaskTxBatch.deletedBlockIds, opts.deletedBlockIds || targets?.deletedBlockIds || [], __TM_TASK_TX_BLOCK_ID_LIMIT);
         const source = String(opts.source || '').trim();
         if (source) __tmWsTaskTxBatch.source = source;
         try {
@@ -17621,6 +18564,8 @@
                 blockIds: Array.from(batch.blockIds || []),
                 delayMs: 0,
                 source: String(batch.source || 'ws-main-batch').trim() || 'ws-main-batch',
+                insertedBlockIds: Array.from(batch.insertedBlockIds || []),
+                deletedBlockIds: Array.from(batch.deletedBlockIds || []),
                 forceImmediate: batch.forceImmediate === true,
                 structural: batch.structural === true,
                 committed: batch.committed === true,
@@ -17642,17 +18587,18 @@
             || (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow());
         __tmRememberPendingTxRefreshTargets(
             Array.from(docIds || []),
-            hidden ? [] : Array.from(blockIds || []),
+            Array.from(blockIds || []),
             {
                 structural: opts.structural === true || targets?.structural === true,
                 committed: opts.committed === true || targets?.committed === true,
                 truncated: opts.truncated === true || targets?.truncated === true,
                 wholeScopeDirty,
                 hiddenDocOnly: hidden,
+                insertedBlockIds: Array.isArray(opts.insertedBlockIds) ? opts.insertedBlockIds : [],
+                deletedBlockIds: Array.isArray(opts.deletedBlockIds) ? opts.deletedBlockIds : [],
             }
         );
         __tmMarkExternalTaskTxDirty();
-        if (hidden) return;
         try {
             if (__tmTxTaskRefreshTimer) clearTimeout(__tmTxTaskRefreshTimer);
         } catch (e) {}
@@ -17664,8 +18610,9 @@
             source: String(opts.source || 'ws-main').trim() || 'ws-main',
             forceImmediate: opts.forceImmediate === true || opts.force === true,
             force: opts.force === true,
-            ignoreContextQuiet: opts.ignoreContextQuiet === true,
+            ignoreContextQuiet: opts.ignoreContextQuiet === true || hidden,
             bypassThrottle: opts.bypassThrottle === true || opts.committed === true,
+            allowHiddenDataRefresh: hidden,
         };
         __tmTxTaskRefreshTimer = setTimeout(() => {
             __tmTxTaskRefreshTimer = null;
@@ -17675,13 +18622,16 @@
 
     async function __tmFlushTaskIncrementalRefreshFromTx(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        const commitView = opts.commitView !== false;
         const sourceLabel = String(opts.source || 'ws-main').trim() || 'ws-main';
         const forceImmediate = opts.force === true || opts.forceImmediate === true;
+        const allowHiddenDataRefresh = opts.allowHiddenDataRefresh === true;
         const pendingTargets = __tmSnapshotPendingTxRefreshTargets();
         const committed = pendingTargets?.meta?.committed === true;
         const retryOptions = {
             ignoreContextQuiet: opts.ignoreContextQuiet === true || forceImmediate,
             bypassThrottle: opts.bypassThrottle === true || forceImmediate || committed,
+            allowHiddenDataRefresh,
         };
         if (__tmTxTaskRefreshInFlight) {
             try {
@@ -17691,7 +18641,7 @@
                 __tmTxTaskRefreshTimer = null;
                 __tmFlushTaskIncrementalRefreshFromTx(opts).catch(() => {});
             }, forceImmediate ? 80 : 220);
-            return;
+            return false;
         }
 
         const pendingDocIds = pendingTargets.docIds;
@@ -17699,12 +18649,14 @@
         if (!state.externalTaskTxDirty
             && pendingDocIds.length === 0
             && pendingBlockIds.length === 0
-            && pendingTargets?.meta?.wholeScopeDirty !== true) return;
+            && pendingTargets?.meta?.wholeScopeDirty !== true) {
+            return false;
+        }
         const retryMeta0 = __tmGetTxRefreshRetryMeta(sourceLabel, retryOptions);
         if (!retryMeta0.allowRun) {
             if (retryMeta0.parkUntilScrollIdle) {
                 try { __tmScheduleDeferredRefreshAfterScroll('ws-main'); } catch (e) {}
-                return;
+                return false;
             }
             if (!retryMeta0.parkUntilVisible) {
                 try {
@@ -17715,7 +18667,7 @@
                     __tmFlushTaskIncrementalRefreshFromTx(opts).catch(() => {});
                 }, Math.max(180, Number(retryMeta0.waitMs || 0) || 180));
             }
-            return;
+            return false;
         }
 
         let refreshAttempted = false;
@@ -17725,20 +18677,28 @@
             const classified = await __tmClassifyPendingTaskTxRefresh(pendingTargets);
             if (!classified?.relevant) {
                 if (__tmClearPendingTxRefreshTargets(pendingTargets)) __tmClearExternalTaskTxDirty();
-                return;
+                return false;
             }
-            try { __tmScheduleCalendarRefetchFromTx(); } catch (e) {}
+            if (commitView) {
+                try { __tmScheduleCalendarRefetchFromTx(); } catch (e) {}
+            }
             refreshAttempted = true;
             const refreshed = await __tmRunAutoRefreshIfNeeded(sourceLabel, {
                 affectedDocIds: classified.docIds,
                 affectedBlockIds: classified.blockIds,
                 resolvedTaskIds: classified.resolvedTaskIds,
                 forceDocRefresh: classified.forceDocRefresh === true,
+                preserveExistingSiblingOrder: classified.preserveExistingSiblingOrder === true,
                 committed: classified.committed === true,
+                insertedBlockIds: Array.isArray(pendingTargets?.meta?.insertedBlockIds) ? pendingTargets.meta.insertedBlockIds.slice() : [],
+                deletedBlockIds: Array.isArray(pendingTargets?.meta?.deletedBlockIds) ? pendingTargets.meta.deletedBlockIds.slice() : [],
                 pendingTargets,
                 force: forceImmediate,
                 ignoreContextQuiet: retryOptions.ignoreContextQuiet,
                 bypassThrottle: retryOptions.bypassThrottle,
+                allowHiddenDataRefresh,
+                deferIfDetailBusy: commitView ? opts.deferIfDetailBusy !== false : false,
+                commitView,
             });
             refreshSucceeded = refreshed === true;
             __tmTxTaskRefreshAttemptCount = refreshSucceeded
@@ -17776,6 +18736,7 @@
             }
             try { __tmFlushDeferredViewRefreshAfterTaskFieldWork('ws-main:end'); } catch (e) {}
         }
+        return refreshSucceeded;
     }
 
     function __tmRequestCalendarRefresh(detail = {}, fallbackOptions = {}) {
@@ -17865,26 +18826,34 @@
                 const txTargets = __tmSummarizeWsMainTaskTx(msg);
                 const docIds = txTargets.docIds;
                 const blockIds = txTargets.blockIds;
+                (txTargets.deletedBlockIds || []).forEach((taskId) => {
+                    try { globalThis.__tmTaskStore?.clearPendingStructural?.(taskId); } catch (e) {}
+                    try { globalThis.__tmTaskStore?.removePending?.(taskId); } catch (e) {}
+                });
                 if (docIds && docIds.size > 0) {
                     docIds.forEach((docId) => {
                         try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
                     });
                     const loadedDocIds = __tmGetLoadedTaskScopeDocIds();
                     const loadedTargets = Array.from(docIds).filter((docId) => loadedDocIds.has(String(docId || '').trim()));
-                    if (!loadedTargets.length) return;
+                    if (!loadedTargets.length) {
+                        return;
+                    }
                     txTargets.docIds = new Set(loadedTargets);
                 }
                 const pluginVisible = typeof __tmIsPluginVisibleNow !== 'function' || __tmIsPluginVisibleNow();
                 if (!pluginVisible) {
                     __tmScheduleTaskIncrementalRefreshFromTx(null, {
                         docIds: Array.from(txTargets.docIds || []),
-                        blockIds: [],
+                        blockIds: Array.from(txTargets.blockIds || []),
                         hiddenDocOnly: true,
                         structural: txTargets.structural === true,
                         committed: txTargets.committed === true,
                         truncated: txTargets.truncated === true,
                         wholeScopeDirty: txTargets.wholeScopeDirty === true || !(txTargets.docIds?.size > 0),
                         source: 'ws-main-hidden',
+                        insertedBlockIds: Array.from(txTargets.insertedBlockIds || []),
+                        deletedBlockIds: Array.from(txTargets.deletedBlockIds || []),
                     });
                     return;
                 }
@@ -17892,8 +18861,6 @@
                 const allowDetailedTxInspection = txTargets.truncated !== true && txTargets.wholeScopeDirty !== true;
                 const suppressLocalTimeTx = allowDetailedTxInspection && __tmShouldSuppressLocalTimeTx(msg);
                 const suppressLocalDoneTx = allowDetailedTxInspection && !suppressLocalTimeTx && __tmShouldSuppressLocalDoneTx(msg);
-                const suppressLocalMoveTx = allowDetailedTxInspection && !suppressLocalTimeTx && !suppressLocalDoneTx && __tmShouldSuppressLocalMoveTx(msg);
-                const suppressLocalCreateTx = allowDetailedTxInspection && !suppressLocalTimeTx && !suppressLocalDoneTx && !suppressLocalMoveTx && __tmShouldSuppressLocalCreateTx(msg);
                 let txAttrApplyResult = {
                     totalUpdates: 0,
                     applied: false,
@@ -17906,7 +18873,7 @@
                 let isAttrOnlyTx = false;
                 let skipNoopAttrOnlyTx = false;
                 let txAttrUpdates = [];
-                if (allowDetailedTxInspection && !suppressLocalTimeTx && !suppressLocalDoneTx && !suppressLocalMoveTx && !suppressLocalCreateTx) {
+                if (allowDetailedTxInspection && !suppressLocalTimeTx && !suppressLocalDoneTx) {
                     let txAttrApplyFailed = false;
                     try {
                         isAttrOnlyTx = __tmHasOnlyAttrOperationsInTx(msg);
@@ -17937,11 +18904,15 @@
                             ) >= Number(txAttrApplyResult.totalUpdates || 0)
                         );
                 }
-                if (suppressLocalTimeTx || suppressLocalDoneTx || suppressLocalMoveTx || suppressLocalCreateTx) return;
-                if (skipNoopAttrOnlyTx) return;
+                if (suppressLocalTimeTx || suppressLocalDoneTx) {
+                    return;
+                }
+                if (skipNoopAttrOnlyTx) {
+                    return;
+                }
                 const fastAttrOnlyRefresh = __tmIsFastAttrOnlyRefreshEligible(txAttrUpdates, txAttrApplyResult, isAttrOnlyTx);
                 if (fastAttrOnlyRefresh) {
-                    const skipCalendarTxRefresh = __tmShouldSkipCalendarTxRefreshForTimeEdit(msg);
+                    const skipCalendarTxRefresh = __tmShouldSkipCalendarTxRefreshForAppliedAttrPatch(msg);
                     if (!skipCalendarTxRefresh) {
                         __tmScheduleCalendarRefetchFromTx();
                     }
@@ -17969,8 +18940,11 @@
                     structural: txTargets.structural === true,
                     committed: txTargets.committed === true,
                     truncated: txTargets.truncated === true,
-                    wholeScopeDirty: txTargets.wholeScopeDirty === true,
+                    wholeScopeDirty: txTargets.wholeScopeDirty === true
+                        || (txTargets.structural === true && !(txTargets.docIds?.size > 0)),
                     source: 'ws-main-batch',
+                    insertedBlockIds: Array.from(txTargets.insertedBlockIds || []),
+                    deletedBlockIds: Array.from(txTargets.deletedBlockIds || []),
                 });
             };
             buses.forEach((eb) => {

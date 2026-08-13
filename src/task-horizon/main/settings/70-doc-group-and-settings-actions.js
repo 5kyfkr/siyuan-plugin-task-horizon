@@ -21,7 +21,7 @@
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
         if (activeDocTabGroupReset || activeDocTabGroupAffected) {
-            try { applyFilters(); } catch (e) {}
+            try { __tmRecomputeTaskProjection({ reason: 'doc-group-settings' }); } catch (e) {}
         }
         if (state.modal && document.body.contains(state.modal)) {
             try { render(); } catch (e) {}
@@ -2071,9 +2071,27 @@
         SettingsStore.data.tomatoSpentAttrMode = (v === 'hours') ? 'hours' : 'minutes';
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             loadSelectedDocuments();
+        }
+        if (state.homepageOpen) {
+            try { __tmScheduleHomepageRefresh('tomato-spent-mode-changed', 0); } catch (e) {}
+        }
+    };
+
+    window.updateTomatoActualCountBySpentEnabled = async function(enabled) {
+        SettingsStore.data.tomatoActualCountBySpentEnabled = !!enabled;
+        await SettingsStore.save();
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            loadSelectedDocuments();
+        }
+        if (state.homepageOpen) {
+            try { __tmScheduleHomepageRefresh('tomato-actual-count-mode-changed', 0); } catch (e) {}
         }
     };
 
@@ -2081,8 +2099,12 @@
         SettingsStore.data.tomatoSpentAttrKeyMinutes = String(value || '').trim();
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
         if (state.modal && document.body.contains(state.modal)) {
             loadSelectedDocuments();
+        }
+        if (state.homepageOpen) {
+            try { __tmScheduleHomepageRefresh('tomato-spent-minutes-key-changed', 0); } catch (e) {}
         }
     };
 
@@ -2090,8 +2112,12 @@
         SettingsStore.data.tomatoSpentAttrKeyHours = String(value || '').trim();
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
         if (state.modal && document.body.contains(state.modal)) {
             loadSelectedDocuments();
+        }
+        if (state.homepageOpen) {
+            try { __tmScheduleHomepageRefresh('tomato-spent-hours-key-changed', 0); } catch (e) {}
         }
     };
 
@@ -2118,7 +2144,7 @@
         state.excludeCompletedTasks = !state.showCompletedTasks;
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            try { applyFilters(); } catch (e) {}
+            try { __tmRecomputeTaskProjection({ reason: 'show-completed-settings' }); } catch (e) {}
             try { if (!__tmRerenderCurrentViewInPlace(state.modal)) render(); } catch (e) { try { render(); } catch (e2) {} }
         }
     };
@@ -2187,23 +2213,25 @@
         showSettings();
     };
 
-    window.updateDockChecklistCompactTitleJump = async function(enabled) {
-        SettingsStore.data.dockChecklistCompactTitleJump = !!enabled;
+    window.updateTaskTitleClickAction = async function(value) {
+        SettingsStore.data.taskTitleClickAction = __tmNormalizeTaskTitleClickAction(value);
         await SettingsStore.save();
-        __tmDispatchDockSettingsChanged('dock-checklist-compact-title-jump');
+        __tmDispatchDockSettingsChanged('task-title-click-action');
         showSettings();
-        if (state.modal && document.body.contains(state.modal)) {
-            __tmScheduleSettingsViewRefresh('dock-checklist-compact-title-jump');
-        }
     };
 
-    window.updateMobileChecklistCompactTitleJump = async function(enabled) {
-        SettingsStore.data.mobileChecklistCompactTitleJump = !!enabled;
+    window.updateDockTaskTitleClickAction = async function(value) {
+        SettingsStore.data.dockTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(value);
         await SettingsStore.save();
+        __tmDispatchDockSettingsChanged('dock-task-title-click-action');
         showSettings();
-        if (state.modal && document.body.contains(state.modal)) {
-            __tmScheduleSettingsViewRefresh('mobile-checklist-compact-title-jump');
-        }
+    };
+
+    window.updateMobileTaskTitleClickAction = async function(value) {
+        SettingsStore.data.mobileTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(value);
+        await SettingsStore.save();
+        __tmDispatchDockSettingsChanged('mobile-task-title-click-action');
+        showSettings();
     };
 
     window.updateChecklistCompactMetaFieldVisibility = async function(scope, fieldKey, enabled) {
@@ -2258,16 +2286,6 @@
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             __tmScheduleSettingsViewRefresh('timeline-card-field-visibility');
-        }
-    };
-
-    window.updateChecklistCompactTitleOpenDetailPage = async function(enabled) {
-        SettingsStore.data.checklistCompactTitleOpenDetailPage = !!enabled;
-        await SettingsStore.save();
-        __tmDispatchDockSettingsChanged('checklist-compact-title-open-detail-page');
-        showSettings();
-        if (state.modal && document.body.contains(state.modal)) {
-            __tmScheduleSettingsViewRefresh('checklist-compact-title-open-detail-page');
         }
     };
 
@@ -2355,7 +2373,7 @@
     window.updateWhiteboardSequenceScope = async function(scope) {
         SettingsStore.data.whiteboardSequenceScope = __tmNormalizeWhiteboardSequenceScope(scope);
         await SettingsStore.save();
-        try { applyFilters(); } catch (e) {}
+        try { __tmRecomputeTaskProjection({ reason: 'whiteboard-sequence-scope' }); } catch (e) {}
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
@@ -2434,7 +2452,7 @@
     window.updateDocH2SubgroupEnabled = async function(enabled) {
         SettingsStore.data.docH2SubgroupEnabled = !!enabled;
         await SettingsStore.save();
-        try { applyFilters(); } catch (e) {}
+        try { __tmRecomputeTaskProjection({ reason: 'doc-heading-subgroup' }); } catch (e) {}
         if (enabled) {
             try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
         }
@@ -2447,7 +2465,7 @@
     window.updateAlwaysShowTaskDocHeadingGroups = async function(enabled) {
         SettingsStore.data.alwaysShowTaskDocHeadingGroups = !!enabled;
         await SettingsStore.save();
-        try { applyFilters(); } catch (e) {}
+        try { __tmRecomputeTaskProjection({ reason: 'doc-heading-group-visibility' }); } catch (e) {}
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
@@ -2489,6 +2507,12 @@
 
     window.updatePinNewTasksByDefault = async function(enabled) {
         SettingsStore.data.pinNewTasksByDefault = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateQuickAddDefaultCompletionToday = async function(enabled) {
+        SettingsStore.data.quickAddDefaultCompletionToday = !!enabled;
         await SettingsStore.save();
         showSettings();
     };
@@ -2719,22 +2743,16 @@
 
     function __tmRefreshSettingsProjectionView(reason = 'settings-projection') {
         const refreshReason = String(reason || 'settings-projection').trim() || 'settings-projection';
+        try { state.listDomRenderSignature = ''; } catch (e) {}
+        try { __tmRecomputeTaskProjection({ reason: refreshReason }); } catch (e) {}
         try {
-            __tmScheduleViewRefresh({
-                mode: 'current',
-                withFilters: true,
+            const refreshed = __tmRefreshMainViewInPlace({
+                withFilters: false,
                 reason: refreshReason,
-                bypassScrollDefer: true,
-                bypassInteractionDefer: false,
-                forceRebuild: true,
+                deferIfDetailBusy: false,
             });
-            return;
+            if (refreshed !== false) return;
         } catch (e) {}
-        try {
-            __tmScheduleRender({ withFilters: true, reason: refreshReason });
-            return;
-        } catch (e) {}
-        try { applyFilters(); } catch (e) {}
         try {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         } catch (e) {

@@ -46,19 +46,37 @@
             scheduleAfterLocalStructurePatch: (...args) => callLocal('scheduleSnapshotAfterLocalStructurePatch', args),
         };
 
+        const getTask = (taskId, options = {}) => {
+            const id = String(taskId || '').trim();
+            if (!id) return null;
+            return globalThis.__tmTaskStore?.get?.(id, {
+                includePending: options?.includePending !== false,
+                preferPending: options?.preferPending !== false,
+            }) || null;
+        };
+
+        const isTaskCompleted = (task) => {
+            if (!(task && typeof task === 'object')) return false;
+            try {
+                if (typeof __tmIsTaskDoneEffective === 'function') {
+                    return __tmIsTaskDoneEffective(task) === true;
+                }
+            } catch (e) {}
+            return task.done === true;
+        };
+
         globalThis.__tmTaskSnapshotService = snapshot;
-        if (globalThis.__tmTaskHorizonOutbox && typeof globalThis.__tmTaskHorizonOutbox === 'object') {
-            globalThis.__tmTaskOutbox = globalThis.__tmTaskHorizonOutbox;
-        }
         globalThis.__tmTaskBoundary = {
             ...ns,
             snapshot,
             get taskStore() { return globalThis.__tmTaskStore || null; },
             get mutationBus() { return globalThis.__tmTaskMutationBus || null; },
-            get outbox() { return globalThis.__tmTaskOutbox || globalThis.__tmTaskHorizonOutbox || null; },
+            get mutation() { return globalThis.__tmTaskMutations || null; },
             getTaskStore: () => globalThis.__tmTaskStore || null,
             getMutationBus: () => globalThis.__tmTaskMutationBus || null,
-            getOutbox: () => globalThis.__tmTaskOutbox || globalThis.__tmTaskHorizonOutbox || null,
+            getMutation: () => globalThis.__tmTaskMutations || null,
             getSnapshotService: () => globalThis.__tmTaskSnapshotService || snapshot,
+            getTask,
+            isTaskCompleted,
         };
     })();

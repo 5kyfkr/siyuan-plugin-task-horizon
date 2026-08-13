@@ -1670,16 +1670,18 @@
                     `;
                 }
                 const totalCount = groups.reduce((sum, group) => sum + (Array.isArray(group?.tools) ? group.tools.length : 0), 0);
-                const enabledCount = groups.reduce((sum, group) => sum + (Array.isArray(group?.tools) ? group.tools.filter((tool) => tool?.enabled === true).length : 0), 0);
+                const enabledCount = groups.reduce((sum, group) => sum + (Array.isArray(group?.tools) ? group.tools.filter((tool) => tool?.effectiveEnabled === true).length : 0), 0);
+                const deniedCount = groups.reduce((sum, group) => sum + (Array.isArray(group?.tools) ? group.tools.filter((tool) => tool?.enabled === true && tool?.agentAllowed === false).length : 0), 0);
                 return `
                     <div class="tm-agent-tool-settings${toolsEnabled ? '' : ' is-disabled'}">
                         <div class="tm-agent-tool-settings__summary">
-                            <span>按需要保留工具；关闭后会从下一次智能体对话中移除，可减少模型上下文占用，不影响任务管理器界面。</span>
-                            <span class="tm-agent-tool-settings__count">${enabledCount}/${totalCount}</span>
+                            <span>按需要保留工具；关闭后会从下一次智能体对话中移除，可减少模型上下文占用，不影响任务管理器界面。这里的开关会同步思源智能体能力设置。</span>
+                            <span class="tm-agent-tool-settings__count">${enabledCount}/${totalCount} 可用${deniedCount ? ` · 思源关闭 ${deniedCount}` : ''}</span>
                         </div>
                         ${groups.map((group) => {
                             const tools = Array.isArray(group?.tools) ? group.tools : [];
-                            const groupEnabledCount = tools.filter((tool) => tool?.enabled === true).length;
+                            const groupEnabledCount = tools.filter((tool) => tool?.effectiveEnabled === true).length;
+                            const groupDeniedCount = tools.filter((tool) => tool?.enabled === true && tool?.agentAllowed === false).length;
                             const allEnabled = tools.length > 0 && groupEnabledCount === tools.length;
                             const partial = groupEnabledCount > 0 && !allEnabled;
                             const groupID = String(group?.id || '').trim();
@@ -1692,7 +1694,7 @@
                                             <div class="tm-agent-tool-group__desc">${esc(String(group?.description || ''))}</div>
                                         </div>
                                         <div class="tm-agent-tool-group__control">
-                                            <span>${groupEnabledCount}/${tools.length}</span>
+                                            <span>${groupEnabledCount}/${tools.length}${groupDeniedCount ? ` · 思源关闭 ${groupDeniedCount}` : ''}</span>
                                             <input class="b3-switch fn__flex-center" type="checkbox" ${allEnabled ? 'checked' : ''} ${toolsEnabled ? '' : 'disabled'} aria-label="${allEnabled ? '关闭' : '启用'}${esc(String(group?.label || groupID))}分组" onclick="event.stopPropagation()" onchange="tmUpdateAgentMcpGroup('${escSq(groupID)}', this.checked)">
                                             <svg class="tm-agent-tool-group__chevron" aria-hidden="true"><use xlink:href="#iconDown"></use></svg>
                                         </div>
@@ -1700,10 +1702,11 @@
                                     <div class="tm-agent-tool-group__items">
                                         ${tools.map((tool) => {
                                             const name = String(tool?.name || '').trim();
+                                            const agentDenied = tool?.enabled === true && tool?.agentAllowed === false;
                                             return `
-                                                <label class="tm-agent-tool-item" title="${esc(name)}">
-                                                    <span>${esc(String(tool?.label || name))}</span>
-                                                    <input class="b3-switch fn__flex-center" type="checkbox" ${tool?.enabled === true ? 'checked' : ''} ${toolsEnabled ? '' : 'disabled'} onchange="tmUpdateAgentMcpTool('${escSq(name)}', this.checked)">
+                                                <label class="tm-agent-tool-item${agentDenied ? ' is-agent-denied' : ''}" title="${esc(agentDenied ? `${name}：已在思源智能体能力设置中关闭` : name)}">
+                                                    <span>${esc(String(tool?.label || name))}${agentDenied ? '<small>思源已关闭</small>' : ''}</span>
+                                                    <input class="b3-switch fn__flex-center" type="checkbox" ${tool?.effectiveEnabled === true ? 'checked' : ''} ${toolsEnabled ? '' : 'disabled'} onchange="tmUpdateAgentMcpTool('${escSq(name)}', this.checked)">
                                                 </label>
                                             `;
                                         }).join('')}
@@ -2240,6 +2243,13 @@
                             )}
                         </div>
                         <div style="margin-top:10px;">
+                            ${renderSingleSwitchSetting(
+                                '快速新建默认截止日期为今天',
+                                '开启后，打开快速新建时预先选中今天；提交前可修改或清空，多行任务会统一应用。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.quickAddDefaultCompletionToday ? 'checked' : ''} onchange="updateQuickAddDefaultCompletionToday(this.checked)">`
+                            )}
+                        </div>
+                        <div style="margin-top:10px;">
                         ${renderSingleFieldSetting(
                             '子任务继承父任务字段',
                             '新建子任务时，仅继承父任务中已经填写的字段。默认不继承任何字段。',
@@ -2325,8 +2335,8 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '子任务全部完成后自动完成父任务',
-                            '开启后，一个任务的所有直接子任务都完成时，会自动将该任务标记为完成；取消子任务完成状态不会自动取消父任务。',
+                            '子任务状态自动同步父任务',
+                            '开启后，所有直接子任务都完成时自动完成父任务；任一直接子任务恢复未完成时，父任务也会恢复为未完成。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.autoCompleteParentOnSubtasksDone ? 'checked' : ''} onchange="updateAutoCompleteParentOnSubtasksDone(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2417,23 +2427,36 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.dockSidebarFollowCurrentDocument ? 'checked' : ''} ${SettingsStore.data.dockSidebarEnabled !== false ? '' : 'disabled'} onchange="updateDockSidebarFollowCurrentDocument(this.checked)">`,
                             { style: `margin-bottom:10px;opacity:${SettingsStore.data.dockSidebarEnabled !== false ? 1 : 0.6};` }
                         )}
-                        ${renderSingleSwitchSetting(
-                            'Dock 紧凑标题点击跳转',
-                            '桌面端 Dock 清单紧凑视图中，开启后点击任务名默认跳转文档；若开启下方“标题点击弹出详情页面”则改为打开 Dock 内任务详情抽屉。关闭后保持打开任务详情抽屉。',
-                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.dockChecklistCompactTitleJump ? 'checked' : ''} ${SettingsStore.data.dockSidebarEnabled !== false ? '' : 'disabled'} onchange="updateDockChecklistCompactTitleJump(this.checked)">`,
-                            { style: `margin-bottom:10px;opacity:${SettingsStore.data.dockSidebarEnabled !== false ? 1 : 0.6};` }
-                        )}
-                        ${renderSingleSwitchSetting(
-                            '移动端清单紧凑视图标题点击跳转',
-                            '移动端清单紧凑视图中，开启后点击任务名默认跳转文档；若开启下方“标题点击弹出详情页面”则改为弹出详情页面。关闭后保持打开任务详情抽屉。',
-                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.mobileChecklistCompactTitleJump ? 'checked' : ''} onchange="updateMobileChecklistCompactTitleJump(this.checked)">`,
+                        ` : ''}
+                        <div class="tm-settings-section-title" style="margin-top:20px;">任务标题点击</div>
+          <div class="tm-settings-section-desc">统一控制全部任务视图中的标题点击行为。按住 Ctrl（macOS 为 Cmd）点击标题，会在“跳转任务”和“打开详情”之间临时反转。</div>
+                        ${renderSingleFieldSetting(
+                            '默认动作',
+                            '桌面主界面中的任务标题默认执行此动作。',
+                            `<select class="b3-select" onchange="updateTaskTitleClickAction(this.value)" style="width:180px;">
+                                <option value="jump" ${__tmNormalizeTaskTitleClickAction(SettingsStore.data.taskTitleClickAction) === 'jump' ? 'selected' : ''}>跳转任务</option>
+                                <option value="detail" ${__tmNormalizeTaskTitleClickAction(SettingsStore.data.taskTitleClickAction) === 'detail' ? 'selected' : ''}>打开详情</option>
+                            </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
-                        ` : ''}
-                        ${renderSingleSwitchSetting(
-                            '标题点击弹出详情页面',
-                            '适用于各视图的任务标题点击。开启后标题默认打开任务详情页面；在移动端/Dock 清单紧凑视图中，本设置的优先级高于上方两个“标题点击跳转”开关：同时开启时，移动端弹出详情页面，Dock 打开任务详情抽屉。',
-                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactTitleOpenDetailPage ? 'checked' : ''} onchange="updateChecklistCompactTitleOpenDetailPage(this.checked)">`,
+                        ${!__tmIsRuntimeMobileClient() ? renderSingleFieldSetting(
+                            'Dock',
+                            '任务 Dock 可跟随默认动作，或使用独立动作。',
+                            `<select class="b3-select" onchange="updateDockTaskTitleClickAction(this.value)" style="width:180px;">
+                                <option value="inherit" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.dockTaskTitleClickAction) === 'inherit' ? 'selected' : ''}>跟随默认</option>
+                                <option value="jump" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.dockTaskTitleClickAction) === 'jump' ? 'selected' : ''}>跳转任务</option>
+                                <option value="detail" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.dockTaskTitleClickAction) === 'detail' ? 'selected' : ''}>打开详情</option>
+                            </select>`,
+                            { style: 'margin-bottom:10px;' }
+                        ) : ''}
+                        ${renderSingleFieldSetting(
+                            '移动端',
+                            '移动端可跟随默认动作，或使用独立动作。',
+                            `<select class="b3-select" onchange="updateMobileTaskTitleClickAction(this.value)" style="width:180px;">
+                                <option value="inherit" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.mobileTaskTitleClickAction) === 'inherit' ? 'selected' : ''}>跟随默认</option>
+                                <option value="jump" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.mobileTaskTitleClickAction) === 'jump' ? 'selected' : ''}>跳转任务</option>
+                                <option value="detail" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.mobileTaskTitleClickAction) === 'detail' ? 'selected' : ''}>打开详情</option>
+                            </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         <div style="margin-bottom:10px;">
@@ -2660,7 +2683,7 @@
                         </div>
                         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);opacity:${SettingsStore.data.enableTomatoIntegration ? 1 : 0.6};">
                             <div style="font-size:13px;font-weight:600;margin-bottom:6px;">时长与番茄属性</div>
-                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">用于“时长与番茄”弹窗、专注列和常驻字段。实际番茄由 Dock Tomato 完成一次倒计时后累计 1。</div>
+                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">用于“时长与番茄”弹窗、专注列和常驻字段。关闭耗时评估后，实际番茄读取 Dock Tomato 完成倒计时累计的属性。</div>
                             ${renderSingleFieldSetting(
                                 '实际番茄数属性名',
                                 'Dock Tomato 单次完成累计 1 个番茄，例如 custom-tomato-count。',
@@ -2740,7 +2763,7 @@
                         )}
                         ${renderSingleSwitchSetting(
                             '分组内置顶任务',
-                            '开启后，表格、清单和看板视图在按文档、时间、四象限或任务名分组时，置顶任务留在所属分组内并排在组内最前。',
+                            '开启后，表格、清单、看板和白板任务池在按文档、时间、四象限或任务名分组时，置顶任务留在所属分组内并排在组内最前。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pinTasksWithinGroups ? 'checked' : ''} onchange="updatePinTasksWithinGroups(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2915,6 +2938,11 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enableTomatoIntegration ? 'checked' : ''} onchange="updateEnableTomatoIntegration(this.checked)">`
                         )}
                         <div style="margin-top:10px;opacity:${SettingsStore.data.enableTomatoIntegration ? 1 : 0.6};">
+                            ${renderSingleSwitchSetting(
+                                '按专注耗时评估实际番茄数',
+                                '按总专注耗时除以 Dock Tomato 默认番茄时长计算，正计时耗时也会计入。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.tomatoActualCountBySpentEnabled !== false ? 'checked' : ''} ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoActualCountBySpentEnabled(this.checked)">`
+                            )}
                             ${renderSingleFieldSetting(
                                 '耗时读取模式',
                                 '选择从分钟属性还是小时属性读取任务耗时。',

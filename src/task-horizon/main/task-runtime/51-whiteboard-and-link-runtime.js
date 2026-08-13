@@ -143,7 +143,9 @@
                 const nodePos = { ...((board.nodePos && typeof board.nodePos === 'object') ? board.nodePos : {}) };
                 const placedTaskIds = { ...((board.placedTaskIds && typeof board.placedTaskIds === 'object') ? board.placedTaskIds : {}) };
                 const detachedChildren = { ...((board.detachedChildren && typeof board.detachedChildren === 'object') ? board.detachedChildren : {}) };
+                const linkedTaskSnapshots = { ...((board.linkedTaskSnapshots && typeof board.linkedTaskSnapshots === 'object') ? board.linkedTaskSnapshots : {}) };
                 ids.forEach((id) => {
+                    try { __tmSetGlobalWhiteboardConfirmedFrozen(gid, id, false); } catch (e) {}
                     if (Object.prototype.hasOwnProperty.call(nodePos, id)) {
                         delete nodePos[id];
                         boardDirty = true;
@@ -154,6 +156,10 @@
                     }
                     if (Object.prototype.hasOwnProperty.call(detachedChildren, id)) {
                         delete detachedChildren[id];
+                        boardDirty = true;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(linkedTaskSnapshots, id)) {
+                        delete linkedTaskSnapshots[id];
                         boardDirty = true;
                     }
                 });
@@ -187,6 +193,7 @@
                         nodePos,
                         placedTaskIds,
                         detachedChildren,
+                        linkedTaskSnapshots,
                         links,
                         frames,
                     });
@@ -195,7 +202,9 @@
             });
             if (boardsDirty) SettingsStore.data.whiteboardGlobalBoardsByGroup = nextBoards;
         } catch (e) {}
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.syncLocal !== false) {
+            try { SettingsStore.syncLocalFields?.(['whiteboardGlobalBoardsByGroup']); } catch (e) {}
+        }
     }
 
     async function __tmSyncWhiteboardFrozenTasksWithLiveTasks() {
@@ -269,7 +278,7 @@
             const multiTaskIds = Array.isArray(state.whiteboardMultiSelectedTaskIds) ? state.whiteboardMultiSelectedTaskIds : [];
             state.whiteboardMultiSelectedTaskIds = multiTaskIds.filter((id) => !staleSet.has(String(id || '').trim()));
         } catch (e) {}
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { SettingsStore.syncLocalFields?.(['whiteboardDetachedChildren']); } catch (e) {}
         return staleIds.length;
     }
 
@@ -295,7 +304,9 @@
         const createdAt = String(item.createdAt || '').trim() || String(Date.now());
         const idRaw = String(item.id || '').trim();
         const id = idRaw || `link_${docId}_${from}_${to}_${index}`;
-        return { id, from, to, docId, createdAt, manual: true };
+        const fromAnchor = String(item.fromAnchor || '').trim().toLowerCase() === 'bottom' ? 'bottom' : '';
+        const toAnchor = String(item.toAnchor || '').trim().toLowerCase() === 'top' ? 'top' : '';
+        return { id, from, to, ...(fromAnchor ? { fromAnchor } : {}), ...(toAnchor ? { toAnchor } : {}), docId, createdAt, manual: true };
     }
 
     const __tmManualTaskLinksRuntimeCache = {
@@ -316,6 +327,8 @@
                 id: String(item?.id || '').trim(),
                 from: String(item?.from || '').trim(),
                 to: String(item?.to || '').trim(),
+                fromAnchor: String(item?.fromAnchor || '').trim(),
+                toAnchor: String(item?.toAnchor || '').trim(),
                 docId: String(item?.docId || '').trim(),
                 createdAt: String(item?.createdAt || '').trim(),
             })));
@@ -333,7 +346,7 @@
         if (whiteboardLoaded && settingsKey !== whiteboardKey) {
             try {
                 SettingsStore.data.whiteboardLinks = srcB.slice();
-                SettingsStore.syncToLocal();
+                SettingsStore.syncLocalFields?.(['whiteboardLinks']);
                 srcA = Array.isArray(SettingsStore.data.whiteboardLinks) ? SettingsStore.data.whiteboardLinks : [];
                 settingsKey = __tmGetTaskLinkArrayCacheKey(srcA);
                 srcB = Array.isArray(WhiteboardStore.data?.links) ? WhiteboardStore.data.links : srcB;
@@ -420,7 +433,7 @@
         const list = Array.isArray(nextLinks) ? nextLinks : [];
         const normalized = list.map((it, i) => {
             const x = __tmNormalizeTaskLinkEntry(it, i);
-            return x ? { id: x.id, from: x.from, to: x.to, docId: x.docId, createdAt: x.createdAt } : null;
+            return x ? { id: x.id, from: x.from, to: x.to, ...(x.fromAnchor ? { fromAnchor: x.fromAnchor } : {}), ...(x.toAnchor ? { toAnchor: x.toAnchor } : {}), docId: x.docId, createdAt: x.createdAt } : null;
         }).filter(Boolean);
         SettingsStore.data.whiteboardLinks = normalized;
         if (WhiteboardStore.loaded) {
@@ -429,7 +442,7 @@
                 WhiteboardStore.scheduleSave();
             } catch (e) {}
         }
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { SettingsStore.syncLocalFields?.(['whiteboardLinks']); } catch (e) {}
     }
 
     function __tmGetTaskLinkStats(taskId, options = {}) {
@@ -448,7 +461,7 @@
         const id = String(taskId || '').trim();
         const didHint = String(docId || '').trim();
         if (!id) return null;
-        const live = state.flatTasks?.[id];
+        const live = globalThis.__tmTaskBoundary?.getTask?.(id);
         if (live && typeof live === 'object') {
             const liveDocId = String(live.root_id || live.docId || __tmGetTaskDocIdById(id) || '').trim();
             if (didHint && liveDocId && liveDocId !== didHint) return null;
@@ -910,7 +923,7 @@
                 return;
             }
             const v = map0[k];
-            const taskPid = String(state.flatTasks?.[id]?.parentTaskId || '').trim();
+            const taskPid = String(globalThis.__tmTaskBoundary?.getTask?.(id)?.parentTaskId || '').trim();
             const snapPid = String(__tmGetWhiteboardCardSnapshot(id)?.parentTaskId || '').trim();
             if (v && typeof v === 'object' && v.detached === true) {
                 const parentTaskId = String(v.parentTaskId || taskPid || snapPid || '').trim();
@@ -929,7 +942,7 @@
         if (changed) {
             SettingsStore.data.whiteboardDetachedChildren = next;
             try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'normalize-detached-children'); } catch (e) {}
-            try { SettingsStore.syncToLocal(); } catch (e) {}
+            try { SettingsStore.syncLocalFields?.(['whiteboardDetachedChildren']); } catch (e) {}
         }
         return changed ? next : map0;
     }
@@ -945,7 +958,7 @@
     function __tmResolveWhiteboardTaskParentId(taskId) {
         const id = String(taskId || '').trim();
         if (!id) return '';
-        const task = state.flatTasks?.[id];
+        const task = globalThis.__tmTaskBoundary?.getTask?.(id);
         const fromTask = String(task?.parentTaskId || '').trim();
         if (fromTask) return fromTask;
         const detachedMap = __tmGetDetachedChildrenMap();
@@ -956,10 +969,10 @@
         return String(snap?.parentTaskId || '').trim();
     }
 
-    function __tmIsTaskLinkSourceSubtask(taskId) {
+    function __tmIsTaskLinkEndpointSubtask(taskId) {
         const id = String(taskId || '').trim();
         if (!id) return false;
-        const task = state.flatTasks?.[id];
+        const task = globalThis.__tmTaskBoundary?.getTask?.(id);
         const level = Number(task?.level);
         if (Number.isFinite(level) && level > 0) return true;
         const explicitParentId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
@@ -967,14 +980,29 @@
         return !!__tmResolveWhiteboardTaskParentId(id);
     }
 
-    function __tmSetWhiteboardChildDetached(taskId, detached, parentTaskId = '') {
-        const id = String(taskId || '').trim();
-        if (!id) return;
+    function __tmCommitWhiteboardDetachedChildren(changes, opts = {}) {
+        const list = Array.isArray(changes) ? changes : [changes];
+        const o = (opts && typeof opts === 'object') ? opts : {};
         const next = { ...__tmGetDetachedChildrenMap() };
-        if (detached) {
-            const pid = String(parentTaskId || __tmResolveWhiteboardTaskParentId(id) || '').trim();
-            next[id] = { detached: true, manual: true, updatedAt: String(Date.now()), parentTaskId: pid };
-        } else delete next[id];
+        const changedTaskIds = new Set();
+        const updatedAt = String(Date.now());
+        list.forEach((change) => {
+            const item = (change && typeof change === 'object') ? change : {};
+            const id = String(item.id || item.taskId || '').trim();
+            if (!id) return;
+            if (item.detached === true) {
+                const pid = String(item.parentTaskId || __tmResolveWhiteboardTaskParentId(id) || '').trim();
+                const prev = next[id];
+                if (prev?.detached === true && String(prev.parentTaskId || '').trim() === pid) return;
+                next[id] = { detached: true, manual: true, updatedAt, parentTaskId: pid };
+                changedTaskIds.add(id);
+                return;
+            }
+            if (!Object.prototype.hasOwnProperty.call(next, id)) return;
+            delete next[id];
+            changedTaskIds.add(id);
+        });
+        if (!changedTaskIds.size) return 0;
         SettingsStore.data.whiteboardDetachedChildren = next;
         if (WhiteboardStore.loaded) {
             try {
@@ -982,7 +1010,15 @@
                 WhiteboardStore.scheduleSave();
             } catch (e) {}
         }
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { SettingsStore.syncLocalFields?.(['whiteboardDetachedChildren']); } catch (e) {}
+        if (o.persist) {
+            try { SettingsStore.save(); } catch (e) {}
+        }
+        return changedTaskIds.size;
+    }
+
+    function __tmSetWhiteboardChildDetached(taskId, detached, parentTaskId = '', opts = {}) {
+        return __tmCommitWhiteboardDetachedChildren([{ taskId, detached: !!detached, parentTaskId }], opts);
     }
 
     function __tmWhiteboardCollectTaskTreeIds(rootId, opts = {}) {
@@ -1014,7 +1050,7 @@
             if (!cur || seen.has(cur)) continue;
             seen.add(cur);
             if (includeRoot || cur !== id0) out.push(cur);
-            const task = state.flatTasks?.[cur];
+            const task = globalThis.__tmTaskBoundary?.getTask?.(cur);
             const kids = Array.isArray(task?.children) ? task.children : [];
             kids.forEach((k) => {
                 const cid = String(k?.id || '').trim();
@@ -1043,7 +1079,7 @@
         const getParentId = (id) => {
             const tid = String(id || '').trim();
             if (!tid) return '';
-            const t = state.flatTasks?.[tid];
+            const t = globalThis.__tmTaskBoundary?.getTask?.(tid);
             if (t) return String(t?.parentTaskId || '').trim();
             const snap = __tmGetWhiteboardCardSnapshot(tid);
             return String(snap?.parentTaskId || '').trim();
@@ -1055,7 +1091,7 @@
             const parentId = getParentId(cur);
             if (!parentId) return '';
             if (__tmIsWhiteboardChildDetached(cur)) return '';
-            if (collapsed.has(parentId) && __tmIsWhiteboardTaskPlaced(parentId) && __tmGetTaskDocIdById(parentId) === did) {
+            if (collapsed.has(parentId) && __tmGetTaskDocIdById(parentId) === did) {
                 return parentId;
             }
             cur = parentId;
@@ -1121,7 +1157,7 @@
                 WhiteboardStore.scheduleSave();
             } catch (e) {}
         }
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { SettingsStore.syncLocalFields?.(['whiteboardAllTabsDocOrderByGroup']); } catch (e) {}
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
         }
@@ -1130,6 +1166,575 @@
     function __tmGetWhiteboardGlobalBoardGroupId(groupId = '') {
         return String(groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
     }
+
+    const __tmGlobalWhiteboardCollectionTaskCache = {
+        docId: '',
+        tasks: [],
+        loadedAt: 0,
+        promise: null,
+        revision: 0,
+        authoritative: false,
+    };
+    const __tmGlobalWhiteboardMoveRevisions = new Map();
+    let __tmGlobalWhiteboardMoveRevisionSeq = 0;
+    const __tmGlobalWhiteboardOptimisticMoves = new Map();
+    const __tmGlobalWhiteboardConfirmedFrozenByGroup = new Map();
+
+    function __tmSetGlobalWhiteboardConfirmedFrozen(groupId, taskId, frozen) {
+        const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
+        const id = String(taskId || '').trim();
+        if (!id) return false;
+        const current = __tmGlobalWhiteboardConfirmedFrozenByGroup.get(gid) || new Set();
+        if (frozen === true) {
+            current.add(id);
+            __tmGlobalWhiteboardConfirmedFrozenByGroup.set(gid, current);
+            return true;
+        }
+        const changed = current.delete(id);
+        if (current.size) __tmGlobalWhiteboardConfirmedFrozenByGroup.set(gid, current);
+        else __tmGlobalWhiteboardConfirmedFrozenByGroup.delete(gid);
+        return changed;
+    }
+
+    function __tmIsGlobalWhiteboardConfirmedFrozen(groupId, taskId) {
+        const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
+        const id = String(taskId || '').trim();
+        return !!id && (__tmGlobalWhiteboardConfirmedFrozenByGroup.get(gid)?.has(id) === true);
+    }
+
+    function __tmRememberGlobalWhiteboardOptimisticMove(mutation) {
+        const taskId = String(mutation?.taskId || mutation?.snapshot?.taskId || mutation?.snapshot?.task?.id || '').trim();
+        const root = mutation?.snapshot?.task;
+        if (!taskId || !root || typeof root !== 'object') return false;
+        const tasks = new Map();
+        const walk = (task) => {
+            const id = String(task?.id || '').trim();
+            if (!id || tasks.has(id)) return;
+            tasks.set(id, task);
+            (Array.isArray(task?.children) ? task.children : []).forEach(walk);
+        };
+        walk(root);
+        __tmGlobalWhiteboardOptimisticMoves.set(taskId, { taskId, tasks, at: Date.now() });
+        return true;
+    }
+
+    function __tmForgetGlobalWhiteboardOptimisticMove(mutation) {
+        const taskId = String(mutation?.taskId || mutation?.snapshot?.taskId || mutation?.snapshot?.task?.id || '').trim();
+        if (!taskId) return false;
+        if (__tmGlobalWhiteboardOptimisticMoves.delete(taskId)) return true;
+        let removed = false;
+        __tmGlobalWhiteboardOptimisticMoves.forEach((entry, rootId) => {
+            if (!entry?.tasks?.has?.(taskId)) return;
+            __tmGlobalWhiteboardOptimisticMoves.delete(rootId);
+            removed = true;
+        });
+        return removed;
+    }
+
+    function __tmGetGlobalWhiteboardCollectionDocId() {
+        const docId = String(SettingsStore?.data?.newTaskDocId || '').trim();
+        return /^[0-9]+-[a-zA-Z0-9]+$/.test(docId) ? docId : '';
+    }
+
+    function __tmBuildGlobalWhiteboardLinkedTaskSnapshot(taskLike, previousSnapshot = null, docIdOverride = '') {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const prev = (previousSnapshot && typeof previousSnapshot === 'object') ? previousSnapshot : {};
+        const id = String(task.id || prev.id || '').trim();
+        const docId = String(docIdOverride || task.root_id || task.docId || prev.docId || '').trim();
+        const content = String(task.content || task.raw_content || prev.content || '').trim();
+        if (!id || !docId || !content) return null;
+        const parentTaskId = Object.prototype.hasOwnProperty.call(task, 'parentTaskId')
+            ? String(task.parentTaskId || '').trim()
+            : (Object.prototype.hasOwnProperty.call(task, 'parent_task_id')
+                ? String(task.parent_task_id || '').trim()
+                : String(prev.parentTaskId || '').trim());
+        const candidate = __tmNormalizeWhiteboardLinkedTaskSnapshotMap({
+            [id]: {
+                ...prev,
+                ...task,
+                id,
+                docId,
+                root_id: docId,
+                content,
+                parentTaskId,
+                headingLevel: String(task.headingLevel || prev.headingLevel || SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2',
+                updatedAt: String(Date.now()),
+            },
+        })[id] || null;
+        if (!candidate) return null;
+        const comparable = (value) => {
+            const out = { ...(value || {}) };
+            delete out.updatedAt;
+            return JSON.stringify(out);
+        };
+        return comparable(candidate) === comparable(prev) ? prev : candidate;
+    }
+
+    function __tmGetGlobalWhiteboardLoadedDocIdSet() {
+        const ids = Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length
+            ? state.__tmLoadedDocIdsForTasks
+            : (Array.isArray(state.taskTree) ? state.taskTree.map((doc) => doc?.id) : []);
+        return new Set(ids.map((id) => String(id || '').trim()).filter(Boolean));
+    }
+
+    function __tmScheduleGlobalWhiteboardRender(reason = 'global-whiteboard-source') {
+        try {
+            if (String(state.viewMode || '').trim() !== 'whiteboard') return;
+            if (typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && !__tmIsWhiteboardGlobalCanvasActive()) return;
+            if (typeof __tmScheduleViewRefresh === 'function') {
+                __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason });
+                return;
+            }
+            render();
+        } catch (e) {}
+    }
+
+    async function __tmEnsureGlobalWhiteboardCollectionTasks(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docId = __tmGetGlobalWhiteboardCollectionDocId();
+        if (!docId) return [];
+        const cache = __tmGlobalWhiteboardCollectionTaskCache;
+        const fresh = cache.docId === docId
+            && Array.isArray(cache.tasks)
+            && cache.loadedAt > 0
+            && cache.authoritative === true
+            && (Date.now() - cache.loadedAt) < 15000;
+        if (fresh && opts.forceFresh !== true) return cache.tasks;
+        if (cache.promise && cache.docId === docId) return await cache.promise;
+        cache.docId = docId;
+        const revision = Number(cache.revision) || 0;
+        const request = Promise.resolve().then(async () => {
+            const result = await API.getTasksByDocument(docId, 5000, {
+                fullTree: true,
+                forceFresh: opts.forceFresh === true,
+                skipParentTaskJoin: false,
+                skipDocJoin: true,
+            });
+            if (cache.docId !== docId || (Number(cache.revision) || 0) !== revision) return [];
+            cache.tasks = (Array.isArray(result?.tasks) ? result.tasks : [])
+                .filter((task) => String(task?.root_id || task?.docId || '').trim() === docId);
+            cache.loadedAt = Date.now();
+            cache.authoritative = true;
+            return cache.tasks;
+        }).catch(() => {
+            if (cache.docId === docId && (Number(cache.revision) || 0) === revision) cache.authoritative = false;
+            return Array.isArray(cache.tasks) ? cache.tasks : [];
+        }).finally(() => {
+            if (cache.promise === request) cache.promise = null;
+        });
+        cache.promise = request;
+        const tasks = await request;
+        if (opts.render !== false
+            && cache.docId === docId
+            && (Number(cache.revision) || 0) === revision
+            && cache.authoritative === true) {
+            __tmScheduleGlobalWhiteboardRender('global-collection-loaded');
+        }
+        return tasks;
+    }
+
+    function __tmInvalidateGlobalWhiteboardCollectionTasks(docIds = []) {
+        const collectionDocId = __tmGetGlobalWhiteboardCollectionDocId();
+        const ids = new Set((Array.isArray(docIds) ? docIds : [docIds]).map((id) => String(id || '').trim()).filter(Boolean));
+        if (!collectionDocId || !ids.has(collectionDocId)) return false;
+        __tmGlobalWhiteboardCollectionTaskCache.revision = (Number(__tmGlobalWhiteboardCollectionTaskCache.revision) || 0) + 1;
+        __tmGlobalWhiteboardCollectionTaskCache.loadedAt = 0;
+        __tmGlobalWhiteboardCollectionTaskCache.tasks = [];
+        __tmGlobalWhiteboardCollectionTaskCache.promise = null;
+        __tmGlobalWhiteboardCollectionTaskCache.authoritative = false;
+        return true;
+    }
+
+    function __tmGetGlobalWhiteboardTaskSource(groupId = '') {
+        const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
+        const collectionDocId = __tmGetGlobalWhiteboardCollectionDocId();
+        const loadedDocIdSet = __tmGetGlobalWhiteboardLoadedDocIdSet();
+        const loadedDocIds = Array.from(loadedDocIdSet).sort();
+        const authoritativeScope = (state.__tmGlobalWhiteboardAuthoritativeScope && typeof state.__tmGlobalWhiteboardAuthoritativeScope === 'object')
+            ? state.__tmGlobalWhiteboardAuthoritativeScope
+            : null;
+        const authoritativeDocIds = Array.isArray(authoritativeScope?.docIds)
+            ? authoritativeScope.docIds.map((id) => String(id || '').trim()).filter(Boolean).sort()
+            : [];
+        const groupScopeAuthoritative = authoritativeScope?.complete === true
+            && String(authoritativeScope?.groupId || '').trim() === gid
+            && authoritativeDocIds.length === loadedDocIds.length
+            && authoritativeDocIds.every((id, index) => id === loadedDocIds[index]);
+        const taskMap = new Map();
+        const push = (task) => {
+            const id = String(task?.id || '').trim();
+            const docId = String(task?.root_id || task?.docId || '').trim();
+            if (!id || !docId) return;
+            if (!loadedDocIdSet.has(docId) && docId !== collectionDocId) return;
+            taskMap.set(id, task);
+        };
+        Object.values((state.flatTasks && typeof state.flatTasks === 'object') ? state.flatTasks : {}).forEach(push);
+        if (collectionDocId && !loadedDocIdSet.has(collectionDocId)) {
+            if (__tmGlobalWhiteboardCollectionTaskCache.docId === collectionDocId) {
+                (Array.isArray(__tmGlobalWhiteboardCollectionTaskCache.tasks) ? __tmGlobalWhiteboardCollectionTaskCache.tasks : []).forEach((task) => {
+                    push({ ...(task || {}), __tmGlobalCollectionOverlay: true });
+                });
+            }
+            void __tmEnsureGlobalWhiteboardCollectionTasks({ render: true });
+        }
+        __tmGlobalWhiteboardOptimisticMoves.forEach((entry, rootId) => {
+            if (!entry || (Date.now() - Number(entry.at || 0)) > 30000) {
+                __tmGlobalWhiteboardOptimisticMoves.delete(rootId);
+                return;
+            }
+            entry.tasks?.forEach?.((task) => push({ ...(task || {}), __tmGlobalOptimisticRetained: true }));
+        });
+        return {
+            groupId: gid,
+            collectionDocId,
+            loadedDocIds,
+            tasks: Array.from(taskMap.values()),
+            taskMap,
+            authoritative: groupScopeAuthoritative
+                && state.__tmCacheFirstPaintNeedsVerify !== true
+                && (!collectionDocId || loadedDocIdSet.has(collectionDocId)
+                    || (__tmGlobalWhiteboardCollectionTaskCache.docId === collectionDocId
+                        && __tmGlobalWhiteboardCollectionTaskCache.loadedAt > 0
+                        && __tmGlobalWhiteboardCollectionTaskCache.authoritative === true
+                        && !__tmGlobalWhiteboardCollectionTaskCache.promise)),
+        };
+    }
+
+    function __tmProjectGlobalWhiteboard(groupId = '', sourceInput = null) {
+        const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
+        const board = __tmGetWhiteboardGlobalBoardState(gid);
+        const source = sourceInput && typeof sourceInput === 'object'
+            ? sourceInput
+            : __tmGetGlobalWhiteboardTaskSource(gid);
+        const liveMap = source.taskMap instanceof Map
+            ? new Map(source.taskMap)
+            : new Map((Array.isArray(source.tasks) ? source.tasks : []).map((task) => [String(task?.id || '').trim(), task]).filter(([id]) => !!id));
+        const endpointIds = new Set();
+        (Array.isArray(board.links) ? board.links : []).forEach((link) => {
+            const from = String(link?.from || '').trim();
+            const to = String(link?.to || '').trim();
+            if (from) endpointIds.add(from);
+            if (to) endpointIds.add(to);
+        });
+        const tasks = Array.from(liveMap.values());
+        const frozenTaskIds = new Set();
+        endpointIds.forEach((taskId) => {
+            if (liveMap.has(taskId)) return;
+            const snapshot = board.linkedTaskSnapshots?.[taskId];
+            if (!snapshot || typeof snapshot !== 'object') return;
+            const frozenConfirmed = source.authoritative === true || __tmIsGlobalWhiteboardConfirmedFrozen(gid, taskId);
+            const historical = frozenConfirmed
+                ? { ...snapshot, __tmGhost: true, __tmGlobalFrozen: true }
+                : { ...snapshot, __tmGhost: true, __tmGlobalRetained: true };
+            liveMap.set(taskId, historical);
+            tasks.push(historical);
+            if (frozenConfirmed) frozenTaskIds.add(taskId);
+        });
+        const absentUnlinkedPlacedTaskIds = Object.keys(board.placedTaskIds || {})
+            .map((id) => String(id || '').trim())
+            .filter((id) => id && board.placedTaskIds[id] && !liveMap.has(id) && !endpointIds.has(id));
+        const orphanSnapshotTaskIds = Object.keys(board.linkedTaskSnapshots || {})
+            .map((id) => String(id || '').trim())
+            .filter((id) => id && !endpointIds.has(id));
+        return {
+            groupId: gid,
+            board,
+            collectionDocId: String(source.collectionDocId || '').trim(),
+            tasks,
+            taskMap: liveMap,
+            frozenTaskIds,
+            cleanupCandidates: { absentUnlinkedPlacedTaskIds, orphanSnapshotTaskIds },
+            authoritative: source.authoritative === true,
+        };
+    }
+
+    function __tmRemoveGlobalWhiteboardTaskLayout(boardInput, taskIds = []) {
+        const board = __tmNormalizeWhiteboardGlobalBoardState(boardInput || {});
+        const ids = new Set((Array.isArray(taskIds) ? taskIds : [taskIds]).map((id) => String(id || '').trim()).filter(Boolean));
+        if (!ids.size) return board;
+        const nodePos = { ...(board.nodePos || {}) };
+        const placedTaskIds = { ...(board.placedTaskIds || {}) };
+        const detachedChildren = { ...(board.detachedChildren || {}) };
+        ids.forEach((id) => {
+            delete nodePos[id];
+            delete placedTaskIds[id];
+            delete detachedChildren[id];
+        });
+        Object.keys(detachedChildren).forEach((id) => {
+            if (ids.has(String(detachedChildren[id]?.parentTaskId || '').trim())) delete detachedChildren[id];
+        });
+        const frames = __tmNormalizeWhiteboardFrameArray(board.frames).map((frame) => ({
+            ...frame,
+            memberTaskIds: (Array.isArray(frame.memberTaskIds) ? frame.memberTaskIds : []).filter((id) => !ids.has(String(id || '').trim())),
+        }));
+        return __tmNormalizeWhiteboardGlobalBoardState({ ...board, nodePos, placedTaskIds, detachedChildren, frames });
+    }
+
+    function __tmEnsureGlobalWhiteboardFrozenEndpointLayout(boardInput, endpointTaskIds = [], taskLikeMapInput = null) {
+        const board = __tmNormalizeWhiteboardGlobalBoardState(boardInput || {});
+        const taskLikeMap = taskLikeMapInput instanceof Map ? taskLikeMapInput : new Map();
+        const endpointIds = Array.from(new Set((Array.isArray(endpointTaskIds) ? endpointTaskIds : [endpointTaskIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (!endpointIds.length) return board;
+        const nodePos = { ...(board.nodePos || {}) };
+        const placedTaskIds = { ...(board.placedTaskIds || {}) };
+        let changed = false;
+        endpointIds.forEach((taskId, index) => {
+            if (placedTaskIds[taskId] && nodePos[taskId]) return;
+            let task = taskLikeMap.get(taskId) || board.linkedTaskSnapshots?.[taskId] || null;
+            let parentId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+            const seen = new Set([taskId]);
+            let anchor = null;
+            while (parentId && !seen.has(parentId)) {
+                seen.add(parentId);
+                if (nodePos[parentId] && typeof nodePos[parentId] === 'object') {
+                    anchor = nodePos[parentId];
+                    break;
+                }
+                task = taskLikeMap.get(parentId) || board.linkedTaskSnapshots?.[parentId] || null;
+                parentId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+            }
+            const snapshot = board.linkedTaskSnapshots?.[taskId] || taskLikeMap.get(taskId) || {};
+            const docId = String(snapshot?.docId || snapshot?.root_id || anchor?.docId || '').trim();
+            if (!anchor && !docId) return;
+            const offset = index * 18;
+            nodePos[taskId] = {
+                docId,
+                x: Math.round(Number(anchor?.x) || 24) + offset,
+                y: Math.round(Number(anchor?.y) || 56) + offset,
+                updatedAt: String(Date.now()),
+            };
+            placedTaskIds[taskId] = true;
+            changed = true;
+        });
+        return changed
+            ? __tmNormalizeWhiteboardGlobalBoardState({ ...board, nodePos, placedTaskIds })
+            : board;
+    }
+
+    function __tmReconcileGlobalWhiteboard(groupId = '', options = {}) {
+        const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
+        const opts = (options && typeof options === 'object') ? options : {};
+        const projection = __tmProjectGlobalWhiteboard(gid, opts.source || null);
+        let board = projection.board;
+        const endpointIds = new Set();
+        (Array.isArray(board.links) ? board.links : []).forEach((link) => {
+            const from = String(link?.from || '').trim();
+            const to = String(link?.to || '').trim();
+            if (from) endpointIds.add(from);
+            if (to) endpointIds.add(to);
+        });
+        const linkedTaskSnapshots = { ...(board.linkedTaskSnapshots || {}) };
+        endpointIds.forEach((id) => {
+            const live = projection.taskMap.get(id);
+            if (!live || live.__tmGlobalFrozen || live.__tmGlobalRetained) return;
+            __tmSetGlobalWhiteboardConfirmedFrozen(gid, id, false);
+            const next = __tmBuildGlobalWhiteboardLinkedTaskSnapshot(live, linkedTaskSnapshots[id]);
+            if (next) linkedTaskSnapshots[id] = next;
+        });
+        if (projection.authoritative === true) {
+            projection.frozenTaskIds.forEach((id) => __tmSetGlobalWhiteboardConfirmedFrozen(gid, id, true));
+        }
+        projection.cleanupCandidates.orphanSnapshotTaskIds.forEach((id) => { delete linkedTaskSnapshots[id]; });
+        projection.cleanupCandidates.orphanSnapshotTaskIds.forEach((id) => __tmSetGlobalWhiteboardConfirmedFrozen(gid, id, false));
+        const links = (Array.isArray(board.links) ? board.links : []).map((link) => {
+            const from = String(link?.from || '').trim();
+            const to = String(link?.to || '').trim();
+            const fromTask = projection.taskMap.get(from) || linkedTaskSnapshots[from] || null;
+            const toTask = projection.taskMap.get(to) || linkedTaskSnapshots[to] || null;
+            return {
+                ...link,
+                fromDocId: String(fromTask?.root_id || fromTask?.docId || link?.fromDocId || '').trim(),
+                toDocId: String(toTask?.root_id || toTask?.docId || link?.toDocId || '').trim(),
+            };
+        });
+        board = __tmNormalizeWhiteboardGlobalBoardState({ ...board, linkedTaskSnapshots, links });
+        if (opts.authoritative === true && projection.authoritative === true) {
+            board = __tmEnsureGlobalWhiteboardFrozenEndpointLayout(board, Array.from(projection.frozenTaskIds), projection.taskMap);
+            board = __tmRemoveGlobalWhiteboardTaskLayout(board, projection.cleanupCandidates.absentUnlinkedPlacedTaskIds);
+        }
+        const before = JSON.stringify(projection.board);
+        const after = JSON.stringify(board);
+        if (before === after) return { changed: false, projection };
+        __tmSetWhiteboardGlobalBoardState(gid, board, { keepEmpty: true, persist: opts.persist === true });
+        return { changed: true, projection: __tmProjectGlobalWhiteboard(gid, opts.source || null) };
+    }
+
+    async function __tmResolveGlobalWhiteboardGroupDocIdSet(groupId = '') {
+        const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
+        const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        if (gid === currentGroupId) return __tmGetGlobalWhiteboardLoadedDocIdSet();
+        try {
+            const ids = await resolveDocIdsFromGroups({
+                groupId: gid,
+                includeQuickAddDoc: false,
+                verifyCachedScope: true,
+            });
+            return new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean));
+        } catch (e) {
+            return new Set();
+        }
+    }
+
+    function __tmCollectGlobalWhiteboardMovedTaskSnapshots(mutation) {
+        const root = mutation?.snapshot?.task;
+        const out = new Map();
+        const walk = (task) => {
+            const id = String(task?.id || '').trim();
+            if (!id || out.has(id)) return;
+            out.set(id, task);
+            (Array.isArray(task?.children) ? task.children : []).forEach(walk);
+        };
+        if (root && typeof root === 'object') walk(root);
+        const taskId = String(mutation?.taskId || '').trim();
+        if (taskId && !out.has(taskId)) out.set(taskId, root || globalThis.__tmTaskBoundary?.getTask?.(taskId) || null);
+        return out;
+    }
+
+    async function __tmReconcileGlobalWhiteboardsAfterCommittedMove(mutation) {
+        if (String(mutation?.type || '').trim() !== 'moveTask' || String(mutation?.phase || '').trim() !== 'commit') return false;
+        const previousDocId = String(mutation?.previousDocId || mutation?.snapshot?.docId || '').trim();
+        const nextDocId = String(mutation?.nextDocId || mutation?.docId || mutation?.data?.targetDocId || '').trim();
+        if (!previousDocId || !nextDocId || previousDocId === nextDocId) return false;
+        __tmInvalidateGlobalWhiteboardCollectionTasks([previousDocId, nextDocId]);
+        const movedSnapshots = __tmCollectGlobalWhiteboardMovedTaskSnapshots(mutation);
+        const rawBoards = __tmGetWhiteboardGlobalBoardsByGroupMap();
+        const movedTaskIds = new Set(Array.from(movedSnapshots.keys()));
+        const groupIds = Object.keys(rawBoards || {}).filter((gid) => {
+            const board = __tmNormalizeWhiteboardGlobalBoardState(rawBoards[gid]);
+            if (Array.from(movedTaskIds).some((id) => board.placedTaskIds?.[id]
+                || board.nodePos?.[id]
+                || board.linkedTaskSnapshots?.[id])) return true;
+            return (Array.isArray(board.links) ? board.links : []).some((link) => (
+                movedTaskIds.has(String(link?.from || '').trim())
+                || movedTaskIds.has(String(link?.to || '').trim())
+            ));
+        });
+        if (!groupIds.length || !movedSnapshots.size) return false;
+        const movedTaskId = String(mutation?.taskId || '').trim();
+        const moveRevision = ++__tmGlobalWhiteboardMoveRevisionSeq;
+        if (movedTaskId) __tmGlobalWhiteboardMoveRevisions.set(movedTaskId, moveRevision);
+        const collectionDocId = __tmGetGlobalWhiteboardCollectionDocId();
+        const scopeEntries = await Promise.all(groupIds.map(async (gid) => [gid, await __tmResolveGlobalWhiteboardGroupDocIdSet(gid)]));
+        if (movedTaskId && (Number(__tmGlobalWhiteboardMoveRevisions.get(movedTaskId)) || 0) !== moveRevision) return false;
+        let changed = false;
+        scopeEntries.forEach(([gid, docIdSet]) => {
+            const before = __tmNormalizeWhiteboardGlobalBoardState(rawBoards[gid]);
+            let board = before;
+            const endpointIds = new Set();
+            (Array.isArray(board.links) ? board.links : []).forEach((link) => {
+                const from = String(link?.from || '').trim();
+                const to = String(link?.to || '').trim();
+                if (from) endpointIds.add(from);
+                if (to) endpointIds.add(to);
+            });
+            const previousMember = previousDocId === collectionDocId || docIdSet.has(previousDocId);
+            const nextMember = nextDocId === collectionDocId || docIdSet.has(nextDocId);
+            if (!previousMember && !nextMember) return;
+            const linkedTaskSnapshots = { ...(board.linkedTaskSnapshots || {}) };
+            const removeLayoutIds = [];
+            const frozenEndpointIds = [];
+            movedSnapshots.forEach((oldTask, taskId) => {
+                if (previousMember && !nextMember) {
+                    if (endpointIds.has(taskId)) {
+                        const nextSnapshot = __tmBuildGlobalWhiteboardLinkedTaskSnapshot(oldTask, linkedTaskSnapshots[taskId], previousDocId);
+                        if (nextSnapshot) linkedTaskSnapshots[taskId] = nextSnapshot;
+                        frozenEndpointIds.push(taskId);
+                        __tmSetGlobalWhiteboardConfirmedFrozen(gid, taskId, true);
+                    } else if (board.placedTaskIds?.[taskId]) {
+                        removeLayoutIds.push(taskId);
+                        __tmSetGlobalWhiteboardConfirmedFrozen(gid, taskId, false);
+                    }
+                    return;
+                }
+                if (nextMember) {
+                    __tmSetGlobalWhiteboardConfirmedFrozen(gid, taskId, false);
+                    if (endpointIds.has(taskId)) {
+                        const live = globalThis.__tmTaskBoundary?.getTask?.(taskId) || oldTask;
+                        const nextSnapshot = __tmBuildGlobalWhiteboardLinkedTaskSnapshot(live, linkedTaskSnapshots[taskId], nextDocId);
+                        if (nextSnapshot) linkedTaskSnapshots[taskId] = nextSnapshot;
+                    }
+                }
+            });
+            const endpointDocId = nextMember ? nextDocId : previousDocId;
+            const links = (Array.isArray(board.links) ? board.links : []).map((link) => ({
+                ...link,
+                fromDocId: movedTaskIds.has(String(link?.from || '').trim()) ? endpointDocId : link?.fromDocId,
+                toDocId: movedTaskIds.has(String(link?.to || '').trim()) ? endpointDocId : link?.toDocId,
+            }));
+            board = __tmNormalizeWhiteboardGlobalBoardState({ ...board, linkedTaskSnapshots, links });
+            if (frozenEndpointIds.length) board = __tmEnsureGlobalWhiteboardFrozenEndpointLayout(board, frozenEndpointIds, movedSnapshots);
+            if (removeLayoutIds.length) board = __tmRemoveGlobalWhiteboardTaskLayout(board, removeLayoutIds);
+            if (JSON.stringify(before) === JSON.stringify(board)) return;
+            __tmSetWhiteboardGlobalBoardState(gid, board, { keepEmpty: true });
+            changed = true;
+        });
+        if (changed) {
+            try { SettingsStore.save().catch(() => null); } catch (e) {}
+            __tmScheduleGlobalWhiteboardRender('global-whiteboard-move-commit');
+        }
+        if (collectionDocId && (previousDocId === collectionDocId || nextDocId === collectionDocId)) {
+            void __tmEnsureGlobalWhiteboardCollectionTasks({ forceFresh: true, render: true });
+        }
+        if (movedTaskId && (Number(__tmGlobalWhiteboardMoveRevisions.get(movedTaskId)) || 0) === moveRevision) {
+            __tmGlobalWhiteboardMoveRevisions.delete(movedTaskId);
+        }
+        return changed;
+    }
+
+    async function __tmReconcileCurrentGlobalWhiteboardAuthoritative(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const collectionDocId = __tmGetGlobalWhiteboardCollectionDocId();
+        const loadedDocIds = __tmGetGlobalWhiteboardLoadedDocIdSet();
+        if (collectionDocId && !loadedDocIds.has(collectionDocId)) {
+            await __tmEnsureGlobalWhiteboardCollectionTasks({ forceFresh: opts.forceFresh === true, render: false });
+        }
+        const source = __tmGetGlobalWhiteboardTaskSource();
+        const result = __tmReconcileGlobalWhiteboard('', { source, authoritative: true });
+        if (result.changed) {
+            try { SettingsStore.save().catch(() => null); } catch (e) {}
+        }
+        return result;
+    }
+
+    if (globalThis.__tmGlobalWhiteboardMutationBridgeBound !== true) {
+        globalThis.__tmGlobalWhiteboardMutationBridgeBound = true;
+        try {
+            globalThis.__tmTaskMutationBus?.subscribe?.((mutation) => {
+                if (String(mutation?.type || '').trim() !== 'moveTask') return;
+                const phase = String(mutation?.phase || '').trim();
+                if (phase === 'optimistic') {
+                    __tmRememberGlobalWhiteboardOptimisticMove(mutation);
+                    return;
+                }
+                if (phase === 'rollback' || phase === 'failed') {
+                    __tmForgetGlobalWhiteboardOptimisticMove(mutation);
+                    return;
+                }
+                if (phase !== 'commit') return;
+                Promise.resolve(__tmReconcileGlobalWhiteboardsAfterCommittedMove(mutation))
+                    .catch(() => null)
+                    .finally(() => __tmForgetGlobalWhiteboardOptimisticMove(mutation));
+            });
+        } catch (e) {
+            globalThis.__tmGlobalWhiteboardMutationBridgeBound = false;
+        }
+    }
+
+    globalThis.__tmGlobalWhiteboardTaskSource = {
+        get: __tmGetGlobalWhiteboardTaskSource,
+        project: __tmProjectGlobalWhiteboard,
+        reconcile: __tmReconcileGlobalWhiteboard,
+        reconcileAuthoritative: __tmReconcileCurrentGlobalWhiteboardAuthoritative,
+        ensureCollectionTasks: __tmEnsureGlobalWhiteboardCollectionTasks,
+        forgetGroups(groupIds = []) {
+            (Array.isArray(groupIds) ? groupIds : [groupIds]).forEach((groupId) => {
+                const gid = String(groupId || '').trim();
+                if (gid) __tmGlobalWhiteboardConfirmedFrozenByGroup.delete(gid);
+            });
+        },
+    };
 
     function __tmGetWhiteboardGlobalBoardsByGroupMap() {
         return __tmNormalizeWhiteboardGlobalBoardsByGroupMap(SettingsStore.data.whiteboardGlobalBoardsByGroup);
@@ -1148,6 +1753,7 @@
         const next = { ...__tmGetWhiteboardGlobalBoardsByGroupMap() };
         const hasContent = __tmIsPlainObjectWithKeys(board.nodePos)
             || __tmIsPlainObjectWithKeys(board.placedTaskIds)
+            || __tmIsPlainObjectWithKeys(board.linkedTaskSnapshots)
             || __tmIsPlainObjectWithKeys(board.detachedChildren)
             || (Array.isArray(board.notes) && board.notes.length > 0)
             || (Array.isArray(board.drawings) && board.drawings.length > 0)
@@ -1162,7 +1768,9 @@
                 WhiteboardStore.scheduleSave();
             } catch (e) {}
         }
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.syncLocal !== false) {
+            try { SettingsStore.syncLocalFields?.(['whiteboardGlobalBoardsByGroup']); } catch (e) {}
+        }
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
         }
@@ -1196,6 +1804,8 @@
                 id: String(item.id || '').trim() || `global_link_${from}_${to}_${index}`,
                 from,
                 to,
+                ...(String(item.fromAnchor || '').trim().toLowerCase() === 'bottom' ? { fromAnchor: 'bottom' } : {}),
+                ...(String(item.toAnchor || '').trim().toLowerCase() === 'top' ? { toAnchor: 'top' } : {}),
                 fromDocId: String(item.fromDocId || __tmGetTaskDocIdById(from) || '').trim(),
                 toDocId: String(item.toDocId || __tmGetTaskDocIdById(to) || '').trim(),
                 docId: __tmGetWhiteboardGlobalCanvasDocId(),
@@ -1224,12 +1834,37 @@
                 id: String(item.id || '').trim() || `global_link_${from}_${to}_${index}`,
                 from,
                 to,
+                ...(String(item.fromAnchor || '').trim().toLowerCase() === 'bottom' ? { fromAnchor: 'bottom' } : {}),
+                ...(String(item.toAnchor || '').trim().toLowerCase() === 'top' ? { toAnchor: 'top' } : {}),
                 fromDocId: String(item.fromDocId || __tmGetTaskDocIdById(from) || '').trim(),
                 toDocId: String(item.toDocId || __tmGetTaskDocIdById(to) || '').trim(),
                 createdAt: String(item.createdAt || '').trim() || String(Date.now()),
             });
         });
-        __tmPatchWhiteboardGlobalBoardState(groupId, { links: normalized }, { keepEmpty: true, persist: o.persist });
+        const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
+        const board = __tmGetWhiteboardGlobalBoardState(gid);
+        const endpointIds = new Set();
+        normalized.forEach((link) => {
+            endpointIds.add(String(link.from || '').trim());
+            endpointIds.add(String(link.to || '').trim());
+        });
+        const source = __tmGetGlobalWhiteboardTaskSource(gid);
+        const linkedTaskSnapshots = { ...(board.linkedTaskSnapshots || {}) };
+        endpointIds.forEach((id) => {
+            const live = source.taskMap.get(id);
+            if (!live) return;
+            const next = __tmBuildGlobalWhiteboardLinkedTaskSnapshot(live, linkedTaskSnapshots[id]);
+            if (next) linkedTaskSnapshots[id] = next;
+        });
+        const removedSnapshotIds = Object.keys(linkedTaskSnapshots).filter((id) => !endpointIds.has(id));
+        removedSnapshotIds.forEach((id) => {
+            delete linkedTaskSnapshots[id];
+            __tmSetGlobalWhiteboardConfirmedFrozen(gid, id, false);
+        });
+        let nextBoard = __tmNormalizeWhiteboardGlobalBoardState({ ...board, links: normalized, linkedTaskSnapshots });
+        const removedFrozenIds = removedSnapshotIds.filter((id) => !source.taskMap.has(id));
+        if (removedFrozenIds.length) nextBoard = __tmRemoveGlobalWhiteboardTaskLayout(nextBoard, removedFrozenIds);
+        __tmSetWhiteboardGlobalBoardState(gid, nextBoard, { keepEmpty: true, persist: o.persist });
     }
 
     function __tmGetWhiteboardFrameArray(opts = {}) {
@@ -1254,7 +1889,7 @@
                 WhiteboardStore.scheduleSave();
             } catch (e) {}
         }
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { SettingsStore.syncLocalFields?.(['whiteboardFrames']); } catch (e) {}
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
         }
@@ -1310,11 +1945,17 @@
         const zoom0 = Number.isFinite(Number(p.zoom)) ? Number(p.zoom) : prev.zoom;
         const zoom = Math.max(0.35, Math.min(2.5, zoom0));
         if (__tmIsWhiteboardGlobalCanvasActive()) {
-            __tmPatchWhiteboardGlobalBoardState('', { view: { x, y, zoom } }, { keepEmpty: true, persist: o.persist });
+            __tmPatchWhiteboardGlobalBoardState('', { view: { x, y, zoom } }, {
+                keepEmpty: true,
+                persist: o.persist,
+                syncLocal: o.syncLocal,
+            });
             return;
         }
         SettingsStore.data.whiteboardView = { x, y, zoom };
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.syncLocal !== false) {
+            try { SettingsStore.syncLocalFields?.(['whiteboardView']); } catch (e) {}
+        }
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
         }
@@ -1340,35 +1981,74 @@
         return { x, y, docId: did };
     }
 
-    function __tmSetWhiteboardNodePos(taskId, docId, x, y, opts = {}) {
-        const id = String(taskId || '').trim();
-        const did = String(docId || '').trim();
-        if (!id || !did) return;
-        const xx = Number(x);
-        const yy = Number(y);
-        if (!Number.isFinite(xx) || !Number.isFinite(yy)) return;
+    function __tmCommitWhiteboardPlacements(changes, opts = {}) {
+        const list = Array.isArray(changes) ? changes : [changes];
         const o = (opts && typeof opts === 'object') ? opts : {};
-        const next = { ...__tmGetWhiteboardNodePosMap() };
-        const prev = next[id];
-        const manual = (typeof o.manual === 'boolean')
-            ? o.manual
-            : !!(prev && typeof prev === 'object' && prev.manual === true);
-        next[id] = { docId: did, x: Math.round(xx), y: Math.round(yy), manual, updatedAt: String(Date.now()) };
-        SettingsStore.data.whiteboardNodePos = next;
+        const nodePos = { ...__tmGetWhiteboardNodePosMap() };
+        const placedTaskIds = { ...__tmGetWhiteboardPlacedTaskMap() };
+        const updatedAt = String(Date.now());
+        let nodePosChanged = false;
+        let placedChanged = false;
+        const changedTaskIds = new Set();
+        list.forEach((change) => {
+            const item = (change && typeof change === 'object') ? change : {};
+            const id = String(item.id || item.taskId || '').trim();
+            if (!id) return;
+            const did = String(item.docId || '').trim();
+            const xx = Number(item.x);
+            const yy = Number(item.y);
+            if (did && Number.isFinite(xx) && Number.isFinite(yy)) {
+                const prev = nodePos[id];
+                const manual = (typeof item.manual === 'boolean')
+                    ? item.manual
+                    : ((typeof o.manual === 'boolean') ? o.manual : !!(prev && typeof prev === 'object' && prev.manual === true));
+                const x = Math.round(xx);
+                const y = Math.round(yy);
+                if (String(prev?.docId || '').trim() !== did
+                    || Number(prev?.x) !== x
+                    || Number(prev?.y) !== y
+                    || (prev?.manual === true) !== manual) {
+                    nodePos[id] = { docId: did, x, y, manual, updatedAt };
+                    nodePosChanged = true;
+                    changedTaskIds.add(id);
+                }
+            }
+            if (typeof item.placed === 'boolean') {
+                const wasPlaced = !!placedTaskIds[id];
+                if (item.placed && !wasPlaced) {
+                    placedTaskIds[id] = true;
+                    placedChanged = true;
+                    changedTaskIds.add(id);
+                } else if (!item.placed && wasPlaced) {
+                    delete placedTaskIds[id];
+                    placedChanged = true;
+                    changedTaskIds.add(id);
+                }
+            }
+        });
+        if (!nodePosChanged && !placedChanged) return 0;
+        if (nodePosChanged) SettingsStore.data.whiteboardNodePos = nodePos;
+        if (placedChanged) SettingsStore.data.whiteboardPlacedTaskIds = placedTaskIds;
         if (WhiteboardStore.loaded) {
             try {
-                const pos = (WhiteboardStore.data?.nodePos && typeof WhiteboardStore.data.nodePos === 'object' && !Array.isArray(WhiteboardStore.data.nodePos))
-                    ? { ...WhiteboardStore.data.nodePos }
-                    : {};
-                pos[id] = next[id];
-                WhiteboardStore.data.nodePos = pos;
+                if (nodePosChanged) WhiteboardStore.data.nodePos = { ...nodePos };
+                if (placedChanged) WhiteboardStore.data.placedTaskIds = { ...placedTaskIds };
                 WhiteboardStore.scheduleSave();
             } catch (e) {}
         }
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        const localFields = [];
+        if (nodePosChanged) localFields.push('whiteboardNodePos');
+        if (placedChanged) localFields.push('whiteboardPlacedTaskIds');
+        try { SettingsStore.syncLocalFields?.(localFields); } catch (e) {}
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
         }
+        return changedTaskIds.size;
+    }
+
+    function __tmSetWhiteboardNodePos(taskId, docId, x, y, opts = {}) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        return __tmCommitWhiteboardPlacements([{ taskId, docId, x, y, manual: o.manual }], o);
     }
 
     function __tmGetWhiteboardPlacedTaskMap() {
@@ -1384,28 +2064,8 @@
     }
 
     function __tmSetWhiteboardTaskPlaced(taskId, placed, opts = {}) {
-        const id = String(taskId || '').trim();
-        if (!id) return;
         const o = (opts && typeof opts === 'object') ? opts : {};
-        const next = { ...__tmGetWhiteboardPlacedTaskMap() };
-        if (placed) next[id] = true;
-        else delete next[id];
-        SettingsStore.data.whiteboardPlacedTaskIds = next;
-        if (WhiteboardStore.loaded) {
-            try {
-                const placedMap = (WhiteboardStore.data?.placedTaskIds && typeof WhiteboardStore.data.placedTaskIds === 'object' && !Array.isArray(WhiteboardStore.data.placedTaskIds))
-                    ? { ...WhiteboardStore.data.placedTaskIds }
-                    : {};
-                if (placed) placedMap[id] = true;
-                else delete placedMap[id];
-                WhiteboardStore.data.placedTaskIds = placedMap;
-                WhiteboardStore.scheduleSave();
-            } catch (e) {}
-        }
-        try { SettingsStore.syncToLocal(); } catch (e) {}
-        if (o.persist) {
-            try { SettingsStore.save(); } catch (e) {}
-        }
+        return __tmCommitWhiteboardPlacements([{ taskId, placed: !!placed }], o);
     }
 
     function __tmResolveWhiteboardTaskLocation(taskId, options = {}) {
@@ -1413,7 +2073,7 @@
         if (!id) return null;
         const opts = (options && typeof options === 'object') ? options : {};
         const requestedScope = String(opts.scope || '').trim();
-        const task = state.flatTasks?.[id] || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
         const snapshot = __tmGetWhiteboardCardSnapshot(id);
         if (!task && !snapshot) return null;
         const docId = String(task?.root_id || task?.docId || __tmGetTaskDocIdById(id) || snapshot?.docId || '').trim();
@@ -1431,7 +2091,7 @@
             const getTaskLike0 = (tid) => {
                 const key = String(tid || '').trim();
                 if (!key) return null;
-                const live = state.flatTasks?.[key];
+                const live = globalThis.__tmTaskBoundary?.getTask?.(key);
                 if (live && typeof live === 'object') return live;
                 const snap = __tmGetWhiteboardCardSnapshot(key);
                 if (!snap || typeof snap !== 'object') return null;
@@ -1446,7 +2106,7 @@
             const resolveParentId0 = (tid) => {
                 const key = String(tid || '').trim();
                 if (!key) return '';
-                const liveParent = String(state.flatTasks?.[key]?.parentTaskId || '').trim();
+                const liveParent = String(globalThis.__tmTaskBoundary?.getTask?.(key)?.parentTaskId || '').trim();
                 if (liveParent) return liveParent;
                 const detachedParent = String(detachedMap0?.[key]?.parentTaskId || '').trim();
                 if (detachedParent) return detachedParent;
@@ -1532,13 +2192,13 @@
             if (!tid) return;
             const did = String(item?.root_id || item?.docId || __tmGetTaskDocIdById(tid) || '').trim();
             if (did !== docId) return;
-            if (!showDoneTasks && !!item?.done) return;
+            if (!showDoneTasks && __tmIsTaskCompletedForProjection(item)) return;
             filteredVisibleIds.add(tid);
         });
         const getTaskLike = (tid) => {
             const key = String(tid || '').trim();
             if (!key) return null;
-            const live = state.flatTasks?.[key];
+            const live = globalThis.__tmTaskBoundary?.getTask?.(key);
             if (live && typeof live === 'object') return live;
             const snap = __tmGetWhiteboardCardSnapshot(key);
             if (!snap || typeof snap !== 'object') return null;
@@ -1558,7 +2218,7 @@
             const did = String(item?.root_id || item?.docId || __tmGetTaskDocIdById(key) || '').trim();
             if (did !== docId) return false;
             if (placedMap[key]) return true;
-            if (!showDoneTasks && !!item?.done) return false;
+            if (!showDoneTasks && __tmIsTaskCompletedForProjection(item)) return false;
             return filteredVisibleIds.has(key);
         };
         const path = [id];
@@ -1750,6 +2410,31 @@
                         boardChanged = true;
                     }
                 });
+                const linkedTaskSnapshots = (base.linkedTaskSnapshots && typeof base.linkedTaskSnapshots === 'object')
+                    ? { ...base.linkedTaskSnapshots }
+                    : {};
+                if (linkedTaskSnapshots[from] && typeof linkedTaskSnapshots[from] === 'object') {
+                    linkedTaskSnapshots[to] = {
+                        ...linkedTaskSnapshots[from],
+                        id: to,
+                        updatedAt: String(Date.now()),
+                    };
+                    delete linkedTaskSnapshots[from];
+                    nextBoard.linkedTaskSnapshots = linkedTaskSnapshots;
+                    boardChanged = true;
+                }
+                Object.keys(linkedTaskSnapshots).forEach((taskId) => {
+                    const snapshot = linkedTaskSnapshots[taskId];
+                    if (!snapshot || typeof snapshot !== 'object') return;
+                    if (String(snapshot.parentTaskId || '').trim() !== from) return;
+                    linkedTaskSnapshots[taskId] = {
+                        ...snapshot,
+                        parentTaskId: to,
+                        updatedAt: String(Date.now()),
+                    };
+                    nextBoard.linkedTaskSnapshots = linkedTaskSnapshots;
+                    boardChanged = true;
+                });
                 if (Array.isArray(base.links)) {
                     const nextLinks = base.links.map((link) => {
                         const item = (link && typeof link === 'object') ? link : {};
@@ -1792,6 +2477,12 @@
                 SettingsStore.data.whiteboardGlobalBoardsByGroup = nextBoards;
                 changed = true;
             }
+            __tmGlobalWhiteboardConfirmedFrozenByGroup.forEach((taskIds, gid) => {
+                if (!(taskIds instanceof Set) || !taskIds.has(from)) return;
+                taskIds.delete(from);
+                taskIds.add(to);
+                __tmGlobalWhiteboardConfirmedFrozenByGroup.set(gid, taskIds);
+            });
         } catch (e) {}
         try {
             if (String(state.whiteboardSelectedTaskId || '').trim() === from) {
@@ -1874,7 +2565,7 @@
                 WhiteboardStore.scheduleSave();
             } catch (e) {}
         }
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { SettingsStore.syncLocalFields?.(['whiteboardDocFrameSize']); } catch (e) {}
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
         }
@@ -2207,6 +2898,7 @@
             bypassTaskFieldDefer: raw.bypassTaskFieldDefer === true,
             bypassScrollDefer: raw.bypassScrollDefer === true,
             bypassInteractionDefer: raw.bypassInteractionDefer === true,
+            allowMountedInactive: raw.allowMountedInactive === true,
         };
     }
 
@@ -2234,6 +2926,7 @@
             bypassTaskFieldDefer: left.bypassTaskFieldDefer === true || right.bypassTaskFieldDefer === true,
             bypassScrollDefer: left.bypassScrollDefer === true || right.bypassScrollDefer === true,
             bypassInteractionDefer: left.bypassInteractionDefer === true || right.bypassInteractionDefer === true,
+            allowMountedInactive: left.allowMountedInactive === true || right.allowMountedInactive === true,
         };
     }
 
@@ -2308,6 +3001,9 @@
         try { root.__tmTaskDetailTaskId = tid; } catch (e) {}
         try { root.__tmTaskDetailClosing = false; } catch (e) {}
         try { root.__tmTaskDetailClosed = false; } catch (e) {}
+        try { delete root.__tmTaskDetailCloseFlush; } catch (e) {}
+        try { delete root.__tmTaskDetailCloseRun; } catch (e) {}
+        try { delete root.__tmTaskDetailFlushHandoffSessionId; } catch (e) {}
         if (tid) {
             try { root.dataset.tmDetailTaskId = tid; } catch (e) {}
         }
@@ -2527,6 +3223,100 @@
         return true;
     }
 
+    async function __tmFlushTaskDetailBeforeClose(rootEl, options = {}) {
+        const root = rootEl instanceof Element ? rootEl : null;
+        if (!(root instanceof Element)) return true;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const sessionId = Math.max(0, Number(root.__tmTaskDetailSessionId) || 0);
+        if (opts.consumeHandoff !== false
+            && sessionId
+            && Number(root.__tmTaskDetailFlushHandoffSessionId || 0) === sessionId) {
+            try { delete root.__tmTaskDetailFlushHandoffSessionId; } catch (e) {}
+            return true;
+        }
+        const active = root.__tmTaskDetailCloseFlush;
+        if (active?.promise instanceof Promise && Number(active.sessionId || 0) === sessionId) {
+            return await active.promise;
+        }
+        const flush = root.__tmTaskDetailFlushSave;
+        if (typeof flush !== 'function') {
+            return true;
+        }
+        const promise = (async () => {
+            try {
+                const saved = await flush({
+                    showHint: false,
+                    closeAfterSave: false,
+                    preserveFocus: false,
+                    skipRerender: true,
+                    waitForCommit: true,
+                });
+                if (saved !== false) return true;
+                try { hint('❌ 当前修改未保存，请重试', 'error'); } catch (e) {}
+                return false;
+            } catch (error) {
+                try { hint(`❌ 详情保存失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+                return false;
+            }
+        })();
+        const marker = { sessionId, promise };
+        try { root.__tmTaskDetailCloseFlush = marker; } catch (e) {}
+        try {
+            return await promise;
+        } finally {
+            try {
+                if (root.__tmTaskDetailCloseFlush === marker) delete root.__tmTaskDetailCloseFlush;
+            } catch (e) {}
+        }
+    }
+
+    async function __tmRunTaskDetailClose(rootEl, closeAction, options = {}) {
+        const root = rootEl instanceof Element ? rootEl : null;
+        const runClose = typeof closeAction === 'function' ? closeAction : async () => {};
+        if (!(root instanceof Element)) {
+            await runClose();
+            return true;
+        }
+        const opts = (options && typeof options === 'object') ? options : {};
+        const sessionId = Math.max(0, Number(root.__tmTaskDetailSessionId) || 0);
+        const active = root.__tmTaskDetailCloseRun;
+        if (active?.promise instanceof Promise && Number(active.sessionId || 0) === sessionId) {
+            return await active.promise;
+        }
+        const promise = (async () => {
+            const skipFlush = opts.skipFlush === true || root.__tmTaskDetailSkipCloseFlush === true;
+            const saved = skipFlush
+                ? true
+                : await __tmFlushTaskDetailBeforeClose(root, { consumeHandoff: true });
+            if (!saved) {
+                return false;
+            }
+            __tmMarkTaskDetailRootClosing(root, {
+                sessionId,
+                holdMs: Math.max(0, Number(opts.holdMs) || 0),
+            });
+            try {
+                await runClose();
+                __tmMarkTaskDetailRootClosed(root, { sessionId });
+                return true;
+            } catch (error) {
+                try { root.__tmTaskDetailClosing = false; } catch (e) {}
+                try { root.__tmTaskDetailClosed = false; } catch (e) {}
+                try { hint(`❌ 关闭任务详情失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+                return false;
+            }
+        })();
+        const marker = { sessionId, promise };
+        try { root.__tmTaskDetailCloseRun = marker; } catch (e) {}
+        try {
+            return await promise;
+        } finally {
+            try {
+                if (root.__tmTaskDetailCloseRun === marker) delete root.__tmTaskDetailCloseRun;
+            } catch (e) {}
+        }
+    }
+
     function __tmCollectBusyTaskDetailRoots() {
         const roots = [];
         try {
@@ -2644,7 +3434,7 @@
                         taskIds: Array.isArray(pending.taskIds) ? pending.taskIds.slice() : [],
                     });
                 } catch (e) {}
-                __tmPerformViewRefresh(pending);
+                __tmScheduleViewRefresh(pending);
             }, waitMs);
             return true;
         };
@@ -2712,35 +3502,7 @@
 
     function __tmPerformViewRefresh(detail = {}) {
         const next = __tmNormalizeViewRefreshDetail(detail);
-        const __tmJankViewRefreshStarted = (typeof __tmIsJankDebugEnabled === 'function' && __tmIsJankDebugEnabled() && typeof __tmJankNow === 'function')
-            ? __tmJankNow()
-            : 0;
-        const __tmJankViewRefreshFinish = (outcome = '', payload = {}) => {
-            if (!__tmJankViewRefreshStarted) return;
-            try {
-                const entry = {
-                    phase: 'perform',
-                    outcome: String(outcome || '').trim() || 'unknown',
-                    durationMs: __tmRoundPerfMs(__tmJankNow() - __tmJankViewRefreshStarted),
-                    detail: __tmSummarizeJankViewRefreshDetail(next),
-                    ...((payload && typeof payload === 'object') ? payload : {}),
-                };
-                state.__tmJankLastViewRefresh = { ...entry, at: Date.now() };
-                __tmPushJankDebug('view-refresh-performed', entry);
-            } catch (e) {}
-        };
-        if (__tmJankViewRefreshStarted) {
-            try {
-                state.__tmJankLastViewRefresh = {
-                    phase: 'perform-start',
-                    detail: __tmSummarizeJankViewRefreshDetail(next),
-                    at: Date.now(),
-                };
-                __tmPushJankDebug('view-refresh-perform-start', {
-                    detail: __tmSummarizeJankViewRefreshDetail(next),
-                });
-            } catch (e) {}
-        }
+        const bypassBusyDetailDefer = next.bypassDefer === true || next.bypassTaskFieldDefer === true;
         try {
             const currentDetailId = String(state.detailTaskId || state.kanbanDetailTaskId || '').trim();
             if (currentDetailId) {
@@ -2751,19 +3513,29 @@
                     withFilters: next.withFilters !== false,
                     taskIds: Array.isArray(next.taskIds) ? next.taskIds.slice() : [],
                     viewMode: String(state.viewMode || '').trim(),
+                    bypassBusyDetailDefer,
+                    bypassTaskFieldDefer: next.bypassTaskFieldDefer === true,
+                    allowMountedInactive: next.allowMountedInactive === true,
+                    modalMounted: state.modal instanceof Element && document.body.contains(state.modal),
+                    pluginVisible: typeof __tmIsPluginVisibleNow !== 'function' || __tmIsPluginVisibleNow(),
                 });
             }
         } catch (e) {}
-        if (next.mode !== 'detail') {
+        if (next.mode !== 'detail' && !bypassBusyDetailDefer) {
             const barrier = __tmGetBusyTaskDetailBarrier();
             if (barrier) {
                 __tmScheduleBusyDetailViewRefresh(next);
-                __tmJankViewRefreshFinish('busy-detail-deferred', { detailRefreshed: false });
                 return true;
             }
         }
-        if (next.mode !== 'detail' && typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) {
-            const detailRefreshed = __tmRefreshVisibleDetailsFromViewRefresh(next, `${String(next.reason || 'view-refresh-hidden').trim() || 'view-refresh-hidden'}:hidden-detail`);
+        const allowMountedInactive = next.allowMountedInactive === true
+            && state.modal instanceof Element
+            && document.body.contains(state.modal);
+        if (next.mode !== 'detail'
+            && typeof __tmIsPluginVisibleNow === 'function'
+            && !__tmIsPluginVisibleNow()
+            && !allowMountedInactive) {
+            __tmRefreshVisibleDetailsFromViewRefresh(next, `${String(next.reason || 'view-refresh-hidden').trim() || 'view-refresh-hidden'}:hidden-detail`);
             state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, next);
             try {
                 if (typeof __tmScheduleMaybeAutoRefreshOnEnter === 'function') {
@@ -2771,34 +3543,25 @@
                 }
             } catch (e) {}
             try { __tmSchedulePendingViewRefreshRetry('view-refresh-hidden', 520); } catch (e) {}
-            __tmJankViewRefreshFinish('hidden-deferred', { detailRefreshed });
             return false;
         }
         if (next.mode !== 'detail' && (!state.modal || !document.body.contains(state.modal))) {
             state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, next);
             try { __tmSchedulePendingViewRefreshRetry('view-refresh-modal-missing', 520); } catch (e) {}
-            __tmJankViewRefreshFinish('modal-missing');
             return false;
         }
         try { state.__tmViewRefreshHiddenRetryCount = 0; } catch (e) {}
         if (next.mode === 'full') {
-            let applyMs = 0;
-            let renderMs = 0;
             if (next.withFilters !== false) {
-                const applyStarted = __tmJankViewRefreshStarted ? __tmJankNow() : 0;
                 try {
-                    applyFilters();
+                    __tmRecomputeTaskProjection({ reason: next.reason });
                 } catch (e) {
                 }
-                if (applyStarted) applyMs = __tmRoundPerfMs(__tmJankNow() - applyStarted);
             }
-            const renderStarted = __tmJankViewRefreshStarted ? __tmJankNow() : 0;
             try {
                 render();
             } catch (e) {
             }
-            if (renderStarted) renderMs = __tmRoundPerfMs(__tmJankNow() - renderStarted);
-            __tmJankViewRefreshFinish('full', { applyMs, renderMs });
             return true;
         }
         if (next.mode === 'detail') {
@@ -2824,44 +3587,27 @@
                 } catch (e) {
                 }
             }
-            __tmJankViewRefreshFinish('detail', { refreshed });
             return true;
         }
-        let mainRefreshMs = 0;
-        let fallbackRender = false;
-        const mainRefreshStarted = __tmJankViewRefreshStarted ? __tmJankNow() : 0;
         try {
-            __tmRefreshMainViewInPlace({ withFilters: next.withFilters !== false });
+            __tmRefreshMainViewInPlace({
+                withFilters: next.withFilters !== false,
+                reason: next.reason,
+                deferIfDetailBusy: !bypassBusyDetailDefer,
+                allowMountedInactive,
+            });
         } catch (e) {
-            fallbackRender = true;
             try {
                 render();
             } catch (e2) {
             }
         }
-        if (mainRefreshStarted) mainRefreshMs = __tmRoundPerfMs(__tmJankNow() - mainRefreshStarted);
-        __tmJankViewRefreshFinish(fallbackRender ? 'current-render-fallback' : 'current', { mainRefreshMs, fallbackRender });
         return true;
     }
 
 
     function __tmScheduleViewRefresh(detail = {}) {
-        const scheduleStartedAt = Date.now();
         const incoming = __tmNormalizeViewRefreshDetail(detail);
-        const jankEnabled = typeof __tmIsJankDebugEnabled === 'function' && __tmIsJankDebugEnabled();
-        if (jankEnabled) {
-            try {
-                const entry = {
-                    phase: 'schedule',
-                    detail: __tmSummarizeJankViewRefreshDetail(incoming),
-                    timerActive: !!state.viewRefreshTimer,
-                    pendingBefore: __tmSummarizeJankViewRefreshDetail(state.viewRefreshPending),
-                    stack: true,
-                };
-                state.__tmJankLastViewRefresh = { ...entry, at: scheduleStartedAt };
-                __tmPushJankDebug('view-refresh-scheduled', entry);
-            } catch (e) {}
-        }
         if (incoming.mode === 'detail') {
             try {
                 __tmPerformViewRefresh(incoming);
@@ -2871,31 +3617,15 @@
         }
         state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, incoming);
 if (state.viewRefreshTimer) {
-            if (jankEnabled) {
-                try {
-                    __tmPushJankDebug('view-refresh-coalesced', {
-                        detail: __tmSummarizeJankViewRefreshDetail(incoming),
-                        pendingAfter: __tmSummarizeJankViewRefreshDetail(state.viewRefreshPending),
-                    });
-                } catch (e) {}
-            }
             return true;
         }
-        state.viewRefreshSeq = (Number(state.viewRefreshSeq) || 0) + 1;
+        const refreshSeq = state.viewRefreshSeq = (Number(state.viewRefreshSeq) || 0) + 1;
         state.viewRefreshTimer = setTimeout(() => {
+            if (refreshSeq !== Number(state.viewRefreshSeq)) return;
             state.viewRefreshTimer = 0;
             const next = state.viewRefreshPending;
-            state.viewRefreshPending = null;
             if (!next) {
                 return;
-            }
-            if (jankEnabled) {
-                try {
-                    __tmPushJankDebug('view-refresh-timer-fired', {
-                        detail: __tmSummarizeJankViewRefreshDetail(next),
-                        delayMs: Date.now() - scheduleStartedAt,
-                    });
-                } catch (e) {}
             }
             const bypassTaskFieldDefer = next.bypassTaskFieldDefer === true || next.bypassDefer === true;
             const bypassScrollDefer = next.bypassScrollDefer === true || next.bypassDefer === true;
@@ -2905,22 +3635,8 @@ if (state.viewRefreshTimer) {
             if (deferForTaskFieldWork || deferForActiveScroll) {
                 state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, next);
 if (deferForActiveScroll) {
-                    if (jankEnabled) {
-                        try {
-                            __tmPushJankDebug('view-refresh-deferred-scroll', {
-                                detail: __tmSummarizeJankViewRefreshDetail(next),
-                            });
-                        } catch (e) {}
-                    }
                     try { __tmScheduleDeferredRefreshAfterScroll('view-refresh'); } catch (e) {}
                     return;
-                }
-                if (jankEnabled) {
-                    try {
-                        __tmPushJankDebug('view-refresh-deferred-task-field', {
-                            detail: __tmSummarizeJankViewRefreshDetail(next),
-                        });
-                    } catch (e) {}
                 }
                 try { __tmFlushDeferredViewRefreshAfterTaskFieldWork('view-refresh'); } catch (e) {}
                 return;
@@ -2930,15 +3646,8 @@ if (deferForActiveScroll) {
                 : 0;
             if (!bypassInteractionDefer && interactionWait > 0) {
                 state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, next);
-                if (jankEnabled) {
-                    try {
-                        __tmPushJankDebug('view-refresh-deferred-interaction', {
-                            detail: __tmSummarizeJankViewRefreshDetail(next),
-                            interactionWait,
-                        });
-                    } catch (e) {}
-                }
                 state.viewRefreshTimer = setTimeout(() => {
+                    if (refreshSeq !== Number(state.viewRefreshSeq)) return;
                     state.viewRefreshTimer = 0;
                     const pending = state.viewRefreshPending;
                     state.viewRefreshPending = null;
@@ -2947,15 +3656,12 @@ if (deferForActiveScroll) {
                 return;
             }
             const runRefresh = () => {
-                if (jankEnabled) {
-                    try {
-                        __tmPushJankDebug('view-refresh-raf-run', {
-                            detail: __tmSummarizeJankViewRefreshDetail(next),
-                        });
-                    } catch (e) {}
-                }
+                if (refreshSeq !== Number(state.viewRefreshSeq)) return;
+                const pending = state.viewRefreshPending;
+                state.viewRefreshPending = null;
+                if (!pending) return;
                 try {
-                    __tmPerformViewRefresh(next);
+                    __tmPerformViewRefresh(pending);
                 } catch (e) {
                 }
             };
@@ -3005,6 +3711,9 @@ __tmScheduleViewRefresh(pending);
     function __tmRefreshMainViewInPlace(options = {}) {
         const withFilters = !(options && options.withFilters === false);
         const reason = String(options?.reason || '').trim() || 'main-view-refresh';
+        const allowMountedInactive = options?.allowMountedInactive === true
+            && state.modal instanceof Element
+            && document.body.contains(state.modal);
 try {
             const currentDetailId = String(state.detailTaskId || state.kanbanDetailTaskId || '').trim();
             if (currentDetailId) {
@@ -3013,6 +3722,9 @@ try {
                     viewMode: String(state.viewMode || '').trim(),
                     withFilters,
                     reason,
+                    allowMountedInactive,
+                    deferIfDetailBusy: options?.deferIfDetailBusy !== false,
+                    pluginVisible: typeof __tmIsPluginVisibleNow !== 'function' || __tmIsPluginVisibleNow(),
                 });
             }
         } catch (e) {}
@@ -3030,10 +3742,12 @@ try {
         if (!state.modal || !document.body.contains(state.modal)) {
             return false;
         }
-        if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) {
+        if (typeof __tmIsPluginVisibleNow === 'function'
+            && !__tmIsPluginVisibleNow()
+            && !allowMountedInactive) {
             return false;
         }
-        if (withFilters) applyFilters();
+        if (withFilters) __tmRecomputeTaskProjection({ reason });
         if (state.viewMode === 'calendar') {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
             return;
@@ -3057,125 +3771,11 @@ try {
         render();
     }
 
-    const __tmFieldSpecs = {
-        done: {
-            key: 'done',
-            storageKind: 'marker+attr',
-            requiresBlockUpdate: true,
-            requiresAttrWrite: false,
-            affectsProjection: true,
-            supportsLocalPatch: true,
-            coalesceKey: 'done',
-        },
-        customStatus: {
-            key: 'customStatus',
-            storageKind: 'marker+attr',
-            requiresBlockUpdate: true,
-            requiresAttrWrite: true,
-            affectsProjection: true,
-            supportsLocalPatch: true,
-            coalesceKey: 'status',
-        },
-        priority: {
-            key: 'priority',
-            storageKind: 'attr-only',
-            requiresBlockUpdate: false,
-            requiresAttrWrite: true,
-            affectsProjection: true,
-            supportsLocalPatch: true,
-            coalesceKey: 'priority',
-        },
-        pinned: {
-            key: 'pinned',
-            storageKind: 'attr-only',
-            requiresBlockUpdate: false,
-            requiresAttrWrite: true,
-            affectsProjection: true,
-            supportsLocalPatch: true,
-            coalesceKey: 'pinned',
-        },
-        allDayBottom: {
-            key: 'allDayBottom',
-            storageKind: 'attr-only',
-            requiresBlockUpdate: false,
-            requiresAttrWrite: true,
-            affectsProjection: false,
-            supportsLocalPatch: true,
-            coalesceKey: 'allDayBottom',
-        },
-        milestone: {
-            key: 'milestone',
-            storageKind: 'attr-only',
-            requiresBlockUpdate: false,
-            requiresAttrWrite: true,
-            affectsProjection: false,
-            supportsLocalPatch: true,
-            coalesceKey: 'milestone',
-        },
-        startDate: {
-            key: 'startDate',
-            storageKind: 'attr-only',
-            requiresBlockUpdate: false,
-            requiresAttrWrite: true,
-            affectsProjection: true,
-            supportsLocalPatch: true,
-            coalesceKey: 'time',
-        },
-        completionTime: {
-            key: 'completionTime',
-            storageKind: 'attr-only',
-            requiresBlockUpdate: false,
-            requiresAttrWrite: true,
-            affectsProjection: true,
-            supportsLocalPatch: true,
-            coalesceKey: 'time',
-        },
-        duration: {
-            key: 'duration',
-            storageKind: 'attr-only',
-            requiresBlockUpdate: false,
-            requiresAttrWrite: true,
-            affectsProjection: false,
-            supportsLocalPatch: true,
-            coalesceKey: 'time',
-        },
-        remark: {
-            key: 'remark',
-            storageKind: 'attr-only',
-            requiresBlockUpdate: false,
-            requiresAttrWrite: true,
-            affectsProjection: false,
-            supportsLocalPatch: true,
-            coalesceKey: 'remark',
-        },
-        attachments: {
-            key: 'attachments',
-            storageKind: 'attr-only',
-            requiresBlockUpdate: false,
-            requiresAttrWrite: true,
-            affectsProjection: false,
-            supportsLocalPatch: true,
-            coalesceKey: 'attachments',
-        },
-        customFieldValues: {
-            key: 'customFieldValues',
-            storageKind: 'attr-only',
-            requiresBlockUpdate: false,
-            requiresAttrWrite: true,
-            affectsProjection: true,
-            supportsLocalPatch: true,
-            coalesceKey: 'customFieldValues',
-        },
-    };
-
     const __tmTaskStateKernel = {
         getTask(taskId) {
             const tid = String(taskId || '').trim();
             if (!tid) return null;
-            return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                || state.pendingInsertedTasks?.[tid]
-                || state.flatTasks?.[tid]
-                || null;
+            return globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         },
         snapshotTask(taskId) {
             const task = this.getTask(taskId);
@@ -3299,27 +3899,6 @@ try {
         return Object.keys(nextPatch).filter((key) => Object.prototype.hasOwnProperty.call(nextPatch, key));
     }
 
-    function __tmGetFieldSpec(key) {
-        const normalized = String(key || '').trim();
-        if (!normalized) return null;
-        return __tmFieldSpecs[normalized] || null;
-    }
-
-    function __tmIsSimpleProjectionContext() {
-        if (state.currentRule) return false;
-        if (state.groupByTime || state.groupByTaskName || state.quadrantEnabled) return false;
-        return true;
-    }
-
-    function __tmIsKanbanTimeBoardContext() {
-        if (String(state.viewMode || '').trim() !== 'kanban') return false;
-        try {
-            return typeof __tmGetKanbanBoardMode === 'function' && __tmGetKanbanBoardMode() === 'time';
-        } catch (e) {
-            return false;
-        }
-    }
-
     function __tmShouldSuppressChecklistDetailSaveRefresh(taskId, patch = {}, options = {}) {
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
@@ -3337,14 +3916,7 @@ try {
     }
 
     function __tmDoesPatchAffectProjection(taskId, patch = {}) {
-        const keys = __tmGetPatchFieldKeys(patch);
-        if (!keys.length) return false;
-        if (keys.some((key) => key === 'pinned')) return true;
-        if (state.currentRule) {
-            const rule = __tmGetCurrentProjectionRule();
-            if (__tmRuleUsesPatchField(rule, keys)) return true;
-        }
-        return __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch);
+        return __tmAnalyzeTaskProjectionPatch(taskId, patch).projection === true;
     }
 
     function __tmGetCurrentProjectionRule() {
@@ -3360,130 +3932,70 @@ try {
         }
     }
 
-    function __tmNormalizeProjectionFieldKey(key) {
-        if (typeof __tmNormalizeLocalPatchFieldKey === 'function') return __tmNormalizeLocalPatchFieldKey(key);
-        return String(key || '').trim();
+    function __tmBuildTaskProjectionContext(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        let kanbanMode = '';
+        try { kanbanMode = typeof __tmGetKanbanBoardMode === 'function' ? String(__tmGetKanbanBoardMode() || '').trim() : ''; } catch (e) {}
+        let kanbanCardFields = [];
+        try { kanbanCardFields = typeof __tmGetTaskCardFieldList === 'function' ? __tmGetTaskCardFieldList('kanban') : []; } catch (e) {}
+        const groupMode = state.groupByDocName
+            ? 'doc'
+            : (state.groupByTaskName
+                ? 'task'
+                : (state.groupByTime ? 'time' : (state.quadrantEnabled ? 'quadrant' : 'none')));
+        return {
+            rule: opts.rule || __tmGetCurrentProjectionRule(),
+            viewMode: String(state.viewMode || '').trim(),
+            groupMode,
+            searchActive: !!String(state.searchKeyword || '').trim(),
+            kanbanMode,
+            kanbanCardFields: Array.isArray(kanbanCardFields) ? kanbanCardFields : [],
+        };
     }
 
-    function __tmRuleUsesPatchField(rule, patchKeys = []) {
-        const keys = new Set((Array.isArray(patchKeys) ? patchKeys : [])
-            .map((key) => __tmNormalizeProjectionFieldKey(key))
-            .filter(Boolean));
-        if (!keys.size || !rule || typeof rule !== 'object') return false;
-        const uses = (field) => {
-            const key = __tmNormalizeProjectionFieldKey(field);
-            if (!key) return false;
-            if (keys.has(key)) return true;
-            if (key.startsWith('customField:') && keys.has(key)) return true;
-            if (key === 'priorityScore' && (keys.has('priority') || keys.has('startDate') || keys.has('completionTime') || keys.has('customTime') || keys.has('taskCompleteAt') || keys.has('done') || keys.has('customStatus'))) return true;
-            return false;
-        };
-        if ((Array.isArray(rule.conditions) ? rule.conditions : []).some((condition) => uses(condition?.field))) return true;
-        if ((Array.isArray(rule.sort) ? rule.sort : []).some((sortRule) => uses(sortRule?.field))) return true;
-        return false;
+    function __tmAnalyzeTaskProjectionPatch(taskId, patch = {}, options = {}) {
+        const engine = globalThis.__tmTaskProjectionEngine;
+        if (!engine || typeof engine.analyzePatch !== 'function') {
+            const changedFields = __tmGetPatchFieldKeys(patch);
+            return {
+                changedFields,
+                filter: changedFields.length > 0,
+                sort: changedFields.length > 0,
+                group: changedFields.length > 0,
+                projection: changedFields.length > 0,
+                calendar: changedFields.length > 0,
+                requiresClosure: changedFields.length > 0,
+            };
+        }
+        return engine.analyzePatch(patch, __tmBuildTaskProjectionContext(options));
     }
 
     function __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch = {}, options = {}) {
-        const keys = __tmGetPatchFieldKeys(patch);
-        if (!keys.length) return false;
-        const keySet = new Set(keys);
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (state.currentRule) {
-            const rule = opts.rule || __tmGetCurrentProjectionRule();
-            if (__tmRuleUsesPatchField(rule, keys)) return true;
-        }
-        if (keySet.has('pinned')) return true;
-        const completionKeys = ['done', 'customStatus', 'taskCompleteAt'];
-        if (completionKeys.some((key) => keySet.has(key))) return true;
-        const timeKeys = ['startDate', 'completionTime', 'customTime'];
-        if ((state.groupByTime || __tmIsKanbanTimeBoardContext()) && timeKeys.some((key) => keySet.has(key))) return true;
-        if (String(state.viewMode || '').trim() === 'kanban') {
-            let kanbanMode = '';
-            try {
-                kanbanMode = typeof __tmGetKanbanBoardMode === 'function' ? String(__tmGetKanbanBoardMode() || '').trim() : '';
-            } catch (e) {
-                kanbanMode = '';
-            }
-            const docHeadingKeys = ['root_id', 'docId', 'h2', 'h2Id', 'h2Path', 'h2Sort', 'h2Created', 'h2Rank', 'docSeq', 'blockPath', 'blockSort'];
-            const docHeadingChanged = docHeadingKeys.some((key) => keySet.has(key));
-            if (keySet.has('root_id') || keySet.has('docId')) return true;
-            if (kanbanMode === 'heading' && docHeadingChanged) return true;
-            try {
-                const cardFields = new Set(__tmGetTaskCardFieldList('kanban'));
-                if (cardFields.has('h2') && docHeadingChanged) return true;
-            } catch (e) {}
-        }
-        if (state.quadrantEnabled && (timeKeys.some((key) => keySet.has(key)) || keySet.has('priority') || keySet.has('priorityScore'))) return true;
-        if (state.groupByTaskName && keySet.has('content')) return true;
-        if (state.groupByDocName && (keySet.has('root_id') || keySet.has('docId') || keySet.has('h2') || keySet.has('h2Id') || keySet.has('h2Path') || keySet.has('h2Sort'))) return true;
-        if (!state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled) {
-            if (keySet.has('priority') || keySet.has('priorityScore')) return true;
-        }
-        return false;
-    }
-
-    function __tmDoesPatchAffectCurrentSort(taskId, patch = {}) {
-        return __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch);
-    }
-
-    function __tmDoesPatchAffectCurrentGroup(taskId, patch = {}) {
-        return __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch);
+        const analysis = __tmAnalyzeTaskProjectionPatch(taskId, patch, options);
+        return analysis.sort === true || analysis.group === true || analysis.filter === true;
     }
 
     function __tmDoesPatchAffectCurrentFilter(taskId, patch = {}) {
-        const keys = __tmGetPatchFieldKeys(patch);
-        if (String(state.searchKeyword || '').trim() && keys.length) {
-            const searchKeys = new Set([
-                'content',
-                'markdown',
-                'remark',
-                'customFieldValues',
-                'h2',
-                'h2Id',
-                'docId',
-                'root_id',
-            ]);
-            if (keys.some((key) => searchKeys.has(String(key || '').trim()) || String(key || '').trim().startsWith('customField:'))) return true;
-        }
-        return __tmDoesPatchAffectProjection(taskId, patch);
+        return __tmAnalyzeTaskProjectionPatch(taskId, patch).filter === true;
     }
 
     function __tmShouldDeferTaskFieldRefreshWork() {
         return !!(
             state.isRefreshing
+            || state.visibleResumeSyncInFlight
             || __tmTxTaskRefreshInFlight
             || __tmTabEnterAutoRefreshInFlight
         );
     }
 
-    function __tmDoesPatchNeedImmediateListProjectionRefresh(patch = {}) {
-        const keys = __tmGetPatchFieldKeys(patch);
-        if (!keys.length) return false;
-        return keys.some((key) => key === 'startDate' || key === 'completionTime' || key === 'customTime' || key === 'taskCompleteAt' || key === 'pinned');
-    }
-
     function __tmBuildListProjectionRefreshScheduleOptions(patch = {}, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const reason = String(opts.reason || '').trim();
-        const immediate = __tmDoesPatchNeedImmediateListProjectionRefresh(patch) && !__tmShouldDeferTaskFieldRefreshWork();
-        if (immediate) return { immediate: true };
-        let delayMs = 1000;
-        if (__tmShouldDeferTaskFieldRefreshWork()) delayMs = 180;
-        if (reason === 'tx-attr-update' || reason === 'change-feed-attr' || reason === 'native-doc-checkbox-sync') delayMs = 180;
-        return {
-            immediate: false,
-            delayMs,
-        };
+        return { immediate: true, delayMs: 0 };
     }
 
     function __tmDoesPatchNeedProjectionRefresh(taskId, patch = {}, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        if (opts.forceProjectionRefresh === true) return true;
-        if (__tmDoesPatchAffectProjection(taskId, patch)) return true;
-        if (__tmDoesPatchAffectCurrentSort(taskId, patch)) return true;
-        if (__tmDoesPatchAffectCurrentGroup(taskId, patch)) return true;
-        if (__tmDoesPatchAffectCurrentFilter(taskId, patch)) return true;
-        return false;
+        return __tmAnalyzeTaskProjectionPatch(taskId, patch, opts).projection === true;
     }
 
     function __tmShouldRefreshWithFiltersForPatch(taskId, patch = {}, options = {}) {
@@ -3493,22 +4005,7 @@ try {
     }
 
     function __tmPatchAffectsCalendar(patch = {}) {
-        const keys = __tmGetPatchFieldKeys(patch);
-        if (!keys.length) return false;
-        const calendarKeys = new Set([
-            'done',
-            'customStatus',
-            'startDate',
-            'completionTime',
-            'taskDateColor',
-            'taskCompleteAt',
-            'customTime',
-            'repeatRule',
-            'repeatState',
-            'repeatHistory',
-            'allDayBottom',
-        ]);
-        return keys.some((key) => calendarKeys.has(String(key || '').trim()));
+        return __tmAnalyzeTaskProjectionPatch('', patch).calendar === true;
     }
 
     function __tmArmChecklistRenderGuard(reason = '', ttlMs = 420) {
@@ -3535,22 +4032,17 @@ return true;
     }
 
     function __tmGetChecklistProjectionRefreshDelayMs() {
-        try {
-            const isMobile = !!(
-                state.modal?.classList?.contains?.('tm-modal--mobile')
-                || (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice())
-            );
-            return isMobile ? 360 : 180;
-        } catch (e) {
-            return 240;
-        }
+        return 0;
     }
 
-    function __tmScheduleChecklistDeferredProjectionRefresh(taskId, patch = {}, reason = '', delayMs = __tmGetChecklistProjectionRefreshDelayMs()) {
+    function __tmScheduleChecklistDeferredProjectionRefresh(taskId, patch = {}, reason = '', delayMs = __tmGetChecklistProjectionRefreshDelayMs(), options = {}) {
         const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
         if (!tid) return false;
         if (!__tmIsChecklistProjectionContext()) return false;
         if (!__tmShouldUseChecklistProjectionRefreshForPatch(tid, patch)) return false;
+        const immediateProjection = opts.fastProjectionApplied !== true
+            && (__tmGetPatchFieldKeys(patch).includes('pinned') || Number(delayMs) <= 0);
         try {
             state.__tmChecklistItemsOnlyRefreshUntil = 0;
             state.__tmChecklistItemsOnlyRefreshReason = '';
@@ -3561,6 +4053,9 @@ return true;
             withFilters: true,
             reason: String(reason || 'checklist-projection').trim() || 'checklist-projection',
             taskIds: [tid],
+            bypassTaskFieldDefer: immediateProjection,
+            bypassScrollDefer: immediateProjection,
+            bypassInteractionDefer: immediateProjection,
         };
         state.__tmChecklistProjectionRefreshPending = __tmMergeViewRefreshDetail(
             state.__tmChecklistProjectionRefreshPending,
@@ -3570,20 +4065,14 @@ return true;
             try { clearTimeout(state.__tmChecklistProjectionRefreshTimer); } catch (e) {}
             state.__tmChecklistProjectionRefreshTimer = 0;
         }
-        const waitMs = Math.max(80, Number(delayMs) || __tmGetChecklistProjectionRefreshDelayMs());
+        const waitMs = 0;
         state.__tmChecklistProjectionRefreshTimer = setTimeout(() => {
             state.__tmChecklistProjectionRefreshTimer = 0;
             const pending = state.__tmChecklistProjectionRefreshPending;
             state.__tmChecklistProjectionRefreshPending = null;
             if (!pending) return;
             if (!__tmIsChecklistProjectionContext()) return;
-            try { state.listDomRenderSignature = ''; } catch (e) {}
-            try {
-                state.__tmChecklistProjectionGroupRefreshUntil = Date.now() + 1500;
-                state.__tmChecklistProjectionGroupRefreshTaskIds = Array.isArray(pending.taskIds)
-                    ? pending.taskIds.map((id) => String(id || '').trim()).filter(Boolean)
-                    : [];
-            } catch (e) {}
+            try { __tmMarkChecklistProjectionGroupRefresh(pending.taskIds); } catch (e) {}
             const nextReason = String(pending.reason || reason || 'checklist-projection').trim() || 'checklist-projection';
             __tmScheduleViewRefresh({
                 ...pending,
@@ -3612,20 +4101,8 @@ return false;
                 && patchKeys.some((key) => key === 'done' || key === 'customStatus');
             if (!completionVisibilityMayChange) return false;
         }
-        if (opts.forceProjectionRefresh === true) return true;
         if (__tmDoesPatchAffectProjection(taskId, patch)) return true;
         return false;
-    }
-
-    function __tmDoesPatchNeedOptimisticProjectionRefresh(taskId, patch = {}, options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (opts.optimisticProjectionRefresh === true) return __tmDoesPatchNeedProjectionRefresh(taskId, patch, {
-            ...opts,
-            forceProjectionRefresh: opts.forceProjectionRefresh === true,
-        });
-        if (opts.optimisticProjectionRefresh === false) return false;
-        return __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch, opts)
-            || __tmDoesPatchAffectCurrentFilter(taskId, patch);
     }
 
     function __tmScheduleTaskProjectionRefresh(taskId, patch = {}, options = {}) {
@@ -3635,11 +4112,19 @@ return false;
         if (!tid || !Object.keys(nextPatch).length) return false;
         const viewMode = String(state.viewMode || '').trim();
         const reason = String(opts.reason || 'task-field-projection').trim() || 'task-field-projection';
+        const immediateProjection = opts.fastProjectionApplied !== true
+            && (opts.immediateProjectionRefresh === true || __tmGetPatchFieldKeys(nextPatch).includes('pinned'));
         const refreshWithFilters = opts.withFilters === true
             || __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
         if (viewMode === 'checklist'
             && refreshWithFilters
-            && __tmScheduleChecklistDeferredProjectionRefresh(tid, nextPatch, reason)) {
+            && __tmScheduleChecklistDeferredProjectionRefresh(
+                tid,
+                nextPatch,
+                reason,
+                immediateProjection ? 0 : __tmGetChecklistProjectionRefreshDelayMs(),
+                { fastProjectionApplied: opts.fastProjectionApplied === true },
+            )) {
             return true;
         }
         if (refreshWithFilters && (viewMode === 'list' || viewMode === 'checklist')) {
@@ -3651,14 +4136,728 @@ return false;
                 withFilters: true,
                 reason,
                 taskIds: [tid],
-            }, __tmBuildListProjectionRefreshScheduleOptions(nextPatch, opts));
+            }, immediateProjection
+                ? { immediate: true, delayMs: 0 }
+                : __tmBuildListProjectionRefreshScheduleOptions(nextPatch, opts));
         }
         return __tmScheduleViewRefresh({
             mode: 'current',
             withFilters: refreshWithFilters,
             reason,
             taskIds: [tid],
+            bypassTaskFieldDefer: immediateProjection,
+            bypassScrollDefer: immediateProjection,
+            bypassInteractionDefer: immediateProjection,
         });
+    }
+
+    const __tmOptimisticProjectionFramePending = new Map();
+    let __tmOptimisticProjectionFrame = 0;
+    const __TM_PROJECTION_INPUT_YIELD_MAX_MS = 300;
+
+    function __tmScheduleOptimisticProjectionFrame(viewMode, taskId, patch = {}) {
+        const mode = String(viewMode || '').trim();
+        const tid = String(taskId || '').trim();
+        if (!tid || !['checklist', 'kanban'].includes(mode)) return false;
+        const key = `${mode}:${tid}`;
+        const previous = __tmOptimisticProjectionFramePending.get(key);
+        __tmOptimisticProjectionFramePending.set(key, {
+            mode,
+            taskId: tid,
+            patch: {
+                ...((previous?.patch && typeof previous.patch === 'object') ? previous.patch : {}),
+                ...((patch && typeof patch === 'object') ? patch : {}),
+            },
+        });
+        if (__tmOptimisticProjectionFrame) return true;
+        const scheduledAt = Date.now();
+
+        const run = () => {
+            try {
+                if (navigator?.scheduling?.isInputPending?.({ includeContinuous: true })
+                    && Date.now() - scheduledAt < __TM_PROJECTION_INPUT_YIELD_MAX_MS) {
+                    __tmOptimisticProjectionFrame = requestAnimationFrame(run);
+                    return;
+                }
+            } catch (e) {}
+            __tmOptimisticProjectionFrame = 0;
+            const entries = Array.from(__tmOptimisticProjectionFramePending.values());
+            __tmOptimisticProjectionFramePending.clear();
+            if (!entries.length) return;
+            let filtersApplied = false;
+            try {
+                __tmRecomputeTaskProjection({ reason: 'optimistic-projection-frame' });
+                filtersApplied = true;
+            } catch (e) {}
+            entries.forEach((entry) => {
+                if (String(state.viewMode || '').trim() !== entry.mode) return;
+                let applied = false;
+                if (filtersApplied && entry.mode === 'checklist') {
+                    applied = __tmTryApplyChecklistOptimisticProjectionInPlace(entry.taskId, entry.patch, { filtersApplied: true });
+                } else if (filtersApplied && entry.mode === 'kanban') {
+                    applied = __tmTryApplyKanbanOptimisticProjectionInPlace(entry.taskId, entry.patch, { filtersApplied: true });
+                }
+                if (applied) return;
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: !filtersApplied,
+                    reason: `${entry.mode}-projection-frame-fallback`,
+                    taskIds: [entry.taskId],
+                    bypassTaskFieldDefer: true,
+                    bypassScrollDefer: false,
+                    bypassInteractionDefer: true,
+                });
+            });
+        };
+        try {
+            __tmOptimisticProjectionFrame = requestAnimationFrame(run);
+        } catch (e) {
+            __tmOptimisticProjectionFrame = setTimeout(run, 0);
+        }
+        return true;
+    }
+
+    function __tmCollectChecklistProjectionDomBlock(item) {
+        if (!(item instanceof HTMLElement)) return [];
+        const block = [];
+        const baseDepth = Math.max(0, Number(item.getAttribute('data-depth')) || 0);
+        let cursor = item;
+        while (cursor instanceof HTMLElement) {
+            if (cursor !== item && cursor.classList.contains('tm-checklist-item')) {
+                const depth = Math.max(0, Number(cursor.getAttribute('data-depth')) || 0);
+                if (depth <= baseDepth) break;
+            }
+            const next = cursor.nextElementSibling;
+            block.push(cursor);
+            cursor = next;
+        }
+        return block;
+    }
+
+    function __tmSetChecklistProjectionDomBlockVisibility(block, visibleTaskIds, forceHidden = false) {
+        const visibleIds = visibleTaskIds instanceof Set ? visibleTaskIds : new Set();
+        (Array.isArray(block) ? block : []).forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            let visible = !forceHidden;
+            if (visible && node.classList.contains('tm-checklist-item')) {
+                visible = visibleIds.has(String(node.getAttribute('data-id') || '').trim());
+            } else if (visible && node.classList.contains('tm-task-drop-gap')) {
+                visible = visibleIds.has(String(node.getAttribute('data-target-task-id') || '').trim());
+            }
+            node.hidden = !visible;
+            if (visible) node.removeAttribute('aria-hidden');
+            else node.setAttribute('aria-hidden', 'true');
+        });
+    }
+
+    function __tmTryApplyChecklistOptimisticProjectionInPlace(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const modal = state.modal instanceof Element ? state.modal : null;
+        if (!tid || String(state.viewMode || '').trim() !== 'checklist' || !modal) return false;
+        const item = modal.querySelector(`.tm-checklist-item[data-id="${CSS.escape(tid)}"]`);
+        if (!(item instanceof HTMLElement)) return false;
+        const detailTaskId = String(state.detailTaskId || state.kanbanDetailTaskId || '').trim();
+        const traceDetailPlacement = (result, nextTaskId = '', extra = {}) => {
+            if (!detailTaskId || detailTaskId !== tid) return;
+            try {
+                __tmPushDetailDebug('detail-checklist-placement', {
+                    taskId: tid,
+                    nextTaskId: String(nextTaskId || '').trim(),
+                    result: String(result || '').trim(),
+                    ...((extra && typeof extra === 'object') ? extra : {}),
+                });
+            } catch (e) {}
+        };
+        if (options?.filtersApplied !== true) return __tmScheduleOptimisticProjectionFrame('checklist', tid, patch);
+
+        const rows = __tmBuildTaskRowModel();
+        const taskRows = [];
+        const groupCounts = new Map();
+        let groupKey = '';
+        let groupKind = '';
+        rows.forEach((row) => {
+            if (row?.type === 'group') {
+                groupKey = String(row.key || '').trim();
+                groupKind = String(row.kind || '').trim();
+                if (groupKey) groupCounts.set(groupKey, Math.max(0, Number(row.count) || 0));
+                return;
+            }
+            if (row?.type !== 'task') return;
+            taskRows.push({
+                id: String(row.id || '').trim(),
+                depth: Math.max(0, Number(row.depth) || 0),
+                groupKey,
+                groupKind,
+            });
+        });
+        const visibleTaskIds = new Set(taskRows.map((row) => row.id).filter(Boolean));
+        const block = __tmCollectChecklistProjectionDomBlock(item);
+        const targetIndex = taskRows.findIndex((row) => row.id === tid);
+        if (targetIndex < 0) {
+            __tmSetChecklistProjectionDomBlockVisibility(block, visibleTaskIds, true);
+            traceDetailPlacement('hidden-by-projection');
+            return true;
+        }
+        __tmSetChecklistProjectionDomBlockVisibility(block, visibleTaskIds, false);
+
+        const target = taskRows[targetIndex];
+        const currentItems = modal.querySelector('.tm-checklist-items');
+        if (!(currentItems instanceof HTMLElement)) return false;
+        const compactChecklist = !!SettingsStore?.data?.checklistCompactMode;
+        let targetContainer = null;
+        if (target.groupKey) {
+            const header = currentItems.querySelector(`.tm-checklist-group[data-group-key="${CSS.escape(target.groupKey)}"]`);
+            const card = header?.closest?.('.tm-checklist-group-card');
+            targetContainer = card?.querySelector?.(':scope > .tm-checklist-group-card-items') || null;
+        }
+        // Compact mode requires every grouped task to stay inside its card. If
+        // the optimistic patch creates a new group, let the immediate grouped
+        // refresh build that card instead of leaving a temporary root row.
+        if (compactChecklist && target.groupKey && !(targetContainer instanceof HTMLElement)) return false;
+        let fallbackAnchor = null;
+        if (!(targetContainer instanceof HTMLElement)
+            && (target.groupKind === 'pinned' || target.groupKind === 'normal')) {
+            targetContainer = currentItems;
+            fallbackAnchor = target.groupKind === 'pinned' ? currentItems.firstElementChild : null;
+        }
+
+        const findTaskNode = (id) => modal.querySelector(`.tm-checklist-item[data-id="${CSS.escape(String(id || '').trim())}"]`);
+        let nextTaskRow = null;
+        for (let index = targetIndex + 1; index < taskRows.length; index += 1) {
+            if (taskRows[index].groupKey !== target.groupKey) break;
+            if (taskRows[index].depth > target.depth) continue;
+            nextTaskRow = taskRows[index];
+            break;
+        }
+        const nextNode = nextTaskRow ? findTaskNode(nextTaskRow.id) : null;
+        if (nextTaskRow && !(nextNode instanceof HTMLElement)) {
+            traceDetailPlacement('fallback-next-task-unmounted', nextTaskRow.id, {
+                targetIndex,
+                targetGroupKey: target.groupKey,
+                targetDepth: target.depth,
+            });
+            return false;
+        }
+        if (nextNode instanceof HTMLElement) {
+            targetContainer = targetContainer || nextNode.parentElement;
+        }
+        if (!(targetContainer instanceof HTMLElement)) {
+            for (let index = targetIndex - 1; index >= 0; index -= 1) {
+                if (taskRows[index].groupKey !== target.groupKey) break;
+                const candidate = findTaskNode(taskRows[index].id);
+                if (candidate instanceof HTMLElement) {
+                    targetContainer = candidate.parentElement;
+                    break;
+                }
+            }
+        }
+        if (!(targetContainer instanceof HTMLElement)) return false;
+        if (!(nextNode instanceof HTMLElement) && fallbackAnchor instanceof HTMLElement) nextNode = fallbackAnchor;
+
+        const sourceContainer = item.parentElement;
+        const sourceGroupCard = item.closest('.tm-checklist-group-card');
+        if (!(sourceContainer instanceof HTMLElement)) return false;
+        const baseDepth = Math.max(0, Number(item.getAttribute('data-depth')) || 0);
+        if (nextNode instanceof Node && nextNode.parentNode !== targetContainer) return false;
+        if (nextNode instanceof Node && block.includes(nextNode)) return false;
+        const depthDelta = target.depth - baseDepth;
+        if (depthDelta !== 0) {
+            block.forEach((node) => {
+                if (!(node instanceof HTMLElement) || !node.hasAttribute('data-depth')) return;
+                const nextDepth = Math.max(0, (Number(node.getAttribute('data-depth')) || 0) + depthDelta);
+                node.setAttribute('data-depth', String(nextDepth));
+                if (!node.classList.contains('tm-checklist-item')) return;
+                if (compactChecklist) {
+                    node.style.setProperty('--tm-checklist-compact-indent', `${nextDepth * 14}px`);
+                } else {
+                    node.style.marginLeft = `${nextDepth * 22}px`;
+                }
+            });
+        }
+        const fragment = document.createDocumentFragment();
+        block.forEach((node) => fragment.appendChild(node));
+        targetContainer.insertBefore(fragment, nextNode instanceof Node ? nextNode : null);
+        if (target.groupKey) {
+            const targetHeader = currentItems.querySelector(`.tm-checklist-group[data-group-key="${CSS.escape(target.groupKey)}"]`);
+            const targetBadge = targetHeader?.querySelector?.(':scope > .tm-badge--count');
+            if (targetBadge instanceof HTMLElement && groupCounts.has(target.groupKey)) {
+                targetBadge.textContent = String(groupCounts.get(target.groupKey));
+            }
+        }
+        if (sourceGroupCard instanceof HTMLElement
+            && sourceGroupCard !== item.closest('.tm-checklist-group-card')
+            && !sourceGroupCard.querySelector('.tm-checklist-item[data-id]')) {
+            sourceGroupCard.remove();
+        }
+        try { state.listDomRenderSignature = ''; } catch (e) {}
+        traceDetailPlacement('moved', nextTaskRow?.id || '', {
+            targetIndex,
+            targetGroupKey: target.groupKey,
+            targetDepth: target.depth,
+        });
+        return true;
+    }
+
+    function __tmGetProjectedDirectChildStats(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return { total: 0, completed: 0, percent: 0 };
+        let children = [];
+        let resolvedByStore = false;
+        try {
+            const projectedChildren = globalThis.__tmTaskStore?.listProjectedDirectChildren?.(tid);
+            if (Array.isArray(projectedChildren)) {
+                children = projectedChildren;
+                resolvedByStore = true;
+            }
+        } catch (e) {}
+        if (!resolvedByStore) {
+            const task = globalThis.__tmTaskStore?.getProjected?.(tid) || __tmTaskStateKernel.getTask(tid);
+            children = Array.isArray(task?.children) ? task.children : [];
+        }
+        const total = children.length;
+        const completed = children.reduce((count, child) => (
+            count + (__tmIsTaskCompletedForProjection(child) ? 1 : 0)
+        ), 0);
+        return {
+            total,
+            completed,
+            percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+        };
+    }
+
+    function __tmSyncTaskSubtaskSummaryInPlace(taskId, rootInput = null) {
+        const tid = String(taskId || '').trim();
+        const root = rootInput instanceof Element
+            ? rootInput
+            : (state.modal instanceof Element ? state.modal : null);
+        if (!tid || !root) return false;
+        const stats = __tmGetProjectedDirectChildStats(tid);
+        const escapedId = CSS.escape(tid);
+        let touched = false;
+        root.querySelectorAll(`[data-tm-subtask-count-owner="${escapedId}"]`).forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            node.textContent = node.classList.contains('tm-checklist-meta-chip')
+                ? `子任务 ${stats.completed}/${stats.total}`
+                : `${stats.completed}/${stats.total}`;
+            touched = true;
+        });
+        root.querySelectorAll(`[data-tm-subtask-progress-owner="${escapedId}"]`).forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            if (node.classList.contains('tm-checklist-item')) {
+                const compact = node.closest('.tm-checklist-pane--compact') instanceof Element;
+                const progressColor = __tmGetEffectiveProgressBarColor(__tmIsDarkMode());
+                if (compact) {
+                    node.style.setProperty('--tm-checklist-progress-color', progressColor);
+                    node.style.setProperty('--tm-checklist-progress-percent', `${stats.percent}%`);
+                } else if (stats.percent > 0) {
+                    node.style.backgroundImage = `linear-gradient(90deg, ${progressColor} ${stats.percent}%, transparent ${stats.percent}%)`;
+                    node.style.backgroundRepeat = 'no-repeat';
+                    node.style.backgroundSize = '100% 3px';
+                    node.style.backgroundPosition = 'left bottom';
+                } else {
+                    node.style.removeProperty('background-image');
+                    node.style.removeProperty('background-repeat');
+                    node.style.removeProperty('background-size');
+                    node.style.removeProperty('background-position');
+                }
+            } else {
+                node.style.width = `${stats.percent}%`;
+            }
+            touched = true;
+        });
+        return touched;
+    }
+
+    function __tmGetKanbanProjectionColumnId(column) {
+        const col = column instanceof HTMLElement ? column : null;
+        if (!col) return '';
+        return String(
+            col.getAttribute('data-status')
+            || col.getAttribute('data-time')
+            || col.getAttribute('data-doc')
+            || col.getAttribute('data-heading')
+            || col.getAttribute('data-col-key')
+            || ''
+        ).trim();
+    }
+
+    function __tmGetKanbanTimeProjectionKey(task) {
+        let diffDays = NaN;
+        try {
+            diffDays = Number(__tmGetTaskTimePriorityInfo(task)?.diffDays);
+        } catch (e) {}
+        if (!Number.isFinite(diffDays)) return 'pending';
+        if (diffDays < 0) return 'overdue';
+        if (diffDays === 0) return 'today';
+        if (diffDays === 1) return 'tomorrow';
+        if (diffDays === 2) return 'after_tomorrow';
+        if (diffDays >= 16) return 'farther';
+        return `days_${diffDays}`;
+    }
+
+    function __tmFindKanbanProjectionColumn(modal, task, sourceColumn) {
+        const root = modal instanceof Element ? modal : null;
+        const source = sourceColumn instanceof HTMLElement ? sourceColumn : null;
+        if (!root || !source || !task) return null;
+        const doneColumn = root.querySelector('.tm-kanban-col[data-kind="status"][data-status="__done__"]');
+        if (task.done && doneColumn instanceof HTMLElement) return doneColumn;
+        const kind = String(source.getAttribute('data-kind') || '').trim();
+        if (kind === 'status') {
+            const statusId = String(__tmResolveTaskStatusId(task) || '').trim();
+            const target = statusId
+                ? root.querySelector(`.tm-kanban-col[data-kind="status"][data-status="${CSS.escape(statusId)}"]`)
+                : null;
+            if (target instanceof HTMLElement) return target;
+            return String(source.getAttribute('data-status') || '').trim() === statusId ? source : null;
+        }
+        if (kind === 'time') {
+            const timeKey = __tmGetKanbanTimeProjectionKey(task);
+            const target = root.querySelector(`.tm-kanban-col[data-kind="time"][data-time="${CSS.escape(timeKey)}"]`);
+            if (target instanceof HTMLElement) return target;
+            return String(source.getAttribute('data-time') || '').trim() === timeKey ? source : null;
+        }
+        if (kind === 'doc') {
+            const docId = String(task?.root_id || task?.docId || '').trim();
+            const target = docId
+                ? root.querySelector(`.tm-kanban-col[data-kind="doc"][data-doc="${CSS.escape(docId)}"]`)
+                : null;
+            if (target instanceof HTMLElement) return target;
+            return String(source.getAttribute('data-doc') || '').trim() === docId ? source : null;
+        }
+        if (kind === 'heading') {
+            const docId = String(task?.root_id || task?.docId || '').trim();
+            const headingId = String(task?.h2Id || task?.headingId || '__none__').trim() || '__none__';
+            const target = root.querySelector(
+                `.tm-kanban-col[data-kind="heading"][data-doc="${CSS.escape(docId)}"][data-heading="${CSS.escape(headingId)}"]`
+            );
+            if (target instanceof HTMLElement) return target;
+            const sourceMatches = String(source.getAttribute('data-doc') || '').trim() === docId
+                && String(source.getAttribute('data-heading') || '').trim() === headingId;
+            return sourceMatches ? source : null;
+        }
+        return source;
+    }
+
+    function __tmGetKanbanPinnedProjectionGroupKey(column) {
+        const columnId = __tmGetKanbanProjectionColumnId(column);
+        if (!columnId) return '';
+        let kind = 'ungrouped';
+        if (state.groupByDocName) kind = 'doc';
+        else if (state.groupByTime) kind = 'time';
+        else if (state.quadrantEnabled) kind = 'quadrant';
+        else if (state.groupByTaskName) kind = 'task';
+        return `kanban_${columnId}_${kind}_pinned`;
+    }
+
+    function __tmEnsureKanbanPinnedProjectionContainer(column) {
+        const col = column instanceof HTMLElement ? column : null;
+        const body = col?.querySelector?.(':scope > .tm-kanban-col-body');
+        if (!(body instanceof HTMLElement)) return null;
+        const groupKey = __tmGetKanbanPinnedProjectionGroupKey(col);
+        if (!groupKey) return null;
+        const currentTitle = body.querySelector(`.tm-kanban-group-title[data-group-key="${CSS.escape(groupKey)}"]`);
+        const currentItems = currentTitle?.closest?.('.tm-kanban-group')?.querySelector?.(':scope > [data-tm-kanban-group-items]');
+        if (currentItems instanceof HTMLElement) return currentItems;
+
+        const group = document.createElement('div');
+        group.className = 'tm-kanban-group';
+        group.setAttribute('data-tm-kanban-optimistic-pinned-group', '1');
+        const title = document.createElement('div');
+        title.className = 'tm-kanban-group-title';
+        title.setAttribute('data-group-key', groupKey);
+        title.setAttribute('aria-expanded', 'true');
+        title.style.background = __tmIsDarkMode()
+            ? 'color-mix(in srgb, var(--tm-danger-color,#d32f2f) 18%, var(--tm-header-bg))'
+            : '#ffebee';
+        title.innerHTML = `<span style="display:inline-flex;align-items:center;min-width:0;"><span class="tm-group-toggle" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-warning-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>置顶</span></span></span><span class="tm-badge tm-badge--count">0</span>`;
+        title.addEventListener('click', (event) => {
+            try { globalThis.tmToggleGroupCollapse?.(groupKey, event); } catch (e) {}
+        });
+        const items = document.createElement('div');
+        items.className = 'tm-kanban-group-items';
+        items.setAttribute('data-tm-kanban-group-items', '');
+        items.setAttribute('aria-hidden', 'false');
+        group.append(title, items);
+        body.querySelector(':scope > .tm-kanban-empty')?.remove?.();
+        body.insertBefore(group, body.firstElementChild);
+        return items;
+    }
+
+    function __tmSyncKanbanProjectionCounts(column) {
+        const col = column instanceof HTMLElement ? column : null;
+        if (!col) return;
+        const visibleRootCards = Array.from(col.querySelectorAll('.tm-kanban-card[data-id]'))
+            .filter((card) => !card.hidden && !card.classList.contains('tm-kanban-card--sub'));
+        col.querySelectorAll(':scope > .tm-kanban-col-header .tm-kanban-col-title > .tm-badge--count, :scope > .tm-kanban-col-header--collapsed .tm-badge--count')
+            .forEach((badge) => { badge.textContent = String(visibleRootCards.length); });
+        col.querySelectorAll('.tm-kanban-group').forEach((group) => {
+            const items = group.querySelector(':scope > [data-tm-kanban-group-items]');
+            const title = group.querySelector(':scope > .tm-kanban-group-title');
+            if (!(items instanceof HTMLElement) || !(title instanceof HTMLElement)) return;
+            const count = Array.from(items.children || [])
+                .filter((child) => child instanceof HTMLElement
+                    && !child.hidden
+                    && child.classList.contains('tm-kanban-card')
+                    && !child.classList.contains('tm-kanban-card--sub'))
+                .length;
+            const badge = title.querySelector(':scope > .tm-badge--count');
+            if (badge instanceof HTMLElement) badge.textContent = String(count);
+        });
+    }
+
+    function __tmGetKanbanTaskProjectionGroupSignature(task) {
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!taskLike) return '';
+        if (state.groupByDocName) {
+            const docId = String(taskLike.root_id || taskLike.docId || '').trim();
+            const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
+            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+            const bucket = __tmGetDocHeadingBucket(taskLike, `无${headingLabelMap[headingLevel] || '标题'}`);
+            return `doc:${docId}|heading:${String(bucket?.key || '').trim()}`;
+        }
+        if (state.groupByTime) return `time:${__tmGetKanbanTimeProjectionKey(taskLike)}`;
+        if (state.groupByTaskName) return `task:${String(taskLike.content || '').trim()}`;
+        if (state.quadrantEnabled) {
+            const priority = String(taskLike.priority || '').trim().toLowerCase();
+            const importance = (priority === 'a' || priority === '高' || priority === 'high')
+                ? 'high'
+                : ((priority === 'b' || priority === '中' || priority === 'medium')
+                    ? 'medium'
+                    : ((priority === 'c' || priority === '低' || priority === 'low') ? 'low' : 'none'));
+            let diffDays = NaN;
+            try { diffDays = Number(__tmGetTaskTimePriorityInfo(taskLike)?.diffDays); } catch (e) {}
+            const timeRange = !Number.isFinite(diffDays)
+                ? 'nodate'
+                : (diffDays < 0
+                    ? 'overdue'
+                    : (diffDays <= 7 ? 'within7days' : (diffDays <= 15 ? 'within15days' : (diffDays <= 30 ? 'within30days' : 'beyond30days'))));
+            const rules = Array.isArray(SettingsStore.data?.quadrantConfig?.rules) ? SettingsStore.data.quadrantConfig.rules : [];
+            const matched = rules.find((rule) => {
+                if (!Array.isArray(rule?.importance) || !rule.importance.includes(importance)) return false;
+                if (Array.isArray(rule?.timeRanges) && rule.timeRanges.includes(timeRange)) return true;
+                return Number.isFinite(diffDays) && Array.isArray(rule?.timeRanges) && rule.timeRanges.some((range) => {
+                    const raw = String(range || '').trim();
+                    if (!raw.startsWith('beyond') || raw === 'beyond30days') return false;
+                    const days = parseInt(raw.replace('beyond', '').replace('days', ''), 10);
+                    return Number.isFinite(days) && diffDays > days;
+                });
+            });
+            return `quadrant:${String(matched?.id || '__unmatched__').trim() || '__unmatched__'}`;
+        }
+        return 'ungrouped';
+    }
+
+    function __tmGetKanbanExpectedProjectionGroupKeys(task, column) {
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        const columnId = __tmGetKanbanProjectionColumnId(column);
+        if (!taskLike || !columnId) return [];
+        if (state.groupByDocName) {
+            const docId = String(taskLike.root_id || taskLike.docId || '__unknown__').trim() || '__unknown__';
+            const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
+            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+            const bucket = __tmGetDocHeadingBucket(taskLike, `无${headingLabelMap[headingLevel] || '标题'}`);
+            const docKey = `kanban_${columnId}_doc_${docId}`;
+            const h2Key = `${docKey}__h2_${encodeURIComponent(String(bucket?.key || 'label:__none__'))}`;
+            return [h2Key, docKey];
+        }
+        if (state.groupByTime) return [`kanban_${columnId}_time_${__tmGetKanbanTimeProjectionKey(taskLike)}`];
+        if (state.groupByTaskName) {
+            const safeContent = String(taskLike.content || '').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+            return [`kanban_${columnId}_task_${safeContent}`];
+        }
+        if (state.quadrantEnabled) {
+            const signature = __tmGetKanbanTaskProjectionGroupSignature(taskLike);
+            const quadrantId = String(signature.split(':').slice(1).join(':') || '__unmatched__').trim() || '__unmatched__';
+            return [`kanban_${columnId}_quadrant_${quadrantId}`];
+        }
+        return [];
+    }
+
+    function __tmSyncKanbanCompletedTodayBadgeInDOM(card, task) {
+        const root = card instanceof HTMLElement ? card : null;
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!root || !taskLike) return false;
+        const title = root.classList.contains('tm-kanban-card--sub')
+            ? root.querySelector(':scope > .tm-kanban-subtask-row-main .tm-kanban-subtask-title')
+            : root.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-title-inline');
+        if (!(title instanceof HTMLElement)) return false;
+        const column = root.closest('.tm-kanban-col');
+        const groupTitle = root.closest('.tm-kanban-group')
+            ?.querySelector?.(':scope > .tm-kanban-group-title[data-group-key]');
+        const groupKey = String(groupTitle?.getAttribute?.('data-group-key') || '').trim();
+        const inCompletedContext = String(column?.getAttribute?.('data-status') || '').trim() === '__done__'
+            || __tmIsCompletedRootGroupKey(groupKey);
+        const badgeHtml = __tmRenderCompletedTodayBadge(taskLike, {
+            inCompletedRootGroup: inCompletedContext,
+        });
+        const badge = title.querySelector(':scope > .tm-task-completed-today-badge');
+        if (!badgeHtml) {
+            badge?.remove?.();
+            return true;
+        }
+        if (!(badge instanceof HTMLElement)) title.insertAdjacentHTML('beforeend', badgeHtml);
+        return true;
+    }
+
+    function __tmFindKanbanNormalProjectionContainer(card, sourceColumn, targetColumn, taskRank, rankById) {
+        const source = sourceColumn instanceof HTMLElement ? sourceColumn : null;
+        const target = targetColumn instanceof HTMLElement ? targetColumn : null;
+        if (!(card instanceof HTMLElement) || !source || !target) return null;
+        const grouped = !!(state.groupByDocName || state.groupByTaskName || state.groupByTime || state.quadrantEnabled);
+        if (!grouped) return target.querySelector(':scope > .tm-kanban-col-body');
+
+        const targetTask = __tmTaskStateKernel.getTask(card.getAttribute('data-id'));
+        const expectedGroupKeys = __tmGetKanbanExpectedProjectionGroupKeys(targetTask, target);
+        for (const targetGroupKey of expectedGroupKeys) {
+            const targetTitle = target.querySelector(`.tm-kanban-group-title[data-group-key="${CSS.escape(targetGroupKey)}"]`);
+            const targetItems = targetTitle?.closest?.('.tm-kanban-group')?.querySelector?.(':scope > [data-tm-kanban-group-items]');
+            if (targetItems instanceof HTMLElement) return targetItems;
+        }
+
+        let nearest = null;
+        let nearestDistance = Number.POSITIVE_INFINITY;
+        const targetSignature = __tmGetKanbanTaskProjectionGroupSignature(targetTask);
+        target.querySelectorAll('.tm-kanban-card[data-id]:not(.tm-kanban-card--sub)').forEach((candidate) => {
+            if (!(candidate instanceof HTMLElement) || candidate === card || candidate.hidden) return;
+            const candidateTask = __tmTaskStateKernel.getTask(candidate.getAttribute('data-id'));
+            if (!candidateTask || __tmIsTaskPinned(candidateTask)) return;
+            if (__tmGetKanbanTaskProjectionGroupSignature(candidateTask) !== targetSignature) return;
+            const candidateRank = rankById.get(String(candidateTask.id || '').trim());
+            if (!Number.isFinite(candidateRank)) return;
+            const distance = Math.abs(candidateRank - taskRank);
+            if (distance >= nearestDistance) return;
+            nearest = candidate.parentElement;
+            nearestDistance = distance;
+        });
+        return nearest instanceof HTMLElement ? nearest : null;
+    }
+
+    function __tmTryApplyKanbanOptimisticProjectionInPlace(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const modal = state.modal instanceof Element ? state.modal : null;
+        if (!tid || String(state.viewMode || '').trim() !== 'kanban' || !modal) return false;
+        const cards = Array.from(modal.querySelectorAll(`.tm-kanban-card[data-id="${CSS.escape(tid)}"]`))
+            .filter((node) => node instanceof HTMLElement);
+        const card = cards.find((node) => !node.hidden) || cards[0] || null;
+        const storedProjection = globalThis.__tmTaskStore?.getProjected?.(tid) || null;
+        const task = storedProjection || __tmTaskStateKernel.getTask(tid);
+        if (!(card instanceof HTMLElement) || !task) return false;
+        const sourceColumn = card.closest('.tm-kanban-col');
+        if (!(sourceColumn instanceof HTMLElement)) return false;
+        if (options?.filtersApplied !== true) return __tmScheduleOptimisticProjectionFrame('kanban', tid, patch);
+
+        const projectedTask = {
+            ...task,
+            ...((patch && typeof patch === 'object') ? patch : {}),
+        };
+        if (storedProjection) {
+            [
+                'done',
+                'customStatus',
+                'custom_status',
+                'taskMarker',
+                'task_marker',
+                'markdown',
+                'taskCompleteAt',
+                'task_complete_at',
+            ].forEach((field) => {
+                if (Object.prototype.hasOwnProperty.call(storedProjection, field)) {
+                    projectedTask[field] = storedProjection[field];
+                }
+            });
+        }
+
+        const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+        const rankById = new Map();
+        filtered.forEach((item, index) => {
+            const id = String(item?.id || '').trim();
+            if (id && !rankById.has(id)) rankById.set(id, index);
+        });
+        const taskRank = rankById.get(tid);
+        let visibleByCompletion = state.showCompletedTasks === true || !projectedTask.done;
+        try {
+            const checker = globalThis.__tmTaskProjectionEngine?.isKanbanTaskVisibleByCompletion;
+            if (typeof checker === 'function') visibleByCompletion = checker(projectedTask, state.showCompletedTasks);
+        } catch (e) {}
+        const completionPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'done')
+            || Object.prototype.hasOwnProperty.call(patch || {}, 'customStatus');
+        const hiddenByCompletion = cards.some((node) => node.getAttribute('data-tm-hidden-by-completion') === 'true');
+        const preserveCompletionHidden = visibleByCompletion && hiddenByCompletion && !completionPatch;
+        if (!visibleByCompletion || !Number.isFinite(taskRank)) {
+            const affectedColumns = new Set();
+            cards.forEach((node) => {
+                node.hidden = true;
+                node.setAttribute('aria-hidden', 'true');
+                if (!visibleByCompletion || (hiddenByCompletion && !completionPatch)) {
+                    node.setAttribute('data-tm-hidden-by-completion', 'true');
+                }
+                else node.removeAttribute('data-tm-hidden-by-completion');
+                const column = node.closest('.tm-kanban-col');
+                if (column instanceof HTMLElement) affectedColumns.add(column);
+            });
+            affectedColumns.forEach((column) => __tmSyncKanbanProjectionCounts(column));
+            return true;
+        }
+        if (!preserveCompletionHidden) {
+            cards.forEach((node) => {
+                node.hidden = false;
+                node.removeAttribute('aria-hidden');
+                node.removeAttribute('data-tm-hidden-by-completion');
+                __tmUpdateTaskDoneInDOM(node, projectedTask);
+                __tmSyncTaskCardMetaChipsInDOM(node, projectedTask, 'kanban');
+            });
+        }
+
+        const isSubtaskCard = card.classList.contains('tm-kanban-card--sub');
+        const targetColumn = isSubtaskCard
+            ? sourceColumn
+            : __tmFindKanbanProjectionColumn(modal, task, sourceColumn);
+        if (!(targetColumn instanceof HTMLElement)) return false;
+        const pinWithinGroups = !!SettingsStore.data.pinTasksWithinGroups
+            && !!(state.groupByDocName || state.groupByTaskName || state.groupByTime || state.quadrantEnabled);
+        const pinned = __tmIsTaskPinned(task);
+        card.classList.toggle('tm-kanban-card--pinned', pinned);
+        card.style.borderLeft = pinned ? '3px solid var(--tm-danger-color,#d32f2f)' : '';
+
+        const sourceGroup = card.parentElement?.closest?.('.tm-kanban-group') || null;
+        const sourceGroupKey = String(sourceGroup?.querySelector?.(':scope > .tm-kanban-group-title[data-group-key]')?.getAttribute?.('data-group-key') || '').trim();
+        const expectedGroupKeys = __tmGetKanbanExpectedProjectionGroupKeys(task, targetColumn);
+        const groupContainerChanged = expectedGroupKeys.length > 0 && !expectedGroupKeys.includes(sourceGroupKey);
+        let targetContainer = card.parentElement;
+        if (!isSubtaskCard && pinned && !pinWithinGroups) {
+            targetContainer = __tmEnsureKanbanPinnedProjectionContainer(targetColumn);
+        } else if (!isSubtaskCard && (targetColumn !== sourceColumn || sourceGroupKey.endsWith('_pinned') || groupContainerChanged)) {
+            targetContainer = __tmFindKanbanNormalProjectionContainer(card, sourceColumn, targetColumn, taskRank, rankById);
+        }
+        if (!(targetContainer instanceof HTMLElement)) return false;
+
+        let nextCard = null;
+        let nextRank = Number.POSITIVE_INFINITY;
+        Array.from(targetContainer.children || []).forEach((candidate) => {
+            if (!(candidate instanceof HTMLElement)
+                || candidate === card
+                || candidate.hidden
+                || !candidate.classList.contains('tm-kanban-card')) return;
+            const candidateRank = rankById.get(String(candidate.getAttribute('data-id') || '').trim());
+            if (!Number.isFinite(candidateRank) || candidateRank <= taskRank || candidateRank >= nextRank) return;
+            nextCard = candidate;
+            nextRank = candidateRank;
+        });
+        targetContainer.querySelector(':scope > .tm-kanban-empty')?.remove?.();
+        targetContainer.insertBefore(card, nextCard instanceof Node ? nextCard : null);
+        cards.forEach((node) => __tmSyncKanbanCompletedTodayBadgeInDOM(node, projectedTask));
+
+        const sourceGroupItems = sourceGroup?.querySelector?.(':scope > [data-tm-kanban-group-items]');
+        if (sourceGroup instanceof HTMLElement
+            && sourceGroupItems instanceof HTMLElement
+            && sourceGroupKey.endsWith('_pinned')
+            && !sourceGroupItems.querySelector(':scope > .tm-kanban-card[data-id]:not([hidden])')) {
+            sourceGroup.remove();
+        }
+        __tmSyncKanbanProjectionCounts(sourceColumn);
+        if (targetColumn !== sourceColumn) __tmSyncKanbanProjectionCounts(targetColumn);
+        try { __tmKanbanColsHtmlCache = null; } catch (e) {}
+        return true;
     }
 
     function __tmRefreshKanbanProjectionPatchNow(taskId, patch = {}, options = {}) {
@@ -3666,28 +4865,489 @@ return false;
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return false;
         if (String(state.viewMode || '').trim() !== 'kanban') return false;
-        const patchKeys = new Set(__tmGetPatchFieldKeys(nextPatch));
-        const isPinnedPatch = patchKeys.has('pinned');
-        const isKanbanTimeDatePatch = __tmIsKanbanTimeBoardContext()
-            && ['startDate', 'completionTime', 'customTime'].some((key) => patchKeys.has(key));
-        if (!isPinnedPatch && !isKanbanTimeDatePatch) return false;
         const opts = (options && typeof options === 'object') ? options : {};
-        const needsProjectionRefresh = isKanbanTimeDatePatch
-            || __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts)
+        const needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts)
             || __tmDoesPatchAffectProjection(tid, nextPatch);
         if (!needsProjectionRefresh) return false;
-        if (opts.withFilters !== false || isKanbanTimeDatePatch) {
-            try { applyFilters(); } catch (e) {}
-        }
         try { __tmKanbanColsHtmlCache = null; } catch (e) {}
-        try {
-            if (__tmRerenderKanbanInPlace(state.modal)) return true;
-        } catch (e) {}
-        try {
-            if (__tmRerenderCurrentViewInPlace(state.modal)) return true;
-        } catch (e) {}
-        return false;
+        if (opts.fastProjectionApplied === true
+            || __tmTryApplyKanbanOptimisticProjectionInPlace(tid, nextPatch)) return true;
+        const immediateProjection = opts.immediateProjectionRefresh === true;
+        return __tmScheduleViewRefresh({
+            mode: 'current',
+            withFilters: opts.withFilters !== false,
+            reason: String(opts.reason || 'kanban-field-projection').trim() || 'kanban-field-projection',
+            taskIds: [tid],
+            bypassTaskFieldDefer: immediateProjection,
+            bypassScrollDefer: immediateProjection,
+            bypassInteractionDefer: immediateProjection,
+        });
     }
+
+    function __tmTryApplyListProjectionBatchInPlace(taskIds = []) {
+        const modal = state.modal instanceof Element ? state.modal : null;
+        if (!modal || String(state.viewMode || '').trim() !== 'list') return false;
+        const tbody = modal.querySelector('#tmTaskTable tbody');
+        if (!(tbody instanceof HTMLElement)) return false;
+        const currentRows = Array.from(tbody.children).filter((row) => row instanceof HTMLElement);
+        if (!currentRows.length) return false;
+        const currentByKey = new Map();
+        for (const row of currentRows) {
+            const key = typeof __tmGetListRowStableKey === 'function' ? __tmGetListRowStableKey(row) : '';
+            if (!key || currentByKey.has(key)) return false;
+            currentByKey.set(key, row);
+        }
+
+        const rowModel = __tmBuildTaskRowModel();
+        const affected = new Set((Array.isArray(taskIds) ? taskIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        const unmountedAffected = new Set(Array.from(affected)
+            .filter((taskId) => !currentByKey.has(`task:${taskId}`)));
+        if (unmountedAffected.size > 0 && rowModel.some((row) => (
+            row?.type === 'task' && unmountedAffected.has(String(row.id || '').trim())
+        ))) return false;
+        const currentTaskCount = currentRows.filter((row) => row.hasAttribute('data-id')).length;
+        const desired = [];
+        let desiredTaskCount = 0;
+        for (const row of rowModel) {
+            if (row?.type !== 'group' && row?.type !== 'task') continue;
+            if (row.type === 'task' && desiredTaskCount >= currentTaskCount) break;
+            const id = String(row.type === 'task' ? row.id : row.key || '').trim();
+            if (!id) return false;
+            const key = `${row.type === 'task' ? 'task' : 'group'}:${id}`;
+            const node = currentByKey.get(key);
+            if (!(node instanceof HTMLElement)) return false;
+            desired.push({ key, node, row });
+            if (row.type === 'task') desiredTaskCount += 1;
+        }
+        if (!desired.length || desiredTaskCount !== currentTaskCount) return false;
+
+        const desiredKeys = new Set(desired.map((entry) => entry.key));
+        for (const entry of desired) {
+            if (entry.row?.type === 'task' && affected.has(String(entry.row.id || '').trim())) {
+                const nextDepth = Math.max(0, Number(entry.row.depth) || 0);
+                const currentDepth = Math.max(0, Number(entry.node.getAttribute('data-depth')) || 0);
+                if (nextDepth !== currentDepth) return false;
+            }
+        }
+
+        let cursor = tbody.firstElementChild;
+        desired.forEach((entry) => {
+            const node = entry.node;
+            if (node === cursor) {
+                cursor = cursor.nextElementSibling;
+                return;
+            }
+            tbody.insertBefore(node, cursor instanceof Node ? cursor : null);
+        });
+        currentByKey.forEach((node, key) => {
+            if (!desiredKeys.has(key)) node.remove();
+        });
+        desired.forEach((entry) => {
+            if (entry.row?.type !== 'group') return;
+            const count = Math.max(0, Number(entry.row.count) || 0);
+            const badge = entry.node.querySelector('.tm-badge--count');
+            if (badge instanceof HTMLElement) badge.textContent = String(count);
+        });
+        try { __tmApplyVisibilityFromState(modal); } catch (e) {}
+        try { __tmSyncCurrentViewDomRenderSignature('list'); } catch (e) {}
+        return true;
+    }
+
+    function __tmCollectTaskProjectionClosure(taskIds = [], analyses = []) {
+        const out = new Set((Array.isArray(taskIds) ? taskIds : []).map((id) => String(id || '').trim()).filter(Boolean));
+        const needsClosure = (Array.isArray(analyses) ? analyses : []).some((item) => item?.requiresClosure === true);
+        if (!needsClosure) return Array.from(out);
+        const queue = Array.from(out);
+        let visited = 0;
+        while (queue.length && visited < 5000) {
+            visited += 1;
+            const taskId = queue.shift();
+            let task = null;
+            try { task = globalThis.__tmTaskStore?.getProjected?.(taskId) || __tmTaskStateKernel.getTask(taskId); } catch (e) {}
+            if (!(task && typeof task === 'object')) continue;
+            const parentId = String(task.parentTaskId || task.parent_task_id || '').trim();
+            if (parentId && !out.has(parentId)) {
+                out.add(parentId);
+                queue.push(parentId);
+            }
+            (Array.isArray(task.children) ? task.children : []).forEach((child) => {
+                const childId = String(child?.id || '').trim();
+                if (!childId || out.has(childId)) return;
+                out.add(childId);
+                queue.push(childId);
+            });
+        }
+        return Array.from(out);
+    }
+
+    const __TM_DETAIL_SUBTASK_STRUCTURAL_TYPES = new Set([
+        'createSubtask',
+        'createSibling',
+        'moveTask',
+        'deleteTask',
+        'commitTaskId',
+    ]);
+
+    function __tmCanUseDetailSubtaskProjection(entries = []) {
+        const structuralTypes = (Array.isArray(entries) ? entries : [])
+            .filter((entry) => entry?.changeSet?.structural === true)
+            .map((entry) => String(entry?.mutation?.type || '').trim())
+            .filter(Boolean);
+        return structuralTypes.length > 0
+            && structuralTypes.every((type) => __TM_DETAIL_SUBTASK_STRUCTURAL_TYPES.has(type));
+    }
+
+    function __tmGetTaskProjectionPlacementIds(batch, closureTaskIds, fieldPatchByTaskId) {
+        if (batch?.structural === true) return Array.isArray(closureTaskIds) ? closureTaskIds.slice() : [];
+        return fieldPatchByTaskId instanceof Map ? Array.from(fieldPatchByTaskId.keys()) : [];
+    }
+
+    function __tmRunTaskProjectionBatch(batchInput = {}, options = {}) {
+        const batch = batchInput && typeof batchInput === 'object' ? batchInput : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const changes = Array.isArray(batch.fieldChanges) ? batch.fieldChanges : [];
+        const fieldPatchByTaskId = new Map(changes.map((change) => [
+            String(change?.taskId || '').trim(),
+            (change?.patch && typeof change.patch === 'object') ? change.patch : {},
+        ]).filter(([taskId]) => !!taskId));
+        const analyses = changes.map((change) => __tmAnalyzeTaskProjectionPatch(change.taskId, change.patch));
+        const completionClosureRequired = analyses.some((analysis, index) => {
+            if (analysis?.changedFields?.includes('parentTaskId')) return true;
+            return analysis?.requiresClosure === true && changes[index]?.completionChanged !== false;
+        });
+        const projectionRequired = batch.structural === true || analyses.some((analysis) => analysis.projection === true);
+        const baseTaskIds = Array.from(new Set([
+            ...(Array.isArray(batch.taskIds) ? batch.taskIds : []),
+            ...(Array.isArray(batch.affectedGroupIds) ? batch.affectedGroupIds : []),
+        ].map((id) => String(id || '').trim()).filter(Boolean)));
+        const taskIds = __tmCollectTaskProjectionClosure(baseTaskIds, analyses);
+        const placementTaskIds = __tmGetTaskProjectionPlacementIds(batch, taskIds, fieldPatchByTaskId);
+        const checklistCompletionReconcileRequired = completionClosureRequired
+            && String(state.viewMode || '').trim() === 'checklist';
+        const kanbanCompletionReconcileRequired = completionClosureRequired
+            && String(state.viewMode || '').trim() === 'kanban';
+        const liveModal = state.modal instanceof Element && document.body.contains(state.modal);
+        const allowMountedInactive = liveModal && opts.allowMountedInactive === true;
+        const visible = liveModal && (allowMountedInactive
+            || typeof __tmIsPluginVisibleNow !== 'function'
+            || __tmIsPluginVisibleNow());
+        let filtersApplied = false;
+        const filteredProjectionTaskIds = new Set();
+
+        if (visible && projectionRequired) {
+            try {
+                const projectionResult = __tmRecomputeTaskProjection({
+                    reason: String(batch.reason || 'change-set-projection').trim() || 'change-set-projection',
+                });
+                filtersApplied = projectionResult?.applied === true;
+            } catch (e) {
+                filtersApplied = false;
+            }
+        }
+        if (filtersApplied && completionClosureRequired) {
+            const stack = Array.isArray(state.filteredTasks) ? state.filteredTasks.slice() : [];
+            let visited = 0;
+            while (stack.length && visited < 50000) {
+                visited += 1;
+                const task = stack.pop();
+                const taskId = String(task?.id || '').trim();
+                if (taskId) filteredProjectionTaskIds.add(taskId);
+                if (Array.isArray(task?.children) && task.children.length > 0) stack.push(...task.children);
+            }
+        }
+
+        if (visible && filtersApplied && completionClosureRequired) {
+            const parentSummaryIds = new Set();
+            changes.forEach((change) => {
+                const taskId = String(change?.taskId || '').trim();
+                if (!taskId) return;
+                let task = null;
+                try { task = globalThis.__tmTaskStore?.getProjected?.(taskId) || __tmTaskStateKernel.getTask(taskId); } catch (e) {}
+                const parentId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+                if (parentId && parentId !== taskId) parentSummaryIds.add(parentId);
+            });
+            parentSummaryIds.forEach((parentId) => {
+                try { __tmSyncTaskSubtaskSummaryInPlace(parentId, state.modal); } catch (e) {}
+            });
+        }
+
+        if (opts.patchFields !== false) {
+            changes.forEach((change, index) => {
+                const taskId = String(change?.taskId || '').trim();
+                const patch = change?.patch && typeof change.patch === 'object' ? change.patch : {};
+                if (!taskId || !Object.keys(patch).length) return;
+                try {
+                    __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
+                        projectionManaged: true,
+                        projectionRequired: analyses[index]?.projection === true,
+                        projectionPrepared: filtersApplied,
+                        fallback: false,
+                        reason: String(batch.reason || 'change-set-field').trim() || 'change-set-field',
+                    });
+                } catch (e) {}
+            });
+        }
+
+        let projected = !projectionRequired || !visible;
+        if (visible && projectionRequired && filtersApplied) {
+            const mode = String(state.viewMode || '').trim();
+            if (mode === 'list') {
+                projected = __tmTryApplyListProjectionBatchInPlace(taskIds);
+            } else if (mode === 'checklist') {
+                if (checklistCompletionReconcileRequired) {
+                    projected = false;
+                } else {
+                    projected = placementTaskIds.length > 0;
+                    placementTaskIds.forEach((taskId) => {
+                        const taskPatch = fieldPatchByTaskId.get(taskId) || {};
+                        const item = state.modal.querySelector(`.tm-checklist-item[data-id="${CSS.escape(taskId)}"]`);
+                        if (!(item instanceof HTMLElement)) {
+                            if (batch.structural === true || fieldPatchByTaskId.has(taskId)) projected = false;
+                            return;
+                        }
+                        if (!__tmTryApplyChecklistOptimisticProjectionInPlace(taskId, {
+                            ...taskPatch,
+                            __tmPlacement: true,
+                        }, {
+                            filtersApplied: true,
+                            reason: String(batch.reason || 'change-set-projection').trim() || 'change-set-projection',
+                        })) projected = false;
+                    });
+                }
+            } else if (mode === 'kanban') {
+                if (kanbanCompletionReconcileRequired) {
+                    projected = false;
+                } else {
+                    projected = placementTaskIds.length > 0;
+                    placementTaskIds.forEach((taskId) => {
+                        const taskPatch = fieldPatchByTaskId.get(taskId) || {};
+                        const card = state.modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(taskId)}"]`);
+                        if (!(card instanceof HTMLElement)) {
+                            const completionPatch = Object.prototype.hasOwnProperty.call(taskPatch, 'done')
+                                || Object.prototype.hasOwnProperty.call(taskPatch, 'customStatus');
+                            if (batch.structural !== true && completionPatch && !filteredProjectionTaskIds.has(taskId)) return;
+                            if (batch.structural === true || fieldPatchByTaskId.has(taskId)) projected = false;
+                            return;
+                        }
+                        if (!__tmTryApplyKanbanOptimisticProjectionInPlace(taskId, {
+                            ...taskPatch,
+                            __tmPlacement: true,
+                        }, {
+                            filtersApplied: true,
+                            reason: String(batch.reason || 'change-set-projection').trim() || 'change-set-projection',
+                        })) projected = false;
+                    });
+                }
+            }
+        }
+
+        if (opts.allowMountedInactive === true) {
+            try {
+                __tmPushDetailDebug('detail-projection-batch', {
+                    reason: String(batch.reason || 'change-set-projection').trim() || 'change-set-projection',
+                    viewMode: String(state.viewMode || '').trim(),
+                    taskIds: taskIds.slice(),
+                    fields: changes.map((change) => ({
+                        taskId: String(change?.taskId || '').trim(),
+                        fields: Object.keys(change?.patch || {}),
+                        completionChanged: change?.completionChanged,
+                    })),
+                    ruleSorts: typeof __tmGetNormalizedRuleSorts === 'function'
+                        ? __tmGetNormalizedRuleSorts(__tmGetCurrentRule?.())
+                        : [],
+                    projectionRequired,
+                    completionClosureRequired,
+                    filtersApplied,
+                    projected,
+                    fallbackRequired: visible && projectionRequired && !projected,
+                    allowMountedInactive,
+                });
+            } catch (e) {}
+        }
+
+        if (visible && projectionRequired && !projected) {
+            try {
+                if ((batch.structural === true || checklistCompletionReconcileRequired)
+                    && String(state.viewMode || '').trim() === 'checklist') {
+                    __tmMarkChecklistProjectionGroupRefresh(taskIds);
+                }
+                if (kanbanCompletionReconcileRequired) {
+                    try { __tmKanbanColsHtmlCache = null; } catch (e) {}
+                }
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: !filtersApplied,
+                    reason: String(batch.reason || 'change-set-projection-fallback').trim() || 'change-set-projection-fallback',
+                    taskIds,
+                    bypassTaskFieldDefer: true,
+                    bypassScrollDefer: false,
+                    bypassInteractionDefer: batch.structural === true
+                        || checklistCompletionReconcileRequired
+                        || kanbanCompletionReconcileRequired,
+                    allowMountedInactive,
+                });
+            } catch (e) {}
+        }
+        if (visible && batch.structural === true && taskIds.length) {
+            let detailSubtasksProjected = false;
+            if (opts.detailSubtaskProjectionEligible === true) {
+                try { detailSubtasksProjected = globalThis.__tmProjectVisibleTaskDetailSubtasks?.(taskIds) === true; } catch (e) {}
+            }
+            const structuralTypes = Array.isArray(opts.structuralTypes) ? opts.structuralTypes : [];
+            const skipDetailRefresh = detailSubtasksProjected
+                && structuralTypes.length > 0
+                && structuralTypes.every((type) => type === 'createSubtask' || type === 'createSibling' || type === 'commitTaskId');
+            if (!skipDetailRefresh) {
+                try {
+                    __tmScheduleViewRefresh({
+                        mode: 'detail',
+                        withFilters: false,
+                        reason: String(batch.reason || 'change-set-detail').trim() || 'change-set-detail',
+                        taskIds,
+                        forceRebuild: !detailSubtasksProjected,
+                    });
+                } catch (e) {}
+            }
+        }
+        return true;
+    }
+
+    const __tmPendingProjectionEntries = [];
+    let __tmPendingProjectionFrame = 0;
+
+    function __tmScheduleTaskProjectionBatch(batch, entries = []) {
+        const list = Array.isArray(entries) && entries.length
+            ? entries
+            : [{ mutation: { source: batch?.reason || 'change-set' }, changeSet: batch }];
+        __tmPendingProjectionEntries.push(...list);
+        if (__tmPendingProjectionFrame) return true;
+        const scheduledAt = Date.now();
+        const run = () => {
+            try {
+                if (globalThis.navigator?.scheduling?.isInputPending?.({ includeContinuous: true })
+                    && Date.now() - scheduledAt < __TM_PROJECTION_INPUT_YIELD_MAX_MS) {
+                    __tmPendingProjectionFrame = setTimeout(run, 16);
+                    return;
+                }
+            } catch (e) {}
+            __tmPendingProjectionFrame = 0;
+            const pending = __tmPendingProjectionEntries.splice(0, __tmPendingProjectionEntries.length);
+            if (!pending.length) return;
+            const merged = globalThis.__tmTaskProjectionEngine?.mergeChangeSets?.(pending) || batch;
+            const structuralTypes = Array.from(new Set(pending
+                .filter((entry) => entry?.changeSet?.structural === true)
+                .map((entry) => String(entry?.mutation?.type || '').trim())
+                .filter(Boolean)));
+            const allowMountedInactive = pending.some((entry) => (
+                entry?.mutation?.data?.presentation?.allowMountedInactive === true
+            ));
+            __tmRunTaskProjectionBatch(merged, {
+                patchFields: false,
+                detailSubtaskProjectionEligible: __tmCanUseDetailSubtaskProjection(pending),
+                structuralTypes,
+                allowMountedInactive,
+            });
+        };
+        try {
+            __tmPendingProjectionFrame = requestAnimationFrame(run);
+        } catch (e) {
+            __tmPendingProjectionFrame = setTimeout(run, 0);
+        }
+        return true;
+    }
+
+    function __tmApplyTaskProjectionChangeSets(batchInput = {}, entries = []) {
+        const batch = batchInput && typeof batchInput === 'object' ? batchInput : {};
+        const changes = Array.isArray(batch.fieldChanges) ? batch.fieldChanges : [];
+        const structuralEntries = (Array.isArray(entries) ? entries : []).filter((entry) => entry?.changeSet?.structural === true);
+        const deletedDetailIds = new Set((Array.isArray(batch.deletedTaskIds) ? batch.deletedTaskIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        structuralEntries.forEach((entry) => {
+            const mutation = entry?.mutation && typeof entry.mutation === 'object' ? entry.mutation : {};
+            if (String(mutation.type || '').trim() !== 'taskLifecycle') return;
+            if (String(mutation.data?.action || '').trim() !== 'archiveDeleted') return;
+            const taskId = String(mutation.realId || mutation.taskId || mutation.tempId || mutation.data?.taskId || '').trim();
+            if (taskId) deletedDetailIds.add(taskId);
+        });
+        if (deletedDetailIds.size) {
+            try { globalThis.__tmDismissVisibleTaskDetailsForDeletedIds?.(Array.from(deletedDetailIds)); } catch (e) {}
+        }
+        const analyses = changes.map((change) => __tmAnalyzeTaskProjectionPatch(change.taskId, change.patch));
+        const presentationByTaskId = new Map();
+        (Array.isArray(entries) ? entries : []).forEach((entry) => {
+            const mutation = entry?.mutation && typeof entry.mutation === 'object' ? entry.mutation : {};
+            const presentation = mutation?.data?.presentation && typeof mutation.data.presentation === 'object'
+                ? mutation.data.presentation
+                : {};
+            const ids = Array.isArray(mutation.taskIds) && mutation.taskIds.length
+                ? mutation.taskIds
+                : [mutation.taskId];
+            ids.forEach((value) => {
+                const taskId = String(value || '').trim();
+                if (!taskId) return;
+                const previous = presentationByTaskId.get(taskId) || {};
+                presentationByTaskId.set(taskId, {
+                    preserveActiveDetail: previous.preserveActiveDetail === true || presentation.preserveActiveDetail === true,
+                    allowMountedInactive: previous.allowMountedInactive === true || presentation.allowMountedInactive === true,
+                });
+            });
+        });
+        const detailProjectionChanges = changes.filter((change) => {
+            const taskId = String(change?.taskId || '').trim();
+            return taskId && presentationByTaskId.get(taskId)?.allowMountedInactive === true;
+        });
+        if (detailProjectionChanges.length > 0) {
+            try {
+                __tmPushDetailDebug('detail-projection-change-set', {
+                    taskIds: detailProjectionChanges.map((change) => String(change?.taskId || '').trim()),
+                    fields: detailProjectionChanges.map((change) => ({
+                        taskId: String(change?.taskId || '').trim(),
+                        fields: Object.keys(change?.patch || {}),
+                    })),
+                    viewMode: String(state.viewMode || '').trim(),
+                    reasons: Array.from(new Set((Array.isArray(entries) ? entries : [])
+                        .map((entry) => String(entry?.mutation?.source || '').trim())
+                        .filter(Boolean))),
+                });
+            } catch (e) {}
+        }
+        changes.forEach((change, index) => {
+            const taskId = String(change?.taskId || '').trim();
+            const patch = change?.patch && typeof change.patch === 'object' ? change.patch : {};
+            if (!taskId || !Object.keys(patch).length) return;
+            const presentation = presentationByTaskId.get(taskId) || {};
+            try {
+                __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
+                    projectionManaged: true,
+                    projectionRequired: analyses[index]?.projection === true,
+                    projectionPrepared: false,
+                    fallback: false,
+                    skipDetailPatch: presentation.preserveActiveDetail === true,
+                    allowMountedInactive: presentation.allowMountedInactive === true,
+                    reason: String(batch.reason || 'change-set-field').trim() || 'change-set-field',
+                });
+            } catch (e) {}
+        });
+        const projectionRequired = batch.structural === true
+            || analyses.some((analysis) => analysis.projection === true);
+        if (!projectionRequired) return true;
+        if (batch.structural === true && __tmCanUseDetailSubtaskProjection(entries)) {
+            const affectedDetailIds = Array.from(new Set([
+                ...(Array.isArray(batch.taskIds) ? batch.taskIds : []),
+                ...(Array.isArray(batch.upsertedTaskIds) ? batch.upsertedTaskIds : []),
+                ...(Array.isArray(batch.deletedTaskIds) ? batch.deletedTaskIds : []),
+                ...(Array.isArray(batch.affectedGroupIds) ? batch.affectedGroupIds : []),
+            ].map((id) => String(id || '').trim()).filter(Boolean)));
+            try { globalThis.__tmProjectVisibleTaskDetailSubtasks?.(affectedDetailIds); } catch (e) {}
+        }
+        return __tmScheduleTaskProjectionBatch(batch, entries);
+    }
+
+    globalThis.__tmApplyTaskProjectionChangeSets = __tmApplyTaskProjectionChangeSets;
+    globalThis.__tmTaskProjectionEngine?.setRuntimeHandler(__tmApplyTaskProjectionChangeSets);
 
     function __tmBuildMergedAttrPatch(taskId, patch = {}, options = {}) {
         const task = __tmTaskStateKernel.getTask(taskId);
@@ -3700,196 +5360,67 @@ return false;
         return merged;
     }
 
-    const __tmWritePlanner = {
-        normalizePatch(taskId, patch = {}, options = {}) {
-            const merged = __tmBuildMergedAttrPatch(taskId, patch, options);
-            const normalized = {};
-            Object.entries(merged || {}).forEach(([key, value]) => {
-                normalized[key] = __tmNormalizeQueueTaskValue(key, value);
-            });
-            return normalized;
-        },
-        splitPatchByStorage(taskId, patch = {}, options = {}) {
-            const normalized = this.normalizePatch(taskId, patch, options);
-            const statusPatch = {};
-            const timePatch = {};
-            const attrPatch = {};
-            let doneValue = null;
-            Object.entries(normalized).forEach(([key, value]) => {
-                if (key === 'done') {
-                    doneValue = !!value;
-                    return;
-                }
-                if (key === 'customStatus') {
-                    statusPatch.customStatus = String(value || '').trim();
-                    return;
-                }
-                if (key === 'startDate' || key === 'completionTime' || key === 'duration' || key === 'customTime') {
-                    timePatch[key] = value;
-                    return;
-                }
-                attrPatch[key] = value;
-            });
-            return { normalized, doneValue, statusPatch, timePatch, attrPatch };
-        },
-        mergeTaskPatches(prev = {}, next = {}, options = {}) {
-            const left = (prev && typeof prev === 'object') ? prev : {};
-            const right = (next && typeof next === 'object') ? next : {};
-            const opts = (options && typeof options === 'object') ? options : {};
-            const preferExisting = opts.preferExisting === true;
-            const merged = preferExisting
-                ? { ...right, ...left }
-                : { ...left, ...right };
-            if (left.customFieldValues || right.customFieldValues) {
-                merged.customFieldValues = {
-                    ...(preferExisting
-                        ? ((right.customFieldValues && typeof right.customFieldValues === 'object') ? right.customFieldValues : {})
-                        : ((left.customFieldValues && typeof left.customFieldValues === 'object') ? left.customFieldValues : {})),
-                    ...(preferExisting
-                        ? ((left.customFieldValues && typeof left.customFieldValues === 'object') ? left.customFieldValues : {})
-                        : ((right.customFieldValues && typeof right.customFieldValues === 'object') ? right.customFieldValues : {})),
-                };
-            }
-            return merged;
-        },
-        buildWritePlan(taskId, patch = {}, options = {}) {
-            const parts = this.splitPatchByStorage(taskId, patch, options);
-            const fieldKeys = __tmGetPatchFieldKeys(parts.normalized);
-            const task = __tmTaskStateKernel.getTask(taskId);
-            const previousDone = !!task?.done;
-            const statusBeforeMarker = Object.keys(parts.statusPatch || {}).length > 0
-                ? (__tmResolveTaskMarkdownMarker(task) || __tmResolveTaskMarker(task))
-                : '';
-            const rewardPriorityScore = !!SettingsStore?.data?.enablePointsRewardIntegration
-                && parts.doneValue === true
-                && !previousDone
-                && !__tmUndoState?.applying
-                ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(task, { force: true })) || 0))
-                : 0;
-            return {
-                taskId: String(taskId || '').trim(),
-                originalPatch: { ...(patch && typeof patch === 'object' ? patch : {}) },
-                normalizedPatch: parts.normalized,
-                fieldKeys,
-                doneValue: parts.doneValue,
-                previousDone,
-                rewardPriorityScore,
-                statusPatch: parts.statusPatch,
-                statusBefore: Object.keys(parts.statusPatch || {}).length > 0
-                    ? {
-                        statusId: __tmResolveTaskStatusId(task),
-                        marker: statusBeforeMarker,
-                        done: __tmIsTaskMarkerDone(statusBeforeMarker),
-                    }
-                    : null,
-                timePatch: parts.timePatch,
-                attrPatch: parts.attrPatch,
-                affectsProjection: __tmDoesPatchAffectProjection(taskId, parts.normalized),
-                supportsLocalPatch: fieldKeys.every((key) => __tmGetFieldSpec(key)?.supportsLocalPatch !== false),
-            };
-        },
-    };
+    function __tmMergeTaskMutationPatches(previous = {}, next = {}, options = {}) {
+        const left = previous && typeof previous === 'object' ? previous : {};
+        const right = next && typeof next === 'object' ? next : {};
+        const preferExisting = options?.preferExisting === true;
+        const merged = preferExisting ? { ...right, ...left } : { ...left, ...right };
+        if (left.customFieldValues || right.customFieldValues) {
+            merged.customFieldValues = preferExisting
+                ? { ...(right.customFieldValues || {}), ...(left.customFieldValues || {}) }
+                : { ...(left.customFieldValues || {}), ...(right.customFieldValues || {}) };
+        }
+        return merged;
+    }
 
-    const __tmWriteExecutor = {
-        lanes: new Map(),
-        runInTaskLane(taskId, runner) {
-            const tid = String(taskId || '').trim();
-            const job = typeof runner === 'function' ? runner : async () => null;
-            const prev = this.lanes.get(tid) || Promise.resolve();
-            const next = prev.catch(() => null).then(job);
-            this.lanes.set(tid, next.finally(() => {
-                if (this.lanes.get(tid) === next) this.lanes.delete(tid);
-            }));
-            return next;
-        },
-        async executePlan(plan, options = {}) {
-            const taskId = String(plan?.taskId || '').trim();
-            if (!taskId) throw new Error('缺少任务 ID');
-            const opts = (options && typeof options === 'object') ? options : {};
-            return await this.runInTaskLane(taskId, async () => {
-                try {
-                if (plan.doneValue !== null) {
-                    await __tmSetDoneKernel(taskId, !!plan.doneValue, null, {
-                        force: true,
-                        suppressHint: opts.suppressHint === true,
-                        source: String(opts.source || '').trim(),
-                        statusPatch: plan.statusPatch,
-                        refreshMode: 'local',
-                        scheduleId: String(opts.scheduleId || '').trim(),
-                        previousDone: plan.previousDone === true,
-                        previousStatusId: String(plan?.statusBefore?.statusId || '').trim(),
-                        rewardPriorityScore: Number(plan.rewardPriorityScore) || 0,
-                        recordUndo: opts.recordUndo !== false,
-                        skipViewRefresh: opts.skipViewRefresh === true,
-                        skipOptimisticRefresh: opts.skipOptimisticRefresh === true || opts.skipViewRefresh === true,
-                        skipSettledRefresh: opts.skipSettledRefresh === true,
-                        refreshAncestorViews: opts.refreshAncestorViews !== false,
-                    });
-                } else if (plan.statusPatch && Object.keys(plan.statusPatch).length > 0) {
-                    await __tmApplyTaskStatus(taskId, String(plan.statusPatch.customStatus || '').trim(), {
-                        source: String(opts.source || 'task-status').trim() || 'task-status',
-                        label: String(opts.label || '状态').trim() || '状态',
-                        refresh: false,
-                        refreshCalendar: false,
-                        withFilters: false,
-                        broadcast: opts.broadcast !== false,
-                        queued: opts.queued === true,
-                        background: opts.background === true,
-                        skipFlush: opts.skipFlush,
-                        mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
-                        syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
-                        inlineQueuedPersist: opts.inlineQueuedPersist === true && opts.background !== true && opts.wait !== false,
-                        skipNoopCheck: opts.skipNoopCheck === true,
-                        previousStatusId: String(plan?.statusBefore?.statusId || '').trim(),
-                        previousMarker: String(plan?.statusBefore?.marker ?? ''),
-                        previousDone: plan?.statusBefore?.done === true,
-                    });
+    function __tmBuildTaskCommandPlan(taskId, patch = {}, options = {}) {
+        const task = __tmTaskStateKernel.getTask(taskId);
+        const explicitDone = Object.prototype.hasOwnProperty.call(patch || {}, 'done');
+        const explicitCustomStatus = Object.prototype.hasOwnProperty.call(patch || {}, 'customStatus');
+        const merged = __tmBuildMergedAttrPatch(taskId, patch, options);
+        const normalizedPatch = {};
+        Object.entries(merged).forEach(([key, value]) => {
+            normalizedPatch[key] = __tmNormalizeQueueTaskValue(key, value);
+        });
+        if (explicitCustomStatus && !String(normalizedPatch.customStatus || '').trim()) {
+            normalizedPatch.customStatus = __tmGetDefaultUndoneStatusId(__tmGetStatusOptions());
+        }
+        const statusPatch = Object.prototype.hasOwnProperty.call(normalizedPatch, 'customStatus')
+            ? { customStatus: String(normalizedPatch.customStatus || '').trim() }
+            : {};
+        const marker = Object.keys(statusPatch).length ? (__tmResolveTaskMarkdownMarker(task) || __tmResolveTaskMarker(task)) : '';
+        if (statusPatch.customStatus) {
+            const targetStatus = __tmFindStatusOptionById(statusPatch.customStatus);
+            if (targetStatus) {
+                const targetMarker = __tmNormalizeCompatTaskStatusMarker(
+                    targetStatus.marker,
+                    __tmGuessStatusOptionDefaultMarker(targetStatus),
+                );
+                // The kernel gives an explicit status marker precedence over a
+                // contradictory done value. Mirror that rule before optimistic
+                // projection so status, checkbox effects and the receipt agree.
+                normalizedPatch.done = __tmIsTaskMarkerDone(targetMarker);
+                if (!Object.prototype.hasOwnProperty.call(normalizedPatch, 'taskCompleteAt')) {
+                    if (normalizedPatch.done && !task?.done) Object.assign(normalizedPatch, __tmBuildTaskCompleteAtPatch());
+                    else if (!normalizedPatch.done && task?.done) normalizedPatch.taskCompleteAt = '';
                 }
-                if (plan.timePatch && Object.keys(plan.timePatch).length > 0) {
-                    await __tmCommitTaskTimeFields(taskId, plan.timePatch, {
-                        source: String(opts.source || 'task-fields').trim() || 'task-fields',
-                        label: String(opts.label || '任务字段').trim() || '任务字段',
-                        skipNoopCheck: true,
-                        broadcast: opts.broadcast !== false,
-                        queued: opts.queued === true,
-                        background: opts.background === true,
-                        skipFlush: opts.skipFlush,
-                        attrTargetId: String(opts.attrTargetId || '').trim(),
-                        mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
-                        syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
-                        renderOptimistic: opts.queued !== true && opts.background !== true,
-                        inlineQueuedPersist: opts.inlineQueuedPersist === true && opts.background !== true && opts.wait !== false,
-});
-                }
-                if (plan.attrPatch && Object.keys(plan.attrPatch).length > 0) {
-                    await __tmApplyTaskMetaPatchWithUndo(taskId, plan.attrPatch, {
-                        source: String(opts.source || 'task-fields').trim() || 'task-fields',
-                        label: String(opts.label || '任务字段').trim() || '任务字段',
-                        refresh: false,
-                        refreshCalendar: false,
-                        withFilters: false,
-                        skipNoopCheck: true,
-                        broadcast: opts.broadcast !== false,
-                        queued: opts.queued === true,
-                        background: opts.background === true,
-                        skipFlush: opts.skipFlush,
-                        mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
-                        syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
-                        renderOptimistic: opts.queued !== true && opts.background !== true,
-                        inlineQueuedPersist: opts.inlineQueuedPersist === true && opts.background !== true && opts.wait !== false,
-                        previousAttachmentPaths: opts.previousAttachmentPaths,
-                        previousAttachmentMeta: opts.previousAttachmentMeta,
-                        previousAttachmentSlotCount: opts.previousAttachmentSlotCount,
-});
-                }
-                const task = __tmTaskStateKernel.getTask(taskId);
-                return task;
-                } catch (e) {
-                    throw e;
-                }
-            });
-        },
-    };
+            }
+        }
+        return {
+            taskId: String(taskId || '').trim(),
+            normalizedPatch,
+            doneValue: Object.prototype.hasOwnProperty.call(normalizedPatch, 'done') ? !!normalizedPatch.done : null,
+            explicitDone,
+            explicitCustomStatus,
+            previousDone: !!task?.done,
+            statusPatch,
+            statusBefore: Object.keys(statusPatch).length ? {
+                statusId: __tmResolveTaskStatusId(task),
+                marker,
+                done: __tmIsTaskMarkerDone(marker),
+            } : null,
+        };
+    }
 
     function __tmUpdateTaskStatusTagInDOM(container, task) {
         const root = container instanceof Element ? container : null;
@@ -3958,7 +5489,7 @@ return false;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
         const cell = root.querySelector('[data-tm-field="score"]');
-        const nextValue = Math.round(__tmEnsureTaskPriorityScore(taskLike));
+        const nextValue = Math.round(__tmEnsureTaskPriorityScore(taskLike, { force: true }));
         if (cell instanceof HTMLElement) cell.textContent = String(nextValue);
         try { __tmApplyTaskTitleOpacityInContainer(root, taskLike); } catch (e) {}
         return true;
@@ -4346,9 +5877,7 @@ return false;
             if (!loadedCount) return;
             try {
                 __tmRefreshTaskFieldsAcrossViews(taskId, { attachments: true }, {
-                    withFilters: false,
                     reason: 'attachment-block-meta',
-                    forceProjectionRefresh: false,
                     fallback: false,
                 });
             } catch (e) {
@@ -4939,10 +6468,7 @@ return false;
     function __tmGetCurrentTaskAttachmentPatchBase(taskId) {
         const tid = String(taskId || '').trim();
         if (!tid) return [];
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
         return __tmGetTaskAttachmentPaths(task || {});
     }
 
@@ -4984,7 +6510,7 @@ return false;
         const tid = String(taskId || '').trim();
         if (!tid) return false;
         const normalizedPaths = __tmReconcileQueuedTaskAttachmentPaths(tid, nextPaths, options);
-        const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+        const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
         if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
         return await patchTask(tid, { attachments: normalizedPaths }, {
             source: String(options?.source || 'task-attachments').trim() || 'task-attachments',
@@ -5599,10 +7125,7 @@ return false;
             try { ok = confirm('仅从该任务移除此附件，不会删除原文件。是否继续？'); } catch (e2) { ok = true; }
         }
         if (!ok) return false;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid)
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) {
             try { hint('⚠ 未找到关联任务', 'warning'); } catch (e) {}
             return false;
@@ -5844,13 +7367,6 @@ return false;
                 .concat(Object.keys(patchFieldValues || {}))
         ));
         if (patchFieldValues) {
-            __tmQuickbarRefreshDebugLog('custom-field-dom-enter', {
-                taskId: debugTaskId,
-                fieldIds: fieldIds.slice(),
-                domFieldIds: domFieldIds.slice(),
-                patchFieldIds: Object.keys(patchFieldValues || {}),
-                viewMode: String(state.viewMode || '').trim(),
-            });
         }
         let touched = false;
         const syncCompactWrapVisibility = (wrap) => {
@@ -5884,12 +7400,6 @@ return false;
             const nodes = Array.from(root.querySelectorAll(`[data-tm-custom-field-cell="${CSS.escape(fid)}"]`))
                 .filter((node) => node instanceof HTMLElement);
             if (patchFieldValues && Object.prototype.hasOwnProperty.call(patchFieldValues, fid)) {
-                __tmQuickbarRefreshDebugLog('custom-field-dom-field', {
-                    taskId: debugTaskId,
-                    fieldId: fid,
-                    nodeCount: nodes.length,
-                    value: __tmGetTaskCustomFieldValue(taskLike, fid),
-                });
             }
             nodes.forEach((node) => {
                 const cell = node.querySelector('.tm-custom-field-cell');
@@ -5979,12 +7489,6 @@ return false;
             touched = true;
         });
         if (patchFieldValues) {
-            __tmQuickbarRefreshDebugLog('custom-field-dom-exit', {
-                taskId: debugTaskId,
-                touched: !!touched,
-                fieldCount: fieldIds.length,
-                viewMode: String(state.viewMode || '').trim(),
-            });
         }
         return touched || fieldIds.length === 0;
     }
@@ -5993,17 +7497,61 @@ return false;
         const root = container instanceof Element ? container : null;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
+        const taskIds = Array.from(new Set([
+            taskLike.id,
+            taskLike.blockId,
+            root.getAttribute?.('data-id'),
+            root.getAttribute?.('data-task-id'),
+        ].map((value) => String(value || '').trim()).filter(Boolean)));
+        let projectedTask = null;
+        for (const taskId of taskIds) {
+            try {
+                const candidate = globalThis.__tmTaskStore?.getProjected?.(taskId);
+                if (candidate && typeof candidate === 'object') {
+                    projectedTask = candidate;
+                    break;
+                }
+            } catch (e) {}
+        }
+        const effectiveTask = projectedTask || taskLike;
+        const taskDone = __tmIsTaskCompletedForProjection(effectiveTask);
         let touched = false;
-        const checkbox = root.querySelector('.tm-task-checkbox');
+        let checkbox = null;
+        for (const taskId of taskIds) {
+            checkbox = root.querySelector(`.tm-task-checkbox[data-task-id="${CSS.escape(taskId)}"]`);
+            if (checkbox instanceof HTMLInputElement) break;
+        }
+        if (!(checkbox instanceof HTMLInputElement) && !root.classList?.contains?.('tm-kanban-card')) {
+            checkbox = root.querySelector('.tm-task-checkbox');
+        }
         if (checkbox instanceof HTMLInputElement) {
-            checkbox.checked = !!taskLike.done;
+            checkbox.checked = taskDone;
             touched = true;
         }
-        root.classList?.toggle?.('tm-checklist-item--done', !!taskLike.done);
-        const taskText = root.querySelector('.tm-task-text');
+        if (root.classList?.contains?.('tm-checklist-item')) {
+            root.classList.toggle('tm-checklist-item--done', taskDone);
+        }
+        if (root.classList?.contains?.('tm-kanban-card')) {
+            root.classList.toggle('tm-kanban-card--done', taskDone);
+            root.classList.toggle('tm-kanban-card--overdue', __tmIsTaskCardDateOverdue(effectiveTask));
+        }
+        const taskText = root.classList?.contains?.('tm-kanban-card--sub')
+            ? root.querySelector(':scope > .tm-kanban-subtask-row-main .tm-kanban-subtask-title')
+            : (root.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-title-inline')
+                || root.querySelector('.tm-task-text, .tm-whiteboard-stream-task-title'));
         if (taskText instanceof HTMLElement) {
-            taskText.classList.toggle('tm-task-done', !!taskLike.done);
+            taskText.classList.toggle('tm-task-done', taskDone);
             touched = true;
+        }
+        if (!taskDone) {
+            const taskId = String(effectiveTask.id || effectiveTask.blockId || '').trim();
+            root.querySelectorAll('.tm-checklist-title, .tm-checklist-title-button, .tm-checklist-title-button > span, .tm-task-content-clickable, .tm-kanban-subtask-title, .tm-kanban-card-title-inline, .tm-task-text, .tm-whiteboard-stream-task-title').forEach((title) => {
+                if (!(title instanceof HTMLElement)) return;
+                if (taskId && !__tmDoesTaskDomTargetBelongToTask(title, taskId, root)) return;
+                title.classList.toggle('tm-task-done', false);
+                title.classList.toggle('is-done', false);
+                touched = true;
+            });
         }
         return touched;
     }
@@ -6022,11 +7570,12 @@ return false;
         const titleText = String(taskLike.content || '').trim() || '(无内容)';
         const taskId = String(taskLike.id || taskLike.blockId || '').trim();
         let touched = false;
-        const targets = root.querySelectorAll('.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title');
+        const targets = root.querySelectorAll('.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title, .tm-cal-task-event-title-text');
         targets.forEach((el) => {
             if (!(el instanceof HTMLElement)) return;
             if (taskId && !__tmDoesTaskDomTargetBelongToTask(el, taskId, root)) return;
-            el.innerHTML = html;
+            if (el.classList.contains('tm-cal-task-event-title-text')) el.textContent = titleText;
+            else el.innerHTML = html;
             try {
                 if (typeof __tmApplyTooltipAttrsToElement === 'function') {
                     __tmApplyTooltipAttrsToElement(el, titleText, { side: 'bottom', ariaLabel: false });
@@ -6037,6 +7586,43 @@ return false;
             try { __tmApplyTaskTitleOpacityToElement(el, taskLike); } catch (e) {}
             touched = true;
         });
+        return touched;
+    }
+
+    function __tmPatchVisibleTaskContentInDOM(taskId, taskLike = null) {
+        const tid = String(taskId || taskLike?.id || taskLike?.blockId || '').trim();
+        if (!tid) return false;
+        const task = (taskLike && typeof taskLike === 'object')
+            ? taskLike
+            : (__tmTaskStateKernel.getTask(tid) || null);
+        if (!task) return false;
+        const aliases = new Set([tid]);
+        try {
+            (globalThis.__tmTaskStore?.getAliases?.(tid) || []).forEach((id) => {
+                const alias = String(id || '').trim();
+                if (alias) aliases.add(alias);
+            });
+        } catch (e) {}
+        let touched = false;
+        try {
+            document.querySelectorAll(__TM_TASK_DOM_HOST_SELECTOR).forEach((host) => {
+                if (!(host instanceof HTMLElement)) return;
+                if (!aliases.has(__tmGetTaskDomHostId(host))) return;
+                touched = !!__tmUpdateTaskContentInDOM(host, task) || touched;
+            });
+        } catch (e) {}
+        try {
+            aliases.forEach((alias) => {
+                document.querySelectorAll(`[data-tm-detail-subtask-content="${CSS.escape(alias)}"]`).forEach((textarea) => {
+                    if (!(textarea instanceof HTMLTextAreaElement)) return;
+                    const titleText = String(task.content || '').trim();
+                    const isEditing = textarea === document.activeElement || textarea.dataset.composing === 'true';
+                    if (!isEditing) textarea.value = titleText;
+                    if (!isEditing || textarea.value === titleText) textarea.dataset.savedValue = titleText;
+                    touched = true;
+                });
+            });
+        } catch (e) {}
         return touched;
     }
 
@@ -6091,6 +7677,7 @@ return false;
         if (node.classList.contains('tm-status-tag')) return true;
         const field = String(node.getAttribute('data-tm-task-time-field') || '').trim();
         return field === 'date'
+            || field === 'remainingTime'
             || field === 'tomatoSummary'
             || field === 'tomatoEstimateCount'
             || field === 'tomatoCount';
@@ -6114,14 +7701,18 @@ return false;
             }
         }
 
-        if (__tmTaskCardFieldEnabled(viewKey, 'status') && __tmShouldRenderTaskCardStatus(taskLike)) {
+        const taskDone = __tmIsTaskCompletedForProjection(taskLike);
+        const keepCompletedStatusChip = __tmTaskCardAlwaysShowFieldEnabled('status');
+        if (__tmTaskCardFieldEnabled(viewKey, 'status')
+            && __tmShouldRenderTaskCardStatus(taskLike)
+            && (!taskDone || keepCompletedStatusChip)) {
             const opt = __tmResolveTaskStatusDisplayOption(taskLike, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
-                fallbackColor: taskLike?.done ? '#9e9e9e' : '#757575',
-                fallbackName: taskLike?.done ? '完成' : '待办',
+                fallbackColor: taskDone ? '#9e9e9e' : '#757575',
+                fallbackName: taskDone ? '完成' : '待办',
             });
             const style = __tmBuildStatusChipStyle(opt.color || '#757575');
-            const label = esc(String(opt.name || opt.id || (taskLike?.done ? '完成' : '')).trim());
-            if (taskLike?.done) {
+            const label = esc(String(opt.name || opt.id || (taskDone ? '完成' : '')).trim());
+            if (taskDone) {
                 metaParts.push(`<span class="tm-status-tag" style="${style};cursor:default;">${label || esc('完成')}</span>`);
             } else if (viewKey === 'whiteboard') {
                 metaParts.push(`<span class="tm-status-tag" style="${style};cursor:${editableWhiteboard ? 'pointer' : 'default'};" ${editableWhiteboard ? `onclick="tmWhiteboardEditStatus('${escSq(tid)}', this, event)"` : ''}>${label}</span>`);
@@ -6139,6 +7730,12 @@ return false;
             } else {
                 metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${escSq(tid)}', event)" title="点击选择日期">${esc(dateText || '日期')}</span>`);
             }
+        }
+
+        if (__tmTaskCardFieldEnabled(viewKey, 'remainingTime') && __tmShouldRenderTaskCardRemainingTime(taskLike)) {
+            const remainingInfo = __tmGetTaskRemainingTimeInfo(taskLike);
+            const remainingLabel = String(remainingInfo?.label || '').trim();
+            metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="remainingTime" title="${esc(remainingLabel)}">${__tmRenderTaskRemainingTimeInfoHtml(remainingInfo)}</span>`);
         }
 
         if (__tmTaskCardFieldEnabled(viewKey, 'tomatoSummary')) {
@@ -6167,6 +7764,7 @@ return false;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof HTMLElement) || !taskLike) return false;
         if (!root.classList.contains('tm-kanban-card') && !root.classList.contains('tm-whiteboard-node')) return false;
+        root.classList.toggle('tm-kanban-card--overdue', __tmIsTaskCardDateOverdue(taskLike));
         const isSub = root.classList.contains('tm-kanban-card--sub')
             || root.classList.contains('tm-whiteboard-subcard')
             || root.classList.contains('tm-whiteboard-node--sub');
@@ -6209,7 +7807,8 @@ return false;
             },
             patchTask(taskId, patch = {}) {
                 const row = this.findRow(taskId);
-                const task = __tmTaskStateKernel.getTask(taskId);
+                const task = globalThis.__tmTaskStore?.getProjected?.(taskId)
+                    || __tmTaskStateKernel.getTask(taskId);
                 if (!(row instanceof HTMLElement) || !task) return false;
                 let touched = false;
                 if (Object.prototype.hasOwnProperty.call(patch, 'content')) touched = !!__tmUpdateTaskContentInDOM(row, task) || touched;
@@ -6250,7 +7849,8 @@ return false;
             },
             patchTask(taskId, patch = {}) {
                 const item = this.findItem(taskId);
-                const task = __tmTaskStateKernel.getTask(taskId);
+                const task = globalThis.__tmTaskStore?.getProjected?.(taskId)
+                    || __tmTaskStateKernel.getTask(taskId);
                 if (!(item instanceof HTMLElement) || !task) return false;
                 let touched = false;
                 let handled = false;
@@ -6325,7 +7925,8 @@ return false;
         timeline: {
             patchTask(taskId, patch = {}) {
                 const tid = String(taskId || '').trim();
-                const task = __tmTaskStateKernel.getTask(tid);
+                const task = globalThis.__tmTaskStore?.getProjected?.(tid)
+                    || __tmTaskStateKernel.getTask(tid);
                 if (!tid || !task || !(state.modal instanceof Element)) return false;
                 if (String(state.viewMode || '').trim() !== 'timeline') return false;
                 let touched = false;
@@ -6334,12 +7935,12 @@ return false;
                     if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
                         touched = !!__tmUpdateTaskContentInDOM(row, task) || touched;
                     }
-                    if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
-                        const checkbox = row.querySelector('.tm-task-checkbox');
-                        if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
-                        const textEl = row.querySelector('.tm-task-text');
-                        if (textEl instanceof HTMLElement) textEl.classList.toggle('tm-task-done', !!task.done);
-                        touched = true;
+                    if (Object.prototype.hasOwnProperty.call(patch, 'done')
+                        || Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
+                        touched = !!__tmUpdateTaskDoneInDOM(row, task) || touched;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
+                        touched = !!__tmUpdateTaskCheckboxPriorityInDOM(row, task) || touched;
                     }
                     if (Object.prototype.hasOwnProperty.call(patch, 'startDate')
                         || Object.prototype.hasOwnProperty.call(patch, 'completionTime')
@@ -6352,48 +7953,59 @@ return false;
             },
         },
         kanban: {
-            findCard(taskId) {
+            findCards(taskId) {
                 const tid = String(taskId || '').trim();
-                if (!tid || !(state.modal instanceof Element)) return null;
-                return state.modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(tid)}"]`);
+                if (!tid || !(state.modal instanceof Element)) return [];
+                return Array.from(state.modal.querySelectorAll(`.tm-kanban-card[data-id="${CSS.escape(tid)}"]`))
+                    .filter((card) => card instanceof HTMLElement);
             },
             patchTask(taskId, patch = {}) {
                 const tid = String(taskId || '').trim();
-                const task = __tmTaskStateKernel.getTask(tid);
-                const card = this.findCard(tid);
-                if (!(card instanceof HTMLElement) || !task) return false;
-                const hasDatePatch = Object.prototype.hasOwnProperty.call(patch, 'completionTime')
-                    || Object.prototype.hasOwnProperty.call(patch, 'startDate');
-                if (hasDatePatch && __tmIsKanbanTimeBoardContext()) return false;
+                const task = globalThis.__tmTaskStore?.getProjected?.(tid)
+                    || __tmTaskStateKernel.getTask(tid);
+                const cards = this.findCards(tid);
+                if (!cards.length || !task) return false;
                 let touched = false;
-                if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
-                    touched = !!__tmUpdateTaskContentInDOM(card, task) || touched;
-                }
-                if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
-                    card.classList.toggle('tm-kanban-card--done', !!task.done);
-                    const checkbox = card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-task-checkbox-wrap .tm-task-checkbox');
-                    if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
-                    const title = card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-kanban-card-title-inline');
-                    if (title instanceof HTMLElement) title.classList.toggle('tm-task-done', !!task.done);
-                    touched = true;
-                }
-                if (__tmDoesPatchAffectTaskCardMetaChips(patch)) {
-                    touched = !!__tmSyncTaskCardMetaChipsInDOM(card, task, 'kanban') || touched;
-                }
-                if (__tmDoesPatchAffectPriorityScore(patch)) {
-                    const title = card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-kanban-card-title-inline');
-                    if (title instanceof HTMLElement) touched = !!__tmApplyTaskTitleOpacityToElement(title, task) || touched;
-                }
-                if (Object.prototype.hasOwnProperty.call(patch, 'remark')) {
-                    touched = !!__tmUpdateTaskCardRemarkNodeInDOM(card, task, 'kanban') || touched;
-                }
+                cards.forEach((card) => {
+                    if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
+                        touched = !!__tmUpdateTaskContentInDOM(card, task) || touched;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'done')
+                        || Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
+                        touched = !!__tmUpdateTaskDoneInDOM(card, task) || touched;
+                    }
+                    if (__tmDoesPatchAffectTaskCardMetaChips(patch)) {
+                        touched = !!__tmSyncTaskCardMetaChipsInDOM(card, task, 'kanban') || touched;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
+                        touched = !!__tmUpdateTaskCheckboxPriorityInDOM(card, task) || touched;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'pinned')) {
+                        const pinned = __tmIsTaskPinned(task);
+                        card.classList.toggle('tm-kanban-card--pinned', pinned);
+                        card.style.borderLeft = pinned
+                            ? '3px solid var(--tm-danger-color,#d32f2f)'
+                            : '';
+                        touched = true;
+                    }
+                    if (__tmDoesPatchAffectPriorityScore(patch)) {
+                        const title = card.classList.contains('tm-kanban-card--sub')
+                            ? card.querySelector(':scope > .tm-kanban-subtask-row-main .tm-kanban-subtask-title')
+                            : card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-kanban-card-title-inline');
+                        if (title instanceof HTMLElement) touched = !!__tmApplyTaskTitleOpacityToElement(title, task) || touched;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'remark')) {
+                        touched = !!__tmUpdateTaskCardRemarkNodeInDOM(card, task, 'kanban') || touched;
+                    }
+                });
                 return touched;
             },
         },
         whiteboard: {
             patchTask(taskId, patch = {}) {
                 const tid = String(taskId || '').trim();
-                const task = __tmTaskStateKernel.getTask(tid);
+                const task = globalThis.__tmTaskStore?.getProjected?.(tid)
+                    || __tmTaskStateKernel.getTask(tid);
                 if (!tid || !task || !(state.modal instanceof Element)) return false;
                 let touched = false;
                 const nodes = state.modal.querySelectorAll(
@@ -6406,16 +8018,15 @@ return false;
                     if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
                         touched = !!__tmUpdateTaskContentInDOM(node, task) || touched;
                     }
-                    if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
-                        if (node.classList.contains('tm-kanban-card')) node.classList.toggle('tm-kanban-card--done', !!task.done);
-                        const checkbox = node.querySelector('.tm-task-checkbox');
-                        if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
-                        const title = node.querySelector('.tm-whiteboard-stream-task-title, .tm-task-content-clickable, .tm-task-text');
-                        if (title instanceof HTMLElement) title.classList.toggle('tm-task-done', !!task.done);
-                        touched = true;
+                    if (Object.prototype.hasOwnProperty.call(patch, 'done')
+                        || Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
+                        touched = !!__tmUpdateTaskDoneInDOM(node, task) || touched;
                     }
                     if (__tmDoesPatchAffectTaskCardMetaChips(patch)) {
                         touched = !!__tmSyncTaskCardMetaChipsInDOM(node, task, 'whiteboard') || touched;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
+                        touched = !!__tmUpdateTaskCheckboxPriorityInDOM(node, task) || touched;
                     }
                     if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmApplyTaskTitleOpacityInContainer(node, task) || touched;
                     if (Object.prototype.hasOwnProperty.call(patch, 'remark') && node.classList.contains('tm-whiteboard-node')) {
@@ -6442,7 +8053,7 @@ return false;
         if (!main && !side) return true;
         const reason = String(opts.reason || 'task-calendar-field-patch').trim() || 'task-calendar-field-patch';
         const keys = __tmGetPatchFieldKeys(nextPatch);
-        const directTaskDateKeys = new Set(['startDate', 'completionTime', 'taskDateColor']);
+        const directTaskDateKeys = new Set(['content', 'startDate', 'completionTime', 'taskDateColor']);
         const hasDirectTaskDatePatch = keys.some((key) => directTaskDateKeys.has(String(key || '').trim()));
         const hasDonePatch = Object.prototype.hasOwnProperty.call(nextPatch, 'done');
         const needsVisibleReadback = keys.some((key) => {
@@ -6507,36 +8118,28 @@ return false;
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return false;
         const opts = (options && typeof options === 'object') ? options : {};
+        const projectionManaged = opts.projectionManaged === true;
         const hasCustomFieldPatch = Object.prototype.hasOwnProperty.call(nextPatch, 'customFieldValues');
         const hasCalendarPatch = __tmPatchAffectsCalendar(nextPatch);
-        const viewMode = String(state.viewMode || '').trim();
-        const refreshWithFilters = __tmShouldRefreshWithFiltersForPatch(tid, nextPatch, opts);
-        const needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
-        const fallbackNeeded = __tmShouldFallbackTaskFieldPatch(tid, nextPatch, opts);
-        const suppressChecklistDetailSaveRefresh = __tmShouldSuppressChecklistDetailSaveRefresh(tid, nextPatch, opts);
-        if (hasCustomFieldPatch) {
-            __tmQuickbarRefreshDebugLog('custom-field-refresh-enter', {
-                taskId: tid,
-                viewMode,
-                pluginVisible: typeof __tmIsPluginVisibleNow === 'function' ? __tmIsPluginVisibleNow() : null,
-                refreshWithFilters,
-                needsProjectionRefresh,
-                fallbackNeeded,
-                reason: String(opts.reason || '').trim(),
-            });
+        if (hasCalendarPatch) {
+            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
         }
-        if (!__tmIsPluginVisibleNow()) {
-            if (opts.fallback !== false) {
+        const viewMode = String(state.viewMode || '').trim();
+        const refreshWithFilters = projectionManaged ? false : __tmShouldRefreshWithFiltersForPatch(tid, nextPatch, opts);
+        const needsProjectionRefresh = projectionManaged
+            ? opts.projectionRequired === true
+            : __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
+        const fallbackNeeded = projectionManaged ? false : __tmShouldFallbackTaskFieldPatch(tid, nextPatch, opts);
+        const suppressChecklistDetailSaveRefresh = __tmShouldSuppressChecklistDetailSaveRefresh(tid, nextPatch, opts);
+        const allowMountedInactive = opts.allowMountedInactive === true
+            && state.modal instanceof Element
+            && document.body.contains(state.modal);
+        if (!__tmIsPluginVisibleNow() && !allowMountedInactive) {
+            if (!projectionManaged && opts.fallback !== false) {
                 __tmScheduleViewRefresh({
                     mode: 'current',
                     withFilters: refreshWithFilters,
                     reason: String(opts.reason || 'task-field-hidden-fallback').trim() || 'task-field-hidden-fallback',
-                });
-            }
-            if (hasCustomFieldPatch) {
-                __tmQuickbarRefreshDebugLog('custom-field-refresh-hidden', {
-                    taskId: tid,
-                    reason: String(opts.reason || '').trim(),
                 });
             }
 return false;
@@ -6547,16 +8150,21 @@ return false;
             } catch (e) {}
             return true;
         }
-        let refreshed = false;
+        const hasContentPatch = Object.prototype.hasOwnProperty.call(nextPatch, 'content');
+        const controllerPatch = hasContentPatch
+            ? Object.fromEntries(Object.entries(nextPatch).filter(([key]) => key !== 'content' && key !== 'markdown'))
+            : nextPatch;
+        const hasControllerPatch = Object.keys(controllerPatch).length > 0;
+        let refreshed = hasContentPatch ? !!__tmPatchVisibleTaskContentInDOM(tid) : false;
         let refreshedList = false;
         let refreshedChecklist = false;
         let refreshedDetail = false;
-        if (viewMode === 'list') {
-            refreshedList = !!__tmViewControllers.list.patchTask(tid, nextPatch);
+        if (viewMode === 'list' && hasControllerPatch) {
+            refreshedList = !!__tmViewControllers.list.patchTask(tid, controllerPatch);
             refreshed = refreshedList || refreshed;
         }
-        if (viewMode === 'checklist') {
-            const checklistPatched = !!__tmViewControllers.checklist.patchTask(tid, nextPatch);
+        if (viewMode === 'checklist' && hasControllerPatch) {
+            const checklistPatched = !!__tmViewControllers.checklist.patchTask(tid, controllerPatch);
             refreshedChecklist = checklistPatched;
 refreshed = checklistPatched || refreshed;
             if (checklistPatched) {
@@ -6565,16 +8173,22 @@ refreshed = checklistPatched || refreshed;
                 } catch (e) {}
             }
         }
-        if (viewMode === 'timeline') refreshed = !!__tmViewControllers.timeline.patchTask(tid, nextPatch) || refreshed;
-        if (viewMode === 'kanban') refreshed = !!__tmViewControllers.kanban.patchTask(tid, nextPatch) || refreshed;
-        if (viewMode === 'whiteboard') refreshed = !!__tmViewControllers.whiteboard.patchTask(tid, nextPatch) || refreshed;
+        if (viewMode === 'timeline' && hasControllerPatch) refreshed = !!__tmViewControllers.timeline.patchTask(tid, controllerPatch) || refreshed;
+        if (viewMode === 'kanban' && hasControllerPatch) refreshed = !!__tmViewControllers.kanban.patchTask(tid, controllerPatch) || refreshed;
+        if (viewMode === 'whiteboard' && hasControllerPatch) refreshed = !!__tmViewControllers.whiteboard.patchTask(tid, controllerPatch) || refreshed;
+        const fastProjectionApplied = !projectionManaged && needsProjectionRefresh && (
+            (viewMode === 'checklist'
+                && opts.immediateProjectionRefresh === true
+                && __tmTryApplyChecklistOptimisticProjectionInPlace(tid, nextPatch))
+            || (viewMode === 'kanban'
+                && __tmTryApplyKanbanOptimisticProjectionInPlace(tid, nextPatch))
+        );
         if (opts.skipDetailPatch !== true) {
             refreshedDetail = !!__tmViewControllers.detail.patchTask(tid, nextPatch);
             refreshed = refreshedDetail || refreshed;
         }
         let calendarPatchedInPlace = false;
         if (hasCalendarPatch && opts.syncCalendar !== false) {
-            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
             try {
                 calendarPatchedInPlace = __tmSyncVisibleCalendarTaskPatch(tid, nextPatch, {
                     reason: String(opts.reason || 'task-field-calendar-patch').trim() || 'task-field-calendar-patch',
@@ -6582,55 +8196,42 @@ refreshed = checklistPatched || refreshed;
             } catch (e) {}
             if (calendarPatchedInPlace && viewMode === 'calendar') refreshed = true;
         }
-        if (hasCustomFieldPatch) {
-            __tmQuickbarRefreshDebugLog('custom-field-refresh-patched', {
-                taskId: tid,
-                viewMode,
-                refreshed,
-                refreshedList,
-                refreshedChecklist,
-                refreshedDetail,
-                needsProjectionRefresh,
-                fallbackNeeded,
-            });
+        if (viewMode === 'calendar') {
+            try {
+                const calApi = globalThis.__tmCalendar;
+                if (calApi && typeof calApi.requestRefresh === 'function') {
+                    calApi.requestRefresh({
+                        reason: String(opts.reason || 'task-field-calendar-panel').trim() || 'task-field-calendar-panel',
+                        main: false,
+                        side: false,
+                        flushTaskPanel: true,
+                        hard: false,
+                    });
+                    refreshed = true;
+                }
+            } catch (e) {}
         }
-        if (fallbackNeeded && !(calendarPatchedInPlace && viewMode === 'calendar')) {
+        if ((fallbackNeeded || fastProjectionApplied) && !(calendarPatchedInPlace && viewMode === 'calendar')) {
             if (viewMode === 'kanban') {
                 const kanbanRefreshed = __tmRefreshKanbanProjectionPatchNow(tid, nextPatch, {
                     ...opts,
+                    fastProjectionApplied,
                     withFilters: refreshWithFilters,
                     reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
                 });
                 if (kanbanRefreshed) {
-                    if (hasCustomFieldPatch) {
-                        __tmQuickbarRefreshDebugLog('custom-field-refresh-kanban-projection-now', {
-                            taskId: tid,
-                            viewMode,
-                            reason: String(opts.reason || '').trim(),
-                            refreshWithFilters,
-                            needsProjectionRefresh,
-                        });
-                    }
                     return true;
                 }
             }
             __tmScheduleTaskProjectionRefresh(tid, nextPatch, {
                 ...opts,
+                fastProjectionApplied,
                 withFilters: refreshWithFilters,
                 reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
             });
-            if (hasCustomFieldPatch) {
-                __tmQuickbarRefreshDebugLog('custom-field-refresh-fallback-scheduled', {
-                    taskId: tid,
-                    viewMode,
-                    reason: String(opts.reason || '').trim(),
-                    refreshWithFilters,
-                    needsProjectionRefresh,
-                });
-            }
             return refreshed;
         }
-        if (viewMode === 'list' && refreshed && opts.withFilters === false) {
+        if (!projectionManaged && viewMode === 'list' && refreshed && opts.withFilters === false) {
             if (needsProjectionRefresh) {
                 __tmScheduleTaskProjectionRefresh(tid, nextPatch, {
                     ...opts,
@@ -6639,7 +8240,7 @@ refreshed = checklistPatched || refreshed;
                 });
             }
         }
-        if (!refreshed && opts.fallback !== false) {
+        if (!projectionManaged && !refreshed && opts.fallback !== false) {
             if (suppressChecklistDetailSaveRefresh) {
                 const hasTimePatch = ['startDate', 'completionTime', 'duration', 'customTime']
                     .some((key) => Object.prototype.hasOwnProperty.call(nextPatch, key));
@@ -6660,14 +8261,6 @@ return false;
                 reason: String(opts.reason || 'task-field-patch-fallback').trim() || 'task-field-patch-fallback',
             });
         }
-        if (hasCustomFieldPatch) {
-            __tmQuickbarRefreshDebugLog('custom-field-refresh-exit', {
-                taskId: tid,
-                viewMode,
-                refreshed,
-                reason: String(opts.reason || '').trim(),
-            });
-        }
         return refreshed;
     }
 
@@ -6675,7 +8268,7 @@ return false;
         const tid = String(taskId || '').trim();
         const task = (taskLike && typeof taskLike === 'object')
             ? taskLike
-            : (state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null);
+            : __tmTaskStateKernel.getTask(tid);
         return Array.from(new Set([
             tid,
             String(task?.attrHostId || '').trim(),
@@ -6686,6 +8279,9 @@ return false;
     const __tmMutationEngine = {
         __changeFeedSuspended: false,
         __suppressedTaskDepth: new Map(),
+        hasActiveWrites() {
+            return this.__suppressedTaskDepth.size > 0;
+        },
         isTaskSuppressed(taskId) {
             const tid = String(taskId || '').trim();
             return !!tid && Number(this.__suppressedTaskDepth.get(tid) || 0) > 0;
@@ -6735,86 +8331,12 @@ return false;
             const nextPatch = (patch && typeof patch === 'object') ? patch : {};
             const opts = (options && typeof options === 'object') ? options : {};
             const allowOptimisticPatch = opts.optimistic !== false;
-            const skipViewRefresh = opts.skipViewRefresh === true;
-            const skipSettledRefresh = opts.skipSettledRefresh === true;
             if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
-            const plan = __tmWritePlanner.buildWritePlan(tid, nextPatch, opts);
-            const inversePatch = __tmCaptureTaskPatchInverse(tid, plan.normalizedPatch);
-            if (opts.skipNoopCheck !== true && __tmIsPatchNoop(plan.normalizedPatch, inversePatch)) {
-                return Promise.resolve(false);
-            }
-            const taskLike = __tmTaskStateKernel.getTask(tid);
-            const attachmentPreviousSnapshot = Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'attachments')
-                ? {
-                    paths: __tmGetTaskAttachmentPaths(taskLike || {}),
-                    meta: Array.from(__tmGetTaskAttachmentMetaMap(taskLike || {}).values()),
-                    slotCount: __tmGetTaskAttachmentAttrSlotCount(taskLike || {}),
-                }
-                : null;
-            const suppressionIds = Array.from(new Set([
-                tid,
-                String(taskLike?.attrHostId || '').trim(),
-                String(taskLike?.attr_host_id || '').trim(),
-            ].filter(Boolean)));
-            const optimisticSkipDetailPatch = opts.optimisticSkipDetailPatch === true
-                || (((String(state.viewMode || '').trim() === 'checklist') || __tmHasCalendarSidebarChecklist(state.modal))
-                    && __tmAreTaskRuntimeIdsEquivalent(state.detailTaskId, tid)
-                    && (Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'done')
-                        || Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'customStatus')));
-            const optimisticProjectionRefresh = __tmDoesPatchNeedOptimisticProjectionRefresh(tid, plan.normalizedPatch, {
+            return __tmQueueTaskFieldPatch(tid, nextPatch, {
                 ...opts,
-                forceProjectionRefresh: opts.forceProjectionRefresh === true,
-            });
-            if (allowOptimisticPatch) {
-                __tmTaskStateKernel.patchTaskLocal(tid, plan.normalizedPatch, opts);
-                try { __tmMarkLocalTaskPatchWatermark(tid, plan.normalizedPatch, opts); } catch (e) {}
-                if (!skipViewRefresh) {
-                    __tmRefreshTaskFieldsAcrossViews(tid, plan.normalizedPatch, {
-                        withFilters: optimisticProjectionRefresh,
-                        reason: String(opts.reason || opts.source || 'task-field-optimistic').trim() || 'task-field-optimistic',
-                        forceProjectionRefresh: optimisticProjectionRefresh,
-                        fallback: optimisticProjectionRefresh,
-                        skipDetailPatch: opts.skipDetailPatch === true || optimisticSkipDetailPatch,
-                    });
-                }
-            }
-            return this.withSuppressedTasks(suppressionIds, () => __tmWriteExecutor.executePlan(plan, attachmentPreviousSnapshot ? {
-                ...opts,
-previousAttachmentPaths: attachmentPreviousSnapshot.paths,
-                previousAttachmentMeta: attachmentPreviousSnapshot.meta,
-                previousAttachmentSlotCount: attachmentPreviousSnapshot.slotCount,
-            } : { ...opts})).then((result) => {
-                if (!skipViewRefresh && !skipSettledRefresh) {
-                    const settledProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, plan.normalizedPatch, {
-                        ...opts,
-                        forceProjectionRefresh: plan.affectsProjection === true,
-                    });
-                    __tmRefreshTaskFieldsAcrossViews(tid, plan.normalizedPatch, {
-                        withFilters: settledProjectionRefresh,
-                        reason: String(opts.reason || opts.source || 'task-field-settled').trim() || 'task-field-settled',
-                        forceProjectionRefresh: settledProjectionRefresh,
-                        fallback: settledProjectionRefresh,
-                        skipDetailPatch: opts.skipDetailPatch === true,
-                    });
-                }
-                return result || true;
-            }).catch((error) => {
-                __tmTaskStateKernel.rollbackTaskLocal(tid, inversePatch, opts);
-                try { __tmClearLocalTaskPatchWatermark(tid, plan.normalizedPatch); } catch (e) {}
-                if (!skipViewRefresh) {
-                    const rollbackProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, inversePatch, {
-                        ...opts,
-                        forceProjectionRefresh: plan.affectsProjection === true,
-                    });
-                    __tmRefreshTaskFieldsAcrossViews(tid, inversePatch, {
-                        withFilters: rollbackProjectionRefresh,
-                        reason: String(opts.reason || opts.source || 'task-field-rollback').trim() || 'task-field-rollback',
-                        forceProjectionRefresh: rollbackProjectionRefresh,
-                        fallback: rollbackProjectionRefresh,
-                        skipDetailPatch: opts.skipDetailPatch === true,
-                    });
-                }
-                throw error;
+                optimistic: allowOptimisticPatch,
+                wait: true,
+                forceQueued: true,
             });
         },
         async requestTaskPatchBatch(taskIds, patchFactory, options = {}) {
@@ -6822,7 +8344,6 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             const opts = (options && typeof options === 'object') ? options : {};
             const failures = [];
             let successCount = 0;
-            let needProjectionRefresh = false;
             await this.suspendChangeFeed(async () => {
                 for (const id of ids) {
                     const patch = typeof patchFactory === 'function' ? patchFactory(id) : patchFactory;
@@ -6830,13 +8351,10 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                     if (!Object.keys(nextPatch).length) continue;
                     try {
                         if (opts.background === true || opts.wait === false) {
-                            const patchPromise = __tmQueueUiFriendlyTaskPatch(id, nextPatch, {
+                            const patchPromise = __tmQueueTaskFieldPatch(id, nextPatch, {
                                 ...opts,
                                 background: true,
                                 wait: false,
-                                withFilters: false,
-                                fallback: false,
-                                skipSettledRefresh: true,
                             });
                             Promise.resolve(patchPromise).catch((e) => {
                                 try {
@@ -6846,12 +8364,9 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                         } else {
                             const patchPromise = this.requestTaskPatch(id, nextPatch, {
                                 ...opts,
-                                withFilters: false,
-                                fallback: false,
                             });
                             await patchPromise;
                         }
-                        if (__tmDoesPatchAffectProjection(id, nextPatch)) needProjectionRefresh = true;
                         successCount += 1;
                     } catch (e) {
                         failures.push({
@@ -6861,17 +8376,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                     }
                 }
             });
-            try {
-                if (needProjectionRefresh) {
-                    __tmScheduleViewRefresh({
-                        mode: 'current',
-                        withFilters: true,
-                        reason: String(opts.reason || 'batch-task-patch').trim() || 'batch-task-patch',
-                    });
-                } else {
-                    try { __tmRefreshMultiSelectUiInPlace(state.modal, { renderFallback: false }); } catch (e) {}
-                }
-            } catch (e) {}
+            try { __tmRefreshMultiSelectUiInPlace(state.modal, { renderFallback: false }); } catch (e) {}
             return {
                 successCount,
                 failureCount: failures.length,
@@ -6883,62 +8388,6 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     try { globalThis.__tmTaskStateKernel = __tmTaskStateKernel; } catch (e) {}
 
-    function __tmRunAfterUiPaint(handler) {
-        return new Promise((resolve, reject) => {
-            const run = () => {
-                try {
-                    Promise.resolve(typeof handler === 'function' ? handler() : false).then(resolve, reject);
-                } catch (e) {
-                    reject(e);
-                }
-            };
-            const schedule = () => {
-                try {
-                    setTimeout(run, 0);
-                } catch (e) {
-                    run();
-                }
-            };
-            try {
-                requestAnimationFrame(schedule);
-            } catch (e) {
-                schedule();
-            }
-        });
-    }
-
-    async function __tmRunUiFriendlyFieldCommit(handler, options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        const executor = typeof handler === 'function' ? handler : async () => false;
-        try {
-            const result = opts.defer === false
-                ? await executor()
-                : await __tmRunAfterUiPaint(executor);
-            if (result !== false) {
-                const successHint = typeof opts.successHint === 'function'
-                    ? opts.successHint(result)
-                    : opts.successHint;
-                if (successHint) hint(String(successHint), 'success');
-                if (typeof opts.onSuccess === 'function') {
-                    try { opts.onSuccess(result); } catch (e) {}
-                }
-            }
-            return result;
-        } catch (e) {
-            if (typeof opts.onError === 'function') {
-                try { opts.onError(e); } catch (err) {}
-            }
-            if (opts.showErrorHint !== false) {
-                const message = String(e?.message || e || '').trim() || '未知错误';
-                const errorHint = typeof opts.errorHint === 'function'
-                    ? opts.errorHint(message, e)
-                    : (String(opts.errorHint || '').trim() || `❌ 更新失败: ${message}`);
-                if (errorHint) hint(String(errorHint), 'error');
-            }
-            return false;
-        }
-    }
-
     function __tmIsChecklistUiFriendlyTaskPatchContext(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         if (opts.forceChecklistBehavior === true) return true;
@@ -6946,97 +8395,18 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         return viewMode === 'checklist' || __tmHasCalendarSidebarChecklist(state.modal);
     }
 
-    function __tmShouldSkipSettledRefreshForUiPatch(taskId, patch = {}, options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (opts.forceSettledRefresh === true) return false;
-        if (opts.skipSettledRefresh === true) return true;
-        if (state.homepageOpen) return false;
-        if (__tmIsChecklistUiFriendlyTaskPatchContext(opts)) return false;
-        if (!__tmIsSimpleProjectionContext()) return false;
-        const viewMode = String(state.viewMode || '').trim();
-        if (viewMode !== 'list' && viewMode !== 'checklist' && viewMode !== 'timeline' && viewMode !== 'kanban' && viewMode !== 'whiteboard') return false;
-        const keys = __tmGetPatchFieldKeys(patch);
-        if (!keys.length) return false;
-        if (keys.some((key) => key === 'pinned')) return false;
-        return keys.every((key) => __tmGetFieldSpec(key)?.supportsLocalPatch !== false);
-    }
-
-    function __tmResolveUiFriendlyTaskPatchDelay(taskId, patch = {}, options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (Object.prototype.hasOwnProperty.call(opts, 'queueDelayMs')) {
-            return Math.max(0, Number(opts.queueDelayMs) || 0);
-        }
-        if (__tmIsBackgroundableUiFriendlyTaskPatch(patch, opts)) return 0;
-        const viewMode = String(state.viewMode || '').trim();
-        if (viewMode === 'list') return 240;
-        if (viewMode === 'timeline' || viewMode === 'kanban' || viewMode === 'whiteboard') return 160;
-        return 80;
-    }
-
-    function __tmIsImmediateUiFriendlyTimePatch(patch = {}) {
-        const keys = __tmGetPatchFieldKeys(patch);
-        if (!keys.length) return false;
-        return keys.every((key) => key === 'startDate' || key === 'completionTime' || key === 'customTime');
-    }
-
-    const __TM_BACKGROUNDABLE_UI_FRIENDLY_PATCH_FIELDS = new Set([
-        'priority',
-        'customStatus',
-        'duration',
-        'remark',
-        'startDate',
-        'completionTime',
-        'customTime',
-        'tomatoEstimateCount',
-        'tomatoCount',
-        'tomatoMinutes',
-        'tomatoHours',
-        'taskDateColor',
-        'allDayBottom',
-        'milestone',
-        'pinned',
-        'customFieldValues',
-    ]);
-
-    function __tmShouldUseQueuedUiFriendlyTaskPatch(taskId, patch = {}, options = {}) {
-        const tid = String(taskId || '').trim();
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (tid && typeof __tmIsOptimisticTempTaskId === 'function' && __tmIsOptimisticTempTaskId(tid)) return true;
-        if (tid && state.pendingInsertedTasks?.[tid]) return true;
-        if (tid && typeof __tmResolveOptimisticTaskId === 'function') {
-            const resolvedId = String(__tmResolveOptimisticTaskId(tid) || '').trim();
-            if (resolvedId && resolvedId !== tid && state.pendingInsertedTasks?.[resolvedId]) return true;
-        }
-        if (opts.forceQueued === true) return true;
-        if (opts.forceImmediate === true) return false;
-        if (__tmIsChecklistUiFriendlyTaskPatchContext(opts) && opts.forceChecklistBehavior === true) return false;
-        if (__tmIsBackgroundableUiFriendlyTaskPatch(patch, opts)) return true;
-        if (__tmIsImmediateUiFriendlyTimePatch(patch)) return false;
-        return true;
-    }
-
-    function __tmIsBackgroundableUiFriendlyTaskPatch(patch = {}, options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (opts.wait === true || opts.forceImmediate === true || opts.background === false) return false;
-        if (opts.successHint || typeof opts.onSuccess === 'function' || typeof opts.onError === 'function') return false;
-        if (__tmIsChecklistUiFriendlyTaskPatchContext(opts) && opts.forceChecklistBehavior === true) return false;
-        const keys = __tmGetPatchFieldKeys(patch);
-        if (!keys.length) return false;
-        return keys.every((key) => __TM_BACKGROUNDABLE_UI_FRIENDLY_PATCH_FIELDS.has(String(key || '').trim()));
-    }
-
-    function __tmQueueUiFriendlyTaskPatch(taskId, patch = {}, options = {}) {
+    function __tmQueueTaskFieldPatch(taskId, patch = {}, options = {}) {
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         const opts = (options && typeof options === 'object') ? options : {};
+        const queueDelayMs = Object.prototype.hasOwnProperty.call(opts, 'queueDelayMs')
+            ? Math.max(0, Number(opts.queueDelayMs) || 0)
+            : 0;
         if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
-        const plan = __tmWritePlanner.buildWritePlan(tid, nextPatch, opts);
+        const plan = __tmBuildTaskCommandPlan(tid, nextPatch, opts);
         const inversePatch = __tmCaptureTaskPatchInverse(tid, plan.normalizedPatch);
         if (opts.skipNoopCheck !== true && __tmIsPatchNoop(plan.normalizedPatch, inversePatch)) return Promise.resolve(false);
-        const taskLike = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || __tmTaskStateKernel.getTask(tid)
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const taskLike = __tmTaskStateKernel.getTask(tid);
         const attachmentPreviousSnapshot = Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'attachments')
             ? {
                 paths: __tmGetTaskAttachmentPaths(taskLike || {}),
@@ -7044,40 +8414,70 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 slotCount: __tmGetTaskAttachmentAttrSlotCount(taskLike || {}),
             }
             : null;
+        if (plan.explicitDone === true
+            && plan.explicitCustomStatus !== true
+            && plan.doneValue !== null
+            && typeof __tmBuildSetDoneQueuedDefinition === 'function') {
+            const additionalPatch = { ...(plan.normalizedPatch || {}) };
+            delete additionalPatch.done;
+            Object.keys(plan.statusPatch || {}).forEach((key) => {
+                if (String(plan.statusPatch[key] ?? '').trim()) delete additionalPatch[key];
+            });
+            const builtDone = __tmBuildSetDoneQueuedDefinition(tid, plan.doneValue, taskLike, {
+                ...opts,
+                statusPatch: plan.statusPatch,
+                additionalPatch,
+                previousAttachmentPaths: attachmentPreviousSnapshot ? attachmentPreviousSnapshot.paths : undefined,
+                previousAttachmentMeta: attachmentPreviousSnapshot ? attachmentPreviousSnapshot.meta : undefined,
+                previousAttachmentSlotCount: attachmentPreviousSnapshot ? attachmentPreviousSnapshot.slotCount : undefined,
+            });
+            if (builtDone?.definition) {
+                builtDone.definition.inversePatch = inversePatch;
+                return __tmEnqueueQueuedOp(builtDone.definition, {
+                    wait: opts.wait !== false,
+                    delayMs: queueDelayMs,
+                    onPending: typeof opts.onPending === 'function' ? opts.onPending : undefined,
+                });
+            }
+            return Promise.reject(new Error('完成状态写入缺少任务最新状态，已暂停本次写入'));
+        }
         const optimisticSkipDetailPatch = opts.optimisticSkipDetailPatch === true
             || (((String(state.viewMode || '').trim() === 'checklist') || __tmHasCalendarSidebarChecklist(state.modal))
                 && __tmAreTaskRuntimeIdsEquivalent(state.detailTaskId, tid)
                 && (Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'done')
                     || Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'customStatus')));
-        const optimisticProjectionRefresh = __tmDoesPatchNeedOptimisticProjectionRefresh(tid, plan.normalizedPatch, {
-            ...opts,
-            forceProjectionRefresh: opts.forceProjectionRefresh === true,
-        });
         return __tmEnqueueQueuedOp({
             type: 'taskPatch',
             docId: String(opts.docId || taskLike?.root_id || taskLike?.docId || '').trim(),
             laneKey: String(opts.laneKey || `task:${tid}`).trim() || `task:${tid}`,
-            coalesceKey: `taskPatch:${tid}`,
             data: {
                 taskId: tid,
                 patch: { ...plan.normalizedPatch },
                 statusBefore: plan.statusBefore && typeof plan.statusBefore === 'object'
                     ? { ...plan.statusBefore }
                     : null,
+                recordUndo: opts.recordUndo !== false,
+                rewardPriorityScore: plan.statusBefore?.done !== true
+                    && plan.normalizedPatch?.done === true
+                    && SettingsStore?.data?.enablePointsRewardIntegration
+                    && !__tmUndoState?.applying
+                    ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(taskLike, { force: true })) || 0))
+                    : 0,
                 source: String(opts.source || 'inline-field').trim() || 'inline-field',
                 label: String(opts.label || '任务字段').trim() || '任务字段',
                 reason: String(opts.reason || opts.source || 'inline-field').trim() || 'inline-field',
-                withFilters: opts.withFilters === true || optimisticProjectionRefresh,
-                skipDetailPatch: opts.skipDetailPatch === true,
                 optimisticSkipDetailPatch,
-                skipViewRefresh: opts.skipViewRefresh === true,
-                skipSettledRefresh: __tmShouldSkipSettledRefreshForUiPatch(tid, plan.normalizedPatch, opts),
+                presentation: {
+                    preserveActiveDetail: opts.skipDetailPatch === true,
+                    allowMountedInactive: opts.allowMountedInactive === true,
+                },
                 broadcast: opts.broadcast !== false,
                 optimistic: opts.optimistic !== false,
-                optimisticProjectionRefresh,
-                affectsProjection: plan.affectsProjection === true,
+                deferProjection: opts.deferProjection === true,
                 background: opts.background === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
+                showErrorHint: opts.showErrorHint !== false,
+                suppressHint: opts.suppressHint === true,
                 refreshAncestorViews: opts.refreshAncestorViews !== false,
                 skipFlush: opts.skipFlush === true,
                 skipNoopCheck: opts.skipNoopCheck === true,
@@ -7091,69 +8491,17 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             inversePatch,
         }, {
             wait: opts.wait !== false,
-            delayMs: __tmResolveUiFriendlyTaskPatchDelay(tid, plan.normalizedPatch, opts),
+            delayMs: queueDelayMs,
             onPending: typeof opts.onPending === 'function' ? opts.onPending : undefined,
         });
     }
 
-    function __tmCommitUiFriendlyTaskPatch(taskId, patch = {}, options = {}) {
+    function __tmCommitTaskPatchThroughMutation(taskId, patch = {}, options = {}) {
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         const opts = (options && typeof options === 'object') ? options : {};
         if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
-        const isOptimisticTempTask = (typeof __tmIsOptimisticTempTaskId === 'function' && __tmIsOptimisticTempTaskId(tid))
-            || !!state.pendingInsertedTasks?.[tid];
-        const useQueued = __tmShouldUseQueuedUiFriendlyTaskPatch(tid, nextPatch, opts);
-        const explicitBackgroundQueue = useQueued
-            && opts.forceImmediate !== true
-            && (opts.wait === false || opts.background === true);
-        const backgroundCommit = useQueued && (isOptimisticTempTask || explicitBackgroundQueue || __tmIsBackgroundableUiFriendlyTaskPatch(nextPatch, opts));
-        const handler = useQueued
-            ? () => __tmQueueUiFriendlyTaskPatch(tid, nextPatch, {
-                ...opts,
-                background: backgroundCommit ? true : opts.background,
-                wait: backgroundCommit ? false : true,
-                skipSettledRefresh: backgroundCommit ? true : opts.skipSettledRefresh,
-                skipInteractionGate: backgroundCommit ? true : opts.skipInteractionGate,
-                queueDelayMs: isOptimisticTempTask ? 0 : opts.queueDelayMs,
-            })
-            : () => __tmMutationEngine.requestTaskPatch(tid, nextPatch, {
-                source: String(opts.source || 'inline-field').trim() || 'inline-field',
-                label: String(opts.label || '任务字段').trim() || '任务字段',
-                withFilters: opts.withFilters === true,
-                skipDetailPatch: opts.skipDetailPatch === true,
-                skipViewRefresh: opts.skipViewRefresh === true,
-                skipSettledRefresh: __tmShouldSkipSettledRefreshForUiPatch(tid, nextPatch, opts),
-                broadcast: opts.broadcast !== false,
-                optimistic: opts.optimistic !== false,
-                optimisticSkipDetailPatch: opts.optimisticSkipDetailPatch === true,
-                optimisticProjectionRefresh: __tmDoesPatchNeedOptimisticProjectionRefresh(tid, nextPatch, {
-                    ...opts,
-                    forceProjectionRefresh: opts.forceProjectionRefresh === true,
-                }),
-                reason: String(opts.reason || opts.source || 'inline-field').trim() || 'inline-field',
-});
-        const runOpts = backgroundCommit
-            ? { ...opts, defer: false }
-            : ((__tmIsChecklistUiFriendlyTaskPatchContext(opts) && !Object.prototype.hasOwnProperty.call(opts, 'defer'))
-                ? { ...opts, defer: false }
-                : opts);
-        return __tmRunUiFriendlyFieldCommit(handler, runOpts).then((result) => {
-            return result;
-        }).catch((error) => {
-            throw error;
-        });
-    }
-
-    try { globalThis.__tmCommitUiFriendlyTaskPatch = __tmCommitUiFriendlyTaskPatch; } catch (e) {}
-
-    function __tmCommitTaskPatchThroughOutbox(taskId, patch = {}, options = {}) {
-        const tid = String(taskId || '').trim();
-        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
-        const preserveChecklistUi = opts.preserveChecklistUi === true
-            || (opts.preserveChecklistUi !== false && __tmShouldUseChecklistLegacyFieldCommit(opts));
+        const preserveChecklistUi = opts.preserveChecklistUi === true;
         const renderRestoreSnapshot = preserveChecklistUi ? __tmCaptureChecklistRenderRestore() : null;
         const detailScrollSnapshot = preserveChecklistUi ? __tmCaptureChecklistDetailScrollSnapshot() : null;
         if (renderRestoreSnapshot) {
@@ -7170,7 +8518,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         };
         let request = null;
         try {
-            const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+            const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
             if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
             const shouldWait = opts.wait === true || opts.forceImmediate === true;
             request = patchTask(tid, nextPatch, {
@@ -7179,7 +8527,6 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 wait: shouldWait,
                 defer: opts.defer === true,
                 skipInteractionGate: opts.skipInteractionGate === true || !shouldWait,
-                skipSettledRefresh: opts.skipSettledRefresh !== false,
                 successHint: '',
             });
         } catch (error) {
@@ -7190,21 +8537,21 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         return request;
     }
 
-    try { globalThis.__tmCommitTaskPatchThroughOutbox = __tmCommitTaskPatchThroughOutbox; } catch (e) {}
+    try { globalThis.__tmCommitTaskPatchThroughMutation = __tmCommitTaskPatchThroughMutation; } catch (e) {}
 
     function __tmCommitPromptTaskPatchInBackground(taskId, patch = {}, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const successHint = String(opts.successHint || '').trim();
         let promise = null;
         try {
-            promise = __tmCommitTaskPatchThroughOutbox(taskId, patch, {
+            promise = __tmCommitTaskPatchThroughMutation(taskId, patch, {
                 ...opts,
                 background: true,
                 wait: false,
                 defer: false,
                 skipInteractionGate: true,
-                skipSettledRefresh: opts.skipSettledRefresh !== false,
                 showErrorHint: opts.showErrorHint !== false,
+                suppressHint: true,
                 successHint: '',
             });
         } catch (error) {
@@ -7223,26 +8570,10 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         return promise;
     }
 
-    function __tmShouldUseChecklistLegacyFieldCommit(options = {}) {
-        return __tmIsChecklistUiFriendlyTaskPatchContext(options);
-    }
-
-    function __tmRequestChecklistLegacyTaskPatch(taskId, patch = {}, options = {}) {
-        const tid = String(taskId || '').trim();
-        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
-        return __tmCommitTaskPatchThroughOutbox(tid, nextPatch, {
-            ...opts,
-            forceChecklistBehavior: false,
-            preserveChecklistUi: true,
-        });
-    }
-
     const __tmChangeFeed = {
         buildPatchFromAttr(taskId, attrKey, attrValue) {
             const tid = String(taskId || '').trim();
-            const task = globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
+            const task = __tmTaskStateKernel.getTask(tid);
             const meta = __tmBuildMetaPatchFromAttrUpdate(attrKey, attrValue, task);
             return meta?.patch && typeof meta.patch === 'object' ? meta.patch : null;
         },
@@ -7274,44 +8605,19 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 });
             } catch (e) {}
             if (customFieldId) {
-                __tmQuickbarRefreshDebugLog('change-feed-custom-field', {
-                    taskId: tid,
-                    attrKey: String(attrKey || '').trim(),
-                    fieldId: customFieldId,
-                    attrValue: String(attrValue ?? ''),
-                    patch: patch ? { ...patch } : null,
-                    applied: !!applied,
-                    applyReason,
-                });
             }
             if (!applied && !handledAsNoop) return false;
-            let refreshed = false;
             try {
-                refreshed = !!__tmRefreshTaskFieldsAcrossViews(tid, patch, {
-                    withFilters: true,
-                    reason: String(opts.reason || 'change-feed-attr').trim() || 'change-feed-attr',
-                    forceProjectionRefresh: __tmDoesPatchAffectProjection(tid, patch),
-                    fallback: true,
+                const task = globalThis.__tmTaskStore?.getProjected?.(tid) || null;
+                globalThis.__tmTaskMutationBus?.publish?.({
+                    type: 'taskPatch',
+                    phase: 'local',
+                    taskId: tid,
+                    docId: String(task?.root_id || task?.docId || '').trim(),
+                    source: String(opts.reason || 'change-feed-attr').trim() || 'change-feed-attr',
+                    patch: { ...patch },
                 });
             } catch (e) {}
-            if (customFieldId && !refreshed) {
-                try {
-                    __tmScheduleViewRefresh({
-                        mode: 'current',
-                        withFilters: true,
-                        reason: 'change-feed-custom-field-force',
-                        taskIds: [tid],
-                    });
-                } catch (e) {}
-                __tmQuickbarRefreshDebugLog('change-feed-custom-field-force-refresh', {
-                    taskId: tid,
-                    attrKey: String(attrKey || '').trim(),
-                    fieldId: customFieldId,
-                    applied: !!applied,
-                    applyReason,
-                    refreshed,
-                });
-            }
             return true;
         },
         shouldDeferToAutoRefresh(taskId, attrKey, attrValue) {
@@ -7347,10 +8653,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     function __tmCommitCellEdit(id, field, value) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return Promise.resolve(false);
         try {
             if (field === 'startDate' || field === 'completionTime') {
@@ -7360,7 +8663,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         const customFieldId = __tmParseCustomFieldColumnKey(field);
         const customField = customFieldId ? __tmGetCustomFieldDefMap().get(customFieldId) : null;
         if (customField && !__tmIsCustomFieldApplicableToTask(customField, task)) return Promise.resolve(false);
-        const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+        const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
         if (typeof patchTask !== 'function') return Promise.reject(new Error('任务写入队列未就绪: patchTask'));
         if (customField && String(customField.type || '').trim() === 'text') {
             const next = String(__tmNormalizeCustomFieldValue(customField, value) || '').trim();
@@ -7556,10 +8859,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
         if (!td) return;
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
         const customFieldId = __tmParseCustomFieldColumnKey(field);
         const customField = customFieldId ? __tmGetCustomFieldDefMap().get(customFieldId) : null;
@@ -8268,12 +9568,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     window.tmEditPriorityInline = function(id, el) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit();
         __tmOpenInlineEditor(el, ({ editor, close }) => {
             const select = document.createElement('select');
             const opts = [
@@ -8286,21 +9582,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             select.value = task.priority || '';
             select.onchange = async () => {
                 const next = String(select.value || '');
-                if (useChecklistLegacy) {
-                    try {
-                        await __tmRequestChecklistLegacyTaskPatch(tid, { priority: next }, {
-                            source: 'inline-priority-editor',
-                            label: '优先级',
-                        });
-                        close();
-                        hint('✅ 优先级已更新', 'success');
-                    } catch (e) {
-                        hint(`❌ 更新失败: ${e.message}`, 'error');
-                    }
-                    return;
-                }
                 close();
-                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                 if (typeof patchTask !== 'function') {
                     hint('❌ 更新失败: 任务写入队列未就绪: patchTask', 'error');
                     return;
@@ -8318,31 +9601,14 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     window.tmEditDurationInline = function(id, el) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit();
         __tmOpenInlineEditor(el, ({ editor, close }) => {
             try { editor.classList.add('tm-inline-editor--duration'); } catch (e) {}
             const saveDuration = async (rawValue) => {
                 const next = String(rawValue || '').trim();
-                if (useChecklistLegacy) {
-                    try {
-                        await __tmRequestChecklistLegacyTaskPatch(tid, { duration: next }, {
-                            source: 'inline-duration-editor',
-                            label: '时长',
-                        });
-                        close();
-                        hint('✅ 时长已更新', 'success');
-                    } catch (e) {
-                        hint(`❌ 更新失败: ${e.message}`, 'error');
-                    }
-                    return;
-                }
                 close();
-                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                 if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
                 return patchTask(tid, { duration: next }, {
                     source: 'inline-duration-editor',
@@ -8394,12 +9660,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     window.tmEditFocusSummaryInline = function(id, el) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task || !(el instanceof HTMLElement)) return;
-        const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit();
         __tmOpenInlineEditor(el, ({ editor, close }) => {
             try { editor.classList.add('tm-inline-editor--duration', 'tm-inline-editor--focus-summary'); } catch (e) {}
             const presets = __tmGetDurationPresetOptions();
@@ -8408,21 +9670,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                     duration: String(patch?.duration || '').trim(),
                     tomatoEstimateCount: __tmNormalizeTomatoCountValue(patch?.tomatoEstimateCount || ''),
                 };
-                if (useChecklistLegacy) {
-                    try {
-                        await __tmRequestChecklistLegacyTaskPatch(tid, nextPatch, {
-                            source: 'inline-focus-summary-editor',
-                            label: '时长与番茄',
-                        });
-                        close();
-                        hint('✅ 时长与番茄已更新', 'success');
-                    } catch (e) {
-                        hint(`❌ 更新失败: ${e.message}`, 'error');
-                    }
-                    return;
-                }
                 close();
-                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                 if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
                 return patchTask(tid, nextPatch, {
                     source: 'inline-focus-summary-editor',
@@ -8578,12 +9827,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     window.tmEditRemarkInline = function(id, el) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit();
         __tmOpenInlineEditor(el, ({ editor, close }) => {
             const input = document.createElement('input');
             input.type = 'text';
@@ -8592,21 +9837,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             editor.appendChild(input);
             const { wrap } = __tmBuildActions('保存', async () => {
                 const next = __tmNormalizeRemarkMarkdown(input.value);
-                if (useChecklistLegacy) {
-                    try {
-                        await __tmRequestChecklistLegacyTaskPatch(tid, { remark: next }, {
-                            source: 'inline-remark-editor',
-                            label: '备注',
-                        });
-                        close();
-                        hint('✅ 备注已更新', 'success');
-                    } catch (e) {
-                        hint(`❌ 更新失败: ${e.message}`, 'error');
-                    }
-                    return;
-                }
                 close();
-                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                 if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
                 return patchTask(tid, { remark: next }, {
                     source: 'inline-remark-editor',
@@ -8622,12 +9854,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     window.tmEditCompletionTimeInline = function(id, el) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit();
         __tmOpenInlineEditor(el, ({ editor, close }) => {
             const input = document.createElement('input');
             input.type = 'date';
@@ -8638,21 +9866,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             clearBtn.className = 'tm-btn tm-btn-secondary';
             clearBtn.textContent = '清空';
             clearBtn.onclick = async () => {
-                if (useChecklistLegacy) {
-                    try {
-                        await __tmRequestChecklistLegacyTaskPatch(tid, { completionTime: '' }, {
-                            source: 'inline-completion-editor',
-                            label: '截止日期',
-                        });
-                        close();
-                        hint('✅ 截止日期已清空', 'success');
-                    } catch (e) {
-                        hint(`❌ 更新失败: ${e.message}`, 'error');
-                    }
-                    return;
-                }
                 close();
-                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                 if (typeof patchTask !== 'function') {
                     hint('❌ 更新失败: 任务写入队列未就绪: patchTask', 'error');
                     return;
@@ -8668,21 +9883,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             const save = async () => {
                 const raw = String(input.value || '').trim();
                 const next = raw ? __tmNormalizeDateOnly(raw) : '';
-                if (useChecklistLegacy) {
-                    try {
-                        await __tmRequestChecklistLegacyTaskPatch(tid, { completionTime: next }, {
-                            source: 'inline-completion-editor',
-                            label: '截止日期',
-                        });
-                        close();
-                        hint('✅ 截止日期已更新', 'success');
-                    } catch (e) {
-                        hint(`❌ 更新失败: ${e.message}`, 'error');
-                    }
-                    return;
-                }
                 close();
-                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                 if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
                 return patchTask(tid, { completionTime: next }, {
                     source: 'inline-completion-editor',
@@ -8709,10 +9911,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         } catch (e) {}
         const tid = String(id || '').trim();
         if (!tid) return;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
         if (!__tmEnsureEditableTaskLike(task, '切换标题')) return;
         const docId = String(task.docId || task.root_id || '').trim();
@@ -8751,23 +9950,15 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             try {
                 close?.();
                 const payload = nextId
-                    ? { targetDocId: docId, headingId: nextId, mode: 'heading', deferOptimisticRender: true, skipOptimisticFilterWork: true }
-                    : { targetDocId: docId, mode: 'docTop', deferOptimisticRender: true, skipOptimisticFilterWork: true };
-                const useLightweightProjection = typeof __tmCanUseLightweightMoveProjection === 'function'
-                    && __tmCanUseLightweightMoveProjection(task, payload);
-                const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
+                    ? { targetDocId: docId, headingId: nextId, mode: 'heading' }
+                    : { targetDocId: docId, mode: 'docTop' };
+                const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
                 if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
                 moveTask(tid, payload, {
                     wait: false,
                     onError: (err) => {
                         hint(`❌ 切换失败: ${err?.message || err || '未知错误'}`, 'error');
                     },
-                });
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: !useLightweightProjection,
-                    reason: 'pick-heading-move-optimistic',
-                    taskIds: [tid],
                 });
                 hint(nextId ? '✅ 任务已移动到目标标题下' : '✅ 任务已移出标题分组', 'success');
             } catch (e) {
@@ -8837,10 +10028,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         } catch (e) {}
         const tid = String(id || '').trim();
         if (!tid) return;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
         if (!__tmEnsureEditableTaskLike(task, '移动到文档')) return;
         const currentDocId = String(task.docId || task.root_id || '').trim();
@@ -8863,24 +10051,14 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 const payload = {
                     targetDocId: nextId,
                     mode: 'docTop',
-                    deferOptimisticRender: true,
-                    skipOptimisticFilterWork: true,
                 };
-                const useLightweightProjection = typeof __tmCanUseLightweightMoveProjection === 'function'
-                    && __tmCanUseLightweightMoveProjection(task, payload);
-                const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
+                const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
                 if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
                 moveTask(tid, payload, {
                     wait: false,
                     onError: (err) => {
                         hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
                     },
-                });
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: !useLightweightProjection,
-                    reason: 'pick-doc-move-optimistic',
-                    taskIds: [tid],
                 });
                 hint('✅ 任务已移动到目标文档顶部', 'success');
             } catch (e) {
@@ -8974,12 +10152,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     window.tmEditPriority = async function(id) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit();
         const next = await showSelectPrompt('设置优先级', [
             { value: '', label: '无' },
             { value: 'high', label: '高' },
@@ -8987,18 +10161,6 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             { value: 'low', label: '低' },
         ], task.priority || '');
         if (next == null) return;
-        if (useChecklistLegacy) {
-            try {
-                await __tmRequestChecklistLegacyTaskPatch(tid, { priority: next }, {
-                    source: 'prompt-priority',
-                    label: '优先级',
-                });
-                hint('✅ 优先级已更新', 'success');
-            } catch (e) {
-                hint(`❌ 更新失败: ${e.message}`, 'error');
-            }
-            return;
-        }
         __tmCommitPromptTaskPatchInBackground(tid, { priority: next }, {
             source: 'prompt-priority',
             label: '优先级',
@@ -9008,26 +10170,10 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     window.tmEditDuration = async function(id) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit();
         const next = await showDurationPrompt('设置时长', String(task.duration || ''));
         if (next == null) return;
-        if (useChecklistLegacy) {
-            try {
-                await __tmRequestChecklistLegacyTaskPatch(tid, { duration: String(next || '').trim() }, {
-                    source: 'prompt-duration',
-                    label: '时长',
-                });
-                hint('✅ 时长已更新', 'success');
-            } catch (e) {
-                hint(`❌ 更新失败: ${e.message}`, 'error');
-            }
-            return;
-        }
         __tmCommitPromptTaskPatchInBackground(tid, { duration: String(next || '').trim() }, {
             source: 'prompt-duration',
             label: '时长',
@@ -9037,27 +10183,11 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     window.tmEditRemark = async function(id) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit();
         const next = await showPrompt('设置备注', '输入备注（可留空）', String(task.remark || ''));
         if (next == null) return;
         const remark = __tmNormalizeRemarkMarkdown(next);
-        if (useChecklistLegacy) {
-            try {
-                await __tmRequestChecklistLegacyTaskPatch(tid, { remark }, {
-                    source: 'prompt-remark',
-                    label: '备注',
-                });
-                hint('✅ 备注已更新', 'success');
-            } catch (e) {
-                hint(`❌ 更新失败: ${e.message}`, 'error');
-            }
-            return;
-        }
         __tmCommitPromptTaskPatchInBackground(tid, { remark }, {
             source: 'prompt-remark',
             label: '备注',
@@ -9067,26 +10197,10 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     window.tmEditCompletionTime = async function(id) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const useChecklistLegacy = __tmShouldUseChecklistLegacyFieldCommit();
         const next = await showDateTimePrompt('设置截止日期', task.completionTime || '');
         if (next == null) return;
-        if (useChecklistLegacy) {
-            try {
-                await __tmRequestChecklistLegacyTaskPatch(tid, { completionTime: String(next || '').trim() }, {
-                    source: 'prompt-completion-time',
-                    label: '截止日期',
-                });
-                hint('✅ 截止日期已更新', 'success');
-            } catch (e) {
-                hint(`❌ 更新失败: ${e.message}`, 'error');
-            }
-            return;
-        }
         __tmCommitPromptTaskPatchInBackground(tid, { completionTime: String(next || '').trim() }, {
             source: 'prompt-completion-time',
             label: '截止日期',
@@ -9166,7 +10280,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             state.activeDocId = __tmResolveDocTabSwitchTarget(activeDocId) || 'all';
         }
         try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
-        try { applyFilters(); } catch (e) {}
+        try { __tmRecomputeTaskProjection({ reason: 'whiteboard-link-refresh' }); } catch (e) {}
         await SettingsStore.save();
         if (state.settingsModal) showSettings();
         render();
@@ -9378,25 +10492,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         }
         const taskId = String(id || '').trim();
         if (!taskId) return false;
-        const jumpTask = state.flatTasks?.[taskId] || null;
+        const jumpTask = globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
         const targetTaskId = __tmResolveRecurringInstanceSourceTaskId(taskId, jumpTask) || taskId;
-        if (__tmShouldOpenTaskDetailPageOnAnyTitleClick(event)) {
-            try {
-                await window.tmOpenTaskDetail?.(targetTaskId, event);
-                return true;
-            } catch (e) {}
-        }
-        if (__tmIsMultiSelectActive()) {
-            const ownerRow = event?.target instanceof Element
-                ? event.target.closest('.tm-checklist-item[data-id], #tmTimelineLeftTable tbody tr[data-id], #tmTaskTable tbody tr[data-id], .tm-kanban-card[data-id], .tm-whiteboard-stream-task-head[data-id], .tm-whiteboard-stream-task-node[data-id]')
-                : null;
-            const ownerId = String(ownerRow?.getAttribute?.('data-id') || '').trim();
-            const targetId = targetTaskId;
-            if (targetId && ownerId && ownerId === targetId) {
-                __tmToggleTaskMultiSelection(targetId);
-                return false;
-            }
-        }
         const nav = __tmGetNavigationRuntime();
         const topWin = nav.topWin || window;
         const topDoc = nav.topDoc || document;
@@ -9543,6 +10640,25 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             value,
         };
         return value;
+    }
+
+    function __tmGetProjectedOrderedTaskChildren(taskLike, options = {}) {
+        const task = taskLike && typeof taskLike === 'object' ? taskLike : null;
+        const structuralChildren = Array.isArray(task?.children) ? task.children : [];
+        const taskId = String(task?.id || '').trim();
+        if (!taskId) return structuralChildren;
+        try {
+            const projectedChildren = globalThis.__tmTaskStore?.listProjectedDirectChildren?.(taskId, {
+                scanFlat: options?.scanFlat === true,
+            });
+            // An empty projected list is authoritative too: it can mean that
+            // every child is currently hidden by a pending/committed delete.
+            // Falling back to the stale parent.children resurrects deleted rows.
+            if (Array.isArray(projectedChildren)) {
+                return projectedChildren;
+            }
+        } catch (e) {}
+        return structuralChildren;
     }
 
     function __tmIsTaskDoneForTailGroup(task) {
@@ -9724,15 +10840,9 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             if (ats !== bts) return ats - bts;
             return getTaskOrder(String(a?.id || '')) - getTaskOrder(String(b?.id || ''));
         };
-        const activeSortRuleForRowModel = (() => {
-            try {
-                if (typeof __tmGetCurrentRule === 'function') return __tmGetCurrentRule();
-            } catch (e) {}
-            return state.currentRule
-                ? (Array.isArray(state.filterRules) ? state.filterRules.find((rule) => rule?.id === state.currentRule) : null)
-                : null;
-        })();
-        const hasExplicitSortForRowModel = __tmRuleHasExplicitSort(activeSortRuleForRowModel);
+        const rowModelSortContext = __tmBuildRuleSortContext();
+        const activeSortRuleForRowModel = rowModelSortContext.rule;
+        const hasExplicitSortForRowModel = rowModelSortContext.hasExplicitSort;
         const showCustomOrderAllTabSiblingDropGaps = (() => {
             try {
                 const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
@@ -9745,11 +10855,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 return false;
             }
         })();
-        const ruleSortRuntimeForRowModel = {
-            fieldInfoCache: new Map(),
-            valueMemo: new WeakMap(),
-            timeSortMemo: new Map(),
-        };
+        const ruleSortRuntimeForRowModel = rowModelSortContext.runtime;
         const sortRowModelGroupItems = (items, fallbackCompare = null) => {
             const list = Array.isArray(items) ? items : [];
             if (list.length <= 1) return list;
@@ -9850,7 +10956,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
         const walkTaskTree = (task, depth, inheritedHideCompleted = false, inCompletedRootGroup = false) => {
             const hideCompletedDescendants = __tmResolveHideCompletedDescendantsFlag(task, inheritedHideCompleted);
-            const childTasks = (task.children || []).filter((c) => hasFilteredTaskId(c?.id) && __tmShouldKeepChildTaskVisible(task, c, inheritedHideCompleted));
+            const childTasks = __tmGetProjectedOrderedTaskChildren(task)
+                .filter((c) => hasFilteredTaskId(c?.id) && __tmShouldKeepChildTaskVisible(task, c, inheritedHideCompleted));
             childTasks.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
             const hasChildren = childTasks.length > 0;
             const collapsed = state.collapsedTaskIds.has(String(task.id));
@@ -10225,10 +11332,22 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         return state.showCompletedTasks !== true;
     }
 
+    function __tmIsTaskCompletedForProjection(task) {
+        if (!(task && typeof task === 'object')) return false;
+        try {
+            const checker = globalThis.__tmTaskProjectionEngine?.isTaskCompleted;
+            if (typeof checker === 'function') return checker(task) === true;
+        } catch (e) {}
+        try {
+            if (typeof __tmIsTaskDoneEffective === 'function') return __tmIsTaskDoneEffective(task) === true;
+        } catch (e) {}
+        return task.done === true;
+    }
+
     function __tmShouldKeepChildTaskVisible(parentTask, childTask, inheritedHideCompleted = false) {
         if (!childTask || typeof childTask !== 'object') return false;
         const hideCompleted = __tmResolveHideCompletedDescendantsFlag(parentTask, inheritedHideCompleted);
-        if (hideCompleted && !!childTask.done) return false;
+        if (hideCompleted && __tmIsTaskCompletedForProjection(childTask)) return false;
         return true;
     }
 
@@ -10242,14 +11361,17 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 if (seen.has(tid)) return acc;
                 seen.add(tid);
             }
-            const liveTask = tid ? state.flatTasks?.[tid] : null;
+            const liveTask = tid
+                ? (globalThis.__tmTaskStore?.getProjected?.(tid)
+                    || globalThis.__tmTaskBoundary?.getTask?.(tid))
+                : null;
             const baseTask = (liveTask && typeof liveTask === 'object')
                 ? { ...item, ...liveTask }
                 : { ...item };
             const sourceChildren = Array.isArray(item?.children)
                 ? item.children
                 : (Array.isArray(liveTask?.children) ? liveTask.children : []);
-            if (!showCompletedSubtasks && !!baseTask?.done) return acc;
+            if (!showCompletedSubtasks && __tmIsTaskCompletedForProjection(baseTask)) return acc;
             const nextChildren = __tmBuildTaskDetailSubtaskTree(sourceChildren, showCompletedSubtasks, seen);
             baseTask.children = nextChildren;
             acc.push(baseTask);
@@ -10342,8 +11464,9 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             const kids = Array.isArray(viewTask?.children)
                 ? viewTask.children.slice()
                 : [];
+            const viewTaskDone = __tmIsTaskCompletedForProjection(viewTask);
             const totalKids = kids.length;
-            const doneKids = kids.filter((child) => child?.done).length;
+            const doneKids = kids.filter((child) => __tmIsTaskCompletedForProjection(child)).length;
             const childStatsHtml = totalKids > 0
                 ? `<span class="tm-task-detail-subtask-count">${doneKids}/${totalKids}</span>`
                 : '';
@@ -10356,8 +11479,8 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 <div class="tm-task-detail-subtask${childrenHtml ? ' tm-task-detail-subtask--has-children' : ''}" style="--tm-task-detail-depth:${depth};">
                     <div class="tm-task-detail-subtask-row" data-tm-detail-subtask-menu="${esc(tid)}">
                         <div class="tm-task-detail-subtask-main">
-                            ${__tmRenderTaskCheckbox(tid, viewTask, { checked: viewTask?.done, extraClass: checkboxExtraClass, stopMouseDown: true, stopClick: true, priority: canonicalPriority })}
-                            <textarea class="tm-task-detail-subtask-title${viewTask?.done ? ' is-done' : ''}" data-tm-detail-subtask-content="${esc(tid)}" rows="1" ${readOnly ? 'readonly' : ''} title="${readOnly ? '其他块内容请回原文档编辑' : '直接编辑子任务内容'}">${esc(String(viewTask?.content || '').trim() || '')}</textarea>
+                            ${__tmRenderTaskCheckbox(tid, viewTask, { checked: viewTaskDone, extraClass: checkboxExtraClass, stopMouseDown: true, stopClick: true, priority: canonicalPriority })}
+                            <textarea class="tm-task-detail-subtask-title${viewTaskDone ? ' is-done' : ''}" data-tm-detail-subtask-content="${esc(tid)}" rows="1" ${readOnly ? 'readonly' : ''} title="${readOnly ? '其他块内容请回原文档编辑' : '直接编辑子任务内容'}">${esc(String(viewTask?.content || '').trim() || '')}</textarea>
                         </div>
                         <div class="tm-task-detail-subtask-trailing">
                             ${childStatsHtml}

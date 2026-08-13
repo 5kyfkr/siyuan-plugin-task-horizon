@@ -20,7 +20,7 @@ assert.match(store, /Storage\.get\('tm_always_show_task_doc_heading_groups'/, 'l
 assert.match(store, /Storage\.set\('tm_always_show_task_doc_heading_groups'/, 'local settings must persist the switch');
 assert.match(store, /cloudData\.keepCompletedDocHeadingGroupsVisible[\s\S]*tm_keep_completed_doc_heading_groups_visible/, 'the renamed setting must migrate its previous cloud and local keys');
 assert.match(settings, /文档分组下按任务标题级别子分组[\s\S]*有任务的标题分组始终显示[\s\S]*updateAlwaysShowTaskDocHeadingGroups/, 'settings must describe the active task heading level and expose the switch');
-assert.match(actions, /updateAlwaysShowTaskDocHeadingGroups[\s\S]*SettingsStore\.save\(\)[\s\S]*applyFilters\(\)/, 'the switch action must persist the setting and refresh the heading inventory');
+assert.match(actions, /updateAlwaysShowTaskDocHeadingGroups[\s\S]*SettingsStore\.save\(\)[\s\S]*__tmRecomputeTaskProjection\(/, 'the switch action must persist the setting and refresh the heading inventory');
 assert.match(services, /function __tmShouldAlwaysShowTaskDocHeadingGroups\(\)[\s\S]*state\.groupByDocName === true/, 'persistent heading groups must be limited to document grouping');
 assert.doesNotMatch(services.match(/function __tmShouldAlwaysShowTaskDocHeadingGroups\(\)[\s\S]*?\n    \}/)?.[0] || '', /showCompletedTasks/, 'persistent heading groups must not depend on completed-task visibility');
 assert.match(filters, /allTaskDocIdsForTabs[\s\S]*scopedTaskDocIds[\s\S]*Object\.values\(taskMap\)\.forEach\(addHeadingTask\)[\s\S]*state\.taskDocHeadingGroupTasks = headingTasks[\s\S]*const filterVisibleTasks/, 'the heading inventory must come from the full task index before task visibility filters');

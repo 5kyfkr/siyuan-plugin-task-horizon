@@ -5,7 +5,7 @@ description: 为出差、晚间安排、周计划、发布流程或其他重复�
 
 # 场景模板
 
-调用任务工具时使用思源提供的完整名称，前缀为 `plugin__siyuan_plugin_task_horizon__`。
+调用任务工具时，只能使用思源在本轮 tool definitions 中实际暴露的完整名称。Task Horizon 名称以 `plugin__siyuan_plugin_task_horizon__` 开头，并可能带校验后缀；禁止自行拼接、删改后缀或复用旧会话中的名称。
 
 1. 确认场景目标和本次会变化的参数，例如日期、目的地、精力、交通方式、目标文档或外部天气信息。
    先调用 `get_task_view_context`，默认不传 `scope`：当前活动页签是任务管理器时使用其当前视图，是思源笔记时使用该文档的完整任务范围。默认使用 `scopeToken`；用户要求当前界面以外的时间、完成状态、优先级或状态范围时改用 `containerScopeToken`，并使用 `done`、`dateRange`、`overdue`、`priorities`、`customStatuses`、`includeVirtual` 等结构化筛选，不把完整 ID 列表放进对话。只有用户明确指定不同容器时才用 `scope: "current_view"` 或 `scope: "focused_document"` 覆盖自动识别；后者可同时传 `documentID`。

@@ -21,7 +21,7 @@ assert.doesNotMatch(render, /\.tm-ai-mobile-shell\s*\{[\s\S]{0,180}bottom: var\(
 assert.match(render, /\.tm-ai-mobile-panel[\s\S]*box-sizing: border-box[\s\S]*min-width: 0[\s\S]*max-width: 100%[\s\S]*overflow: hidden/, 'the narrow AI panel must include its border and contain horizontal overflow');
 assert.match(render, /#tmAiMobileSidebarPanel[\s\S]*width: 100%[\s\S]*min-width: 0[\s\S]*max-width: 100%[\s\S]*overflow: hidden/, 'the narrow AI mount point must not widen its host');
 assert.match(panels, /function __tmAiUsesOverlayPanel\(\)[\s\S]*__tmIsMobileDevice\(\) \|\| __tmIsDockHost\(\)/, 'mobile and Dock hosts must share the narrow-panel path');
-assert.match(panels, /canRenderInCurrentDockHost[\s\S]*if \(!canRenderInCurrentDockHost\)[\s\S]*openManager/, 'an active Dock host must not open a separate manager window');
+assert.match(panels, /canRenderInCurrentHost = __tmIsPluginVisibleNow\(\)[\s\S]*if \(!canRenderInCurrentHost\)[\s\S]*openManager/, 'an active visible Task Horizon host, including Dock, must not open a separate manager window');
 assert.match(panels, /window\.tmCloseAiSidebar[\s\S]*aiSideDockEnabled = false[\s\S]*SettingsStore\.save/, 'closing AI must keep the menu switch state synchronized');
 assert.match(scene, /showAiSideDock[\s\S]*!isMobile && !isDockHost/, 'Dock must not use the desktop split sidebar');
 assert.match(workbench, /runtime\.mobile \? '[^']*data-agent-action="close-sidebar"/, 'narrow AI panels must expose a close action');

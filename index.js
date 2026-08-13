@@ -1232,17 +1232,46 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     }
 
     registerTaskHorizonAgentActions() {
-        if (this._taskHorizonAgentActionsRegistered || typeof this.addAgentAction !== "function") return false;
+        if (this._taskHorizonAgentActionsRegistered) return true;
+        const usesCapabilities = typeof this.addAgentCapability === "function";
+        if (!usesCapabilities && typeof this.addAgentAction !== "function") return false;
         const handlers = new Map();
-        const register = (name, description, handler) => {
-            const fullName = this.addAgentAction({ name, description, handler });
-            const entry = { name: fullName, description };
+        const legacyDescriptors = [];
+        const frontendDescriptors = [];
+        const register = (name, title, description, inputSchema, effects, handler) => {
+            let fullName = name;
+            if (usesCapabilities) {
+                fullName = this.addAgentCapability({ name, title, description, inputSchema, effects, handler });
+                const generation = Number(this.agentCapabilities?.find?.((item) => item?.id === fullName)?.generation) || 0;
+                frontendDescriptors.push({
+                    id: fullName,
+                    title,
+                    description,
+                    inputSchema,
+                    effects,
+                    source: "plugin",
+                    ownerId: this.name,
+                    ownerName: this.displayName || this.name,
+                    generation,
+                });
+            } else {
+                fullName = this.addAgentAction({ name, description, handler });
+                legacyDescriptors.push({ name: fullName, description });
+            }
             handlers.set(name, handler);
             handlers.set(fullName, handler);
-            return entry;
+            return fullName;
         };
         const descriptors = [
-            register("open_task_manager", "打开任务管理器的指定视图、任务或功能面板", async (args = {}) => {
+            register("open_task_manager", "打开任务管理器", "打开任务管理器的指定视图、任务或功能面板", {
+                type: "object",
+                properties: {
+                    view: { type: "string" },
+                    taskID: { type: "string" },
+                    panel: { type: "string" },
+                },
+                additionalProperties: false,
+            }, { localWrite: true }, async (args = {}) => {
                 try {
                     this.openTaskHorizonTab();
                     const view = String(args.view || "").trim();
@@ -1259,7 +1288,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     return { error: String(e?.message || e || "打开任务管理器失败") };
                 }
             }),
-            register("focus_task", "在任务管理器中定位并聚焦一个任务", async (args = {}) => {
+            register("focus_task", "聚焦任务", "在任务管理器中定位并聚焦一个任务", {
+                type: "object",
+                properties: { taskID: { type: "string" } },
+                required: ["taskID"],
+                additionalProperties: false,
+            }, { localWrite: true }, async (args = {}) => {
                 const taskID = String(args.taskID || args.taskId || "").trim();
                 if (!taskID) return { error: "缺少任务 ID" };
                 try {
@@ -1271,7 +1305,14 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     return { error: String(e?.message || e || "定位任务失败") };
                 }
             }),
-            register("get_task_view_context", "按活动页签注册任务范围；返回当前视图 scopeToken 和可重新筛选的 containerScopeToken；scope 可显式覆盖", async (args = {}) => {
+            register("get_task_view_context", "读取任务视图上下文", "按活动页签注册任务范围；返回当前视图 scopeToken 和可重新筛选的 containerScopeToken；scope 可显式覆盖", {
+                type: "object",
+                properties: {
+                    scope: { type: "string", enum: ["current_view", "focused_document"] },
+                    documentID: { type: "string" },
+                },
+                additionalProperties: false,
+            }, { localRead: true }, async (args = {}) => {
                 try {
                     const taskBridge = globalThis[PLUGIN_ID]?.aiBridge;
                     if (!taskBridge) throw new Error("任务上下文服务尚未就绪");
@@ -1381,12 +1422,14 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 }
             }),
         ];
-        globalThis.__taskHorizonAgentActionDescriptors = descriptors;
+        globalThis.__taskHorizonAgentActionDescriptors = legacyDescriptors;
+        globalThis.__taskHorizonFrontendCapabilityDescriptors = frontendDescriptors;
         globalThis.__taskHorizonInvokeAgentAction = async (name, args = {}) => {
             const handler = handlers.get(String(name || "").trim());
             if (typeof handler !== "function") return { error: `未知前端动作: ${String(name || "")}` };
             return await handler(args, this.app);
         };
+        void descriptors;
         this._taskHorizonAgentActionsRegistered = true;
         return true;
     }
@@ -2509,6 +2552,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonGetAiExperienceMode; } catch (e) {}
         try { delete globalThis.__taskHorizonSetAiExperienceMode; } catch (e) {}
         try { delete globalThis.__taskHorizonAgentActionDescriptors; } catch (e) {}
+        try { delete globalThis.__taskHorizonFrontendCapabilityDescriptors; } catch (e) {}
         try { delete globalThis.__taskHorizonInvokeAgentAction; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureXlsxModuleLoaded; } catch (e) {}
         try { delete globalThis.__taskHorizonMount; } catch (e) {}
@@ -2543,7 +2587,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             const paths = [
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-meta.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-snapshot.json",
-                "/data/storage/petal/siyuan-plugin-task-horizon/diagnostic-logs.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-conversations.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-debug.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-prompt-templates.json",

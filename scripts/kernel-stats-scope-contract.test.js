@@ -15,7 +15,8 @@ assert.match(kernel, /const scopedTaskIDs = new Set\(rows\.map[\s\S]*await loadS
 assert.doesNotMatch(kernel, /LIMIT 100000/, 'internal aggregations must not truncate large task scopes');
 assert.match(kernel, /'aggregate_task_stats'[\s\S]*scopeToken:[\s\S]*taskIDs:[\s\S]*documentIDs:/, 'task statistics schema must publish the compact scope token');
 assert.match(kernel, /'aggregate_task_stats'[\s\S]*customFieldIDs:[\s\S]*maxItems: 20/, 'custom-field grouping must be explicit and bounded to limit result tokens');
-assert.match(kernel, /byCustomField:[\s\S]*fieldID:[\s\S]*items: countBy/, 'task statistics must return structured custom-field groupings');
+assert.match(kernel, /function customFieldBreakdown[\s\S]*directCount:[\s\S]*totalCount:[\s\S]*byCustomField:[\s\S]*\.\.\.customFieldBreakdown/, 'task statistics must return direct custom-field counts and deduplicated hierarchy rollups');
+assert.match(kernel, /customFieldDefinitions: customFieldDefinitions\(completed\.registry\)/, 'task statistics must expose hierarchy definitions even before a custom grouping is requested');
 assert.match(kernel, /byStatus: countByLabeled[\s\S]*resolveStatusName/, 'status statistics must use configured display names instead of raw IDs');
 assert.match(kernel, /byPriority: countByLabeled[\s\S]*resolvePriorityName/, 'priority statistics must use localized display names instead of raw IDs');
 assert.match(kernel, /missingCompletionTime: completed\.missingCompletionTime/, 'task statistics must expose missing completion-time coverage');

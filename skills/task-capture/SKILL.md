@@ -5,7 +5,7 @@ description: 将思源文档、收集箱、自然语言想法或目标整理为 
 
 # 任务收集
 
-调用任务工具时使用思源提供的完整名称，前缀为 `plugin__siyuan_plugin_task_horizon__`。
+调用任务工具时，只能使用思源在本轮 tool definitions 中实际暴露的完整名称。Task Horizon 名称以 `plugin__siyuan_plugin_task_horizon__` 开头，并可能带校验后缀；禁止自行拼接、删改后缀或复用旧会话中的名称。
 
 1. 读取用户引用的思源块和当前任务范围。已有明确上下文时不要重复询问，也不要无差别读取整篇文档。任务工具省略 `fields` 会返回完整字段；使用投影时按需包含日期、状态、重要性、番茄、备注、附件和 `customFieldValues`。
    先调用 `get_task_view_context`，默认不传 `scope`：当前活动页签是任务管理器时使用其当前视图，是思源笔记时使用该文档的完整任务范围。默认把 `scopeToken` 传给任务查询；用户要求当前界面以外的时间、完成状态、优先级或状态范围时改用 `containerScopeToken`，并使用 `done`、`dateRange`、`overdue`、`priorities`、`customStatuses`、`includeVirtual` 等结构化筛选，不索取或复述完整任务 ID 列表。只有用户明确指定不同容器时才用 `scope: "current_view"` 或 `scope: "focused_document"` 覆盖自动识别；后者可同时传 `documentID`。

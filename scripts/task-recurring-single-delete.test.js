@@ -62,6 +62,9 @@ function createHarness(task) {
     context.__tmRuntimeState = {
         getTaskById: (id) => state.flatTasks[id] || null,
     };
+    context.__tmTaskBoundary = {
+        getTask: (id) => state.pendingInsertedTasks[id] || state.flatTasks[id] || null,
+    };
     vm.runInContext(singleDeleteSource, context);
     return { remove: context.window.tmDelete, calls };
 }

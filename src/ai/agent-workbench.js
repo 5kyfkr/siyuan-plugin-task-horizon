@@ -15,6 +15,7 @@
     const CAPABILITY_RETRY_INTERVAL_MS = 1000;
     const CAPABILITY_RETRY_LIMIT = 5;
     const KERNEL_PLUGIN_PACKAGE_NAME = 'siyuan-plugin-task-horizon';
+    const TASK_HORIZON_BACKEND_CAPABILITY_PREFIX = `plugin/backend/${KERNEL_PLUGIN_PACKAGE_NAME}/`;
     const KERNEL_SESSION_AUTH_ERROR = 'Auth failed [session]';
     const KERNEL_AUTH_RECOVERY_STORAGE_KEY = 'tm_agent_kernel_auth_recovery_at';
     const KERNEL_AUTH_RECOVERY_COOLDOWN_MS = 30000;
@@ -142,6 +143,7 @@
         streamRenderFrame: 0,
         hostListenerController: null,
         automationControllers: new Set(),
+        sessionSaveQueues: new Map(),
         store: {
             schemaVersion: 2,
             activeSessionID: '',
@@ -228,6 +230,29 @@
         }
     }
 
+    function userEntryBlockHTML(value) {
+        return `<div>${esc(value).replace(/\r?\n/g, '<br>')}</div>`;
+    }
+
+    function userEntryText(entry) {
+        const blockHTML = String(entry?.blockHTML || '');
+        if (!blockHTML) return text(entry?.content);
+        try {
+            const template = document.createElement('template');
+            template.innerHTML = blockHTML.replace(/<br\s*\/?\s*>/gi, '\n');
+            return text(template.content.textContent);
+        } catch (error) {
+            return text(blockHTML
+                .replace(/<br\s*\/?\s*>/gi, '\n')
+                .replace(/<[^>]+>/g, '')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/&amp;/g, '&'));
+        }
+    }
+
     function clone(value) {
         try { return JSON.parse(JSON.stringify(value)); } catch (error) { return value; }
     }
@@ -255,10 +280,11 @@
         return size;
     }
 
-    function agentHeaders() {
+    function agentHeaders(options = {}) {
         const headers = { 'Content-Type': 'application/json' };
         const appID = text(bridge().app?.appId || bridge().plugin?.app?.appId);
         if (appID) headers['X-SiYuan-App-ID'] = appID;
+        if (options.checkpoint === true) headers['X-SiYuan-Agent-Checkpoint'] = '2';
         return headers;
     }
 
@@ -408,10 +434,10 @@
         return preset ? { ...preset, id: key, builtin: false } : null;
     }
 
-    async function post(path, body) {
+    async function post(path, body, options = {}) {
         const response = await fetch(`${API_ROOT}${path}`, {
             method: 'POST',
-            headers: agentHeaders(),
+            headers: agentHeaders(options),
             body: JSON.stringify(body || {}),
         });
         let payload = null;
@@ -646,31 +672,139 @@
         return id;
     }
 
-    async function prepareAutomationConversationTurn(sessionID, prompt, title) {
+    function isMissingAgentSessionError(error) {
+        return /(?:not\s+found|not\s+exist|does\s+not\s+exist|不存在|未找到|找不到)/i.test(text(error?.message || error));
+    }
+
+    function isAgentSessionRevisionConflict(error) {
+        return /(?:session\s+)?revision\s+conflict|会话.*版本.*冲突/i.test(text(error?.message || error));
+    }
+
+    async function persistSessionCheckpoint(session, commitTurnID = '') {
+        if (!session || typeof session !== 'object' || !text(session.id)) return session;
+        const snapshot = clone(session);
+        const turnID = text(commitTurnID || snapshot.recoveryTurnID);
+        snapshot.expectedRevision = Number(session?.revision) || 0;
+        if (turnID) snapshot.commitTurnID = turnID;
+        else delete snapshot.commitTurnID;
+        delete snapshot.messages;
+        delete snapshot.recoveryTurnID;
+        delete snapshot.recoveryState;
+        delete snapshot.recoveryRevision;
+        delete snapshot.agentRunning;
+        const saved = await post('/saveSession', snapshot, { checkpoint: true });
+        if (saved?.session && typeof saved.session === 'object') return saved.session;
+        if (turnID) return await post('/getSession', { id: text(session.id) });
+        snapshot.revision = Number(saved?.revision) || snapshot.expectedRevision + 1;
+        delete snapshot.expectedRevision;
+        delete snapshot.commitTurnID;
+        return snapshot;
+    }
+
+    async function commitRecoveredSessionTurn(session) {
+        if (!text(session?.recoveryTurnID)) return session;
+        return await persistSessionCheckpoint(session);
+    }
+
+    async function recoverConversationSession(sessionID, expectedTurnID = '') {
         const id = text(sessionID);
-        const now = Date.now();
+        if (!id) return null;
+        for (const delay of [0, 150, 450]) {
+            if (delay) await waitForKernelRecovery(delay);
+            let session;
+            try { session = await post('/getSession', { id }); }
+            catch (error) { continue; }
+            const recoveryTurnID = text(session?.recoveryTurnID);
+            if (!recoveryTurnID || (expectedTurnID && recoveryTurnID !== expectedTurnID)) continue;
+            try { return await commitRecoveredSessionTurn(session); }
+            catch (error) { if (!isAgentSessionRevisionConflict(error)) throw error; }
+        }
+        return null;
+    }
+
+    async function prepareConversationTurn(sessionID, prompt, title, options = {}) {
+        let id = text(sessionID) || newID();
         let session = null;
-        try { session = await post('/getSession', { id }); } catch (error) {}
-        const entries = Array.isArray(session?.entries) ? clone(session.entries) : [];
+        try {
+            session = await post('/getSession', { id });
+        } catch (error) {
+            if (!isMissingAgentSessionError(error)) throw error;
+            if (options.replaceMissingSession === true) id = newID();
+        }
+        if (session?.agentRunning === true) throw new Error('智能体会话正在其他实例中执行');
+        if (text(session?.recoveryTurnID)) {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                try {
+                    session = await commitRecoveredSessionTurn(session);
+                    break;
+                } catch (error) {
+                    if (attempt > 0 || !isAgentSessionRevisionConflict(error)) throw error;
+                    session = await post('/getSession', { id });
+                }
+            }
+        }
         const userEntryID = newID();
-        entries.push({ id: userEntryID, type: 'user', content: prompt, timestamp: now });
-        const next = {
-            ...(session && typeof session === 'object' ? clone(session) : {}),
-            id,
-            title: text(session?.title || title) || SIYUAN_DEFAULT_SESSION_TITLE,
-            titled: session?.titled === true,
-            entries,
-            createdAt: Number(session?.createdAt) || now,
-            updatedAt: now,
-            expectedRevision: Number(session?.revision) || 0,
-        };
-        delete next.messages;
-        const saved = await post('/saveSession', next);
-        return {
-            entries,
-            userEntryID,
-            revision: Number(saved?.revision) || next.expectedRevision + 1,
-        };
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const now = Date.now();
+            const entries = Array.isArray(session?.entries) ? clone(session.entries) : [];
+            if (!entries.some((entry) => text(entry?.id) === userEntryID)) {
+                entries.push({
+                    id: userEntryID,
+                    type: 'user',
+                    content: prompt,
+                    blockHTML: userEntryBlockHTML(options.displayPrompt || prompt),
+                    ...(Array.isArray(options.references) && options.references.length ? { references: clone(options.references) } : {}),
+                    ...(options.editorContext && typeof options.editorContext === 'object' ? { editorContext: clone(options.editorContext) } : {}),
+                    timestamp: now,
+                });
+            }
+            const next = {
+                ...(session && typeof session === 'object' ? clone(session) : {}),
+                id,
+                title: text(session?.title || title) || SIYUAN_DEFAULT_SESSION_TITLE,
+                titled: typeof options.titled === 'boolean' ? options.titled : session?.titled === true,
+                entries,
+                createdAt: Number(session?.createdAt) || now,
+                updatedAt: now,
+                expectedRevision: Number(session?.revision) || 0,
+            };
+            delete next.messages;
+            delete next.commitTurnID;
+            delete next.recoveryTurnID;
+            delete next.recoveryState;
+            delete next.recoveryRevision;
+            delete next.agentRunning;
+            try {
+                const saved = await post('/saveSession', next, { checkpoint: true });
+                rememberSession(id);
+                const stored = saved?.session && typeof saved.session === 'object'
+                    ? saved.session
+                    : { ...next, revision: Number(saved?.revision) || next.expectedRevision + 1 };
+                delete stored.expectedRevision;
+                return {
+                    sessionID: id,
+                    session: stored,
+                    entries: clone(stored.entries || entries),
+                    userEntryID,
+                    revision: Number(stored.revision) || Number(saved?.revision) || next.expectedRevision + 1,
+                };
+            } catch (error) {
+                if (attempt > 0 || !isAgentSessionRevisionConflict(error)) throw error;
+                session = await post('/getSession', { id });
+                const latestEntries = Array.isArray(session?.entries) ? session.entries : [];
+                if (latestEntries.some((entry) => text(entry?.id) === userEntryID)) {
+                    rememberSession(id);
+                    return {
+                        sessionID: id,
+                        session: clone(session),
+                        entries: clone(latestEntries),
+                        userEntryID,
+                        revision: Number(session?.revision) || 0,
+                    };
+                }
+            }
+        }
+        throw new Error('智能体会话保存失败');
     }
 
     async function finalizeAutomationConversation(sessionID, title, run = {}) {
@@ -692,9 +826,8 @@
                 const markdown = text(run.markdown);
                 if (markdown) baseEntries.push({ id: newID(), type: 'assistant', content: markdown, timestamp: Date.now() });
                 if (markdown) session.entries = baseEntries;
-                delete session.messages;
                 session.updatedAt = Date.now();
-                await post('/saveSession', session);
+                await persistSessionCheckpoint(session, run.turnID);
             }
         } catch (error) {}
         await listSessions();
@@ -708,6 +841,22 @@
     function setDraft(value) {
         runtime.store.drafts[runtime.activeSessionID || 'new'] = String(value || '');
         scheduleSave();
+    }
+
+    function applyTaskToolCapabilityPolicy(capabilities) {
+        const value = capabilities && typeof capabilities === 'object' ? capabilities : {};
+        const policy = window.siyuan?.config?.ai?.agent?.capabilityPolicy;
+        const overrides = policy?.overrides && typeof policy.overrides === 'object' ? policy.overrides : {};
+        const defaultDecision = String(policy?.default || 'allow');
+        const tools = (Array.isArray(value.toolGroups) ? value.toolGroups : [])
+            .flatMap((group) => Array.isArray(group?.tools) ? group.tools : [])
+            .filter((tool) => tool?.registered === true);
+        const denied = tools.filter((tool) => String(overrides[`${TASK_HORIZON_BACKEND_CAPABILITY_PREFIX}${encodeURIComponent(text(tool?.name))}`] || defaultDecision) === 'deny');
+        return {
+            ...value,
+            agentDeniedToolCount: denied.length,
+            effectiveRegisteredToolCount: Math.max(0, tools.length - denied.length),
+        };
     }
 
     async function getCapabilities() {
@@ -725,7 +874,7 @@
             return runtime.capabilities;
         }
         try {
-            runtime.capabilities = await kernelCall('taskHorizonGetCapabilities');
+            runtime.capabilities = applyTaskToolCapabilityPolicy(await kernelCall('taskHorizonGetCapabilities'));
         } catch (error) {
             runtime.capabilities = {
                 kernelAvailable: false,
@@ -741,7 +890,7 @@
             const current = aiBridge()?.getSettings?.();
             if (current?.agentMcpAllowed !== true && runtime.capabilities.mcpEnabled === true) {
                 await aiBridge()?.setAgentMcpEnabled?.(false);
-                runtime.capabilities = await kernelCall('taskHorizonGetCapabilities');
+                runtime.capabilities = applyTaskToolCapabilityPolicy(await kernelCall('taskHorizonGetCapabilities'));
             }
         } catch (error) {}
         return runtime.capabilities;
@@ -785,7 +934,13 @@
     }
 
     function taskToolStatusText(caps = runtime.capabilities || {}) {
-        if (caps.mcpEnabled) return `${Number(caps.registeredToolCount) || 0} 个任务工具可用${runtime.skillSync.installed ? ` · ${BUILTIN_SKILL_NAMES.length} 个工作流程` : ''}`;
+        if (caps.mcpEnabled) {
+            const available = Number.isFinite(Number(caps.effectiveRegisteredToolCount))
+                ? Number(caps.effectiveRegisteredToolCount)
+                : (Number(caps.registeredToolCount) || 0);
+            const denied = Number(caps.agentDeniedToolCount) || 0;
+            return `${available} 个任务工具可用${denied ? ` · ${denied} 个被思源关闭` : ''}${runtime.skillSync.installed ? ` · ${BUILTIN_SKILL_NAMES.length} 个工作流程` : ''}`;
+        }
         if (caps.kernelAvailable !== true) return caps.unavailableReason === 'kernel-rpc-error' ? '任务工具内核连接失败' : '任务工具内核未加载';
         if (caps.mcpAvailable !== true) return '当前思源内核未提供 MCP';
         if (aiBridge()?.getSettings?.()?.agentMcpAllowed !== true) return '文档对话模式 · 任务工具未授权';
@@ -804,8 +959,8 @@
         render();
         try {
             if (typeof aiBridge()?.setAgentMcpEnabled === 'function') {
-                await aiBridge().setAgentMcpEnabled(enabled === true);
-                runtime.capabilities = await kernelCall('taskHorizonGetCapabilities');
+                await aiBridge().setAgentMcpEnabled(enabled === true, { syncAgentPolicy: true });
+                runtime.capabilities = applyTaskToolCapabilityPolicy(await kernelCall('taskHorizonGetCapabilities'));
             } else {
                 runtime.capabilities = await kernelCall('taskHorizonSetMcpEnabled', enabled === true);
             }
@@ -989,23 +1144,37 @@
         }
     }
 
-    async function saveSession() {
+    async function saveSession(commitTurnID = '') {
         if (!runtime.session || !runtime.activeSessionID) return null;
-        const entries = sessionEntries();
-        if (!entries.length) return runtime.session;
-        const next = {
-            ...clone(runtime.session),
-            id: runtime.activeSessionID,
-            title: text(runtime.session.title) || DEFAULT_SESSION_TITLE,
-            titled: runtime.session.titled !== false,
-            entries: clone(entries),
-            createdAt: Number(runtime.session.createdAt) || Date.now(),
-            updatedAt: Date.now(),
+        const sessionID = runtime.activeSessionID;
+        const fallback = clone(runtime.session);
+        const requestedTurnID = text(commitTurnID);
+        const persist = async () => {
+            const source = runtime.activeSessionID === sessionID && runtime.session ? runtime.session : fallback;
+            const entries = sessionEntries(source);
+            if (!entries.length) return source;
+            const snapshot = {
+                ...clone(source),
+                id: sessionID,
+                title: text(source.title) || DEFAULT_SESSION_TITLE,
+                titled: source.titled !== false,
+                entries: clone(entries),
+                createdAt: Number(source.createdAt) || Date.now(),
+                updatedAt: Date.now(),
+            };
+            const turnID = text(requestedTurnID || source.recoveryTurnID);
+            const next = await persistSessionCheckpoint(snapshot, turnID);
+            if (runtime.activeSessionID === sessionID) runtime.session = next;
+            return next;
         };
-        delete next.messages;
-        await post('/saveSession', next);
-        runtime.session = next;
-        return next;
+        const previous = runtime.sessionSaveQueues.get(sessionID);
+        const pending = previous ? previous.catch(() => null).then(persist) : persist();
+        runtime.sessionSaveQueues.set(sessionID, pending);
+        try {
+            return await pending;
+        } finally {
+            if (runtime.sessionSaveQueues.get(sessionID) === pending) runtime.sessionSaveQueues.delete(sessionID);
+        }
     }
 
     function showSessionNotice(message, type = 'info') {
@@ -1076,8 +1245,8 @@
 
     function tryGenerateSessionTitle() {
         if (!runtime.session || runtime.session.titled !== false) return;
-        const firstUserEntry = sessionEntries().find((entry) => entry?.type === 'user' && text(entry.content));
-        const message = text(firstUserEntry?.content).slice(0, 500);
+        const firstUserEntry = sessionEntries().find((entry) => entry?.type === 'user' && userEntryText(entry));
+        const message = userEntryText(firstUserEntry).slice(0, 500);
         if (!message) return;
         const sessionID = runtime.activeSessionID;
         runtime.session.titled = true;
@@ -1091,6 +1260,7 @@
             const currentTitle = text(runtime.session.title);
             if (currentTitle && currentTitle !== DEFAULT_SESSION_TITLE) return;
             runtime.session.title = title;
+            if (runtime.busy) return;
             await saveSession();
             await listSessions();
             render();
@@ -1123,9 +1293,9 @@
         }
     }
 
-    function sessionEntries() {
-        const entries = Array.isArray(runtime.session?.entries) ? runtime.session.entries : [];
-        const messages = Array.isArray(runtime.session?.messages) ? runtime.session.messages : [];
+    function sessionEntries(session = runtime.session) {
+        const entries = Array.isArray(session?.entries) ? session.entries : [];
+        const messages = Array.isArray(session?.messages) ? session.messages : [];
         if (entries.length >= messages.length) return entries;
         return messages.map((message) => ({
             id: newID(),
@@ -1183,7 +1353,8 @@
     function normalizeToolName(name) {
         const raw = text(name).toLowerCase();
         const prefix = TASK_HORIZON_TOOL_PREFIXES.find((item) => raw.startsWith(item));
-        return prefix ? raw.slice(prefix.length) : raw;
+        const localName = prefix ? raw.slice(prefix.length) : raw;
+        return prefix ? localName.replace(/__[0-9a-f]{12}$/, '') : localName;
     }
 
     function isTaskHorizonToolName(name) {
@@ -1619,7 +1790,10 @@
 
     function renderEntry(entry, index, options = {}) {
         const type = text(entry?.type);
-        if (type === 'user') return `<article class="tm-agent-message tm-agent-message--user"><div class="tm-agent-message__body">${esc(entry.content)}</div>${renderMessageActions(index, text(entry.content))}</article>`;
+        if (type === 'user') {
+            const content = userEntryText(entry);
+            return `<article class="tm-agent-message tm-agent-message--user"><div class="tm-agent-message__body">${esc(content)}</div>${renderMessageActions(index, content)}</article>`;
+        }
         if (type === 'assistant') {
             const calls = Array.isArray(entry.toolCalls) ? entry.toolCalls : [];
             const todoCall = calls.filter(isTodoToolCall).pop();
@@ -2635,20 +2809,64 @@
         return true;
     }
 
+    function frontendActionResult(outcome) {
+        if (outcome?.error) return { result: text(outcome.error), isError: true };
+        const value = outcome?.result ?? outcome;
+        return {
+            result: typeof value === 'string' ? value : JSON.stringify(value ?? 'ok'),
+            structuredContent: outcome?.structuredContent,
+            structuredContentSet: !!outcome && Object.prototype.hasOwnProperty.call(outcome, 'structuredContent'),
+            isError: false,
+        };
+    }
+
+    function frontendCapabilityAllowed(capabilityID) {
+        const id = text(capabilityID);
+        if (!id) return false;
+        const policy = window.siyuan?.config?.ai?.agent?.capabilityPolicy;
+        if (!policy || typeof policy !== 'object') return true;
+        const overrides = policy.overrides && typeof policy.overrides === 'object' ? policy.overrides : {};
+        return String(overrides[id] || policy.default || 'allow') !== 'deny';
+    }
+
     async function invokeFrontendTool(event) {
         const args = event.arguments && typeof event.arguments === 'object' ? event.arguments : {};
         const action = text(args.action);
-        let result = '';
-        let isError = false;
+        let outcome;
         try {
-            const outcome = await globalThis.__taskHorizonInvokeAgentAction?.(action, args);
-            if (outcome?.error) { result = text(outcome.error); isError = true; }
-            else result = text(outcome?.result || outcome) || 'ok';
+            outcome = frontendActionResult(await globalThis.__taskHorizonInvokeAgentAction?.(action, args));
         } catch (error) {
-            result = text(error?.message || error) || '前端操作失败';
-            isError = true;
+            outcome = { result: text(error?.message || error) || '前端操作失败', isError: true };
         }
-        await postAgentInteraction('/frontendToolResult', { callID: event.callID, result, isError });
+        await postAgentInteraction('/frontendToolResult', { callID: event.callID, result: outcome.result, isError: outcome.isError });
+    }
+
+    async function invokeBrowserCapability(event) {
+        const capabilityID = text(event.capabilityID);
+        const args = event.arguments && typeof event.arguments === 'object' ? event.arguments : {};
+        let outcome;
+        try {
+            if (!frontendCapabilityAllowed(capabilityID)) throw new Error(`前端能力已在思源设置中关闭：${capabilityID}`);
+            const descriptors = Array.isArray(globalThis.__taskHorizonFrontendCapabilityDescriptors)
+                ? globalThis.__taskHorizonFrontendCapabilityDescriptors
+                : [];
+            const descriptor = descriptors.find((item) => text(item?.id) === capabilityID);
+            if (!descriptor || (Number(event.generation) > 0 && Number(descriptor.generation) !== Number(event.generation))) {
+                throw new Error(`前端能力不可用：${capabilityID}`);
+            }
+            outcome = frontendActionResult(await globalThis.__taskHorizonInvokeAgentAction?.(capabilityID, args));
+        } catch (error) {
+            outcome = { result: text(error?.message || error) || '前端能力执行失败', isError: true };
+        }
+        await postAgentInteraction('/browserCapabilityResult', {
+            callID: event.callID,
+            result: outcome.result,
+            ...(outcome.structuredContentSet ? {
+                structuredContent: outcome.structuredContent,
+                structuredContentSet: true,
+            } : {}),
+            isError: outcome.isError,
+        });
     }
 
     function normalizeSSEEvent(name, data) {
@@ -2818,6 +3036,27 @@
         return `\n\n创建任务位置（本轮实时）：\n${mapping}\n当前没有可用的插件默认新建位置。确实需要新建任务时，调用思源 question 工具单选询问“创建到哪个文档？”，固定选项使用上面的文档名称，multiple=false，custom=true，允许用户手动输入其他文档名。用户选择固定项时使用对应 documentID；手动输入名称时先解析真实文档 ID，同名或结果不明确时继续确认。`;
     }
 
+    async function customFieldHierarchyInstruction() {
+        let definitions = [];
+        try { definitions = await kernelCall('taskHorizonGetCustomFieldDefinitions'); } catch (error) { return ''; }
+        const hierarchical = (Array.isArray(definitions) ? definitions : []).map((field) => ({
+            fieldID: text(field?.id),
+            label: text(field?.label),
+            type: text(field?.type),
+            options: (Array.isArray(field?.options) ? field.options : []).map((option) => ({
+                id: text(option?.id),
+                label: text(option?.label),
+                parentID: text(option?.parentID),
+                ancestorIDs: Array.isArray(option?.ancestorIDs) ? option.ancestorIDs.map(text).filter(Boolean) : [],
+                path: text(option?.path),
+                archived: option?.archived === true,
+                effectiveArchived: option?.effectiveArchived === true,
+            })),
+        })).filter((field) => field.fieldID && field.options.some((option) => option.parentID || option.archived || option.effectiveArchived));
+        if (!hierarchical.length) return '';
+        return `\n\n自定义标签层级（本轮实时、只读定义）：${JSON.stringify(hierarchical)}。任务 customFieldValues 仍保存直接选中的标签，不保存完整路径；子标签同时归属于 ancestorIDs 中的所有父级。归档标签仍是有效历史数据。需要层级统计时调用 aggregate_task_stats 并传 customFieldIDs，hierarchyItems.totalCount 是包含后代且按任务去重的汇总，directCount 是直接选择数。只有实际改选标签时才写任务 patch。`;
+    }
+
     async function sendMessage(textOverride) {
         if (runtime.busy) return;
         const raw = text(textOverride != null ? textOverride : getDraft());
@@ -2870,7 +3109,8 @@
             }
         }
         const creationDestinationInstruction = await taskCreationDestinationInstruction(userText);
-        const basePrompt = `${preset ? `${preset.prompt}\n\n用户请求：${userText}` : userText}${creationDestinationInstruction}${reminderIntentInstruction(userText)}`;
+        const customFieldInstruction = await customFieldHierarchyInstruction();
+        const basePrompt = `${preset ? `${preset.prompt}\n\n用户请求：${userText}` : userText}${creationDestinationInstruction}${reminderIntentInstruction(userText)}${customFieldInstruction}`;
         const taskScopeSnapshot = currentViewSnapshot || selectedTaskSnapshot;
         const taskScopeLabel = currentViewSnapshot
             ? (text(runtime.context.scope?.label) || '当前任务视图')
@@ -2893,37 +3133,50 @@
             : '';
         const prompt = `${basePrompt}${scopeHint}`;
         const omitDirectTaskReferences = !runtime.context.scope && runtime.context.taskIDs.length > MAX_DIRECT_TASK_REFERENCES;
+        const refs = await buildReferences(omitDirectTaskReferences);
+        const taskIDs = runtime.context.taskIDs.slice();
+        const documentIDs = runtime.context.documentIDs.slice();
+        const directTaskIDs = omitDirectTaskReferences ? [] : taskIDs.filter(isTaskBlockID);
+        const editorContext = {
+            activeDocID: documentIDs[0] || undefined,
+            focusedBlockID: directTaskIDs[0] || undefined,
+            selectedBlockIDs: Array.from(new Set([...directTaskIDs, ...documentIDs])),
+        };
         setDraft('');
         runtime.busy = true;
         runtime.roundUndoIDs = [];
         runtime.conversationFollowBottom = true;
         runtime.statusText = '智能体正在处理...';
         runtime.live = { content: '', status: '正在连接', toolCalls: [] };
-        runtime.session.entries = clone(sessionEntries());
-        runtime.session.entries.push({ id: newID(), type: 'user', content: userText, timestamp: Date.now() });
-        tryGenerateSessionTitle();
         runtime.abortController = new AbortController();
         rememberSession(runtime.activeSessionID);
-        render();
+        let turnID = '';
         try {
-            await saveSession();
-            const refs = await buildReferences(omitDirectTaskReferences);
-            const taskIDs = runtime.context.taskIDs.slice();
-            const documentIDs = runtime.context.documentIDs.slice();
-            const directTaskIDs = omitDirectTaskReferences ? [] : taskIDs.filter(isTaskBlockID);
+            const prepared = await prepareConversationTurn(runtime.activeSessionID, prompt, runtime.session?.title, {
+                displayPrompt: userText,
+                references: refs,
+                editorContext,
+                titled: runtime.session?.titled === true,
+            });
+            runtime.activeSessionID = prepared.sessionID;
+            runtime.session = prepared.session;
+            render();
             const request = {
                 message: prompt,
                 language: window.siyuan?.config?.appearance?.lang || 'zh_CN',
                 references: refs,
                 sessionID: runtime.activeSessionID,
-                editorContext: {
-                    activeDocID: documentIDs[0] || undefined,
-                    focusedBlockID: directTaskIDs[0] || undefined,
-                    selectedBlockIDs: Array.from(new Set([...directTaskIDs, ...documentIDs])),
-                },
+                editorContext,
                 pluginActions: Array.isArray(globalThis.__taskHorizonAgentActionDescriptors) ? globalThis.__taskHorizonAgentActionDescriptors : [],
+                frontendCapabilities: Array.isArray(globalThis.__taskHorizonFrontendCapabilityDescriptors) ? globalThis.__taskHorizonFrontendCapabilityDescriptors : [],
+                userEntryID: prepared.userEntryID,
+                contentRevision: prepared.revision,
             };
             await client.chat(request, async (event) => {
+                if (event.type === 'turn') {
+                    turnID = text(event.turnID) || turnID;
+                    return;
+                }
                 if (event.type === 'content') {
                     runtime.live.content += event.token || '';
                     scheduleStreamRender();
@@ -2990,13 +3243,18 @@
                     });
                     runtime.live.status = '';
                 } else if (event.type === 'frontend_tool_call') await invokeFrontendTool(event);
+                else if (event.type === 'browser_capability_call') await invokeBrowserCapability(event);
                 else if (event.type === 'snapshot') {
                     settleLiveBeforeInteraction();
                     runtime.session.entries.push({ id: newID(), type: 'snapshot', snapshotID: event.snapshotID });
                 }
                 else if (event.type === 'error') throw new Error(text(event.message) || '智能体执行失败');
                 else if (event.type === 'interrupted') throw new Error(text(event.message) || '智能体响应已中断');
-                else if (event.type === 'done') { runtime.live.status = ''; runtime.live.done = true; }
+                else if (event.type === 'done') {
+                    turnID = text(event.turnID) || turnID;
+                    runtime.live.status = '';
+                    runtime.live.done = true;
+                }
                 render();
             }, runtime.abortController.signal);
             const live = runtime.live;
@@ -3009,10 +3267,12 @@
                     timestamp: Date.now(),
                 });
             }
-            await saveSession();
+            await saveSession(turnID);
             await listSessions();
         } catch (error) {
-            if (error?.name !== 'AbortError') {
+            const recovered = turnID ? await recoverConversationSession(runtime.activeSessionID, turnID).catch(() => null) : null;
+            if (recovered) runtime.session = recovered;
+            if (error?.name !== 'AbortError' && !recovered) {
                 const live = runtime.live;
                 if (live && (text(live.content) || (Array.isArray(live.toolCalls) && live.toolCalls.length))) {
                     runtime.session.entries.push({
@@ -3025,7 +3285,9 @@
                 }
                 runtime.session.entries.push({ id: newID(), type: 'assistant', content: `请求失败：${text(error?.message || error)}`, timestamp: Date.now() });
             }
-            try { await saveSession(); } catch (saveError) {}
+            if (!turnID) {
+                try { await saveSession(); } catch (saveError) {}
+            }
         } finally {
             const undoGroupError = await finalizeRoundUndoBatch();
             runtime.busy = false;
@@ -3033,6 +3295,7 @@
             runtime.live = null;
             runtime.statusText = undoGroupError;
             render();
+            if (runtime.session?.titled === false) tryGenerateSessionTitle();
         }
     }
 
@@ -3539,6 +3802,9 @@
 
     const AUTOMATION_READ_TOOLS = TASK_HORIZON_READ_ONLY_TOOLS;
     const AUTOMATION_SESSION_TOOLS = new Set(['todo_write']);
+    const AUTOMATION_NATIVE_READ_ACTIONS = new Map([
+        ['sql', new Set(['query'])],
+    ]);
     const AUTOMATION_READ_SKILLS = new Set(['task-capture', 'task-planning', 'task-review', 'task-template']);
 
     function automationToolName(name) {
@@ -3549,8 +3815,11 @@
     function automationToolAllowed(name, args = {}) {
         const normalized = automationToolName(name);
         if (AUTOMATION_READ_TOOLS.has(normalized) || AUTOMATION_SESSION_TOOLS.has(normalized)) return true;
+        const nativeActions = AUTOMATION_NATIVE_READ_ACTIONS.get(normalized);
+        if (nativeActions) return nativeActions.has(text(args?.action).toLowerCase());
         if (normalized !== 'skill') return false;
         const action = text(args?.action).toLowerCase();
+        if (action === 'list') return true;
         const skillName = text(args?.name).toLowerCase();
         return action === 'load' && AUTOMATION_READ_SKILLS.has(skillName);
     }
@@ -3562,7 +3831,14 @@
     }
 
     function automationEventBlocked(type) {
-        return type === 'confirm' || type === 'question' || type === 'frontend_tool_call';
+        return type === 'confirm'
+            || type === 'question'
+            || type === 'frontend_tool_call'
+            || type === 'browser_capability_call';
+    }
+
+    function automationSafetyInstruction() {
+        return '\n\n这是无人值守的定时执行。只能读取、筛选和聚合数据，也可以使用只读的 sql.query、skill.list 或加载 Task Horizon 内置技能；禁止创建、修改或删除任何数据，禁止请求用户确认或提问，禁止调用浏览器或其他前端能力。已有任务数据附在提示词中时直接使用，不要重复查询。';
     }
 
     function automationConfirmAllowed(event = {}) {
@@ -3593,11 +3869,28 @@
         return text((heading || lines[0] || fallback || '定时事件结果').replace(/^#{1,6}\s+/, '').replace(/[*_`]/g, '')).slice(0, 120);
     }
 
+    async function ensureAutomationTaskToolsReady() {
+        await ensureStoreLoaded();
+        const settings = aiBridge()?.getSettings?.() || {};
+        if (settings.agentMcpEnabled !== true) return true;
+        if (!await ensureTaskToolsReadyForSend()) {
+            throw new Error('任务工具正在恢复，本次定时事件尚未发起模型请求');
+        }
+        if (!runtime.skillSync.installed) {
+            const sync = await syncBuiltinSkills();
+            if (!sync.installed) throw new Error(`任务工作流程同步失败：${text(sync.error) || '未知错误'}`);
+        }
+        return true;
+    }
+
     async function runAutomation(request = {}) {
         const prompt = text(request.prompt || request.message);
         if (!prompt) throw new Error('自动化提示词不能为空');
+        const agentPrompt = `${prompt}${automationSafetyInstruction()}`;
+        await ensureAutomationTaskToolsReady();
         const persistent = request.persistSession === true;
-        const sessionID = persistent
+        const requestedSessionID = text(request.sessionID);
+        let sessionID = persistent
             ? await ensureAutomationConversation(request.sessionID)
             : newID();
         let baseEntries = [];
@@ -3605,7 +3898,11 @@
         let contentRevision;
         if (persistent) {
             try {
-                const prepared = await prepareAutomationConversationTurn(sessionID, prompt, request.sessionTitle);
+                const prepared = await prepareConversationTurn(sessionID, agentPrompt, request.sessionTitle, {
+                    replaceMissingSession: Boolean(requestedSessionID),
+                    displayPrompt: prompt,
+                });
+                sessionID = prepared.sessionID;
                 baseEntries = prepared.entries;
                 userEntryID = prepared.userEntryID;
                 contentRevision = prepared.revision;
@@ -3617,16 +3914,22 @@
         runtime.automationControllers.add(controller);
         const toolCalls = [];
         let markdown = '';
+        let turnID = '';
         try {
             await client.chat({
-                message: prompt,
+                message: agentPrompt,
                 language: window.siyuan?.config?.appearance?.lang || 'zh_CN',
                 references: [],
                 sessionID,
                 editorContext: {},
                 pluginActions: [],
+                frontendCapabilities: [],
                 ...(userEntryID ? { userEntryID, contentRevision } : {}),
             }, async (event) => {
+                if (event.type === 'turn') {
+                    turnID = text(event.turnID) || turnID;
+                    return;
+                }
                 if (event.type === 'content') {
                     markdown += String(event.token || '');
                     return;
@@ -3636,7 +3939,7 @@
                     if (!automationToolAllowed(event.name, event.arguments)) {
                         controller.abort();
                         const action = text(event.arguments?.action);
-                        throw automationBlock(`已阻止定时智能体调用非只读工具：${text(event.name) || '未知工具'}${action ? `.${action}` : ''}`);
+                        throw automationBlock(`非只读工具调用：${text(event.name) || '未知工具'}${action ? `.${action}` : ''}`);
                     }
                     toolCalls.push({ name, arguments: clone(event.arguments || {}) });
                     return;
@@ -3644,21 +3947,22 @@
                 if (event.type === 'confirm') {
                     if (!automationConfirmAllowed(event)) {
                         controller.abort();
-                        throw automationBlock(`已阻止定时智能体确认非只读工具：${text(event.name) || '未知工具'}`);
+                        throw automationBlock(`非只读工具确认：${text(event.name) || '未知工具'}`);
                     }
                     await approveAutomationConfirm(event);
                     return;
                 }
                 if (automationEventBlocked(event.type)) {
                     controller.abort();
-                    throw automationBlock(`已阻止定时智能体请求交互或前端操作：${event.type}`);
+                    throw automationBlock(`交互或前端操作：${event.type}`);
                 }
                 if (event.type === 'error') throw new Error(text(event.message) || '智能体执行失败');
                 if (event.type === 'interrupted') throw new Error(text(event.message) || '智能体响应已中断');
+                if (event.type === 'done') turnID = text(event.turnID) || turnID;
             }, controller.signal);
             const output = String(markdown || '').trim();
             if (!output) throw new Error('智能体未返回内容');
-            if (persistent) await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: output });
+            if (persistent) await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: output, turnID });
             return {
                 title: automationTitle(output, request.title),
                 markdown: output,
@@ -3669,9 +3973,10 @@
             const reportedError = text(error?.message || error) === '网络异常，请稍后再试'
                 ? Object.assign(new Error('智能体请求失败：网络异常，请稍后再试'), { code: error?.code })
                 : error;
+            try { if (persistent && sessionID) reportedError.sessionID = sessionID; } catch (assignError) {}
             if (persistent) {
                 const failure = String(markdown || '').trim() || `执行失败：${text(reportedError?.message || reportedError) || '未知错误'}`;
-                await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: failure });
+                await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: failure, turnID });
             }
             throw reportedError;
         } finally {
@@ -3821,6 +4126,8 @@
         isBlockedEventType: automationEventBlocked,
         hashContent,
         postAgentInteraction,
+        persistSessionCheckpoint,
+        prepareConversationTurn,
         chat: (request, onEvent, signal) => client.chat(request, onEvent, signal),
         runAutomation,
         isScheduledEventCreateIntent,

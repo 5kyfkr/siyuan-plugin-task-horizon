@@ -21,7 +21,7 @@ for (const name of names) {
     assert.equal(metadata.name, name, `${name}: frontmatter name mismatch`);
     assert.ok(metadata.description, `${name}: description is empty`);
     assert.ok(match[2].trim().length >= 300, `${name}: body is unexpectedly short`);
-    assert.match(match[2], /plugin__siyuan_plugin_task_horizon__/, `${name}: missing MCP tool prefix`);
+    assert.match(match[2], /本轮 tool definitions[\s\S]*plugin__siyuan_plugin_task_horizon__[\s\S]*校验后缀[\s\S]*禁止自行拼接、删改后缀/, `${name}: tool guidance must preserve SiYuan's exact current-round capability name`);
     assert.match(match[2], /scopeToken/, `${name}: missing compact complete-scope guidance`);
     assert.match(match[2], /get_task_view_context[\s\S]*默认不传 `scope`/, `${name}: missing automatic active-tab scope guidance`);
     assert.match(match[2], /containerScopeToken[\s\S]*dateRange[\s\S]*includeVirtual/, `${name}: missing alternate structured-filter guidance`);

@@ -8,14 +8,6 @@
         throw new Error('任务写入适配器未就绪: moveBlock');
     }
 
-    async function __tmFlushBackendAdapterTransaction() {
-        const adapter = globalThis.__tmTaskHorizonBackendAdapter;
-        if (adapter && typeof adapter.flushTransaction === 'function') {
-            return await adapter.flushTransaction();
-        }
-        return await API.call('/api/sqlite/flushTransaction', {});
-    }
-
     function __tmOpenColorPickerDialog(titleText, initialColor, onApply, options = {}) {
         __tmRemoveElementsById('tm-color-picker-backdrop');
         const swatches = Array.isArray(options?.swatches) && options.swatches.length > 0 ? options.swatches : [
@@ -863,12 +855,14 @@
     }
 
     function hint(msg, type) {
+        const options = (arguments?.[2] && typeof arguments[2] === 'object') ? arguments[2] : {};
+        const duration = Math.max(800, Number(options.duration) || 2500);
         try {
             if (window.__tmBasecoat?.toast) {
                 return window.__tmBasecoat.toast({
                     title: String(msg || '').trim(),
                     variant: String(type || 'info').trim() || 'info',
-                    duration: 2500,
+                    duration,
                 });
             }
         } catch (e) {}
@@ -879,7 +873,7 @@
         if (!__tmIsMobileDevice()) el.style.top = '35px';
         el.textContent = msg;
         document.body.appendChild(el);
-        const timer = setTimeout(() => __tmRemoveHint(el), 2500);
+        const timer = setTimeout(() => __tmRemoveHint(el), duration);
         el.addEventListener('click', () => {
             clearTimeout(timer);
             __tmRemoveHint(el);
@@ -3601,6 +3595,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 push(task.markdown || task.content || task.text || '');
                 push(task.remark || task.custom_remark || task.customRemark || '');
                 push(task.priority || '');
+                push(task.pinned ? '1' : '0');
                 push(task.customStatus || task.status || '');
                 push(task.startDate || task.start_date || '');
                 push(task.completionTime || task.completion_time || '');
@@ -3936,8 +3931,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         return true;
     }
 
-    async function __tmRefreshVisibleViewAfterTaskSnapshotSync(reason = 'task-snapshot-sync') {
+    async function __tmRefreshVisibleViewAfterTaskSnapshotSync(reason = 'task-snapshot-sync', options = {}) {
         const source = String(reason || 'task-snapshot-sync').trim() || 'task-snapshot-sync';
+        const commitView = options?.commitView !== false;
         try {
             const snapshotService = globalThis.__tmTaskSnapshotService || null;
             if (!snapshotService || typeof snapshotService.refreshCache !== 'function') {
@@ -3958,22 +3954,22 @@ return Number(state.contextInteractionQuietUntil || 0);
                 return false;
             }
             state.__tmTaskSnapshotSyncLastCheckAt = now;
-            const meta = await snapshotService.refreshCache({ source });
-            if (!meta?.changed) {
-                return false;
-            }
             state.__tmTaskSnapshotSyncRefreshInFlight = true;
             try {
+                const meta = await snapshotService.refreshCache({ source });
+                if (!meta?.changed) return false;
                 if (typeof __tmRefreshCore === 'function') {
                     return await __tmRefreshCore({
                         silent: true,
                         reason: source,
                         preserveUi: true,
+                        commitView,
                     });
                 }
                 await loadSelectedDocuments({
                     skipRender: true,
                     showInlineLoading: false,
+                    deferProjection: true,
                     forceFreshTasks: true,
                     skipSnapshotFirstPaint: true,
                     skipTaskIndexFirstPaint: true,
@@ -3981,12 +3977,14 @@ return Number(state.contextInteractionQuietUntil || 0);
                     skipDocSessionRestoreFirstPaint: true,
                     source,
                 });
-                try { applyFilters(); } catch (e) {}
-                try {
-                    const modal = state.modal instanceof Element ? state.modal : null;
-                    if (!modal || !__tmRerenderCurrentViewInPlace(modal)) render();
-                } catch (e) {
-                    try { render(); } catch (e2) {}
+                if (commitView) {
+                    try { __tmRecomputeTaskProjection({ reason: 'group-switch' }); } catch (e) {}
+                    try {
+                        const modal = state.modal instanceof Element ? state.modal : null;
+                        if (!modal || !__tmRerenderCurrentViewInPlace(modal)) render();
+                    } catch (e) {
+                        try { render(); } catch (e2) {}
+                    }
                 }
                 return true;
             } finally {
@@ -4031,14 +4029,6 @@ return Number(state.contextInteractionQuietUntil || 0);
                     }
                     hydrateMeta = await __tmHydrateVisibleListCustomFields(state.deferredListCustomFieldIds, hydrateOptions);
                 } catch (e) {
-                    try {
-                        __tmPushDiagnosticLog('list-auto-load-hydration-failed', e, {
-                            mode,
-                            reason: sourceReason,
-                            limit: Number(state.listRenderLimit) || 0,
-                            customFieldIds: Array.isArray(state.deferredListCustomFieldIds) ? state.deferredListCustomFieldIds.slice(0, 24) : [],
-                        });
-                    } catch (e2) {}
                     hydrateMeta = null;
                 }
                 if (token !== (Number(state.listAutoLoadMoreHydrateToken) || 0)) return;
@@ -4107,15 +4097,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             __tmScheduleAutoLoadMoreRecheck(mode);
             return true;
         } catch (e) {
-            try {
-                __tmPushDiagnosticLog('list-auto-load-more-failed', e, {
-                    mode,
-                    source: String(opts.source || '').trim(),
-                    total: Number(meta?.total || 0) || 0,
-                    currentLimit: Number(meta?.currentLimit || 0) || 0,
-                    remaining: Number(meta?.remaining || 0) || 0,
-                });
-            } catch (e2) {}
             throw e;
         } finally {
             state.listAutoLoadMoreInFlight = false;
@@ -4180,16 +4161,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             __tmAutoLoadMoreVisibleRows({
                 mode,
                 source: 'scroll-near-bottom',
-            }).catch((e) => {
-                try {
-                    __tmPushDiagnosticLog('list-auto-load-more-scroll-failed', e, {
-                        mode,
-                        scrollTop: Number(pane.scrollTop || 0),
-                        scrollHeight: Number(pane.scrollHeight || 0),
-                        clientHeight: Number(pane.clientHeight || 0),
-                    });
-                } catch (e2) {}
-            });
+            }).catch(() => null);
         };
         pane.addEventListener('scroll', onScroll, { passive: true });
         pane.__tmAutoLoadMoreScrollBound = true;
@@ -5733,7 +5705,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         let task = null;
         if (taskId) {
-            task = globalThis.__tmRuntimeState?.getFlatTaskById?.(taskId) || state.flatTasks?.[taskId] || null;
+            task = globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
             if (!task) {
                 try { task = await __tmEnsureTaskInStateById(taskId); } catch (e) { task = null; }
             }
@@ -6287,9 +6259,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function __tmGetMultiSelectTargetIds() {
         return __tmGetMultiSelectedTaskIds().filter((id) => !!(
-            globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[id]
-            || state.flatTasks?.[id]
+            globalThis.__tmTaskBoundary?.getTask?.(id)
         ));
     }
 
@@ -6334,8 +6304,11 @@ return Number(state.contextInteractionQuietUntil || 0);
     }
 
     function __tmBuildBatchCustomFieldPromptText(field) {
-        const options = Array.isArray(field?.options) ? field.options : [];
-        const names = options.map((item) => String(item?.name || item?.id || '').trim()).filter(Boolean);
+        const runtime = __tmBuildCustomFieldOptionRuntime(field);
+        const names = runtime.options
+            .filter((item) => runtime.effectiveArchivedById.get(String(item?.id || '').trim()) !== true)
+            .map((item) => runtime.pathById.get(String(item?.id || '').trim()) || String(item?.name || item?.id || '').trim())
+            .filter(Boolean);
         return names.length
             ? `可用选项：${names.join('、')}；多个值请用逗号分隔，留空清空`
             : '多个值请用逗号分隔，留空清空';
@@ -6378,10 +6351,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             let defaultValue = '';
             let hasCommonValue = true;
             targetIds.forEach((id, index) => {
-                const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-                    || state.pendingInsertedTasks?.[id]
-                    || state.flatTasks?.[id]
-                    || null;
+                const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
                 const value = __tmNormalizeDurationPresetValue(task?.duration || task?.custom_duration || '');
                 if (index === 0) defaultValue = value;
                 else if (value !== defaultValue) hasCommonValue = false;
@@ -6562,10 +6532,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const jobs = [];
         const recurringJobs = [];
         deleteIds.forEach((id) => {
-            const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-                || state.pendingInsertedTasks?.[id]
-                || state.flatTasks?.[id]
-                || null;
+            const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
             if (!task) {
                 failures.push({ id, error: new Error('未找到任务') });
                 return;
@@ -6613,10 +6580,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const recurringDeleteJobs = [];
         let skippedRecurringDeleteCount = 0;
         recurringJobsBySource.forEach((sourceJobs, sourceTaskId) => {
-            const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceTaskId, { includePending: true, preferPending: true })
-                || state.pendingInsertedTasks?.[sourceTaskId]
-                || state.flatTasks?.[sourceTaskId]
-                || null;
+            const sourceTask = globalThis.__tmTaskBoundary?.getTask?.(sourceTaskId) || null;
             const historyOrder = new Map(__tmNormalizeTaskRepeatHistory(sourceTask?.repeatHistory || sourceTask?.repeat_history || '')
                 .map((item, index) => [String(item?.completedAt || '').trim(), index]));
             sourceJobs.sort((a, b) => (historyOrder.get(a.completedAt) ?? Number.MAX_SAFE_INTEGER)
@@ -6665,16 +6629,22 @@ return Number(state.contextInteractionQuietUntil || 0);
                         source: 'multi-select-batch-recycle',
                         wait: true,
                     }))
-                        .then(() => ({ id: job.id, ok: true }))
+                        .then(() => ({
+                            id: job.id,
+                            ok: true,
+                            snapshot: job.snapshot,
+                            scheduleCleanupTaskIds: job.scheduleCleanupTaskIds,
+                        }))
                         .catch((error) => ({ id: job.id, ok: false, error: error instanceof Error ? error : new Error(String(error || '移入回收站失败')) }));
                 }
-                const deleteTask = globalThis.__tmRequireTaskOutbox?.('deleteTask');
+                const deleteTask = globalThis.__tmRequireTaskMutation?.('deleteTask');
                 if (typeof deleteTask !== 'function') throw new Error('任务写入队列未就绪: deleteTask');
                 return Promise.resolve(deleteTask(job.id, {
                     docId: job.docId,
                     scheduleCleanupTaskIds: job.scheduleCleanupTaskIds,
                     snapshot: job.snapshot,
-                    wait: false,
+                    wait: true,
+                    showErrorHint: false,
                 }))
                     .then(() => ({ id: job.id, ok: true }))
                     .catch((error) => ({ id: job.id, ok: false, error: error instanceof Error ? error : new Error(String(error || '删除失败')) }));
@@ -6697,34 +6667,27 @@ return Number(state.contextInteractionQuietUntil || 0);
                 });
             }
         }
-        let settledRecycleDeletes = null;
-        if (useRecycle) {
-            settledRecycleDeletes = await Promise.all(pendingDeletes);
-            settledRecycleDeletes.filter((item) => !item?.ok).forEach((item) => {
-                failures.push({
-                    id: String(item?.id || '').trim(),
-                    error: item?.error instanceof Error ? item.error : new Error('移入回收站失败'),
-                });
+        const settledDeletes = await Promise.all(pendingDeletes);
+        settledDeletes.filter((item) => !item?.ok).forEach((item) => {
+            failures.push({
+                id: String(item?.id || '').trim(),
+                error: item?.error instanceof Error
+                    ? item.error
+                    : new Error(useRecycle ? '移入回收站失败' : '删除失败'),
             });
-        }
-        const recycledIds = useRecycle
-            ? settledRecycleDeletes.filter((item) => item?.ok).map((item) => String(item.id || '').trim()).filter(Boolean)
+        });
+        const recycledJobs = useRecycle
+            ? settledDeletes.filter((item) => item?.ok && String(item?.id || '').trim())
             : [];
+        const recycledIds = recycledJobs.map((item) => String(item.id || '').trim());
+        const deletedIds = settledDeletes
+            .filter((item) => item?.ok && String(item?.id || '').trim())
+            .map((item) => String(item.id || '').trim());
         const result = {
-            successCount: (useRecycle ? recycledIds.length : jobs.length) + recurringSuccessCount,
+            successCount: deletedIds.length + recurringSuccessCount,
             failureCount: failures.length + skippedIds.length,
             failures,
         };
-        if (!useRecycle) {
-            Promise.all(pendingDeletes).then((settled) => {
-                const failed = (Array.isArray(settled) ? settled : []).filter((item) => !item?.ok);
-                if (failed.length > 0) {
-                    try { hint(`⚠ 批量删除有 ${failed.length} 项写入失败`, 'warning'); } catch (e) {}
-                }
-            }).catch((e) => {
-                try { hint(`⚠ 批量删除写入失败: ${e.message}`, 'warning'); } catch (err) {}
-            });
-        }
         try { __tmScheduleRender({ withFilters: true, reason: 'multi-select-batch-delete' }); } catch (e) {}
         if (useRecycle && recycledIds.length > 0) {
             const lifecycle = globalThis.__tmTaskLifecycle;
@@ -6737,7 +6700,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                 result.failureCount > 0 ? 'warning' : 'success',
                 '撤销回收',
                 async () => {
-                    const restored = await Promise.all(recycledIds.map((id) => lifecycle.restoreDeleted(id, {
+                    const restored = await Promise.all(recycledJobs.map((item) => lifecycle.restoreDeleted(item.id, {
+                        snapshot: item.snapshot,
+                        scheduleCleanupTaskIds: item.scheduleCleanupTaskIds,
                         source: 'multi-select-batch-recycle-undo',
                         wait: true,
                     }).then(() => true).catch(() => false)));
@@ -6787,16 +6752,19 @@ return Number(state.contextInteractionQuietUntil || 0);
                 return;
             }
             let normalizedValue;
+            const optionRuntime = __tmBuildCustomFieldOptionRuntime(field);
+            const isActiveOptionId = (optionId) => optionRuntime.optionById.has(String(optionId || '').trim())
+                && optionRuntime.effectiveArchivedById.get(String(optionId || '').trim()) !== true;
             if (String(field?.type || '').trim() === 'multi') {
                 const raw = await showPrompt(`批量设置 ${String(field?.name || fieldId).trim()}`, __tmBuildBatchCustomFieldPromptText(field), '');
                 if (raw === null) return;
-                normalizedValue = __tmNormalizeCustomFieldValue(field, raw);
+                normalizedValue = __tmNormalizeCustomFieldValue(field, raw).filter(isActiveOptionId);
             } else {
                 const options = [
                     { value: '', label: '清空' },
-                    ...((Array.isArray(field?.options) ? field.options : []).map((item) => ({
+                    ...(optionRuntime.options.filter((item) => isActiveOptionId(item?.id)).map((item) => ({
                         value: String(item?.id || '').trim(),
-                        label: String(item?.name || item?.id || '').trim() || String(item?.id || '').trim(),
+                        label: optionRuntime.pathById.get(String(item?.id || '').trim()) || String(item?.name || item?.id || '').trim() || String(item?.id || '').trim(),
                     })).filter((item) => item.value))
                 ];
                 const raw = await showSelectPrompt(`批量设置 ${String(field?.name || fieldId).trim()}`, options, '');
@@ -6960,7 +6928,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.multiSelectMenuEl = menu;
         state.multiSelectMenuAnchorEl = anchor;
         state.multiSelectMenuCloseHandler = closeHandler;
-        __tmBindOutsideCloseHandler(closeHandler, '.tm-multi-bulkbar__menu, [data-tm-multi-more-btn]');
+        __tmScheduleBindOutsideCloseHandler(closeHandler, {
+            ignoreSelector: '.tm-multi-bulkbar__menu, [data-tm-multi-more-btn]',
+        });
     }
 
     window.tmMultiSelectToggleMoreMenu = function(ev) {
@@ -7111,12 +7081,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             const nextId = await __tmResolveTaskIdFromAnyBlockId(rawId);
             if (nextId) resolvedId = String(nextId).trim();
         } catch (e) {}
-        let task = globalThis.__tmRuntimeState?.getTaskById?.(resolvedId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getTaskById?.(rawId, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[resolvedId]
-            || state.pendingInsertedTasks?.[rawId]
-            || state.flatTasks?.[resolvedId]
-            || state.flatTasks?.[rawId]
+        let task = globalThis.__tmTaskBoundary?.getTask?.(resolvedId)
+            || globalThis.__tmTaskBoundary?.getTask?.(rawId)
             || null;
         if (!task && resolvedId) {
             try { task = await __tmEnsureTaskInStateById(resolvedId); } catch (e) { task = null; }
@@ -7229,23 +7195,18 @@ return Number(state.contextInteractionQuietUntil || 0);
         return wrap;
     }
 
-    function __tmBuildTaskDetailMoreActions(taskId) {
+    function __tmBuildTaskDetailMoreActions(taskId, options = {}) {
         const rawTid = String(taskId || '').trim();
         const tid = rawTid && typeof __tmResolveOptimisticTaskId === 'function'
             ? (String(__tmResolveOptimisticTaskId(rawTid) || rawTid).trim() || rawTid)
             : rawTid;
         const task = tid
-            ? (
-                globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                || (rawTid !== tid ? globalThis.__tmRuntimeState?.getTaskById?.(rawTid, { includePending: true, preferPending: true }) : null)
-                || state.pendingInsertedTasks?.[tid]
-                || (rawTid !== tid ? state.pendingInsertedTasks?.[rawTid] : null)
-                || state.flatTasks?.[tid]
-                || (rawTid !== tid ? state.flatTasks?.[rawTid] : null)
-                || null
-            )
+            ? (globalThis.__tmTaskBoundary?.getTask?.(tid)
+                || (rawTid !== tid ? globalThis.__tmTaskBoundary?.getTask?.(rawTid) : null))
             : null;
         if (!tid || !task) return [];
+        const opts = (options && typeof options === 'object') ? options : {};
+        const pinned = typeof opts.pinned === 'boolean' ? opts.pinned : !!task?.pinned;
         const actions = [];
         const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
         const hasChildren = Array.isArray(task?.children) && task.children.length > 0;
@@ -7265,9 +7226,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         });
 
         actions.push({
-            label: task?.pinned ? '取消置顶' : '置顶',
+            label: pinned ? '取消置顶' : '置顶',
             icon: 'pin',
-            run: async () => { await window.tmSetPinned?.(tid, !task?.pinned); }
+            run: async () => { await window.tmSetPinned?.(tid, !pinned); }
         });
         if (tomatoEnabled) {
             actions.push({
@@ -7472,7 +7433,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         return cleaned;
     }
 
-    function __tmOpenTaskDetailMoreMenu(anchorEl, taskId) {
+    function __tmOpenTaskDetailMoreMenu(anchorEl, taskId, options = {}) {
         const anchor = anchorEl instanceof Element ? anchorEl : null;
         const rawTid = String(taskId || '').trim();
         const tid = rawTid && typeof __tmResolveOptimisticTaskId === 'function'
@@ -7485,7 +7446,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         __tmCloseTaskDetailMoreMenu();
 
-        const actions = __tmBuildTaskDetailMoreActions(tid);
+        const actions = __tmBuildTaskDetailMoreActions(tid, options);
         const timerSection = __tmBuildTaskDetailMoreTimerSection(tid);
         if (!timerSection && !actions.length) return;
 
@@ -9796,8 +9757,6 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     // 修改原有的applyFilters函数以支持规则
     function applyFilters() {
-        const filterStartTime = Date.now();
-        const filterMetrics = {};
         let tasks = [];
         let allTasksForTabs = [];
 
@@ -9998,31 +9957,21 @@ return Number(state.contextInteractionQuietUntil || 0);
             });
         };
 
-        const visibleFilterStartTime = Date.now();
         const tasksForTabs = filterVisibleTasks(allTasksForTabs);
         tasks = taskScopeMatchesTabs ? tasksForTabs : filterVisibleTasks(tasks);
-        filterMetrics.visibleMs = __tmRoundPerfMs(Date.now() - visibleFilterStartTime);
-        filterMetrics.visibleTaskCount = Array.isArray(tasks) ? tasks.length : 0;
-        filterMetrics.visibleTabTaskCount = Array.isArray(tasksForTabs) ? tasksForTabs.length : 0;
 
-        const ruleFilterStartTime = Date.now();
         let matchedForTabs = tasksForTabs;
         let matched = taskScopeMatchesTabs ? matchedForTabs : tasks;
         if (hasRuleConditions) {
             matchedForTabs = RuleManager.applyRuleFilter(matchedForTabs, rule, ruleRuntime);
             matched = taskScopeMatchesTabs ? matchedForTabs : RuleManager.applyRuleFilter(matched, rule, ruleRuntime);
         }
-        filterMetrics.ruleMs = __tmRoundPerfMs(Date.now() - ruleFilterStartTime);
 
-        const searchFilterStartTime = Date.now();
         if (state.searchKeyword) {
             const keyword = state.searchKeyword;
             matchedForTabs = matchedForTabs.filter((task) => __tmTaskMatchesSearch(task, keyword));
             matched = taskScopeMatchesTabs ? matchedForTabs : matched.filter((task) => __tmTaskMatchesSearch(task, keyword));
         }
-        filterMetrics.searchMs = __tmRoundPerfMs(Date.now() - searchFilterStartTime);
-        filterMetrics.matchedTaskCount = Array.isArray(matched) ? matched.length : 0;
-        filterMetrics.matchedTabTaskCount = Array.isArray(matchedForTabs) ? matchedForTabs.length : 0;
 
         const filteredDocIdsForTabs = new Set();
         const loadedDocById = new Map((Array.isArray(state.taskTree) ? state.taskTree : [])
@@ -10037,7 +9986,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             docTabVisibleMemo.set(did, result);
             return result;
         };
-        const filteredDocTabsStartTime = Date.now();
         if (hasDocTabContentFilter) {
             matchedForTabs.forEach((task) => {
                 if (__tmIsCollectedOtherBlockTask(task)) return;
@@ -10049,12 +9997,27 @@ return Number(state.contextInteractionQuietUntil || 0);
                 if (docId && tabDocShouldShow(docId)) filteredDocIdsForTabs.add(docId);
             });
         }
-        filterMetrics.docTabsMs = __tmRoundPerfMs(Date.now() - filteredDocTabsStartTime);
-        filterMetrics.filteredDocTabCount = filteredDocIdsForTabs.size;
 
         const stablePinnedFirst = (list) => {
             const source = Array.isArray(list) ? list : [];
             if (source.length <= 1) return source;
+            const sourceIndex = new Map(source.map((task, index) => [String(task?.id || '').trim(), index]));
+            const compareDocumentOrder = (a, b) => {
+                const aDocId = String(a?.root_id || a?.docId || '').trim();
+                const bDocId = String(b?.root_id || b?.docId || '').trim();
+                if (aDocId && bDocId && aDocId !== bDocId) {
+                    return (sourceIndex.get(String(a?.id || '').trim()) ?? 0)
+                        - (sourceIndex.get(String(b?.id || '').trim()) ?? 0);
+                }
+                if (typeof __tmCompareTasksByDocFlow === 'function') {
+                    try {
+                        const flow = __tmCompareTasksByDocFlow(a, b);
+                        if (flow !== 0) return flow;
+                    } catch (e) {}
+                }
+                return (sourceIndex.get(String(a?.id || '').trim()) ?? 0)
+                    - (sourceIndex.get(String(b?.id || '').trim()) ?? 0);
+            };
             const pinned = [];
             const rest = [];
             let hasPinned = false;
@@ -10068,38 +10031,24 @@ return Number(state.contextInteractionQuietUntil || 0);
                     rest.push(task);
                 }
             });
-            if (!hasPinned || !hasUnpinned) return source;
+            if (!hasPinned || !hasUnpinned) return source.slice().sort(compareDocumentOrder);
+            pinned.sort(compareDocumentOrder);
+            rest.sort(compareDocumentOrder);
             return pinned.concat(rest);
-        };
-
-        const applyWhiteboardSequenceFilterWithPerf = (list) => {
-            const sequenceStartTime = Date.now();
-            const next = __tmApplyWhiteboardSequenceFilter(list);
-            filterMetrics.sequenceMs = __tmRoundPerfMs(Number(filterMetrics.sequenceMs || 0) + (Date.now() - sequenceStartTime));
-            return next;
         };
 
         const directAllScope = taskScopeMatchesTabs && !hasRuleConditions && !String(state.searchKeyword || '').trim();
         if (directAllScope) {
-            const allScopeStartTime = Date.now();
             const visibleAllTasks = excludeCompleted ? tasksForTabs : matchedForTabs;
             const sortedVisibleTasks = keepDocFlowOrder
                 ? visibleAllTasks.slice()
                 : (!hasExplicitSortRule
                     ? stablePinnedFirst(visibleAllTasks)
                     : RuleManager.applyRuleSort(visibleAllTasks, rule, ruleRuntime));
-            filterMetrics.allScopeMs = __tmRoundPerfMs(Date.now() - allScopeStartTime);
-            filterMetrics.ancestorMs = 0;
-            filterMetrics.ancestorCount = 0;
 
-            const orderStartTime = Date.now();
-            const finalOrdered = applyWhiteboardSequenceFilterWithPerf(sortedVisibleTasks);
+            const finalOrdered = __tmApplyWhiteboardSequenceFilter(sortedVisibleTasks);
             state.filteredTasks = finalOrdered;
             state.filteredDocIdsForTabs = Array.from(filteredDocIdsForTabs);
-            filterMetrics.orderMs = __tmRoundPerfMs(Date.now() - orderStartTime);
-            filterMetrics.orderedCount = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
-            filterMetrics.totalMs = __tmRoundPerfMs(Date.now() - filterStartTime);
-            state.__tmLastFilterPerf = filterMetrics;
             try {
                 const total = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
                 const step = __tmGetRenderStepForFilteredScope(total);
@@ -10154,10 +10103,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             } catch (e) {}
             return out;
         };
-        const ancestorBuildStartTime = Date.now();
         const ancestorSet = buildAncestorSet(matched);
-        filterMetrics.ancestorMs = __tmRoundPerfMs(Date.now() - ancestorBuildStartTime);
-        filterMetrics.ancestorCount = ancestorSet.size;
 
         const siblingSortCache = new WeakMap();
         const sortSiblings = (list) => {
@@ -10196,19 +10142,13 @@ return Number(state.contextInteractionQuietUntil || 0);
             });
         };
 
-        const orderStartTime = Date.now();
-
         if (isOtherBlocksActive) {
             const orderedOtherBlocks = hasExplicitSortRule
                 ? RuleManager.applyRuleSort(matched, rule, ruleRuntime)
                 : matched.slice();
-            const finalOrdered = applyWhiteboardSequenceFilterWithPerf(orderedOtherBlocks);
+            const finalOrdered = __tmApplyWhiteboardSequenceFilter(orderedOtherBlocks);
             state.filteredTasks = finalOrdered;
             state.filteredDocIdsForTabs = Array.from(filteredDocIdsForTabs);
-            filterMetrics.orderMs = __tmRoundPerfMs(Date.now() - orderStartTime);
-            filterMetrics.orderedCount = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
-            filterMetrics.totalMs = __tmRoundPerfMs(Date.now() - filterStartTime);
-            state.__tmLastFilterPerf = filterMetrics;
             try {
                 const total = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
                 const step = __tmGetRenderStepForFilteredScope(total);
@@ -10243,7 +10183,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
 
         if (activeDocId === 'all') {
-            const allScopeStartTime = Date.now();
             const visibleAllTasks = [];
             for (let i = 0; i < allTasksForTabs.length; i += 1) {
                 const task = allTasksForTabs[i];
@@ -10258,7 +10197,6 @@ return Number(state.contextInteractionQuietUntil || 0);
                 : (!hasExplicitSortRule
                     ? stablePinnedFirst(visibleAllTasks)
                 : RuleManager.applyRuleSort(visibleAllTasks, rule, ruleRuntime));
-            filterMetrics.allScopeMs = __tmRoundPerfMs(Date.now() - allScopeStartTime);
             ordered.push(...sortedVisibleTasks);
         } else if (isDocTabCustomGroupActive) {
             taskTreeForFilter.forEach((doc) => {
@@ -10273,13 +10211,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             });
         }
 
-        const finalOrdered = applyWhiteboardSequenceFilterWithPerf(ordered);
+        const finalOrdered = __tmApplyWhiteboardSequenceFilter(ordered);
         state.filteredTasks = finalOrdered;
         state.filteredDocIdsForTabs = Array.from(filteredDocIdsForTabs);
-        filterMetrics.orderMs = __tmRoundPerfMs(Date.now() - orderStartTime);
-        filterMetrics.orderedCount = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
-        filterMetrics.totalMs = __tmRoundPerfMs(Date.now() - filterStartTime);
-        state.__tmLastFilterPerf = filterMetrics;
         try {
             const total = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
             const step = __tmGetRenderStepForFilteredScope(total);
@@ -10321,7 +10255,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const v = visiting instanceof Set ? visiting : new Set();
         if (v.has(id)) return true;
         v.add(id);
-        const t = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
+        const t = globalThis.__tmTaskBoundary?.getTask?.(id);
         if (!t) {
             m[id] = true;
             v.delete(id);
@@ -10358,7 +10292,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const v = visiting instanceof Set ? visiting : new Set();
         if (v.has(id)) return true;
         v.add(id);
-        const t = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
+        const t = globalThis.__tmTaskBoundary?.getTask?.(id);
         if (!t) {
             m[id] = true;
             v.delete(id);
@@ -10397,7 +10331,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const out = [];
         const seen = new Set();
         const stack = [];
-        const t0 = globalThis.__tmRuntimeState?.getFlatTaskById?.(root) || state.flatTasks?.[root];
+        const t0 = globalThis.__tmTaskBoundary?.getTask?.(root);
         (Array.isArray(t0?.children) ? t0.children : []).forEach((c) => {
             const cid = String(c?.id || '').trim();
             if (cid) stack.push(cid);
@@ -10409,7 +10343,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (excluded.has(id)) continue;
             if (!allowed.has(id)) continue;
             out.push(id);
-            const t = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
+            const t = globalThis.__tmTaskBoundary?.getTask?.(id);
             const kids = Array.isArray(t?.children) ? t.children : [];
             kids.forEach((c) => {
                 const cid = String(c?.id || '').trim();
@@ -10483,10 +10417,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             taskIds.forEach((id) => {
                 const did = String(
                     __tmGetTaskDocIdById(id)
-                    || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)?.docId
-                    || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)?.root_id
-                    || state.flatTasks?.[id]?.docId
-                    || state.flatTasks?.[id]?.root_id
+                    || globalThis.__tmTaskBoundary?.getTask?.(id)?.docId
+                    || globalThis.__tmTaskBoundary?.getTask?.(id)?.root_id
                     || ''
                 ).trim();
                 if (!did) return;
@@ -13371,7 +13303,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
         state.docTabsScrollLeft = 0;
         state.docTabsScrollTop = 0;
-        try { applyFilters(); } catch (e) {}
+        try { __tmRecomputeTaskProjection({ reason: 'reset-task-view' }); } catch (e) {}
         if (state.modal && document.body.contains(state.modal)) {
             try { render(); } catch (e) {}
         }
@@ -13765,7 +13697,6 @@ return Number(state.contextInteractionQuietUntil || 0);
     window.tmSwitchDocGroup = async function(groupId) {
         const nextGroupId = String(groupId || 'all').trim() || 'all';
         const prevGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
-        const logSwitchGroup = () => {};
         const prepareSwitchGroupSnapshotWindow = () => {
             try {
                 const viewMode = String(state.viewMode || '').trim();
@@ -13780,10 +13711,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                 state.listRenderLimit = filteredCount > 0 ? Math.min(renderCap, filteredCount) : renderCap;
             } catch (e) {}
         };
-        logSwitchGroup('start');
         if (nextGroupId === prevGroupId) {
             try { __tmHideMobileMenu(); } catch (e) {}
-            logSwitchGroup('skip-same-group');
             return;
         }
         SettingsStore.data.currentGroupId = nextGroupId;
@@ -13811,16 +13740,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.whiteboardSelectedLinkDocId = '';
         state.whiteboardMultiSelectedTaskIds = [];
         state.whiteboardMultiSelectedNoteIds = [];
-        const viewProfileStart = Date.now();
         await __tmApplyCurrentContextViewProfile();
-        logSwitchGroup('view-profile-ready', {
-            durationMs: Date.now() - viewProfileStart,
-            viewMode: String(state.viewMode || ''),
-            token: switchToken,
-            mobileFastPath: runtimeMobileFastPath ? 1 : 0,
-        });
         if (!isSwitchCurrent()) {
-            logSwitchGroup('cancelled-after-view-profile', { token: switchToken, currentToken: Number(state.openToken) || 0 });
             return;
         }
 
@@ -13828,68 +13749,28 @@ return Number(state.contextInteractionQuietUntil || 0);
             const snapshotService = globalThis.__tmTaskSnapshotService || null;
             let snapshot = null;
             try {
-                const snapshotStart = Date.now();
                 const snapshotRaceTimeoutMs = runtimeMobileFastPath ? 260 : 220;
                 snapshot = await Promise.race([
                     snapshotService?.loadLatestForGroup?.(nextGroupId, { cachedOnly: false, checkRemote: false }),
                     new Promise((resolve) => setTimeout(() => resolve(null), snapshotRaceTimeoutMs)),
                 ]);
-                logSwitchGroup('snapshot-race-done', {
-                    durationMs: Date.now() - snapshotStart,
-                    hit: snapshot ? 1 : 0,
-                    cachedOnly: 0,
-                    timeoutMs: snapshotRaceTimeoutMs,
-                    docCount: Array.isArray(snapshot?.taskTree) ? snapshot.taskTree.length : 0,
-                });
             } catch (e) {
                 snapshot = null;
-                logSwitchGroup('snapshot-race-error', { error: String(e?.message || e || '') });
             }
             if (!isSwitchCurrent()) {
-                logSwitchGroup('cancelled-after-snapshot', { token: switchToken, currentToken: Number(state.openToken) || 0 });
                 return;
             }
             try { if (!snapshot) snapshotService?.warm?.(); } catch (e) {}
             let snapshotRendered = false;
-            let snapshotViewCacheHit = false;
             if (isSwitchCurrent()) {
                 state.otherBlocks = [];
-                const restoreStart = Date.now();
-                let snapshotTaskCountMap = null;
-                try {
-                    const snapshotDocIds = Array.isArray(snapshot?.docIds) && snapshot.docIds.length
-                        ? snapshot.docIds
-                        : (Array.isArray(snapshot?.taskTree) ? snapshot.taskTree.map((doc) => doc?.id) : []);
-                    if (snapshot && Array.isArray(snapshotDocIds) && snapshotDocIds.length > 0) {
-                        logSwitchGroup('snapshot-task-counts-deferred', {
-                            durationMs: Date.now() - restoreStart,
-                            docCount: snapshotDocIds.length,
-                            reason: 'verify-after-first-render',
-                        });
-                    }
-                } catch (e) {}
                 const snapshotMeta = snapshotService?.restore?.(snapshot, {
                     groupId: nextGroupId,
-                    taskCountMap: snapshotTaskCountMap
-                });
-                logSwitchGroup('snapshot-restore-done', {
-                    durationMs: Date.now() - restoreStart,
-                    hit: snapshotMeta ? 1 : 0,
-                    docCount: Number(snapshotMeta?.docCount || 0),
-                    taskCount: Number(snapshotMeta?.taskCount || 0),
-                    otherBlockCount: Number(snapshotMeta?.otherBlockCount || 0),
-                    ageMs: Number(snapshotMeta?.ageMs || 0),
+                    taskCountMap: null
                 });
                 if (snapshotMeta) {
-                    const snapshotPipelineStart = Date.now();
-                    const recalcStart = Date.now();
                     try { recalcStats(); } catch (e) {}
-                    logSwitchGroup('snapshot-recalc-done', {
-                        durationMs: Date.now() - recalcStart,
-                        taskCount: Number(snapshotMeta?.taskCount || 0),
-                    });
                     let viewSnapshotMeta = null;
-                    const viewRestoreStart = Date.now();
                     try {
                         viewSnapshotMeta = snapshotService?.restoreViewState?.(snapshot, {
                             groupId: nextGroupId,
@@ -13899,45 +13780,14 @@ return Number(state.contextInteractionQuietUntil || 0);
                     } catch (e) {
                         viewSnapshotMeta = null;
                     }
-                    snapshotViewCacheHit = !!viewSnapshotMeta;
-                    logSwitchGroup('snapshot-view-restore-done', {
-                        durationMs: Date.now() - viewRestoreStart,
-                        hit: snapshotViewCacheHit ? 1 : 0,
-                        filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                        docTabCount: Array.isArray(state.filteredDocIdsForTabs) ? state.filteredDocIdsForTabs.length : 0,
-                        ageMs: Number(viewSnapshotMeta?.ageMs || 0),
-                    });
                     if (!viewSnapshotMeta) {
-                        const filterStart = Date.now();
                         prepareSwitchGroupSnapshotWindow();
-                        try { applyFilters(); } catch (e) {}
-                        logSwitchGroup('snapshot-filter-done', {
-                            durationMs: Date.now() - filterStart,
-                            filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                            totalMs: __tmRoundPerfMs(state.__tmLastFilterPerf?.totalMs || 0),
-                            visibleMs: __tmRoundPerfMs(state.__tmLastFilterPerf?.visibleMs || 0),
-                            ruleMs: __tmRoundPerfMs(state.__tmLastFilterPerf?.ruleMs || 0),
-                            docTabsMs: __tmRoundPerfMs(state.__tmLastFilterPerf?.docTabsMs || 0),
-                            orderMs: __tmRoundPerfMs(state.__tmLastFilterPerf?.orderMs || 0),
-                        });
+                        try { __tmRecomputeTaskProjection({ reason: 'group-switch-snapshot' }); } catch (e) {}
                     }
-                    const preRenderStart = Date.now();
                     prepareSwitchGroupSnapshotWindow();
                     try { __tmSetInlineLoading(false); } catch (e) {}
                     const prevSnapshotRenderLimitMode = state.__tmSnapshotFirstRenderLimitMode;
                     state.__tmSnapshotFirstRenderLimitMode = true;
-                    logSwitchGroup('snapshot-pre-render-done', {
-                        durationMs: Date.now() - preRenderStart,
-                        filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                        listRenderLimit: Number(state.listRenderLimit) || 0,
-                        pipelineMs: Date.now() - snapshotPipelineStart,
-                    });
-                    const renderStart = Date.now();
-                    logSwitchGroup('snapshot-render-start', {
-                        filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                        listRenderLimit: Number(state.listRenderLimit) || 0,
-                        viewCacheHit: snapshotViewCacheHit ? 1 : 0,
-                    });
                     try {
                         __tmRenderPreservingCalendarSideDock();
                         snapshotRendered = true;
@@ -13946,19 +13796,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                     } finally {
                         state.__tmSnapshotFirstRenderLimitMode = prevSnapshotRenderLimitMode;
                     }
-                    logSwitchGroup('snapshot-first-render', {
-                        durationMs: Date.now() - renderStart,
-                        preRenderMs: renderStart - snapshotPipelineStart,
-                        pipelineMs: Date.now() - snapshotPipelineStart,
-                        docCount: Number(snapshotMeta?.docCount || 0),
-                        taskCount: Number(snapshotMeta?.taskCount || 0),
-                        filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                        ageMs: Number(snapshotMeta?.ageMs || 0),
-                        viewCacheHit: snapshotViewCacheHit ? 1 : 0,
-                    });
                 }
             }
-            const loadStart = Date.now();
             if (snapshotRendered) {
                 try {
                     const snapshotDocIds = Array.from(new Set((Array.isArray(snapshot?.taskTree) ? snapshot.taskTree : [])
@@ -13975,21 +13814,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                         });
                     }
                 } catch (e) {}
-                logSwitchGroup('load-selected-documents-deferred', {
-                    reason: 'snapshot-first-render',
-                    mobileFastPath: runtimeMobileFastPath ? 1 : 0,
-                    mode: 'lightweight-group-and-task-verify',
-                });
-                const syncScheduled = __tmScheduleDocGroupSwitchVerifyAfterFirstPaint({
+                __tmScheduleDocGroupSwitchVerifyAfterFirstPaint({
                     source: 'switch-doc-group:snapshot-verify',
                     delayMs: runtimeMobileFastPath ? 2100 : 1700,
                     scopeVerifyTtlMs: 60000,
-                });
-                logSwitchGroup('load-selected-documents-scheduled', {
-                    durationMs: Date.now() - loadStart,
-                    mobileFastPath: runtimeMobileFastPath ? 1 : 0,
-                    reason: 'snapshot-first-render',
-                    scheduled: syncScheduled ? 1 : 0,
                 });
             } else {
                 const loadPromise = loadSelectedDocuments(runtimeMobileFastPath
@@ -14026,13 +13854,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                     source: 'switch-doc-group',
                 });
                 await loadPromise;
-                logSwitchGroup('load-selected-documents-done', {
-                    durationMs: Date.now() - loadStart,
-                    mobileFastPath: runtimeMobileFastPath ? 1 : 0,
-                });
                 try {
                     if (Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0) {
-                        const snapshotSaveScheduled = globalThis.__tmTaskSnapshotService?.schedulePersist?.({
+                        globalThis.__tmTaskSnapshotService?.schedulePersist?.({
                             docIds: state.__tmLoadedDocIdsForTasks,
                             groupId: nextGroupId,
                             activeDocId: state.activeDocId,
@@ -14041,21 +13865,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                             idleDelayMs: 160,
                             source: 'switch-doc-group-full-load',
                         });
-                        logSwitchGroup('snapshot-save-after-full-load', {
-                            scheduled: snapshotSaveScheduled ? 1 : 0,
-                            docCount: state.__tmLoadedDocIdsForTasks.length,
-                        });
-                    } else {
-                        logSwitchGroup('snapshot-save-after-full-load', {
-                            scheduled: 0,
-                            reason: 'empty-loaded-docs',
-                        });
                     }
-                } catch (e) {
-                    logSwitchGroup('snapshot-save-after-full-load-error', {
-                        error: String(e?.message || e || '').trim() || 'schedule-failed',
-                    });
-                }
+                } catch (e) {}
             }
             try {
                 if (typeof __tmFlushPendingCreatedTaskSnapshotRefreshesAfterGroupSwitch === 'function') {
@@ -14067,18 +13878,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                 }
             } catch (e) {}
             if (!isSwitchCurrent()) {
-                logSwitchGroup('cancelled-after-load', { token: switchToken, currentToken: Number(state.openToken) || 0 });
                 return;
             }
             try {
-                const saveStart = Date.now();
-                void SettingsStore.save()
-                    .then(() => {
-                        logSwitchGroup('settings-save-done', { waitMs: Date.now() - saveStart, async: 1 });
-                    })
-                    .catch((e) => {
-                        logSwitchGroup('settings-save-error', { error: String(e?.message || e || '') });
-                    });
+                void SettingsStore.save().catch(() => null);
             } catch (e) {}
             if (state.viewMode === 'whiteboard') {
                 try {
@@ -14087,9 +13890,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     });
                 } catch (e) {}
             }
-            logSwitchGroup('finish', { viewMode: String(state.viewMode || '') });
         } catch (e) {
-            logSwitchGroup('error', { error: String(e?.message || e || '') });
             try { hint(`❌ 切换失败: ${e.message}`, 'error'); } catch (e2) {}
         }
     };
@@ -14285,11 +14086,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmGetTaskRowDropTaskById(id) {
         const tid = String(id || '').trim();
         if (!tid) return null;
-        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        return globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
     }
 
     async function __tmEnsureTaskRowDropTaskById(id) {
@@ -14418,103 +14215,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         };
     }
 
-    async function __tmMoveTaskBeforeTask(taskId, targetTaskId, opts = {}) {
-        const id = String(taskId || '').trim();
-        const targetId = String(targetTaskId || '').trim();
-        if (!id || !targetId || id === targetId) return false;
-        const sourceTask = await __tmEnsureTaskRowDropTaskById(id);
-        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
-        if (!sourceTask || !targetTask) return false;
-        const meta = await __tmResolveTaskMovePlacementMeta(targetId);
-        if (meta.prevSiblingTaskId && meta.prevSiblingTaskId === id) return true;
-        if (meta.prevSiblingTaskId) await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.prevSiblingTaskId });
-        else if (meta.targetListId) {
-            let targetListType = '';
-            try {
-                const rows = await API.getBlocksByIds([meta.targetListId]);
-                targetListType = String((Array.isArray(rows) ? rows[0] : null)?.type || '').trim().toLowerCase();
-            } catch (e) {}
-            if (targetListType === 'h') await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.targetListId });
-            else await __tmMoveBlockViaBackendAdapter(id, { parentID: meta.targetListId });
-        } else {
-            throw new Error('未找到目标任务所在列表');
-        }
-        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
-        try {
-            const docIds = [String(sourceTask.docId || sourceTask.root_id || '').trim(), String(opts.targetDocId || targetTask.docId || targetTask.root_id || '').trim()].filter(Boolean);
-            docIds.forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
-        } catch (e) {}
-        if (opts.silentHint !== true) hint('✅ 已移动到目标任务前', 'success');
-        return true;
-    }
-
-    async function __tmMoveTaskAfterTask(taskId, targetTaskId, opts = {}) {
-        const id = String(taskId || '').trim();
-        const targetId = String(targetTaskId || '').trim();
-        if (!id || !targetId || id === targetId) return false;
-        const sourceTask = await __tmEnsureTaskRowDropTaskById(id);
-        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
-        if (!sourceTask || !targetTask) return false;
-        await __tmMoveBlockViaBackendAdapter(id, { previousID: targetId });
-        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
-        try {
-            const docIds = [String(sourceTask.docId || sourceTask.root_id || '').trim(), String(opts.targetDocId || targetTask.docId || targetTask.root_id || '').trim()].filter(Boolean);
-            docIds.forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
-        } catch (e) {}
-        if (opts.silentHint !== true) hint('✅ 已移动到目标任务后', 'success');
-        return true;
-    }
-
-    async function __tmMoveTaskAsChild(taskId, targetTaskId, opts = {}) {
-        const id = String(taskId || '').trim();
-        const targetId = String(targetTaskId || '').trim();
-        if (!id || !targetId || id === targetId) return false;
-        const sourceTask = await __tmEnsureTaskRowDropTaskById(id);
-        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
-        if (!sourceTask || !targetTask) return false;
-        const meta = await __tmResolveTaskMovePlacementMeta(targetId);
-        if (meta.lastDirectChildId && meta.lastDirectChildId === id && String(sourceTask.parentTaskId || '').trim() === targetId) return true;
-        if (meta.lastDirectChildId) await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.lastDirectChildId });
-        else if (meta.targetContentAnchorId) await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.targetContentAnchorId, parentID: targetId });
-        else await __tmMoveBlockViaBackendAdapter(id, { parentID: targetId });
-        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
-        try {
-            const docIds = [String(sourceTask.docId || sourceTask.root_id || '').trim(), String(opts.targetDocId || targetTask.docId || targetTask.root_id || '').trim()].filter(Boolean);
-            docIds.forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
-        } catch (e) {}
-        try { state.collapsedTaskIds?.delete?.(targetId); } catch (e) {}
-        if (opts.silentHint !== true) hint('✅ 已设为子任务', 'success');
-        return true;
-    }
-
-    async function __tmMoveTaskAsChildTop(taskId, targetTaskId, opts = {}) {
-        const id = String(taskId || '').trim();
-        const targetId = String(targetTaskId || '').trim();
-        if (!id || !targetId || id === targetId) return false;
-        const sourceTask = await __tmEnsureTaskRowDropTaskById(id);
-        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
-        if (!sourceTask || !targetTask) return false;
-        const meta = await __tmResolveTaskMovePlacementMeta(targetId);
-        if (meta.firstDirectChildId && meta.firstDirectChildId === id && String(sourceTask.parentTaskId || '').trim() === targetId) return true;
-        if (meta.firstDirectChildId) {
-            await __tmMoveBlockViaBackendAdapter(id, { nextID: meta.firstDirectChildId, parentID: meta.targetChildListId || targetId });
-        } else if (meta.targetChildListId) {
-            await __tmMoveBlockViaBackendAdapter(id, { parentID: meta.targetChildListId });
-        } else if (meta.targetContentAnchorId) {
-            await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.targetContentAnchorId, parentID: targetId });
-        } else {
-            await __tmMoveBlockViaBackendAdapter(id, { parentID: targetId });
-        }
-        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
-        try {
-            const docIds = [String(sourceTask.docId || sourceTask.root_id || '').trim(), String(opts.targetDocId || targetTask.docId || targetTask.root_id || '').trim()].filter(Boolean);
-            docIds.forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
-        } catch (e) {}
-        try { state.collapsedTaskIds?.delete?.(targetId); } catch (e) {}
-        if (opts.silentHint !== true) hint('✅ 已移到子任务首位', 'success');
-        return true;
-    }
-
     function __tmClearTaskRowDropIndicators(root = null) {
         const host = root instanceof Element ? root : (state.modal instanceof Element ? state.modal : document);
         try {
@@ -14579,10 +14279,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmGetTimeGroupDropTask(taskId) {
         const tid = String(taskId || '').trim();
         if (!tid) return null;
-        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[tid]
-            || state.flatTasks?.[tid]
-            || null;
+        return globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
     }
 
     function __tmCheckTimeGroupDrop(taskId, groupKey) {
@@ -14652,18 +14349,14 @@ return Number(state.contextInteractionQuietUntil || 0);
                 source: 'time-group-drop-completion-time',
                 label: '截止日期',
                 reason: 'time-group-drop-completion-time',
-                withFilters: true,
                 defer: false,
-                optimisticProjectionRefresh: true,
                 wait: false,
                 background: true,
-                skipSettledRefresh: true,
-                forceProjectionRefresh: true,
             };
-            const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+            const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
             if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
             void patchTask(sourceTaskId, patch, opts).catch((error) => {
-                try { globalThis.__tmReportTaskOutboxFailure?.(error, { action: '截止日期更新' }); } catch (e2) {}
+                try { globalThis.__tmReportTaskMutationFailure?.(error, { action: '截止日期更新' }); } catch (e2) {}
             });
             hint(`✅ 截止日期已更新为 ${check.dateKey}`, 'success');
         } catch (e) {
@@ -14704,11 +14397,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmGetDocHeadingGroupDropTask(taskId) {
         const tid = String(taskId || '').trim();
         if (!tid) return null;
-        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
-            || state.pendingInsertedTasks?.[tid]
-            || state.flatTasks?.[tid]
-            || null;
+        return globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
     }
 
     function __tmBuildDocHeadingGroupDropPayload(target) {
@@ -14724,16 +14413,12 @@ return Number(state.contextInteractionQuietUntil || 0);
                 targetHeading: String(target?.heading || '').trim(),
                 targetHeadingRank: Number(target?.headingRank),
                 mode: 'heading',
-                deferOptimisticRender: true,
-                skipOptimisticFilterWork: true,
             };
         }
         if (kind === 'doc' || kind === 'heading') {
             return {
                 targetDocId,
                 mode: 'docTop',
-                deferOptimisticRender: true,
-                skipOptimisticFilterWork: true,
             };
         }
         return null;
@@ -14815,27 +14500,15 @@ return Number(state.contextInteractionQuietUntil || 0);
                 return;
             }
             if (!__tmEnsureEditableTaskLike(check.task, '拖拽移动')) return;
-            const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
+            const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
             if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
             if (String(check.payload?.mode || '').trim() === 'heading') {
                 try { await __tmWarmKanbanDocHeadings([String(check.payload.targetDocId || '').trim()]); } catch (e) {}
             }
-            const useLightweightProjection = typeof __tmCanUseLightweightMoveProjection === 'function'
-                && __tmCanUseLightweightMoveProjection(check.task, check.payload);
-            moveTask(sourceTaskId, check.payload, {
-                wait: false,
-                onError: (err) => {
-                    hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
-                },
+            await moveTask(sourceTaskId, check.payload, {
+                wait: true,
+                showErrorHint: false,
             });
-            try {
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: !useLightweightProjection,
-                    reason: 'doc-heading-group-drop-optimistic',
-                    taskIds: [sourceTaskId],
-                });
-            } catch (e) {}
             hint(String(check.payload?.mode || '') === 'heading' ? '✅ 任务已移动到目标标题下' : '✅ 任务已移动到目标文档顶部', 'success');
         } catch (e) {
             const message = String(e?.message || e || '').trim() || '未知错误';
@@ -14848,7 +14521,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmTaskHasExpandedVisibleChildren(taskLike) {
         const task = (taskLike && typeof taskLike === 'object')
             ? taskLike
-            : (globalThis.__tmRuntimeState?.getFlatTaskById?.(String(taskLike || '').trim()) || state.flatTasks?.[String(taskLike || '').trim()] || null);
+            : (globalThis.__tmTaskBoundary?.getTask?.(String(taskLike || '').trim()) || null);
         const taskId = String(task?.id || taskLike || '').trim();
         const hasChildren = Array.isArray(task?.children) && task.children.length > 0;
         if (!taskId || !hasChildren) return false;
@@ -14993,32 +14666,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         return out.length ? out : null;
     }
 
-    function __tmCollectMoveSuppressionIds(payload = {}) {
-        const data = (payload && typeof payload === 'object') ? payload : {};
-        const snapshotTask = data?.snapshot?.task;
-        const rootTask = (snapshotTask && typeof snapshotTask === 'object') ? snapshotTask : null;
-        const blockIds = new Set();
-        const docIds = new Set();
-        const walk = (task) => {
-            if (!task || typeof task !== 'object') return;
-            const taskId = String(task.id || '').trim();
-            if (taskId) blockIds.add(taskId);
-            const docId = String(task.root_id || task.docId || '').trim();
-            if (docId) docIds.add(docId);
-            (Array.isArray(task.children) ? task.children : []).forEach((child) => walk(child));
-        };
-        walk(rootTask);
-        const targetTaskId = String(data.targetTaskId || '').trim();
-        const targetDocId = String(data.targetDocId || '').trim();
-        const targetParentTaskId = String(data.targetParentTaskId || '').trim();
-        if (targetTaskId) blockIds.add(targetTaskId);
-        if (targetParentTaskId) blockIds.add(targetParentTaskId);
-        if (targetDocId) docIds.add(targetDocId);
-        return {
-            blockIds: Array.from(blockIds),
-            docIds: Array.from(docIds),
-        };
-    }
 
     function __tmCanHandleTaskRowDrop(sourceTaskId, targetTaskId) {
         const sourceId = String(sourceTaskId || '').trim();
@@ -15069,7 +14716,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (__tmRuleUsesCustomOrderSort(activeRule)) {
             const customResult = __tmApplyCustomTaskOrderMove(activeRule, sourceId, targetId, moveKind);
             if (customResult?.ok || customResult?.reason === 'unchanged') {
-                try { applyFilters(); } catch (e) {}
+                try { __tmRecomputeTaskProjection({ reason: 'custom-order-drop' }); } catch (e) {}
                 try { __tmScheduleRender({ withFilters: false, reason: 'custom-order-drop' }); } catch (e) {}
                 try { opts.onSuccess?.({ customOrder: true, taskId: sourceId, targetTaskId: targetId, mode: moveKind }); } catch (e) {}
                 return { kind: moveKind, payload: { customOrder: true, taskId: sourceId, targetTaskId: targetId, mode: moveKind } };
@@ -15087,33 +14734,14 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         const payload = await __tmBuildTaskRowMovePayload(sourceId, targetId, moveKind);
         if (customPhysicalPlacement) payload.customOrderPlacement = true;
-        payload.deferOptimisticRender = opts.deferOptimisticRender === true;
-        const useLightweightProjection = !customPhysicalPlacement
-            && typeof __tmCanUseLightweightMoveProjection === 'function'
-            && __tmCanUseLightweightMoveProjection(sourceTask, payload);
-        payload.skipOptimisticFilterWork = !customPhysicalPlacement && useLightweightProjection;
-        payload.forceOptimisticRender = opts.forceOptimisticRender === true;
         payload.preserveRenderWindow = true;
-        const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
+        const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
         if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
-        moveTask(sourceId, payload, {
-            wait: false,
-            forceOptimisticRender: opts.forceOptimisticRender === true,
-            onSuccess: (result) => {
-                try { opts.onSuccess?.(result); } catch (e) {}
-            },
-            onError: (err) => {
-                hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
-            },
+        const moveResult = await moveTask(sourceId, payload, {
+            wait: true,
+            showErrorHint: false,
         });
-        if (customPhysicalPlacement) {
-            try {
-                setTimeout(() => {
-                    try { applyFilters(); } catch (e) {}
-                    try { __tmScheduleRender({ withFilters: true, reason: 'custom-order-physical-drop' }); } catch (e) {}
-                }, 80);
-            } catch (e) {}
-        }
+        try { opts.onSuccess?.(moveResult); } catch (e) {}
         if (moveKind === 'child' || moveKind === 'child-top') {
             try { state.collapsedTaskIds?.delete?.(targetId); } catch (e) {}
         }
@@ -15140,11 +14768,56 @@ return Number(state.contextInteractionQuietUntil || 0);
             return await __tmQueueTaskRowMove(ids[0], targetId, kind);
         }
         const results = [];
+        const moveAsChild = kind === 'child' || kind === 'child-top';
+        const moveSources = kind === 'child-top' ? ids.slice().reverse() : ids;
+        if (moveAsChild) {
+            const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
+            if (!targetTask || !__tmTaskSupportsRowDrop(targetTask)) throw new Error('当前任务不支持拖拽移动');
+            const sourceTasks = await Promise.all(ids.map((sourceId) => __tmEnsureTaskRowDropTaskById(sourceId)));
+            if (sourceTasks.some((task) => !task || !__tmTaskSupportsRowDrop(task))) throw new Error('当前任务不支持拖拽移动');
+            if (sourceTasks.some((task) => __tmIsTaskInSubtree(task, targetId))) throw new Error('不能拖拽为自己的子任务');
+            if (sourceTasks.some((task) => !__tmEnsureEditableTaskLike(task, '拖拽移动'))) return null;
+
+            const activeRule = __tmGetCurrentRule();
+            let customOrderPlacement = false;
+            if (__tmRuleUsesCustomOrderSort(activeRule)) {
+                for (const sourceId of moveSources) {
+                    const customResult = __tmApplyCustomTaskOrderMove(activeRule, sourceId, targetId, kind);
+                    if (customResult?.reason !== 'physical') {
+                        if (!customResult?.ok && customResult?.reason !== 'unchanged') {
+                            throw new Error(customResult?.reason === 'cycle' ? '不能拖拽为自己的子任务' : '自定义排序更新失败');
+                        }
+                        continue;
+                    }
+                    const physical = __tmApplyCustomTaskOrderPhysicalPlacement(activeRule, sourceId, targetId, kind);
+                    if (!physical?.ok && physical?.reason !== 'unchanged') throw new Error('自定义排序位置记录失败');
+                    customOrderPlacement = true;
+                }
+            }
+            const payload = await __tmBuildTaskRowMovePayload(ids[0], targetId, kind);
+            payload.preserveRenderWindow = true;
+            if (customOrderPlacement) payload.customOrderPlacement = true;
+            const batchMoveTasks = globalThis.__tmRequireTaskMutation?.('batchMoveTasks');
+            if (typeof batchMoveTasks !== 'function') throw new Error('任务写入队列未就绪: batchMoveTasks');
+            const batchResult = await batchMoveTasks(ids, payload, {
+                wait: true,
+                showErrorHint: false,
+            });
+            try { state.collapsedTaskIds?.delete?.(targetId); } catch (e) {}
+            return {
+                kind,
+                payload,
+                batchCount: Array.isArray(batchResult?.results) ? batchResult.results.length : ids.length,
+                results: Array.isArray(batchResult?.results) ? batchResult.results : [],
+            };
+        }
         let anchorTaskId = targetId;
         let anchorKind = kind;
-        for (const sourceId of ids) {
-            if (!sourceId || sourceId === anchorTaskId) continue;
-            const result = await __tmQueueTaskRowMove(sourceId, anchorTaskId, anchorKind);
+        for (const sourceId of moveSources) {
+            const moveTargetId = anchorTaskId;
+            const moveKind = anchorKind;
+            if (!sourceId || sourceId === moveTargetId) continue;
+            const result = await __tmQueueTaskRowMove(sourceId, moveTargetId, moveKind);
             results.push(result);
             anchorTaskId = sourceId;
             anchorKind = 'after';
@@ -15159,6 +14832,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     window.tmTaskRowDragOver = function(ev, targetTaskId) {
         const overrideKind = String(arguments?.[2] || '').trim();
+        try { __tmMarkHighPriorityInteraction('task-row-drag-over', 260); } catch (e) {}
         try {
             ev.preventDefault?.();
             ev.stopPropagation?.();
@@ -15197,6 +14871,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.tmTaskRowDrop = async function(ev, targetTaskId, overrideKind = '') {
+        try { __tmMarkHighPriorityInteraction('task-row-drop', 1200); } catch (e) {}
         try {
             ev.preventDefault?.();
             ev.stopPropagation?.();
@@ -15249,10 +14924,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!targetDocId || targetDocId === 'all') return;
         const taskId = __tmGetDraggedTaskId(ev);
         if (!taskId) return;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(taskId)
-            || state.flatTasks?.[taskId]
-            || state.pendingInsertedTasks?.[taskId];
+        const task = globalThis.__tmTaskBoundary?.getTask?.(taskId);
         if (!task) return;
         const fromDocId = String(task.docId || task.root_id || '').trim();
         if (fromDocId && fromDocId === targetDocId) return;
@@ -15260,18 +14932,14 @@ return Number(state.contextInteractionQuietUntil || 0);
             const movePayload = {
                 targetDocId,
                 mode: 'docTop',
-                deferOptimisticRender: true,
-                skipOptimisticFilterWork: true,
             };
-            const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
+            const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
             if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
-            moveTask(taskId, {
+            await moveTask(taskId, {
                 ...movePayload,
             }, {
-                wait: false,
-                onError: (err) => {
-                    hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
-                },
+                wait: true,
+                showErrorHint: false,
             });
             hint('✅ 任务已移动', 'success');
         } catch (e) {
@@ -15300,10 +14968,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!id) return { task: null, title: '', durationMin: NaN, durationExplicit: false, documentID: '' };
         let task = null;
         try {
-            task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-                || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)
-                || state.flatTasks?.[id]
-                || state.pendingInsertedTasks?.[id]
+            task = globalThis.__tmTaskBoundary?.getTask?.(id)
                 || (Array.isArray(state.filteredTasks)
                     ? state.filteredTasks.find((item) => String(item?.id || '').trim() === id)
                     : null)
@@ -15343,6 +15008,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     window.tmDragTaskStart = function(ev, taskId) {
         const id = String(taskId || '').trim();
         if (!id) return;
+        try { __tmMarkHighPriorityInteraction('task-native-drag-start', 1800); } catch (e) {}
         const targetEl = ev?.target instanceof Element ? ev.target : null;
         const sourceEl = ev?.currentTarget instanceof Element ? ev.currentTarget : targetEl;
         if (__tmIsWhiteboardTaskDragSource(sourceEl) || __tmIsWhiteboardTaskDragSource(targetEl)) return;
@@ -15394,6 +15060,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.tmDragTaskEnd = function() {
+        try { __tmMarkHighPriorityInteraction('task-native-drag-end', 520); } catch (e) {}
         try { __tmSuppressDockPointerTaskClick(420); } catch (e) {}
         state.draggingTaskId = '';
         state.draggingTaskIds = [];
@@ -15504,9 +15171,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const resolvedTaskId = String(taskId || '').trim();
         const title = String(
             payload?.title
-            || globalThis.__tmRuntimeState?.getTaskById?.(resolvedTaskId, { includePending: true, preferPending: true })?.content
-            || state.pendingInsertedTasks?.[resolvedTaskId]?.content
-            || state.flatTasks?.[resolvedTaskId]?.content
+            || globalThis.__tmTaskBoundary?.getTask?.(resolvedTaskId)?.content
             || taskId
             || '任务'
         ).trim() || '任务';
@@ -15598,7 +15263,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!(modal instanceof Element)) return;
         if (!__tmDockPointerTaskDragIsEnabled()) return;
         if (globalThis.__tmRuntimeState?.isViewMode?.('calendar') ?? (String(state.viewMode || '').trim() === 'calendar')) return;
-        if (__tmIsMultiSelectActive()) return;
         const abort = new AbortController();
         state.dockTaskPointerDragAbort = abort;
 
@@ -15610,7 +15274,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (!__tmDockPointerTaskDragIsEnabled()) return;
             const source = __tmResolveDockPointerTaskDragSource(ev?.target);
             if (!source) return;
-            if (__tmIsMultiSelectActive()) {
+            if (
+                __tmIsMultiSelectActive()
+                && !(source.sourceType === 'kanban' && __tmIsTaskMultiSelected(source.taskId))
+            ) {
                 return;
             }
             if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
@@ -15633,14 +15300,17 @@ return Number(state.contextInteractionQuietUntil || 0);
         modal.addEventListener('pointerdown', (ev) => {
             if (!__tmDockPointerTaskDragIsEnabled()) return;
             if (globalThis.__tmRuntimeState?.isViewMode?.('calendar') ?? (String(state.viewMode || '').trim() === 'calendar')) return;
-            if (__tmIsMultiSelectActive()) {
-                return;
-            }
             if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
             const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
             if (pointerType === 'touch') return;
             const source = __tmResolveDockPointerTaskDragSource(ev?.target);
             if (!source) return;
+            if (
+                __tmIsMultiSelectActive()
+                && !(source.sourceType === 'kanban' && __tmIsTaskMultiSelected(source.taskId))
+            ) {
+                return;
+            }
             if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
                 return;
             }
@@ -15926,7 +15596,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { state.modal?.classList?.add?.('tm-task-drag-active'); } catch (e) {}
             if (sourceType === 'kanban') {
                 state.__tmKanbanDragId = taskId;
-                state.__tmKanbanDragIds = [taskId];
+                state.__tmKanbanDragIds = state.draggingTaskIds;
                     try { window.__tmBindKanbanDocumentAutoScroll?.(); } catch (e) {}
                     try { sourceEl.classList.add('tm-kanban-card--dragging'); } catch (e) {}
                 }
@@ -16002,7 +15672,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         if (t?.closest?.('button,input,select,textarea,a,.tm-task-content-clickable,.tm-tree-toggle,.tm-col-resize,.tm-cell-editable,.tm-status-cell')) return;
         if (globalThis.__tmRuntimeState?.isViewMode?.('checklist') ?? (String(state.viewMode || '').trim() === 'checklist')) {
-            let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
+            let task = globalThis.__tmTaskBoundary?.getTask?.(id);
             state.detailTaskId = id;
             try {
                 if (task && typeof __tmEnsureTaskDetailFieldAttrs === 'function') {
@@ -16020,7 +15690,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
             return;
         }
-        const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
+        const task = globalThis.__tmTaskBoundary?.getTask?.(id);
         if (!task) return;
         const hasChild = Array.isArray(task.children) && task.children.length > 0;
         if (!hasChild) return;
@@ -16037,21 +15707,25 @@ return Number(state.contextInteractionQuietUntil || 0);
             __tmToggleTaskMultiSelection(id);
             return;
         }
-        let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
+        let task = globalThis.__tmTaskBoundary?.getTask?.(id);
         state.detailTaskId = id;
         state.checklistDetailDismissed = false;
         if (__tmChecklistUseSheetMode(state.modal)) state.checklistDetailSheetOpen = true;
-        try {
-            if (task && typeof __tmEnsureTaskDetailFieldAttrs === 'function') {
-                task = await __tmEnsureTaskDetailFieldAttrs(task, {
-                    taskId: id,
-                    source: 'checklist-select',
-                    force: true,
-                }) || task;
-            }
-        } catch (e) {}
         const refreshed = __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-select');
         if (!refreshed) render();
+        if (refreshed && task) {
+            try {
+                requestAnimationFrame(() => {
+                    try {
+                        __tmScheduleTaskDetailFieldAttrHydration(id, task, {
+                            modal: state.modal,
+                            mode: 'checklist',
+                            source: 'checklist-select:post-mount',
+                        });
+                    } catch (e) {}
+                });
+            } catch (e) {}
+        }
         const docId = String(task?.root_id || task?.docId || '').trim();
         if (docId) {
             try { Promise.resolve(__tmWarmKanbanDocHeadings([docId], { force: true })).catch(() => null); } catch (e) {}
@@ -16288,6 +15962,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const startDrag = () => {
             if (dragging || ended) return;
             dragging = true;
+            try { __tmMarkHighPriorityInteraction('task-touch-drag-start', 1800); } catch (e) {}
             dragStartedAt = Date.now();
             dragStartX = lastX;
             dragStartY = lastY;
@@ -16313,6 +15988,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         };
         const updateDrag = (x, y) => {
             if (!dragging) return;
+            try { __tmMarkHighPriorityInteraction('task-touch-drag-move', 320); } catch (e) {}
             __tmPlaceDockPointerTaskGhost(ghostMeta, x, y);
             const pointTargetForSide = resolvePointTarget(x, y) || sourceEl;
             try {
@@ -16424,6 +16100,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const finalizeDrag = async () => {
             if (ended || completing) return false;
             completing = true;
+            try { __tmMarkHighPriorityInteraction('task-touch-drop', 1200); } catch (e) {}
             cancelLongPress();
             cancelFloatingMiniStart();
             let handled = false;
@@ -16596,50 +16273,36 @@ return Number(state.contextInteractionQuietUntil || 0);
         return handled;
     };
 
-    window.tmChecklistTitleClick = function(taskId, ev) {
+    const __TM_TASK_TITLE_SURFACES = new Set(['table', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard', 'whiteboard-pool']);
+
+    window.tmTaskTitleClick = function(taskId, ev, options = {}) {
         if (__tmConsumeDockPointerSuppressedClick(ev)) return;
         const id = String(taskId || '').trim();
-        if (!id) return;
+        if (!id) return false;
+        const surface = String(options?.surface || '').trim();
+        if (!__TM_TASK_TITLE_SURFACES.has(surface)) return false;
         try { ev?.stopPropagation?.(); } catch (e) {}
-        if (__tmIsMultiSelectActive('checklist')) {
-            window.tmChecklistSelectTask(id, ev);
-            return;
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const multiSelectMode = surface === 'table' ? 'list' : surface;
+        if (__tmIsMultiSelectActive(multiSelectMode)) {
+            __tmToggleTaskMultiSelection(id);
+            return true;
         }
-        const policy = globalThis.__tmViewPolicy?.getChecklistTitleClickPolicy?.() || null;
-        const mode = String(policy?.mode || '').trim();
-        if (mode === 'open-detail-drawer') {
-            window.tmChecklistSelectTask(id, ev);
-            return;
-        }
-        if (mode === 'open-detail-page') {
-            window.tmOpenTaskDetail?.(id, ev);
-            return;
-        }
-        if (mode === 'select') {
-            window.tmChecklistSelectTask(id, ev);
-            return;
-        }
-        if (mode === 'jump-task') {
-            window.tmJumpToTask(id, ev);
-            return;
-        }
-        if (__tmChecklistTitleClickUsesScopedJumpSettings()) {
-            if (__tmShouldOpenChecklistDetailDrawerOnTitleClick()) {
+        const action = window.__tmResolveTaskTitleClickAction?.(ev) || 'jump';
+        if (action === 'detail') {
+            if (surface === 'checklist') {
                 window.tmChecklistSelectTask(id, ev);
-                return;
+                return true;
             }
-            if (__tmShouldOpenTaskDetailPageOnChecklistTitleClick()) {
-                window.tmOpenTaskDetail?.(id, ev);
-                return;
-            }
-            if (__tmShouldJumpOnDockChecklistTitleClick() || __tmShouldJumpOnMobileChecklistTitleClick()) {
-                window.tmJumpToTask(id, ev);
-                return;
-            }
-            window.tmChecklistSelectTask(id, ev);
-            return;
+            window.tmOpenTaskDetail?.(id, ev, { source: `${surface}-title-click` });
+            return true;
         }
-        window.tmJumpToTask(id, ev);
+        window.tmJumpToTask?.(id, ev);
+        return true;
+    };
+
+    window.tmChecklistTitleClick = function(taskId, ev) {
+        return window.tmTaskTitleClick(taskId, ev, { surface: 'checklist' });
     };
 
     window.tmWhiteboardStreamTaskTitleClick = function(taskId, ev) {
@@ -16649,25 +16312,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         } catch (e) {}
         const id = String(taskId || '').trim();
         if (!id) return;
-        try { ev?.stopPropagation?.(); } catch (e) {}
-        try { ev?.preventDefault?.(); } catch (e) {}
-        if (__tmIsMultiSelectActive('whiteboard')) {
-            __tmToggleTaskMultiSelection(id);
-            return true;
-        }
-        if (__tmShouldOpenTaskDetailPageOnAnyTitleClick(ev)) {
-            window.tmOpenTaskDetail?.(id, ev);
-            return true;
-        }
-        if (globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.('whiteboard', state.modal)) {
-            void __tmOpenTaskDetailSheetInPlace(id, { source: 'whiteboard-title-click' });
-            return true;
-        }
-        if (__tmIsMobileDevice() || __tmHostUsesMobileUI()) {
-            void window.tmOpenTaskDetail?.(id, ev);
-            return true;
-        }
-        return window.tmJumpToTask(id, ev);
+        return window.tmTaskTitleClick(id, ev, { surface: 'whiteboard' });
     };
 
     window.tmWhiteboardStreamTaskTitlePointerDown = function(ev) {
@@ -16737,67 +16382,33 @@ return Number(state.contextInteractionQuietUntil || 0);
     window.tmChecklistCloseSheet = async function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
-        try {
-            const detailPanel = state.modal?.querySelector?.('#tmChecklistSheetPanel, #tmChecklistDetailPanel');
-            if (detailPanel instanceof HTMLElement) {
-                try { __tmMarkTaskDetailRootClosing(detailPanel, { holdMs: 260 }); } catch (e2) {}
-                const flushPromise = detailPanel.__tmTaskDetailFlushSave?.({
-                    showHint: false,
-                    closeAfterSave: false,
-                    preserveFocus: false,
-                    skipRerender: true,
-                });
-                Promise.resolve(flushPromise).catch((e2) => {
-                    try { hint(`❌ 详情保存失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
-                });
-            }
-        } catch (e) {}
-        state.checklistDetailDismissed = true;
-        state.checklistDetailSheetOpen = false;
-        state.checklistDetailSheetFullscreen = false;
-        try {
-            const sheet = state.modal?.querySelector?.('#tmChecklistSheet');
-            if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, false);
-        } catch (e) {}
-        try {
-            const detailPanel = state.modal?.querySelector?.('#tmChecklistSheetPanel, #tmChecklistDetailPanel');
-            if (detailPanel instanceof HTMLElement) __tmMarkTaskDetailRootClosed(detailPanel);
-        } catch (e) {}
-        try { globalThis.__tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush?.('checklist-close-sheet'); } catch (e) {}
-        __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-close-sheet');
+        const detailPanel = state.modal?.querySelector?.('#tmChecklistSheetPanel, #tmChecklistDetailPanel');
+        return await __tmRunTaskDetailClose(detailPanel, async () => {
+            state.checklistDetailDismissed = true;
+            state.checklistDetailSheetOpen = false;
+            state.checklistDetailSheetFullscreen = false;
+            try {
+                const sheet = state.modal?.querySelector?.('#tmChecklistSheet');
+                if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, false);
+            } catch (e) {}
+            __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-close-sheet');
+        }, { holdMs: 260 });
     };
 
     window.tmTaskDetailSheetClose = async function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
-        try {
-            const detailPanel = state.modal?.querySelector?.('#tmTaskDetailSheetPanel');
-            if (detailPanel instanceof HTMLElement) {
-                try { __tmMarkTaskDetailRootClosing(detailPanel, { holdMs: 260 }); } catch (e2) {}
-                const flushPromise = detailPanel.__tmTaskDetailFlushSave?.({
-                    showHint: false,
-                    closeAfterSave: false,
-                    preserveFocus: false,
-                    skipRerender: true,
-                });
-                Promise.resolve(flushPromise).catch((e2) => {
-                    try { hint(`❌ 详情保存失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
-                });
-            }
-        } catch (e) {}
-        state.checklistDetailDismissed = true;
-        state.checklistDetailSheetOpen = false;
-        state.checklistDetailSheetFullscreen = false;
-        try {
-            const sheet = state.modal?.querySelector?.('#tmTaskDetailSheet');
-            if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, false);
-        } catch (e) {}
-        try {
-            const detailPanel = state.modal?.querySelector?.('#tmTaskDetailSheetPanel');
-            if (detailPanel instanceof HTMLElement) __tmMarkTaskDetailRootClosed(detailPanel);
-        } catch (e) {}
-        try { globalThis.__tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush?.('task-detail-sheet-close'); } catch (e) {}
-        __tmRefreshTaskDetailSheetInPlace(state.modal, 'task-detail-sheet-close');
+        const detailPanel = state.modal?.querySelector?.('#tmTaskDetailSheetPanel');
+        return await __tmRunTaskDetailClose(detailPanel, async () => {
+            state.checklistDetailDismissed = true;
+            state.checklistDetailSheetOpen = false;
+            state.checklistDetailSheetFullscreen = false;
+            try {
+                const sheet = state.modal?.querySelector?.('#tmTaskDetailSheet');
+                if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, false);
+            } catch (e) {}
+            __tmRefreshTaskDetailSheetInPlace(state.modal, 'task-detail-sheet-close');
+        }, { holdMs: 260 });
     };
 
     let __tmChecklistSheetLastTouchStartAt = 0;
@@ -17942,6 +17553,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 case 'flag': return '<path d="M6 21V4.5" /><path d="M6 5.5c1.4-1.2 2.8-1.75 4.25-1.75 2.5 0 4.3 1.5 6.25 1.5.75 0 1.5-.12 2.25-.5v8.5c-.75.38-1.5.5-2.25.5-1.95 0-3.75-1.5-6.25-1.5-1.45 0-2.85.55-4.25 1.75" />';
                 case 'circle-dot': return '<circle cx="12" cy="12" r="8.75" /><circle cx="12" cy="12" r="1.25" />';
                 case 'x-circle': return '<circle cx="12" cy="12" r="9" /><path d="M9 9 15 15" /><path d="M15 9 9 15" />';
+                case 'lock': return '<rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" />';
                 case 'note-pencil': return '<path d="M18.5 4.5a2.12 2.12 0 0 1 3 3l-8.75 8.75-3.5 1 1-3.5Z" /><path d="M13.5 4H6.5A1.5 1.5 0 0 0 5 5.5v13A1.5 1.5 0 0 0 6.5 20H19a1.5 1.5 0 0 0 1.5-1.5V10" />';
                 default: return '<circle cx="12" cy="12" r="8.75" />';
             }

@@ -88,7 +88,7 @@ assert.ok(
 );
 
 assertOrdered(detailMoreActions, [
-    "label: task?.pinned ? '取消置顶' : '置顶'",
+    "label: pinned ? '取消置顶' : '置顶'",
     "label: '提醒'",
     "label: '开始专注'",
     "label: '复制'",

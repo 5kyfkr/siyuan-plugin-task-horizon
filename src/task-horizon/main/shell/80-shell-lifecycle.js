@@ -7,6 +7,7 @@
             try { __tmBindWakeReload(); } catch (e) {}
             try { __tmBindNativeDocCheckboxStatusSync(); } catch (e) {}
         }
+        try { __tmBindNativeDocTaskContentSync(); } catch (e) {}
         try { __tmBindCalendarScheduleUpdated(); } catch (e) {}
         try { __tmInitPointsPenaltyRuntime?.(); } catch (e) {}
         if (bindShellEntrances) {
@@ -34,18 +35,16 @@
                 const relaySeq = Number(e.detail.__relaySeq || 0) || 0;
                 const relayTime = String(e.detail.__relayTime || '').trim();
                 const source = String(e.detail.source || relaySource || '').trim();
+                const localMutationEvent = e.detail.localMutation === true;
                 const customFieldDef = __tmGetCustomFieldDefByAttrStorageKey(attrKey);
                 const customFieldId = String(customFieldDef?.id || '').trim();
                 const isCustomFieldAttr = !!customFieldId;
-                if (isCustomFieldAttr && !(typeof __tmIsPluginVisibleNow === 'function' && __tmIsPluginVisibleNow())) {
+                try { __tmMirrorNativeDocTaskPriorityAttr(e.detail); } catch (e2) {}
+                if (!localMutationEvent
+                    && isCustomFieldAttr
+                    && !(typeof __tmIsPluginVisibleNow === 'function' && __tmIsPluginVisibleNow())) {
                     state.__tmPendingCustomFieldFreshOpenAt = Date.now();
                     state.__tmPendingCustomFieldFreshTaskId = taskId;
-                    __tmQuickbarRefreshDebugLog('event-custom-field-mark-hidden-dirty', {
-                        taskId,
-                        attrKey,
-                        fieldId: customFieldId,
-                        at: Number(state.__tmPendingCustomFieldFreshOpenAt || 0),
-                    });
                 }
                 try {
                     __tmPushDetailDebug('global-attr-updated', {
@@ -59,35 +58,21 @@
                     });
                 } catch (e2) {}
                 if (isCustomFieldAttr) {
-                    __tmQuickbarRefreshDebugLog('event-custom-field-received', {
-                        taskId,
-                        requestedTaskId,
-                        attrHostId,
-                        attrKey,
-                        fieldId: customFieldId,
-                        attrValue,
-                        source,
-                        relayTransport,
-                        relaySeq,
-                        relayTime,
-                    });
                 }
 if (__tmIsVisibleDateAttrKey(attrKey)) {
                     __tmMarkVisibleDateFallbackTask(taskId);
                 }
                 let handledInline = false;
                 let resolveRetryScheduled = false;
-                if (attrKey) {
+                if (localMutationEvent) {
+                    // State and projection are already owned by MutationService.
+                    // This event only notifies quickbar, calendar and reminder consumers.
+                    handledInline = true;
+                } else if (attrKey) {
                     handledInline = __tmChangeFeed.handleAttrUpdate(taskId, attrKey, attrValue, {
                         reason: 'quickbar-attr-update',
                     });
                     if (isCustomFieldAttr) {
-                        __tmQuickbarRefreshDebugLog('event-custom-field-direct-handle', {
-                            taskId,
-                            attrKey,
-                            fieldId: customFieldId,
-                            handledInline: !!handledInline,
-                        });
                     }
                     if (!handledInline) {
                         resolveRetryScheduled = true;
@@ -98,55 +83,28 @@ if (__tmIsVisibleDateAttrKey(attrKey)) {
 return;
                                 }
                                 if (isCustomFieldAttr) {
-                                    __tmQuickbarRefreshDebugLog('event-custom-field-resolved-task', {
-                                        taskId,
-                                        resolvedTaskId: nextTaskId,
-                                        attrKey,
-                                        fieldId: customFieldId,
-                                    });
                                 }
                                 const resolvedHandledInline = !!__tmChangeFeed.handleAttrUpdate(nextTaskId, attrKey, attrValue, {
                                     reason: 'quickbar-attr-update',
                                 });
                                 handledInline = resolvedHandledInline || handledInline;
                                 if (isCustomFieldAttr) {
-                                    __tmQuickbarRefreshDebugLog('event-custom-field-resolved-handle', {
-                                        taskId,
-                                        resolvedTaskId: nextTaskId,
-                                        attrKey,
-                                        fieldId: customFieldId,
-                                        resolvedHandledInline: !!resolvedHandledInline,
-                                    });
                                 }
 })
                             .catch((error) => {
                                 if (isCustomFieldAttr) {
-                                    __tmQuickbarRefreshDebugLog('event-custom-field-resolve-error', {
-                                        taskId,
-                                        attrKey,
-                                        fieldId: customFieldId,
-                                        error: String(error?.message || error || ''),
-                                    });
                                 }
 return null;
                             });
                     }
                 }
-                const shouldDeferToAutoRefresh = __tmChangeFeed.shouldDeferToAutoRefresh(taskId, attrKey, attrValue);
-                const shouldMarkDirty = !handledInline || shouldDeferToAutoRefresh;
+                const shouldDeferToAutoRefresh = !localMutationEvent
+                    && __tmChangeFeed.shouldDeferToAutoRefresh(taskId, attrKey, attrValue);
+                const shouldMarkDirty = !localMutationEvent && (!handledInline || shouldDeferToAutoRefresh);
 if (shouldMarkDirty) {
                     __tmMarkQuickbarModifiedTask(taskId);
                 }
                 if (isCustomFieldAttr) {
-                    __tmQuickbarRefreshDebugLog('event-custom-field-handle-result', {
-                        taskId,
-                        attrKey,
-                        fieldId: customFieldId,
-                        handledInline: !!handledInline,
-                        resolveRetryScheduled: !!resolveRetryScheduled,
-                        shouldDeferToAutoRefresh: !!shouldDeferToAutoRefresh,
-                        shouldMarkDirty: !!shouldMarkDirty,
-                    });
                 }
                 if (attrKey === 'bookmark') {
                     try { __tmClearReminderSnapshotCache(taskId); } catch (ex) {}
@@ -555,13 +513,6 @@ if (shouldMarkDirty) {
         })();
         __tmMarkContextInteractionQuiet('open-manager', 2200);
         const runtimeMobile = globalThis.__tmRuntimeHost?.getInfo?.()?.runtimeMobileClient ?? __tmIsRuntimeMobileClient();
-        const perfTrace = __tmCreatePerfTrace('openManager', {
-            token,
-            runtimeMobile: runtimeMobile ? 1 : 0,
-            forceOpenTab: options?.forceOpenTab ? 1 : 0,
-            skipEnsureTabOpened: options?.skipEnsureTabOpened ? 1 : 0,
-        });
-        __tmPerfTraceMark(perfTrace, 'open:start', { token });
         try { __tmListenPinnedChanged(); } catch (e) {}
         try { __tmRestoreMobileManagerModalFromKeepalive(); } catch (e) {}
         let reusedExistingModal = false;
@@ -580,9 +531,6 @@ if (shouldMarkDirty) {
                 setTimeout(() => { try { __tmPatchTaskHorizonTabIcon(); } catch (e) {} }, 900);
             } catch (e) {}
         }
-        __tmPerfTraceMark(perfTrace, 'open:mount-ready', {
-            ensureDesktopTab: shouldEnsureDesktopTab ? 1 : 0,
-        });
         await __tmEnsureSettingsLoaded();
         let forceRenderForHostHandoff = false;
         try {
@@ -639,12 +587,6 @@ if (shouldMarkDirty) {
                 console.error('[OpenManager] Render failed:', e2);
             }
         }
-        __tmPerfTraceMark(perfTrace, 'open:shell-render', {
-            reusedExistingModal: reusedExistingModal ? 1 : 0,
-        });
-        __tmPerfTraceMark(perfTrace, 'open:shell-first-paint', {
-            reusedExistingModal: reusedExistingModal ? 1 : 0,
-        });
         const hasPendingLocalTaskWritesForOpen = () => {
             try {
                 const deleted = state.pendingDeletedTasks;
@@ -655,7 +597,7 @@ if (shouldMarkDirty) {
                 if (typeof __tmHasPendingQueuedOps === 'function' && __tmHasPendingQueuedOps()) return true;
             } catch (e) {}
             try {
-                return !!globalThis.__tmTaskHorizonOutbox?.hasPending?.();
+                return !!globalThis.__tmTaskMutations?.hasPending?.();
             } catch (e) {}
             return false;
         };
@@ -711,19 +653,11 @@ if (shouldMarkDirty) {
             hint('⚠ 请先在设置中添加要显示的文档', 'warning');
             const activeModal = globalThis.__tmRuntimeState?.getModal?.() || state.modal;
             if (activeModal && (globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) showSettings();
-            __tmPerfTraceFinish(perfTrace, {
-                reason: 'no-doc-groups',
-                reusedExistingModal: reusedExistingModal ? 1 : 0,
-            });
             return;
         }
 
         if (!(globalThis.__tmRuntimeState?.getModal?.() || state.modal)
             || !(globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) {
-            __tmPerfTraceFinish(perfTrace, {
-                cancelled: 1,
-                reason: 'modal-stale',
-            });
             return;
         }
         try {
@@ -753,12 +687,6 @@ if (shouldMarkDirty) {
         const hasPendingHiddenCustomFieldFreshOpen = Number(state.__tmPendingCustomFieldFreshOpenAt || 0) > 0;
         const shouldForceFreshOpenLoad = quickbarDirty || hasPendingAutoRefreshDirty || hasPendingHiddenCustomFieldFreshOpen;
         if (shouldForceFreshOpenLoad) {
-            __tmQuickbarRefreshDebugLog('open-manager-force-fresh-open-load', {
-                quickbarDirty: !!quickbarDirty,
-                hasPendingAutoRefreshDirty: !!hasPendingAutoRefreshDirty,
-                hasPendingHiddenCustomFieldFreshOpen: !!hasPendingHiddenCustomFieldFreshOpen,
-                pendingTaskId: String(state.__tmPendingCustomFieldFreshTaskId || '').trim(),
-            });
         }
         const hasPendingLocalTaskWrites = hasPendingLocalTaskWritesForOpen();
         const canSkipRenderOnReuse = reusedExistingModal
@@ -789,7 +717,6 @@ if (shouldMarkDirty) {
                 skipRender: true,
                 preferFastFirstPaint: false,
                 showInlineLoading: false,
-                perfTrace,
                 source: 'openManager-soft-reuse'
             }).then(() => {
                 if (!(globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) return;
@@ -813,12 +740,7 @@ if (shouldMarkDirty) {
                         }, { hard: false });
                     }
                 } catch (e) {}
-            }).catch((e) => {
-                __tmPerfTraceFinish(perfTrace, {
-                    error: String(e?.message || e || '').trim() || 'open-soft-reuse-load-failed',
-                    viewMode: globalThis.__tmRuntimeState?.getViewMode?.('list') || String(state.viewMode || '').trim() || 'list',
-                });
-            });
+            }).catch(() => null);
             return;
         }
         if (quickbarDirty) {
@@ -832,11 +754,6 @@ if (shouldMarkDirty) {
                 applyDefaultViewMode: !forceRenderForHostHandoff,
             });
         } catch (e) {}
-        __tmPerfTraceMark(perfTrace, 'open:load-dispatched', {
-            viewMode: globalThis.__tmRuntimeState?.getViewMode?.('list') || String(state.viewMode || '').trim() || 'list',
-            preferFastFirstPaint: (runtimeMobileFastPath && !shouldForceFreshOpenLoad) ? 1 : 0,
-            forceFreshOpenLoad: shouldForceFreshOpenLoad ? 1 : 0,
-        });
         loadSelectedDocuments({
             skipRender: canSkipRenderOnReuse,
             preferFastFirstPaint: !canSkipRenderOnReuse && !shouldForceFreshOpenLoad,
@@ -853,7 +770,6 @@ if (shouldMarkDirty) {
             showInlineLoading: shouldShowInlineLoading,
             loadingStyleKind: canSkipRenderOnReuse ? 'topbar' : 'skeleton',
             loadingDelayMs: canSkipRenderOnReuse ? undefined : 900,
-            perfTrace,
             source: 'openManager'
         }).then(() => {
             if (shouldForceFreshOpenLoad) {
@@ -878,10 +794,6 @@ if (shouldMarkDirty) {
             try {
                 if (Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false);
             } catch (e2) {}
-            __tmPerfTraceFinish(perfTrace, {
-                error: String(e?.message || e || '').trim() || 'open-load-failed',
-                viewMode: globalThis.__tmRuntimeState?.getViewMode?.('list') || String(state.viewMode || '').trim() || 'list',
-            });
             if (shouldForceFreshOpenLoad) {
                 try { state.__tmPendingCustomFieldFreshOpenAt = Date.now(); } catch (e2) {}
             }
@@ -893,6 +805,15 @@ if (shouldMarkDirty) {
 
     // 插件卸载清理
     function __tmCleanup() {
+        try {
+            const pendingMutations = globalThis.__tmTaskMutations?.pendingRefs?.({ limit: 20 }) || [];
+            if (pendingMutations.length > 0) {
+                console.warn('[task-horizon] mutation-pending-on-unload', {
+                    count: pendingMutations.length,
+                    mutations: pendingMutations,
+                });
+            }
+        } catch (e) {}
         try { __tmMarkRuntimeCleanupRequested?.(); } catch (e) {}
         try { __tmDisposeDocTabsRuntime?.(state.modal, { clearHoverTimer: true }); } catch (e) {}
         try { globalThis['siyuan-plugin-task-horizon']?.scheduledEvents?.dispose?.(); } catch (e) {}
@@ -956,6 +877,17 @@ if (shouldMarkDirty) {
         } catch (e) {}
         try { __tmDestroyDocTitleMarkers(); } catch (e) {}
         try { __tmDestroyDockSidebarCurrentDocumentFollow(); } catch (e) {}
+        try {
+            if (__tmNativeDocTaskContentInputHandler) {
+                globalThis.__tmRuntimeEvents?.off?.(document, 'input', __tmNativeDocTaskContentInputHandler, true);
+                globalThis.__tmRuntimeEvents?.off?.(document, 'compositionend', __tmNativeDocTaskContentInputHandler, true);
+                __tmNativeDocTaskContentInputHandler = null;
+            }
+            __tmNativeDocTaskContentSyncTimers.forEach((entry) => {
+                try { if (entry?.timer) clearTimeout(entry.timer); } catch (e2) {}
+            });
+            __tmNativeDocTaskContentSyncTimers.clear();
+        } catch (e) {}
         try {
             if (__tmNativeDocCheckboxSyncClickHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(document, 'click', __tmNativeDocCheckboxSyncClickHandler, true);
@@ -1156,14 +1088,12 @@ if (shouldMarkDirty) {
                 'mobileBottomViewbarTimer',
                 'mobileBottomViewSwitchTimer',
                 'mobileMenuCloseTimer',
-                '__tmKanbanDateProjectionRefreshTimer',
                 'whiteboardNoteClickTimer',
                 'whiteboardPoolSearchRenderTimer',
                 'settingsSearchHighlightTimer',
                 '__tmChecklistProjectionRefreshTimer',
                 'busyDetailViewRefreshTimer',
                 'listProjectionRefreshTimer',
-                '__tmChecklistOptimisticSubtaskFlushTimer',
                 'desktopMenuCloseTimer',
                 'ganttContextMenuCloseBindTimer',
                 'docTabLongPressTimer',
@@ -1204,9 +1134,6 @@ if (shouldMarkDirty) {
                 state.busyDetailViewRefreshPending = null;
                 state.listProjectionRefreshPending = null;
                 state.__tmChecklistProjectionRefreshPending = null;
-                state.__tmKanbanDateProjectionRefreshPending = null;
-                state.__tmChecklistOptimisticSubtaskRefreshPending = null;
-                state.__tmChecklistOptimisticSubtaskRefreshQueued = false;
                 state.__tmSilentCacheVerifyInFlight = false;
             }
         } catch (e) {}
@@ -1345,6 +1272,10 @@ if (shouldMarkDirty) {
             if (__tmTomatoHistoryUpdatedHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:history-updated', __tmTomatoHistoryUpdatedHandler);
                 __tmTomatoHistoryUpdatedHandler = null;
+            }
+            if (__tmTomatoDefaultDurationChangedHandler) {
+                globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:default-duration-changed', __tmTomatoDefaultDurationChangedHandler);
+                __tmTomatoDefaultDurationChangedHandler = null;
             }
         } catch (e) {}
         try {
@@ -1714,7 +1645,7 @@ if (shouldMarkDirty) {
         try { __tmRemoveBreadcrumbButton({ destroy: true }); } catch (e) {}
 
         try {
-            const shouldFlushMetaStore = !!MetaStore.saveTimer;
+            const shouldFlushMetaStore = !!(MetaStore.saveDirty || MetaStore.saveTimer);
             if (MetaStore.saveTimer) {
                 clearTimeout(MetaStore.saveTimer);
                 MetaStore.saveTimer = null;

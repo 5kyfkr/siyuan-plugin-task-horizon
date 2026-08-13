@@ -213,6 +213,7 @@
         const events = __tmScheduledSettingsApi()?.list?.() || [];
         const rows = events.map((event) => {
             const status = __tmScheduledStatusMeta(event.lastRun?.status);
+            const statusError = String(event.lastRun?.error || '').trim().replace(/^(?:已阻止\s*){2,}/, '已阻止').slice(0, 500);
             const outputLabel = event.output?.mode === 'document'
                 ? `${event.output?.documentMode === 'monthly_child' ? '月度子文档' : '目标文档'} · ${event.output?.insertPosition === 'top' ? '顶部' : '底部'}`
                 : '通知展示';
@@ -228,7 +229,7 @@
                     </div>
                     <div class="tm-scheduled-events-cell"><span class="tm-scheduled-events-cell__label">下次运行</span><span>${esc(__tmScheduledNextRunLabel(event))}</span></div>
                     <div class="tm-scheduled-events-cell"><span class="tm-scheduled-events-cell__label">输出</span><span>${outputLabel}</span></div>
-                    <div class="tm-scheduled-events-cell"><span class="tm-scheduled-events-cell__label">状态</span><span class="tm-scheduled-events-status ${status[1]}">${status[0]}</span></div>
+                    <div class="tm-scheduled-events-cell tm-scheduled-events-cell--status"><span class="tm-scheduled-events-cell__label">状态</span><span class="tm-scheduled-events-status ${status[1]}" ${statusError ? `title="${esc(statusError)}"` : ''}>${status[0]}</span>${statusError ? `<small class="tm-scheduled-events-status-detail">${esc(statusError)}</small>` : ''}</div>
                     <div class="tm-scheduled-events-row__actions">
                         <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledRunNow" data-tm-args='${args}' ${supported ? '' : 'disabled'} title="立即运行" aria-label="立即运行">${__tmScheduledSettingsIcon('play')}</button>
                         ${event.conversationId ? `<button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledOpenConversation" data-tm-args='${args}' title="打开对话" aria-label="打开对话">${__tmScheduledSettingsIcon('chat-circle-text')}</button>` : ''}

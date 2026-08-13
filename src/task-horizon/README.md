@@ -107,11 +107,11 @@ Migration note:
 Task data boundary:
 
 - Local task projections must read/write through `globalThis.__tmTaskStore`; new code should not directly write `state.flatTasks`, `state.pendingInsertedTasks`, or `state.pendingDeletedTasks`.
-- Backend task writes must go through `globalThis.__tmTaskOutbox` / `__tmRequireTaskOutbox('patchTask')` and related outbox entries; UI code should not persist task fields by bypassing the queue.
+- Backend task writes must go through `globalThis.__tmTaskMutations` / `__tmRequireTaskMutation('patchTask')` and related mutation entries; UI code should not persist task fields by bypassing the queue.
 - Task snapshots must be scheduled through `globalThis.__tmTaskSnapshotService`; ordinary UI code should not call the lower-level snapshot store directly.
 
 New feature rule:
 
 - 本地任务镜像走 `globalThis.__tmTaskStore`。
-- 后端任务写入走 `globalThis.__tmTaskOutbox`。
+- 后端任务写入走 `globalThis.__tmTaskMutations`。
 - 快照加载、恢复和保存走 `globalThis.__tmTaskSnapshotService`。

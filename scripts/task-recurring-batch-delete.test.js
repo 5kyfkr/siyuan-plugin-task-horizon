@@ -14,9 +14,17 @@ const start = source.indexOf('async function __tmBatchDeleteSelectedTasks(');
 const end = source.indexOf('\n    async function __tmBatchSetDoneStatus(', start);
 assert.ok(start >= 0 && end > start, 'batch delete function must remain extractable');
 const batchDeleteSource = source.slice(start, end);
+const moreMenuStart = source.indexOf('function __tmOpenMultiSelectMoreMenu(');
+const moreMenuEnd = source.indexOf('\n    window.tmMultiSelectToggleMoreMenu', moreMenuStart);
+assert.ok(moreMenuStart >= 0 && moreMenuEnd > moreMenuStart, 'multi-select more menu must remain extractable');
+const moreMenuSource = source.slice(moreMenuStart, moreMenuEnd);
+assert.doesNotMatch(moreMenuSource, /\b__tmBindOutsideCloseHandler\b/,
+    'multi-select more menu must not call the removed outside-close helper');
+assert.match(moreMenuSource, /__tmScheduleBindOutsideCloseHandler\(closeHandler,\s*\{[\s\S]*ignoreSelector:/,
+    'multi-select more menu must use the shared delayed outside-close binding');
 
 function createHarness(tasks, selectedIds) {
-    const calls = { normal: [], recurring: [], hints: [] };
+    const calls = { normal: [], normalOptions: [], recurring: [], hints: [] };
     const state = {
         flatTasks: Object.fromEntries(tasks.map((task) => [task.id, task])),
         pendingInsertedTasks: {},
@@ -50,12 +58,15 @@ function createHarness(tasks, selectedIds) {
         __tmBuildBatchResultHint: (result) => `${result.successCount}/${result.failureCount}`,
         __tmNormalizeTaskDeleteMode: (value) => value === 'recycle' ? 'recycle' : 'permanent',
     });
-    context.__tmRuntimeState = {
-        getTaskById: (id) => state.flatTasks[id] || null,
+    context.__tmTaskBoundary = {
+        getTask: (id) => state.flatTasks[id] || null,
     };
-    context.__tmRequireTaskOutbox = (name) => {
+    context.__tmRequireTaskMutation = (name) => {
         assert.equal(name, 'deleteTask');
-        return async (id) => { calls.normal.push(id); };
+        return async (id, options) => {
+            calls.normal.push(id);
+            calls.normalOptions.push(options);
+        };
     };
     vm.runInContext(`${batchDeleteSource}\nthis.batchDelete = __tmBatchDeleteSelectedTasks;`, context);
     return { batchDelete: context.batchDelete, calls, state };
@@ -88,7 +99,8 @@ async function testMixedBatchRoutesRecurringRecords() {
 
     const result = await harness.batchDelete();
 
-    assert.deepEqual(harness.calls.normal, [normalTask.id], 'virtual recurring IDs must not reach the block delete outbox');
+    assert.deepEqual(harness.calls.normal, [normalTask.id], 'virtual recurring IDs must not reach the block delete mutation');
+    assert.equal(harness.calls.normalOptions[0]?.wait, true, 'batch deletion must settle every permanent writer before reporting completion');
     assert.deepEqual(harness.calls.recurring, [
         { sourceTaskId: sourceTask.id, completedAt: latest },
         { sourceTaskId: sourceTask.id, completedAt: older },
@@ -116,6 +128,7 @@ async function testDeletingSourceCoversSelectedHistoryRecord() {
     const result = await harness.batchDelete();
 
     assert.deepEqual(harness.calls.normal, [sourceTask.id]);
+    assert.equal(harness.calls.normalOptions[0]?.wait, true);
     assert.deepEqual(harness.calls.recurring, [], 'deleting the source task already removes its history records');
     assert.equal(result.successCount, 1);
     assert.equal(result.failureCount, 0);

@@ -1,6 +1,8 @@
     const __TM_TASK_LIFECYCLE_ATTR = 'custom-task-horizon-lifecycle';
     const __TM_COMPLETED_HEADING_TEXT = '已完成';
     const __tmTaskLifecycleHeadingLocks = new Map();
+    const __tmTaskCompletionArchiveRequests = new Map();
+    const __TM_TASK_COMPLETION_ARCHIVE_DEDUPE_MS = 5000;
 
     function __tmNormalizeTaskLifecycleMeta(value) {
         let source = value;
@@ -17,6 +19,8 @@
                 originDocId: completedOriginDocId,
                 mode: completedMode,
                 archivedAt: String(completed?.archivedAt || '').trim(),
+                ...(String(completed?.archiveDocId || '').trim() ? { archiveDocId: String(completed.archiveDocId).trim() } : {}),
+                ...(String(completed?.archiveListId || '').trim() ? { archiveListId: String(completed.archiveListId).trim() } : {}),
             };
         }
         const recycle = raw.recycle && typeof raw.recycle === 'object' ? raw.recycle : null;
@@ -53,25 +57,40 @@
     function __tmGetTaskLifecycleLocalTask(taskId) {
         const tid = String(taskId || '').trim();
         if (!tid) return null;
-        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
-            || state.pendingInsertedTasks?.[tid]
-            || state.flatTasks?.[tid]
-            || null;
+        return globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
     }
 
     async function __tmResolveTaskLifecycleTask(taskId) {
         const tid = String(taskId || '').trim();
         const localTask = __tmGetTaskLifecycleLocalTask(tid);
         let persistedTask = null;
-        try { persistedTask = await API.getTaskById(tid); } catch (e) { persistedTask = null; }
+        persistedTask = await API.getTaskById(tid);
         if (!persistedTask && !localTask) return { task: null, localTask: null };
         const task = { ...((localTask && typeof localTask === 'object') ? localTask : {}), ...((persistedTask && typeof persistedTask === 'object') ? persistedTask : {}) };
+        if (persistedTask && typeof persistedTask.markdown === 'string') {
+            try {
+                const parsed = API.parseTaskStatus?.(persistedTask.markdown);
+                if (parsed && typeof parsed.done === 'boolean') task.done = parsed.done;
+            } catch (e) {}
+        }
+        if (persistedTask && typeof persistedTask === 'object') {
+            ['repeat_rule', 'repeat_state', 'repeat_history', 'custom_status', 'task_complete_at'].forEach((key) => {
+                if (Object.prototype.hasOwnProperty.call(persistedTask, key)) {
+                    const canonical = key === 'repeat_rule'
+                        ? 'repeatRule'
+                        : (key === 'repeat_state'
+                            ? 'repeatState'
+                            : (key === 'repeat_history' ? 'repeatHistory' : (key === 'custom_status' ? 'customStatus' : 'taskCompleteAt')));
+                    task[canonical] = persistedTask[key];
+                }
+            });
+        }
         try { normalizeTaskFields(task, String(task.doc_name || task.docName || localTask?.docName || '').trim()); } catch (e) {}
         return { task, localTask };
     }
 
     function __tmIsTaskLifecycleDone(task, localTask = null) {
+        if (task && typeof task.done === 'boolean') return task.done;
         if (localTask && typeof localTask.done === 'boolean') return localTask.done;
         try { return typeof __tmIsTaskDoneEffective === 'function' ? !!__tmIsTaskDoneEffective(task) : !!task?.done; } catch (e) {}
         return !!task?.done;
@@ -143,8 +162,12 @@
             if (!heading) {
                 const configuredLevel = String(SettingsStore?.data?.taskHeadingLevel || 'h2').trim().toLowerCase();
                 level = Number((configuredLevel.match(/^h([1-6])$/) || [])[1]) || 2;
-                const headingId = String(await __tmAppendBlockWithRetry(did, `${'#'.repeat(level)} ${__TM_COMPLETED_HEADING_TEXT}`) || '').trim();
+                const headingId = String(await __tmAppendBlockOnce(did, `${'#'.repeat(level)} ${__TM_COMPLETED_HEADING_TEXT}`) || '').trim();
                 if (!headingId) throw new Error('创建“已完成”标题失败');
+                const flushed = await __tmBackendAdapter.flushTransaction();
+                if (!flushed || Number(flushed.code) !== 0) {
+                    throw new Error(flushed?.msg || '等待“已完成”标题写入失败');
+                }
                 heading = { id: headingId, content: __TM_COMPLETED_HEADING_TEXT, level };
             }
             let resolved = null;
@@ -192,6 +215,37 @@
         }
     }
 
+    async function __tmClearDeletedTaskReminders(taskIds, options = {}) {
+        const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [taskIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (!ids.length) return true;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const reminderApi = globalThis.__tomatoReminder;
+        if (typeof reminderApi?.get === 'function' && typeof reminderApi?.remove === 'function') {
+            for (const taskId of ids) {
+                const current = await reminderApi.get(taskId);
+                if (current?.ok === false) throw new Error(String(current?.message || '读取任务提醒失败'));
+                if (current?.hasReminder !== true && !current?.reminder) continue;
+                const removed = await reminderApi.remove(taskId, {
+                    source: String(opts.source || 'task-delete').trim() || 'task-delete',
+                });
+                if (removed?.ok !== true) throw new Error(String(removed?.message || '清除任务提醒失败'));
+            }
+            return true;
+        }
+        for (const taskId of ids) {
+            await __tmExecuteTaskCommandGateway({
+                action: 'patch',
+                taskID: taskId,
+                patch: { reminder: null },
+                recordUndo: false,
+                laneID: taskId,
+            }, '清除任务提醒');
+        }
+        return true;
+    }
+
     async function __tmCleanupDeletedTaskRelations(taskIds, options = {}) {
         const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [taskIds])
             .map((id) => String(id || '').trim())
@@ -199,22 +253,34 @@
         if (!ids.length) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         try {
+            await __tmClearDeletedTaskReminders(ids, opts);
+        } catch (e) {
+            try { console.warn('[task-horizon] delete linked reminders after task delete failed', e); } catch (e2) {}
+        }
+        try {
             const calendarApi = globalThis.__tmCalendar;
             if (calendarApi && typeof calendarApi.deleteTaskSchedulesByTaskIds === 'function') {
                 const request = calendarApi.deleteTaskSchedulesByTaskIds(ids, {
                     source: String(opts.source || 'task-delete').trim() || 'task-delete',
                     reason: String(opts.reason || 'task-delete-schedules').trim() || 'task-delete-schedules',
-                    side: false,
+                    side: true,
                     flushTaskPanel: false,
                 });
-                if (opts.background === true) Promise.resolve(request).catch(() => null);
-                else await request;
+                if (opts.background === true) {
+                    Promise.resolve(request).catch((e) => {
+                        try { console.warn('[task-horizon] delete linked schedules after task delete failed', e); } catch (e2) {}
+                    });
+                } else await request;
             }
         } catch (e) {
             try { console.warn('[task-horizon] delete linked schedules after task delete failed', e); } catch (e2) {}
         }
         if (SettingsStore?.data?.deleteTaskRemovesWhiteboardCards !== false) {
-            try { __tmDeleteWhiteboardSnapshotTasks(ids); } catch (e) {}
+            try {
+                __tmDeleteWhiteboardSnapshotTasks(ids);
+            } catch (e) {
+                try { console.warn('[task-horizon] delete linked whiteboard cards after task delete failed', e); } catch (e2) {}
+            }
         }
         return true;
     }
@@ -225,7 +291,17 @@
         const { task } = await __tmResolveTaskLifecycleTask(tid);
         if (!task) throw new Error('任务已不存在');
         const meta = await __tmReadTaskLifecycleMeta(tid);
-        if (meta.recycle) return { skipped: true, reason: 'already-recycled', taskId: tid };
+        const cleanupIds = Array.isArray(payload.scheduleCleanupTaskIds)
+            ? payload.scheduleCleanupTaskIds
+            : __tmCollectTaskTreeIdsForScheduleCleanup(task, tid);
+        if (meta.recycle) {
+            await __tmCleanupDeletedTaskRelations(cleanupIds, {
+                source: String(payload.source || 'task-recycle').trim() || 'task-recycle',
+                reason: 'task-recycle-schedules',
+                background: false,
+            });
+            return { skipped: true, reason: 'already-recycled', taskId: tid };
+        }
         const originDocId = String(payload.originDocId || payload.docId || task.root_id || task.docId || '').trim();
         const targetDocId = String(payload.targetDocId || SettingsStore?.data?.taskRecycleDocId || '').trim();
         if (!targetDocId) throw new Error('请先设置回收站文档');
@@ -242,25 +318,26 @@
             },
         };
         await __tmWriteTaskLifecycleMeta(tid, nextMeta);
-        const cleanupIds = Array.isArray(payload.scheduleCleanupTaskIds)
-            ? payload.scheduleCleanupTaskIds
-            : __tmCollectTaskTreeIdsForScheduleCleanup(task, tid);
         await __tmCleanupDeletedTaskRelations(cleanupIds, {
             source: String(payload.source || 'task-recycle').trim() || 'task-recycle',
             reason: 'task-recycle-schedules',
-            background: payload.backgroundScheduleCleanup === true,
+            background: false,
         });
         payload.docId = originDocId;
         payload.targetDocId = targetDocId;
         return { ok: true, action: 'archiveDeleted', taskId: tid, originDocId, targetDocId };
     }
 
-    async function __tmArchiveCompletedTask(data) {
+    async function __tmArchiveCompletedTaskOnce(data) {
         const payload = (data && typeof data === 'object') ? data : {};
         const tid = String(payload.taskId || '').trim();
         const resolvedTask = await __tmResolveTaskLifecycleTask(tid);
         const task = resolvedTask.task;
-        const done = __tmIsTaskLifecycleDone(task, resolvedTask.localTask);
+        // setDone can enqueue this before SiYuan's SQL index exposes the new
+        // marker. Only its explicit commit receipt may override that lag.
+        const done = payload.committedDone === true
+            ? true
+            : __tmIsTaskLifecycleDone(task, resolvedTask.localTask);
         if (!__tmCanArchiveCompletedTask(task, done)) return { skipped: true, reason: 'ineligible', taskId: tid };
         const meta = await __tmReadTaskLifecycleMeta(tid);
         if (meta.recycle) return { skipped: true, reason: 'recycled', taskId: tid };
@@ -279,13 +356,17 @@
         } else {
             destination = await __tmResolveCompletedHeadingPlacement(originDocId);
         }
-        await __tmMoveTaskToPlacement(tid, targetDocId, destination.placement, { heading: destination.heading });
+        const moveResult = await __tmMoveTaskToPlacement(tid, targetDocId, destination.placement, {
+            heading: destination.heading,
+        });
         await __tmWriteTaskLifecycleMeta(tid, {
             ...meta,
             completed: {
                 originDocId,
                 mode,
                 archivedAt: new Date().toISOString(),
+                archiveDocId: targetDocId,
+                archiveListId: String(moveResult?.listID || moveResult?.placement?.parentListId || '').trim(),
             },
         });
         payload.docId = originDocId;
@@ -293,9 +374,42 @@
         return { ok: true, action: 'archiveCompleted', taskId: tid, originDocId, targetDocId, mode };
     }
 
+    async function __tmArchiveCompletedTask(data) {
+        const payload = (data && typeof data === 'object') ? data : {};
+        const tid = String(payload.taskId || '').trim();
+        if (!tid) return await __tmArchiveCompletedTaskOnce(payload);
+        const existing = __tmTaskCompletionArchiveRequests.get(tid);
+        if (existing?.promise) return await existing.promise;
+
+        const entry = { promise: null, timer: null };
+        entry.promise = __tmArchiveCompletedTaskOnce(payload);
+        __tmTaskCompletionArchiveRequests.set(tid, entry);
+        try {
+            const result = await entry.promise;
+            const timer = setTimeout(() => {
+                if (__tmTaskCompletionArchiveRequests.get(tid) === entry) {
+                    __tmTaskCompletionArchiveRequests.delete(tid);
+                }
+            }, __TM_TASK_COMPLETION_ARCHIVE_DEDUPE_MS);
+            try { timer?.unref?.(); } catch (e) {}
+            entry.timer = timer;
+            return result;
+        } catch (error) {
+            if (__tmTaskCompletionArchiveRequests.get(tid) === entry) {
+                __tmTaskCompletionArchiveRequests.delete(tid);
+            }
+            throw error;
+        }
+    }
+
     async function __tmRestoreCompletedTask(data) {
         const payload = (data && typeof data === 'object') ? data : {};
         const tid = String(payload.taskId || '').trim();
+        const archivedRequest = __tmTaskCompletionArchiveRequests.get(tid);
+        if (archivedRequest) {
+            try { clearTimeout(archivedRequest.timer); } catch (e) {}
+            __tmTaskCompletionArchiveRequests.delete(tid);
+        }
         const resolvedTask = await __tmResolveTaskLifecycleTask(tid);
         if (!resolvedTask.task) throw new Error('任务已不存在');
         const meta = await __tmReadTaskLifecycleMeta(tid);
@@ -307,7 +421,17 @@
         const targetDocId = String(meta.completed.originDocId || '').trim();
         if (!targetDocId) throw new Error('未找到原文档');
         const destination = await __tmResolveTaskLifecycleDefaultPlacement(targetDocId);
-        await __tmMoveTaskToPlacement(tid, targetDocId, destination.placement, { heading: destination.heading });
+        await __tmMoveTaskToPlacement(tid, targetDocId, destination.placement, {
+            heading: destination.heading,
+            moveIndependentList: !destination.heading,
+            sourceListId: String(meta.completed.archiveListId || '').trim(),
+            sourceDocumentId: String(
+                meta.completed.archiveDocId
+                || resolvedTask.task.root_id
+                || resolvedTask.task.docId
+                || (meta.completed.mode === 'heading' ? targetDocId : '')
+            ).trim(),
+        });
         const nextMeta = { ...meta };
         delete nextMeta.completed;
         await __tmWriteTaskLifecycleMeta(tid, nextMeta);
@@ -351,12 +475,77 @@
         throw new Error(`未支持的任务归档动作: ${action || 'unknown'}`);
     }
 
+    async function __tmPrepareTaskLifecycleMutationData(data) {
+        const payload = (data && typeof data === 'object') ? data : {};
+        const action = String(payload.action || '').trim();
+        const taskId = String(payload.taskId || '').trim();
+        if (!taskId || !action) throw new Error('任务归档参数无效');
+        const prepared = (payload.lifecycleVerification && typeof payload.lifecycleVerification === 'object')
+            ? payload.lifecycleVerification
+            : null;
+        if ((action === 'archiveDeleted' || action === 'archiveCompleted')
+            && String(prepared?.action || '').trim() === action
+            && String(prepared?.targetDocId || '').trim()) {
+            return payload;
+        }
+        const resolved = await __tmResolveTaskLifecycleTask(taskId);
+        const task = resolved.task;
+        const meta = await __tmReadTaskLifecycleMeta(taskId);
+        const verification = {
+            action,
+            targetDocId: '',
+            originDocId: '',
+            originParentTaskId: '',
+            mode: '',
+            clearCompleted: false,
+        };
+        if (action === 'archiveDeleted') {
+            if (!Array.isArray(payload.scheduleCleanupTaskIds)) {
+                payload.scheduleCleanupTaskIds = __tmCollectTaskTreeIdsForScheduleCleanup(task, taskId);
+            }
+            verification.originDocId = String(payload.originDocId || payload.docId || task?.root_id || task?.docId || '').trim();
+            verification.originParentTaskId = String(payload.originParentTaskId || task?.parentTaskId || task?.parent_task_id || '').trim();
+            verification.targetDocId = String(payload.targetDocId || SettingsStore?.data?.taskRecycleDocId || '').trim();
+        } else if (action === 'archiveCompleted') {
+            verification.originDocId = String(payload.originDocId || task?.root_id || task?.docId || '').trim();
+            verification.mode = __tmNormalizeTaskCompletionArchiveMode(payload.mode || SettingsStore?.data?.taskCompletionArchiveMode);
+            verification.targetDocId = verification.mode === 'document'
+                ? String(payload.targetDocId || SettingsStore?.data?.taskCompletionArchiveDocId || '').trim()
+                : verification.originDocId;
+        } else if (action === 'restoreCompleted') {
+            verification.targetDocId = String(meta.completed?.originDocId || '').trim();
+        } else if (action === 'restoreDeleted') {
+            const restoreCompletion = !!meta.completed && !__tmIsTaskLifecycleDone(task, resolved.localTask);
+            verification.targetDocId = String(
+                restoreCompletion ? meta.completed?.originDocId : meta.recycle?.originDocId
+            ).trim();
+            verification.clearCompleted = restoreCompletion;
+        } else {
+            throw new Error(`未支持的任务归档动作: ${action}`);
+        }
+        payload.lifecycleVerification = verification;
+        if (action === 'archiveDeleted') {
+            payload.originDocId = verification.originDocId;
+            payload.originParentTaskId = verification.originParentTaskId;
+            payload.targetDocId = verification.targetDocId;
+        } else if (action === 'archiveCompleted') {
+            payload.originDocId = verification.originDocId;
+            payload.mode = verification.mode;
+            payload.targetDocId = verification.targetDocId;
+        }
+        return payload;
+    }
+
     function __tmEnqueueTaskLifecycle(action, taskId, data = {}, options = {}) {
         const tid = String(taskId || '').trim();
         if (!tid) return Promise.reject(new Error('未找到任务'));
         const payload = (data && typeof data === 'object') ? data : {};
         const opts = (options && typeof options === 'object') ? options : {};
-        const enqueue = globalThis.__tmRequireTaskOutbox?.('enqueue');
+        const lifecycleAction = String(action || '').trim();
+        if (lifecycleAction === 'archiveDeleted' && !(payload.snapshot && typeof payload.snapshot === 'object')) {
+            try { payload.snapshot = __tmCaptureTaskLocalSnapshot(tid); } catch (e) {}
+        }
+        const enqueue = globalThis.__tmRequireTaskMutation?.('enqueue');
         if (typeof enqueue !== 'function') return Promise.reject(new Error('任务归档队列未就绪'));
         let pendingPromise = null;
         const request = enqueue({
@@ -366,7 +555,8 @@
             data: {
                 ...payload,
                 taskId: tid,
-                action: String(action || '').trim(),
+                action: lifecycleAction,
+                suppressHint: true,
             },
         }, {
             wait: opts.wait === true,
@@ -379,7 +569,7 @@
         if (opts.wait !== true) {
             Promise.resolve(settlement).catch((error) => {
                 try {
-                    globalThis.__tmReportTaskOutboxFailure?.(error, {
+                    globalThis.__tmReportTaskMutationFailure?.(error, {
                         action: String(opts.errorAction || '自动归档').trim() || '自动归档',
                         source: String(payload.source || '').trim(),
                         taskId: tid,
@@ -406,6 +596,7 @@
             }
             void __tmEnqueueTaskLifecycle('archiveCompleted', tid, {
                 mode,
+                committedDone: true,
                 originDocId: String(task?.root_id || task?.docId || '').trim(),
                 targetDocId,
                 source: String(opts.source || 'task-completion').trim() || 'task-completion',
@@ -421,11 +612,14 @@
     try {
         globalThis.__tmTaskLifecycle = Object.freeze({
             execute: __tmExecuteTaskLifecycle,
+            prepareMutation: __tmPrepareTaskLifecycleMutationData,
+            readMeta: __tmReadTaskLifecycleMeta,
             notifyCompletion: __tmNotifyTaskLifecycleCompletion,
             archiveDeleted(taskId, options = {}) {
                 const opts = (options && typeof options === 'object') ? options : {};
                 const task = opts.task || __tmGetTaskLifecycleLocalTask(taskId);
                 return __tmEnqueueTaskLifecycle('archiveDeleted', taskId, {
+                    snapshot: opts.snapshot,
                     originDocId: String(opts.originDocId || opts.snapshot?.docId || task?.root_id || task?.docId || '').trim(),
                     originParentTaskId: String(opts.originParentTaskId || opts.snapshot?.parentTaskId || task?.parentTaskId || task?.parent_task_id || '').trim(),
                     targetDocId: String(opts.targetDocId || SettingsStore?.data?.taskRecycleDocId || '').trim(),
@@ -436,9 +630,17 @@
             },
             restoreDeleted(taskId, options = {}) {
                 const opts = (options && typeof options === 'object') ? options : {};
-                return __tmEnqueueTaskLifecycle('restoreDeleted', taskId, {
+                const request = __tmEnqueueTaskLifecycle('restoreDeleted', taskId, {
+                    snapshot: opts.snapshot,
+                    scheduleCleanupTaskIds: Array.isArray(opts.scheduleCleanupTaskIds) ? opts.scheduleCleanupTaskIds : undefined,
                     source: String(opts.source || 'task-recycle-undo').trim() || 'task-recycle-undo',
                 }, { wait: opts.wait === true, errorAction: '恢复回收站任务' });
+                if (opts.wait !== true) return request;
+                return Promise.resolve(request).then((result) => {
+                    if (result?.ok === true) return result;
+                    const reason = String(result?.reason || '').trim();
+                    throw new Error(reason ? `任务未恢复: ${reason}` : '任务未恢复');
+                });
             },
             restoreCompleted(taskId, options = {}) {
                 const opts = (options && typeof options === 'object') ? options : {};

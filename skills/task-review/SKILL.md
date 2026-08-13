@@ -5,7 +5,7 @@ description: 复盘 Task Horizon 在日、周、月、年、项目、文档或�
 
 # 任务复盘
 
-调用任务工具时使用思源提供的完整名称，前缀为 `plugin__siyuan_plugin_task_horizon__`。
+调用任务工具时，只能使用思源在本轮 tool definitions 中实际暴露的完整名称。Task Horizon 名称以 `plugin__siyuan_plugin_task_horizon__` 开头，并可能带校验后缀；禁止自行拼接、删改后缀或复用旧会话中的名称。
 
 1. 确认复盘时间范围和任务范围；当前上下文已经明确时直接复用。
    先调用 `get_task_view_context`，默认不传 `scope`：当前活动页签是任务管理器时使用其当前视图，是思源笔记时使用该文档的完整任务范围。默认把 `scopeToken` 传给聚合工具；需要列出当前界面以外的时间、完成状态、优先级或状态明细时改用 `containerScopeToken` 调用 `query_tasks`，并使用 `done`、`dateRange`、`overdue`、`priorities`、`customStatuses`、`includeVirtual` 等结构化筛选，不要读取完整任务 ID 列表。只有用户明确指定不同容器时才用 `scope: "current_view"` 或 `scope: "focused_document"` 覆盖自动识别；后者可同时传 `documentID`。

@@ -41,19 +41,19 @@ assert.equal(windowState.previousLimit, 80);
 assert.equal(windowState.limit, 120, 'desktop table auto-load must add 40 tasks');
 
 const progressiveJob = context.__tmStartProgressiveViewRender('list');
-assert.ok(progressiveJob, 'large list view switches must create a cancellable progressive render job');
+assert.equal(progressiveJob, null, 'table view switches must use the shared near-bottom loader instead of a frame loop');
 windowState = context.__tmResetViewRenderWindow('list', 400);
-assert.equal(windowState.limit, 20, 'progressive view switches must render the first 20 tasks');
+assert.equal(windowState.limit, 80, 'table switches must keep the desktop initial viewport window');
 windowState = context.__tmGrowViewRenderWindow('list', 400);
-assert.equal(windowState.limit, 40, 'progressive view switches must append 20 tasks per frame');
+assert.equal(windowState.limit, 120, 'table switches must grow through the shared near-bottom policy');
 context.__tmCancelProgressiveViewRender();
 
 const timelineJob = context.__tmStartProgressiveViewRender('timeline');
-assert.ok(timelineJob, 'large timeline switches must create the same cancellable progressive render job');
+assert.equal(timelineJob, null, 'timeline switches must use the shared near-bottom loader instead of a frame loop');
 windowState = context.__tmResetViewRenderWindow('timeline', 400);
-assert.equal(windowState.limit, 20, 'timeline switches must wait for the first 20 tasks before committing');
+assert.equal(windowState.limit, 80, 'timeline switches must keep the desktop initial viewport window');
 windowState = context.__tmGrowViewRenderWindow('timeline', 400);
-assert.equal(windowState.limit, 40, 'timeline switches must append 20 tasks per frame');
+assert.equal(windowState.limit, 120, 'timeline switches must grow through the shared near-bottom policy');
 const sliced = context.__tmSliceTaskRowModelByTaskWindow([
     { type: 'group', key: 'group-a' },
     { type: 'task', id: 'task-0' },
@@ -169,13 +169,16 @@ assert.doesNotMatch(refreshCapture, /listRender(?:Limit|Step)/, 'manual refresh 
 assert.doesNotMatch(refreshRestore, /saved\.listRender(?:Limit|Step)/, 'manual refresh must not restore render windows');
 
 assert.match(viewSwitch, /state\.viewMode = next;[\s\S]*__tmScheduleViewSwitchCommit\(generation, next,[\s\S]*progressiveJob = __tmStartProgressiveViewRender\(next\);[\s\S]*__tmResetViewRenderWindow\(next\)/, 'deferred view entry must reset its initial render window after the interface paint');
-assert.match(viewSwitch, /progressiveJob = __tmStartProgressiveViewRender\(next\);[\s\S]*__tmResetViewRenderWindow\(next\)[\s\S]*__tmScheduleProgressiveViewRender\(next, progressiveJob\)/, 'view switches must schedule cancellable incremental batches after the first render');
+assert.match(runtime, /value !== 'kanban' \|\| tasks\.length <= __TM_KANBAN_PROGRESSIVE_BATCH_SIZE/, 'only kanban snapshots larger than the first ten cards need a progressive job');
+assert.match(runtime, /Table, checklist, and timeline already share the near-bottom append-only loader/, 'list-like views must not retain a frame-driven fill loop');
+assert.doesNotMatch(runtime, /job\.frameId = requestAnimationFrame\(run\)/, 'progressive view rendering must not continuously refill table or timeline rows');
+assert.match(viewSwitch, /__tmScheduleProgressiveViewRender\(next, progressiveJob\)/, 'view switches must retain the shared kanban continuation hook');
 assert.match(dialogs, /const grown = __tmGrowViewRenderWindow\(mode, meta\.total\);[\s\S]*?appendOnly: true,[\s\S]*?previousLimit: grown\.previousLimit/, 'scroll auto-load must grow the window and request an incremental table patch');
 assert.match(services, /renderTaskList\(null, opts\.appendOnly === true[\s\S]*?startTaskRow: currentTaskRowCount/, 'incremental table rendering must generate only rows after the current DOM task count');
 assert.match(services, /function __tmReconcileListRowsForAppend[\s\S]*?stagingTable\.innerHTML[\s\S]*?currentKeys[\s\S]*?tbody\.appendChild/, 'incremental table patches must parse and append only the new batch');
 assert.doesNotMatch(services, /commonDesiredOrder|currentOrder\.some/, 'incremental table patches must not reconcile a regenerated full prefix');
 assert.match(listRuntime, /const taskRowIndex = visitedTaskRows;[\s\S]*?if \(taskRowIndex < startTaskRow\) return '';/, 'skipped task rows must not build complex table-cell HTML');
-assert.match(stores, /const progressiveListRender = state\?\.__tmProgressiveViewRender\?\.mode === mode[\s\S]*?filteredCount <= virtualThreshold && !progressiveListRender/, 'DOM signatures must preserve 20-row windows for progressive lists below the ordinary virtualization threshold');
+assert.doesNotMatch(stores, /const progressiveListRender = state\?\.__tmProgressiveViewRender\?\.mode === mode/, 'list render signatures must not depend on the removed table/timeline frame job');
 assert.match(listRuntime, /__tmGrowViewRenderWindow\('list', state\.filteredTasks\.length\)[\s\S]*?appendOnly: true/, 'manual load-more must reuse the incremental path');
 assert.match(dialogs, /window\.tmChecklistLoadMoreRows[\s\S]*?__tmAutoLoadMoreVisibleRows\(\{[\s\S]*?mode: 'checklist'/, 'checklist manual load-more must use the checklist render window');
 assert.match(dialogs, /mode === 'checklist'[\s\S]*?__tmRenderChecklistPreserveScroll\(\{[\s\S]*?appendOnly: true,[\s\S]*?previousLimit: grown\.previousLimit/, 'checklist auto-load must request an append-only in-place render');

@@ -10,6 +10,7 @@ const checklistRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/
 const viewSwitchRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/47-render-side-panels-and-view-switching.js'), 'utf8');
 const shellControlsRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/45-render-shell-controls-and-resize.js'), 'utf8');
 const renderRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/40-render-runtime.js'), 'utf8');
+const renderStateRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/21-view-render-state.js'), 'utf8');
 const sceneRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/41-render-scene-context.js'), 'utf8');
 const kanbanRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/43-render-timeline-kanban-calendar-body.js'), 'utf8');
 const dialogRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
@@ -32,10 +33,13 @@ assert.match(checklistRuntime, /const checklistVirtualThreshold = state\.__tmSna
 assert.doesNotMatch(checklistRuntime, /Object\.values\(state\.flatTasks/, 'checklist rendering must not scan and mutate the full task store');
 assert.doesNotMatch(checklistRuntime, /visibleDateAliases|writeVisibleDateAlias/, 'visible date aliases must be normalized at the data boundary, not during rendering');
 assert.match(checklistRuntime, /onclick="tmChecklistLoadMoreRows\(event\)"/, 'checklist load-more must use its own render-window policy');
-assert.match(viewSwitchRuntime, /__tmStartProgressiveViewRender\(next\)[\s\S]*__tmScheduleProgressiveViewRender\(next, progressiveJob\)/, 'large list view switches must append rows progressively after the first paint');
-assert.match(kanbanRuntime, /progressiveKanbanRender[\s\S]*kanbanProgressiveJob\.batchSize[\s\S]*renderColumnListHtml\(progressiveColumnLimit\)/, 'kanban switches must render the first batch independently in every column');
-assert.match(kanbanRuntime, /let progressiveColumnLimit = progressiveKanbanRender && !isColumnCollapsed[\s\S]*?: Number\.POSITIVE_INFINITY;[\s\S]*?const initialColumnRender = renderColumnListHtml\(progressiveColumnLimit\);/, 'collapsed kanban columns must keep mounted cards for local expansion while skipping progressive batches');
-assert.match(kanbanRuntime, /__tmRegisterKanbanProgressiveColumn[\s\S]*progressiveColumnLimit \+=[\s\S]*body\.innerHTML = nextColumnRender\.html/, 'expanded kanban columns must load later batches through independent column bodies');
+assert.match(viewSwitchRuntime, /__tmStartProgressiveViewRender\(next\)[\s\S]*__tmScheduleProgressiveViewRender\(next, progressiveJob\)/, 'view switches must retain the shared column-aware kanban continuation hook');
+assert.match(renderStateRuntime, /value !== 'kanban' \|\| tasks\.length <= __TM_KANBAN_PROGRESSIVE_BATCH_SIZE/, 'table and timeline switches must rely on their existing near-bottom append loader');
+assert.doesNotMatch(renderStateRuntime, /job\.frameId = requestAnimationFrame\(run\)/, 'large views must not refill the entire snapshot through a frame loop');
+assert.match(kanbanRuntime, /progressiveKanbanRender[\s\S]*kanbanProgressiveJob\.initialBatchSize[\s\S]*renderColumnListHtml\(progressiveColumnLimit\)/, 'kanban switches must defer card construction until a column enters the horizontal viewport');
+assert.match(kanbanRuntime, /__tmRegisterKanbanProgressiveColumn[\s\S]*progressiveColumnLimit \+=[\s\S]*__tmPatchKanbanProgressiveColumn/, 'visible kanban columns must append later batches without rebuilding mounted cards');
+assert.doesNotMatch(kanbanRuntime, /body\.innerHTML = nextColumnRender\.html/, 'kanban batches must not replace a live column prefix');
+assert.match(renderRuntime, /__tmRequestKanbanProgressiveColumnLoad\?\.\(colKey\)/, 'expanding a deferred column must request its first visible batch');
 assert.match(viewSwitchRuntime, /function __tmShowViewSwitchPendingShell[\s\S]*?__tmSyncBodyOnlyViewSwitcherButtons\(modal, nextMode\)[\s\S]*?tm-main-stage--view-switch-pending[\s\S]*?aria-busy/, 'view switches must expose the target UI state before rendering its body');
 assert.match(mobileSwitchScheduler, /window\.tmSwitchViewMode\(next\)/, 'mobile navigation must enter the shared switch pipeline without an extra frame delay');
 assert.doesNotMatch(mobileSwitchScheduler, /requestAnimationFrame/, 'mobile navigation must not add another requestAnimationFrame queue before switching');

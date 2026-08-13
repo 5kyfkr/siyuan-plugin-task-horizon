@@ -25,6 +25,17 @@ const postCommitFunction = extractBetween(
     'function __tmRunSetDonePostCommitEffects(',
     'async function __tmSetDoneKernel(',
 );
+const committedEffectsFunction = extractBetween(
+    listSource,
+    'async function __tmRunCommittedSetDoneEffects(',
+    'try { globalThis.__tmRunCommittedSetDoneEffects = __tmRunCommittedSetDoneEffects; }',
+);
+assert.match(committedEffectsFunction, /set-done-tomato-failed[\s\S]*完成状态已保存，但番茄联动/,
+    'a failed Tomato side effect must report partial completion instead of disappearing');
+assert.doesNotMatch(committedEffectsFunction, /catch\(\(\) => null\)/,
+    'completion side effects must not silently swallow Tomato failures');
+assert.match(apiSource, /set-done-effects-failed[\s\S]*完成状态已保存，但关联处理/,
+    'the mutation service must distinguish a committed completion from failed follow-up effects');
 const syncInstancesFunction = extractBetween(
     modelSource,
     'function __tmSyncRecurringInstanceTasks(',
@@ -40,8 +51,13 @@ const scheduleAdvanceFunction = extractBetween(
     'function __tmScheduleRecurringTaskAdvanceAfterCompletion(',
     'function __tmBuildTaskRepeatDueAdvancePatch(',
 );
+const dueAdvanceFunction = extractBetween(
+    recurringSource,
+    'function __tmBuildTaskRepeatDueAdvancePatch(',
+    'let __tmRecurringDueReconcilePromise = null;',
+);
 
-function testPostCommitRunsOnceAndDoesNotWaitForTomato() {
+function testPostCommitDefersRecurringReminderSettlementToAdvance() {
     const events = [];
     const task = {
         id: 'task-1',
@@ -61,7 +77,7 @@ function testPostCommitRunsOnceAndDoesNotWaitForTomato() {
         },
         __tmGetTaskAttrHostId: () => 'task-1',
         __tmDispatchTaskCompletedForReward: () => events.push(['reward']),
-        __tmMaybeAutoCompleteParentAfterSubtaskDone: () => {
+        __tmSyncParentDoneStateFromSubtasks: () => {
             events.push(['parent']);
             return Promise.resolve();
         },
@@ -78,12 +94,83 @@ function testPostCommitRunsOnceAndDoesNotWaitForTomato() {
     });
     assert.equal(scheduled, true);
     assert.deepEqual(events[0], ['recurring', task.taskCompleteAt], 'recurring advance must be scheduled before optional effects');
-    assert.deepEqual(events.map((item) => item[0]), ['recurring', 'delight', 'tomato', 'reward', 'parent']);
+    assert.deepEqual(events.map((item) => item[0]), ['recurring', 'delight', 'reward', 'parent'],
+        'a recurring completion must let the recurrence transaction settle the current reminder exactly once');
 
     context.runPostCommit('task-1', { done: true, previousDone: true, completedAt: task.taskCompleteAt });
-    assert.equal(events.length, 5, 'an already-completed write must not replay post-commit effects');
+    assert.equal(events.length, 4, 'an already-completed write must not replay post-commit effects');
     context.runPostCommit('task-1', { done: false, previousDone: true });
-    assert.equal(events.at(-1)[0], 'clear');
+    assert.deepEqual(events.slice(-2).map((item) => item[0]), ['clear', 'parent'],
+        'restoring a child must clear recurring work and synchronize its parent');
+}
+
+async function testCommittedEffectsRewardDoesNotWaitForStaleSqlOrTomato() {
+    const events = [];
+    let resolveRead = null;
+    const readGate = new Promise((resolve) => { resolveRead = resolve; });
+    const localTask = {
+        id: 'task-1',
+        done: true,
+        content: 'Committed task',
+        root_id: 'doc-1',
+        taskCompleteAt: '2026-08-07T10:00:00.000+08:00',
+        repeatRule: { enabled: false, type: 'none' },
+    };
+    const context = vm.createContext({
+        Promise,
+        SettingsStore: { data: { taskCompletionArchiveMode: 'none', taskCompletionArchiveDocId: '' } },
+        state: { flatTasks: { 'task-1': localTask }, pendingInsertedTasks: {} },
+        API: {
+            getTaskById: () => readGate,
+        },
+        __tmNormalizeTaskCompleteAtValue: (value) => String(value || '').trim(),
+        __tmGetTaskAttrHostId: () => 'task-1',
+        __tmDispatchTaskCompletedForReward: (_task, detail) => {
+            events.push(['reward', detail.priorityScore, detail.idempotencyKey]);
+            return true;
+        },
+        normalizeTaskFields: () => {},
+        __tmGetTaskRepeatRule: (task) => task.repeatRule || { enabled: false, type: 'none' },
+        __tmAdvanceRecurringTaskAfterCompletion: async () => false,
+        __tmSettleTomatoAfterTaskDone: () => {
+            events.push(['tomato']);
+            return new Promise(() => {});
+        },
+        __tmSyncParentDoneStateFromSubtasks: async () => null,
+        __tmNormalizeTaskCompletionArchiveMode: (value) => String(value || 'none'),
+        __tmClearRecurringTaskAdvanceTimer: () => {},
+    });
+    context.__tmRuntimeState = { getTaskById: () => localTask };
+    vm.runInContext(`${committedEffectsFunction}\nthis.runCommittedEffects = __tmRunCommittedSetDoneEffects;`, context);
+
+    const completion = context.runCommittedEffects('task-1', {
+        done: true,
+        previousDone: false,
+        completedAt: localTask.taskCompleteAt,
+        rewardPriorityScore: 120,
+        effectId: 'completion-op-1',
+    });
+    assert.deepEqual(events, [['reward', 120, 'completion-op-1:reward']],
+        'reward dispatch must happen synchronously after the acknowledged completion, before SQL readback');
+
+    resolveRead({
+        ...localTask,
+        done: false,
+        markdown: '* [ ] stale SQL row',
+    });
+    const result = await completion;
+    assert.equal(result.rewardDispatched, true);
+    assert.equal(result.skipped, undefined, 'a stale SQL done flag must not cancel committed completion effects');
+    assert.deepEqual(events.map((item) => item[0]), ['reward', 'tomato']);
+
+    await context.runCommittedEffects('task-1', {
+        done: true,
+        previousDone: true,
+        rewardPriorityScore: 120,
+        effectId: 'completion-op-2',
+    });
+    assert.equal(events.filter((item) => item[0] === 'reward').length, 1,
+        'an already-completed transition must not dispatch a second reward');
 }
 
 function testRecurringInstanceSyncOnlyTouchesLoadedDocuments() {
@@ -130,7 +217,7 @@ function testRecurringInstanceSyncOnlyTouchesLoadedDocuments() {
 }
 
 function createAdvanceHarness(task, buildPatch, options = {}) {
-    const calls = { persist: [], reset: 0, sync: 0, refresh: 0 };
+    const calls = { persist: [], reset: 0, sync: 0, refresh: 0, reminderSettle: 0, projections: [], broadcasts: [], snapshots: [] };
     const context = vm.createContext({
         state: { viewMode: 'list' },
         window: {},
@@ -141,10 +228,33 @@ function createAdvanceHarness(task, buildPatch, options = {}) {
         __tmNormalizeTaskRepeatState: (value) => ({ occurrenceCount: 1, lastCompletedAt: '', ...(value || {}) }),
         __tmNormalizeTaskCompleteAtValue: (value) => String(value || '').trim(),
         __tmNormalizeTaskRepeatHistory: (value) => Array.isArray(value) ? value : [],
+        __tmNormalizeTaskTomatoAmount: (value) => Math.max(0, Math.round((Number(value) || 0) * 100) / 100),
+        __tmNormalizeTaskTomatoCount: (value) => Math.max(0, Math.floor(Number(value) || 0)),
+        __tmGetTaskTomatoCumulativeValues: (value) => ({
+            tomatoMinutes: Math.max(0, Number(value?.tomatoMinutes) || 0),
+            tomatoHours: Math.max(0, Number(value?.tomatoHours) || 0),
+            tomatoCount: Math.max(0, Number(value?.tomatoCount) || 0),
+        }),
+        __tmGetTaskTomatoFocusValues: (value) => ({
+            tomatoMinutes: Math.max(0, (Number(value?.tomatoMinutes) || 0) - (Number(value?.repeatState?.tomatoBaselineMinutes) || 0)),
+            tomatoHours: Math.max(0, (Number(value?.tomatoHours) || 0) - (Number(value?.repeatState?.tomatoBaselineHours) || 0)),
+            tomatoCount: Math.max(0, (Number(value?.tomatoCount) || 0) - (Number(value?.repeatState?.tomatoBaselineCount) || 0)),
+        }),
+        __tmBuildTaskTomatoBaselinePatch: (value) => ({
+            tomatoBaselineMinutes: Math.max(0, Number(value?.tomatoMinutes) || 0),
+            tomatoBaselineHours: Math.max(0, Number(value?.tomatoHours) || 0),
+            tomatoBaselineCount: Math.max(0, Number(value?.tomatoCount) || 0),
+            tomatoBaselineSet: true,
+        }),
         __tmBuildTaskRepeatAdvancePatch: buildPatch,
         __tmNormalizeFsrsRating: (value) => Math.max(0, Math.min(4, Number(value) || 0)),
         __tmBuildFsrsReviewPatch: options.buildFsrsReviewPatch || (() => { throw new Error('unexpected FSRS review'); }),
         __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
+        __tmGetTaskAttrHostId: () => task.id,
+        __tmSettleTomatoAfterTaskDone: async () => {
+            calls.reminderSettle += 1;
+            return true;
+        },
         __tmApplyTaskMetaPatchWithUndo: async (_taskId, patch, persistOptions) => {
             calls.persist.push({ patch, options: persistOptions });
             if (options.persistError) throw options.persistError;
@@ -155,8 +265,15 @@ function createAdvanceHarness(task, buildPatch, options = {}) {
         },
         __tmReassignCompletedScheduleToRecurringInstance: async () => true,
         __tmSyncRecurringInstanceTasks: () => { calls.sync += 1; },
+        __tmBuildRecurringInstanceTask: () => ({ id: 'repeatinst:task-1:20260723100000' }),
         __tmRefreshViewsAfterTaskMutation: () => { calls.refresh += 1; },
+        __tmTaskMutationBus: {
+            publish: (mutation) => calls.projections.push(mutation),
+        },
+        __tmDispatchTaskAttrPatchUpdated: (_taskId, patch) => calls.broadcasts.push(patch),
+        __tmScheduleTaskSnapshotAfterLocalPatch: (_taskId, patch) => calls.snapshots.push(patch),
         hint: () => {},
+        console,
     });
     context.window.tmSetDone = async () => {
         calls.reset += 1;
@@ -184,6 +301,9 @@ async function testRecurringAdvanceStateMachine() {
         repeatRule: { enabled: true, type: 'daily', maxOccurrences: 0 },
         repeatState: { occurrenceCount: 1, lastCompletedAt: '' },
         repeatHistory: [],
+        tomatoMinutes: 55,
+        tomatoHours: 0.92,
+        tomatoCount: 3,
     };
     const nextPatch = () => ({
         startDate: '2026-07-24',
@@ -196,9 +316,26 @@ async function testRecurringAdvanceStateMachine() {
     assert.equal(first.calls.persist[0].options.wait, true);
     assert.equal(first.calls.persist[0].options.background, false);
     assert.equal(first.calls.persist[0].patch.repeatHistory[0].content, 'Daily task');
+    assert.equal(first.calls.persist[0].patch.repeatHistory[0].tomatoOccurrenceMinutes, '55');
+    assert.equal(first.calls.persist[0].patch.repeatHistory[0].tomatoOccurrenceCount, '3');
+    assert.equal(first.calls.persist[0].patch.repeatState.tomatoBaselineMinutes, 55);
     assert.equal(first.calls.reset, 1);
     assert.equal(first.calls.sync, 1);
-    assert.equal(first.calls.refresh, 1);
+    assert.equal(first.calls.refresh, 0, 'the composite transaction must not use the legacy view refresh path');
+    assert.equal(first.calls.projections.length, 1, 'the recurring transaction must publish one final projection');
+    assert.equal(first.calls.projections[0].type, 'taskLifecycle');
+    assert.equal(first.calls.projections[0].patch.done, false);
+    assert.equal(first.calls.projections[0].patch.completionTime, '2026-07-24');
+    assert.equal(first.calls.projections[0].changeSet.structural, true);
+    assert.deepEqual(Array.from(first.calls.projections[0].changeSet.upsertedTaskIds), [
+        'task-1',
+        'repeatinst:task-1:20260723100000',
+    ]);
+    assert.equal(first.calls.broadcasts.length, 1, 'external field consumers must receive one final patch');
+    assert.equal(first.calls.snapshots.length, 1, 'the transaction must persist only its final snapshot');
+    assert.equal(first.calls.reminderSettle, 1, 'the current reminder must settle before its task date advances');
+    assert.equal(first.calls.persist[0].options.deferProjection, true,
+        'intermediate recurring metadata must remain hidden until completion reset succeeds');
 
     const resetOnlyTask = {
         ...newTask,
@@ -211,6 +348,8 @@ async function testRecurringAdvanceStateMachine() {
     assert.equal(await resetOnly.advance('task-1', { completedAt, suppressHint: true }), true);
     assert.equal(resetOnly.calls.persist.length, 0);
     assert.equal(resetOnly.calls.reset, 1);
+    assert.equal(resetOnly.calls.reminderSettle, 0,
+        'crash recovery after metadata advance must not mark the next reminder occurrence complete');
 
     const finishedTask = {
         ...newTask,
@@ -280,6 +419,38 @@ async function testRecurringFailureSchedulesOneFallbackRefresh() {
     assert.equal(hintCount, 1);
 }
 
+function testDueAdvanceResetsTomatoBaseline() {
+    const context = vm.createContext({
+        Date,
+        __tmNormalizeTaskRepeatRule: (value) => value,
+        __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
+        __tmNormalizeTaskRepeatState: (value) => ({ occurrenceCount: 1, ...(value || {}) }),
+        __tmBuildTaskRepeatAdvancePatch: (task) => ({
+            startDate: '2026-08-13',
+            completionTime: '2026-08-13',
+            repeatState: { ...task.repeatState, occurrenceCount: task.repeatState.occurrenceCount + 1 },
+        }),
+        __tmBuildTaskTomatoBaselinePatch: (task) => ({
+            tomatoBaselineMinutes: Number(task.tomatoMinutes) || 0,
+            tomatoBaselineHours: Number(task.tomatoHours) || 0,
+            tomatoBaselineCount: Number(task.tomatoCount) || 0,
+            tomatoBaselineSet: true,
+        }),
+    });
+    vm.runInContext(`${dueAdvanceFunction}\nthis.buildDueAdvance = __tmBuildTaskRepeatDueAdvancePatch;`, context);
+    const patch = context.buildDueAdvance({
+        startDate: '2026-08-11',
+        completionTime: '2026-08-11',
+        tomatoMinutes: 80,
+        tomatoHours: 1.33,
+        tomatoCount: 4,
+        repeatState: { occurrenceCount: 1, tomatoBaselineMinutes: 55, tomatoBaselineHours: 0.92, tomatoBaselineCount: 3 },
+    }, { enabled: true, trigger: 'due', type: 'daily' }, { todayKey: '2026-08-13' });
+    assert.equal(patch.repeatState.tomatoBaselineMinutes, 80);
+    assert.equal(patch.repeatState.tomatoBaselineHours, 1.33);
+    assert.equal(patch.repeatState.tomatoBaselineCount, 4);
+}
+
 async function testFsrsCompletionUsesTheSameRecoverableTransaction() {
     const completedAt = '2026-07-25T09:00:00.000+08:00';
     const task = {
@@ -325,19 +496,36 @@ async function testFsrsCompletionUsesTheSameRecoverableTransaction() {
 }
 
 async function run() {
-    testPostCommitRunsOnceAndDoesNotWaitForTomato();
+    testPostCommitDefersRecurringReminderSettlementToAdvance();
+    await testCommittedEffectsRewardDoesNotWaitForStaleSqlOrTomato();
     testRecurringInstanceSyncOnlyTouchesLoadedDocuments();
     await testRecurringAdvanceStateMachine();
     await testFsrsCompletionUsesTheSameRecoverableTransaction();
     await testRecurringFailureSchedulesOneFallbackRefresh();
+    testDueAdvanceResetsTomatoBaseline();
 
-    const kernel = extractBetween(listSource, 'async function __tmSetDoneKernel(', 'const __tmAutoCompleteParentTaskIdsInFlight');
-    const applyStatus = extractBetween(apiSource, 'async function __tmApplyTaskStatus(', 'async function __tmApplyTaskStatusBatch(');
+    const kernel = extractBetween(listSource, 'async function __tmSetDoneKernel(', 'function __tmAutoCompleteGetTaskById(');
+    const committedEffects = extractBetween(listSource, 'async function __tmRunCommittedSetDoneEffects(', 'try { globalThis.__tmRunCommittedSetDoneEffects');
     assert.ok(kernel.indexOf('__tmUpdateTaskListItemMarkerWithFallback') < kernel.indexOf('GlobalLock.lock()'));
     assert.ok(kernel.indexOf('__tmUpdateTaskListItemMarkerWithFallback') < kernel.indexOf('fallbackTreeSnapshot = TreeProtector.capture(doc.tasks)'));
-    assert.ok(applyStatus.indexOf('__tmScheduleRecurringTaskAdvanceAfterCompletion') < applyStatus.indexOf('__tmSettleTomatoAfterTaskDone'));
-    assert.match(apiSource, /deferCompletionEffects:\s*true/);
+    assert.match(advanceFunction, /if \(!alreadyAdvanced\)[\s\S]*__tmSettleTomatoAfterTaskDone[\s\S]*__tmApplyTaskMetaPatchWithUndo/,
+        'the current reminder occurrence must settle before recurring task metadata advances');
+    assert.match(committedEffects, /if \(!recurringTask\)[\s\S]*__tmSettleTomatoAfterTaskDone/,
+        'the recurrence transaction must own reminder settlement even when the series reaches its end');
+    const reminderCompletion = extractBetween(
+        apiSource,
+        'async function __tmMaybeAdvanceRecurringTaskFromReminderRecord(',
+        '__tmNs.reminderBridge = {',
+    );
+    assert.doesNotMatch(reminderCompletion, /__tmAdvanceRecurringTaskAfterCompletion\(/,
+        'Tomato completion must not repeat recurrence already owned by tmSetDone effects');
+    assert.doesNotMatch(apiSource, /async function __tmApplyTaskStatus\(/,
+        'status changes must not keep a second marker-then-attrs writer');
+    assert.match(apiSource, /__tmCommitQueuedOp\(op, result\)[\s\S]*__tmBuildSetDoneEffectsOp\(op\)[\s\S]*await __tmRunInTaskWriterContext\([\s\S]*mutation:setDoneEffects/,
+        'recurring and reward effects must run only after the core set-done command commits');
     assert.doesNotMatch(recurringSource, /wait:\s*false[\s\S]*task-repeat-advance/);
+    assert.doesNotMatch(dueAdvanceFunction, /__advancedCount/,
+        'due-trigger reconciliation must pass only writable task fields to the mutation service');
     console.log('task recurring completion transaction tests passed');
 }
 

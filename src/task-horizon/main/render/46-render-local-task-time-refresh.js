@@ -25,10 +25,7 @@
     function __tmUpdateTimelineTaskInDOM(taskId) {
         const id = String(taskId || '').trim();
         if (!id) return false;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-            || state.flatTasks?.[id]
-            || state.pendingInsertedTasks?.[id]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
         if (!task) return false;
         const modal = state.modal;
         if (!modal) return false;
@@ -36,10 +33,11 @@
         try {
             const row = modal.querySelector(`#tmTimelineLeftTable tbody tr[data-id="${id}"]`);
             if (row) {
-                const tds = row.querySelectorAll('td');
-                if (tds && tds.length >= 3) {
-                    try { tds[1].textContent = __tmFormatTaskTime(task.startDate); } catch (e) {}
-                    try { tds[2].textContent = __tmFormatTaskTime(task.completionTime); } catch (e) {}
+                const startDateCell = row.querySelector('[data-tm-task-time-field="startDate"]');
+                const completionTimeCell = row.querySelector('[data-tm-task-time-field="completionTime"]');
+                if (startDateCell || completionTimeCell) {
+                    try { if (startDateCell) startDateCell.textContent = __tmFormatTaskTime(task.startDate); } catch (e) {}
+                    try { if (completionTimeCell) completionTimeCell.textContent = __tmFormatTaskTime(task.completionTime); } catch (e) {}
                     try { __tmSyncTimelineDateColumnWidths(modal); } catch (e) {}
                 }
             }
@@ -147,10 +145,7 @@
         const task = (taskLike && typeof taskLike === 'object')
             ? taskLike
             : (
-                globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-                || state.flatTasks?.[id]
-                || state.pendingInsertedTasks?.[id]
-                || null
+                globalThis.__tmTaskBoundary?.getTask?.(id) || null
             );
         const row = rowEl instanceof HTMLElement
             ? rowEl
@@ -197,10 +192,7 @@ return ok;
         const task = (taskLike && typeof taskLike === 'object')
             ? taskLike
             : (
-                globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-                || state.flatTasks?.[id]
-                || state.pendingInsertedTasks?.[id]
-                || null
+                globalThis.__tmTaskBoundary?.getTask?.(id) || null
             );
         const item = itemEl instanceof HTMLElement
             ? itemEl
@@ -314,10 +306,7 @@ return ok;
     function __tmUpdateKanbanTaskTimeInDOM(taskId, options = {}) {
         const id = String(taskId || '').trim();
         if (!id) return false;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-            || state.flatTasks?.[id]
-            || state.pendingInsertedTasks?.[id]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
         if (!task || !(state.modal instanceof Element)) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const patch = (opts.patch && typeof opts.patch === 'object') ? opts.patch : {};
@@ -339,6 +328,7 @@ return ok;
         }
         const card = state.modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(id)}"]`);
         if (!(card instanceof HTMLElement)) return false;
+        card.classList.toggle('tm-kanban-card--overdue', __tmIsTaskCardDateOverdue(taskForRender));
         try {
             if (typeof __tmSyncTaskCardMetaChipsInDOM === 'function'
                 && __tmSyncTaskCardMetaChipsInDOM(card, taskForRender, 'kanban')) {
@@ -395,11 +385,11 @@ return ok;
     function __tmUpdateWhiteboardTaskTimeInDOM(taskId) {
         const id = String(taskId || '').trim();
         if (!id || !(state.modal instanceof Element)) return false;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-            || state.flatTasks?.[id]
-            || state.pendingInsertedTasks?.[id]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
         if (!task) return false;
+        state.modal.querySelectorAll(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`).forEach((node) => {
+            if (node instanceof HTMLElement) node.classList.toggle('tm-kanban-card--overdue', __tmIsTaskCardDateOverdue(task));
+        });
         const dateNodes = state.modal.querySelectorAll(
             `.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"], ` +
             `.tm-whiteboard-stream-task-head[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"], ` +
@@ -443,94 +433,32 @@ return ok;
         return true;
     }
 
-    async function __tmCommitTaskTimeFields(taskId, patch = {}, options = {}) {
-        const tid = String(taskId || '').trim();
-        if (!tid) return { changed: false, task: null };
-        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
-        const opts = (options && typeof options === 'object') ? options : {};
-        const task0 = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
-        try {
-            const suppressIds = [
-                tid,
-                String(task0?.attrHostId || '').trim(),
-                String(task0?.attr_host_id || '').trim(),
-            ].filter(Boolean);
-            __tmMarkLocalTimeTxSuppressionIds(suppressIds, [
-                String(task0?.root_id || '').trim(),
-                String(task0?.docId || '').trim(),
-            ]);
-            
-        } catch (e) {}
-        const datePatch = {};
-        const metaPatch = {};
-        if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate')) datePatch.startDate = String(nextPatch.startDate || '').trim();
-        if (Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) datePatch.completionTime = String(nextPatch.completionTime || '').trim();
-        if (Object.prototype.hasOwnProperty.call(nextPatch, 'duration')) metaPatch.duration = String(nextPatch.duration || '').trim();
-        if (Object.prototype.hasOwnProperty.call(nextPatch, 'tomatoEstimateCount')) metaPatch.tomatoEstimateCount = __tmNormalizeTomatoCountValue(nextPatch.tomatoEstimateCount);
-        if (Object.prototype.hasOwnProperty.call(nextPatch, 'customTime')) metaPatch.customTime = String(nextPatch.customTime || '').trim();
-        let changed = false;
-        if (Object.keys(datePatch).length > 0) {
-            await window.tmUpdateTaskDates(tid, datePatch, {
-                source: String(opts.source || 'task-time').trim() || 'task-time',
-                refresh: false,
-                skipNoopCheck: opts.skipNoopCheck === true,
-                hard: opts.hard === true,
-                broadcast: opts.broadcast !== false,
-                queued: opts.queued === true,
-                background: opts.background === true,
-                skipFlush: opts.skipFlush,
-                attrTargetId: String(opts.attrTargetId || '').trim(),
-                mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
-                syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
-                renderOptimistic: opts.renderOptimistic !== false,
-});
-            changed = true;
-        }
-        if (Object.keys(metaPatch).length > 0) {
-            await __tmApplyTaskMetaPatchWithUndo(tid, metaPatch, {
-                source: String(opts.source || 'task-time').trim() || 'task-time',
-                label: String(opts.label || '时间字段').trim() || '时间字段',
-                refresh: false,
-                refreshCalendar: false,
-                withFilters: false,
-                skipNoopCheck: opts.skipNoopCheck === true,
-                hard: opts.hard === true,
-                broadcast: opts.broadcast !== false,
-                queued: opts.queued === true,
-                background: opts.background === true,
-                skipFlush: opts.skipFlush,
-                attrTargetId: String(opts.attrTargetId || '').trim(),
-                mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
-                syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
-                renderOptimistic: opts.renderOptimistic !== false,
-});
-            changed = true;
-        }
-        return {
-            changed,
-            task: globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                || state.flatTasks?.[tid]
-                || state.pendingInsertedTasks?.[tid]
-                || null,
-        };
-    }
-
     function __tmRefreshTaskTimeAcrossViews(taskId, options = {}) {
         const tid = String(taskId || '').trim();
         if (!tid) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const patch = (opts.patch && typeof opts.patch === 'object') ? opts.patch : {};
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task) return false;
         const viewMode = String(state.viewMode || '').trim();
         const hasCalendarDatePatch = Object.prototype.hasOwnProperty.call(patch, 'startDate')
             || Object.prototype.hasOwnProperty.call(patch, 'completionTime');
+        const taskForRefresh = hasCalendarDatePatch
+            ? (() => {
+                const next = { ...task };
+                if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
+                    const startDate = String(patch.startDate || '').trim();
+                    next.startDate = startDate;
+                    next.start_date = startDate;
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
+                    const completionTime = String(patch.completionTime || '').trim();
+                    next.completionTime = completionTime;
+                    next.completion_time = completionTime;
+                }
+                return next;
+            })()
+            : task;
         const isKanbanTimeBoard = (() => {
             if (viewMode !== 'kanban') return false;
             try {
@@ -546,10 +474,10 @@ return ok;
             if (__tmCanUpdateTimelineDatesInPlace(task)) refreshed = !!__tmUpdateTimelineTaskInDOM(tid) || refreshed;
             else shouldFallback = true;
         } else if (viewMode === 'list') {
-            if (__tmCanUpdateTaskTimeInListLike(task)) refreshed = !!__tmUpdateListTaskTimeInDOM(tid) || refreshed;
+            if (__tmCanUpdateTaskTimeInListLike(taskForRefresh)) refreshed = !!__tmUpdateListTaskTimeInDOM(tid, null, taskForRefresh) || refreshed;
             else shouldFallback = true;
         } else if (viewMode === 'checklist') {
-            if (__tmCanUpdateTaskTimeInListLike(task)) refreshed = !!__tmUpdateChecklistTaskTimeInDOM(tid) || refreshed;
+            if (__tmCanUpdateTaskTimeInListLike(taskForRefresh)) refreshed = !!__tmUpdateChecklistTaskTimeInDOM(tid, null, taskForRefresh) || refreshed;
             else shouldFallback = true;
         } else if (viewMode === 'kanban') {
             if (hasCalendarDatePatch) {

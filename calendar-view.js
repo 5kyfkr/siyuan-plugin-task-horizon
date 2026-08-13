@@ -3761,7 +3761,7 @@
         titleEl.onclick = (ev) => {
             try { ev.preventDefault(); } catch (e) {}
             try { ev.stopPropagation(); } catch (e) {}
-            try { openCalendarTaskDetail(taskId, ev); } catch (e) {}
+            try { openCalendarLinkedTask(taskId, ev); } catch (e) {}
             return false;
         };
         return true;
@@ -7800,21 +7800,6 @@
         return out;
     }
 
-    function shouldOpenTaskDetailOnCalendarTaskClick() {
-        const liveStore = state.settingsStore || state.sideDay?.settingsStore || null;
-        if (typeof liveStore?.data?.checklistCompactTitleOpenDetailPage === 'boolean') {
-            return !!liveStore.data.checklistCompactTitleOpenDetailPage;
-        }
-        try {
-            const raw = localStorage.getItem('tm_checklist_compact_title_open_detail_page');
-            if (raw != null) {
-                const normalized = String(raw).trim().toLowerCase();
-                return normalized === 'true' || normalized === '1';
-            }
-        } catch (e) {}
-        return false;
-    }
-
     function shouldEnableCalendarEventContextMenu() {
         return !(state.isMobileDevice || isLikelyMobileRuntime());
     }
@@ -7833,28 +7818,9 @@
     async function openCalendarLinkedTask(taskId, ev) {
         const tid = String(taskId || '').trim();
         if (!tid) return false;
-        if (shouldOpenTaskDetailOnCalendarTaskClick() && typeof window.tmOpenTaskDetail === 'function') {
+        if (typeof window.tmTaskTitleClick === 'function') {
             try {
-                const opened = await window.tmOpenTaskDetail(tid, ev);
-                if (opened !== false) return true;
-            } catch (e) {}
-        }
-        if (typeof window.tmJumpToTask === 'function') {
-            try {
-                await window.tmJumpToTask(tid, ev);
-                return true;
-            } catch (e) {}
-        }
-        return false;
-    }
-
-    async function openCalendarTaskDetail(taskId, ev) {
-        const tid = String(taskId || '').trim();
-        if (!tid) return false;
-        if (typeof window.tmOpenTaskDetail === 'function') {
-            try {
-                const opened = await window.tmOpenTaskDetail(tid, ev);
-                if (opened !== false) return true;
+                return await window.tmTaskTitleClick(tid, ev, { surface: 'calendar' });
             } catch (e) {}
         }
         if (typeof window.tmJumpToTask === 'function') {
@@ -9514,8 +9480,8 @@
             await window.tmSetTaskPriority(id, nextKey === 'none' ? '' : nextKey, {
                 silent: true,
                 source: 'floating-mini-priority',
-                forceImmediate: true,
-                optimisticProjectionRefresh: true,
+                wait: true,
+                skipInteractionGate: true,
             });
             state.floatingMini.dragPriorityKey = nextKey;
             state.floatingMini.priorityHoverKey = '';
@@ -10092,21 +10058,13 @@
         try {
             await window.tmUpdateTaskDates(id, { completionTime: normalizedDateKey }, {
                 source: 'floating-mini-taskdate-save',
-                immediateProjectionRefresh: true,
+                background: true,
                 wait: true,
-                skipFlush: false,
-                syncMirrorTaskAttrs: true,
+                skipInteractionGate: true,
+                skipFlush: true,
+                renderOptimistic: true,
+                showErrorHint: false,
             });
-            try {
-                scheduleCalendarRefresh({
-                    reason: 'floating-mini-taskdate-save',
-                    main: true,
-                    side: true,
-                    flushTaskPanel: true,
-                    rangeStart: normalizedDateKey,
-                    rangeEnd: normalizedDateKey,
-                });
-            } catch (e2) {}
             state.floatingMini.lastDropAt = Date.now();
             state.floatingMini.selectedDateKey = normalizedDateKey;
             state.floatingMini.sourceDateKey = normalizedDateKey;
@@ -11810,6 +11768,7 @@
                     state.scheduleCache.lastLoadError = false;
                     return Array.isArray(state.scheduleCache.list) ? state.scheduleCache.list : out;
                 }
+                sourceReadError = true;
             } catch (e) { sourceReadError = true; }
             try {
                 const raw = String(localStorage.getItem(STORAGE.SCHEDULE_LS_KEY) || '');
@@ -11819,7 +11778,6 @@
                     return [];
                 }
                 const parsed = JSON.parse(raw);
-                sourceReadError = false;
                 sourceLoaded = true;
                 const { out } = normalizeScheduleList(parsed);
                 setScheduleCache(out, computeScheduleSourceSignature(raw));
@@ -15495,7 +15453,7 @@
                     background: true,
                     wait: true,
                     refreshCalendar: false,
-                    skipFlush: false,
+                    skipFlush: true,
                     requireTaskIdentity: true,
                     ignoreMissingTask: true,
                 });
@@ -15756,18 +15714,13 @@
         try {
             await window.tmUpdateTaskDates(taskId, { completionTime: dateKey }, {
                 source: String(opt.source || 'calendar-drop-task-due-date').trim() || 'calendar-drop-task-due-date',
-                immediateProjectionRefresh: true,
+                background: true,
+                wait: true,
+                skipInteractionGate: true,
+                skipFlush: true,
+                renderOptimistic: true,
+                showErrorHint: false,
             });
-            try {
-                scheduleCalendarRefresh({
-                    reason: String(opt.source || 'calendar-drop-task-due-date').trim() || 'calendar-drop-task-due-date',
-                    main: true,
-                    side: true,
-                    flushTaskPanel: true,
-                    rangeStart: dateKey,
-                    rangeEnd: dateKey,
-                });
-            } catch (e2) {}
             toast(`✅ 截止日期已更新为 ${dateKey}`, 'success');
         } catch (e) {
             toast(`❌ 更新截止日期失败：${String(e?.message || e || '')}`, 'error');
@@ -17891,14 +17844,20 @@
                 if (source === 'taskdate') {
                     const tid = String(ext.__tmTaskId || '').trim();
                     try {
-                        if (tid) openCalendarLinkedTask(tid, jsEvent);
+                        if (tid) {
+                            if (interactiveHit?.kind === 'title') openCalendarLinkedTask(tid, jsEvent);
+                            else jumpCalendarLinkedTask(tid, jsEvent);
+                        }
                     } catch (e) {}
                     return;
                 }
                 if (source === 'reminder') {
                     const tid = String(ext.__tmReminderBlockId || '').trim();
                     try {
-                        if (tid) openCalendarLinkedTask(tid, jsEvent);
+                        if (tid) {
+                            if (interactiveHit?.kind === 'title') openCalendarLinkedTask(tid, jsEvent);
+                            else jumpCalendarLinkedTask(tid, jsEvent);
+                        }
                     } catch (e) {}
                     return;
                 }
@@ -17906,8 +17865,7 @@
                     const tid = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
                     if (source === 'schedule' && tid) {
                         try {
-                            if (isCalendarMonthNativeTimedEventElement(hitEventEl, { event: activeEvent, view: cal?.view }, source)) openCalendarTaskDetail(tid, jsEvent);
-                            else openCalendarLinkedTask(tid, jsEvent);
+                            openCalendarLinkedTask(tid, jsEvent);
                         } catch (e) {}
                         return;
                     }
@@ -19102,6 +19060,9 @@
         const defMap = new Map(defs.map((d) => [d.id, d]));
         const events = (Array.isArray(items) ? items : []).map((it) => {
             const taskId = String(it?.id || '').trim();
+            try {
+                if (taskId && globalThis.__tmRuntimeState?.isPendingDeletedTaskId?.(taskId)) return null;
+            } catch (e) {}
             const sourceTaskId = String(it?.sourceTaskId || it?.recurringSourceTaskId || '').trim();
             const actionTaskId = sourceTaskId || taskId;
             const title = String(it?.title || '').trim() || '任务';
@@ -19426,6 +19387,9 @@
         const sourceStartKey = String(hasPatchStart ? p.startDate : (fallbackExt.__tmTaskDateSourceStartKey || '')).trim();
         const sourceCompletionKey = String(hasPatchCompletion ? p.completionTime : (fallbackExt.__tmTaskDateSourceCompletionKey || '')).trim();
         const meta = resolveTaskDateLocalEventMeta(tid, fallbackEvent);
+        const title = Object.prototype.hasOwnProperty.call(p, 'content')
+            ? normalizeCalendarTaskTitleText(String(p.content || '').trim(), meta.title || '任务')
+            : meta.title;
         const { startKey, endKey } = resolveTaskDateDisplayRange(sourceStartKey, sourceCompletionKey, meta.milestone);
         if (!tid || !startKey || !endKey) return null;
         const cal = calendar || null;
@@ -19437,7 +19401,7 @@
         if (range && !overlap(startDate.getTime(), endExclusiveDate.getTime(), range.start.getTime(), range.end.getTime())) return null;
         const events = buildEventsFromTaskDates([{
             id: tid,
-            title: meta.title,
+            title,
             start: startKey,
             endExclusive: formatDateKey(endExclusiveDate),
             sourceStart: sourceStartKey,
@@ -19790,6 +19754,9 @@
         } else if (Object.prototype.hasOwnProperty.call(patch, 'color')) {
             normalizedPatch.taskDateColor = String(patch.color || '').trim();
         }
+        if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
+            normalizedPatch.content = String(patch.content || '').trim();
+        }
         if (!Object.keys(normalizedPatch).length) return { touched: false };
         const opts = (options && typeof options === 'object') ? options : {};
         return syncTaskDateEventFromDateFollowPatch(tid, normalizedPatch, {
@@ -19917,7 +19884,7 @@
             refreshCalendar: false,
             broadcast: false,
             renderOptimistic: false,
-            skipFlush: false,
+            skipFlush: true,
             withFilters: false,
         });
         const localPatch = {};
@@ -22131,7 +22098,7 @@
                             refreshCalendar: false,
                             broadcast: false,
                             renderOptimistic: false,
-                            skipFlush: false,
+                            skipFlush: true,
                             withFilters: false,
                         });
                         const resolvedTaskId = String(result?.id || targetId).trim();
@@ -22428,6 +22395,16 @@
             nextSignature,
             nextView,
         });
+        return false;
+    }
+
+    async function jumpCalendarLinkedTask(taskId, ev) {
+        const tid = String(taskId || '').trim();
+        if (!tid || typeof window.tmJumpToTask !== 'function') return false;
+        try {
+            await window.tmJumpToTask(tid, ev);
+            return true;
+        } catch (e) {}
         return false;
     }
 
@@ -23243,14 +23220,20 @@
                 if (source === 'taskdate') {
                     const tid = String(ext.__tmTaskId || '').trim();
                     try {
-                        if (tid) openCalendarLinkedTask(tid, jsEvent);
+                        if (tid) {
+                            if (interactiveHit?.kind === 'title') openCalendarLinkedTask(tid, jsEvent);
+                            else jumpCalendarLinkedTask(tid, jsEvent);
+                        }
                     } catch (e) {}
                     return;
                 }
                 if (source === 'reminder') {
                     const tid = String(ext.__tmReminderBlockId || '').trim();
                     try {
-                        if (tid) openCalendarLinkedTask(tid, jsEvent);
+                        if (tid) {
+                            if (interactiveHit?.kind === 'title') openCalendarLinkedTask(tid, jsEvent);
+                            else jumpCalendarLinkedTask(tid, jsEvent);
+                        }
                     } catch (e) {}
                     return;
                 }
@@ -23258,8 +23241,7 @@
                     const tid = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
                     if (source === 'schedule' && tid) {
                         try {
-                            if (isCalendarMonthNativeTimedEventElement(hitEventEl, { event: activeEvent, view: calendar?.view }, source)) openCalendarTaskDetail(tid, jsEvent);
-                            else openCalendarLinkedTask(tid, jsEvent);
+                            openCalendarLinkedTask(tid, jsEvent);
                         } catch (e) {}
                         return;
                     }
@@ -23932,15 +23914,14 @@
                     if (interactiveHit?.kind === 'title') {
                         try { e.preventDefault?.(); } catch (e2) {}
                         try {
-                            if (isCalendarMonthNativeTimedEventElement(eventEl, { event: api, view: calendar?.view }, source)) openCalendarTaskDetail(tid, e);
-                            else openCalendarLinkedTask(tid, e);
+                            openCalendarLinkedTask(tid, e);
                         } catch (e2) {}
                         return;
                     }
                 }
                 if (source === 'taskdate') {
                     if (tid) {
-                        try { openCalendarLinkedTask(tid, e); } catch (e2) {}
+                        try { jumpCalendarLinkedTask(tid, e); } catch (e2) {}
                     }
                     return;
                 }
@@ -23954,7 +23935,7 @@
                         return;
                     }
                     if (rid) {
-                        try { openCalendarLinkedTask(rid, e); } catch (e2) {}
+                        try { jumpCalendarLinkedTask(rid, e); } catch (e2) {}
                     }
                     return;
                 }

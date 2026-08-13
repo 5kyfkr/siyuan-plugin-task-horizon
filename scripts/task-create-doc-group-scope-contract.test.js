@@ -32,11 +32,8 @@ assert.equal(runScopeCheck({ __tmLoadedDocIdsForTasks: ['doc-a'], taskTree: [] }
 assert.equal(runScopeCheck({ __tmLoadedDocIdsForTasks: ['doc-a'], taskTree: [{ id: 'doc-b' }] }, 'doc-b'), false);
 assert.equal(runScopeCheck({ __tmLoadedDocIdsForTasks: [], taskTree: [{ id: 'doc-b' }] }, 'doc-b'), true);
 
-assert.match(
-    source,
-    /function __tmCanUseLightweightCreateProjection\(task\)[\s\S]*?if \(!__tmIsDocInCurrentTaskScope\(docId\)\) return false;/,
-    'lightweight creation projection must reject documents outside the loaded group scope'
-);
+assert.doesNotMatch(source, /function __tmCanUseLightweightCreateProjection/,
+    'creation must not keep a second lightweight projection policy');
 assert.match(
     source,
     /const projectIntoCurrentScope = __tmIsDocInCurrentTaskScope\(docId\);[\s\S]*?if \(projectIntoCurrentScope\) \{[\s\S]*?__tmInsertTaskIntoDocLocal\(nextTask/,

@@ -10,7 +10,7 @@ const source = fs.readFileSync(
     'utf8',
 );
 
-const start = source.indexOf('const renderWhiteboardPoolDocSection = (docData) => {');
+const start = source.indexOf('const renderWhiteboardPoolDocSection = (docData, options = {}) => {');
 const end = source.indexOf('const poolDocDataList = poolSourceDocIds', start);
 assert.notEqual(start, -1, 'whiteboard task-pool document renderer must exist');
 assert.notEqual(end, -1, 'whiteboard task-pool document renderer boundary must exist');

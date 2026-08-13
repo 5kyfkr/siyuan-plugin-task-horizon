@@ -881,6 +881,121 @@
             #tm-custom-field-dialog-backdrop .tm-custom-field-scope-help {
                 line-height: 1.5;
             }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-tree {
+                display: flex;
+                flex-direction: column;
+                min-width: 0;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-drop-line {
+                position: relative;
+                box-sizing: border-box;
+                height: 8px;
+                margin-left: calc(var(--tm-option-depth, 0) * 18px);
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-drop-line::before {
+                content: '';
+                position: absolute;
+                inset: 3px 8px auto 8px;
+                height: 2px;
+                border-radius: 2px;
+                background: transparent;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-drop-line.is-drag-over::before {
+                background: var(--b3-theme-primary, var(--tm-primary-color));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-row {
+                display: grid;
+                grid-template-columns: 30px 30px minmax(120px, 1fr) auto;
+                align-items: center;
+                gap: 7px;
+                min-width: 0;
+                min-height: 44px;
+                margin-left: calc(var(--tm-option-depth, 0) * 18px);
+                padding: 6px 7px;
+                border: 1px solid var(--b3-border-color, var(--tm-border-color));
+                border-radius: 8px;
+                background: var(--b3-theme-background, var(--tm-card-bg));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-row[data-depth]:not([data-depth="0"]) {
+                border-left: 3px solid color-mix(in srgb, var(--b3-theme-primary, var(--tm-primary-color)) 32%, var(--b3-border-color, var(--tm-border-color)));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-row.is-effectively-archived {
+                opacity: 0.68;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-row.is-drag-over {
+                border-color: var(--b3-theme-primary, var(--tm-primary-color));
+                background: color-mix(in srgb, var(--b3-theme-primary, var(--tm-primary-color)) 7%, var(--b3-theme-background, var(--tm-card-bg)));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-drag,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-action {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                box-sizing: border-box;
+                width: 30px;
+                height: 30px;
+                padding: 0;
+                border: 1px solid transparent;
+                border-radius: 6px;
+                background: transparent;
+                color: var(--b3-theme-on-surface-light, var(--tm-secondary-text));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-drag {
+                cursor: grab;
+                touch-action: none;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-drag:active {
+                cursor: grabbing;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-action:not(:disabled) {
+                cursor: pointer;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-action:not(:disabled):hover,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-drag:hover {
+                border-color: var(--b3-border-color, var(--tm-border-color));
+                background: var(--b3-theme-surface-light, var(--tm-hover-bg));
+                color: var(--b3-theme-on-surface, var(--tm-text-color));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-action:disabled,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-drag[aria-disabled="true"] {
+                opacity: 0.34;
+                cursor: default;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-drag svg,
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-action svg {
+                width: 15px;
+                height: 15px;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-name-wrap {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: center;
+                gap: 6px;
+                min-width: 0;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-name {
+                box-sizing: border-box;
+                width: 100%;
+                min-width: 0;
+                height: 32px;
+                padding: 5px 8px;
+                border: 1px solid var(--b3-border-color, var(--tm-input-border));
+                border-radius: 7px;
+                background: var(--b3-theme-background, var(--tm-input-bg));
+                color: var(--b3-theme-on-surface, var(--tm-text-color));
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-badge {
+                flex: none;
+                color: var(--b3-theme-on-surface-light, var(--tm-secondary-text));
+                font-size: 11px;
+                white-space: nowrap;
+            }
+            #tm-custom-field-dialog-backdrop .tm-custom-field-option-actions {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                gap: 2px;
+            }
             @media (max-width: 720px) {
                 #tm-custom-field-dialog-backdrop .tm-custom-field-scope-controls {
                     grid-template-columns: 1fr;
@@ -894,6 +1009,23 @@
                 }
                 #tm-custom-field-dialog-backdrop .tm-custom-field-scope-token {
                     max-width: 100%;
+                }
+                #tm-custom-field-dialog-backdrop .tm-custom-field-option-row {
+                    grid-template-columns: 30px 30px minmax(0, 1fr);
+                    margin-left: calc(var(--tm-option-depth, 0) * 12px);
+                    padding: 7px;
+                }
+                #tm-custom-field-dialog-backdrop .tm-custom-field-option-drop-line {
+                    margin-left: calc(var(--tm-option-depth, 0) * 12px);
+                }
+                #tm-custom-field-dialog-backdrop .tm-custom-field-option-actions {
+                    grid-column: 2 / 4;
+                    justify-content: flex-start;
+                    flex-wrap: wrap;
+                }
+                #tm-custom-field-dialog-backdrop .tm-custom-field-option-action {
+                    width: 36px;
+                    height: 36px;
                 }
             }
         `;
@@ -938,6 +1070,21 @@
         let draft = resolveDraft(currentField, String(opts.type || '').trim());
         let scopeDocSearch = '';
         let openScopePicker = '';
+        let draggedOptionId = '';
+
+        const createDraftOptionId = () => {
+            const existingIds = new Set((Array.isArray(draft.options) ? draft.options : [])
+                .map((option) => String(option?.id || '').trim())
+                .filter(Boolean));
+            const base = `option-${Date.now().toString(36)}`;
+            let id = base;
+            let suffix = 2;
+            while (existingIds.has(id)) {
+                id = `${base}-${suffix}`;
+                suffix += 1;
+            }
+            return id;
+        };
 
         const backdrop = document.createElement('div');
         backdrop.id = 'tm-custom-field-dialog-backdrop';
@@ -1060,17 +1207,69 @@
                     </button>
                 `;
             }).join('');
-            const optionRows = (Array.isArray(draft.options) ? draft.options : []).map((option, index) => `
-                <div data-tm-custom-field-option-row="${index}" style="display:grid;grid-template-columns:${isCompact ? '36px minmax(0,1fr) auto' : '36px 1fr 86px auto'};gap:8px;align-items:center;padding:${isCompact ? '10px' : '8px'};border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
-                    <input data-tm-custom-field-option-color="${index}" type="color" value="${esc(String(option?.color || __tmGetCustomFieldPresetColor(index)).trim() || __tmGetCustomFieldPresetColor(index))}" style="width:28px;height:28px;border:none;padding:0;background:none;cursor:pointer;">
-                    <input data-tm-custom-field-option-name="${index}" type="text" value="${esc(String(option?.name || '').trim())}" placeholder="选项名称" style="width:100%;min-width:0;padding:6px 8px;border:1px solid var(--tm-input-border);border-radius:8px;background:var(--tm-input-bg);color:var(--tm-text-color);${isCompact ? 'grid-column:2 / span 2;' : ''}">
-                    <div style="display:flex;gap:4px;justify-content:${isCompact ? 'flex-start' : 'flex-end'};${isCompact ? 'grid-column:2;' : ''}">
-                        <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-option-move-up="${index}" ${index === 0 ? 'disabled' : ''} style="padding:${isCompact ? '6px 10px' : '4px 8px'};font-size:12px;min-height:${isCompact ? '36px' : 'auto'};">↑</button>
-                        <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-option-move-down="${index}" ${index === draft.options.length - 1 ? 'disabled' : ''} style="padding:${isCompact ? '6px 10px' : '4px 8px'};font-size:12px;min-height:${isCompact ? '36px' : 'auto'};">↓</button>
+            const optionRuntime = __tmBuildCustomFieldOptionRuntime(draft);
+            draft.options = optionRuntime.options.map((option) => ({ ...option }));
+            const supportsDesktopDrag = !__tmIsMobileDevice();
+            const renderOptionAction = (optionId, action, icon, title, disabled = false) => `
+                <button type="button" class="tm-custom-field-option-action" data-tm-custom-field-option-action="${action}" data-option-id="${esc(optionId)}" title="${esc(title)}" aria-label="${esc(title)}" ${disabled ? 'disabled' : ''}>
+                    ${__tmRenderLucideIcon(icon)}
+                </button>
+            `;
+            const renderDropLine = (parentId, siblingIndex, depth) => `
+                <div class="tm-custom-field-option-drop-line" style="--tm-option-depth:${depth};" data-tm-custom-field-option-drop-line data-target-parent-id="${esc(parentId)}" data-target-sibling-index="${siblingIndex}" aria-hidden="true"></div>
+            `;
+            const renderOptionNode = (option) => {
+                const optionId = String(option?.id || '').trim();
+                const parentId = String(option?.parentId || '').trim();
+                const depth = Number(optionRuntime.depthById.get(optionId) || 0);
+                const siblings = optionRuntime.childrenByParentId.get(parentId) || [];
+                const siblingIndex = siblings.findIndex((item) => String(item?.id || '').trim() === optionId);
+                const previousSibling = siblingIndex > 0 ? siblings[siblingIndex - 1] : null;
+                const previousSiblingId = String(previousSibling?.id || '').trim();
+                const previousChildren = previousSiblingId ? (optionRuntime.childrenByParentId.get(previousSiblingId) || []) : [];
+                const canIndent = !!previousSiblingId && __tmMoveCustomFieldOptionSubtree(draft.options, {
+                    sourceId: optionId,
+                    targetParentId: previousSiblingId,
+                    targetSiblingIndex: previousChildren.length,
+                }).ok;
+                const parentOption = parentId ? optionRuntime.optionById.get(parentId) : null;
+                const parentParentId = String(parentOption?.parentId || '').trim();
+                const parentSiblings = optionRuntime.childrenByParentId.get(parentParentId) || [];
+                const parentSiblingIndex = parentSiblings.findIndex((item) => String(item?.id || '').trim() === parentId);
+                const children = optionRuntime.childrenByParentId.get(optionId) || [];
+                const directlyArchived = option?.archived === true;
+                const effectivelyArchived = optionRuntime.effectiveArchivedById.get(optionId) === true;
+                const archiveLabel = directlyArchived ? '取消归档' : '归档选项';
+                const stateLabel = directlyArchived
+                    ? '已归档'
+                    : (effectivelyArchived ? '随父级归档' : `第 ${depth + 1} 级`);
+                const childHtml = children.map((child, index) => `${renderDropLine(optionId, index, depth + 1)}${renderOptionNode(child)}`).join('');
+                return `
+                    <div class="tm-custom-field-option-row${effectivelyArchived ? ' is-effectively-archived' : ''}" style="--tm-option-depth:${depth};" data-depth="${depth}" data-option-id="${esc(optionId)}" data-tm-custom-field-option-child-drop data-target-parent-id="${esc(optionId)}" data-target-sibling-index="${children.length}">
+                        <button type="button" class="tm-custom-field-option-drag" data-tm-custom-field-option-drag data-option-id="${esc(optionId)}" draggable="${supportsDesktopDrag ? 'true' : 'false'}" aria-disabled="${supportsDesktopDrag ? 'false' : 'true'}" title="${supportsDesktopDrag ? '拖拽移动选项' : '移动端请使用右侧移动按钮'}" aria-label="拖拽移动选项">
+                            ${__tmRenderLucideIcon('menu')}
+                        </button>
+                        <input data-tm-custom-field-option-color data-option-id="${esc(optionId)}" type="color" value="${esc(String(option?.color || __tmGetCustomFieldPresetColor(siblingIndex)).trim() || __tmGetCustomFieldPresetColor(siblingIndex))}" title="选项颜色" aria-label="选项颜色" style="width:28px;height:28px;border:none;padding:0;background:none;cursor:pointer;">
+                        <div class="tm-custom-field-option-name-wrap">
+                            <input class="tm-custom-field-option-name" data-tm-custom-field-option-name data-option-id="${esc(optionId)}" type="text" value="${esc(String(option?.name || '').trim())}" placeholder="选项名称">
+                            <span class="tm-custom-field-option-badge">${stateLabel}</span>
+                        </div>
+                        <div class="tm-custom-field-option-actions">
+                            ${renderOptionAction(optionId, 'up', 'arrow-up', '同级上移', siblingIndex <= 0)}
+                            ${renderOptionAction(optionId, 'down', 'arrow-down', '同级下移', siblingIndex < 0 || siblingIndex >= siblings.length - 1)}
+                            ${renderOptionAction(optionId, 'indent', 'text-indent', '缩进为上一同级选项的子项', !canIndent)}
+                            ${renderOptionAction(optionId, 'promote', 'text-outdent', '提升一级', !parentId || parentSiblingIndex < 0)}
+                            ${renderOptionAction(optionId, 'archive', 'archive', archiveLabel)}
+                            ${renderOptionAction(optionId, 'delete', 'trash-2', children.length ? '有子项时不能删除' : '删除选项', children.length > 0)}
+                        </div>
                     </div>
-                    <button type="button" class="tm-btn tm-btn-danger" data-tm-custom-field-option-delete="${index}" style="padding:${isCompact ? '6px 10px' : '4px 8px'};font-size:12px;min-height:${isCompact ? '36px' : 'auto'};${isCompact ? 'grid-column:3;justify-self:end;' : ''}">删除</button>
-                </div>
-            `).join('');
+                    ${childHtml}
+                    ${children.length ? renderDropLine(optionId, children.length, depth + 1) : ''}
+                `;
+            };
+            const rootOptions = optionRuntime.childrenByParentId.get('') || [];
+            const optionTreeHtml = rootOptions.map((option, index) => `${renderDropLine('', index, 0)}${renderOptionNode(option)}`).join('')
+                + renderDropLine('', rootOptions.length, 0);
             dialog.innerHTML = `
                 <div style="padding:${isCompact ? '14px 14px 12px' : '16px 18px'};border-bottom:1px solid var(--tm-border-color);display:flex;align-items:${isCompact ? 'flex-start' : 'center'};justify-content:space-between;gap:${isCompact ? '8px' : '12px'};flex-wrap:${isCompact ? 'wrap' : 'nowrap'};">
                     <div style="min-width:0;">
@@ -1156,11 +1355,11 @@
                             <div style="display:flex;align-items:${isCompact ? 'stretch' : 'center'};justify-content:space-between;gap:12px;flex-direction:${isCompact ? 'column' : 'row'};">
                                 <div style="min-width:0;">
                                     <div style="font-size:13px;font-weight:600;">选项配置</div>
-                                    <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:4px;">每个选项自带默认颜色，表格、详情页和导出会复用这些颜色与名称。</div>
+                                    <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:4px;">最多三层。桌面端可拖拽；移动端和键盘可使用每行的移动按钮。</div>
                                 </div>
                                 <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-add-option style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};${isCompact ? 'width:100%;' : ''}">+ 添加选项</button>
                             </div>
-                            <div style="display:flex;flex-direction:column;gap:8px;">${optionRows || '<div style="font-size:12px;color:var(--tm-secondary-text);padding:10px;border:1px dashed var(--tm-border-color);border-radius:10px;">请至少添加一个选项</div>'}</div>
+                            <div class="tm-custom-field-option-tree">${draft.options.length ? optionTreeHtml : '<div style="font-size:12px;color:var(--tm-secondary-text);padding:10px;border:1px dashed var(--tm-border-color);border-radius:8px;">请至少添加一个选项</div>'}</div>
                         ` : `
                             <div style="font-size:12px;color:var(--tm-secondary-text);padding:12px;border:1px dashed var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);line-height:1.6;">
                                 文本列不需要预设选项。创建后会像备注一样直接输入文本，并支持在表格、任务详情和 Excel 导出中使用。
@@ -1195,9 +1394,14 @@
                 draft.type = nextType === 'multi'
                     ? 'multi'
                     : (nextType === 'text' ? 'text' : 'single');
+                const optionNameInputs = new Map(Array.from(dialog.querySelectorAll('[data-tm-custom-field-option-name]'))
+                    .map((input) => [String(input?.getAttribute('data-option-id') || '').trim(), input]));
+                const optionColorInputs = new Map(Array.from(dialog.querySelectorAll('[data-tm-custom-field-option-color]'))
+                    .map((input) => [String(input?.getAttribute('data-option-id') || '').trim(), input]));
                 draft.options = (Array.isArray(draft.options) ? draft.options : []).map((option, index) => {
-                    const nameEl = dialog.querySelector(`[data-tm-custom-field-option-name="${index}"]`);
-                    const colorEl = dialog.querySelector(`[data-tm-custom-field-option-color="${index}"]`);
+                    const optionId = String(option?.id || '').trim();
+                    const nameEl = optionNameInputs.get(optionId);
+                    const colorEl = optionColorInputs.get(optionId);
                     return {
                         ...option,
                         name: String(nameEl?.value || option?.name || '').trim(),
@@ -1256,13 +1460,20 @@
                     : (String(draft.type || '').trim() === 'text' ? 'text' : 'single');
                 const optionsList = draftType === 'text'
                     ? []
-                    : (Array.isArray(draft.options) ? draft.options : []).map((option, index) => ({
+                    : __tmFlattenCustomFieldOptionTree((Array.isArray(draft.options) ? draft.options : []).map((option, index) => ({
                         id: String(option?.id || '').trim() || `option_${index + 1}`,
                         name: String(option?.name || '').trim(),
                         color: String(option?.color || __tmGetCustomFieldPresetColor(index)).trim() || __tmGetCustomFieldPresetColor(index),
-                    })).filter((option) => option.name);
+                        parentId: String(option?.parentId || '').trim(),
+                        archived: option?.archived === true,
+                    })).filter((option) => option.name));
                 if (draftType !== 'text' && !optionsList.length) {
                     hint('⚠️ 请至少保留一个选项', 'warning');
+                    return;
+                }
+                const optionNames = optionsList.map((option) => String(option?.name || '').trim().toLocaleLowerCase());
+                if (new Set(optionNames).size !== optionNames.length) {
+                    hint('⚠️ 同一自定义列内的选项名称不能重复', 'warning');
                     return;
                 }
                 const nextScope = __tmNormalizeCustomFieldScope(draft.scope);
@@ -1309,6 +1520,7 @@
                 SettingsStore.normalizeColumns();
                 await SettingsStore.save();
                 await __tmRefreshCustomFieldScopeMembership({ force: true });
+                try { __tmRefreshSettingsProjectionView('custom-field-def-change'); } catch (e) {}
                 currentFieldId = nextId;
                 draft = resolveDraft(__tmGetCustomFieldDefs().find((field) => String(field?.id || '').trim() === nextId) || null);
                 try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
@@ -1349,9 +1561,11 @@
             dialog.querySelector('[data-tm-custom-field-add-option]')?.addEventListener('click', () => {
                 readDraftFromDom();
                 draft.options = [...(Array.isArray(draft.options) ? draft.options : []), {
-                    id: '',
+                    id: createDraftOptionId(),
                     name: '',
                     color: __tmGetCustomFieldPresetColor(draft.options.length),
+                    parentId: '',
+                    archived: false,
                 }];
                 renderDialog();
             });
@@ -1359,8 +1573,8 @@
                 readDraftFromDom();
                 if (draft.type !== 'text' && (!Array.isArray(draft.options) || draft.options.length === 0)) {
                     draft.options = [
-                        { id: '', name: '选项1', color: __tmGetCustomFieldPresetColor(0) },
-                        { id: '', name: '选项2', color: __tmGetCustomFieldPresetColor(1) },
+                        { id: createDraftOptionId(), name: '选项1', color: __tmGetCustomFieldPresetColor(0), parentId: '', archived: false },
+                        { id: createDraftOptionId(), name: '选项2', color: __tmGetCustomFieldPresetColor(1), parentId: '', archived: false },
                     ];
                 }
                 renderDialog();
@@ -1450,34 +1664,119 @@
                     renderDialog();
                 });
             });
-            dialog.querySelectorAll('[data-tm-custom-field-option-delete]').forEach((button) => {
+            const applyOptionMove = (move) => {
+                const result = __tmMoveCustomFieldOptionSubtree(draft.options, move);
+                if (!result.ok) {
+                    const message = result.reason === 'max-depth'
+                        ? '最多支持三层，当前子树不能移动到这里'
+                        : (result.reason === 'cycle' ? '不能把选项移动到自身或其子项下' : '当前选项无法移动到该位置');
+                    hint(`⚠️ ${message}`, 'warning');
+                    return false;
+                }
+                draft.options = result.options;
+                renderDialog();
+                return true;
+            };
+            dialog.querySelectorAll('[data-tm-custom-field-option-action]').forEach((button) => {
                 button.addEventListener('click', () => {
                     readDraftFromDom();
-                    const index = Number(button.getAttribute('data-tm-custom-field-option-delete'));
-                    draft.options = (Array.isArray(draft.options) ? draft.options : []).filter((_, optionIndex) => optionIndex !== index);
-                    renderDialog();
+                    const action = String(button.getAttribute('data-tm-custom-field-option-action') || '').trim();
+                    const optionId = String(button.getAttribute('data-option-id') || '').trim();
+                    const runtime = __tmBuildCustomFieldOptionRuntime(draft.options);
+                    const option = runtime.optionById.get(optionId);
+                    if (!option) return;
+                    const parentId = String(option?.parentId || '').trim();
+                    const siblings = runtime.childrenByParentId.get(parentId) || [];
+                    const siblingIndex = siblings.findIndex((item) => String(item?.id || '').trim() === optionId);
+                    if (action === 'up') {
+                        if (siblingIndex > 0) applyOptionMove({ sourceId: optionId, targetParentId: parentId, targetSiblingIndex: siblingIndex - 1 });
+                        return;
+                    }
+                    if (action === 'down') {
+                        if (siblingIndex >= 0 && siblingIndex < siblings.length - 1) applyOptionMove({ sourceId: optionId, targetParentId: parentId, targetSiblingIndex: siblingIndex + 2 });
+                        return;
+                    }
+                    if (action === 'indent') {
+                        const previousSiblingId = siblingIndex > 0 ? String(siblings[siblingIndex - 1]?.id || '').trim() : '';
+                        if (!previousSiblingId) return;
+                        applyOptionMove({
+                            sourceId: optionId,
+                            targetParentId: previousSiblingId,
+                            targetSiblingIndex: (runtime.childrenByParentId.get(previousSiblingId) || []).length,
+                        });
+                        return;
+                    }
+                    if (action === 'promote') {
+                        const parent = runtime.optionById.get(parentId);
+                        if (!parent) return;
+                        const targetParentId = String(parent?.parentId || '').trim();
+                        const parentSiblings = runtime.childrenByParentId.get(targetParentId) || [];
+                        const parentIndex = parentSiblings.findIndex((item) => String(item?.id || '').trim() === parentId);
+                        if (parentIndex >= 0) applyOptionMove({ sourceId: optionId, targetParentId, targetSiblingIndex: parentIndex + 1 });
+                        return;
+                    }
+                    if (action === 'archive') {
+                        draft.options = draft.options.map((item) => String(item?.id || '').trim() === optionId
+                            ? { ...item, archived: item?.archived !== true }
+                            : item);
+                        renderDialog();
+                        return;
+                    }
+                    if (action === 'delete') {
+                        if ((runtime.childrenByParentId.get(optionId) || []).length) {
+                            hint('⚠️ 请先移动或删除该选项的子项', 'warning');
+                            return;
+                        }
+                        const optionName = String(option?.name || optionId).trim() || optionId;
+                        if (!window.confirm(`确定删除选项“${optionName}”吗？历史任务中的原始属性值不会被批量改写。`)) return;
+                        draft.options = draft.options.filter((item) => String(item?.id || '').trim() !== optionId);
+                        renderDialog();
+                    }
                 });
             });
-            dialog.querySelectorAll('[data-tm-custom-field-option-move-up]').forEach((button) => {
-                button.addEventListener('click', () => {
+            const clearOptionDropState = () => {
+                dialog.querySelectorAll('.is-drag-over').forEach((element) => element.classList.remove('is-drag-over'));
+            };
+            dialog.querySelectorAll('[data-tm-custom-field-option-drag]').forEach((handle) => {
+                handle.addEventListener('dragstart', (event) => {
+                    if (!supportsDesktopDrag) {
+                        event.preventDefault();
+                        return;
+                    }
                     readDraftFromDom();
-                    const index = Number(button.getAttribute('data-tm-custom-field-option-move-up'));
-                    if (index <= 0) return;
-                    const nextOptions = Array.isArray(draft.options) ? draft.options.slice() : [];
-                    [nextOptions[index - 1], nextOptions[index]] = [nextOptions[index], nextOptions[index - 1]];
-                    draft.options = nextOptions;
-                    renderDialog();
+                    draggedOptionId = String(handle.getAttribute('data-option-id') || '').trim();
+                    try {
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', draggedOptionId);
+                    } catch (e) {}
+                });
+                handle.addEventListener('dragend', () => {
+                    draggedOptionId = '';
+                    clearOptionDropState();
                 });
             });
-            dialog.querySelectorAll('[data-tm-custom-field-option-move-down]').forEach((button) => {
-                button.addEventListener('click', () => {
+            dialog.querySelectorAll('[data-tm-custom-field-option-drop-line], [data-tm-custom-field-option-child-drop]').forEach((target) => {
+                target.addEventListener('dragover', (event) => {
+                    if (!draggedOptionId) return;
+                    event.preventDefault();
+                    try { event.dataTransfer.dropEffect = 'move'; } catch (e) {}
+                    clearOptionDropState();
+                    target.classList.add('is-drag-over');
+                });
+                target.addEventListener('dragleave', (event) => {
+                    if (event.relatedTarget instanceof Node && target.contains(event.relatedTarget)) return;
+                    target.classList.remove('is-drag-over');
+                });
+                target.addEventListener('drop', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
                     readDraftFromDom();
-                    const index = Number(button.getAttribute('data-tm-custom-field-option-move-down'));
-                    const nextOptions = Array.isArray(draft.options) ? draft.options.slice() : [];
-                    if (index < 0 || index >= nextOptions.length - 1) return;
-                    [nextOptions[index + 1], nextOptions[index]] = [nextOptions[index], nextOptions[index + 1]];
-                    draft.options = nextOptions;
-                    renderDialog();
+                    const sourceId = draggedOptionId || String(event.dataTransfer?.getData?.('text/plain') || '').trim();
+                    const targetParentId = String(target.getAttribute('data-target-parent-id') || '').trim();
+                    const targetSiblingIndex = Number(target.getAttribute('data-target-sibling-index'));
+                    draggedOptionId = '';
+                    clearOptionDropState();
+                    if (sourceId) applyOptionMove({ sourceId, targetParentId, targetSiblingIndex });
                 });
             });
             dialog.onclick = (event) => {

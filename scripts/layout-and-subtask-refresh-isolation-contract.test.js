@@ -13,6 +13,7 @@ const runtimeState = read('src/task-horizon/main/32-runtime-state-and-events.js'
 const runtimeServices = read('src/task-horizon/main/20-api-and-runtime-services.js');
 const stores = read('src/task-horizon/main/10-stores-rules-and-cache.js');
 const taskLoader = read('src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js');
+const taskProjectionRuntime = read('src/task-horizon/main/task-runtime/51-whiteboard-and-link-runtime.js');
 const taskCreateRuntime = read('src/task-horizon/main/task-runtime/53b-task-create-and-quick-add-runtime.js');
 const checklistRenderer = read('src/task-horizon/main/render/42-render-list-and-checklist-body.js');
 const kanbanRenderer = read('src/task-horizon/main/render/43-render-timeline-kanban-calendar-body.js');
@@ -61,7 +62,7 @@ const kanbanGroupCollapse = segment(groupCollapse, 'if (isKanban) {', 'if (isChe
 assert.match(kanbanGroupCollapse, /__tmSetKanbanGroupCollapsedInDom\(k0, action === 'collapse', state\.modal\)/, 'group collapse must update the mounted group');
 assert.doesNotMatch(kanbanGroupCollapse, /__tmRerenderKanbanInPlace|__tmRerenderCurrentViewInPlace|__tmScheduleViewRefresh|\brender\s*\(/, 'kanban group collapse must not redraw the kanban');
 
-assert.match(kanbanRenderer, /const childrenHtml = childList\.length \? childList\.map/, 'collapsed task descendants must remain mounted for direct expansion');
+assert.match(kanbanRenderer, /const childrenHtml = childList\.length[\s\S]*?childList\.map\(ch => renderTree\(/, 'collapsed task descendants must remain mounted for direct expansion');
 assert.match(kanbanRenderer, /data-tm-kanban-subtasks-list aria-hidden=/, 'task branches must expose a direct visibility target');
 assert.match(kanbanRenderer, /const renderKanbanGroupItems = /, 'kanban groups must keep a mounted group body');
 assert.doesNotMatch(kanbanRenderer, /(?:doneCollapsed|pinnedIsCollapsed|h2Collapsed|isCollapsed) \? '' : `<div class="tm-kanban-group-items"/, 'collapsed kanban groups must not omit their body');
@@ -91,20 +92,44 @@ assert.match(
 
 const queueRowMove = segment(uiFoundation, 'async function __tmQueueTaskRowMove', 'async function __tmHandleTaskRowDropCore');
 const rowDropCore = segment(uiFoundation, 'async function __tmHandleTaskRowDropCore', 'window.tmTaskRowDragOver');
-const checklistSubtaskRefresh = segment(taskCreateRuntime, 'function __tmScheduleChecklistOptimisticSubtaskRefresh', 'globalThis.__tmFlushDeferredChecklistOptimisticSubtaskRefresh');
 const optimisticMove = segment(taskCreateRuntime, 'function __tmApplyMoveOptimisticLocal', 'function __tmRollbackMoveOptimisticLocal');
+const runtimeMove = segment(runtimeState, 'const moveTaskLocal =', 'const deleteTaskLocal =');
 const queuedMove = segment(taskLoader, 'function __tmQueueMoveTask', 'function __tmGetTaskForDetachSubtask');
 const structuralProjection = segment(runtimeServices, 'function __tmRefreshQueuedStructuralProjection', 'function __tmCommitQueuedOp');
+const checklistProjectionReconcile = segment(runtimeServices, 'function __tmReconcileChecklistProjectionCard', 'function __tmRerenderChecklistInPlace');
+const checklistRerender = segment(runtimeServices, 'function __tmRerenderChecklistInPlace', 'function __tmGetKanbanColScrollKey');
+const kanbanRerender = segment(runtimeServices, 'function __tmRerenderKanbanInPlace', 'function __tmRerenderWhiteboardInPlace');
 const incrementalRefresh = segment(stores, 'async function __tmRefreshAffectedDocsIncrementally', 'async function __tmFlushSqlTransactionsSafe');
 assert.match(queueRowMove, /payload\.preserveRenderWindow = true/, 'row drops must preserve an already-grown list render window');
-assert.doesNotMatch(queueRowMove, /onQueued|forceFullReconcile|__tmScheduleTaskRowDropReconcileRefresh/, 'row drops must not schedule a second legacy reconciliation at enqueue or settle time');
+assert.doesNotMatch(queueRowMove, /forceOptimisticRender|deferOptimisticRender|skipOptimisticFilterWork|__tmCanUseLightweightMoveProjection/,
+    'row drops must not select a second projection strategy');
+assert.doesNotMatch(queueRowMove, /onQueued|forceFullReconcile|__tmScheduleTaskRowDropReconcileRefresh/,
+    'physical row drops must not schedule a competing reconciliation');
 assert.doesNotMatch(rowDropCore, /forceOptimisticRender/, 'row-drop core must leave the optimistic redraw to the mutation projection manager');
 assert.doesNotMatch(uiFoundation, /function __tmScheduleTaskRowDropReconcileRefresh/, 'the duplicate legacy row-drop refresh path must be removed');
-assert.match(checklistSubtaskRefresh, /opts\.deferRender === true\) return true;[\s\S]*__tmChecklistOptimisticSubtaskRefreshQueued/, 'row moves must be able to register affected checklist groups without scheduling a competing redraw');
-assert.match(optimisticMove, /checklistRefreshOptions[\s\S]*force: true[\s\S]*deferRender: payload\.preserveRenderWindow === true[\s\S]*__tmScheduleChecklistOptimisticSubtaskRefresh\(payload\?\.targetTaskId, taskId, checklistRefreshOptions\)[\s\S]*__tmScheduleChecklistOptimisticSubtaskRefresh\(previousParentId, taskId, checklistRefreshOptions\)/, 'optimistic child moves must register both affected checklist groups for the single mutation refresh');
-assert.match(optimisticMove, /payload\.preserveRenderWindow === true[\s\S]*__tmCaptureViewRenderWindow[\s\S]*__tmRestoreViewRenderWindow/, 'optimistic row moves must retain the current render limit around filter work');
-assert.match(queuedMove, /preserveRenderWindow: data\.preserveRenderWindow === true \|\| hooks\.preserveRenderWindow === true/, 'the move outbox must carry render-window preservation through settlement');
+assert.match(optimisticMove, /__tmRemoveTaskFromLocalState[\s\S]*__tmApplyMovePayloadToTaskRecursive[\s\S]*__tmRebuildLocalDocTree/,
+    'optimistic moves must update the canonical local tree before projection');
+assert.doesNotMatch(optimisticMove, /applyFilters|filteredTasks|__tmScheduleViewRefresh|__tmScheduleRender|__tmRerenderCurrentViewInPlace|requestAnimationFrame/,
+    'the move state transition must not own filtering or rendering');
+const simpleOptimisticPresentation = segment(runtimeServices, 'function __tmApplySimpleOptimisticPresentation', 'function __tmDoesMutationStillOwnLocalWatermark');
+assert.match(simpleOptimisticPresentation, /__tmApplyQueuedOpOptimistic\(op\)/,
+    'the mutation service must apply one canonical optimistic state transition');
+assert.doesNotMatch(simpleOptimisticPresentation, /applyFilters|__tmScheduleViewRefresh|__tmScheduleRender|__tmRerenderCurrentViewInPlace/,
+    'the mutation service must leave projection to ProjectionEngine');
+assert.match(runtimeMove, /__tmApplyMoveOptimisticLocal\(data\)/,
+    'TaskStore must own the move state transition');
+assert.doesNotMatch(taskCreateRuntime, /function __tmApplyMoveOptimisticFilteredProjection|function __tmCanUseLightweightMoveProjection/,
+    'the removed manual filtered-task move projection must not return');
+assert.match(queuedMove, /preserveRenderWindow: data\.preserveRenderWindow === true \|\| hooks\.preserveRenderWindow === true/, 'the move mutation must carry render-window preservation through settlement');
 assert.match(structuralProjection, /preserveRenderWindow: type === 'moveTask' && data\.preserveRenderWindow === true/, 'settled move reconciliation must preserve the render window');
+assert.match(taskProjectionRuntime, /function __tmRunTaskProjectionBatch[\s\S]*__tmRecomputeTaskProjection\([\s\S]*__tmScheduleViewRefresh/,
+    'ProjectionEngine must remain the only move filter and render coordinator');
+assert.doesNotMatch(checklistRerender, /setTimeout\(restore/,
+    'checklist redraw must not repeat layout restoration through delayed timers');
+assert.match(checklistProjectionReconcile, /refreshTaskIds instanceof Set[\s\S]*hierarchyChanged[\s\S]*!affectedIds\.has\(taskId\) && !hierarchyChanged[\s\S]*nextNode\.cloneNode\(true\)/,
+    'group projection must replace affected or re-indented rows instead of reusing stale hierarchy markup');
+assert.doesNotMatch(kanbanRerender, /setTimeout\(restore/,
+    'kanban redraw must not repeat layout restoration through delayed timers');
 assert.match(incrementalRefresh, /__tmCaptureViewRenderWindow\(viewMode\)[\s\S]*restoreRenderWindow[\s\S]*__tmRestoreViewRenderWindow/, 'incremental document refresh must restore the captured render window after refiltering');
 
 const childDropSources = [uiFoundation, runtimeState, taskLoader, taskCreateRuntime].join('\n');

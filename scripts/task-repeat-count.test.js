@@ -121,6 +121,7 @@ assert.match(runtimeSource, /occurrenceCount:\s*Math\.max\(1, currentState\.occu
 assert.match(runtimeSource, /结束次数不能小于当前第/, 'lowering a live count below progress must be rejected');
 assert.match(runtimeSource, /occurrenceNumber:\s*currentRepeatState\.occurrenceCount/, 'history records must persist their occurrence number');
 assert.match(runtimeSource, /totalOccurrences:\s*repeatRule\.maxOccurrences/, 'history records must persist the configured total');
+assert.match(runtimeSource, /const occurrenceReset =[\s\S]*__tmBuildTaskTomatoBaselinePatch\(task\)/, 'resetting a recurring series must reset its Tomato occurrence baseline');
 assert.ok(runtimeSource.indexOf('__tmResolveTaskIdFromAnyBlockId(requestedTaskId)') < runtimeSource.indexOf('__tmRecurringAdvanceInFlightIds.has(advanceTaskId)'), 'recurring advancement must canonicalize aliases before taking its lock');
 assert.match(modelSource, /循环记录\$\{progressText\}/, 'recurring record badges must show their occurrence number');
 assert.match(dialogSource, /data-tm-repeat-field="maxOccurrences"[^>]*max="200"/, 'repeat dialog must cap the count input at 200');

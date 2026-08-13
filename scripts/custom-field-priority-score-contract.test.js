@@ -38,8 +38,8 @@ const customFieldDefs = [
         name: '阶段',
         type: 'single',
         options: [
-            { id: 'now', name: '当前' },
-            { id: 'later', name: '稍后' },
+            { id: 'now', name: '当前', parentId: 'later' },
+            { id: 'later', name: '稍后', archived: true },
         ],
     },
     {
@@ -104,6 +104,7 @@ const context = vm.createContext({
     __tmResolveTaskStatusId: () => '',
     __tmGetTaskEffectiveCompletionTimeInfo: () => ({ ts: 0 }),
     __tmGetPriorityScoreDueRanges: () => [],
+    __tmResolvePriorityScoreCacheUntil: () => 0,
     __tmParseDurationMinutes: () => null,
     __tmGetPriorityGroupDeltaForDoc: () => 0,
     __tmGetPatchFieldKeys: (patch) => Object.keys(patch || {}),
@@ -125,6 +126,11 @@ vm.runInContext(sliceSource(
     '    function __tmEnsureTaskPriorityScore',
 ), context);
 vm.runInContext(sliceSource(
+    scoreSource,
+    'function __tmEnsureTaskPriorityScore',
+    '    let __tmCellEditorState',
+), context);
+vm.runInContext(sliceSource(
     servicesSource,
     'function __tmDoesPatchAffectPriorityScore',
     '    function __tmDoesPatchAffectAncestorPriorityScore',
@@ -138,6 +144,7 @@ const compute = (customFieldValues, config = priorityScoreConfig) => {
 
 assert.equal(compute({ stage: 'now' }), 112, 'single-select option delta should be applied');
 assert.equal(compute({ stage: 'later' }), 96, 'negative single-select option delta should be applied');
+assert.equal(compute({ stage: 'now' }), 112, 'hierarchy and archive metadata must not change direct option scoring');
 assert.equal(compute({ tags: ['urgent', 'blocked'] }), 104, 'multi-select option deltas should be summed');
 assert.equal(compute({ stage: 'now', tags: ['urgent', 'blocked'] }), 116, 'different custom fields should accumulate');
 assert.equal(compute({ stage: 'missing', tags: [] }), 100, 'unknown and empty values should not affect the score');
@@ -152,6 +159,33 @@ const loadPlan = vm.runInContext(`__tmCollectCustomFieldLoadPlan({
 assert.deepEqual(Array.from(loadPlan.bulkFieldIds).sort(), ['stage', 'tags']);
 assert.deepEqual(Array.from(loadPlan.deferredListFieldIds), []);
 assert.equal(vm.runInContext(`__tmDoesPatchAffectPriorityScore({ customFieldValues: { stage: 'now' } })`, context), true);
+
+context.staleProjectedTask = {
+    priority: 'none',
+    customFieldValues: { stage: 'now' },
+    priorityScore: 100,
+    __tmPriorityScoreCacheVersion: 0,
+};
+assert.equal(
+    vm.runInContext('__tmEnsureTaskPriorityScore(staleProjectedTask)', context),
+    100,
+    'a projected task can still expose its previous cached score',
+);
+assert.equal(
+    vm.runInContext('__tmEnsureTaskPriorityScore(staleProjectedTask, { force: true })', context),
+    112,
+    'a score refresh must recompute a projected task instead of accepting its stale cache',
+);
+const scoreDomUpdater = sliceSource(
+    scoreSource,
+    'function __tmUpdateTaskScoreInDOM',
+    '    function __tmUpdateTaskPinnedInDOM',
+);
+assert.match(
+    scoreDomUpdater,
+    /__tmEnsureTaskPriorityScore\(taskLike, \{ force: true \}\)/,
+    'the in-place score cell refresh must force recomputation after a score-affecting patch',
+);
 
 assert.match(dialogsSource, /自定义列加减分/);
 assert.match(dialogsSource, /class="b3-text-field tm-priority-number-input"/);

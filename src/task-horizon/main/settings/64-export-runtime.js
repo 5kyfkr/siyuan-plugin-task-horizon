@@ -992,7 +992,7 @@
                 value: (task) => {
                     const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() || 'minutes';
                     return (SettingsStore.data.enableTomatoIntegration && mode === 'hours')
-                        ? String(__tmFormatSpentHours(__tmParseNumber(task?.tomatoHours)) || '').trim()
+                        ? String(__tmFormatSpentHours(__tmGetTaskTomatoFocusValues(task).tomatoHours) || '').trim()
                         : String(__tmFormatSpentMinutes(__tmGetTaskSpentMinutes(task)) || '').trim();
                 }
             },

@@ -51,6 +51,37 @@ assert.match(refreshBlock, /__tmRefreshAffectedDocsIncrementally\(/, 'affected d
 assert.match(refreshBlock, /forcePositionRank:\s*requiresDocumentReload/, 'only creates, moves, and deletes should rebuild document placement');
 assert.match(refreshBlock, /__tmRefreshViewsAfterTaskMutation\(/, 'the existing view scheduler must remain the fallback');
 assert.match(bridgeSource, /async refreshTaskMutation\(payload\)[\s\S]*?__tmAiRefreshTaskMutation\(payload\)/, 'the AI bridge must expose the unified refresh method');
+assert.match(bridgeSource, /function __tmAiRequireMutation\(methodName\)[\s\S]*globalThis\.__tmTaskMutations/,
+    'plugin-side AI writes must use the shared MutationService');
+assert.doesNotMatch(bridgeSource, /__tmAiRequireOutbox|__tmTaskOutbox|__tmTaskHorizonOutbox/,
+    'AI writes must not retain a private or legacy outbox path');
+assert.doesNotMatch(bridgeSource, /__tmApplyTaskStatus|applyTaskStatus\s*=/,
+    'AI bridge must not export the removed marker-then-attrs status writer');
+const aiPatchStart = bridgeSource.indexOf('async function __tmAiApplyTaskPatch');
+const aiPatchEnd = bridgeSource.indexOf('\n    async function __tmAiCreateTaskSuggestion', aiPatchStart);
+const aiPatchBlock = bridgeSource.slice(aiPatchStart, aiPatchEnd);
+assert.match(aiPatchBlock, /__tmAiRequireMutation\('patchTask'\)/);
+assert.doesNotMatch(aiPatchBlock, /__tmAiRequireMutation\('patchContent'\)/,
+    'AI title and attribute edits must share one kernel transaction');
+assert.equal((aiPatchBlock.match(/wait:\s*true/g) || []).length, 1,
+    'one AI patch must wait for exactly one kernel mutation result');
+assert.match(aiPatchBlock, /\{ title: String\(nextPatch\.title[\s\S]*\.\.\.attrPatch[\s\S]*done:/,
+    'the unified AI patch must carry title, attributes, and completion state together');
+assert.doesNotMatch(aiPatchBlock, /__tmScheduleViewRefresh|__tmScheduleRender/,
+    'AI patches must not schedule a second generic refresh after MutationService projection');
+assert.doesNotMatch(aiPatchBlock, /scheduleAfterLocalPatch|ai-task-patch-markdown/,
+    'AI patches must not create a second speculative snapshot beside MutationService');
+assert.doesNotMatch(aiPatchBlock, /titleCommitted|任务标题已更新，但其他字段写入失败/,
+    'AI patching must not retain the removed partial-success branch');
+const aiCreateStart = bridgeSource.indexOf('async function __tmAiCreateTask(payload');
+const aiCreateEnd = bridgeSource.indexOf('\n    function __tmAiTaskDocId', aiCreateStart);
+const aiCreateBlock = bridgeSource.slice(aiCreateStart, aiCreateEnd);
+assert.match(aiCreateBlock, /__tmAiRequireMutation\('createSubtask'\)/);
+assert.match(aiCreateBlock, /__tmAiRequireMutation\('createTaskInDoc'\)/);
+assert.doesNotMatch(aiCreateBlock, /wait:\s*false/,
+    'AI creates must not report success before the kernel confirms the task ID');
+assert.doesNotMatch(aiCreateBlock, /__tmScheduleViewRefresh|__tmScheduleRender/,
+    'AI creates must reuse MutationService projection without a duplicate refresh');
 assert.match(workbenchSource, /SCHEDULE_MUTATION_TOOLS[\s\S]*refreshScheduleMutation/, 'schedule tool results must trigger the schedule refresh bridge');
 assert.match(bridgeSource, /async function __tmAiRefreshScheduleMutation[\s\S]*refreshSchedulesFromSharedFile[\s\S]*side: true/, 'AI schedule writes must reload shared data and refresh the side-day calendar');
 assert.match(bridgeSource, /tm:calendar-schedule-updated[\s\S]*source: 'ai-schedule-mutation'/, 'AI schedule writes must notify other schedule consumers');

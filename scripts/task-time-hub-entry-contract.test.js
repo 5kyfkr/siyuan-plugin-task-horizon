@@ -56,55 +56,44 @@ assert.doesNotMatch(quickAddSource, /tmQuickAddReminderBtn|tmQuickAddToggleRemin
 assert.match(quickAddSource, /repeatRule:\s*qa\.repeatRule[\s\S]*onChange:[\s\S]*repeatRule/, 'quick add must round-trip repeat metadata through the shared time hub');
 assert.doesNotMatch(quickAddSource, /openReminderAfterCreate|window\.tmReminder\?\./, 'quick add must not open a reminder after task creation');
 assert.match(quickAddSource, /reminderDraft:\s*canPersistReminder/, 'quick add must carry a pre-create reminder draft');
-assert.match(quickAddSource, /wait:\s*payload\.reminderDraft \? true : false/, 'a reminder draft must wait for the real task ID');
-assert.match(quickAddSource, /__tmWaitForQuickAddRealTaskId[\s\S]*__tmResolveOutboxTempTaskId/, 'quick add must resolve an outbox temporary ID before persisting a reminder');
+assert.match(quickAddSource, /createTaskInDoc\(\{[\s\S]*wait:\s*true/, 'quick add must await the authoritative create before announcing success');
+assert.match(quickAddSource, /__tmWaitForQuickAddRealTaskId[\s\S]*__tmResolveMutationTempTaskId/, 'quick add must resolve an mutation temporary ID before persisting a reminder');
 assert.match(quickAddSource, /waitForTaskWrites\([\s\S]*expected:[\s\S]*repeatRule:\s*payload\.repeatRule/, 'follow-task reminders must wait for task metadata writes');
 assert.match(quickAddSource, /reminderBridge\.upsertDraft\([\s\S]*overwrite:\s*true/, 'quick add must persist the draft through the Tomato bridge');
 assert.match(quickAddSource, /任务已创建，但提醒写入失败/, 'reminder persistence failure must not turn a successful create into a create failure');
 assert.match(createServiceSource, /const repeatRuleInput = data\.repeatRule[\s\S]*__tmBuildTaskRepeatRuleMetaPatch/, 'queued creates must persist repeat metadata through the existing post-insert attribute path');
-assert.match(createServiceSource, /async function __tmWaitForTaskWrites[\s\S]*TASK_ATTR_WRITE_TIMEOUT/, 'outbox must expose a bounded task metadata write barrier');
-assert.match(createServiceSource, /waitForTaskWrites:\s*__tmWaitForTaskWrites/, 'task outbox must publish the task metadata write barrier');
-assert.equal((dateUpdateSource.match(/skipDetailPatch:\s*opts\.skipDetailPatch === true/g) || []).length, 2, 'date updates must preserve skipDetailPatch before and after persistence');
-assert.match(detailSource, /const patchActiveDetail = \(panel\) => \{[\s\S]*__tmTaskDetailActiveInlinePopover[\s\S]*__tmPatchTaskDetailPanelInPlace/, 'detail attribute hydration must patch an active editor without rebuilding it');
+assert.match(createServiceSource, /async function __tmWaitForTaskWrites[\s\S]*TASK_WRITE_TIMEOUT/, 'mutation service must expose a bounded task metadata write barrier');
+assert.match(createServiceSource, /waitForTaskWrites:\s*__tmWaitForTaskWrites/, 'task mutation must publish the task metadata write barrier');
+assert.equal((dateUpdateSource.match(/skipDetailPatch:\s*opts\.skipDetailPatch === true/g) || []).length, 1,
+    'date updates must pass active-detail preservation into the shared mutation command once');
+assert.match(detailRefreshCoordinatorSource, /preserveActiveDetail:[\s\S]*skipDetailPatch: presentation\.preserveActiveDetail === true/,
+    'the projection coordinator must preserve the active detail editor for date ChangeSets');
+const hydrationStart = detailSource.indexOf('function __tmScheduleTaskDetailFieldAttrHydration(');
+const hydrationEnd = detailSource.indexOf('function __tmShouldDismissTaskTimeHubEditor(', hydrationStart);
+assert.ok(hydrationStart >= 0 && hydrationEnd > hydrationStart, 'detail hydration coordinator must remain extractable');
+const hydrationSource = detailSource.slice(hydrationStart, hydrationEnd);
+assert.match(hydrationSource, /const fieldPatch = \{\}[\s\S]*__tmRefreshVisibleTaskDetailForTask\(tid, \{[\s\S]*patch: repeatChanged \? null : fieldPatch/,
+    'detail attribute hydration must use the shared field patch path instead of rebuilding active editors');
+assert.doesNotMatch(hydrationSource, /__tmRefreshTaskDetailSheetInPlace\([\s\S]*forceRebuild: true/,
+    'ordinary hydrated fields must not rebuild the complete task sheet');
 
-const hydrationGuardStart = detailSource.indexOf('const patchActiveDetail = (panel) => {');
-const hydrationGuardEnd = detailSource.indexOf("if (mode === 'checklist')", hydrationGuardStart);
-assert.ok(hydrationGuardStart >= 0 && hydrationGuardEnd > hydrationGuardStart, 'detail hydration popover guard must remain extractable');
 class MockElement {}
 class MockHTMLElement extends MockElement {}
-const hydrationContext = {
-    Element: MockElement,
-    HTMLElement: MockHTMLElement,
-    tid: 'task-1',
-    patchCount: 0,
-    document: {
-        body: {
-            contains(element) {
-                return element?.connected === true;
-            },
-        },
-    },
-    __tmPatchTaskDetailPanelInPlace(panel, taskId) {
-        assert.ok(panel instanceof MockHTMLElement);
-        assert.equal(taskId, 'task-1');
-        hydrationContext.patchCount += 1;
-        return true;
-    },
-};
-vm.createContext(hydrationContext);
-vm.runInContext(`${detailSource.slice(hydrationGuardStart, hydrationGuardEnd)}\nthis.patchActiveDetail = patchActiveDetail;`, hydrationContext);
-const activeHydrationPanel = new MockHTMLElement();
-activeHydrationPanel.__tmTaskDetailActiveInlinePopover = Object.assign(new MockElement(), { connected: true });
-assert.equal(hydrationContext.patchActiveDetail(activeHydrationPanel), true, 'hydration must consume refresh while a detail popover is active');
-assert.equal(hydrationContext.patchCount, 1, 'hydration must patch the active detail exactly once');
-assert.equal(hydrationContext.patchActiveDetail(new MockHTMLElement()), false, 'hydration must retain normal refresh behavior without an active popover');
 
-const busyRefreshStart = detailRefreshCoordinatorSource.indexOf("if (next.mode !== 'detail') {", detailRefreshCoordinatorSource.indexOf('function __tmPerformViewRefresh('));
-const busyRefreshEnd = detailRefreshCoordinatorSource.indexOf("if (next.mode !== 'detail' && typeof __tmIsPluginVisibleNow", busyRefreshStart);
+const busyRefreshStart = detailRefreshCoordinatorSource.indexOf("if (next.mode !== 'detail' && !bypassBusyDetailDefer) {", detailRefreshCoordinatorSource.indexOf('function __tmPerformViewRefresh('));
+const busyRefreshEnd = detailRefreshCoordinatorSource.indexOf('const allowMountedInactive =', busyRefreshStart);
 assert.ok(busyRefreshStart >= 0 && busyRefreshEnd > busyRefreshStart, 'busy-detail refresh branch must remain extractable');
 const busyRefreshSource = detailRefreshCoordinatorSource.slice(busyRefreshStart, busyRefreshEnd);
 assert.doesNotMatch(busyRefreshSource, /__tmRefreshVisibleDetailsFromViewRefresh/, 'a busy detail must never be force-refreshed before its deferred view refresh');
 assert.match(busyRefreshSource, /__tmScheduleBusyDetailViewRefresh\(next\)/, 'busy detail refreshes must remain queued until the editor is idle');
+assert.match(detailRefreshCoordinatorSource, /const bypassBusyDetailDefer = next\.bypassDefer === true \|\| next\.bypassTaskFieldDefer === true;/,
+    'explicit immediate field projections must bypass the busy-detail queue');
+const busyQueueStart = detailRefreshCoordinatorSource.indexOf('function __tmScheduleBusyDetailViewRefresh(');
+const busyQueueEnd = detailRefreshCoordinatorSource.indexOf('function __tmSchedulePendingViewRefreshRetry(', busyQueueStart);
+assert.ok(busyQueueStart >= 0 && busyQueueEnd > busyQueueStart, 'busy-detail queue must remain extractable');
+const busyQueueSource = detailRefreshCoordinatorSource.slice(busyQueueStart, busyQueueEnd);
+assert.match(busyQueueSource, /__tmScheduleViewRefresh\(pending\)/, 'released detail refreshes must re-enter the scroll and interaction aware scheduler');
+assert.doesNotMatch(busyQueueSource, /__tmPerformViewRefresh\(pending\)/, 'a timer callback must not synchronously rebuild the view');
 
 const forceRetryStart = detailSource.indexOf('function __tmScheduleTaskDetailForceRebuildRetry(');
 const forceRetryEnd = detailSource.indexOf('function __tmRefreshVisibleTaskDetailForTask(', forceRetryStart);
@@ -152,6 +141,11 @@ const refreshContext = {
     fallbackRefreshCount: 0,
     __tmRuntimeState: {
         getTaskById(taskId) {
+            return taskId === 'task-1' ? { id: taskId } : null;
+        },
+    },
+    __tmTaskBoundary: {
+        getTask(taskId) {
             return taskId === 'task-1' ? { id: taskId } : null;
         },
     },

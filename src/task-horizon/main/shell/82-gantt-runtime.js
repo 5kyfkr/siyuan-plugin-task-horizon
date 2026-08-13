@@ -400,7 +400,7 @@
                 const m = d.getMonth();
                 const label = formatTimelineHeaderUpperLabel('day', d.getTime());
                 const isCurrent = today.getFullYear() === y && today.getMonth() === m;
-                return `<div class="tm-gantt-month tm-gantt-period-cell tm-gantt-period-cell--upper${isCurrent ? ' tm-gantt-period-cell--current-period' : ''}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px">${label}</div>`;
+                return `<div class="tm-gantt-month tm-gantt-period-cell tm-gantt-period-cell--upper${isCurrent ? ' tm-gantt-period-cell--current-period' : ''}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px"><span class="tm-gantt-period-label">${label}</span></div>`;
             }).join('');
         }
 
@@ -423,7 +423,7 @@
                 const d = segment.startDate;
                 const year = d.getFullYear();
                 const label = formatTimelineHeaderUpperLabel('month', d.getTime());
-                return `<div class="tm-gantt-month tm-gantt-period-cell tm-gantt-period-cell--upper${todayYear === year ? ' tm-gantt-period-cell--current-period' : ''}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px">${label}</div>`;
+                return `<div class="tm-gantt-month tm-gantt-period-cell tm-gantt-period-cell--upper${todayYear === year ? ' tm-gantt-period-cell--current-period' : ''}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px"><span class="tm-gantt-period-label">${label}</span></div>`;
             }).join('');
         }
 
@@ -1468,15 +1468,11 @@
                     const pts = [from, { x: x1, y: from.y }, { x: x2, y: to.y }, to];
                     return { d: pointsToSmoothPathD(pts, 10), pts };
                 };
-                const markerIdIn = `tmTlArrowIn`;
                 const markerIdOut = `tmTlArrowOut`;
                 const defs = `
                     <defs>
                         <marker id="${markerIdOut}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
                             <path d="M0,0 L8,3 L0,6 Z" fill="var(--tm-primary-color)"></path>
-                        </marker>
-                        <marker id="${markerIdIn}" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
-                            <path d="M8,0 L0,3 L8,6 Z" fill="var(--tm-primary-color)"></path>
                         </marker>
                     </defs>
                 `;
@@ -1487,13 +1483,14 @@
                     const routed = buildTimelineDep(from, to);
                     const d = routed.d;
                     const isSelected = !!link.manual && String(link.id || '').trim() === selectedTimelineLinkId;
-                    const isSubtaskSource = __tmIsTaskLinkSourceSubtask(link.from);
-                    const sourceDepthCls = isSubtaskSource
-                        ? ' tm-gantt-dep--subtask-source'
-                        : ' tm-gantt-dep--root-source';
+                    const hasSubtaskEndpoint = __tmIsTaskLinkEndpointSubtask(link.from)
+                        || __tmIsTaskLinkEndpointSubtask(link.to);
+                    const endpointDepthCls = hasSubtaskEndpoint
+                        ? ' tm-gantt-dep--subtask-endpoint'
+                        : '';
                     const cls = link.manual
-                        ? `tm-gantt-dep tm-gantt-dep--manual${sourceDepthCls}${isSelected ? ' tm-gantt-dep--selected' : ''}`
-                        : `tm-gantt-dep tm-gantt-dep--auto${sourceDepthCls}`;
+                        ? `tm-gantt-dep tm-gantt-dep--manual${endpointDepthCls}${isSelected ? ' tm-gantt-dep--selected' : ''}`
+                        : `tm-gantt-dep tm-gantt-dep--auto${endpointDepthCls}`;
                     if (!link.manual) return `<path class="${cls}" d="${d}" marker-end="url(#${markerIdOut})"></path>`;
                     const idEsc = String(link.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                     const btnPos = getPathTailButtonPos(routed.pts, {
@@ -1531,12 +1528,14 @@
                         : (targetTaskId ? getPt(targetTaskId, 'to') : pointerPt);
                     if (from && to) {
                         const d = buildTimelineDep(from, to).d;
-                        const previewSourceTaskId = fromSide === 'in' ? targetTaskId : fromTaskId;
-                        const previewSourceIsSubtask = __tmIsTaskLinkSourceSubtask(previewSourceTaskId);
-                        const previewSourceDepthCls = previewSourceIsSubtask
-                            ? ' tm-gantt-dep--subtask-source'
-                            : ' tm-gantt-dep--root-source';
-                        previewPath = `<path class="tm-gantt-dep tm-gantt-dep--manual${previewSourceDepthCls}" d="${d}" marker-end="url(#${markerIdOut})"></path>`;
+                        const previewFromTaskId = fromSide === 'in' ? targetTaskId : fromTaskId;
+                        const previewToTaskId = fromSide === 'in' ? fromTaskId : targetTaskId;
+                        const previewHasSubtaskEndpoint = __tmIsTaskLinkEndpointSubtask(previewFromTaskId)
+                            || __tmIsTaskLinkEndpointSubtask(previewToTaskId);
+                        const previewEndpointDepthCls = previewHasSubtaskEndpoint
+                            ? ' tm-gantt-dep--subtask-endpoint'
+                            : '';
+                        previewPath = `<path class="tm-gantt-dep tm-gantt-dep--manual${previewEndpointDepthCls}" d="${d}" marker-end="url(#${markerIdOut})"></path>`;
                     }
                 }
                 svg.innerHTML = defs + paths + previewPath;
@@ -2516,6 +2515,32 @@
                             x: Math.round(rect.right - 8),
                             y: Math.round(rect.bottom + 8),
                         });
+                    }
+                    return;
+                }
+                const taskTitle = target.closest('.tm-gantt-bar__title');
+                const ganttMultiSelectActive = Array.isArray(state.timelineMultiSelectedTaskIds)
+                    && state.timelineMultiSelectedTaskIds.length > 0;
+                if (taskTitle && !taskTitle.closest('.tm-gantt-group-bar__label')) {
+                    const taskRow = taskTitle.closest('.tm-gantt-row[data-id]');
+                    const titleTaskId = String(taskRow?.getAttribute?.('data-id') || '').trim();
+                    if (titleTaskId && ganttMultiSelectActive) {
+                        const selected = new Set(
+                            state.timelineMultiSelectedTaskIds
+                                .map((id) => String(id || '').trim())
+                                .filter(Boolean)
+                        );
+                        if (selected.has(titleTaskId)) selected.delete(titleTaskId);
+                        else selected.add(titleTaskId);
+                        state.timelineMultiSelectedTaskIds = Array.from(selected);
+                        try { taskRow.classList.toggle('tm-gantt-row--multi-selected', selected.has(titleTaskId)); } catch (e2) {}
+                        try { e.preventDefault(); } catch (e2) {}
+                        try { e.stopPropagation(); } catch (e2) {}
+                        syncTimelineSelectionToolbar('');
+                        return;
+                    }
+                    if (titleTaskId && typeof window.tmTaskTitleClick === 'function') {
+                        window.tmTaskTitleClick(titleTaskId, e, { surface: 'timeline' });
                     }
                     return;
                 }

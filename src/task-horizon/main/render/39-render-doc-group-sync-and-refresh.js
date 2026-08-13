@@ -1,4 +1,4 @@
-﻿    function __tmCancelSettingsStorePendingSave() {
+    function __tmCancelSettingsStorePendingSave() {
         try {
             if (SettingsStore?.saveTimer) {
                 clearTimeout(SettingsStore.saveTimer);
@@ -370,7 +370,7 @@
         const opt = (options && typeof options === 'object') ? options : {};
         try { await __tmApplyCurrentContextViewProfile(); } catch (e) {}
         if (opt.skipTaskReload === true) {
-            try { applyFilters(); } catch (e) {}
+            try { __tmRecomputeTaskProjection({ reason: 'doc-group-sync' }); } catch (e) {}
         } else {
             try {
                 await loadSelectedDocuments({
@@ -395,7 +395,7 @@
                         source: `${String(opt.source || 'doc-group-dropdown-sync').trim() || 'doc-group-dropdown-sync'}-active-doc`
                     });
                 } else {
-                    applyFilters();
+                    __tmRecomputeTaskProjection({ reason: 'doc-group-sync' });
                 }
             } catch (e) {}
         }
@@ -660,6 +660,7 @@
     }
 
     const __TM_MANUAL_REFRESH_WRITE_PROTECT_FIELDS = new Set([
+        ...(globalThis.__tmTaskFieldSchema?.getGroup?.('completion') || []),
         'startDate',
         'completionTime',
         'taskDateColor',
@@ -695,7 +696,7 @@
                 const tid = String(taskId || '').trim();
                 if (!tid || !patch || typeof patch !== 'object') return;
                 const prev = out.get(tid) || {};
-                try { out.set(tid, __tmWritePlanner.mergeTaskPatches(prev, patch)); }
+                try { out.set(tid, __tmMergeTaskMutationPatches(prev, patch)); }
                 catch (e) { out.set(tid, { ...prev, ...patch }); }
             });
         } catch (e) {}
@@ -710,10 +711,7 @@
             map.forEach((entry, taskId) => {
                 const tid = String(taskId || '').trim();
                 if (!tid || !entry || typeof entry !== 'object') return;
-                const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true })
-                    || state.flatTasks?.[tid]
-                    || state.pendingInsertedTasks?.[tid]
-                    || null;
+                const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
                 if (!(task && typeof task === 'object')) return;
                 const patch = {};
                 (Array.isArray(entry.fields) ? entry.fields : []).forEach((field) => {
@@ -753,10 +751,7 @@
             seed.forEach((patch, taskId) => {
                 const tid = String(taskId || '').trim();
                 if (!tid || !patch || typeof patch !== 'object') return;
-                const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true })
-                    || state.flatTasks?.[tid]
-                    || state.pendingInsertedTasks?.[tid]
-                    || null;
+                const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
                 const protectedPatch = {};
                 Object.entries(patch).forEach(([key, fallback]) => {
                     const k = String(key || '').trim();
@@ -796,73 +791,15 @@
         return touched;
     }
 
-    function __tmBuildManualRefreshOutboxProjection(seedPatchMap) {
+    function __tmBuildManualRefreshMutationProjection(seedPatchMap) {
         const patchMap = __tmBuildManualRefreshWriteProtectionMap(seedPatchMap);
-        let deleteSet = new Set();
-        let moveMap = new Map();
-        try {
-            if (typeof __tmBuildQueuedTaskDeleteSet === 'function') {
-                deleteSet = __tmBuildQueuedTaskDeleteSet({ statuses: ['queued', 'running'] });
-            }
-        } catch (e) {
-            deleteSet = new Set();
-        }
-        try {
-            if (typeof __tmBuildQueuedTaskMoveMap === 'function') {
-                moveMap = __tmBuildQueuedTaskMoveMap({ statuses: ['queued', 'running'] });
-            }
-        } catch (e) {
-            moveMap = new Map();
-        }
-        return { patchMap, deleteSet, moveMap };
+        return { patchMap };
     }
 
-    function __tmApplyManualRefreshOutboxProjection(projection, source = 'manual-refresh') {
+    function __tmApplyManualRefreshMutationProjection(projection, source = 'manual-refresh') {
         const data = (projection && typeof projection === 'object') ? projection : {};
         const patchMap = data.patchMap instanceof Map ? data.patchMap : new Map();
-        const deleteSet = data.deleteSet instanceof Set ? data.deleteSet : new Set();
-        const moveMap = data.moveMap instanceof Map ? data.moveMap : new Map();
         let touched = false;
-        if (deleteSet.size > 0) {
-            deleteSet.forEach((taskId) => {
-                const tid = String(taskId || '').trim();
-                if (!tid) return;
-                try {
-                    if (__tmRemoveTaskFromLocalState(tid, { recalc: false, filter: false })) touched = true;
-                    else {
-                        const existed = !!(state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid]);
-                        try { globalThis.__tmTaskStore?.removeLocal?.(tid, { source: 'manual-refresh-outbox-delete' }); } catch (e) {}
-                        try { globalThis.__tmTaskStore?.removePending?.(tid, { source: 'manual-refresh-outbox-delete' }); } catch (e) {}
-                        if (existed) touched = true;
-                    }
-                } catch (e) {}
-                try { if (__tmRemoveTaskFromFilteredLocalState(tid)) touched = true; } catch (e) {}
-            });
-        }
-        if (moveMap.size > 0) {
-            const applyMove = (task) => {
-                if (!(task && typeof task === 'object')) return;
-                const tid = String(task.id || task.blockId || '').trim();
-                if (!tid || !moveMap.has(tid)) return;
-                try {
-                    if (typeof __tmApplyQueuedTaskMovePatchToTask === 'function'
-                        && __tmApplyQueuedTaskMovePatchToTask(task, moveMap.get(tid))) {
-                        touched = true;
-                    }
-                } catch (e) {}
-            };
-            try { Object.values(state.flatTasks || {}).forEach(applyMove); } catch (e) {}
-            try { Object.values(state.pendingInsertedTasks || {}).forEach(applyMove); } catch (e) {}
-            const walk = (list) => {
-                (Array.isArray(list) ? list : []).forEach((task) => {
-                    applyMove(task);
-                    if (Array.isArray(task?.children) && task.children.length) walk(task.children);
-                });
-            };
-            try {
-                (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => walk(doc?.tasks || []));
-            } catch (e) {}
-        }
         if (__tmApplyManualRefreshWriteProtectionMap(patchMap, source)) touched = true;
         if (touched) {
             try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
@@ -1042,22 +979,28 @@
     async function __tmRefreshCore(options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
         const silent = opt.silent === true;
+        const commitView = opt.commitView !== false;
         const reason = String(opt.reason || 'manual').trim() || 'manual';
         const preserveUi = opt.preserveUi !== false;
-        if (state.isRefreshing) return false;
-        const startedAt = __tmPerfNow();
+        const authoritativeDocumentOrder = reason === 'manual' || reason.startsWith('manual-');
+        const deferIfDetailBusy = commitView && !authoritativeDocumentOrder && opt.deferIfDetailBusy !== false;
+        const preserveExistingSiblingOrder = !authoritativeDocumentOrder
+            && opt.preserveExistingSiblingOrder === true;
+        if (state.isRefreshing) {
+            return false;
+        }
 state.openToken = (Number(state.openToken) || 0) + 1;
         const refreshToken = Number(state.openToken) || 0;
         const snapshot = preserveUi ? __tmCaptureRefreshUiState() : null;
         const mode = String(state.viewMode || '').trim();
         let refreshWriteProtectionSeed = new Map();
-        let refreshOutboxProjection = null;
+        let refreshMutationProjection = null;
         let _refreshHint = null;
         if (!silent) _refreshHint = hint('🔄 正在刷新...', 'info');
 
         state.isRefreshing = true;
         try {
-            if (preserveUi && state.modal instanceof HTMLElement && document.body.contains(state.modal)) {
+            if (commitView && preserveUi && state.modal instanceof HTMLElement && document.body.contains(state.modal)) {
                 try {
                     __tmSetInlineLoading(true, {
                         token: refreshToken,
@@ -1081,7 +1024,7 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                     refreshWriteProtectionSeed,
                     __tmBuildLocalRefreshWatermarkPatchMap()
                 );
-                refreshOutboxProjection = __tmBuildManualRefreshOutboxProjection(refreshWriteProtectionSeed);
+                refreshMutationProjection = __tmBuildManualRefreshMutationProjection(refreshWriteProtectionSeed);
             } catch (e) {}
             try { __tmInvalidateAllSqlCaches(); } catch (e) {}
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
@@ -1093,20 +1036,27 @@ state.openToken = (Number(state.openToken) || 0) + 1;
             const reloadedWhiteboardState = skipSharedStateReload
                 ? false
                 : await __tmMaybeReloadWhiteboardSharedStateOnManualRefresh(syncedServerState, mode, reason);
-            await __tmFlushSqlTransactionsSafe(`refresh-core:${reason}`);
             await loadSelectedDocuments({
                 skipRender: true,
                 showInlineLoading: false,
+                deferProjection: true,
                 forceFreshTasks: true,
+                forceRefreshScope: authoritativeDocumentOrder,
+                skipPersistedScope: authoritativeDocumentOrder,
+                skipResolvedDocIdsCache: authoritativeDocumentOrder,
+                forceSyncFlowRank: authoritativeDocumentOrder || !preserveExistingSiblingOrder,
+                preserveExistingSiblingOrder,
                 source: `refresh-core:${reason}`,
+                insertedBlockIds: Array.isArray(opt.insertedBlockIds) ? opt.insertedBlockIds.slice() : [],
+                deletedBlockIds: Array.isArray(opt.deletedBlockIds) ? opt.deletedBlockIds.slice() : [],
             });
-            const writeProtectionTouched = __tmApplyManualRefreshOutboxProjection(refreshOutboxProjection, `refresh-core:${reason}`);
+            try {
+                await __tmReconcileCurrentGlobalWhiteboardAuthoritative({ forceFresh: true });
+            } catch (e) {}
+            __tmApplyManualRefreshMutationProjection(refreshMutationProjection, `refresh-core:${reason}`);
 
             if (preserveUi && snapshot) {
                 try { __tmRestoreRefreshUiState(snapshot); } catch (e) {}
-                try { applyFilters(); } catch (e) {}
-            } else if (writeProtectionTouched) {
-                try { applyFilters(); } catch (e) {}
             }
             if (!silent && mode === 'timeline' && state.groupByDocName) {
                 try {
@@ -1126,11 +1076,13 @@ state.openToken = (Number(state.openToken) || 0) + 1;
             try {
                 removedCount = Number(await __tmSyncWhiteboardFrozenTasksWithLiveTasks()) || 0;
             } catch (e) {}
-            if (removedCount > 0) {
-                try { applyFilters(); } catch (e) {}
+            // Apply filters once after all authoritative data, UI state and
+            // whiteboard cleanup have settled.
+            if (commitView) {
+                try { __tmRecomputeTaskProjection({ reason: 'doc-group-refresh' }); } catch (e) {}
             }
 
-            if (opt.deferIfDetailBusy !== false) {
+            if (deferIfDetailBusy) {
                 const barrier = __tmGetBusyTaskDetailBarrier();
                 if (barrier) {
                     try {
@@ -1150,7 +1102,7 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                 }
             }
 
-            if (mode === 'calendar' && globalThis.__tmCalendar && (typeof globalThis.__tmCalendar.requestRefresh === 'function' || typeof globalThis.__tmCalendar.refreshInPlace === 'function')) {
+            if (commitView && mode === 'calendar' && globalThis.__tmCalendar && (typeof globalThis.__tmCalendar.requestRefresh === 'function' || typeof globalThis.__tmCalendar.refreshInPlace === 'function')) {
                 try {
                     __tmRequestCalendarRefresh({
                         reason: `refresh-core:${reason}`,
@@ -1160,10 +1112,11 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                         hard: true,
                     }, { hard: true });
                 } catch (e) { try { render(); } catch (e2) {} }
-            } else {
+            } else if (commitView) {
                 try {
                     __tmRefreshMainViewInPlace({
                         withFilters: false,
+                        deferIfDetailBusy,
                         reason: `refresh-core:${reason}`,
                     });
                 } catch (e) {
@@ -1194,7 +1147,9 @@ return true;
 return false;
         } finally {
             state.isRefreshing = false;
-            try { __tmSetInlineLoading(false); } catch (e) {}
+            if (commitView) {
+                try { __tmSetInlineLoading(false); } catch (e) {}
+            }
             try { __tmFlushDeferredViewRefreshAfterTaskFieldWork(`refresh-core:${reason}:end`); } catch (e2) {}
         }
     }

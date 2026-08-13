@@ -83,6 +83,8 @@ async function run() {
     const query = (statement) => {
         lastSQL = statement;
         if (/1 = 0/.test(statement)) return [];
+        const taskTreeMatch = statement.match(/WITH RECURSIVE task_tree\(id, depth\)[\s\S]*SELECT id, 0 FROM blocks WHERE id = '([^']+)'/);
+        if (taskTreeMatch) return taskIDs.includes(taskTreeMatch[1]) ? [{ id: taskTreeMatch[1] }] : [];
         if (/FROM blocks task/.test(statement)) return taskIDs.slice(0, 201).map(taskRow);
         if (/SELECT COUNT\(\*\) AS completed_in_scope/.test(statement)) {
             return [{ completed_in_scope: TASK_COUNT, missing_completion_time: 0 }];
@@ -97,9 +99,9 @@ async function run() {
             async bind(name, handler) { rpcCalls[name] = handler; },
             async unbind(name) { delete rpcCalls[name]; },
         },
-        mcp: {
-            async registerTool(name, schema, handler) { mcpTools[name] = { schema, handler }; },
-            async unregisterTool(name) { delete mcpTools[name]; },
+        agent: {
+            async registerCapability(name, schema, handler) { mcpTools[name] = { schema, handler }; },
+            async unregisterCapability(name) { delete mcpTools[name]; },
         },
         storage: {
             async get(name) {
@@ -133,17 +135,26 @@ async function run() {
         scopeID: 'group-a|all',
         taskIDs,
         documentIDs: [documentID],
-        taskValues: taskIDs.map((id, index) => ({ id, priorityScore: index + 100 })),
+        taskValues: taskIDs.map((id, index) => ({
+            id,
+            priorityScore: index + 100,
+            tomatoMinutes: index === 0 ? 5 : 0,
+            tomatoHours: index === 0 ? 0.08 : 0,
+            tomatoCount: index === 0 ? 1 : 0,
+        })),
     });
     assert.equal(registered.ok, true);
     assert.equal(registered.data.taskCount, TASK_COUNT);
     assert.ok(registered.data.scopeToken.startsWith('task_scope_'));
 
-    const queryResult = await mcpTools.query_tasks.handler({ action: 'query', filters: { scopeToken: registered.data.scopeToken }, fields: ['title', 'priorityScore'], limit: 200 });
+    const queryResult = await mcpTools.query_tasks.handler({ action: 'query', filters: { scopeToken: registered.data.scopeToken }, fields: ['title', 'priorityScore', 'tomatoMinutes', 'tomatoHours', 'tomatoCount'], limit: 200 });
     assert.equal(queryResult.ok, true);
     assert.equal(queryResult.data.items.length, 200);
     assert.ok(queryResult.data.nextCursor);
     assert.equal(queryResult.data.items[0].priorityScore, 100);
+    assert.equal(queryResult.data.items[0].tomatoMinutes, 5, 'scoped recurring focus minutes must override the cumulative task attribute');
+    assert.equal(queryResult.data.items[0].tomatoHours, 0.08);
+    assert.equal(queryResult.data.items[0].tomatoCount, 1);
     assert.match(lastSQL, new RegExp(taskIDs[0]));
     assert.match(lastSQL, new RegExp(taskIDs[TASK_COUNT - 1]));
 

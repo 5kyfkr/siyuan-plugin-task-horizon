@@ -568,13 +568,13 @@
 
     // 加载所有选中文档的任务（带递归支持）
     async function loadSelectedDocuments(options = {}) {
-        try { __tmHydrateOpQueue(); } catch (e) {}
         const runtimeState = globalThis.__tmRuntimeState;
         const token = runtimeState?.getOpenToken?.() ?? (Number(state.openToken) || 0);
         const isTokenCurrent = () => runtimeState?.isCurrentOpenToken?.(token) ?? (token === (Number(state.openToken) || 0));
         const getActiveModal = () => runtimeState?.getModal?.() || state.modal;
         const getCurrentViewMode = (fallback = '') => runtimeState?.getViewMode?.(fallback) || String(state.viewMode || '').trim() || String(fallback || '').trim();
         const skipRender = !!(options && options.skipRender);
+        const deferProjection = !!(options && options.deferProjection === true);
         const showInlineLoading = !skipRender && !(options && options.showInlineLoading === false);
         const preferFastFirstPaint = !!(options && options.preferFastFirstPaint);
         const skipSnapshotFirstPaint = !!(options && options.skipSnapshotFirstPaint === true);
@@ -585,7 +585,20 @@
         const skipDocSessionRestoreFirstPaint = !!(options && options.skipDocSessionRestoreFirstPaint === true);
         const forceFastFirstPaintBudget = !!(options && options.forceFastFirstPaintBudget === true);
         const forceFreshTasks = !!(options && options.forceFreshTasks === true);
+        state.__tmGlobalWhiteboardAuthoritativeScope = {
+            complete: false,
+            groupId: String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
+            docIds: [],
+            at: Date.now(),
+        };
         const forceSyncFlowRank = !!(options && options.forceSyncFlowRank === true);
+        const preserveExistingSiblingOrder = !!(options && options.preserveExistingSiblingOrder === true);
+        const insertedBlockIds = Array.from(new Set((Array.isArray(options?.insertedBlockIds) ? options.insertedBlockIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        const deletedBlockIds = new Set((Array.isArray(options?.deletedBlockIds) ? options.deletedBlockIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
         const forceFullLoadBudget = !!(options && options.forceFullLoadBudget);
         const forceShellRender = !!(options && options.forceShellRender === true);
         const refreshAfterTaskIndexFirstPaint = !!(options && options.refreshAfterTaskIndexFirstPaint === true);
@@ -597,17 +610,6 @@
             ? Number(options.parentLookupDepth)
             : Number.NaN;
         const perfTuning = __tmGetPerfTuningOptions();
-        const perfTrace = (options && options.perfTrace) || __tmCreatePerfTrace('loadSelectedDocuments', {
-            source: String(options?.source || 'direct').trim() || 'direct',
-            token,
-            skipRender: skipRender ? 1 : 0,
-            forceFreshTasks: forceFreshTasks ? 1 : 0,
-            runtimeMobile: (globalThis.__tmRuntimeHost?.getInfo?.()?.runtimeMobileClient ?? __tmIsRuntimeMobileClient()) ? 1 : 0,
-            viewMode: getCurrentViewMode('list'),
-            perfReadRepeatAttrsInline: perfTuning.readRepeatAttrsInline ? 1 : 0,
-            perfDisableSiblingRank: perfTuning.disableSiblingRank ? 1 : 0,
-            perfDeferRecurringReconcile: perfTuning.deferRecurringReconcile ? 1 : 0,
-        });
         const sourceLabel = String(options?.source || 'direct').trim() || 'direct';
         const isSwitchDocGroupLoad = sourceLabel === 'switch-doc-group'
             || sourceLabel === 'legacy-switch-doc-group'
@@ -756,12 +758,6 @@
         const yieldToBrowser = () => new Promise((resolve) => {
             try { setTimeout(resolve, 0); } catch (e) { resolve(); }
         });
-        let perfFinished = false;
-        const finishPerfTrace = (detail = {}) => {
-            if (perfFinished) return;
-            perfFinished = true;
-            __tmPerfTraceFinish(perfTrace, detail);
-        };
         const scheduleFullLoadAfterFastFirstPaint = (reason = 'fast-first-paint') => {
             if (!preferFastFirstPaint || forceFullLoadBudget || forceFreshTasks || skipRender) return false;
             if (skipFullLoadAfterFastFirstPaint) return false;
@@ -796,7 +792,6 @@
                     showInlineLoading: false,
                     source: `${baseSource}:full`,
                 };
-                try { delete nextOptions.perfTrace; } catch (e) {}
                 loadSelectedDocuments(nextOptions).catch(() => null);
             };
             const delayedFullLoadMs = Math.max(0, Number(options?.fullLoadAfterFastFirstPaintDelayMs || 0) || 0);
@@ -847,15 +842,7 @@
                 inlineLoadingWatchdogTimer = 0;
                 if (!isTokenCurrent()) return;
                 if (Number(state.uiInlineLoadingToken) !== token) return;
-                const recovered = clearInlineLoadingForCurrentToken();
-                try {
-                    __tmPerfTraceMark(perfTrace, 'inline-loading-watchdog', {
-                        source: sourceLabel,
-                        token,
-                        recovered: recovered ? 1 : 0,
-                        hasTaskData: __tmHasTaskDataReadyForUi() ? 1 : 0,
-                    });
-                } catch (e) {}
+                clearInlineLoadingForCurrentToken();
                 if (sourceLabel !== 'openManager' || __tmHasTaskDataReadyForUi()) return;
                 try {
                     if (runtimeState && typeof runtimeState.nextOpenToken === 'function') {
@@ -897,10 +884,6 @@
         try {
         // 加载设置（包括文档ID列表）
         await __tmEnsureSettingsLoaded();
-        __tmPerfTraceMark(perfTrace, 'settings', {
-            preferFastFirstPaint: preferFastFirstPaint ? 1 : 0,
-            source: String(options?.source || 'direct').trim() || 'direct',
-        });
         const waitNotebookCache = !!(options && options.waitNotebookCache === true);
         if (waitNotebookCache) {
             try { await __tmRefreshNotebookCache(); } catch (e) {}
@@ -934,11 +917,9 @@
             }
         };
         if (shouldLoadMetaInline) {
-            const metaLoadStart = Date.now();
             await MetaStore.load();
         }
         if (shouldLoadWhiteboardInline) {
-            const whiteboardLoadStart = Date.now();
             if (waitWhiteboardInline) {
                 await WhiteboardStore.load();
             } else {
@@ -946,7 +927,6 @@
             }
         }
         if (shouldLoadOtherBlocksInline) {
-            const otherBlocksLoadStart = Date.now();
             await loadOtherBlocksNow();
             otherBlocksLoadedSynchronously = true;
         } else if (!isSnapshotCacheVerifyLoad) {
@@ -1007,11 +987,13 @@
         // 加载筛选规则
         state.filterRules = await __tmEnsureFilterRulesLoaded();
         const currentRule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
-        const bulkCustomFieldPlan = __tmCollectCustomFieldLoadPlan({
-            viewMode: state.viewMode,
+        const enhanceLoadPlan = __tmBuildTaskEnhanceLoadPlan({
+            viewMode: getCurrentViewMode(''),
             colOrder: Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [],
             rule: currentRule,
+            forceFlowRank: forceSyncFlowRank,
         });
+        const bulkCustomFieldPlan = enhanceLoadPlan.customFieldLoadPlan;
         state.deferredListCustomFieldIds = getCurrentViewMode('') === 'list'
             ? bulkCustomFieldPlan.deferredListFieldIds.slice()
             : [];
@@ -1020,13 +1002,16 @@
         // 1. 解析所有需要查询的文档ID
         const resolveScopeOptions = {
             forceRefreshScope: !!state.isRefreshing || !!(options && options.forceRefreshScope === true),
-            skipPersistedScope: isSwitchDocGroupLoad,
-            skipResolvedDocIdsCache: false,
+            skipPersistedScope: isSwitchDocGroupLoad || !!(options && options.skipPersistedScope === true),
+            skipResolvedDocIdsCache: !!(options && options.skipResolvedDocIdsCache === true),
             verifyCachedScope: !isSwitchDocGroupLoad,
             preferFastScope: !isSwitchDocGroupLoad && !!preferFastFirstPaint && !forceFreshTasks && !state.isRefreshing,
         };
         let allDocIds = [];
         allDocIds = await resolveDocIdsFromGroups(resolveScopeOptions);
+        const editorOrderSnapshots = forceSyncFlowRank
+            ? __tmCaptureEditorDocumentTaskOrder(allDocIds, { maxTasks: 80 })
+            : [];
         try { await __tmRefreshCustomFieldScopeMembership({ force: !!state.isRefreshing }); } catch (e) {}
         const otherBlockDocIdSet = new Set();
         (Array.isArray(state.otherBlocks) ? state.otherBlocks : []).forEach((task) => {
@@ -1048,10 +1033,6 @@
             });
         }
         state.__tmLoadedDocIdsForTasks = Array.isArray(allDocIds) ? allDocIds.slice() : [];
-        __tmPerfTraceMark(perfTrace, 'docs', {
-            docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
-            groupId: currentGroupId,
-        });
         const taskIndexDocUpdatedMap = __tmBuildDocUpdatedFingerprintMap(state.allDocuments);
         let taskCountMapLoadPromise = null;
         let taskCountMapMeta = null;
@@ -1106,20 +1087,13 @@
                     } catch (e) {
                         viewSnapshotMeta = null;
                     }
-                    if (!viewSnapshotMeta) {
-                        prepareSwitchGroupFirstPaintWindow();
-                        applyFilters();
-                    }
+                    prepareSwitchGroupFirstPaintWindow();
+                    if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
                     prepareSwitchGroupFirstPaintWindow();
                     const activeModal = getActiveModal();
                     if (activeModal && isTokenCurrent()) {
                         try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
                         renderLoadedState();
-                        __tmPerfTraceMark(perfTrace, 'snapshot-first-render', {
-                            docCount: Number(snapshotMeta.docCount || 0),
-                            taskCount: Number(snapshotMeta.taskCount || 0),
-                            ageMs: __tmRoundPerfMs(snapshotMeta.ageMs || 0),
-                        });
                         snapshotFirstRenderCommitted = true;
                         const verifyScheduled = scheduleSilentVerifyAfterCacheFirstPaint('snapshot-cache', {
                             delayMs: viewSnapshotMeta ? 520 : 260,
@@ -1149,12 +1123,6 @@
             } catch (e) {}
             if (resyncedEmptyGroup) {
                 try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
-                __tmPerfTraceMark(perfTrace, 'doc-group-resync', {
-                    docCount: 0,
-                    groupId: currentGroupId,
-                    reason: 'empty-group-cloud-sync',
-                });
-
                 return;
             }
         }
@@ -1263,18 +1231,13 @@
                 if (sessionMeta && isTokenCurrent()) {
                     try { recalcStats(); } catch (e) {}
                     prepareSwitchGroupFirstPaintWindow();
-                    applyFilters();
+                    if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
                     prepareSwitchGroupFirstPaintWindow();
                     const activeModal = getActiveModal();
                     if (activeModal && isTokenCurrent()) {
                         try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
                         renderLoadedState();
                         scheduleDeferredPostLoadWork();
-                        __tmPerfTraceMark(perfTrace, 'session-first-render', {
-                            docCount: Number(sessionMeta.docCount || 0),
-                            taskCount: Number(sessionMeta.taskCount || 0),
-                            ageMs: __tmRoundPerfMs(sessionMeta.ageMs || 0),
-                        });
                         const verifyScheduled = scheduleSilentVerifyAfterCacheFirstPaint('session-cache', { delayMs: 420 });
                         if (!verifyScheduled) scheduleFullLoadAfterFastFirstPaint('session-cache');
 
@@ -1294,18 +1257,13 @@
                     if (docSessionMeta && isTokenCurrent()) {
                         try { recalcStats(); } catch (e) {}
                         prepareSwitchGroupFirstPaintWindow();
-                        applyFilters();
+                        if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
                         prepareSwitchGroupFirstPaintWindow();
                         const activeModal = getActiveModal();
                         if (activeModal && isTokenCurrent()) {
                             try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
                             renderLoadedState();
                             scheduleDeferredPostLoadWork();
-                            __tmPerfTraceMark(perfTrace, 'doc-session-first-render', {
-                                docCount: Number(docSessionMeta.docCount || 0),
-                                taskCount: Number(docSessionMeta.taskCount || 0),
-                                ageMs: __tmRoundPerfMs(docSessionMeta.ageMs || 0),
-                            });
                             const verifyScheduled = scheduleSilentVerifyAfterCacheFirstPaint('doc-session-cache', { delayMs: 420 });
                             if (!verifyScheduled) scheduleFullLoadAfterFastFirstPaint('doc-session-cache');
 
@@ -1344,7 +1302,7 @@
                 if (indexMeta && isTokenCurrent()) {
                     try { recalcStats(); } catch (e) {}
                     prepareSwitchGroupFirstPaintWindow();
-                    applyFilters();
+                    if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
                     prepareSwitchGroupFirstPaintWindow();
                     const activeModal = getActiveModal();
                     if (activeModal && isTokenCurrent()) {
@@ -1361,13 +1319,6 @@
                             if (!patchedTaskIndexView) renderLoadedState();
                         }
                         scheduleDeferredPostLoadWork();
-                        __tmPerfTraceMark(perfTrace, 'task-index-ready', {
-                            docCount: Number(indexMeta.docCount || 0),
-                            taskCount: Number(indexMeta.taskCount || 0),
-                            indexAgeMs: Math.max(0, Date.now() - Number(indexMeta.indexUpdatedAt || 0)),
-                            partial: indexMeta.partial ? 1 : 0,
-                            reloadDocCount: Array.isArray(indexMeta.reloadDocIds) ? indexMeta.reloadDocIds.length : 0,
-                        });
                         if (indexMeta.partial && Array.isArray(indexMeta.reloadDocIds) && indexMeta.reloadDocIds.length > 0) {
                             try { schedulePartialIndexReloads(indexMeta.reloadDocIds, 'task-index-partial-miss'); } catch (e) {}
                         }
@@ -1399,33 +1350,14 @@
             state.taskTree = [];
             globalThis.__tmTaskStore?.clearFlat?.({ mergeOtherBlocks: true });
             try { recalcStats(); } catch (e) {}
-            applyFilters();
-            __tmPerfTraceMark(perfTrace, 'filter', {
-                filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                reason: 'empty-docs',
-                ...((state.__tmLastFilterPerf && typeof state.__tmLastFilterPerf === 'object') ? state.__tmLastFilterPerf : {}),
-            });
+            if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
             const activeModal = getActiveModal();
             if (!skipRender && activeModal && isTokenCurrent()) {
                 try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
                 renderLoadedState();
-                __tmPerfTraceMark(perfTrace, 'first-render', {
-                    filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                    reason: 'empty-docs',
-                });
-                __tmPerfTraceMark(perfTrace, 'render', {
-                    filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                    reason: 'empty-docs',
-                });
             }
             scheduleDeferredPostLoadWork();
             if (!(Array.isArray(state.otherBlocks) && state.otherBlocks.length) && activeModal && isTokenCurrent()) showSettings();
-            __tmPerfTraceMark(perfTrace, 'full-ready', {
-                docCount: 0,
-                filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                reason: 'empty-docs',
-            });
-
             return;
         }
 
@@ -1453,7 +1385,6 @@
             if (__tmIsListLikeViewMode(getCurrentViewMode(''))) {
                 state.listRenderStep = __tmGetViewRenderWindowPolicy(getCurrentViewMode('')).initial;
             }
-            const queryStageStartTime = __tmPerfNow();
             const shouldForceFreshColdAllDocsLoad = !forceFreshTasks
                 && String(state.activeDocId || 'all').trim() === 'all'
                 && (!Array.isArray(state.taskTree) || state.taskTree.length === 0)
@@ -1464,15 +1395,14 @@
             // 循环完成实例挂在源任务历史上；如果只查询已完成原任务，会把已推进为未完成的源任务漏掉，
             // 从而无法注入循环记录。这里先关闭 doneOnly 查询优化，筛选交给前端规则层处理。
             const queryDoneOnly = false;
-            const queryStartedAt = Date.now();
+            const taskStoreReadToken = globalThis.__tmTaskStore?.captureRead?.(allDocIds) || null;
             try {
-                const flushStartedAt = Date.now();
                 await __tmFlushSqlTransactionsSafe(`load-selected-documents:${sourceLabel}`);
             } catch (e) {}
             if (abortSnapshotCacheVerifyIfContextChanged('after-query-flush', {
                 docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
             })) return;
-            const res = await API.getTasksByDocuments(allDocIds, effectiveQueryLimit, {
+            const querySelectedTasks = () => API.getTasksByDocuments(allDocIds, effectiveQueryLimit, {
                 doneOnly: queryDoneOnly,
                 forceFresh: queryForceFresh,
                 // 首次全量构建直接使用 SQL 解析 parent list -> parent task，
@@ -1481,10 +1411,45 @@
                 skipDocJoin: true,
                 customFieldIds: bulkCustomFieldPlan.bulkFieldIds,
             });
+            let res = await querySelectedTasks();
+            const editorTaskIdsByDoc = forceSyncFlowRank
+                ? __tmBuildEditorDocumentTaskIdMap(editorOrderSnapshots)
+                : new Map();
+            const editorTaskIds = new Set(Array.from(editorTaskIdsByDoc.values()).flatMap((taskIds) => Array.from(taskIds)));
+            const expectedInsertedTaskIds = insertedBlockIds.filter((id) => editorTaskIds.has(id));
+            let missingInsertedTaskIds = Array.from(new Set(
+                __tmCollectMissingEditorTaskIds(res?.tasks, editorTaskIdsByDoc).concat(expectedInsertedTaskIds.filter((id) =>
+                    !(Array.isArray(res?.tasks) ? res.tasks : []).some((task) => String(task?.id || '').trim() === id)))
+            ));
+            if (missingInsertedTaskIds.length > 0) {
+                await new Promise((resolve) => setTimeout(resolve, 120));
+                try { await __tmFlushSqlTransactionsSafe(`load-selected-documents-retry:${sourceLabel}`); } catch (e) {}
+                allDocIds.forEach((docId) => {
+                    try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
+                });
+                if (!isTokenCurrent()) return;
+                res = await querySelectedTasks();
+                missingInsertedTaskIds = Array.from(new Set(
+                    __tmCollectMissingEditorTaskIds(res?.tasks, editorTaskIdsByDoc).concat(expectedInsertedTaskIds.filter((id) =>
+                        !(Array.isArray(res?.tasks) ? res.tasks : []).some((task) => String(task?.id || '').trim() === id)))
+                ));
+            }
+            res.tasks = __tmFilterDeletedTaskRowsForDocumentRefresh(res?.tasks, deletedBlockIds);
+            if (missingInsertedTaskIds.length > 0) {
+                throw new Error(`任务索引尚未同步: ${missingInsertedTaskIds.slice(0, 3).join(',')}`);
+            }
 
             if (!isTokenCurrent()) {
 
                 return;
+            }
+            if (taskStoreReadToken && globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) !== true) {
+                return;
+            }
+            if (Array.isArray(res?.tasks)) {
+                res.tasks = globalThis.__tmTaskStore?.mergePendingStructuralRows?.(res.tasks, {
+                    docIds: allDocIds,
+                }) || res.tasks;
             }
             if (abortSnapshotCacheVerifyIfContextChanged('after-query', {
                 taskCount: Array.isArray(res?.tasks) ? res.tasks.length : 0,
@@ -1547,13 +1512,7 @@
                     scheduleFullLoadAfterFastFirstPaint('query-limit-hit');
                 }
             }
-            let pendingMergeMs = 0;
-            let pendingValidateCount = 0;
-            let pendingMergedIntoLiveCount = 0;
-            let pendingInsertedCount = 0;
-            let pendingDroppedCount = 0;
             try {
-                const pendingMergeStartTime = __tmPerfNow();
                 const taskStore = globalThis.__tmTaskStore || null;
                 const pendingMap = taskStore?.getPendingMap?.() || {};
                 const pendingDeletedMap = taskStore?.getPendingDeletedMap?.() || {};
@@ -1586,11 +1545,10 @@
                     const id = String(pendingTaskIds[i] || '').trim();
                     if (id && !liveIdSet.has(id)) pendingIdsToValidate.push(id);
                 }
-                pendingValidateCount = pendingIdsToValidate.length;
                 const pendingIdsToValidateSet = new Set(pendingIdsToValidate);
                 const allDocIdSet = new Set((Array.isArray(allDocIds) ? allDocIds : []).map((id) => String(id || '').trim()).filter(Boolean));
                 const existingPendingIdSet = new Set();
-                const shouldKeepPendingWhileOutboxSettles = (id, pending) => {
+                const shouldKeepPendingWhileMutationSettles = (id, pending) => {
                     const tid = String(id || '').trim();
                     const task = (pending && typeof pending === 'object') ? pending : {};
                     if (!tid) return false;
@@ -1621,12 +1579,10 @@
                     const pending = pendingMap[id];
                     if (isPendingDeletedId(id)) {
                         try { taskStore?.removePending?.(taskId); } catch (e) {}
-                        pendingDroppedCount += 1;
                         continue;
                     }
                     if (!id || !pending) {
                         try { taskStore?.removePending?.(taskId); } catch (e) {}
-                        pendingDroppedCount += 1;
                         continue;
                     }
                     if (liveIdSet.has(id)) {
@@ -1641,86 +1597,40 @@
                             if (pendingHasVisibleDate) {
                                 try { __tmMarkVisibleDateFallbackTask(id); } catch (e) {}
                             }
-                            pendingMergedIntoLiveCount += 1;
                         }
                         try { taskStore?.removePending?.(taskId); } catch (e) {}
                         continue;
                     }
                     if (pendingIdsToValidateSet.has(id) && !existingPendingIdSet.has(id)) {
                         const docId = String(pending.root_id || pending.docId || '').trim();
-                        if (docId && allDocIdSet.has(docId) && shouldKeepPendingWhileOutboxSettles(id, pending)) {
+                        if (docId && allDocIdSet.has(docId) && shouldKeepPendingWhileMutationSettles(id, pending)) {
                             pending.expiresAt = Math.max(Number(pending.expiresAt) || 0, Date.now() + __TM_PENDING_INSERTED_TASK_KEEPALIVE_MS);
                             const insertedTask = { ...pending, __tmPendingInserted: true };
                             liveTasks.push(insertedTask);
                             liveIdSet.add(id);
                             liveTaskMap.set(id, insertedTask);
-                            pendingInsertedCount += 1;
                             continue;
                         }
                         try { taskStore?.removePending?.(taskId); } catch (e) {}
-                        pendingDroppedCount += 1;
                         continue;
                     }
                     const expiresAt = Number(pending.expiresAt) || 0;
                     const docId = String(pending.root_id || pending.docId || '').trim();
                     if ((expiresAt && expiresAt < nowTs) || !docId || !allDocIdSet.has(docId)) {
                         try { taskStore?.removePending?.(taskId); } catch (e) {}
-                        pendingDroppedCount += 1;
                         continue;
                     }
                     const insertedTask = { ...pending, __tmPendingInserted: true };
                     liveTasks.push(insertedTask);
                     liveIdSet.add(id);
                     liveTaskMap.set(id, insertedTask);
-                    pendingInsertedCount += 1;
                 }
                 res.tasks = liveTasks;
-                pendingMergeMs = __tmRoundPerfMs(__tmPerfNow() - pendingMergeStartTime);
             } catch (e) {}
             // 更新统计信息
             state.stats.queryTime = res.queryTime || (Date.now() - startTime);
             state.stats.totalTasks = res.totalCount || 0;
             state.stats.doneTasks = res.doneCount || 0;
-            __tmPerfTraceMark(perfTrace, 'query', {
-                queryLimit: effectiveQueryLimit,
-                taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
-                queryTime: __tmRoundPerfMs(state.stats.queryTime),
-                queryStageMs: __tmRoundPerfMs(__tmPerfNow() - queryStageStartTime),
-                cacheHit: Number(res?.cacheHit || 0),
-                chunked: Number(res?.chunked || 0),
-                chunkCount: Number(res?.chunkCount || 0),
-                limitHitDocCount: limitReachedDocIds.length,
-                cacheAgeMs: __tmRoundPerfMs(res?.cacheAgeMs || 0),
-                attrHostReadTime: __tmRoundPerfMs(res?.attrHostReadTime || 0),
-                customFieldReadTime: __tmRoundPerfMs(res?.customFieldReadTime || 0),
-                customFieldCacheHitCount: Number(res?.customFieldCacheHitCount || 0),
-                customFieldCacheMissCount: Number(res?.customFieldCacheMissCount || 0),
-                customFieldHostQueryCount: Number(res?.customFieldHostQueryCount || 0),
-                customFieldSelfFallbackCount: Number(res?.customFieldSelfFallbackCount || 0),
-                customFieldHostAssignedCount: Number(res?.customFieldHostAssignedCount || 0),
-                customFieldSelfAssignedCount: Number(res?.customFieldSelfAssignedCount || 0),
-                customFieldRequestedFieldCount: Number(res?.customFieldRequestedFieldCount || 0),
-                sourceQueryTime: __tmRoundPerfMs(res?.sourceQueryTime || 0),
-                sourceSqlQueryTime: __tmRoundPerfMs(res?.sourceSqlQueryTime || 0),
-                sourceAttrHostReadTime: __tmRoundPerfMs(res?.sourceAttrHostReadTime || 0),
-                sourceCustomFieldReadTime: __tmRoundPerfMs(res?.sourceCustomFieldReadTime || 0),
-                sourceCustomFieldCacheHitCount: Number(res?.sourceCustomFieldCacheHitCount || 0),
-                sourceCustomFieldCacheMissCount: Number(res?.sourceCustomFieldCacheMissCount || 0),
-                sourceCustomFieldHostQueryCount: Number(res?.sourceCustomFieldHostQueryCount || 0),
-                sourceCustomFieldSelfFallbackCount: Number(res?.sourceCustomFieldSelfFallbackCount || 0),
-                sourceCustomFieldHostAssignedCount: Number(res?.sourceCustomFieldHostAssignedCount || 0),
-                sourceCustomFieldSelfAssignedCount: Number(res?.sourceCustomFieldSelfAssignedCount || 0),
-                sourceCustomFieldRequestedFieldCount: Number(res?.sourceCustomFieldRequestedFieldCount || 0),
-                fastBudget: loadBudget.enabled ? 1 : 0,
-                doneOnlyOptimized: queryDoneOnly ? 1 : 0,
-                queryForceFresh: queryForceFresh ? 1 : 0,
-                coldStartForceFresh: shouldForceFreshColdAllDocsLoad ? 1 : 0,
-                pendingMergeMs,
-                pendingValidateCount,
-                pendingMergedIntoLiveCount,
-                pendingInsertedCount,
-                pendingDroppedCount,
-            });
             if (abortSnapshotCacheVerifyIfContextChanged('after-query-done', {
                 taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
                 queryTime: state.stats.queryTime,
@@ -1737,73 +1647,32 @@
                 }
                 if (queriedRawTaskSignature) setCacheVerifyRawSignatureForGroup(snapshotCacheVerifyBefore.groupId, queriedRawTaskSignature, true);
             }
-            __tmPerfTraceMark(perfTrace, 'attr-read', {
-                attrReadTime: __tmRoundPerfMs(res?.attrReadTime || 0),
-                attrHostReadTime: __tmRoundPerfMs(res?.attrHostReadTime || 0),
-                customFieldReadTime: __tmRoundPerfMs(res?.customFieldReadTime || 0),
-                cacheHit: Number(res?.cacheHit || 0),
-                cacheAgeMs: __tmRoundPerfMs(res?.cacheAgeMs || 0),
-                customFieldCacheHitCount: Number(res?.customFieldCacheHitCount || 0),
-                customFieldCacheMissCount: Number(res?.customFieldCacheMissCount || 0),
-                customFieldHostQueryCount: Number(res?.customFieldHostQueryCount || 0),
-                customFieldSelfFallbackCount: Number(res?.customFieldSelfFallbackCount || 0),
-                customFieldHostAssignedCount: Number(res?.customFieldHostAssignedCount || 0),
-                customFieldSelfAssignedCount: Number(res?.customFieldSelfAssignedCount || 0),
-                customFieldRequestedFieldCount: Number(res?.customFieldRequestedFieldCount || 0),
-                sourceAttrReadTime: __tmRoundPerfMs(res?.sourceAttrReadTime || 0),
-                sourceAttrHostReadTime: __tmRoundPerfMs(res?.sourceAttrHostReadTime || 0),
-                sourceCustomFieldReadTime: __tmRoundPerfMs(res?.sourceCustomFieldReadTime || 0),
-                sourceCustomFieldCacheHitCount: Number(res?.sourceCustomFieldCacheHitCount || 0),
-                sourceCustomFieldCacheMissCount: Number(res?.sourceCustomFieldCacheMissCount || 0),
-                sourceCustomFieldHostQueryCount: Number(res?.sourceCustomFieldHostQueryCount || 0),
-                sourceCustomFieldSelfFallbackCount: Number(res?.sourceCustomFieldSelfFallbackCount || 0),
-                sourceCustomFieldHostAssignedCount: Number(res?.sourceCustomFieldHostAssignedCount || 0),
-                sourceCustomFieldSelfAssignedCount: Number(res?.sourceCustomFieldSelfAssignedCount || 0),
-                sourceCustomFieldRequestedFieldCount: Number(res?.sourceCustomFieldRequestedFieldCount || 0),
-                readRepeatAttrsInline: res?.readRepeatAttrsInline === false ? 0 : 1,
-            });
-
             const nextTaskTree = [];
             const nextFlatTasks = {};
             if (res.tasks) {
                 const rule0 = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
-                const normalizedRuleSorts0 = __tmGetNormalizedRuleSorts(rule0);
-                const isUngroup = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
-                const ruleNeedsFlowRank = normalizedRuleSorts0.some(s => String(s?.field || '').trim() === 'docSeq');
-                const needFlowRank = !!ruleNeedsFlowRank || (!__tmRuleHasExplicitSort(rule0) && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled));
-                const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
-                const docHeadingSubgroupActive = !!state.groupByDocName && SettingsStore.data.docH2SubgroupEnabled !== false;
-                const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'
-                    ? __tmGetKanbanBoardMode() === 'heading'
-                    : !!SettingsStore.data.kanbanHeadingGroupMode;
-                const compactMetaNeedsH2 = typeof __tmShouldLoadCompactChecklistHeadingContext === 'function'
-                    && __tmShouldLoadCompactChecklistHeadingContext();
-                const needH2 = colOrder0.includes('h2')
-                    || normalizedRuleSorts0.some(s => String(s?.field || '').trim() === 'h2')
-                    || docHeadingSubgroupActive
-                    || kanbanHeadingGroupingActive
-                    || compactMetaNeedsH2;
-                const ruleNeedsH2Sort = Array.isArray(rule0?.sort) && rule0.sort.some(s => String(s?.field || '').trim() === 'h2');
-                const normalizeStartTime = Date.now();
-                const normalizeMetrics = {
-                    taskTargetPrepMs: 0,
-                    enhancePlanMs: 0,
-                    enhanceBundleMs: 0,
-                    optionsPrepMs: 0,
-                    parseMs: 0,
-                    mergeVisibleMs: 0,
-                    fieldsMs: 0,
-                    headingMs: 0,
-                    semanticMs: 0,
-                    metaSeedMs: 0,
-                    virtualMs: 0,
-                };
-                let perfMark = __tmPerfNow();
+                const enhanceLoadPlan0 = __tmBuildTaskEnhanceLoadPlan({
+                    viewMode: getCurrentViewMode(''),
+                    colOrder: Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [],
+                    rule: rule0,
+                    forceFlowRank: forceSyncFlowRank,
+                });
+                const {
+                    normalizedRuleSorts: normalizedRuleSorts0,
+                    isUngroup,
+                    ruleNeedsFlowRank,
+                    ruleNeedsDocumentTieBreak,
+                    colOrder: colOrder0,
+                    docHeadingSubgroupActive,
+                    kanbanHeadingGroupingActive,
+                    compactMetaNeedsH2,
+                    needH2,
+                    ruleNeedsH2Sort,
+                } = enhanceLoadPlan0;
+                const needFlowRank = forceSyncFlowRank || enhanceLoadPlan0.needFlowRank;
                 const enhanceTargets0 = __tmCollectTaskEnhanceTargets(res.tasks);
                 const taskIds0 = enhanceTargets0.taskIds;
                 const taskDocMap0 = enhanceTargets0.taskDocMap;
-                normalizeMetrics.taskTargetPrepMs += (__tmPerfNow() - perfMark);
-                perfMark = __tmPerfNow();
                 const deferEnhance = !!perfTuning.asyncEnhance && taskIds0.length >= Number(perfTuning.deferEnhanceThreshold || 180);
                 const h2StrictNeeded = !!ruleNeedsH2Sort || docHeadingSubgroupActive || kanbanHeadingGroupingActive;
                 const preferAsyncEnhance = !!loadBudget.enabled;
@@ -1814,31 +1683,28 @@
                     && !forceFreshTasks
                     && !syncFlowBeforeFirstRender
                     && (deferEnhance || preferAsyncEnhance);
-                normalizeMetrics.enhancePlanMs += (__tmPerfNow() - perfMark);
                 let h2ContextMap = new Map();
                 let taskFlowRankMap = new Map();
                 let h2EnhanceLoaded = false;
-                let virtualTaskCount = 0;
-                let enhanceBundleMeta = null;
                 if ((needH2 && !deferH2Enhance) || (needFlowRank && !deferFlowEnhance)) {
-                    perfMark = __tmPerfNow();
                     try {
                         const bundle = await API.fetchTaskEnhanceBundle(taskIds0, {
                             taskDocMap: taskDocMap0,
                             needH2: needH2 && !deferH2Enhance,
-                            needFlow: needFlowRank && !deferFlowEnhance
+                            needFlow: needFlowRank && !deferFlowEnhance,
+                            forceFresh: forceFreshTasks,
                         });
                         h2ContextMap = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
                         taskFlowRankMap = bundle?.taskFlowRankMap instanceof Map ? bundle.taskFlowRankMap : new Map();
-                        enhanceBundleMeta = (bundle?.meta && typeof bundle.meta === 'object') ? bundle.meta : null;
                         h2EnhanceLoaded = !!(needH2 && !deferH2Enhance);
                     } catch (e) {
                         h2ContextMap = new Map();
                         taskFlowRankMap = new Map();
                         h2EnhanceLoaded = false;
-                    } finally {
-                        normalizeMetrics.enhanceBundleMs += (__tmPerfNow() - perfMark);
                     }
+                }
+                if (forceSyncFlowRank) {
+                    __tmApplyEditorDocumentTaskOrderToFlowRankMap(taskFlowRankMap, editorOrderSnapshots, new Set(taskIds0));
                 }
                 const semanticTaskBuckets = new Map();
 
@@ -1848,7 +1714,6 @@
 
                 // 4. 构建任务树
                 // 将任务按文档分组
-                perfMark = __tmPerfNow();
                 const tasksByDoc = new Map();
                 const normalizeDocDisplayNameCache = new Map();
                 const normalizeCustomFieldDefs = __tmGetCustomFieldDefs();
@@ -1889,11 +1754,7 @@
                     customStatusFallbackTaskIds,
                     todayDateKey: normalizeTodayDateKey,
                 };
-                normalizeMetrics.optionsPrepMs += (__tmPerfNow() - perfMark);
                 const recurringReconcileCandidateIds = [];
-                if (!MetaStore.data || typeof MetaStore.data !== 'object') MetaStore.data = {};
-                const metaStoreData = MetaStore.data;
-                let metaSeedCount = 0;
                 let metaSeedDirty = false;
                 const normalizeTasks = Array.isArray(res.tasks) ? res.tasks : [];
                 const normalizeChunkSize = Number(options?.taskNormalizeChunkSize || 16);
@@ -1924,9 +1785,7 @@
                     __tmApplyResolvedFlowRankIfNeeded(task, flowRank);
 
                     // 解析任务状态
-                    let perfMark = __tmPerfNow();
                     const parsed = API.parseTaskStatus(task.markdown);
-                    normalizeMetrics.parseMs += (__tmPerfNow() - perfMark);
                     const correctDone = parsed.done;
                     task.done = correctDone;
                     task.content = parsed.content;
@@ -1945,19 +1804,14 @@
                         __tmApplyQueuedTaskMovePatchToTask(task, queuedMovePatch);
                     }
 
-                    perfMark = __tmPerfNow();
                     __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask);
-                    normalizeMetrics.mergeVisibleMs += (__tmPerfNow() - perfMark);
 
                     // 标准化字段
                     const docName = task.docName || task.doc_name || '未命名文档';
-                    perfMark = __tmPerfNow();
                     normalizeTaskFields(task, docName, normalizeTaskOptions);
-                    normalizeMetrics.fieldsMs += (__tmPerfNow() - perfMark);
 
                     const hasResolvedH2 = !!taskId && h2ContextMap.has(taskId);
                     const h2ctx = hasResolvedH2 ? h2ContextMap.get(taskId) : undefined;
-                    perfMark = __tmPerfNow();
                     if (hasResolvedH2) {
                         __tmApplyTaskHeadingContext(task, h2ctx);
                     } else if (!h2EnhanceLoaded && __tmTaskHasOwnHeadingContextFields(task)) {
@@ -1967,8 +1821,6 @@
                     } else {
                         __tmApplyTaskHeadingContext(task, '');
                     }
-                    normalizeMetrics.headingMs += (__tmPerfNow() - perfMark);
-                    perfMark = __tmPerfNow();
                     const semanticContent = String(task.content || '').trim();
                     const semanticDocId = String(task.root_id || '').trim();
                     const semanticH2Id = String(task.h2Id || '').trim();
@@ -2002,24 +1854,9 @@
                             isPending: isPendingInserted,
                         });
                     }
-                    normalizeMetrics.semanticMs += (__tmPerfNow() - perfMark);
 
-                    // 初始化 MetaStore（如果不存在）
-                    perfMark = __tmPerfNow();
-                    if (!metaStoreData[task.id] || typeof metaStoreData[task.id] !== 'object') {
-                        metaStoreData[task.id] = {
-                            priority: task.priority || '',
-                            duration: task.duration || '',
-                            remark: task.remark || '',
-                            completionTime: task.completionTime || '',
-                            customTime: task.customTime || '',
-                            content: task.content,
-                            repeatHistory: task.repeatHistory || [],
-                        };
-                        metaSeedCount += 1;
-                        metaSeedDirty = true;
-                    }
-                    normalizeMetrics.metaSeedMs += (__tmPerfNow() - perfMark);
+                    // 只缓存确实需要回退的元数据，避免为每个见过的任务创建空条目。
+                    if (MetaStore.mergeFromTaskIfMissing(task, { save: false })) metaSeedDirty = true;
 
                     // 初始化层级（后续递归计算覆盖）
                     task.level = 0;
@@ -2029,7 +1866,6 @@
                     }
                     tasksByDoc.get(task.root_id).push(task);
                     nextFlatTasks[task.id] = task;
-                    perfMark = __tmPerfNow();
                     const repeatHistory = Array.isArray(task.repeatHistory) ? task.repeatHistory : [];
                     if (repeatHistory.length > 0) {
                         repeatHistory.forEach((historyItem, historyIndex) => {
@@ -2038,7 +1874,6 @@
                             if (!tasksByDoc.has(virtualTask.root_id)) tasksByDoc.set(virtualTask.root_id, []);
                             tasksByDoc.get(virtualTask.root_id).push(virtualTask);
                             nextFlatTasks[virtualTask.id] = virtualTask;
-                            virtualTaskCount += 1;
                         });
                     }
                     const repeatRule = (task.repeatRule && typeof task.repeatRule === 'object') ? task.repeatRule : null;
@@ -2049,65 +1884,16 @@
                         && __tmNormalizeTaskCompleteAtValue(task?.taskCompleteAt || task?.task_complete_at || '')) {
                         recurringReconcileCandidateIds.push(String(task.id || '').trim());
                     }
-                    normalizeMetrics.virtualMs += (__tmPerfNow() - perfMark);
                 }
                 if (metaSeedDirty) {
                     try { MetaStore.scheduleSave(); } catch (e) {}
                 }
-                __tmPerfTraceMark(perfTrace, 'normalize', {
-                    taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
-                    docBucketCount: tasksByDoc.size,
-                    virtualTaskCount,
-                    visibleDateFallbackCount: visibleDateFallbackTaskIds.size,
-                    metaSeedCount,
-                    taskTargetPrepMs: __tmRoundPerfMs(normalizeMetrics.taskTargetPrepMs),
-                    enhancePlanMs: __tmRoundPerfMs(normalizeMetrics.enhancePlanMs),
-                    enhanceBundleMs: __tmRoundPerfMs(normalizeMetrics.enhanceBundleMs),
-                    optionsPrepMs: __tmRoundPerfMs(normalizeMetrics.optionsPrepMs),
-                    parseMs: __tmRoundPerfMs(normalizeMetrics.parseMs),
-                    mergeVisibleMs: __tmRoundPerfMs(normalizeMetrics.mergeVisibleMs),
-                    fieldsMs: __tmRoundPerfMs(normalizeMetrics.fieldsMs),
-                    headingMs: __tmRoundPerfMs(normalizeMetrics.headingMs),
-                    semanticMs: __tmRoundPerfMs(normalizeMetrics.semanticMs),
-                    metaSeedMs: __tmRoundPerfMs(normalizeMetrics.metaSeedMs),
-                    virtualMs: __tmRoundPerfMs(normalizeMetrics.virtualMs),
-                    preludeMs: __tmRoundPerfMs(
-                        normalizeMetrics.taskTargetPrepMs
-                        + normalizeMetrics.enhancePlanMs
-                        + normalizeMetrics.enhanceBundleMs
-                        + normalizeMetrics.optionsPrepMs
-                    ),
-                    enhanceCacheHit: enhanceBundleMeta?.cacheHit ? 1 : 0,
-                    enhanceDocCount: Number(enhanceBundleMeta?.docCount || 0),
-                    enhanceDocConcurrency: Number(enhanceBundleMeta?.docConcurrency || 0),
-                    enhanceTaskDocMapMs: __tmRoundPerfMs(Number(enhanceBundleMeta?.taskDocMapMs || 0)),
-                    enhanceSnapshotMs: __tmRoundPerfMs(Number(enhanceBundleMeta?.snapshotMs || 0)),
-                    enhanceFallbackFlowMs: __tmRoundPerfMs(Number(enhanceBundleMeta?.fallbackFlowMs || 0)),
-                    enhanceFallbackH2Ms: __tmRoundPerfMs(Number(enhanceBundleMeta?.fallbackH2Ms || 0)),
-                    enhanceFallbackH2RecoveredCount: Number(enhanceBundleMeta?.fallbackH2RecoveredCount || 0),
-                    enhanceMissingFlowCount: Number(enhanceBundleMeta?.missingFlowCount || 0),
-                    enhanceMissingH2Count: Number(enhanceBundleMeta?.missingH2Count || 0),
-                    durationMs: __tmRoundPerfMs(Date.now() - normalizeStartTime),
-                });
                 if (abortSnapshotCacheVerifyIfContextChanged('after-normalize', {
                     taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
                     docBucketCount: tasksByDoc.size,
                 })) return;
                 const rootTasksByDoc = new Map();
-                let parentLinkStats = {
-                    docCount: 0,
-                    taskCount: 0,
-                    directResolvedCount: 0,
-                    joinedResolvedCount: 0,
-                    listParentResolvedCount: 0,
-                    joinedMissingInDocCount: 0,
-                    fallbackCandidateCount: 0,
-                    fallbackQueryCount: 0,
-                    fallbackResolvedCount: 0,
-                    missingParentInDocCount: 0,
-                };
                 const parentLinkResults = [];
-                const parentLinkStartedAt = Date.now();
                 const resolveParentLinksSequentially = loadBudget.enabled;
                 if (resolveParentLinksSequentially) {
                     for (let i = 0; i < allDocIds.length; i += 1) {
@@ -2132,15 +1918,11 @@
                             parentLinkResults.push({
                                 docId,
                                 rootTasks: Array.isArray(resolvedParentLinks?.rootTasks) ? resolvedParentLinks.rootTasks : [],
-                                stats: (resolvedParentLinks?.stats && typeof resolvedParentLinks.stats === 'object')
-                                    ? resolvedParentLinks.stats
-                                    : null,
                             });
                         } catch (e) {
                             parentLinkResults.push({
                                 docId,
                                 rootTasks: Array.isArray(rawTasks) ? rawTasks.slice() : [],
-                                stats: null,
                             });
                         }
                     }
@@ -2164,15 +1946,11 @@
                             return {
                                 docId,
                                 rootTasks: Array.isArray(resolvedParentLinks2?.rootTasks) ? resolvedParentLinks2.rootTasks : [],
-                                stats: (resolvedParentLinks2?.stats && typeof resolvedParentLinks2.stats === 'object')
-                                    ? resolvedParentLinks2.stats
-                                    : null,
                             };
                         } catch (e) {
                             return {
                                 docId,
                                 rootTasks: Array.isArray(rawTasks) ? rawTasks.slice() : [],
-                                stats: null,
                             };
                         }
                     }));
@@ -2180,30 +1958,11 @@
                 }
                 parentLinkResults.forEach((result) => {
                     rootTasksByDoc.set(result.docId, Array.isArray(result.rootTasks) ? result.rootTasks : []);
-                    const stats = (result?.stats && typeof result.stats === 'object')
-                        ? result.stats
-                        : null;
-                    if (!stats) return;
-                    parentLinkStats.docCount += 1;
-                    parentLinkStats.taskCount += Number(stats.taskCount || 0);
-                    parentLinkStats.directResolvedCount += Number(stats.directResolvedCount || 0);
-                    parentLinkStats.joinedResolvedCount += Number(stats.joinedResolvedCount || 0);
-                    parentLinkStats.listParentResolvedCount += Number(stats.listParentResolvedCount || 0);
-                    parentLinkStats.joinedMissingInDocCount += Number(stats.joinedMissingInDocCount || 0);
-                    parentLinkStats.fallbackCandidateCount += Number(stats.fallbackCandidateCount || 0);
-                    parentLinkStats.fallbackQueryCount += Number(stats.fallbackQueryCount || 0);
-                    parentLinkStats.fallbackResolvedCount += Number(stats.fallbackResolvedCount || 0);
-                    parentLinkStats.missingParentInDocCount += Number(stats.missingParentInDocCount || 0);
                 });
-                __tmPerfTraceMark(perfTrace, 'parent-link', parentLinkStats);
-                if (abortSnapshotCacheVerifyIfContextChanged('after-parent-link', {
-                    taskCount: Number(parentLinkStats?.taskCount || 0),
-                    durationMs: Date.now() - parentLinkStartedAt,
-                })) return;
+                if (abortSnapshotCacheVerifyIfContextChanged('after-parent-link')) return;
                 let siblingOrderRanks = new Map();
                 const fastSwitchFirstPaint = false;
-                const shouldSkipSiblingRank = fastSwitchFirstPaint || skipSiblingRankFirstPaint;
-                const siblingRankStartTime = Date.now();
+                const shouldSkipSiblingRank = fastSwitchFirstPaint || skipSiblingRankFirstPaint || forceSyncFlowRank || preserveExistingSiblingOrder;
                 if (!shouldSkipSiblingRank && !perfTuning.disableSiblingRank) {
                     try {
                         siblingOrderRanks = await __tmResolveTaskSiblingOrderRanks(tasksByDoc);
@@ -2213,16 +1972,8 @@
                 } else {
                     siblingOrderRanks = new Map();
                 }
-                __tmPerfTraceMark(perfTrace, 'sibling-rank', {
-                    durationMs: __tmRoundPerfMs(Date.now() - siblingRankStartTime),
-                    rankCount: siblingOrderRanks instanceof Map ? siblingOrderRanks.size : 0,
-                    disabledByPerfFlag: perfTuning.disableSiblingRank || shouldSkipSiblingRank ? 1 : 0,
-                    fastSwitchFirstPaint: fastSwitchFirstPaint ? 1 : 0,
-                    skipSiblingRankFirstPaint: skipSiblingRankFirstPaint ? 1 : 0,
-                });
 
                 // 按文档顺序构建树
-                const projectionStartTime = Date.now();
                 for (const docId of allDocIds) {
                     // 获取该文档的所有任务
                     const rawTasks = tasksByDoc.get(docId) || [];
@@ -2248,9 +1999,14 @@
                             }
                         });
                     };
-                    const preferResolvedFlowOrder = (forceSyncFlowRank || __tmShouldUseResolvedFlowRankForDoc(docId))
+                    const existingDoc = preserveExistingSiblingOrder
+                        ? state.taskTree.find((doc) => String(doc?.id || '').trim() === docId)
+                        : null;
+                    const preferResolvedFlowOrder = !preserveExistingSiblingOrder
+                        && (forceSyncFlowRank || __tmShouldUseResolvedFlowRankForDoc(docId))
                         && rawTasks.some((task) => taskFlowRankMap.has(String(task?.id || '').trim()));
-                    if (preferResolvedFlowOrder) __tmSortTaskTreeByDocFlow(rootTasks);
+                    if (existingDoc?.tasks) __tmSortTaskTreeByExistingOrder(rootTasks, existingDoc.tasks, siblingOrderRanks);
+                    else if (preferResolvedFlowOrder) __tmSortTaskTreeByDocFlow(rootTasks);
                     else __tmSortTaskTreeBySiblingRankMap(rootTasks, siblingOrderRanks);
                     calcLevel(rootTasks, 0);
                     __tmAssignDocSeqByTree(rootTasks, 0);
@@ -2270,11 +2026,6 @@
                         });
                     }
                 }
-                __tmPerfTraceMark(perfTrace, 'projection', {
-                    durationMs: __tmRoundPerfMs(Date.now() - projectionStartTime),
-                    docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
-                    treeDocCount: nextTaskTree.length,
-                });
                 if (!isTokenCurrent()) {
 
                     return;
@@ -2288,8 +2039,24 @@
                         docIds: allDocIds,
                     });
                 } catch (e) {}
-                globalThis.__tmTaskStore?.replaceFlat?.(nextFlatTasks, { mergeOtherBlocks: true });
-                try { __tmReplayQueuedOpOptimisticState?.('after-load-selected-documents'); } catch (e) {}
+                globalThis.__tmTaskStore?.replaceFlat?.(nextFlatTasks, {
+                    mergeOtherBlocks: true,
+                    authoritative: true,
+                    docIds: allDocIds,
+                });
+                if (!loadBudget.enabled) {
+                    const resolvedScopeMeta = (state.__tmLastDocGroupScopeLoad && typeof state.__tmLastDocGroupScopeLoad === 'object')
+                        ? state.__tmLastDocGroupScopeLoad
+                        : null;
+                    const resolvedScopeFresh = String(resolvedScopeMeta?.groupId || '').trim() === currentGroupId
+                        && String(resolvedScopeMeta?.source || '').trim() === 'fresh';
+                    state.__tmGlobalWhiteboardAuthoritativeScope = {
+                        complete: resolvedScopeFresh && limitReachedDocIds.length === 0,
+                        groupId: currentGroupId,
+                        docIds: (Array.isArray(allDocIds) ? allDocIds : []).map((id) => String(id || '').trim()).filter(Boolean).sort(),
+                        at: Date.now(),
+                    };
+                }
                 try {
                     const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
                     if (activeDocId
@@ -2303,17 +2070,8 @@
                     }
                 } catch (e) {}
                 try { recalcStats(); } catch (e) {}
-                __tmPerfTraceMark(perfTrace, 'enhance', {
-                    taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
-                    deferredH2: deferH2Enhance ? 1 : 0,
-                    deferredFlow: deferFlowEnhance ? 1 : 0,
-                    parentLinkRounds: Number(parentLinkStats?.rounds || 0),
-                    parentLinkQueryCalls: Number(parentLinkStats?.queryCalls || 0),
-                    parentLinkResolved: Number(parentLinkStats?.resolvedCount || 0),
-                });
 
                 let visibleDateHydrateChanged = false;
-                let visibleDateHydrateChangedCount = 0;
                 let visibleDateHydrateFailed = false;
                 try {
                     const hydrateSourceTasks = Object.values(state.flatTasks || {}).filter((task) => task && typeof task === 'object');
@@ -2325,13 +2083,11 @@
                         && !requireVisibleDateBeforeFirstRender
                         && (runtimeState?.isViewMode?.('checklist') ?? (String(state.viewMode || '').trim() === 'checklist'));
                     if (requireVisibleDateBeforeFirstRender) {
-                        const hydrateStartedAt = Date.now();
                         const hydrateMeta = await __tmHydrateChecklistVisibleDateAttrs(hydrateSourceTasks, {
                             reason: 'load-selected-before-stable-first-render',
                             force: true,
                         });
                         visibleDateHydrateChanged = !!hydrateMeta?.changed;
-                        visibleDateHydrateChangedCount = Number(hydrateMeta?.changedCount || 0);
                     } else if (deferChecklistVisibleDateHydrate) {
                         const hydrateToken = token;
                         __tmScheduleIdleTask(async () => {
@@ -2345,7 +2101,7 @@
                                 if (stabilizeSwitchGroupView) {
                                     return;
                                 }
-                                applyFilters();
+                                if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
                                 const deferredModal = getActiveModal();
                                 if (!skipRender && deferredModal) {
                                     if (!__tmRerenderCurrentViewInPlace(deferredModal)) renderLoadedState();
@@ -2353,18 +2109,15 @@
                             } catch (e) {}
                         }, 320);
                     } else {
-                        const hydrateStartedAt = Date.now();
                         const hydrateMeta = await __tmHydrateChecklistVisibleDateAttrs(hydrateSourceTasks, {
                             reason: 'load-selected-before-filter',
                         });
                         visibleDateHydrateChanged = !!hydrateMeta?.changed;
-                        visibleDateHydrateChangedCount = Number(hydrateMeta?.changedCount || 0);
                     }
                 } catch (e) {
                     visibleDateHydrateFailed = true;
                 }
 
-                const filterStartedAt = Date.now();
                 prepareSwitchGroupFirstPaintWindow();
                 let filterRemapped = false;
                 let filterSkippedForVerifyContextChange = false;
@@ -2413,17 +2166,6 @@
                                     ? snapshotCacheVerifyBefore.filteredDocIdsForTabs
                                     : []).slice();
                                 state.listRenderSignature = String(snapshotCacheVerifyBefore.listRenderSignature || '');
-                                const remapDurationMs = Date.now() - filterStartedAt;
-                                state.__tmLastFilterPerf = {
-                                    cacheHit: 'verify-remap',
-                                    visibleMs: 0,
-                                    ruleMs: 0,
-                                    searchMs: 0,
-                                    docTabsMs: 0,
-                                    orderMs: __tmRoundPerfMs(remapDurationMs),
-                                    totalMs: __tmRoundPerfMs(remapDurationMs),
-                                    orderedCount: nextTasks.length,
-                                };
                                 filterRemapped = true;
                             }
                         }
@@ -2447,16 +2189,6 @@
                         };
                         if (isSnapshotCacheVerifyLoad && verifyContextChangedSkipReasons[filterRemapSkipReason]) {
                             filterSkippedForVerifyContextChange = true;
-                            state.__tmLastFilterPerf = {
-                                cacheHit: 'verify-context-skip',
-                                visibleMs: 0,
-                                ruleMs: 0,
-                                searchMs: 0,
-                                docTabsMs: 0,
-                                orderMs: 0,
-                                totalMs: 0,
-                                orderedCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                            };
                             state.__tmLastCacheVerifyContextChanged = {
                                 at: Date.now(),
                                 source: sourceLabel,
@@ -2468,7 +2200,7 @@
                     }
                 }
                 if (!filterRemapped && !filterSkippedForVerifyContextChange) {
-                    applyFilters();
+                    if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
                 }
                 if (isSwitchDocGroupLoad) {
                     prepareSwitchGroupFirstPaintWindow();
@@ -2517,23 +2249,6 @@
                     } catch (e) {
                     }
                 }
-                __tmPerfTraceMark(perfTrace, 'filter', {
-                    filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                    listRenderLimit: Number.isFinite(Number(state.listRenderLimit)) ? Number(state.listRenderLimit) : 0,
-                    deferredListCustomFieldMs: 0,
-                    deferredListCustomFieldDeferred,
-                    deferredListCustomFieldDeferredDelayMs: deferredListCustomFieldDeferred ? 180 : 0,
-                    deferredListCustomFieldTaskCount: 0,
-                    deferredListCustomFieldFieldCount: Number(deferredListCustomFieldFieldCount || 0),
-                    deferredListCustomFieldHostQueryCount: 0,
-                    deferredListCustomFieldCacheHitCount: 0,
-                    deferredListCustomFieldCacheMissCount: 0,
-                    ...((state.__tmLastFilterPerf && typeof state.__tmLastFilterPerf === 'object') ? state.__tmLastFilterPerf : {}),
-                });
-                __tmPerfTraceMark(perfTrace, 'data-ready', {
-                    filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                    taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
-                });
                 if (isSwitchDocGroupLoad) {
                     try {
                         const whiteboardSnapshotTasks = Object.values(state.flatTasks || {});
@@ -2556,23 +2271,16 @@
                         }, 120);
                     } catch (e) {}
                 } else {
-                    const recurringReconcileStartTime = Date.now();
                     try {
                         await __tmReconcileRecurringTasksOnLoad(recurringReconcileCandidateIds, {
                             todayKey: __tmNormalizeDateOnly(new Date()),
                         });
                     } catch (e) {}
-                    __tmPerfTraceMark(perfTrace, 'recurring-reconcile', {
-                        durationMs: __tmRoundPerfMs(Date.now() - recurringReconcileStartTime),
-                        taskCount: recurringReconcileCandidateIds.length,
-                        deferredByPerfFlag: perfTuning.deferRecurringReconcile ? 1 : 0,
-                    });
                 }
 
                 const activeModal = getActiveModal();
                 if (!skipRender && activeModal && isTokenCurrent()) {
                     try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
-                    const renderStartedAt = Date.now();
                     const shouldPatchCurrentView = isSwitchDocGroupLoad
                         && !forceShellRender
                         && !loadBudget.enabled
@@ -2582,14 +2290,6 @@
                         ? !!__tmRerenderCurrentViewInPlace(activeModal)
                         : false;
                     if (!patchedCurrentView) renderLoadedState();
-                    __tmPerfTraceMark(perfTrace, 'first-render', {
-                        filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                        fastBudget: loadBudget.enabled ? 1 : 0,
-                    });
-                    __tmPerfTraceMark(perfTrace, 'render', {
-                        filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                        fastBudget: loadBudget.enabled ? 1 : 0,
-                    });
                 }
                 if (loadBudget.enabled) {
                     scheduleFullLoadAfterFastFirstPaint('query-first-paint');
@@ -2667,20 +2367,13 @@
                             changed = true;
                         }
                         if (!changed || !(runtimeState?.isCurrentOpenToken?.(deferredToken) ?? deferredToken === (Number(state.openToken) || 0))) return;
-                        applyFilters();
+                        if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
                         const deferredModal = getActiveModal();
                         if (!skipRender && deferredModal && (runtimeState?.isCurrentOpenToken?.(deferredToken) ?? deferredToken === (Number(state.openToken) || 0))) {
                             if (!__tmRerenderCurrentViewInPlace(deferredModal)) renderLoadedState();
                         }
                     }).catch(() => null);
                 }
-                __tmPerfTraceMark(perfTrace, 'full-ready', {
-                    docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
-                    taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
-                    filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
-                    fastBudget: loadBudget.enabled ? 1 : 0,
-                    deferredEnhancePending: (deferH2Enhance || deferFlowEnhance) ? 1 : 0,
-                });
                 if (forceFreshTasks && !loadBudget.enabled) {
                     state.__tmCacheFirstPaintNeedsVerify = false;
                     state.__tmCacheFirstPaintVerifyGroupId = '';

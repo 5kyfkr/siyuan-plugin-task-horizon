@@ -38,29 +38,6 @@
         }
     };
 
-    const getChecklistTitleClickPolicy = () => {
-        const scopedJumpSettings = !!__tmChecklistTitleClickUsesScopedJumpSettings();
-        const openDetailDrawer = !!__tmShouldOpenChecklistDetailDrawerOnTitleClick();
-        const openDetailPage = !!__tmShouldOpenTaskDetailPageOnChecklistTitleClick();
-        const jumpOnDock = !!__tmShouldJumpOnDockChecklistTitleClick();
-        const jumpOnMobile = !!__tmShouldJumpOnMobileChecklistTitleClick();
-        let mode = 'jump-task';
-        if (scopedJumpSettings) {
-            if (openDetailDrawer) mode = 'open-detail-drawer';
-            else if (openDetailPage) mode = 'open-detail-page';
-            else if (jumpOnDock || jumpOnMobile) mode = 'jump-task';
-            else mode = 'select';
-        }
-        return {
-            scopedJumpSettings,
-            jumpOnDock,
-            jumpOnMobile,
-            openDetailDrawer,
-            openDetailPage,
-            mode,
-        };
-    };
-
     const shouldUseChecklistSheetMode = (modalEl = null) => {
         try {
             if (state.__tmCalendarSidebarChecklistRender === true) return true;
@@ -135,7 +112,6 @@
         getCompactChecklistMetaFieldsForCurrentHost,
         getCompactChecklistMetaFieldSetForCurrentHost,
         shouldShowCompactChecklistDocName,
-        getChecklistTitleClickPolicy,
         shouldUseChecklistSheetMode,
         shouldUseTaskDetailSheetMode,
         shouldUseDockPointerTaskDrag,

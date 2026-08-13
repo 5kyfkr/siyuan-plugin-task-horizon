@@ -30,7 +30,7 @@ assert.match(stores, /Storage\.set\('tm_dock_sidebar_follow_current_document'/, 
 
 assert.match(settings, /Dock\u4fa7\u8fb9\u680f\u8ddf\u968f\u5f53\u524d\u6587\u6863/, 'the setting label must match the approved copy');
 assert.match(settings, /dockSidebarFollowCurrentDocument[\s\S]*dockSidebarEnabled !== false \? '' : 'disabled'[\s\S]*updateDockSidebarFollowCurrentDocument/, 'the switch must follow Dock availability');
-const settingAction = segment(actions, 'window.updateDockSidebarFollowCurrentDocument', 'window.updateDockChecklistCompactTitleJump');
+const settingAction = segment(actions, 'window.updateDockSidebarFollowCurrentDocument', 'window.updateTaskTitleClickAction');
 assert.match(settingAction, /dockSidebarFollowCurrentDocument = !!enabled[\s\S]*SettingsStore\.save\(\)[\s\S]*showSettings\(\)/, 'the setting action must save and refresh the settings screen');
 assert.doesNotMatch(settingAction, /__tmDispatchDockSettingsChanged/, 'the follow setting must not reload the Dock frame');
 

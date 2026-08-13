@@ -83,10 +83,7 @@
             date: __tmCalendarDockGetDateKey(),
             resolveTask: (taskId) => {
                 const tid = String(taskId || '').trim();
-                return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                    || state.flatTasks?.[tid]
-                    || state.pendingInsertedTasks?.[tid]
-                    || null;
+                return globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
             },
             dragHost: dragHost || modal,
             enableExternalDrag: true,
@@ -297,20 +294,14 @@
     };
 
     async function __tmPrepareChecklistDetailForAiSidebar() {
-        if (__tmAiUsesOverlayPanel() || state.homepageOpen) return false;
+        if (__tmAiUsesOverlayPanel() || state.homepageOpen) return true;
         const mode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
-        if (mode !== 'checklist') return false;
+        if (mode !== 'checklist') return true;
         let panel = null;
         try { panel = __tmResolveChecklistDetailPanel(state.modal).panel; } catch (e) { panel = null; }
         if (panel instanceof HTMLElement) {
-            try {
-                await panel.__tmTaskDetailFlushSave?.({
-                    showHint: false,
-                    closeAfterSave: false,
-                    preserveFocus: false,
-                    skipRerender: true,
-                });
-            } catch (e) {}
+            const saved = await __tmFlushTaskDetailBeforeClose(panel, { consumeHandoff: false });
+            if (!saved) return false;
             try { panel.__tmTaskDetailCloseInlinePopover?.(); } catch (e) {}
         }
         state.checklistDetailSheetOpen = false;
@@ -336,16 +327,19 @@
             SettingsStore.data.aiSideDockEnabled = true;
             try { await SettingsStore.save(); } catch (e) {}
         }
-        try { await __tmPrepareChecklistDetailForAiSidebar(); } catch (e) {}
+        try {
+            if (!await __tmPrepareChecklistDetailForAiSidebar()) return false;
+        } catch (e) {
+            return false;
+        }
         if (__tmAiUsesOverlayPanel()) {
             state.aiMobilePanelOpen = true;
         } else {
             state.aiSidebarOpen = true;
             try { Storage.set('tm_ai_sidebar_open', true); } catch (e) {}
         }
-        const canRenderInCurrentDockHost = __tmIsDockHost()
-            && (globalThis.__tmRuntimeState?.hasLiveModal?.() ?? (state.modal && document.body.contains(state.modal)));
-        if (!canRenderInCurrentDockHost) {
+        const canRenderInCurrentHost = __tmIsPluginVisibleNow();
+        if (!canRenderInCurrentHost) {
             await openManager({ preserveViewMode: true, skipLoadingHint: true });
         }
         try { render(); } catch (e) {}
@@ -948,7 +942,6 @@
             __tmRestoreBodyOnlyViewScroll(nextMode, modal);
             return true;
         } catch (e) {
-            try { __tmPushDiagnosticLog('view-switch-body-only-failed', e, { from: prevMode, to: nextMode }); } catch (e2) {}
             return false;
         }
     }
@@ -976,15 +969,6 @@
         } else if (prev === next) {
             return;
         }
-        const perfTrace = __tmCreatePerfTrace('switchViewMode', {
-            from: prev || 'unknown',
-            to: next || 'unknown',
-            currentGroupId: String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
-        });
-        __tmPerfTraceMark(perfTrace, 'view-switch-start', {
-            from: prev || 'unknown',
-            to: next || 'unknown',
-        });
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
@@ -1012,7 +996,7 @@
                 if (forceFullRender || renderedMode !== next) {
                     const needRefilter = !!SettingsStore.data.whiteboardSequenceMode && (renderedMode === 'whiteboard' || next === 'whiteboard');
                     if (needRefilter) {
-                        try { applyFilters(); } catch (e) {}
+                        try { __tmRecomputeTaskProjection({ reason: 'whiteboard-view-switch' }); } catch (e) {}
                     }
                     progressiveJob = __tmStartProgressiveViewRender(next);
                     try { __tmResetViewRenderWindow(next); } catch (e) {}
@@ -1029,22 +1013,6 @@
             if (next === 'timeline') {
                 try { __tmScheduleTimelineDateHydrationAfterViewSwitch(generation); } catch (e) {}
             }
-            __tmScheduleAfterNextPaint(() => {
-                if (Number(state.__tmViewSwitchCommitGeneration || 0) !== generation) return;
-                try {
-                    const viewMode = globalThis.__tmRuntimeState?.getViewMode?.(next || 'unknown') || String(state.viewMode || '').trim() || next || 'unknown';
-                    __tmPerfTraceMark(perfTrace, 'view-switch-done', {
-                        from: prev || 'unknown',
-                        to: next || 'unknown',
-                        viewMode,
-                    });
-                    __tmPerfTraceFinish(perfTrace, {
-                        from: prev || 'unknown',
-                        to: next || 'unknown',
-                        viewMode,
-                    });
-                } catch (e) {}
-            });
             if (next === 'whiteboard') {
                 try {
                     requestAnimationFrame(() => {

@@ -13,8 +13,9 @@ assert.match(workbench, /tm-agent-header__title" title="\$\{esc\(headerTitle\)\}
 assert.match(workbench, /title: DEFAULT_SESSION_TITLE, titled: false/, 'new sessions must allow one title generation attempt');
 assert.match(workbench, /typeof session\.titled !== 'boolean'[\s\S]*savedTitle !== DEFAULT_SESSION_TITLE && savedTitle !== SIYUAN_DEFAULT_SESSION_TITLE/, 'older workbench and SiYuan sessions must derive their title state without treating placeholder titles as real names');
 assert.match(workbench, /function tryGenerateSessionTitle\(\)[\s\S]*runtime\.session\.titled = true;[\s\S]*post\('\/title', \{[\s\S]*message,[\s\S]*model: '',[\s\S]*language:/, 'title generation must reuse the native Agent title endpoint and default Agent model');
-assert.match(workbench, /text\(firstUserEntry\?\.content\)\.slice\(0, 500\)/, 'title input must match the native 500 character limit');
+assert.match(workbench, /userEntryText\(firstUserEntry\)\.slice\(0, 500\)/, 'title input must use the visible user text and match the native 500 character limit');
 assert.match(workbench, /runtime\.activeSessionID !== sessionID[\s\S]*currentTitle !== DEFAULT_SESSION_TITLE/, 'an asynchronous title must not overwrite another or already titled session');
-assert.equal((workbench.match(/^[ \t]+tryGenerateSessionTitle\(\);$/gm) || []).length, 1, 'all requests must use the single Agent conversation title flow');
+assert.match(workbench, /finally \{[\s\S]*runtime\.busy = false;[\s\S]*if \(runtime\.session\?\.titled === false\) tryGenerateSessionTitle\(\);/, 'title generation must wait until the Agent turn is finalized');
+assert.equal((workbench.match(/tryGenerateSessionTitle\(\);/g) || []).length, 1, 'all requests must use the single Agent conversation title flow');
 
 console.log('agent session title contract tests passed');

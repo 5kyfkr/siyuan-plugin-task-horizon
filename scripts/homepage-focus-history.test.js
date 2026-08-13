@@ -60,7 +60,23 @@ const statsEnd = source.indexOf('    function flattenTasks', statsStart);
 const statsBlock = source.slice(statsStart, statsEnd);
 assert.match(statsBlock, /if \(!task && !includeUnmatchedRecords\) return;/, 'global focus totals must retain unmatched history records');
 assert.match(statsBlock, /if \(task\) addGroupRecord\(dayGroups, task, record, todaySec, win\.focusDayEnd\);/, 'unmatched records must not be assigned to an unrelated task row');
-assert.match(source, /push\(task\?\.sourceTaskId\);[\s\S]*push\(task\?\.recurringSourceTaskId\);/, 'recurring task source IDs must participate in history matching');
+const candidateStart = source.indexOf('    function getTaskCandidateIds');
+const candidateEnd = source.indexOf('    function buildFocusTaskIndex', candidateStart);
+assert.ok(candidateStart >= 0 && candidateEnd > candidateStart, 'task history candidate helper must remain extractable');
+vm.runInContext(source.slice(candidateStart, candidateEnd), context);
+assert.deepEqual(
+    Array.from(context.getTaskCandidateIds({
+        id: 'repeatinst:source-1:1',
+        sourceTaskId: 'source-1',
+        blockId: 'source-1',
+        attrHostId: 'source-1',
+        isRecurringInstance: true,
+    })),
+    ['repeatinst:source-1:1'],
+    'a virtual recurring row must not claim Tomato history owned by its source task',
+);
+assert.ok(context.getTaskCandidateIds({ id: 'source-1', sourceTaskId: 'linked-source' }).includes('linked-source'),
+    'non-virtual task aliases must continue participating in history matching');
 assert.match(source, /push\(record\?\.routineButtonBlockId\);/, 'routine-button task IDs must participate in history matching');
 
 console.log('homepage focus history tests passed');

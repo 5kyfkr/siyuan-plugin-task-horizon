@@ -20,7 +20,7 @@ assert.match(storeSource, /tm_whiteboard_sequence_scope/, 'sequence scope must p
 assert.match(settingsSource, /白板顺序依据[\s\S]*?value="document"[\s\S]*?单文档白板[\s\S]*?value="global"[\s\S]*?全局白板/, 'settings must expose both sequence sources');
 assert.doesNotMatch(renderSource, /白板顺序模式（/, 'mobile menu must not append the sequence source to the mode label');
 assert.doesNotMatch(desktopMenuSource, /白板顺序模式（/, 'desktop menu must not append the sequence source to the mode label');
-assert.match(actionsSource, /updateWhiteboardSequenceScope[\s\S]*?applyFilters\(\)/, 'changing the sequence source must immediately reapply filters');
+assert.match(actionsSource, /updateWhiteboardSequenceScope[\s\S]*?__tmRecomputeTaskProjection\(/, 'changing the sequence source must immediately reapply filters');
 
 const sequenceStart = filterSource.indexOf('function __tmIsTaskAndDescDoneForSequence');
 const sequenceEnd = filterSource.indexOf('async function __tmTryRestoreCurrentDocTabViewSnapshot');
@@ -38,6 +38,7 @@ const context = {
 };
 context.globalThis = context;
 context.__tmRuntimeState = { getFlatTaskById: (id) => tasks[id] || null };
+context.__tmTaskBoundary = { getTask: (id) => tasks[id] || null };
 
 vm.runInNewContext(`
     function __tmNormalizeWhiteboardSequenceScope(scope) {

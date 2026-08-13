@@ -110,6 +110,7 @@
 
     function __tmRenderCompletedTodayBadge(task, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.inCompletedRootGroup !== true && !__tmIsRecurringInstanceTask(task)) return '';
         if (!__tmIsTaskCompletedToday(task, opts.todayKey || '')) return '';
         const label = String(opts.label || '今天').trim() || '今天';
         return `<span class="tm-task-completed-today-badge">${esc(label)}</span>`;
@@ -119,6 +120,7 @@
         { key: 'priority', label: '重要性' },
         { key: 'status', label: '状态' },
         { key: 'date', label: '截止日期' },
+        { key: 'remainingTime', label: '剩余时间' },
         { key: 'tomatoSummary', label: '专注' },
         { key: 'tomatoEstimateCount', label: '预计番茄' },
         { key: 'tomatoCount', label: '实际番茄' },
@@ -225,6 +227,10 @@
         return __tmTaskCardAlwaysShowFieldEnabled('date') || !!String(__tmGetTaskCardDateValue(task) || '').trim();
     }
 
+    function __tmShouldRenderTaskCardRemainingTime(task) {
+        return !!String(__tmGetTaskCardDateValue(task) || '').trim();
+    }
+
     function __tmRenderTaskCardRemark(task) {
         const raw = task?.remark ?? task?.custom_remark ?? task?.customRemark ?? '';
         const text = typeof __tmNormalizeRemarkMarkdown === 'function'
@@ -295,7 +301,7 @@
         if (!SettingsStore.data.enableTomatoIntegration) return null;
         const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() || 'minutes';
         if (mode === 'hours') return null;
-        const m = __tmParseNumber(task?.tomatoMinutes);
+        const m = __tmParseNumber(__tmGetTaskTomatoFocusValues(task).tomatoMinutes);
         if (!Number.isFinite(m) || m <= 0) return null;
         return Math.round(m);
     }
@@ -322,7 +328,7 @@
         try {
             if (!SettingsStore.data.enableTomatoIntegration) return '';
             const useHours = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() === 'hours';
-            if (useHours) return String(__tmFormatSpentHours(__tmParseNumber(task?.tomatoHours)) || '').trim();
+            if (useHours) return String(__tmFormatSpentHours(__tmGetTaskTomatoFocusValues(task).tomatoHours) || '').trim();
             return String(__tmFormatSpentMinutes(__tmGetTaskSpentMinutes(task)) || '').trim();
         } catch (e) {
             return '';
@@ -385,7 +391,7 @@
     }
 
     function __tmGetActualTomatoCountDisplayHtml(value) {
-        const count = __tmNormalizeTomatoCountValue(value);
+        const count = __tmNormalizeActualTomatoCountValue(value);
         return count ? `🍅 ${__tmRenderFocusActualValueHtml(count)}` : '';
     }
 
@@ -480,15 +486,45 @@
     function __tmNormalizeTaskRepeatState(value) {
         const raw = __tmParseTaskRepeatJson(value) || {};
         const fsrsCard = __tmNormalizeFsrsCardState(raw.fsrsCard || raw.fsrs_card || null);
+        const hasBaselineFlag = Object.prototype.hasOwnProperty.call(raw, 'tomatoBaselineSet')
+            || Object.prototype.hasOwnProperty.call(raw, 'tomato_baseline_set');
+        const tomatoBaselineSet = hasBaselineFlag
+            ? (raw.tomatoBaselineSet === true || raw.tomato_baseline_set === true)
+            : (Object.prototype.hasOwnProperty.call(raw, 'tomatoBaselineMinutes')
+                || Object.prototype.hasOwnProperty.call(raw, 'tomato_baseline_minutes')
+                || Object.prototype.hasOwnProperty.call(raw, 'tomatoBaselineHours')
+                || Object.prototype.hasOwnProperty.call(raw, 'tomato_baseline_hours')
+                || Object.prototype.hasOwnProperty.call(raw, 'tomatoBaselineCount')
+                || Object.prototype.hasOwnProperty.call(raw, 'tomato_baseline_count'));
         return {
             version: fsrsCard ? 2 : 1,
-            occurrenceCount: Math.max(1, Math.min(200, parseInt(raw.occurrenceCount, 10) || 1)),
+            occurrenceCount: Math.max(1, parseInt(raw.occurrenceCount, 10) || 1),
             lastCompletedAt: String(raw.lastCompletedAt || '').trim(),
             lastAdvancedAt: String(raw.lastAdvancedAt || '').trim(),
             lastInstanceStart: __tmNormalizeDateOnly(raw.lastInstanceStart || ''),
             lastInstanceDue: __tmNormalizeDateOnly(raw.lastInstanceDue || ''),
+            tomatoBaselineMinutes: __tmNormalizeTaskTomatoAmount(raw.tomatoBaselineMinutes ?? raw.tomato_baseline_minutes),
+            tomatoBaselineHours: __tmNormalizeTaskTomatoAmount(raw.tomatoBaselineHours ?? raw.tomato_baseline_hours),
+            tomatoBaselineCount: __tmNormalizeTaskTomatoCount(raw.tomatoBaselineCount ?? raw.tomato_baseline_count),
+            tomatoBaselineSet,
             fsrsCard,
         };
+    }
+
+    function __tmNormalizeTaskTomatoAmount(value) {
+        const number = Number(value);
+        return Number.isFinite(number) && number > 0 ? Math.round(number * 100) / 100 : 0;
+    }
+
+    function __tmNormalizeTaskTomatoCount(value) {
+        const number = Number(value);
+        return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+    }
+
+    function __tmSubtractTaskTomatoValue(total, baseline, normalizer) {
+        const current = normalizer(total);
+        const start = normalizer(baseline);
+        return current >= start ? normalizer(current - start) : current;
     }
 
     function __tmNormalizeTaskRepeatHistory(value) {
@@ -506,11 +542,11 @@
             }
             return [];
         })();
-        return raw.map((item) => {
+        const normalized = raw.map((item) => {
             const entry = (item && typeof item === 'object' && !Array.isArray(item)) ? item : {};
             return {
                 completedAt: String(entry.completedAt || '').trim(),
-                occurrenceNumber: Math.max(0, Math.min(200, parseInt(entry.occurrenceNumber, 10) || 0)),
+                occurrenceNumber: Math.max(0, parseInt(entry.occurrenceNumber, 10) || 0),
                 totalOccurrences: __tmNormalizeTaskRepeatMaxOccurrences(entry.totalOccurrences),
                 sourceStart: __tmNormalizeDateOnly(entry.sourceStart || ''),
                 sourceDue: __tmNormalizeDateOnly(entry.sourceDue || ''),
@@ -525,14 +561,87 @@
                 priority: String(entry.priority || '').trim(),
                 customStatus: String(entry.customStatus || '').trim(),
                 duration: String(entry.duration || '').trim(),
+                tomatoMinutes: String(entry.tomatoMinutes ?? entry.tomato_minutes ?? '').trim(),
+                tomatoHours: String(entry.tomatoHours ?? entry.tomato_hours ?? '').trim(),
+                tomatoCount: String(entry.tomatoCount ?? entry.tomato_count ?? '').trim(),
+                tomatoOccurrenceMinutes: String(entry.tomatoOccurrenceMinutes ?? entry.tomato_occurrence_minutes ?? '').trim(),
+                tomatoOccurrenceHours: String(entry.tomatoOccurrenceHours ?? entry.tomato_occurrence_hours ?? '').trim(),
+                tomatoOccurrenceCount: String(entry.tomatoOccurrenceCount ?? entry.tomato_occurrence_count ?? '').trim(),
                 remark: String(entry.remark || '').trim(),
                 docSeq: Number.isFinite(Number(entry.docSeq)) ? Number(entry.docSeq) : Number.NaN,
                 rating: Math.max(0, Math.min(4, parseInt(entry.rating, 10) || 0)),
                 fsrsBefore: __tmNormalizeFsrsCardState(entry.fsrsBefore || null),
                 fsrsAfter: __tmNormalizeFsrsCardState(entry.fsrsAfter || null),
             };
-        }).filter((item) => item.completedAt || item.sourceStart || item.sourceDue || item.nextStart || item.nextDue)
-            .slice(0, 30);
+        }).filter((item) => item.completedAt || item.sourceStart || item.sourceDue || item.nextStart || item.nextDue);
+        normalized.forEach((item, index) => {
+            const previous = normalized[index + 1] || null;
+            if (!item.tomatoOccurrenceMinutes) {
+                item.tomatoOccurrenceMinutes = String(__tmSubtractTaskTomatoValue(
+                    item.tomatoMinutes,
+                    previous?.tomatoMinutes,
+                    __tmNormalizeTaskTomatoAmount,
+                ));
+            }
+            if (!item.tomatoOccurrenceHours) {
+                item.tomatoOccurrenceHours = String(__tmSubtractTaskTomatoValue(
+                    item.tomatoHours,
+                    previous?.tomatoHours,
+                    __tmNormalizeTaskTomatoAmount,
+                ));
+            }
+            if (!item.tomatoOccurrenceCount) {
+                item.tomatoOccurrenceCount = String(__tmSubtractTaskTomatoValue(
+                    item.tomatoCount,
+                    previous?.tomatoCount,
+                    __tmNormalizeTaskTomatoCount,
+                ));
+            }
+        });
+        return normalized;
+    }
+
+    function __tmGetTaskTomatoCumulativeValues(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        return {
+            tomatoMinutes: __tmNormalizeTaskTomatoAmount(task?.tomatoMinutes ?? task?.tomato_minutes),
+            tomatoHours: __tmNormalizeTaskTomatoAmount(task?.tomatoHours ?? task?.tomato_hours),
+            tomatoCount: __tmNormalizeTaskTomatoCount(task?.tomatoCount ?? task?.tomato_count),
+        };
+    }
+
+    function __tmGetTaskTomatoFocusValues(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const cumulative = __tmGetTaskTomatoCumulativeValues(task);
+        if (task.isRecurringInstance === true || String(task?.id || '').startsWith('repeatinst:')) {
+            return {
+                tomatoMinutes: __tmNormalizeTaskTomatoAmount(task?.tomatoOccurrenceMinutes ?? task?.tomato_occurrence_minutes ?? cumulative.tomatoMinutes),
+                tomatoHours: __tmNormalizeTaskTomatoAmount(task?.tomatoOccurrenceHours ?? task?.tomato_occurrence_hours ?? cumulative.tomatoHours),
+                tomatoCount: __tmNormalizeTaskTomatoCount(task?.tomatoOccurrenceCount ?? task?.tomato_occurrence_count ?? cumulative.tomatoCount),
+            };
+        }
+        const rule = __tmNormalizeTaskRepeatRule(task?.repeatRule || task?.repeat_rule || '', {
+            startDate: task?.startDate,
+            completionTime: task?.completionTime,
+        });
+        if (!rule.enabled || rule.type === 'none') return cumulative;
+        const state = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state);
+        let baseline = state;
+        if (!state.tomatoBaselineSet) {
+            const latestHistory = __tmNormalizeTaskRepeatHistory(task?.repeatHistory || task?.repeat_history || '')[0] || null;
+            if (latestHistory) {
+                baseline = {
+                    tomatoBaselineMinutes: latestHistory.tomatoMinutes,
+                    tomatoBaselineHours: latestHistory.tomatoHours,
+                    tomatoBaselineCount: latestHistory.tomatoCount,
+                };
+            }
+        }
+        return {
+            tomatoMinutes: __tmSubtractTaskTomatoValue(cumulative.tomatoMinutes, baseline.tomatoBaselineMinutes, __tmNormalizeTaskTomatoAmount),
+            tomatoHours: __tmSubtractTaskTomatoValue(cumulative.tomatoHours, baseline.tomatoBaselineHours, __tmNormalizeTaskTomatoAmount),
+            tomatoCount: __tmSubtractTaskTomatoValue(cumulative.tomatoCount, baseline.tomatoBaselineCount, __tmNormalizeTaskTomatoCount),
+        };
     }
 
     function __tmGetTaskRepeatCompletedCount(taskLike, ruleInput = null) {
@@ -566,7 +675,7 @@
     function __tmResolveTaskRepeatHistoryOccurrenceNumber(taskLike, historyItem, orderIndex = 0) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         const history = (historyItem && typeof historyItem === 'object') ? historyItem : {};
-        const explicit = Math.max(0, Math.min(200, parseInt(history.occurrenceNumber, 10) || 0));
+        const explicit = Math.max(0, parseInt(history.occurrenceNumber, 10) || 0);
         if (explicit > 0) return explicit;
         return Math.max(1, __tmGetTaskRepeatCompletedCount(task) - Math.max(0, Number(orderIndex) || 0));
     }
@@ -1132,6 +1241,18 @@
             task_marker: 'X',
             duration: String(history.duration || source.duration || '').trim(),
             custom_duration: String(history.duration || source.duration || '').trim(),
+            tomatoMinutes: String(history.tomatoMinutes || '').trim(),
+            tomato_minutes: String(history.tomatoMinutes || '').trim(),
+            tomatoHours: String(history.tomatoHours || '').trim(),
+            tomato_hours: String(history.tomatoHours || '').trim(),
+            tomatoCount: String(history.tomatoCount || '').trim(),
+            tomato_count: String(history.tomatoCount || '').trim(),
+            tomatoOccurrenceMinutes: String(history.tomatoOccurrenceMinutes || '').trim(),
+            tomato_occurrence_minutes: String(history.tomatoOccurrenceMinutes || '').trim(),
+            tomatoOccurrenceHours: String(history.tomatoOccurrenceHours || '').trim(),
+            tomato_occurrence_hours: String(history.tomatoOccurrenceHours || '').trim(),
+            tomatoOccurrenceCount: String(history.tomatoOccurrenceCount || '').trim(),
+            tomato_occurrence_count: String(history.tomatoOccurrenceCount || '').trim(),
             remark: String(history.remark || source.remark || '').trim(),
             custom_remark: String(history.remark || source.remark || '').trim(),
             startDate: __tmNormalizeDateOnly(history.sourceStart || ''),
@@ -1165,7 +1286,7 @@
         const cls = String(options?.className || '').trim();
         const classes = ['tm-recurring-instance-badge'];
         if (cls) classes.push(cls);
-        const occurrenceNumber = Math.max(0, Math.min(200, parseInt(task?.recurringOccurrenceNumber, 10) || 0));
+        const occurrenceNumber = Math.max(0, parseInt(task?.recurringOccurrenceNumber, 10) || 0);
         const totalOccurrences = __tmNormalizeTaskRepeatMaxOccurrences(task?.recurringTotalOccurrences);
         const progressText = occurrenceNumber > 0
             ? ` · 第 ${occurrenceNumber}${totalOccurrences > 0 ? `/${totalOccurrences}` : ''} 次`
@@ -1445,17 +1566,12 @@
         const extraClass = String(options?.extraClass || '').trim();
         let checked = !!options?.checked;
         try {
-            if (Object.prototype.hasOwnProperty.call(state.doneOverrides || {}, tid)) {
-                checked = !!state.doneOverrides[tid];
-            } else {
-                const liveTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, {
-                    includePending: true,
-                    preferPending: true,
-                }) || task;
-                checked = typeof __tmIsTaskDoneEffective === 'function'
-                    ? __tmIsTaskDoneEffective(liveTask)
-                    : !!liveTask?.done;
-            }
+            const liveTask = globalThis.__tmTaskStore?.getProjected?.(tid)
+                || globalThis.__tmTaskBoundary?.getTask?.(tid)
+                || task;
+            checked = typeof __tmIsTaskDoneEffective === 'function'
+                ? __tmIsTaskDoneEffective(liveTask)
+                : !!liveTask?.done;
         } catch (e) {}
         const checkedAttr = checked ? ' checked' : '';
         const disabledAttr = options?.disabled ? ' disabled' : '';
@@ -1680,7 +1796,7 @@
     function __tmGetTaskDocIdById(taskId) {
         const id = String(taskId || '').trim();
         if (!id) return '';
-        const t = state.flatTasks?.[id];
+        const t = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
         if (t) return String(t?.root_id || t?.docId || '').trim();
         const snap = WhiteboardStore.getTask(id);
         if (!snap) return '';

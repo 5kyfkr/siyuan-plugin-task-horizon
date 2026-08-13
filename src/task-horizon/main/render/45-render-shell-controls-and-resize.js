@@ -464,7 +464,7 @@
         const next = (typeof enabled === 'boolean') ? enabled : !SettingsStore.data.whiteboardSequenceMode;
         SettingsStore.data.whiteboardSequenceMode = !!next;
         try { await SettingsStore.save(); } catch (e) {}
-        try { applyFilters(); } catch (e) {}
+        try { __tmRecomputeTaskProjection({ reason: 'whiteboard-sequence-mode' }); } catch (e) {}
         render();
     };
 
@@ -477,7 +477,7 @@
         state.showCompletedTasks = !!SettingsStore.data.showCompletedTasks;
         state.excludeCompletedTasks = !state.showCompletedTasks;
         try { await SettingsStore.save(); } catch (e) {}
-        try { applyFilters(); } catch (e) {}
+        try { __tmRecomputeTaskProjection({ reason: 'show-completed-toggle' }); } catch (e) {}
         if (state.modal && document.body.contains(state.modal)) {
             try { if (!__tmRerenderCurrentViewInPlace(state.modal)) render(); } catch (e) { try { render(); } catch (e2) {} }
         }
@@ -489,7 +489,7 @@
         try { await SettingsStore.save(); } catch (e) {}
         try { state.listRenderSignature = ''; } catch (e) {}
         try { state.listDomRenderSignature = ''; } catch (e) {}
-        try { applyFilters(); } catch (e) {}
+        try { __tmRecomputeTaskProjection({ reason: 'render-density-change' }); } catch (e) {}
         if (state.modal && document.body.contains(state.modal)) {
             try { render(); } catch (e) {}
         }

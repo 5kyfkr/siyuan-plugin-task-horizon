@@ -12,6 +12,16 @@ const showAllowed = process.argv.includes('--all');
 const writeMethodPattern = '(setAttrs|updateBlock|insertBlock|appendBlock|moveBlock|deleteBlock)';
 const checks = [
   {
+    name: 'retired-task-writer',
+    pattern: /\b(?:__tmQueueAttrPatch|__tmPersistMetaAndAttrsAsync|__tmMutationPatchAttrs|__tmRequestChecklistLegacyTaskPatch|__tmShouldUseChecklistLegacyFieldCommit|__tmQueueUiFriendlyTaskPatch)\b/,
+    neverAllow: true,
+  },
+  {
+    name: 'retired-attr-patch-operation',
+    pattern: /(?:\btype\s*===\s*['"]attrPatch['"]|\btype\s*:\s*['"]attrPatch['"]|\brecord\s*\.\s*type\s*===\s*['"]attrPatch['"])/,
+    neverAllow: true,
+  },
+  {
     name: '__tmBackendAdapter',
     pattern: new RegExp(`\\b__tmBackendAdapter\\s*\\.\\s*${writeMethodPattern}\\s*\\(`),
   },
@@ -32,19 +42,15 @@ const checks = [
 const whitelist = [
   {
     test: (rel) => rel === '20-api-and-runtime-services.js',
-    reason: 'backend adapter, outbox executor, legacy writer kernels',
+    reason: 'guarded backend adapter and one-shot mutation executor',
   },
   {
     test: (rel) => rel === path.join('task-runtime', '53-list-render-and-document-loader.js'),
-    reason: 'legacy content/delete task writer kernels; migrate or wrap later',
+    reason: 'content and delete kernels invoked by the mutation executor',
   },
   {
     test: (rel) => rel === path.join('task-runtime', '53b-task-create-and-quick-add-runtime.js'),
-    reason: 'legacy create task writer kernels; migrate or wrap later',
-  },
-  {
-    test: (rel) => /^task-runtime[\\/]55-.*\.js$/.test(rel),
-    reason: 'task writer service modules',
+    reason: 'atomic create kernels invoked by the mutation executor',
   },
   {
     test: (rel) => rel === path.join('task-runtime', '56-task-lifecycle-runtime.js'),
@@ -97,8 +103,8 @@ function scanFile(file) {
           rel,
           line: index + 1,
           check: check.name,
-          allowed: !!allow,
-          reason: allow ? allow.reason : '',
+          allowed: !!allow && check.neverAllow !== true,
+          reason: check.neverAllow === true ? 'retired task writer' : (allow ? allow.reason : ''),
           text: line.trim(),
         });
       }
@@ -119,7 +125,11 @@ if (!fs.existsSync(sourceRoot)) {
   process.exit(2);
 }
 
-const matches = walk(sourceRoot).flatMap(scanFile);
+const entryFiles = [
+  path.join(repoRoot, 'calendar-view.js'),
+  path.join(repoRoot, 'quickbar.js'),
+].filter((file) => fs.existsSync(file));
+const matches = walk(sourceRoot).concat(entryFiles).flatMap(scanFile);
 const review = matches.filter((item) => !item.allowed);
 const allowed = matches.filter((item) => item.allowed);
 

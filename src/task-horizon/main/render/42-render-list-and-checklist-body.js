@@ -86,10 +86,7 @@
             const dismissed = !!state.checklistDetailDismissed;
             const selectedTask = selectedId
                 ? (
-                    globalThis.__tmRuntimeState?.getTaskById?.(selectedId, { includePending: true, preferPending: true })
-                    || state.flatTasks?.[selectedId]
-                    || state.pendingInsertedTasks?.[selectedId]
-                    || null
+                    globalThis.__tmTaskBoundary?.getTask?.(selectedId) || null
                 )
                 : null;
             const activeId = selectedTask
@@ -301,9 +298,7 @@
             const renderTask = (row) => {
                 const taskId = String(row?.id || '').trim();
                 const task = filteredTaskById.get(taskId)
-                    || globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
-                    || state.flatTasks?.[taskId]
-                    || state.pendingInsertedTasks?.[taskId];
+                    || globalThis.__tmTaskBoundary?.getTask?.(taskId);
                 if (!task) return '';
                 const isMultiSelected = __tmIsTaskMultiSelected(task.id);
                 if ((state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) && task.root_id) {
@@ -317,7 +312,15 @@
                 const collapsed = !!row?.collapsed;
                 const allChildren = Array.isArray(task.children) ? task.children : [];
                 const totalChildren = allChildren.length;
-                const completedChildren = allChildren.filter((child) => child?.done).length;
+                const completedChildren = allChildren.filter((child) => {
+                    try {
+                        return typeof __tmIsTaskDoneEffective === 'function'
+                            ? __tmIsTaskDoneEffective(child)
+                            : child?.done === true;
+                    } catch (e) {
+                        return child?.done === true;
+                    }
+                }).length;
                 const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
                 const resolvedGroupBg = currentGroupBg || resolvePinnedTaskGroupBg(task);
                 const resolvedGroupAccent = currentGroupAccent || resolvePinnedTaskGroupAccentColor(task);
@@ -344,9 +347,10 @@
                 const doneCls = task.done ? ' tm-checklist-item--done' : '';
                 const branchLeadingCls = hasChildren ? ' tm-checklist-item--has-branch-leading' : '';
                 const reminderHtml = __tmHasReminderMark(task) ? __tmRenderReminderIcon() : '';
-                const completedTodayBadgeHtml = row?.inCompletedRootGroup === true
-                    ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
-                    : '';
+                const completedTodayBadgeHtml = __tmRenderCompletedTodayBadge(task, {
+                    todayKey: completedTodayKey,
+                    inCompletedRootGroup: row?.inCompletedRootGroup === true,
+                });
                 const remarkIconHtml = __tmRenderRemarkIcon(task.remark);
                 const attachmentIconHtml = __tmRenderTaskAttachmentIcon(task);
                 const statusOptions = __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
@@ -399,7 +403,7 @@
                 if (String(task.priority || '').trim() && String(task.priority || '').trim() !== 'none') meta.push(`<span class="tm-checklist-meta-chip" data-tm-field="priority">${priorityIcon}</span>`);
                 if (task.completionTime) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="completionTime">${esc(__tmFormatTaskTime(task.completionTime))}</span>`);
                 if (focusSummaryText) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="tomatoSummary" onclick="tmEditFocusSummaryInline('${esc(task.id)}', this)">${__tmRenderLucideIcon('timer')} ${focusSummaryHtml}</span>`);
-                if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip">子任务 ${completedChildren}/${totalChildren}</span>`);
+                if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip" data-tm-subtask-count-owner="${esc(String(task.id || ''))}">子任务 ${completedChildren}/${totalChildren}</span>`);
                 const compactMetaParts = [];
                 if (showCompactDocName) compactMetaParts.push(`<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>`);
                 if (compactHeadingText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-h2" title="${esc(compactHeadingText)}">${API.renderTaskContentHtml(compactHeadingText, compactHeadingText)}</span>`);
@@ -457,7 +461,7 @@
                     : '';
                 renderedChecklistTaskCount += 1;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}${branchLeadingCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" ${itemDragAttrs} ondragenter="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragover="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragleave="tmTaskRowDragLeave(event, '${escSq(String(task.id || ''))}')" ondrop="tmTaskRowDrop(event, '${escSq(String(task.id || ''))}')" ${touchDragAttr} style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ${itemContextMenuAttr}>
+                    <div class="tm-checklist-item${activeCls}${doneCls}${branchLeadingCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" data-tm-subtask-progress-owner="${esc(String(task.id || ''))}" ${itemDragAttrs} ondragenter="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragover="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragleave="tmTaskRowDragLeave(event, '${escSq(String(task.id || ''))}')" ondrop="tmTaskRowDrop(event, '${escSq(String(task.id || ''))}')" ${touchDragAttr} style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ${itemContextMenuAttr}>
                         ${treeGuides}
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-checklist-parent-toggle-color);">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
@@ -550,10 +554,7 @@
                 : '';
             const detailTask = activeId
                 ? (
-                    globalThis.__tmRuntimeState?.getTaskById?.(activeId, { includePending: true, preferPending: true })
-                    || state.flatTasks?.[activeId]
-                    || state.pendingInsertedTasks?.[activeId]
-                    || null
+                    globalThis.__tmTaskBoundary?.getTask?.(activeId) || null
                 )
                 : null;
             const detailHtml = detailTask

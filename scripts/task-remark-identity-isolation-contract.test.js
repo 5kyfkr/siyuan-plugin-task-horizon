@@ -53,7 +53,7 @@ const reload = sliceBetween(loaderSource, 'async function reloadDocTasksProtecte
 assert.match(reload, /const meta = MetaStore\.get\(taskId\) \|\| \{\};/, 'document reload must read metadata by exact task ID');
 assert.doesNotMatch(reload, /MetaStore\.set\(taskId|TreeProtector\./, 'generic reload must not migrate metadata or consume fallback snapshots');
 
-const setDone = sliceBetween(loaderSource, 'async function __tmSetDoneKernel', 'const __tmAutoCompleteParentTaskIdsInFlight', 'set-done fallback');
+const setDone = sliceBetween(loaderSource, 'async function __tmSetDoneKernel', 'function __tmAutoCompleteGetTaskById', 'set-done fallback');
 assert.match(setDone, /findTaskListItemById\?\.\(id\)/, 'set-done DOM fallback must locate the exact block ID');
 assert.doesNotMatch(setDone, /querySelectorAll\([^\n]*NodeListItem/, 'set-done fallback must not scan unrelated list items');
 assert.ok(setDone.indexOf('TreeProtector.restore(doc.tasks, fallbackTreeSnapshot)') > setDone.indexOf('} catch (err) {'), 'tree state may only be restored on the current operation failure');

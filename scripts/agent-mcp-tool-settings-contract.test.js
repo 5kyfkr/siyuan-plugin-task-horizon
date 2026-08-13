@@ -23,7 +23,9 @@ assert.match(settingsActions, /taskHorizonSyncMcpEntitlement/, 'the frontend mus
 assert.match(settingsActions, /function __tmLoadAgentMcpCapabilities[\s\S]*taskHorizonGetCapabilities/, 'the settings mirror must read the authoritative kernel capability state');
 assert.match(settingsActions, /任务 MCP 工具服务未启动，请重启思源笔记后再试/, 'missing kernel RPC must tell the user to restart SiYuan');
 assert.match(settingsActions, /catch \(e\) \{[\s\S]*__tmLoadAgentMcpCapabilities\(\)[\s\S]*current\?\.mcpEnabled/, 'failed MCP updates must restore the settings mirror from the kernel');
-assert.match(settingsActions, /const desired = allowed && \(initialized \? current\?\.mcpEnabled === true : true\)/, 'initialized MCP startup must follow the persisted kernel configuration');
+assert.match(settingsActions, /const desired = allowed && \(initialized \? SettingsStore\.data\.agentMcpEnabled === true : true\)/, 'initialized MCP startup must restore the saved frontend switch instead of reading the reset runtime state');
+assert.match(settingsActions, /__TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS = \[0, 500, 1000, 2000, 3000\][\s\S]*for \(const delayMs of __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS\)[\s\S]*__tmSyncAgentMcpAuthorization\(allowed, desired\)/, 'startup entitlement sync must retry until the kernel RPC is ready and restore the desired enabled state atomically');
+assert.match(settingsActions, /tm:task-horizon-license-changed[\s\S]*__tmSyncAgentMcpEntitlementDefault\(\)\.catch\(\(\) => null\)/, 'license changes must not leak a rejected entitlement sync promise');
 assert.match(styles, /\.tm-agent-tool-group__items[\s\S]*grid-template-columns: repeat\(2/, 'desktop tool settings must remain compact');
 assert.match(styles, /\.tm-agent-tool-group__head::-webkit-details-marker[\s\S]*display: none[\s\S]*\.tm-agent-tool-group\[open\] \.tm-agent-tool-group__chevron[\s\S]*rotate\(180deg\)/, 'collapsible groups must use a consistent native chevron instead of the browser marker');
 assert.match(styles, /@media \(max-width: 768px\)[\s\S]*\.tm-agent-tool-group__items[\s\S]*grid-template-columns: minmax\(0, 1fr\)/, 'mobile tool settings must use one column');

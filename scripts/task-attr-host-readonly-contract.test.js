@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const stores = fs.readFileSync(path.join(root, 'src/task-horizon/main/10-stores-rules-and-cache.js'), 'utf8');
 const services = fs.readFileSync(path.join(root, 'src/task-horizon/main/20-api-and-runtime-services.js'), 'utf8');
 const taskList = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js'), 'utf8');
+const kernel = fs.readFileSync(path.join(root, 'kernel.js'), 'utf8');
 
 function sliceFunction(source, startMarker, endMarker) {
     const start = source.indexOf(startMarker);
@@ -32,15 +33,57 @@ assert.match(
     'attribute-host mirror fallback must ignore blank values'
 );
 
-const movePreparation = sliceFunction(
+assert.doesNotMatch(
     services,
-    'async function __tmPrepareTaskAttrHostsForMove',
-    'async function __tmReconcileTaskAttrHostsAfterMove'
+    /__tmPrepareTaskAttrHostsForMove|__tmReconcileTaskAttrHostsAfterMove|__tmScheduleTaskAttrHostReconcileAfterMove/,
+    'task moves must not start a second attribute migration and delayed repair path'
+);
+
+const buildAttrContextSource = sliceFunction(kernel, 'function buildAttrContext', 'async function resolveTaskBinding');
+const buildAttrContext = Function('text', `${buildAttrContextSource}; return buildAttrContext;`)(
+    (value) => String(value == null ? '' : value).trim()
+);
+const state1 = buildAttrContext({
+    id: 'task-a',
+    parent_id: 'list-a',
+    parent_type: 'l',
+    parent_task_count: 1,
+    first_task_id: 'task-a',
+});
+assert.equal(state1.state, 'state1-parent');
+assert.equal(state1.primaryHostID, 'task-a');
+assert.deepEqual(state1.legacyHostIDs, ['list-a']);
+
+const state3 = buildAttrContext({
+    id: 'task-a',
+    parent_id: 'list-a',
+    parent_type: 'l',
+    parent_task_count: 2,
+    first_task_id: 'task-a',
+});
+assert.equal(state3.state, 'state3-list-item');
+assert.equal(state3.primaryHostID, 'task-a');
+assert.deepEqual(state3.legacyHostIDs, ['list-a']);
+
+const state2 = buildAttrContext({
+    id: 'task-b',
+    parent_id: 'list-a',
+    parent_type: 'l',
+    parent_task_count: 2,
+    first_task_id: 'task-a',
+});
+assert.equal(state2.state, 'state2-list-item');
+assert.equal(state2.primaryHostID, 'task-b');
+assert.deepEqual(state2.legacyHostIDs, []);
+assert.match(
+    kernel,
+    /async function buildTaskAttrPreservationOperation\(row, registryInput\)[\s\S]*buildCanonicalTaskAttrs\(context[\s\S]*return \{ action: 'setAttrs', id: context\.taskID/,
+    'all legacy list-hosted fields must be copied to the canonical task block before a move'
 );
 assert.match(
-    movePreparation,
-    /__tmIsManagedTaskAttrStorageKeyForMirror\(key\)[\s\S]*const normalizedValue = String\(value \?\? ''\);[\s\S]*normalizedValue\.trim\(\) === ''\) return;/,
-    'structural attribute migration must never copy implicit blank values'
+    kernel,
+    /async function moveTask\(input, options\)[\s\S]*return runTaskLane\(laneID,[\s\S]*await preserveTaskAttrsOnOwnBlockBeforeMove\(beforeTask\)[\s\S]*await api\('\/api\/block\/moveBlock'/,
+    'attribute preservation and the structural move must remain ordered in one kernel lane'
 );
 
 const contentUpdate = sliceFunction(

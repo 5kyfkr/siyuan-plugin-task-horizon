@@ -177,6 +177,13 @@ const formatterSource = segment(
 );
 const formatterContext = {
     __tmParseNumber: Number,
+    __tmGetTaskTomatoFocusValues(task) {
+        return {
+            tomatoMinutes: Number(task?.tomatoMinutes ?? task?.tomato_minutes) || 0,
+            tomatoHours: Number(task?.tomatoHours ?? task?.tomato_hours) || 0,
+            tomatoCount: Number(task?.tomatoCount ?? task?.tomato_count) || 0,
+        };
+    },
     __tmFormatSpentHours(value) {
         if (!(value > 0)) return '';
         return `${Math.round(value * 100) / 100}h`;

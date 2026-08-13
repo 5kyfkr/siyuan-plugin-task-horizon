@@ -1,4 +1,4 @@
-﻿    function __tmScheduleWhiteboardEdgeRedraw() {
+    function __tmScheduleWhiteboardEdgeRedraw() {
         if (state.viewMode !== 'whiteboard') return;
         try {
             const id0 = Number(state.whiteboardEdgeRafId) || 0;
@@ -29,6 +29,7 @@
         try { if (__tmWhiteboardViewSaveTimer) clearTimeout(__tmWhiteboardViewSaveTimer); } catch (e) {}
         __tmWhiteboardViewSaveTimer = setTimeout(() => {
             __tmWhiteboardViewSaveTimer = null;
+            try { SettingsStore.syncLocalFields?.(['whiteboardView', 'whiteboardGlobalBoardsByGroup']); } catch (e) {}
             try { SettingsStore.save(); } catch (e) {}
         }, 180);
     }
@@ -50,20 +51,6 @@
 
     function __tmIsWhiteboardGlobalElement(el) {
         return !!__tmGetWhiteboardGlobalBodyFromElement(el);
-    }
-
-    function __tmWhiteboardDebugElementLabel(el) {
-        return '';
-    }
-
-    function __tmWhiteboardDebugEventInfo(ev) {
-        return null;
-    }
-
-    function __tmWhiteboardDebugLog(name, detail = {}) {
-    }
-
-    function __tmWhiteboardDebugLogThrottled(key, delayMs, name, detail = {}) {
     }
 
     function __tmGetWhiteboardNoteStorage(noteId = '') {
@@ -94,7 +81,7 @@
         }
         SettingsStore.data.whiteboardNotes = list;
         try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { SettingsStore.syncLocalFields?.(['whiteboardNotes']); } catch (e) {}
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
         }
@@ -152,7 +139,7 @@
         }
         SettingsStore.data.whiteboardFrames = normalized;
         try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-frames'); } catch (e) {}
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { SettingsStore.syncLocalFields?.(['whiteboardFrames']); } catch (e) {}
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
         }
@@ -474,7 +461,7 @@
             ? __tmNormalizeWhiteboardDrawingConfig(next)
             : next;
         if (opts?.persist !== false) {
-            try { SettingsStore.syncToLocal(); } catch (e) {}
+            try { SettingsStore.syncLocalFields?.(['whiteboardDrawingConfig']); } catch (e) {}
             try { SettingsStore.save(); } catch (e) {}
         }
     }
@@ -519,7 +506,7 @@
         } else {
             SettingsStore.data.whiteboardDrawings = normalized;
             try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-drawings'); } catch (e) {}
-            try { SettingsStore.syncToLocal(); } catch (e) {}
+            try { SettingsStore.syncLocalFields?.(['whiteboardDrawings']); } catch (e) {}
             if (o.persist !== false) {
                 try { SettingsStore.save(); } catch (e) {}
             }
@@ -874,24 +861,38 @@
         try { __tmRemoveWhiteboardStrokeTools(); } catch (e) {}
     }
 
-    function __tmSetGlobalWhiteboardNodePlacement(taskId, docId, x, y, opts = {}) {
-        const id = String(taskId || '').trim();
-        const did = String(docId || '').trim();
-        const xx = Number(x);
-        const yy = Number(y);
-        if (!id || !did || !Number.isFinite(xx) || !Number.isFinite(yy)) return;
+    function __tmCommitGlobalWhiteboardPlacements(changes, opts = {}) {
+        const list = Array.isArray(changes) ? changes : [changes];
         const o = (opts && typeof opts === 'object') ? opts : {};
         const groupId = __tmGetWhiteboardGlobalBoardGroupId();
         const board = __tmGetWhiteboardGlobalBoardState(groupId);
         const nodePos = (board?.nodePos && typeof board.nodePos === 'object') ? { ...board.nodePos } : {};
         const placedTaskIds = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? { ...board.placedTaskIds } : {};
-        const prev = nodePos[id];
-        const manual = (typeof o.manual === 'boolean')
-            ? o.manual
-            : !!(prev && typeof prev === 'object' && prev.manual === true);
-        nodePos[id] = { docId: did, x: Math.round(xx), y: Math.round(yy), manual, updatedAt: String(Date.now()) };
-        placedTaskIds[id] = true;
+        const updatedAt = String(Date.now());
+        let changed = false;
+        list.forEach((change) => {
+            const item = (change && typeof change === 'object') ? change : {};
+            const id = String(item.id || item.taskId || '').trim();
+            const did = String(item.docId || '').trim();
+            const xx = Number(item.x);
+            const yy = Number(item.y);
+            if (!id || !did || !Number.isFinite(xx) || !Number.isFinite(yy)) return;
+            const prev = nodePos[id];
+            const manual = (typeof item.manual === 'boolean')
+                ? item.manual
+                : ((typeof o.manual === 'boolean') ? o.manual : !!(prev && typeof prev === 'object' && prev.manual === true));
+            nodePos[id] = { docId: did, x: Math.round(xx), y: Math.round(yy), manual, updatedAt };
+            placedTaskIds[id] = true;
+            changed = true;
+        });
+        if (!changed) return 0;
         __tmPatchWhiteboardGlobalBoardState(groupId, { nodePos, placedTaskIds }, { keepEmpty: true, persist: o.persist });
+        return list.length;
+    }
+
+    function __tmSetGlobalWhiteboardNodePlacement(taskId, docId, x, y, opts = {}) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        return __tmCommitGlobalWhiteboardPlacements([{ taskId, docId, x, y, manual: o.manual }], o);
     }
 
     function __tmSetGlobalWhiteboardChildDetached(taskId, detached, parentTaskId = '', opts = {}) {
@@ -1310,7 +1311,7 @@
         try { ev?.preventDefault?.(); } catch (e) {}
         const next = !!hidden;
         SettingsStore.data.whiteboardNavigatorHidden = next;
-        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { SettingsStore.syncLocalFields?.(['whiteboardNavigatorHidden']); } catch (e) {}
         const navigator = state.modal?.querySelector?.('#tmWhiteboardNavigator');
         const revealBtn = state.modal?.querySelector?.('#tmWhiteboardNavigatorReveal');
         try { navigator?.classList?.toggle?.('tm-whiteboard-navigator--hidden', next); } catch (e) {}
@@ -1786,8 +1787,40 @@
             try { ev?.stopPropagation?.(); } catch (e) {}
             return false;
         }
-        if (typeof window.tmJumpToTask === 'function') return await window.tmJumpToTask(taskId, ev);
+        if (typeof window.tmTaskTitleClick === 'function') return await window.tmTaskTitleClick(taskId, ev, { surface: 'whiteboard-pool' });
         return false;
+    };
+
+    window.tmWhiteboardTogglePoolSection = function(sectionKey, ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const key = String(sectionKey || '').trim();
+        if (!key) return false;
+        const collapsedSectionKeys = new Set((Array.isArray(state.whiteboardPoolCollapsedSectionKeys) ? state.whiteboardPoolCollapsedSectionKeys : [])
+            .map((value) => String(value || '').trim())
+            .filter(Boolean));
+        const collapsed = !collapsedSectionKeys.has(key);
+        if (collapsed) collapsedSectionKeys.add(key);
+        else collapsedSectionKeys.delete(key);
+        state.whiteboardPoolCollapsedSectionKeys = Array.from(collapsedSectionKeys);
+
+        const head = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+        const section = head?.closest?.('.tm-whiteboard-pool-doc');
+        const list = section?.querySelector?.('.tm-whiteboard-pool-list');
+        if (!(head instanceof HTMLElement) || !(section instanceof HTMLElement) || !(list instanceof HTMLElement)) {
+            try { render(); } catch (e) {}
+            return true;
+        }
+        section.classList.toggle('tm-whiteboard-pool-doc--collapsed', collapsed);
+        head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        const label = String(head.getAttribute('data-pool-section-label') || '').trim();
+        head.title = `${collapsed ? '展开' : '折叠'}${label || '分组'}`;
+        list.hidden = collapsed;
+        const icon = head.querySelector('.tm-whiteboard-pool-doc-chevron-icon');
+        if (icon instanceof HTMLElement || icon instanceof SVGElement) {
+            icon.style.transform = `rotate(${collapsed ? 0 : 90}deg)`;
+        }
+        return true;
     };
 
     function __tmBuildWhiteboardPointerInfoFromBody(ev, docBody) {
@@ -1904,22 +1937,14 @@
         const hint = String(docIdHint || '').trim();
         const onDocDragOver = (ev) => {
             __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, hint);
-            __tmWhiteboardDebugLogThrottled('pool-global-dragover', 800, 'pool:document-dragover', {
-                docIdHint: hint,
-                lastLocal: state.whiteboardLastBoardLocal,
-                event: __tmWhiteboardDebugEventInfo(ev),
-            });
         };
         const onDocDrop = () => {
-            __tmWhiteboardDebugLog('pool:document-drop-tracker-end', { docIdHint: hint, lastLocal: state.whiteboardLastBoardLocal });
             __tmStopWhiteboardPoolGlobalTracking();
         };
         const onDocDragEnd = () => {
-            __tmWhiteboardDebugLog('pool:document-dragend-tracker-end', { docIdHint: hint, lastLocal: state.whiteboardLastBoardLocal });
             __tmStopWhiteboardPoolGlobalTracking();
         };
         state.whiteboardPoolGlobalTracker = { onDocDragOver, onDocDrop, onDocDragEnd };
-        __tmWhiteboardDebugLog('pool:global-tracker-start', { docIdHint: hint });
         try { document.addEventListener('dragover', onDocDragOver, true); } catch (e) {}
         try { document.addEventListener('drop', onDocDrop, true); } catch (e) {}
         try { document.addEventListener('dragend', onDocDragEnd, true); } catch (e) {}
@@ -3009,7 +3034,6 @@
 
     window.tmWhiteboardViewportMouseDown = function(ev) {
         if (state.viewMode !== 'whiteboard') {
-            __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'viewMode', event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const activeTool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
@@ -3018,13 +3042,11 @@
         }
         const pType = String(ev?.pointerType || '').toLowerCase();
         if (pType === 'touch') {
-            __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'touch-pointer', event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const button = Number(ev?.button);
         const rightButtonPan = button === 2;
         if (button !== 0 && !rightButtonPan) {
-            __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'unsupported-button', event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const tool = activeTool;
@@ -3034,57 +3056,31 @@
         const target = ev?.target;
         const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
         if (!(viewport instanceof HTMLElement)) {
-            __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'missing-viewport', event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
-        __tmWhiteboardDebugLog('viewport:pointerdown', {
-            panMode,
-            selectMode,
-            frameMode,
-            rightButtonPan,
-            global: typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive(),
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         if (target && target.closest) {
             if (panMode) {
                 const blocked = target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-doc-head');
                 if (blocked) {
-                    __tmWhiteboardDebugLog('viewport:pointerdown-skip', {
-                        reason: 'pan-blocked-target',
-                        blockedBy: __tmWhiteboardDebugElementLabel(blocked),
-                        event: __tmWhiteboardDebugEventInfo(ev),
-                    });
                     return;
                 }
             } else if (selectMode) {
                 const blocked = target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-edge,.tm-whiteboard-link-tools,.tm-whiteboard-pool-item,.tm-whiteboard-doc-resize,.tm-whiteboard-doc-head,input,button,select,textarea,label,a');
                 if (blocked) {
-                    __tmWhiteboardDebugLog('viewport:pointerdown-skip', {
-                        reason: 'select-blocked-target',
-                        blockedBy: __tmWhiteboardDebugElementLabel(blocked),
-                        event: __tmWhiteboardDebugEventInfo(ev),
-                    });
                     return;
                 }
             } else if (frameMode) {
                 const blocked = target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-frame,.tm-whiteboard-edge,.tm-whiteboard-link-tools,.tm-whiteboard-pool-item,.tm-whiteboard-doc-resize,.tm-whiteboard-doc-head,input,button,select,textarea,label,a');
                 if (blocked) {
-                    __tmWhiteboardDebugLog('viewport:pointerdown-skip', {
-                        reason: 'frame-blocked-target',
-                        blockedBy: __tmWhiteboardDebugElementLabel(blocked),
-                        event: __tmWhiteboardDebugEventInfo(ev),
-                    });
                     return;
                 }
             } else {
-                __tmWhiteboardDebugLog('viewport:pointerdown-skip', { reason: 'tool-not-pan-select-or-frame', event: __tmWhiteboardDebugEventInfo(ev) });
                 return;
             }
         }
 
         if (frameMode) {
             if (__tmStartWhiteboardFrameCreate(ev, viewport)) return;
-            __tmWhiteboardDebugLog('viewport:frame-create-skip', { reason: 'no-doc-body', event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
 
@@ -3247,7 +3243,6 @@
         }
 
         if (!panMode) {
-            __tmWhiteboardDebugLog('viewport:pan-skip', { reason: 'not-pan-mode', event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         try {
@@ -3267,12 +3262,6 @@
             debugMoveCount: 0,
         };
         if (rightButtonPan) state.whiteboardSuppressViewportContextMenuUntil = Date.now() + 1200;
-        __tmWhiteboardDebugLog('viewport:pan-start', {
-            view: { x: Number(v0.x) || 0, y: Number(v0.y) || 0, zoom: Number(v0.zoom) || 1 },
-            pointerId: hasPointerId ? pointerId : null,
-            rightButtonPan,
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         try { viewport.classList.add('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
         if (hasPointerId && typeof viewport.setPointerCapture === 'function') {
             try { viewport.setPointerCapture(pointerId); } catch (e) {}
@@ -3287,17 +3276,10 @@
             }
             const dx = (Number(e2?.clientX) || 0) - s.startClientX;
             const dy = (Number(e2?.clientY) || 0) - s.startClientY;
-            __tmSetWhiteboardView({ x: s.startX + dx, y: s.startY + dy }, { persist: false });
+            __tmSetWhiteboardView({ x: s.startX + dx, y: s.startY + dy }, { persist: false, syncLocal: false });
             __tmApplyWhiteboardTransform();
             s.debugMoveCount = (Number(s.debugMoveCount) || 0) + 1;
             if (s.debugMoveCount === 1 || s.debugMoveCount % 15 === 0) {
-                __tmWhiteboardDebugLog('viewport:pan-move', {
-                    moveCount: s.debugMoveCount,
-                    dx: Math.round(dx),
-                    dy: Math.round(dy),
-                    nextView: { x: Math.round(s.startX + dx), y: Math.round(s.startY + dy) },
-                    event: __tmWhiteboardDebugEventInfo(e2),
-                });
             }
         };
         const onUp = (e2) => {
@@ -3316,11 +3298,6 @@
                 try { viewport.releasePointerCapture(pointerId); } catch (e) {}
             }
             try { viewport.classList.remove('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
-            __tmWhiteboardDebugLog('viewport:pan-end', {
-                hadSession: !!s,
-                moveCount: Number(s?.debugMoveCount) || 0,
-                event: __tmWhiteboardDebugEventInfo(e2),
-            });
             state.whiteboardPanSession = null;
             __tmScheduleWhiteboardViewSave();
         };
@@ -3536,16 +3513,19 @@
                 return { ...item, x: Math.round(storedX0 + dx), y: Math.round(storedY0 + dy), updatedAt: now };
             });
             __tmSaveWhiteboardFrameStorage(found.storage, frames, { persist: false });
+            const docPlacements = [];
+            const globalPlacements = [];
             d.items.tasks.forEach((item) => {
                 const storedX = Math.round(item.x0 + dx - (item.global ? 0 : item.offsetX));
                 const storedY = Math.round(item.y0 + dy - (item.global ? 0 : item.offsetY));
                 if (item.global) {
-                    __tmSetGlobalWhiteboardNodePlacement(item.id, item.did, storedX, storedY, { persist: false, manual: true });
+                    globalPlacements.push({ taskId: item.id, docId: item.did, x: storedX, y: storedY, manual: true });
                 } else {
-                    __tmSetWhiteboardNodePos(item.id, item.did, storedX, storedY, { persist: false, manual: true });
-                    __tmSetWhiteboardTaskPlaced(item.id, true, { persist: false });
+                    docPlacements.push({ taskId: item.id, docId: item.did, x: storedX, y: storedY, manual: true, placed: true });
                 }
             });
+            if (docPlacements.length) __tmCommitWhiteboardPlacements(docPlacements, { persist: false });
+            if (globalPlacements.length) __tmCommitGlobalWhiteboardPlacements(globalPlacements, { persist: false });
             if (d.items.notes.length) {
                 const noteStorage = __tmIsWhiteboardGlobalElement(d.docBody)
                     ? __tmGetWhiteboardNoteStorage()
@@ -3803,6 +3783,7 @@
 
     window.tmWhiteboardCardMouseDown = function(ev, taskId, docId) {
         if (state.viewMode !== 'whiteboard') return;
+        if (ev?.currentTarget?.closest?.('[data-tm-whiteboard-frozen="1"]')) return;
         if (!ev?.__tmFromLongPress && Date.now() < (Number(state.whiteboardSuppressSyntheticMouseUntil) || 0)) return;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         if (tool !== 'pan' && tool !== 'select') return;
@@ -3896,12 +3877,6 @@
                     if (g.kind === 'task') {
                         g.el.dataset.x = String(nx);
                         g.el.dataset.y = String(ny);
-                        if (g.global) {
-                            __tmSetGlobalWhiteboardNodePlacement(g.id, g.did, nx, ny, { persist: false, manual: true });
-                        } else {
-                            __tmSetWhiteboardNodePos(g.id, g.did, nx, ny, { persist: false, manual: true });
-                            __tmSetWhiteboardTaskPlaced(g.id, true, { persist: false });
-                        }
                     }
                 });
                 __tmScheduleWhiteboardEdgeRedraw();
@@ -3919,7 +3894,7 @@
                 const anchorY = 16;
                 const nx0 = Math.round((Number(p?.localX) || 24) - anchorX);
                 const ny0 = Math.round((Number(p?.localY) || 24) - anchorY);
-                const dTask = state.flatTasks?.[String(d.id || '').trim()];
+                const dTask = globalThis.__tmTaskBoundary?.getTask?.(String(d.id || '').trim()) || null;
                 const dParentId = String(dTask?.parentTaskId || '').trim();
                 if (!d.historyPushed) {
                     __tmPushWhiteboardHistorySnapshot('detach-card');
@@ -3930,8 +3905,7 @@
                     __tmSetGlobalWhiteboardNodePlacement(d.id, d.did, nx0, ny0, { persist: false, manual: true });
                 } else {
                     __tmSetWhiteboardChildDetached(d.id, true, dParentId);
-                    __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
-                    __tmSetWhiteboardNodePos(d.id, d.did, nx0, ny0, { persist: false, manual: true });
+                    __tmCommitWhiteboardPlacements([{ taskId: d.id, docId: d.did, x: nx0, y: ny0, manual: true, placed: true }], { persist: false });
                 }
                 state.whiteboardSelectedTaskId = d.id;
                 state.whiteboardNodeDrag = null;
@@ -3967,12 +3941,6 @@
             d.card.style.top = `${ny}px`;
             d.card.dataset.x = String(nx);
             d.card.dataset.y = String(ny);
-            if (d.global) {
-                __tmSetGlobalWhiteboardNodePlacement(d.id, d.did, nx, ny, { persist: false, manual: true });
-            } else {
-                __tmSetWhiteboardNodePos(d.id, d.did, nx, ny, { persist: false, manual: true });
-                __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
-            }
             __tmScheduleWhiteboardEdgeRedraw();
         };
         const onUp = (eUp) => {
@@ -3985,6 +3953,28 @@
             state.whiteboardNodeDrag = null;
             if (d?.moved) {
                 __tmSuppressNextWhiteboardCardClick(d.card, 700);
+            }
+            if (d?.moved && Array.isArray(d.group) && d.group.length > 1) {
+                const docPlacements = [];
+                const globalPlacements = [];
+                d.group.forEach((g) => {
+                    if (!g || g.kind !== 'task' || !(g.el instanceof HTMLElement)) return;
+                    const x = Number(g.el.dataset?.x);
+                    const y = Number(g.el.dataset?.y);
+                    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+                    const placement = { taskId: g.id, docId: g.did, x, y, manual: true, placed: true };
+                    if (g.global) globalPlacements.push(placement);
+                    else docPlacements.push(placement);
+                });
+                if (docPlacements.length) __tmCommitWhiteboardPlacements(docPlacements, { persist: false });
+                if (globalPlacements.length) __tmCommitGlobalWhiteboardPlacements(globalPlacements, { persist: false });
+            } else if (d?.moved && !d.isSubNode && d.card instanceof HTMLElement) {
+                const x = Number(d.card.dataset?.x);
+                const y = Number(d.card.dataset?.y);
+                if (Number.isFinite(x) && Number.isFinite(y)) {
+                    if (d.global) __tmCommitGlobalWhiteboardPlacements([{ taskId: d.id, docId: d.did, x, y, manual: true }], { persist: false });
+                    else __tmCommitWhiteboardPlacements([{ taskId: d.id, docId: d.did, x, y, manual: true, placed: true }], { persist: false });
+                }
             }
             if (d && Array.isArray(d.group) && d.group.length > 1) {
                 const allView = !(state.activeDocId && state.activeDocId !== 'all');
@@ -4010,7 +4000,7 @@
                 } else {
                     SettingsStore.data.whiteboardNotes = notes;
                     try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-                    try { SettingsStore.syncToLocal(); } catch (e) {}
+                    try { SettingsStore.syncLocalFields?.(['whiteboardNotes']); } catch (e) {}
                 }
                 d.group.forEach((g) => {
                     if (!g || !(g.el instanceof HTMLElement)) return;
@@ -4021,7 +4011,7 @@
                 });
             }
             if (d && !d.isSubNode && !(Array.isArray(d.group) && d.group.length > 1)) {
-                const task = state.flatTasks?.[String(d.id || '').trim()];
+                const task = globalThis.__tmTaskBoundary?.getTask?.(String(d.id || '').trim()) || null;
                 const parentId = String(task?.parentTaskId || '').trim();
                 const isDetached = parentId ? __tmIsWhiteboardChildDetached(d.id) : false;
                 if (parentId && isDetached) {
@@ -4098,6 +4088,10 @@
     }
 
     window.tmWhiteboardCardContextMenu = function(ev, taskId) {
+        if (ev?.currentTarget?.closest?.('[data-tm-whiteboard-frozen="1"]')) {
+            try { ev?.preventDefault?.(); } catch (e) {}
+            return false;
+        }
         const pointerType = String(ev?.pointerType || '').toLowerCase();
         const touchLike = pointerType === 'touch'
             || ev?.sourceCapabilities?.firesTouchEvents === true
@@ -4121,6 +4115,7 @@
 
     window.tmWhiteboardCardPointerDown = function(ev, taskId, docId) {
         if (state.viewMode !== 'whiteboard') return;
+        if (ev?.currentTarget?.closest?.('[data-tm-whiteboard-frozen="1"]')) return;
         if (String(ev?.pointerType || '') !== 'touch') return;
         try { __tmCalendarFloatingDragEnd(); } catch (e) {}
         state.whiteboardSuppressSyntheticMouseUntil = Date.now() + 900;
@@ -4197,6 +4192,7 @@
 
     window.tmWhiteboardSelectTask = function(taskId, ev) {
         if (state.viewMode !== 'whiteboard') return;
+        if (ev?.currentTarget?.closest?.('[data-tm-whiteboard-frozen="1"]')) return;
         try {
             if (typeof __tmIsTaskDetailNoteViewEventTarget === 'function' && __tmIsTaskDetailNoteViewEventTarget(ev?.target)) return;
         } catch (e) {}
@@ -4242,6 +4238,7 @@
         const cardEl = (eventEl?.closest?.('.tm-whiteboard-node') instanceof HTMLElement)
             ? eventEl.closest('.tm-whiteboard-node')
             : state.modal?.querySelector?.(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
+        if (cardEl?.getAttribute?.('data-tm-whiteboard-frozen') === '1') return;
         const isGlobalCard = __tmIsWhiteboardGlobalElement(cardEl);
         const ids = __tmWhiteboardCollectTaskTreeIds(id, { includeRoot: true, includeDetached: false, includeSnapshotTree: true });
         __tmPushWhiteboardHistorySnapshot('delete-card');
@@ -4260,7 +4257,7 @@
             });
             __tmPatchWhiteboardGlobalBoardState(groupId, { nodePos, placedTaskIds, detachedChildren }, { keepEmpty: true });
         } else {
-            ids.forEach((tid) => __tmSetWhiteboardTaskPlaced(tid, false, { persist: false }));
+            __tmCommitWhiteboardPlacements(ids.map((tid) => ({ taskId: tid, placed: false })), { persist: false });
         }
         const snapshotIds = ids.filter((tid) => {
             const k = String(tid || '').trim();
@@ -4451,7 +4448,8 @@
 
     window.tmWhiteboardDeleteMultiSelected = async function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
-        const taskIds = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedTaskIds) ? state.whiteboardMultiSelectedTaskIds : []).map((x) => String(x || '').trim()).filter(Boolean)));
+        const taskIds = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedTaskIds) ? state.whiteboardMultiSelectedTaskIds : []).map((x) => String(x || '').trim()).filter(Boolean)))
+            .filter((taskId) => state.modal?.querySelector?.(`.tm-whiteboard-node[data-task-id="${CSS.escape(taskId)}"]`)?.getAttribute?.('data-tm-whiteboard-frozen') !== '1');
         const noteIds = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedNoteIds) ? state.whiteboardMultiSelectedNoteIds : []).map((x) => String(x || '').trim()).filter(Boolean)));
         const linkKeys = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedLinkKeys) ? state.whiteboardMultiSelectedLinkKeys : []).map((x) => String(x || '').trim()).filter(Boolean)));
         const strokeIds = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedStrokeIds) ? state.whiteboardMultiSelectedStrokeIds : []).map((x) => String(x || '').trim()).filter(Boolean)));
@@ -4477,10 +4475,7 @@
             });
             __tmPatchWhiteboardGlobalBoardState(groupId, { nodePos, placedTaskIds, detachedChildren }, { keepEmpty: true });
         } else {
-            allTaskIds.forEach((tid) => {
-                if (!tid) return;
-                __tmSetWhiteboardTaskPlaced(tid, false, { persist: false });
-            });
+            __tmCommitWhiteboardPlacements(Array.from(allTaskIds).map((tid) => ({ taskId: tid, placed: false })), { persist: false });
         }
         const snapshotIds = Array.from(allTaskIds).filter((tid) => {
             const k = String(tid || '').trim();
@@ -4878,12 +4873,6 @@
                     if (g.kind === 'task') {
                         g.el.dataset.x = String(nx);
                         g.el.dataset.y = String(ny);
-                        if (g.global) {
-                            __tmSetGlobalWhiteboardNodePlacement(g.id, g.did, nx, ny, { persist: false, manual: true });
-                        } else {
-                            __tmSetWhiteboardNodePos(g.id, g.did, nx, ny, { persist: false, manual: true });
-                            __tmSetWhiteboardTaskPlaced(g.id, true, { persist: false });
-                        }
                     }
                 });
                 __tmScheduleWhiteboardEdgeRedraw();
@@ -4907,6 +4896,19 @@
                 return;
             }
             if (Array.isArray(d.group) && d.group.length > 1) {
+                const docPlacements = [];
+                const globalPlacements = [];
+                d.group.forEach((g) => {
+                    if (!g || g.kind !== 'task' || !(g.el instanceof HTMLElement)) return;
+                    const x = Number(g.el.dataset?.x);
+                    const y = Number(g.el.dataset?.y);
+                    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+                    const placement = { taskId: g.id, docId: g.did, x, y, manual: true, placed: true };
+                    if (g.global) globalPlacements.push(placement);
+                    else docPlacements.push(placement);
+                });
+                if (docPlacements.length) __tmCommitWhiteboardPlacements(docPlacements, { persist: false });
+                if (globalPlacements.length) __tmCommitGlobalWhiteboardPlacements(globalPlacements, { persist: false });
                 const allView = !(state.activeDocId && state.activeDocId !== 'all');
                 const now = String(Date.now());
                 const globalStorage = (d.group || []).some((g) => g?.kind === 'note' && g.global)
@@ -4930,7 +4932,7 @@
                 } else {
                     SettingsStore.data.whiteboardNotes = notes;
                     try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
-                    try { SettingsStore.syncToLocal(); } catch (e) {}
+                    try { SettingsStore.syncLocalFields?.(['whiteboardNotes']); } catch (e) {}
                 }
                 d.group.forEach((g) => {
                     if (!g || !(g.el instanceof HTMLElement)) return;
@@ -5600,7 +5602,7 @@
                 }
                 if (!did || did === 'all') throw new Error('默认新建文档无效');
             }
-            const createTaskInDoc = globalThis.__tmRequireTaskOutbox?.('createTaskInDoc');
+            const createTaskInDoc = globalThis.__tmRequireTaskMutation?.('createTaskInDoc');
             if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
             const fallbackAppendToBottom = isGlobalCanvas
                 && globalCreateTarget?.mode === 'dailyNote'
@@ -5614,8 +5616,6 @@
                 content: newContent,
                 ...createInsertOptions,
                 wait: false,
-                skipOptimisticMainRefresh: true,
-                skipOptimisticFilterWork: true,
             }, { wait: false });
             if (!createdTaskId) throw new Error('任务创建失败');
             if (headingPatch && typeof __tmApplyHeadingPatchToTaskLocal === 'function') {
@@ -5634,10 +5634,8 @@
                 } catch (e) {}
                 __tmSetGlobalWhiteboardNodePlacement(createdTaskId, did, localX, localY, { manual: true, persist: false });
             } else {
-                __tmSetWhiteboardTaskPlaced(createdTaskId, true, { persist: false });
-                __tmSetWhiteboardNodePos(createdTaskId, did, localX, localY, { manual: true, persist: false });
+                __tmCommitWhiteboardPlacements([{ taskId: createdTaskId, docId: did, x: localX, y: localY, manual: true, placed: true }], { persist: false });
             }
-            try { SettingsStore.syncToLocal(); } catch (e) {}
             try { SettingsStore.save(); } catch (e) {}
             state.whiteboardSelectedTaskId = createdTaskId;
             __tmApplyWhiteboardCardSelectionDom(createdTaskId);
@@ -5776,12 +5774,6 @@
         if (!(item instanceof HTMLElement)) return;
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.stopImmediatePropagation?.(); } catch (e) {}
-        __tmWhiteboardDebugLog('pool-search:press-guard', {
-            taskId: String(item.getAttribute('data-task-id') || '').trim(),
-            docId: String(item.getAttribute('data-doc-id') || '').trim(),
-            item: __tmWhiteboardDebugElementLabel(item),
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
     };
 
     try {
@@ -5796,13 +5788,6 @@
             const taskId = String(item.getAttribute('data-task-id') || '').trim();
             const docId = String(item.getAttribute('data-doc-id') || '').trim();
             const placed = String(item.getAttribute('data-tm-pool-placed') || '').trim() === '1';
-            __tmWhiteboardDebugLog('pool-search:dragstart-guard', {
-                taskId,
-                docId,
-                placed,
-                item: __tmWhiteboardDebugElementLabel(item),
-                event: __tmWhiteboardDebugEventInfo(ev),
-            });
             if (!placed) return;
             try { ev.preventDefault(); } catch (e) {}
             try { ev.stopPropagation(); } catch (e) {}
@@ -5812,13 +5797,6 @@
             try { ev.dataTransfer.clearData(); } catch (e) {}
             state.draggingTaskId = '';
             state.whiteboardPoolDragStart = null;
-            __tmWhiteboardDebugLog('pool-search:dragstart-blocked', {
-                reason: 'already-placed-search-result',
-                taskId,
-                docId,
-                item: __tmWhiteboardDebugElementLabel(item),
-                event: __tmWhiteboardDebugEventInfo(ev),
-            });
             return false;
         };
         window.__tmWhiteboardPoolSearchDragGuard = whiteboardPoolSearchDragGuard;
@@ -5840,12 +5818,6 @@
                     try { el.setAttribute('draggable', 'false'); } catch (e2) {}
                 });
             } catch (e) {}
-            __tmWhiteboardDebugLog('pool-search:press-capture-guard', {
-                taskId: String(item.getAttribute('data-task-id') || '').trim(),
-                docId: String(item.getAttribute('data-doc-id') || '').trim(),
-                item: __tmWhiteboardDebugElementLabel(item),
-                event: __tmWhiteboardDebugEventInfo(ev),
-            });
         };
         window.__tmWhiteboardPoolSearchPressCaptureGuard = whiteboardPoolSearchPressCaptureGuard;
         document.addEventListener('pointerdown', whiteboardPoolSearchPressCaptureGuard, true);
@@ -5975,7 +5947,6 @@
 
     window.tmWhiteboardPoolItemMouseDown = function(ev, taskId, docId, locked) {
         if (Number(ev?.button) !== 0) {
-            __tmWhiteboardDebugLog('pool:mousedown-skip', { reason: 'non-left-button', taskId: String(taskId || ''), docId: String(docId || ''), event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         try { __tmCalendarFloatingDragEnd(); } catch (e) {}
@@ -5986,17 +5957,14 @@
             ? '.tm-task-checkbox,.tm-whiteboard-pool-toggle,.tm-btn,input,button,select,textarea,label,a'
             : '.tm-task-checkbox,.tm-task-content-clickable,.tm-whiteboard-pool-toggle,.tm-btn,input,button,select,textarea,label,a';
         if (target && target.closest && target.closest(interactiveSelector)) {
-            __tmWhiteboardDebugLog('pool:mousedown-skip', { reason: 'interactive-target', taskId: String(taskId || ''), docId: String(docId || ''), event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const id = String(taskId || '').trim();
         if (!id) {
-            __tmWhiteboardDebugLog('pool:mousedown-skip', { reason: 'missing-task-id', docId: String(docId || ''), event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const isLocked = !!locked;
         if (isLocked) {
-            __tmWhiteboardDebugLog('pool:mousedown-skip', { reason: 'locked', taskId: id, docId: String(docId || ''), event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         try { ev?.stopPropagation?.(); } catch (e) {}
@@ -6015,12 +5983,6 @@
         }
         state.whiteboardPoolSelectedTaskIds = Array.from(set);
         __tmApplyWhiteboardPoolSelectionDom();
-        __tmWhiteboardDebugLog('pool:mousedown', {
-            taskId: id,
-            docId: String(docId || ''),
-            selectedTaskIds: state.whiteboardPoolSelectedTaskIds,
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
     };
 
     window.tmWhiteboardPoolH2DragStart = function(ev, docId, h2Label) {
@@ -6029,20 +5991,12 @@
         const did = String(docId || '').trim();
         const h2 = String(h2Label || '').trim();
         const el = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
-        __tmWhiteboardDebugLog('pool-h2:dragstart', {
-            docId: did,
-            h2,
-            hasCurrentTarget: el instanceof HTMLElement,
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         if (!did || !h2 || !(el instanceof HTMLElement)) {
-            __tmWhiteboardDebugLog('pool-h2:dragstart-skip', { reason: 'missing-doc-h2-or-target', docId: did, h2, event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const rawIds = String(el.getAttribute('data-task-ids') || '').trim();
         let taskIds = rawIds ? rawIds.split(',').map((x) => String(x || '').trim()).filter(Boolean) : [];
         if (!taskIds.length) {
-            __tmWhiteboardDebugLog('pool-h2:dragstart-skip', { reason: 'empty-task-ids', docId: did, h2, rawIds, event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const canDrag = (tid) => {
@@ -6050,7 +6004,6 @@
         };
         taskIds = taskIds.filter((tid) => canDrag(tid));
         if (!taskIds.length) {
-            __tmWhiteboardDebugLog('pool-h2:dragstart-skip', { reason: 'all-task-ids-not-draggable', docId: did, h2, rawIds, event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         state.whiteboardPoolSelectedTaskIds = taskIds.slice();
@@ -6079,12 +6032,6 @@
                 try { ev.dataTransfer.setDragImage(dragGhost, 12, 12); } catch (e) {}
             }
         } catch (e) {}
-        __tmWhiteboardDebugLog('pool-h2:payload-set', {
-            docId: did,
-            h2,
-            taskIds,
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         __tmStartWhiteboardPoolGlobalTracking(String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
     };
 
@@ -6093,14 +6040,7 @@
         try { __tmCalendarFloatingDragEnd(); } catch (e) {}
         const id = String(taskId || '').trim();
         const did = String(docId || '').trim();
-        __tmWhiteboardDebugLog('pool:dragstart', {
-            taskId: id,
-            docId: did,
-            selectedTaskIds: Array.isArray(state.whiteboardPoolSelectedTaskIds) ? state.whiteboardPoolSelectedTaskIds : [],
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         if (!id || !did) {
-            __tmWhiteboardDebugLog('pool:dragstart-skip', { reason: 'missing-task-or-doc', taskId: id, docId: did, event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const selected0 = Array.isArray(state.whiteboardPoolSelectedTaskIds) ? state.whiteboardPoolSelectedTaskIds : [];
@@ -6108,25 +6048,11 @@
         let dragTaskIds = selectedSet.has(id) ? Array.from(selectedSet) : [id];
         if (!dragTaskIds.length) dragTaskIds = [id];
         const sourceItem = __tmGetWhiteboardPoolEventItem(ev, id);
-        __tmWhiteboardDebugLog('pool:dragstart-source', {
-            taskId: id,
-            docId: did,
-            sourceItem: __tmWhiteboardDebugElementLabel(sourceItem),
-            sourceIsSearchResult: sourceItem instanceof HTMLElement ? String(sourceItem.getAttribute('data-tm-pool-search-result') || '').trim() : '',
-            sourcePlaced: sourceItem instanceof HTMLElement ? String(sourceItem.getAttribute('data-tm-pool-placed') || '').trim() : '',
-            sourceDraggableAttr: sourceItem instanceof HTMLElement ? String(sourceItem.getAttribute('draggable') || '').trim() : '',
-            sourceComputedDraggable: __tmIsWhiteboardPoolItemDraggable(sourceItem),
-            sourceEventAllowed: __tmIsWhiteboardPoolDragEventSourceAllowed(ev, sourceItem),
-            selectedTaskIds: Array.from(selectedSet),
-            initialDragTaskIds: dragTaskIds.slice(),
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         const sourceEventAllowed = __tmIsWhiteboardPoolDragEventSourceAllowed(ev, sourceItem);
         if (!(sourceItem instanceof HTMLElement) || !sourceEventAllowed) {
             try { ev?.preventDefault?.(); } catch (e) {}
             state.draggingTaskId = '';
             state.whiteboardPoolDragStart = null;
-            __tmWhiteboardDebugLog('pool:dragstart-skip', { reason: 'source-not-draggable', taskId: id, docId: did, event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const canDrag = (tid) => {
@@ -6139,15 +6065,8 @@
             try { ev?.preventDefault?.(); } catch (e) {}
             state.draggingTaskId = '';
             state.whiteboardPoolDragStart = null;
-            __tmWhiteboardDebugLog('pool:dragstart-skip', { reason: 'no-draggable-task-ids', taskId: id, docId: did, dragTaskIds, event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
-        __tmWhiteboardDebugLog('pool:dragstart-resolved', {
-            taskId: id,
-            docId: did,
-            dragTaskIds,
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         state.whiteboardPoolSelectedTaskIds = dragTaskIds.slice();
         state.draggingTaskId = dragTaskIds[0] || id;
         state.whiteboardPoolDragStart = {
@@ -6175,12 +6094,6 @@
                 try { ev.dataTransfer.setDragImage(dragGhost, 12, 12); } catch (e) {}
             }
         } catch (e) {}
-        __tmWhiteboardDebugLog('pool:payload-set', {
-            taskId: id,
-            docId: did,
-            dragTaskIds,
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         __tmStartWhiteboardPoolGlobalTracking(String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
     };
 
@@ -6189,10 +6102,6 @@
     };
 
     window.tmWhiteboardPoolDragEnd = function() {
-        __tmWhiteboardDebugLog('pool:dragend', {
-            draggingTaskId: String(state.draggingTaskId || ''),
-            poolDragStart: state.whiteboardPoolDragStart,
-        });
         state.draggingTaskId = '';
         try { __tmCalendarFloatingDragEnd(); } catch (e) {}
         __tmStopWhiteboardPoolGlobalTracking();
@@ -6207,12 +6116,6 @@
         try { ev?.stopPropagation?.(); } catch (e) {}
         const info = __tmResolveWhiteboardPointerInfo(ev, String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''))
             || __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
-        __tmWhiteboardDebugLogThrottled('board-dragover', 500, 'board:dragover', {
-            docIdHint: String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''),
-            pointerInfo: info,
-            lastLocal: state.whiteboardLastBoardLocal,
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         const docId = String(info?.docId || state.whiteboardLinkFromDocId || '').trim();
         if (info && 'clientX' in info) {
             state.whiteboardLastBoardPointer = {
@@ -6275,11 +6178,6 @@
     }
 
     window.tmWhiteboardBoardDrop = async function(ev, docIdHint) {
-        __tmWhiteboardDebugLog('board:drop-start', {
-            docIdHint: String(docIdHint || ''),
-            lastLocal: state.whiteboardLastBoardLocal,
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
         try {
@@ -6311,28 +6209,15 @@
             rawPayload = String(raw || '');
             if (raw) payload = JSON.parse(raw);
         } catch (e) {
-            __tmWhiteboardDebugLog('board:drop-payload-parse-error', {
-                message: e?.message || String(e),
-                rawPayloadPreview: rawPayload.slice(0, 180),
-                event: __tmWhiteboardDebugEventInfo(ev),
-            });
         }
         const payloadType = String(payload?.type || '').trim();
-        __tmWhiteboardDebugLog('board:drop-payload', {
-            payloadType,
-            rawPayloadPreview: rawPayload.slice(0, 180),
-            payload,
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         if (payloadType !== 'tm-whiteboard-pool' && payloadType !== 'tm-whiteboard-pool-h2') {
-            __tmWhiteboardDebugLog('board:drop-skip', { reason: 'unsupported-payload', payloadType, event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const taskIds = Array.isArray(payload?.taskIds)
             ? payload.taskIds.map((x) => String(x || '').trim()).filter(Boolean)
             : [String(payload?.taskId || '').trim()].filter(Boolean);
         if (!taskIds.length) {
-            __tmWhiteboardDebugLog('board:drop-skip', { reason: 'empty-task-ids', payload, event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const taskIdsSorted = (() => {
@@ -6379,7 +6264,6 @@
             docId = String(globalBody?.getAttribute?.('data-doc-id') || '').trim();
         }
         if (!docId) {
-            __tmWhiteboardDebugLog('board:drop-skip', { reason: 'missing-drop-doc-id', payload, lastLocal: state.whiteboardLastBoardLocal, event: __tmWhiteboardDebugEventInfo(ev) });
             return;
         }
         const activeDocIdForDrop = String(state.activeDocId || '').trim();
@@ -6402,24 +6286,9 @@
             dropDocBody = __tmGetWhiteboardGlobalCanvasBody();
         }
         if (!(viewport instanceof HTMLElement) || !(dropDocBody instanceof HTMLElement)) {
-            __tmWhiteboardDebugLog('board:drop-skip', {
-                reason: !(viewport instanceof HTMLElement) ? 'missing-viewport' : 'missing-drop-doc-body',
-                docId,
-                isGlobalCanvasActive: typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive(),
-                event: __tmWhiteboardDebugEventInfo(ev),
-            });
             return;
         }
         const isGlobalDrop = String(dropDocBody.getAttribute('data-tm-whiteboard-scope') || '').trim() === 'global';
-        __tmWhiteboardDebugLog('board:drop-target', {
-            docId,
-            isGlobalDrop,
-            dropDocBody: __tmWhiteboardDebugElementLabel(dropDocBody),
-            activeDocIdForDrop,
-            isAllTabsDrop,
-            taskIdsSorted,
-            event: __tmWhiteboardDebugEventInfo(ev),
-        });
         const globalBoardGroupId = isGlobalDrop ? __tmGetWhiteboardGlobalBoardGroupId() : '';
         const globalBoardState = isGlobalDrop ? __tmGetWhiteboardGlobalBoardState(globalBoardGroupId) : null;
         const globalNodePos = isGlobalDrop
@@ -6460,6 +6329,9 @@
         const placed = [];
         const placedDocs = [];
         const placedCountByDoc = new Map();
+        const docPlacementChanges = [];
+        const docDetachedChanges = [];
+        const snapshotTasks = [];
         let historyPushed = false;
         const pushDropHistory = () => {
             if (historyPushed) return;
@@ -6481,16 +6353,13 @@
                 const sourceIsGlobalCollect = !!globalCollectDocId && cardDoc === globalCollectDocId;
                 if (!sourceIsInbox && !sourceIsGlobalCollect) continue;
                 try {
-                    const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
+                    const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
                     if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
                     moveTask(taskId, {
                         targetDocId: docId,
                         mode: 'docTop',
-                        deferOptimisticRender: true,
-                        skipOptimisticFilterWork: true,
                     }, {
                         wait: false,
-                        skipOptimisticFilterWork: true,
                         onError: (e) => {
                             try { hint(`❌ 移动任务失败: ${e?.message || String(e)}`, 'error'); } catch (err) {}
                         },
@@ -6508,8 +6377,8 @@
                 try {
                     __tmWhiteboardCollectTaskTreeIds(taskId, { includeRoot: false, includeDetached: true, includeSnapshotTree: true })
                         .forEach((cid) => {
-                            __tmSetWhiteboardChildDetached(cid, false);
-                            __tmSetWhiteboardTaskPlaced(cid, false, { persist: false });
+                            docDetachedChanges.push({ taskId: cid, detached: false });
+                            docPlacementChanges.push({ taskId: cid, placed: false });
                         });
                 } catch (e) {}
             }
@@ -6523,27 +6392,21 @@
                 globalNodePos[taskId] = { docId: placeDocId, x: nx, y: ny, updatedAt: String(Date.now()), manual: true };
                 globalPlacedTaskIds[taskId] = true;
             } else {
-                __tmSetWhiteboardNodePos(taskId, placeDocId, nx, ny, { persist: false, manual: true });
-                __tmSetWhiteboardTaskPlaced(taskId, true, { persist: false });
+                docPlacementChanges.push({ taskId, docId: placeDocId, x: nx, y: ny, manual: true, placed: true });
             }
             try {
-                const t = state.flatTasks?.[taskId];
-                if (t) __tmUpsertWhiteboardTaskSnapshot(t, { persist: true });
+                const t = globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
+                if (t) snapshotTasks.push(t);
             } catch (e) {}
             placed.push(taskId);
             if (!placedDocs.includes(placeDocId)) placedDocs.push(placeDocId);
         }
         if (!placed.length) {
-            __tmWhiteboardDebugLog('board:drop-skip', {
-                reason: 'no-placed-tasks',
-                taskIdsSorted,
-                docId,
-                isGlobalDrop,
-                placedDocs,
-                event: __tmWhiteboardDebugEventInfo(ev),
-            });
             return;
         }
+        if (docDetachedChanges.length) __tmCommitWhiteboardDetachedChildren(docDetachedChanges, { persist: false });
+        if (docPlacementChanges.length) __tmCommitWhiteboardPlacements(docPlacementChanges, { persist: false });
+        if (snapshotTasks.length) __tmUpsertWhiteboardTaskSnapshots(snapshotTasks, { persist: true });
         if (h2Title) {
             const h2DocFromPayload = String(payload?.docId || '').trim();
             const h2DocId = isGlobalDrop
@@ -6596,13 +6459,6 @@
         state.whiteboardLastBoardLocal = null;
         state.whiteboardLastBoardPointer = null;
         try { await SettingsStore.save(); } catch (e) {}
-        __tmWhiteboardDebugLog('board:drop-placed', {
-            placed,
-            placedDocs,
-            isGlobalDrop,
-            movedAcrossDoc,
-            h2Title,
-        });
         if (movedAcrossDoc) {
             try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'whiteboard-pool-drop-move' }); } catch (e) { render(); }
         } else {
@@ -6716,11 +6572,29 @@
                 try { edgeSvg.setAttribute('viewBox', `0 0 ${width} ${height}`); } catch (e) {}
             });
 
+            const resolveEndpointDocId = (link, side) => {
+                if (!isGlobalBody) return docId;
+                const taskId = String(link?.[side] || '').trim();
+                const storedDocId = side === 'from' ? link?.fromDocId : link?.toDocId;
+                return String(storedDocId || __tmGetTaskDocIdById(taskId) || '').trim() || docId;
+            };
+            const resolveCollapsedProxyTaskId = (taskId, endpointDocId) => (
+                __tmFindWhiteboardCollapsedProxyTaskId(taskId, endpointDocId)
+            );
+            const hasRenderedEndpoint = (taskId, endpointDocId) => {
+                const id = String(taskId || '').trim();
+                if (!id) return false;
+                if (visibleTaskIds.has(id)) return true;
+                const proxyTaskId = resolveCollapsedProxyTaskId(id, endpointDocId);
+                return !!proxyTaskId && visibleTaskIds.has(proxyTaskId);
+            };
             const links = isGlobalBody && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
                 ? __tmGetWhiteboardGlobalTaskLinks().filter((link) => {
                     const from = String(link?.from || '').trim();
                     const to = String(link?.to || '').trim();
-                    return !!from && !!to && visibleTaskIds.has(from) && visibleTaskIds.has(to);
+                    return !!from && !!to
+                        && hasRenderedEndpoint(from, resolveEndpointDocId(link, 'from'))
+                        && hasRenderedEndpoint(to, resolveEndpointDocId(link, 'to'));
                 })
                 : __tmGetAllTaskLinks({ docId, includeAuto: false });
             const rootRect = docBody.getBoundingClientRect();
@@ -6737,21 +6611,31 @@
                     return null;
                 }
             };
-            const getPt = (taskId, kind) => {
+            const getPt = (taskId, kind, collapsedProxyTaskId = '', anchorSide = '') => {
                 const id = String(taskId || '').trim();
                 if (!id) return null;
                 const node = docBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
                 if (!(node instanceof Element)) {
-                    const proxyTaskId = __tmFindWhiteboardCollapsedProxyTaskId(id, docId);
+                    const proxyTaskId = String(collapsedProxyTaskId || '').trim();
                     if (!proxyTaskId) return null;
                     const proxyNode = docBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(proxyTaskId)}"]`);
                     if (!(proxyNode instanceof Element)) return null;
-                    const proxyDot = proxyNode.querySelector('.tm-whiteboard-collapse-proxy-dot');
+                    const proxyDotSelector = kind === 'from'
+                        ? '.tm-whiteboard-collapse-proxy-dot--out'
+                        : '.tm-whiteboard-collapse-proxy-dot--in';
+                    const proxyDot = proxyNode.querySelector(proxyDotSelector)
+                        || proxyNode.querySelector('.tm-whiteboard-collapse-proxy-dot');
                     if (!(proxyDot instanceof Element)) return null;
                     return getLocalCenter(proxyDot);
                 }
-                const dotSel = kind === 'from' ? '.tm-task-link-dot--out' : '.tm-task-link-dot--in';
-                const anchor = node.querySelector(dotSel) || node;
+                const normalizedAnchor = String(anchorSide || '').trim().toLowerCase();
+                const dotSel = kind === 'from'
+                    ? (normalizedAnchor === 'bottom' ? '.tm-task-link-dot--bottom' : '.tm-task-link-dot--out:not(.tm-task-link-dot--bottom)')
+                    : (normalizedAnchor === 'top' ? '.tm-task-link-dot--top' : '.tm-task-link-dot--in:not(.tm-task-link-dot--top)');
+                const fallbackDotSel = kind === 'from'
+                    ? '.tm-task-link-dot--out:not(.tm-task-link-dot--bottom)'
+                    : '.tm-task-link-dot--in:not(.tm-task-link-dot--top)';
+                const anchor = node.querySelector(dotSel) || node.querySelector(fallbackDotSel) || node;
                 return getLocalCenter(anchor);
             };
             const getLocalRect = (el) => {
@@ -6771,6 +6655,7 @@
             const obstacleRects = [];
             const rectByTaskId = new Map();
             const rootTaskIdByTaskId = new Map();
+            const subtaskTaskIds = new Set();
             try {
                 docBody.querySelectorAll('.tm-whiteboard-node[data-task-id]').forEach((el) => {
                     if (!(el instanceof Element)) return;
@@ -6781,6 +6666,7 @@
                     const rootNode = el.closest('.tm-whiteboard-node--root[data-task-id]');
                     const rootTaskId = String(rootNode?.getAttribute?.('data-task-id') || rid).trim() || rid;
                     rootTaskIdByTaskId.set(rid, rootTaskId);
+                    if (el.classList.contains('tm-whiteboard-node--sub')) subtaskTaskIds.add(rid);
                     if (rootTaskId === rid) obstacleRects.push({ taskId: rid, ...rr });
                 });
             } catch (e) {}
@@ -6791,18 +6677,15 @@
                 return proxyId && rectByTaskId.has(proxyId) ? proxyId : '';
             };
             const isSubtaskEndpoint = (taskId, proxyTaskId) => {
+                const taskId0 = String(taskId || '').trim();
+                const proxyId = String(proxyTaskId || '').trim();
+                if (taskId0 && proxyId && taskId0 !== proxyId && rectByTaskId.has(proxyId)) return true;
                 const id = resolveVisibleTaskId(taskId, proxyTaskId);
-                if (!id) return false;
-                try {
-                    const node = docBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
-                    return !!node?.classList?.contains?.('tm-whiteboard-node--sub');
-                } catch (e) {
-                    return false;
-                }
+                return !!id && subtaskTaskIds.has(id);
             };
             const subtaskLaneCounts = new Map();
-            const claimSubtaskLane = (taskId, proxyTaskId, side) => {
-                if (!isSubtaskEndpoint(taskId, proxyTaskId)) return 0;
+            const claimSubtaskLane = (taskId, proxyTaskId, side, isSubtask = isSubtaskEndpoint(taskId, proxyTaskId)) => {
+                if (!isSubtask) return 0;
                 const visibleTaskId = resolveVisibleTaskId(taskId, proxyTaskId);
                 const rootTaskId = rootTaskIdByTaskId.get(visibleTaskId) || visibleTaskId;
                 if (!rootTaskId) return 0;
@@ -6821,70 +6704,266 @@
                 const bx = Number(b?.x);
                 const by = Number(b?.y);
                 if (!Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(bx) || !Number.isFinite(by)) return false;
-                // 只处理正交线段
-                if (Math.abs(ay - by) <= 0.001) {
-                    const y = ay;
-                    const x0 = Math.min(ax, bx);
-                    const x1 = Math.max(ax, bx);
-                    return y >= t && y <= bt && x1 >= l && x0 <= r;
-                }
-                if (Math.abs(ax - bx) <= 0.001) {
-                    const x = ax;
-                    const y0 = Math.min(ay, by);
-                    const y1 = Math.max(ay, by);
-                    return x >= l && x <= r && y1 >= t && y0 <= bt;
-                }
-                return false;
-            };
-            const orthPathHitsObstacle = (pts, excludeTaskIds) => {
-                if (!Array.isArray(pts) || pts.length < 2) return true;
-                const excluded = new Set((excludeTaskIds || []).map((x) => String(x || '').trim()).filter(Boolean));
-                for (let i = 1; i < pts.length; i++) {
-                    const a = pts[i - 1];
-                    const b = pts[i];
-                    for (const rect of obstacleRects) {
-                        if (excluded.has(String(rect.taskId || '').trim())) continue;
-                        if (segmentHitsRect(a, b, rect, 10)) return true;
+                const dx = bx - ax;
+                const dy = by - ay;
+                let near = 0;
+                let far = 1;
+                const clip = (p, q) => {
+                    if (Math.abs(p) <= 0.000001) return q >= 0;
+                    const ratio = q / p;
+                    if (p < 0) {
+                        if (ratio > far) return false;
+                        if (ratio > near) near = ratio;
+                    } else {
+                        if (ratio < near) return false;
+                        if (ratio < far) far = ratio;
                     }
-                }
-                return false;
+                    return true;
+                };
+                return clip(-dx, ax - l)
+                    && clip(dx, r - ax)
+                    && clip(-dy, ay - t)
+                    && clip(dy, bt - ay);
             };
-            const pointsToPathD = (pts) => {
-                if (!Array.isArray(pts) || !pts.length) return '';
-                const head = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
-                if (pts.length === 1) return head;
-                return `${head} ${pts.slice(1).map((p) => `L ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ')}`;
+            const pointInsideRect = (point, rect, pad = 10) => {
+                const x = Number(point?.x);
+                const y = Number(point?.y);
+                return !!rect
+                    && Number.isFinite(x)
+                    && Number.isFinite(y)
+                    && x >= (rect.x - pad)
+                    && x <= (rect.x + rect.w + pad)
+                    && y >= (rect.y - pad)
+                    && y <= (rect.y + rect.h + pad);
             };
-            const pointsToSmoothPathD = (pts, radius = 10) => {
-                if (!Array.isArray(pts) || pts.length < 2) return '';
-                if (pts.length === 2) return pointsToPathD(pts);
-                const r0 = Math.max(0, Number(radius) || 0);
-                const fmt = (n) => Number(n).toFixed(2);
-                let d = `M ${fmt(pts[0].x)} ${fmt(pts[0].y)}`;
-                for (let i = 1; i < pts.length - 1; i++) {
-                    const p0 = pts[i - 1];
-                    const p1 = pts[i];
-                    const p2 = pts[i + 1];
-                    const v1x = p1.x - p0.x;
-                    const v1y = p1.y - p0.y;
-                    const v2x = p2.x - p1.x;
-                    const v2y = p2.y - p1.y;
-                    const l1 = Math.hypot(v1x, v1y);
-                    const l2 = Math.hypot(v2x, v2y);
-                    if (!(l1 > 0) || !(l2 > 0) || r0 <= 0) {
-                        d += ` L ${fmt(p1.x)} ${fmt(p1.y)}`;
+            const pathReentersEndpointRect = (pts, rect, reverse = false) => {
+                if (!rect || !Array.isArray(pts) || pts.length < 2) return false;
+                const ordered = reverse ? pts.slice().reverse() : pts;
+                let exited = false;
+                for (let i = 1; i < ordered.length; i++) {
+                    const previous = ordered[i - 1];
+                    const current = ordered[i];
+                    if (!exited) {
+                        if (!pointInsideRect(current, rect)) exited = true;
                         continue;
                     }
-                    const r = Math.min(r0, l1 / 2, l2 / 2);
-                    const inX = p1.x - (v1x / l1) * r;
-                    const inY = p1.y - (v1y / l1) * r;
-                    const outX = p1.x + (v2x / l2) * r;
-                    const outY = p1.y + (v2y / l2) * r;
-                    d += ` L ${fmt(inX)} ${fmt(inY)} Q ${fmt(p1.x)} ${fmt(p1.y)} ${fmt(outX)} ${fmt(outY)}`;
+                    if (pointInsideRect(current, rect) || segmentHitsRect(previous, current, rect, 10)) return true;
                 }
-                const last = pts[pts.length - 1];
-                d += ` L ${fmt(last.x)} ${fmt(last.y)}`;
-                return d;
+                return false;
+            };
+            const segmentExitSide = (insidePoint, outsidePoint, rect, pad = 10) => {
+                if (!rect || !insidePoint || !outsidePoint) return '';
+                const ax = Number(insidePoint.x);
+                const ay = Number(insidePoint.y);
+                const bx = Number(outsidePoint.x);
+                const by = Number(outsidePoint.y);
+                if (![ax, ay, bx, by].every(Number.isFinite)) return '';
+                const left = rect.x - pad;
+                const right = rect.x + rect.w + pad;
+                const top = rect.y - pad;
+                const bottom = rect.y + rect.h + pad;
+                const dx = bx - ax;
+                const dy = by - ay;
+                const candidates = [];
+                const addCandidate = (side, ratio, crossValue, min, max) => {
+                    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) return;
+                    if (crossValue < min - 0.001 || crossValue > max + 0.001) return;
+                    candidates.push({ side, ratio });
+                };
+                if (dx < -0.000001) addCandidate('left', (left - ax) / dx, ay + (dy * ((left - ax) / dx)), top, bottom);
+                if (dx > 0.000001) addCandidate('right', (right - ax) / dx, ay + (dy * ((right - ax) / dx)), top, bottom);
+                if (dy < -0.000001) addCandidate('top', (top - ay) / dy, ax + (dx * ((top - ay) / dy)), left, right);
+                if (dy > 0.000001) addCandidate('bottom', (bottom - ay) / dy, ax + (dx * ((bottom - ay) / dy)), left, right);
+                candidates.sort((a, b) => a.ratio - b.ratio);
+                return String(candidates[0]?.side || '');
+            };
+            const pathLeavesEndpointRootThroughSide = (pts, rect, expectedSide, reverse = false) => {
+                if (!rect || !Array.isArray(pts) || pts.length < 2) return true;
+                const ordered = reverse ? pts.slice().reverse() : pts;
+                for (let i = 1; i < ordered.length; i++) {
+                    const previous = ordered[i - 1];
+                    const current = ordered[i];
+                    if (pointInsideRect(previous, rect) && !pointInsideRect(current, rect)) {
+                        return segmentExitSide(previous, current, rect, 10) === expectedSide;
+                    }
+                }
+                return true;
+            };
+            const pathIntersectsObstacleRect = (pts, rect) => {
+                if (!rect || !Array.isArray(pts) || pts.length < 2) return false;
+                const startsInside = pointInsideRect(pts[0], rect);
+                const endsInside = pointInsideRect(pts[pts.length - 1], rect);
+                if (startsInside && endsInside) return false;
+                if (startsInside) return pathReentersEndpointRect(pts, rect);
+                if (endsInside) return pathReentersEndpointRect(pts, rect, true);
+                for (let i = 1; i < pts.length; i++) {
+                    if (segmentHitsRect(pts[i - 1], pts[i], rect, 10)) return true;
+                }
+                return false;
+            };
+            const pathObstacleHitCount = (pts, excludeTaskIds) => {
+                if (!Array.isArray(pts) || pts.length < 2) return Number.MAX_SAFE_INTEGER;
+                const excluded = new Set((excludeTaskIds || []).map((x) => String(x || '').trim()).filter(Boolean));
+                return obstacleRects.reduce((count, rect) => {
+                    if (excluded.has(String(rect.taskId || '').trim())) return count;
+                    return count + (pathIntersectsObstacleRect(pts, rect) ? 1 : 0);
+                }, 0);
+            };
+            const pathHitsObstacle = (pts, excludeTaskIds) => pathObstacleHitCount(pts, excludeTaskIds) > 0;
+            const simplifyRoundedRoutePoints = (pts) => {
+                const source = Array.isArray(pts) ? pts : [];
+                const clean = [];
+                source.forEach((point) => {
+                    const x = Number(point?.x);
+                    const y = Number(point?.y);
+                    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+                    const prev = clean[clean.length - 1];
+                    if (prev && Math.hypot(x - prev.x, y - prev.y) <= 0.001) return;
+                    while (clean.length >= 2) {
+                        const beforePrev = clean[clean.length - 2];
+                        const currentPrev = clean[clean.length - 1];
+                        const sameVertical = Math.abs(beforePrev.x - currentPrev.x) <= 0.001
+                            && Math.abs(currentPrev.x - x) <= 0.001;
+                        const sameHorizontal = Math.abs(beforePrev.y - currentPrev.y) <= 0.001
+                            && Math.abs(currentPrev.y - y) <= 0.001;
+                        if (!sameVertical && !sameHorizontal) break;
+                        clean.pop();
+                    }
+                    clean.push({ x, y });
+                });
+                return clean;
+            };
+            const buildRoundedRoutePath = (pts, radius = 24) => {
+                const clean = simplifyRoundedRoutePoints(pts);
+                if (clean.length < 2) return '';
+                const fmt = (n) => Number(n).toFixed(2);
+                const cubicKappa = 0.5522847498;
+                const maxRadius = Math.max(0, Number(radius) || 0);
+                let d = `M ${fmt(clean[0].x)} ${fmt(clean[0].y)}`;
+                for (let i = 1; i < clean.length - 1; i++) {
+                    const previous = clean[i - 1];
+                    const corner = clean[i];
+                    const next = clean[i + 1];
+                    const inDx = corner.x - previous.x;
+                    const inDy = corner.y - previous.y;
+                    const outDx = next.x - corner.x;
+                    const outDy = next.y - corner.y;
+                    const inLength = Math.hypot(inDx, inDy);
+                    const outLength = Math.hypot(outDx, outDy);
+                    if (!(inLength > 0) || !(outLength > 0)) continue;
+                    const cross = (inDx * outDy) - (inDy * outDx);
+                    if (Math.abs(cross) <= 0.001) {
+                        d += ` L ${fmt(corner.x)} ${fmt(corner.y)}`;
+                        continue;
+                    }
+                    const turnRadius = Math.min(maxRadius, inLength * 0.48, outLength * 0.48);
+                    const inUnit = { x: inDx / inLength, y: inDy / inLength };
+                    const outUnit = { x: outDx / outLength, y: outDy / outLength };
+                    const curveStart = {
+                        x: corner.x - (inUnit.x * turnRadius),
+                        y: corner.y - (inUnit.y * turnRadius),
+                    };
+                    const curveEnd = {
+                        x: corner.x + (outUnit.x * turnRadius),
+                        y: corner.y + (outUnit.y * turnRadius),
+                    };
+                    const control1 = {
+                        x: curveStart.x + (inUnit.x * turnRadius * cubicKappa),
+                        y: curveStart.y + (inUnit.y * turnRadius * cubicKappa),
+                    };
+                    const control2 = {
+                        x: curveEnd.x - (outUnit.x * turnRadius * cubicKappa),
+                        y: curveEnd.y - (outUnit.y * turnRadius * cubicKappa),
+                    };
+                    d += ` L ${fmt(curveStart.x)} ${fmt(curveStart.y)}`;
+                    d += ` C ${fmt(control1.x)} ${fmt(control1.y)} ${fmt(control2.x)} ${fmt(control2.y)} ${fmt(curveEnd.x)} ${fmt(curveEnd.y)}`;
+                }
+                const last = clean[clean.length - 1];
+                return `${d} L ${fmt(last.x)} ${fmt(last.y)}`;
+            };
+            const buildForwardBezierPath = (from, to, fromLaneOffset = 0, toLaneOffset = 0) => {
+                const fmt = (n) => Number(n).toFixed(2);
+                const span = Math.max(0, Number(to.x) - Number(from.x));
+                const verticalDelta = Number(to.y) - Number(from.y);
+                const midX = Number(from.x) + (span * 0.5);
+                const maxLaneShift = span * 0.25;
+                const fromShift = Math.min(maxLaneShift, Math.max(0, Number(fromLaneOffset) || 0));
+                const toShift = Math.min(maxLaneShift, Math.max(0, Number(toLaneOffset) || 0));
+                const control1 = { x: midX + fromShift, y: Number(from.y) + (verticalDelta * 0.22) };
+                const control2 = { x: midX - toShift, y: Number(to.y) - (verticalDelta * 0.22) };
+                const sampleCount = 24;
+                const pts = [];
+                for (let i = 0; i <= sampleCount; i++) {
+                    const ratio = i / sampleCount;
+                    const inverse = 1 - ratio;
+                    const inverse2 = inverse * inverse;
+                    const ratio2 = ratio * ratio;
+                    pts.push({
+                        x: (inverse2 * inverse * from.x)
+                            + (3 * inverse2 * ratio * control1.x)
+                            + (3 * inverse * ratio2 * control2.x)
+                            + (ratio2 * ratio * to.x),
+                        y: (inverse2 * inverse * from.y)
+                            + (3 * inverse2 * ratio * control1.y)
+                            + (3 * inverse * ratio2 * control2.y)
+                            + (ratio2 * ratio * to.y),
+                    });
+                }
+                return {
+                    d: `M ${fmt(from.x)} ${fmt(from.y)} C ${fmt(control1.x)} ${fmt(control1.y)} ${fmt(control2.x)} ${fmt(control2.y)} ${fmt(to.x)} ${fmt(to.y)}`,
+                    pts,
+                };
+            };
+            const buildAnchoredBezierPath = (from, to, fromAnchor, toAnchor, fromLaneOffset = 0, toLaneOffset = 0) => {
+                if (fromAnchor !== 'bottom' && toAnchor !== 'top') {
+                    return buildForwardBezierPath(from, to, fromLaneOffset, toLaneOffset);
+                }
+                const fmt = (n) => Number(n).toFixed(2);
+                const horizontalSpan = Number(to.x) - Number(from.x);
+                const verticalSpan = Number(to.y) - Number(from.y);
+                const isForwardVertical = fromAnchor === 'bottom' && toAnchor === 'top' && verticalSpan > 0;
+                const distance = Math.hypot(horizontalSpan, verticalSpan);
+                const handle = Math.min(120, Math.max(36, distance * 0.24));
+                const bendRatio = 0.18;
+                const directionalHandleLimit = isForwardVertical
+                    ? Math.max(0.5, verticalSpan * 0.45)
+                    : Infinity;
+                const fromHandle = Math.min(
+                    directionalHandleLimit,
+                    handle + Math.min(48, Math.max(0, Number(fromLaneOffset) || 0)),
+                );
+                const toHandle = Math.min(
+                    directionalHandleLimit,
+                    handle + Math.min(48, Math.max(0, Number(toLaneOffset) || 0)),
+                );
+                const control1 = fromAnchor === 'bottom'
+                    ? { x: Number(from.x) + (horizontalSpan * bendRatio), y: Number(from.y) + fromHandle }
+                    : { x: Number(from.x) + fromHandle, y: Number(from.y) + (verticalSpan * bendRatio) };
+                const control2 = toAnchor === 'top'
+                    ? { x: Number(to.x) - (horizontalSpan * bendRatio), y: Number(to.y) - toHandle }
+                    : { x: Number(to.x) - toHandle, y: Number(to.y) - (verticalSpan * bendRatio) };
+                const sampleCount = 24;
+                const pts = [];
+                for (let i = 0; i <= sampleCount; i++) {
+                    const ratio = i / sampleCount;
+                    const inverse = 1 - ratio;
+                    const inverse2 = inverse * inverse;
+                    const ratio2 = ratio * ratio;
+                    pts.push({
+                        x: (inverse2 * inverse * from.x)
+                            + (3 * inverse2 * ratio * control1.x)
+                            + (3 * inverse * ratio2 * control2.x)
+                            + (ratio2 * ratio * to.x),
+                        y: (inverse2 * inverse * from.y)
+                            + (3 * inverse2 * ratio * control1.y)
+                            + (3 * inverse * ratio2 * control2.y)
+                            + (ratio2 * ratio * to.y),
+                    });
+                }
+                return {
+                    d: `M ${fmt(from.x)} ${fmt(from.y)} C ${fmt(control1.x)} ${fmt(control1.y)} ${fmt(control2.x)} ${fmt(control2.y)} ${fmt(to.x)} ${fmt(to.y)}`,
+                    pts,
+                };
             };
             const pathMidPoint = (pts) => {
                 if (!Array.isArray(pts) || pts.length < 2) return null;
@@ -6919,26 +6998,150 @@
                 const gap = 28;
                 const fromVisibleTaskId = resolveVisibleTaskId(routeMeta?.fromTaskId, routeMeta?.fromProxyTaskId);
                 const toVisibleTaskId = resolveVisibleTaskId(routeMeta?.toTaskId, routeMeta?.toProxyTaskId);
+                const fromEndpointRect = fromVisibleTaskId ? (rectByTaskId.get(fromVisibleTaskId) || null) : null;
+                const toEndpointRect = toVisibleTaskId ? (rectByTaskId.get(toVisibleTaskId) || null) : null;
                 const fromRootTaskId = rootTaskIdByTaskId.get(fromVisibleTaskId) || fromVisibleTaskId;
                 const toRootTaskId = rootTaskIdByTaskId.get(toVisibleTaskId) || toVisibleTaskId;
                 const fromRect = fromRootTaskId ? (rectByTaskId.get(fromRootTaskId) || null) : null;
                 const toRect = toRootTaskId ? (rectByTaskId.get(toRootTaskId) || null) : null;
+                const uniqueRects = (rects) => rects.filter((rect, index, list) => rect && list.indexOf(rect) === index);
+                const fromEndpointRects = uniqueRects([fromEndpointRect, fromRect]);
+                const toEndpointRects = uniqueRects([toEndpointRect, toRect]);
+                const fromNestedInRoot = !!fromVisibleTaskId && !!fromRootTaskId && fromVisibleTaskId !== fromRootTaskId;
+                const toNestedInRoot = !!toVisibleTaskId && !!toRootTaskId && toVisibleTaskId !== toRootTaskId;
                 const fromLaneOffset = Math.max(0, Number(routeMeta?.fromLaneOffset) || 0);
                 const toLaneOffset = Math.max(0, Number(routeMeta?.toLaneOffset) || 0);
                 const laneOffset = Math.max(fromLaneOffset, toLaneOffset, Number(routeMeta?.laneOffset) || 0);
+                const fromAnchor = String(routeMeta?.fromAnchor || '').trim().toLowerCase() === 'bottom' ? 'bottom' : 'right';
+                const toAnchor = String(routeMeta?.toAnchor || '').trim().toLowerCase() === 'top' ? 'top' : 'left';
                 const endpointRects = [fromRect, toRect].filter(Boolean);
                 const routeExcludeTaskIds = [...excludeTaskIds, fromRootTaskId, toRootTaskId];
-                const needStartGap = !!(fromRect && toRect)
-                    ? ((fromRect.x + fromRect.w) > toRect.x)
-                    : ((to.x - from.x) < 80);
-                if (!needStartGap) {
-                    const x1 = from.x + ((to.x - from.x) * 0.5);
-                    const x2 = x1;
-                    const pts = [from, { x: x1, y: from.y }, { x: x2, y: to.y }, to];
-                    return { d: `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} C ${x1.toFixed(2)} ${from.y.toFixed(2)} ${x2.toFixed(2)} ${to.y.toFixed(2)} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`, pts };
-                }
                 const fx = fromRect ? Math.max(from.x + gap, fromRect.x + fromRect.w + gap + fromLaneOffset) : (from.x + gap + fromLaneOffset);
                 const tx = toRect ? Math.min(to.x - gap, toRect.x - gap - toLaneOffset) : (to.x - gap - toLaneOffset);
+                const fy = fromRect ? Math.max(from.y + gap, fromRect.y + fromRect.h + gap + fromLaneOffset) : (from.y + gap + fromLaneOffset);
+                const ty = toRect ? Math.min(to.y - gap, toRect.y - gap - toLaneOffset) : (to.y - gap - toLaneOffset);
+                const fromStub = fromAnchor === 'bottom' ? { x: from.x, y: fy } : { x: fx, y: from.y };
+                const toStub = toAnchor === 'top' ? { x: to.x, y: ty } : { x: tx, y: to.y };
+                // Preserve the original S curve for clear forward links; only detour around actual obstacles.
+                const routeIsClear = (pts) => !fromEndpointRects.some((rect) => pathReentersEndpointRect(pts, rect))
+                    && !toEndpointRects.some((rect) => pathReentersEndpointRect(pts, rect, true))
+                    && !pathHitsObstacle(pts, routeExcludeTaskIds);
+                const directRouteIsClear = (pts) => !pathReentersEndpointRect(pts, fromEndpointRect)
+                    && !toEndpointRects.some((rect) => pathReentersEndpointRect(pts, rect, true))
+                    && pathLeavesEndpointRootThroughSide(pts, fromRect, fromAnchor)
+                    && pathLeavesEndpointRootThroughSide(pts, toRect, toAnchor, true)
+                    && !pathHitsObstacle(pts, routeExcludeTaskIds);
+                const directCompatible = fromAnchor === 'bottom' || toAnchor === 'top'
+                    ? (from.y <= to.y)
+                    : (from.x <= to.x);
+                if (directCompatible) {
+                    const directCurve = buildAnchoredBezierPath(from, to, fromAnchor, toAnchor, fromLaneOffset, toLaneOffset);
+                    if (directRouteIsClear(directCurve.pts)) return directCurve;
+                }
+                const endpointBounds = uniqueRects([fromEndpointRect, toEndpointRect, fromRect, toRect]).reduce((bounds, rect) => ({
+                    left: Math.min(bounds.left, Number(rect.x)),
+                    right: Math.max(bounds.right, Number(rect.x) + Number(rect.w)),
+                    top: Math.min(bounds.top, Number(rect.y)),
+                    bottom: Math.max(bounds.bottom, Number(rect.y) + Number(rect.h)),
+                }), {
+                    left: Math.min(from.x, to.x),
+                    right: Math.max(from.x, to.x),
+                    top: Math.min(from.y, to.y),
+                    bottom: Math.max(from.y, to.y),
+                });
+                const localMargin = gap + 72;
+                const localObstacleRects = obstacleRects.filter((rect) => (
+                    (rect.x + rect.w) >= (endpointBounds.left - localMargin)
+                    && rect.x <= (endpointBounds.right + localMargin)
+                    && (rect.y + rect.h) >= (endpointBounds.top - localMargin)
+                    && rect.y <= (endpointBounds.bottom + localMargin)
+                ));
+                const obstacleBounds = localObstacleRects.reduce((bounds, rect) => ({
+                    left: Math.min(bounds.left, Number(rect.x)),
+                    right: Math.max(bounds.right, Number(rect.x) + Number(rect.w)),
+                    top: Math.min(bounds.top, Number(rect.y)),
+                    bottom: Math.max(bounds.bottom, Number(rect.y) + Number(rect.h)),
+                }), endpointBounds);
+                const outerGap = gap + 24 + laneOffset;
+                const outerXs = [obstacleBounds.left - outerGap, obstacleBounds.right + outerGap];
+                const outerYs = [obstacleBounds.top - outerGap, obstacleBounds.bottom + outerGap];
+                const routeLength = (pts) => pts.slice(1).reduce((sum, point, index) => (
+                    sum + Math.abs(point.x - pts[index].x) + Math.abs(point.y - pts[index].y)
+                ), 0);
+                const routePenalty = (pts) => {
+                    const endpointReentries = fromEndpointRects.reduce((count, rect) => count + (pathReentersEndpointRect(pts, rect) ? 1 : 0), 0)
+                        + toEndpointRects.reduce((count, rect) => count + (pathReentersEndpointRect(pts, rect, true) ? 1 : 0), 0);
+                    return (endpointReentries * 1000000)
+                        + (pathObstacleHitCount(pts, routeExcludeTaskIds) * 100000)
+                        + routeLength(pts);
+                };
+                const buildOuterFallback = (additionalRoutes = []) => {
+                    const routes = [];
+                    outerYs.forEach((outerY) => {
+                        outerXs.forEach((fromOuterX) => {
+                            outerXs.forEach((toOuterX) => {
+                                routes.push([
+                                    from,
+                                    fromStub,
+                                    { x: fromOuterX, y: fromStub.y },
+                                    { x: fromOuterX, y: outerY },
+                                    { x: toOuterX, y: outerY },
+                                    { x: toOuterX, y: toStub.y },
+                                    toStub,
+                                    to,
+                                ]);
+                            });
+                        });
+                    });
+                    routes.push(...additionalRoutes.filter((pts) => Array.isArray(pts) && pts.length >= 2));
+                    routes.sort((a, b) => routePenalty(a) - routePenalty(b));
+                    return routes.find((pts) => routeIsClear(pts))
+                        || routes[0]
+                        || [from, fromStub, toStub, to];
+                };
+                const isReverseVertical = fromAnchor === 'bottom'
+                    && toAnchor === 'top'
+                    && fromStub.y > toStub.y;
+                if (isReverseVertical) {
+                    const midX = (from.x + to.x) * 0.5;
+                    const xCandidatesRaw = [];
+                    obstacleRects.forEach((r) => {
+                        xCandidatesRaw.push(r.x - 14 - laneOffset);
+                        xCandidatesRaw.push(r.x + r.w + 14 + laneOffset);
+                    });
+                    const seenX = new Set();
+                    const xCandidates = xCandidatesRaw
+                        .map((x) => Math.round(Number(x) * 10) / 10)
+                        .filter((x) => Number.isFinite(x))
+                        .filter((x) => endpointRects.every((rect) => (
+                            x < (rect.x - 10) || x > (rect.x + rect.w + 10)
+                        )))
+                        .filter((x) => {
+                            const key = String(x);
+                            if (seenX.has(key)) return false;
+                            seenX.add(key);
+                            return true;
+                        })
+                        .sort((a, b) => (
+                            (Math.abs(a - fromStub.x) + Math.abs(a - toStub.x) + (Math.abs(a - midX) * 0.1))
+                            - (Math.abs(b - fromStub.x) + Math.abs(b - toStub.x) + (Math.abs(b - midX) * 0.1))
+                        ));
+                    const reverseCandidates = xCandidates.map((routeX) => ([
+                            from,
+                            fromStub,
+                            { x: routeX, y: fromStub.y },
+                            { x: routeX, y: toStub.y },
+                            toStub,
+                            to,
+                        ]));
+                    for (const pts of reverseCandidates) {
+                        if (routeIsClear(pts)) {
+                            return { d: buildRoundedRoutePath(pts, 24), pts };
+                        }
+                    }
+                    const outerFallback = buildOuterFallback(reverseCandidates);
+                    return { d: buildRoundedRoutePath(outerFallback, 24), pts: outerFallback };
+                }
                 const yCandidatesRaw = [from.y, to.y, midY];
                 obstacleRects.forEach((r) => {
                     yCandidatesRaw.push(r.y - 14 - laneOffset);
@@ -6962,40 +7165,32 @@
                 yCandidates.forEach((ry) => {
                     candidates.push([
                         from,
-                        { x: fx, y: from.y },
-                        { x: fx, y: ry },
-                        { x: tx, y: ry },
-                        { x: tx, y: to.y },
+                        fromStub,
+                        { x: fromStub.x, y: ry },
+                        { x: toStub.x, y: ry },
+                        toStub,
                         to,
                     ]);
                 });
                 for (const pts of candidates) {
-                    if (!orthPathHitsObstacle(pts, routeExcludeTaskIds)) {
-                        return { d: pointsToSmoothPathD(pts, 10), pts };
+                    if (routeIsClear(pts)) {
+                        return { d: buildRoundedRoutePath(pts, 24), pts };
                     }
                 }
-                // 回退：保留原来的曲线，避免无路径时完全不显示
-                const x1 = from.x + ((to.x - from.x) * 0.5);
-                const x2 = x1;
-                const pts = [from, { x: x1, y: from.y }, { x: x2, y: to.y }, to];
-                return { d: `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} C ${x1.toFixed(2)} ${from.y.toFixed(2)} ${x2.toFixed(2)} ${to.y.toFixed(2)} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`, pts };
+                const outerFallback = buildOuterFallback(candidates);
+                return { d: buildRoundedRoutePath(outerFallback, 24), pts: outerFallback };
             };
-            const markerIdIn = `tmWbArrowIn_${docId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
             const markerIdOut = `tmWbArrowOut_${docId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-            const subtaskMarkerIdIn = `${markerIdIn}_subtask`;
             const subtaskMarkerIdOut = `${markerIdOut}_subtask`;
-            const buildEdgeDefs = (edgeMarkerIdIn, edgeMarkerIdOut) => `
+            const buildEdgeDefs = (edgeMarkerIdOut) => `
                 <defs>
                     <marker id="${esc(edgeMarkerIdOut)}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
                         <path d="M0,0 L8,3 L0,6 Z" fill="var(--tm-primary-color)"></path>
                     </marker>
-                    <marker id="${esc(edgeMarkerIdIn)}" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
-                        <path d="M8,0 L0,3 L8,6 Z" fill="var(--tm-primary-color)"></path>
-                    </marker>
                 </defs>
             `;
-            const defs = buildEdgeDefs(markerIdIn, markerIdOut);
-            const subtaskDefs = buildEdgeDefs(subtaskMarkerIdIn, subtaskMarkerIdOut);
+            const defs = buildEdgeDefs(markerIdOut);
+            const subtaskDefs = buildEdgeDefs(subtaskMarkerIdOut);
             const selectedLinkId = String(state.whiteboardSelectedLinkId || '').trim();
             const selectedLinkDocId = String(state.whiteboardSelectedLinkDocId || '').trim();
             const multiSelectedLinkSet = new Set((Array.isArray(state.whiteboardMultiSelectedLinkKeys) ? state.whiteboardMultiSelectedLinkKeys : []).map((x) => String(x || '').trim()).filter(Boolean));
@@ -7005,20 +7200,18 @@
                 const linkDocId = isGlobalBody && link?.global
                     ? globalCanvasDocId
                     : (String(link?.docId || docId).trim() || docId);
-                const from = getPt(link.from, 'from');
-                const to = getPt(link.to, 'to');
+                const fromProxyDocId = resolveEndpointDocId(link, 'from');
+                const toProxyDocId = resolveEndpointDocId(link, 'to');
+                const fromProxy = resolveCollapsedProxyTaskId(link.from, fromProxyDocId);
+                const toProxy = resolveCollapsedProxyTaskId(link.to, toProxyDocId);
+                const from = getPt(link.from, 'from', fromProxy, link.fromAnchor);
+                const to = getPt(link.to, 'to', toProxy, link.toAnchor);
                 if (!from || !to) return '';
-                const fromProxyDocId = isGlobalBody
-                    ? (String(link?.fromDocId || __tmGetTaskDocIdById(link.from) || '').trim() || docId)
-                    : docId;
-                const toProxyDocId = isGlobalBody
-                    ? (String(link?.toDocId || __tmGetTaskDocIdById(link.to) || '').trim() || docId)
-                    : docId;
-                const fromProxy = __tmFindWhiteboardCollapsedProxyTaskId(link.from, fromProxyDocId);
-                const toProxy = __tmFindWhiteboardCollapsedProxyTaskId(link.to, toProxyDocId);
-                const isSubtaskEdge = isSubtaskEndpoint(link.from, fromProxy) || isSubtaskEndpoint(link.to, toProxy);
-                const fromLaneOffset = claimSubtaskLane(link.from, fromProxy, 'from');
-                const toLaneOffset = claimSubtaskLane(link.to, toProxy, 'to');
+                const fromIsSubtask = isSubtaskEndpoint(link.from, fromProxy);
+                const toIsSubtask = isSubtaskEndpoint(link.to, toProxy);
+                const isSubtaskEdge = fromIsSubtask || toIsSubtask;
+                const fromLaneOffset = claimSubtaskLane(link.from, fromProxy, 'from', fromIsSubtask);
+                const toLaneOffset = claimSubtaskLane(link.to, toProxy, 'to', toIsSubtask);
                 const routed = buildAvoidPath(
                     from,
                     to,
@@ -7028,6 +7221,8 @@
                         toTaskId: link.to,
                         fromProxyTaskId: fromProxy,
                         toProxyTaskId: toProxy,
+                        fromAnchor: link.fromAnchor,
+                        toAnchor: link.toAnchor,
                         fromLaneOffset,
                         toLaneOffset,
                         laneOffset: Math.max(fromLaneOffset, toLaneOffset),
@@ -7039,26 +7234,32 @@
                     && selectedLinkDocId === linkDocId
                     && String(link.id || '').trim() === selectedLinkId;
                 const linkKey = `${linkDocId}::${String(link.id || '').trim()}`;
-                const isSubtaskSource = __tmIsTaskLinkSourceSubtask(link.from);
-                const sourceDepthCls = isSubtaskSource
-                    ? ' tm-whiteboard-edge--subtask-source'
-                    : ' tm-whiteboard-edge--root-source';
+                const endpointDepthCls = isSubtaskEdge
+                    ? ' tm-whiteboard-edge--subtask-endpoint'
+                    : '';
                 const cls = link.manual
-                    ? `tm-whiteboard-edge tm-whiteboard-edge--manual${sourceDepthCls}${isSelected ? ' tm-whiteboard-edge--selected' : ''}${multiSelectedLinkSet.has(linkKey) ? ' tm-whiteboard-multi-selected' : ''}`
-                    : `tm-whiteboard-edge tm-whiteboard-edge--auto${sourceDepthCls}`;
+                    ? `tm-whiteboard-edge tm-whiteboard-edge--manual${endpointDepthCls}${isSelected ? ' tm-whiteboard-edge--selected' : ''}${multiSelectedLinkSet.has(linkKey) ? ' tm-whiteboard-multi-selected' : ''}`
+                    : `tm-whiteboard-edge tm-whiteboard-edge--auto${endpointDepthCls}`;
                 const idEsc = String(link.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 const docEsc = String(linkDocId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 const click = link.manual ? `onclick="tmWhiteboardSelectLink('${idEsc}', '${docEsc}', event)"` : '';
                 if (isSelected) {
-                    const pts = Array.isArray(routed.pts) && routed.pts.length >= 2 ? routed.pts : [from, to];
+                    const rawPts = Array.isArray(routed.pts) && routed.pts.length >= 2 ? routed.pts : [from, to];
+                    const pts = simplifyRoundedRoutePoints(rawPts);
                     const mp = pathMidPoint(pts) || { x: (from.x + to.x) * 0.5, y: (from.y + to.y) * 0.5 };
                     const mx = mp.x;
                     const my = mp.y;
                     selectedToolPos = { x: mx, y: my };
                 }
                 const dataAttrs = link.manual ? ` data-link-id="${esc(String(link.id || ''))}" data-doc-id="${esc(String(linkDocId || ''))}"` : '';
+                const hitPathLength = Math.max(1, (Array.isArray(routed.pts) ? routed.pts : []).slice(1).reduce((total, point, index) => {
+                    const previous = routed.pts[index];
+                    return total + Math.hypot(Number(point?.x) - Number(previous?.x), Number(point?.y) - Number(previous?.y));
+                }, 0));
+                const hitEndpointGap = Math.min(12, Math.max(6, hitPathLength * 0.08), hitPathLength * 0.25);
+                const hitMiddleLength = Math.max(0.01, hitPathLength - (hitEndpointGap * 2));
                 const hitPath = link.manual
-                    ? `<path class="tm-whiteboard-edge tm-whiteboard-edge--hit" d="${d}" ${click}></path>`
+                    ? `<path class="tm-whiteboard-edge tm-whiteboard-edge--hit" d="${d}" pathLength="${hitPathLength.toFixed(2)}" stroke-dasharray="0 ${hitEndpointGap.toFixed(2)} ${hitMiddleLength.toFixed(2)} ${hitEndpointGap.toFixed(2)}" ${click}></path>`
                     : '';
                 const edgeMarkerIdOut = isSubtaskEdge ? subtaskMarkerIdOut : markerIdOut;
                 const pathHtml = `${hitPath}<path class="${cls}" d="${d}" marker-end="url(#${esc(edgeMarkerIdOut)})"${dataAttrs} ${click}></path>`;
@@ -7077,12 +7278,24 @@
                 ? (fromTaskId && visibleTaskIds.has(fromTaskId))
                 : (fromTaskId && fromDocId === docId);
             if (shouldRenderPreview && preview) {
-                const from = getPt(fromTaskId, 'from');
+                const fromProxyDocId = isGlobalBody ? (fromDocId || docId) : docId;
+                const fromProxy = resolveCollapsedProxyTaskId(fromTaskId, fromProxyDocId);
+                const targetTaskId = String(preview.targetTaskId || '').trim();
+                const toProxyDocId = isGlobalBody
+                    ? (String(preview.targetDocId || __tmGetTaskDocIdById(targetTaskId) || '').trim() || docId)
+                    : docId;
+                const toProxy = targetTaskId ? resolveCollapsedProxyTaskId(targetTaskId, toProxyDocId) : '';
+                const previewOriginSide = __tmNormalizeTaskLinkSide(preview?.side);
+                const previewOriginAnchor = __tmNormalizeTaskLinkAnchor(preview?.anchor, previewOriginSide);
+                const fromKind = previewOriginSide === 'in' ? 'to' : 'from';
+                const from = getPt(fromTaskId, fromKind, fromProxy, previewOriginAnchor);
                 if (from) {
+                    const targetKind = previewOriginSide === 'in' ? 'from' : 'to';
+                    const targetAnchor = __tmNormalizeTaskLinkAnchor(preview?.targetAnchor, targetKind === 'from' ? 'out' : 'in');
                     let tx = NaN;
                     let ty = NaN;
-                    if (String(preview.targetTaskId || '').trim()) {
-                        const toPt = getPt(String(preview.targetTaskId || '').trim(), 'to');
+                    if (targetTaskId) {
+                        const toPt = getPt(targetTaskId, targetKind, toProxy, targetAnchor);
                         if (toPt) {
                             tx = toPt.x;
                             ty = toPt.y;
@@ -7097,36 +7310,40 @@
                         }
                     }
                     if (Number.isFinite(tx) && Number.isFinite(ty)) {
-                        const fromProxyDocId = isGlobalBody ? (fromDocId || docId) : docId;
-                        const fromProxy = __tmFindWhiteboardCollapsedProxyTaskId(fromTaskId, fromProxyDocId);
-                        const targetTaskId = String(preview.targetTaskId || '').trim();
-                        const toProxyDocId = isGlobalBody
-                            ? (String(preview.targetDocId || __tmGetTaskDocIdById(targetTaskId) || '').trim() || docId)
-                            : docId;
-                        const toProxy = targetTaskId ? __tmFindWhiteboardCollapsedProxyTaskId(targetTaskId, toProxyDocId) : '';
-                        const isSubtaskPreview = isSubtaskEndpoint(fromTaskId, fromProxy) || isSubtaskEndpoint(targetTaskId, toProxy);
-                        const fromLaneOffset = claimSubtaskLane(fromTaskId, fromProxy, 'from');
-                        const toLaneOffset = claimSubtaskLane(targetTaskId, toProxy, 'to');
+                        const routeFrom = previewOriginSide === 'in' ? { x: tx, y: ty } : from;
+                        const routeTo = previewOriginSide === 'in' ? from : { x: tx, y: ty };
+                        const routeFromTaskId = previewOriginSide === 'in' ? targetTaskId : fromTaskId;
+                        const routeToTaskId = previewOriginSide === 'in' ? fromTaskId : targetTaskId;
+                        const routeFromProxy = previewOriginSide === 'in' ? toProxy : fromProxy;
+                        const routeToProxy = previewOriginSide === 'in' ? fromProxy : toProxy;
+                        const routeFromAnchor = previewOriginSide === 'in' ? targetAnchor : previewOriginAnchor;
+                        const routeToAnchor = previewOriginSide === 'in' ? previewOriginAnchor : targetAnchor;
+                        const routeFromIsSubtask = isSubtaskEndpoint(routeFromTaskId, routeFromProxy);
+                        const routeToIsSubtask = isSubtaskEndpoint(routeToTaskId, routeToProxy);
+                        const isSubtaskPreview = routeFromIsSubtask || routeToIsSubtask;
+                        const fromLaneOffset = claimSubtaskLane(routeFromTaskId, routeFromProxy, 'from', routeFromIsSubtask);
+                        const toLaneOffset = claimSubtaskLane(routeToTaskId, routeToProxy, 'to', routeToIsSubtask);
                         const d = buildAvoidPath(
-                            from,
-                            { x: tx, y: ty },
+                            routeFrom,
+                            routeTo,
                             [fromTaskId, fromProxy, targetTaskId, toProxy],
                             {
-                                fromTaskId,
-                                toTaskId: targetTaskId,
-                                fromProxyTaskId: fromProxy,
-                                toProxyTaskId: toProxy,
+                                fromTaskId: routeFromTaskId,
+                                toTaskId: routeToTaskId,
+                                fromProxyTaskId: routeFromProxy,
+                                toProxyTaskId: routeToProxy,
+                                fromAnchor: routeFromAnchor,
+                                toAnchor: routeToAnchor,
                                 fromLaneOffset,
                                 toLaneOffset,
                                 laneOffset: Math.max(fromLaneOffset, toLaneOffset),
                             }
                         ).d;
                         const previewMarkerId = isSubtaskPreview ? subtaskMarkerIdOut : markerIdOut;
-                        const previewSourceIsSubtask = __tmIsTaskLinkSourceSubtask(fromTaskId);
-                        const previewSourceDepthCls = previewSourceIsSubtask
-                            ? ' tm-whiteboard-edge--subtask-source'
-                            : ' tm-whiteboard-edge--root-source';
-                        const previewHtml = `<path class="tm-whiteboard-edge tm-whiteboard-edge--preview${previewSourceDepthCls}" d="${d}" marker-end="url(#${esc(previewMarkerId)})"></path>`;
+                        const previewEndpointDepthCls = isSubtaskPreview
+                            ? ' tm-whiteboard-edge--subtask-endpoint'
+                            : '';
+                        const previewHtml = `<path class="tm-whiteboard-edge tm-whiteboard-edge--preview${previewEndpointDepthCls}" d="${d}" marker-end="url(#${esc(previewMarkerId)})"></path>`;
                         if (isSubtaskPreview) subtaskPreviewPath = previewHtml;
                         else previewPath = previewHtml;
                     }
@@ -7163,10 +7380,76 @@
         return String(side || '').trim().toLowerCase() === 'in' ? 'in' : 'out';
     }
 
+    function __tmNormalizeTaskLinkAnchor(anchor, side) {
+        const normalized = String(anchor || '').trim().toLowerCase();
+        return __tmNormalizeTaskLinkSide(side) === 'in'
+            ? (normalized === 'top' ? 'top' : 'left')
+            : (normalized === 'bottom' ? 'bottom' : 'right');
+    }
+
+    function __tmGetTaskLinkDotAnchor(ev, side) {
+        const target = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
+        if (target?.classList?.contains?.('tm-task-link-dot--top')) return 'top';
+        if (target?.classList?.contains?.('tm-task-link-dot--bottom')) return 'bottom';
+        return __tmNormalizeTaskLinkSide(side) === 'in' ? 'left' : 'right';
+    }
+
+    function __tmResolveWhiteboardTargetAnchor(ev, taskId, docId, side) {
+        const targetSide = __tmNormalizeTaskLinkSide(side);
+        const fallback = targetSide === 'in' ? 'left' : 'right';
+        const id = String(taskId || '').trim();
+        if (!id) return fallback;
+        const current = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
+        if (current?.classList?.contains?.('tm-task-link-dot--top')) return 'top';
+        if (current?.classList?.contains?.('tm-task-link-dot--bottom')) return 'bottom';
+        const did = String(docId || '').trim();
+        let node = current?.closest?.('.tm-whiteboard-node[data-task-id]') || null;
+        if (!(node instanceof Element)) {
+            const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+            if (body instanceof Element) {
+                try {
+                    const docSelector = did ? `[data-doc-id="${CSS.escape(did)}"]` : '';
+                    node = body.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]${docSelector}`);
+                } catch (e) {}
+            }
+        }
+        if (!(node instanceof Element)) return fallback;
+        const selectors = targetSide === 'in'
+            ? [
+                ['left', '.tm-task-link-dot--in:not(.tm-task-link-dot--top)'],
+                ['top', '.tm-task-link-dot--top'],
+            ]
+            : [
+                ['right', '.tm-task-link-dot--out:not(.tm-task-link-dot--bottom)'],
+                ['bottom', '.tm-task-link-dot--bottom'],
+            ];
+        const clientX = Number(ev?.clientX);
+        const clientY = Number(ev?.clientY);
+        if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return fallback;
+        let bestAnchor = fallback;
+        let bestDistance = Infinity;
+        selectors.forEach(([anchor, selector]) => {
+            const dot = node.querySelector(selector);
+            if (!(dot instanceof Element)) return;
+            try {
+                const rect = dot.getBoundingClientRect();
+                const dx = clientX - (rect.left + (rect.width / 2));
+                const dy = clientY - (rect.top + (rect.height / 2));
+                const distance = (dx * dx) + (dy * dy);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestAnchor = anchor;
+                }
+            } catch (e) {}
+        });
+        return bestAnchor;
+    }
+
     function __tmResetLinkDragState() {
         state.whiteboardLinkFromTaskId = '';
         state.whiteboardLinkFromDocId = '';
         state.whiteboardLinkFromSide = 'out';
+        state.whiteboardLinkFromAnchor = 'right';
         state.whiteboardLinkPress = null;
         state.whiteboardLinkPreview = null;
         __tmUpdateWhiteboardLinkHover('', '');
@@ -7180,9 +7463,13 @@
         if (!fromTaskId || !fromDocId) return;
         const tId = String(targetTaskId || '').trim();
         const tDocId = String(targetDocId || '').trim();
+        const originSide = __tmNormalizeTaskLinkSide(state.whiteboardLinkFromSide);
+        const targetSide = originSide === 'in' ? 'out' : 'in';
         state.whiteboardLinkPreview = {
             mode: state.viewMode === 'timeline' ? 'timeline' : 'whiteboard',
-            side: __tmNormalizeTaskLinkSide(state.whiteboardLinkFromSide),
+            side: originSide,
+            anchor: __tmNormalizeTaskLinkAnchor(state.whiteboardLinkFromAnchor, state.whiteboardLinkFromSide),
+            targetAnchor: tId ? __tmResolveWhiteboardTargetAnchor(ev, tId, tDocId || fromDocId, targetSide) : '',
             clientX: Number(ev?.clientX) || 0,
             clientY: Number(ev?.clientY) || 0,
             targetTaskId: tId,
@@ -7232,11 +7519,12 @@
         state.whiteboardLinkPointerFallback = null;
     }
 
-    function __tmStartTaskLinkPointerFallback(ev, taskId, docId, side) {
+    function __tmStartTaskLinkPointerFallback(ev, taskId, docId, side, anchor) {
         __tmClearTaskLinkPointerFallback();
         const fromTaskId = String(taskId || '').trim();
         const fromDocId = String(docId || '').trim();
         const fromSide = __tmNormalizeTaskLinkSide(side);
+        const fromAnchor = __tmNormalizeTaskLinkAnchor(anchor, fromSide);
         if (!fromTaskId || !fromDocId) return;
         const pointerIdRaw = Number(ev?.pointerId);
         const pointerId = Number.isFinite(pointerIdRaw) ? pointerIdRaw : null;
@@ -7247,12 +7535,14 @@
             fromTaskId,
             fromDocId,
             fromSide,
+            fromAnchor,
             sx,
             sy,
             moved: false,
             dragStarted: false,
             hoverTaskId: '',
             hoverDocId: '',
+            hoverAnchor: '',
             detach: null,
         };
         const samePointer = (e2) => {
@@ -7274,11 +7564,18 @@
                 if (wbNode instanceof Element) {
                     tid = String(wbNode.getAttribute('data-task-id') || '').trim();
                     did = String(wbNode.getAttribute('data-doc-id') || '').trim();
+                    session.hoverAnchor = __tmResolveWhiteboardTargetAnchor(
+                        e2,
+                        tid,
+                        did,
+                        session.fromSide === 'in' ? 'out' : 'in',
+                    );
                 } else {
                     const row = hit?.closest?.('.tm-gantt-row[data-id]');
                     if (row instanceof Element) {
                         tid = String(row.getAttribute('data-id') || '').trim();
                         did = String(row.getAttribute('data-doc-id') || '').trim();
+                        session.hoverAnchor = '';
                     }
                 }
             } catch (e) {}
@@ -7317,7 +7614,7 @@
             if (session.dragStarted) return;
             if (session.moved && session.hoverTaskId) {
                 try {
-                    await window.tmTaskLinkDotDrop?.(e2, session.hoverTaskId, session.hoverDocId || fromDocId);
+                    await window.tmTaskLinkDotDrop?.(e2, session.hoverTaskId, session.hoverDocId || fromDocId, session.hoverAnchor);
                     return;
                 } catch (e) {}
             }
@@ -7339,6 +7636,7 @@
     }
 
     window.tmTaskLinkDotPressStart = function(ev, taskId, docId, side) {
+        if (ev?.currentTarget?.closest?.('[data-tm-whiteboard-frozen="1"]')) return;
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.stopImmediatePropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
@@ -7354,13 +7652,15 @@
         state.whiteboardLinkFromTaskId = id;
         state.whiteboardLinkFromDocId = did;
         state.whiteboardLinkFromSide = __tmNormalizeTaskLinkSide(side);
+        state.whiteboardLinkFromAnchor = __tmGetTaskLinkDotAnchor(ev, state.whiteboardLinkFromSide);
         __tmUpdateWhiteboardLinkHover('', '');
         __tmUpdateWhiteboardLinkPreviewFromEvent(ev, '', did);
         __tmScheduleWhiteboardEdgeRedraw();
-        __tmStartTaskLinkPointerFallback(ev, id, did, state.whiteboardLinkFromSide);
+        __tmStartTaskLinkPointerFallback(ev, id, did, state.whiteboardLinkFromSide, state.whiteboardLinkFromAnchor);
     };
 
     window.tmTaskLinkDotDragStart = function(ev, taskId, docId, side) {
+        if (ev?.currentTarget?.closest?.('[data-tm-whiteboard-frozen="1"]')) return;
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.stopImmediatePropagation?.(); } catch (e) {}
         const fb = state.whiteboardLinkPointerFallback;
@@ -7375,11 +7675,12 @@
         state.whiteboardLinkFromTaskId = id;
         state.whiteboardLinkFromDocId = did;
         state.whiteboardLinkFromSide = __tmNormalizeTaskLinkSide(side);
+        state.whiteboardLinkFromAnchor = __tmGetTaskLinkDotAnchor(ev, state.whiteboardLinkFromSide);
         __tmUpdateWhiteboardLinkHover('', '');
         __tmUpdateWhiteboardLinkPreviewFromEvent(ev, '', did);
         try {
             ev.dataTransfer.effectAllowed = 'link';
-            const payload = JSON.stringify({ type: 'tm-task-link', taskId: id, docId: did, side: state.whiteboardLinkFromSide });
+            const payload = JSON.stringify({ type: 'tm-task-link', taskId: id, docId: did, side: state.whiteboardLinkFromSide, anchor: state.whiteboardLinkFromAnchor });
             ev.dataTransfer.setData('application/x-tm-task-link', payload);
             ev.dataTransfer.setData('text/plain', payload);
         } catch (e) {}
@@ -7434,7 +7735,8 @@
         __tmScheduleWhiteboardEdgeRedraw();
     };
 
-    window.tmTaskLinkDotDrop = async function(ev, targetTaskId, targetDocId) {
+    window.tmTaskLinkDotDrop = async function(ev, targetTaskId, targetDocId, targetAnchorInput) {
+        if (ev?.currentTarget?.closest?.('[data-tm-whiteboard-frozen="1"]')) return;
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.stopImmediatePropagation?.(); } catch (e) {}
@@ -7442,6 +7744,7 @@
         let originId = '';
         let originDocId = '';
         let originSide = __tmNormalizeTaskLinkSide(state.whiteboardLinkFromSide);
+        let originAnchor = __tmNormalizeTaskLinkAnchor(state.whiteboardLinkFromAnchor, originSide);
         try {
             const raw = ev?.dataTransfer?.getData?.('application/x-tm-task-link') || ev?.dataTransfer?.getData?.('text/plain');
             if (raw) {
@@ -7450,11 +7753,17 @@
                     originId = String(obj?.taskId || '').trim();
                     originDocId = String(obj?.docId || '').trim();
                     if (String(obj?.side || '').trim()) originSide = __tmNormalizeTaskLinkSide(obj.side);
+                    originAnchor = __tmNormalizeTaskLinkAnchor(obj?.anchor, originSide);
                 }
             }
         } catch (e) {}
         if (!originId) originId = String(state.whiteboardLinkFromTaskId || '').trim();
         if (!originDocId) originDocId = String(state.whiteboardLinkFromDocId || '').trim();
+        const targetSide = originSide === 'in' ? 'out' : 'in';
+        const targetAnchor = __tmNormalizeTaskLinkAnchor(
+            targetAnchorInput || state.whiteboardLinkPreview?.targetAnchor || __tmResolveWhiteboardTargetAnchor(ev, targetId, targetDocId, targetSide),
+            targetSide,
+        );
         const targetDoc = String(targetDocId || '').trim() || __tmGetTaskDocIdById(targetId);
         if (!originId || !targetId || !originDocId || !targetDoc || originId === targetId) {
             __tmResetLinkDragState();
@@ -7465,6 +7774,8 @@
         const fromDocId = originSide === 'in' ? targetDoc : originDocId;
         const toId = originSide === 'in' ? originId : targetId;
         const toDocId = originSide === 'in' ? originDocId : targetDoc;
+        const fromAnchor = originSide === 'in' ? targetAnchor : originAnchor;
+        const toAnchor = originSide === 'in' ? originAnchor : targetAnchor;
         let globalBody = null;
         try {
             const eventNode = ev?.currentTarget instanceof Element
@@ -7524,6 +7835,8 @@
                         id: `global_link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                         from: fromId,
                         to: toId,
+                        fromAnchor,
+                        toAnchor,
                         fromDocId: fromDocIdForGlobal,
                         toDocId: toDocIdForGlobal,
                         createdAt: String(Date.now()),
@@ -7553,6 +7866,8 @@
                 id: `link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 from: fromId,
                 to: toId,
+                fromAnchor,
+                toAnchor,
                 docId,
                 createdAt: String(Date.now()),
             });
@@ -7754,7 +8069,7 @@
                 const did = String(el?.getAttribute?.('data-doc-id') || el?.dataset?.docId || '').trim();
                 if (did) return did;
             } catch (e) {}
-            const task = state.flatTasks?.[id] || state.pendingInsertedTasks?.[id] || null;
+            const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
             return String(task?.root_id || task?.docId || state.activeDocId || '').trim();
         };
         const handleWhiteboardDeleteShortcut = async (ev) => {
@@ -7879,7 +8194,7 @@
         state.showCompletedTasks = !!SettingsStore.data.showCompletedTasks;
         state.excludeCompletedTasks = !state.showCompletedTasks;
         try { await SettingsStore.save(); } catch (e) {}
-        try { applyFilters(); } catch (e) {}
+        try { __tmRecomputeTaskProjection({ reason: 'whiteboard-show-completed-toggle' }); } catch (e) {}
         render();
     };
 
@@ -7931,7 +8246,7 @@
         if (!id) return false;
         if (state.viewMode !== 'whiteboard') return false;
         if (String(state.whiteboardSelectedTaskId || '').trim() !== id) return false;
-        const t = state.flatTasks?.[id];
+        const t = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
         if (!t) return false;
         return true;
     }
@@ -8007,7 +8322,7 @@
         try { ev?.stopPropagation?.(); } catch (e) {}
         const id = String(taskId || '').trim();
         if (!id) return;
-        const task = state.flatTasks?.[id];
+        const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
         if (!task) return;
         const pid = String(task?.parentTaskId || '').trim();
         if (!pid) return;
@@ -8059,7 +8374,7 @@
         const fromDocId = String(payload?.docId || '').trim();
         const toDocId = String(docId || '').trim();
         if (!taskId || !fromDocId || !toDocId || fromDocId !== toDocId) return;
-        const task = state.flatTasks?.[taskId];
+        const task = globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
         const pid = String(task?.parentTaskId || '').trim();
         if (!task || !pid) return;
         if (__tmGetTaskDocIdById(pid) !== toDocId) return;

@@ -99,9 +99,7 @@
                 (typeof __tmGetTaskDetailTaskById === 'function'
                     ? __tmGetTaskDetailTaskById(taskDetailSheetTaskId, { includePending: true, preferPending: true, includeWhiteboard: true })
                     : null)
-                || globalThis.__tmRuntimeState?.getTaskById?.(taskDetailSheetTaskId, { includePending: true, preferPending: true })
-                || state.flatTasks?.[taskDetailSheetTaskId]
-                || state.pendingInsertedTasks?.[taskDetailSheetTaskId]
+                || globalThis.__tmTaskBoundary?.getTask?.(taskDetailSheetTaskId)
                 || null
             )
             : null;

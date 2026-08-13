@@ -79,6 +79,6 @@ assert.match(scene, /onclick="tmMultiSelectSendToAi\(\)"/, 'multi-select toolbar
 assert.match(fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8'), /__tmPhosphorBoldPaths\['sparkle'\] = 'M199,125\.31/, 'send-to-AI must use the Phosphor bold sparkle path');
 assert.match(sidePanels, /tmMultiSelectSendToAi[\s\S]*__tmGetMultiSelectedTaskIds\(\)[\s\S]*selectedTaskIds: taskIds/, 'send-to-AI must use the existing multi-select task IDs');
 assert.match(taskList, /createSubmenu\(__tmRenderContextMenuLabel\('bot', 'AI'\), \(\) => \[\s*createItem\(__tmRenderContextMenuLabel\('sparkle', '发送到 AI'\)[\s\S]*selectedTaskIds: \[taskId\][\s\S]*draft: '请基于这 1 个已选任务继续处理：'/, 'task context AI submenu must start with the single-task send-to-AI action');
-assert.match(dialogFoundation, /function __tmBuildTaskDetailMoreActions\(taskId\)[\s\S]*label: '发送到 AI'[\s\S]*icon: 'sparkle'[\s\S]*selectedTaskIds: \[tid\][\s\S]*draft: '请基于这 1 个已选任务继续处理：'/, 'task detail more menu must provide the same single-task send-to-AI action');
+assert.match(dialogFoundation, /function __tmBuildTaskDetailMoreActions\(taskId(?:, options = \{\})?\)[\s\S]*label: '发送到 AI'[\s\S]*icon: 'sparkle'[\s\S]*selectedTaskIds: \[tid\][\s\S]*draft: '请基于这 1 个已选任务继续处理：'/, 'task detail more menu must provide the same single-task send-to-AI action');
 
 console.log('agent context contract tests passed');

@@ -3,6 +3,669 @@
 
     // Runtime facade: view/session state only. Task data changes belong to taskStore below.
     const normalizeId = (value) => String(value || '').trim();
+    const pendingStructuralMutations = new Map();
+    const confirmedTaskBase = new Map();
+    const pendingTaskOverlays = new Map();
+    const pendingOverlayKeysByTask = new Map();
+    const taskStoreDocRevisions = new Map();
+    let taskStoreRevision = 0;
+    let taskStoreUnscopedRevision = 0;
+    const TASK_STORE_STRUCTURAL_COMMIT_TYPES = new Set([
+        'createTaskInDoc',
+        'createSubtask',
+        'createSibling',
+        'deleteTask',
+        'moveTask',
+        'commitTaskId',
+        'taskLifecycle',
+    ]);
+    const TASK_STORE_FIELD_MUTATION_TYPES = new Set([
+        'contentPatch',
+        'taskPatch',
+        'setDone',
+    ]);
+
+    const taskOverlayKey = (mutation = {}) => normalizeId(
+        mutation.opId
+        || mutation.commandID
+        || mutation.commandId
+        || mutation.mutationId
+        || mutation.id
+    );
+
+    const isTaskStoreDeleteMutation = (mutation = {}) => {
+        const type = normalizeId(mutation?.type);
+        return type === 'deleteTask'
+            || (type === 'taskLifecycle' && normalizeId(mutation?.data?.action) === 'archiveDeleted');
+    };
+
+    const collectDeletedTaskIds = (mutation = {}) => {
+        if (!isTaskStoreDeleteMutation(mutation)) return [];
+        const m = mutation && typeof mutation === 'object' ? mutation : {};
+        const data = m.data && typeof m.data === 'object' ? m.data : {};
+        const affected = m.affected && typeof m.affected === 'object' ? m.affected : {};
+        return Array.from(new Set([
+            m.taskId,
+            m.tempId,
+            m.realId,
+            data.taskId,
+            ...(Array.isArray(affected.subtreeIds) ? affected.subtreeIds : []),
+            ...(Array.isArray(data.scheduleCleanupTaskIds) ? data.scheduleCleanupTaskIds : []),
+        ].map(normalizeId).filter(Boolean)));
+    };
+
+    const collectOverlayTaskIds = (mutation = {}) => {
+        const m = mutation && typeof mutation === 'object' ? mutation : {};
+        const data = m.data && typeof m.data === 'object' ? m.data : {};
+        const affected = m.affected && typeof m.affected === 'object' ? m.affected : {};
+        const fieldOnly = TASK_STORE_FIELD_MUTATION_TYPES.has(normalizeId(m.type));
+        return Array.from(new Set([
+            m.taskId,
+            m.tempId,
+            m.realId,
+            data.taskId,
+            data.tempId,
+            data.realId,
+            data.sourceTaskId,
+            m.task?.id,
+            ...(!fieldOnly && Array.isArray(m.taskIds) ? m.taskIds : []),
+            ...(!fieldOnly && Array.isArray(affected.taskIds) ? affected.taskIds : []),
+            ...(Array.isArray(affected.aliases) ? affected.aliases : []),
+        ].map(normalizeId).filter(Boolean)));
+    };
+
+    const collectMutationDocIds = (mutation = {}, taskIds = []) => {
+        const m = mutation && typeof mutation === 'object' ? mutation : {};
+        const data = m.data && typeof m.data === 'object' ? m.data : {};
+        const affected = m.affected && typeof m.affected === 'object' ? m.affected : {};
+        const out = new Set([
+            m.docId,
+            m.previousDocId,
+            m.nextDocId,
+            data.docId,
+            data.targetDocId,
+            data.sourceDocId,
+            data.previousDocId,
+            data.nextDocId,
+            m.task?.root_id,
+            m.task?.docId,
+            m.snapshot?.docId,
+            m.snapshot?.task?.root_id,
+            m.snapshot?.task?.docId,
+            ...(Array.isArray(affected.docIds) ? affected.docIds : []),
+        ].map(normalizeId).filter(Boolean));
+        (Array.isArray(taskIds) ? taskIds : []).forEach((taskId) => {
+            const tid = normalizeId(taskId);
+            if (!tid) return;
+            const task = confirmedTaskBase.get(tid)
+                || state?.flatTasks?.[tid]
+                || state?.pendingInsertedTasks?.[tid]
+                || null;
+            const docId = normalizeId(task?.root_id || task?.docId);
+            if (docId) out.add(docId);
+        });
+        return Array.from(out);
+    };
+
+    const bumpTaskStoreRevision = (docIds = []) => {
+        taskStoreRevision += 1;
+        const normalizedDocIds = Array.from(new Set((Array.isArray(docIds) ? docIds : [docIds])
+            .map(normalizeId)
+            .filter(Boolean)));
+        if (normalizedDocIds.length) {
+            normalizedDocIds.forEach((docId) => taskStoreDocRevisions.set(docId, taskStoreRevision));
+        } else {
+            taskStoreUnscopedRevision = taskStoreRevision;
+        }
+        return taskStoreRevision;
+    };
+
+    const captureTaskStoreRead = (docIds = []) => {
+        const normalizedDocIds = Array.from(new Set((Array.isArray(docIds) ? docIds : [docIds]).map(normalizeId).filter(Boolean)));
+        return {
+            revision: taskStoreRevision,
+            unscopedRevision: taskStoreUnscopedRevision,
+            docIds: normalizedDocIds,
+            docRevisions: Object.fromEntries(normalizedDocIds.map((docId) => [docId, Number(taskStoreDocRevisions.get(docId)) || 0])),
+        };
+    };
+
+    const isTaskStoreReadCurrent = (token) => {
+        if (!token || typeof token !== 'object') return false;
+        const docIds = Array.isArray(token.docIds) ? token.docIds.map(normalizeId).filter(Boolean) : [];
+        if (!docIds.length) return Math.max(0, Number(token.revision) || 0) === taskStoreRevision;
+        if (Math.max(0, Number(token.unscopedRevision) || 0) !== taskStoreUnscopedRevision) return false;
+        const revisions = token.docRevisions && typeof token.docRevisions === 'object' ? token.docRevisions : {};
+        return docIds.every((docId) => (
+            (Math.max(0, Number(revisions[docId]) || 0)) === (Number(taskStoreDocRevisions.get(docId)) || 0)
+        ));
+    };
+
+    const cloneTaskRecord = (task) => {
+        if (!(task && typeof task === 'object')) return null;
+        return {
+            ...task,
+            ...(task.customFieldValues && typeof task.customFieldValues === 'object'
+                ? { customFieldValues: { ...task.customFieldValues } }
+                : {}),
+            ...(Array.isArray(task.children) ? { children: task.children.slice() } : {}),
+        };
+    };
+
+    const applyTaskStoreAttachmentPatch = (task, value) => {
+        if (!(task && typeof task === 'object')) return false;
+        try {
+            if (typeof __tmApplyTaskAttachmentPathsToTask === 'function') {
+                __tmApplyTaskAttachmentPathsToTask(task, value, { attrsLoaded: true });
+                return true;
+            }
+        } catch (e) {}
+        const paths = Array.from(new Set((Array.isArray(value) ? value : [])
+            .map((item) => String((item && typeof item === 'object') ? (item.path || item.url || item.href || '') : (item || '')).trim())
+            .filter(Boolean)));
+        task.__attachmentPaths = paths;
+        task.attachments = paths.slice();
+        task.attachmentCount = paths.length;
+        task.__attachmentAttrSlotCount = paths.length;
+        task.__attachmentAttrsLoaded = true;
+        task.attachmentAttrsLoaded = true;
+        task.attachment_attrs_loaded = true;
+        return true;
+    };
+
+    const mergeConfirmedTaskReceipt = (current, receipt, committedPatch = {}, options = {}) => {
+        const base = cloneTaskRecord(current);
+        const incoming = cloneTaskRecord(receipt);
+        if (!incoming) return base ? applyOverlayPatch(base, committedPatch) : null;
+        const patchedBase = applyOverlayPatch(base || {}, committedPatch);
+        const merged = { ...patchedBase, ...incoming };
+        if (patchedBase.customFieldValues || incoming.customFieldValues) {
+            merged.customFieldValues = {
+                ...(patchedBase.customFieldValues || {}),
+                ...(incoming.customFieldValues || {}),
+            };
+        }
+        if (options?.preserveStructure !== false && Array.isArray(base?.children)) {
+            merged.children = base.children.slice();
+        }
+        return cloneTaskRecord(merged);
+    };
+
+    const applyOverlayPatch = (task, patch = {}) => {
+        if (!(task && typeof task === 'object')) return task;
+        const nextPatch = patch && typeof patch === 'object' ? patch : {};
+        Object.entries(nextPatch).forEach(([key, value]) => {
+            if (key === 'customFieldValues' && value && typeof value === 'object') {
+                task.customFieldValues = { ...(task.customFieldValues || {}), ...value };
+                return;
+            }
+            if (key === 'attachments') {
+                applyTaskStoreAttachmentPatch(task, value);
+                return;
+            }
+            task[key] = value;
+            if (key === 'content' || key === 'title') {
+                const title = String(value == null ? '' : value).trim();
+                task.content = title;
+                task.title = title;
+                task.raw_content = title;
+                task.rawContent = title;
+            } else if (key === 'priority') task.custom_priority = value;
+            else if (key === 'customStatus') task.custom_status = value;
+            else if (key === 'startDate') task.start_date = value;
+            else if (key === 'completionTime') task.completion_time = value;
+            else if (key === 'duration') task.custom_duration = value;
+            else if (key === 'remark') task.custom_remark = value;
+            else if (key === 'taskDateColor') task.task_date_color = value;
+            else if (key === 'customTime') task.custom_time = value;
+            else if (key === 'taskCompleteAt') task.task_complete_at = value;
+            else if (key === 'pinned') task.custom_pinned = value ? '1' : '';
+            else if (key === 'allDayBottom') task.custom_all_day_bottom = value ? '1' : '';
+        });
+        return task;
+    };
+
+    const taskStorePatchAffectsPriorityScore = (patch = {}) => {
+        try {
+            return typeof __tmDoesPatchAffectPriorityScore === 'function'
+                && __tmDoesPatchAffectPriorityScore(patch) === true;
+        } catch (e) {
+            return false;
+        }
+    };
+
+    const syncTaskStorePriorityScore = (task, shouldSync = false) => {
+        if (!(task && typeof task === 'object') || shouldSync !== true) return task;
+        try {
+            if (typeof __tmEnsureTaskPriorityScore === 'function') {
+                const score = Number(__tmEnsureTaskPriorityScore(task, { force: true }));
+                if (Number.isFinite(score)) task.priorityScore = score;
+            }
+        } catch (e) {}
+        return task;
+    };
+
+    const projectTaskFromBase = (taskId, fallback = null) => {
+        const tid = normalizeId(taskId || fallback?.id);
+        if (!tid) return null;
+        try {
+            if (isPendingDeletedTaskId(tid)) return null;
+        } catch (e) {}
+        let projected = cloneTaskRecord(confirmedTaskBase.get(tid) || fallback);
+        let priorityScoreDirty = false;
+        const overlayKeys = pendingOverlayKeysByTask.get(tid);
+        for (const overlayKey of (overlayKeys instanceof Set ? overlayKeys : [])) {
+            const overlay = pendingTaskOverlays.get(overlayKey);
+            if (!overlay) continue;
+            if (isTaskStoreDeleteMutation(overlay)
+                && (Array.isArray(overlay.deletedTaskIds) ? overlay.deletedTaskIds : []).includes(tid)) {
+                projected = null;
+                continue;
+            }
+            if (!projected && overlay.task && typeof overlay.task === 'object') projected = cloneTaskRecord(overlay.task);
+            if (!projected) continue;
+            applyOverlayPatch(projected, overlay.patch);
+            priorityScoreDirty = taskStorePatchAffectsPriorityScore(overlay.patch) || priorityScoreDirty;
+        }
+        return syncTaskStorePriorityScore(projected, priorityScoreDirty);
+    };
+
+    const projectTaskRead = (task) => {
+        const source = cloneTaskRecord(task);
+        const tid = normalizeId(source?.id);
+        if (!source || !tid) return source;
+        try {
+            if (isPendingDeletedTaskId(tid)) return null;
+        } catch (e) {}
+        let projected = source;
+        let priorityScoreDirty = false;
+        const overlayKeys = pendingOverlayKeysByTask.get(tid);
+        for (const overlayKey of (overlayKeys instanceof Set ? overlayKeys : [])) {
+            const overlay = pendingTaskOverlays.get(overlayKey);
+            if (!overlay) continue;
+            if (isTaskStoreDeleteMutation(overlay)
+                && (Array.isArray(overlay.deletedTaskIds) ? overlay.deletedTaskIds : []).includes(tid)) return null;
+            applyOverlayPatch(projected, overlay.patch);
+            priorityScoreDirty = taskStorePatchAffectsPriorityScore(overlay.patch) || priorityScoreDirty;
+        }
+        return syncTaskStorePriorityScore(projected, priorityScoreDirty);
+    };
+
+    const beginTaskOverlay = (mutation = {}) => {
+        const key = taskOverlayKey(mutation);
+        if (!key) return false;
+        const taskIds = collectOverlayTaskIds(mutation);
+        pendingTaskOverlays.set(key, {
+            key,
+            type: normalizeId(mutation.type),
+            taskIds,
+            deletedTaskIds: collectDeletedTaskIds(mutation),
+            patch: mutation.patch && typeof mutation.patch === 'object' ? { ...mutation.patch } : {},
+            task: cloneTaskRecord(mutation.task),
+            data: mutation.data && typeof mutation.data === 'object' ? { ...mutation.data } : {},
+        });
+        taskIds.forEach((taskId) => {
+            const tid = normalizeId(taskId);
+            if (!tid) return;
+            const keys = pendingOverlayKeysByTask.get(tid) || new Set();
+            keys.add(key);
+            pendingOverlayKeysByTask.set(tid, keys);
+        });
+        bumpTaskStoreRevision(collectMutationDocIds(mutation, taskIds));
+        return true;
+    };
+
+    const hasPendingCompletionOverlay = (taskId) => {
+        const tid = normalizeId(taskId);
+        if (!tid) return false;
+        const overlayKeys = pendingOverlayKeysByTask.get(tid);
+        for (const overlayKey of (overlayKeys instanceof Set ? overlayKeys : [])) {
+            const patch = pendingTaskOverlays.get(overlayKey)?.patch;
+            if (!(patch && typeof patch === 'object')) continue;
+            if (['done', 'taskMarker', 'task_marker', 'customStatus', 'taskCompleteAt']
+                .some((key) => Object.prototype.hasOwnProperty.call(patch, key))) return true;
+        }
+        return false;
+    };
+
+    const isNativeDocumentCompletionWatermark = (watermark) => {
+        const source = normalizeId(watermark?.source).toLowerCase();
+        return source === 'native-document'
+            || source.startsWith('native-document-')
+            || source === 'native-doc-checkbox'
+            || source.startsWith('native-doc-checkbox-');
+    };
+
+    const reconcileLegacyDoneOverride = (taskId, projectedTask) => {
+        const tid = normalizeId(taskId);
+        const overrides = state?.doneOverrides;
+        if (!tid || !(overrides && typeof overrides === 'object')
+            || !Object.prototype.hasOwnProperty.call(overrides, tid)) return false;
+        if (hasPendingCompletionOverlay(tid) && projectedTask && typeof projectedTask === 'object') {
+            overrides[tid] = projectedTask.done === true;
+        } else {
+            delete overrides[tid];
+        }
+        return true;
+    };
+
+    const settleTaskOverlay = (mutation = {}, committed = false) => {
+        const key = taskOverlayKey(mutation);
+        const overlay = key ? pendingTaskOverlays.get(key) : null;
+        const taskIds = Array.from(new Set([
+            ...(Array.isArray(overlay?.taskIds) ? overlay.taskIds : []),
+            ...collectOverlayTaskIds(mutation),
+        ].map(normalizeId).filter(Boolean)));
+        const deletedTaskIds = new Set([
+            ...(Array.isArray(overlay?.deletedTaskIds) ? overlay.deletedTaskIds : []),
+            ...collectDeletedTaskIds(mutation),
+        ].map(normalizeId).filter(Boolean));
+        const structuralCommit = TASK_STORE_STRUCTURAL_COMMIT_TYPES.has(normalizeId(mutation.type));
+        const committedPatch = overlay?.patch || mutation.patch || {};
+        const priorityScoreDirty = taskStorePatchAffectsPriorityScore(committedPatch);
+        const pruneDeletedReferences = (items) => {
+            if (!Array.isArray(items) || deletedTaskIds.size === 0) return false;
+            let changed = false;
+            for (let index = items.length - 1; index >= 0; index -= 1) {
+                const item = items[index];
+                const itemId = normalizeId(item?.id || item?.blockId);
+                if (itemId && deletedTaskIds.has(itemId)) {
+                    items.splice(index, 1);
+                    changed = true;
+                    continue;
+                }
+                if (pruneDeletedReferences(item?.children)) changed = true;
+            }
+            return changed;
+        };
+        if (committed) {
+            const authoritative = mutation.task && typeof mutation.task === 'object' ? mutation.task : null;
+            if (authoritative?.id) {
+                const authoritativeId = normalizeId(authoritative.id);
+                const current = confirmedTaskBase.get(authoritativeId)
+                    || state?.flatTasks?.[authoritativeId]
+                    || state?.pendingInsertedTasks?.[authoritativeId]
+                    || overlay?.task
+                    || null;
+                const mergedReceipt = mergeConfirmedTaskReceipt(
+                    current,
+                    authoritative,
+                    committedPatch,
+                    { preserveStructure: !structuralCommit },
+                );
+                const confirmed = normalizeId(mutation.type) === 'setDone'
+                    ? applyOverlayPatch(mergedReceipt, committedPatch)
+                    : mergedReceipt;
+                confirmedTaskBase.set(authoritativeId, syncTaskStorePriorityScore(confirmed, priorityScoreDirty));
+            }
+            taskIds.forEach((taskId) => {
+                const tid = normalizeId(taskId);
+                if (!tid) return;
+                if (deletedTaskIds.has(tid)) confirmedTaskBase.delete(tid);
+                else if (!authoritative || normalizeId(authoritative.id) !== tid) {
+                    const current = cloneTaskRecord(
+                        (structuralCommit ? state?.flatTasks?.[tid] : confirmedTaskBase.get(tid))
+                        || (structuralCommit ? state?.pendingInsertedTasks?.[tid] : state?.flatTasks?.[tid])
+                        || confirmedTaskBase.get(tid)
+                        || state?.pendingInsertedTasks?.[tid]
+                        || null
+                    );
+                    if (current) {
+                        const confirmed = applyOverlayPatch(current, committedPatch);
+                        confirmedTaskBase.set(tid, syncTaskStorePriorityScore(confirmed, priorityScoreDirty));
+                    }
+                }
+            });
+            // Structural promotion above may read a stale mounted parent. Apply
+            // the deletion once more so its children cannot be reintroduced.
+            if (deletedTaskIds.size > 0) {
+                confirmedTaskBase.forEach((task, taskId) => {
+                    if (deletedTaskIds.has(normalizeId(taskId))) {
+                        confirmedTaskBase.delete(taskId);
+                        return;
+                    }
+                    pruneDeletedReferences(task?.children);
+                });
+            }
+        }
+        if (key) {
+            pendingTaskOverlays.delete(key);
+            (Array.isArray(overlay?.taskIds) ? overlay.taskIds : []).forEach((taskId) => {
+                const tid = normalizeId(taskId);
+                const keys = pendingOverlayKeysByTask.get(tid);
+                if (!(keys instanceof Set)) return;
+                keys.delete(key);
+                if (!keys.size) pendingOverlayKeysByTask.delete(tid);
+            });
+        }
+        taskIds.forEach((taskId) => {
+            const tid = normalizeId(taskId);
+            if (!tid) return;
+            const fallback = state?.flatTasks?.[tid] || state?.pendingInsertedTasks?.[tid] || null;
+            const projected = projectTaskFromBase(tid, fallback);
+            if (projected) {
+                upsertTaskLocal(projected, {
+                    pending: !!state?.pendingInsertedTasks?.[tid],
+                    status: committed ? 'committed' : 'rolled-back',
+                    replaceStructure: structuralCommit,
+                });
+            } else if (committed && deletedTaskIds.has(tid)) {
+                removeTaskLocal(tid, { recalc: false, filter: false });
+            }
+            reconcileLegacyDoneOverride(tid, projected);
+        });
+        bumpTaskStoreRevision(collectMutationDocIds(mutation, taskIds));
+        return true;
+    };
+
+    const prunePendingStructuralMutations = () => {
+        const now = Date.now();
+        pendingStructuralMutations.forEach((entry, taskId) => {
+            if (!entry || Number(entry.expiresAt || 0) <= now) pendingStructuralMutations.delete(taskId);
+        });
+        return pendingStructuralMutations;
+    };
+
+    const getExpectedMoveParentTaskId = (data = {}) => {
+        const mode = normalizeId(data.mode);
+        if (mode === 'child' || mode === 'child-top') return normalizeId(data.targetTaskId);
+        if (mode === 'before' || mode === 'after') {
+            const explicit = normalizeId(data.targetParentTaskId);
+            if (explicit) return explicit;
+            const targetId = normalizeId(data.targetTaskId);
+            try {
+                const target = targetId ? getTaskById(targetId, { includePending: true, preferPending: true }) : null;
+                return normalizeId(target?.parentTaskId || target?.parent_task_id);
+            } catch (e) {}
+        }
+        return '';
+    };
+
+    const getExpectedMoveNeighbors = (data = {}) => {
+        const mode = normalizeId(data.mode);
+        const targetId = normalizeId(data.targetTaskId);
+        const previous = mode === 'before'
+            ? normalizeId(data.prevSiblingTaskId)
+            : (mode === 'after'
+                ? targetId
+                : (mode === 'child' ? normalizeId(data.targetLastDirectChildId) : ''));
+        const next = mode === 'before'
+            ? targetId
+            : (mode === 'child-top' ? normalizeId(data.targetFirstDirectChildId) : '');
+        return { previous, next };
+    };
+
+    const rememberPendingStructuralMutation = (mutation = {}) => {
+        const m = (mutation && typeof mutation === 'object') ? mutation : {};
+        const data = (m.data && typeof m.data === 'object') ? m.data : {};
+        const type = normalizeId(m.type);
+        const phase = normalizeId(m.phase);
+        const createType = type === 'createTaskInDoc' || type === 'createSubtask' || type === 'createSibling';
+
+        // A create is still structurally pending after the kernel transaction
+        // succeeds: the SQL task index/WS refresh can observe the old tree for
+        // a short period. Keep the local row in incremental reads until the
+        // real block is visible at the expected document/parent.
+        if (type === 'commitTaskId') {
+            const fromId = normalizeId(m.tempId || data.tempId);
+            const toId = normalizeId(m.realId || m.blockId || data.realId || m.taskId || data.taskId);
+            const existing = pendingStructuralMutations.get(fromId) || pendingStructuralMutations.get(toId);
+            if (!existing) return null;
+            if (phase === 'rollback' || phase === 'failed') {
+                pendingStructuralMutations.delete(fromId);
+                pendingStructuralMutations.delete(toId);
+                return null;
+            }
+            if (toId && fromId && fromId !== toId) pendingStructuralMutations.delete(fromId);
+            const now = Date.now();
+            const entry = {
+                ...existing,
+                taskId: toId || existing.taskId,
+                aliases: Array.from(new Set((Array.isArray(existing.aliases) ? existing.aliases : [])
+                    .concat([fromId, toId].filter(Boolean)))),
+                opId: normalizeId(m.opId || data.opId || existing.opId),
+                phase: phase || 'commit',
+                updatedAt: now,
+                expiresAt: now + 45000,
+            };
+            pendingStructuralMutations.set(entry.taskId, entry);
+            return entry;
+        }
+
+        const taskId = normalizeId(m.taskId || data.taskId || m.tempId || data.tempId || m.realId || data.realId);
+        if (!taskId || (!createType && type !== 'moveTask')) return null;
+        if (phase === 'rollback' || phase === 'failed') {
+            const aliases = new Set([taskId, ...(pendingStructuralMutations.get(taskId)?.aliases || [])]);
+            aliases.forEach((id) => pendingStructuralMutations.delete(id));
+            return null;
+        }
+        if (phase !== 'optimistic' && phase !== 'commit') return pendingStructuralMutations.get(taskId) || null;
+
+        const snapshot = (m.snapshot && typeof m.snapshot === 'object')
+            ? m.snapshot
+            : ((data.snapshot && typeof data.snapshot === 'object') ? data.snapshot : {});
+        const previous = pendingStructuralMutations.get(taskId) || {};
+        const localTask = (m.task && typeof m.task === 'object') ? m.task : {};
+        const expectedDocId = normalizeId(
+            m.nextDocId || m.docId || data.targetDocId || data.docId
+            || localTask.docId || localTask.root_id || previous.expectedDocId
+        );
+        const previousDocId = normalizeId(m.previousDocId || snapshot.docId || previous.previousDocId);
+        const moveParent = getExpectedMoveParentTaskId(data);
+        const expectedParentTaskId = normalizeId(
+            createType
+                ? (m.parentTaskId || data.parentTaskId || localTask.parentTaskId || localTask.parent_task_id || previous.expectedParentTaskId)
+                : moveParent
+        );
+        const hasExpectedParent = createType
+            ? type !== 'createTaskInDoc' && !!expectedParentTaskId
+            : ['child', 'child-top', 'before', 'after'].includes(normalizeId(data.mode));
+        const neighbors = getExpectedMoveNeighbors(data);
+        const now = Date.now();
+        const entry = {
+            ...previous,
+            taskId,
+            aliases: Array.from(new Set((Array.isArray(previous.aliases) ? previous.aliases : []).concat(taskId))),
+            opId: normalizeId(m.opId || data.opId || previous.opId),
+            type,
+            phase,
+            mode: normalizeId(data.mode),
+            expectedDocId,
+            previousDocId,
+            expectedParentTaskId,
+            hasExpectedParent,
+            expectedPreviousSiblingId: neighbors.previous,
+            expectedNextSiblingId: neighbors.next,
+            targetTaskId: normalizeId(data.targetTaskId),
+            updatedAt: now,
+            expiresAt: now + (createType ? 45000 : 20000),
+        };
+        pendingStructuralMutations.set(taskId, entry);
+        return entry;
+    };
+
+    const mergePendingStructuralRows = (rows, options = {}) => {
+        const sourceRows = Array.isArray(rows) ? rows.slice() : [];
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docIds = new Set((Array.isArray(opts.docIds) ? opts.docIds : [])
+            .map((id) => normalizeId(id))
+            .filter(Boolean));
+        const pending = prunePendingStructuralMutations();
+        if (!pending.size) return sourceRows;
+        const byId = new Map(sourceRows.map((row, index) => [normalizeId(row?.id), { row, index }]).filter(([id]) => !!id));
+        const getRowOrder = (row) => {
+            const seq = Number(row?.doc_seq ?? row?.docSeq);
+            if (Number.isFinite(seq)) return seq;
+            const path = normalizeId(row?.block_path || row?.blockPath);
+            const sort = Number(row?.block_sort ?? row?.blockSort);
+            return `${path}|${Number.isFinite(sort) ? sort : ''}|${normalizeId(row?.created)}`;
+        };
+        const siblingNeighbors = new Map();
+        const siblingGroups = new Map();
+        sourceRows.forEach((row) => {
+            const parent = normalizeId(row?.parent_task_id || row?.parentTaskId);
+            const doc = normalizeId(row?.root_id || row?.docId);
+            const key = `${doc}|${parent}`;
+            if (!siblingGroups.has(key)) siblingGroups.set(key, []);
+            siblingGroups.get(key).push(row);
+        });
+        siblingGroups.forEach((group) => {
+            group.sort((a, b) => {
+                const av = getRowOrder(a);
+                const bv = getRowOrder(b);
+                if (typeof av === 'number' && typeof bv === 'number') return av - bv;
+                return String(av).localeCompare(String(bv));
+            });
+            group.forEach((row, index) => siblingNeighbors.set(normalizeId(row?.id), {
+                previous: normalizeId(group[index - 1]?.id),
+                next: normalizeId(group[index + 1]?.id),
+            }));
+        });
+        const removedIndexes = new Set();
+        pending.forEach((entry, taskId) => {
+            if (!entry || !['moveTask', 'createTaskInDoc', 'createSubtask', 'createSibling'].includes(entry.type)) return;
+            if (docIds.size && !docIds.has(entry.expectedDocId) && !docIds.has(entry.previousDocId)) return;
+            const found = byId.get(taskId) || null;
+            const row = found?.row || null;
+            const actualDocId = normalizeId(row?.root_id || row?.docId);
+            const actualParentTaskId = normalizeId(row?.parent_task_id || row?.parentTaskId);
+            const docMatches = !entry.expectedDocId || actualDocId === entry.expectedDocId;
+            const parentMatches = !entry.hasExpectedParent || actualParentTaskId === entry.expectedParentTaskId;
+            const neighbors = siblingNeighbors.get(taskId) || {};
+            const previousMatches = !entry.expectedPreviousSiblingId
+                || neighbors.previous === entry.expectedPreviousSiblingId;
+            const nextMatches = !entry.expectedNextSiblingId
+                || neighbors.next === entry.expectedNextSiblingId;
+            if (row && docMatches && parentMatches && previousMatches && nextMatches) {
+                pendingStructuralMutations.delete(taskId);
+                return;
+            }
+            if (row && entry.previousDocId && entry.expectedDocId
+                && entry.previousDocId !== entry.expectedDocId
+                && actualDocId === entry.previousDocId) {
+                removedIndexes.add(found.index);
+            }
+            if (row && entry.type !== 'moveTask' && !docMatches) removedIndexes.add(found.index);
+            if (row && entry.type !== 'moveTask' && !parentMatches) removedIndexes.add(found.index);
+            if (entry.expectedDocId && (!docIds.size || docIds.has(entry.expectedDocId))) {
+                const local = getTaskById(taskId, { includePending: true, preferPending: true });
+                if (!local || typeof local !== 'object') return;
+                const projected = {
+                    ...(row && typeof row === 'object' ? row : {}),
+                    ...local,
+                    id: taskId,
+                    root_id: entry.expectedDocId || normalizeId(local.root_id || local.docId),
+                    docId: entry.expectedDocId || normalizeId(local.docId || local.root_id),
+                    parent_task_id: entry.hasExpectedParent ? entry.expectedParentTaskId : normalizeId(local.parent_task_id || local.parentTaskId),
+                    parentTaskId: entry.hasExpectedParent ? entry.expectedParentTaskId : normalizeId(local.parentTaskId || local.parent_task_id),
+                    __tmPendingStructural: true,
+                };
+                if (found && !removedIndexes.has(found.index)) sourceRows[found.index] = projected;
+                else sourceRows.push(projected);
+            }
+        });
+        return sourceRows.filter((_, index) => !removedIndexes.has(index));
+    };
 
     const getModal = () => {
         try {
@@ -278,6 +941,50 @@
         return includePending ? getPendingTaskById(tid) : null;
     };
 
+    const listProjectedDirectChildren = (parentId, options = {}) => {
+        const pid = normalizeId(parentId);
+        if (!pid) return [];
+        const opts = options && typeof options === 'object' ? options : {};
+        const parentAliases = new Set(getTaskIdAliases(pid));
+        parentAliases.add(pid);
+        const children = new Map();
+        const addChild = (child, nestedUnderParent = false) => {
+            if (!(child && typeof child === 'object')) return;
+            const childId = normalizeId(child.id || child.blockId);
+            if (!childId || parentAliases.has(childId)) return;
+            if (!nestedUnderParent) {
+                const rawParentId = normalizeId(child.parentTaskId || child.parent_task_id);
+                if (!rawParentId) return;
+                const rawParentAliases = new Set(getTaskIdAliases(rawParentId));
+                rawParentAliases.add(rawParentId);
+                if (!Array.from(rawParentAliases).some((id) => parentAliases.has(id))) return;
+            }
+            const projected = projectTaskFromBase(childId, child);
+            if (!(projected && typeof projected === 'object')) return;
+            const projectedParentId = normalizeId(projected.parentTaskId || projected.parent_task_id);
+            if (projectedParentId) {
+                const projectedParentAliases = new Set(getTaskIdAliases(projectedParentId));
+                projectedParentAliases.add(projectedParentId);
+                if (!Array.from(projectedParentAliases).some((id) => parentAliases.has(id))) return;
+            } else if (!nestedUnderParent) {
+                return;
+            }
+            children.set(childId, projected);
+        };
+        const structuralParent = getTaskById(pid, { includePending: true, preferPending: true });
+        const parent = projectTaskFromBase(pid, structuralParent);
+        (Array.isArray(parent?.children) ? parent.children : []).forEach((child) => addChild(child, true));
+        if (structuralParent !== parent) {
+            (Array.isArray(structuralParent?.children) ? structuralParent.children : []).forEach((child) => addChild(child, true));
+        }
+        if (opts.scanFlat !== false) {
+            [state?.flatTasks, state?.pendingInsertedTasks].forEach((taskMap) => {
+                Object.values((taskMap && typeof taskMap === 'object') ? taskMap : {}).forEach((child) => addChild(child, false));
+            });
+        }
+        return Array.from(children.values());
+    };
+
     const ensureFlatTaskMap = () => {
         try {
             if (!state.flatTasks || typeof state.flatTasks !== 'object' || Array.isArray(state.flatTasks)) state.flatTasks = {};
@@ -334,6 +1041,37 @@
             });
             nextMap = normalized;
         }
+        if (opts.authoritative === true || confirmedTaskBase.size === 0) {
+            confirmedTaskBase.clear();
+            Object.entries(nextMap).forEach(([key, task]) => {
+                const tid = normalizeId(task?.id || key);
+                const cloned = cloneTaskRecord(task);
+                if (tid && cloned) confirmedTaskBase.set(tid, cloned);
+            });
+            if (opts.authoritative === true) {
+                const authoritativeDocIds = Array.from(new Set([
+                    ...(Array.isArray(opts.docIds) ? opts.docIds : []),
+                    ...Object.values(nextMap).map((task) => task?.root_id || task?.docId),
+                ].map(normalizeId).filter(Boolean)));
+                bumpTaskStoreRevision(authoritativeDocIds);
+            }
+        }
+        if (pendingTaskOverlays.size) {
+            const projected = { ...nextMap };
+            const ids = new Set();
+            pendingTaskOverlays.forEach((overlay) => {
+                (Array.isArray(overlay?.taskIds) ? overlay.taskIds : []).forEach((id) => {
+                    const tid = normalizeId(id);
+                    if (tid) ids.add(tid);
+                });
+            });
+            ids.forEach((tid) => {
+                const task = projectTaskFromBase(tid, projected[tid]);
+                if (task) projected[tid] = task;
+                else delete projected[tid];
+            });
+            nextMap = projected;
+        }
         if (opts.mergeOtherBlocks !== false) nextMap = mergeOtherBlocksIntoTaskStoreFlatMap(nextMap);
         try { state.flatTasks = nextMap; } catch (e) {}
         markTaskStoreDirty();
@@ -342,6 +1080,87 @@
 
     const clearFlatTasksLocal = (options = {}) => {
         return replaceFlatTasksLocal({}, options);
+    };
+
+    const acceptAuthoritativeTasksLocal = (tasks = [], options = {}) => {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const list = (Array.isArray(tasks) ? tasks : [])
+            .filter((task) => task && typeof task === 'object' && normalizeId(task.id));
+        const docIds = Array.from(new Set([
+            ...(Array.isArray(opts.docIds) ? opts.docIds : []),
+            ...list.map((task) => task.root_id || task.docId),
+        ].map(normalizeId).filter(Boolean)));
+        const previousConfirmedById = new Map();
+        if (opts.replaceDocuments === true && docIds.length) {
+            const docSet = new Set(docIds);
+            confirmedTaskBase.forEach((task, taskId) => {
+                const docId = normalizeId(task?.root_id || task?.docId);
+                if (!docSet.has(docId)) return;
+                const previous = cloneTaskRecord(task);
+                if (previous) previousConfirmedById.set(taskId, previous);
+                confirmedTaskBase.delete(taskId);
+            });
+        }
+        list.forEach((task) => {
+            const taskId = normalizeId(task.id);
+            if (!taskId) return;
+            const current = previousConfirmedById.get(taskId)
+                || confirmedTaskBase.get(taskId)
+                || state?.flatTasks?.[taskId]
+                || state?.pendingInsertedTasks?.[taskId]
+                || null;
+            const confirmed = opts.replaceDocuments === true
+                ? cloneTaskRecord(task)
+                : mergeConfirmedTaskReceipt(current, task, {}, {
+                    preserveStructure: opts.replaceStructure !== true,
+                });
+            try {
+                const watermark = typeof __tmGetLocalTaskPatchWatermark === 'function'
+                    ? __tmGetLocalTaskPatchWatermark(taskId)
+                    : null;
+                const protectedFields = new Set(Array.isArray(watermark?.fields) ? watermark.fields : []);
+                const protectsCompletion = protectedFields.has('done')
+                    || protectedFields.has('taskMarker')
+                    || protectedFields.has('task_marker');
+                const protectsPluginCompletion = protectsCompletion
+                    && !isNativeDocumentCompletionWatermark(watermark);
+                const overlayKeys = pendingOverlayKeysByTask.get(taskId);
+                const hasPendingCompletion = hasPendingCompletionOverlay(taskId);
+                if (confirmed && hasPendingCompletion && current) {
+                    const previousCompletionPatch = {};
+                    ['done', 'taskMarker', 'task_marker', 'markdown', 'customStatus', 'taskCompleteAt'].forEach((key) => {
+                        if (Object.prototype.hasOwnProperty.call(current, key)) previousCompletionPatch[key] = current[key];
+                    });
+                    applyOverlayPatch(confirmed, previousCompletionPatch);
+                } else if (confirmed && protectsPluginCompletion
+                    && typeof __tmGetLocalTaskPatchWatermarkValue === 'function') {
+                    const completionPatch = {};
+                    ['done', 'taskMarker', 'task_marker', 'markdown', 'customStatus', 'taskCompleteAt'].forEach((key) => {
+                        const value = __tmGetLocalTaskPatchWatermarkValue(taskId, key);
+                        if (value?.has) completionPatch[key] = value.value;
+                    });
+                    applyOverlayPatch(confirmed, completionPatch);
+                }
+                if (!hasPendingCompletion && !protectsPluginCompletion) {
+                    reconcileLegacyDoneOverride(taskId, confirmed);
+                }
+                const hasPendingAttachments = Array.from(overlayKeys instanceof Set ? overlayKeys : []).some((overlayKey) => {
+                    const patch = pendingTaskOverlays.get(overlayKey)?.patch;
+                    return patch && typeof patch === 'object'
+                        && Object.prototype.hasOwnProperty.call(patch, 'attachments');
+                });
+                if (confirmed && hasPendingAttachments && current) {
+                    applyTaskStoreAttachmentPatch(confirmed, current.__attachmentPaths || current.attachments || []);
+                } else if (confirmed && protectedFields.has('attachments')
+                    && typeof __tmGetLocalTaskPatchWatermarkValue === 'function') {
+                    const attachments = __tmGetLocalTaskPatchWatermarkValue(taskId, 'attachments');
+                    if (attachments?.has) applyTaskStoreAttachmentPatch(confirmed, attachments.value);
+                }
+            } catch (e) {}
+            if (confirmed) confirmedTaskBase.set(taskId, confirmed);
+        });
+        bumpTaskStoreRevision(docIds);
+        return list.length;
     };
 
     const removeFlatTasksByDocLocal = (docId, options = {}) => {
@@ -511,7 +1330,18 @@
         if (!(task && typeof task === 'object')) return false;
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         Object.entries(nextPatch).forEach(([key, value]) => {
+            if (key === 'attachments') {
+                applyTaskStoreAttachmentPatch(task, value);
+                return;
+            }
             task[key] = value;
+            if (key === 'title' || key === 'content') {
+                const title = String(value == null ? '' : value).trim();
+                task.title = title;
+                task.content = title;
+                task.raw_content = title;
+                task.rawContent = title;
+            }
             if (key === 'startDate') task.start_date = value;
             if (key === 'completionTime') task.completion_time = value;
             if (key === 'customStatus') task.custom_status = value;
@@ -560,11 +1390,12 @@
         return touched;
     };
 
-    const mergeTaskStoreTask = (target, source) => {
+    const mergeTaskStoreTask = (target, source, options = {}) => {
         if (!(target && typeof target === 'object') || !(source && typeof source === 'object')) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
         const prevChildren = Array.isArray(target.children) ? target.children : null;
         Object.assign(target, source);
-        if ((!Array.isArray(source.children) || source.children.length === 0) && prevChildren) {
+        if (opts.replaceStructure !== true && prevChildren) {
             target.children = prevChildren;
         }
         return true;
@@ -586,6 +1417,18 @@
         touched = applyTaskStorePatch(task, nextPatch) || touched;
         touched = visitTaskStoreListsById(aliases, (taskLike) => applyTaskStorePatch(taskLike, nextPatch)) || touched;
         if (touched) {
+            const affectsPriorityScore = typeof __tmDoesPatchAffectPriorityScore === 'function'
+                && __tmDoesPatchAffectPriorityScore(nextPatch);
+            try {
+                if (affectsPriorityScore && typeof __tmSyncTaskPriorityScoreLocal === 'function') {
+                    __tmSyncTaskPriorityScoreLocal(tid, {
+                        includeAncestors: typeof __tmDoesPatchAffectAncestorPriorityScore === 'function'
+                            && __tmDoesPatchAffectAncestorPriorityScore(nextPatch),
+                        refreshAncestorViews: false,
+                        reason: String(options?.source || 'mutation-local-priority-sync').trim() || 'mutation-local-priority-sync',
+                    });
+                }
+            } catch (e) {}
             try { MetaStore?.set?.(resolveOptimisticTaskId(tid) || tid, nextPatch); } catch (e) {}
             try { state.listDomRenderSignature = ''; } catch (e) {}
         }
@@ -599,7 +1442,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         try {
             if (!state.flatTasks || typeof state.flatTasks !== 'object') state.flatTasks = {};
-            if (state.flatTasks[tid] && state.flatTasks[tid] !== nextTask) mergeTaskStoreTask(state.flatTasks[tid], nextTask);
+            if (state.flatTasks[tid] && state.flatTasks[tid] !== nextTask) mergeTaskStoreTask(state.flatTasks[tid], nextTask, opts);
             else state.flatTasks[tid] = nextTask;
         } catch (e) {}
         if (opts.pending === true) {
@@ -610,7 +1453,7 @@
                     expiresAt: opts.expiresAt || Date.now() + 120000,
                 };
                 if (state.pendingInsertedTasks[tid] && state.pendingInsertedTasks[tid] !== nextTask) {
-                    mergeTaskStoreTask(state.pendingInsertedTasks[tid], pendingTask);
+                    mergeTaskStoreTask(state.pendingInsertedTasks[tid], pendingTask, opts);
                 } else {
                     state.pendingInsertedTasks[tid] = pendingTask;
                 }
@@ -618,7 +1461,7 @@
         }
         try {
             visitTaskStoreListsById([tid], (taskLike) => {
-                mergeTaskStoreTask(taskLike, nextTask);
+                mergeTaskStoreTask(taskLike, nextTask, opts);
                 return true;
             });
         } catch (e) {}
@@ -730,15 +1573,36 @@
             return touched;
         };
         let mergedTask = null;
+        const relatedParentIds = new Set();
+        const directChildIds = new Set();
+        const collectKnownRelations = (task) => {
+            if (!(task && typeof task === 'object')) return;
+            const parentTaskId = normalizeId(task.parentTaskId || task.parent_task_id);
+            if (parentTaskId) relatedParentIds.add(parentTaskId);
+            (Array.isArray(task.children) ? task.children : []).forEach((child) => {
+                const childId = normalizeId(child?.id);
+                if (childId) directChildIds.add(childId);
+            });
+        };
         try {
             aliases.forEach((alias) => {
                 const task = state.flatTasks?.[alias] || state.pendingInsertedTasks?.[alias];
-                if (task && typeof task === 'object') mergedTask = { ...(mergedTask || {}), ...task };
+                if (task && typeof task === 'object') {
+                    collectKnownRelations(task);
+                    mergedTask = { ...(mergedTask || {}), ...task };
+                }
             });
-            if (state.flatTasks?.[to]) mergedTask = { ...(mergedTask || {}), ...state.flatTasks[to] };
-            if (state.pendingInsertedTasks?.[to]) mergedTask = { ...(mergedTask || {}), ...state.pendingInsertedTasks[to] };
+            if (state.flatTasks?.[to]) {
+                collectKnownRelations(state.flatTasks[to]);
+                mergedTask = { ...(mergedTask || {}), ...state.flatTasks[to] };
+            }
+            if (state.pendingInsertedTasks?.[to]) {
+                collectKnownRelations(state.pendingInsertedTasks[to]);
+                mergedTask = { ...(mergedTask || {}), ...state.pendingInsertedTasks[to] };
+            }
             if (mergedTask) {
                 mergedTask.id = to;
+                if (remapList(mergedTask.children)) changed = true;
                 if (opts.clientId) {
                     mergedTask.clientId = opts.clientId;
                     mergedTask.__tmClientId = opts.clientId;
@@ -758,6 +1622,43 @@
                 }
                 changed = true;
             }
+        } catch (e) {}
+        try {
+            let confirmedTask = null;
+            aliases.forEach((alias) => {
+                const task = confirmedTaskBase.get(alias);
+                if (task && typeof task === 'object') {
+                    collectKnownRelations(task);
+                    confirmedTask = { ...(confirmedTask || {}), ...task };
+                }
+                confirmedTaskBase.delete(alias);
+            });
+            if (confirmedTask) {
+                confirmedTask.id = to;
+                if (remapList(confirmedTask.children)) changed = true;
+                if (opts.clientId) {
+                    confirmedTask.clientId = opts.clientId;
+                    confirmedTask.__tmClientId = opts.clientId;
+                }
+                confirmedTaskBase.set(to, confirmedTask);
+                changed = true;
+            }
+            relatedParentIds.forEach((parentTaskId) => {
+                if (remapList(confirmedTaskBase.get(parentTaskId)?.children)) changed = true;
+            });
+            directChildIds.forEach((childTaskId) => {
+                if (remapOneTask(confirmedTaskBase.get(childTaskId))) changed = true;
+            });
+        } catch (e) {}
+        try {
+            [state.flatTasks, state.pendingInsertedTasks].forEach((taskMap) => {
+                relatedParentIds.forEach((parentTaskId) => {
+                    if (remapList(taskMap?.[parentTaskId]?.children)) changed = true;
+                });
+                directChildIds.forEach((childTaskId) => {
+                    if (remapOneTask(taskMap?.[childTaskId])) changed = true;
+                });
+            });
         } catch (e) {}
         try { if (remapList(state.filteredTasks)) changed = true; } catch (e) {}
         try {
@@ -887,20 +1788,9 @@
     const moveTaskLocal = (payload = {}, options = {}) => {
         const data = (payload && typeof payload === 'object') ? { ...payload } : {};
         data.mode = normalizeTaskMoveMode(data.mode);
-        const opts = (options && typeof options === 'object') ? options : {};
         try {
             if (typeof __tmApplyMoveOptimisticLocal === 'function') {
-                const forceOptimisticRender = data.forceOptimisticRender === true || opts.forceOptimisticRender === true;
-                const skipOptimisticFilterWork = forceOptimisticRender
-                    ? data.skipOptimisticFilterWork === true
-                    : (opts.mutationDriven === true ? true : data.skipOptimisticFilterWork === true);
-                return __tmApplyMoveOptimisticLocal({
-                    ...data,
-                    deferOptimisticRender: forceOptimisticRender ? false : (opts.mutationDriven === true ? true : data.deferOptimisticRender === true),
-                    skipOptimisticFilterWork,
-                    forceOptimisticRender,
-                    mutationDriven: opts.mutationDriven === true,
-                }) !== false;
+                return __tmApplyMoveOptimisticLocal(data) !== false;
             }
         } catch (e) {}
         return false;
@@ -941,6 +1831,20 @@
             } catch (e) {}
             return false;
         }
+        if (type === 'taskLifecycle' && normalizeId(m.data?.action) === 'archiveDeleted') {
+            try {
+                if (typeof __tmRollbackDeleteOptimisticLocal === 'function') {
+                    return __tmRollbackDeleteOptimisticLocal(m.snapshot, { mutationDriven: true }) !== false;
+                }
+            } catch (e) {}
+            return false;
+        }
+        if (type === 'taskLifecycle' && normalizeId(m.data?.action) === 'restoreDeleted') {
+            return deleteTaskLocal(m.snapshot || m.taskId, {
+                taskId: m.taskId,
+                source: m.source,
+            });
+        }
         if (type === 'moveTask') {
             try {
                 if (typeof __tmRollbackMoveOptimisticLocal === 'function') {
@@ -958,37 +1862,6 @@
     const __tmTaskMutationState = {
         seq: 0,
         listeners: new Set(),
-        log: [],
-    };
-
-    const __tmTaskTraceState = {
-        seq: 0,
-        log: [],
-        limit: 240,
-    };
-
-    const pushTaskTrace = (scope, payload = {}) => {
-        const entry = {
-            id: ++__tmTaskTraceState.seq,
-            scope: String(scope || '').trim() || 'task-trace',
-            ts: Date.now(),
-            time: new Date().toISOString(),
-            payload: cloneTaskMutationValue(payload),
-        };
-        __tmTaskTraceState.log.push(entry);
-        if (__tmTaskTraceState.log.length > __tmTaskTraceState.limit) {
-            __tmTaskTraceState.log.splice(0, __tmTaskTraceState.log.length - __tmTaskTraceState.limit);
-        }
-        try {
-            globalThis.__tmTaskTraceLog = __tmTaskTraceState.log;
-            globalThis.__tmTaskTraceLast = entry;
-        } catch (e) {}
-        return entry;
-    };
-
-    const dumpTaskTrace = (limit = 40) => {
-        const count = Math.max(1, Math.min(__tmTaskTraceState.limit, Number(limit) || 40));
-        return __tmTaskTraceState.log.slice(-count).map((entry) => cloneTaskMutationValue(entry)).filter(Boolean);
     };
 
     // Mutation bus and projections: normalize local mutations and schedule derived UI/cache work.
@@ -1008,9 +1881,17 @@
 
     const normalizeTaskMutationPatch = (mutation) => {
         const src = (mutation && typeof mutation === 'object') ? mutation : {};
-        if (src.patch && typeof src.patch === 'object' && !Array.isArray(src.patch)) return { ...src.patch };
+        const normalizePresentationPatch = (patch) => {
+            const normalized = { ...patch };
+            if (Object.prototype.hasOwnProperty.call(normalized, 'title')
+                && !Object.prototype.hasOwnProperty.call(normalized, 'content')) {
+                normalized.content = String(normalized.title || '').trim();
+            }
+            return normalized;
+        };
+        if (src.patch && typeof src.patch === 'object' && !Array.isArray(src.patch)) return normalizePresentationPatch(src.patch);
         const data = (src.data && typeof src.data === 'object') ? src.data : {};
-        if (data.patch && typeof data.patch === 'object' && !Array.isArray(data.patch)) return { ...data.patch };
+        if (data.patch && typeof data.patch === 'object' && !Array.isArray(data.patch)) return normalizePresentationPatch(data.patch);
         if (data.statusPatch && typeof data.statusPatch === 'object' && !Array.isArray(data.statusPatch)) {
             return {
                 ...data.statusPatch,
@@ -1189,7 +2070,7 @@
         });
         const passthrough = {};
         Object.entries(src).forEach(([key, value]) => {
-            if (key === 'data' || key === 'task' || key === 'snapshot' || key === 'perfTrace') return;
+            if (key === 'data' || key === 'task' || key === 'snapshot') return;
             if (typeof value === 'function') return;
             passthrough[key] = cloneTaskMutationValue(value);
         });
@@ -1221,28 +2102,6 @@
 
     const notifyTaskMutation = (mutation = {}) => {
         const normalized = normalizeTaskMutation(mutation);
-        try {
-            pushTaskTrace('mutation', {
-                type: String(normalized.type || '').trim(),
-                phase: String(normalized.phase || '').trim(),
-                taskId: String(normalized.taskId || '').trim(),
-                tempId: String(normalized.tempId || '').trim(),
-                realId: String(normalized.realId || '').trim(),
-                source: String(normalized.source || '').trim(),
-                opId: String(normalized.opId || normalized.data?.opId || '').trim(),
-            });
-            __tmTaskMutationState.log.push({
-                ...cloneTaskMutationValue({
-                    ...normalized,
-                    data: undefined,
-                    task: undefined,
-                    snapshot: undefined,
-}),
-                task: undefined,
-                snapshot: undefined,
-});
-            if (__tmTaskMutationState.log.length > 120) __tmTaskMutationState.log.splice(0, __tmTaskMutationState.log.length - 120);
-        } catch (e) {}
         try { __tmMarkMobileCloseSyncDirtyForTaskMutation(normalized); } catch (e) {}
         Array.from(__tmTaskMutationState.listeners).forEach((handler) => {
             try { handler(normalized); } catch (e) {}
@@ -1261,6 +2120,11 @@
     const applyTaskMutation = (mutation = {}, options = {}) => {
         const normalized = normalizeTaskMutation(mutation);
         const opts = (options && typeof options === 'object') ? options : {};
+        if (normalized.phase === 'optimistic') beginTaskOverlay(normalized);
+        else if (normalized.phase === 'local') settleTaskOverlay(normalized, true);
+        else if (normalized.phase === 'commit') settleTaskOverlay(normalized, true);
+        else if (normalized.phase === 'rollback') settleTaskOverlay(normalized, false);
+        try { rememberPendingStructuralMutation(normalized); } catch (e) {}
         if (opts.applyLocal !== false) {
             if (normalized.phase === 'rollback') {
                 rollbackMutationLocal(normalized);
@@ -1289,7 +2153,7 @@
                     keepPending: true,
                 });
             }
-            if ((normalized.type === 'taskPatch' || normalized.type === 'attrPatch' || normalized.type === 'contentPatch' || normalized.type === 'setDone')
+            if ((normalized.type === 'taskPatch' || normalized.type === 'contentPatch' || normalized.type === 'setDone')
                 && normalized.taskId && Object.keys(normalized.patch || {}).length) {
                 patchTaskLocal(normalized.taskId, normalized.patch, {
                     source: normalized.source,
@@ -1299,9 +2163,38 @@
                     taskId: normalized.taskId,
                     source: normalized.source,
                 });
+            } else if (normalized.type === 'taskLifecycle'
+                && normalizeId(normalized.data?.action) === 'archiveDeleted'
+                && normalized.taskId) {
+                deleteTaskLocal(normalized.snapshot || normalized.taskId, {
+                    taskId: normalized.taskId,
+                    source: normalized.source,
+                });
+            } else if (normalized.type === 'taskLifecycle'
+                && normalizeId(normalized.data?.action) === 'restoreDeleted'
+                && normalized.taskId) {
+                try {
+                    if (typeof __tmRollbackDeleteOptimisticLocal === 'function') {
+                        __tmRollbackDeleteOptimisticLocal(normalized.snapshot, { mutationDriven: true });
+                    }
+                } catch (e) {}
             } else if (normalized.type === 'moveTask') {
+                const placement = normalized.placement && typeof normalized.placement === 'object'
+                    ? normalized.placement
+                    : null;
+                const authoritativeMove = placement ? (() => {
+                    const previousSiblingId = normalizeId(placement.previousSiblingID || placement.previousSiblingId);
+                    const nextSiblingId = normalizeId(placement.nextSiblingID || placement.nextSiblingId);
+                    const parentTaskId = normalizeId(placement.parentTaskID || placement.parentTaskId);
+                    const targetDocId = normalizeId(placement.documentID || placement.documentId || normalized.nextDocId || normalized.docId);
+                    if (previousSiblingId) return { mode: 'after', targetTaskId: previousSiblingId, targetDocId, targetParentTaskId: parentTaskId };
+                    if (nextSiblingId) return { mode: 'before', targetTaskId: nextSiblingId, targetDocId, targetParentTaskId: parentTaskId };
+                    if (parentTaskId) return { mode: 'child-top', targetTaskId: parentTaskId, targetDocId, targetParentTaskId: parentTaskId };
+                    return { mode: 'docTop', targetDocId };
+                })() : null;
                 moveTaskLocal({
                     ...normalized.data,
+                    ...(authoritativeMove || {}),
                     taskId: normalized.taskId,
                     targetTaskId: normalized.targetTaskId || normalized.data?.targetTaskId,
                     targetDocId: normalized.nextDocId || normalized.docId || normalized.data?.targetDocId,
@@ -1354,178 +2247,6 @@
         return notifyTaskMutation(normalized);
     };
 
-    const addTaskProjectionId = (ids, value) => {
-        if (!(ids instanceof Set)) return;
-        const raw = normalizeId(value);
-        if (!raw) return;
-        ids.add(raw);
-        try {
-            const aliases = globalThis.__tmRuntimeState?.getTaskIdAliases?.(raw);
-            (Array.isArray(aliases) ? aliases : []).forEach((id) => {
-                const nextId = normalizeId(id);
-                if (nextId) ids.add(nextId);
-            });
-        } catch (e) {}
-        try {
-            const aliases = globalThis.__tmTaskStore?.getAliases?.(raw);
-            (Array.isArray(aliases) ? aliases : []).forEach((id) => {
-                const nextId = normalizeId(id);
-                if (nextId) ids.add(nextId);
-            });
-        } catch (e) {}
-    };
-
-    try {
-        globalThis.__tmTaskTrace = {
-            push: pushTaskTrace,
-            dump: dumpTaskTrace,
-            clear() {
-                __tmTaskTraceState.log.length = 0;
-                globalThis.__tmTaskTraceLog = __tmTaskTraceState.log;
-                globalThis.__tmTaskTraceLast = null;
-                return true;
-            },
-        };
-    } catch (e) {}
-
-    const collectProjectionMutationTaskIds = (mutation = {}, affectedTaskIds = []) => {
-        const m = (mutation && typeof mutation === 'object') ? mutation : {};
-        const data = (m.data && typeof m.data === 'object') ? m.data : {};
-        const affected = (m.affected && typeof m.affected === 'object') ? m.affected : {};
-        const snapshot = (m.snapshot && typeof m.snapshot === 'object') ? m.snapshot : ((data.snapshot && typeof data.snapshot === 'object') ? data.snapshot : null);
-        const ids = new Set();
-        [
-            m.taskId,
-            m.tempId,
-            m.realId,
-            m.parentTaskId,
-            m.targetTaskId,
-            data.taskId,
-            data.tempId,
-            data.realId,
-            data.insertedTaskId,
-            data.parentTaskId,
-            data.sourceTaskId,
-            data.targetTaskId,
-            data.targetParentTaskId,
-            snapshot?.taskId,
-            snapshot?.parentTaskId,
-            snapshot?.task?.id,
-            snapshot?.task?.parentTaskId,
-            snapshot?.task?.parent_task_id,
-        ].forEach((id) => addTaskProjectionId(ids, id));
-        (Array.isArray(m.taskIds) ? m.taskIds : []).forEach((id) => addTaskProjectionId(ids, id));
-        (Array.isArray(affectedTaskIds) ? affectedTaskIds : []).forEach((id) => addTaskProjectionId(ids, id));
-        (Array.isArray(affected.taskIds) ? affected.taskIds : []).forEach((id) => addTaskProjectionId(ids, id));
-        (Array.isArray(affected.parentTaskIds) ? affected.parentTaskIds : []).forEach((id) => addTaskProjectionId(ids, id));
-        (Array.isArray(affected.subtreeIds) ? affected.subtreeIds : []).forEach((id) => addTaskProjectionId(ids, id));
-        (Array.isArray(affected.aliases) ? affected.aliases : []).forEach((id) => addTaskProjectionId(ids, id));
-        [
-            affected.previousParentTaskId,
-            affected.nextParentTaskId,
-            affected.primaryTaskId,
-        ].forEach((id) => addTaskProjectionId(ids, id));
-        (Array.isArray(data.scheduleCleanupTaskIds) ? data.scheduleCleanupTaskIds : []).forEach((id) => addTaskProjectionId(ids, id));
-        return Array.from(ids).filter(Boolean);
-    };
-
-    const scheduleVisibleDetailProjectionRefresh = (mutation = {}, affectedTaskIds = [], options = {}) => {
-        if (typeof __tmScheduleViewRefresh !== 'function') return false;
-        if (typeof __tmCollectVisibleTaskDetailTargetIds !== 'function') return false;
-        const ids = collectProjectionMutationTaskIds(mutation, affectedTaskIds);
-        if (!ids.length) return false;
-        const targets = (() => {
-            try { return __tmCollectVisibleTaskDetailTargetIds(); } catch (e) { return []; }
-        })();
-        if (!Array.isArray(targets) || !targets.length) return false;
-        const detailIds = new Set();
-        targets.forEach((targetId) => {
-            const tid = normalizeId(targetId);
-            if (!tid) return;
-            const hit = ids.some((id) => {
-                try {
-                    if (typeof __tmAreTaskDetailIdsEquivalent === 'function') return __tmAreTaskDetailIdsEquivalent(id, tid);
-                } catch (e) {}
-                return normalizeId(id) === tid;
-            });
-            if (hit) detailIds.add(tid);
-        });
-        if (!detailIds.size) return false;
-        __tmScheduleViewRefresh({
-            mode: 'detail',
-            withFilters: false,
-            reason: normalizeId(options.reason) || normalizeId(mutation?.source) || `mutation-${normalizeId(mutation?.type) || 'detail'}`,
-            taskIds: Array.from(detailIds),
-            forceRebuild: options.forceRebuild === true,
-        });
-        return true;
-    };
-
-    const normalizeMutationRefreshPolicyBoolean = (value, fallback = false) => {
-        if (value === true) return true;
-        if (value === false) return false;
-        return !!fallback;
-    };
-
-    const getMutationRefreshPolicyValue = (policy, key, fallback) => {
-        if (policy && typeof policy === 'object' && Object.prototype.hasOwnProperty.call(policy, key)) {
-            return policy[key];
-        }
-        return fallback;
-    };
-
-    const normalizeMutationRefreshPolicy = (mutation = {}, context = {}) => {
-        const m = (mutation && typeof mutation === 'object') ? mutation : {};
-        const data = (m.data && typeof m.data === 'object') ? m.data : {};
-        const type = normalizeId(context.type || m.type);
-        const phase = normalizeId(context.phase || m.phase);
-        const parentTaskId = normalizeId(context.parentTaskId || m.parentTaskId);
-        const structural = context.structural === true;
-        const legacyCurrent = data.refreshCurrentView !== false;
-        const legacySnapshot = data.scheduleSnapshotRefresh !== false
-            && data.skipSnapshotViewStateFilterRefresh !== true;
-        const rawPolicy = (data.refreshPolicy && typeof data.refreshPolicy === 'object')
-            ? data.refreshPolicy
-            : ((m.refreshPolicy && typeof m.refreshPolicy === 'object') ? m.refreshPolicy : {});
-        const base = {
-            current: false,
-            detail: false,
-            checklistGroup: false,
-            snapshot: legacySnapshot,
-            withFilters: false,
-            forceDetailRebuild: false,
-            projection: false,
-        };
-        if (type === 'createSubtask') {
-            base.current = legacyCurrent;
-            base.detail = true;
-            base.checklistGroup = true;
-        } else if (type === 'commitTaskId') {
-            base.current = legacyCurrent;
-            base.detail = legacyCurrent;
-            base.checklistGroup = !!parentTaskId;
-        } else if (type === 'moveTask' || type === 'deleteTask') {
-            base.current = phase !== 'commit';
-            base.detail = true;
-            base.withFilters = phase === 'rollback';
-            base.forceDetailRebuild = true;
-        } else if (type === 'createTaskInDoc' || type === 'createSibling') {
-            base.current = true;
-        } else if (structural) {
-            base.projection = true;
-        }
-        return {
-            current: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'current', base.current), base.current),
-            detail: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'detail', base.detail), base.detail),
-            checklistGroup: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'checklistGroup', base.checklistGroup), base.checklistGroup),
-            snapshot: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'snapshot', base.snapshot), base.snapshot),
-            withFilters: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'withFilters', base.withFilters), base.withFilters),
-            forceDetailRebuild: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'forceDetailRebuild', base.forceDetailRebuild), base.forceDetailRebuild),
-            projection: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'projection', base.projection), base.projection),
-            reason: normalizeId(rawPolicy.reason) || normalizeId(m.source) || `mutation-${type || 'unknown'}`,
-        };
-    };
-
     const scheduleMutationSnapshotRefresh = (mutation = {}, context = {}, policy = {}) => {
         const m = (mutation && typeof mutation === 'object') ? mutation : {};
         const patch = (context.patch && typeof context.patch === 'object') ? context.patch : {};
@@ -1556,129 +2277,100 @@
         return false;
     };
 
+    const normalizeTaskChangeSet = (mutation = {}) => {
+        const m = mutation && typeof mutation === 'object' ? mutation : {};
+        const raw = m.changeSet && typeof m.changeSet === 'object' ? m.changeSet : {};
+        const type = normalizeId(m.type);
+        const taskId = normalizeId(m.realId || m.taskId || m.tempId);
+        const affected = m.affected && typeof m.affected === 'object' ? m.affected : {};
+        const normalizeIds = (values) => Array.from(new Set((Array.isArray(values) ? values : [])
+            .map((value) => normalizeId(value?.taskID || value?.taskId || value))
+            .filter(Boolean)));
+        const structural = type === 'createTaskInDoc' || type === 'createSubtask' || type === 'createSibling'
+            || type === 'moveTask' || type === 'deleteTask' || type === 'taskLifecycle' || type === 'commitTaskId';
+        const deletedByMutation = isTaskStoreDeleteMutation(m);
+        const fieldChanges = Array.isArray(raw.fieldChanges) ? raw.fieldChanges.slice() : [];
+        if (!fieldChanges.length && taskId && m.patch && Object.keys(m.patch).length) {
+            fieldChanges.push({ taskId, patch: { ...m.patch }, fields: Object.keys(m.patch) });
+        }
+        return {
+            upsertedTaskIds: normalizeIds(raw.upsertedTaskIds?.length
+                ? raw.upsertedTaskIds
+                : (structural && !deletedByMutation ? [taskId] : [])),
+            deletedTaskIds: normalizeIds(raw.deletedTaskIds?.length
+                ? raw.deletedTaskIds
+                : collectDeletedTaskIds(m)),
+            fieldChanges: fieldChanges.map((item) => ({
+                taskId: normalizeId(item?.taskId || item?.taskID || taskId),
+                patch: item?.patch && typeof item.patch === 'object' ? { ...item.patch } : { ...(m.patch || {}) },
+                fields: Array.isArray(item?.fields) ? item.fields.slice() : Object.keys(item?.patch || m.patch || {}),
+            })).filter((item) => item.taskId),
+            placementChanges: Array.isArray(raw.placementChanges)
+                ? raw.placementChanges.slice()
+                : (type === 'moveTask' && taskId ? [{ taskId, placement: m.placement || m.data || null }] : []),
+            affectedGroupIds: normalizeIds([
+                ...(Array.isArray(raw.affectedGroupIds) ? raw.affectedGroupIds : []),
+                ...(Array.isArray(affected.parentTaskIds) ? affected.parentTaskIds : []),
+                affected.previousParentTaskId,
+                affected.nextParentTaskId,
+                m.parentTaskId,
+                m.targetTaskId,
+            ]),
+            affectedDocumentIds: normalizeIds([
+                ...(Array.isArray(raw.affectedDocumentIds) ? raw.affectedDocumentIds : []),
+                ...(Array.isArray(affected.docIds) ? affected.docIds : []),
+                m.docId,
+                m.previousDocId,
+                m.nextDocId,
+            ]),
+            structural,
+        };
+    };
+
+    let pendingChangeSetFrame = 0;
+    const pendingChangeSets = [];
+
+    const flushTaskChangeSets = () => {
+        pendingChangeSetFrame = 0;
+        const entries = pendingChangeSets.splice(0, pendingChangeSets.length);
+        if (!entries.length) return;
+        try { globalThis.__tmTaskProjectionEngine?.flush?.(entries); } catch (e) {}
+    };
+
+    const scheduleTaskChangeSet = (mutation, changeSet) => {
+        pendingChangeSets.push({ mutation, changeSet });
+        if (pendingChangeSetFrame) return true;
+        pendingChangeSetFrame = 1;
+        try { queueMicrotask(flushTaskChangeSets); }
+        catch (e) { Promise.resolve().then(flushTaskChangeSets); }
+        return true;
+    };
+
     const __tmProjectionManager = {
         handle(mutation) {
-            const m = normalizeTaskMutation(mutation);
-            const type = m.type;
-            const patch = (m.patch && typeof m.patch === 'object') ? m.patch : {};
-            const taskId = normalizeId(m.realId || m.taskId || m.tempId);
-            const affected = (m.affected && typeof m.affected === 'object') ? m.affected : {};
-            const affectedTaskIds = Array.from(new Set([
-                ...((Array.isArray(affected.taskIds) ? affected.taskIds : [])),
-                ...((Array.isArray(affected.parentTaskIds) ? affected.parentTaskIds : [])),
-                ...((Array.isArray(affected.subtreeIds) ? affected.subtreeIds : [])),
-                ...((Array.isArray(affected.aliases) ? affected.aliases : [])),
-                ...((Array.isArray(m.taskIds) ? m.taskIds : [])),
-            ].map((id) => normalizeId(id)).filter(Boolean)));
-            const parentTaskId = normalizeId(m.parentTaskId || affected.nextParentTaskId || affected.previousParentTaskId);
-            const structural = type === 'createTaskInDoc'
-                || type === 'createSubtask'
-                || type === 'createSibling'
-                || type === 'deleteTask'
-                || type === 'moveTask'
-                || type === 'commitTaskId';
-            const refreshPolicy = normalizeMutationRefreshPolicy(m, {
-                type,
-                phase: m.phase,
-                parentTaskId,
-                structural,
-            });
-
-            scheduleMutationSnapshotRefresh(m, { structural, taskId, patch }, refreshPolicy);
-
-            try {
-                if (type === 'createSubtask') {
-                    if (refreshPolicy.detail === true) {
-                        scheduleVisibleDetailProjectionRefresh(m, affectedTaskIds, {
-                            reason: refreshPolicy.reason || 'mutation-create-subtask-detail',
-                        });
-                    }
-                    if (refreshPolicy.checklistGroup === true && typeof __tmScheduleChecklistOptimisticSubtaskRefresh === 'function') {
-                        __tmScheduleChecklistOptimisticSubtaskRefresh(parentTaskId, taskId);
-                    }
-                    if (refreshPolicy.current === true && typeof __tmScheduleViewRefresh === 'function') {
-                        __tmScheduleViewRefresh({
-                            mode: 'current',
-                            withFilters: refreshPolicy.withFilters === true,
-                            reason: refreshPolicy.reason || 'mutation-create-subtask',
-                            taskIds: affectedTaskIds.length
-                                ? affectedTaskIds
-                                : Array.from(new Set([parentTaskId, taskId].filter(Boolean))),
-                        });
-                    }
-                    return;
-                }
-                if (type === 'commitTaskId') {
-                    const ids = Array.from(new Set([m.tempId, m.realId, m.taskId, ...affectedTaskIds].map((id) => normalizeId(id)).filter(Boolean)));
-                    let checklistScheduled = false;
-                    if (refreshPolicy.checklistGroup === true && parentTaskId && typeof __tmScheduleChecklistOptimisticSubtaskRefresh === 'function') {
-                        checklistScheduled = __tmScheduleChecklistOptimisticSubtaskRefresh(parentTaskId, taskId) === true;
-                    }
-                    if (refreshPolicy.detail === true && parentTaskId && typeof __tmScheduleViewRefresh === 'function') {
-                        __tmScheduleViewRefresh({
-                            mode: 'detail',
-                            withFilters: false,
-                            reason: refreshPolicy.reason || 'mutation-commit-task-id',
-                            taskIds: Array.from(new Set([parentTaskId, ...ids].filter(Boolean))),
-                        });
-                    } else if (refreshPolicy.detail === true && !parentTaskId) {
-                        scheduleVisibleDetailProjectionRefresh(m, affectedTaskIds, {
-                            reason: refreshPolicy.reason || 'mutation-commit-task-id-detail',
-                        });
-                    }
-                    if (refreshPolicy.current === true && parentTaskId && !checklistScheduled && typeof __tmScheduleViewRefresh === 'function') {
-                        __tmScheduleViewRefresh({
-                            mode: 'current',
-                            withFilters: refreshPolicy.withFilters === true,
-                            reason: refreshPolicy.reason || 'mutation-commit-task-id-current-fallback',
-                            taskIds: ids,
-                        });
-                        return;
-                    }
-                    if (refreshPolicy.current === true && !parentTaskId && taskId && typeof __tmScheduleViewRefresh === 'function') {
-                        __tmScheduleViewRefresh({
-                            mode: 'current',
-                            withFilters: refreshPolicy.withFilters === true,
-                            reason: refreshPolicy.reason || 'mutation-commit-task-id',
-                            taskIds: ids,
-                        });
-                    }
-                    return;
-                }
-                if (type === 'moveTask' || type === 'deleteTask') {
-                    if (refreshPolicy.detail === true) {
-                        scheduleVisibleDetailProjectionRefresh(m, affectedTaskIds, {
-                            reason: refreshPolicy.reason || `mutation-${type}-detail`,
-                            forceRebuild: refreshPolicy.forceDetailRebuild === true,
-                        });
-                    }
-                    if (refreshPolicy.current === true && typeof __tmScheduleViewRefresh === 'function') {
-                        __tmScheduleViewRefresh({
-                            mode: 'current',
-                            withFilters: refreshPolicy.withFilters === true,
-                            reason: refreshPolicy.reason || `mutation-${type}`,
-                            taskIds: affectedTaskIds.length ? affectedTaskIds : m.taskIds,
-                        });
-                    }
-                    return;
-                }
-                if ((type === 'createTaskInDoc' || type === 'createSibling') && refreshPolicy.current === true && taskId && typeof __tmScheduleViewRefresh === 'function') {
-                    __tmScheduleViewRefresh({
-                        mode: 'current',
-                        withFilters: refreshPolicy.withFilters === true,
-                        reason: refreshPolicy.reason || `mutation-${type}`,
-                        taskIds: affectedTaskIds.length ? affectedTaskIds : [taskId],
+            const normalized = normalizeTaskMutation(mutation);
+            const changeSet = normalizeTaskChangeSet(normalized);
+            normalized.changeSet = changeSet;
+            if (normalized.data?.deferProjection === true) return changeSet;
+            if (normalized.phase === 'commit') {
+                try {
+                    scheduleMutationSnapshotRefresh(normalized, {
+                        structural: changeSet.structural,
+                        taskId: normalizeId(normalized.realId || normalized.taskId || normalized.tempId),
+                        patch: normalized.patch || {},
+                    }, {
+                        snapshot: true,
+                        reason: normalizeId(normalized.source) || 'change-set-commit',
                     });
-                    return;
-                }
-                if (refreshPolicy.projection === true && structural && taskId && Object.keys(patch).length && typeof __tmScheduleTaskProjectionRefresh === 'function') {
-                    __tmScheduleTaskProjectionRefresh(taskId, patch, {
-                        withFilters: refreshPolicy.withFilters === true,
-                        reason: refreshPolicy.reason || `mutation-${type}`,
-                        forceProjectionRefresh: false,
-                    });
-                }
-            } catch (e) {}
+                } catch (e) {}
+            }
+            if (normalized.phase === 'optimistic'
+                || normalized.phase === 'local'
+                || normalized.phase === 'rollback'
+                || (normalized.phase === 'commit' && changeSet.structural)) {
+                scheduleTaskChangeSet(normalized, changeSet);
+            }
+            return changeSet;
         },
         subscribe(handler) {
             return subscribeTaskMutation(handler);
@@ -1799,10 +2491,10 @@
                 }
             });
         } catch (e) {}
-        let outbox = null;
-        try { outbox = globalThis.__tmTaskHorizonOutbox?.status?.() || null; } catch (e) {}
-        let outboxRefs = [];
-        try { outboxRefs = globalThis.__tmTaskHorizonOutbox?.pendingRefs?.({ limit: 80 }) || []; } catch (e) {}
+        let mutation = null;
+        try { mutation = globalThis.__tmTaskMutations?.status?.() || null; } catch (e) {}
+        let mutationRefs = [];
+        try { mutationRefs = globalThis.__tmTaskMutations?.pendingRefs?.({ limit: 80 }) || []; } catch (e) {}
         const staleDeletedCount = pendingDeletedFlat.length + pendingDeletedTree.length + pendingDeletedPending.length;
         const structuralIssueCount = duplicateTreeIds.length + parentMismatches.length + flatTreeMismatches.length + danglingSelectionIds.length;
         return {
@@ -1821,9 +2513,8 @@
             pendingDeletedTree: pendingDeletedTree.slice(0, 80),
             pendingDeletedPending: pendingDeletedPending.slice(0, 80),
             identityGaps: identityGaps.slice(0, 80),
-            mutationLogSize: __tmTaskMutationState.log.length,
-            outbox,
-            outboxRefs,
+            mutation,
+            mutationRefs,
         };
     };
 
@@ -1848,6 +2539,20 @@
         mutateLocal: mutateLocalTask,
         upsertLocal: upsertTaskLocal,
         replaceFlat: replaceFlatTasksLocal,
+        acceptAuthoritative: acceptAuthoritativeTasksLocal,
+        captureRead: captureTaskStoreRead,
+        isReadCurrent: isTaskStoreReadCurrent,
+        revision: () => taskStoreRevision,
+        getConfirmed: (taskId) => cloneTaskRecord(confirmedTaskBase.get(normalizeId(taskId))),
+        getProjected: (taskId) => projectTaskFromBase(taskId, getTaskById(taskId, { includePending: true, preferPending: true })),
+        listProjectedDirectChildren,
+        projectRead: projectTaskRead,
+        listPendingOverlays: () => Array.from(pendingTaskOverlays.values()).map((entry) => ({
+            ...entry,
+            taskIds: Array.isArray(entry.taskIds) ? entry.taskIds.slice() : [],
+            patch: { ...(entry.patch || {}) },
+        })),
+        hasPendingCompletionOverlay,
         clearFlat: clearFlatTasksLocal,
         removeFlatByDoc: removeFlatTasksByDocLocal,
         createPendingTask: createPendingTaskLocal,
@@ -1860,6 +2565,14 @@
         deleteTaskLocal,
         rollbackMutation: rollbackMutationLocal,
         normalizeMoveMode: normalizeTaskMoveMode,
+        rememberPendingStructural: rememberPendingStructuralMutation,
+        mergePendingStructuralRows,
+        getPendingStructural: (taskId) => {
+            prunePendingStructuralMutations();
+            return pendingStructuralMutations.get(normalizeId(taskId)) || null;
+        },
+        listPendingStructural: () => Array.from(prunePendingStructuralMutations().values()).map((entry) => ({ ...entry })),
+        clearPendingStructural: (taskId) => pendingStructuralMutations.delete(normalizeId(taskId)),
         insertPending(task, options = {}) {
             return upsertTaskLocal(task, { ...(options && typeof options === 'object' ? options : {}), pending: true });
         },
@@ -1887,7 +2600,6 @@
         apply: applyTaskMutation,
         subscribe: subscribeTaskMutation,
         normalize: normalizeTaskMutation,
-        log: () => __tmTaskMutationState.log.slice(),
     };
     globalThis.__tmTaskProjectionManager = __tmProjectionManager;
     globalThis.__tmTaskHorizonConsistency = {

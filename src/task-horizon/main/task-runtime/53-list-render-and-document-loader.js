@@ -3,6 +3,9 @@
             ? renderContext
             : __tmBuildListRenderContext();
         const options = (renderOptions && typeof renderOptions === 'object') ? renderOptions : {};
+        const titleSurface = ['table', 'calendar'].includes(String(options.titleSurface || '').trim())
+            ? String(options.titleSurface || '').trim()
+            : 'table';
         const colOrder = (Array.isArray(context.colOrder) && context.colOrder.length)
             ? context.colOrder
             : __tmGetDefaultColumnOrder();
@@ -16,10 +19,8 @@
         const isGloballyLocked = GlobalLock.isLocked();
         const isListView = globalThis.__tmRuntimeState?.isViewMode?.('list') ?? (String(state.viewMode || '').trim() === 'list');
         const virtualThreshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 50;
-        const progressiveListRender = state.__tmProgressiveViewRender?.mode === 'list'
-            && state.__tmProgressiveViewRender?.tasksRef === state.filteredTasks;
         const startTaskRow = Math.max(0, Math.round(Number(options.startTaskRow) || 0));
-        const virtualEnabled = isListView && (progressiveListRender || startTaskRow > 0 || state.filteredTasks.length > virtualThreshold);
+        const virtualEnabled = isListView && (startTaskRow > 0 || state.filteredTasks.length > virtualThreshold);
         const listStep = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
         const taskRowLimit = virtualEnabled
             ? Math.max(listStep, Math.min(state.filteredTasks.length, Number(state.listRenderLimit) || listStep))
@@ -112,20 +113,10 @@
             if (ats !== bts) return ats - bts;
             return getTaskOrder(String(a?.id || '')) - getTaskOrder(String(b?.id || ''));
         };
-        const activeSortRuleForRender = (() => {
-            try {
-                if (typeof __tmGetCurrentRule === 'function') return __tmGetCurrentRule();
-            } catch (e) {}
-            return state.currentRule
-                ? (Array.isArray(state.filterRules) ? state.filterRules.find((rule) => rule?.id === state.currentRule) : null)
-                : null;
-        })();
-        const hasExplicitSortForRender = __tmRuleHasExplicitSort(activeSortRuleForRender);
-        const ruleSortRuntimeForRender = {
-            fieldInfoCache: new Map(),
-            valueMemo: new WeakMap(),
-            timeSortMemo: new Map(),
-        };
+        const renderSortContext = __tmBuildRuleSortContext();
+        const activeSortRuleForRender = renderSortContext.rule;
+        const hasExplicitSortForRender = renderSortContext.hasExplicitSort;
+        const ruleSortRuntimeForRender = renderSortContext.runtime;
         const sortRenderGroupItems = (items, fallbackCompare = null) => {
             const list = Array.isArray(items) ? items : [];
             if (list.length <= 1) return list;
@@ -224,7 +215,7 @@
             const allChildren = Array.isArray(task?.children) ? task.children : [];
             let completed = 0;
             for (let i = 0; i < allChildren.length; i += 1) {
-                if (allChildren[i]?.done) completed += 1;
+                if (__tmIsTaskCompletedForProjection(allChildren[i])) completed += 1;
             }
             const stats = {
                 total: allChildren.length,
@@ -260,7 +251,7 @@
             // 计算子任务进度条背景（复用已定义的 allChildren, totalChildren, completedChildren）
             const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
             const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
-            const progressBgStyle = (hasChildren && progressPercent > 0)
+            const progressBgStyle = progressPercent > 0
                 ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                 : '';
             const globalCollectIconHtml = hasContentCol ? __tmRenderGlobalCollectDocTaskInlineIcon(task) : '';
@@ -286,9 +277,10 @@
                 ? __tmBuildStatusChipStyle(statusOption?.color)
                 : '';
             const reminderHtml = hasContentCol && __tmHasReminderMark(task) ? __tmRenderReminderIcon() : '';
-            const completedTodayBadgeHtml = opts.inCompletedRootGroup === true
-                ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
-                : '';
+            const completedTodayBadgeHtml = __tmRenderCompletedTodayBadge(task, {
+                todayKey: completedTodayKey,
+                inCompletedRootGroup: opts.inCompletedRootGroup === true,
+            });
             const recurringInstanceBadgeHtml = __tmRenderRecurringInstanceBadge(task, recurringBadgeInlineOptions);
             const titleInlineBadgeClass = (completedTodayBadgeHtml || recurringInstanceBadgeHtml)
                 ? ' tm-task-content-clickable--inline-badges'
@@ -348,7 +340,7 @@
                             </span>
                             <span class="tm-task-text${taskTextSearchRemarkClass} ${done ? 'tm-task-done' : ''}"
                                   data-level="${depth}">
-                                <span class="tm-task-content-clickable${titleInlineBadgeClass}" onclick="tmJumpToTask('${taskId}', event)"${contentTooltip} style="${__tmBuildTaskTitleOpacityStyle(task)}">${renderedContent}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderPinnedTaskInlineIcon(task)}${reminderHtml}${recurringInstanceBadgeHtml}</span>
+                                <span class="tm-task-content-clickable${titleInlineBadgeClass}" onclick="tmTaskTitleClick('${taskId}', event, { surface: '${titleSurface}' })"${contentTooltip} style="${__tmBuildTaskTitleOpacityStyle(task)}">${renderedContent}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderPinnedTaskInlineIcon(task)}${reminderHtml}${recurringInstanceBadgeHtml}</span>
                                 ${remarkSearchSnippetHtml}
                             </span>
                             <button class="tm-subtask-create-btn"
@@ -411,7 +403,7 @@
                         break;
                     case 'spent': {
                         const txt = useTomatoSpentHours
-                            ? __tmFormatSpentHours(__tmParseNumber(task?.tomatoHours))
+                            ? __tmFormatSpentHours(__tmGetTaskTomatoFocusValues(task).tomatoHours)
                             : __tmFormatSpentMinutes(__tmGetTaskSpentMinutes(task));
                         rowHtml += `<td class="tm-task-meta-cell" style="${getTableCellStyle('spent', 'text-align:center; font-variant-numeric: inherit;')}">${esc(txt)}</td>`;
                         break;
@@ -926,10 +918,7 @@
     // 切换任务状态
     window.tmToggle = async function(id) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task) return;
 
         const currentDone = typeof __tmIsTaskDoneEffective === 'function'
@@ -957,18 +946,6 @@
     function __tmScheduleRender(options = {}) {
         const withFilters = !(options && options.withFilters === false);
         const reason = String(options?.reason || '').trim() || 'scheduled-render';
-        const jankEnabled = typeof __tmIsJankDebugEnabled === 'function' && __tmIsJankDebugEnabled();
-        if (jankEnabled) {
-            try {
-                __tmPushJankDebug('render-scheduled', {
-                    reason,
-                    withFilters,
-                    alreadyScheduled: __tmRenderScheduled === true,
-                    needFiltersBefore: __tmRenderNeedFilters === true,
-                    stack: true,
-                });
-            } catch (e) {}
-        }
         if (options?.deferIfDetailBusy !== false) {
             const barrier = __tmGetBusyTaskDetailBarrier();
             if (barrier) {
@@ -984,20 +961,6 @@
                         })),
                     });
                 } catch (e) {}
-                if (jankEnabled) {
-                    try {
-                        __tmPushJankDebug('render-deferred-busy-detail', {
-                            reason,
-                            withFilters,
-                            barrier: barrier.entries.map((entry) => ({
-                                scope: entry.scope,
-                                taskId: entry.taskId,
-                                reasons: entry.reasons.slice(),
-                                holdMsLeft: entry.holdMsLeft,
-                            })),
-                        });
-                    } catch (e) {}
-                }
                 __tmScheduleBusyDetailViewRefresh({
                     mode: 'full',
                     withFilters,
@@ -1007,50 +970,18 @@
             }
         }
         __tmRenderNeedFilters = __tmRenderNeedFilters || withFilters;
-        try {
-            state.__tmJankRenderNeedFilters = __tmRenderNeedFilters === true;
-        } catch (e) {}
         if (__tmRenderScheduled) {
-            if (jankEnabled) {
-                try {
-                    __tmPushJankDebug('render-coalesced', {
-                        reason,
-                        withFilters,
-                        needFilters: __tmRenderNeedFilters === true,
-                    });
-                } catch (e) {}
-            }
             return;
         }
         __tmRenderScheduled = true;
-        try {
-            state.__tmJankRenderScheduled = true;
-            state.__tmJankLastRender = {
-                phase: 'scheduled',
-                reason,
-                withFilters,
-                at: Date.now(),
-            };
-        } catch (e) {}
         requestAnimationFrame(() => {
             const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
                 ? __tmGetHighPriorityInteractionWaitMs(32)
                 : 0;
             if (interactionWait > 0) {
-                if (jankEnabled) {
-                    try {
-                        __tmPushJankDebug('render-deferred-interaction', {
-                            reason,
-                            withFilters,
-                            needFilters: __tmRenderNeedFilters === true,
-                            interactionWait,
-                        });
-                    } catch (e) {}
-                }
                 try {
                     setTimeout(() => {
                         __tmRenderScheduled = false;
-                        try { state.__tmJankRenderScheduled = false; } catch (e) {}
                         __tmScheduleRender({
                             withFilters: __tmRenderNeedFilters,
                             reason,
@@ -1058,57 +989,23 @@
                     }, interactionWait);
                 } catch (e) {
                     __tmRenderScheduled = false;
-                    try { state.__tmJankRenderScheduled = false; } catch (e2) {}
                 }
                 return;
             }
             __tmRenderScheduled = false;
-            try { state.__tmJankRenderScheduled = false; } catch (e) {}
             const needFilters = __tmRenderNeedFilters;
             __tmRenderNeedFilters = false;
-            try { state.__tmJankRenderNeedFilters = false; } catch (e) {}
-            const started = jankEnabled && typeof __tmJankNow === 'function' ? __tmJankNow() : 0;
-            let applyMs = 0;
-            let renderMs = 0;
             if (needFilters) {
-                const applyStarted = started ? __tmJankNow() : 0;
-                applyFilters();
-                if (applyStarted) applyMs = __tmRoundPerfMs(__tmJankNow() - applyStarted);
+                __tmRecomputeTaskProjection({ reason });
             }
             if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) {
-                if (jankEnabled) {
-                    try {
-                        __tmPushJankDebug('render-flush-skip-hidden', {
-                            reason,
-                            needFilters,
-                            applyMs,
-                            totalMs: started ? __tmRoundPerfMs(__tmJankNow() - started) : 0,
-                        });
-                    } catch (e) {}
-                }
                 return;
             }
-            const renderStarted = started ? __tmJankNow() : 0;
             let preservedCalendarSideDock = false;
             if (typeof __tmHasMountedCalendarSideDock === 'function' && __tmHasMountedCalendarSideDock()) {
                 try { preservedCalendarSideDock = !!__tmRerenderCurrentViewInPlace(state.modal); } catch (e) {}
             }
             if (!preservedCalendarSideDock) render();
-            if (renderStarted) renderMs = __tmRoundPerfMs(__tmJankNow() - renderStarted);
-            if (jankEnabled) {
-                try {
-                    const entry = {
-                        phase: 'flush',
-                        reason,
-                        needFilters,
-                        applyMs,
-                        renderMs,
-                        totalMs: started ? __tmRoundPerfMs(__tmJankNow() - started) : 0,
-                    };
-                    state.__tmJankLastRender = { ...entry, at: Date.now() };
-                    __tmPushJankDebug('render-flush', entry);
-                } catch (e) {}
-            }
         });
     }
 
@@ -1136,16 +1033,9 @@
         },
 
         updateUI() {
-            // 更新所有复选框的禁用状态
-            const checkboxes = document.querySelectorAll('.tm-task-checkbox');
-            checkboxes.forEach(cb => {
-                cb.disabled = this.locked;
-                if (this.locked) {
-                    cb.classList.add('tm-operating');
-                } else {
-                    cb.classList.remove('tm-operating');
-                }
-            });
+            // The lock only serializes the legacy DOM fallback. Task mutations
+            // use per-task lanes and must not disable unrelated UI controls.
+            return this.locked;
         },
 
         isLocked() {
@@ -1313,7 +1203,7 @@
         try { normalizeTaskFields(next, docNameFallback); } catch (e) {}
         const tid = String(next.id || '').trim();
         if (!tid) return next;
-        const prev = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
+        const prev = globalThis.__tmTaskBoundary?.getTask?.(tid, { includePending: false, preferPending: false });
         if (!__tmTaskHasOwnHeadingContextFields(next) && prev && typeof prev === 'object') {
             __tmCopyTaskHeadingContext(next, prev);
         }
@@ -1340,21 +1230,12 @@
             return ok === true;
         };
         if (!tid || !key) return finish(false, 'invalid-input');
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task || typeof task !== 'object') return finish(false, 'task-missing');
         const customFieldDef = __tmGetCustomFieldDefByAttrStorageKey(key);
         const customFieldId = String(customFieldDef?.id || '').trim();
         const isCustomFieldAttr = !!customFieldId;
         if (isCustomFieldAttr) {
-            __tmQuickbarRefreshDebugLog('custom-field-apply-enter', {
-                taskId: tid,
-                attrKey: key,
-                fieldId: customFieldId,
-                attrValue: String(attrValue ?? ''),
-            });
         }
         const rawValue = attrValue == null ? '' : String(attrValue);
         const trimmedValue = String(rawValue || '').trim();
@@ -1368,13 +1249,6 @@
                         ? comparablePatch.customFieldValues
                         : null;
                     if (customFieldPatch) {
-                        __tmQuickbarRefreshDebugLog('custom-field-noop-apply-local', {
-                            taskId: tid,
-                            attrKey: key,
-                            fieldId: customFieldId,
-                            patch: customFieldPatch,
-                            inverse: inversePatch?.customFieldValues || null,
-                        });
                         Object.entries(customFieldPatch).forEach(([fieldId, nextValue]) => {
                             const fid = String(fieldId || '').trim();
                             if (!fid) return;
@@ -1515,12 +1389,6 @@ return finish(false, 'noop');
                     if (!field || !fieldId) return finish(false, 'unsupported-field');
                     const normalizedValue = __tmNormalizeCustomFieldValue(field, rawValue);
                     __tmApplyTaskCustomFieldValueLocally(task, field, normalizedValue);
-                    __tmQuickbarRefreshDebugLog('custom-field-apply-local', {
-                        taskId: tid,
-                        attrKey: key,
-                        fieldId,
-                        normalizedValue,
-                    });
                     metaPatch = { customFieldValues: { [fieldId]: normalizedValue } };
                 }
                 break;
@@ -1581,12 +1449,6 @@ return finish(false, 'noop');
             if (metaPatch && typeof metaPatch === 'object') MetaStore.set(tid, metaPatch);
         } catch (e) {}
         if (isCustomFieldAttr) {
-            __tmQuickbarRefreshDebugLog('custom-field-apply-exit', {
-                taskId: tid,
-                attrKey: key,
-                fieldId: customFieldId,
-                metaPatch: metaPatch && typeof metaPatch === 'object' ? { ...metaPatch } : null,
-            });
         }
         return finish(true, 'applied');
     }
@@ -1594,10 +1456,7 @@ return finish(false, 'noop');
     async function __tmEnsureTaskInStateById(id) {
         const tid = String(id || '').trim();
         if (!tid) return null;
-        const exists = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const exists = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (exists) return exists;
         let row = null;
         try { row = await API.getTaskById(tid); } catch (e) { row = null; }
@@ -1620,7 +1479,7 @@ return finish(false, 'noop');
     function __tmResolveLocalTaskBindingFromAnyBlockId(id) {
         const bid = String(id || '').trim();
         if (!bid) return null;
-        const direct = globalThis.__tmRuntimeState?.getTaskById?.(bid) || state.flatTasks?.[bid] || state.pendingInsertedTasks?.[bid] || null;
+        const direct = globalThis.__tmTaskBoundary?.getTask?.(bid) || null;
         if (direct && typeof direct === 'object') {
             const taskId = String(direct?.id || bid).trim();
             const explicitAttrHostId = String(direct?.attrHostId || direct?.attr_host_id || '').trim();
@@ -2016,7 +1875,7 @@ return finish(false, 'noop');
         if (nextMd === kramdown) return { ok: true, changed: false, changedToDone, previousDone: wasDone, previousMarker };
         try {
             try {
-                const task0 = globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
+                const task0 = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
                 __tmMarkLocalDoneTxSuppressionForTask(task0, [tid]);
                 if (typeof __tmProtectMarkdownMutationTaskFields === 'function') {
                     __tmProtectMarkdownMutationTaskFields(tid, task0, { source: 'set-done-stateless' });
@@ -2152,30 +2011,11 @@ return finish(false, 'noop');
         if (ev) ev.stopPropagation();
 
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task) return;
 
         const val = !!pinned;
-        if (__tmShouldUseChecklistLegacyFieldCommit()) {
-            try {
-                await __tmRequestChecklistLegacyTaskPatch(tid, { pinned: val ? '1' : '' }, {
-                    source: 'toggle-pinned',
-                    label: val ? '置顶' : '取消置顶',
-                    withFilters: true,
-                    optimisticProjectionRefresh: true,
-                });
-                hint(`✅ ${val ? '已置顶' : '已取消置顶'}`, 'success');
-                return true;
-            } catch (e) {
-                hint(`❌ 操作失败: ${e.message}`, 'error');
-                if (ev?.target) ev.target.checked = !val;
-                return false;
-            }
-        }
-        const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+        const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
         if (typeof patchTask !== 'function') {
             const error = new Error('任务写入队列未就绪: patchTask');
             if (ev?.target) ev.target.checked = !val;
@@ -2185,8 +2025,9 @@ return finish(false, 'noop');
         const commitPromise = patchTask(tid, { pinned: val ? '1' : '' }, {
             source: 'toggle-pinned',
             label: val ? '置顶' : '取消置顶',
-            withFilters: true,
-            optimisticProjectionRefresh: true,
+            background: true,
+            wait: false,
+            skipInteractionGate: true,
             showErrorHint: false,
         });
         Promise.resolve(commitPromise).then((result) => {
@@ -2204,7 +2045,7 @@ return finish(false, 'noop');
 
         const rawId = String(id || '').trim();
         if (!rawId) return false;
-        let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(rawId) || state.flatTasks?.[rawId] || null;
+        let task = globalThis.__tmTaskBoundary?.getTask?.(rawId, { includePending: false, preferPending: false }) || null;
         let persistId = rawId;
         if (!task) {
             try {
@@ -2213,7 +2054,7 @@ return finish(false, 'noop');
             } catch (e) {}
         }
         if (!task && persistId !== rawId) {
-            task = globalThis.__tmRuntimeState?.getFlatTaskById?.(persistId) || state.flatTasks?.[persistId] || null;
+            task = globalThis.__tmTaskBoundary?.getTask?.(persistId, { includePending: false, preferPending: false }) || null;
         }
         if (!task) {
             try { task = await __tmEnsureTaskInStateById(persistId); } catch (e) { task = null; }
@@ -2227,7 +2068,7 @@ return finish(false, 'noop');
         persistId = String(task?.id || persistId || rawId).trim();
         if (!persistId) return false;
         try {
-            if (task && typeof task === 'object' && !state.flatTasks?.[persistId]) {
+            if (task && typeof task === 'object' && !globalThis.__tmTaskBoundary?.getTask?.(persistId, { includePending: false, preferPending: false })) {
                 __tmCacheTaskInState(task, {
                     docNameFallback: task.doc_name || task.docName || '未命名文档',
                 });
@@ -2239,50 +2080,14 @@ return finish(false, 'noop');
         const opts = {
             source: 'toggle-all-day-bottom',
             label: val ? '置底全天日程' : '取消置底全天日程',
-            withFilters: false,
-            optimisticProjectionRefresh: false,
-            skipSettledRefresh: true,
         };
         const apply = () => {
-            const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+            const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
             if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
             return patchTask(persistId, patch, opts);
         };
         try {
             const ok = await apply();
-            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
-            try {
-                const calApi = globalThis.__tmCalendar;
-                if (calApi && typeof calApi.syncTaskDateInPlace === 'function') {
-                    const main = String(state.viewMode || '').trim() === 'calendar';
-                    const side = typeof __tmShouldShowCalendarSideDock === 'function'
-                        ? __tmShouldShowCalendarSideDock()
-                        : !main;
-                    const summary = await calApi.syncTaskDateInPlace(persistId, {
-                        main,
-                        side,
-                        allowRefetch: false,
-                    });
-                    if (summary?.needsMainRefresh || summary?.needsSideRefresh) {
-                        calApi.requestRefresh?.({
-                            reason: 'toggle-all-day-bottom',
-                            main: main && summary.needsMainRefresh,
-                            side: side && summary.needsSideRefresh,
-                            flushTaskPanel: false,
-                        });
-                    }
-                    if (summary?.touched === true && typeof calApi.refreshSideDayLayout === 'function') {
-                        try { calApi.refreshSideDayLayout(); } catch (e) {}
-                    }
-                } else if (typeof __tmRequestCalendarRefresh === 'function') {
-                    __tmRequestCalendarRefresh({
-                        reason: 'toggle-all-day-bottom',
-                        main: String(state.viewMode || '').trim() === 'calendar',
-                        side: __tmShouldShowCalendarSideDock(),
-                        flushTaskPanel: false,
-                    });
-                }
-            } catch (e) {}
             hint(`✅ ${val ? '已置底全天日程' : '已取消置底全天日程'}`, 'success');
             return ok !== false;
         } catch (e) {
@@ -2296,9 +2101,7 @@ return finish(false, 'noop');
         const opts = (options && typeof options === 'object') ? options : {};
         const targetDone = opts.done === true;
         if (!tid) return false;
-        const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[tid]
-            || state.flatTasks?.[tid]
+        const latestTask = globalThis.__tmTaskBoundary?.getTask?.(tid)
             || ((opts.task && typeof opts.task === 'object') ? opts.task : null);
         if (!targetDone) {
             try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
@@ -2309,6 +2112,14 @@ return finish(false, 'noop');
                         previousDone: true,
                         source: String(opts.source || 'set-done').trim() || 'set-done',
                     });
+                } catch (e) {}
+            }
+            if (opts.skipAutoCompleteParent !== true) {
+                try {
+                    void __tmSyncParentDoneStateFromSubtasks(tid, {
+                        ...opts,
+                        done: false,
+                    }).catch(() => null);
                 } catch (e) {}
             }
             return false;
@@ -2348,13 +2159,15 @@ return finish(false, 'noop');
         if (opts.delight !== false) {
             try { __tmQueueTaskDoneDelight(tid, { done: true, suppressHint: opts.suppressHint, source: opts.source }); } catch (e) {}
         }
-        try {
-            void Promise.resolve(__tmSettleTomatoAfterTaskDone(tid, {
-                task: latestTask,
-                attrHostId: String(opts.attrHostId || __tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
-                source: String(opts.source || 'set-done').trim() || 'set-done',
-            })).catch(() => null);
-        } catch (e) {}
+        if (!recurringScheduled) {
+            try {
+                void Promise.resolve(__tmSettleTomatoAfterTaskDone(tid, {
+                    task: latestTask,
+                    attrHostId: String(opts.attrHostId || __tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
+                    source: String(opts.source || 'set-done').trim() || 'set-done',
+                })).catch(() => null);
+            } catch (e) {}
+        }
         const rewardPriorityScore = Math.max(0, Math.round(Number(opts.rewardPriorityScore) || 0));
         if (rewardPriorityScore > 0) {
             try {
@@ -2370,7 +2183,12 @@ return finish(false, 'noop');
             } catch (e) {}
         }
         if (opts.skipAutoCompleteParent !== true) {
-            try { void __tmMaybeAutoCompleteParentAfterSubtaskDone(tid, opts).catch(() => null); } catch (e) {}
+            try {
+                void __tmSyncParentDoneStateFromSubtasks(tid, {
+                    ...opts,
+                    done: true,
+                }).catch(() => null);
+            } catch (e) {}
         }
         try {
             globalThis.__tmTaskLifecycle?.notifyCompletion?.(tid, true, {
@@ -2382,21 +2200,184 @@ return finish(false, 'noop');
         return recurringScheduled;
     }
 
+    try { globalThis.__tmRunSetDonePostCommitEffects = __tmRunSetDonePostCommitEffects; } catch (e) {}
+
+    async function __tmRunCommittedSetDoneEffects(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!tid) throw new Error('完成后的关联处理缺少任务 ID');
+        let latestTask = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
+        const followUpOps = [];
+        const effectId = String(opts.effectId || tid).trim() || tid;
+        const targetDone = opts.done === true;
+        if (!targetDone) {
+            try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
+            if (opts.skipAutoCompleteParent !== true) {
+                const parentDefinition = await __tmSyncParentDoneStateFromSubtasks(tid, {
+                    ...opts,
+                    done: false,
+                    source: String(opts.source || 'set-done-effects').trim() || 'set-done-effects',
+                    returnMutationDefinition: true,
+                });
+                if (parentDefinition && typeof parentDefinition === 'object') followUpOps.push(parentDefinition);
+            }
+            if (opts.previousDone === true) {
+                followUpOps.push({
+                    id: `${effectId}:lifecycle:restore-completed`,
+                    type: 'taskLifecycle',
+                    docId: String(latestTask?.root_id || latestTask?.docId || '').trim(),
+                    laneKey: `task:${tid}`,
+                    data: {
+                        action: 'restoreCompleted',
+                        taskId: tid,
+                        source: String(opts.source || 'set-done-effects').trim() || 'set-done-effects',
+                    },
+                });
+            }
+            return { completed: true, recurringAdvanced: false, rewardDispatched: false, followUpOps };
+        }
+        if (opts.previousDone === true) {
+            return { completed: true, recurringAdvanced: false, rewardDispatched: false, followUpOps };
+        }
+
+        let completedAt = __tmNormalizeTaskCompleteAtValue(
+            opts.completedAt
+            || latestTask?.taskCompleteAt
+            || latestTask?.task_complete_at
+            || '',
+        );
+        const rewardPriorityScore = Math.max(0, Math.round(Number(opts.rewardPriorityScore) || 0));
+        let rewardDispatched = false;
+        if (rewardPriorityScore > 0) {
+            rewardDispatched = __tmDispatchTaskCompletedForReward(latestTask, {
+                taskId: tid,
+                attrHostId: String(__tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
+                priorityScore: rewardPriorityScore,
+                completedAt,
+                source: String(opts.source || 'set-done-effects').trim() || 'set-done-effects',
+                previousDone: false,
+                nextDone: true,
+                idempotencyKey: `${effectId}:reward`,
+            }) === true;
+        }
+
+        // SQL indexing can lag behind the acknowledged block write. Use it only
+        // to enrich effect metadata and keep the committed transition authoritative.
+        let persistedTask = null;
+        try { persistedTask = await API.getTaskById(tid); } catch (e) {}
+        if (persistedTask && typeof persistedTask === 'object') {
+            latestTask = {
+                ...((latestTask && typeof latestTask === 'object') ? latestTask : {}),
+                ...persistedTask,
+            };
+            if (Object.prototype.hasOwnProperty.call(persistedTask, 'repeat_rule')) latestTask.repeatRule = persistedTask.repeat_rule;
+            if (Object.prototype.hasOwnProperty.call(persistedTask, 'repeat_state')) latestTask.repeatState = persistedTask.repeat_state;
+            if (Object.prototype.hasOwnProperty.call(persistedTask, 'repeat_history')) latestTask.repeatHistory = persistedTask.repeat_history;
+            try { normalizeTaskFields(latestTask, String(latestTask.doc_name || latestTask.docName || '').trim()); } catch (e) {}
+        }
+        if (!latestTask || typeof latestTask !== 'object') latestTask = { id: tid };
+        if (!completedAt) {
+            completedAt = __tmNormalizeTaskCompleteAtValue(
+                latestTask.taskCompleteAt || latestTask.task_complete_at || '',
+            );
+        }
+        latestTask.done = true;
+        if (completedAt) {
+            latestTask.taskCompleteAt = completedAt;
+            latestTask.task_complete_at = completedAt;
+        }
+
+        let recurringTask = false;
+        let recurringAdvanced = false;
+        if (latestTask && completedAt) {
+            const repeatRule = __tmGetTaskRepeatRule(latestTask);
+            recurringTask = repeatRule?.enabled === true && String(repeatRule.type || 'none').trim() !== 'none';
+            if (recurringTask) {
+                const advance = globalThis.__tmAdvanceRecurringTaskAfterCompletion;
+                if (typeof advance !== 'function') throw new Error('循环任务推进服务未就绪');
+                recurringAdvanced = await advance(tid, {
+                    source: opts.source,
+                    completedAt,
+                    scheduleId: String(opts.scheduleId || '').trim(),
+                    fsrsRating: Number(opts.fsrsRating) || 0,
+                    task: latestTask,
+                    suppressHint: true,
+                    fromMutationEffect: true,
+                }) === true;
+            }
+        }
+
+        if (!recurringTask) {
+            try {
+                void Promise.resolve(__tmSettleTomatoAfterTaskDone(tid, {
+                    task: latestTask,
+                    attrHostId: String(__tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
+                    source: String(opts.source || 'set-done-effects').trim() || 'set-done-effects',
+                    effectId: String(opts.effectId || '').trim(),
+                })).catch((error) => {
+                    try { console.warn('[task-horizon] set-done-tomato-failed', error, { taskId: tid }); } catch (e) {}
+                    try {
+                        globalThis.__tmReportTaskMutationFailure?.(error, {
+                            action: '完成状态已保存，但番茄联动',
+                        });
+                    } catch (e) {}
+                });
+            } catch (error) {
+                try { console.warn('[task-horizon] set-done-tomato-failed', error, { taskId: tid }); } catch (e) {}
+                try {
+                    globalThis.__tmReportTaskMutationFailure?.(error, {
+                        action: '完成状态已保存，但番茄联动',
+                    });
+                } catch (e) {}
+            }
+        }
+        if (opts.skipAutoCompleteParent !== true) {
+            const parentDefinition = await __tmSyncParentDoneStateFromSubtasks(tid, {
+                ...opts,
+                done: true,
+                source: String(opts.source || 'set-done-effects').trim() || 'set-done-effects',
+                returnMutationDefinition: true,
+            });
+            if (parentDefinition && typeof parentDefinition === 'object') followUpOps.push(parentDefinition);
+        }
+        if (!recurringTask) {
+            const mode = __tmNormalizeTaskCompletionArchiveMode(SettingsStore?.data?.taskCompletionArchiveMode);
+            const targetDocId = mode === 'document' ? String(SettingsStore?.data?.taskCompletionArchiveDocId || '').trim() : '';
+            if (mode !== 'none' && (mode !== 'document' || targetDocId)) {
+                const originDocId = String(latestTask?.root_id || latestTask?.docId || '').trim();
+                followUpOps.push({
+                    id: `${effectId}:lifecycle:archive-completed`,
+                    type: 'taskLifecycle',
+                    docId: originDocId,
+                    laneKey: `task:${tid}`,
+                    data: {
+                        action: 'archiveCompleted',
+                        taskId: tid,
+                        mode,
+                        committedDone: true,
+                        originDocId,
+                        targetDocId,
+                        source: String(opts.source || 'set-done-effects').trim() || 'set-done-effects',
+                    },
+                });
+            }
+        }
+        return { completed: true, recurringAdvanced, rewardDispatched, followUpOps };
+    }
+
+    try { globalThis.__tmRunCommittedSetDoneEffects = __tmRunCommittedSetDoneEffects; } catch (e) {}
+
     async function __tmSetDoneKernel(id, done, ev, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const targetDone = !!done;
         const useLocalRefreshMode = String(opts.refreshMode || '').trim() === 'local'
-            || opts.skipViewRefresh === true
-            || opts.skipSettledRefresh === true;
+            || opts.deferProjection === true;
         const useCalendarLocalRefresh = !useLocalRefreshMode && __tmShouldSyncCalendarDoneInPlace(opts.source);
         if (ev) {
             ev.stopPropagation();
         }
 
-        let task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[id]
-            || state.flatTasks?.[id]
-            || null;
+        let task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
         if (!task) {
             try { task = await __tmEnsureTaskInStateById(id); } catch (e) { task = null; }
         }
@@ -2426,14 +2407,25 @@ return finish(false, 'noop');
         const taskWasDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
             ? !!opts.previousDone
             : (typeof __tmIsTaskDoneEffective === 'function' ? !!__tmIsTaskDoneEffective(task) : !!task?.done);
-        const shouldStampTaskCompleteAt = targetDone && !taskWasDone;
-        const shouldClearTaskCompleteAt = !targetDone && taskWasDone;
-        const completeAtPatch = shouldStampTaskCompleteAt
-            ? __tmBuildTaskCompleteAtPatch()
-            : (shouldClearTaskCompleteAt ? { taskCompleteAt: '' } : null);
+        const hasExplicitTaskCompleteAt = Object.prototype.hasOwnProperty.call(opts, 'taskCompleteAt');
+        const shouldStampTaskCompleteAt = !hasExplicitTaskCompleteAt && targetDone && !taskWasDone;
+        const shouldClearTaskCompleteAt = !hasExplicitTaskCompleteAt && !targetDone && taskWasDone;
+        const completeAtPatch = hasExplicitTaskCompleteAt
+            ? { taskCompleteAt: __tmNormalizeTaskCompleteAtValue(opts.taskCompleteAt) }
+            : (shouldStampTaskCompleteAt
+                ? __tmBuildTaskCompleteAtPatch()
+                : (shouldClearTaskCompleteAt ? { taskCompleteAt: '' } : null));
+        const additionalPatch = (opts.additionalPatch && typeof opts.additionalPatch === 'object' && !Array.isArray(opts.additionalPatch))
+            ? { ...opts.additionalPatch }
+            : {};
+        delete additionalPatch.done;
+        Object.keys(statusPatch || {}).forEach((key) => {
+            if (String(statusPatch[key] ?? '').trim()) delete additionalPatch[key];
+        });
         const touchPatch = {
             ...((statusPatch && typeof statusPatch === 'object') ? statusPatch : {}),
             ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
+            ...additionalPatch,
         };
         if (!task) {
             const statelessResult = await __tmSetDoneByIdStateless(id, done);
@@ -2688,12 +2680,11 @@ return finish(false, 'noop');
             if (opts.recordUndo !== false && !__tmUndoState?.applying) {
                 const undoPatch = { done: actualDone, ...touchPatch };
                 const inversePatch = { done: originalDone };
-                if (Object.prototype.hasOwnProperty.call(touchPatch, 'customStatus')) {
-                    inversePatch.customStatus = originalCustomStatus;
-                }
-                if (Object.prototype.hasOwnProperty.call(touchPatch, 'taskCompleteAt')) {
-                    inversePatch.taskCompleteAt = originalTaskCompleteAt;
-                }
+                Object.assign(inversePatch, (opts.inversePatch && typeof opts.inversePatch === 'object')
+                    ? opts.inversePatch
+                    : __tmCaptureTaskPatchInverse(id, touchPatch));
+                if (Object.prototype.hasOwnProperty.call(touchPatch, 'customStatus')) inversePatch.customStatus = originalCustomStatus;
+                if (Object.prototype.hasOwnProperty.call(touchPatch, 'taskCompleteAt')) inversePatch.taskCompleteAt = originalTaskCompleteAt;
                 try {
                     __tmPushUndoRecord({
                         type: 'setDone',
@@ -2857,15 +2848,10 @@ return finish(false, 'noop');
         }
     };
 
-    const __tmAutoCompleteParentTaskIdsInFlight = new Set();
-
     function __tmAutoCompleteGetTaskById(taskId) {
         const tid = String(taskId || '').trim();
         if (!tid) return null;
-        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[tid]
-            || state.flatTasks?.[tid]
-            || null;
+        return globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
     }
 
     function __tmAutoCompleteGetParentTaskId(task) {
@@ -2874,11 +2860,10 @@ return finish(false, 'noop');
 
     function __tmAutoCompleteIsTaskDone(task) {
         if (!(task && typeof task === 'object')) return false;
-        if (task.done === true) return true;
         try {
             if (typeof __tmIsTaskDoneEffective === 'function') return !!__tmIsTaskDoneEffective(task);
         } catch (e) {}
-        return false;
+        return task.done === true;
     }
 
     function __tmFindParentTaskIdForAutoComplete(childId, childTask = null) {
@@ -2907,6 +2892,10 @@ return finish(false, 'noop');
     function __tmCollectDirectChildrenForAutoComplete(parentId) {
         const pid = String(parentId || '').trim();
         if (!pid) return [];
+        try {
+            const projectedChildren = globalThis.__tmTaskStore?.listProjectedDirectChildren?.(pid);
+            if (Array.isArray(projectedChildren) && projectedChildren.length > 0) return projectedChildren;
+        } catch (e) {}
         const children = new Map();
         const addChild = (child) => {
             if (!(child && typeof child === 'object')) return;
@@ -2937,90 +2926,13 @@ return finish(false, 'noop');
         return Array.from(children.values());
     }
 
-    async function __tmMaybeAutoCompleteParentAfterSubtaskDone(childId, options = {}) {
-        if (SettingsStore?.data?.autoCompleteParentOnSubtasksDone !== true) return false;
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (opts.skipAutoCompleteParent === true) return false;
-        const cid = String(childId || '').trim();
-        if (!cid) return false;
-        let childTask = __tmAutoCompleteGetTaskById(cid);
-        let parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
-        let refreshedDoc = false;
-        const refreshDocForAutoComplete = async () => {
-            if (refreshedDoc || opts.skipFreshDoc === true || typeof __tmRefreshTaskDocForFreshDetail !== 'function') return false;
-            refreshedDoc = true;
-            try {
-                const freshTask = await __tmRefreshTaskDocForFreshDetail(cid, childTask, {
-                    source: String(opts.source || 'auto-complete-parent-fresh-doc').trim() || 'auto-complete-parent-fresh-doc',
-                });
-                if (freshTask && typeof freshTask === 'object') childTask = freshTask;
-                return true;
-            } catch (e) {
-                return false;
-            }
-        };
-        if ((!parentId || parentId === cid) && await refreshDocForAutoComplete()) {
-            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
-        }
-        if (!parentId || parentId === cid) return false;
-        let parentTask = __tmAutoCompleteGetTaskById(parentId);
-        if (!parentTask && await refreshDocForAutoComplete()) {
-            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
-            parentTask = __tmAutoCompleteGetTaskById(parentId);
-        }
-        if (!parentTask || __tmAutoCompleteIsTaskDone(parentTask)) return false;
-        if (__tmAutoCompleteParentTaskIdsInFlight.has(parentId)) return false;
-        let children = __tmCollectDirectChildrenForAutoComplete(parentId);
-        if (!children.length && await refreshDocForAutoComplete()) {
-            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
-            parentTask = __tmAutoCompleteGetTaskById(parentId);
-            if (!parentId || parentId === cid || !parentTask || __tmAutoCompleteIsTaskDone(parentTask)) return false;
-            children = __tmCollectDirectChildrenForAutoComplete(parentId);
-        }
-        if (!children.length) return false;
-        if (!children.every((child) => {
-            const childTaskId = String(child?.id || child?.blockId || '').trim();
-            const latestChild = childTaskId ? (__tmAutoCompleteGetTaskById(childTaskId) || child) : child;
-            return childTaskId === cid || __tmAutoCompleteIsTaskDone(latestChild);
-        })) {
-            if (!await refreshDocForAutoComplete()) return false;
-            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
-            parentTask = __tmAutoCompleteGetTaskById(parentId);
-            if (!parentId || parentId === cid || !parentTask || __tmAutoCompleteIsTaskDone(parentTask)) return false;
-            children = __tmCollectDirectChildrenForAutoComplete(parentId);
-            if (!children.length || !children.every((child) => {
-                const childTaskId = String(child?.id || child?.blockId || '').trim();
-                const latestChild = childTaskId ? (__tmAutoCompleteGetTaskById(childTaskId) || child) : child;
-                return childTaskId === cid || __tmAutoCompleteIsTaskDone(latestChild);
-            })) return false;
-        }
-        __tmAutoCompleteParentTaskIdsInFlight.add(parentId);
-        try {
-            const result = await window.tmSetDone?.(parentId, true, null, {
-                source: 'auto-complete-parent-on-subtasks-done',
-                suppressHint: true,
-                wait: true,
-                force: true,
-                skipInteractionGate: true,
-            });
-            return result !== false;
-        } finally {
-            __tmAutoCompleteParentTaskIdsInFlight.delete(parentId);
-        }
-    }
-
-    try { globalThis.__tmMaybeAutoCompleteParentAfterSubtaskDone = __tmMaybeAutoCompleteParentAfterSubtaskDone; } catch (e) {}
-
-    function __tmQueueSetDoneTask(taskId, done, task, options = {}) {
+    function __tmBuildSetDoneQueuedDefinition(taskId, done, task, options = {}) {
         const tid = String(taskId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
         const taskLike = (task && typeof task === 'object')
             ? task
-            : (globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                || state.pendingInsertedTasks?.[tid]
-                || state.flatTasks?.[tid]
-                || null);
-        if (!tid || !taskLike) return Promise.resolve(false);
+            : (globalThis.__tmTaskBoundary?.getTask?.(tid) || null);
+        if (!tid || !taskLike) return null;
         const targetDone = !!done;
         const effectiveTaskDone = typeof __tmIsTaskDoneEffective === 'function'
             ? !!__tmIsTaskDoneEffective(taskLike)
@@ -3034,19 +2946,48 @@ return finish(false, 'noop');
         const originalCustomStatus = Object.prototype.hasOwnProperty.call(opts, 'previousStatusId')
             ? String(opts.previousStatusId || '').trim()
             : String(taskLike.customStatus || taskLike.custom_status || '').trim();
+        let targetMarker = targetDone ? 'X' : ' ';
+        const targetStatusId = String(statusPatch?.customStatus || '').trim();
+        if (targetStatusId) {
+            const targetStatus = __tmFindStatusOptionById(targetStatusId);
+            if (targetStatus) {
+                targetMarker = __tmNormalizeCompatTaskStatusMarker(
+                    targetStatus.marker,
+                    __tmGuessStatusOptionDefaultMarker(targetStatus),
+                );
+            }
+        }
         const optimisticPatch = {
             done: targetDone,
             ...((statusPatch && typeof statusPatch === 'object') ? statusPatch : {}),
         };
+        let taskCompleteAtDerived = false;
         if (targetDone && !originalDone) {
             const completeAtPatch = __tmBuildTaskCompleteAtPatch();
             if (completeAtPatch && typeof completeAtPatch === 'object') {
                 Object.assign(optimisticPatch, completeAtPatch);
+                taskCompleteAtDerived = Object.prototype.hasOwnProperty.call(completeAtPatch, 'taskCompleteAt');
             }
         } else if (!targetDone && originalDone) {
             optimisticPatch.taskCompleteAt = '';
+            taskCompleteAtDerived = true;
         }
-        const inversePatch = __tmCaptureTaskPatchInverse(tid, optimisticPatch);
+        const additionalPatch = (opts.additionalPatch && typeof opts.additionalPatch === 'object' && !Array.isArray(opts.additionalPatch))
+            ? { ...opts.additionalPatch }
+            : {};
+        delete additionalPatch.done;
+        Object.keys(statusPatch || {}).forEach((key) => {
+            if (String(statusPatch[key] ?? '').trim()) delete additionalPatch[key];
+        });
+        if (Object.prototype.hasOwnProperty.call(additionalPatch, 'taskCompleteAt')) taskCompleteAtDerived = false;
+        Object.assign(optimisticPatch, additionalPatch);
+        const projectionPatch = {
+            ...optimisticPatch,
+            taskMarker: targetMarker,
+            task_marker: targetMarker,
+            markdown: __tmBuildTaskMarkdownWithMarker(taskLike, targetMarker),
+        };
+        const inversePatch = __tmCaptureTaskPatchInverse(tid, projectionPatch);
         inversePatch.done = originalDone;
         if (Object.prototype.hasOwnProperty.call(optimisticPatch, 'customStatus')
             && !Object.prototype.hasOwnProperty.call(inversePatch, 'customStatus')) {
@@ -3067,60 +3008,163 @@ return finish(false, 'noop');
                 });
             } catch (e) {}
         }
-        let pendingPromise = null;
-        const opPromise = __tmEnqueueQueuedOp({
-            type: 'setDone',
-            docId: String(taskLike.root_id || taskLike.docId || '').trim(),
-            laneKey: `task:${tid}`,
-            coalesceKey: `setDone:${tid}`,
-            data: {
-                taskId: tid,
-                done: targetDone,
-                patch: optimisticPatch,
-                statusPatch,
-                source: String(opts.source || 'set-done').trim() || 'set-done',
-                scheduleId: String(opts.scheduleId || '').trim(),
-                suppressHint: true,
-                previousDone: originalDone,
-                previousMarker: previousMarker,
-                previousMarkdown: previousMarkdown,
-                previousStatusId: originalCustomStatus,
-                rewardPriorityScore,
-                recordUndo: opts.recordUndo !== false,
-                withFilters: opts.withFilters === true,
-                skipInteractionGate: opts.skipInteractionGate === true,
-                skipViewRefresh: opts.skipViewRefresh === true || deferRecurringProjectionRefresh,
-                skipOptimisticRefresh: opts.skipOptimisticRefresh === true || opts.skipViewRefresh === true || deferRecurringProjectionRefresh,
-                skipSettledRefresh: opts.skipSettledRefresh === true || deferRecurringProjectionRefresh,
-                refreshAncestorViews: opts.refreshAncestorViews !== false,
+        return {
+            targetDone,
+            definition: {
+                id: String(opts.operationId || '').trim(),
+                type: 'setDone',
+                docId: String(taskLike.root_id || taskLike.docId || '').trim(),
+                laneKey: `task:${tid}`,
+                     data: {
+                         taskId: tid,
+                         done: targetDone,
+                         patch: optimisticPatch,
+                         projectionPatch,
+                         additionalPatch,
+                         previousAttachmentPaths: opts.previousAttachmentPaths,
+                         previousAttachmentMeta: opts.previousAttachmentMeta,
+                         previousAttachmentSlotCount: opts.previousAttachmentSlotCount,
+                         statusPatch,
+                    source: String(opts.source || 'set-done').trim() || 'set-done',
+                    scheduleId: String(opts.scheduleId || '').trim(),
+                    fsrsRating: Number(opts.fsrsRating) || 0,
+                    suppressHint: true,
+                    previousDone: originalDone,
+                    previousMarker: previousMarker,
+                    previousMarkdown: previousMarkdown,
+                    previousStatusId: originalCustomStatus,
+                    previousStatePrepared: false,
+                    taskCompleteAtDerived,
+                    rewardPriorityScore,
+                    recordUndo: opts.recordUndo !== false,
+                    withFilters: opts.withFilters === true,
+                    skipInteractionGate: opts.skipInteractionGate === true,
+                    deferProjection: opts.deferProjection === true || deferRecurringProjectionRefresh,
+                    refreshAncestorViews: opts.refreshAncestorViews !== false,
+                    skipAutoCompleteParent: opts.skipAutoCompleteParent === true,
+                },
+                inversePatch,
             },
-            inversePatch,
-        }, {
+        };
+    }
+
+    async function __tmSyncParentDoneStateFromSubtasks(childId, options = {}) {
+        if (SettingsStore?.data?.autoCompleteParentOnSubtasksDone !== true) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.skipAutoCompleteParent === true) return false;
+        const cid = String(childId || '').trim();
+        if (!cid) return false;
+        let childTask = __tmAutoCompleteGetTaskById(cid);
+        let parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
+        let refreshedDoc = false;
+        const refreshDocForAutoComplete = async () => {
+            if (refreshedDoc || opts.skipFreshDoc === true || typeof __tmRefreshTaskDocForFreshDetail !== 'function') return false;
+            refreshedDoc = true;
+            try {
+                const freshTask = await __tmRefreshTaskDocForFreshDetail(cid, childTask, {
+                    source: String(opts.source || 'auto-complete-parent-fresh-doc').trim() || 'auto-complete-parent-fresh-doc',
+                    throwOnFailure: opts.returnMutationDefinition === true,
+                });
+                if (freshTask && typeof freshTask === 'object') childTask = freshTask;
+                return true;
+            } catch (e) {
+                if (opts.returnMutationDefinition === true) throw e;
+                return false;
+            }
+        };
+        if ((!parentId || parentId === cid) && await refreshDocForAutoComplete()) {
+            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
+        }
+        if (!parentId || parentId === cid) return false;
+        let parentTask = __tmAutoCompleteGetTaskById(parentId);
+        if (!parentTask && await refreshDocForAutoComplete()) {
+            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
+            parentTask = __tmAutoCompleteGetTaskById(parentId);
+        }
+        if (!parentTask) return false;
+        const childBecameDone = Object.prototype.hasOwnProperty.call(opts, 'done')
+            ? opts.done === true
+            : __tmAutoCompleteIsTaskDone(childTask);
+        let children = __tmCollectDirectChildrenForAutoComplete(parentId);
+        if (!children.length && await refreshDocForAutoComplete()) {
+            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
+            parentTask = __tmAutoCompleteGetTaskById(parentId);
+            if (!parentId || parentId === cid || !parentTask) return false;
+            children = __tmCollectDirectChildrenForAutoComplete(parentId);
+        }
+        if (!children.length) return false;
+        let allChildrenDone = children.every((child) => {
+            const childTaskId = String(child?.id || child?.blockId || '').trim();
+            const latestChild = childTaskId ? (__tmAutoCompleteGetTaskById(childTaskId) || child) : child;
+            return __tmAutoCompleteIsTaskDone(latestChild);
+        });
+        if (childBecameDone && !allChildrenDone && await refreshDocForAutoComplete()) {
+            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
+            parentTask = __tmAutoCompleteGetTaskById(parentId);
+            if (!parentId || parentId === cid || !parentTask) return false;
+            children = __tmCollectDirectChildrenForAutoComplete(parentId);
+            if (!children.length) return false;
+            allChildrenDone = children.every((child) => {
+                const childTaskId = String(child?.id || child?.blockId || '').trim();
+                const latestChild = childTaskId ? (__tmAutoCompleteGetTaskById(childTaskId) || child) : child;
+                return __tmAutoCompleteIsTaskDone(latestChild);
+            });
+        }
+        if (childBecameDone && !allChildrenDone) return false;
+        const targetParentDone = childBecameDone;
+        const parentDone = __tmAutoCompleteIsTaskDone(parentTask);
+        if (parentDone === targetParentDone) return false;
+        const source = targetParentDone
+            ? 'auto-complete-parent-on-subtasks-done'
+            : 'auto-restore-parent-on-subtask-undone';
+        if (opts.returnMutationDefinition === true) {
+            const effectId = String(opts.effectId || childId).trim() || String(childId || '').trim();
+            const built = __tmBuildSetDoneQueuedDefinition(parentId, targetParentDone, parentTask, {
+                operationId: `${effectId}:parent:${parentId}`,
+                previousDone: parentDone,
+                source,
+                recordUndo: true,
+            });
+            return built?.definition || false;
+        }
+        const result = await window.tmSetDone?.(parentId, targetParentDone, null, {
+            source,
+            suppressHint: true,
+            wait: true,
+            force: true,
+            skipInteractionGate: true,
+        });
+        return result !== false;
+    }
+
+    try { globalThis.__tmSyncParentDoneStateFromSubtasks = __tmSyncParentDoneStateFromSubtasks; } catch (e) {}
+
+    function __tmQueueSetDoneTask(taskId, done, task, options = {}) {
+        const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const built = __tmBuildSetDoneQueuedDefinition(tid, done, task, opts);
+        if (!built?.definition) return Promise.resolve(false);
+        const targetDone = built.targetDone;
+        let pendingPromise = null;
+        let intentRevision = 0;
+        const opPromise = __tmEnqueueQueuedOp(built.definition, {
             wait: opts.wait === true,
-            onPending: (promise) => {
+            onPending: (promise, op) => {
                 pendingPromise = promise;
+                intentRevision = Number(op?.data?.intentRevision) || 0;
             },
         });
         const settlePromise = pendingPromise || opPromise;
         Promise.resolve(settlePromise).then(() => {
-            const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                || state.pendingInsertedTasks?.[tid]
-                || state.flatTasks?.[tid]
-                || taskLike;
-            __tmRunSetDonePostCommitEffects(tid, {
-                ...opts,
-                task: latestTask,
-                done: targetDone,
-                previousDone: originalDone,
-                completedAt: String(latestTask?.taskCompleteAt || latestTask?.task_complete_at || optimisticPatch.taskCompleteAt || '').trim(),
-                attrHostId: String(__tmGetTaskAttrHostId(latestTask) || tid).trim() || tid,
-                rewardPriorityScore,
-                delight: true,
-            });
+            if (intentRevision && !__tmIsLatestSetDoneIntent(tid, intentRevision)) return;
+            if (targetDone) {
+                try { __tmQueueTaskDoneDelight(tid, { done: true, suppressHint: opts.suppressHint, source: opts.source }); } catch (e) {}
+            }
             if (opts.suppressHint !== true) {
                 try { hint(__tmBuildTaskDoneSuccessHint(targetDone, targetDone ? '✅ 任务已完成' : '✅ 已取消完成'), 'success'); } catch (e) {}
             }
         }).catch((e) => {
+            if (intentRevision && !__tmIsLatestSetDoneIntent(tid, intentRevision)) return;
             if (opts.suppressHint !== true) {
                 try { hint(`❌ 操作失败: ${e?.message || String(e)}`, 'error'); } catch (err) {}
             }
@@ -3159,37 +3203,7 @@ if (ev) {
             try { ev.stopPropagation(); } catch (e) {}
         }
         const tid = String(id || '').trim();
-        let task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[tid]
-            || state.flatTasks?.[tid]
-            || null;
-        if (__tmIsOptimisticTempTaskId(tid) && state.pendingInsertedTasks?.[tid]) {
-            const targetDone = !!done;
-            try {
-                globalThis.__tmTaskStore?.patchLocal?.(tid, {
-                    done: targetDone,
-                    __tmPendingDoneRequest: {
-                    done: targetDone,
-                    options: {
-                        suppressHint: opts.suppressHint === true,
-                        source: String(opts.source || 'pending-create-set-done').trim() || 'pending-create-set-done',
-                        scheduleId: String(opts.scheduleId || '').trim(),
-                    },
-                    },
-                }, {
-                    source: 'pending-create-set-done',
-                });
-                if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
-                state.doneOverrides[tid] = targetDone;
-            } catch (e) {}
-            if (ev?.target) {
-                try { ev.target.checked = targetDone; } catch (e) {}
-            }
-            if (opts.suppressHint !== true) {
-                try { hint(targetDone ? '⏳ 子任务创建中，完成状态将自动同步' : '✅ 已取消完成', targetDone ? 'info' : 'success'); } catch (e) {}
-            }
-            return true;
-        }
+        let task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         const viewMode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
         const isChecklistListToggle = !!(ev?.target instanceof Element && ev.target.closest('.tm-checklist-item[data-id]'));
         const shouldPreserveMobileChecklistScroll = (viewMode === 'checklist')
@@ -3266,20 +3280,22 @@ if (ev) {
                 }
             }
         }
-        if (currentDone === targetDone) return;
+        const explicitCheckboxIntent = String(ev?.target?.type || '').toLowerCase() === 'checkbox';
+        if (currentDone === targetDone && !explicitCheckboxIntent) return;
         try {
-            const request = __tmQueueSetDoneTask(tid, targetDone, task, {
+            const setDone = globalThis.__tmRequireTaskMutation?.('setDone');
+            if (typeof setDone !== 'function') throw new Error('任务完成状态写入队列未就绪');
+            const request = setDone(tid, targetDone, {
                 source: String(opts.source || '').trim(),
                 suppressHint: opts.suppressHint === true,
                 statusPatch: opts.statusPatch,
+                additionalPatch: opts.additionalPatch,
                 scheduleId: String(opts.scheduleId || '').trim(),
                 recordUndo: opts.recordUndo !== false,
                 wait: opts.wait === true,
                 skipAutoCompleteParent: opts.skipAutoCompleteParent === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
-                skipViewRefresh: opts.skipViewRefresh === true,
-                skipOptimisticRefresh: opts.skipOptimisticRefresh === true,
-                skipSettledRefresh: opts.skipSettledRefresh === true,
+                deferProjection: opts.deferProjection === true,
                 refreshAncestorViews: opts.refreshAncestorViews !== false,
                 fsrsRating,
             });
@@ -3297,6 +3313,7 @@ if (ev) {
 
     window.tmSetDone = function(id, done, ev, options = {}) {
         const tid = String(id || '').trim();
+        const targetDone = !!done;
         const input = ev?.target && String(ev.target?.type || '').toLowerCase() === 'checkbox'
             ? ev.target
             : null;
@@ -3304,19 +3321,11 @@ if (ev) {
             try { ev.stopPropagation(); } catch (e) {}
         }
         const request = __tmRunSetDoneIngress(tid, async () => {
-            const liveTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                || state.pendingInsertedTasks?.[tid]
-                || state.flatTasks?.[tid]
-                || null;
-            const liveDone = typeof __tmIsTaskDoneEffective === 'function'
-                ? __tmIsTaskDoneEffective(liveTask)
-                : !!liveTask?.done;
-            const targetDone = input ? !liveDone : !!done;
             if (input) {
                 try { input.checked = targetDone; } catch (e) {}
             }
             const setDoneOptions = input
-                ? { ...((options && typeof options === 'object') ? options : {}), wait: true }
+                ? { ...((options && typeof options === 'object') ? options : {}), wait: false }
                 : options;
             return await __tmSetDoneFromUi(tid, targetDone, ev, setDoneOptions);
         });
@@ -3395,9 +3404,12 @@ if (ev) {
         const hasManualRelationships = manualRelationships instanceof Map && manualRelationships.size > 0;
         const hasInjectedTasks = Array.isArray(injectedTasks) && injectedTasks.length > 0;
         const forceDocFlowOrder = opts.forceDocFlowOrder === true || opts.forceSyncFlowRank === true;
-        const shouldPreserveExistingDocOrder = !forceDocFlowOrder && (hasManualRelationships
+        const shouldPreserveExistingDocOrder = !forceDocFlowOrder && !!currentDoc && (
+            opts.preserveExistingSiblingOrder === true
+            || hasManualRelationships
             || hasInjectedTasks
-            || !__tmShouldUseResolvedFlowRankForDoc(docId));
+            || !__tmShouldUseResolvedFlowRankForDoc(docId)
+        );
         const allowOldRelationshipFallback = !hasManualRelationships && !hasInjectedTasks;
 
         // 1. 重新加载数据 (带重试机制，等待索引更新)
@@ -3517,6 +3529,7 @@ if (ev) {
         flatTasks.forEach(t => {
             const parsed = API.parseTaskStatus(t.markdown);
             const taskId = String(t?.id || '').trim();
+            const parsedMarker = __tmNormalizeTaskStatusMarker(parsed?.marker, parsed.done ? 'X' : ' ');
 
             const meta = MetaStore.get(taskId) || {};
             const allowVisibleDateFallback = __tmHasPendingVisibleDatePersistence(String(t.id || '').trim());
@@ -3537,9 +3550,10 @@ if (ev) {
             const nextTask = {
                 id: taskId,
                 content: parsed.content,
-                // 关键：优先使用 MetaStore 中的 done 状态，而不是从 markdown 解析
-                done: meta.done !== undefined ? meta.done : parsed.done,
+                done: !!parsed.done,
                 markdown: t.markdown,
+                taskMarker: parsedMarker,
+                task_marker: parsedMarker,
                 parent_id: t.parent_id,
                 parentId: String(t.parent_id || '').trim(),
                 parent_task_id: String(t.parent_task_id || '').trim(),
@@ -3661,9 +3675,31 @@ if (ev) {
             siblingOrderRanks = new Map();
         }
         __tmRestoreTaskTreeFromMeta(rootTasks);
-        if (forceDocFlowOrder && protectedFlowRankMap.size > 0) __tmSortTaskTreeByDocFlow(rootTasks);
+        if (shouldPreserveExistingDocOrder) __tmSortTaskTreeByExistingOrder(rootTasks, currentDoc.tasks, siblingOrderRanks);
+        else if (forceDocFlowOrder && protectedFlowRankMap.size > 0) __tmSortTaskTreeByDocFlow(rootTasks);
         else __tmSortTaskTreeBySiblingRankMap(rootTasks, siblingOrderRanks);
         __tmAssignDocSeqByTree(rootTasks, 0);
+        const authoritativeTasks = [];
+        const collectAuthoritativeTasks = (tasks) => {
+            (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+                if (!(task && typeof task === 'object')) return;
+                authoritativeTasks.push(task);
+                collectAuthoritativeTasks(task.children);
+            });
+        };
+        collectAuthoritativeTasks(rootTasks);
+        authoritativeTasks.forEach((task) => {
+            const taskId = String(task?.id || '').trim();
+            if (!taskId) return;
+            try { __tmConfirmLocalTaskPatchWatermarkFromTask(taskId, task); } catch (e) {}
+        });
+        try {
+            globalThis.__tmTaskStore?.acceptAuthoritative?.(authoritativeTasks, {
+                docIds: [docId],
+                replaceDocuments: true,
+            });
+        } catch (e) {}
+        try { __tmMergeLocalTaskPatchIntoTaskTree([{ tasks: rootTasks }]); } catch (e) {}
 
         // 3. 更新状态
         const docIndex = state.taskTree.findIndex(d => d.id === docId);
@@ -3704,7 +3740,7 @@ if (ev) {
         state.stats.queryTime = queryTime || 0;
         recalcStats();
         if (opts.applyFilters !== false) {
-            applyFilters();
+            __tmRecomputeTaskProjection({ reason: String(opts.reason || 'loaded-task-render').trim() || 'loaded-task-render' });
         }
         if (opts.render !== false) {
             render();
@@ -3793,10 +3829,7 @@ if (ev) {
         let task = (fallbackTask && typeof fallbackTask === 'object') ? fallbackTask : null;
         if (!task && tid) {
             try {
-                task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                    || state.flatTasks?.[tid]
-                    || state.pendingInsertedTasks?.[tid]
-                    || null;
+                task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
             } catch (e) { task = null; }
         }
         let docId = String(task?.root_id || task?.docId || '').trim();
@@ -3849,12 +3882,14 @@ if (ev) {
                 forceFresh: opts.forceFresh !== false,
                 forceDocFlowOrder: opts.forceDocFlowOrder === true,
                 forceHeadingContext: opts.forceHeadingContext === true,
+                preserveExistingSiblingOrder: opts.preserveExistingSiblingOrder !== false,
             });
             __tmFreshTaskDetailDocReloads.set(docId, reloadPromise);
         }
         try {
             await reloadPromise;
         } catch (e) {
+            if (opts.throwOnFailure === true) throw e;
             return task;
         } finally {
             try {
@@ -3870,9 +3905,7 @@ if (ev) {
                 return (typeof __tmGetTaskDetailTaskById === 'function'
                     ? __tmGetTaskDetailTaskById(targetId, { includePending: true, preferPending: true, includeWhiteboard: true })
                     : null)
-                    || globalThis.__tmRuntimeState?.getTaskById?.(targetId, { includePending: true, preferPending: true })
-                    || state.flatTasks?.[targetId]
-                    || state.pendingInsertedTasks?.[targetId]
+                    || globalThis.__tmTaskBoundary?.getTask?.(targetId)
                     || null;
             } catch (e) {
                 return null;
@@ -3902,11 +3935,59 @@ if (ev) {
 
     try { globalThis.__tmRefreshTaskDocForFreshDetail = __tmRefreshTaskDocForFreshDetail; } catch (e) {}
 
+    function __tmScheduleTaskDetailDocumentReconcile(taskId, fallbackTask = null, options = {}) {
+        const tid = String(taskId || fallbackTask?.id || '').trim();
+        if (!tid) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const source = String(opts.source || 'task-detail-open-background').trim() || 'task-detail-open-background';
+        const run = () => {
+            Promise.resolve(__tmRefreshTaskDocForFreshDetail(tid, fallbackTask, {
+                source,
+                forceFresh: true,
+            })).then(() => {
+                try {
+                    globalThis.__tmProjectVisibleTaskDetailSubtasks?.([tid]);
+                    __tmRefreshVisibleTaskDetailForTask(tid, {
+                        patch: {
+                            content: true,
+                            done: true,
+                            customStatus: true,
+                            priority: true,
+                            startDate: true,
+                            completionTime: true,
+                            taskCompleteAt: true,
+                            duration: true,
+                            tomatoEstimateCount: true,
+                            tomatoCount: true,
+                            pinned: true,
+                            remark: true,
+                            attachments: true,
+                            customFieldValues: true,
+                            location: true,
+                        },
+                        source,
+                    });
+                } catch (e) {}
+            }).catch(() => null);
+        };
+        try {
+            if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(run, { timeout: 1200 });
+            } else {
+                setTimeout(run, 180);
+            }
+        } catch (e) {
+            try { setTimeout(run, 180); } catch (e2) {}
+        }
+        return true;
+    }
+
     window.tmOpenTaskDetail = async function(id, ev, options = {}) {
         const detailOpenOptions = (options && typeof options === 'object') ? options : {};
         const isQuickbarDetailOpen = String(detailOpenOptions.source || '').trim() === 'quickbar-detail-open'
             || __tmIsQuickbarTaskDetailOpenEvent(ev);
         const shouldFreshenDetailOpen = detailOpenOptions.forceFresh === true || isQuickbarDetailOpen;
+        const shouldReconcileDetailOpen = detailOpenOptions.reconcile === true;
         try {
             ev?.stopPropagation?.();
             ev?.preventDefault?.();
@@ -3923,20 +4004,14 @@ if (ev) {
             if (optimisticResolvedId) tid = optimisticResolvedId;
         } catch (e) {}
         if (!tid) return false;
-        const cachedTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const cachedTask = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         const recurringSourceId = __tmResolveRecurringInstanceSourceTaskId(tid, cachedTask);
         if (recurringSourceId && recurringSourceId !== tid) tid = recurringSourceId;
-        if (!(globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true }) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid])) {
+        if (!globalThis.__tmTaskBoundary?.getTask?.(tid)) {
             const resolved = await __tmResolveTaskIdFromAnyBlockId(tid);
             if (resolved) tid = resolved;
         }
-        let task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        let task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         try {
             task = (typeof __tmGetTaskDetailTaskById === 'function'
                 ? __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
@@ -3995,7 +4070,7 @@ if (ev) {
                 && !__tmIsMobileDevice()
                 && kanbanDetailFloat instanceof HTMLElement
                 && isSameDetailTask(state.kanbanDetailTaskId)) {
-                __tmCloseKanbanDetailFloating();
+                await __tmCloseKanbanDetailFloating();
                 return true;
             }
             const standaloneOverlay = document.getElementById('tm-task-detail-overlay');
@@ -4019,6 +4094,21 @@ if (ev) {
                     tid = String(task.id || tid).trim() || tid;
                 }
             } catch (e) {}
+        } else if (shouldReconcileDetailOpen) {
+            __tmScheduleTaskDetailDocumentReconcile(tid, task, {
+                source: `${String(detailOpenOptions.source || 'task-detail-open').trim() || 'task-detail-open'}-background`,
+            });
+        }
+        if (useTaskDetailSheetMode) {
+            await __tmOpenTaskDetailSheetInPlace(tid, {
+                source: `${String(activeRenderMode || 'task').trim() || 'task'}-detail-open`,
+                task,
+            });
+            const docId = String(task?.root_id || task?.docId || '').trim();
+            if (docId) {
+                try { Promise.resolve(__tmWarmKanbanDocHeadings([docId], { force: true })).catch(() => null); } catch (e) {}
+            }
+            return true;
         }
         try {
             task = await __tmEnsureTaskDetailFieldAttrs(task, {
@@ -4038,17 +4128,8 @@ if (ev) {
                 try { Promise.resolve(__tmWarmKanbanDocHeadings([docId], { force: true })).catch(() => null); } catch (e) {}
             }
         }
-
-        if (useTaskDetailSheetMode) {
-            await __tmOpenTaskDetailSheetInPlace(tid, {
-                source: `${String(activeRenderMode || 'task').trim() || 'task'}-detail-open`,
-                task,
-                skipFieldAttrs: true,
-            });
-            return true;
-        }
         if (!isQuickbarDetailOpen && activeRenderMode === 'kanban' && !__tmIsMobileDevice()) {
-            if (!__tmOpenKanbanDetailFloatingInPlace(tid, state.modal)) {
+            if (!__tmOpenKanbanDetailFloatingInPlace(tid, state.modal, { task })) {
                 state.kanbanDetailTaskId = tid;
                 state.kanbanDetailAnchorTaskId = tid;
                 render();
@@ -4083,19 +4164,11 @@ if (ev) {
             close().catch(() => null);
         };
         const close = async () => {
-            __tmMarkTaskDetailRootClosing(overlay, { holdMs: 900 });
-            try {
-                await overlay.__tmTaskDetailFlushSave?.({
-                    showHint: false,
-                    closeAfterSave: false,
-                    preserveFocus: false,
-                    skipRerender: true,
-                });
-            } catch (e) {}
-            try { globalThis.__tmRuntimeEvents?.off?.(document, 'keydown', onKeydown, true); } catch (e) {}
-            try { overlay.__tmTaskDetailAbortController?.abort?.(); } catch (e) {}
-            __tmMarkTaskDetailRootClosed(overlay);
-            try { overlay.remove(); } catch (e) {}
+            return await __tmRunTaskDetailClose(overlay, async () => {
+                try { globalThis.__tmRuntimeEvents?.off?.(document, 'keydown', onKeydown, true); } catch (e) {}
+                try { overlay.__tmTaskDetailAbortController?.abort?.(); } catch (e) {}
+                try { overlay.remove(); } catch (e) {}
+            }, { holdMs: 900 });
         };
         let overlayPointerStartedOnBackdrop = false;
         overlay.addEventListener('pointerdown', (e) => {
@@ -4128,27 +4201,8 @@ if (ev) {
             const targets = typeof __tmCollectVisibleTaskDetailTargetIds === 'function'
                 ? __tmCollectVisibleTaskDetailTargetIds()
                 : [tid].filter(Boolean);
-            targets.forEach((targetId) => {
-                const targetTid = String(targetId || '').trim();
-                if (!targetTid) return;
-                try {
-                    __tmRefreshVisibleTaskDetailForTask(targetTid, {
-                        forceRebuild: true,
-                        source: 'completed-subtasks-global-toggle',
-                    });
-                } catch (e) {}
-            });
-        } catch (e) {
-            try { if (tid) __tmRefreshVisibleTaskDetailForTask(tid, { forceRebuild: true, source: 'completed-subtasks-global-toggle' }); } catch (e2) {}
-        }
-        try {
-            const liveModal = globalThis.__tmRuntimeState?.getModal?.() || state.modal;
-            if (globalThis.__tmRuntimeState?.hasLiveModal?.(liveModal) ?? (state.modal && document.body.contains(state.modal))) {
-                if (!__tmRerenderCurrentViewInPlace(liveModal)) render();
-            }
-        } catch (e) {
-            try { render(); } catch (e2) {}
-        }
+            globalThis.__tmProjectVisibleTaskDetailSubtasks?.(targets);
+        } catch (e) {}
         try { hint(enabled ? '✅ 已显示已完成子任务' : '✅ 已隐藏已完成子任务', 'success'); } catch (e) {}
         return enabled;
     };
@@ -4202,13 +4256,39 @@ if (ev) {
         return nextMarkdown;
     }
 
+    function __tmRefreshContentPatchPresentation(taskId, patch = {}, options = {}, fallbackReason = 'content-patch-local') {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!tid || !Object.keys(nextPatch).length || opts.render === false) return false;
+        const reason = String(opts.reason || opts.source || fallbackReason).trim() || fallbackReason;
+        try {
+            const task = globalThis.__tmTaskStore?.getProjected?.(tid)
+                || globalThis.__tmTaskBoundary?.getTask?.(tid)
+                || null;
+            globalThis.__tmTaskMutationBus?.publish?.({
+                type: 'contentPatch',
+                phase: 'local',
+                taskId: tid,
+                docId: String(task?.root_id || task?.docId || '').trim(),
+                source: reason,
+                patch: { ...nextPatch },
+                data: {
+                    presentation: {
+                        preserveActiveDetail: opts.skipDetailPatch === true,
+                        allowMountedInactive: opts.allowMountedInactive === true,
+                    },
+                },
+            });
+            return true;
+        } catch (e) {}
+        return false;
+    }
+
     function __tmApplyContentPatchLocally(taskId, nextContent, options = {}) {
         const tid = String(taskId || '').trim();
-        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && __tmIsOutboxTaskPendingDeleted(tid)) return false;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) return false;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task) return false;
         const text = __tmNormalizeTaskContentEditInput(nextContent);
         if (!text) return false;
@@ -4216,17 +4296,21 @@ if (ev) {
             ? __tmProtectMarkdownMutationTaskFields(tid, task, { source: 'content-patch-local' })
             : {};
         const nextMarkdown = __tmBuildTaskMarkdownWithContent(task, text);
-        task.content = text;
-        task.markdown = nextMarkdown;
+        const patch = {
+            content: text,
+            markdown: nextMarkdown,
+            raw_content: text,
+            rawContent: text,
+        };
+        const presentationPatch = { content: text, markdown: nextMarkdown };
+        const applied = globalThis.__tmTaskStore?.patchLocal?.(tid, patch, {
+            source: String(options.source || 'content-patch-local').trim() || 'content-patch-local',
+        });
+        if (applied !== true) return false;
         try {
-            if (state.pendingInsertedTasks?.[tid]) {
-                globalThis.__tmTaskStore?.patchPending?.(tid, {
-                    content: text,
-                    markdown: nextMarkdown,
-                }, {
-                    source: 'content-patch-local',
-                });
-            }
+            __tmMarkLocalTaskPatchWatermark(tid, presentationPatch, {
+                source: String(options.source || 'content-patch-local').trim() || 'content-patch-local',
+            });
         } catch (e) {}
         try {
             __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, {
@@ -4237,48 +4321,16 @@ if (ev) {
                 source: String(options.source || 'content-patch-local').trim() || 'content-patch-local',
             });
         } catch (e) {}
-        if (options.render !== false) {
-            const patch = { content: text, markdown: nextMarkdown };
-            let needsProjectionRefresh = false;
-            try {
-                needsProjectionRefresh = typeof __tmDoesPatchNeedProjectionRefresh === 'function'
-                    && __tmDoesPatchNeedProjectionRefresh(tid, patch, {
-                        withFilters: options.withFilters === true,
-                        forceProjectionRefresh: options.forceProjectionRefresh === true,
-                    });
-            } catch (e) {
-                needsProjectionRefresh = options.withFilters === true;
-            }
-            try {
-                __tmRefreshTaskFieldsAcrossViews(tid, patch, {
-                    withFilters: needsProjectionRefresh,
-                    reason: String(options.reason || options.source || 'content-patch-local').trim() || 'content-patch-local',
-                    forceProjectionRefresh: needsProjectionRefresh,
-                    fallback: needsProjectionRefresh,
-                });
-            } catch (e) {
-                try {
-                    __tmScheduleViewRefresh({
-                        mode: 'current',
-                        withFilters: needsProjectionRefresh,
-                        reason: String(options.reason || options.source || 'content-patch-local-fallback').trim() || 'content-patch-local-fallback',
-                        taskIds: [tid],
-                    });
-                } catch (e2) {}
-            }
-        }
+        __tmRefreshContentPatchPresentation(tid, presentationPatch, options, 'content-patch-local');
         return true;
     }
 
     function __tmQueueMoveTask(taskId, payload = {}, options = {}) {
         const tid = String(taskId || '').trim();
-        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && __tmIsOutboxTaskPendingDeleted(tid)) {
+        if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) {
             return Promise.reject(new Error('任务已删除，移动已取消'));
         }
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         const data = (payload && typeof payload === 'object') ? payload : {};
         const hooks = (options && typeof options === 'object') ? options : {};
         const targetDocId = String(data.targetDocId || '').trim();
@@ -4308,13 +4360,14 @@ if (ev) {
                 targetLastDirectChildId: String(data.targetLastDirectChildId || '').trim(),
                 headingId: String(data.headingId || '').trim(),
                 mode,
+                resolveOutdent: data.resolveOutdent === true,
+                outdentResolved: data.outdentResolved === true,
                 snapshot,
                 customOrderPlacement: data.customOrderPlacement === true,
-                deferOptimisticRender: data.deferOptimisticRender === true,
-                forceOptimisticRender: data.forceOptimisticRender === true || hooks.forceOptimisticRender === true,
-                skipOptimisticFilterWork: data.skipOptimisticFilterWork === true || hooks.skipOptimisticFilterWork === true,
                 preserveRenderWindow: data.preserveRenderWindow === true || hooks.preserveRenderWindow === true,
                 crossDoc: String(String(task.docId || task.root_id || '').trim() !== targetDocId ? '1' : ''),
+                showErrorHint: hooks.showErrorHint !== false && typeof hooks.onError !== 'function',
+                suppressHint: hooks.suppressHint === true,
             },
         }, {
             wait: shouldWait,
@@ -4337,6 +4390,69 @@ if (ev) {
         return shouldWait ? opPromise : Promise.resolve(tid);
     }
 
+    function __tmQueueBatchMoveTasks(taskIds, payload = {}, options = {}) {
+        const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (ids.length < 2) return Promise.reject(new Error('批量移动至少需要两个任务'));
+        if (ids.some((id) => typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(id))) {
+            return Promise.reject(new Error('选中的任务已删除，移动已取消'));
+        }
+        const tasks = ids.map((id) => globalThis.__tmTaskBoundary?.getTask?.(id) || null);
+        const data = (payload && typeof payload === 'object') ? payload : {};
+        const hooks = (options && typeof options === 'object') ? options : {};
+        const targetDocId = String(data.targetDocId || '').trim();
+        const targetTaskId = String(data.targetTaskId || '').trim();
+        const rawMode = String(data.mode || 'child').trim() || 'child';
+        const mode = String(globalThis.__tmTaskStore?.normalizeMoveMode?.(rawMode) || rawMode).trim() || 'child';
+        if (tasks.some((task) => !task) || !targetDocId || !targetTaskId || !['child', 'child-top'].includes(mode)) {
+            return Promise.reject(new Error('批量移动目标无效'));
+        }
+        const snapshots = ids.map((id) => __tmCaptureTaskLocalSnapshot(id));
+        const sourceDocIds = Array.from(new Set(tasks
+            .map((task) => String(task?.root_id || task?.docId || '').trim())
+            .filter(Boolean)));
+        const shouldWait = hooks.wait === true || data.wait === true;
+        let pendingPromise = null;
+        const opPromise = __tmEnqueueQueuedOp({
+            type: 'batchMoveTasks',
+            docId: sourceDocIds[0] || targetDocId,
+            laneKey: 'doc:' + targetDocId,
+            data: {
+                taskIds: ids,
+                targetDocId,
+                targetTaskId,
+                targetChildListId: String(data.targetChildListId || '').trim(),
+                requestedChildListId: String(data.requestedChildListId || '').trim(),
+                mode,
+                snapshots,
+                sourceDocIds,
+                customOrderPlacement: data.customOrderPlacement === true,
+                preserveRenderWindow: data.preserveRenderWindow === true || hooks.preserveRenderWindow === true,
+                showErrorHint: hooks.showErrorHint !== false && typeof hooks.onError !== 'function',
+                suppressHint: hooks.suppressHint === true,
+            },
+        }, {
+            wait: shouldWait,
+            onPending: (promise, op) => {
+                pendingPromise = promise;
+                try { hooks.onPending?.(promise, op); } catch (e) {}
+            },
+        });
+        try { hooks.onQueued?.(); } catch (e) {}
+        if (!shouldWait) {
+            const settlePromise = pendingPromise || opPromise;
+            settlePromise.then((result) => {
+                try { hooks.onSuccess?.(result); } catch (e) {}
+            }).catch((e) => {
+                try { hooks.onError?.(e); } catch (e2) {}
+            }).finally(() => {
+                try { hooks.onFinally?.(); } catch (e) {}
+            });
+        }
+        return shouldWait ? opPromise : Promise.resolve(ids);
+    }
+
     function __tmGetTaskForDetachSubtask(taskOrId) {
         if (taskOrId && typeof taskOrId === 'object') return taskOrId;
         const rawId = String(taskOrId || '').trim();
@@ -4347,12 +4463,8 @@ if (ev) {
         return (typeof __tmGetTaskDetailTaskById === 'function'
             ? __tmGetTaskDetailTaskById(resolvedId, { includePending: true, preferPending: true, includeWhiteboard: true })
             : null)
-            || globalThis.__tmRuntimeState?.getTaskById?.(resolvedId, { includePending: true, preferPending: true })
-            || (rawId !== resolvedId ? globalThis.__tmRuntimeState?.getTaskById?.(rawId, { includePending: true, preferPending: true }) : null)
-            || state.pendingInsertedTasks?.[resolvedId]
-            || (rawId !== resolvedId ? state.pendingInsertedTasks?.[rawId] : null)
-            || state.flatTasks?.[resolvedId]
-            || (rawId !== resolvedId ? state.flatTasks?.[rawId] : null)
+            || globalThis.__tmTaskBoundary?.getTask?.(resolvedId)
+            || (rawId !== resolvedId ? globalThis.__tmTaskBoundary?.getTask?.(rawId) : null)
             || null;
     }
 
@@ -4391,37 +4503,35 @@ if (ev) {
         return !!__tmBuildDetachSubtaskInfo(taskOrId);
     }
 
-    function __tmRefreshDetachSubtaskViews(info, reason = 'detach-subtask') {
-        const data = (info && typeof info === 'object') ? info : null;
-        if (!data) return;
-        const taskIds = Array.from(new Set([
-            data.taskId,
-            data.parentTaskId,
-            data.targetParentTaskId,
-        ].map((id) => String(id || '').trim()).filter(Boolean)));
-        try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
-        try { state.listDomRenderSignature = ''; } catch (e) {}
-        try {
-            if (data.parentTaskId) __tmScheduleChecklistOptimisticSubtaskRefresh?.(data.parentTaskId, data.taskId);
-        } catch (e) {}
-        try {
-            if (data.targetParentTaskId) __tmScheduleChecklistOptimisticSubtaskRefresh?.(data.targetParentTaskId, data.taskId);
-        } catch (e) {}
-        try {
-            __tmScheduleViewRefresh({
-                mode: 'current',
-                withFilters: true,
-                reason,
-                taskIds,
-            });
-        } catch (e) {}
+    async function __tmResolveAuthoritativeDetachSubtaskInfo(info) {
+        const current = (info && typeof info === 'object') ? info : null;
+        const taskId = String(current?.taskId || '').trim();
+        if (!current || !taskId || typeof __tmReadQueuedTaskPlacement !== 'function') return null;
+        const taskPlacement = await __tmReadQueuedTaskPlacement(taskId);
+        const parentTaskId = String(taskPlacement?.parentTaskId || '').trim();
+        if (!parentTaskId || parentTaskId === taskId) return null;
+        const parentPlacement = await __tmReadQueuedTaskPlacement(parentTaskId);
+        return {
+            ...current,
+            parentTaskId,
+            targetParentTaskId: String(parentPlacement?.parentTaskId || '').trim(),
+            targetListId: String(parentPlacement?.parentListId || '').trim(),
+            targetDocId: String(taskPlacement?.documentId || parentPlacement?.documentId || current.targetDocId || '').trim(),
+        };
     }
 
     window.tmDetachSubtaskFromParent = async function(taskId, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const info = __tmBuildDetachSubtaskInfo(taskId);
+        let info = __tmBuildDetachSubtaskInfo(taskId);
         if (!info) {
             if (opts.silent !== true) hint('⚠️ 未找到可移出的父任务', 'warning');
+            return false;
+        }
+        try {
+            info = await __tmResolveAuthoritativeDetachSubtaskInfo(info) || info;
+        } catch (e) {}
+        if (!info?.parentTaskId || !info?.targetDocId) {
+            if (opts.silent !== true) hint('⚠️ 无法确认当前父子结构，请稍后重试', 'warning');
             return false;
         }
         const shouldWait = opts.wait === true;
@@ -4430,10 +4540,11 @@ if (ev) {
             targetDocId: info.targetDocId,
             targetTaskId: info.parentTaskId,
             targetParentTaskId: info.targetParentTaskId,
-            forceOptimisticRender: opts.forceOptimisticRender === true,
+            targetListId: info.targetListId,
+            resolveOutdent: true,
+            outdentResolved: true,
         };
         const onSuccess = () => {
-            __tmRefreshDetachSubtaskViews(info, 'detach-subtask-success');
             if (opts.silent !== true) hint('✅ 已移出子任务', 'success');
         };
         const onError = (e) => {
@@ -4442,7 +4553,6 @@ if (ev) {
         try {
             const result = await __tmQueueMoveTask(info.taskId, payload, {
                 wait: shouldWait,
-                onQueued: () => __tmRefreshDetachSubtaskViews(info, 'detach-subtask-queued'),
                 onSuccess,
                 onError,
             });
@@ -4456,28 +4566,26 @@ if (ev) {
 
     function __tmRollbackContentPatchLocally(taskId, inversePatch, options = {}) {
         const tid = String(taskId || '').trim();
-        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && __tmIsOutboxTaskPendingDeleted(tid)) return false;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) return false;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task) return false;
         try { __tmProtectMarkdownMutationTaskFields?.(tid, task, { source: 'content-patch-rollback' }); } catch (e) {}
         const prev = (inversePatch && typeof inversePatch === 'object') ? inversePatch : {};
-        if (Object.prototype.hasOwnProperty.call(prev, 'content')) task.content = String(prev.content || '').trim();
-        if (Object.prototype.hasOwnProperty.call(prev, 'markdown')) task.markdown = String(prev.markdown || '').trim();
-        try {
-            if (state.pendingInsertedTasks?.[tid]) {
-                const pendingPatch = {};
-                if (Object.prototype.hasOwnProperty.call(prev, 'content')) pendingPatch.content = String(prev.content || '').trim();
-                if (Object.prototype.hasOwnProperty.call(prev, 'markdown')) pendingPatch.markdown = String(prev.markdown || '').trim();
-                globalThis.__tmTaskStore?.patchPending?.(tid, pendingPatch, {
-                    source: 'content-patch-rollback',
-                });
-            }
-        } catch (e) {}
-        if (options.render !== false) {
-            try { __tmScheduleRender({ withFilters: options.withFilters !== false }); } catch (e) {}
+        const rollbackPatch = {};
+        if (Object.prototype.hasOwnProperty.call(prev, 'content')) rollbackPatch.content = String(prev.content || '').trim();
+        if (Object.prototype.hasOwnProperty.call(prev, 'markdown')) rollbackPatch.markdown = String(prev.markdown || '').trim();
+        if (Object.prototype.hasOwnProperty.call(prev, 'raw_content')) rollbackPatch.raw_content = String(prev.raw_content || '').trim();
+        if (Object.prototype.hasOwnProperty.call(prev, 'rawContent')) rollbackPatch.rawContent = String(prev.rawContent || '').trim();
+        if (!Object.keys(rollbackPatch).length) return false;
+        const rolledBack = globalThis.__tmTaskStore?.patchLocal?.(tid, rollbackPatch, {
+            source: 'content-patch-rollback',
+        });
+        if (rolledBack !== true) return false;
+        const presentationPatch = {};
+        if (Object.prototype.hasOwnProperty.call(rollbackPatch, 'content')) presentationPatch.content = rollbackPatch.content;
+        if (Object.prototype.hasOwnProperty.call(rollbackPatch, 'markdown')) presentationPatch.markdown = rollbackPatch.markdown;
+        if (Object.keys(presentationPatch).length) {
+            __tmRefreshContentPatchPresentation(tid, presentationPatch, options, 'content-patch-rollback');
         }
         return true;
     }
@@ -4486,15 +4594,12 @@ if (ev) {
         const tid = typeof taskOrId === 'string'
             ? String(taskOrId || '').trim()
             : String(taskOrId?.id || '').trim();
-        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && __tmIsOutboxTaskPendingDeleted(tid)) {
+        if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) {
             throw new Error('任务已删除，写入已取消');
         }
         const task = tid
             ? (
-                globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                || state.flatTasks?.[tid]
-                || state.pendingInsertedTasks?.[tid]
-                || null
+                globalThis.__tmTaskBoundary?.getTask?.(tid) || null
             )
             : null;
         if (!task) throw new Error('未找到任务');
@@ -4504,7 +4609,6 @@ if (ev) {
                 ...((options && typeof options === 'object') ? options : {}),
                 wait: false,
                 renderOptimistic: true,
-                withFilters: options.withFilters === true,
                 skipInteractionGate: true,
             });
         }
@@ -4531,15 +4635,12 @@ if (ev) {
         const tid = typeof taskOrId === 'string'
             ? String(taskOrId || '').trim()
             : String(taskOrId?.id || '').trim();
-        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && __tmIsOutboxTaskPendingDeleted(tid)) {
+        if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) {
             return Promise.reject(new Error('任务已删除，写入已取消'));
         }
         const task = tid
             ? (
-                globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-                || state.flatTasks?.[tid]
-                || state.pendingInsertedTasks?.[tid]
-                || null
+                globalThis.__tmTaskBoundary?.getTask?.(tid) || null
             )
             : null;
         if (!tid || !task) return Promise.reject(new Error('未找到任务'));
@@ -4549,6 +4650,8 @@ if (ev) {
         const inversePatch = {
             content: String(task.content || '').trim(),
             markdown: String(task.markdown || '').trim(),
+            raw_content: String(task.raw_content ?? task.rawContent ?? task.content ?? '').trim(),
+            rawContent: String(task.rawContent ?? task.raw_content ?? task.content ?? '').trim(),
         };
         let nextMarkdown = '';
         try {
@@ -4556,34 +4659,19 @@ if (ev) {
         } catch (e) {
             nextMarkdown = `- [${task.done ? 'x' : ' '}] ${text}`;
         }
-        const contentPatch = { content: text, markdown: nextMarkdown };
-        const needsProjectionRefresh = (() => {
-            try {
-                return typeof __tmDoesPatchNeedOptimisticProjectionRefresh === 'function'
-                    ? __tmDoesPatchNeedOptimisticProjectionRefresh(tid, contentPatch, {
-                        ...options,
-                        withFilters: options.withFilters === true,
-                        forceProjectionRefresh: options.forceProjectionRefresh === true,
-                    })
-                    : !!(options.withFilters === true || options.forceProjectionRefresh === true);
-            } catch (e) {
-                return !!(options.withFilters === true || options.forceProjectionRefresh === true);
-            }
-        })();
         return __tmEnqueueQueuedOp({
             type: 'contentPatch',
             docId,
             laneKey: `task:${tid}`,
-            coalesceKey: `content:${tid}`,
             data: {
                 taskId: tid,
                 nextContent: text,
                 nextMarkdown,
                 docId,
                 renderOptimistic: options.renderOptimistic !== false,
-                withFilters: needsProjectionRefresh,
-                forceProjectionRefresh: needsProjectionRefresh,
                 skipInteractionGate: options.skipInteractionGate === true,
+                showErrorHint: options.showErrorHint !== false,
+                suppressHint: options.suppressHint === true,
             },
             inversePatch,
         }, {
@@ -4599,9 +4687,9 @@ if (ev) {
                 wait: opts.background !== true,
                 docId: opts.docId,
                 renderOptimistic: opts.renderOptimistic !== false,
-                withFilters: opts.withFilters === true,
-                forceProjectionRefresh: opts.forceProjectionRefresh === true,
                 skipInteractionGate: opts.skipInteractionGate === true || opts.background === true,
+                showErrorHint: opts.showErrorHint !== false,
+                suppressHint: opts.suppressHint === true,
                 onPending: typeof opts.onPending === 'function' ? opts.onPending : undefined,
             });
         }
@@ -4617,8 +4705,8 @@ if (ev) {
         });
         Promise.resolve(savePromise).then((result) => {
             const opId = String((typeof getOpId === 'function' ? getOpId() : '') || result || '').trim();
-            if (!opId || !globalThis.__tmTaskHorizonOutbox?.onSettle) return;
-            globalThis.__tmTaskHorizonOutbox.onSettle({ opId }, (detail) => {
+            if (!opId || !globalThis.__tmTaskMutations?.onSettle) return;
+            globalThis.__tmTaskMutations.onSettle({ opId }, (detail) => {
                 try {
                     if (detail?.status === 'done') hint(successText, 'success');
                     else if (detail?.status === 'failed') hint(`❌ ${failedPrefix}: ${detail?.error?.message || '未知错误'}`, 'error');
@@ -4630,10 +4718,7 @@ if (ev) {
     // 编辑任务
     window.tmEdit = async function(id) {
         const tid = String(id || '').trim();
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task) return;
         if (!__tmEnsureEditableTaskLike(task, '编辑内容')) return;
 
@@ -4648,29 +4733,19 @@ if (ev) {
         if (nextContent === currentContent) return;
 
         try {
-            const patchContent = globalThis.__tmRequireTaskOutbox?.('patchContent');
+            const patchContent = globalThis.__tmRequireTaskMutation?.('patchContent');
             if (typeof patchContent !== 'function') throw new Error('任务写入队列未就绪: patchContent');
             let queuedOpId = '';
             const savePromise = patchContent(tid, nextContent, {
                 background: true,
                 skipInteractionGate: true,
                 defer: false,
+                suppressHint: true,
                 onPending: (promise, op) => {
                     queuedOpId = String(op?.id || '').trim();
                 },
             });
             __tmHintQueuedTaskOperation(savePromise, () => queuedOpId);
-            try {
-                const patch = { content: nextContent };
-                const needsProjectionRefresh = typeof __tmDoesPatchNeedProjectionRefresh === 'function'
-                    && __tmDoesPatchNeedProjectionRefresh(tid, patch, {});
-                __tmRefreshTaskFieldsAcrossViews(tid, patch, {
-                    withFilters: needsProjectionRefresh,
-                    reason: 'edit-content-optimistic',
-                    forceProjectionRefresh: needsProjectionRefresh,
-                    fallback: needsProjectionRefresh,
-                });
-            } catch (e2) {}
             hint('已暂存，正在同步', 'info');
         } catch (e) {
             hint(`❌ 更新失败: ${e.message}`, 'error');
@@ -4763,25 +4838,33 @@ if (ev) {
         const tid = String(id || '').trim();
         if (!tid) throw new Error('未找到任务');
         const opts = (options && typeof options === 'object') ? options : {};
-        const taskBeforeDelete = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const taskBeforeDelete = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         const scheduleCleanupTaskIds = __tmCollectTaskTreeIdsForScheduleCleanup(taskBeforeDelete, [
             tid,
             ...(Array.isArray(opts.scheduleCleanupTaskIds) ? opts.scheduleCleanupTaskIds : []),
         ]);
-        await __tmBackendAdapter.deleteBlock(tid);
+        try {
+            await __tmBackendAdapter.deleteBlock(tid);
+        } catch (deleteError) {
+            let missing = false;
+            try {
+                const rows = await API.getBlocksByIds([tid]);
+                missing = !Array.isArray(rows) || rows.length === 0;
+            } catch (readError) {}
+            if (!missing) throw deleteError;
+        }
         try {
             const docId = String(taskBeforeDelete?.root_id || taskBeforeDelete?.docId || '').trim();
             if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
             else __tmInvalidateAllSqlCaches();
         } catch (e) {}
+        try { MetaStore.deleteTaskIds(scheduleCleanupTaskIds); } catch (e) {}
         await __tmCleanupDeletedTaskRelations(scheduleCleanupTaskIds, {
             source: 'task-delete',
             reason: 'task-delete-schedules',
             background: opts.backgroundScheduleCleanup === true,
         });
+        try { scheduleCleanupTaskIds.forEach((taskId) => __tmPurgeRecurringInstanceTasks(taskId)); } catch (e) {}
         return true;
     }
 
@@ -4789,10 +4872,7 @@ if (ev) {
     window.tmDelete = async function(id, options = {}) {
         const tid = String(id || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
-            || null;
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task) return;
         const isRecurringInstance = __tmIsRecurringInstanceTask(task);
         const recurringSourceTaskId = isRecurringInstance
@@ -4876,7 +4956,12 @@ if (ev) {
                 });
                 __tmShowActionHint('任务已移入回收站', 'success', '撤销', async () => {
                     try {
-                        await lifecycle.restoreDeleted(tid, { source: 'task-recycle-undo', wait: true });
+                        await lifecycle.restoreDeleted(tid, {
+                            snapshot,
+                            scheduleCleanupTaskIds,
+                            source: 'task-recycle-undo',
+                            wait: true,
+                        });
                         try { __tmScheduleRender({ withFilters: true, reason: 'task-recycle-undo' }); } catch (e) {}
                         hint('✅ 任务已恢复', 'success');
                     } catch (error) {
@@ -4932,12 +5017,9 @@ if (ev) {
         const taskId = (typeof __tmResolveOptimisticTaskId === 'function'
             ? String(__tmResolveOptimisticTaskId(requestedTaskId) || requestedTaskId).trim()
             : requestedTaskId) || requestedTaskId;
-        const task = globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
-            || globalThis.__tmRuntimeState?.getTaskById?.(requestedTaskId, { includePending: true, preferPending: true })
-            || state.flatTasks?.[taskId]
-            || state.pendingInsertedTasks?.[taskId]
-            || state.flatTasks?.[requestedTaskId]
-            || state.pendingInsertedTasks?.[requestedTaskId];
+        const task = globalThis.__tmTaskBoundary?.getTask?.(taskId)
+            || globalThis.__tmTaskBoundary?.getTask?.(requestedTaskId)
+            || null;
         if (!task) return;
         const showDialog = globalThis.__tomatoReminder?.showDialog;
         if (typeof showDialog === 'function') {
@@ -5122,7 +5204,7 @@ if (ev) {
         }
         const rawId = String(id || '').trim();
         if (!rawId) return;
-        const rawTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(rawId) || state.flatTasks?.[rawId] || null;
+        const rawTask = globalThis.__tmTaskBoundary?.getTask?.(rawId, { includePending: false, preferPending: false }) || null;
         let resolvedId = rawId;
         if (!__tmIsCollectedOtherBlockTask(rawTask)) {
             try {
@@ -5131,10 +5213,8 @@ if (ev) {
             } catch (e) {}
         }
         let task = rawTask
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(resolvedId)
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(rawId)
-            || state.flatTasks?.[resolvedId]
-            || state.flatTasks?.[rawId]
+            || globalThis.__tmTaskBoundary?.getTask?.(resolvedId, { includePending: false, preferPending: false })
+            || globalThis.__tmTaskBoundary?.getTask?.(rawId, { includePending: false, preferPending: false })
             || null;
         if (!task && resolvedId) {
             try { task = await __tmEnsureTaskInStateById(resolvedId); } catch (e) { task = null; }
@@ -5175,12 +5255,8 @@ if (ev) {
             : rawMenuTaskId;
         taskId = menuTaskId;
         const taskForMenu = __tmGetCollectedOtherBlockTaskFromState(menuTaskId)
-            || globalThis.__tmRuntimeState?.getTaskById?.(menuTaskId, { includePending: true, preferPending: true })
-            || (rawMenuTaskId !== menuTaskId ? globalThis.__tmRuntimeState?.getTaskById?.(rawMenuTaskId, { includePending: true, preferPending: true }) : null)
-            || state.flatTasks?.[menuTaskId]
-            || (rawMenuTaskId !== menuTaskId ? state.flatTasks?.[rawMenuTaskId] : null)
-            || state.pendingInsertedTasks?.[menuTaskId]
-            || (rawMenuTaskId !== menuTaskId ? state.pendingInsertedTasks?.[rawMenuTaskId] : null)
+            || globalThis.__tmTaskBoundary?.getTask?.(menuTaskId)
+            || (rawMenuTaskId !== menuTaskId ? globalThis.__tmTaskBoundary?.getTask?.(rawMenuTaskId) : null)
             || null;
         if (__tmIsCollectedOtherBlockTask(taskForMenu)) {
             __tmShowCollectedOtherBlockContextMenu(event, menuTaskId);
@@ -5341,11 +5417,7 @@ if (ev) {
             menu.appendChild(separator);
         };
 
-        const task = taskForMenu
-            || globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
-            || state.pendingInsertedTasks?.[taskId]
-            || state.flatTasks?.[taskId]
-            || null;
+        const task = taskForMenu || globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
         const taskName = __tmNormalizeTimerTaskName(task?.content || task?.markdown || '', '任务');
         const hasChildren = Array.isArray(task?.children) && task.children.length > 0;
         const showCompletedSubtasks = __tmShouldShowCompletedSubtasksForTask(taskId);
@@ -5392,10 +5464,8 @@ if (ev) {
                 const nextId = await __tmResolveTaskIdFromAnyBlockId(rawId);
                 if (nextId) resolvedId = String(nextId).trim();
             } catch (e) {}
-            let nextTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(resolvedId)
-                || globalThis.__tmRuntimeState?.getFlatTaskById?.(rawId)
-                || state.flatTasks?.[resolvedId]
-                || state.flatTasks?.[rawId]
+            let nextTask = globalThis.__tmTaskBoundary?.getTask?.(resolvedId, { includePending: false, preferPending: false })
+                || globalThis.__tmTaskBoundary?.getTask?.(rawId, { includePending: false, preferPending: false })
                 || null;
             if (!nextTask && resolvedId) {
                 try { nextTask = await __tmEnsureTaskInStateById(resolvedId); } catch (e) { nextTask = null; }

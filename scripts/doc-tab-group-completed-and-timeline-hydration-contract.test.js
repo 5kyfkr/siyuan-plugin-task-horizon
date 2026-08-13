@@ -70,7 +70,7 @@ assert.match(storeRuntime, /docTabsManualArchiveOnly: false[\s\S]*tm_doc_tabs_ma
 assert.match(storeRuntime, /docTabsManualUnarchivedByGroup[\s\S]*tm_doc_tabs_manual_unarchived_by_group/, 'manual unarchive overrides must be persisted');
 assert.match(storeRuntime, /docTabsManualArchiveOnly: data\.docTabsManualArchiveOnly \? 1 : 0/, 'snapshot view signatures must separate automatic and manual archive policies');
 assert.match(dialogRuntime, /String\(archiveMode \? 1 : 0\),\s*String\(SettingsStore\?\.data\?\.docTabsManualArchiveOnly \? 1 : 0\)/, 'filter render signatures must change when the archive policy changes');
-assert.match(rowModelRuntime, /window\.updateDocTabsManualArchiveOnly[\s\S]*__tmResolveDocTabSwitchTarget\(activeDocId\)[\s\S]*applyFilters\(\)/, 'changing archive policy must validate the active tab and refresh every aggregate scope');
+assert.match(rowModelRuntime, /window\.updateDocTabsManualArchiveOnly[\s\S]*__tmResolveDocTabSwitchTarget\(activeDocId\)[\s\S]*__tmRecomputeTaskProjection\(/, 'changing archive policy must validate the active tab and refresh every aggregate scope');
 
 const customGroupRegionPolicySource = segment(
     dialogRuntime,

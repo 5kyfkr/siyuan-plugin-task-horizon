@@ -259,14 +259,16 @@
 
     async function __tmScheduledLoadTodayCompletedTasks(occurrence) {
         const ids = new Set(Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds.map((id) => String(id || '').trim()).filter(Boolean) : []);
-        try {
-            const resolved = await __tmSummaryResolveAllDocIds();
-            (Array.isArray(resolved) ? resolved : []).forEach((id) => {
-                const value = String(id || '').trim();
-                if (value) ids.add(value);
-            });
-        } catch (e) {}
-        const tasks = await __tmSummaryLoadTasksByDocs(Array.from(ids), { ignoreExcludeCompleted: true });
+        const groupScope = await __tmSummaryBuildGroupScope();
+        (Array.isArray(groupScope?.allDocIds) ? groupScope.allDocIds : []).forEach((id) => {
+            const value = String(id || '').trim();
+            if (value) ids.add(value);
+        });
+        const tasks = await __tmSummaryLoadTasksByDocs(Array.from(ids), {
+            ignoreExcludeCompleted: true,
+            forceFresh: true,
+            throwOnError: true,
+        });
         return __tmScheduledFilterCompletedTasks(tasks, occurrence).map(__tmScheduledCompletedTaskSnapshot);
     }
 
@@ -437,13 +439,22 @@
         }
     }
 
-    async function __tmScheduledPersist() {
+    function __tmScheduledDefinitionFingerprint(events) {
+        return JSON.stringify(__tmNormalizeScheduledEvents(events, { stripRuntime: true }));
+    }
+
+    async function __tmScheduledPersist(options = {}) {
         const events = __tmNormalizeScheduledEvents(SettingsStore.data.scheduledEvents);
+        if (options.persistSettings === true) SettingsStore.syncToLocal?.();
         const gateway = await __tmScheduledKernelRpc('taskHorizonReplaceAgentSchedules', { events });
         if (gateway.available) {
             SettingsStore.data.scheduledEvents = __tmNormalizeScheduledEvents(gateway.data);
             SettingsStore.data.scheduledEventsSchemaVersion = __TM_SCHEDULED_EVENTS_KERNEL_SCHEMA_VERSION;
             SettingsStore.syncToLocal?.();
+            if (options.persistSettings === true) {
+                try { await SettingsStore.save?.({ suppressMobileCloseSyncDirty: true }); }
+                catch (error) { console.warn('[task-horizon] scheduled event recovery mirror save failed', error); }
+            }
             return true;
         }
         const error = new Error('任务内核不可用，定时事件未写入');
@@ -451,13 +462,22 @@
         throw error;
     }
 
-    async function __tmScheduledReadKernelEvents() {
+    async function __tmScheduledReadKernelSnapshot() {
         try {
             const gateway = await __tmScheduledKernelRpc('taskHorizonLoadAgentSchedules');
-            return gateway.available ? __tmNormalizeScheduledEvents(gateway.data) : null;
-        } catch (e) {
-            return null;
+            if (!gateway.available) return { status: 'unavailable', events: null };
+            return { status: 'valid', events: __tmNormalizeScheduledEvents(gateway.data) };
+        } catch (error) {
+            const code = String(error?.code || '').trim();
+            if (code === 'STORAGE_MISSING') return { status: 'missing', events: null };
+            if (code === 'STORAGE_CORRUPT') return { status: 'corrupt', events: null };
+            return { status: 'unavailable', events: null };
         }
+    }
+
+    async function __tmScheduledReadKernelEvents() {
+        const snapshot = await __tmScheduledReadKernelSnapshot();
+        return snapshot.status === 'valid' ? snapshot.events : null;
     }
 
     async function __tmScheduledReadRemoteEvents() {
@@ -732,15 +752,7 @@
             if (!globalThis.__tmAI || typeof globalThis.__tmAI.runAutomation !== 'function') {
                 throw new Error('定时事件需要思源 3.7.3 或更高版本，并启用可用的智能体模型');
             }
-            const conversationId = typeof globalThis.__tmAI.ensureAutomationConversation === 'function'
-                ? await globalThis.__tmAI.ensureAutomationConversation(event.conversationId)
-                : String(event.conversationId || '').trim();
-            if (conversationId && conversationId !== event.conversationId) {
-                event.conversationId = conversationId;
-                const current = __tmScheduledEventById(event.id);
-                if (current) current.conversationId = conversationId;
-                await __tmScheduledPersist();
-            }
+            const conversationId = String(event.conversationId || '').trim();
             const context = completedTasks.length
                 ? `\n\n以下是 ${__tmScheduledLocalDateKey(occurrence)} 当天实际完成的任务（完成日期只按 taskCompleteAt 计算）：\n${JSON.stringify(completedTasks.slice(0, 300), null, 2)}`
                 : '';
@@ -752,8 +764,9 @@
                 sessionTitle: `定时：${event.name}`,
                 persistSession: true,
             });
-            if (!event.conversationId && result?.sessionID) {
-                event.conversationId = String(result.sessionID).trim();
+            const resolvedConversationId = String(result?.sessionID || '').trim();
+            if (resolvedConversationId && resolvedConversationId !== event.conversationId) {
+                event.conversationId = resolvedConversationId;
                 const current = __tmScheduledEventById(event.id);
                 if (current) current.conversationId = event.conversationId;
                 await __tmScheduledPersist();
@@ -777,6 +790,14 @@
         } catch (error) {
             if (heartbeat.lost || ['CONFLICT', 'NOT_FOUND'].includes(String(error?.code || ''))) {
                 return { status: 'deduplicated', error: '定时事件执行权已转移，本次结果未投递' };
+            }
+            const resolvedConversationId = String(error?.sessionID || '').trim();
+            if (resolvedConversationId && resolvedConversationId !== event.conversationId) {
+                event.conversationId = resolvedConversationId;
+                const current = __tmScheduledEventById(event.id);
+                if (current) current.conversationId = resolvedConversationId;
+                try { await __tmScheduledPersist(); }
+                catch (persistError) { console.warn('[task-horizon] scheduled conversation binding update failed', persistError); }
             }
             const status = __tmScheduledStatusFromError(error);
             try {
@@ -864,7 +885,7 @@
                     const timing = __tmScheduledResolveTiming(event, now);
                     if (timing.expired) {
                         event.enabled = false;
-                        await __tmScheduledPersist();
+                        await __tmScheduledPersist({ persistSettings: true });
                         continue;
                     }
                     if (!timing.due) continue;
@@ -904,9 +925,10 @@
                 }));
             });
             SettingsStore.data.scheduledEvents = Array.from(events.values());
-            try { await __tmScheduledPersist(); }
+            try { await __tmScheduledPersist({ persistSettings: true }); }
             catch (error) {
                 SettingsStore.data.scheduledEvents = current;
+                SettingsStore.syncToLocal?.();
                 throw error;
             }
             __tmScheduledArmTimer();
@@ -928,9 +950,10 @@
                 events.push(event);
             }
             SettingsStore.data.scheduledEvents = events;
-            try { await __tmScheduledPersist(); }
+            try { await __tmScheduledPersist({ persistSettings: true }); }
             catch (error) {
                 SettingsStore.data.scheduledEvents = previousEvents;
+                SettingsStore.syncToLocal?.();
                 throw error;
             }
             __tmScheduledArmTimer();
@@ -940,9 +963,10 @@
             const targetID = String(id || '').trim();
             const previousEvents = __tmNormalizeScheduledEvents(SettingsStore.data.scheduledEvents);
             SettingsStore.data.scheduledEvents = __tmNormalizeScheduledEvents(SettingsStore.data.scheduledEvents).filter((event) => event.id !== targetID);
-            try { await __tmScheduledPersist(); }
+            try { await __tmScheduledPersist({ persistSettings: true }); }
             catch (error) {
                 SettingsStore.data.scheduledEvents = previousEvents;
+                SettingsStore.syncToLocal?.();
                 throw error;
             }
             __tmScheduledArmTimer();
@@ -982,7 +1006,9 @@
             window.addEventListener('focus', __tmScheduledRuntime.focusHandler);
             document.addEventListener('visibilitychange', __tmScheduledRuntime.visibilityHandler);
             const refresh = async () => {
-                const kernelEvents = await __tmScheduledReadKernelEvents();
+                const kernelSnapshot = await __tmScheduledReadKernelSnapshot();
+                const kernelEvents = kernelSnapshot.status === 'valid' ? kernelSnapshot.events : null;
+                const canRestoreKernel = kernelSnapshot.status === 'missing' || kernelSnapshot.status === 'corrupt';
                 let persisted = false;
                 if (Array.isArray(kernelEvents)) {
                     if (kernelMigrationNeeded) {
@@ -994,8 +1020,20 @@
                         SettingsStore.data.scheduledEventsSchemaVersion = __TM_SCHEDULED_EVENTS_KERNEL_SCHEMA_VERSION;
                         SettingsStore.syncToLocal?.();
                     }
+                } else if (canRestoreKernel && SettingsStore.data.scheduledEvents.length > 0) {
+                    await __tmScheduledPersist({ persistSettings: true });
+                    persisted = true;
                 }
-                if (promptMigrationNeeded && !persisted) await __tmScheduledPersist();
+                if (promptMigrationNeeded && !persisted && (Array.isArray(kernelEvents) || canRestoreKernel)) {
+                    await __tmScheduledPersist({ persistSettings: true });
+                    persisted = true;
+                }
+                if (!persisted
+                    && Array.isArray(kernelEvents)
+                    && __tmScheduledDefinitionFingerprint(sourceEvents) !== __tmScheduledDefinitionFingerprint(kernelEvents)) {
+                    try { await SettingsStore.save?.({ suppressMobileCloseSyncDirty: true }); }
+                    catch (error) { console.warn('[task-horizon] scheduled event recovery mirror refresh failed', error); }
+                }
                 await this.refresh();
             };
             refresh().catch(() => {});
@@ -1022,6 +1060,7 @@
         localDateTimeKey: __tmScheduledLocalDateTimeKey,
         validate: __tmScheduledValidate,
         filterCompletedTasks: __tmScheduledFilterCompletedTasks,
+        loadTodayCompletedTasks: __tmScheduledLoadTodayCompletedTasks,
         mergeEventSnapshots: __tmScheduledMergeEventSnapshots,
         extractPrompt: __tmScheduledExtractActionPrompt,
         deliver: __tmScheduledDeliver,

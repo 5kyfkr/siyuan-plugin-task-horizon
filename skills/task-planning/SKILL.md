@@ -5,7 +5,7 @@ description: 根据 Task Horizon 任务、现有日程和安排规则生成无�
 
 # 任务计划
 
-调用任务工具时使用思源提供的完整名称，前缀为 `plugin__siyuan_plugin_task_horizon__`。
+调用任务工具时，只能使用思源在本轮 tool definitions 中实际暴露的完整名称。Task Horizon 名称以 `plugin__siyuan_plugin_task_horizon__` 开头，并可能带校验后缀；禁止自行拼接、删改后缀或复用旧会话中的名称。
 
 1. 用结构化条件读取目标任务，再把返回任务中去重后的 `documentID` 作为 `documentIDs` 传给 `get_task_policy`，读取当前安排规则及各文档的最终有效规则。对于 `duration` 为空的任务，同时把 `taskID`、`title`、`documentID` 放入 `durationCandidates`，使用返回的 `durationEstimates` 作为确定性默认时长。规划至少读取 `priority`、`priorityScore`、`customStatus`、`startDate`、`completionTime`、`duration`、`tomatoEstimateCount` 和 `customFieldValues`；需要备注或附件时再投影 `remark`、`attachments`。
    面向用户输出时使用 `priorityName` 和 `customStatusName`；调用筛选或写入工具时再使用 `priority`、`customStatus` 的稳定 ID，并从返回的 definitions 获取映射。

@@ -77,6 +77,7 @@ const context = vm.createContext({
     __tmParseDurationMinutes: (value) => Number(value) || 0,
     __tmParseTimeToTs: (value) => Date.parse(value) || 0,
     __tmIsTaskDoneEffective: (task) => task?.done === true,
+    __tmCompareTasksByDocFlow: (a, b) => Number(a?.resolvedFlowRank) - Number(b?.resolvedFlowRank),
 });
 
 const ruleManagerSource = sliceSource(
@@ -159,6 +160,30 @@ assert.deepEqual(
     ], 'customField:notes', 'asc'),
     ['pinned-empty', 'normal'],
 );
+
+const staleSameValueTasks = [1, 5, 2, 3, 4].map((id) => ({
+    id: String(id),
+    root_id: 'doc-1',
+    resolvedFlowRank: id,
+    customFieldValues: { notes: 'same' },
+}));
+assert.deepEqual(
+    sortIds(staleSameValueTasks, 'customField:notes', 'asc'),
+    ['1', '2', '3', '4', '5'],
+    'equal rule values must use authoritative document order instead of stale source order',
+);
+assert.deepEqual(
+    Array.from(RuleManager.applyRuleSort(staleSameValueTasks, { id: 'all', sort: [] }), (task) => task.id),
+    ['1', '2', '3', '4', '5'],
+    'the default no-rule sort must use authoritative document order',
+);
+context.__tmRuleUsesDocFlowSort = () => true;
+assert.deepEqual(
+    Array.from(RuleManager.applyRuleSort(staleSameValueTasks, { id: 'all', sort: [] }), (task) => task.id),
+    ['1', '2', '3', '4', '5'],
+    'the explicit document-flow rule must use authoritative document order',
+);
+context.__tmRuleUsesDocFlowSort = () => false;
 
 assert.deepEqual(
     sortIds([

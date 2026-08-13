@@ -45,6 +45,9 @@ const context = vm.createContext({
     },
     __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS: [],
     __tmBuildTaskRowModel: () => [],
+    __tmTaskBoundary: {
+        getTask: (taskId) => state.pendingInsertedTasks[taskId] || state.flatTasks[taskId] || null,
+    },
     __tmNormalizeDateOnly: () => '',
     __tmIsDarkMode: () => false,
     __tmGetChecklistCompactRightFontSize: () => 12,

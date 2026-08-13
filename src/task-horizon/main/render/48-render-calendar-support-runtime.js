@@ -43,24 +43,52 @@
     function __tmGetCalendarFlatTaskByIdSync(id) {
         const tid = String(id || '').trim();
         if (!tid) return null;
-        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
-            || state.flatTasks?.[tid]
-            || state.pendingInsertedTasks?.[tid]
+        return globalThis.__tmTaskStore?.getProjected?.(tid)
+            || globalThis.__tmTaskBoundary?.getTask?.(tid)
             || null;
+    }
+
+    function __tmIsCalendarTaskDoneSync(task) {
+        if (!(task && typeof task === 'object')) return false;
+        try {
+            const resolver = globalThis.__tmTaskBoundary?.isTaskCompleted;
+            if (typeof resolver === 'function') return resolver(task) === true;
+        } catch (e) {}
+        try {
+            if (typeof __tmIsTaskDoneEffective === 'function') return __tmIsTaskDoneEffective(task) === true;
+        } catch (e) {}
+        return task.done === true;
+    }
+
+    function __tmIsCalendarTaskPendingDeletedSync(id) {
+        const tid = String(id || '').trim();
+        if (!tid) return false;
+        try {
+            const runtime = globalThis.__tmRuntimeState;
+            if (typeof runtime?.isPendingDeletedTaskId === 'function') {
+                return runtime.isPendingDeletedTaskId(tid) === true;
+            }
+        } catch (e) {}
+        const pending = state.pendingDeletedTasks?.[tid];
+        if (!pending) return false;
+        const expiresAt = Number(pending?.expiresAt) || 0;
+        return expiresAt <= 0 || expiresAt >= Date.now();
     }
 
     function __tmGetCalendarFlatTasksSync() {
         const values = (state.flatTasks && typeof state.flatTasks === 'object')
             ? Object.values(state.flatTasks).map((task) => {
                 const tid = String(task?.id || '').trim();
+                if (__tmIsCalendarTaskPendingDeletedSync(tid)) return null;
                 return __tmGetCalendarFlatTaskByIdSync(tid) || task;
-            })
+            }).filter(Boolean)
             : [];
         try {
             Object.values(state.pendingInsertedTasks || {}).forEach((task) => {
                 if (!task || typeof task !== 'object') return;
                 const tid = String(task?.id || '').trim();
-                if (!tid || values.some((item) => String(item?.id || '').trim() === tid)) return;
+                if (!tid || __tmIsCalendarTaskPendingDeletedSync(tid)
+                    || values.some((item) => String(item?.id || '').trim() === tid)) return;
                 values.push(task);
             });
         } catch (e) {}
@@ -79,7 +107,7 @@
             list.forEach((task) => {
                 if (!task || typeof task !== 'object') return;
                 const id = String(task?.id || '').trim();
-                if (!id || seen.has(id)) return;
+                if (!id || seen.has(id) || __tmIsCalendarTaskPendingDeletedSync(id)) return;
                 seen.add(id);
                 out.push(task);
             });
@@ -270,45 +298,6 @@
     }
     globalThis.__tmResolveCalendarCachedTaskForDetail = __tmResolveCalendarCachedTaskForDetail;
 
-    function __tmPatchCalendarAllTasksCacheTask(taskId, patch = {}) {
-        const tid = String(taskId || '').trim();
-        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
-        const cache = window.__tmCalendarAllTasksCache;
-        const tasks = Array.isArray(cache?.tasks) ? cache.tasks : null;
-        if (!tid || !tasks) return false;
-        const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate');
-        const hasCompletionTime = Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime');
-        const hasTaskDateColor = Object.prototype.hasOwnProperty.call(nextPatch, 'taskDateColor')
-            || Object.prototype.hasOwnProperty.call(nextPatch, 'color');
-        let touched = false;
-        tasks.forEach((task) => {
-            if (!task || typeof task !== 'object') return;
-            if (String(task.id || '').trim() !== tid) return;
-            if (hasStartDate) {
-                const value = String(nextPatch.startDate ?? '').trim();
-                task.startDate = value;
-                task.start_date = value;
-            }
-            if (hasCompletionTime) {
-                const value = String(nextPatch.completionTime ?? '').trim();
-                task.completionTime = value;
-                task.completion_time = value;
-            }
-            if (hasTaskDateColor) {
-                const value = String((Object.prototype.hasOwnProperty.call(nextPatch, 'taskDateColor') ? nextPatch.taskDateColor : nextPatch.color) ?? '').trim();
-                task.taskDateColor = value;
-                task.task_date_color = value;
-                task.custom_task_date_color = value;
-                task['custom-task-date-color'] = value;
-                const configuredColorKey = typeof __tmGetTaskMetaAttrKey === 'function' ? __tmGetTaskMetaAttrKey('taskDateColor') : '';
-                if (configuredColorKey) task[configuredColorKey] = value;
-            }
-            touched = true;
-        });
-        try { cache.ts = 0; } catch (e) {}
-        return touched;
-    }
-
     let __tmCalendarTaskCacheWarmPromise = null;
 
     function __tmIsCalendarMainViewActiveForTaskCache() {
@@ -400,6 +389,7 @@
         const out = [];
         for (const task of tasks) {
             if (!task || typeof task !== 'object') continue;
+            if (__tmIsCalendarTaskPendingDeletedSync(task.id)) continue;
             const prevTask = __tmGetCalendarFlatTaskByIdSync(task.id);
             let parsedDone = !!task.done;
             try {
@@ -412,6 +402,7 @@
             try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
             task.done = parsedDone;
             try { normalizeTaskFields(task, task.docName || '未命名文档'); } catch (e) {}
+            try { __tmMergeLocalTaskPatchIntoTask(task); } catch (e) {}
             __tmAppendCalendarTaskAndRepeatHistory(out, task);
         }
         window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: out, complete: !res?.limitReached };
@@ -547,7 +538,7 @@
                         <td style="${tableLayout.cellStyle('content')}">
                             <div class="tm-task-cell" style="padding-left:${depthPad}px;">
                                 <span class="tm-task-text">
-                                    <span class="tm-task-content-clickable"${__tmBuildTooltipAttrs(String(item.title || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(item.task)}">${contentHtml}</span>
+                                    <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${escSq(item.id)}', event, { surface: 'calendar' })"${__tmBuildTooltipAttrs(String(item.title || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(item.task)}">${contentHtml}</span>
                                 </span>
                             </div>
                         </td>`;
@@ -600,7 +591,7 @@
 
             let spent = '';
             try {
-                if (useHours) spent = __tmFormatSpentHours(__tmParseNumber(t?.tomatoHours)) || '';
+                if (useHours) spent = __tmFormatSpentHours(__tmGetTaskTomatoFocusValues(t).tomatoHours) || '';
                 else spent = __tmFormatSpentMinutes(__tmGetTaskSpentMinutes(t)) || '';
             } catch (e) {}
 
@@ -656,7 +647,7 @@
 
             let spent = '';
             try {
-                if (useHours) spent = __tmFormatSpentHours(__tmParseNumber(t?.tomatoHours)) || '';
+                if (useHours) spent = __tmFormatSpentHours(__tmGetTaskTomatoFocusValues(t).tomatoHours) || '';
                 else spent = __tmFormatSpentMinutes(__tmGetTaskSpentMinutes(t)) || '';
             } catch (e) {}
 
@@ -819,15 +810,11 @@
             for (const t of filtered) {
                 if (!t) continue;
                 const id = String(t.id || '').trim();
-                if (!id) continue;
-                let done = !!t.done;
+                if (!id || __tmIsCalendarTaskPendingDeletedSync(id)) continue;
+                let done = __tmIsCalendarTaskDoneSync(t);
                 try {
-                    if (state.doneOverrides && Object.prototype.hasOwnProperty.call(state.doneOverrides, id)) {
-                        done = !!state.doneOverrides[id];
-                    } else {
-                        const liveTask = __tmGetCalendarFlatTaskByIdSync(id);
-                        if (liveTask) done = !!liveTask.done;
-                    }
+                    const liveTask = __tmGetCalendarFlatTaskByIdSync(id);
+                    if (liveTask) done = __tmIsCalendarTaskDoneSync(liveTask);
                 } catch (e) {}
                 if (opts.excludeCompleted === true && done) continue;
                 const s0 = __tmNormalizeDateOnly(t?.startDate);
@@ -1065,7 +1052,7 @@
                 <div class="tm-calendar-task-list" style="height:100%; display:flex; flex-direction:column;">
                     <table class="tm-table" id="tmTaskTable" data-tm-table="calendar" style="${tableLayout.tableStyle}">
                         <thead><tr>${thead}</tr></thead>
-                        <tbody>${renderTaskList()}</tbody>
+                        <tbody>${renderTaskList(null, { titleSurface: 'calendar' })}</tbody>
                     </table>
                 </div>
             `;
@@ -1278,77 +1265,17 @@
     window.tmIsTaskDone = function(id) {
         const tid = String(id || '').trim();
         if (!tid) return false;
-        try {
-            if (state.doneOverrides && Object.prototype.hasOwnProperty.call(state.doneOverrides, tid)) {
-                return !!state.doneOverrides[tid];
-            }
-        } catch (e) {}
         const t = __tmGetCalendarFlatTaskByIdSync(tid);
-        if (t) return !!t.done;
+        if (t) return __tmIsCalendarTaskDoneSync(t);
         try {
             const cachedTasks = window.__tmCalendarAllTasksCache?.tasks;
             if (Array.isArray(cachedTasks)) {
                 const cached = cachedTasks.find((item) => String(item?.id || '').trim() === tid);
-                if (cached) return !!cached.done;
+                if (cached) return __tmIsCalendarTaskDoneSync(cached);
             }
         } catch (e) {}
         return false;
     };
-
-    async function __tmSyncCalendarTaskDatePatchAfterUpdate(taskId, patch = {}, options = {}) {
-        const tid = String(taskId || '').trim();
-        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (!tid || !Object.keys(nextPatch).length || opts.refreshCalendar === false) return false;
-        const calApi = globalThis.__tmCalendar;
-        if (!calApi) return false;
-        const reason = String(opts.reason || opts.source || 'task-date-update').trim() || 'task-date-update';
-        const main = String(state.viewMode || '').trim() === 'calendar';
-        const side = typeof __tmShouldShowCalendarSideDock === 'function'
-            ? __tmShouldShowCalendarSideDock()
-            : !main;
-        if (!main && !side) return true;
-        try {
-            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
-            try { __tmInvalidateCalendarTaskDateEventsCache(); } catch (e) {}
-            if (typeof calApi.syncTaskDatePatchInPlace === 'function') {
-                const result = calApi.syncTaskDatePatchInPlace(tid, nextPatch, {
-                    reason,
-                    main,
-                    side,
-                    sideSourceRefresh: false,
-                });
-                if (result?.needsMainRefresh || result?.needsSideRefresh) {
-                    calApi.requestRefresh?.({
-                        reason,
-                        main: main && result.needsMainRefresh === true,
-                        side: side && result.needsSideRefresh === true,
-                        flushTaskPanel: false,
-                        hard: opts.hard === true,
-                    });
-                }
-                return result?.touched === true;
-            }
-            if (typeof calApi.syncTaskDateInPlace === 'function') {
-                const summary = await calApi.syncTaskDateInPlace(tid, {
-                    main,
-                    side,
-                    allowRefetch: false,
-                });
-                if (summary?.needsMainRefresh || summary?.needsSideRefresh) {
-                    calApi.requestRefresh?.({
-                        reason,
-                        main: main && summary.needsMainRefresh === true,
-                        side: side && summary.needsSideRefresh === true,
-                        flushTaskPanel: false,
-                        hard: opts.hard === true,
-                    });
-                }
-                return summary?.touched === true;
-            }
-        } catch (e) {}
-        return false;
-    }
 
     window.tmUpdateTaskDates = async function(taskId, patch = {}, options = {}) {
         const requestedId = String(taskId || '').trim();
@@ -1443,26 +1370,8 @@
         let attrTargetId = String(opts.attrTargetId || '').trim();
         if (!attrTargetId) {
             try {
-                if (typeof __tmResolveStableTaskAttrHostId === 'function') {
-                    attrTargetId = String(await __tmResolveStableTaskAttrHostId(persistId, task?.parent_id || task?.parentId || '', task) || '').trim();
-                }
-            } catch (e) {
-                attrTargetId = '';
-            }
-        }
-        if (!attrTargetId) {
-            try {
                 if (typeof __tmGetTaskAttrHostId === 'function') {
                     attrTargetId = String(__tmGetTaskAttrHostId(task) || '').trim();
-                }
-            } catch (e) {
-                attrTargetId = '';
-            }
-        }
-        if (!attrTargetId) {
-            try {
-                if (typeof __tmResolveTaskAttrHostIdFromAnyBlockId === 'function') {
-                    attrTargetId = String(await __tmResolveTaskAttrHostIdFromAnyBlockId(persistId) || '').trim();
                 }
             } catch (e) {
                 attrTargetId = '';
@@ -1471,32 +1380,7 @@
         if (!attrTargetId) attrTargetId = persistId;
         const skipSnapshotPersist = opts.skipSnapshotPersist === true;
         const skipTaskIndexPersist = opts.skipTaskIndexPersist === true;
-        const viewPatch = {};
-        if (shouldPersistStartDate) viewPatch.startDate = nextStart;
-        if (shouldPersistCompletionTime) viewPatch.completionTime = nextEnd;
-        if (hasTaskDateColor) viewPatch.taskDateColor = nextColor;
-        if (opts.background === true) {
-            try { __tmPatchCalendarAllTasksCacheTask(persistId, attrPatch); } catch (e) {}
-            try {
-                if (typeof __tmApplyTaskFieldPatchToLocalMirrors === 'function') __tmApplyTaskFieldPatchToLocalMirrors(persistId, attrPatch);
-            } catch (e) {}
-            try {
-                if (typeof __tmMarkLocalTaskPatchWatermark === 'function') __tmMarkLocalTaskPatchWatermark(persistId, attrPatch, { source: refreshReason });
-            } catch (e) {}
-            try {
-                if (taskDocId) __tmInvalidateTasksQueryCacheByDocId?.(taskDocId);
-                else __tmInvalidateAllSqlCaches?.();
-            } catch (e) {}
-        }
         const persistSkipFlush = opts.skipFlush === true;
-        let needsProjectionRefresh = false;
-        try {
-            needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(persistId, viewPatch, {
-                forceProjectionRefresh: opts.forceProjectionRefresh === true,
-            });
-        } catch (e) {
-            needsProjectionRefresh = false;
-        }
         const inversePatch = {};
         if (shouldPersistStartDate) inversePatch.startDate = prevStart;
         if (shouldPersistCompletionTime) inversePatch.completionTime = prevEnd;
@@ -1506,9 +1390,6 @@
         const persistPromise = __tmApplyTaskMetaPatchWithUndo(persistId, attrPatch, {
                 source: refreshReason,
                 label: __tmBuildUndoLabelFromMetaPatch(attrPatch, '日期'),
-                refresh: false,
-                refreshCalendar: false,
-                withFilters: false,
                 skipNoopCheck: opts.skipNoopCheck === true || opts.background === true,
                 hard: opts.hard === true,
                 broadcast: opts.broadcast !== false,
@@ -1524,13 +1405,16 @@
                 mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 recordUndo: recordBackgroundUndo ? false : opts.recordUndo !== false,
-                renderOptimistic: opts.renderOptimistic !== false,
+                renderOptimistic: true,
+                showErrorHint: opts.showErrorHint !== false,
+                skipDetailPatch: opts.skipDetailPatch === true,
+                allowMountedInactive: opts.allowMountedInactive === true,
 });
         if (recordBackgroundUndo) {
             try {
                 if (!__tmUndoState?.applying && typeof __tmPushUndoRecord === 'function') {
                     __tmPushUndoRecord({
-                        type: 'attrPatch',
+                        type: 'taskPatch',
                         taskId: persistId,
                         requestedTaskId: requestedId,
                         attrTargetId,
@@ -1539,85 +1423,6 @@
                         label: __tmBuildUndoLabelFromMetaPatch(attrPatch, '日期'),
                         source: refreshReason,
                     });
-                }
-            } catch (e) {}
-        }
-        const refreshViaQueuedOptimisticPatch = opts.renderOptimistic !== false && opts.background !== true && opts.wait !== true;
-        if ((shouldPersistStartDate || shouldPersistCompletionTime) && opts.refresh !== false && !refreshViaQueuedOptimisticPatch) {
-            try {
-                __tmRefreshTaskTimeAcrossViews(persistId, {
-                    patch: viewPatch,
-                    withFilters: needsProjectionRefresh ? true : false,
-                    reason: refreshReason,
-                    skipDetailPatch: opts.skipDetailPatch === true,
-                });
-            } catch (e) {}
-            try {
-                const currentViewMode = String(state.viewMode || '').trim();
-                if (needsProjectionRefresh) {
-                    if (currentViewMode === 'list') {
-                        __tmScheduleListProjectionRefresh({
-                            mode: 'current',
-                            withFilters: true,
-                            reason: refreshReason,
-                        }, opts.immediateProjectionRefresh === true
-                            ? { immediate: true }
-                            : __tmBuildListProjectionRefreshScheduleOptions(viewPatch, {
-                                reason: refreshReason,
-                            }));
-                    } else if (currentViewMode === 'kanban' && opts.background === true) {
-                        try {
-                            const delayMs = 280;
-                            const pending = (state.__tmKanbanDateProjectionRefreshPending && typeof state.__tmKanbanDateProjectionRefreshPending === 'object')
-                                ? state.__tmKanbanDateProjectionRefreshPending
-                                : { taskIds: [] };
-                            const ids = new Set(Array.isArray(pending.taskIds) ? pending.taskIds : []);
-                            ids.add(persistId);
-                            state.__tmKanbanDateProjectionRefreshPending = {
-                                mode: 'current',
-                                withFilters: true,
-                                reason: refreshReason,
-                                taskIds: Array.from(ids),
-                            };
-                            if (state.__tmKanbanDateProjectionRefreshTimer) {
-                                try { clearTimeout(state.__tmKanbanDateProjectionRefreshTimer); } catch (e2) {}
-                            }
-                            const flushDelayedKanbanDateProjection = () => {
-                                const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
-                                    ? __tmGetHighPriorityInteractionWaitMs(48)
-                                    : 0;
-                                if (interactionWait > 0) {
-                                    state.__tmKanbanDateProjectionRefreshTimer = setTimeout(flushDelayedKanbanDateProjection, interactionWait);
-                                    return;
-                                }
-                                state.__tmKanbanDateProjectionRefreshTimer = 0;
-                                const next = state.__tmKanbanDateProjectionRefreshPending;
-                                state.__tmKanbanDateProjectionRefreshPending = null;
-                                if (!next) return;
-                                try {
-                                    const refreshDetail = {
-                                        ...next,
-                                        reason: String(next.reason || 'kanban-date-projection-delayed').trim() || 'kanban-date-projection-delayed',
-                                    };
-                                    const scheduleRefresh = () => {
-                                        try { __tmScheduleViewRefresh(refreshDetail); } catch (e4) {}
-                                    };
-                                    try {
-                                        __tmScheduleIdleTask(scheduleRefresh, 900);
-                                    } catch (e4) {
-                                        try { setTimeout(scheduleRefresh, 360); } catch (e5) {}
-                                    }
-                                } catch (e3) {}
-                            };
-                            state.__tmKanbanDateProjectionRefreshTimer = setTimeout(flushDelayedKanbanDateProjection, delayMs);
-                        } catch (e) {}
-                    } else if (currentViewMode && currentViewMode !== 'calendar') {
-                        __tmScheduleViewRefresh({
-                            mode: 'current',
-                            withFilters: true,
-                            reason: refreshReason,
-                        });
-                    }
                 }
             } catch (e) {}
         }
@@ -1634,16 +1439,6 @@
             } catch (error) {
                 throw error;
             }
-            if ((shouldPersistStartDate || shouldPersistCompletionTime || hasTaskDateColor) && opts.refresh !== false) {
-                try {
-                    __tmRefreshTaskTimeAcrossViews(persistId, {
-                        patch: viewPatch,
-                        withFilters: needsProjectionRefresh ? true : false,
-                        reason: refreshReason,
-                        skipDetailPatch: opts.skipDetailPatch === true,
-                    });
-                } catch (e) {}
-            }
             try {
                 const recordReschedule = globalThis.__tmRecordTaskProcrastinationDateReschedule;
                 if (hasCompletionTime && typeof recordReschedule === 'function') {
@@ -1657,22 +1452,6 @@
                     }
                 }
             } catch (e) {}
-            try {
-                const calendarPatch = {};
-                if (shouldPersistStartDate || shouldPersistCompletionTime) {
-                    calendarPatch.startDate = nextStart;
-                    calendarPatch.completionTime = nextEnd;
-                }
-                if (hasTaskDateColor) calendarPatch.taskDateColor = nextColor;
-                if (Object.keys(calendarPatch).length > 0) {
-                    await __tmSyncCalendarTaskDatePatchAfterUpdate(persistId, calendarPatch, {
-                        source: refreshReason,
-                        refreshCalendar: opts.refreshCalendar !== false,
-                        hard: opts.hard === true,
-                    });
-                }
-            } catch (error) {
-            }
             return resultPatch;
         };
         if (opts.background === true && !persistWait) {

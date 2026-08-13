@@ -45,6 +45,9 @@
     };
     let __tmAgentMcpEntitlementSyncPromise = null;
     let __tmAgentMcpCapabilities = null;
+    let __tmAgentCapabilityPolicyQueue = Promise.resolve();
+    const __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS = [0, 500, 1000, 2000, 3000];
+    const __TM_AGENT_BACKEND_CAPABILITY_PREFIX = 'plugin/backend/siyuan-plugin-task-horizon/';
 
     function __tmAgentMcpHasFullFeature() {
         return typeof window.tmLicenseHasFeature === 'function' && window.tmLicenseHasFeature('pro');
@@ -55,6 +58,87 @@
         const wasEmpty = !__tmAgentMcpCapabilities;
         __tmAgentMcpCapabilities = value;
         return wasEmpty;
+    }
+
+    function __tmAgentCapabilityID(toolName) {
+        return `${__TM_AGENT_BACKEND_CAPABILITY_PREFIX}${encodeURIComponent(String(toolName || '').trim())}`;
+    }
+
+    function __tmAgentCapabilityPolicy() {
+        const policy = window.siyuan?.config?.ai?.agent?.capabilityPolicy;
+        return policy && typeof policy === 'object'
+            ? policy
+            : { default: 'allow', overrides: {} };
+    }
+
+    function __tmAgentCapabilityAllowed(toolName, policy = __tmAgentCapabilityPolicy()) {
+        const overrides = policy?.overrides && typeof policy.overrides === 'object' ? policy.overrides : {};
+        return String(overrides[__tmAgentCapabilityID(toolName)] || policy?.default || 'allow') !== 'deny';
+    }
+
+    function __tmAgentMcpToolNames(input, capabilities = __tmAgentMcpCapabilities) {
+        const groups = Array.isArray(capabilities?.toolGroups) ? capabilities.toolGroups : [];
+        const toolName = String(input?.toolName || '').trim();
+        if (toolName) return [toolName];
+        const groupID = String(input?.groupID || '').trim();
+        const selected = groupID ? groups.filter((group) => String(group?.id || '').trim() === groupID) : groups;
+        return selected.flatMap((group) => Array.isArray(group?.tools) ? group.tools : [])
+            .map((tool) => String(tool?.name || '').trim())
+            .filter(Boolean);
+    }
+
+    async function __tmSetAgentCapabilityPolicy(toolNames, enabled) {
+        const names = Array.from(new Set((Array.isArray(toolNames) ? toolNames : []).map((name) => String(name || '').trim()).filter(Boolean)));
+        if (!names.length || !window.siyuan?.config?.ai?.agent?.capabilityPolicy) return false;
+        __tmAgentCapabilityPolicyQueue = __tmAgentCapabilityPolicyQueue.catch(() => null).then(async () => {
+            const currentAI = window.siyuan?.config?.ai;
+            if (!currentAI || typeof currentAI !== 'object') return false;
+            const nextAI = JSON.parse(JSON.stringify(currentAI));
+            const currentPolicy = nextAI.agent?.capabilityPolicy && typeof nextAI.agent.capabilityPolicy === 'object'
+                ? nextAI.agent.capabilityPolicy
+                : { default: 'allow', overrides: {} };
+            const defaultDecision = String(currentPolicy.default || 'allow') === 'deny' ? 'deny' : 'allow';
+            const decision = enabled === true ? 'allow' : 'deny';
+            const overrides = { ...(currentPolicy.overrides && typeof currentPolicy.overrides === 'object' ? currentPolicy.overrides : {}) };
+            names.forEach((name) => {
+                const id = __tmAgentCapabilityID(name);
+                if (decision === defaultDecision) delete overrides[id];
+                else overrides[id] = decision;
+            });
+            nextAI.agent = { ...(nextAI.agent || {}), capabilityPolicy: { ...currentPolicy, default: defaultDecision, overrides } };
+            const response = await fetch('/api/setting/setAI', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(nextAI),
+            });
+            let payload = null;
+            try { payload = await response.json(); } catch (e) {}
+            if (!response.ok || !payload || Number(payload.code) !== 0) {
+                throw new Error(String(payload?.msg || payload?.message || `思源能力设置保存失败 (${response.status})`));
+            }
+            window.siyuan.config.ai = payload.data && typeof payload.data === 'object' ? payload.data : nextAI;
+            try { window.dispatchEvent(new CustomEvent('siyuan-ai-config-changed')); } catch (e) {}
+            return true;
+        });
+        return await __tmAgentCapabilityPolicyQueue;
+    }
+
+    function __tmEnrichAgentMcpToolGroups(groups) {
+        const policy = __tmAgentCapabilityPolicy();
+        return (Array.isArray(groups) ? groups : []).map((group) => ({
+            ...group,
+            tools: (Array.isArray(group?.tools) ? group.tools : []).map((tool) => {
+                const agentAllowed = __tmAgentCapabilityAllowed(tool?.name, policy);
+                const effectiveAvailable = tool?.registered === true && agentAllowed;
+                return {
+                    ...tool,
+                    capabilityID: __tmAgentCapabilityID(tool?.name),
+                    agentAllowed,
+                    effectiveAvailable,
+                    effectiveEnabled: tool?.enabled === true && effectiveAvailable,
+                };
+            }),
+        }));
     }
 
     async function __tmLoadAgentMcpCapabilities() {
@@ -85,13 +169,14 @@
 
     window.tmGetAgentMcpToolGroups = function() {
         const groups = __tmAgentMcpCapabilities?.toolGroups;
-        return Array.isArray(groups) ? groups : [];
+        return __tmEnrichAgentMcpToolGroups(groups);
     };
 
     async function __tmSetAgentMcpEnabled(enabled, options = {}) {
         const opt = options && typeof options === 'object' ? options : {};
         const allowed = __tmAgentMcpHasFullFeature();
         const next = allowed && enabled === true;
+        const previousEnabled = SettingsStore.data.agentMcpEnabled === true;
         const kernel = globalThis.__taskHorizonHostBridge?.kernel || globalThis.__taskHorizonHostBridge?.plugin?.kernel;
         const method = kernel?.rpc?.call?.taskHorizonSetMcpEnabled;
         if (typeof method !== 'function') {
@@ -106,6 +191,17 @@
             const result = await method(next);
             if (!result || result.ok !== true) throw new Error(String(result?.error?.message || '任务工具设置失败'));
             const capabilitiesLoaded = __tmRememberAgentMcpCapabilities(result.data);
+            if (opt.syncAgentPolicy === true) {
+                try {
+                    await __tmSetAgentCapabilityPolicy(__tmAgentMcpToolNames({}, result.data), next);
+                } catch (policyError) {
+                    try {
+                        const restored = await method(previousEnabled);
+                        if (restored?.ok === true) __tmRememberAgentMcpCapabilities(restored.data);
+                    } catch (rollbackError) {}
+                    throw policyError;
+                }
+            }
             SettingsStore.data.agentMcpEnabled = allowed && result.data?.mcpEnabled === true;
             if (allowed) SettingsStore.data.agentMcpEnabledInitialized = true;
             await SettingsStore.save();
@@ -133,10 +229,22 @@
             try { await window.tmLicenseLoad?.(false); } catch (e) {}
             const allowed = __tmAgentMcpHasFullFeature();
             const initialized = SettingsStore.data.agentMcpEnabledInitialized === true;
-            const authorized = await __tmSyncAgentMcpAuthorization(allowed);
-            const current = authorized || await __tmLoadAgentMcpCapabilities();
-            const desired = allowed && (initialized ? current?.mcpEnabled === true : true);
-            return await __tmSetAgentMcpEnabled(desired, { notify: false, refreshSettings: false });
+            const desired = allowed && (initialized ? SettingsStore.data.agentMcpEnabled === true : true);
+            let lastError = null;
+            for (const delayMs of __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS) {
+                if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+                try {
+                    const capabilities = await __tmSyncAgentMcpAuthorization(allowed, desired);
+                    if (!capabilities) throw new Error('任务 MCP 工具服务尚未启动');
+                    SettingsStore.data.agentMcpEnabled = allowed && capabilities.mcpEnabled === true;
+                    if (allowed) SettingsStore.data.agentMcpEnabledInitialized = true;
+                    await SettingsStore.save();
+                    return SettingsStore.data.agentMcpEnabled;
+                } catch (e) {
+                    lastError = e;
+                }
+            }
+            throw lastError || new Error('任务 MCP 工具启动同步失败');
         }).finally(() => {
             __tmAgentMcpEntitlementSyncPromise = null;
         });
@@ -144,7 +252,7 @@
     }
 
     window.tmUpdateAgentMcpEnabled = async function(enabled) {
-        return await __tmSetAgentMcpEnabled(enabled === true, { notify: true, refreshSettings: true });
+        return await __tmSetAgentMcpEnabled(enabled === true, { notify: true, refreshSettings: true, syncAgentPolicy: true });
     };
 
     async function __tmSetAgentMcpToolConfig(input) {
@@ -165,9 +273,25 @@
             return false;
         }
         try {
+            const previousTools = new Map(__tmAgentMcpToolNames(input).map((name) => {
+                const tool = (__tmAgentMcpCapabilities?.toolGroups || []).flatMap((group) => group?.tools || [])
+                    .find((item) => String(item?.name || '').trim() === name);
+                return [name, tool?.enabled === true];
+            }));
             const result = await method(input || {});
             if (!result || result.ok !== true) throw new Error(String(result?.error?.message || '工具设置失败'));
             __tmRememberAgentMcpCapabilities(result.data);
+            try {
+                await __tmSetAgentCapabilityPolicy(__tmAgentMcpToolNames(input, result.data), input?.enabled === true);
+            } catch (policyError) {
+                for (const [toolName, wasEnabled] of previousTools) {
+                    try {
+                        const restored = await method({ toolName, enabled: wasEnabled });
+                        if (restored?.ok === true) __tmRememberAgentMcpCapabilities(restored.data);
+                    } catch (rollbackError) {}
+                }
+                throw policyError;
+            }
             SettingsStore.data.agentMcpEnabled = result.data?.mcpEnabled === true;
             await SettingsStore.save();
             hint(input?.enabled === true ? '工具已启用' : '工具已关闭', 'success');
@@ -190,7 +314,7 @@
 
     try {
         globalThis.__tmRuntimeEvents?.on?.(window, 'tm:task-horizon-license-changed', () => {
-            void __tmSyncAgentMcpEntitlementDefault();
+            void __tmSyncAgentMcpEntitlementDefault().catch(() => null);
         });
     } catch (e) {}
     Promise.resolve().then(async () => {
@@ -280,7 +404,6 @@
         // 同步到 SettingsStore 并保存到本地插件存储
         SettingsStore.data.selectedDocIds = state.selectedDocIds;
         SettingsStore.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
-        SettingsStore.data.showCompletionTime = state.showCompletionTime;
         SettingsStore.data.groupByDocName = state.groupByDocName;
         SettingsStore.data.groupByTime = state.groupByTime;
         await SettingsStore.save();
