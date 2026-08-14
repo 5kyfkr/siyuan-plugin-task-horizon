@@ -132,10 +132,11 @@ const lifecycleOp = {
         snapshot: { taskId: 'task-3', task: { id: 'task-3' } },
     },
 };
-assert.equal(applyOptimistic(lifecycleOp), true);
-assert.equal(lifecycleOp.optimisticApplied, true, 'recycle lifecycle must mark its local removal optimistic');
-assert.equal(publishedLifecycleMutation?.phase, 'optimistic');
-assert.equal(publishedLifecycleMutation?.detail?.taskId, 'task-3');
+assert.equal(applyOptimistic(lifecycleOp), false);
+assert.equal(lifecycleOp.optimisticApplied, undefined,
+    'recycle lifecycle must wait for the kernel move before removing its local projection');
+assert.equal(publishedLifecycleMutation, null,
+    'recycle lifecycle must not publish an optimistic delete before the kernel move commits');
 const restoreSnapshot = { taskId: 'task-3', task: { id: 'task-3', content: 'Restored' } };
 const restoreLifecycleOp = {
     type: 'taskLifecycle',
