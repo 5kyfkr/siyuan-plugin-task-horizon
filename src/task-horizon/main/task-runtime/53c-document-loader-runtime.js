@@ -1658,14 +1658,8 @@
                     forceFlowRank: forceSyncFlowRank,
                 });
                 const {
-                    normalizedRuleSorts: normalizedRuleSorts0,
-                    isUngroup,
-                    ruleNeedsFlowRank,
-                    ruleNeedsDocumentTieBreak,
-                    colOrder: colOrder0,
                     docHeadingSubgroupActive,
                     kanbanHeadingGroupingActive,
-                    compactMetaNeedsH2,
                     needH2,
                     ruleNeedsH2Sort,
                 } = enhanceLoadPlan0;
@@ -1677,21 +1671,15 @@
                 const h2StrictNeeded = !!ruleNeedsH2Sort || docHeadingSubgroupActive || kanbanHeadingGroupingActive;
                 const preferAsyncEnhance = !!loadBudget.enabled;
                 const deferH2Enhance = !!needH2 && !h2StrictNeeded && (deferEnhance || preferAsyncEnhance);
-                const syncFlowBeforeFirstRender = forceSyncFlowRank || (sourceLabel === 'openManager' && !skipRender) || shouldForceFreshColdAllDocsLoad;
-                const deferFlowEnhance = !!needFlowRank
-                    && !ruleNeedsFlowRank
-                    && !forceFreshTasks
-                    && !syncFlowBeforeFirstRender
-                    && (deferEnhance || preferAsyncEnhance);
                 let h2ContextMap = new Map();
                 let taskFlowRankMap = new Map();
                 let h2EnhanceLoaded = false;
-                if ((needH2 && !deferH2Enhance) || (needFlowRank && !deferFlowEnhance)) {
+                if ((needH2 && !deferH2Enhance) || needFlowRank) {
                     try {
                         const bundle = await API.fetchTaskEnhanceBundle(taskIds0, {
                             taskDocMap: taskDocMap0,
                             needH2: needH2 && !deferH2Enhance,
-                            needFlow: needFlowRank && !deferFlowEnhance,
+                            needFlow: needFlowRank,
                             forceFresh: forceFreshTasks,
                         });
                         h2ContextMap = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
@@ -2304,68 +2292,51 @@
                     }
                 }
                 scheduleDeferredPostLoadWork();
-                if ((deferH2Enhance || deferFlowEnhance) && taskIds0.length > 0) {
+                if (deferH2Enhance && taskIds0.length > 0) {
                     const deferredToken = token;
                     const deferredTaskIds = taskIds0.slice();
                     Promise.resolve().then(async () => {
                         if (!(runtimeState?.isCurrentOpenToken?.(deferredToken) ?? deferredToken === (Number(state.openToken) || 0))) return;
                         let h2Map = new Map();
-                        let flowMap = new Map();
                         try {
                             const bundle = await API.fetchTaskEnhanceBundle(deferredTaskIds, {
                                 taskDocMap: taskDocMap0,
                                 needH2: deferH2Enhance,
-                                needFlow: deferFlowEnhance
+                                needFlow: false
                             });
                             h2Map = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
-                            flowMap = bundle?.taskFlowRankMap instanceof Map ? bundle.taskFlowRankMap : new Map();
                         } catch (e) {
                             h2Map = new Map();
-                            flowMap = new Map();
                         }
                         if (!(runtimeState?.isCurrentOpenToken?.(deferredToken) ?? deferredToken === (Number(state.openToken) || 0))) return;
                         let changed = false;
-                        const flowChangedDocIds = new Set();
                         deferredTaskIds.forEach((id) => {
                             const tid = String(id || '').trim();
                             if (!tid) return;
                             const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
                             if (!task) return;
-                            if (deferFlowEnhance) {
-                                const flowRank = Number(flowMap.get(tid));
-                                const docId = String(task?.root_id || task?.docId || '').trim();
-                                if (__tmApplyResolvedFlowRankIfNeeded(task, flowRank)) {
-                                    if (docId) flowChangedDocIds.add(docId);
-                                    changed = true;
-                                }
-                            }
-                            if (deferH2Enhance) {
-                                const h2ctx = h2Map.get(tid);
-                                const nextH2 = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.content || '').trim() : String(h2ctx || '').trim();
-                                const nextH2Id = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.id || '').trim() : '';
-                                const nextH2Path = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.path || '').trim() : '';
-                                const nextH2Sort = h2ctx && typeof h2ctx === 'object' ? Number(h2ctx.sort) : Number.NaN;
-                                const nextH2Created = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.created || '').trim() : '';
-                                const nextH2Rank = h2ctx && typeof h2ctx === 'object' ? Number(h2ctx.rank) : Number.NaN;
-                                if (String(task.h2 || '').trim() !== nextH2
-                                    || String(task.h2Id || '').trim() !== nextH2Id
-                                    || String(task.h2Path || '').trim() !== nextH2Path
-                                    || Number(task.h2Sort) !== nextH2Sort
-                                    || String(task.h2Created || '').trim() !== nextH2Created
-                                    || Number(task.h2Rank) !== nextH2Rank) {
-                                    task.h2 = nextH2;
-                                    task.h2Id = nextH2Id;
-                                    task.h2Path = nextH2Path;
-                                    task.h2Sort = nextH2Sort;
-                                    task.h2Created = nextH2Created;
-                                    task.h2Rank = nextH2Rank;
-                                    changed = true;
-                                }
+                            const h2ctx = h2Map.get(tid);
+                            const nextH2 = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.content || '').trim() : String(h2ctx || '').trim();
+                            const nextH2Id = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.id || '').trim() : '';
+                            const nextH2Path = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.path || '').trim() : '';
+                            const nextH2Sort = h2ctx && typeof h2ctx === 'object' ? Number(h2ctx.sort) : Number.NaN;
+                            const nextH2Created = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.created || '').trim() : '';
+                            const nextH2Rank = h2ctx && typeof h2ctx === 'object' ? Number(h2ctx.rank) : Number.NaN;
+                            if (String(task.h2 || '').trim() !== nextH2
+                                || String(task.h2Id || '').trim() !== nextH2Id
+                                || String(task.h2Path || '').trim() !== nextH2Path
+                                || Number(task.h2Sort) !== nextH2Sort
+                                || String(task.h2Created || '').trim() !== nextH2Created
+                                || Number(task.h2Rank) !== nextH2Rank) {
+                                task.h2 = nextH2;
+                                task.h2Id = nextH2Id;
+                                task.h2Path = nextH2Path;
+                                task.h2Sort = nextH2Sort;
+                                task.h2Created = nextH2Created;
+                                task.h2Rank = nextH2Rank;
+                                changed = true;
                             }
                         });
-                        if (deferFlowEnhance && flowChangedDocIds.size > 0 && __tmReorderLoadedDocsByResolvedFlow(flowChangedDocIds)) {
-                            changed = true;
-                        }
                         if (!changed || !(runtimeState?.isCurrentOpenToken?.(deferredToken) ?? deferredToken === (Number(state.openToken) || 0))) return;
                         if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
                         const deferredModal = getActiveModal();

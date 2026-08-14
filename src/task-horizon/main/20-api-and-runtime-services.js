@@ -6092,6 +6092,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const headingId = String(opts.heading?.id || '').trim();
         const moveIndependentList = opts.moveIndependentList === true;
+        const moveToRecycleDocument = opts.moveToRecycleDocument === true;
         if (!tid) throw new Error('任务移动缺少任务 ID');
         if (headingId) {
             const moveData = {
@@ -6113,6 +6114,13 @@
                 sourceDocumentID: String(opts.sourceDocumentId || '').trim(),
             };
             return await __tmExecuteQueuedMoveKernel(null, moveData);
+        }
+        if (moveToRecycleDocument) {
+            return await __tmExecuteQueuedMoveKernel(null, {
+                taskId: tid,
+                targetDocId: String(targetDocId || '').trim(),
+                mode: 'recycle-document',
+            });
         }
         const command = {
             action: 'move',
@@ -6716,6 +6724,7 @@
             return;
         }
         if (type === 'taskLifecycle') {
+            if (op?.optimisticApplied !== true) return;
             __tmPublishQueuedOpMutation(op, 'rollback', {
                 taskId: String(op?.data?.taskId || '').trim(),
                 snapshot: op?.data?.snapshot,
@@ -6938,7 +6947,8 @@
             }
             __tmPublishQueuedOpMutation(op, 'commit', {
                 taskId: String(op?.data?.taskId || '').trim(),
-                applyLocal: false,
+                changeSet: result?.changeSet,
+                applyLocal: action === 'archiveDeleted',
             });
             return;
         }
@@ -7309,12 +7319,11 @@
         const data = (op?.data && typeof op.data === 'object') ? op.data : {};
         if (type === 'taskLifecycle') {
             const action = String(data.action || '').trim();
-            if ((action !== 'archiveDeleted' && action !== 'restoreDeleted')
-                || !(data.snapshot && typeof data.snapshot === 'object')) return false;
+            if (action !== 'restoreDeleted' || !(data.snapshot && typeof data.snapshot === 'object')) return false;
             __tmPublishQueuedOpMutation(op, 'optimistic', {
                 taskId: String(data.taskId || '').trim(),
                 snapshot: data.snapshot,
-                task: action === 'restoreDeleted' ? data.snapshot.task : null,
+                task: data.snapshot.task,
             });
             op.optimisticApplied = true;
             return true;
@@ -8302,7 +8311,9 @@
             const opType = String(op?.type || '').trim();
             const lifecycleAction = String(op?.data?.action || '').trim();
             if (opType !== 'deleteTask'
-                && !(opType === 'taskLifecycle' && lifecycleAction === 'archiveDeleted')) return;
+                && !(opType === 'taskLifecycle'
+                    && lifecycleAction === 'archiveDeleted'
+                    && op.optimisticApplied === true)) return;
             const taskId = String(op?.data?.taskId || '').trim();
             if (taskId) {
                 __tmGetMutationTaskIdAliases(taskId).forEach((aliasId) => out.add(aliasId));

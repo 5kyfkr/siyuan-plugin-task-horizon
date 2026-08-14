@@ -100,7 +100,11 @@ function createHarness(options = {}) {
                 task.parentTaskId = String(options?.parentTaskId || '');
                 task.parent_task_id = task.parentTaskId;
             }
-            return true;
+            return {
+                listID: `archive-list-${taskId}`,
+                placement: { parentListId: `archive-list-${taskId}` },
+                changeSet: { affectedDocumentIds: [targetDocId] },
+            };
         },
         hint: () => {},
         __tomatoReminder: {
@@ -188,11 +192,26 @@ async function testMetadataAndRestoreComposition() {
     const harness = createHarness();
     const { context, attrs, tasks, moves, reminderTaskIds, removedReminderIds } = harness;
     const completed = { originDocId: 'doc-original', mode: 'document', archivedAt: 'earlier' };
-    const normalized = context.lifecycleTest.normalize({ v: 99, completed, recycle: { originDocId: 'doc-a', originParentTaskId: 'parent-a' } });
+    const normalized = context.lifecycleTest.normalize({
+        v: 99,
+        completed,
+        recycle: {
+            originDocId: 'doc-a',
+            originParentTaskId: 'parent-a',
+            archiveDocId: 'doc-recycle',
+            archiveListId: 'list-recycle',
+        },
+    });
     assert.deepEqual(plain(normalized), {
         v: 1,
         completed,
-        recycle: { originDocId: 'doc-a', originParentTaskId: 'parent-a', archivedAt: '' },
+        recycle: {
+            originDocId: 'doc-a',
+            originParentTaskId: 'parent-a',
+            archivedAt: '',
+            archiveDocId: 'doc-recycle',
+            archiveListId: 'list-recycle',
+        },
     });
 
     tasks.set('task-delete', { id: 'task-delete', root_id: 'doc-source', done: true, parent_task_id: '' });
@@ -210,7 +229,11 @@ async function testMetadataAndRestoreComposition() {
     let stored = JSON.parse(attrs.get('task-delete')['custom-task-horizon-lifecycle']);
     assert.deepEqual(stored.completed, completed, 'recycle metadata must preserve completion metadata');
     assert.equal(stored.recycle.originDocId, 'doc-source');
+    assert.equal(stored.recycle.archiveDocId, 'doc-recycle');
+    assert.equal(stored.recycle.archiveListId, 'archive-list-task-delete');
     assert.equal(moves.at(-1).targetDocId, 'doc-recycle');
+    assert.equal(moves.at(-1).options.moveToRecycleDocument, true,
+        'recycle must use the independent-list document move path');
     assert.deepEqual(removedReminderIds, ['task-delete'], 'recycling a task must clear its linked reminder');
 
     await context.__tmTaskLifecycle.execute({ action: 'restoreDeleted', taskId: 'task-delete' });
@@ -218,6 +241,9 @@ async function testMetadataAndRestoreComposition() {
     assert.deepEqual(stored.completed, completed, 'restore delete must clear only the recycle branch');
     assert.equal(stored.recycle, undefined);
     assert.equal(moves.at(-1).targetDocId, 'doc-source');
+    assert.equal(moves.at(-1).options.moveIndependentList, true,
+        'restoring a recycled root task must move its saved outer list');
+    assert.equal(moves.at(-1).options.sourceListId, 'archive-list-task-delete');
 
     tasks.set('task-composed', { id: 'task-composed', root_id: 'doc-recycle', done: false, parent_task_id: '' });
     attrs.set('task-composed', {
@@ -407,6 +433,31 @@ async function testDeleteRelationCleanupIsolation() {
     assert.deepEqual(cleanupSteps, ['reminder', 'schedule', 'whiteboard']);
 }
 
+async function testRecycleMoveFailureDoesNotCommitMetadata() {
+    const harness = createHarness({ moveFailsOnce: true });
+    const { context, attrs, tasks, cleanupSteps } = harness;
+    tasks.set('task-recycle-move-failure', {
+        id: 'task-recycle-move-failure',
+        root_id: 'doc-source',
+        done: false,
+        parent_task_id: '',
+    });
+    await assert.rejects(
+        context.__tmTaskLifecycle.execute({
+            action: 'archiveDeleted',
+            taskId: 'task-recycle-move-failure',
+            originDocId: 'doc-source',
+            targetDocId: 'doc-recycle',
+            scheduleCleanupTaskIds: ['task-recycle-move-failure'],
+        }),
+        /move failed once/,
+    );
+    assert.equal(attrs.has('task-recycle-move-failure'), false,
+        'a failed recycle move must not write lifecycle metadata');
+    assert.deepEqual(cleanupSteps, [],
+        'a failed recycle move must not run post-commit relation cleanup');
+}
+
 function testStaticContracts() {
     const headingMoveKernelSource = kernelSource.slice(
         kernelSource.indexOf('async function moveTaskIntoHeading'),
@@ -429,7 +480,10 @@ function testStaticContracts() {
         'ordinary task mutations must remain blocked while deletion is pending');
     assert.match(apiSource, /action === 'restoreDeleted'[\s\S]*result\?\.ok === true[\s\S]*__tmForgetPendingDeletedTaskIds/,
         'a confirmed restore must clear the optimistic delete watermark before publishing its commit');
-    assert.match(apiSource, /type === 'taskLifecycle'[\s\S]*archiveDeleted'[\s\S]*__tmPublishQueuedOpMutation\(op, 'optimistic'/, 'recycle must reuse the mutation store optimistic path');
+    assert.match(apiSource, /if \(type === 'taskLifecycle'\)[\s\S]{0,240}action !== 'restoreDeleted'/,
+        'only restore may optimistically project lifecycle state');
+    assert.doesNotMatch(apiSource, /action !== 'archiveDeleted' && action !== 'restoreDeleted'/,
+        'recycle must not delete its local projection before the kernel move commits');
     assert.match(apiSource, /type === 'taskLifecycle'[\s\S]*restoreDeleted'[\s\S]*data\.snapshot\.task/,
         'recycle undo must publish its saved snapshot through the shared optimistic mutation path');
     assert.match(runtimeStateSource, /normalized\.type === 'taskLifecycle'[\s\S]*restoreDeleted'[\s\S]*__tmRollbackDeleteOptimisticLocal/,
@@ -445,6 +499,8 @@ function testStaticContracts() {
     assert.match(dialogsSource, /recycledJobs[\s\S]*restoreDeleted\(item\.id,[\s\S]*snapshot: item\.snapshot/,
         'batch undo must retain each deleted subtree snapshot');
     assert.match(runtimeStateSource, /normalized\.type === 'taskLifecycle'[\s\S]*archiveDeleted'[\s\S]*deleteTaskLocal/, 'TaskStore must reuse the normal local delete implementation for recycle');
+    assert.match(apiSource, /type === 'taskLifecycle'[\s\S]*applyLocal: action === 'archiveDeleted'/,
+        'recycle must remove its local projection only during commit');
     assert.match(runtimeStateSource, /normalized\.phase === 'commit'\) settleTaskOverlay\(normalized, true\)/,
         'lifecycle commit must settle its pending TaskStore overlay');
     assert.match(runtimeStateSource, /normalized\.phase === 'commit'[\s\S]*scheduleMutationSnapshotRefresh\(normalized,[\s\S]*structural: changeSet\.structural/,
@@ -467,6 +523,14 @@ function testStaticContracts() {
         'completion restore must reach the authoritative document-list kernel path');
     assert.match(kernelSource, /moveIndependentTaskListToDocument[\s\S]*movePayload = \{ id: sourceList\.id, parentID: targetDocumentID \}/,
         'document restore must move the independent outer list instead of its task item');
+    assert.match(kernelSource, /moveTaskIntoIndependentDocument[\s\S]*await api\('\/api\/block\/moveBlock', \{ id: listID, parentID: targetDocumentID \}\)/,
+        'recycle must move an independent outer list into the recycle document');
+    assert.match(kernelSource, /moveTaskIntoIndependentDocument[\s\S]*documentChildIDs\[0\] !== listID[\s\S]*verifiedTaskIDs\.length !== 1/,
+        'recycle must verify the live document tree before reporting success');
+    assert.match(apiSource, /moveToRecycleDocument[\s\S]*mode: 'recycle-document'/,
+        'the lifecycle bridge must reach the recycle-specific kernel move path');
+    assert.match(lifecycleSource, /__tmArchiveDeletedTask[\s\S]*moveToRecycleDocument: true[\s\S]*__tmWriteTaskLifecycleMeta/,
+        'recycle metadata must be written only after the independent-list move succeeds');
     assert.match(kernelSource, /normalizeTaskMoveMode\(source\.mode\) === 'document-list'[\s\S]*const before = await capturePlacement\(taskID\)/,
         'document-list restore must bypass SQL placement reads before moving the archived list');
     assert.match(headingMoveKernelSource, /canMoveSourceList[\s\S]*movePayload = \{ id: listID, previousID: hid, parentID: heading\.parentID \}/,
@@ -507,6 +571,7 @@ function testStaticContracts() {
     await testHeadingLockAndQueueLane();
     await testRestoreResultContract();
     await testDeleteRelationCleanupIsolation();
+    await testRecycleMoveFailureDoesNotCommitMetadata();
     testStaticContracts();
     console.log('task lifecycle contract tests passed');
 })().catch((error) => {

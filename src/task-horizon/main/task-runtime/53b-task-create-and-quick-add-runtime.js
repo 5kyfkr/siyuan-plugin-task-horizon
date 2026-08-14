@@ -624,39 +624,6 @@
         return list;
     }
 
-    function __tmReorderLoadedDocsByResolvedFlow(docIds) {
-        const ids = docIds instanceof Set
-            ? Array.from(docIds)
-            : (Array.isArray(docIds) ? docIds : [docIds]);
-        const wanted = new Set(ids.map((id) => String(id || '').trim()).filter(Boolean));
-        if (wanted.size <= 0) return false;
-        const hasFlowRank = (tasks) => {
-            return (Array.isArray(tasks) ? tasks : []).some((task) => {
-                const rank = Number(task?.resolvedFlowRank ?? task?.resolved_flow_rank ?? task?.__tmResolvedFlowRank);
-                return Number.isFinite(rank) || hasFlowRank(task?.children);
-            });
-        };
-        const calcLevel = (tasks, level) => {
-            (Array.isArray(tasks) ? tasks : []).forEach((task) => {
-                if (!task || typeof task !== 'object') return;
-                task.level = level;
-                if (Array.isArray(task.children) && task.children.length > 0) calcLevel(task.children, level + 1);
-            });
-        };
-        let changed = false;
-        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
-            const docId = String(doc?.id || '').trim();
-            if (!docId || !wanted.has(docId) || !Array.isArray(doc?.tasks) || doc.tasks.length <= 0) return;
-            if (!__tmShouldUseResolvedFlowRankForDoc(docId) || !hasFlowRank(doc.tasks)) return;
-            __tmSortTaskTreeByDocFlow(doc.tasks);
-            calcLevel(doc.tasks, 0);
-            __tmAssignDocSeqByTree(doc.tasks, 0);
-            changed = true;
-        });
-        if (changed) __tmInvalidateFilteredTaskDerivedStateCache();
-        return changed;
-    }
-
     function __tmCompareSiblingTasksByBlockOrder(a, b) {
         // A parent task can own multiple child NodeList blocks. When their per-list
         // sibling ranks collide, we must fall back to full document flow instead of

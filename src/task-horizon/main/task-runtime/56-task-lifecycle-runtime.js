@@ -30,6 +30,8 @@
                 originDocId: recycleOriginDocId,
                 originParentTaskId: String(recycle?.originParentTaskId || '').trim(),
                 archivedAt: String(recycle?.archivedAt || '').trim(),
+                ...(String(recycle?.archiveDocId || '').trim() ? { archiveDocId: String(recycle.archiveDocId).trim() } : {}),
+                ...(String(recycle?.archiveListId || '').trim() ? { archiveListId: String(recycle.archiveListId).trim() } : {}),
             };
         }
         return out;
@@ -307,14 +309,17 @@
         if (!targetDocId) throw new Error('请先设置回收站文档');
         if (!originDocId) throw new Error('未找到任务所在文档');
         if (targetDocId === originDocId) throw new Error('回收站文档不能是任务当前文档');
-        const destination = await __tmResolveTaskLifecycleDefaultPlacement(targetDocId);
-        await __tmMoveTaskToPlacement(tid, targetDocId, destination.placement, { heading: destination.heading });
+        const moveResult = await __tmMoveTaskToPlacement(tid, targetDocId, { parentID: targetDocId }, {
+            moveToRecycleDocument: true,
+        });
         const nextMeta = {
             ...meta,
             recycle: {
                 originDocId,
                 originParentTaskId: String(payload.originParentTaskId || task.parentTaskId || task.parent_task_id || '').trim(),
                 archivedAt: new Date().toISOString(),
+                archiveDocId: targetDocId,
+                archiveListId: String(moveResult?.listID || moveResult?.placement?.parentListId || '').trim(),
             },
         };
         await __tmWriteTaskLifecycleMeta(tid, nextMeta);
@@ -325,7 +330,14 @@
         });
         payload.docId = originDocId;
         payload.targetDocId = targetDocId;
-        return { ok: true, action: 'archiveDeleted', taskId: tid, originDocId, targetDocId };
+        return {
+            ok: true,
+            action: 'archiveDeleted',
+            taskId: tid,
+            originDocId,
+            targetDocId,
+            changeSet: moveResult?.changeSet,
+        };
     }
 
     async function __tmArchiveCompletedTaskOnce(data) {
@@ -456,6 +468,13 @@
         await __tmMoveTaskToPlacement(tid, targetDocId, destination.placement, {
             parentTaskId: String(destination.parentTaskId || '').trim(),
             heading: destination.heading,
+            moveIndependentList: !destination.parentTaskId && !destination.heading,
+            sourceListId: String(meta.recycle.archiveListId || '').trim(),
+            sourceDocumentId: String(
+                meta.recycle.archiveDocId
+                || resolvedTask.task.root_id
+                || resolvedTask.task.docId
+            ).trim(),
         });
         const nextMeta = { ...meta };
         delete nextMeta.recycle;

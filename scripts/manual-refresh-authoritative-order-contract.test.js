@@ -63,8 +63,8 @@ assert.match(loadSelectedDocuments, /forceRefreshScope: !!state\.isRefreshing \|
     'the document loader must honor manual refresh scope cache bypass options');
 assert.match(loadSelectedDocuments, /fetchTaskEnhanceBundle\(taskIds0,[\s\S]*forceFresh:\s*forceFreshTasks/,
     'a force-fresh task load must bypass the cached document order bundle');
-assert.match(loadSelectedDocuments, /const needFlowRank = forceSyncFlowRank[\s\S]*const syncFlowBeforeFirstRender = forceSyncFlowRank/,
-    'manual refresh must load document flow ranks even when the active view has an explicit sort rule');
+assert.match(loadSelectedDocuments, /const needFlowRank = forceSyncFlowRank \|\| enhanceLoadPlan0\.needFlowRank[\s\S]*needFlow:\s*needFlowRank/,
+    'manual refresh must load document flow ranks before committing the task tree');
 assert.match(loadSelectedDocuments, /shouldSkipSiblingRank\s*=\s*fastSwitchFirstPaint\s*\|\|\s*skipSiblingRankFirstPaint\s*\|\|\s*forceSyncFlowRank\s*\|\|\s*preserveExistingSiblingOrder/,
     'an authoritative flow refresh must not issue redundant per-parent sibling reads');
 assert.match(refreshCore, /loadSelectedDocuments\(\{[\s\S]*?deferProjection:\s*true/,

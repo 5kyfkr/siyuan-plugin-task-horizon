@@ -1763,6 +1763,76 @@ async function run() {
         'a structure-rejected move that returns code zero must not be reported as committed');
     assert.equal(harness.blocks.get(failedSourceListID).parent_id, IDS.otherDoc);
 
+    const recycleSourceListID = '20260813000018-list';
+    const recycleSourceTaskID = '20260813000019-task';
+    harness.blocks.set(recycleSourceListID, { id: recycleSourceListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000018', created: '20260813000018', sort: 100 });
+    harness.blocks.set(recycleSourceTaskID, { id: recycleSourceTaskID, parent_id: recycleSourceListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Recycle independent task', content: 'Recycle independent task', updated: '20260813000019', created: '20260813000019', sort: 1 });
+    const recycleMoveStart = harness.apiCalls.length;
+    const recycleIndependent = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: recycleSourceTaskID,
+        mode: 'recycle-document',
+        targetDocumentID: IDS.doc,
+        authoritative: true,
+    });
+    assert.equal(recycleIndependent.ok, true);
+    assert.equal(recycleIndependent.data.outcome, 'committed');
+    assert.equal(harness.blocks.get(recycleSourceListID).parent_id, IDS.doc);
+    assert.equal(harness.blocks.get(recycleSourceTaskID).parent_id, recycleSourceListID);
+    const recycleIndependentCalls = harness.apiCalls.slice(recycleMoveStart);
+    assert.equal(recycleIndependentCalls.some((item) => (
+        item.pathname === '/api/block/moveBlock'
+        && item.body.id === recycleSourceListID
+        && item.body.parentID === IDS.doc
+    )), true, 'recycling an independent task must move its outer list into the recycle document');
+    assert.equal(recycleIndependentCalls.some((item) => (
+        item.pathname === '/api/block/moveBlock'
+        && item.body.id === recycleSourceTaskID
+        && item.body.parentID === IDS.doc
+    )), false, 'recycling must never attach a list item directly to a document');
+
+    const sharedRecycleListID = '20260813000020-list';
+    const sharedRecycleTaskID = '20260813000021-task';
+    const sharedRecycleSiblingID = '20260813000022-task';
+    harness.blocks.set(sharedRecycleListID, { id: sharedRecycleListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000020', created: '20260813000020', sort: 110 });
+    harness.blocks.set(sharedRecycleTaskID, { id: sharedRecycleTaskID, parent_id: sharedRecycleListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Recycle from shared list', content: 'Recycle from shared list', updated: '20260813000021', created: '20260813000021', sort: 1 });
+    harness.blocks.set(sharedRecycleSiblingID, { id: sharedRecycleSiblingID, parent_id: sharedRecycleListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Keep in source list', content: 'Keep in source list', updated: '20260813000022', created: '20260813000022', sort: 2 });
+    const sharedRecycle = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: sharedRecycleTaskID,
+        mode: 'recycle-document',
+        targetDocumentID: IDS.doc,
+        authoritative: true,
+    });
+    assert.equal(sharedRecycle.ok, true);
+    assert.equal(sharedRecycle.data.outcome, 'committed');
+    const sharedRecycleTargetListID = sharedRecycle.data.value.listID;
+    assert.notEqual(sharedRecycleTargetListID, sharedRecycleListID);
+    assert.equal(harness.blocks.get(sharedRecycleTaskID).parent_id, sharedRecycleTargetListID,
+        'a task from a shared list must be split into a new independent recycle list');
+    assert.equal(harness.blocks.get(sharedRecycleSiblingID).parent_id, sharedRecycleListID,
+        'other tasks in the source list must remain in place');
+    assert.equal(harness.blocks.get(sharedRecycleTargetListID).parent_id, IDS.doc);
+    assert.equal(Array.from(harness.blocks.values()).filter((item) => item.parent_id === sharedRecycleTargetListID).length, 1,
+        'the recycle list must contain only the moved task after deleting its scaffold');
+
+    const rejectedRecycleListID = '20260813000023-list';
+    const rejectedRecycleTaskID = '20260813000024-task';
+    harness.blocks.set(rejectedRecycleListID, { id: rejectedRecycleListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000023', created: '20260813000023', sort: 120 });
+    harness.blocks.set(rejectedRecycleTaskID, { id: rejectedRecycleTaskID, parent_id: rejectedRecycleListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Reject false recycle success', content: 'Reject false recycle success', updated: '20260813000024', created: '20260813000024', sort: 1 });
+    harness.skipMoveOnce();
+    const rejectedRecycle = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: rejectedRecycleTaskID,
+        mode: 'recycle-document',
+        targetDocumentID: IDS.doc,
+        authoritative: true,
+    });
+    assert.equal(rejectedRecycle.ok, true);
+    assert.equal(rejectedRecycle.data.outcome, 'conflict',
+        'a recycle move that SiYuan did not apply must not be reported as committed');
+    assert.equal(harness.blocks.get(rejectedRecycleListID).parent_id, IDS.otherDoc);
+
     const restoreSourceListID = '20260813000014-list';
     const restoreSourceTaskID = '20260813000015-task';
     harness.blocks.set(restoreSourceListID, { id: restoreSourceListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000014', created: '20260813000014', sort: 80 });

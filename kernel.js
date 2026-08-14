@@ -2905,7 +2905,7 @@
     function normalizeTaskMoveMode(value) {
         const mode = text(value || '');
         if (!mode || mode === 'doc') return 'docTop';
-        if (['docTop', 'docBottom', 'document-list', 'heading', 'before', 'after', 'child', 'child-top'].includes(mode)) return mode;
+        if (['docTop', 'docBottom', 'document-list', 'recycle-document', 'heading', 'before', 'after', 'child', 'child-top'].includes(mode)) return mode;
         throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的任务移动方式: ${mode}`);
     }
 
@@ -2970,6 +2970,14 @@
                 sourceDocumentID: text(input.sourceDocumentID || input.sourceDocumentId),
                 moveInput: input,
             };
+        }
+        if (mode === 'recycle-document') {
+            const documentID = requireID(
+                input.targetDocumentID || input.targetDocumentId || input.documentID || input.documentId,
+                '目标文档 ID',
+            );
+            await requireDocumentBlock(documentID);
+            return { mode, documentID };
         }
         const documentID = requireID(
             input.targetDocumentID || input.targetDocumentId || input.documentID || input.documentId,
@@ -3310,6 +3318,101 @@
             nextSiblingID: '',
             firstTaskID: id,
             documentID: heading.rootID,
+        };
+        return {
+            task: applyPlacementToTaskDTO(await taskDTO(before), placement),
+            placement,
+            listID,
+            authoritative: true,
+        };
+    }
+
+    async function moveTaskIntoIndependentDocument(taskID, documentID) {
+        const id = requireID(taskID, '任务 ID');
+        const targetDocumentID = requireID(documentID, '目标文档 ID');
+        await requireDocumentBlock(targetDocumentID);
+        const before = await getTaskRow(id);
+        const sourceList = await getBlockRole(before.parent_id, '任务列表');
+        let sourceListChildren = [];
+        let sourceListParent = null;
+        try {
+            sourceListChildren = await api('/api/block/getChildBlocks', { id: sourceList.id });
+            sourceListParent = await getBlockRole(sourceList.parentID, '任务列表父块');
+        } catch (e) {
+            sourceListChildren = [];
+            sourceListParent = null;
+        }
+        const sourceChildIDs = (Array.isArray(sourceListChildren) ? sourceListChildren : [])
+            .map((item) => text(item?.id))
+            .filter(Boolean);
+        const canMoveSourceList = sourceList.type === 'l'
+            && sourceListParent?.type === 'd'
+            && sourceChildIDs.length === 1
+            && sourceChildIDs[0] === id;
+
+        let listID = '';
+        let scaffoldTaskID = '';
+        if (canMoveSourceList) {
+            listID = sourceList.id;
+            await api('/api/block/moveBlock', { id: listID, parentID: targetDocumentID });
+        } else {
+            const scaffoldResult = await api('/api/block/insertBlock', {
+                parentID: targetDocumentID,
+                data: '- [ ]',
+                dataType: 'markdown',
+            });
+            listID = requireID(extractInsertedID(scaffoldResult), '回收站任务列表 ID');
+            const scaffoldChildren = await api('/api/block/getChildBlocks', { id: listID });
+            scaffoldTaskID = requireID((Array.isArray(scaffoldChildren) ? scaffoldChildren : [])[0]?.id, '回收站占位任务 ID');
+            try {
+                await api('/api/block/moveBlock', { id, parentID: listID });
+                const movedChildren = await api('/api/block/getChildBlocks', { id: listID });
+                const movedChildIDs = (Array.isArray(movedChildren) ? movedChildren : [])
+                    .map((item) => text(item?.id))
+                    .filter(Boolean);
+                if (!movedChildIDs.includes(id)) {
+                    throw new DomainError(ERROR.CONFLICT, '任务移动后未进入回收站独立列表', { taskID: id, listID, movedChildIDs });
+                }
+                await api('/api/block/deleteBlock', { id: scaffoldTaskID });
+            } catch (error) {
+                try {
+                    const children = await api('/api/block/getChildBlocks', { id: listID });
+                    const childIDs = (Array.isArray(children) ? children : []).map((item) => text(item?.id)).filter(Boolean);
+                    if (!childIDs.includes(id)) await api('/api/block/deleteBlock', { id: listID });
+                } catch (e) {}
+                throw error;
+            }
+        }
+
+        await api('/api/sqlite/flushTransaction', {});
+        const [documentChildren, verifiedListChildren] = await Promise.all([
+            api('/api/block/getChildBlocks', { id: targetDocumentID }),
+            api('/api/block/getChildBlocks', { id: listID }),
+        ]);
+        const documentChildIDs = (Array.isArray(documentChildren) ? documentChildren : [])
+            .map((item) => text(item?.id))
+            .filter(Boolean);
+        const verifiedTaskIDs = (Array.isArray(verifiedListChildren) ? verifiedListChildren : [])
+            .map((item) => text(item?.id))
+            .filter(Boolean);
+        if (documentChildIDs[0] !== listID || verifiedTaskIDs.length !== 1 || verifiedTaskIDs[0] !== id) {
+            throw new DomainError(ERROR.CONFLICT, '任务未落盘到回收站文档顶部的独立列表', {
+                taskID: id,
+                listID,
+                targetDocumentID,
+                firstDocumentChildID: text(documentChildIDs[0]),
+                listChildIDs: verifiedTaskIDs,
+            });
+        }
+        const placement = {
+            taskID: id,
+            parentListID: listID,
+            parentTaskID: '',
+            parentType: 'l',
+            previousSiblingID: '',
+            nextSiblingID: '',
+            firstTaskID: id,
+            documentID: targetDocumentID,
         };
         return {
             task: applyPlacementToTaskDTO(await taskDTO(before), placement),
@@ -3666,6 +3769,8 @@
                     command.headingID,
                     command.requestedListID,
                 );
+            } else if (command.mode === 'recycle-document') {
+                moved = await moveTaskIntoIndependentDocument(taskID, command.documentID);
             } else if (parentTaskID) {
                 moved = await moveTaskIntoParent(
                     taskID,
