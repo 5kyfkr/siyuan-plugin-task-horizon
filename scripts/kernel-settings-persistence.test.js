@@ -6,7 +6,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function createHarness() {
-    const storage = new Map();
+    const storage = new Map([
+        ['task-attr-storage.json', JSON.stringify({ version: 1, status: 'complete' })],
+    ]);
     const rpc = {};
     let corruptNextPut = '';
     const siyuan = {

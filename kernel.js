@@ -3,6 +3,8 @@
 
     const PLUGIN_VERSION = '1';
     const SETTINGS_FILE = 'task-settings.json';
+    const TASK_ATTR_STORAGE_FILE = 'task-attr-storage.json';
+    const TASK_ATTR_ITEM_STORAGE_VERSION = 1;
     const MCP_CONFIG_FILE = 'agent-mcp-config.json';
     const SCHEDULE_FILE = 'calendar-events.json';
     const AGENT_SCHEDULE_FILE = 'agent-scheduled-events.json';
@@ -909,7 +911,7 @@
                 parentListID: parentID,
                 state: 'state1-parent',
                 primaryHostID: taskID,
-                legacyHostIDs: [parentID],
+                legacyHostIDs: [],
                 mirrorHostIDs: [],
             };
         }
@@ -919,7 +921,7 @@
                 parentListID: parentID,
                 state: 'state3-list-item',
                 primaryHostID: taskID,
-                legacyHostIDs: [parentID],
+                legacyHostIDs: [],
                 mirrorHostIDs: [],
             };
         }
@@ -972,22 +974,15 @@
     }
 
     async function readTaskAttributes(binding, registry) {
-        const taskAttrs = await readAttrs(binding.taskID);
-        const legacyHostID = uniqueStrings(binding.legacyHostIDs || [binding.parentListID])
-            .find((id) => id && id !== binding.taskID);
-        const rawLegacyAttrs = legacyHostID ? await readAttrs(legacyHostID) : null;
-        const legacyOwner = text(rawLegacyAttrs && rawLegacyAttrs[ATTR_OWNER]);
-        const secondaryAttrs = rawLegacyAttrs && (!legacyOwner || legacyOwner === binding.taskID)
-            ? rawLegacyAttrs
-            : null;
-        const primaryAttrs = taskAttrs;
-        const hostAttrs = taskAttrs;
+        const primaryAttrs = await readAttrs(binding.taskID);
+        const secondaryAttrs = null;
+        const hostAttrs = primaryAttrs;
         const fields = {};
         const customFieldValues = {};
         registry.fields.forEach((field) => {
             const keys = uniqueStrings([field.attr].concat(field.aliases || []));
             let value = '';
-            const sources = [primaryAttrs, secondaryAttrs];
+            const sources = [primaryAttrs];
             for (const source of sources) {
                 if (!source) continue;
                 for (const key of keys) {
@@ -1277,7 +1272,8 @@
 
     async function persistTaskAttrs(binding, attrs) {
         if (!Object.keys(attrs || {}).length) return;
-        await setAttrs(binding.taskID || binding.primaryHostID, attrs);
+        const operations = await buildTaskAttrWriteOperations(binding, attrs);
+        await pushTaskTransaction(operations);
     }
 
     function taskOwnedAttrKeys(registry) {
@@ -1289,31 +1285,244 @@
         return keys;
     }
 
-    async function buildCanonicalTaskAttrs(binding, patchAttrs, registry) {
-        const taskID = requireID(binding.taskID, '任务 ID');
-        const taskAttrs = await readAttrs(taskID);
+    function activeAttrValue(attrs, key) {
+        return own(attrs, key) ? String(attrs[key] == null ? '' : attrs[key]) : '';
+    }
+
+    function activeAttachmentAttrs(attrs) {
         const out = {};
-        if (text(taskAttrs[ATTR_OWNER]) !== taskID) {
-            const allowed = taskOwnedAttrKeys(registry);
-            for (const legacyID of uniqueStrings(binding.legacyHostIDs || [binding.parentListID])) {
-                if (!legacyID || legacyID === taskID) continue;
-                const legacyAttrs = await readAttrs(legacyID);
-                const owner = text(legacyAttrs[ATTR_OWNER]);
-                if (owner && owner !== taskID) continue;
-                Object.entries(legacyAttrs).forEach(([key, value]) => {
-                    const attachmentSlot = key.startsWith(ATTACHMENT_ATTR_PREFIX)
-                        && /^\d+$/.test(key.slice(ATTACHMENT_ATTR_PREFIX.length));
-                    if ((!allowed.has(key) && !attachmentSlot) || own(taskAttrs, key)) return;
-                    out[key] = String(value == null ? '' : value);
-                });
+        Object.keys(attrs || {}).sort().forEach((key) => {
+            if (!key.startsWith(ATTACHMENT_ATTR_PREFIX)) return;
+            const value = activeAttrValue(attrs, key);
+            if (value !== '') out[key] = value;
+        });
+        return out;
+    }
+
+    async function listTaskAttrMigrationCandidates(registry) {
+        const exactKeys = Array.from(taskOwnedAttrKeys(registry));
+        const conditions = exactKeys.map((key) => `a.name = '${escapeSql(key)}'`);
+        conditions.push(`a.name LIKE '${escapeSql(ATTACHMENT_ATTR_PREFIX)}%'`);
+        const candidates = [];
+        const pageSize = 500;
+        for (let offset = 0; ; offset += pageSize) {
+            const rows = await sql(`
+                SELECT DISTINCT a.block_id AS id
+                FROM attributes a
+                JOIN blocks b ON b.id = a.block_id
+                WHERE b.type = 'l' AND (${conditions.join(' OR ')})
+                ORDER BY a.block_id
+                LIMIT ${pageSize} OFFSET ${offset}
+            `);
+            candidates.push(...rows.map((row) => text(row.id)).filter(Boolean));
+            if (rows.length < pageSize) break;
+        }
+        return uniqueStrings(candidates);
+    }
+
+    function planSingleAttrMigration(sourceAttrs, itemAttrs, key, itemPatch, parentPatch, conflicts) {
+        const sourceValue = activeAttrValue(sourceAttrs, key);
+        if (sourceValue === '') return { copied: 0, cleared: 0 };
+        if (!own(itemAttrs, key)) {
+            itemPatch[key] = sourceValue;
+            parentPatch[key] = '';
+            return { copied: 1, cleared: 1 };
+        }
+        if (activeAttrValue(itemAttrs, key) === sourceValue) {
+            parentPatch[key] = '';
+            return { copied: 0, cleared: 1 };
+        }
+        conflicts.push(key);
+        return { copied: 0, cleared: 0 };
+    }
+
+    async function migrateListTaskAttrs(listID, registry) {
+        const sourceAttrs = await readAttrs(listID);
+        const taskRows = await sql(`
+            SELECT id FROM blocks
+            WHERE parent_id = '${escapeSql(listID)}' AND type = 'i' AND subtype = 't'
+            ORDER BY sort ASC, created ASC, id ASC LIMIT 2
+        `);
+        if (!taskRows.length) return { status: 'skipped-empty' };
+
+        const taskID = requireID(taskRows[0].id, '迁移目标任务 ID');
+        const owner = text(sourceAttrs[ATTR_OWNER]);
+        if (taskRows.length === 1) {
+            if (owner && owner !== taskID) return { status: 'skipped-owner', taskID, owner };
+        } else if (!owner || owner !== taskID) {
+            return { status: owner ? 'skipped-owner' : 'skipped-ambiguous', taskID, owner };
+        }
+
+        const itemAttrs = await readAttrs(taskID);
+        const itemPatch = {};
+        const parentPatch = {};
+        const conflicts = [];
+        let copied = 0;
+        let cleared = 0;
+        const exactKeys = Array.from(taskOwnedAttrKeys(registry)).filter((key) => (
+            key !== ATTACHMENT_META_ATTR && key !== REMINDER_ATTR
+        ));
+        exactKeys.forEach((key) => {
+            const result = planSingleAttrMigration(sourceAttrs, itemAttrs, key, itemPatch, parentPatch, conflicts);
+            copied += result.copied;
+            cleared += result.cleared;
+        });
+
+        const sourceAttachments = activeAttachmentAttrs(sourceAttrs);
+        const itemAttachments = activeAttachmentAttrs(itemAttrs);
+        const sourceAttachmentKeys = Object.keys(sourceAttachments);
+        if (sourceAttachmentKeys.length) {
+            if (!Object.keys(itemAttachments).length) {
+                Object.assign(itemPatch, sourceAttachments);
+                sourceAttachmentKeys.forEach((key) => { parentPatch[key] = ''; });
+                copied += sourceAttachmentKeys.length;
+                cleared += sourceAttachmentKeys.length;
+            } else if (stableJson(itemAttachments) === stableJson(sourceAttachments)) {
+                sourceAttachmentKeys.forEach((key) => { parentPatch[key] = ''; });
+                cleared += sourceAttachmentKeys.length;
+            } else {
+                conflicts.push('attachments');
             }
         }
+
+        const reminderItemPatch = {};
+        const reminderParentPatch = {};
+        const reminderConflicts = [];
+        const reminderResult = planSingleAttrMigration(
+            sourceAttrs,
+            itemAttrs,
+            REMINDER_ATTR,
+            reminderItemPatch,
+            reminderParentPatch,
+            reminderConflicts,
+        );
+        const sourceReminder = activeAttrValue(sourceAttrs, REMINDER_ATTR);
+        let bookmarkResult = { copied: 0, cleared: 0 };
+        if (sourceReminder && activeAttrValue(sourceAttrs, 'bookmark') === '⏰') {
+            bookmarkResult = planSingleAttrMigration(
+                sourceAttrs,
+                itemAttrs,
+                'bookmark',
+                reminderItemPatch,
+                reminderParentPatch,
+                reminderConflicts,
+            );
+        }
+        if (reminderConflicts.length) {
+            conflicts.push(...reminderConflicts);
+        } else {
+            Object.assign(itemPatch, reminderItemPatch);
+            Object.assign(parentPatch, reminderParentPatch);
+            copied += reminderResult.copied + bookmarkResult.copied;
+            cleared += reminderResult.cleared + bookmarkResult.cleared;
+        }
+
+        const simulatedParentAttrs = { ...sourceAttrs, ...parentPatch };
+        const remainingManaged = Array.from(taskOwnedAttrKeys(registry)).some((key) => (
+            key !== ATTACHMENT_META_ATTR
+            && activeAttrValue(simulatedParentAttrs, key) !== ''
+        )) || Object.keys(activeAttachmentAttrs(simulatedParentAttrs)).length > 0;
+        if (!remainingManaged) {
+            if (own(sourceAttrs, ATTR_OWNER)) parentPatch[ATTR_OWNER] = '';
+            if (own(sourceAttrs, ATTR_UPDATED_AT)) parentPatch[ATTR_UPDATED_AT] = '';
+        }
+        if (copied > 0) {
+            itemPatch[ATTR_OWNER] = taskID;
+            itemPatch[ATTR_UPDATED_AT] = String(Date.now());
+        }
+
+        const operations = [];
+        if (Object.keys(itemPatch).length) {
+            operations.push({ action: 'setAttrs', id: taskID, data: JSON.stringify(itemPatch) });
+        }
+        if (Object.keys(parentPatch).length) {
+            operations.push({ action: 'setAttrs', id: listID, data: JSON.stringify(parentPatch) });
+        }
+        if (operations.length) await pushTaskTransaction(operations);
+        return {
+            status: operations.length ? 'migrated' : (conflicts.length ? 'conflict' : 'unchanged'),
+            taskID,
+            copied,
+            cleared,
+            conflicts: uniqueStrings(conflicts),
+        };
+    }
+
+    async function ensureTaskAttrItemStorageMigration() {
+        const current = await readJson(TASK_ATTR_STORAGE_FILE, null);
+        if (current && Number(current.version) >= TASK_ATTR_ITEM_STORAGE_VERSION) return current;
+
+        const registry = await getFieldRegistry();
+        const candidateIDs = await listTaskAttrMigrationCandidates(registry);
+        const report = {
+            version: 0,
+            targetVersion: TASK_ATTR_ITEM_STORAGE_VERSION,
+            status: 'running',
+            startedAt: nowIso(),
+            completedAt: '',
+            candidates: candidateIDs.length,
+            migrated: 0,
+            copied: 0,
+            cleared: 0,
+            conflicts: [],
+            skippedOwner: [],
+            skippedAmbiguous: [],
+            skippedEmpty: [],
+            failures: [],
+        };
+        for (const listID of candidateIDs) {
+            try {
+                const result = await migrateListTaskAttrs(listID, registry);
+                if (result.status === 'migrated') report.migrated += 1;
+                report.copied += Number(result.copied) || 0;
+                report.cleared += Number(result.cleared) || 0;
+                if (result.conflicts && result.conflicts.length) {
+                    report.conflicts.push({ listID, taskID: result.taskID, keys: result.conflicts });
+                }
+                if (result.status === 'skipped-owner') {
+                    report.skippedOwner.push({ listID, taskID: result.taskID, owner: result.owner });
+                } else if (result.status === 'skipped-ambiguous') {
+                    report.skippedAmbiguous.push({ listID, taskID: result.taskID });
+                } else if (result.status === 'skipped-empty') {
+                    report.skippedEmpty.push(listID);
+                }
+            } catch (error) {
+                report.failures.push({ listID, message: text(error && error.message) || String(error) });
+            }
+        }
+        report.completedAt = nowIso();
+        report.status = report.failures.length ? 'failed' : 'complete';
+        if (!report.failures.length) report.version = TASK_ATTR_ITEM_STORAGE_VERSION;
+        await writeJson(TASK_ATTR_STORAGE_FILE, report);
+        if (report.failures.length) {
+            throw new DomainError(ERROR.STORAGE_ERROR, '任务属性迁移未完成', { failures: report.failures });
+        }
+        return report;
+    }
+
+    async function buildCanonicalTaskAttrs(binding, patchAttrs, registry) {
+        const taskID = requireID(binding.taskID, '任务 ID');
+        const out = {};
+        const allowed = taskOwnedAttrKeys(registry);
+        const sourceAttrs = await readAttrs(taskID);
+        Object.entries(sourceAttrs).forEach(([key, value]) => {
+            const attachmentSlot = key.startsWith(ATTACHMENT_ATTR_PREFIX)
+                && /^\d+$/.test(key.slice(ATTACHMENT_ATTR_PREFIX.length));
+            if (!allowed.has(key) && !attachmentSlot) return;
+            out[key] = String(value == null ? '' : value);
+        });
         Object.assign(out, patchAttrs || {});
         if (Object.keys(out).length) {
             out[ATTR_OWNER] = taskID;
             out[ATTR_UPDATED_AT] = String(Date.now());
         }
         return out;
+    }
+
+    async function buildTaskAttrWriteOperations(binding, attrs) {
+        if (!Object.keys(attrs || {}).length) return [];
+        const taskID = requireID(binding.taskID, '任务 ID');
+        return [{ action: 'setAttrs', id: taskID, data: JSON.stringify(attrs) }];
     }
 
     async function pushTaskTransaction(doOperations) {
@@ -1329,8 +1538,6 @@
     async function buildTaskAttrPreservationOperation(row, registryInput) {
         const context = buildAttrContext(row);
         if (!context.taskID) return null;
-        const taskAttrs = await readAttrs(context.taskID);
-        if (text(taskAttrs[ATTR_OWNER]) === context.taskID) return null;
         const registry = registryInput || await getFieldRegistry();
         const patch = await buildCanonicalTaskAttrs(context, {}, registry);
         if (!Object.keys(patch).length) return null;
@@ -1344,25 +1551,49 @@
         return true;
     }
 
+    async function reconcileTaskAttrHostsNow(taskIDs, registryInput) {
+        const requestedIDs = uniqueStrings(taskIDs).map((id) => requireID(id, '任务 ID'));
+        if (!requestedIDs.length) return { taskIDs: [], reconciled: 0, writtenHosts: [] };
+        const registry = registryInput || await getFieldRegistry();
+        const items = [];
+        for (const taskID of requestedIDs) {
+            let row;
+            try {
+                row = await getTaskRow(taskID);
+            } catch (error) {
+                if (text(error && error.code) === ERROR.NOT_FOUND) continue;
+                throw error;
+            }
+            row = await ensureTaskListContainer(row, registry);
+            const context = buildAttrContext(row);
+            items.push({
+                taskID,
+                state: context.state,
+                attrHostID: taskID,
+                mirrorHostIDs: [],
+                writtenHosts: [],
+            });
+        }
+        return {
+            taskIDs: items.map((item) => item.taskID),
+            reconciled: items.length,
+            writtenHosts: uniqueStrings(items.flatMap((item) => item.writtenHosts)),
+            items,
+        };
+    }
+
+    async function reconcileTaskAttrHosts(taskIDs) {
+        const ids = uniqueStrings(taskIDs).map((id) => requireID(id, '任务 ID'));
+        return runTaskLanes(ids, () => reconcileTaskAttrHostsNow(ids));
+    }
+
     async function persistReminderAttrs(binding, attrs) {
         if (!Object.keys(attrs || {}).length) return;
-        await setAttrs(binding.primaryHostID, attrs);
-        for (const mirrorID of binding.mirrorHostIDs || []) {
-            if (!mirrorID || mirrorID === binding.primaryHostID) continue;
-            const mirrorAttrs = await readAttrs(mirrorID);
-            const mirrorReminder = parseJsonObject(mirrorAttrs[REMINDER_ATTR]);
-            if (text(mirrorReminder && mirrorReminder.taskId) !== binding.taskID) continue;
-            const cleanup = {
-                [REMINDER_ATTR]: '',
-                [ATTR_UPDATED_AT]: String(Date.now()),
-            };
-            if (text(mirrorAttrs.bookmark) === '⏰') cleanup.bookmark = '';
-            await setAttrs(mirrorID, cleanup);
-        }
+        await setAttrs(binding.taskID, attrs);
     }
 
     async function captureAttrSnapshots(binding, keys) {
-        const hostIDs = uniqueStrings([binding.primaryHostID].concat(binding.mirrorHostIDs || []));
+        const hostIDs = [requireID(binding.taskID, '任务 ID')];
         const snapshots = [];
         for (const hostID of hostIDs) {
             const current = await readAttrs(hostID);
@@ -1412,13 +1643,17 @@
             const attrs = await normalizeUiAttrPayload(rawAttrs);
             const registry = await getFieldRegistry();
             const canonicalAttrs = await buildCanonicalTaskAttrs({ taskID: id, ...context }, attrs, registry);
-            if (!Object.keys(canonicalAttrs).length) return { taskID: id, attrHostID: id, mirrorHostIDs: [], written: 0 };
-            await pushTaskTransaction([{
-                action: 'setAttrs',
-                id,
-                data: JSON.stringify(canonicalAttrs),
-            }]);
-            return { taskID: id, attrHostID: id, mirrorHostIDs: [], written: Object.keys(canonicalAttrs).length };
+            if (!Object.keys(canonicalAttrs).length) {
+                return { taskID: id, attrHostID: context.primaryHostID, mirrorHostIDs: context.mirrorHostIDs, written: 0 };
+            }
+            const operations = await buildTaskAttrWriteOperations({ taskID: id, ...context }, canonicalAttrs);
+            await pushTaskTransaction(operations);
+            return {
+                taskID: id,
+                attrHostID: context.primaryHostID,
+                mirrorHostIDs: context.mirrorHostIDs,
+                written: Object.keys(canonicalAttrs).length,
+            };
         });
     }
 
@@ -1486,28 +1721,13 @@
     async function readReminderTaskState(taskID) {
         const row = await getTaskRow(taskID);
         const binding = buildAttrContext(row);
-        const primaryAttrs = await readAttrs(binding.primaryHostID);
-        let raw = String(primaryAttrs[REMINDER_ATTR] == null ? '' : primaryAttrs[REMINDER_ATTR]);
-        let reminderSourceHostID = raw ? binding.primaryHostID : '';
-        if (!raw) {
-            const fallbackIDs = uniqueStrings(binding.legacyHostIDs || []).filter((id) => id !== binding.primaryHostID);
-            for (const fallbackID of fallbackIDs) {
-                const fallbackAttrs = await readAttrs(fallbackID);
-                const owner = text(fallbackAttrs[ATTR_OWNER]);
-                if (owner && owner !== taskID) continue;
-                const candidate = String(fallbackAttrs[REMINDER_ATTR] == null ? '' : fallbackAttrs[REMINDER_ATTR]);
-                if (!candidate) continue;
-                const parsed = parseJsonObject(candidate);
-                if (text(parsed && parsed.taskId) && text(parsed.taskId) !== taskID) continue;
-                raw = candidate;
-                reminderSourceHostID = fallbackID;
-                break;
-            }
-        }
+        const primaryAttrs = await readAttrs(binding.taskID);
+        const raw = String(primaryAttrs[REMINDER_ATTR] == null ? '' : primaryAttrs[REMINDER_ATTR]);
+        const reminderSourceHostID = raw ? binding.taskID : '';
         const task = await taskDTO(row);
         const relevant = {
             reminder: raw,
-            attrHostID: binding.primaryHostID,
+            attrHostID: binding.taskID,
             attrHostState: binding.state,
             reminderSourceHostID,
             title: task.title,
@@ -2526,6 +2746,16 @@
     function taskCommandChangeSet(action, value, input) {
         const source = input && typeof input === 'object' ? input : {};
         const result = value && typeof value === 'object' ? value : {};
+        if (action === 'reconcileAttrs') {
+            return {
+                upsertedTaskIds: uniqueStrings(result.taskIDs || source.taskIDs || source.taskIds),
+                deletedTaskIds: [],
+                fieldChanges: [],
+                placementChanges: [],
+                affectedGroupIds: [],
+                affectedDocumentIds: [],
+            };
+        }
         if (action === 'batchMove') {
             const results = Array.isArray(result.results) ? result.results : [];
             const taskIDs = uniqueStrings(result.taskIDs || source.taskIDs || source.taskIds);
@@ -2637,6 +2867,8 @@
             } else if (action === 'attrs') {
                 const taskID = requireID(source.taskID || source.taskId, '任务 ID');
                 value = await persistUiTaskAttrs(taskID, source.attrs || {}, { laneID });
+            } else if (action === 'reconcileAttrs') {
+                value = await reconcileTaskAttrHosts(source.taskIDs || source.taskIds || []);
             } else if (action === 'create') {
                 value = await createTask({ ...source, laneID });
             } else if (action === 'move') {
@@ -2694,11 +2926,12 @@
         const id = requireID(taskID, '任务 ID');
         const laneID = text(options?.laneID || options?.laneId) || id;
         return runTaskLane(laneID, async () => {
-            const row = await getTaskRow(id);
-            const context = buildAttrContext(row);
+            let row = await getTaskRow(id);
             const normalized = await normalizeTaskPatch(rawPatch, options);
             const patch = normalized.patch;
             if (!Object.keys(patch).length) return taskDTO(row);
+            row = await ensureTaskListContainer(row, normalized.registry);
+            const context = buildAttrContext(row);
             const before = await taskDTO(row);
             let taskMarker = null;
             if (own(patch, 'customStatus') && patch.customStatus) {
@@ -2721,7 +2954,9 @@
                 if (taskMarker !== null) dom = replaceTaskDOMMarker(dom, taskMarker);
                 operations.push({ action: 'update', id, data: dom });
             }
-            if (Object.keys(attrs).length) operations.push({ action: 'setAttrs', id, data: JSON.stringify(attrs) });
+            if (Object.keys(attrs).length) {
+                operations.push(...await buildTaskAttrWriteOperations({ taskID: id, ...context }, attrs));
+            }
             await pushTaskTransaction(operations);
             await verifyTaskDirect(id, { ...(taskMarker !== null ? { marker: taskMarker } : {}), attrs });
             const after = applyTaskDisplayNames({
@@ -2734,7 +2969,7 @@
                     ? { ...(before.customFieldValues || {}), ...(patch.customFieldValues || {}) }
                     : before.customFieldValues,
                 updated: nowIso(),
-                attrHostID: id,
+                attrHostID: context.primaryHostID,
             }, normalized.registry);
             let undoID = '';
             if (!options || options.recordUndo !== false) {
@@ -2857,8 +3092,16 @@
         };
     }
 
-    async function capturePlacement(taskID) {
-        const row = await getTaskRow(taskID);
+    async function capturePlacement(taskID, rowInput) {
+        const row = rowInput && typeof rowInput === 'object' ? rowInput : await getTaskRow(taskID);
+        if (row.__taskHorizonStructureRepaired === true) {
+            return {
+                parentID: text(row.parent_id),
+                documentID: text(row.root_id),
+                previousID: text(row.previous_sibling_id),
+                nextID: text(row.next_sibling_id),
+            };
+        }
         const siblings = await sql(`SELECT id FROM blocks WHERE parent_id = '${escapeSql(row.parent_id)}' ORDER BY sort ASC, created ASC, id ASC`);
         const index = siblings.findIndex((item) => text(item.id) === taskID);
         return {
@@ -2867,6 +3110,41 @@
             previousID: index > 0 ? text(siblings[index - 1].id) : '',
             nextID: index >= 0 && index + 1 < siblings.length ? text(siblings[index + 1].id) : '',
         };
+    }
+
+    async function firstTaskIDInList(listID) {
+        const id = text(listID);
+        if (!id) return '';
+        let list;
+        try {
+            list = await getBlockRole(id, '任务列表');
+        } catch (error) {
+            return '';
+        }
+        if (list.type !== 'l') return '';
+        const rows = await sql(`
+            SELECT id FROM blocks
+            WHERE parent_id = '${escapeSql(id)}' AND type = 'i' AND subtype = 't'
+            ORDER BY sort ASC, created ASC, id ASC LIMIT 1
+        `);
+        return text(rows[0] && rows[0].id);
+    }
+
+    async function reconcileMovedTaskAttrHosts(taskID, before, moved) {
+        const placement = moved?.placement && typeof moved.placement === 'object' ? moved.placement : {};
+        const oldFirstTaskID = await firstTaskIDInList(before?.parentID);
+        const newFirstTaskID = await firstTaskIDInList(placement.parentListID || placement.parentID);
+        const taskIDs = uniqueStrings([
+            taskID,
+            before?.previousID,
+            before?.nextID,
+            placement.previousSiblingID,
+            placement.nextSiblingID,
+            placement.firstTaskID,
+            oldFirstTaskID,
+            newFirstTaskID,
+        ]);
+        return reconcileTaskAttrHostsNow(taskIDs);
     }
 
     async function buildMovePayload(taskID, source) {
@@ -2989,7 +3267,15 @@
             WHERE parent_id = '${escapeSql(documentID)}' AND type = 'l' AND subtype = 't'
             ORDER BY sort ASC, created ASC, id ASC LIMIT 1
         `);
-        const containerID = text(listRows[0] && listRows[0].id) || documentID;
+        const containerID = text(listRows[0] && listRows[0].id);
+        if (!containerID) {
+            return {
+                mode,
+                documentID,
+                independentDocument: true,
+                independentPosition: mode === 'docBottom' ? 'bottom' : 'top',
+            };
+        }
         const siblings = await sql(`
             SELECT id FROM blocks
             WHERE parent_id = '${escapeSql(containerID)}' AND id <> '${escapeSql(taskID)}'
@@ -3087,6 +3373,122 @@
         return `<div data-subtype="t" data-node-id="${id}" data-type="NodeList" class="list" updated="${id.slice(0, 14)}">${dom}<div class="protyle-attr" contenteditable="false">&ZeroWidthSpace;</div></div>`;
     }
 
+    async function ensureTaskListContainer(row, registryInput) {
+        const source = row && typeof row === 'object' ? row : {};
+        if (text(source.parent_type).toLowerCase() !== 'd') return source;
+        const documentID = requireID(source.parent_id || source.root_id, '任务所在文档 ID');
+        try {
+            const liveDocumentChildren = await api('/api/block/getChildBlocks', { id: documentID });
+            const liveChildren = Array.isArray(liveDocumentChildren) ? liveDocumentChildren : [];
+            const directTask = liveChildren.some((child) => text(child?.id) === text(source.id)
+                && text(child?.type).toLowerCase() === 'i'
+                && text(child?.subType || child?.subtype).toLowerCase() === 't');
+            if (!directTask) {
+                for (const child of liveChildren) {
+                    const childType = text(child?.type).toLowerCase();
+                    if (childType !== 'l' && childType !== 'nodelist') continue;
+                    const listChildren = await api('/api/block/getChildBlocks', { id: text(child?.id) });
+                    const liveTasks = (Array.isArray(listChildren) ? listChildren : []).filter((item) => (
+                        text(item?.type).toLowerCase() === 'i'
+                        && text(item?.subType || item?.subtype).toLowerCase() === 't'
+                    ));
+                    const liveIndex = liveTasks.findIndex((item) => text(item?.id) === text(source.id));
+                    if (liveIndex < 0) continue;
+                    return {
+                        ...source,
+                        parent_id: text(child?.id),
+                        parent_type: 'l',
+                        parent_task_id: '',
+                        previous_sibling_id: text(liveTasks[liveIndex - 1]?.id),
+                        next_sibling_id: text(liveTasks[liveIndex + 1]?.id),
+                        parent_task_count: liveTasks.length,
+                        first_task_id: text(liveTasks[0]?.id),
+                        __taskHorizonLivePlacement: true,
+                    };
+                }
+            }
+        } catch (error) {}
+        const childRows = await sql(`
+            SELECT id, type, subtype FROM blocks
+            WHERE parent_id = '${escapeSql(documentID)}'
+            ORDER BY sort ASC, created ASC, id ASC
+        `);
+        const nakedTaskRows = childRows.filter((child) => (
+            text(child.type).toLowerCase() === 'i' && text(child.subtype).toLowerCase() === 't'
+        ));
+        if (!nakedTaskRows.length) return source;
+
+        const registry = registryInput || await getFieldRegistry();
+        const nakedTaskIDs = new Set(nakedTaskRows.map((child) => text(child.id)).filter(Boolean));
+        const prepared = new Map();
+        for (const taskID of nakedTaskIDs) {
+            const taskRow = taskID === text(source.id) ? source : await getTaskRow(taskID);
+            const [taskDOM, rawAttrs] = await Promise.all([readBlockDOM(taskID), readAttrs(taskID)]);
+            const context = buildAttrContext(taskRow);
+            const canonicalAttrs = await buildCanonicalTaskAttrs({ taskID, ...context }, {}, registry);
+            prepared.set(taskID, {
+                taskRow,
+                taskDOM,
+                rawAttrs,
+                canonicalAttrs,
+                listID: newNodeID(),
+            });
+        }
+
+        const operations = [];
+        let previousFinalID = '';
+        for (const child of childRows) {
+            const childID = text(child.id);
+            const entry = prepared.get(childID);
+            if (!entry) {
+                previousFinalID = childID;
+                continue;
+            }
+            const insertOperation = {
+                action: 'insert',
+                id: entry.listID,
+                parentID: documentID,
+                data: nestedTaskListDOM(entry.listID, entry.taskDOM),
+            };
+            if (previousFinalID) insertOperation.previousID = previousFinalID;
+            operations.push({ action: 'delete', id: childID }, insertOperation);
+            const restoredTaskAttrs = { ...entry.rawAttrs, ...entry.canonicalAttrs };
+            if (Object.keys(restoredTaskAttrs).length) {
+                operations.push({ action: 'setAttrs', id: childID, data: JSON.stringify(restoredTaskAttrs) });
+            }
+            previousFinalID = entry.listID;
+        }
+        await pushTaskTransaction(operations);
+
+        for (const [taskID, entry] of prepared) {
+            const children = await api('/api/block/getChildBlocks', { id: entry.listID });
+            const childIDs = (Array.isArray(children) ? children : [])
+                .map((child) => text(child && (child.id || child.ID)))
+                .filter(Boolean);
+            if (!childIDs.includes(taskID)) {
+                throw new DomainError(ERROR.CONFLICT, '顶层任务项修复后未进入任务列表', {
+                    taskID,
+                    listID: entry.listID,
+                    childIDs,
+                });
+            }
+        }
+
+        const repaired = prepared.get(text(source.id));
+        if (!repaired) return source;
+        return {
+            ...source,
+            parent_id: repaired.listID,
+            parent_type: 'l',
+            parent_task_id: '',
+            previous_sibling_id: '',
+            next_sibling_id: '',
+            parent_task_count: 1,
+            first_task_id: text(source.id),
+            __taskHorizonStructureRepaired: true,
+        };
+    }
+
     async function moveIndependentTaskListToDocument(taskID, documentID, sourceListID, sourceDocumentID, source) {
         const id = requireID(taskID, '任务 ID');
         const targetDocumentID = requireID(documentID, '目标文档 ID');
@@ -3094,96 +3496,131 @@
         const archiveDocumentID = requireID(sourceDocumentID, '归档文档 ID');
         await requireDocumentBlock(archiveDocumentID);
         const archiveChildren = await api('/api/block/getChildBlocks', { id: archiveDocumentID });
-        const archiveChildIDs = (Array.isArray(archiveChildren) ? archiveChildren : [])
-            .map((item) => text(item?.id))
-            .filter(Boolean);
-        let listID = text(sourceListID);
-        if (listID) {
-            requireID(listID, '归档任务列表 ID');
-            if (!archiveChildIDs.includes(listID)) {
-                throw new DomainError(ERROR.CONFLICT, '归档任务列表已不在归档文档直属层', {
-                    taskID: id,
-                    listID,
-                    archiveDocumentID,
-                });
-            }
-        } else {
-            const listCandidates = (Array.isArray(archiveChildren) ? archiveChildren : [])
-                .filter((item) => {
-                    const type = text(item?.type).toLowerCase();
-                    return type === 'l' || type === 'nodelist';
-                });
-            const matches = [];
-            for (const candidate of listCandidates) {
-                const candidateID = text(candidate?.id);
-                if (!candidateID) continue;
-                const children = await api('/api/block/getChildBlocks', { id: candidateID });
-                const childIDs = (Array.isArray(children) ? children : [])
-                    .map((item) => text(item?.id))
-                    .filter(Boolean);
-                if (childIDs.length === 1 && childIDs[0] === id) matches.push(candidateID);
-            }
-            if (matches.length !== 1) {
-                throw new DomainError(ERROR.CONFLICT, '无法从归档文档确定任务的独立列表', {
-                    taskID: id,
-                    archiveDocumentID,
-                    matchedListIDs: matches,
-                });
-            }
-            [listID] = matches;
+        const liveArchiveChildren = Array.isArray(archiveChildren) ? archiveChildren : [];
+        const listCandidates = liveArchiveChildren.filter((item) => {
+            const type = text(item?.type).toLowerCase();
+            return type === 'l' || type === 'nodelist';
+        });
+        const requestedListID = text(sourceListID);
+        if (requestedListID) requireID(requestedListID, '归档任务列表 ID');
+        const orderedCandidates = listCandidates.slice().sort((left, right) => {
+            if (text(left?.id) === requestedListID) return -1;
+            if (text(right?.id) === requestedListID) return 1;
+            return 0;
+        });
+        const matches = [];
+        for (const candidate of orderedCandidates) {
+            const candidateID = text(candidate?.id);
+            if (!candidateID) continue;
+            const children = await api('/api/block/getChildBlocks', { id: candidateID });
+            const childIDs = (Array.isArray(children) ? children : [])
+                .map((item) => text(item?.id))
+                .filter(Boolean);
+            if (childIDs.includes(id)) matches.push({ id: candidateID, childIDs });
         }
-        const sourceList = await getBlockRole(listID, '归档任务列表');
-        const sourceListChildren = await api('/api/block/getChildBlocks', { id: sourceList.id });
-        const sourceChildIDs = (Array.isArray(sourceListChildren) ? sourceListChildren : [])
-            .map((item) => text(item?.id))
-            .filter(Boolean);
-        if (sourceList.type !== 'l'
-            || sourceChildIDs.length !== 1
-            || sourceChildIDs[0] !== id) {
-            throw new DomainError(ERROR.CONFLICT, '任务不在可独立移动的文档直属列表中', {
+        const directTask = liveArchiveChildren.some((item) => (
+            text(item?.id) === id
+            && text(item?.type).toLowerCase() === 'i'
+            && text(item?.subType || item?.subtype).toLowerCase() === 't'
+        ));
+        if (matches.length !== 1 && !directTask) {
+            throw new DomainError(ERROR.CONFLICT, '无法从归档文档确定任务所在列表', {
                 taskID: id,
-                listID: sourceList.id,
                 archiveDocumentID,
-                listChildIDs: sourceChildIDs,
+                requestedListID,
+                matchedListIDs: matches.map((item) => item.id),
             });
         }
+        if (matches.length > 1) {
+            throw new DomainError(ERROR.CONFLICT, '任务同时出现在多个归档列表中', {
+                taskID: id,
+                archiveDocumentID,
+                matchedListIDs: matches.map((item) => item.id),
+            });
+        }
+        const sourceMatch = matches[0] || null;
+        const sourceList = sourceMatch ? {
+            id: sourceMatch.id,
+            parentID: archiveDocumentID,
+            rootID: archiveDocumentID,
+            type: 'l',
+            subtype: 't',
+        } : null;
+        const sourceChildIDs = sourceMatch ? sourceMatch.childIDs.slice() : [id];
+        const sourceTaskIndex = sourceChildIDs.indexOf(id);
+        const sourcePreviousID = sourceTaskIndex > 0 ? text(sourceChildIDs[sourceTaskIndex - 1]) : '';
+        const sourceNextID = sourceTaskIndex >= 0 ? text(sourceChildIDs[sourceTaskIndex + 1]) : '';
+        const canMoveSourceList = !!sourceList
+            && sourceChildIDs.length === 1
+            && sourceChildIDs[0] === id;
 
         const input = source && typeof source === 'object' ? source : {};
         const previousID = text(input.previousID || input.previousId);
         const nextID = text(input.nextID || input.nextId);
-        let movePayload = { id: sourceList.id, parentID: targetDocumentID };
         let expectedPreviousID = '';
         let expectedNextID = '';
+        const targetChildren = await api('/api/block/getChildBlocks', { id: targetDocumentID });
+        const orderedTargetIDs = (Array.isArray(targetChildren) ? targetChildren : [])
+            .map((item) => text(item?.id))
+            .filter((blockID) => blockID
+                && blockID !== (canMoveSourceList ? sourceList.id : '')
+                && blockID !== (directTask ? id : ''));
         if (previousID) {
-            const previous = await getBlockRole(previousID, '前一块');
-            if (previous.parentID !== targetDocumentID || previous.id === sourceList.id) {
+            if (!orderedTargetIDs.includes(previousID)) {
                 throw new DomainError(ERROR.CONFLICT, '默认位置的前一块已经变化', { previousID, targetDocumentID });
             }
-            movePayload = { id: sourceList.id, previousID };
             expectedPreviousID = previousID;
         } else if (nextID) {
-            const next = await getBlockRole(nextID, '后一块');
-            if (next.parentID !== targetDocumentID || next.id === sourceList.id) {
-                throw new DomainError(ERROR.CONFLICT, '默认位置的后一块已经变化', { nextID, targetDocumentID });
-            }
-            const targetChildren = await api('/api/block/getChildBlocks', { id: targetDocumentID });
-            const ordered = (Array.isArray(targetChildren) ? targetChildren : [])
-                .map((item) => text(item?.id))
-                .filter((blockID) => blockID && blockID !== sourceList.id);
-            const nextIndex = ordered.indexOf(nextID);
+            const nextIndex = orderedTargetIDs.indexOf(nextID);
             if (nextIndex < 0) throw new DomainError(ERROR.CONFLICT, '默认位置的后一块已经变化', { nextID, targetDocumentID });
             expectedNextID = nextID;
-            if (nextIndex > 0) {
-                expectedPreviousID = ordered[nextIndex - 1];
-                movePayload = { id: sourceList.id, previousID: expectedPreviousID };
+            if (nextIndex > 0) expectedPreviousID = orderedTargetIDs[nextIndex - 1];
+        }
+
+        let listID = '';
+        if (canMoveSourceList) {
+            listID = sourceList.id;
+            const movePayload = expectedPreviousID
+                ? { id: sourceList.id, previousID: expectedPreviousID }
+                : { id: sourceList.id, parentID: targetDocumentID };
+            await api('/api/block/moveBlock', movePayload);
+        } else {
+            const scaffoldResult = await api('/api/block/insertBlock', {
+                parentID: targetDocumentID,
+                ...(expectedPreviousID ? { previousID: expectedPreviousID } : {}),
+                data: '- [ ]',
+                dataType: 'markdown',
+            });
+            listID = requireID(extractInsertedID(scaffoldResult), '恢复任务列表 ID');
+            const scaffoldChildren = await api('/api/block/getChildBlocks', { id: listID });
+            const scaffoldTaskID = requireID(
+                (Array.isArray(scaffoldChildren) ? scaffoldChildren : [])[0]?.id,
+                '恢复任务列表占位任务 ID',
+            );
+            try {
+                await api('/api/block/moveBlock', { id, parentID: listID });
+                const movedChildren = await api('/api/block/getChildBlocks', { id: listID });
+                const movedChildIDs = (Array.isArray(movedChildren) ? movedChildren : [])
+                    .map((item) => text(item?.id))
+                    .filter(Boolean);
+                if (!movedChildIDs.includes(id)) {
+                    throw new DomainError(ERROR.CONFLICT, '任务恢复后未进入独立列表', { taskID: id, listID, movedChildIDs });
+                }
+                await api('/api/block/deleteBlock', { id: scaffoldTaskID });
+            } catch (error) {
+                try {
+                    const children = await api('/api/block/getChildBlocks', { id: listID });
+                    const childIDs = (Array.isArray(children) ? children : []).map((item) => text(item?.id)).filter(Boolean);
+                    if (!childIDs.includes(id)) await api('/api/block/deleteBlock', { id: listID });
+                } catch (e) {}
+                throw error;
             }
         }
 
-        await api('/api/block/moveBlock', movePayload);
         await api('/api/sqlite/flushTransaction', {});
         const [documentChildren, verifiedListChildren] = await Promise.all([
             api('/api/block/getChildBlocks', { id: targetDocumentID }),
-            api('/api/block/getChildBlocks', { id: sourceList.id }),
+            api('/api/block/getChildBlocks', { id: listID }),
         ]);
         const documentChildIDs = (Array.isArray(documentChildren) ? documentChildren : [])
             .map((item) => text(item?.id))
@@ -3191,7 +3628,7 @@
         const verifiedTaskIDs = (Array.isArray(verifiedListChildren) ? verifiedListChildren : [])
             .map((item) => text(item?.id))
             .filter(Boolean);
-        const listIndex = documentChildIDs.indexOf(sourceList.id);
+        const listIndex = documentChildIDs.indexOf(listID);
         const actualPreviousID = listIndex > 0 ? text(documentChildIDs[listIndex - 1]) : '';
         const actualNextID = listIndex >= 0 ? text(documentChildIDs[listIndex + 1]) : '';
         if (listIndex < 0
@@ -3201,7 +3638,7 @@
             || verifiedTaskIDs[0] !== id) {
             throw new DomainError(ERROR.CONFLICT, '任务未落盘到默认新建位置', {
                 taskID: id,
-                listID: sourceList.id,
+                listID,
                 targetDocumentID,
                 expectedPreviousID,
                 expectedNextID,
@@ -3212,7 +3649,7 @@
         }
         const placement = {
             taskID: id,
-            parentListID: sourceList.id,
+            parentListID: listID,
             parentTaskID: '',
             parentType: 'l',
             previousSiblingID: '',
@@ -3222,23 +3659,30 @@
         };
         return {
             placement,
-            listID: sourceList.id,
+            listID,
+            sourceListID: text(sourceList?.id),
+            sourcePreviousID,
+            sourceNextID,
             authoritative: true,
         };
     }
 
-    async function moveTaskIntoHeading(taskID, headingID, requestedListID) {
+    async function moveTaskIntoHeading(taskID, headingID, requestedListID, sourceRow) {
         const id = requireID(taskID, '任务 ID');
         const hid = requireID(headingID, '标题 ID');
         const heading = await getBlockRole(hid, '标题块');
         if (heading.type !== 'h') throw new DomainError(ERROR.INVALID_ARGUMENT, '目标块不是标题');
-        const before = await getTaskRow(id);
-        const sourceList = await getBlockRole(before.parent_id, '任务列表');
+        const before = sourceRow && typeof sourceRow === 'object' ? sourceRow : await getTaskRow(id);
+        const sourceList = before.__taskHorizonStructureRepaired === true
+            ? { id: text(before.parent_id), parentID: text(before.root_id), rootID: text(before.root_id), type: 'l', subtype: 't' }
+            : await getBlockRole(before.parent_id, '任务列表');
         let sourceListChildren = [];
         let sourceListParent = null;
         try {
             sourceListChildren = await api('/api/block/getChildBlocks', { id: sourceList.id });
-            sourceListParent = await getBlockRole(sourceList.parentID, '任务列表父块');
+            sourceListParent = before.__taskHorizonStructureRepaired === true
+                ? { id: text(before.root_id), type: 'd' }
+                : await getBlockRole(sourceList.parentID, '任务列表父块');
         } catch (e) {
             sourceListChildren = [];
             sourceListParent = null;
@@ -3327,17 +3771,22 @@
         };
     }
 
-    async function moveTaskIntoIndependentDocument(taskID, documentID) {
+    async function moveTaskIntoIndependentDocument(taskID, documentID, independentPosition, sourceRow) {
         const id = requireID(taskID, '任务 ID');
         const targetDocumentID = requireID(documentID, '目标文档 ID');
+        const position = text(independentPosition).toLowerCase() === 'bottom' ? 'bottom' : 'top';
         await requireDocumentBlock(targetDocumentID);
-        const before = await getTaskRow(id);
-        const sourceList = await getBlockRole(before.parent_id, '任务列表');
+        const before = sourceRow && typeof sourceRow === 'object' ? sourceRow : await getTaskRow(id);
+        const sourceList = before.__taskHorizonStructureRepaired === true
+            ? { id: text(before.parent_id), parentID: text(before.root_id), rootID: text(before.root_id), type: 'l', subtype: 't' }
+            : await getBlockRole(before.parent_id, '任务列表');
         let sourceListChildren = [];
         let sourceListParent = null;
         try {
             sourceListChildren = await api('/api/block/getChildBlocks', { id: sourceList.id });
-            sourceListParent = await getBlockRole(sourceList.parentID, '任务列表父块');
+            sourceListParent = before.__taskHorizonStructureRepaired === true
+                ? { id: text(before.root_id), type: 'd' }
+                : await getBlockRole(sourceList.parentID, '任务列表父块');
         } catch (e) {
             sourceListChildren = [];
             sourceListParent = null;
@@ -3349,14 +3798,23 @@
             && sourceListParent?.type === 'd'
             && sourceChildIDs.length === 1
             && sourceChildIDs[0] === id;
+        const targetChildrenBefore = await api('/api/block/getChildBlocks', { id: targetDocumentID });
+        const targetChildIDsBefore = (Array.isArray(targetChildrenBefore) ? targetChildrenBefore : [])
+            .map((item) => text(item?.id))
+            .filter((childID) => childID && childID !== sourceList.id);
+        const targetLastChildID = text(targetChildIDsBefore[targetChildIDsBefore.length - 1]);
 
         let listID = '';
         let scaffoldTaskID = '';
         if (canMoveSourceList) {
             listID = sourceList.id;
-            await api('/api/block/moveBlock', { id: listID, parentID: targetDocumentID });
+            const payload = position === 'bottom' && targetLastChildID
+                ? { id: listID, previousID: targetLastChildID }
+                : { id: listID, parentID: targetDocumentID };
+            await api('/api/block/moveBlock', payload);
         } else {
-            const scaffoldResult = await api('/api/block/insertBlock', {
+            const endpoint = position === 'bottom' ? '/api/block/appendBlock' : '/api/block/insertBlock';
+            const scaffoldResult = await api(endpoint, {
                 parentID: targetDocumentID,
                 data: '- [ ]',
                 dataType: 'markdown',
@@ -3395,12 +3853,16 @@
         const verifiedTaskIDs = (Array.isArray(verifiedListChildren) ? verifiedListChildren : [])
             .map((item) => text(item?.id))
             .filter(Boolean);
-        if (documentChildIDs[0] !== listID || verifiedTaskIDs.length !== 1 || verifiedTaskIDs[0] !== id) {
-            throw new DomainError(ERROR.CONFLICT, '任务未落盘到回收站文档顶部的独立列表', {
+        const expectedDocumentListID = position === 'bottom'
+            ? text(documentChildIDs[documentChildIDs.length - 1])
+            : text(documentChildIDs[0]);
+        if (expectedDocumentListID !== listID || verifiedTaskIDs.length !== 1 || verifiedTaskIDs[0] !== id) {
+            throw new DomainError(ERROR.CONFLICT, '任务未落盘到目标文档的独立列表', {
                 taskID: id,
                 listID,
                 targetDocumentID,
-                firstDocumentChildID: text(documentChildIDs[0]),
+                position,
+                actualDocumentEdgeID: expectedDocumentListID,
                 listChildIDs: verifiedTaskIDs,
             });
         }
@@ -3422,13 +3884,13 @@
         };
     }
 
-    async function moveTaskIntoParent(taskID, parentTaskID, requestedListID, childPosition) {
+    async function moveTaskIntoParent(taskID, parentTaskID, requestedListID, childPosition, sourceRow) {
         const id = requireID(taskID, '任务 ID');
         const parentID = requireID(parentTaskID, '父任务 ID');
         const position = text(childPosition).toLowerCase() === 'top' ? 'top' : 'bottom';
         if (id === parentID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能移动到自身内部');
 
-        const before = await getTaskRow(id);
+        const before = sourceRow && typeof sourceRow === 'object' ? sourceRow : await getTaskRow(id);
         const parentTask = await getTaskRow(parentID);
 
         const ancestorRows = await sql(`
@@ -3744,21 +4206,27 @@
                     command.sourceDocumentID,
                     command.moveInput,
                 );
+                const previousPlacement = {
+                    parentID: text(moved.sourceListID || command.sourceListID),
+                    documentID: text(command.sourceDocumentID),
+                    previousID: text(moved.sourcePreviousID),
+                    nextID: text(moved.sourceNextID),
+                };
+                await reconcileMovedTaskAttrHosts(taskID, previousPlacement, moved);
                 return {
                     ...moved,
                     changed: moved.changed !== false,
-                    previousPlacement: {
-                        parentID: text(command.sourceListID),
-                        documentID: text(command.sourceDocumentID),
-                        previousID: '',
-                        nextID: '',
-                    },
+                    previousPlacement,
                     undoID: '',
                     refresh: taskMutationRefresh('move', [taskID], [command.sourceDocumentID, command.documentID]),
                 };
             }
-            const before = await capturePlacement(taskID);
-            const beforeTask = source.authoritative === true ? await getTaskRow(taskID) : null;
+            let preparedTaskRow = await getTaskRow(taskID);
+            preparedTaskRow = await ensureTaskListContainer(preparedTaskRow);
+            const useAuthoritativePlacement = source.authoritative === true
+                || preparedTaskRow.__taskHorizonStructureRepaired === true;
+            const before = await capturePlacement(taskID, preparedTaskRow);
+            const beforeTask = useAuthoritativePlacement ? preparedTaskRow : null;
             if (beforeTask) await preserveTaskAttrsOnOwnBlockBeforeMove(beforeTask);
             const command = await resolveTaskMoveCommand(taskID, source);
             const parentTaskID = text(command.parentTaskID);
@@ -3768,19 +4236,28 @@
                     taskID,
                     command.headingID,
                     command.requestedListID,
+                    preparedTaskRow,
                 );
             } else if (command.mode === 'recycle-document') {
-                moved = await moveTaskIntoIndependentDocument(taskID, command.documentID);
+                moved = await moveTaskIntoIndependentDocument(taskID, command.documentID, 'top', preparedTaskRow);
+            } else if (command.independentDocument === true) {
+                moved = await moveTaskIntoIndependentDocument(
+                    taskID,
+                    command.documentID,
+                    command.independentPosition,
+                    preparedTaskRow,
+                );
             } else if (parentTaskID) {
                 moved = await moveTaskIntoParent(
                     taskID,
                     parentTaskID,
                     command.requestedListID,
                     command.childPosition,
+                    preparedTaskRow,
                 );
             } else {
                 const payload = await buildMovePayload(taskID, command.moveInput);
-                const requestedPlacement = source.authoritative === true
+                const requestedPlacement = useAuthoritativePlacement
                     ? await requestedMovePlacement(taskID, payload, command.moveInput, beforeTask)
                     : null;
                 const unchanged = !!requestedPlacement
@@ -3813,8 +4290,10 @@
                     moved = { task: await taskDTO(taskID) };
                 }
             }
+            await reconcileMovedTaskAttrHosts(taskID, before, moved);
+            moved.task = await taskDTO(taskID);
             const task = moved.task;
-            const expectedPlacement = source.authoritative === true
+            const expectedPlacement = useAuthoritativePlacement
                 ? (moved.placement || before)
                 : await capturePlacement(taskID);
             let undoID = '';
@@ -5302,13 +5781,9 @@
     function completionAttrExpression(names, alias) {
         const table = text(alias) || 't';
         const list = uniqueStrings(names).map((name) => `'${escapeSql(name)}'`).join(',');
-        return `COALESCE(
-            (SELECT a.value FROM attributes a WHERE a.block_id = ${table}.id AND a.name IN (${list}) AND a.value != '' ORDER BY CASE WHEN a.name = '${escapeSql(names[0])}' THEN 0 ELSE 1 END LIMIT 1),
-            (SELECT a.value FROM attributes a WHERE a.block_id = ${table}.parent_id
-                AND ${table}.id = (SELECT s.id FROM blocks s WHERE s.parent_id = ${table}.parent_id AND s.type = 'i' AND s.subtype = 't' ORDER BY s.sort ASC, s.created ASC, s.id ASC LIMIT 1)
-                AND a.name IN (${list}) AND a.value != '' ORDER BY CASE WHEN a.name = '${escapeSql(names[0])}' THEN 0 ELSE 1 END LIMIT 1),
-            ''
-        )`;
+        return `COALESCE((SELECT a.value FROM attributes a
+            WHERE a.block_id = ${table}.id AND a.name IN (${list}) AND a.value != ''
+            ORDER BY CASE WHEN a.name = '${escapeSql(names[0])}' THEN 0 ELSE 1 END LIMIT 1), '')`;
     }
 
     function normalizeTaskScope(input) {
@@ -6099,6 +6574,7 @@
     ];
 
     siyuan.plugin.lifecycle.onload = async function () {
+        await ensureTaskAttrItemStorageMigration();
         await bindRpc();
         const config = await readJson(MCP_CONFIG_FILE, { schemaVersion: 2, enabled: false, tools: {} });
         const currentConfig = config && config.schemaVersion === 2 ? config : null;

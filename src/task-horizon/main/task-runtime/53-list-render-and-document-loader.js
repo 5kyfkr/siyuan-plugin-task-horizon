@@ -1482,76 +1482,11 @@ return finish(false, 'noop');
         const direct = globalThis.__tmTaskBoundary?.getTask?.(bid) || null;
         if (direct && typeof direct === 'object') {
             const taskId = String(direct?.id || bid).trim();
-            const explicitAttrHostId = String(direct?.attrHostId || direct?.attr_host_id || '').trim();
             return {
                 taskId: taskId || bid,
-                attrHostId: explicitAttrHostId || taskId || bid,
+                attrHostId: taskId || bid,
                 task: direct,
                 matchedBy: 'id',
-            };
-        }
-
-        let attrHostMatch = null;
-        let attrHostAmbiguous = false;
-        let parentHostMatch = null;
-        let parentHostAmbiguous = false;
-        const seenTaskIds = new Set();
-        const rememberCandidate = (kind, task) => {
-            const nextTask = (task && typeof task === 'object') ? task : null;
-            const taskId = String(nextTask?.id || '').trim();
-            if (!nextTask || !taskId) return;
-            if (kind === 'attrHostId') {
-                if (!attrHostMatch) {
-                    attrHostMatch = nextTask;
-                    return;
-                }
-                if (String(attrHostMatch?.id || '').trim() !== taskId) attrHostAmbiguous = true;
-                return;
-            }
-            if (!parentHostMatch) {
-                parentHostMatch = nextTask;
-                return;
-            }
-            if (String(parentHostMatch?.id || '').trim() !== taskId) parentHostAmbiguous = true;
-        };
-        const scanStore = (store) => {
-            const source = (store && typeof store === 'object') ? store : {};
-            Object.keys(source).forEach((key) => {
-                const task = source[key];
-                const taskId = String(task?.id || key || '').trim();
-                if (!taskId || seenTaskIds.has(taskId)) return;
-                seenTaskIds.add(taskId);
-                const explicitAttrHostId = String(task?.attrHostId || task?.attr_host_id || '').trim();
-                if (explicitAttrHostId && explicitAttrHostId === bid && taskId !== bid) {
-                    rememberCandidate('attrHostId', task);
-                }
-                const parentId = String(task?.parent_id || task?.parentId || '').trim();
-                if (!parentId || parentId !== bid) return;
-                const resolvedFromShape = __tmResolveTaskAttrHostIdFromParentShape(taskId, parentId, task);
-                if (resolvedFromShape?.resolved === true && String(resolvedFromShape?.attrHostId || '').trim() === bid) {
-                    rememberCandidate('parentHostId', task);
-                }
-            });
-        };
-        scanStore(state.flatTasks);
-        scanStore(state.pendingInsertedTasks);
-
-        if (attrHostMatch && !attrHostAmbiguous) {
-            const taskId = String(attrHostMatch?.id || '').trim();
-            return {
-                taskId,
-                attrHostId: bid,
-                task: attrHostMatch,
-                matchedBy: 'attrHostId',
-            };
-        }
-        if (parentHostMatch && !parentHostAmbiguous) {
-            const taskId = String(parentHostMatch?.id || '').trim();
-            return {
-                taskId,
-                attrHostId: bid,
-                task: parentHostMatch,
-                matchedBy: 'parentHostId',
             };
         }
         return null;
@@ -1561,33 +1496,22 @@ return finish(false, 'noop');
         const bid = String(id || '').trim();
         if (!bid) return null;
         const opts = (options && typeof options === 'object') ? options : {};
-        const resolveTaskAttrHostIdByTask = async (taskId, parentListId = '', source = null) => {
-            return await __tmResolveStableTaskAttrHostId(taskId, parentListId, source);
-        };
         const localBinding = opts.preferLocal === false ? null : __tmResolveLocalTaskBindingFromAnyBlockId(bid);
         if (localBinding) {
             const localTask = (localBinding.task && typeof localBinding.task === 'object') ? localBinding.task : null;
             const taskId = String(localBinding.taskId || '').trim() || bid;
-            let attrHostId = String(localBinding.attrHostId || __tmGetTaskAttrHostId(localTask) || taskId).trim() || taskId;
-            try {
-                attrHostId = await resolveTaskAttrHostIdByTask(taskId, localTask?.parent_id, localTask);
-            } catch (e) {}
             return {
                 taskId,
-                attrHostId: attrHostId || taskId,
+                attrHostId: taskId,
                 task: localTask,
             };
         }
         const direct = await API.getTaskById(bid).catch(() => null);
         if (direct && typeof direct === 'object') {
             const taskId = String(direct.id || bid).trim();
-            let attrHostId = String(__tmGetTaskAttrHostId(direct) || taskId).trim() || taskId;
-            try {
-                attrHostId = await resolveTaskAttrHostIdByTask(taskId, direct.parent_id, direct);
-            } catch (e) {}
             return {
                 taskId,
-                attrHostId: attrHostId || taskId,
+                attrHostId: taskId,
                 task: direct,
             };
         }
@@ -1609,15 +1533,14 @@ return finish(false, 'noop');
             const subtype = String(row.subtype || '').trim().toLowerCase();
             const rowId = String(row.id || cur).trim();
             if (type === 'i' && subtype === 't') {
-                const attrHostId = await resolveTaskAttrHostIdByTask(rowId, row.parent_id, row);
-                return { taskId: rowId, attrHostId: attrHostId || rowId, task: null };
+                return { taskId: rowId, attrHostId: rowId, task: null };
             }
             if (type === 'l') {
                 let taskIds = [];
                 try { taskIds = await API.getTaskIdsInList(rowId); } catch (e) { taskIds = []; }
                 if (taskIds.length >= 1) {
                     const taskId = String(taskIds[0] || '').trim();
-                    if (taskId) return { taskId, attrHostId: taskIds.length === 1 ? rowId : taskId, task: null };
+                    if (taskId) return { taskId, attrHostId: taskId, task: null };
                 }
             }
             const parentId = String(row.parent_id || '').trim();

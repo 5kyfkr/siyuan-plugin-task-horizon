@@ -3593,6 +3593,22 @@
         return receipt;
     }
 
+    async function __tmReconcileTaskAttrHostsKernel(taskIds, options = {}) {
+        const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [taskIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (!ids.length) return { taskIDs: [], reconciled: 0, writtenHosts: [] };
+        const receipt = await __tmExecuteTaskCommandGateway({
+            action: 'reconcileAttrs',
+            taskIDs: ids,
+            laneID: ids[0],
+            source: String(options?.source || 'attr-host-reconcile').trim() || 'attr-host-reconcile',
+        }, '任务属性宿主对账');
+        return receipt.value || { taskIDs: ids, reconciled: 0, writtenHosts: [] };
+    }
+
+    globalThis.__taskHorizonReconcileTaskAttrHosts = __tmReconcileTaskAttrHostsKernel;
+
     const __TM_TASK_REPEAT_RULE_ATTR = 'custom-task-repeat-rule';
     const __TM_TASK_REPEAT_STATE_ATTR = 'custom-task-repeat-state';
     const __TM_TASK_REPEAT_HISTORY_ATTR = 'custom-task-repeat-history';
@@ -4311,7 +4327,7 @@
         let previousAttachmentPaths = [];
         let previousAttachmentMeta = new Map();
         let previousAttachmentSlotCount = 0;
-        let attrTargetId = String(opts.attrTargetId || '').trim();
+        let attrTargetId = taskId;
         let attrContext = null;
         let task = currentTask;
         if (taskId) {
@@ -4346,19 +4362,7 @@
                 attrContext = null;
             }
         }
-        if (attrContext?.primaryHostId) {
-            attrTargetId = String(attrContext.primaryHostId || '').trim();
-        }
-        if (!attrTargetId) {
-            const currentTaskAttrHostId = __tmGetTaskAttrHostId(task);
-            attrTargetId = currentTaskAttrHostId;
-        }
-        if (!attrTargetId) {
-            try { attrTargetId = await __tmResolveTaskAttrHostIdFromAnyBlockId(id); } catch (e) { attrTargetId = ''; }
-        }
-        if (!attrTargetId) {
-            attrTargetId = String(id || '').trim();
-        }
+        attrTargetId = taskId;
         if (Object.prototype.hasOwnProperty.call(patch, 'attachments')) {
             const hasExplicitPreviousAttachmentPaths = Array.isArray(opts.previousAttachmentPaths);
             const hasExplicitPreviousAttachmentMeta = opts.previousAttachmentMeta !== undefined && opts.previousAttachmentMeta !== null;
@@ -7537,6 +7541,7 @@
                 __tmReleaseStructuralMutationRevision(op?.__tmStructuralRevision);
             }
         });
+        tail.catch(() => null);
         laneKeys.forEach((laneKey) => __tmSimpleMutationLanes.set(laneKey, tail));
         return run;
     }
@@ -8657,10 +8662,6 @@
     function __tmBuildInlineLoadingTopbarMarkup() {
         return `
             <div class="tm-inline-loading-topbar-shell">
-                <div class="tm-inline-loading-topbar-line">
-                    <span class="tm-inline-loading-topbar-track"></span>
-                    <span class="tm-inline-loading-topbar-indicator"></span>
-                </div>
                 <div class="tm-inline-loading-topbar-badge">
                     <span class="tm-inline-loading-spinner" aria-hidden="true"></span>
                     <span class="tm-inline-loading-topbar-text">加载中</span>

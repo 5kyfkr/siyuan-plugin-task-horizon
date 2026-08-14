@@ -51,6 +51,8 @@ assert.equal((simpleRunner.match(/__tmRollbackQueuedOp\(op\)/g) || []).length, 1
     'a failed simple mutation must have exactly one rollback path');
 assert.equal((simpleRunner.match(/__tmExecuteQueuedOp\(op\)/g) || []).length, 1,
     'a simple mutation must execute the kernel writer exactly once');
+assert.match(simpleRunner, /const tail = run\.finally\([\s\S]*tail\.catch\(\(\) => null\)/,
+    'a failed lane cleanup promise must be observed instead of surfacing as an unhandled rejection');
 assert.match(simpleRunner, /data\.showErrorHint !== false && data\.suppressHint !== true[\s\S]*__tmReportTaskMutationFailure/,
     'the mutation service must respect caller-owned error presentation');
 assert.match(api, /showErrorHint: opts\.showErrorHint !== false && typeof opts\.onError !== 'function'/,

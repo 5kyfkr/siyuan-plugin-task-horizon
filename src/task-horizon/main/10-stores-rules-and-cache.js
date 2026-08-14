@@ -12567,7 +12567,6 @@
     const __tmDocHasTaskQueryCache = new Map();
     const __tmDocEnhanceSnapshotCache = new Map();
     const __tmTaskDocMapCache = new Map();
-    const __tmAttrHostParentResolutionCache = new Map();
     const __tmDocFlowRankHoldUntil = new Map();
     const __tmDocEnhanceWarmQueue = { items: [], set: new Set(), running: 0, timer: null };
     const __tmSqlInFlight = new Map();
@@ -12653,10 +12652,6 @@
         return queued;
     }
 
-    function __tmClearAttrHostResolutionCache() {
-        try { __tmAttrHostParentResolutionCache.clear(); } catch (e) {}
-    }
-
     function __tmBuildTaskParentListHostShape(parentListId = '', source = null) {
         const src = (source && typeof source === 'object') ? source : {};
         const siblingTaskCountRaw = src.parentListTaskCount
@@ -12671,34 +12666,6 @@
         };
     }
 
-    function __tmResolveTaskAttrHostIdFromParentShape(taskId, parentListId = '', source = null) {
-        const tid = String(taskId || '').trim();
-        const shape = __tmBuildTaskParentListHostShape(parentListId, source);
-        const parentId = String(shape.parentId || '').trim();
-        if (!tid) {
-            return { resolved: true, attrHostId: '', useParentHost: false, parentId };
-        }
-        if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(parentId)) {
-            return { resolved: true, attrHostId: tid, useParentHost: false, parentId };
-        }
-        if (shape.parentType && shape.parentType !== 'l') {
-            return { resolved: true, attrHostId: tid, useParentHost: false, parentId };
-        }
-        if (shape.parentType === 'l' && Number.isFinite(shape.siblingTaskCount)) {
-            if (shape.siblingTaskCount === 1) {
-                return {
-                    resolved: true,
-                    attrHostId: parentId,
-                    useParentHost: true,
-                    parentId,
-                    firstTaskId: tid,
-                };
-            }
-            return { resolved: true, attrHostId: tid, useParentHost: false, parentId };
-        }
-        return { resolved: false, attrHostId: '', useParentHost: false, parentId };
-    }
-
     function __tmBuildTaskAttrContext(taskId, parentListId = '', details = {}) {
         const tid = String(taskId || '').trim();
         const parentId = String(parentListId || details?.parentId || '').trim();
@@ -12707,22 +12674,15 @@
         const parentType = String(details?.parentType || '').trim().toLowerCase();
         const hasParentList = /^[0-9]+-[a-zA-Z0-9]+$/.test(parentId) && (!parentType || parentType === 'l');
         let state = 'state2-list-item';
-        let primaryHostId = tid;
-        const mirrorHostIds = [];
+        const primaryHostId = tid;
         if (!tid) {
             state = 'unknown';
-            primaryHostId = '';
         } else if (hasParentList && Number.isFinite(taskCount) && taskCount === 1 && (!firstTaskId || firstTaskId === tid)) {
             state = 'state1-parent';
-            primaryHostId = parentId;
-            mirrorHostIds.push(tid);
         } else if (hasParentList && Number.isFinite(taskCount) && taskCount > 1 && firstTaskId === tid) {
             state = 'state3-list-item';
-            primaryHostId = tid;
-            mirrorHostIds.push(parentId);
         } else {
             state = 'state2-list-item';
-            primaryHostId = tid;
         }
         return {
             taskId: tid,
@@ -12732,7 +12692,7 @@
             firstTaskId,
             state,
             primaryHostId: String(primaryHostId || tid || '').trim(),
-            mirrorHostIds: Array.from(new Set(mirrorHostIds.map((id) => String(id || '').trim()).filter((id) => id && id !== primaryHostId))),
+            mirrorHostIds: [],
         };
     }
 
@@ -12758,83 +12718,12 @@
         return null;
     }
 
-    function __tmRememberAttrHostParentResolution(parentId, firstTaskId = '', nowTs = Date.now()) {
-        const pid = String(parentId || '').trim();
-        if (!pid) return;
-        try {
-            __tmAttrHostParentResolutionCache.set(pid, {
-                t: Number(nowTs) || Date.now(),
-                firstTaskId: String(firstTaskId || '').trim(),
-                useParentHost: !!String(firstTaskId || '').trim(),
-            });
-            if (__tmAttrHostParentResolutionCache.size > 2400) {
-                const oldestKey = __tmAttrHostParentResolutionCache.keys().next().value;
-                if (oldestKey !== undefined) __tmAttrHostParentResolutionCache.delete(oldestKey);
-            }
-        } catch (e) {}
-    }
-
     async function __tmResolveTaskAttrContext(taskId, parentListId = '', source = null) {
         const tid = String(taskId || '').trim();
         const parentId = String(parentListId || '').trim();
         if (!tid) return __tmBuildTaskAttrContext('', parentId, { taskCount: NaN });
         const contextFromShape = __tmBuildTaskAttrContextFromShape(tid, parentId, source);
-        if (contextFromShape) {
-            if (/^[0-9]+-[a-zA-Z0-9]+$/.test(contextFromShape.parentListId)) {
-                __tmRememberAttrHostParentResolution(
-                    contextFromShape.parentListId,
-                    contextFromShape.state === 'state1-parent' ? (contextFromShape.firstTaskId || tid) : ''
-                );
-            }
-            return contextFromShape;
-        }
-        if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(parentId)) {
-            return __tmBuildTaskAttrContext(tid, '', { taskCount: NaN });
-        }
-        const cacheTtlMs = 20000;
-        const nowTs = Date.now();
-        try {
-            const cached = __tmAttrHostParentResolutionCache.get(parentId);
-            if (cached && (nowTs - Number(cached.t || 0)) < cacheTtlMs) {
-                const firstTaskId = String(cached.firstTaskId || '').trim();
-                if (cached.useParentHost === true && firstTaskId && firstTaskId === tid) {
-                    return __tmBuildTaskAttrContext(tid, parentId, { taskCount: 1, firstTaskId, parentType: 'l' });
-                }
-            }
-        } catch (e) {}
-        let parentRow = null;
-        try {
-            const rows = await API.getBlocksByIds([parentId]);
-            parentRow = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-        } catch (e) {
-            parentRow = null;
-        }
-        const parentType = String(parentRow?.type || '').trim().toLowerCase();
-        if (parentType !== 'l') {
-            __tmRememberAttrHostParentResolution(parentId, false, nowTs);
-            return __tmBuildTaskAttrContext(tid, '', { taskCount: NaN, parentType });
-        }
-        let taskIds = [];
-        try {
-            const rows = await API.getTaskIdsInList(parentId, { preferDom: true });
-            taskIds = Array.isArray(rows) ? rows.map((item) => String(item || '').trim()).filter(Boolean) : [];
-        } catch (e) {
-            taskIds = [];
-        }
-        const firstTaskId = String(taskIds[0] || '').trim();
-        const useParentHost = taskIds.length === 1 && firstTaskId === tid;
-        __tmRememberAttrHostParentResolution(parentId, useParentHost ? firstTaskId : '', nowTs);
-        return __tmBuildTaskAttrContext(tid, parentId, {
-            taskCount: taskIds.length,
-            firstTaskId,
-            parentType: 'l',
-        });
-    }
-
-    async function __tmResolveStableTaskAttrHostId(taskId, parentListId = '', source = null) {
-        const context = await __tmResolveTaskAttrContext(taskId, parentListId, source);
-        const tid = String(taskId || '').trim();
-        return String(context?.primaryHostId || tid || '').trim();
+        return contextFromShape || __tmBuildTaskAttrContext(tid, parentId, { taskCount: NaN });
     }
 
     function __tmIsVisibleDateAttrKey(key) {
@@ -13739,165 +13628,15 @@
         return rows;
     }
 
-    async function __tmQueryTaskSiblingCountsByParentIds(parentIds) {
-        const safeParentIds = Array.from(new Set((Array.isArray(parentIds) ? parentIds : [])
-            .map((id) => String(id || '').trim())
-            .filter((id) => /^[0-9]+-[a-zA-Z0-9]+$/.test(id))));
-        const countMap = new Map();
-        if (!safeParentIds.length) return countMap;
-        const chunkSize = 400;
-        for (let i = 0; i < safeParentIds.length; i += chunkSize) {
-            const chunk = safeParentIds.slice(i, i + chunkSize);
-            if (!chunk.length) continue;
-            const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
-            const sql = `
-                SELECT parent_id, COUNT(DISTINCT id) AS task_count
-                FROM blocks
-                WHERE parent_id IN (${idList})
-                  AND type = 'i'
-                  AND subtype = 't'
-                GROUP BY parent_id
-            `;
-            const res = await API.call('/api/query/sql', { stmt: sql });
-            if (res.code !== 0 || !Array.isArray(res.data)) continue;
-            res.data.forEach((row) => {
-                const parentId = String(row?.parent_id || '').trim();
-                const taskCount = Number(row?.task_count || 0);
-                if (!parentId) return;
-                countMap.set(parentId, taskCount);
-            });
-        }
-        return countMap;
-    }
-
-    async function __tmQueryFirstTaskIdsByParentIds(parentIds) {
-        const safeParentIds = Array.from(new Set((Array.isArray(parentIds) ? parentIds : [])
-            .map((id) => String(id || '').trim())
-            .filter((id) => /^[0-9]+-[a-zA-Z0-9]+$/.test(id))));
-        const firstMap = new Map();
-        if (!safeParentIds.length) return firstMap;
-        const chunkSize = 400;
-        for (let i = 0; i < safeParentIds.length; i += chunkSize) {
-            const chunk = safeParentIds.slice(i, i + chunkSize);
-            if (!chunk.length) continue;
-            const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
-            const sql = `
-                SELECT parent_id, id
-                FROM blocks
-                WHERE parent_id IN (${idList})
-                  AND type = 'i'
-                  AND subtype = 't'
-                ORDER BY parent_id ASC, sort ASC, created ASC, id ASC
-            `;
-            const res = await API.call('/api/query/sql', { stmt: sql });
-            if (res.code !== 0 || !Array.isArray(res.data)) continue;
-            res.data.forEach((row) => {
-                const parentId = String(row?.parent_id || '').trim();
-                const taskId = String(row?.id || '').trim();
-                if (!parentId || !taskId || firstMap.has(parentId)) return;
-                firstMap.set(parentId, taskId);
-            });
-        }
-        return firstMap;
-    }
-
     async function __tmPopulateTaskAttrHostIds(tasks) {
         const list = Array.isArray(tasks) ? tasks.filter((task) => task && typeof task === 'object') : [];
-        if (!list.length) return list;
-        const nowTs = Date.now();
-        const cacheTtlMs = 20000;
-        const parentFirstTaskIdMap = new Map();
-        const parentActualFirstTaskIdMap = new Map();
-        const parentTaskCountMap = new Map();
-        const parentTypeMap = new Map();
-        const unresolvedParentIds = [];
-        list.forEach((task) => {
-            const taskId = String(task?.id || '').trim();
-            const resolvedFromShape = __tmResolveTaskAttrHostIdFromParentShape(taskId, task?.parent_id, task);
-            const parentId = String(resolvedFromShape.parentId || '').trim();
-            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(parentId)) {
-                task.attrHostId = taskId;
-                task.attr_host_id = taskId;
-                return;
-            }
-            if (resolvedFromShape.resolved) {
-                const firstTaskId = resolvedFromShape.useParentHost === true ? (resolvedFromShape.firstTaskId || taskId) : '';
-                parentFirstTaskIdMap.set(parentId, firstTaskId);
-                const shape = __tmBuildTaskParentListHostShape(parentId, task);
-                const taskCount = Number(shape.siblingTaskCount);
-                if (Number.isFinite(taskCount)) parentTaskCountMap.set(parentId, taskCount);
-                parentTypeMap.set(parentId, shape.parentType || 'l');
-                if (firstTaskId) parentActualFirstTaskIdMap.set(parentId, firstTaskId);
-                else if (Number.isFinite(taskCount) && taskCount > 1) unresolvedParentIds.push(parentId);
-                __tmRememberAttrHostParentResolution(parentId, firstTaskId, nowTs);
-                return;
-            }
-            const cached = __tmAttrHostParentResolutionCache.get(parentId);
-            if (cached && (nowTs - Number(cached.t || 0)) < cacheTtlMs) {
-                parentFirstTaskIdMap.set(parentId, cached.useParentHost === true ? String(cached.firstTaskId || '').trim() : '');
-                if (cached.useParentHost === true) {
-                    parentActualFirstTaskIdMap.set(parentId, String(cached.firstTaskId || '').trim());
-                    parentTaskCountMap.set(parentId, 1);
-                    parentTypeMap.set(parentId, 'l');
-                } else {
-                    unresolvedParentIds.push(parentId);
-                }
-                return;
-            }
-            unresolvedParentIds.push(parentId);
-        });
-        const pendingParentIds = Array.from(new Set(unresolvedParentIds));
-        if (pendingParentIds.length) {
-            const parentMap = new Map();
-            const chunkSize = 400;
-            for (let i = 0; i < pendingParentIds.length; i += chunkSize) {
-                const chunk = pendingParentIds.slice(i, i + chunkSize);
-                if (!chunk.length) continue;
-                let rows = [];
-                try { rows = await API.getBlocksByIds(chunk); } catch (e) { rows = []; }
-                (Array.isArray(rows) ? rows : []).forEach((row) => {
-                    const id = String(row?.id || '').trim();
-                    if (!id) return;
-                    parentMap.set(id, row);
-                });
-            }
-            const listTaskParentIds = [];
-            parentMap.forEach((row, parentId) => {
-                const parentType = String(row?.type || '').trim().toLowerCase();
-                if (parentType === 'l') listTaskParentIds.push(parentId);
-            });
-            const firstTaskIdMap = listTaskParentIds.length
-                ? await __tmQueryFirstTaskIdsByParentIds(listTaskParentIds)
-                : new Map();
-            const taskCountMap = listTaskParentIds.length
-                ? await __tmQueryTaskSiblingCountsByParentIds(listTaskParentIds)
-                : new Map();
-            pendingParentIds.forEach((parentId) => {
-                const parentRow = parentMap.get(parentId);
-                const parentType = String(parentRow?.type || '').trim().toLowerCase();
-                const firstTaskId = parentType === 'l' ? String(firstTaskIdMap.get(parentId) || '').trim() : '';
-                const taskCount = Number(taskCountMap.get(parentId) || 0);
-                const useParentHost = parentType === 'l' && taskCount === 1 && !!firstTaskId;
-                parentFirstTaskIdMap.set(parentId, useParentHost ? firstTaskId : '');
-                if (parentType) parentTypeMap.set(parentId, parentType);
-                if (parentType === 'l') {
-                    parentActualFirstTaskIdMap.set(parentId, firstTaskId);
-                    parentTaskCountMap.set(parentId, taskCount);
-                }
-                __tmRememberAttrHostParentResolution(parentId, useParentHost ? firstTaskId : '', nowTs);
-            });
-        }
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
             const parentId = String(task?.parent_id || '').trim();
-            const context = __tmBuildTaskAttrContext(taskId, parentId, {
-                taskCount: parentTaskCountMap.has(parentId) ? Number(parentTaskCountMap.get(parentId) || 0) : NaN,
-                firstTaskId: String(parentActualFirstTaskIdMap.get(parentId) || parentFirstTaskIdMap.get(parentId) || '').trim(),
-                parentType: String(parentTypeMap.get(parentId) || '').trim() || 'l',
-            });
-            const attrHostId = context.primaryHostId || taskId;
-            task.attrHostId = attrHostId || taskId;
-            task.attr_host_id = task.attrHostId;
+            const context = __tmBuildTaskAttrContextFromShape(taskId, parentId, task)
+                || __tmBuildTaskAttrContext(taskId, parentId, { taskCount: NaN });
+            task.attrHostId = taskId;
+            task.attr_host_id = taskId;
             task.__tmTaskAttrContext = context;
         });
         return list;
@@ -14030,16 +13769,11 @@
         const opts = (options && typeof options === 'object') ? options : {};
         await __tmPopulateTaskAttrHostIds(list);
         const taskIds = [];
-        const hostIds = [];
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
-            const hostId = String(task?.attrHostId || task?.attr_host_id || taskId).trim();
-            const parentId = String(task?.parent_id || '').trim();
             if (taskId) taskIds.push(taskId);
-            if (hostId && hostId !== taskId) hostIds.push(hostId);
-            if (parentId && parentId !== taskId) hostIds.push(parentId);
         });
-        const uniqueQueryIds = Array.from(new Set(taskIds.concat(hostIds).filter(Boolean)));
+        const uniqueQueryIds = Array.from(new Set(taskIds.filter(Boolean)));
         if (!uniqueQueryIds.length) return list;
         const rows = await __tmQueryTaskMetaAttrRowsByBlockIds(uniqueQueryIds);
         if (!rows.length) return list;
@@ -14058,47 +13792,6 @@
                 && Object.keys(row).some((key) => __tmIsTaskMetaAttrKey(key))) return true;
             if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_ATTACHMENT_META_ATTR)) return true;
             return Object.keys(row).some((key) => __tmIsTaskAttachmentAttrKey(key));
-        };
-        const resolveStatusDoneState = (statusId) => {
-            const value = String(statusId || '').trim();
-            if (!value) return null;
-            try {
-                if (typeof __tmDoesStatusIdResolveToDone === 'function') return !!__tmDoesStatusIdResolveToDone(value);
-            } catch (e) {}
-            if (value === 'done' || value === '__done__') return true;
-            if (value === 'todo') return false;
-            return null;
-        };
-        const resolveTaskMarkerDoneState = (task) => {
-            if (Object.prototype.hasOwnProperty.call(task || {}, 'done')) return !!task.done;
-            const marker = String(task?.taskMarker || task?.task_marker || '').trim();
-            if (!marker) return null;
-            try {
-                if (typeof __tmIsTaskMarkerDone === 'function') return !!__tmIsTaskMarkerDone(marker);
-            } catch (e) {}
-            return marker !== ' ';
-        };
-        const applyTaskStateFieldsFromRow = (task, row, statusDoneState = null) => {
-            if (!task || !row || typeof row !== 'object') return;
-            const statusValue = __tmReadTaskMetaAttrValue(row, 'customStatus').trim();
-            if (statusValue) {
-                task.customStatus = statusValue;
-                task.custom_status = statusValue;
-            }
-            const completeAtValue = __tmReadTaskMetaAttrValue(row, 'taskCompleteAt').trim();
-            if (completeAtValue || statusDoneState === false) {
-                task.taskCompleteAt = statusDoneState === false ? '' : completeAtValue;
-                task.task_complete_at = task.taskCompleteAt;
-            }
-        };
-        const readAttrHostUpdatedAt = (row) => {
-            if (!row || typeof row !== 'object') return 0;
-            const value = Number(row[__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR] || 0);
-            return Number.isFinite(value) ? value : 0;
-        };
-        const readAttrHostOwner = (row) => {
-            if (!row || typeof row !== 'object') return '';
-            return String(row[__TM_TASK_ATTR_HOST_OWNER_ATTR] || '').trim();
         };
         const getTaskAttrContext = (task) => {
             const taskId = String(task?.id || '').trim();
@@ -14127,59 +13820,21 @@
             ];
             return tomatoKeys.includes(attrKey);
         };
-        const isSafeMirrorRow = (context, mirrorId, row) => {
-            const mid = String(mirrorId || '').trim();
-            const tid = String(context?.taskId || '').trim();
-            if (!mid || !tid || !row) return false;
-            if (mid === tid) return true;
-            if (mid === String(context?.parentListId || '').trim()) {
-                const owner = readAttrHostOwner(row);
-                return String(context?.state || '').trim() !== 'state3-list-item' ? (!owner || owner === tid) : owner === tid;
-            }
-            return false;
-        };
         const mergeTaskAttrRowsForContext = (context) => {
-            const primaryId = String(context?.primaryHostId || context?.taskId || '').trim();
+            const primaryId = String(context?.taskId || '').trim();
             const primaryRow = primaryId ? (rowMap.get(primaryId) || null) : null;
-            const primaryUpdatedAt = readAttrHostUpdatedAt(primaryRow);
-            const primaryOwner = readAttrHostOwner(primaryRow);
-            const ignorePrimaryRow = String(context?.state || '').trim() === 'state1-parent'
-                && !!primaryOwner
-                && primaryOwner !== String(context?.taskId || '').trim();
-            const safeMirrorRows = (Array.isArray(context?.mirrorHostIds) ? context.mirrorHostIds : [])
-                .map((id) => ({ id: String(id || '').trim(), row: rowMap.get(String(id || '').trim()) || null }))
-                .filter((entry) => {
-                    if (!entry.id || !isSafeMirrorRow(context, entry.id, entry.row)) return false;
-                    return true;
-                });
-            try { context.__tmSafeMirrorHostIds = safeMirrorRows.map((entry) => entry.id).filter(Boolean); } catch (e) {}
             const out = {};
-            safeMirrorRows.forEach((entry) => {
-                const mirrorUpdatedAt = readAttrHostUpdatedAt(entry.row);
-                Object.entries(entry.row || {}).forEach(([key, value]) => {
-                    if (!isTaskAttrManagedRowKey(key)) return;
-                    if (String(value ?? '').trim() === '') return;
-                    if (Object.prototype.hasOwnProperty.call(primaryRow || {}, key)) return;
-                    if (primaryOwner === context.taskId && primaryUpdatedAt > mirrorUpdatedAt) return;
-                    out[key] = value;
-                });
+            Object.entries(primaryRow || {}).forEach(([key, value]) => {
+                if (!isTaskAttrManagedRowKey(key)) return;
+                out[key] = value;
             });
-            if (!ignorePrimaryRow) {
-                Object.entries(primaryRow || {}).forEach(([key, value]) => {
-                    if (!isTaskAttrManagedRowKey(key)) return;
-                    out[key] = value;
-                });
-            }
-            const selectedSourceId = !ignorePrimaryRow && (shouldApplySelfRow(primaryRow) || readAttrHostUpdatedAt(primaryRow) > 0)
-                ? primaryId
-                : String(safeMirrorRows.find((entry) => shouldApplySelfRow(entry.row))?.id || primaryId || '').trim();
             return {
                 row: out,
                 primaryRow,
                 primaryId,
-                selectedSourceId,
+                selectedSourceId: primaryId,
                 hasValues: shouldApplySelfRow(out),
-                primaryHasValues: !ignorePrimaryRow && shouldApplySelfRow(primaryRow),
+                primaryHasValues: shouldApplySelfRow(primaryRow),
             };
         };
         list.forEach((task) => {
@@ -14397,25 +14052,11 @@
             ? Array.from(new Set(opts.fieldIds.map((id) => String(id || '').trim()).filter(Boolean))).sort()
             : [];
         const loadedAllFields = !Array.isArray(opts.fieldIds);
-        const contextByTaskId = new Map();
         const candidateIds = new Set();
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
             if (!taskId) return;
-            const context = (task?.__tmTaskAttrContext && typeof task.__tmTaskAttrContext === 'object')
-                ? task.__tmTaskAttrContext
-                : __tmBuildTaskAttrContext(taskId, task?.parent_id || task?.parentId || '', {
-                    taskCount: Number(task?.parentListTaskCount ?? task?.parent_list_task_count ?? task?.siblingTaskCount),
-                    firstTaskId: String(task?.firstTaskId || task?.first_task_id || '').trim(),
-                    parentType: String(task?.parentListType || task?.parent_list_type || task?.parentType || '').trim().toLowerCase(),
-                });
-            contextByTaskId.set(taskId, context);
-            const ids = [context.primaryHostId];
-            const safeMirrorIds = Array.isArray(context.__tmSafeMirrorHostIds)
-                ? context.__tmSafeMirrorHostIds
-                : (context.state === 'state3-list-item' ? [] : context.mirrorHostIds);
-            ids.push(...(Array.isArray(safeMirrorIds) ? safeMirrorIds : []));
-            ids.map((id) => String(id || '').trim()).filter(Boolean).forEach((id) => candidateIds.add(id));
+            candidateIds.add(taskId);
         });
         const queryResult = await __tmQueryCustomFieldAttrRowsByTaskIds(Array.from(candidateIds), opts);
         const valueMap = queryResult?.valueMapByTaskId instanceof Map ? queryResult.valueMapByTaskId : new Map();
@@ -14442,7 +14083,6 @@
         let selfAssignedCount = 0;
         list.forEach((task) => {
             const tid = String(task?.id || '').trim();
-            const context = contextByTaskId.get(tid) || null;
             const markLoadedFields = () => {
                 if (loadedAllFields) {
                     task.__tmLoadedAllCustomFields = true;
@@ -14454,17 +14094,9 @@
                     task.__tmLoadedCustomFieldIds = Array.from(new Set(loadedFieldIds.concat(requestedFieldIds))).sort();
                 }
             };
-            const primaryId = String(context?.primaryHostId || task?.attrHostId || task?.attr_host_id || tid).trim();
-            const safeMirrorIds = Array.isArray(context?.__tmSafeMirrorHostIds)
-                ? context.__tmSafeMirrorHostIds
-                : (context?.state === 'state3-list-item' ? [] : context?.mirrorHostIds);
-            const mergedValues = {};
-            (Array.isArray(safeMirrorIds) ? safeMirrorIds : []).forEach((id) => {
-                const values = valueMap.get(String(id || '').trim());
-                if (values && typeof values === 'object') Object.assign(mergedValues, values);
-            });
+            const primaryId = tid;
             const primaryValues = primaryId ? valueMap.get(primaryId) : null;
-            if (primaryValues && typeof primaryValues === 'object') Object.assign(mergedValues, primaryValues);
+            const mergedValues = primaryValues && typeof primaryValues === 'object' ? { ...primaryValues } : {};
             applyResolvedRawValues(task, mergedValues);
             if (primaryValues && typeof primaryValues === 'object' && Object.keys(primaryValues).length > 0) {
                 hostAssignedCount += 1;
@@ -14487,9 +14119,12 @@
         const safeName = String(attrName || '').trim();
         if (!safeName) return [];
         const sql = `
-            SELECT block_id, value
-            FROM attributes
-            WHERE name = '${safeName.replace(/'/g, "''")}'
+            SELECT a.block_id, a.value
+            FROM attributes a
+            JOIN blocks b ON b.id = a.block_id
+            WHERE a.name = '${safeName.replace(/'/g, "''")}'
+              AND b.type = 'i'
+              AND b.subtype = 't'
         `;
         const res = await API.call('/api/query/sql', { stmt: sql });
         return (res.code === 0 && Array.isArray(res.data)) ? res.data : [];
@@ -14547,7 +14182,6 @@
             try { __tmDocHasTaskQueryCache.clear(); } catch (e) {}
             try { __tmDocEnhanceSnapshotCache.clear(); } catch (e) {}
             try { __tmTaskDocMapCache.clear(); } catch (e) {}
-            try { __tmClearAttrHostResolutionCache(); } catch (e) {}
             try { __tmClearCustomFieldAttrValueCache(); } catch (e) {}
             try { __tmDocEnhanceWarmQueue.items.length = 0; __tmDocEnhanceWarmQueue.set.clear(); } catch (e) {}
             try { __tmAuxQueryCache.clear(); } catch (e) {}
@@ -14575,7 +14209,6 @@
                 if (String(k || '').startsWith(`${did}:`)) __tmDocEnhanceSnapshotCache.delete(k);
             }
         } catch (e) {}
-        try { __tmClearAttrHostResolutionCache(); } catch (e) {}
         try { __tmClearCustomFieldAttrValueCache(); } catch (e) {}
         try { __tmAuxQueryCache.clear(); } catch (e) {}
         try { __tmDocExpandCache.clear(); } catch (e) {}
@@ -14593,7 +14226,6 @@
         try { __tmDocHasTaskQueryCache.clear(); } catch (e) {}
         try { __tmDocEnhanceSnapshotCache.clear(); } catch (e) {}
         try { __tmTaskDocMapCache.clear(); } catch (e) {}
-        try { __tmClearAttrHostResolutionCache(); } catch (e) {}
         try { __tmClearCustomFieldAttrValueCache(); } catch (e) {}
         try { __tmDocEnhanceWarmQueue.items.length = 0; __tmDocEnhanceWarmQueue.set.clear(); } catch (e) {}
         try { __tmSqlInFlight.clear(); } catch (e) {}

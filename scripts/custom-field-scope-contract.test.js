@@ -174,7 +174,7 @@ vm.runInContext(`${sliceSource(
     assert.doesNotMatch(quickbarSource, /async function isInlineMetaScopeAllowedForBlock\(/, 'quickbar must not retain the unused async inline scope wrapper');
     assert.equal((quickbarSource.match(/isQuickbarCustomFieldConfigApplicable\(config, currentQuickbarApplicableCustomFieldIds\)/g) || []).length, 1, 'floating quickbar must apply custom field scope only once');
     assert.doesNotMatch(quickbarSource, /ensureQuickbarCustomFieldIdsForDoc\(docId, forceRefresh|refreshVisibleQuickbarCustomFieldScope\(forceRefresh/, 'document scope helpers must not retain unused force-refresh parameters');
-    const quickbarRefreshGlobalsSource = sliceSource(quickbarSource, 'globalThis.__taskHorizonQuickbarRefreshInline', 'globalThis.__taskHorizonQuickbarInlineStats');
+    const quickbarRefreshGlobalsSource = sliceSource(quickbarSource, 'globalThis.__taskHorizonQuickbarRefreshInline =', 'globalThis.__taskHorizonQuickbarInlineStats');
     assert.doesNotMatch(quickbarRefreshGlobalsSource, /clearQuickbarCustomFieldScopeCache/, 'ordinary quickbar refreshes must preserve the document scope cache');
     assert.match(quickbarRefreshGlobalsSource, /__taskHorizonQuickbarInvalidateCustomFieldScope[\s\S]*invalidateQuickbarCustomFieldScope\(\)/, 'custom field scope must have a dedicated invalidation entry point');
     const storageListenerSource = sliceSource(quickbarSource, 'function initStatusOptionsListener', 'globalThis.__taskHorizonQuickbarToggle');

@@ -52,6 +52,12 @@ function createHarness(options = {}) {
     const attrs = new Map([
         [IDS.singleList, { 'custom-existing-extension': 'keep-me' }],
     ]);
+    const initialAttrs = options.initialAttrs instanceof Map
+        ? options.initialAttrs
+        : new Map(Object.entries(options.initialAttrs || {}));
+    initialAttrs.forEach((value, id) => {
+        attrs.set(id, { ...(attrs.get(id) || {}), ...((value && typeof value === 'object') ? value : {}) });
+    });
     const storage = new Map([
         ['agent-mcp-config.json', JSON.stringify({ schemaVersion: 2, enabled: true, tools: {} })],
         ['calendar-events.json', JSON.stringify([{
@@ -196,6 +202,18 @@ function createHarness(options = {}) {
 
     function query(statement) {
         if (/SELECT 1 AS task_horizon_session_probe/.test(statement)) return [{ task_horizon_session_probe: 1 }];
+        if (/SELECT DISTINCT a\.block_id AS id[\s\S]*FROM attributes a[\s\S]*JOIN blocks b ON b\.id = a\.block_id[\s\S]*b\.type = 'l'/.test(statement)) {
+            const exactNames = new Set(Array.from(statement.matchAll(/a\.name = '([^']+)'/g)).map((match) => match[1]));
+            const prefixes = Array.from(statement.matchAll(/a\.name LIKE '([^']+)%'/g)).map((match) => match[1]);
+            const offset = Number(statement.match(/OFFSET (\d+)/)?.[1] || 0);
+            const limit = Number(statement.match(/LIMIT (\d+)/)?.[1] || 500);
+            return Array.from(attrs.entries())
+                .filter(([id, row]) => blocks.get(id)?.type === 'l'
+                    && Object.keys(row || {}).some((name) => exactNames.has(name) || prefixes.some((prefix) => name.startsWith(prefix))))
+                .map(([id]) => ({ id }))
+                .sort((left, right) => left.id.localeCompare(right.id))
+                .slice(offset, offset + limit);
+        }
         const agentOutputParentMatch = statement.match(/SELECT id, box, path, hpath FROM blocks WHERE id = '([^']+)' AND type = 'd' LIMIT 1/);
         if (agentOutputParentMatch) {
             const block = blocks.get(agentOutputParentMatch[1]);
@@ -615,6 +633,97 @@ async function run() {
     assert.ok(Array.isArray(manifest.kernels) && manifest.kernels.includes('all'), 'plugin.json must enable the kernel plugin on supported backends');
     assert.equal(manifest.minAppVersion, '3.8.0', 'the release must require the SiYuan version whose plugin readOnly and startup RPC contracts were reviewed');
 
+    const state1MigrationHarness = createHarness({
+        initialAttrs: {
+            [IDS.singleList]: {
+                'custom-priority': 'high',
+                'custom-status': 'done',
+                'custom-data-assets-th-0': 'assets/legacy.pdf',
+                'custom-data-assets-th-meta': JSON.stringify([{ path: 'assets/legacy.pdf', addedAt: 42 }]),
+                'custom-tomato-reminder': JSON.stringify({ taskId: IDS.singleTask, enabled: true }),
+                bookmark: '⏰',
+                'custom-unrelated-extension': 'keep-parent',
+            },
+            [IDS.singleTask]: {
+                'custom-status': '',
+                'custom-unrelated-item': 'keep-item',
+            },
+        },
+    });
+    await state1MigrationHarness.start();
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleTask)['custom-priority'], 'high');
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleTask)['custom-status'], '', 'an explicit item value must win a migration conflict');
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleTask)['custom-data-assets-th-0'], 'assets/legacy.pdf');
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleTask).bookmark, '⏰');
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleTask)['custom-unrelated-item'], 'keep-item');
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleList)['custom-priority'], '');
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleList)['custom-status'], 'done');
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleList)['custom-data-assets-th-0'], '');
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleList)['custom-tomato-reminder'], '');
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleList).bookmark, '');
+    assert.equal(state1MigrationHarness.attrs.get(IDS.singleList)['custom-unrelated-extension'], 'keep-parent');
+    const state1MigrationReport = JSON.parse(state1MigrationHarness.storage.get('task-attr-storage.json'));
+    assert.equal(state1MigrationReport.version, 1);
+    assert.deepEqual(state1MigrationReport.conflicts[0].keys, ['custom-status']);
+    const migrationTransactionCount = state1MigrationHarness.apiCalls.filter((call) => call.pathname === '/api/transactions').length;
+    await state1MigrationHarness.start();
+    assert.equal(
+        state1MigrationHarness.apiCalls.filter((call) => call.pathname === '/api/transactions').length,
+        migrationTransactionCount,
+        'a completed versioned migration must not run again',
+    );
+
+    const state3MigrationHarness = createHarness({
+        initialAttrs: {
+            [IDS.multiList]: {
+                'custom-task-horizon-attr-host-owner': IDS.firstTask,
+                'custom-task-horizon-attr-host-updated-at': '1',
+                'custom-start-date': '2026-08-15',
+                'custom-priority': 'low',
+                'custom-unrelated-extension': 'keep-state3-parent',
+            },
+            [IDS.firstTask]: { 'custom-priority': 'high' },
+        },
+    });
+    await state3MigrationHarness.start();
+    assert.equal(state3MigrationHarness.attrs.get(IDS.firstTask)['custom-start-date'], '2026-08-15');
+    assert.equal(state3MigrationHarness.attrs.get(IDS.firstTask)['custom-priority'], 'high');
+    assert.equal(state3MigrationHarness.attrs.get(IDS.multiList)['custom-start-date'], '');
+    assert.equal(state3MigrationHarness.attrs.get(IDS.multiList)['custom-priority'], 'low');
+    assert.equal(state3MigrationHarness.attrs.get(IDS.multiList)['custom-task-horizon-attr-host-owner'], IDS.firstTask,
+        'a parent owner marker must remain while a managed conflict remains');
+    assert.equal(state3MigrationHarness.attrs.get(IDS.multiList)['custom-unrelated-extension'], 'keep-state3-parent');
+
+    const ambiguousMigrationHarness = createHarness({
+        initialAttrs: { [IDS.multiList]: { 'custom-priority': 'medium' } },
+    });
+    await ambiguousMigrationHarness.start();
+    assert.equal(ambiguousMigrationHarness.attrs.get(IDS.firstTask), undefined);
+    assert.equal(JSON.parse(ambiguousMigrationHarness.storage.get('task-attr-storage.json')).skippedAmbiguous.length, 1,
+        'a shared list without an owner must not be guessed');
+
+    const state2OwnerMigrationHarness = createHarness({
+        initialAttrs: {
+            [IDS.multiList]: {
+                'custom-task-horizon-attr-host-owner': IDS.secondTask,
+                'custom-priority': 'medium',
+            },
+        },
+    });
+    await state2OwnerMigrationHarness.start();
+    assert.equal(state2OwnerMigrationHarness.attrs.get(IDS.secondTask), undefined);
+    assert.equal(JSON.parse(state2OwnerMigrationHarness.storage.get('task-attr-storage.json')).skippedOwner.length, 1,
+        'a state-2 owner must never take attributes from its shared parent list');
+
+    const failedMigrationHarness = createHarness({
+        initialAttrs: { [IDS.singleList]: { 'custom-priority': 'high' } },
+    });
+    failedMigrationHarness.failTransactionOnce();
+    await assert.rejects(failedMigrationHarness.start(), /任务属性迁移未完成/);
+    const failedMigrationReport = JSON.parse(failedMigrationHarness.storage.get('task-attr-storage.json'));
+    assert.equal(failedMigrationReport.version, 0);
+    assert.equal(failedMigrationReport.status, 'failed');
+
     const harness = createHarness();
     await harness.start();
 
@@ -700,6 +809,7 @@ async function run() {
     assert.equal(resolved.ok, true);
     assert.equal(resolved.data.taskID, IDS.singleTask);
     assert.equal(resolved.data.primaryHostID, IDS.singleTask);
+    assert.deepEqual(Array.from(resolved.data.mirrorHostIDs), []);
 
     const invalidCreateTarget = await harness.call('taskHorizonCreateTask', { title: 'Invalid target', documentID: IDS.childBlock });
     assert.equal(invalidCreateTarget.ok, false);
@@ -776,8 +886,11 @@ async function run() {
 
     const single = await harness.call('taskHorizonUpdateTask', IDS.singleTask, { priority: 'high' });
     assert.equal(single.ok, true);
+    assert.equal(single.data.task.attrHostID, IDS.singleTask);
     assert.equal(harness.attrs.get(IDS.singleList)['custom-priority'], undefined);
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], 'high');
+    assert.equal(harness.attrs.get(IDS.singleList)['custom-task-horizon-attr-host-owner'], undefined);
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-task-horizon-attr-host-owner'], IDS.singleTask);
     assert.equal(harness.attrs.get(IDS.singleList)['custom-existing-extension'], 'keep-me');
 
     const paragraphTitle = await harness.call('taskHorizonGetTask', IDS.paragraphTitleTask);
@@ -792,6 +905,7 @@ async function run() {
     assert.equal(first.ok, true);
     assert.equal(harness.attrs.get(IDS.firstTask)['custom-start-date'], '2026-07-14');
     assert.equal(harness.attrs.get(IDS.multiList)?.['custom-start-date'], undefined);
+    assert.equal(harness.attrs.get(IDS.multiList)?.['custom-task-horizon-attr-host-owner'], undefined);
 
     const second = await harness.call('taskHorizonUpdateTask', IDS.secondTask, { completionTime: '2026-07-20' });
     assert.equal(second.ok, true);
@@ -801,6 +915,7 @@ async function run() {
     const custom = await harness.call('taskHorizonUpdateTask', IDS.singleTask, { customFieldValues: { energy: 'high' } });
     assert.equal(custom.ok, true);
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-tm-energy'], 'High');
+    assert.equal(harness.attrs.get(IDS.singleList)['custom-tm-energy'], undefined);
 
     const statusInProgress = await harness.call('taskHorizonMutateTask', {
         action: 'patch',
@@ -817,7 +932,8 @@ async function run() {
     assert.ok(harness.attrs.get(IDS.firstTask)['custom-task-complete-at']);
     const statusTransaction = harness.apiCalls.filter((item) => item.pathname === '/api/transactions').at(-1)?.body;
     assert.deepEqual(Array.from(statusTransaction.transactions[0].doOperations.map((item) => item.action)), ['update', 'setAttrs'],
-        'status marker and attrs must share one kernel transaction');
+        'status marker and the task item attributes must share one kernel transaction');
+    assert.equal(statusTransaction.transactions[0].doOperations[1].id, IDS.firstTask);
 
     const statusDone = await harness.call('taskHorizonMutateTask', {
         action: 'patch',
@@ -857,8 +973,8 @@ async function run() {
     assert.deepEqual(harness.attrs.get(IDS.firstTask), statusBeforeFailedTransaction.attrs,
         'a rejected transaction must not partially update status attrs');
 
-    harness.attrs.set(IDS.singleList, {
-        ...harness.attrs.get(IDS.singleList),
+    harness.attrs.set(IDS.singleTask, {
+        ...harness.attrs.get(IDS.singleTask),
         'custom-status': 'in_progress',
         'custom-start-date': '',
         'custom-completion-time': '',
@@ -1045,7 +1161,7 @@ async function run() {
     });
     harness.attrs.set(IDS.singleTask, {
         ...harness.attrs.get(IDS.singleTask),
-        'custom-tomato-reminder': JSON.stringify({ taskId: IDS.singleTask, enabled: true, startDate: '2026-07-19', times: ['08:00'] }),
+        'custom-tomato-reminder': JSON.stringify({ taskId: IDS.singleTask, enabled: true, startDate: '2026-07-19', times: ['08:00'], extension: 'keep-reminder-extension' }),
         bookmark: '⏰',
     });
     const reminderExecute = await reminderTool.handler({
@@ -1076,10 +1192,10 @@ async function run() {
     assert.equal(reminderExecute.data.completionTime, '2026-07-20');
     assert.equal(reminderExecute.data.completionChanged, true);
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-completion-time'], '2026-07-20', 'execute must write the requested reminder date on the task block');
-    assert.equal(harness.attrs.get(IDS.singleList)['custom-completion-time'], '', 'canonical writes must not mirror the deadline to the legacy parent list');
+    assert.equal(harness.attrs.get(IDS.singleList)['custom-completion-time'], '', 'state-1 writes must not touch the parent list');
     assert.equal(followedReminder.at, undefined, 'stale legacy time aliases must be cleared');
     assert.equal(harness.attrs.get(IDS.singleTask).bookmark, '⏰');
-    assert.equal(JSON.parse(harness.attrs.get(IDS.singleList)['custom-tomato-reminder']).extension, 'keep-reminder-extension', 'legacy parent data must remain available for backward-compatible reads');
+    assert.equal(JSON.parse(harness.attrs.get(IDS.singleTask)['custom-tomato-reminder']).extension, 'keep-reminder-extension', 'task-item reminder updates must preserve unknown reminder fields');
 
     const clearFollowReminder = await reminderTool.handler({
         action: 'apply',
@@ -1120,7 +1236,7 @@ async function run() {
     assert.equal(independentReminder.syncTaskDone, false);
     assert.equal(independentReminder.taskRepeatRule, null);
     assert.deepEqual(independentReminder.completedOccurrences, []);
-    assert.equal(independentReminder.taskId, IDS.singleTask, 'independent reminders must use the task block as their canonical host');
+    assert.equal(independentReminder.taskId, IDS.singleTask, 'independent reminders must retain the logical task item ID');
 
     harness.attrs.set(IDS.singleList, { ...harness.attrs.get(IDS.singleList), 'custom-completion-time': '2026-08-15' });
     harness.attrs.set(IDS.singleTask, { ...harness.attrs.get(IDS.singleTask), 'custom-completion-time': '2026-08-15' });
@@ -1140,8 +1256,8 @@ async function run() {
     assert.equal(clearExecute.data.completionCleared, false, 'clearing an independent reminder must not clear the task deadline');
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-completion-time'], '2026-08-15');
 
-    harness.attrs.set(IDS.multiList, {
-        ...harness.attrs.get(IDS.multiList),
+    harness.attrs.set(IDS.firstTask, {
+        ...harness.attrs.get(IDS.firstTask),
         'custom-tomato-reminder': JSON.stringify({ taskId: IDS.firstTask, enabled: true, startDate: '2026-07-22', times: ['10:00'], legacyExtension: 'keep-on-move' }),
         bookmark: '⏰',
     });
@@ -1164,8 +1280,8 @@ async function run() {
     assert.equal(multiReminderExecute.ok, true);
     const movedMultiReminder = JSON.parse(harness.attrs.get(IDS.firstTask)['custom-tomato-reminder']);
     assert.equal(movedMultiReminder.taskId, IDS.firstTask);
-    assert.equal(movedMultiReminder.legacyExtension, 'keep-on-move', 'host migration must preserve unknown reminder fields');
-    assert.equal(JSON.parse(harness.attrs.get(IDS.multiList)['custom-tomato-reminder']).legacyExtension, 'keep-on-move', 'legacy parent-list metadata must not be destructively cleared');
+    assert.equal(movedMultiReminder.legacyExtension, 'keep-on-move', 'task-item reminder updates must preserve unknown reminder fields');
+    assert.equal(harness.attrs.get(IDS.multiList)?.['custom-tomato-reminder'], undefined, 'state-3 reminders must not write the parent list');
 
     const agentScheduleTool = harness.mcpTools.manage_agent_schedules;
     assert.ok(agentScheduleTool, 'manage_agent_schedules must be registered');
@@ -1415,7 +1531,12 @@ async function run() {
     assert.equal(queryFilterSchema.properties.overdue.type, 'boolean');
     assert.equal(harness.mcpTools.aggregate_task_stats.schema.inputSchema.properties.customFieldIDs.maxItems, 20);
     const kernelSource = fs.readFileSync(path.join(__dirname, '..', 'kernel.js'), 'utf8');
-    assert.match(kernelSource, /completionAttrExpression\(names, alias\)[\s\S]*SELECT s\.id FROM blocks s WHERE s\.parent_id = \$\{table\}\.parent_id[\s\S]*ORDER BY s\.sort ASC/, 'attribute filters must only fall back to the parent list for its first task');
+    const completionExpressionSource = kernelSource.slice(
+        kernelSource.indexOf('function completionAttrExpression'),
+        kernelSource.indexOf('function normalizeTaskScope'),
+    );
+    assert.doesNotMatch(completionExpressionSource, /parent_id|SELECT s\.id FROM blocks s/,
+        'attribute filters must read only task item attributes');
     const calendarSource = fs.readFileSync(path.join(__dirname, '..', 'calendar-view.js'), 'utf8');
     assert.match(calendarSource, /async function dedupeReminderBlocks[\s\S]*taskHorizonResolveTaskBinding[\s\S]*primaryHostID/, 'duplicate reminder reads must prefer the real attribute host');
     assert.match(calendarSource, /const safe = await dedupeReminderBlocks/, 'calendar reminder reads must apply logical-task deduplication');
@@ -1426,8 +1547,12 @@ async function run() {
         'custom-data-assets-th-meta': '[]',
     });
     assert.equal(uiAttrs.ok, true);
+    assert.equal(uiAttrs.data.attrHostID, IDS.singleTask);
+    assert.deepEqual(Array.from(uiAttrs.data.mirrorHostIDs), []);
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-data-assets-th-0'], 'assets/example.png');
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-task-repeat-rule'], '{"enabled":true}');
+    assert.equal(harness.attrs.get(IDS.singleList)['custom-data-assets-th-0'], undefined);
+    assert.equal(harness.attrs.get(IDS.singleList)['custom-task-repeat-rule'], undefined);
 
     const unsafeUiAttrs = await harness.call('taskHorizonPersistUiTaskAttrs', IDS.singleTask, { 'custom-unregistered': 'no' });
     assert.equal(unsafeUiAttrs.ok, false);
@@ -1660,6 +1785,54 @@ async function run() {
         harness.storage.set('calendar-events.json', JSON.stringify(schedulesAfterSubtreeDelete));
     }
 
+    const nakedTaskID = '20260814000000-task';
+    harness.blocks.set(nakedTaskID, {
+        id: nakedTaskID,
+        parent_id: IDS.doc,
+        root_id: IDS.doc,
+        type: 'i',
+        subtype: 't',
+        markdown: '* [ ] Legacy naked task',
+        content: 'Legacy naked task',
+        updated: '20260814000000',
+        created: '20260814000000',
+        sort: 35,
+    });
+    harness.attrs.set(nakedTaskID, {
+        'custom-priority': 'medium',
+        'custom-unrelated-extension': 'preserve-me',
+    });
+    const nakedRepairCallStart = harness.apiCalls.length;
+    const nakedReconcile = await harness.call('taskHorizonMutateTask', {
+        action: 'reconcileAttrs',
+        taskIDs: [nakedTaskID],
+    });
+    assert.equal(nakedReconcile.ok, true);
+    assert.equal(nakedReconcile.data.outcome, 'committed');
+    const repairedNakedTask = await harness.call('taskHorizonUpdateTask', nakedTaskID, { done: true });
+    assert.equal(repairedNakedTask.ok, true);
+    assert.equal(harness.blocks.has(nakedTaskID), true, 'repair must preserve the original task item ID');
+    const repairedNakedRow = harness.blocks.get(nakedTaskID);
+    const repairedNakedList = harness.blocks.get(repairedNakedRow.parent_id);
+    assert.equal(repairedNakedList?.type, 'l');
+    assert.equal(repairedNakedList?.parent_id, IDS.doc);
+    assert.equal(
+        Array.from(harness.blocks.values()).some((block) => block.parent_id === IDS.doc && block.type === 'i' && block.subtype === 't'),
+        false,
+        'a committed task update must leave no document-level task list item',
+    );
+    assert.equal(harness.attrs.get(nakedTaskID)['custom-unrelated-extension'], 'preserve-me');
+    assert.equal(harness.attrs.get(nakedTaskID)['custom-priority'], 'medium');
+    assert.equal(harness.attrs.get(repairedNakedList.id)?.['custom-priority'], undefined);
+    assert.equal(harness.attrs.get(repairedNakedList.id)?.['custom-task-horizon-attr-host-owner'], undefined);
+    const repairTransactions = harness.apiCalls.slice(nakedRepairCallStart)
+        .filter((item) => item.pathname === '/api/transactions');
+    assert.deepEqual(
+        repairTransactions[0].body.transactions[0].doOperations.slice(0, 2).map((operation) => operation.action),
+        ['delete', 'insert'],
+        'the illegal task item must be replaced by its list wrapper in one transaction',
+    );
+
     const done = await harness.call('taskHorizonUpdateTask', IDS.singleTask, { done: true });
     assert.equal(done.ok, true);
     assert.equal(done.data.refresh.action, 'update');
@@ -1857,6 +2030,39 @@ async function run() {
     assert.equal(restoreMoveCall?.body?.id, restoreSourceListID,
         'restoring to the default document position must move the outer list, not the task item');
     assert.equal(restoreMoveCall?.body?.parentID, IDS.doc);
+
+    const sharedRestoreListID = '20260813000025-list';
+    const sharedRestoreSiblingID = '20260813000026-task';
+    const sharedRestoreTaskID = '20260813000027-task';
+    harness.blocks.set(sharedRestoreListID, { id: sharedRestoreListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260813000025', created: '20260813000025', sort: 130 });
+    harness.blocks.set(sharedRestoreSiblingID, { id: sharedRestoreSiblingID, parent_id: sharedRestoreListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Keep archived sibling', content: 'Keep archived sibling', updated: '20260813000026', created: '20260813000026', sort: 1 });
+    harness.blocks.set(sharedRestoreTaskID, { id: sharedRestoreTaskID, parent_id: sharedRestoreListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Restore residual state-2 task', content: 'Restore residual state-2 task', updated: '20260813000027', created: '20260813000027', sort: 2 });
+    harness.attrs.set(sharedRestoreTaskID, {
+        'custom-priority': 'high',
+        'custom-task-horizon-attr-host-owner': sharedRestoreTaskID,
+    });
+    const sharedRestore = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: sharedRestoreTaskID,
+        mode: 'document-list',
+        targetDocumentID: IDS.doc,
+        sourceDocumentID: IDS.otherDoc,
+        sourceListID: '',
+        authoritative: true,
+    });
+    assert.equal(sharedRestore.ok, true);
+    assert.equal(sharedRestore.data.outcome, 'committed');
+    const sharedRestoreTargetListID = sharedRestore.data.value.listID;
+    assert.notEqual(sharedRestoreTargetListID, sharedRestoreListID,
+        'a residual state-2 task must be split into a new independent list');
+    assert.equal(harness.blocks.get(sharedRestoreTaskID).parent_id, sharedRestoreTargetListID);
+    assert.equal(harness.blocks.get(sharedRestoreSiblingID).parent_id, sharedRestoreListID,
+        'restoring one residual task must not move its archived sibling');
+    assert.equal(harness.blocks.get(sharedRestoreTargetListID).parent_id, IDS.doc);
+    assert.equal(harness.attrs.get(sharedRestoreTargetListID)?.['custom-priority'], undefined,
+        'a repaired independent list must remain structure-only');
+    assert.equal(harness.attrs.get(sharedRestoreTaskID)['custom-priority'], 'high',
+        'the original task item must retain its mirrored attributes');
 
     const rejectedRestoreListID = '20260813000016-list';
     const rejectedRestoreTaskID = '20260813000017-task';

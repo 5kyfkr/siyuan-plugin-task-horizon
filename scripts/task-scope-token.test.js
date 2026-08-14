@@ -74,6 +74,7 @@ async function run() {
     }));
     const storage = new Map([
         ['agent-mcp-config.json', JSON.stringify({ schemaVersion: 2, enabled: true, tools: {} })],
+        ['task-attr-storage.json', JSON.stringify({ version: 1, status: 'complete' })],
         ['task-settings.json', JSON.stringify({})],
         ['calendar-events.json', JSON.stringify(schedules)],
     ]);

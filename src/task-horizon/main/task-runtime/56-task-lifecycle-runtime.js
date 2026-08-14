@@ -1,5 +1,6 @@
     const __TM_TASK_LIFECYCLE_ATTR = 'custom-task-horizon-lifecycle';
     const __TM_COMPLETED_HEADING_TEXT = '已完成';
+    const __TM_COMPLETED_HEADING_CONFIRM_DELAYS_MS = [0, 25, 50, 100, 200, 300];
     const __tmTaskLifecycleHeadingLocks = new Map();
     const __tmTaskCompletionArchiveRequests = new Map();
     const __TM_TASK_COMPLETION_ARCHIVE_DEDUPE_MS = 5000;
@@ -150,6 +151,23 @@
         }
     }
 
+    async function __tmWaitForCompletedHeading(docId, headingId) {
+        const did = String(docId || '').trim();
+        const hid = String(headingId || '').trim();
+        for (const delay of __TM_COMPLETED_HEADING_CONFIRM_DELAYS_MS) {
+            if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+            let children = [];
+            try { children = await API.getChildBlocks(did); } catch (e) { children = []; }
+            const heading = (Array.isArray(children) ? children : []).find((item) => {
+                if (String(item?.id || '').trim() !== hid) return false;
+                const type = String(item?.type || '').trim().toLowerCase();
+                return type === 'h' || type === 'nodeheading';
+            });
+            if (heading) return heading;
+        }
+        throw new Error('“已完成”标题创建后未落盘，已取消任务移动');
+    }
+
     async function __tmResolveCompletedHeadingPlacement(docId) {
         const did = String(docId || '').trim();
         if (!did) throw new Error('未找到任务所在文档');
@@ -170,6 +188,7 @@
                 if (!flushed || Number(flushed.code) !== 0) {
                     throw new Error(flushed?.msg || '等待“已完成”标题写入失败');
                 }
+                await __tmWaitForCompletedHeading(did, headingId);
                 heading = { id: headingId, content: __TM_COMPLETED_HEADING_TEXT, level };
             }
             let resolved = null;
@@ -436,11 +455,17 @@
         await __tmMoveTaskToPlacement(tid, targetDocId, destination.placement, {
             heading: destination.heading,
             moveIndependentList: !destination.heading,
-            sourceListId: String(meta.completed.archiveListId || '').trim(),
+            sourceListId: String(
+                resolvedTask.task.parentListID
+                || resolvedTask.task.parentListId
+                || resolvedTask.task.parent_id
+                || meta.completed.archiveListId
+                || ''
+            ).trim(),
             sourceDocumentId: String(
-                meta.completed.archiveDocId
-                || resolvedTask.task.root_id
+                resolvedTask.task.root_id
                 || resolvedTask.task.docId
+                || meta.completed.archiveDocId
                 || (meta.completed.mode === 'heading' ? targetDocId : '')
             ).trim(),
         });
@@ -469,11 +494,17 @@
             parentTaskId: String(destination.parentTaskId || '').trim(),
             heading: destination.heading,
             moveIndependentList: !destination.parentTaskId && !destination.heading,
-            sourceListId: String(meta.recycle.archiveListId || '').trim(),
+            sourceListId: String(
+                resolvedTask.task.parentListID
+                || resolvedTask.task.parentListId
+                || resolvedTask.task.parent_id
+                || meta.recycle.archiveListId
+                || ''
+            ).trim(),
             sourceDocumentId: String(
-                meta.recycle.archiveDocId
-                || resolvedTask.task.root_id
+                resolvedTask.task.root_id
                 || resolvedTask.task.docId
+                || meta.recycle.archiveDocId
             ).trim(),
         });
         const nextMeta = { ...meta };

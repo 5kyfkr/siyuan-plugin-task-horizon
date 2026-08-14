@@ -254,8 +254,8 @@
     let quickbarAttrHostDragActive = false;
     let quickbarAttrHostLastDragAt = 0;
     let quickbarAttrHostLastStructuralAt = 0;
-    const quickbarAttrHostMirrorSyncSeenAt = new Map();
     const quickbarAttrHostDragSnapshots = new Map();
+    const quickbarAttrHostReconcileTimers = new Set();
     const QUICKBAR_ATTR_HOST_DRAG_SNAPSHOT_TTL_MS = 90000;
     const QUICKBAR_ATTR_HOST_DRAG_RECENT_TTL_MS = 6000;
     const QUICKBAR_SUBTASK_INHERIT_NOTICE_TTL_MS = 5000;
@@ -1792,12 +1792,12 @@
         }
 
         function cloneQuickbarTaskBinding(binding) {
+            const taskId = String(binding?.taskId || '').trim();
             return {
-                taskId: String(binding?.taskId || '').trim(),
-                attrHostId: String(binding?.attrHostId || binding?.taskId || '').trim(),
+                taskId,
+                attrHostId: taskId,
                 parentListId: String(binding?.parentListId || '').trim(),
                 attrHostState: String(binding?.attrHostState || '').trim(),
-                attrHostMigrationSourceId: String(binding?.attrHostMigrationSourceId || '').trim(),
                 parentListTaskCount: Number(binding?.parentListTaskCount || 0),
                 parentListHasAdjacentTaskList: !!binding?.parentListHasAdjacentTaskList,
             };
@@ -1869,20 +1869,14 @@
                 const isOnlyDirectTask = isTaskList && directTaskItems.length === 1 && directTaskItems[0] === taskLi;
                 const hasAdjacentTaskList = isOnlyDirectTask && hasQuickbarAdjacentTaskList(parentList);
                 const isFirstDirectTask = isTaskList && directTaskItems.length > 0 && directTaskItems[0] === taskLi;
-                const useParentHost = isOnlyDirectTask && !hasAdjacentTaskList;
-                const attrHostId = useParentHost ? listId : taskId;
-                const attrHostState = useParentHost
+                const attrHostState = isOnlyDirectTask && !hasAdjacentTaskList
                     ? 'state1-parent'
                     : (isFirstDirectTask ? 'state3-list-item' : 'state2-list-item');
-                const migrationSourceId = useParentHost
-                    ? taskId
-                    : (isFirstDirectTask ? listId : '');
                 return {
                     taskId,
-                    attrHostId,
+                    attrHostId: taskId,
                     parentListId: listId,
                     attrHostState,
-                    attrHostMigrationSourceId: migrationSourceId,
                     parentListTaskCount: directTaskItems.length,
                     parentListHasAdjacentTaskList: !!hasAdjacentTaskList,
                 };
@@ -2240,6 +2234,26 @@
         quickbarAttrHostLastDragAt = Date.now();
         quickbarAttrHostLastStructuralAt = Date.now();
         try { clearQuickbarTaskBindingCaches(); } catch (e) {}
+        const taskIds = Array.from(quickbarAttrHostDragSnapshots.keys())
+            .map((id) => String(id || '').trim())
+            .filter(Boolean);
+        if (!taskIds.length) return;
+        [120, 620].forEach((delayMs) => {
+            const timer = setTimeout(() => {
+                quickbarAttrHostReconcileTimers.delete(timer);
+                const reconcile = globalThis.__taskHorizonReconcileTaskAttrHosts;
+                if (typeof reconcile !== 'function') return;
+                Promise.resolve(reconcile(taskIds, { source: 'quickbar-native-drag' }))
+                    .then(() => {
+                        taskIds.forEach((taskId) => quickbarAttrHostDragSnapshots.delete(taskId));
+                        try { clearQuickbarTaskBindingCaches(); } catch (e) {}
+                        try { globalThis.__taskHorizonQuickbarRefreshInline?.(true); } catch (e) {}
+                        try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
+                    })
+                    .catch(() => null);
+            }, delayMs);
+            quickbarAttrHostReconcileTimers.add(timer);
+        });
     };
     document.addEventListener('dragstart', __tmQBOnAttrHostDragStartCapture, true);
     document.addEventListener('dragend', __tmQBOnAttrHostDragEndCapture, true);
@@ -4255,7 +4269,10 @@
                 const listEl = blockEl.matches?.('.list,[data-type="NodeList"]')
                     ? blockEl
                     : blockEl.closest?.('.list,[data-type="NodeList"]');
-                if (listEl instanceof Element) addBlock(listEl);
+                if (listEl instanceof Element) {
+                    addBlock(listEl);
+                    getQuickbarDirectTaskListItems(listEl).forEach((child) => addBlock(child));
+                }
             }
             if (!bindings.length) {
                 try {
@@ -4293,7 +4310,6 @@
                         sourceHostId,
                         reason: 'dragstart',
                     });
-                    return;
                 }
                 const entry = {
                     taskId,
@@ -5234,44 +5250,6 @@
             return { taskId: id, attrHostId: id };
         }
 
-        function scheduleQuickbarState3ParentMirrorSync(binding, primaryAttrs, parentAttrs) {
-            const info = (binding && typeof binding === 'object') ? binding : null;
-            const taskId = String(info?.taskId || '').trim();
-            const primaryId = String(info?.attrHostId || taskId).trim();
-            const parentId = String(info?.parentListId || '').trim();
-            const state = String(info?.attrHostState || '').trim();
-            if (!info || state !== 'state3-list-item' || !taskId || !parentId || primaryId !== taskId || parentId === taskId) return;
-            const source = (primaryAttrs && typeof primaryAttrs === 'object') ? primaryAttrs : {};
-            const mirror = (parentAttrs && typeof parentAttrs === 'object') ? parentAttrs : {};
-            const hasManagedValue = (attrs) => Object.entries(attrs || {}).some(([attrKey, value]) => {
-                const key = String(attrKey || '').trim();
-                if (!key || key === 'custom-task-horizon-attr-host-updated-at' || key === 'custom-task-horizon-attr-host-owner') return false;
-                return isQuickbarAttrHostManagedAttrKey(key) && String(value ?? '').trim() !== '';
-            });
-            const owner = String(mirror?.['custom-task-horizon-attr-host-owner'] || '').trim();
-            const sourceHasManagedValues = hasManagedValue(source);
-            if (owner === taskId && !sourceHasManagedValues) return;
-            if (!owner && !sourceHasManagedValues) return;
-            const keys = new Set(Object.keys(mirror).concat(Object.keys(source)));
-            const patch = {};
-            keys.forEach((attrKey) => {
-                const key = String(attrKey || '').trim();
-                if (!key || key === 'custom-task-horizon-attr-host-updated-at' || key === 'custom-task-horizon-attr-host-owner') return;
-                if (!isQuickbarAttrHostManagedAttrKey(key)) return;
-                const nextValue = Object.prototype.hasOwnProperty.call(source, key) ? String(source[key] ?? '') : '';
-                const prevValue = Object.prototype.hasOwnProperty.call(mirror, key) ? String(mirror[key] ?? '') : '';
-                if (prevValue !== nextValue) patch[key] = nextValue;
-            });
-            if (!Object.keys(patch).length && owner === taskId) return;
-            const now = Date.now();
-            const syncKey = `${taskId}:${parentId}`;
-            const last = Number(quickbarAttrHostMirrorSyncSeenAt.get(syncKey) || 0);
-            if (last && now - last < 3000) return;
-            patch['custom-task-horizon-attr-host-updated-at'] = String(now);
-            patch['custom-task-horizon-attr-host-owner'] = taskId;
-            quickbarAttrHostMirrorSyncSeenAt.set(syncKey, now);
-        }
-
         async function getMergedTaskCustomAttrs(blockId, options = {}) {
             const id = String(blockId || '').trim();
             if (!id) return {};
@@ -5284,49 +5262,8 @@
             }
             if (!binding) binding = resolveQuickbarAttrBindingFromBlockId(id);
             const taskId = String(binding?.taskId || id).trim() || id;
-            const attrHostId = String(binding?.attrHostId || taskId || id).trim() || taskId || id;
-            const hostAttrs = await getBlockCustomAttrs(attrHostId || taskId || id);
-            const attrs = {};
-            const mirrorIds = [];
-            const state = String(binding?.attrHostState || '').trim();
-            if (state === 'state1-parent' && taskId && taskId !== attrHostId) mirrorIds.push(taskId);
-            if (state === 'state3-list-item' && binding?.parentListId && String(binding.parentListId).trim() !== attrHostId) mirrorIds.push(String(binding.parentListId).trim());
-            let state1MirrorAttrs = null;
-            let ignoreHostAttrsForDisplay = false;
-            for (const mirrorId of Array.from(new Set(mirrorIds.filter(Boolean)))) {
-                const mirrorAttrs = await getBlockCustomAttrs(mirrorId);
-                if (state === 'state1-parent' && mirrorId === taskId) state1MirrorAttrs = mirrorAttrs || {};
-                if (state === 'state3-list-item' && mirrorId !== taskId) {
-                    continue;
-                }
-                const owner = String(mirrorAttrs?.['custom-task-horizon-attr-host-owner'] || '').trim();
-                if (mirrorId !== taskId && (owner !== taskId)) continue;
-                Object.entries(mirrorAttrs || {}).forEach(([mirrorKey, mirrorValue]) => {
-                    if (mirrorKey === 'custom-task-horizon-attr-host-updated-at' || mirrorKey === 'custom-task-horizon-attr-host-owner') return;
-                    if (!isQuickbarAttrHostManagedAttrKey(mirrorKey)) return;
-                    if (String(mirrorValue ?? '').trim() === '') return;
-                    attrs[mirrorKey] = mirrorValue;
-                });
-            }
-            if (state === 'state1-parent') {
-                const hostOwner = String(hostAttrs?.['custom-task-horizon-attr-host-owner'] || '').trim();
-                if (hostOwner && hostOwner !== taskId) {
-                    ignoreHostAttrsForDisplay = true;
-                    attrs.__tmQuickbarHasAttrHostStatus = true;
-                    attrs.__tmQuickbarSkipStatusSnapshot = true;
-                    const source = (state1MirrorAttrs && typeof state1MirrorAttrs === 'object') ? state1MirrorAttrs : {};
-                    const keys = new Set(Object.keys(hostAttrs || {}).concat(Object.keys(source)));
-                    keys.forEach((attrKey) => {
-                        const key = String(attrKey || '').trim();
-                        if (!key || key === 'custom-task-horizon-attr-host-updated-at' || key === 'custom-task-horizon-attr-host-owner') return;
-                        if (!isQuickbarAttrHostManagedAttrKey(key)) return;
-                        const nextValue = Object.prototype.hasOwnProperty.call(source, key) ? String(source[key] ?? '') : '';
-                        attrs[key] = nextValue;
-                    });
-                    if (!Object.prototype.hasOwnProperty.call(attrs, 'custom-status')) attrs['custom-status'] = '';
-                }
-            }
-            if (!ignoreHostAttrsForDisplay) Object.assign(attrs, (hostAttrs && typeof hostAttrs === 'object') ? hostAttrs : {});
+            const hostAttrs = await getBlockCustomAttrs(taskId);
+            const attrs = { ...((hostAttrs && typeof hostAttrs === 'object') ? hostAttrs : {}) };
             const hostStatus = readQuickbarTaskMetaAttrValue(attrs, 'customStatus', '').trim();
             if (hostStatus) attrs.__tmQuickbarHasAttrHostStatus = true;
             if (Object.keys(attrs).some((key) => isQuickbarAttrHostManagedAttrKey(key) && String(attrs[key] ?? '').trim() !== '')) {
@@ -5710,27 +5647,10 @@
                 const binding = resolveStatusBindingForSnapshot();
                 const taskId = String(binding?.taskId || id).trim() || id;
                 const attrHostId = String(binding?.attrHostId || taskId || id).trim() || taskId || id;
-                const sourceId = String(binding?.attrHostMigrationSourceId || '').trim();
-                let transitionAttrs = null;
-                let transitionReason = '';
                 const dragSnapshot = getQuickbarAttrHostDragSnapshot(taskId, attrHostId);
-                if (dragSnapshot?.attrs && typeof dragSnapshot.attrs === 'object') {
-                    transitionAttrs = dragSnapshot.attrs;
-                    transitionReason = 'drag-snapshot';
-                } else if (sourceId && attrHostId && sourceId !== attrHostId
-                    && (hasRecentQuickbarAttrHostStructuralChange(5000) || props.__tmQuickbarHasManagedAttrHostAttrs !== true)) {
-                    transitionAttrs = await getBlockCustomAttrs(sourceId);
-                    transitionReason = hasRecentQuickbarAttrHostStructuralChange(5000)
-                        ? 'structural-source'
-                        : 'legacy-source-rescue';
-                }
-                if (transitionAttrs && String(binding?.attrHostState || '').trim() === 'state3-list-item') {
-                    const owner = String(transitionAttrs?.['custom-task-horizon-attr-host-owner'] || '').trim();
-                    if (String(sourceId || '').trim() === String(binding?.parentListId || '').trim() && owner !== taskId) {
-                        transitionAttrs = null;
-                        transitionReason = '';
-                    }
-                }
+                const transitionAttrs = dragSnapshot?.attrs && typeof dragSnapshot.attrs === 'object'
+                    ? dragSnapshot.attrs
+                    : null;
                 const transitionKeys = getQuickbarAttrHostMigrationKeys(transitionAttrs || {});
                 if (transitionKeys.length) {
                     const transitionStatus = String(readQuickbarTaskMetaAttrValue(transitionAttrs, 'customStatus', '') || '').trim();
@@ -5747,10 +5667,8 @@
                         pushQuickbarInlineSyncLog('transition-source-props', {
                             taskId,
                             attrHostId,
-                            sourceId: transitionReason === 'drag-snapshot'
-                                ? String(dragSnapshot?.sourceHostId || '').trim()
-                                : sourceId,
-                            reason: transitionReason,
+                            sourceId: String(dragSnapshot?.sourceHostId || '').trim(),
+                            reason: 'drag-snapshot',
                             status: transitionStatus,
                             previousStatus: propsStatus,
                             attrKeys: transitionKeys,
@@ -8476,7 +8394,6 @@
             pruneInlineMetaOptimisticPatches(now, retainIds);
             pruneInlineMetaNativeHostSuppression(now, retainIds);
             pruneInlineMetaTimestampMap(inlineMetaMissingHostSeenAt, now, QUICKBAR_INLINE_MISC_CACHE_TTL_MS, QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT, retainIds);
-            pruneInlineMetaTimestampMap(quickbarAttrHostMirrorSyncSeenAt, now, QUICKBAR_INLINE_MISC_CACHE_TTL_MS, QUICKBAR_INLINE_MISC_CACHE_SOFT_LIMIT, retainIds);
         }
 
         function clearInlineMetaRuntimeCaches() {
@@ -8489,7 +8406,6 @@
             try { inlineMetaNativeHostSuppressedUntil.clear(); } catch (e) {}
             try { inlineMetaSourceHostDedupeSeenAt.clear(); } catch (e) {}
             clearInlineMetaEmbedContextCache();
-            try { quickbarAttrHostMirrorSyncSeenAt.clear(); } catch (e) {}
             try { quickbarAttrHostDragSnapshots.clear(); } catch (e) {}
             inlineMetaPrefetchQueue = [];
             inlineMetaPrefetchQueuedIds.clear();
@@ -10156,7 +10072,6 @@
                     attrHostId: String(attrContext.primaryHostId || sourceTaskId).trim() || sourceTaskId,
                     parentListId: String(attrContext.parentListId || '').trim(),
                     attrHostState: String(attrContext.state || '').trim(),
-                    attrHostMigrationSourceId: String(attrContext.mirrorHostIds?.[0] || '').trim(),
                     parentListTaskCount: Number(attrContext.parentListTaskCount || 0),
                 };
             }
@@ -10191,7 +10106,6 @@
             const textAnchor = getInlineTextAnchor(blockEl);
             if (!textAnchor) return;
             const hasRemarkInlineField = Array.isArray(cfg?.fields) && cfg.fields.includes('custom-remark');
-            const transitionSourceId = String(binding?.attrHostMigrationSourceId || '').trim();
             const attrHostIdForRender = String(binding?.attrHostId || taskId).trim() || taskId;
             const hasRecentAttrHostChange = hasRecentQuickbarAttrHostStructuralChange(5000);
             const hasRecentAttrHostDrag = hasRecentQuickbarAttrHostDragChange(2500);
@@ -10290,52 +10204,11 @@
                 if (runtimeProps.taskId && runtimeProps.taskId !== taskId) setInlineMetaCache(runtimeProps.taskId, runtimePropsForCache);
                 if (runtimeProps.attrHostId && runtimeProps.attrHostId !== taskId) setInlineMetaCache(runtimeProps.attrHostId, runtimePropsForCache);
             }
-            if (!runtimeProps?.props) {
-                try {
-                    const currentCache = inlineMetaCache.get(taskId);
-                    if (transitionSourceId && transitionSourceId !== attrHostIdForRender
-                        && (hasRecentAttrHostChange
-                            || currentCache?.__tmQuickbarHasManagedAttrHostAttrs !== true)) {
-                        const sourceProps = inlineMetaCache.get(transitionSourceId);
-                        const sourceStatus = String(sourceProps?.['custom-status'] || '').trim();
-                        const currentStatus = String(currentCache?.['custom-status'] || '').trim();
-                        const defaultUndoneStatus = getDefaultUndoneStatusId(getStatusOptionsSnapshot());
-                        if (sourceProps && sourceStatus && sourceStatus !== defaultUndoneStatus
-                            && (!currentStatus || currentStatus === defaultUndoneStatus)) {
-                            setInlineMetaCache(taskId, sourceProps);
-                            const sourceTaskId = String(binding?.taskId || '').trim();
-                            if (sourceTaskId && sourceTaskId !== taskId) setInlineMetaCache(sourceTaskId, sourceProps);
-                            pushQuickbarInlineSyncLog('transition-source-cache', {
-                                taskId,
-                                sourceTaskId,
-                                attrHostId: attrHostIdForRender,
-                                sourceId: transitionSourceId,
-                                status: sourceStatus,
-                                previousStatus: currentStatus,
-                            });
-                        }
-                    }
-                } catch (e) {}
-            }
             const hasCacheForRender = inlineMetaCache.has(taskId) && !runtimeProps?.props;
             const hasCached = hasCacheForRender && !forceRefresh;
             const revalidateCached = hasCached && isInlineMetaCacheStale(taskId, hasRemarkInlineField ? 30000 : 12000);
             const includeRemarkForFreshRead = false;
             const useEmptyPropsForRender = !runtimeProps?.props && !hasCacheForRender;
-            if (useEmptyPropsForRender && transitionSourceId && hasRecentAttrHostDrag) {
-                Promise.resolve(ensureTaskPropsReady(taskId, true, { skipAttrFallback: false, blockEl, binding, includeRemark: includeRemarkForFreshRead }))
-                    .then(() => {
-                        try { queueInlineMetaRenderBlock(blockEl, true, visibilityBuffer || 420); } catch (e) {}
-                    })
-                    .catch(() => null);
-                pushQuickbarInlineSyncLog('transition-empty-defer', {
-                    taskId,
-                    sourceTaskId: String(binding?.taskId || '').trim(),
-                    attrHostId: attrHostIdForRender,
-                    sourceId: transitionSourceId,
-                });
-                return;
-            }
             const cachedPropsForRender = useEmptyPropsForRender
                 ? normalizeCustomProps()
                 : getInlineCachedProps(taskId);
@@ -10535,6 +10408,39 @@
             inlineMetaRenderTimer = setTimeout(run, forceRefresh ? 12 : 24);
         }
 
+        function scheduleQuickbarAttrHostKernelReconcile(reason = 'structural-change') {
+            try { quickbarAttrHostReconcileTimers.forEach((timer) => clearTimeout(timer)); } catch (e) {}
+            quickbarAttrHostReconcileTimers.clear();
+            const taskIds = new Set(Array.from(quickbarAttrHostDragSnapshots.keys())
+                .map((id) => String(id || '').trim())
+                .filter(Boolean));
+            try {
+                inlineMetaObservedTaskBlocks.forEach((blockEl) => {
+                    let binding = null;
+                    try { binding = resolveTaskBindingFromBlockEl(blockEl); } catch (e) { binding = null; }
+                    const taskId = String(binding?.taskId || blockEl?.dataset?.nodeId || '').trim();
+                    if (taskId) taskIds.add(taskId);
+                });
+            } catch (e) {}
+            const ids = Array.from(taskIds);
+            if (!ids.length) return;
+            [140, 640].forEach((delayMs) => {
+                const timer = setTimeout(() => {
+                    quickbarAttrHostReconcileTimers.delete(timer);
+                    const reconcile = globalThis.__taskHorizonReconcileTaskAttrHosts;
+                    if (typeof reconcile !== 'function') return;
+                    Promise.resolve(reconcile(ids, { source: `quickbar-${reason}` }))
+                        .then(() => {
+                            ids.forEach((taskId) => quickbarAttrHostDragSnapshots.delete(taskId));
+                            try { clearQuickbarTaskBindingCaches(); } catch (e) {}
+                            try { requestInlineMetaRender(true); } catch (e) {}
+                        })
+                        .catch(() => null);
+                }, delayMs);
+                quickbarAttrHostReconcileTimers.add(timer);
+            });
+        }
+
         function startInlineMeta() {
             if (inlineMetaStarted) return;
             inlineMetaStarted = true;
@@ -10656,6 +10562,7 @@
                             clearInlineMetaEmbedContextCache();
                             inlineMetaLayoutCache.clear();
                             inlineMetaNeedSyncBlocks = true;
+                            scheduleQuickbarAttrHostKernelReconcile('structural-change');
                             if (inlineMetaWsTimer) clearTimeout(inlineMetaWsTimer);
                             inlineMetaWsTimer = setTimeout(() => {
                                 inlineMetaWsTimer = null;
@@ -11154,6 +11061,8 @@
             inlineMetaHostPointerDownHandler = null;
             try { document.removeEventListener('dragend', __tmQBOnAttrHostDragEndCapture, true); } catch (e) {}
             try { document.removeEventListener('drop', __tmQBOnAttrHostDragEndCapture, true); } catch (e) {}
+            try { quickbarAttrHostReconcileTimers.forEach((timer) => clearTimeout(timer)); } catch (e) {}
+            quickbarAttrHostReconcileTimers.clear();
             try { delete globalThis.__taskHorizonQuickbarScheduleAttrHostMigration; } catch (e) {}
             try { blockMenuObserver?.disconnect?.(); } catch (e) {}
             blockMenuObserver = null;

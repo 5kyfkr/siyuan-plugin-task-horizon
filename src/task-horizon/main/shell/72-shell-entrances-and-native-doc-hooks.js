@@ -2184,32 +2184,16 @@
     function __tmResolveNativeDocCheckboxAttrHostIdFromDom(blockId, taskId = '') {
         const rawId = String(blockId || '').trim();
         const tid = String(taskId || '').trim();
-        if (!rawId || typeof document === 'undefined') return '';
+        if (!rawId || typeof document === 'undefined') return tid;
         const readId = (el) => String(el?.dataset?.nodeId || el?.getAttribute?.('data-node-id') || '').trim();
-        const isTaskList = (el) => {
-            if (!(el instanceof Element)) return false;
-            if (!el.matches?.('.list,[data-type="NodeList"]')) return false;
-            const subtype = String(el.getAttribute?.('data-subtype') || el.dataset?.subtype || '').trim().toLowerCase();
-            return subtype === 't';
-        };
         const directTaskItems = (listEl) => {
-            if (!(listEl instanceof Element) || !isTaskList(listEl)) return [];
+            if (!(listEl instanceof Element)) return [];
             return Array.from(listEl.children || []).filter((child) => {
                 if (!(child instanceof Element)) return false;
                 if (!child.matches?.('.li,[data-type="NodeListItem"]')) return false;
                 return !!readId(child);
             });
         };
-        const siblingTaskList = (listEl, direction = 'next') => {
-            if (!(listEl instanceof Element)) return null;
-            let sibling = direction === 'prev' ? listEl.previousElementSibling : listEl.nextElementSibling;
-            while (sibling instanceof Element && !readId(sibling)) {
-                sibling = direction === 'prev' ? sibling.previousElementSibling : sibling.nextElementSibling;
-            }
-            if (!isTaskList(sibling)) return null;
-            return directTaskItems(sibling).length ? sibling : null;
-        };
-        const hasAdjacentTaskList = (listEl) => !!(siblingTaskList(listEl, 'prev') || siblingTaskList(listEl, 'next'));
         let el = null;
         try {
             const escId = globalThis.CSS?.escape ? globalThis.CSS.escape(rawId) : rawId.replace(/["\\]/g, '\\$&');
@@ -2217,28 +2201,15 @@
         } catch (e) {
             el = null;
         }
-        if (!(el instanceof Element)) return '';
+        if (!(el instanceof Element)) return tid;
         if (el.matches?.('.list,[data-type="NodeList"]')) {
-            const listId = readId(el);
-            const taskItems = directTaskItems(el);
-            const firstTaskId = readId(taskItems[0]);
-            if (listId && taskItems.length <= 1 && !hasAdjacentTaskList(el) && (!tid || !firstTaskId || firstTaskId === tid)) return listId;
-            if (firstTaskId && (!tid || firstTaskId === tid)) return firstTaskId;
-            return '';
+            return tid || readId(directTaskItems(el)[0]);
         }
         const taskLi = el.matches?.('.li,[data-type="NodeListItem"]')
             ? el
             : el.closest?.('.li,[data-type="NodeListItem"]');
         const taskLiId = readId(taskLi);
-        if (!taskLiId) return '';
-        const parentList = taskLi?.parentElement instanceof Element && taskLi.parentElement.matches?.('.list,[data-type="NodeList"]')
-            ? taskLi.parentElement
-            : null;
-        const parentListId = readId(parentList);
-        const firstTask = directTaskItems(parentList)[0] || null;
-        const siblingTasks = directTaskItems(parentList);
-        if (parentListId && siblingTasks.length === 1 && firstTask === taskLi && !hasAdjacentTaskList(parentList)) return parentListId;
-        return taskLiId;
+        return tid || taskLiId;
     }
 
     function __tmMirrorDocCheckboxStatusPatch(taskId, patch) {
@@ -2266,7 +2237,6 @@
         const rawId = String(blockId || '').trim();
         if (!rawId) return { status: '', taskCompleteAt: '' };
         let attrTargetId = rawId;
-        let taskMirrorId = '';
         try {
             const binding = typeof __tmResolveTaskBindingFromAnyBlockId === 'function'
                 ? await __tmResolveTaskBindingFromAnyBlockId(rawId)
@@ -2274,18 +2244,11 @@
             const resolvedAttrId = String(binding?.attrHostId || '').trim();
             const resolvedTaskId = String(binding?.taskId || '').trim();
             if (resolvedAttrId) attrTargetId = resolvedAttrId;
-            if (resolvedTaskId && resolvedTaskId !== attrTargetId) taskMirrorId = resolvedTaskId;
+            if (resolvedTaskId) attrTargetId = resolvedTaskId;
         } catch (e) {}
         try {
             const res = await API.call('/api/attr/getBlockAttrs', { id: attrTargetId });
-            let attrs = (res && res.code === 0 && res.data && typeof res.data === 'object') ? res.data : {};
-            if (taskMirrorId) {
-                try {
-                    const mirrorRes = await API.call('/api/attr/getBlockAttrs', { id: taskMirrorId });
-                    const mirrorAttrs = (mirrorRes && mirrorRes.code === 0 && mirrorRes.data && typeof mirrorRes.data === 'object') ? mirrorRes.data : {};
-                    attrs = { ...mirrorAttrs, ...attrs };
-                } catch (e) {}
-            }
+            const attrs = (res && res.code === 0 && res.data && typeof res.data === 'object') ? res.data : {};
             const result = {
                 status: typeof __tmReadTaskMetaAttrValue === 'function'
                     ? String(__tmReadTaskMetaAttrValue(attrs, 'customStatus') || '').trim()

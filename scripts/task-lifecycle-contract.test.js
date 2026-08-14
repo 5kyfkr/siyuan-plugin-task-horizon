@@ -31,12 +31,17 @@ function createHarness(options = {}) {
     let documentKramdown = '';
     let appendedHeadingCount = 0;
     let flushedHeadingCount = 0;
+    let headingChildReadCount = 0;
+    let pendingHeadingId = '';
+    let liveHeadingId = '';
+    let headingFlushed = false;
     let taskReadCount = 0;
     let moveFailureCount = opts.moveFailsOnce === true ? 1 : 0;
     const reminderTaskIds = new Set();
     const removedReminderIds = [];
     const cleanupSteps = [];
     const cleanupWarnings = [];
+    const lifecycleSequence = [];
     const testConsole = {
         log: console.log,
         error: console.error,
@@ -83,8 +88,11 @@ function createHarness(options = {}) {
             heading: { id: headingId, content: '已完成', rank: 4 },
         }),
         __tmAppendBlockOnce: async (_docId, markdown) => {
+            lifecycleSequence.push('append-heading');
             appendedHeadingCount += 1;
             documentKramdown = `${markdown} {id="heading-created"}`;
+            pendingHeadingId = 'heading-created';
+            headingFlushed = false;
             return 'heading-created';
         },
         __tmMoveTaskToPlacement: async (taskId, targetDocId, placement, options) => {
@@ -92,6 +100,7 @@ function createHarness(options = {}) {
                 moveFailureCount -= 1;
                 throw new Error('move failed once');
             }
+            lifecycleSequence.push('move-task');
             moves.push({ taskId, targetDocId, placement: plain(placement), options: plain(options) });
             const task = tasks.get(taskId);
             if (task) {
@@ -135,6 +144,16 @@ function createHarness(options = {}) {
             return plain(persistedTasks.has(id) ? persistedTasks.get(id) : (tasks.get(id) || null));
         },
         getBlockKramdown: async () => documentKramdown,
+        getChildBlocks: async (id) => {
+            if (String(id || '') !== 'doc-source') return [];
+            lifecycleSequence.push('read-document-children');
+            headingChildReadCount += 1;
+            if (pendingHeadingId && headingFlushed && opts.headingNeverVisible !== true) {
+                const delayedReads = Math.max(0, Number(opts.headingVisibilityDelayReads) || 0);
+                if (headingChildReadCount > delayedReads) liveHeadingId = pendingHeadingId;
+            }
+            return liveHeadingId ? [{ id: liveHeadingId, type: 'h', subType: 'h3' }] : [];
+        },
         getFirstDirectChildIdOfDoc: async () => '',
     };
     context.__tmBackendAdapter = {
@@ -143,7 +162,9 @@ function createHarness(options = {}) {
             return true;
         },
         flushTransaction: async () => {
+            lifecycleSequence.push('flush-heading');
             flushedHeadingCount += 1;
+            headingFlushed = true;
             return { code: 0, data: null };
         },
     };
@@ -181,9 +202,18 @@ function createHarness(options = {}) {
         removedReminderIds,
         cleanupSteps,
         cleanupWarnings,
-        setKramdown: (value) => { documentKramdown = value; },
+        setKramdown: (value) => {
+            documentKramdown = value;
+            const match = String(value || '').match(/\{id="([^"]+)"\}/);
+            liveHeadingId = String(match?.[1] || '');
+            pendingHeadingId = '';
+            headingFlushed = false;
+            headingChildReadCount = 0;
+        },
         getAppendedHeadingCount: () => appendedHeadingCount,
         getFlushedHeadingCount: () => flushedHeadingCount,
+        getHeadingChildReadCount: () => headingChildReadCount,
+        getLifecycleSequence: () => lifecycleSequence.slice(),
         getTaskReadCount: () => taskReadCount,
     };
 }
@@ -290,12 +320,22 @@ async function testCompletionEligibilityAndRaceValidation() {
     assert.equal(moves.at(-1).placement.parentID, 'doc-source');
 
     tasks.get('task-done').done = false;
+    tasks.get('task-done').parent_id = 'archive-list-live';
+    const staleArchiveMeta = JSON.parse(attrs.get('task-done')['custom-task-horizon-lifecycle']);
+    staleArchiveMeta.completed.archiveDocId = 'doc-stale';
+    staleArchiveMeta.completed.archiveListId = 'archive-list-stale';
+    attrs.set('task-done', {
+        ...attrs.get('task-done'),
+        'custom-task-horizon-lifecycle': JSON.stringify(staleArchiveMeta),
+    });
     await context.__tmTaskLifecycle.execute({ action: 'restoreCompleted', taskId: 'task-done' });
     assert.equal(attrs.get('task-done')['custom-task-horizon-lifecycle'], '');
     assert.equal(moves.at(-1).targetDocId, 'doc-source');
     assert.equal(moves.at(-1).options.moveIndependentList, true,
         'restoring to the default document position must move the archived outer list');
     assert.equal(moves.at(-1).options.sourceDocumentId, 'doc-source');
+    assert.equal(moves.at(-1).options.sourceListId, 'archive-list-live',
+        'restore must prefer the task current list over stale lifecycle metadata');
 }
 
 async function testCompletionArchivesWhileSqlIndexLags() {
@@ -329,6 +369,55 @@ async function testCompletionArchivesWhileSqlIndexLags() {
         'a committed local completion must create the missing heading while SQL still exposes the old marker');
     assert.equal(moves.at(-1).options.heading.id, 'heading-created');
     assert.equal(JSON.parse(attrs.get('task-index-lag')['custom-task-horizon-lifecycle']).completed.mode, 'heading');
+}
+
+async function testStatusTwoWaitsForNewCompletedHeading() {
+    const harness = createHarness({ headingVisibilityDelayReads: 2 });
+    const { context, tasks, moves } = harness;
+    tasks.set('task-status-two', {
+        id: 'task-status-two',
+        root_id: 'doc-source',
+        parent_id: 'shared-list',
+        parent_task_id: '',
+        done: true,
+    });
+    harness.setKramdown('');
+
+    await context.__tmTaskLifecycle.execute({
+        action: 'archiveCompleted',
+        taskId: 'task-status-two',
+        mode: 'heading',
+        originDocId: 'doc-source',
+    });
+
+    assert.equal(harness.getHeadingChildReadCount(), 3,
+        'a residual list item must wait until the newly created heading is visible in the live document tree');
+    assert.equal(moves.length, 1);
+    const sequence = harness.getLifecycleSequence();
+    assert.ok(sequence.indexOf('append-heading') < sequence.indexOf('flush-heading'));
+    assert.ok(sequence.lastIndexOf('read-document-children') < sequence.indexOf('move-task'),
+        'the task move must start only after the new heading is confirmed');
+
+    const missingHarness = createHarness({ headingNeverVisible: true });
+    missingHarness.tasks.set('task-status-two-missing-heading', {
+        id: 'task-status-two-missing-heading',
+        root_id: 'doc-source',
+        parent_id: 'shared-list',
+        parent_task_id: '',
+        done: true,
+    });
+    missingHarness.setKramdown('');
+    await assert.rejects(
+        missingHarness.context.__tmTaskLifecycle.execute({
+            action: 'archiveCompleted',
+            taskId: 'task-status-two-missing-heading',
+            mode: 'heading',
+            originDocId: 'doc-source',
+        }),
+        /标题创建后未落盘/,
+    );
+    assert.equal(missingHarness.moves.length, 0,
+        'a task must not move when the newly created completed heading is absent from the live document tree');
 }
 
 async function testCompletionArchiveIdempotency() {
@@ -515,23 +604,31 @@ function testStaticContracts() {
         'completion must not run a hidden malformed-placement self-healing move');
     assert.match(lifecycleSource, /__tmAppendBlockOnce[\s\S]*__tmBackendAdapter\.flushTransaction/,
         'a newly created completed heading must be flushed before it is used as a move target');
+    assert.match(lifecycleSource, /__tmBackendAdapter\.flushTransaction[\s\S]*__tmWaitForCompletedHeading[\s\S]*heading = \{ id: headingId/,
+        'a newly created completed heading must be confirmed in the live document tree before task movement');
     assert.match(apiSource, /async function __tmMoveTaskToPlacement[\s\S]*mode: 'heading'[\s\S]*__tmExecuteQueuedMoveKernel\(null, moveData\)/,
         'completion archive must reuse the same heading move executor as the heading-group action');
     assert.match(lifecycleSource, /__tmRestoreCompletedTask[\s\S]*moveIndependentList: !destination\.heading/,
         'completion restore must select list-level movement outside configured heading groups');
     assert.match(apiSource, /moveIndependentList[\s\S]*mode: 'document-list'[\s\S]*__tmExecuteQueuedMoveKernel\(null, moveData\)/,
         'completion restore must reach the authoritative document-list kernel path');
-    assert.match(kernelSource, /moveIndependentTaskListToDocument[\s\S]*movePayload = \{ id: sourceList\.id, parentID: targetDocumentID \}/,
+    assert.match(kernelSource, /moveIndependentTaskListToDocument[\s\S]*canMoveSourceList[\s\S]*\{ id: sourceList\.id, parentID: targetDocumentID \}/,
         'document restore must move the independent outer list instead of its task item');
-    assert.match(kernelSource, /moveTaskIntoIndependentDocument[\s\S]*await api\('\/api\/block\/moveBlock', \{ id: listID, parentID: targetDocumentID \}\)/,
+    assert.match(kernelSource, /moveIndependentTaskListToDocument[\s\S]*if \(canMoveSourceList\)[\s\S]*insertBlock[\s\S]*moveBlock[\s\S]*parentID: listID/,
+        'document restore must split residual shared-list tasks into a valid independent list');
+    assert.match(kernelSource, /moveTaskIntoIndependentDocument[\s\S]*const payload = position === 'bottom'[\s\S]*await api\('\/api\/block\/moveBlock', payload\)/,
         'recycle must move an independent outer list into the recycle document');
-    assert.match(kernelSource, /moveTaskIntoIndependentDocument[\s\S]*documentChildIDs\[0\] !== listID[\s\S]*verifiedTaskIDs\.length !== 1/,
+    assert.match(kernelSource, /moveTaskIntoIndependentDocument[\s\S]*expectedDocumentListID !== listID[\s\S]*verifiedTaskIDs\.length !== 1/,
         'recycle must verify the live document tree before reporting success');
+    assert.match(kernelSource, /async function ensureTaskListContainer[\s\S]*operations\.push\(\{ action: 'delete', id: childID \}, insertOperation\)[\s\S]*await pushTaskTransaction\(operations\)/,
+        'document-level task items must be wrapped in valid task lists in one transaction');
+    assert.match(kernelSource, /if \(!containerID\)[\s\S]*independentDocument: true/,
+        'document moves without an existing task list must create an independent list instead of a naked list item');
     assert.match(apiSource, /moveToRecycleDocument[\s\S]*mode: 'recycle-document'/,
         'the lifecycle bridge must reach the recycle-specific kernel move path');
     assert.match(lifecycleSource, /__tmArchiveDeletedTask[\s\S]*moveToRecycleDocument: true[\s\S]*__tmWriteTaskLifecycleMeta/,
         'recycle metadata must be written only after the independent-list move succeeds');
-    assert.match(kernelSource, /normalizeTaskMoveMode\(source\.mode\) === 'document-list'[\s\S]*const before = await capturePlacement\(taskID\)/,
+    assert.match(kernelSource, /normalizeTaskMoveMode\(source\.mode\) === 'document-list'[\s\S]*const before = await capturePlacement\(taskID, preparedTaskRow\)/,
         'document-list restore must bypass SQL placement reads before moving the archived list');
     assert.match(headingMoveKernelSource, /canMoveSourceList[\s\S]*movePayload = \{ id: listID, previousID: hid, parentID: heading\.parentID \}/,
         'heading moves must move an independent source list rather than attach a list item to the document');
@@ -567,6 +664,7 @@ function testStaticContracts() {
     await testMetadataAndRestoreComposition();
     await testCompletionEligibilityAndRaceValidation();
     await testCompletionArchivesWhileSqlIndexLags();
+    await testStatusTwoWaitsForNewCompletedHeading();
     await testCompletionArchiveIdempotency();
     await testHeadingLockAndQueueLane();
     await testRestoreResultContract();

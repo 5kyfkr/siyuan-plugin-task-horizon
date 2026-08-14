@@ -98,7 +98,8 @@ assert.equal(removeByRenderKey(keyA1, 'in-block'), 1, 'instance cleanup must hon
 assert.deepEqual(removedHosts, [hosts[0]], 'instance cleanup must not remove another embed or placement');
 
 const renderSource = sliceSource(quickbarSource, 'async function renderInlineMetaForBlock', 'function scheduleInlineMetaRender');
-assert.match(renderSource, /if \(isEmbedded\)[\s\S]*ensureInlineMetaEmbedContext\([\s\S]*attrHostId: String\(attrContext\.primaryHostId[\s\S]*attrHostState: String\(attrContext\.state[\s\S]*attrHostMigrationSourceId: String\(attrContext\.mirrorHostIds\?\.\[0\]/, 'embedded rendering must use the authoritative attr context');
+assert.match(renderSource, /if \(isEmbedded\)[\s\S]*ensureInlineMetaEmbedContext\([\s\S]*taskId: sourceTaskId[\s\S]*attrHostId: String\(attrContext\.primaryHostId[\s\S]*attrHostState: String\(attrContext\.state/, 'embedded rendering must use the authoritative task-item attr context');
+assert.doesNotMatch(renderSource, /attrHostMigrationSourceId|mirrorHostIds\?\.\[0\]/, 'embedded rendering must not retain a legacy parent migration source');
 assert.match(renderSource, /const docId = isEmbedded \? String\(embedContext\?\.sourceDocId[\s\S]*isInlineMetaScopeAllowedForDocCached\(docId\)/, 'embedded rendering must use source document scope');
 assert.match(renderSource, /ensureInlineHost\(blockEl, \{ preferOverlay: useOverlayHost, blockId: taskId, renderKey \}\)[\s\S]*host\.__tmQuickbarInlineBinding = isEmbedded \? binding : null[\s\S]*layoutInlineMetaHost\(blockEl, host, renderKey/, 'embedded host creation, interaction, and layout must retain the instance binding and key');
 assert.match(renderSource, /removeInlineMetaHostsBySourceTaskId\(sourceTaskIdForRender, attrHostIdForRender, '', isEmbedded \? renderKey : ''\)/, 'source-host dedupe must be instance-scoped only for embeds');

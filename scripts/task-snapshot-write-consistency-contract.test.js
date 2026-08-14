@@ -18,7 +18,7 @@ const segment = (start, end) => {
     return source.slice(from, to);
 };
 
-const lock = segment('function __tmWithTaskSnapshotWriteLock', 'function __tmClearAttrHostResolutionCache');
+const lock = segment('function __tmWithTaskSnapshotWriteLock', 'function __tmBuildTaskParentListHostShape');
 const persist = segment('function __tmSchedulePersistTaskSnapshot', 'function __tmResolveCreatedTaskDocId');
 const createdDocUpdate = segment('async function __tmUpdateSnapshotsContainingCreatedTaskDoc', 'function __tmScheduleCreatedTaskSnapshotRefresh');
 
