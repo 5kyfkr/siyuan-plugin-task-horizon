@@ -242,8 +242,8 @@
             const totalChildren = directChildStats.total;
             const completedChildren = directChildStats.completed;
             const remainingChildren = directChildStats.remaining;
-            const childStatsHtml = remainingChildren > 0
-                ? `<span class="tm-task-child-count" style="font-size: 11px; color: var(--tm-secondary-text); margin-left: 4px; background: var(--tm-doc-count-bg); padding: 1px 5px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; height: 14px;" title="共${totalChildren}个任务，已完成${completedChildren}个，剩余${remainingChildren}个">${remainingChildren}</span>`
+            const childStatsHtml = totalChildren > 0
+                ? `<span class="tm-task-child-count" data-tm-subtask-count-owner="${esc(taskId)}" data-tm-subtask-count-format="remaining"${remainingChildren > 0 ? '' : ' hidden'} style="font-size: 11px; color: var(--tm-secondary-text); margin-left: 4px; background: var(--tm-doc-count-bg); padding: 1px 5px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; height: 14px;" title="共${totalChildren}个任务，已完成${completedChildren}个，剩余${remainingChildren}个">${remainingChildren}</span>`
                 : '';
 
             const indent = Math.max(0, Number(depth) || 0) * 12;
@@ -331,7 +331,7 @@
                         break;
                     case 'content':
                         rowHtml += `
-                    <td class="tm-task-content-cell" style="${getTableCellStyle('content', progressBgStyle)}">
+                    <td class="tm-task-content-cell" data-tm-subtask-progress-owner="${esc(taskId)}" data-tm-subtask-progress-kind="background" style="${getTableCellStyle('content', progressBgStyle)}">
                         <div class="tm-task-cell" style="padding-left:${contentIndent}px">
                             ${treeGuides}
                             <span class="${leadingClass}">
@@ -1804,7 +1804,7 @@ return finish(false, 'noop');
                     __tmProtectMarkdownMutationTaskFields(tid, task0, { source: 'set-done-stateless' });
                 }
             } catch (e) {}
-            await __tmBackendAdapter.updateBlock(tid, nextMd);
+            await __tmUpdateTaskListItemMarkerWithFallback(tid, targetDone ? 'X' : ' ');
             return { ok: true, changed: true, changedToDone, previousDone: wasDone, previousMarker };
         } catch (e) {
             return false;
@@ -4060,6 +4060,7 @@ if (ev) {
             return true;
         }
 
+        try { globalThis.__tmDisposeTaskDetailRoot?.(document.getElementById('tm-task-detail-overlay')); } catch (e) {}
         __tmRemoveElementsById('tm-task-detail-overlay');
 
         const overlay = document.createElement('div');
@@ -4089,7 +4090,7 @@ if (ev) {
         const close = async () => {
             return await __tmRunTaskDetailClose(overlay, async () => {
                 try { globalThis.__tmRuntimeEvents?.off?.(document, 'keydown', onKeydown, true); } catch (e) {}
-                try { overlay.__tmTaskDetailAbortController?.abort?.(); } catch (e) {}
+                try { globalThis.__tmDisposeTaskDetailRoot?.(overlay); } catch (e) {}
                 try { overlay.remove(); } catch (e) {}
             }, { holdMs: 900 });
         };

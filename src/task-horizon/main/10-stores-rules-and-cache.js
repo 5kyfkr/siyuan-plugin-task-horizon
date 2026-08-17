@@ -8290,6 +8290,7 @@
             groupByTime: false,
             defaultViewMode: 'checklist',
             defaultViewModeMobile: 'checklist',
+            mobileAutoOpenOnStartup: false,
             dockSidebarEnabled: true,
             dockDefaultViewMode: 'follow-mobile',
             dockSidebarFollowCurrentDocument: false,
@@ -8956,6 +8957,7 @@
                                 if (typeof cloudData.groupByTime === 'boolean') this.data.groupByTime = cloudData.groupByTime;
                                 if (typeof cloudData.defaultViewMode === 'string') this.data.defaultViewMode = cloudData.defaultViewMode;
                                 if (typeof cloudData.defaultViewModeMobile === 'string') this.data.defaultViewModeMobile = cloudData.defaultViewModeMobile;
+                                if (typeof cloudData.mobileAutoOpenOnStartup === 'boolean') this.data.mobileAutoOpenOnStartup = cloudData.mobileAutoOpenOnStartup;
                                 if (typeof cloudData.dockSidebarEnabled === 'boolean') this.data.dockSidebarEnabled = cloudData.dockSidebarEnabled;
                                 if (typeof cloudData.dockDefaultViewMode === 'string') this.data.dockDefaultViewMode = cloudData.dockDefaultViewMode;
                                 if (typeof cloudData.dockSidebarFollowCurrentDocument === 'boolean') this.data.dockSidebarFollowCurrentDocument = cloudData.dockSidebarFollowCurrentDocument;
@@ -9437,6 +9439,7 @@
             this.data.groupByTime = Storage.get('tm_group_by_time', false);
             this.data.defaultViewMode = Storage.get('tm_default_view_mode', this.data.defaultViewMode);
             this.data.defaultViewModeMobile = Storage.get('tm_default_view_mode_mobile', this.data.defaultViewModeMobile || this.data.defaultViewMode);
+            this.data.mobileAutoOpenOnStartup = Storage.get('tm_mobile_auto_open_on_startup', this.data.mobileAutoOpenOnStartup) === true;
             this.data.dockSidebarEnabled = !!Storage.get('tm_dock_sidebar_enabled', this.data.dockSidebarEnabled);
             this.data.dockDefaultViewMode = Storage.get('tm_dock_default_view_mode', this.data.dockDefaultViewMode || 'follow-mobile');
             this.data.dockSidebarFollowCurrentDocument = !!Storage.get('tm_dock_sidebar_follow_current_document', this.data.dockSidebarFollowCurrentDocument);
@@ -9984,10 +9987,12 @@
             this.data.enabledViews = __tmNormalizeEnabledViews(this.data.enabledViews);
             this.data.defaultViewMode = __tmGetSafeViewMode(this.data.defaultViewMode);
             this.data.defaultViewModeMobile = __tmGetSafeViewMode(this.data.defaultViewModeMobile || this.data.defaultViewMode);
+            this.data.mobileAutoOpenOnStartup = this.data.mobileAutoOpenOnStartup === true;
             this.data.dockSidebarEnabled = this.data.dockSidebarEnabled !== false;
             this.data.dockSidebarFollowCurrentDocument = !!this.data.dockSidebarFollowCurrentDocument;
             Storage.set('tm_default_view_mode', String(this.data.defaultViewMode || 'checklist').trim() || 'checklist');
             Storage.set('tm_default_view_mode_mobile', String(this.data.defaultViewModeMobile || this.data.defaultViewMode || 'checklist').trim() || 'checklist');
+            Storage.set('tm_mobile_auto_open_on_startup', this.data.mobileAutoOpenOnStartup);
             Storage.set('tm_dock_sidebar_enabled', !!this.data.dockSidebarEnabled);
             Storage.set('tm_dock_default_view_mode', String(this.data.dockDefaultViewMode || 'follow-mobile').trim() || 'follow-mobile');
             Storage.set('tm_dock_sidebar_follow_current_document', this.data.dockSidebarFollowCurrentDocument);
@@ -10365,6 +10370,7 @@
         },
 
         normalizeColumns() {
+            this.data.mobileAutoOpenOnStartup = this.data.mobileAutoOpenOnStartup === true;
             this.data.customFieldDefs = __tmNormalizeCustomFieldDefs(this.data.customFieldDefs);
             this.data.customFieldDefsVersion = __tmParseVersionNumber(this.data.customFieldDefsVersion);
             try { __tmInvalidateCustomFieldDefsRuntimeCache(); } catch (e) {}

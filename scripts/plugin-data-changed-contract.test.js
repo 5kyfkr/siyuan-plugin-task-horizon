@@ -13,12 +13,14 @@ const refreshRuntime = fs.readFileSync(
 const legacyAi = fs.readFileSync(path.join(root, 'ai.js'), 'utf8');
 const agentWorkbench = fs.readFileSync(path.join(root, 'src/ai/agent-workbench.js'), 'utf8');
 
-const handlerStart = index.indexOf('async onDataChanged()');
+const handlerStart = index.indexOf('    requestSyncedDataReload(reason = "siyuan-data-changed", options = {})');
 const handlerEnd = index.indexOf('\n    onLayoutReady()', handlerStart);
-assert.notEqual(handlerStart, -1, 'the plugin must override SiYuan onDataChanged');
-assert.notEqual(handlerEnd, -1, 'the onDataChanged handler must remain independently inspectable');
+assert.notEqual(handlerStart, -1, 'the plugin must expose its synchronized reload scheduler');
+assert.notEqual(handlerEnd, -1, 'the synchronized reload lifecycle must remain independently inspectable');
 const handler = index.slice(handlerStart, handlerEnd);
 
+assert.match(handler, /async onDataChanged\(\)[\s\S]*requestSyncedDataReload\("siyuan-data-changed"/,
+    'SiYuan data-change notifications must enter the shared synchronized reload scheduler');
 assert.doesNotMatch(handler, /super\.onDataChanged|this\.onunload|removeWindowTopBar/, 'storage sync must not unload the plugin or remove its topbar');
 assert.match(handler, /_taskDataChangedPromise/, 'concurrent data-change notifications must share one reload');
 assert.match(handler, /_taskDataChangedQueued/, 'a notification received during reload must be replayed once');

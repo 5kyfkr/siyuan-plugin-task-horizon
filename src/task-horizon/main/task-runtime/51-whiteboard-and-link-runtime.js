@@ -4427,26 +4427,48 @@ return false;
 
     function __tmSyncTaskSubtaskSummaryInPlace(taskId, rootInput = null) {
         const tid = String(taskId || '').trim();
-        const root = rootInput instanceof Element
-            ? rootInput
-            : (state.modal instanceof Element ? state.modal : null);
-        if (!tid || !root) return false;
+        const roots = new Set();
+        const addRoot = (root) => {
+            if (root instanceof Element) roots.add(root);
+        };
+        addRoot(rootInput instanceof Element ? rootInput : state.modal);
+        try {
+            if (typeof __tmCollectVisibleTaskDetailRoots === 'function') {
+                __tmCollectVisibleTaskDetailRoots().forEach(addRoot);
+            }
+        } catch (e) {}
+        if (!tid || !roots.size) return false;
         const stats = __tmGetProjectedDirectChildStats(tid);
         const escapedId = CSS.escape(tid);
         let touched = false;
-        root.querySelectorAll(`[data-tm-subtask-count-owner="${escapedId}"]`).forEach((node) => {
+        const countNodes = new Set();
+        const progressNodes = new Set();
+        roots.forEach((root) => {
+            root.querySelectorAll(`[data-tm-subtask-count-owner="${escapedId}"]`).forEach((node) => countNodes.add(node));
+            root.querySelectorAll(`[data-tm-subtask-progress-owner="${escapedId}"]`).forEach((node) => progressNodes.add(node));
+        });
+        countNodes.forEach((node) => {
             if (!(node instanceof HTMLElement)) return;
-            node.textContent = node.classList.contains('tm-checklist-meta-chip')
-                ? `子任务 ${stats.completed}/${stats.total}`
-                : `${stats.completed}/${stats.total}`;
+            const format = String(node.getAttribute('data-tm-subtask-count-format') || 'ratio').trim();
+            const remaining = Math.max(0, stats.total - stats.completed);
+            if (format === 'remaining') {
+                node.textContent = String(remaining);
+                node.hidden = remaining === 0;
+                node.title = `共${stats.total}个任务，已完成${stats.completed}个，剩余${remaining}个`;
+            } else {
+                node.textContent = node.classList.contains('tm-checklist-meta-chip')
+                    ? `子任务 ${stats.completed}/${stats.total}`
+                    : `${stats.completed}/${stats.total}`;
+            }
             touched = true;
         });
-        root.querySelectorAll(`[data-tm-subtask-progress-owner="${escapedId}"]`).forEach((node) => {
+        progressNodes.forEach((node) => {
             if (!(node instanceof HTMLElement)) return;
-            if (node.classList.contains('tm-checklist-item')) {
+            const progressKind = String(node.getAttribute('data-tm-subtask-progress-kind') || '').trim();
+            if (node.classList.contains('tm-checklist-item') || progressKind === 'background') {
                 const compact = node.closest('.tm-checklist-pane--compact') instanceof Element;
                 const progressColor = __tmGetEffectiveProgressBarColor(__tmIsDarkMode());
-                if (compact) {
+                if (node.classList.contains('tm-checklist-item') && compact) {
                     node.style.setProperty('--tm-checklist-progress-color', progressColor);
                     node.style.setProperty('--tm-checklist-progress-percent', `${stats.percent}%`);
                 } else if (stats.percent > 0) {
@@ -4465,6 +4487,11 @@ return false;
             }
             touched = true;
         });
+        try {
+            if (typeof __tmDispatchTaskSubtaskSummaryUpdated === 'function') {
+                __tmDispatchTaskSubtaskSummaryUpdated(tid, stats);
+            }
+        } catch (e) {}
         return touched;
     }
 
@@ -5389,6 +5416,7 @@ return false;
             ? { customStatus: String(normalizedPatch.customStatus || '').trim() }
             : {};
         const marker = Object.keys(statusPatch).length ? (__tmResolveTaskMarkdownMarker(task) || __tmResolveTaskMarker(task)) : '';
+        const projectionPatch = { ...normalizedPatch };
         if (statusPatch.customStatus) {
             const targetStatus = __tmFindStatusOptionById(statusPatch.customStatus);
             if (targetStatus) {
@@ -5404,11 +5432,17 @@ return false;
                     if (normalizedPatch.done && !task?.done) Object.assign(normalizedPatch, __tmBuildTaskCompleteAtPatch());
                     else if (!normalizedPatch.done && task?.done) normalizedPatch.taskCompleteAt = '';
                 }
+                Object.assign(projectionPatch, normalizedPatch, {
+                    taskMarker: targetMarker,
+                    task_marker: targetMarker,
+                    markdown: __tmBuildTaskMarkdownWithMarker(task, targetMarker),
+                });
             }
         }
         return {
             taskId: String(taskId || '').trim(),
             normalizedPatch,
+            projectionPatch,
             doneValue: Object.prototype.hasOwnProperty.call(normalizedPatch, 'done') ? !!normalizedPatch.done : null,
             explicitDone,
             explicitCustomStatus,
@@ -5500,6 +5534,29 @@ return false;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
         let touched = false;
+        const compactChecklistItem = root.classList.contains('tm-checklist-item')
+            && root.closest('.tm-checklist-pane--compact') instanceof Element;
+        const compactRemarkHtml = compactChecklistItem ? __tmRenderTaskCardRemark(taskLike) : '';
+        let compactRemarkEl = compactChecklistItem
+            ? root.querySelector(':scope > .tm-checklist-item-main > .tm-task-card-remark')
+            : null;
+        if (compactChecklistItem) {
+            root.classList.toggle('tm-checklist-item--has-remark', !!compactRemarkHtml);
+            if (!compactRemarkHtml && compactRemarkEl instanceof HTMLElement) {
+                compactRemarkEl.remove();
+                compactRemarkEl = null;
+                touched = true;
+            } else if (compactRemarkHtml && compactRemarkEl instanceof HTMLElement) {
+                compactRemarkEl.outerHTML = compactRemarkHtml;
+                touched = true;
+            } else if (compactRemarkHtml) {
+                const titleRow = root.querySelector(':scope > .tm-checklist-item-main > .tm-checklist-title-row');
+                if (titleRow instanceof HTMLElement) {
+                    titleRow.insertAdjacentHTML('afterend', compactRemarkHtml);
+                    touched = true;
+                }
+            }
+        }
         const remarkCell = root.querySelector('[data-tm-field="remark"]');
         if (remarkCell instanceof HTMLElement) {
             const text = String(taskLike.remark || '');
@@ -5511,7 +5568,7 @@ return false;
         }
         const remarkIconSlot = root.querySelector('[data-tm-field="remarkIcon"]');
         if (remarkIconSlot instanceof HTMLElement) {
-            remarkIconSlot.innerHTML = __tmRenderRemarkIcon(taskLike.remark);
+            remarkIconSlot.innerHTML = compactRemarkHtml ? '' : __tmRenderRemarkIcon(taskLike.remark);
             touched = true;
         }
         return touched || (!(remarkCell instanceof HTMLElement) && !(remarkIconSlot instanceof HTMLElement));
@@ -8404,7 +8461,7 @@ return false;
             : 0;
         if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
         const plan = __tmBuildTaskCommandPlan(tid, nextPatch, opts);
-        const inversePatch = __tmCaptureTaskPatchInverse(tid, plan.normalizedPatch);
+        const inversePatch = __tmCaptureTaskPatchInverse(tid, plan.projectionPatch);
         if (opts.skipNoopCheck !== true && __tmIsPatchNoop(plan.normalizedPatch, inversePatch)) return Promise.resolve(false);
         const taskLike = __tmTaskStateKernel.getTask(tid);
         const attachmentPreviousSnapshot = Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'attachments')
@@ -8453,6 +8510,7 @@ return false;
             data: {
                 taskId: tid,
                 patch: { ...plan.normalizedPatch },
+                projectionPatch: { ...plan.projectionPatch },
                 statusBefore: plan.statusBefore && typeof plan.statusBefore === 'object'
                     ? { ...plan.statusBefore }
                     : null,
@@ -11468,7 +11526,7 @@ return false;
             const totalKids = kids.length;
             const doneKids = kids.filter((child) => __tmIsTaskCompletedForProjection(child)).length;
             const childStatsHtml = totalKids > 0
-                ? `<span class="tm-task-detail-subtask-count">${doneKids}/${totalKids}</span>`
+                ? `<span class="tm-task-detail-subtask-count" data-tm-subtask-count-owner="${esc(tid)}">${doneKids}/${totalKids}</span>`
                 : '';
             const childrenHtml = kids.map((child) => renderNode(child, depth + 1)).join('');
             const checkboxExtraClass = [

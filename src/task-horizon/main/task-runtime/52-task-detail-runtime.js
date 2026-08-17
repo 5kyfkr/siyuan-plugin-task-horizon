@@ -2661,6 +2661,177 @@
         return true;
     }
 
+    const __tmTaskDetailFocusRoots = new Set();
+
+    function __tmDisposeTaskDetailRoot(root) {
+        if (!(root instanceof Element)) return false;
+        const section = root.querySelector?.('[data-tm-detail-focus-stats]');
+        if (section instanceof HTMLElement) {
+            try { section.dataset.tmFocusStatsRequest = `disposed:${Date.now()}`; } catch (e) {}
+        }
+        try { root.__tmTaskDetailFocusAbortController?.abort?.(); } catch (e) {}
+        try { root.__tmTaskDetailAbortController?.abort?.(); } catch (e) {}
+        __tmTaskDetailFocusRoots.delete(root);
+        try { delete root.__tmTaskDetailAbortController; } catch (e) {}
+        try { delete root.__tmTaskDetailFocusAbortController; } catch (e) {}
+        try { delete root.__tmTaskDetailTask; } catch (e) {}
+        try { delete root.__tmTaskDetailTaskId; } catch (e) {}
+        return true;
+    }
+
+    function __tmDisposeTaskDetailRuntime(container = null) {
+        const host = container instanceof Element ? container : null;
+        let disposed = 0;
+        Array.from(__tmTaskDetailFocusRoots).forEach((root) => {
+            if (host && root !== host && !host.contains(root)) return;
+            if (__tmDisposeTaskDetailRoot(root)) disposed += 1;
+        });
+        if (!host) __tmTaskDetailFocusRoots.clear();
+        return disposed;
+    }
+
+    globalThis.__tmDisposeTaskDetailRoot = __tmDisposeTaskDetailRoot;
+    globalThis.__tmDisposeTaskDetailRuntime = __tmDisposeTaskDetailRuntime;
+
+    function __tmTaskDetailCreatedAtIso(task) {
+        const raw = String(task?.created || task?.id || task?.blockId || '').trim();
+        const match = raw.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
+        if (match) {
+            const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6]));
+            if (!Number.isNaN(date.getTime())) return date.toISOString();
+        }
+        const parsed = Date.parse(raw);
+        return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date(2000, 0, 1).toISOString();
+    }
+
+    function __tmFormatTaskDetailFocusDuration(seconds) {
+        const minutes = Math.max(0, Math.round((Number(seconds) || 0) / 60));
+        if (minutes < 60) return `${minutes} 分钟`;
+        const hours = Math.floor(minutes / 60);
+        const rest = minutes % 60;
+        return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+    }
+
+    function __tmIsTaskDetailFocusStatisticsAvailable() {
+        const service = globalThis.__tmFocusStatisticsService;
+        return !!(service && typeof service.queryFocus === 'function'
+            && (typeof service.isAvailable !== 'function' || service.isAvailable() === true));
+    }
+
+    function __tmRenderTaskDetailFocusStats(section, detail) {
+        if (!(section instanceof HTMLElement)) return false;
+        const self = detail?.self || {};
+        const descendants = detail?.descendants || {};
+        const combined = detail?.combined || {};
+        const combinedFocusSec = Number(combined.focusSec);
+        if (!Number.isFinite(combinedFocusSec) || combinedFocusSec <= 0) {
+            section.hidden = true;
+            section.innerHTML = '';
+            return false;
+        }
+        const expanded = section.querySelector('[data-tm-detail-section-toggle]')?.getAttribute('aria-expanded') !== 'false';
+        const items = [
+            ['自身', self.focusSec],
+            ['子任务', descendants.focusSec],
+            ['合计', combinedFocusSec],
+        ];
+        section.innerHTML = `
+            <div class="tm-task-detail-section-head">
+                <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="${expanded ? 'true' : 'false'}">
+                    <span class="tm-task-detail-section-title">专注统计</span>
+                    <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
+                </button>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:4px 0 2px;">
+                ${items.map(([label, seconds]) => `<div style="min-width:0;padding:9px 10px;border:1px solid var(--tm-border-color);border-radius:6px;background:var(--tm-card-bg);"><div style="font-size:11px;color:var(--tm-secondary-text);">${esc(label)}</div><div style="margin-top:4px;font-size:13px;font-weight:600;color:var(--tm-text-color);overflow-wrap:anywhere;">${esc(__tmFormatTaskDetailFocusDuration(seconds))}</div></div>`).join('')}
+            </div>
+        `;
+        section.hidden = false;
+        section.classList.toggle('is-collapsed', !expanded);
+        Array.from(section.children).forEach((child, index) => {
+            if (child instanceof HTMLElement && index > 0) child.hidden = !expanded;
+        });
+        return true;
+    }
+
+    async function __tmLoadTaskDetailFocusStats(root, task) {
+        const section = root?.querySelector?.('[data-tm-detail-focus-stats]');
+        const taskId = String(task?.id || '').trim();
+        if (!(section instanceof HTMLElement) || !taskId) return false;
+        const service = globalThis.__tmFocusStatisticsService;
+        if (!__tmIsTaskDetailFocusStatisticsAvailable()) {
+            return __tmRenderTaskDetailFocusStats(section, null);
+        }
+        const requestId = `${taskId}:${Date.now()}`;
+        section.dataset.tmFocusStatsRequest = requestId;
+        try { root.__tmTaskDetailFocusAbortController?.abort?.(); } catch (e) {}
+        const queryController = new AbortController();
+        try { root.__tmTaskDetailFocusAbortController = queryController; } catch (e) {}
+        const rootSignal = root.__tmTaskDetailAbortController?.signal || null;
+        const abortQuery = () => {
+            try { queryController.abort(); } catch (e) {}
+        };
+        rootSignal?.addEventListener?.('abort', abortQuery, { once: true });
+        const options = {
+            from: __tmTaskDetailCreatedAtIso(task),
+            to: new Date().toISOString(),
+            bucket: 'none',
+            groupBy: 'task',
+            rootTaskID: taskId,
+        };
+        try {
+            const result = await service.queryFocus(options, {
+                channel: `task-detail:${taskId}`,
+                isCurrent: () => section.dataset.tmFocusStatsRequest === requestId,
+                signal: queryController.signal,
+            });
+            if (section.dataset.tmFocusStatsRequest !== requestId) return false;
+            return __tmRenderTaskDetailFocusStats(section, result?.parentDetail);
+        } catch (e) {
+            if (section.dataset.tmFocusStatsRequest !== requestId) return false;
+            return __tmRenderTaskDetailFocusStats(section, null);
+        } finally {
+            rootSignal?.removeEventListener?.('abort', abortQuery);
+            if (root.__tmTaskDetailFocusAbortController === queryController) {
+                try { delete root.__tmTaskDetailFocusAbortController; } catch (e) {}
+            }
+        }
+    }
+
+    function __tmRefreshOpenTaskDetailFocusStats(options = {}) {
+        const availabilityChanged = options?.availabilityChanged === true;
+        const available = __tmIsTaskDetailFocusStatisticsAvailable();
+        let refreshed = 0;
+        const rebuildTaskIDs = new Set();
+        __tmTaskDetailFocusRoots.forEach((root) => {
+            if (!(root instanceof HTMLElement) || !root.isConnected) {
+                __tmTaskDetailFocusRoots.delete(root);
+                return;
+            }
+            const task = root.__tmTaskDetailTask || null;
+            const taskId = String(task?.id || root.dataset?.tmDetailTaskId || root.__tmTaskDetailTaskId || '').trim();
+            if (!taskId) return;
+            const section = root.querySelector('[data-tm-detail-focus-stats]');
+            if (section instanceof HTMLElement) {
+                Promise.resolve(__tmLoadTaskDetailFocusStats(root, task || { id: taskId })).catch(() => {});
+                refreshed += 1;
+                return;
+            }
+            if (availabilityChanged && available) rebuildTaskIDs.add(taskId);
+        });
+        rebuildTaskIDs.forEach((taskId) => {
+            try {
+                if (__tmRefreshVisibleTaskDetailForTask(taskId, {
+                    forceRebuild: true,
+                    source: 'tomato-stats-availability-changed',
+                })) refreshed += 1;
+            } catch (e) {}
+        });
+        return refreshed;
+    }
+
+    globalThis.__tmRefreshOpenTaskDetailFocusStats = __tmRefreshOpenTaskDetailFocusStats;
+
     function __tmBuildTaskDetailInnerHtml(task, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const embedded = !!opts.embedded;
@@ -2682,6 +2853,7 @@
         const curPriority = String(task?.priority || '').trim().toLowerCase();
         const curPinned = !!task?.pinned;
         const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
+        const focusStatisticsEnabled = tomatoEnabled && __tmIsTaskDetailFocusStatisticsAvailable();
         const curReminderSnapshot = tomatoEnabled ? __tmPeekTaskReminderSnapshotByAnyId(task) : null;
         const curHasReminder = tomatoEnabled && (curReminderSnapshot?.hasReminder === true || __tmHasReminderMark(task));
         const curReminderText = curHasReminder ? __tmFormatTaskDetailReminderText(task, curReminderSnapshot) : '';
@@ -2951,6 +3123,7 @@
                     </div>
                     ${customFieldsHtml}
                 </div>
+                ${focusStatisticsEnabled ? `<section class="tm-task-detail-section" data-tm-detail-focus-stats data-tm-detail-collapsible-section data-task-id="${esc(String(task?.id || ''))}" hidden></section>` : ''}
                 <section class="tm-task-detail-section tm-task-detail-section--subtasks ${children.length ? '' : 'tm-task-detail-section--subtasks-empty'}" data-tm-detail-collapsible-section>
                     <div class="tm-task-detail-section-head">
                         <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="true">
@@ -3078,6 +3251,21 @@
         try { root.__tmTaskDetailAbortController?.abort?.(); } catch (e) {}
         const abortController = new AbortController();
         try { root.__tmTaskDetailAbortController = abortController; } catch (e) {}
+        if (SettingsStore.data.enableTomatoIntegration) {
+            __tmTaskDetailFocusRoots.add(root);
+            try {
+                abortController.signal.addEventListener('abort', () => {
+                    __tmTaskDetailFocusRoots.delete(root);
+                }, { once: true });
+            } catch (e) {}
+        } else {
+            __tmTaskDetailFocusRoots.delete(root);
+        }
+        if (initialTask && SettingsStore.data.enableTomatoIntegration) {
+            if (root.querySelector('[data-tm-detail-focus-stats]')) {
+                Promise.resolve().then(() => __tmLoadTaskDetailFocusStats(root, initialTask)).catch(() => {});
+            }
+        }
         const sessionId = __tmCreateTaskDetailSession(root, taskId);
         try { root.__tmTaskDetailPendingSave = false; } catch (e) {}
         const on = (target, type, handler, listenerOptions) => {
@@ -4868,6 +5056,11 @@
                         onPending: (pendingPromise, op) => {
                             const opId = String(op?.id || '').trim();
                             trackDetailCommit(pendingPromise, Object.keys(fieldPatch).map((key) => `field:${key}`), opId);
+                            if (Object.prototype.hasOwnProperty.call(fieldPatch, 'remark')) {
+                                Promise.resolve(pendingPromise).then(() => {
+                                    syncRemarkSavedState(nextRemark);
+                                }, () => null);
+                            }
                         },
                     });
                     if (waitForCommit) {
@@ -4910,9 +5103,6 @@
                 syncMetaChipFaces();
                 try { __tmInvalidateTasksQueryCacheByDocId(task.root_id || task.docId); } catch (e) {}
                 lastSerialized = serialized;
-                if (Object.prototype.hasOwnProperty.call(fieldPatch || {}, 'remark')) {
-                    syncRemarkSavedState(nextRemark);
-                }
                 try {
                     __tmPushDetailDebug('detail-save-success', {
                         taskId: String(task.id || '').trim(),
@@ -5392,6 +5582,8 @@
         const commitDetailFieldPatch = (patch = {}, options = {}) => {
             const nextPatch = (patch && typeof patch === 'object' && !Array.isArray(patch)) ? patch : {};
             const opts = (options && typeof options === 'object') ? options : {};
+            const commitKeys = Object.keys(nextPatch).map((key) => `field:${key}`);
+            const callerOnPending = typeof opts.onPending === 'function' ? opts.onPending : null;
             const rawId = String(opts.taskId || getBoundTaskId() || taskId || '').trim();
             const tid = __tmResolveTaskDetailEffectiveId(rawId) || rawId;
             if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
@@ -5436,6 +5628,12 @@
                 skipDetailPatch: opts.skipDetailPatch !== false,
                 allowMountedInactive: true,
                 showErrorHint: false,
+                onPending: (pendingPromise, op) => {
+                    trackDetailCommit(pendingPromise, commitKeys, String(op?.id || '').trim());
+                    if (callerOnPending) {
+                        try { callerOnPending(pendingPromise, op); } catch (e) {}
+                    }
+                },
             });
             try {
                 const latestTask = __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true });
@@ -8679,6 +8877,8 @@
             };
             let remarkEnterGuardUntil = 0;
             let remarkExitInFlight = false;
+            let remarkCommitInFlight = null;
+            let remarkCommitValue = '';
             const armRemarkInteractionGuard = (duration = null) => {
                 const fallback = __tmIsMobileDevice() ? 900 : 360;
                 const ttl = Math.max(0, Number(duration) || fallback);
@@ -8783,6 +8983,50 @@
                 if (!force && remarkShell.classList.contains('is-editing') && __tmIsMobileDevice()) return;
                 remarkPreview.innerHTML = __tmRenderRemarkMarkdown(remarkTextarea.value || '');
             };
+            const commitRemarkValue = () => {
+                const nextValue = __tmNormalizeRemarkMarkdown(remarkTextarea.value || '');
+                const currentValue = __tmNormalizeRemarkMarkdown(__tmGetTaskDetailRemarkRaw(getBoundTask()));
+                const savedValue = __tmNormalizeRemarkMarkdown(remarkTextarea.dataset.savedValue || '');
+                if (nextValue === currentValue) {
+                    if (nextValue === savedValue) {
+                        pendingDetailCommitErrors.delete('field:remark');
+                        syncRemarkSavedState(nextValue);
+                    }
+                    return Promise.resolve(true);
+                }
+                if (remarkCommitInFlight && remarkCommitValue === nextValue) return remarkCommitInFlight;
+
+                let pendingPromise = null;
+                const request = commitDetailFieldPatch({ remark: nextValue }, {
+                    source: 'detail-remark',
+                    reason: 'detail-remark',
+                    label: '备注',
+                    onPending: (promise) => {
+                        pendingPromise = Promise.resolve(promise);
+                    },
+                });
+                const persistence = pendingPromise || Promise.resolve(request);
+                const run = async () => {
+                    try {
+                        const result = await persistence;
+                        if (result === false) throw new Error('备注未写入');
+                        syncRemarkSavedState(nextValue);
+                        return true;
+                    } catch (error) {
+                        try { remarkTextarea.dataset.dirty = 'true'; } catch (e) {}
+                        throw error;
+                    } finally {
+                        if (remarkCommitInFlight === runPromise) {
+                            remarkCommitInFlight = null;
+                            remarkCommitValue = '';
+                        }
+                    }
+                };
+                const runPromise = run();
+                remarkCommitInFlight = runPromise;
+                remarkCommitValue = nextValue;
+                return runPromise;
+            };
             const setRemarkToolbarOpen = (open) => {
                 if (!(remarkToolbar instanceof HTMLElement)) return;
                 remarkToolbar.classList.toggle('is-open', !!open);
@@ -8829,12 +9073,7 @@
                     syncRemarkHeight();
                     syncRemarkPreview(true);
                     if (save) {
-                        await flushAutoSaveNow({
-                            showHint: false,
-                            closeAfterSave: false,
-                            preserveFocus: false,
-                            skipRerender: true,
-                        }).catch(() => null);
+                        await commitRemarkValue().catch(() => false);
                     }
                     setRemarkToolbarOpen(false);
                     remarkShell.classList.remove('is-editing');
@@ -8952,8 +9191,7 @@
                 remarkPendingInputScrollSnapshot = null;
                 syncRemarkHeight();
                 syncRemarkPreview(true);
-                syncRemarkSavedState(__tmGetTaskDetailRemarkRaw(root.__tmTaskDetailTask));
-                flushAutoSaveNow({ showHint: false, closeAfterSave: false, preserveFocus: true, skipRerender: true }).catch(() => null);
+                commitRemarkValue().catch(() => null);
             });
             if (remarkToolbarToggle instanceof HTMLButtonElement) {
                 on(remarkToolbarToggle, 'mousedown', (ev) => {
@@ -9373,6 +9611,7 @@ return true;
             if (task) __tmBindTaskDetailEditor(panel, selectedId, {
                 embedded: true,
                 source: `checklist-selection-rebuild:${String(source || '').trim() || 'unknown'}`,
+                task,
                 onClose: () => {
                     state.detailTaskId = '';
                     state.checklistDetailDismissed = true;
@@ -9481,7 +9720,9 @@ return true;
         try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
         try {
             modal?.querySelectorAll?.('#tmKanbanDetailFloat')?.forEach?.((floatPanel) => {
-                if (floatPanel instanceof HTMLElement) floatPanel.remove();
+                if (!(floatPanel instanceof HTMLElement)) return;
+                try { __tmDisposeTaskDetailRoot(floatPanel.querySelector('#tmKanbanDetailPanel')); } catch (e) {}
+                floatPanel.remove();
             });
         } catch (e) {}
     }
@@ -9630,6 +9871,7 @@ return true;
         state.detailTaskId = tid;
         state.checklistDetailDismissed = false;
         state.checklistDetailSheetOpen = true;
+        try { globalThis.__tmDisposeTaskDetailRoot?.(document.getElementById('tm-task-detail-overlay')); } catch (e) {}
         try { __tmRemoveElementsById('tm-task-detail-overlay'); } catch (e) {}
         try { __tmClearKanbanDetailForTaskSheet(modal); } catch (e) {}
         const source = String(opts.source || '').trim() || 'task-detail-sheet-open';
@@ -10387,6 +10629,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         }
         floats.forEach((el) => {
             if (el === preferred) return;
+            try { __tmDisposeTaskDetailRoot(el.querySelector('#tmKanbanDetailPanel')); } catch (e) {}
             try { el.remove(); } catch (e) {}
         });
         return preferred;
@@ -10533,6 +10776,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
             state.kanbanDetailAnchorTaskId = '';
             try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
             if (floatPanel instanceof HTMLElement) {
+                try { __tmDisposeTaskDetailRoot(panel); } catch (e) {}
                 try { __tmAnimatePopupOutAndRemove(floatPanel, { duration: 110 }); } catch (e) {
                     try { floatPanel.remove(); } catch (e2) {}
                 }

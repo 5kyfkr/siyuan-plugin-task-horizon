@@ -46,8 +46,25 @@
     let __tmAgentMcpEntitlementSyncPromise = null;
     let __tmAgentMcpCapabilities = null;
     let __tmAgentCapabilityPolicyQueue = Promise.resolve();
+    let __tmAgentMcpStartupDisposed = false;
+    let __tmAgentMcpKernelStateHandler = null;
+    let __tmAgentMcpKernelStateEventBus = null;
+    let __tmAgentMcpLicenseChangeHandler = null;
+    const __tmAgentMcpStartupWaiters = new Set();
     const __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS = [0, 500, 1000, 2000, 3000];
     const __TM_AGENT_BACKEND_CAPABILITY_PREFIX = 'plugin/backend/siyuan-plugin-task-horizon/';
+
+    function __tmWaitForAgentMcpStartupRetry(delayMs) {
+        if (__tmAgentMcpStartupDisposed) return Promise.resolve(false);
+        return new Promise((resolve) => {
+            const waiter = { timer: null, resolve };
+            waiter.timer = setTimeout(() => {
+                __tmAgentMcpStartupWaiters.delete(waiter);
+                resolve(!__tmAgentMcpStartupDisposed);
+            }, Math.max(0, Number(delayMs) || 0));
+            __tmAgentMcpStartupWaiters.add(waiter);
+        });
+    }
 
     function __tmAgentMcpHasFullFeature() {
         return typeof window.tmLicenseHasFeature === 'function' && window.tmLicenseHasFeature('pro');
@@ -225,20 +242,29 @@
     async function __tmSyncAgentMcpEntitlementDefault() {
         if (__tmAgentMcpEntitlementSyncPromise) return await __tmAgentMcpEntitlementSyncPromise;
         __tmAgentMcpEntitlementSyncPromise = Promise.resolve().then(async () => {
+            if (__tmAgentMcpStartupDisposed) return false;
             if (!SettingsStore.loaded) await SettingsStore.load();
-            try { await window.tmLicenseLoad?.(false); } catch (e) {}
+            try {
+                if (window.tmGetLicenseState?.()?.loaded !== true) await window.tmLicenseLoad?.(false);
+            } catch (e) {}
             const allowed = __tmAgentMcpHasFullFeature();
             const initialized = SettingsStore.data.agentMcpEnabledInitialized === true;
             const desired = allowed && (initialized ? SettingsStore.data.agentMcpEnabled === true : true);
             let lastError = null;
-            for (const delayMs of __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS) {
-                if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+            for (let index = 0; index < __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS.length; index += 1) {
+                const delayMs = __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS[index];
+                if (delayMs > 0 && !await __tmWaitForAgentMcpStartupRetry(delayMs)) return false;
                 try {
                     const capabilities = await __tmSyncAgentMcpAuthorization(allowed, desired);
                     if (!capabilities) throw new Error('任务 MCP 工具服务尚未启动');
-                    SettingsStore.data.agentMcpEnabled = allowed && capabilities.mcpEnabled === true;
-                    if (allowed) SettingsStore.data.agentMcpEnabledInitialized = true;
-                    await SettingsStore.save();
+                    if (__tmAgentMcpStartupDisposed) return false;
+                    const nextEnabled = allowed && capabilities.mcpEnabled === true;
+                    const nextInitialized = SettingsStore.data.agentMcpEnabledInitialized === true || allowed;
+                    const settingsChanged = SettingsStore.data.agentMcpEnabled !== nextEnabled
+                        || SettingsStore.data.agentMcpEnabledInitialized !== nextInitialized;
+                    SettingsStore.data.agentMcpEnabled = nextEnabled;
+                    SettingsStore.data.agentMcpEnabledInitialized = nextInitialized;
+                    if (settingsChanged) await SettingsStore.save();
                     return SettingsStore.data.agentMcpEnabled;
                 } catch (e) {
                     lastError = e;
@@ -249,6 +275,60 @@
             __tmAgentMcpEntitlementSyncPromise = null;
         });
         return await __tmAgentMcpEntitlementSyncPromise;
+    }
+
+    function __tmRequestAgentMcpEntitlementSync() {
+        if (__tmAgentMcpStartupDisposed) return Promise.resolve(false);
+        if (!__tmAgentMcpKernelStateHandler) __tmBindAgentMcpKernelStateRecovery();
+        const activeSync = __tmAgentMcpEntitlementSyncPromise;
+        if (activeSync) return activeSync;
+        return __tmSyncAgentMcpEntitlementDefault();
+    }
+
+    function __tmBindAgentMcpKernelStateRecovery() {
+        if (__tmAgentMcpKernelStateHandler || __tmAgentMcpStartupDisposed) return false;
+        const eventBus = globalThis.__tmRuntimeEvents?.getEventBus?.();
+        if (!eventBus) return false;
+        const handler = (event) => {
+            const kernelState = event?.detail || event;
+            if (Number(kernelState?.code) !== 2) return;
+            void __tmRequestAgentMcpEntitlementSync().catch(() => null);
+        };
+        if (!globalThis.__tmRuntimeEvents?.onEventBus?.('kernel-plugin-state-change', handler, eventBus)) return false;
+        __tmAgentMcpKernelStateHandler = handler;
+        __tmAgentMcpKernelStateEventBus = eventBus;
+        return true;
+    }
+
+    function __tmCleanupAgentMcpStartupSync() {
+        __tmAgentMcpStartupDisposed = true;
+        __tmAgentMcpStartupWaiters.forEach((waiter) => {
+            try { clearTimeout(waiter.timer); } catch (e) {}
+            try { waiter.resolve(false); } catch (e) {}
+        });
+        __tmAgentMcpStartupWaiters.clear();
+        if (__tmAgentMcpKernelStateHandler) {
+            try {
+                globalThis.__tmRuntimeEvents?.offEventBus?.(
+                    'kernel-plugin-state-change',
+                    __tmAgentMcpKernelStateHandler,
+                    __tmAgentMcpKernelStateEventBus,
+                );
+            } catch (e) {}
+        }
+        __tmAgentMcpKernelStateHandler = null;
+        __tmAgentMcpKernelStateEventBus = null;
+        if (__tmAgentMcpLicenseChangeHandler) {
+            try {
+                globalThis.__tmRuntimeEvents?.off?.(
+                    window,
+                    'tm:task-horizon-license-changed',
+                    __tmAgentMcpLicenseChangeHandler,
+                );
+            } catch (e) {}
+        }
+        __tmAgentMcpLicenseChangeHandler = null;
+        try { delete globalThis.__taskHorizonSyncAgentMcpEntitlement; } catch (e) {}
     }
 
     window.tmUpdateAgentMcpEnabled = async function(enabled) {
@@ -313,13 +393,14 @@
     };
 
     try {
-        globalThis.__tmRuntimeEvents?.on?.(window, 'tm:task-horizon-license-changed', () => {
-            void __tmSyncAgentMcpEntitlementDefault().catch(() => null);
-        });
+        __tmAgentMcpLicenseChangeHandler = () => {
+            void __tmRequestAgentMcpEntitlementSync().catch(() => null);
+        };
+        globalThis.__tmRuntimeEvents?.on?.(window, 'tm:task-horizon-license-changed', __tmAgentMcpLicenseChangeHandler);
     } catch (e) {}
-    Promise.resolve().then(async () => {
-        await __tmSyncAgentMcpEntitlementDefault();
-    }).catch(() => null);
+    globalThis.__taskHorizonSyncAgentMcpEntitlement = () => __tmRequestAgentMcpEntitlementSync();
+    __tmBindAgentMcpKernelStateRecovery();
+    void __tmRequestAgentMcpEntitlementSync().catch(() => null);
     function __tmResolveAiProvider(raw) {
         const v = String(raw || '').trim();
         if (v === 'deepseek') return 'deepseek';

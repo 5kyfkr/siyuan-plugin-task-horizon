@@ -546,21 +546,36 @@
             : ((data.snapshot && typeof data.snapshot === 'object') ? data.snapshot : {});
         const previous = pendingStructuralMutations.get(taskId) || {};
         const localTask = (m.task && typeof m.task === 'object') ? m.task : {};
+        const placement = (m.placement && typeof m.placement === 'object')
+            ? m.placement
+            : ((data.authoritativePlacement && typeof data.authoritativePlacement === 'object')
+                ? data.authoritativePlacement
+                : null);
         const expectedDocId = normalizeId(
-            m.nextDocId || m.docId || data.targetDocId || data.docId
+            placement?.documentID || placement?.documentId
+            || m.nextDocId || m.docId || data.targetDocId || data.docId
             || localTask.docId || localTask.root_id || previous.expectedDocId
         );
         const previousDocId = normalizeId(m.previousDocId || snapshot.docId || previous.previousDocId);
         const moveParent = getExpectedMoveParentTaskId(data);
-        const expectedParentTaskId = normalizeId(
-            createType
-                ? (m.parentTaskId || data.parentTaskId || localTask.parentTaskId || localTask.parent_task_id || previous.expectedParentTaskId)
-                : moveParent
+        const expectedParentTaskId = placement
+            ? normalizeId(placement.parentTaskID ?? placement.parentTaskId)
+            : normalizeId(
+                createType
+                    ? (m.parentTaskId || data.parentTaskId || localTask.parentTaskId || localTask.parent_task_id || previous.expectedParentTaskId)
+                    : moveParent
+            );
+        const expectedParentListId = normalizeId(
+            placement?.parentListID || placement?.parentListId || localTask.parentListId || localTask.parent_id || previous.expectedParentListId
         );
         const hasExpectedParent = createType
             ? type !== 'createTaskInDoc' && !!expectedParentTaskId
-            : ['child', 'child-top', 'before', 'after'].includes(normalizeId(data.mode));
-        const neighbors = getExpectedMoveNeighbors(data);
+            : !!placement || ['child', 'child-top', 'before', 'after'].includes(normalizeId(data.mode));
+        const requestedNeighbors = getExpectedMoveNeighbors(data);
+        const neighbors = placement ? {
+            previous: normalizeId(placement.previousSiblingID || placement.previousSiblingId),
+            next: normalizeId(placement.nextSiblingID || placement.nextSiblingId),
+        } : requestedNeighbors;
         const now = Date.now();
         const entry = {
             ...previous,
@@ -573,12 +588,15 @@
             expectedDocId,
             previousDocId,
             expectedParentTaskId,
+            expectedParentListId,
             hasExpectedParent,
             expectedPreviousSiblingId: neighbors.previous,
             expectedNextSiblingId: neighbors.next,
+            hasExpectedPreviousSibling: !!placement || !!neighbors.previous,
+            hasExpectedNextSibling: !!placement || !!neighbors.next,
             targetTaskId: normalizeId(data.targetTaskId),
             updatedAt: now,
-            expiresAt: now + (createType ? 45000 : 20000),
+            expiresAt: now + 45000,
         };
         pendingStructuralMutations.set(taskId, entry);
         return entry;
@@ -603,7 +621,7 @@
         const siblingNeighbors = new Map();
         const siblingGroups = new Map();
         sourceRows.forEach((row) => {
-            const parent = normalizeId(row?.parent_task_id || row?.parentTaskId);
+            const parent = normalizeId(row?.parent_id || row?.parentListId || row?.parent_task_id || row?.parentTaskId);
             const doc = normalizeId(row?.root_id || row?.docId);
             const key = `${doc}|${parent}`;
             if (!siblingGroups.has(key)) siblingGroups.set(key, []);
@@ -629,14 +647,16 @@
             const row = found?.row || null;
             const actualDocId = normalizeId(row?.root_id || row?.docId);
             const actualParentTaskId = normalizeId(row?.parent_task_id || row?.parentTaskId);
+            const actualParentListId = normalizeId(row?.parent_id || row?.parentListId);
             const docMatches = !entry.expectedDocId || actualDocId === entry.expectedDocId;
             const parentMatches = !entry.hasExpectedParent || actualParentTaskId === entry.expectedParentTaskId;
+            const parentListMatches = !entry.expectedParentListId || actualParentListId === entry.expectedParentListId;
             const neighbors = siblingNeighbors.get(taskId) || {};
-            const previousMatches = !entry.expectedPreviousSiblingId
+            const previousMatches = !entry.hasExpectedPreviousSibling
                 || neighbors.previous === entry.expectedPreviousSiblingId;
-            const nextMatches = !entry.expectedNextSiblingId
+            const nextMatches = !entry.hasExpectedNextSibling
                 || neighbors.next === entry.expectedNextSiblingId;
-            if (row && docMatches && parentMatches && previousMatches && nextMatches) {
+            if (row && docMatches && parentMatches && parentListMatches && previousMatches && nextMatches) {
                 pendingStructuralMutations.delete(taskId);
                 return;
             }
@@ -658,6 +678,8 @@
                     docId: entry.expectedDocId || normalizeId(local.docId || local.root_id),
                     parent_task_id: entry.hasExpectedParent ? entry.expectedParentTaskId : normalizeId(local.parent_task_id || local.parentTaskId),
                     parentTaskId: entry.hasExpectedParent ? entry.expectedParentTaskId : normalizeId(local.parentTaskId || local.parent_task_id),
+                    parent_id: entry.expectedParentListId || normalizeId(local.parent_id || local.parentListId),
+                    parentListId: entry.expectedParentListId || normalizeId(local.parentListId || local.parent_id),
                     __tmPendingStructural: true,
                 };
                 if (found && !removedIndexes.has(found.index)) sourceRows[found.index] = projected;

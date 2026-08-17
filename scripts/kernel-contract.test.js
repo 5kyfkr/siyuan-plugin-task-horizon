@@ -254,6 +254,45 @@ function createHarness(options = {}) {
                 .sort((left, right) => String(right.updated || '').localeCompare(String(left.updated || '')))
                 .map((block) => ({ id: block.id, markdown: block.markdown, raw_content: block.content, updated: block.updated }));
         }
+        if (/SELECT block_id, name, value FROM attributes WHERE block_id IN/.test(statement)) {
+            const ids = new Set(Array.from(statement.matchAll(/'(\d{14}-[^']+)'/g)).map((match) => match[1]));
+            const nameClause = statement.match(/\bname IN \(([^)]+)\)/)?.[1] || '';
+            const names = new Set(Array.from(nameClause.matchAll(/'((?:''|[^'])*)'/g))
+                .map((match) => match[1].replace(/''/g, "'")));
+            return Array.from(attrs.entries()).flatMap(([blockID, values]) => {
+                if (!ids.has(blockID)) return [];
+                return Object.entries(values || {})
+                    .filter(([name]) => !names.size || names.has(name))
+                    .map(([name, value]) => ({ block_id: blockID, name, value }));
+            });
+        }
+        if (/SELECT source\.id AS list_id,[\s\S]*AS task_id[\s\S]*FROM blocks source[\s\S]*WHERE source\.id IN/.test(statement)) {
+            const ids = Array.from(statement.matchAll(/'(\d{14}-[^']+)'/g)).map((match) => match[1]);
+            return ids.map((id) => ({
+                list_id: id,
+                task_id: firstTaskForList(id)?.id || '',
+            }));
+        }
+        if (/SELECT id, parent_id, root_id, type, subtype FROM blocks WHERE id IN/.test(statement)) {
+            const ids = Array.from(statement.matchAll(/'(\d{14}-[^']+)'/g)).map((match) => match[1]);
+            return ids.map((id) => blocks.get(id)).filter(Boolean).map((block) => ({
+                id: block.id,
+                parent_id: block.parent_id,
+                root_id: block.root_id,
+                type: block.type,
+                subtype: block.subtype,
+            }));
+        }
+        if (/WHERE task\.id IN/.test(statement)) {
+            const ids = Array.from(statement.matchAll(/'(\d{14}-[^']+)'/g)).map((match) => match[1]);
+            return ids.map(taskRow).filter(Boolean).map((row) => ({
+                ...row,
+                parent_task_count: 0,
+                first_task_id: '',
+                previous_sibling_id: '',
+                next_sibling_id: '',
+            }));
+        }
         const taskMatch = statement.match(/WHERE task\.id = '([^']+)'/);
         if (taskMatch) {
             const row = taskRow(taskMatch[1]);
@@ -329,9 +368,11 @@ function createHarness(options = {}) {
             }
             return [];
         }
-        const taskTreeMatch = statement.match(/WITH RECURSIVE task_tree\(id, depth\)[\s\S]*SELECT id, 0 FROM blocks WHERE id = '([^']+)'/);
+        const taskTreeMatch = statement.match(/WITH RECURSIVE task_tree\(id, depth\)[\s\S]*SELECT id, 0\s+FROM blocks\s+WHERE id = '([^']+)'/);
         if (taskTreeMatch) {
-            const queue = [{ id: taskTreeMatch[1], depth: 0 }];
+            const root = blocks.get(taskTreeMatch[1]);
+            if (!root || root.type !== 'i' || root.subtype !== 't') return [];
+            const queue = [{ id: root.id, depth: 0 }];
             const seen = new Set();
             const tasks = [];
             while (queue.length) {
@@ -340,20 +381,19 @@ function createHarness(options = {}) {
                 seen.add(current.id);
                 const block = blocks.get(current.id);
                 if (!block) continue;
-                if (block.type === 'i' && block.subtype === 't') {
-                    tasks.push({ id: block.id, depth: current.depth, sort: block.sort, created: block.created });
-                }
+                tasks.push({ id: block.id, depth: current.depth });
+                const childListIDs = new Set(Array.from(blocks.values())
+                    .filter((item) => item.parent_id === current.id && item.type === 'l')
+                    .map((item) => item.id));
                 Array.from(blocks.values())
-                    .filter((item) => item.parent_id === current.id)
-                    .sort((left, right) => left.sort - right.sort)
+                    .filter((item) => childListIDs.has(item.parent_id) && item.type === 'i' && item.subtype === 't')
+                    .sort((left, right) => left.id.localeCompare(right.id))
                     .forEach((item) => queue.push({ id: item.id, depth: current.depth + 1 }));
             }
             return tasks
-                .sort((left, right) => left.depth - right.depth
-                    || left.sort - right.sort
-                    || String(left.created || '').localeCompare(String(right.created || ''))
-                    || left.id.localeCompare(right.id))
-                .map((item) => ({ id: item.id }));
+                .sort((left, right) => left.depth - right.depth || left.id.localeCompare(right.id))
+                .slice(0, 10001)
+                .map((item) => ({ id: item.id, tree_depth: item.depth }));
         }
         throw new Error(`Unhandled SQL in contract test: ${statement}`);
     }
@@ -363,6 +403,17 @@ function createHarness(options = {}) {
         if (pathname === '/api/query/sql') return query(String(body.stmt || ''));
         if (pathname === '/api/attr/getBlockAttrs') return { ...(attrs.get(body.id) || {}) };
         if (pathname === '/api/block/getBlockDOM') return { dom: taskBlockDOM(body.id) };
+        if (pathname === '/api/block/getBlockBreadcrumb') {
+            const path = [];
+            let current = blocks.get(body.id) || null;
+            while (current) {
+                path.unshift(current);
+                current = blocks.get(current.parent_id) || null;
+            }
+            return path
+                .filter((block) => block.type !== 'l' || block.id === body.id)
+                .map((block) => ({ id: block.id, type: block.type, subType: block.subtype }));
+        }
         if (pathname === '/api/block/getChildBlocks') {
             return Array.from(blocks.values())
                 .filter((block) => block.parent_id === body.id)
@@ -445,6 +496,10 @@ function createHarness(options = {}) {
         }
         if (pathname === '/api/block/updateTaskListItemMarker') {
             const block = blocks.get(body.id);
+            const parent = blocks.get(block?.parent_id);
+            if (!block || parent?.type !== 'l') {
+                throw new Error('SiYuan 3.8 rejected an invalid task-list-item replacement');
+            }
             const marker = body.marker === 'X' ? 'x' : String(body.marker || ' ');
             block.markdown = block.markdown.replace(/^(\s*[*+-]\s+)\[[^\]]\]/, `$1[${marker}]`);
             block.updated = String(Number(block.updated) + 1).padStart(14, '0');
@@ -591,9 +646,18 @@ function createHarness(options = {}) {
             async put(name, content) { storage.set(name, String(content)); },
         },
         client: {
-            async fetch(pathname, options) {
+            async fetch(pathname, requestOptions) {
+                const requestBody = JSON.parse(requestOptions?.body || '{}');
+                if (pathname === '/api/plugin/rpc?name=siyuan-plugin-docktomato') {
+                    apiCalls.push({ pathname, body: JSON.parse(JSON.stringify(requestBody)), hasSignal: !!requestOptions?.signal });
+                    const payload = typeof options.dockTomatoRpc === 'function'
+                        ? await options.dockTomatoRpc(requestBody)
+                        : { jsonrpc: '2.0', id: requestBody.id, error: { code: -32001, message: 'Plugin not loaded' } };
+                    const status = Number(options.dockTomatoHttpStatus) || 200;
+                    return { ok: status >= 200 && status < 300, status, async json() { return payload; } };
+                }
                 try {
-                    const data = await api(pathname, JSON.parse(options?.body || '{}'));
+                    const data = await api(pathname, requestBody);
                     return { ok: true, status: 200, async json() { return { code: 0, data }; } };
                 } catch (error) {
                     return { ok: true, status: 200, async json() { return { code: -1, msg: error.message }; } };
@@ -602,7 +666,19 @@ function createHarness(options = {}) {
         },
     };
     const source = fs.readFileSync(path.join(__dirname, '..', 'kernel.js'), 'utf8');
-    vm.runInNewContext(source, { siyuan, console, setTimeout, clearTimeout, Date, Math, JSON, Map, Set, Promise });
+    vm.runInNewContext(source, {
+        siyuan,
+        console,
+        setTimeout,
+        clearTimeout,
+        Date,
+        Math,
+        JSON,
+        Map,
+        Set,
+        Promise,
+        AbortController,
+    });
 
     async function start() {
         await siyuan.plugin.lifecycle.onload();
@@ -630,6 +706,7 @@ function createHarness(options = {}) {
 
 async function run() {
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugin.json'), 'utf8'));
+    assert.equal(manifest.version, '2.9.3');
     assert.ok(Array.isArray(manifest.kernels) && manifest.kernels.includes('all'), 'plugin.json must enable the kernel plugin on supported backends');
     assert.equal(manifest.minAppVersion, '3.8.0', 'the release must require the SiYuan version whose plugin readOnly and startup RPC contracts were reviewed');
 
@@ -729,11 +806,308 @@ async function run() {
 
     const initialCapabilities = await harness.call('taskHorizonGetCapabilities');
     assert.equal(initialCapabilities.ok, true);
-    assert.equal(initialCapabilities.data.totalToolCount, 21);
+    assert.equal(initialCapabilities.data.totalToolCount, 24);
     assert.equal(initialCapabilities.data.mcpAuthorized, false);
     assert.equal(initialCapabilities.data.mcpEnabled, false);
     assert.equal(initialCapabilities.data.registeredToolCount, 0, 'kernel startup must not restore MCP tools before entitlement verification');
     assert.equal(initialCapabilities.data.toolGroups.length, 6);
+
+    const focusAssociation = (candidateIds, focusSec, sessionKey, buckets = []) => ({
+        candidateIds,
+        focusSec,
+        countdownSec: focusSec,
+        stopwatchSec: 0,
+        distractionCount: 0,
+        sessionCount: 1,
+        focusSessionCount: 1,
+        completedSessionCount: 1,
+        countdownSessionCount: 1,
+        stopwatchSessionCount: 0,
+        lastEndMs: Date.parse('2026-07-15T10:00:00+08:00'),
+        buckets,
+    });
+    const focusBucket = (focusSec, sessionKey) => ({
+        key: '2026-07-15',
+        from: '2026-07-15T00:00:00+08:00',
+        to: '2026-07-16T00:00:00+08:00',
+        focusSec,
+        countdownSec: focusSec,
+        stopwatchSec: 0,
+        distractionCount: 0,
+        sessionCount: 1,
+        focusSessionCount: 1,
+        completedSessionCount: 1,
+        countdownSessionCount: 1,
+        stopwatchSessionCount: 0,
+        lastEndMs: Date.parse('2026-07-15T10:00:00+08:00'),
+    });
+    const rawFocusStats = {
+        contractVersion: 2,
+        range: { from: '2026-07-15T00:00:00+08:00', to: '2026-07-16T00:00:00+08:00', bucket: 'day' },
+        associations: [
+            focusAssociation(['root-alias'], 600, 'root-session', [focusBucket(600, 'root-session')]),
+            focusAssociation(['child-alias'], 1200, 'child-session', [focusBucket(1200, 'child-session')]),
+            focusAssociation([], 300, 'unattributed-session', [focusBucket(300, 'unattributed-session')]),
+        ],
+        meta: { source: 'contract-test' },
+    };
+    const focusSnapshot = {
+        revision: 7,
+        tasks: [
+            { id: IDS.singleTask, aliasIDs: ['root-alias'], title: 'Root', documentID: IDS.doc, customFieldValues: { labels: ['deep'] } },
+            { id: IDS.childTask, aliasIDs: ['child-alias'], parentTaskID: IDS.singleTask, title: 'Child', documentID: IDS.doc, customFieldValues: { labels: ['deep', 'urgent'] } },
+        ],
+    };
+    const globalFocus = await harness.call('taskHorizonProjectFocusStatistics', rawFocusStats, {
+        bucket: 'day',
+        groupBy: 'customField',
+        customFieldID: 'labels',
+        rootTaskID: IDS.singleTask,
+    }, focusSnapshot);
+    assert.equal(globalFocus.ok, true);
+    assert.equal(globalFocus.data.totals.focusSec, 2100, 'global focus totals must include unattributed history');
+    assert.equal(globalFocus.data.totals.sessionCount, 3);
+    assert.equal(Object.hasOwn(globalFocus.data.totals, 'sessionKeys'), false, 'v2 projection must keep scalar session counts only');
+    assert.equal(globalFocus.data.unattributed.focusSec, 300);
+    assert.equal(globalFocus.data.parentDetail.self.focusSec, 600);
+    assert.equal(globalFocus.data.parentDetail.descendants.focusSec, 1200);
+    assert.equal(globalFocus.data.parentDetail.combined.focusSec, 1800);
+    assert.equal(globalFocus.data.classification.find((item) => item.id === 'deep').focusSec, 1800);
+    assert.equal(globalFocus.data.classification.find((item) => item.id === 'urgent').focusSec, 1200, 'multi-select values must each receive the full task duration');
+    assert.equal(globalFocus.data.meta.taskSnapshotRevision, 7);
+    const scopedFocus = await harness.call('taskHorizonProjectFocusStatistics', rawFocusStats, {
+        bucket: 'day',
+        groupBy: 'task',
+        taskIDs: [IDS.childTask],
+    }, focusSnapshot);
+    assert.equal(scopedFocus.ok, true);
+    assert.equal(scopedFocus.data.totals.focusSec, 1200);
+    assert.equal(scopedFocus.data.tasks.length, 1);
+    assert.equal(scopedFocus.data.unattributed.focusSec, 0, 'explicit task scopes must exclude unattributed history');
+    const emptyFocus = await harness.call('taskHorizonProjectFocusStatistics', rawFocusStats, {
+        bucket: 'day',
+        groupBy: 'task',
+        taskIDs: [],
+    }, focusSnapshot);
+    assert.equal(emptyFocus.ok, true);
+    assert.equal(emptyFocus.data.totals.focusSec, 0, 'an explicitly empty document-group scope must not fall back to global statistics');
+    assert.equal(emptyFocus.data.tasks.length, 0);
+
+    const oversizedCustomSnapshot = {
+        revision: 8,
+        tasks: [{
+            id: IDS.singleTask,
+            aliasIDs: ['root-alias'],
+            title: 'Root',
+            documentID: IDS.doc,
+            customFieldValues: { oversized: 'x'.repeat(8 * 1024 * 1024 + 1) },
+        }],
+    };
+    const projectedOversizedFocus = await harness.call('taskHorizonProjectFocusStatistics', {
+        ...rawFocusStats,
+        associations: [focusAssociation(['root-alias'], 600, 'root-session', [])],
+    }, { groupBy: 'task' }, oversizedCustomSnapshot);
+    assert.equal(projectedOversizedFocus.ok, true,
+        'unused custom fields must be projected out before Kernel snapshot byte accounting');
+    const rejectedOversizedFocus = await harness.call('taskHorizonProjectFocusStatistics', {
+        ...rawFocusStats,
+        associations: [focusAssociation(['root-alias'], 600, 'root-session', [])],
+    }, {
+        groupBy: 'customField',
+        customFieldID: 'oversized',
+    }, oversizedCustomSnapshot);
+    assert.equal(rejectedOversizedFocus.ok, false);
+    assert.equal(rejectedOversizedFocus.error.code, 'FOCUS_SCOPE_TOO_LARGE');
+    assert.equal(rejectedOversizedFocus.error.details.maxSnapshotBytes, 8 * 1024 * 1024);
+
+    const batchFocusStart = harness.apiCalls.length;
+    const directFocusStats = {
+        ...rawFocusStats,
+        associations: [
+            focusAssociation([IDS.childBlock], 600, 'root-direct', []),
+            focusAssociation([IDS.childList], 1200, 'child-direct', []),
+        ],
+    };
+    const batchFocus = await harness.call('taskHorizonProjectFocusStatistics', directFocusStats, { groupBy: 'task' });
+    assert.equal(batchFocus.ok, true);
+    assert.equal(batchFocus.data.tasks.length, 2);
+    const batchFocusSqlCalls = harness.apiCalls.slice(batchFocusStart)
+        .filter((item) => item.pathname === '/api/query/sql');
+    assert.ok(batchFocusSqlCalls.length <= 5,
+        `focus task projection must batch ancestor and task reads, received ${batchFocusSqlCalls.length} SQL calls`);
+
+    const missingFocusStart = harness.apiCalls.length;
+    const missingFocusStats = {
+        ...rawFocusStats,
+        associations: Array.from({ length: 5000 }, (_, index) => (
+            focusAssociation([`20260103000000-missing-${index}`], 1, `missing-${index}`, [])
+        )),
+    };
+    const missingFocus = await harness.call('taskHorizonProjectFocusStatistics', missingFocusStats, { groupBy: 'task' });
+    assert.equal(missingFocus.ok, true);
+    assert.equal(missingFocus.data.tasks.length, 0);
+    const missingFocusSqlCalls = harness.apiCalls.slice(missingFocusStart)
+        .filter((item) => item.pathname === '/api/query/sql');
+    assert.ok(missingFocusSqlCalls.length <= 25,
+        `5000 missing associations must use chunked negative lookup, received ${missingFocusSqlCalls.length} SQL calls`);
+    const focusKernelSource = fs.readFileSync(path.join(__dirname, '..', 'kernel.js'), 'utf8');
+    const focusProjectionSource = focusKernelSource.slice(
+        focusKernelSource.indexOf('function taskMatchesFocusScope('),
+        focusKernelSource.indexOf('async function queryFocusStatistics('),
+    );
+    assert.match(focusProjectionSource, /const scopeTaskIDs = new Set\(scope\?\.taskIDs \|\| \[\]\)/,
+        'focus projection must build task-scope membership once');
+    assert.match(focusProjectionSource, /const scopeDocumentIDs = new Set\(scope\?\.documentIDs \|\| \[\]\)/,
+        'focus projection must build document-scope membership once');
+    assert.doesNotMatch(focusProjectionSource, /scope\.(?:taskIDs|documentIDs)\.includes\(/,
+        'focus association scans must not perform linear scope membership checks');
+
+    const bridgeHarness = createHarness({
+        dockTomatoRpc(request) {
+            const data = request.method === 'dockTomatoQueryFocus'
+                ? {
+                    contractVersion: 2,
+                    range: {},
+                    totals: { focusSec: 0 },
+                    buckets: [],
+                    associations: [],
+                    meta: { source: 'fallback-memory', revision: 17 },
+                }
+                : (request.method === 'dockTomatoQueryRoutine'
+                    ? { contractVersion: 2, groups: [], totals: { focusSec: 0 }, buckets: [], meta: { source: 'indexed-shards', revision: 18 } }
+                    : { contractVersion: 2, items: [], meta: { source: 'indexed-shards', revision: 19 } });
+            return { jsonrpc: '2.0', id: request.id, result: { ok: true, data, error: null } };
+        },
+    });
+    await bridgeHarness.start();
+    const bridgeRange = {
+        from: '2026-07-15T00:00:00.000Z',
+        to: '2026-07-16T00:00:00.000Z',
+        bucket: 'day',
+        rootTaskID: IDS.singleTask,
+    };
+    const bridgedFocus = await bridgeHarness.call('taskHorizonQueryFocusStatistics', bridgeRange);
+    assert.equal(bridgedFocus.ok, true, 'Task Horizon must query focus data through DockTomato\'s Kernel RPC');
+    assert.equal(bridgedFocus.data.meta.source, 'fallback-memory', 'DockTomato fallback metadata must pass through unchanged');
+    assert.equal(bridgedFocus.data.meta.revision, 17);
+    const bridgedRoutine = await bridgeHarness.call('taskHorizonQueryRoutineStatistics', bridgeRange);
+    assert.equal(bridgedRoutine.ok, true);
+    const bridgedSessions = await bridgeHarness.call('taskHorizonListFocusSessions', bridgeRange);
+    assert.equal(bridgedSessions.ok, true);
+    const dockRpcCalls = bridgeHarness.apiCalls.filter((item) => item.pathname === '/api/plugin/rpc?name=siyuan-plugin-docktomato');
+    assert.deepEqual(dockRpcCalls.map((item) => item.body.method), [
+        'dockTomatoQueryFocus',
+        'dockTomatoQueryRoutine',
+        'dockTomatoListSessions',
+    ]);
+    assert.ok(dockRpcCalls.every((item) => Array.isArray(item.body.params) && item.body.params.length === 1));
+    assert.ok(dockRpcCalls.every((item) => Number(item.body.params[0].deadlineAt) > Date.now()),
+        'all direct Task Horizon statistics RPCs must share a total deadline with DockTomato');
+    assert.ok(dockRpcCalls.every((item) => item.hasSignal),
+        'Task Horizon must make DockTomato RPC response reads abortable');
+    assert.deepEqual(dockRpcCalls[0].body.params[0].candidateIDs, [IDS.childTask, IDS.singleTask].sort(),
+        'root-task descendants must be resolved before DockTomato aggregates associations');
+    assert.equal(dockRpcCalls[0].body.params[0].candidateIDsConstrainTotals, true,
+        'direct Kernel statistics must constrain totals to the resolved semantic scope');
+    const rootScopeSql = bridgeHarness.apiCalls
+        .filter((item) => item.pathname === '/api/query/sql')
+        .map((item) => String(item.body?.stmt || ''))
+        .find((statement) => statement.includes('WITH RECURSIVE task_tree(id, depth)'));
+    assert.match(rootScopeSql, /JOIN blocks child_list[\s\S]*child_list\.type = 'l'/,
+        'root scope recursion must traverse only child lists owned by a task');
+    assert.match(rootScopeSql, /JOIN blocks child[\s\S]*child\.type = 'i'[\s\S]*child\.subtype = 't'/,
+        'root scope recursion must enqueue only nested task items');
+    assert.match(rootScopeSql, /WHERE task_tree\.depth < 128\s+LIMIT 10001/,
+        'the recursive CTE itself must stop after the bounded task budget');
+    assert.equal(bridgeHarness.apiCalls.some((item) => item.pathname === '/api/file/getFile'), false,
+        'Task Horizon must not read DockTomato history or source files directly');
+    const dockCallsBeforeExpired = dockRpcCalls.length;
+    const expiredStats = await bridgeHarness.call('taskHorizonQueryFocusStatistics', {
+        ...bridgeRange,
+        deadlineAt: Date.now() - 1,
+    });
+    assert.equal(expiredStats.ok, false);
+    assert.equal(expiredStats.error.code, 'STATS_QUERY_EXPIRED');
+    assert.equal(bridgeHarness.apiCalls.filter((item) => item.pathname === '/api/plugin/rpc?name=siyuan-plugin-docktomato').length,
+        dockCallsBeforeExpired, 'an expired direct query must stop before DockTomato RPC');
+    const nonTaskScope = await bridgeHarness.call('taskHorizonResolveFocusCandidateIDs', {
+        rootTaskID: IDS.childBlock,
+    });
+    assert.equal(nonTaskScope.ok, false);
+    assert.equal(nonTaskScope.error.code, 'INVALID_ARGUMENT',
+        'a non-task root must fail closed instead of being treated as a task candidate');
+
+    let deepParentID = IDS.singleTask;
+    for (let depth = 1; depth <= 128; depth += 1) {
+        const listID = `20260102000000-depth${depth}list`;
+        const taskID = `20260102000000-depth${depth}task`;
+        bridgeHarness.blocks.set(listID, {
+            id: listID,
+            parent_id: deepParentID,
+            root_id: IDS.doc,
+            type: 'l',
+            subtype: '',
+            markdown: '',
+            content: '',
+            updated: '20260102000000',
+            created: '20260102000000',
+            sort: depth,
+        });
+        bridgeHarness.blocks.set(taskID, {
+            id: taskID,
+            parent_id: listID,
+            root_id: IDS.doc,
+            type: 'i',
+            subtype: 't',
+            markdown: '* [ ] Deep task',
+            content: 'Deep task',
+            updated: '20260102000000',
+            created: '20260102000000',
+            sort: 1,
+        });
+        deepParentID = taskID;
+    }
+    const deepScope = await bridgeHarness.call('taskHorizonQueryFocusStatistics', bridgeRange);
+    assert.equal(deepScope.ok, false);
+    assert.equal(deepScope.error.code, 'FOCUS_SCOPE_TOO_LARGE',
+        'a root scope beyond the supported depth must fail closed instead of truncating candidates');
+    assert.equal(bridgeHarness.apiCalls.filter((item) => item.pathname === '/api/plugin/rpc?name=siyuan-plugin-docktomato').length,
+        dockCallsBeforeExpired, 'an over-deep root scope must fail before DockTomato RPC');
+
+    const unavailableStatsHarness = createHarness();
+    await unavailableStatsHarness.start();
+    const unavailableStats = await unavailableStatsHarness.call('taskHorizonQueryRoutineStatistics', bridgeRange);
+    assert.equal(unavailableStats.ok, false);
+    assert.equal(unavailableStats.error.code, 'DOCK_TOMATO_STATS_UNAVAILABLE');
+
+    const failedStatsHttpHarness = createHarness({ dockTomatoHttpStatus: 503 });
+    await failedStatsHttpHarness.start();
+    const failedStatsHttp = await failedStatsHttpHarness.call('taskHorizonListFocusSessions', bridgeRange);
+    assert.equal(failedStatsHttp.ok, false);
+    assert.equal(failedStatsHttp.error.code, 'DOCK_TOMATO_STATS_UNAVAILABLE');
+
+    const failedStatsStorageHarness = createHarness({
+        dockTomatoRpc(request) {
+            return {
+                jsonrpc: '2.0',
+                id: request.id,
+                result: {
+                    ok: false,
+                    data: null,
+                    error: {
+                        code: 'HISTORY_SOURCE_UNAVAILABLE',
+                        message: 'history read failed',
+                        details: { source: 'indexed-shards' },
+                    },
+                },
+            };
+        },
+    });
+    await failedStatsStorageHarness.start();
+    const failedStatsStorage = await failedStatsStorageHarness.call('taskHorizonQueryFocusStatistics', bridgeRange);
+    assert.equal(failedStatsStorage.ok, false);
+    assert.equal(failedStatsStorage.error.code, 'HISTORY_SOURCE_UNAVAILABLE', 'DockTomato storage errors must not become empty statistics');
+    assert.equal(failedStatsStorage.error.details.source, 'indexed-shards', 'DockTomato error details must survive the RPC boundary');
 
     const unsupportedHarness = createHarness({ agentAvailable: false });
     await unsupportedHarness.start();
@@ -763,7 +1137,7 @@ async function run() {
     assert.equal(proEntitlement.ok, true);
     assert.equal(proEntitlement.data.mcpAuthorized, true);
     assert.equal(proEntitlement.data.mcpEnabled, true, 'verified Pro entitlement must restore the persisted MCP preference');
-    assert.equal(proEntitlement.data.registeredToolCount, 21);
+    assert.equal(proEntitlement.data.registeredToolCount, 24);
     assert.equal(proEntitlement.data.toolGroups.flatMap((group) => group.tools).find((tool) => tool.name === 'query_tasks').readOnly, true);
     assert.equal(harness.mcpTools.query_tasks.schema.effects.localRead, true, 'plugin read capabilities must declare localRead');
     assert.equal(harness.mcpTools.aggregate_task_stats.schema.effects.localRead, true);
@@ -842,7 +1216,18 @@ async function run() {
     const invalidPreviousTarget = await harness.call('taskHorizonMoveTask', { taskID: IDS.firstTask, previousID: IDS.doc });
     assert.equal(invalidPreviousTarget.ok, false);
     assert.equal(invalidPreviousTarget.error.code, 'INVALID_ARGUMENT');
-    const moveBefore = await harness.call('taskHorizonMoveTask', { taskID: IDS.firstTask, nextID: IDS.secondTask });
+    const unrelatedMoveListIDs = Array.from({ length: 12 }, (_, index) => `202608150300${String(index).padStart(2, '0')}-perflst`);
+    unrelatedMoveListIDs.forEach((listID, index) => {
+        const taskID = `202608150301${String(index).padStart(2, '0')}-perftsk`;
+        harness.blocks.set(listID, { id: listID, parent_id: IDS.doc, root_id: IDS.doc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260815030000', created: `202608150300${String(index).padStart(2, '0')}`, sort: 200 + index });
+        harness.blocks.set(taskID, { id: taskID, parent_id: listID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Unrelated move task', content: 'Unrelated move task', updated: '20260815030100', created: `202608150301${String(index).padStart(2, '0')}`, sort: 1 });
+    });
+    const moveBeforeCallStart = harness.apiCalls.length;
+    const moveBefore = await harness.call('taskHorizonMoveTask', {
+        taskID: IDS.firstTask,
+        nextID: IDS.secondTask,
+        targetListID: IDS.multiList,
+    });
     assert.equal(moveBefore.ok, true);
     assert.equal(moveBefore.data.refresh.action, 'move');
     assert.deepEqual(Array.from(moveBefore.data.refresh.taskIDs), [IDS.firstTask]);
@@ -850,11 +1235,21 @@ async function run() {
     const moveRequest = harness.apiCalls.filter((item) => item.pathname === '/api/block/moveBlock').at(-1)?.body || {};
     assert.equal(moveRequest.nextID, undefined, 'nextID must be translated before calling the SiYuan move API');
     assert.equal(moveRequest.parentID, IDS.multiList);
+    const moveBeforeChildReads = harness.apiCalls.slice(moveBeforeCallStart)
+        .filter((item) => item.pathname === '/api/block/getChildBlocks');
+    assert.equal(moveBeforeChildReads.some((item) => unrelatedMoveListIDs.includes(String(item.body?.id || ''))), false,
+        'a same-level move with a verified list hint must not scan unrelated document lists');
+    assert.ok(moveBeforeChildReads.length <= 6,
+        'same-level move tree reads must stay constant as unrelated document lists grow');
     const moveUndo = await harness.call('taskHorizonUndoLastMutation', {});
     assert.equal(moveUndo.ok, true);
     assert.equal(moveUndo.data.data.refresh.action, 'move');
     const moveUndoRequest = harness.apiCalls.filter((item) => item.pathname === '/api/block/moveBlock').at(-1)?.body || {};
     assert.equal(moveUndoRequest.nextID, undefined, 'move undo must use the same SiYuan-compatible placement resolver');
+    unrelatedMoveListIDs.forEach((listID, index) => {
+        harness.blocks.delete(`202608150301${String(index).padStart(2, '0')}-perftsk`);
+        harness.blocks.delete(listID);
+    });
 
     const authoritativeMove = await harness.call('taskHorizonMoveTask', {
         taskID: IDS.secondTask,
@@ -870,13 +1265,151 @@ async function run() {
     assert.equal(authoritativeMove.data.task.parentListID, IDS.multiList);
     assert.equal(authoritativeMove.data.task.previousSiblingID, IDS.firstTask);
 
+    const staleHintSourceListID = '20260815030300-stalsrc';
+    const staleHintSourceTaskID = '20260815030301-stalt01';
+    const staleHintTargetListID = '20260815030302-staltgt';
+    const staleHintTargetTaskID = '20260815030303-stalt02';
+    harness.blocks.set(staleHintSourceListID, { id: staleHintSourceListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260815030300', created: '20260815030300', sort: 140 });
+    harness.blocks.set(staleHintSourceTaskID, { id: staleHintSourceTaskID, parent_id: staleHintSourceListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Stale hint source', content: 'Stale hint source', updated: '20260815030301', created: '20260815030301', sort: 1 });
+    harness.blocks.set(staleHintTargetListID, { id: staleHintTargetListID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'l', subtype: 't', markdown: '', content: '', updated: '20260815030302', created: '20260815030302', sort: 141 });
+    harness.blocks.set(staleHintTargetTaskID, { id: staleHintTargetTaskID, parent_id: staleHintTargetListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Stale hint target', content: 'Stale hint target', updated: '20260815030303', created: '20260815030303', sort: 1 });
+    const staleHintMove = await harness.call('taskHorizonMoveTask', {
+        taskID: staleHintSourceTaskID,
+        previousID: staleHintTargetTaskID,
+        targetListID: staleHintSourceListID,
+        authoritative: true,
+        recordUndo: false,
+    });
+    assert.equal(staleHintMove.ok, true);
+    assert.equal(staleHintMove.data.placement.parentListID, staleHintTargetListID,
+        'a stale list hint must fall back to the live tree instead of becoming structural truth');
+    assert.equal(harness.blocks.get(staleHintSourceTaskID).parent_id, staleHintTargetListID);
+    harness.blocks.delete(staleHintSourceTaskID);
+    harness.blocks.delete(staleHintTargetTaskID);
+    harness.blocks.delete(staleHintSourceListID);
+    harness.blocks.delete(staleHintTargetListID);
+
     const moveKernelSource = fs.readFileSync(path.join(__dirname, '..', 'kernel.js'), 'utf8');
-    assert.match(moveKernelSource, /const parentTask = await getTaskRow\(parentID\)/,
-        'child moves must retain the target parent document as authoritative placement');
-    assert.match(moveKernelSource, /previousSiblingID: position === 'bottom' \? lastSiblingID : ''[\s\S]*nextSiblingID: position === 'top' \? firstSiblingID : ''/,
-        'existing child lists must return their real requested sibling edge');
-    assert.match(moveKernelSource, /previousSiblingID: '',[\s\S]*nextSiblingID: '',[\s\S]*firstTaskID: id,[\s\S]*documentID: text\(parentTask\.root_id\)/,
-        'a newly created child list must report the task as its first and only child');
+    const singleChildMoveSource = moveKernelSource.slice(
+        moveKernelSource.indexOf('async function moveTaskIntoParent'),
+        moveKernelSource.indexOf('async function verifyBatchChildMove'),
+    );
+    const directMoveSource = moveKernelSource.slice(
+        moveKernelSource.indexOf('async function buildMovePlan'),
+        moveKernelSource.indexOf('function applyPlacementToTaskDTO'),
+    );
+    const batchChildMoveSource = moveKernelSource.slice(
+        moveKernelSource.indexOf('async function batchMoveTasksIntoParent'),
+        moveKernelSource.indexOf('async function batchMoveTasks('),
+    );
+    assert.doesNotMatch(singleChildMoveSource, /await sql\(/,
+        'single child moves must not use the asynchronous SQL index for structure');
+    assert.doesNotMatch(directMoveSource, /await sql\(/,
+        'same-level and document edge moves must not use the asynchronous SQL index for structure');
+    assert.doesNotMatch(batchChildMoveSource, /await sql\(/,
+        'batch child moves must not use the asynchronous SQL index for structure');
+    assert.match(batchChildMoveSource, /capturePlacement\(id, rows\[index\]\)/,
+        'batch moves must verify the already-read parent-list hint instead of scanning every document list');
+    assert.match(singleChildMoveSource, /placementFromTaskList\(id, listID, await readTreeChildren\(listID\)/,
+        'child moves must confirm their committed placement from the block tree');
+
+    const unrelatedChildListID = '20260815030200-perflst';
+    const unrelatedChildTaskID = '20260815030201-perftsk';
+    harness.blocks.set(unrelatedChildListID, { id: unrelatedChildListID, parent_id: IDS.singleTask, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260815030200', created: '20260815030200', sort: 20 });
+    harness.blocks.set(unrelatedChildTaskID, { id: unrelatedChildTaskID, parent_id: unrelatedChildListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Unrelated child-list task', content: 'Unrelated child-list task', updated: '20260815030201', created: '20260815030201', sort: 1 });
+    const firstChildMoveCallStart = harness.apiCalls.length;
+    const firstChildMove = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: IDS.firstTask,
+        mode: 'child',
+        parentTaskID: IDS.singleTask,
+        requestedListID: IDS.childList,
+        authoritative: true,
+        recordUndo: false,
+    });
+    const secondChildMove = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: IDS.secondTask,
+        mode: 'child',
+        parentTaskID: IDS.singleTask,
+        requestedListID: IDS.childList,
+        authoritative: true,
+        recordUndo: false,
+    });
+    assert.equal(firstChildMove.ok, true);
+    assert.equal(secondChildMove.ok, true);
+    assert.deepEqual(
+        Array.from(harness.blocks.values())
+            .filter((block) => block.parent_id === IDS.childList && block.type === 'i' && block.subtype === 't')
+            .sort((left, right) => left.sort - right.sort)
+            .map((block) => block.id),
+        [IDS.childTask, IDS.firstTask, IDS.secondTask],
+        'rapid consecutive child moves must retain both moved tasks in tree order',
+    );
+    assert.equal(firstChildMove.data.value.placement.parentListID, IDS.childList);
+    assert.equal(secondChildMove.data.value.placement.previousSiblingID, IDS.firstTask);
+    const firstChildMoveCalls = harness.apiCalls.slice(firstChildMoveCallStart);
+    assert.equal(firstChildMoveCalls.some((item) => (
+        item.pathname === '/api/block/getChildBlocks' && item.body?.id === unrelatedChildListID
+    )), false, 'a preferred child list must avoid reads from unrelated lists under the same task');
+    harness.blocks.delete(unrelatedChildTaskID);
+    harness.blocks.delete(unrelatedChildListID);
+
+    const nestedOwnerID = '20260815020000-nestown';
+    const nestedSourceListID = '20260815020001-nestlst';
+    const nestedSourceTaskID = '20260815020002-nesttsk';
+    const nestedTargetListID = '20260815020003-tgtlist';
+    harness.blocks.set(nestedOwnerID, { id: nestedOwnerID, parent_id: IDS.otherDoc, root_id: IDS.otherDoc, type: 'b', subtype: '', markdown: '', content: '', updated: '20260815020000', created: '20260815020000', sort: 50 });
+    harness.blocks.set(nestedSourceListID, { id: nestedSourceListID, parent_id: nestedOwnerID, root_id: IDS.otherDoc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260815020001', created: '20260815020001', sort: 1 });
+    harness.blocks.set(nestedSourceTaskID, { id: nestedSourceTaskID, parent_id: nestedSourceListID, root_id: IDS.otherDoc, type: 'i', subtype: 't', markdown: '* [ ] Nested source', content: 'Nested source', updated: '20260815020002', created: '20260815020002', sort: 1 });
+    harness.blocks.set(nestedTargetListID, { id: nestedTargetListID, parent_id: IDS.otherTask, root_id: IDS.otherDoc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260815020003', created: '20260815020003', sort: 1 });
+    const nestedSourceChildMove = await harness.call('taskHorizonMutateTask', {
+        action: 'move',
+        taskID: nestedSourceTaskID,
+        mode: 'child',
+        parentTaskID: IDS.otherTask,
+        requestedListID: nestedTargetListID,
+        authoritative: true,
+        recordUndo: false,
+    });
+    assert.equal(nestedSourceChildMove.ok, true,
+        'a task list below an intermediate container must still resolve its source placement');
+    assert.equal(nestedSourceChildMove.data.value.placement.parentListID, nestedTargetListID);
+
+    const concurrentSourceListID = '20260815010000-racelst';
+    const concurrentFirstTaskID = '20260815010001-racet01';
+    const concurrentSecondTaskID = '20260815010002-racet02';
+    const concurrentParentTaskID = '20260815010003-racepar';
+    const concurrentFirstListID = '20260815010004-raceli1';
+    const concurrentSecondListID = '20260815010005-raceli2';
+    harness.blocks.set(concurrentSourceListID, { id: concurrentSourceListID, parent_id: IDS.doc, root_id: IDS.doc, type: 'l', subtype: '', markdown: '', content: '', updated: '20260815010000', created: '20260815010000', sort: 50 });
+    harness.blocks.set(concurrentFirstTaskID, { id: concurrentFirstTaskID, parent_id: concurrentSourceListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Race first', content: 'Race first', updated: '20260815010001', created: '20260815010001', sort: 1 });
+    harness.blocks.set(concurrentSecondTaskID, { id: concurrentSecondTaskID, parent_id: concurrentSourceListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Race second', content: 'Race second', updated: '20260815010002', created: '20260815010002', sort: 2 });
+    harness.blocks.set(concurrentParentTaskID, { id: concurrentParentTaskID, parent_id: concurrentSourceListID, root_id: IDS.doc, type: 'i', subtype: 't', markdown: '* [ ] Race parent', content: 'Race parent', updated: '20260815010003', created: '20260815010003', sort: 3 });
+    const concurrentMoves = await Promise.all([
+        harness.call('taskHorizonMutateTask', {
+            action: 'move', taskID: concurrentFirstTaskID, mode: 'child', parentTaskID: concurrentParentTaskID,
+            requestedListID: concurrentFirstListID, authoritative: true, recordUndo: false,
+        }),
+        harness.call('taskHorizonMutateTask', {
+            action: 'move', taskID: concurrentSecondTaskID, mode: 'child', parentTaskID: concurrentParentTaskID,
+            requestedListID: concurrentSecondListID, authoritative: true, recordUndo: false,
+        }),
+    ]);
+    assert.ok(concurrentMoves.every((result) => result.ok === true));
+    const concurrentChildLists = Array.from(harness.blocks.values())
+        .filter((block) => block.parent_id === concurrentParentTaskID && block.type === 'l');
+    assert.equal(concurrentChildLists.length, 1,
+        'different task lanes targeting one parent must not create duplicate child lists');
+    const concurrentChildListID = concurrentChildLists[0].id;
+    assert.deepEqual(
+        Array.from(harness.blocks.values())
+            .filter((block) => block.parent_id === concurrentChildListID && block.type === 'i' && block.subtype === 't')
+            .sort((left, right) => left.sort - right.sort)
+            .map((block) => block.id),
+        [concurrentFirstTaskID, concurrentSecondTaskID],
+    );
+    assert.ok(concurrentMoves.every((result) => result.data.value.placement.parentListID === concurrentChildListID));
 
     const documents = await harness.call('taskHorizonSearchDocuments', { keyword: 'Contract', limit: 20 });
     assert.equal(documents.ok, true);
@@ -1587,9 +2120,15 @@ async function run() {
         },
     });
 
+    const markerCallStart = harness.apiCalls.length;
     const marker = await harness.call('taskHorizonPersistUiBlockOperation', { action: 'updateMarker', id: IDS.secondTask, marker: '?' });
     assert.equal(marker.ok, true);
     assert.match(harness.blocks.get(IDS.secondTask).markdown, /^\* \[\?\]/);
+    assert.equal(
+        harness.apiCalls.slice(markerCallStart).some((call) => call.pathname === '/api/transactions'),
+        false,
+        'a valid state-2 task must not trigger a structural repair transaction',
+    );
 
     const content = await harness.call('taskHorizonPersistUiBlockOperation', { action: 'updateBlock', id: IDS.secondTask, data: '* [ ] Renamed' });
     assert.equal(content.ok, true);
@@ -1831,6 +2370,94 @@ async function run() {
         repairTransactions[0].body.transactions[0].doOperations.slice(0, 2).map((operation) => operation.action),
         ['delete', 'insert'],
         'the illegal task item must be replaced by its list wrapper in one transaction',
+    );
+
+    const nakedMarkerTaskID = '20260814000001-task';
+    harness.blocks.set(nakedMarkerTaskID, {
+        id: nakedMarkerTaskID,
+        parent_id: IDS.doc,
+        root_id: IDS.doc,
+        type: 'i',
+        subtype: 't',
+        markdown: '* [ ] Legacy naked marker task',
+        content: 'Legacy naked marker task',
+        updated: '20260814000001',
+        created: '20260814000001',
+        sort: 36,
+    });
+    const nakedMarkerCallStart = harness.apiCalls.length;
+    const nakedMarker = await harness.call('taskHorizonMutateTask', {
+        action: 'blockOperation',
+        operation: { action: 'updateMarker', id: nakedMarkerTaskID, marker: 'X' },
+    });
+    assert.equal(nakedMarker.ok, true);
+    assert.equal(nakedMarker.data.outcome, 'committed');
+    assert.equal(harness.blocks.get(harness.blocks.get(nakedMarkerTaskID).parent_id)?.type, 'l');
+    assert.match(harness.blocks.get(nakedMarkerTaskID).markdown, /^\* \[x\]/);
+    const nakedMarkerCalls = harness.apiCalls.slice(nakedMarkerCallStart);
+    assert.ok(
+        nakedMarkerCalls.findIndex((call) => call.pathname === '/api/transactions')
+            < nakedMarkerCalls.findIndex((call) => call.pathname === '/api/block/updateTaskListItemMarker'),
+        'an invalid legacy task must be wrapped before its marker is updated',
+    );
+
+    const nakedBatchTaskID = '20260814000002-task';
+    harness.blocks.set(nakedBatchTaskID, {
+        id: nakedBatchTaskID,
+        parent_id: IDS.doc,
+        root_id: IDS.doc,
+        type: 'i',
+        subtype: 't',
+        markdown: '* [ ] Legacy naked batch task',
+        content: 'Legacy naked batch task',
+        updated: '20260814000002',
+        created: '20260814000002',
+        sort: 37,
+    });
+    const nakedBatchMarker = await harness.call('taskHorizonMutateTask', {
+        action: 'blockOperation',
+        operation: {
+            action: 'batchUpdateMarker',
+            items: [
+                { id: IDS.secondTask, marker: 'X' },
+                { id: nakedBatchTaskID, marker: 'X' },
+            ],
+        },
+    });
+    assert.equal(nakedBatchMarker.ok, true);
+    assert.equal(nakedBatchMarker.data.outcome, 'committed');
+    assert.equal(harness.blocks.get(harness.blocks.get(nakedBatchTaskID).parent_id)?.type, 'l');
+    assert.match(harness.blocks.get(nakedBatchTaskID).markdown, /^\* \[x\]/);
+
+    const nakedAttrTaskID = '20260814000003-task';
+    harness.blocks.set(nakedAttrTaskID, {
+        id: nakedAttrTaskID,
+        parent_id: IDS.doc,
+        root_id: IDS.doc,
+        type: 'i',
+        subtype: 't',
+        markdown: '* [ ] Legacy naked attr task',
+        content: 'Legacy naked attr task',
+        updated: '20260814000003',
+        created: '20260814000003',
+        sort: 38,
+    });
+    const nakedAttrCallStart = harness.apiCalls.length;
+    const nakedAttrWrite = await harness.call('taskHorizonMutateTask', {
+        action: 'attrs',
+        taskID: nakedAttrTaskID,
+        attrs: { 'custom-priority': 'high' },
+    });
+    assert.equal(nakedAttrWrite.ok, true);
+    assert.equal(nakedAttrWrite.data.outcome, 'committed');
+    assert.equal(harness.blocks.get(harness.blocks.get(nakedAttrTaskID).parent_id)?.type, 'l');
+    assert.equal(harness.attrs.get(nakedAttrTaskID)['custom-priority'], 'high');
+    const nakedAttrTransactions = harness.apiCalls.slice(nakedAttrCallStart)
+        .filter((call) => call.pathname === '/api/transactions');
+    assert.deepEqual(
+        nakedAttrTransactions.map((call) => call.body.transactions[0].doOperations[0].action),
+        ['delete', 'setAttrs'],
+        'task attributes must be written only after the invalid task item has been wrapped',
     );
 
     const done = await harness.call('taskHorizonUpdateTask', IDS.singleTask, { done: true });

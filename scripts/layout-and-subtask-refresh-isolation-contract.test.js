@@ -49,7 +49,7 @@ for (const [label, source] of [['collapse', collapseAll], ['expand', expandAll]]
 }
 
 const kanbanTaskCollapse = segment(renderRuntime, 'window.tmKanbanToggleCollapse = function(id, ev)', 'window.tmKanbanToggleColumnCollapse');
-assert.match(kanbanTaskCollapse, /__tmSetKanbanTaskCollapsedInDom\(tid, collapsed, state\.modal\)/, 'task collapse must update the mounted card branch');
+assert.match(kanbanTaskCollapse, /__tmSetKanbanTaskCollapsedInDom\(tid, collapsed, state\.modal, \{ animate: true \}\)/, 'user task collapse must animate the mounted card branch');
 assert.doesNotMatch(kanbanTaskCollapse, /__tmRerenderKanbanInPlace|__tmRerenderCurrentViewInPlace|__tmScheduleViewRefresh|\brender\s*\(/, 'task collapse must not redraw the kanban');
 
 const kanbanColumnCollapse = segment(renderRuntime, 'window.tmKanbanToggleColumnCollapse = function(key, ev)', 'window.tmKanbanCardDblClick');
@@ -59,7 +59,7 @@ assert.doesNotMatch(renderRuntime, /__tmKanbanPendingSnapColumnKey/, 'the remove
 
 const groupCollapse = segment(settingsActions, 'window.tmToggleGroupCollapse = async function(groupKey, ev)', 'window.tmToggleCollapse = async function(id, ev)');
 const kanbanGroupCollapse = segment(groupCollapse, 'if (isKanban) {', 'if (isChecklist) {');
-assert.match(kanbanGroupCollapse, /__tmSetKanbanGroupCollapsedInDom\(k0, action === 'collapse', state\.modal\)/, 'group collapse must update the mounted group');
+assert.match(kanbanGroupCollapse, /__tmSetKanbanGroupCollapsedInDom\(k0, action === 'collapse', state\.modal, \{ animate: true \}\)/, 'user group collapse must animate the mounted group');
 assert.doesNotMatch(kanbanGroupCollapse, /__tmRerenderKanbanInPlace|__tmRerenderCurrentViewInPlace|__tmScheduleViewRefresh|\brender\s*\(/, 'kanban group collapse must not redraw the kanban');
 
 assert.match(kanbanRenderer, /const childrenHtml = childList\.length[\s\S]*?childList\.map\(ch => renderTree\(/, 'collapsed task descendants must remain mounted for direct expansion');

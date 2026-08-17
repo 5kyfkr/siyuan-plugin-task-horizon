@@ -3159,10 +3159,39 @@
         return body instanceof HTMLElement ? body : null;
     }
 
-    function __tmSetKanbanTaskCollapsedInDom(taskId, collapsed, modalEl) {
+    function __tmSetKanbanDisclosureContent(content, expanded) {
+        if (!(content instanceof HTMLElement)) return 'none';
+        const columnBody = content.closest?.('.tm-kanban-col-body');
+        let mode = 'none';
+        if (columnBody instanceof HTMLElement) {
+            try {
+                const started = __tmCollapseMotion.beginLayout(state.modal, {
+                    profile: 'kanban-column',
+                    action: expanded ? 'expand' : 'collapse',
+                    scope: columnBody,
+                });
+                if (started) mode = 'layout';
+            } catch (e) {}
+        }
+        try {
+            __tmCollapseMotion.setDisclosure(content, expanded, {
+                forceMode: mode,
+            });
+        } catch (e) {
+            content.hidden = !expanded;
+            content.setAttribute('aria-hidden', expanded ? 'false' : 'true');
+        }
+        if (mode === 'layout' && columnBody instanceof HTMLElement) {
+            try { queueMicrotask(() => { try { __tmCollapseMotion.playLayout(state.modal); } catch (e) {} }); } catch (e) {}
+        }
+        return mode;
+    }
+
+    function __tmSetKanbanTaskCollapsedInDom(taskId, collapsed, modalEl, options = {}) {
         const tid = String(taskId || '').trim();
         const body = __tmGetKanbanBodyForDomSync(modalEl);
         if (!tid || !body) return false;
+        const animate = options?.animate === true;
         const escapedId = __tmEscapeCssSelectorValue(tid);
         const cards = Array.from(body.querySelectorAll(`.tm-kanban-card[data-id="${escapedId}"]`));
         const focusKeepsExpanded = cards.some((card) => card.classList.contains('tm-timer-focus-ancestor'));
@@ -3173,8 +3202,12 @@
             found = true;
             const list = Array.from(section.children || []).find((child) => child?.hasAttribute?.('data-tm-kanban-subtasks-list'));
             if (list instanceof HTMLElement) {
-                list.hidden = isCollapsed;
-                list.setAttribute('aria-hidden', isCollapsed ? 'true' : 'false');
+                if (animate) {
+                    __tmSetKanbanDisclosureContent(list, !isCollapsed);
+                } else {
+                    list.hidden = isCollapsed;
+                    list.setAttribute('aria-hidden', isCollapsed ? 'true' : 'false');
+                }
             }
         });
 
@@ -3209,10 +3242,11 @@
         return found;
     }
 
-    function __tmSetKanbanGroupCollapsedInDom(groupKey, collapsed, modalEl) {
+    function __tmSetKanbanGroupCollapsedInDom(groupKey, collapsed, modalEl, options = {}) {
         const key = String(groupKey || '').trim();
         const body = __tmGetKanbanBodyForDomSync(modalEl);
         if (!key || !body) return false;
+        const animate = options?.animate === true;
         const escapedKey = __tmEscapeCssSelectorValue(key);
         const isCollapsed = !!collapsed;
         let found = false;
@@ -3224,8 +3258,12 @@
             if (!(group instanceof HTMLElement)) return;
             const items = Array.from(group.children || []).find((child) => child?.hasAttribute?.('data-tm-kanban-group-items'));
             if (items instanceof HTMLElement) {
-                items.hidden = isCollapsed;
-                items.setAttribute('aria-hidden', isCollapsed ? 'true' : 'false');
+                if (animate) {
+                    __tmSetKanbanDisclosureContent(items, !isCollapsed);
+                } else {
+                    items.hidden = isCollapsed;
+                    items.setAttribute('aria-hidden', isCollapsed ? 'true' : 'false');
+                }
             }
         });
         return found;
@@ -3300,7 +3338,7 @@
         if (collapsed) s.add(tid);
         else s.delete(tid);
         __tmKanbanPersistCollapsed();
-        __tmSetKanbanTaskCollapsedInDom(tid, collapsed, state.modal);
+        __tmSetKanbanTaskCollapsedInDom(tid, collapsed, state.modal, { animate: true });
     };
 
     window.tmKanbanToggleColumnCollapse = function(key, ev) {
@@ -5696,7 +5734,6 @@
             body.querySelectorAll('.tm-kanban-col-body').forEach((colBody) => {
                 if (!(colBody instanceof HTMLElement)) return;
                 const col = colBody.closest?.('.tm-kanban-col');
-                const prevScrollTop = Number(colBody.scrollTop || 0);
                 const hadAvoidance = colBody.classList.contains('tm-kanban-col-body--bottom-nav-inset');
                 const contentHeight = __tmMeasureKanbanBottomNavContentHeight(colBody);
                 const availableHeight = __tmMeasureKanbanBottomNavAvailableHeight(colBody, col);
@@ -5717,13 +5754,8 @@
                     && contentHeight > availableHeightWithoutAvoidance + 1;
                 const keepWhilePending = navState.pending && hadAvoidance;
                 const applyAvoidance = needsAvoidance || keepWhilePending;
+                // A bottom-only inset does not need a scroll write; assigning here cancels mobile momentum.
                 __tmSetKanbanBottomNavAvoidanceClass(colBody, applyAvoidance);
-                if (prevScrollTop > 0) {
-                    try {
-                        const maxTop = Math.max(0, Number(colBody.scrollHeight || 0) - Number(colBody.clientHeight || 0));
-                        colBody.scrollTop = Math.min(prevScrollTop, maxTop);
-                    } catch (e2) {}
-                }
                 if (applyAvoidance) hasAvoidanceColumn = true;
             });
             try { body.classList.toggle('tm-body--kanban-bottom-nav-inset', hasAvoidanceColumn); } catch (e) {}

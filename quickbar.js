@@ -215,6 +215,8 @@
     let inlineMetaDeferredStructuralAnchor = null;
     let inlineMetaWsHandler = null;
     let inlineMetaWsTimer = null;
+    let inlineMetaWsHasStructural = false;
+    let inlineMetaWsParentRefreshIds = new Set();
     let inlineMetaEditingCleanupHandler = null;
     let inlineMetaEditingRestoreHandler = null;
     let inlineMetaNativeHostSuppressedUntil = new Map();
@@ -5987,6 +5989,34 @@
             requestInlineMetaRender(!!forceRefresh);
         }
 
+        function syncInlineSubtaskSummaryFromEvent(detail = {}) {
+            const taskId = String(detail?.taskId || '').trim();
+            const total = Math.max(0, Number(detail?.total) || 0);
+            const completed = Math.max(0, Math.min(total, Number(detail?.completed) || 0));
+            if (!taskId) return false;
+            const remaining = Math.max(0, total - completed);
+            const displayValue = getQuickbarInlineSettings().subtaskCountUnfinishedOnly
+                ? String(remaining)
+                : `${completed}/${total}`;
+            const title = `子任务数量：共${total}个，已完成${completed}个，未完成${remaining}个`;
+            let touched = false;
+            queryInlineMetaHostsInObservedRoots('.sy-custom-props-inline-host').forEach((host) => {
+                if (!(host instanceof HTMLElement)) return;
+                const ownerIds = [host.dataset.blockId, host.dataset.taskId, host.dataset.attrHostId]
+                    .map((id) => String(id || '').trim())
+                    .filter(Boolean);
+                if (!ownerIds.includes(taskId)) return;
+                const chip = host.querySelector('[data-inline-attr="subtask-count"]');
+                if (!(chip instanceof HTMLElement)) return;
+                chip.setAttribute('data-inline-value', displayValue);
+                chip.setAttribute('title', title);
+                const value = chip.querySelector('.sy-custom-props-inline-chip-value');
+                if (value instanceof HTMLElement) value.textContent = displayValue;
+                touched = true;
+            });
+            return touched;
+        }
+
         function getInlineCachedProps(blockId) {
             const id = String(blockId || '').trim();
             if (!id) return normalizeCustomProps();
@@ -10555,18 +10585,42 @@
                             const txs = Array.isArray(data) ? data : (data ? [data] : []);
                             for (const tx of txs) {
                                 const ops = tx?.doOperations || tx?.operations || [];
-                                if (ops.some((op) => structuralActions.has(op?.action))) { hasStructural = true; break; }
+                                if (ops.some((op) => structuralActions.has(op?.action))) hasStructural = true;
+                                ops.forEach((op) => {
+                                    if (op?.action !== 'update') return;
+                                    const updatedIds = [op?.id, op?.blockID, op?.blockId, op?.data?.id]
+                                        .map((id) => String(id || '').trim())
+                                        .filter(Boolean);
+                                    updatedIds.forEach((updatedId) => {
+                                        const updatedEl = getTaskListElById(updatedId) || getBlockElById(updatedId);
+                                        const updatedTask = updatedEl?.matches?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]')
+                                            ? updatedEl
+                                            : updatedEl?.closest?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
+                                        if (!(updatedTask instanceof Element) || !isTaskBlockElement(updatedTask)) return;
+                                        const parentTask = updatedTask.parentElement?.closest?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
+                                        const parentTaskId = String(parentTask?.dataset?.nodeId || '').trim();
+                                        if (parentTaskId) inlineMetaWsParentRefreshIds.add(parentTaskId);
+                                    });
+                                });
                             }
                         } catch (e) {}
                         if (hasStructural) {
+                            inlineMetaWsHasStructural = true;
                             clearInlineMetaEmbedContextCache();
                             inlineMetaLayoutCache.clear();
                             inlineMetaNeedSyncBlocks = true;
                             scheduleQuickbarAttrHostKernelReconcile('structural-change');
+                        }
+                        if (hasStructural || inlineMetaWsParentRefreshIds.size > 0) {
                             if (inlineMetaWsTimer) clearTimeout(inlineMetaWsTimer);
                             inlineMetaWsTimer = setTimeout(() => {
                                 inlineMetaWsTimer = null;
-                                requestInlineMetaRender(true);
+                                const parentTaskIds = Array.from(inlineMetaWsParentRefreshIds);
+                                inlineMetaWsParentRefreshIds.clear();
+                                const shouldRefreshStructure = inlineMetaWsHasStructural;
+                                inlineMetaWsHasStructural = false;
+                                if (shouldRefreshStructure) requestInlineMetaRender(true);
+                                else parentTaskIds.forEach((parentTaskId) => refreshInlineMetaByTaskId(parentTaskId, false));
                             }, 60);
                         }
                     };
@@ -10623,6 +10677,8 @@
             inlineMetaWsHandler = null;
             if (inlineMetaWsTimer) clearTimeout(inlineMetaWsTimer);
             inlineMetaWsTimer = null;
+            inlineMetaWsHasStructural = false;
+            inlineMetaWsParentRefreshIds.clear();
             try { inlineMetaProtyleVisibilityObserver?.disconnect?.(); } catch (e) {}
             inlineMetaProtyleVisibilityObserver = null;
             inlineMetaProtyleVisibility = new WeakMap();
@@ -10747,6 +10803,7 @@
         let storageHandler = null;
         let closePopupsHandler = null;
         let taskAttrUpdatedHandler = null;
+        let taskSubtaskSummaryUpdatedHandler = null;
         let selectionChangeHandler = null;  // 新增：文字选择变化监听器
         let mouseUpHandler = null;
         let mouseUpSelectionTimer = null;
@@ -10961,6 +11018,10 @@
                 updatePosition();
             };
             window.addEventListener('tm-task-attr-updated', taskAttrUpdatedHandler);
+            taskSubtaskSummaryUpdatedHandler = (e) => {
+                try { syncInlineSubtaskSummaryFromEvent(e?.detail || {}); } catch (err) {}
+            };
+            window.addEventListener('tm-task-subtask-summary-updated', taskSubtaskSummaryUpdatedHandler);
         }
 
         function stopQuickbar() {
@@ -10977,6 +11038,8 @@
             closePopupsHandler = null;
             try { if (taskAttrUpdatedHandler) window.removeEventListener('tm-task-attr-updated', taskAttrUpdatedHandler); } catch (e) {}
             taskAttrUpdatedHandler = null;
+            try { if (taskSubtaskSummaryUpdatedHandler) window.removeEventListener('tm-task-subtask-summary-updated', taskSubtaskSummaryUpdatedHandler); } catch (e) {}
+            taskSubtaskSummaryUpdatedHandler = null;
 
             // ========== 新增：移除文字选择变化监听 ==========
             try { if (selectionChangeHandler) document.removeEventListener('selectionchange', selectionChangeHandler); } catch (e) {}

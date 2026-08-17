@@ -588,7 +588,9 @@ async function run() {
                 json: async () => payload,
             });
             if (route === '/getSession') {
-                return jsonResponse(storedSession ? { code: 0, data: storedSession } : { code: -1, msg: 'not found' });
+                return jsonResponse(storedSession
+                    ? { code: 0, data: storedSession }
+                    : { code: -1, msg: 'open C:\\data\\storage\\ai\\agent\\sessions\\new\\session.json: The system cannot find the path specified.' });
             }
             if (route === '/saveSession') {
                 storedSession = { ...body, revision: Number(storedSession?.revision || 0) + 1 };
@@ -611,7 +613,8 @@ async function run() {
         const result = await automation.runAutomation({ prompt: 'Summarize', sessionID: '20260722120000-abcdefg', sessionTitle: '定时：Test', persistSession: true });
         assert.equal(result.markdown, 'Done');
         assert.notEqual(result.sessionID, '20260722120000-abcdefg', 'a genuinely missing historical session must receive a fresh ID');
-        assert.deepEqual(requests.slice(0, 3).map((item) => item.route), ['/getSession', '/saveSession', '/chat'], 'a new automation conversation must be saved before chat starts');
+        assert.deepEqual(requests.slice(0, 3).map((item) => item.route), ['/getSession', '/saveSession', '/chat'],
+            'a Windows missing-path response must initialize the new conversation before chat starts');
         const preSave = requests.find((item) => item.route === '/saveSession').body;
         const chat = requests.find((item) => item.route === '/chat').body;
         assert.equal(preSave.entries.length, 1);

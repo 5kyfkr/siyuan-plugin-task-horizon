@@ -14,7 +14,7 @@
         heatmapLayoutRaf: 0,
         settleUntil: 0,
         settleTimer: 0,
-        focusState: { status: "idle", key: "", records: [], settings: null, unavailable: false },
+        focusState: { status: "idle", key: "", stats: null, settings: null, unavailable: false },
         focusLoadSeq: 0,
         selectedFocusTaskId: "",
         focusDateOffset: 0,
@@ -22,11 +22,18 @@
         focusRecentDays: 90,
         focusDayPage: 0,
         focusTaskPopoverOpen: false,
-        focusCalendar: { open: false, monthKey: "", status: "idle", key: "", records: [], loadSeq: 0 },
+        focusCalendar: { open: false, monthKey: "", status: "idle", key: "", stats: null, loadSeq: 0 },
+        focusCalendarCache: new Map(),
+        focusCalendarCacheBytes: 0,
+        focusScopeCache: null,
         homepageSettingsOpen: false,
         homepageSettings: { status: "idle", loadSeq: 0, saveSeq: 0, data: null },
     };
     const FOCUS_HISTORY_LOAD_DAYS = 90;
+    const FOCUS_STATS_CONTRACT_VERSION = 2;
+    const FOCUS_CALENDAR_CACHE_LIMIT = 12;
+    const FOCUS_CALENDAR_CACHE_BYTE_LIMIT = 4 * 1024 * 1024;
+    const FOCUS_SCOPE_TASK_ID_LIMIT = 10000;
     const HOMEPAGE_SETTINGS_DATA_KEY = "homepage-settings.json";
     const HOMEPAGE_MODULE_DEFS = Object.freeze([
         { id: "overview", label: "任务概览", desc: "任务状态、完成摘要", wide: true },
@@ -3179,15 +3186,94 @@
         return getSelectedFocusDateKey(ctx);
     }
 
+    function isTomatoFocusStatisticsAvailable() {
+        const service = globalThis.__tmFocusStatisticsService;
+        if (!service || typeof service.queryFocus !== "function") return false;
+        return typeof service.isAvailable !== "function" || service.isAvailable() === true;
+    }
+
+    function isTomatoPluginPresent() {
+        if (globalThis.__dockTomato && typeof globalThis.__dockTomato === "object") return true;
+        try {
+            return Array.isArray(globalThis.siyuan?.plugins)
+                && globalThis.siyuan.plugins.some((plugin) => plugin?.name === "siyuan-plugin-docktomato");
+        } catch (e) {
+            return false;
+        }
+    }
+
     function shouldRenderFocusSection(ctx) {
-        return ctx?.tomatoIntegrationEnabled === true;
+        return ctx?.tomatoIntegrationEnabled === true
+            && (isTomatoPluginPresent() || isTomatoFocusStatisticsAvailable());
+    }
+
+    function hashFocusScopeTaskIDs(ids) {
+        let hash = 2166136261;
+        for (const id of ids) {
+            for (let index = 0; index < id.length; index += 1) {
+                hash ^= id.charCodeAt(index);
+                hash = Math.imul(hash, 16777619);
+            }
+            hash ^= 0;
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(16).padStart(8, "0");
+    }
+
+    function buildFocusScopeDescriptor(ctx) {
+        if (isGlobalFocusScope(ctx)) return { taskIDs: [], tooLarge: false, signature: "global" };
+        const tasks = Array.isArray(ctx?.tasks) ? ctx.tasks : [];
+        const groupId = String(ctx?.currentGroupId || "all").trim() || "all";
+        const docId = String(ctx?.currentDocId || "all").trim() || "all";
+        const cached = runtime.focusScopeCache;
+        if (cached?.tasks === tasks && cached.groupId === groupId && cached.docId === docId) return cached.value;
+        const taskIDs = [];
+        const seenIDs = new Set();
+        const seenObjects = new WeakSet();
+        const stack = tasks.slice().reverse();
+        let tooLarge = false;
+        while (stack.length) {
+            const task = stack.pop();
+            if (!task || typeof task !== "object" || seenObjects.has(task)) continue;
+            seenObjects.add(task);
+            const id = String(task.id || "").trim();
+            if (id && !seenIDs.has(id)) {
+                seenIDs.add(id);
+                taskIDs.push(id);
+                if (taskIDs.length > FOCUS_SCOPE_TASK_ID_LIMIT) {
+                    tooLarge = true;
+                    taskIDs.length = 0;
+                    break;
+                }
+            }
+            const children = Array.isArray(task.children) ? task.children : [];
+            for (let index = children.length - 1; index >= 0; index -= 1) stack.push(children[index]);
+        }
+        if (!tooLarge) taskIDs.sort();
+        const value = {
+            taskIDs,
+            tooLarge,
+            signature: tooLarge ? `over-${FOCUS_SCOPE_TASK_ID_LIMIT}` : `${taskIDs.length}-${hashFocusScopeTaskIDs(taskIDs)}`,
+        };
+        runtime.focusScopeCache = { tasks, groupId, docId, value };
+        return value;
+    }
+
+    function getFocusScopeTaskIDs(ctx) {
+        return buildFocusScopeDescriptor(ctx).taskIDs;
+    }
+
+    function buildFocusScopeKey(ctx) {
+        const groupId = String(ctx?.currentGroupId || "all").trim() || "all";
+        const docId = String(ctx?.currentDocId || "all").trim() || "all";
+        return `${groupId}:${docId}:${buildFocusScopeDescriptor(ctx).signature}`;
     }
 
     function buildFocusLoadKey(ctx) {
         if (!shouldRenderFocusSection(ctx)) return "";
         const win = buildFocusWindow(ctx, FOCUS_HISTORY_LOAD_DAYS);
         const version = Math.max(0, Math.round(toNumber(ctx?.tomatoHistoryVersion, 0)));
-        return `${win.rangeDays}:${win.rangeStart.toISOString()}:${win.rangeEnd.toISOString()}:d${win.focusDateKey}:v${version}`;
+        return `${buildFocusScopeKey(ctx)}:${win.rangeDays}:${win.rangeStart.toISOString()}:${win.rangeEnd.toISOString()}:d${win.focusDateKey}:v${version}`;
     }
 
     function normalizeTomatoUserSettings(settings) {
@@ -3248,59 +3334,170 @@
         return normalizeTomatoUserSettings(localSettings);
     }
 
-    async function loadTomatoHistoryRecords(start, end) {
-        const api = globalThis.__dockTomato?.history?.loadRange;
-        if (typeof api !== "function") return { records: [], unavailable: true };
+    function buildHomepageFocusQueryOptions(ctx, start, end) {
+        const options = {
+            from: start.toISOString(),
+            to: end.toISOString(),
+            bucket: "day",
+            groupBy: "task",
+        };
+        if (!isGlobalFocusScope(ctx)) {
+            const scope = buildFocusScopeDescriptor(ctx);
+            if (scope.tooLarge) options.scopeTooLarge = true;
+            else options.taskIDs = scope.taskIDs;
+        }
+        return options;
+    }
+
+    async function loadTomatoFocusStatistics(ctx, start, end, control = {}) {
+        if (!isTomatoFocusStatisticsAvailable()) {
+            return { stats: null, unavailable: true, disabled: true };
+        }
+        const options = buildHomepageFocusQueryOptions(ctx, start, end);
+        if (options.scopeTooLarge === true) {
+            return { stats: null, unavailable: false, scopeTooLarge: true };
+        }
+        if (Array.isArray(options.taskIDs) && options.taskIDs.length === 0) {
+            return { stats: null, unavailable: false, emptyScope: true };
+        }
+        const service = globalThis.__tmFocusStatisticsService;
+        if (!service || typeof service.queryFocus !== "function") {
+            return { stats: null, unavailable: true };
+        }
         try {
-            const records = await api.call(globalThis.__dockTomato.history, start.toISOString(), end.toISOString());
-            return { records: Array.isArray(records) ? records : [], unavailable: false };
+            const stats = await service.queryFocus(options, control);
+            return { stats, unavailable: false };
         } catch (e) {
-            return { records: [], unavailable: true };
+            if (e?.code === "FOCUS_STATS_SUPERSEDED") {
+                return { stats: null, unavailable: false, superseded: true };
+            }
+            return { stats: null, unavailable: true };
         }
     }
 
-    async function loadTomatoFocusPayload(ctx) {
+    async function loadTomatoFocusPayload(ctx, control = {}) {
+        if (!isTomatoFocusStatisticsAvailable()) {
+            return { stats: null, settings: null, unavailable: true, disabled: true };
+        }
         const win = buildFocusWindow(ctx, FOCUS_HISTORY_LOAD_DAYS);
         const historyStart = new Date(Math.min(win.rangeStart.getTime(), win.focusDayStart.getTime()));
         const historyEnd = new Date(Math.max(win.rangeEnd.getTime(), win.focusDayEnd.getTime()));
-        const [settings, history] = await Promise.all([
+        const [settings, statistics] = await Promise.all([
             loadTomatoUserSettings(),
-            loadTomatoHistoryRecords(historyStart, historyEnd),
+            loadTomatoFocusStatistics(ctx, historyStart, historyEnd, control),
         ]);
         return {
-            records: history.records || [],
+            stats: statistics.stats || null,
             settings,
-            unavailable: history.unavailable === true,
+            unavailable: statistics.unavailable === true,
         };
     }
 
     function buildFocusCalendarKey(ctx, monthKey) {
         const month = getMonthBounds(monthKey).key;
         const version = Math.max(0, Math.round(toNumber(ctx?.tomatoHistoryVersion, 0)));
-        return `${month}:v${version}`;
+        return `${buildFocusScopeKey(ctx)}:${month}:v${version}`;
     }
 
-    function mergeFocusRecords(baseRecords, nextRecords) {
-        const out = [];
-        const seen = new Set();
-        const push = (record) => {
-            if (!record || typeof record !== "object") return;
-            const key = [
-                String(record?.start || "").trim(),
-                String(record?.end || "").trim(),
-                String(record?.mode || "").trim(),
-                String(record?.sessionId || "").trim(),
-                String(record?.taskBlockId || "").trim(),
-                String(record?.databaseBlockId || "").trim(),
-                String(record?.timestamp || "").trim(),
-            ].join("|");
-            if (seen.has(key)) return;
-            seen.add(key);
-            out.push(record);
+    function estimateFocusCalendarCacheBytes(value) {
+        const stack = [value];
+        const seen = new WeakSet();
+        let bytes = 0;
+        while (stack.length && bytes <= FOCUS_CALENDAR_CACHE_BYTE_LIMIT) {
+            const item = stack.pop();
+            if (item == null) continue;
+            const type = typeof item;
+            if (type === "string") {
+                bytes += item.length * 2 + 8;
+                continue;
+            }
+            if (type === "number" || type === "boolean") {
+                bytes += 8;
+                continue;
+            }
+            if (type !== "object" || seen.has(item)) continue;
+            seen.add(item);
+            if (Array.isArray(item)) {
+                bytes += 24 + item.length * 8;
+                for (const entry of item) stack.push(entry);
+                continue;
+            }
+            bytes += 32;
+            Object.entries(item).forEach(([key, entry]) => {
+                bytes += key.length * 2 + 16;
+                stack.push(entry);
+            });
+        }
+        return bytes;
+    }
+
+    function deleteFocusCalendarCacheEntry(cache, key) {
+        const entry = cache.get(key);
+        if (!cache.delete(key)) return false;
+        const bytes = Math.max(0, toNumber(entry?.bytes, 0));
+        runtime.focusCalendarCacheBytes = Math.max(0, toNumber(runtime.focusCalendarCacheBytes, 0) - bytes);
+        return true;
+    }
+
+    function readFocusCalendarCache(key) {
+        const cache = runtime.focusCalendarCache;
+        if (!(cache instanceof Map) || !cache.has(key)) return null;
+        const entry = cache.get(key);
+        cache.delete(key);
+        cache.set(key, entry);
+        return entry?.stats || null;
+    }
+
+    function writeFocusCalendarCache(key, stats) {
+        if (!key || !stats || Number(stats.contractVersion) !== FOCUS_STATS_CONTRACT_VERSION) return false;
+        const cache = runtime.focusCalendarCache instanceof Map ? runtime.focusCalendarCache : new Map();
+        runtime.focusCalendarCache = cache;
+        const slotKey = key.replace(/:v\d+$/, "");
+        Array.from(cache.entries()).forEach(([cachedKey, entry]) => {
+            const cachedSlotKey = String(entry?.slotKey || cachedKey).replace(/:v\d+$/, "");
+            if (cachedSlotKey === slotKey) deleteFocusCalendarCacheEntry(cache, cachedKey);
+        });
+        const bytes = estimateFocusCalendarCacheBytes(stats);
+        if (bytes > FOCUS_CALENDAR_CACHE_BYTE_LIMIT) return false;
+        cache.set(key, { stats, bytes, slotKey });
+        runtime.focusCalendarCacheBytes = Math.max(0, toNumber(runtime.focusCalendarCacheBytes, 0)) + bytes;
+        while (cache.size > FOCUS_CALENDAR_CACHE_LIMIT
+            || runtime.focusCalendarCacheBytes > FOCUS_CALENDAR_CACHE_BYTE_LIMIT) {
+            const oldestKey = cache.keys().next().value;
+            if (!oldestKey) break;
+            deleteFocusCalendarCacheEntry(cache, oldestKey);
+        }
+        return true;
+    }
+
+    function focusStatisticsCoverMonth(ctx, stats, month) {
+        const rangeFromMs = Date.parse(stats?.range?.from || "");
+        const rangeToMs = Date.parse(stats?.range?.to || "");
+        const todayEndMs = buildFocusWindow(ctx, 1).todayEnd.getTime();
+        const requiredEndMs = Math.max(month.start.getTime(), Math.min(month.end.getTime(), todayEndMs));
+        return Number.isFinite(rangeFromMs) && Number.isFinite(rangeToMs)
+            && rangeFromMs <= month.start.getTime() && rangeToMs >= requiredEndMs;
+    }
+
+    function setLoadedFocusCalendar(ctx, month, key, stats, current = runtime.focusCalendar) {
+        runtime.focusCalendar = {
+            ...(current && typeof current === "object" ? current : {}),
+            open: current?.open === true,
+            monthKey: month.key,
+            status: "loaded",
+            key,
+            stats,
+            loadSeq: Math.max(0, Math.round(toNumber(current?.loadSeq, 0))) + 1,
         };
-        (Array.isArray(baseRecords) ? baseRecords : []).forEach(push);
-        (Array.isArray(nextRecords) ? nextRecords : []).forEach(push);
-        return out;
+        writeFocusCalendarCache(key, stats);
+        return true;
+    }
+
+    function syncFocusCalendarFromStatistics(ctx, stats) {
+        const month = getMonthBounds(runtime.focusCalendar?.monthKey || getSelectedFocusDateKey(ctx).slice(0, 7));
+        if (!focusStatisticsCoverMonth(ctx, stats, month)) return false;
+        const current = runtime.focusCalendar && typeof runtime.focusCalendar === "object" ? runtime.focusCalendar : {};
+        return setLoadedFocusCalendar(ctx, month, buildFocusCalendarKey(ctx, month.key), stats, current);
     }
 
     function ensureFocusCalendarLoaded(ctx, monthKey = "") {
@@ -3313,50 +3510,52 @@
             monthKey: month.key,
             status: current.status || "idle",
             key: current.key || "",
-            records: Array.isArray(current.records) ? current.records : [],
+            stats: current.stats || null,
             loadSeq: Math.max(0, Math.round(toNumber(current.loadSeq, 0))),
         };
         if (runtime.focusCalendar.key === key && (runtime.focusCalendar.status === "loading" || runtime.focusCalendar.status === "loaded")) return true;
+        const cachedStats = readFocusCalendarCache(key);
+        if (cachedStats) {
+            setLoadedFocusCalendar(ctx, month, key, cachedStats, runtime.focusCalendar);
+            return true;
+        }
+        const summaryStats = runtime.focusState?.status === "loaded" ? runtime.focusState?.stats : null;
+        if (focusStatisticsCoverMonth(ctx, summaryStats, month)) {
+            setLoadedFocusCalendar(ctx, month, key, summaryStats, runtime.focusCalendar);
+            return true;
+        }
         const seq = runtime.focusCalendar.loadSeq + 1;
         runtime.focusCalendar = {
             ...runtime.focusCalendar,
             status: "loading",
             key,
             loadSeq: seq,
-            records: [],
+            stats: null,
         };
-        loadTomatoHistoryRecords(month.start, month.end)
+        loadTomatoFocusStatistics(ctx, month.start, month.end, {
+            channel: 'homepage-focus-calendar',
+            isCurrent: () => runtime.focusCalendar?.loadSeq === seq,
+        })
             .then((payload) => {
                 if (runtime.focusCalendar?.loadSeq !== seq) return;
-                const records = Array.isArray(payload?.records) ? payload.records : [];
                 runtime.focusCalendar = {
                     ...runtime.focusCalendar,
                     status: payload?.unavailable ? "error" : "loaded",
-                    records,
+                    stats: payload?.stats || null,
                 };
-                if (runtime.focusState && runtime.focusState.status === "loaded") {
-                    runtime.focusState = {
-                        ...runtime.focusState,
-                        records: mergeFocusRecords(runtime.focusState.records || [], records),
-                    };
-                }
-                updateFocusDaySlots();
+                if (payload?.stats) writeFocusCalendarCache(key, payload.stats);
+                if (!updateFocusCalendarSlot()) updateFocusTodaySlot();
             })
             .catch(() => {
                 if (runtime.focusCalendar?.loadSeq !== seq) return;
                 runtime.focusCalendar = {
                     ...runtime.focusCalendar,
                     status: "error",
-                    records: [],
+                    stats: null,
                 };
-                updateFocusTodaySlot();
+                if (!updateFocusCalendarSlot()) updateFocusTodaySlot();
             });
         return true;
-    }
-
-    function isFocusHistoryRecord(record) {
-        const mode = String(record?.mode || "").trim();
-        return mode === "countdown" || mode === "stopwatch";
     }
 
     function isGlobalFocusScope(ctx) {
@@ -3365,132 +3564,24 @@
         return groupId === "all" && docId === "all";
     }
 
-    function getHistoryRecordRange(record) {
-        const start = parseDateTime(record?.start);
-        const end = parseDateTime(record?.end);
-        if (!(start instanceof Date) || !(end instanceof Date)) return null;
-        if (end.getTime() <= start.getTime()) return null;
-        return { start, end };
-    }
-
-    function getHistoryRecordOverlapSeconds(record, start, end) {
-        const range = getHistoryRecordRange(record);
-        if (!range) return 0;
-        const left = Math.max(range.start.getTime(), start.getTime());
-        const right = Math.min(range.end.getTime(), end.getTime());
-        if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return 0;
-        const wallSeconds = Math.max(0, (range.end.getTime() - range.start.getTime()) / 1000);
-        const overlapSeconds = Math.max(0, (right - left) / 1000);
-        const storedSeconds = toNumber(record?.durationSec, 0) > 0
-            ? toNumber(record.durationSec, 0)
-            : (toNumber(record?.durationMin, 0) > 0 ? toNumber(record.durationMin, 0) * 60 : wallSeconds);
-        if (wallSeconds <= 0 || storedSeconds <= 0) return 0;
-        return Math.max(0, storedSeconds * (overlapSeconds / wallSeconds));
-    }
-
-    function getHistoryRecordEndMs(record, fallbackEnd = null) {
-        const range = getHistoryRecordRange(record);
-        const endMs = range?.end?.getTime?.() || toNumber(record?.timestamp, 0);
-        const fallbackMs = fallbackEnd instanceof Date ? fallbackEnd.getTime() : 0;
-        const ms = Number.isFinite(endMs) && endMs > 0 ? endMs : fallbackMs;
-        return fallbackMs > 0 ? Math.min(ms, fallbackMs) : ms;
-    }
-
-    function getHistoryRecordSessionKey(record) {
-        return String(record?.sessionId || record?.session_id || "").trim()
-            || [
-                String(record?.start || "").trim(),
-                String(record?.end || "").trim(),
-                String(record?.taskBlockId || record?.databaseBlockId || "").trim(),
-                String(record?.mode || "").trim(),
-            ].join("|");
-    }
-
-    function getHistoryRecordTaskIds(record) {
-        const ids = [];
-        const push = (value) => {
-            const id = String(value || "").trim();
-            if (id && !ids.includes(id)) ids.push(id);
-        };
-        push(record?.taskBlockId);
-        push(record?.databaseBlockId);
-        push(record?.blockId);
-        push(record?.taskId);
-        push(record?.routineButtonBlockId);
-        return ids;
-    }
-
-    function getTaskCandidateIds(task) {
-        const ids = [];
-        const isRecurringInstance = task?.isRecurringInstance === true
-            || String(task?.id || "").startsWith("repeatinst:");
-        const push = (value) => {
-            const id = String(value || "").trim();
-            if (id && !ids.includes(id)) ids.push(id);
-        };
-        push(task?.id);
-        if (isRecurringInstance) return ids;
-        push(task?.blockId);
-        push(task?.block_id);
-        push(task?.attrHostId);
-        push(task?.attr_host_id);
-        push(task?.taskId);
-        push(task?.task_id);
-        push(task?.sourceTaskId);
-        push(task?.recurringSourceTaskId);
-        push(task?.nodeId);
-        push(task?.node_id);
-        push(task?.databaseBlockId);
-        push(task?.database_block_id);
-        return ids;
-    }
-
-    function buildFocusTaskIndex(tasks) {
-        const map = new Map();
-        flattenTasks(tasks || []).forEach((task) => {
-            getTaskCandidateIds(task).forEach((id) => {
-                if (!map.has(id)) map.set(id, task);
-            });
-        });
-        return map;
-    }
-
-    function buildFocusDayMap(ctx, records, monthKey) {
+    function buildFocusDayMap(records, monthKey) {
         const month = getMonthBounds(monthKey);
-        const taskIndex = buildFocusTaskIndex(ctx?.tasks || []);
-        const includeUnmatchedRecords = isGlobalFocusScope(ctx);
         const daySeconds = new Map();
-        const days = [];
-        for (let dt = new Date(month.start.getTime()); dt < month.end; dt = addLocalDays(dt, 1)) {
-            const key = formatDateKey(dt);
-            days.push(key);
-            daySeconds.set(key, 0);
-        }
-        (Array.isArray(records) ? records : []).forEach((record) => {
-            if (!isFocusHistoryRecord(record)) return;
-            const historyIds = getHistoryRecordTaskIds(record);
-            let task = null;
-            for (const id of historyIds) {
-                task = taskIndex.get(id);
-                if (task) break;
-            }
-            if (!task && !includeUnmatchedRecords) return;
-            days.forEach((key) => {
-                const start = getLocalDayStart(key);
-                const end = addLocalDays(start, 1);
-                const sec = getHistoryRecordOverlapSeconds(record, start, end);
-                if (sec > 0) daySeconds.set(key, (daySeconds.get(key) || 0) + sec);
-            });
+        (Array.isArray(records?.totals?.buckets) ? records.totals.buckets : []).forEach((bucket) => {
+            const key = normalizeDateKey(String(bucket?.key || "").slice(0, 10));
+            if (key) daySeconds.set(key, Math.max(0, toNumber(bucket?.focusSec, 0)));
         });
         const maxMinutes = Math.max(0, ...Array.from(daySeconds.values(), (sec) => sec / 60));
         const out = new Map();
-        daySeconds.forEach((sec, key) => {
+        for (let dt = new Date(month.start.getTime()); dt < month.end; dt = addLocalDays(dt, 1)) {
+            const key = formatDateKey(dt);
+            const sec = daySeconds.get(key) || 0;
             const minutes = sec / 60;
             const level = minutes > 0 && maxMinutes > 0
                 ? Math.max(1, Math.min(4, Math.ceil((minutes / maxMinutes) * 4)))
                 : 0;
             out.set(key, { seconds: sec, minutes, level });
-        });
+        }
         return out;
     }
 
@@ -3569,7 +3660,8 @@
     }
 
     function buildFocusTaskPlan(task, group, ctx) {
-        const actualPomodoros = Math.max(0, group?.pomodoroSessions instanceof Set ? group.pomodoroSessions.size : 0);
+        const actualPomodoros = Math.max(0, Number(group?.countdownSessionCount)
+            || (group?.pomodoroSessions instanceof Set ? group.pomodoroSessions.size : 0));
         const actualMinutes = Math.max(0, secondsToDisplayMinutes(group?.totalSec || 0));
         const estimateTomatoes = parsePositiveNumber(task?.tomatoEstimateCount ?? task?.tomato_estimate_count);
         if (estimateTomatoes > 0) {
@@ -3588,96 +3680,46 @@
     }
 
     function buildFocusStats(ctx, records, settings) {
+        if (!(records && typeof records === "object"
+            && Number(records.contractVersion) === FOCUS_STATS_CONTRACT_VERSION)) return null;
         const win = buildFocusWindow(ctx, runtime.focusRecentDays);
         const safeSettings = normalizeTomatoUserSettings(settings);
-        const targetMinutes = safeSettings.dailyFocusTargetMinutes;
-        const todayPomodoroSessions = new Set();
-        const taskIndex = buildFocusTaskIndex(ctx?.tasks || []);
-        const includeUnmatchedRecords = isGlobalFocusScope(ctx);
-        const groups = new Map();
-        const dayGroups = new Map();
-        let totalTodaySec = 0;
-        let countdownTodaySec = 0;
-        let stopwatchTodaySec = 0;
-        let distractionCount = 0;
-        const addGroupRecord = (map, task, record, seconds, lastFallback) => {
-            if (!(map instanceof Map) || !task || seconds <= 0) return;
-            const historyIds = getHistoryRecordTaskIds(record);
-            const taskIds = getTaskCandidateIds(task);
-            const openId = String(task?.id || taskIds[0] || historyIds[0] || "").trim();
-            if (!openId) return;
-            let group = map.get(openId);
-            if (!group) {
-                group = {
-                    id: openId,
-                    task,
-                    totalSec: 0,
-                    lastMs: 0,
-                    pomodoroSessions: new Set(),
-                };
-                map.set(openId, group);
-            }
-            group.totalSec += seconds;
-            group.lastMs = Math.max(group.lastMs, getHistoryRecordEndMs(record, lastFallback));
-            if (String(record?.mode || "").trim() === "countdown") {
-                group.pomodoroSessions.add(getHistoryRecordSessionKey(record));
-            }
+        const dayBucket = (Array.isArray(records?.totals?.buckets) ? records.totals.buckets : [])
+            .find((bucket) => String(bucket?.key || "").slice(0, 10) === win.focusDateKey) || {};
+        const mapTask = (task, statsValue) => {
+            const group = {
+                totalSec: Math.max(0, toNumber(statsValue?.focusSec, 0)),
+                countdownSessionCount: Math.max(0, toNumber(statsValue?.countdownSessionCount, 0)),
+            };
+            const plan = buildFocusTaskPlan(task, group, ctx);
+            const lastMs = Math.max(0, toNumber(statsValue?.lastEndMs, 0));
+            return {
+                id: String(task?.id || "").trim(),
+                title: String(task?.title || "").trim() || "未命名任务",
+                doc: String(task?.documentName || "").trim() || "未命名文档",
+                lastText: formatRecentFocusTime(lastMs, win.todayKey),
+                lastMs,
+                planText: plan.text,
+                planEmpty: plan.empty,
+                totalSec: group.totalSec,
+            };
         };
-
-        (Array.isArray(records) ? records : []).forEach((record) => {
-            if (!isFocusHistoryRecord(record)) return;
-            const historyIds = getHistoryRecordTaskIds(record);
-            let task = null;
-            for (const id of historyIds) {
-                task = taskIndex.get(id);
-                if (task) break;
-            }
-            if (!task && !includeUnmatchedRecords) return;
-            const todaySec = getHistoryRecordOverlapSeconds(record, win.focusDayStart, win.focusDayEnd);
-            if (todaySec > 0) {
-                totalTodaySec += todaySec;
-                if (String(record?.mode || "").trim() === "countdown") {
-                    countdownTodaySec += todaySec;
-                    todayPomodoroSessions.add(getHistoryRecordSessionKey(record));
-                } else {
-                    stopwatchTodaySec += todaySec;
-                }
-                distractionCount += Math.max(0, Math.round(toNumber(record?.distractionCount, 0)));
-                if (task) addGroupRecord(dayGroups, task, record, todaySec, win.focusDayEnd);
-            }
-
-            const rangeSec = getHistoryRecordOverlapSeconds(record, win.rangeStart, win.rangeEnd);
-            if (rangeSec <= 0 || !task) return;
-            addGroupRecord(groups, task, record, rangeSec, win.rangeEnd);
-        });
-
-        const mapFocusGroupItems = (map) => Array.from(map.values())
-            .map((group) => {
-                const plan = buildFocusTaskPlan(group.task, group, ctx);
-                return {
-                    id: group.id,
-                    title: resolveTaskTitle(group.task),
-                    doc: resolveTaskDoc(group.task),
-                    lastText: formatRecentFocusTime(group.lastMs, win.todayKey),
-                    lastMs: group.lastMs,
-                    planText: plan.text,
-                    planEmpty: plan.empty,
-                    totalSec: group.totalSec,
-                };
-            })
-            .sort((a, b) => {
-                if (b.lastMs !== a.lastMs) return b.lastMs - a.lastMs;
-                return b.totalSec - a.totalSec;
-            });
-        const recentItems = mapFocusGroupItems(groups).slice(0, 5);
-        const dayAllItems = mapFocusGroupItems(dayGroups);
+        const taskRows = Array.isArray(records?.tasks) ? records.tasks : [];
+        const recentItems = taskRows.filter((task) => toNumber(task?.focusSec, 0) > 0)
+            .map((task) => mapTask(task, task))
+            .sort((a, b) => b.lastMs - a.lastMs || b.totalSec - a.totalSec)
+            .slice(0, 5);
+        const dayAllItems = taskRows.map((task) => {
+            const bucket = (Array.isArray(task?.buckets) ? task.buckets : [])
+                .find((item) => String(item?.key || "").slice(0, 10) === win.focusDateKey);
+            return bucket && toNumber(bucket.focusSec, 0) > 0 ? mapTask(task, bucket) : null;
+        }).filter(Boolean).sort((a, b) => b.lastMs - a.lastMs || b.totalSec - a.totalSec);
         const dayPageSize = 5;
         const dayTotalPages = Math.max(1, Math.ceil(dayAllItems.length / dayPageSize));
         const dayPage = Math.max(0, Math.min(dayTotalPages - 1, Math.round(toNumber(runtime.focusDayPage, 0))));
-        if (Math.round(toNumber(runtime.focusDayPage, 0)) !== dayPage) runtime.focusDayPage = dayPage;
-        const dayItems = dayAllItems.slice(dayPage * dayPageSize, (dayPage + 1) * dayPageSize);
-
-        const totalTodayMinutes = totalTodaySec / 60;
+        runtime.focusDayPage = dayPage;
+        const totalMinutes = Math.max(0, toNumber(dayBucket.focusSec, 0)) / 60;
+        const targetMinutes = safeSettings.dailyFocusTargetMinutes;
         return {
             rangeDays: win.rangeDays,
             focusDate: {
@@ -3687,16 +3729,16 @@
                 canGoNext: win.focusDateOffset < 0,
             },
             today: {
-                totalMinutes: totalTodayMinutes,
-                countdownMinutes: countdownTodaySec / 60,
-                stopwatchMinutes: stopwatchTodaySec / 60,
-                pomodoroCount: todayPomodoroSessions.size,
-                distractionCount,
+                totalMinutes,
+                countdownMinutes: Math.max(0, toNumber(dayBucket.countdownSec, 0)) / 60,
+                stopwatchMinutes: Math.max(0, toNumber(dayBucket.stopwatchSec, 0)) / 60,
+                pomodoroCount: Math.max(0, toNumber(dayBucket.countdownSessionCount, 0)),
+                distractionCount: Math.max(0, toNumber(dayBucket.distractionCount, 0)),
                 targetMinutes,
-                progressPct: targetMinutes > 0 ? Math.min(100, Math.round((totalTodayMinutes / targetMinutes) * 100)) : 0,
+                progressPct: targetMinutes > 0 ? Math.min(100, Math.round((totalMinutes / targetMinutes) * 100)) : 0,
             },
             taskListMode: runtime.focusTaskListMode === "day" ? "day" : "recent",
-            dayItems,
+            dayItems: dayAllItems.slice(dayPage * dayPageSize, (dayPage + 1) * dayPageSize),
             dayTotalItems: dayAllItems.length,
             dayPage,
             dayPageSize,
@@ -3706,14 +3748,19 @@
     }
 
     function flattenTasks(items, out = [], seen = new Set()) {
-        (Array.isArray(items) ? items : []).forEach((item) => {
-            if (!item || typeof item !== "object") return;
+        const seenObjects = new WeakSet();
+        const stack = (Array.isArray(items) ? items : []).slice().reverse();
+        while (stack.length) {
+            const item = stack.pop();
+            if (!item || typeof item !== "object" || seenObjects.has(item)) continue;
+            seenObjects.add(item);
             const id = String(item.id || "").trim();
-            if (id && seen.has(id)) return;
+            if (id && seen.has(id)) continue;
             if (id) seen.add(id);
             out.push(item);
-            if (Array.isArray(item.children) && item.children.length) flattenTasks(item.children, out, seen);
-        });
+            const children = Array.isArray(item.children) ? item.children : [];
+            for (let index = children.length - 1; index >= 0; index -= 1) stack.push(children[index]);
+        }
         return out;
     }
 
@@ -4298,7 +4345,8 @@
     }
 
     function renderHomepageSettings() {
-        const order = readHomepageModuleOrder();
+        const order = readHomepageModuleOrder()
+            .filter((id) => id !== "focus" || shouldRenderFocusSection(runtime.ctx || {}));
         const open = runtime.homepageSettingsOpen === true;
         return `
             <div class="tm-homepage-settings">
@@ -4619,10 +4667,10 @@
         const todayKey = normalizeDateKey(ctx?.todayKey) || formatDateKey(new Date());
         const isCurrentMonth = month.key >= todayKey.slice(0, 7);
         const status = String(runtime.focusCalendar?.status || "idle");
-        const records = (status === "loaded" && runtime.focusCalendar?.key === buildFocusCalendarKey(ctx, month.key))
-            ? (Array.isArray(runtime.focusCalendar?.records) ? runtime.focusCalendar.records : [])
-            : [];
-        const dayMap = buildFocusDayMap(ctx, records, month.key);
+        const calendarStats = (status === "loaded" && runtime.focusCalendar?.key === buildFocusCalendarKey(ctx, month.key))
+            ? (runtime.focusCalendar?.stats || null)
+            : null;
+        const dayMap = buildFocusDayMap(calendarStats || {}, month.key);
         const calendarFirstDay = getCalendarFirstDay(ctx);
         const weekLabels = getCalendarWeekLabels(calendarFirstDay);
         const firstWeekday = (month.start.getDay() - calendarFirstDay + 7) % 7;
@@ -4840,7 +4888,7 @@
         if (state.status === "error") {
             return renderFocusLoadingCard("番茄钟历史暂不可用。", layout);
         }
-        const stats = buildFocusStats(ctx, state.records || [], state.settings || null);
+        const stats = buildFocusStats(ctx, state.stats || null, state.settings || null);
         const dayScope = stats?.focusDate?.isToday ? "今日当前范围" : "当日当前范围";
         return `
             <section class="tm-homepage-card tm-homepage-card--focus ${isNarrow ? "is-narrow" : ""}">
@@ -4925,15 +4973,14 @@
         return true;
     }
 
-    function syncFocusStateForCurrentDate(ctx, records = []) {
+    function syncFocusStateForCurrentDate(ctx, statsValue = null) {
         const state = runtime.focusState && typeof runtime.focusState === "object" ? runtime.focusState : {};
-        const mergedRecords = mergeFocusRecords(state.records || [], records);
-        if (!mergedRecords.length && state.status !== "loaded") return false;
+        if (!statsValue || Number(statsValue.contractVersion) !== FOCUS_STATS_CONTRACT_VERSION) return false;
         runtime.focusState = {
             ...state,
             status: "loaded",
             key: buildFocusLoadKey(ctx),
-            records: mergedRecords,
+            stats: statsValue,
         };
         return true;
     }
@@ -4942,7 +4989,7 @@
         const state = runtime.focusState && typeof runtime.focusState === "object" ? runtime.focusState : {};
         const expectedKey = buildFocusLoadKey(ctx);
         if (String(state.key || "") !== expectedKey || state.status !== "loaded") return null;
-        return buildFocusStats(ctx, state.records || [], state.settings || null);
+        return buildFocusStats(ctx, state.stats || null, state.settings || null);
     }
 
     function updateFocusTodaySlot() {
@@ -4954,6 +5001,17 @@
         if (!stats) return false;
         slot.outerHTML = renderTodayFocusPanel(stats);
         scheduleHomepageHeatmapLayoutSync();
+        return true;
+    }
+
+    function updateFocusCalendarSlot() {
+        if (!(runtime.root instanceof HTMLElement)) return false;
+        const slot = runtime.root.querySelector(".tm-homepage-focus-calendar-popover");
+        if (!(slot instanceof HTMLElement)) return false;
+        const ctx = runtime.ctx && typeof runtime.ctx === "object" ? runtime.ctx : {};
+        const stats = buildLoadedFocusStats(ctx);
+        if (!stats) return false;
+        slot.outerHTML = renderFocusCalendar(stats);
         return true;
     }
 
@@ -4981,25 +5039,31 @@
         if (!key) return false;
         const state = runtime.focusState && typeof runtime.focusState === "object" ? runtime.focusState : {};
         if (String(state.key || "") === key && (state.status === "loading" || state.status === "loaded")) return true;
+        if (!isTomatoFocusStatisticsAvailable()) return true;
         const seq = ++runtime.focusLoadSeq;
-        runtime.focusState = { status: "loading", key, records: [], settings: null, unavailable: false };
-        loadTomatoFocusPayload(ctx)
+        runtime.focusState = { status: "loading", key, stats: null, settings: null, unavailable: false };
+        loadTomatoFocusPayload(ctx, {
+            channel: 'homepage-focus-summary',
+            isCurrent: () => runtime.focusLoadSeq === seq,
+        })
             .then((payload) => {
                 if (seq !== runtime.focusLoadSeq) return;
                 if (!(runtime.root instanceof HTMLElement)) return;
                 runtime.focusState = {
                     status: payload?.unavailable ? "error" : "loaded",
                     key,
-                    records: Array.isArray(payload?.records) ? payload.records : [],
+                    stats: payload?.stats || null,
                     settings: payload?.settings || null,
                     unavailable: payload?.unavailable === true,
                 };
-                ensureFocusCalendarLoaded(ctx, getSelectedFocusDateKey(ctx).slice(0, 7));
+                if (!syncFocusCalendarFromStatistics(ctx, payload?.stats || null)) {
+                    ensureFocusCalendarLoaded(ctx, getSelectedFocusDateKey(ctx).slice(0, 7));
+                }
                 updateFocusSlot();
             })
             .catch(() => {
                 if (seq !== runtime.focusLoadSeq) return;
-                runtime.focusState = { status: "error", key, records: [], settings: null, unavailable: true };
+                runtime.focusState = { status: "error", key, stats: null, settings: null, unavailable: true };
                 updateFocusSlot();
             });
         return true;
@@ -5156,7 +5220,6 @@
         const ctx = runtime.ctx && typeof runtime.ctx === "object" ? runtime.ctx : {};
         runtime.profile = resolveProfile(ctx);
         runtime.root.dataset.tmHomepageProfile = runtime.profile;
-        ensureFocusCalendarLoaded(ctx, getSelectedFocusDateKey(ctx).slice(0, 7));
         runtime.root.innerHTML = renderShell(ctx, runtime.profile, buildOverview(ctx));
         scheduleHomepageHeatmapLayoutSync();
         ensureFocusStatsLoaded(ctx);
@@ -5174,7 +5237,6 @@
         const trendSlot = runtime.root.querySelector("[data-tm-home-trend-slot]");
         if (trendSlot instanceof HTMLElement) {
             trendSlot.innerHTML = renderTrendCard(ctx, runtime.profile, overview, getHomepageTrendLayout());
-            ensureFocusCalendarLoaded(ctx, getSelectedFocusDateKey(ctx).slice(0, 7));
             updateFocusSlot();
             ensureFocusStatsLoaded(ctx);
             return true;
@@ -5315,7 +5377,7 @@
                         monthKey: nextMonth,
                     };
                     ensureFocusCalendarLoaded(ctx, nextMonth);
-                    if (!updateFocusTodaySlot()) updateFocusSlot();
+                    if (!updateFocusCalendarSlot() && !updateFocusTodaySlot()) updateFocusSlot();
                 }
                 return;
             }
@@ -5330,7 +5392,7 @@
                     open: false,
                     monthKey: selectedKey.slice(0, 7),
                 };
-                syncFocusStateForCurrentDate(ctx, runtime.focusCalendar?.records || []);
+                syncFocusStateForCurrentDate(ctx, runtime.focusCalendar?.stats || null);
                 if (isNarrowFocus) {
                     updateFocusSlot();
                 } else if (!updateFocusDaySlots()) {
@@ -5353,7 +5415,7 @@
                         open: false,
                         monthKey: selectedKey.slice(0, 7),
                     };
-                    syncFocusStateForCurrentDate(ctx, runtime.focusCalendar?.records || []);
+                    syncFocusStateForCurrentDate(ctx, runtime.focusCalendar?.stats || null);
                     ensureFocusCalendarLoaded(ctx, selectedKey.slice(0, 7));
                     if (!updateFocusDaySlots()) updateFocusSlot();
                     ensureFocusStatsLoaded(ctx);
@@ -5455,14 +5517,17 @@
         runtime.resizeHost = null;
         runtime.settleUntil = 0;
         runtime.focusLoadSeq += 1;
-        runtime.focusState = { status: "idle", key: "", records: [], settings: null, unavailable: false };
+        runtime.focusState = { status: "idle", key: "", stats: null, settings: null, unavailable: false };
         runtime.selectedFocusTaskId = "";
         runtime.focusDateOffset = 0;
         runtime.focusTaskListMode = "day";
         runtime.focusRecentDays = 90;
         runtime.focusDayPage = 0;
         runtime.focusTaskPopoverOpen = false;
-        runtime.focusCalendar = { open: false, monthKey: "", status: "idle", key: "", records: [], loadSeq: 0 };
+        runtime.focusCalendar = { open: false, monthKey: "", status: "idle", key: "", stats: null, loadSeq: 0 };
+        try { runtime.focusCalendarCache?.clear?.(); } catch (e) {}
+        runtime.focusCalendarCacheBytes = 0;
+        runtime.focusScopeCache = null;
         runtime.homepageSettingsOpen = false;
         if (runtime.root instanceof HTMLElement && runtime.clickHandler) {
             try { runtime.root.removeEventListener("click", runtime.clickHandler); } catch (e) {}

@@ -177,6 +177,36 @@ assert.match(explicitFlush, /captureFormStateSnapshot\(\)/, 'explicit blur and c
 assert.doesNotMatch(explicitFlush, /pendingAutoSaveRequest\?\.formState/, 'explicit flushes must not replay an older debounced snapshot');
 assert.match(explicitFlush, /await waitForPendingDetailCommits\(\)/, 'close must also settle mutations started by an earlier autosave');
 
+const immediateFieldPatch = sliceBetween(
+    detailSource,
+    'const commitDetailFieldPatch =',
+    'const setSubtaskContentEditingHold =',
+    'immediate detail field patch',
+);
+assert.match(immediateFieldPatch, /onPending:[\s\S]*trackDetailCommit\(pendingPromise, commitKeys,/, 'immediate detail field patches must register their real persistence promise');
+assert.match(immediateFieldPatch, /callerOnPending\(pendingPromise, op\)/, 'field-specific editors must be able to observe the same persistence promise');
+
+const remarkCommit = sliceBetween(
+    detailSource,
+    'const commitRemarkValue =',
+    'const setRemarkToolbarOpen =',
+    'detail remark field commit',
+);
+assert.match(remarkCommit, /commitDetailFieldPatch\(\{ remark: nextValue \}/, 'remark edits must reuse the shared detail field mutation path');
+assert.match(remarkCommit, /pendingPromise = Promise\.resolve\(promise\)/, 'remark saved state must follow real persistence rather than enqueue acknowledgement');
+assert.match(remarkCommit, /syncRemarkSavedState\(nextValue\)/, 'a persisted remark must advance its saved baseline');
+assert.match(remarkCommit, /catch \(error\)[\s\S]*remarkTextarea\.dataset\.dirty = 'true'/, 'a failed remark write must retain the draft as dirty');
+
+const remarkEditLifecycle = sliceBetween(
+    detailSource,
+    'const exitRemarkEditMode =',
+    'if (remarkToolbarToggle instanceof HTMLButtonElement)',
+    'detail remark edit lifecycle',
+);
+assert.match(remarkEditLifecycle, /if \(save\)[\s\S]*await commitRemarkValue\(\)/, 'leaving remark edit mode must commit the field immediately');
+assert.match(remarkEditLifecycle, /on\(remarkTextarea, 'blur',[\s\S]*commitRemarkValue\(\)/, 'remark blur must commit the current textarea value');
+assert.doesNotMatch(remarkEditLifecycle, /flushAutoSaveNow\(/, 'remark edit exit must not rely solely on whole-form autosave');
+
 const saveRequestOptions = sliceBetween(
     detailSource,
     'const createSaveRequestOptions =',

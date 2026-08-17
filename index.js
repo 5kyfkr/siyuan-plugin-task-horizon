@@ -45,6 +45,10 @@ const RESOURCE_FETCH_TIMEOUT_MS = 12000;
 const DOCK_VIEW_IDS = new Set(["list", "checklist", "timeline", "kanban", "calendar", "whiteboard"]);
 const AI_EXPERIENCE_MODE_KEY = "tm_ai_experience_mode";
 const AI_EXPERIENCE_MODE_INITIALIZED_KEY = "tm_ai_experience_mode_initialized";
+const MOBILE_AUTO_OPEN_ON_STARTUP_STORAGE_KEY = "tm_mobile_auto_open_on_startup";
+const MOBILE_STARTUP_AUTO_OPEN_SESSION_KEY_PREFIX = "tm_mobile_startup_auto_opened";
+const MOBILE_STARTUP_READY_TIMEOUT_MS = 10000;
+const SYNCED_DATA_RELOAD_DEBOUNCE_MS = 240;
 const AGENT_WORKBENCH_STORE_FILE = "agent-workbench.json";
 const AGENT_BUILTIN_SKILL_NAMES = Object.freeze(["task-capture", "task-planning", "task-review", "task-template"]);
 
@@ -194,6 +198,25 @@ const readLocalJson = (key, fallback) => {
     } catch (e) {
         return fallback;
     }
+};
+
+const isSupportedNativeMobileAppClient = () => {
+    let container = "";
+    try { container = String(globalThis?.siyuan?.config?.system?.container || "").trim().toLowerCase(); } catch (e) {}
+    try {
+        if (container === "android") return !!globalThis?.JSAndroid;
+        if (container === "harmony") return !!globalThis?.JSHarmony;
+        if (container === "ios") return !!globalThis?.webkit?.messageHandlers;
+    } catch (e) {}
+    return false;
+};
+
+const getMobileStartupAutoOpenSessionKey = () => {
+    let workspace = "default";
+    try {
+        workspace = String(globalThis?.siyuan?.config?.system?.workspaceDir || "").trim() || "default";
+    } catch (e) {}
+    return `${MOBILE_STARTUP_AUTO_OPEN_SESSION_KEY_PREFIX}:${encodeURIComponent(workspace)}`;
 };
 
 const normalizeDockDefaultViewMode = (value) => {
@@ -1025,6 +1048,20 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._taskMainRuntimeRecoveryTimer = null;
         this._taskDataChangedPromise = null;
         this._taskDataChangedQueued = false;
+        this._taskDataChangedTimer = null;
+        this._taskDataChangedReasons = new Set();
+        this._taskDataChangedScheduledPromise = null;
+        this._taskDataChangedScheduledResolve = null;
+        this._taskSyncMergeHandler = null;
+        this._taskMobileStartupAutoOpenEnabled = isSupportedNativeMobileAppClient()
+            && readLocalJson(MOBILE_AUTO_OPEN_ON_STARTUP_STORAGE_KEY, false) === true;
+        this._taskMobileStartupColdLoad = this._taskMobileStartupAutoOpenEnabled
+            && globalThis?.siyuan?.isReady !== true;
+        this._taskMobileStartupCancelled = false;
+        this._taskMobileStartupOpened = false;
+        this._taskMobileStartupOpenPromise = null;
+        this._taskMobileStartupWaitTimer = null;
+        this._taskMobileStartupWaitResolve = null;
         this._taskWindowTopBarLayoutReady = false;
         this._taskCalendarSubscriptionTopBarElement = null;
         this._taskCalendarSubscriptionTopBarMeta = { enabled: false, running: false, title: "立即上传日历 ICS" };
@@ -1047,6 +1084,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
         globalThis.__taskHorizonMountToken = mountToken;
+        this.registerStartupSyncReloadListener();
         globalThis.__taskHorizonGetAiExperienceMode = getAiExperienceMode;
         globalThis.__taskHorizonEnsureAiModuleLoaded = ensureAiExperienceRuntime;
         globalThis.__taskHorizonSetAiExperienceMode = async (mode, options = {}) => {
@@ -1122,20 +1160,77 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         `);
     }
 
-    async onDataChanged() {
-        this._taskDataChangedQueued = true;
-        if (this._taskDataChangedPromise) return await this._taskDataChangedPromise;
+    registerStartupSyncReloadListener() {
+        if (!this._taskMobileStartupAutoOpenEnabled || this._taskSyncMergeHandler || !this.eventBus?.on) return;
+        this._taskSyncMergeHandler = (event) => {
+            if (String(event?.detail?.cmd || "") !== "syncMergeResult") return;
+            if (readLocalJson(MOBILE_AUTO_OPEN_ON_STARTUP_STORAGE_KEY, false) !== true) return;
+            Promise.resolve(this.requestSyncedDataReload("sync-merge-result", {
+                delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,
+            })).catch((e) => {
+                console.warn("[task-horizon] synchronized merge reload failed", e);
+            });
+        };
+        try { this.eventBus.on("ws-main", this._taskSyncMergeHandler); } catch (e) {
+            this._taskSyncMergeHandler = null;
+        }
+    }
 
+    unregisterStartupSyncReloadListener() {
+        if (!this._taskSyncMergeHandler) return;
+        try { this.eventBus?.off?.("ws-main", this._taskSyncMergeHandler); } catch (e) {}
+        this._taskSyncMergeHandler = null;
+    }
+
+    requestSyncedDataReload(reason = "siyuan-data-changed", options = {}) {
+        const normalizedReason = String(reason || "siyuan-data-changed").trim() || "siyuan-data-changed";
+        if (!(this._taskDataChangedReasons instanceof Set)) this._taskDataChangedReasons = new Set();
+        this._taskDataChangedReasons.add(normalizedReason);
+        this._taskDataChangedQueued = true;
+        if (this._taskDataChangedPromise) return this._taskDataChangedPromise;
+
+        const delayMs = Math.max(0, Number(options?.delayMs) || 0);
+        if (!this._taskDataChangedScheduledPromise) {
+            this._taskDataChangedScheduledPromise = new Promise((resolve) => {
+                this._taskDataChangedScheduledResolve = resolve;
+            });
+        }
+        if (this._taskDataChangedTimer) clearTimeout(this._taskDataChangedTimer);
+        const scheduledPromise = this._taskDataChangedScheduledPromise;
+        this._taskDataChangedTimer = setTimeout(() => {
+            this._taskDataChangedTimer = null;
+            const resolve = this._taskDataChangedScheduledResolve;
+            this._taskDataChangedScheduledPromise = null;
+            this._taskDataChangedScheduledResolve = null;
+            Promise.resolve(this.flushSyncedDataReload()).then(
+                (value) => resolve?.(value),
+                () => resolve?.(false),
+            );
+        }, delayMs);
+        return scheduledPromise;
+    }
+
+    flushSyncedDataReload() {
+        if (this._taskDataChangedPromise) return this._taskDataChangedPromise;
+        this._taskDataChangedQueued = true;
         const mountToken = String(globalThis.__taskHorizonMountToken || this._mountToken || "");
         this._taskDataChangedPromise = (async () => {
             let refreshed = false;
             do {
                 this._taskDataChangedQueued = false;
+                const reasons = this._taskDataChangedReasons instanceof Set
+                    ? Array.from(this._taskDataChangedReasons)
+                    : [];
+                this._taskDataChangedReasons?.clear?.();
+                const reloadReason = reasons.sort().join("+") || "siyuan-data-changed";
                 try {
+                    if (this._taskMobileStartupOpenPromise) {
+                        try { await this._taskMobileStartupOpenPromise; } catch (e) {}
+                    }
                     if (!hasTaskMainRuntime()) {
                         const loaded = await ensureTaskMainLoaded();
                         if (!loaded) {
-                            this.scheduleTaskMainRuntimeRecovery("data-changed", { delayMs: 180 });
+                            this.scheduleTaskMainRuntimeRecovery(`data-changed:${reloadReason}`, { delayMs: 180 });
                             continue;
                         }
                     }
@@ -1144,7 +1239,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                         console.warn("[task-horizon] synchronized data reload is unavailable");
                         continue;
                     }
-                    refreshed = await reloadSyncedData({ reason: "siyuan-data-changed" }) !== false || refreshed;
+                    refreshed = await reloadSyncedData({ reason: reloadReason }) !== false || refreshed;
                 } catch (e) {
                     console.warn("[task-horizon] synchronized data reload failed", e);
                 } finally {
@@ -1160,12 +1255,94 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             this._taskDataChangedPromise = null;
             if (this._taskDataChangedQueued
                 && String(globalThis.__taskHorizonMountToken || "") === mountToken) {
-                Promise.resolve(this.onDataChanged()).catch((e) => {
+                Promise.resolve(this.flushSyncedDataReload()).catch((e) => {
                     console.warn("[task-horizon] queued synchronized data reload failed", e);
                 });
             }
         });
-        return await this._taskDataChangedPromise;
+        return this._taskDataChangedPromise;
+    }
+
+    async onDataChanged() {
+        return await this.requestSyncedDataReload("siyuan-data-changed", {
+            delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,
+        });
+    }
+
+    waitForMobileStartupPoll(delayMs = 80) {
+        return new Promise((resolve) => {
+            this._taskMobileStartupWaitResolve = resolve;
+            this._taskMobileStartupWaitTimer = setTimeout(() => {
+                this._taskMobileStartupWaitTimer = null;
+                this._taskMobileStartupWaitResolve = null;
+                resolve();
+            }, Math.max(20, Number(delayMs) || 80));
+        });
+    }
+
+    cancelMobileStartupAutoOpen() {
+        this._taskMobileStartupCancelled = true;
+        if (this._taskMobileStartupWaitTimer) {
+            clearTimeout(this._taskMobileStartupWaitTimer);
+            this._taskMobileStartupWaitTimer = null;
+        }
+        const resolve = this._taskMobileStartupWaitResolve;
+        this._taskMobileStartupWaitResolve = null;
+        try { resolve?.(); } catch (e) {}
+    }
+
+    scheduleMobileStartupAutoOpen() {
+        if (!this._taskMobileStartupColdLoad || this._taskMobileStartupOpenPromise || this._taskMobileStartupOpened) return;
+        const sessionKey = getMobileStartupAutoOpenSessionKey();
+        try {
+            if (globalThis?.sessionStorage?.getItem?.(sessionKey) === "1") return;
+        } catch (e) {}
+
+        const mountToken = String(globalThis.__taskHorizonMountToken || this._mountToken || "");
+        this._taskMobileStartupOpenPromise = (async () => {
+            const deadline = Date.now() + MOBILE_STARTUP_READY_TIMEOUT_MS;
+            while (Date.now() < deadline) {
+                if (this._taskMobileStartupCancelled
+                    || String(globalThis.__taskHorizonMountToken || "") !== mountToken
+                    || readLocalJson(MOBILE_AUTO_OPEN_ON_STARTUP_STORAGE_KEY, false) !== true) {
+                    return false;
+                }
+                const opener = globalThis.__taskHorizonOpenManagerFromTopbarEntry;
+                if (globalThis?.siyuan?.isReady === true && typeof opener === "function") {
+                    try {
+                        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                    } catch (e) {}
+                    if (this._taskMobileStartupCancelled
+                        || String(globalThis.__taskHorizonMountToken || "") !== mountToken) {
+                        return false;
+                    }
+                    try {
+                        if (globalThis?.sessionStorage?.getItem?.(sessionKey) === "1") return false;
+                        globalThis?.sessionStorage?.setItem?.(sessionKey, "1");
+                    } catch (e) {}
+                    this._taskMobileStartupOpened = true;
+                    try {
+                        const result = await opener();
+                        if (result === false) {
+                            this._taskMobileStartupOpened = false;
+                            try { globalThis?.sessionStorage?.removeItem?.(sessionKey); } catch (e) {}
+                            return false;
+                        }
+                        return true;
+                    } catch (e) {
+                        this._taskMobileStartupOpened = false;
+                        try { globalThis?.sessionStorage?.removeItem?.(sessionKey); } catch (e2) {}
+                        console.warn("[task-horizon] mobile startup auto-open failed", e);
+                        return false;
+                    }
+                }
+                await this.waitForMobileStartupPoll();
+            }
+            console.warn("[task-horizon] mobile startup auto-open timed out waiting for SiYuan readiness");
+            return false;
+        })().finally(() => {
+            this._taskMobileStartupOpenPromise = null;
+        });
     }
 
     onLayoutReady() {
@@ -1173,6 +1350,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._taskWindowTopBarLayoutReady = true;
         this.syncWindowTopBar();
         this.syncCalendarSubscriptionTopBar();
+        this.scheduleMobileStartupAutoOpen();
     }
 
     registerCommands() {
@@ -2480,6 +2658,19 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     onunload() {
         clearPluginResourceTextCache();
         this._taskDataChangedQueued = false;
+        try { this.unregisterStartupSyncReloadListener(); } catch (e) {}
+        try { this.cancelMobileStartupAutoOpen(); } catch (e) {}
+        try {
+            if (this._taskDataChangedTimer) {
+                clearTimeout(this._taskDataChangedTimer);
+                this._taskDataChangedTimer = null;
+            }
+            this._taskDataChangedReasons?.clear?.();
+            const resolve = this._taskDataChangedScheduledResolve;
+            this._taskDataChangedScheduledPromise = null;
+            this._taskDataChangedScheduledResolve = null;
+            resolve?.(false);
+        } catch (e) {}
         try { this.destroyEntryIconRuntime(); } catch (e) {}
         try {
             this._mountExistingTabsStopped = true;

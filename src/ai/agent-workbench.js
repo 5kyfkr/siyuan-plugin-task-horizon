@@ -673,7 +673,7 @@
     }
 
     function isMissingAgentSessionError(error) {
-        return /(?:not\s+found|not\s+exist|does\s+not\s+exist|不存在|未找到|找不到)/i.test(text(error?.message || error));
+        return /(?:not\s+found|not\s+exist|does\s+not\s+exist|cannot\s+find\s+the\s+(?:path|file)|不存在|未找到|找不到)/i.test(text(error?.message || error));
     }
 
     function isAgentSessionRevisionConflict(error) {
@@ -1345,6 +1345,7 @@
     const TASK_HORIZON_READ_ONLY_TOOLS = new Set([
         'list_task_scopes', 'get_task', 'query_tasks', 'query_schedules',
         'get_task_policy', 'preview_task_policy_patch', 'aggregate_task_stats', 'aggregate_time_usage',
+        'query_focus_statistics', 'query_routine_statistics', 'list_focus_sessions',
     ]);
     const TASK_HORIZON_MIXED_READ_TOOLS = new Set([
         'manage_agent_schedules', 'delete_task', 'batch_tasks', 'delete_schedule', 'batch_schedules',

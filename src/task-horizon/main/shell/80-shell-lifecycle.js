@@ -514,7 +514,6 @@ if (shouldMarkDirty) {
         __tmMarkContextInteractionQuiet('open-manager', 2200);
         const runtimeMobile = globalThis.__tmRuntimeHost?.getInfo?.()?.runtimeMobileClient ?? __tmIsRuntimeMobileClient();
         try { __tmListenPinnedChanged(); } catch (e) {}
-        try { __tmRestoreMobileManagerModalFromKeepalive(); } catch (e) {}
         let reusedExistingModal = false;
         const shouldEnsureDesktopTab = !!(options && options.forceOpenTab)
             || !runtimeMobile;
@@ -815,11 +814,17 @@ if (shouldMarkDirty) {
             }
         } catch (e) {}
         try { __tmMarkRuntimeCleanupRequested?.(); } catch (e) {}
+        try { __tmCleanupAgentMcpStartupSync?.(); } catch (e) {}
         try { __tmDisposeDocTabsRuntime?.(state.modal, { clearHoverTimer: true }); } catch (e) {}
         try { globalThis['siyuan-plugin-task-horizon']?.scheduledEvents?.dispose?.(); } catch (e) {}
         try { __tmCancelBackgroundStorageTimers?.(); } catch (e) {}
         try { __tmCleanupTaskTitleBlockRefJumpDelegation?.(); } catch (e) {}
         try { __tmCleanupChecklistSheetSuppressClick?.(); } catch (e) {}
+        try { globalThis.__tmFocusStatisticsService?.dispose?.(); } catch (e) {}
+        try { globalThis.__tmDisposeTaskDetailRuntime?.(); } catch (e) {}
+        try { delete globalThis.__tmFocusStatisticsService; } catch (e) {}
+        try { delete globalThis.__tmDisposeTaskDetailRoot; } catch (e) {}
+        try { delete globalThis.__tmDisposeTaskDetailRuntime; } catch (e) {}
         try { globalThis.__tmHomepage?.unmount?.(); } catch (e) {}
         try {
             if (__tmModalStackEscHandler) {
@@ -1273,6 +1278,10 @@ if (shouldMarkDirty) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:history-updated', __tmTomatoHistoryUpdatedHandler);
                 __tmTomatoHistoryUpdatedHandler = null;
             }
+            if (__tmTomatoStatsAvailabilityHandler) {
+                globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:stats-availability-changed', __tmTomatoStatsAvailabilityHandler);
+                __tmTomatoStatsAvailabilityHandler = null;
+            }
             if (__tmTomatoDefaultDurationChangedHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:default-duration-changed', __tmTomatoDefaultDurationChangedHandler);
                 __tmTomatoDefaultDurationChangedHandler = null;
@@ -1517,6 +1526,7 @@ if (shouldMarkDirty) {
 
         try {
             if (state.modal) {
+                try { __tmCollapseMotion.cancel(state.modal); } catch (e2) {}
                 state.modal.remove();
                 state.modal = null;
             }

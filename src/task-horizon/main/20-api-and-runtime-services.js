@@ -2801,10 +2801,14 @@
         async getChildListIdOfTask(taskId) {
             const tid = String(taskId || '').trim();
             if (!tid) return null;
-            const sql = `SELECT id FROM blocks WHERE parent_id = '${tid}' AND type = 'l' LIMIT 1`;
-            const res = await this.call('/api/query/sql', { stmt: sql });
-            if (res.code === 0 && res.data && res.data.length > 0) return res.data[0].id || null;
-            return null;
+            const children = await this.getChildBlocks(tid);
+            const lists = (Array.isArray(children) ? children : []).filter((block) => {
+                const type = String(block?.type || '').trim().toLowerCase();
+                return type === 'l' || type === 'nodelist';
+            });
+            const taskList = lists.find((block) => String(block?.subType || block?.subtype || '').trim().toLowerCase() === 't')
+                || lists[0];
+            return String(taskList?.id || '').trim() || null;
         },
 
         async getDirectChildTaskIdsOfTaskByDom(taskId) {
@@ -3346,6 +3350,14 @@
     const __TM_KERNEL_RECOVERY_STORAGE_KEY = 'tm_agent_kernel_auth_recovery_at';
     const __TM_KERNEL_RECOVERY_COOLDOWN_MS = 30000;
     const __TM_KERNEL_RECOVERY_PEER_WAIT_MS = 1000;
+    const __TM_KERNEL_RETRYABLE_READ_RPCS = new Set([
+        'taskHorizonGetTaskPlacement',
+        'taskHorizonGetTask',
+        'taskHorizonProjectFocusStatistics',
+        'taskHorizonResolveFocusCandidateIDs',
+        'taskHorizonResolveAgentScheduleOutputDocument',
+        'taskHorizonLoadAgentSchedules',
+    ]);
     let __tmKernelSessionRecoveryPromise = null;
 
     function __tmIsKernelSessionAuthError(error) {
@@ -3553,10 +3565,10 @@
 
     async function __tmCallTaskHorizonKernelRpc(name, ...args) {
         const methodName = String(name || '').trim();
-        const kernel = globalThis.__taskHorizonHostBridge?.kernel || globalThis.__taskHorizonHostBridge?.plugin?.kernel;
-        const method = methodName ? kernel?.rpc?.call?.[methodName] : null;
-        if (typeof method !== 'function') return { available: false, data: null };
         const invoke = async () => {
+            const kernel = globalThis.__taskHorizonHostBridge?.kernel || globalThis.__taskHorizonHostBridge?.plugin?.kernel;
+            const method = methodName ? kernel?.rpc?.call?.[methodName] : null;
+            if (typeof method !== 'function') return { available: false, data: null };
             const result = await method(...args);
             if (!result || result.ok !== true) {
                 const error = new Error(String(result?.error?.message || '任务内核服务调用失败'));
@@ -3571,6 +3583,17 @@
         } catch (error) {
             if (__tmIsTaskHorizonKernelUnavailableError(error)) return { available: false, data: null };
             if (!__tmIsKernelSessionAuthError(error)) throw error;
+            if (__TM_KERNEL_RETRYABLE_READ_RPCS.has(methodName)) {
+                try {
+                    await __tmRecoverTaskHorizonKernelSession();
+                } catch (recoveryError) {
+                    const failure = new Error(`任务工具会话失效，自动恢复失败：${String(recoveryError?.message || recoveryError || '未知错误')}`);
+                    failure.code = 'KERNEL_SESSION_RECOVERY_FAILED';
+                    throw failure;
+                }
+                const recovered = await invoke();
+                return recovered;
+            }
             await __tmThrowAfterKernelSessionRecovery(methodName);
         }
     }
@@ -5877,7 +5900,9 @@
         const type = String(op?.type || '').trim();
         const data = (op?.data && typeof op.data === 'object') ? op.data : {};
         if (type === 'taskPatch') {
-            const patch = (data.patch && typeof data.patch === 'object') ? data.patch : {};
+            const patch = (data.projectionPatch && typeof data.projectionPatch === 'object')
+                ? data.projectionPatch
+                : ((data.patch && typeof data.patch === 'object') ? data.patch : {});
             return Object.fromEntries(Object.entries(patch).map(([key, value]) => [
                 key,
                 __tmNormalizeQueueTaskValue(key, value),
@@ -6058,6 +6083,7 @@
             mode,
             targetDocumentID: String(payload.targetDocId || '').trim(),
             targetTaskID: String(payload.targetTaskId || '').trim(),
+            targetListID: String(payload.targetListId || '').trim(),
             headingID: String(payload.headingId || payload.targetHeadingId || '').trim(),
             recordUndo: false,
             authoritative: true,
@@ -6137,6 +6163,7 @@
         command.previousID = String(target.previousID || '').trim();
         command.nextID = String(target.nextID || '').trim();
         command.parentID = String(target.parentID || targetDocId || '').trim();
+        command.targetListID = String(target.parentListID || target.parentListId || target.parentID || '').trim();
         let receipt;
         try {
             receipt = await __tmExecuteTaskCommandGateway(command, '任务移动');
@@ -6329,17 +6356,20 @@
         const type = String(op?.type || '').trim();
         if (type === 'taskPatch') {
             const taskId = String(op?.data?.taskId || '').trim();
-            const patch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : {};
+            const persistedPatch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : {};
+            const projectionPatch = (op?.data?.projectionPatch && typeof op.data.projectionPatch === 'object')
+                ? op.data.projectionPatch
+                : persistedPatch;
             if (!__tmMutationTempTaskExistsForOptimisticApply(taskId)) return false;
-            if (!taskId || !Object.keys(patch).length) return true;
+            if (!taskId || !Object.keys(projectionPatch).length) return true;
             if (op?.data?.optimistic === false) return true;
-            __tmTaskStateKernel.patchTaskLocal(taskId, patch, {
+            __tmTaskStateKernel.patchTaskLocal(taskId, projectionPatch, {
                 source: String(op?.data?.source || '').trim(),
                 refreshAncestorViews: op?.data?.refreshAncestorViews !== false,
             });
-            try { __tmMarkLocalTaskPatchWatermark(taskId, patch, op?.data || {}); } catch (e) {}
-            __tmDispatchQueuedTaskAttrPatch(op, 'optimistic', taskId, patch);
-            __tmPublishQueuedOpMutation(op, 'optimistic', { taskId, patch });
+            try { __tmMarkLocalTaskPatchWatermark(taskId, projectionPatch, op?.data || {}); } catch (e) {}
+            __tmDispatchQueuedTaskAttrPatch(op, 'optimistic', taskId, persistedPatch);
+            __tmPublishQueuedOpMutation(op, 'optimistic', { taskId, patch: projectionPatch });
             return true;
         }
         if (type === 'contentPatch') {
@@ -6827,6 +6857,7 @@
             const patch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : {};
             if (!taskId || !Object.keys(patch).length) return;
             __tmPublishQueuedOpMutation(op, 'commit', { taskId, patch, task: result?.task, changeSet: result?.changeSet });
+            __tmDispatchQueuedTaskAttrPatch(op, 'commit', taskId, patch);
             return;
         }
         if (type === 'contentPatch') {
@@ -6915,9 +6946,8 @@
                 placement: result?.placement,
                 task: result?.task,
                 changeSet: result?.changeSet,
-                applyLocal: true,
+                applyLocal: false,
             });
-            try { globalThis.__tmTaskStore?.clearPendingStructural?.(String(op?.data?.taskId || '').trim()); } catch (e) {}
             return;
         }
         if (type === 'batchMoveTasks') {
@@ -7395,7 +7425,6 @@
                 skipSnapshotPersist: true,
             });
             if (op?.data && typeof op.data === 'object') op.data.authoritativePlacement = placement;
-            try { globalThis.__tmTaskStore?.clearPendingStructural?.(taskId); } catch (e) {}
             return true;
         }
         if (!['contentPatch', 'taskPatch'].includes(type)) return false;
@@ -12638,28 +12667,6 @@
         return removed;
     }
 
-    function __tmHideMobileManagerModalForKeepalive(modalEl = null) {
-        const modal = modalEl instanceof HTMLElement ? modalEl : state.modal;
-        if (!(modal instanceof HTMLElement) || !document.body.contains(modal)) return false;
-        if (!modal.classList.contains('tm-modal--mobile') || modal.classList.contains('tm-modal--dock')) return false;
-        try { modal.dataset.tmMobileKeepaliveHidden = '1'; } catch (e) {}
-        try { modal.setAttribute('aria-hidden', 'true'); } catch (e) {}
-        try { modal.style.display = 'none'; } catch (e) {}
-        return true;
-    }
-
-    function __tmRestoreMobileManagerModalFromKeepalive() {
-        const modal = state.modal;
-        if (!(modal instanceof HTMLElement) || !document.body.contains(modal)) return false;
-        if (String(modal.dataset?.tmMobileKeepaliveHidden || '').trim() !== '1') return false;
-        try { delete modal.dataset.tmMobileKeepaliveHidden; } catch (e) {}
-        try { modal.removeAttribute('aria-hidden'); } catch (e) {}
-        try { modal.style.removeProperty('display'); } catch (e) {}
-        try { __tmApplyMobileBrowserViewportMetrics(modal); } catch (e) {}
-        try { __tmBindMobileViewportAutoRefresh(modal); } catch (e) {}
-        return true;
-    }
-
     function __tmIsDockRootElement(el) {
         try {
             return !!(el instanceof HTMLElement && String(el.getAttribute('data-task-horizon-dock-root') || '').trim() === '1');
@@ -13116,6 +13123,46 @@
         });
     }
 
+    function __tmDispatchTaskSubtaskSummaryUpdated(taskId, stats) {
+        const tid = String(taskId || '').trim();
+        if (!tid || !(stats && typeof stats === 'object')) return false;
+        const total = Math.max(0, Number(stats.total) || 0);
+        const completed = Math.max(0, Math.min(total, Number(stats.completed) || 0));
+        try {
+            window.dispatchEvent(new CustomEvent('tm-task-subtask-summary-updated', {
+                detail: {
+                    taskId: tid,
+                    total,
+                    completed,
+                    remaining: Math.max(0, total - completed),
+                },
+            }));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmDispatchParentSubtaskSummaryUpdated(taskId, patch) {
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        const affectsCompletion = ['done', 'customStatus', 'custom_status', 'taskMarker', 'task_marker']
+            .some((key) => Object.prototype.hasOwnProperty.call(nextPatch, key));
+        if (!affectsCompletion) return false;
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        let task = null;
+        try { task = globalThis.__tmTaskStore?.getProjected?.(tid) || __tmTaskStateKernel.getTask(tid); } catch (e) {}
+        const parentTaskId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+        if (!parentTaskId || parentTaskId === tid) return false;
+        let stats = null;
+        try {
+            if (typeof __tmGetProjectedDirectChildStats === 'function') {
+                stats = __tmGetProjectedDirectChildStats(parentTaskId);
+            }
+        } catch (e) {}
+        return __tmDispatchTaskSubtaskSummaryUpdated(parentTaskId, stats);
+    }
+
     function __tmDispatchTaskAttrPatchUpdated(taskId, patch, extra = {}) {
         const tid = String(taskId || '').trim();
         if (!tid || !patch || typeof patch !== 'object') return;
@@ -13143,6 +13190,12 @@
                 }));
             } catch (e) {}
         });
+        try {
+            __tmDispatchParentSubtaskSummaryUpdated(
+                String(extra?.resolvedTaskId || tid).trim() || tid,
+                patch,
+            );
+        } catch (e) {}
     }
 
     function __tmStripTaskRewardListMarker(input) {
@@ -15631,6 +15684,11 @@ if (hasStatusPatch) {
             marker: nextMarker,
         }, [tid], { force: true });
         const updateByBlock = async (errorForFallback = null) => {
+            await __tmExecuteTaskCommandGateway({
+                action: 'reconcileAttrs',
+                taskIDs: [tid],
+                laneID: __tmGetActiveTaskMutationLaneId(tid),
+            }, '任务结构校正');
             if (errorForFallback) {
                 __tmPushStatusDebug('marker-update:fallback', {
                     taskId: tid,
@@ -16334,6 +16392,7 @@ if (hasStatusPatch) {
     let __tmTomatoFocusEndedHandler = null;
     let __tmTomatoFocusRestoredHandler = null;
     let __tmTomatoHistoryUpdatedHandler = null;
+    let __tmTomatoStatsAvailabilityHandler = null;
     let __tmTomatoDefaultDurationChangedHandler = null;
     let __tmTomatoHistoryVersion = 0;
     let __tmTomatoFocusRestoreRetryTimer = null;
@@ -17972,6 +18031,13 @@ if (!state.homepageOpen) return;
             try {
                 __tmTomatoHistoryVersion += 1;
                 if (state.homepageOpen) __tmScheduleHomepageRefresh('tomato-history-updated', 96);
+                globalThis.__tmRefreshOpenTaskDetailFocusStats?.({ availabilityChanged: false });
+            } catch (e) {}
+        };
+        __tmTomatoStatsAvailabilityHandler = () => {
+            try {
+                if (state.homepageOpen) __tmScheduleHomepageRefresh('tomato-stats-availability-changed', 0);
+                globalThis.__tmRefreshOpenTaskDetailFocusStats?.({ availabilityChanged: true });
             } catch (e) {}
         };
         __tmTomatoDefaultDurationChangedHandler = () => {
@@ -17991,6 +18057,7 @@ if (!state.homepageOpen) return;
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-ended', __tmTomatoFocusEndedHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-restored', __tmTomatoFocusRestoredHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:history-updated', __tmTomatoHistoryUpdatedHandler); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:stats-availability-changed', __tmTomatoStatsAvailabilityHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:default-duration-changed', __tmTomatoDefaultDurationChangedHandler); } catch (e) {}
         globalThis.__taskHorizonOnTomatoAssociationChanged = (detail) => {
             try { __tmTomatoAssociationChangedHandler({ detail }); } catch (e) {}
@@ -23687,41 +23754,18 @@ if (!state.homepageOpen) return;
 
     function __tmCancelAnimationsWithin(rootEl) {
         const root = rootEl instanceof Element ? rootEl : null;
-        if (!root) return;
-        const list = root.querySelectorAll('tr[data-id],tr[data-group-key],.tm-gantt-row[data-id],.tm-gantt-row--group[data-group-key]');
-        list.forEach((el) => {
-            try {
-                const anims = el.getAnimations?.() || [];
-                anims.forEach((a) => {
-                    try { a.cancel(); } catch (e2) {}
-                });
-            } catch (e) {}
-        });
+        if (!root) return false;
+        try { return __tmCollapseMotion.cancel(root); } catch (e) { return false; }
     }
 
     function __tmResetFlipState(modalEl) {
         const root = modalEl instanceof Element ? modalEl : state.modal;
-        try { if (root) __tmCancelAnimationsWithin(root); } catch (e) {}
-        try {
-            const a = state.__tmFlipRunningAnims;
-            if (Array.isArray(a)) {
-                a.forEach((x) => { try { x?.cancel?.(); } catch (e2) {} });
-                a.length = 0;
-            }
-        } catch (e) {}
-        state.__tmFlipFirst = null;
-        state.__tmFlipAction = null;
-        state.__tmFlipTs = Date.now();
+        if (!root) return false;
+        try { return __tmCollapseMotion.cancel(root); } catch (e) { return false; }
     }
 
     function __tmShouldReduceUiAnimationByScale() {
-        try {
-            const totalFiltered = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
-            if (totalFiltered > 120) return true;
-            const totalRows = state.modal?.querySelectorAll?.('#tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id]')?.length || 0;
-            if (totalRows > 180) return true;
-        } catch (e) {}
-        return false;
+        try { return __tmCollapseMotion.prefersReducedMotion(); } catch (e) { return false; }
     }
 
     function __tmUpdateToggleGlyphInDom(opts) {
@@ -23945,338 +23989,27 @@ if (!state.homepageOpen) return;
         return true;
     }
 
-    function __tmGetFlipKeyForEl(el) {
-        if (!(el instanceof Element)) return '';
-        const isGanttRow = !!(el.classList?.contains('tm-gantt-row') || el.classList?.contains('tm-gantt-row--group'));
-        const prefix = isGanttRow ? 'gantt' : 'table';
-        const id = String(el.getAttribute('data-id') || '').trim();
-        if (id) return `${prefix}:task:${id}`;
-        const gk = String(el.getAttribute('data-group-key') || '').trim();
-        if (gk) return `${prefix}:group:${gk}`;
-        return '';
-    }
-
-    function __tmCaptureFlipSnapshot(modalEl) {
-        const root = modalEl instanceof Element ? modalEl : state.modal;
-        if (!root) return new Map();
-        const list = root.querySelectorAll('tr[data-id],tr[data-group-key],.tm-gantt-row[data-id],.tm-gantt-row--group[data-group-key]');
-        const m = new Map();
-        list.forEach((el) => {
-            const k = __tmGetFlipKeyForEl(el);
-            if (!k) return;
-            try {
-                const r = el.getBoundingClientRect();
-                if (!r || r.height <= 0 || r.width <= 0) return;
-                m.set(k, r);
-            } catch (e) {}
-        });
-        return m;
-    }
-
-    function __tmCollectAffectedRowsForCollapse(containerEl, opts) {
-        const container = containerEl instanceof Element ? containerEl : null;
-        const o = (opts && typeof opts === 'object') ? opts : {};
-        const kind = String(o.kind || '');
-        const key = String(o.key || '').trim();
-        if (!container || !key) return [];
-        const anchor = kind === 'group'
-            ? container.querySelector(`tr[data-group-key="${CSS.escape(key)}"]`)
-            : container.querySelector(`tr[data-id="${CSS.escape(key)}"]`);
-        if (!anchor) return [];
-
-        const out = [];
-        if (kind === 'group') {
-            let n = anchor.nextElementSibling;
-            while (n) {
-                if (n instanceof Element && n.matches('tr[data-group-key]')) break;
-                if (n instanceof Element && n.matches('tr[data-id]')) out.push(n);
-                n = n.nextElementSibling;
-            }
-            return out;
-        }
-
-        const baseDepth = Number(anchor.getAttribute('data-depth')) || 0;
-        let n = anchor.nextElementSibling;
-        while (n) {
-            if (!(n instanceof Element)) break;
-            if (n.matches('tr[data-group-key]')) break;
-            const d = Number(n.getAttribute('data-depth'));
-            if (!Number.isFinite(d) || d <= baseDepth) break;
-            if (n.matches('tr[data-id]')) out.push(n);
-            n = n.nextElementSibling;
-        }
-        return out;
-    }
-
-    function __tmCountAffectedRowsForCollapse(containerEl, opts, stopAfter = Infinity) {
-        const container = containerEl instanceof Element ? containerEl : null;
-        const o = (opts && typeof opts === 'object') ? opts : {};
-        const kind = String(o.kind || '');
-        const key = String(o.key || '').trim();
-        if (!container || !key) return 0;
-        const anchor = kind === 'group'
-            ? container.querySelector(`tr[data-group-key="${CSS.escape(key)}"]`)
-            : container.querySelector(`tr[data-id="${CSS.escape(key)}"]`);
-        if (!anchor) return 0;
-
-        let count = 0;
-        if (kind === 'group') {
-            let n = anchor.nextElementSibling;
-            while (n) {
-                if (n instanceof Element && n.matches('tr[data-group-key]')) break;
-                if (n instanceof Element && n.matches('tr[data-id]')) {
-                    count++;
-                    if (count >= stopAfter) break;
-                }
-                n = n.nextElementSibling;
-            }
-            return count;
-        }
-
-        const baseDepth = Number(anchor.getAttribute('data-depth')) || 0;
-        let n = anchor.nextElementSibling;
-        while (n) {
-            if (!(n instanceof Element)) break;
-            if (n.matches('tr[data-group-key]')) break;
-            const d = Number(n.getAttribute('data-depth'));
-            if (!Number.isFinite(d) || d <= baseDepth) break;
-            if (n.matches('tr[data-id]')) {
-                count++;
-                if (count >= stopAfter) break;
-            }
-            n = n.nextElementSibling;
-        }
-        return count;
-    }
-
-    function __tmCollectAffectedRowsForCollapseLimited(containerEl, opts, limit = 0) {
-        const rows = [];
-        const cap = Math.max(0, Number(limit) || 0);
-        if (cap <= 0) return { rows, count: 0, truncated: false };
-        const container = containerEl instanceof Element ? containerEl : null;
-        const o = (opts && typeof opts === 'object') ? opts : {};
-        const kind = String(o.kind || '');
-        const key = String(o.key || '').trim();
-        if (!container || !key) return { rows, count: 0, truncated: false };
-        const anchor = kind === 'group'
-            ? container.querySelector(`tr[data-group-key="${CSS.escape(key)}"]`)
-            : container.querySelector(`tr[data-id="${CSS.escape(key)}"]`);
-        if (!anchor) return { rows, count: 0, truncated: false };
-
-        let count = 0;
-        let truncated = false;
-        if (kind === 'group') {
-            let n = anchor.nextElementSibling;
-            while (n) {
-                if (n instanceof Element && n.matches('tr[data-group-key]')) break;
-                if (n instanceof Element && n.matches('tr[data-id]')) {
-                    count++;
-                    if (rows.length < cap) rows.push(n);
-                    else truncated = true;
-                }
-                n = n.nextElementSibling;
-            }
-            return { rows, count, truncated };
-        }
-
-        const baseDepth = Number(anchor.getAttribute('data-depth')) || 0;
-        let n = anchor.nextElementSibling;
-        while (n) {
-            if (!(n instanceof Element)) break;
-            if (n.matches('tr[data-group-key]')) break;
-            const d = Number(n.getAttribute('data-depth'));
-            if (!Number.isFinite(d) || d <= baseDepth) break;
-            if (n.matches('tr[data-id]')) {
-                count++;
-                if (rows.length < cap) rows.push(n);
-                else truncated = true;
-            }
-            n = n.nextElementSibling;
-        }
-        return { rows, count, truncated };
-    }
-
-    function __tmShouldSkipCollapseAnimByScale() {
-        return __tmShouldReduceUiAnimationByScale();
-    }
-
     function __tmGetCollapseAnimMode() {
-        try {
-            const totalFiltered = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
-            const totalRows = state.modal?.querySelectorAll?.('#tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id]')?.length || 0;
-            if (totalFiltered > 220 || totalRows > 320) return 'none';
-            if (totalFiltered > 120 || totalRows > 180) return 'lite';
-        } catch (e) {}
-        return 'full';
-    }
-
-    function __tmAnimateExitingRows(rows) {
-        const list = Array.isArray(rows) ? rows : [];
-        if (list.length === 0) return;
-        list.forEach((row) => {
-            if (!(row instanceof Element)) return;
-            let rect;
-            try { rect = row.getBoundingClientRect(); } catch (e) { return; }
-            if (!rect || rect.height <= 0 || rect.width <= 0) return;
-            const wrap = document.createElement('div');
-            wrap.style.position = 'fixed';
-            wrap.style.left = `${rect.left}px`;
-            wrap.style.top = `${rect.top}px`;
-            wrap.style.width = `${rect.width}px`;
-            wrap.style.height = `${rect.height}px`;
-            wrap.style.pointerEvents = 'none';
-            wrap.style.zIndex = '100004';
-            const table = document.createElement('table');
-            table.className = 'tm-table';
-            table.style.width = '100%';
-            table.style.borderCollapse = 'collapse';
-            const tbody = document.createElement('tbody');
-            tbody.appendChild(row.cloneNode(true));
-            table.appendChild(tbody);
-            wrap.appendChild(table);
-            document.body.appendChild(wrap);
-            try { row.style.visibility = 'hidden'; } catch (e) {}
-            try { row.style.pointerEvents = 'none'; } catch (e) {}
-            try {
-                const anim = wrap.animate([
-                    { transform: 'translateY(0px)', opacity: 1 },
-                    { transform: 'translateY(-10px)', opacity: 0 },
-                ], { duration: 130, easing: 'cubic-bezier(0.2, 0.9, 0.2, 1)', fill: 'forwards' });
-                anim.onfinish = () => { try { wrap.remove(); } catch (e) {} };
-            } catch (e) {
-                try { wrap.remove(); } catch (e2) {}
-            }
-        });
+        try { return __tmCollapseMotion.prefersReducedMotion() ? 'none' : 'full'; } catch (e) { return 'none'; }
     }
 
     function __tmPrepareFlipAnimation(opts) {
-        if (!state.modal) return;
-        if (__tmShouldReduceUiAnimationByScale()) {
-            state.__tmFlipFirst = null;
-            state.__tmFlipAction = null;
-            return;
-        }
-        try { __tmCancelAnimationsWithin(state.modal); } catch (e) {}
-        state.__tmFlipFirst = __tmCaptureFlipSnapshot(state.modal);
-        state.__tmFlipAction = (opts && typeof opts === 'object') ? { ...opts } : null;
-        state.__tmFlipTs = Date.now();
-        if (state.__tmFlipAction?.action !== 'collapse') return;
-        if (state.__tmFlipAction?.lite) return;
-        const tbody = state.viewMode === 'timeline'
-            ? state.modal.querySelector('#tmTimelineLeftTable tbody')
-            : state.modal.querySelector('#tmTaskTable tbody');
-        if (!tbody) return;
-        const r = __tmCollectAffectedRowsForCollapseLimited(tbody, state.__tmFlipAction, 24);
-        if (!r.truncated && Array.isArray(r.rows) && r.rows.length > 0) __tmAnimateExitingRows(r.rows);
-    }
-
-    function __tmAnimateEnteringRows(modalEl, opts) {
-        const root = modalEl instanceof Element ? modalEl : state.modal;
         const o = (opts && typeof opts === 'object') ? opts : {};
-        if (!root || o.action !== 'expand') return;
-        if (o.lite) return;
-        const tbody = state.viewMode === 'timeline'
-            ? root.querySelector('#tmTimelineLeftTable tbody')
-            : root.querySelector('#tmTaskTable tbody');
-        if (!tbody) return;
-        const kind = String(o.kind || '');
-        const key = String(o.key || '').trim();
-        if (!key) return;
-        const anchor = kind === 'group'
-            ? tbody.querySelector(`tr[data-group-key="${CSS.escape(key)}"]`)
-            : tbody.querySelector(`tr[data-id="${CSS.escape(key)}"]`);
-        if (!anchor) return;
-        const r = __tmCollectAffectedRowsForCollapseLimited(tbody, o, 24);
-        if (r.truncated || r.rows.length === 0) return;
-        const rows = r.rows;
-        rows.forEach((row) => {
-            try {
-                row.animate([
-                    { opacity: 0 },
-                    { opacity: 1 },
-                ], { duration: 130, easing: 'cubic-bezier(0.2, 0.9, 0.2, 1)', fill: 'both' });
-            } catch (e) {}
-        });
+        if (!state.modal) return false;
+        let profile = String(o.profile || '').trim();
+        if (!profile) {
+            if (__tmHasCalendarSidebarChecklist(state.modal)) profile = 'calendar-sidebar';
+            else if (String(state.viewMode || '').trim() === 'timeline') profile = 'timeline';
+            else if (String(state.viewMode || '').trim() === 'checklist') profile = 'checklist';
+            else profile = 'table';
+        }
+        try { return __tmCollapseMotion.beginLayout(state.modal, { ...o, profile }); } catch (e) { return false; }
     }
 
     function __tmRunFlipAnimation(modalEl) {
-        const first = state.__tmFlipFirst;
-        if (!(first instanceof Map) || first.size === 0) return;
         const root = modalEl instanceof Element ? modalEl : state.modal;
-        if (!root) return;
-        if (__tmShouldReduceUiAnimationByScale()) {
-            try { __tmResetFlipState(root); } catch (e) {}
-            return;
-        }
-
-        // 检查是否滚动到了页面下方，如果是则跳过 FLIP 动画以避免闪烁
-        const timelineLeftBody = root.querySelector('#tmTimelineLeftBody');
-        const listBody = root.querySelector('.tm-body');
-        const isScrolledDown = timelineLeftBody
-            ? (Number(timelineLeftBody.scrollTop) || 0) > 100
-            : (listBody ? (Number(listBody.scrollTop) || 0) > 100 : false);
-        if (isScrolledDown) {
-            // 滚动到下方时直接清除 FLIP 状态，不运行动画，避免闪烁
-            try { __tmResetFlipState(root); } catch (e) {}
-            return;
-        }
-
-        try { __tmCancelAnimationsWithin(root); } catch (e) {}
-        try { state.__tmFlipRunningAnims = Array.isArray(state.__tmFlipRunningAnims) ? state.__tmFlipRunningAnims : []; } catch (e) {}
-        const els = root.querySelectorAll('tr[data-id],tr[data-group-key],.tm-gantt-row[data-id],.tm-gantt-row--group[data-group-key]');
-        els.forEach((el) => {
-            const k = __tmGetFlipKeyForEl(el);
-            if (!k) return;
-            const r0 = first.get(k);
-            if (!r0) return;
-            let r1;
-            try { r1 = el.getBoundingClientRect(); } catch (e) { return; }
-            if (!r1 || r1.height <= 0 || r1.width <= 0) return;
-            const dy0 = (r0.top - r1.top);
-            if (!Number.isFinite(dy0) || Math.abs(dy0) < 0.5) return;
-            const dy = Math.round(dy0);
-            if (!Number.isFinite(dy) || Math.abs(dy) < 1) return;
-            try {
-                try { el.style.willChange = 'transform'; } catch (e2) {}
-                const anim = el.animate([
-                    { transform: `translate3d(0px, ${dy}px, 0px)` },
-                    { transform: 'translate3d(0px, 0px, 0px)' },
-                ], {
-                    duration: state.__tmFlipAction?.lite ? 130 : 180,
-                    easing: 'cubic-bezier(0.2, 0.9, 0.2, 1)',
-                    fill: 'both'
-                });
-                try { state.__tmFlipRunningAnims.push(anim); } catch (e2) {}
-                if (anim && typeof anim.commitStyles === 'function') {
-                    anim.onfinish = () => {
-                        try { anim.commitStyles(); } catch (e2) {}
-                        try { anim.cancel(); } catch (e2) {}
-                        try { el.style.willChange = ''; } catch (e2) {}
-                        try {
-                            const a = state.__tmFlipRunningAnims;
-                            if (Array.isArray(a)) {
-                                const idx = a.indexOf(anim);
-                                if (idx !== -1) a.splice(idx, 1);
-                            }
-                        } catch (e2) {}
-                    };
-                } else if (anim) {
-                    anim.onfinish = () => {
-                        try { el.style.willChange = ''; } catch (e2) {}
-                        try {
-                            const a = state.__tmFlipRunningAnims;
-                            if (Array.isArray(a)) {
-                                const idx = a.indexOf(anim);
-                                if (idx !== -1) a.splice(idx, 1);
-                            }
-                        } catch (e2) {}
-                    };
-                }
-            } catch (e) {}
-        });
-        try { __tmAnimateEnteringRows(root, state.__tmFlipAction); } catch (e) {}
-        state.__tmFlipFirst = null;
-        state.__tmFlipAction = null;
+        if (!root) return false;
+        try { return __tmCollapseMotion.playLayout(root); } catch (e) { return false; }
     }
 
     function __tmGetListRowStableKey(rowEl) {
@@ -25700,6 +25433,243 @@ return true;
         return true;
     }
 
+    function __tmInsertChecklistTaskBranchFragment(currentItems, fragmentItems, taskIdInput) {
+        if (!(currentItems instanceof HTMLElement) || !(fragmentItems instanceof HTMLElement)) return false;
+        const taskId = String(taskIdInput || '').trim();
+        const fragmentTaskId = String(fragmentItems.dataset?.tmChecklistBranchFragment || '').trim();
+        if (!taskId || fragmentTaskId !== taskId) return false;
+        const selector = `.tm-checklist-item[data-id="${CSS.escape(taskId)}"]`;
+        const currentAnchor = currentItems.querySelector(selector);
+        const fragmentAnchor = fragmentItems.querySelector(selector);
+        if (!(currentAnchor instanceof HTMLElement) || !(fragmentAnchor instanceof HTMLElement)) return false;
+        const parent = currentAnchor.parentElement;
+        if (!(parent instanceof HTMLElement) || !(fragmentAnchor.parentElement instanceof HTMLElement)) return false;
+        const branchNodes = [];
+        let cursor = fragmentAnchor.nextElementSibling;
+        while (cursor instanceof HTMLElement) {
+            branchNodes.push(cursor);
+            cursor = cursor.nextElementSibling;
+        }
+        if (!branchNodes.length) return false;
+        const reference = currentAnchor.nextSibling;
+        branchNodes.forEach((node) => parent.insertBefore(node, reference));
+        return true;
+    }
+
+    function __tmReconcileChecklistCollapseList(currentItems, nextItems, options = {}) {
+        if (!(currentItems instanceof HTMLElement) || !(nextItems instanceof HTMLElement)) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const kind = String(opts.collapseKind || '').trim();
+        const key = String(opts.collapseKey || '').trim();
+        if (!key || (kind !== 'task' && kind !== 'group')) return false;
+
+        const currentCards = __tmBuildChecklistCardMap(currentItems);
+        const nextCards = __tmBuildChecklistCardMap(nextItems);
+        if (currentCards.size || nextCards.size) {
+            const findCard = (items) => {
+                if (kind === 'task') return __tmFindChecklistCardByTask(items, key);
+                const header = items.querySelector(`.tm-checklist-group[data-group-key="${CSS.escape(key)}"]`);
+                return header?.closest?.('.tm-checklist-group-card') || null;
+            };
+            const currentCard = findCard(currentItems);
+            const nextCard = findCard(nextItems);
+            const cardKey = __tmGetChecklistGroupKeyFromCard(currentCard) || __tmGetChecklistGroupKeyFromCard(nextCard);
+            const stableCurrentCard = cardKey ? currentCards.get(cardKey) : currentCard;
+            const stableNextCard = cardKey ? nextCards.get(cardKey) : nextCard;
+            if (!(stableCurrentCard instanceof HTMLElement) || !(stableNextCard instanceof HTMLElement)) return false;
+            const currentTaskNodes = new Map();
+            stableCurrentCard.querySelectorAll('.tm-checklist-item[data-id]').forEach((item) => {
+                const taskId = String(item.getAttribute('data-id') || '').trim();
+                if (taskId) currentTaskNodes.set(taskId, item);
+            });
+            const affectedTaskIds = kind === 'task' ? new Set([key]) : new Set();
+            return __tmReconcileChecklistProjectionCard(stableCurrentCard, stableNextCard, currentTaskNodes, affectedTaskIds);
+        }
+
+        const currentTaskNodes = new Map();
+        const currentGroupNodes = new Map();
+        Array.from(currentItems.children || []).forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            const taskId = node.classList.contains('tm-checklist-item') ? String(node.getAttribute('data-id') || '').trim() : '';
+            const groupKey = __tmIsChecklistGroupHeader(node) ? __tmGetChecklistGroupKeyFromHeader(node) : '';
+            if (taskId) currentTaskNodes.set(taskId, node);
+            if (groupKey) currentGroupNodes.set(groupKey, node);
+        });
+        const desiredNodes = Array.from(nextItems.children || []).map((nextNode) => {
+            if (!(nextNode instanceof HTMLElement)) return nextNode;
+            const taskId = nextNode.classList.contains('tm-checklist-item') ? String(nextNode.getAttribute('data-id') || '').trim() : '';
+            const groupKey = __tmIsChecklistGroupHeader(nextNode) ? __tmGetChecklistGroupKeyFromHeader(nextNode) : '';
+            if (taskId && !(kind === 'task' && taskId === key)) return currentTaskNodes.get(taskId) || nextNode;
+            if (groupKey && !(kind === 'group' && groupKey === key)) return currentGroupNodes.get(groupKey) || nextNode;
+            return nextNode;
+        });
+        const keep = new Set(desiredNodes);
+        let cursor = currentItems.firstChild;
+        desiredNodes.forEach((node) => {
+            if (node === cursor) {
+                cursor = cursor.nextSibling;
+                return;
+            }
+            currentItems.insertBefore(node, cursor);
+        });
+        Array.from(currentItems.childNodes || []).forEach((node) => {
+            if (!keep.has(node)) node.remove();
+        });
+        return true;
+    }
+
+    function __tmSetChecklistDisclosureGlyph(anchor, kind, collapsed) {
+        if (!(anchor instanceof HTMLElement)) return;
+        const isCollapsed = !!collapsed;
+        if (kind === 'group') {
+            anchor.classList.toggle('tm-checklist-group--collapsed', isCollapsed);
+            anchor.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+            anchor.querySelector('.tm-group-toggle')?.classList?.toggle('tm-group-toggle--collapsed', isCollapsed);
+            anchor.querySelectorAll('.tm-group-toggle-icon').forEach((icon) => {
+                if (icon instanceof HTMLElement || icon instanceof SVGElement) icon.style.transform = `rotate(${isCollapsed ? 0 : 90}deg)`;
+            });
+            return;
+        }
+        const leading = anchor.querySelector('.tm-checklist-leading--branch');
+        leading?.classList?.toggle('tm-checklist-leading--collapsed', isCollapsed);
+        anchor.querySelectorAll('.tm-tree-toggle-icon').forEach((icon) => {
+            if (icon instanceof HTMLElement || icon instanceof SVGElement) icon.style.transform = `rotate(${isCollapsed ? 0 : 90}deg)`;
+        });
+        const ring = leading?.querySelector?.('.tm-task-leading-ring');
+        if (isCollapsed && leading && !ring) leading.insertAdjacentHTML('afterbegin', '<span class="tm-task-leading-ring" aria-hidden="true"></span>');
+        else if (!isCollapsed && ring) ring.remove();
+    }
+
+    function __tmGetChecklistDisclosureContext(modalEl, kindInput, keyInput) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const kind = String(kindInput || '').trim();
+        const key = String(keyInput || '').trim();
+        if (!(modal instanceof Element) || !key) return null;
+        const anchor = kind === 'group'
+            ? modal.querySelector(`.tm-checklist-group[data-group-key="${CSS.escape(key)}"]`)
+            : modal.querySelector(`.tm-checklist-item[data-id="${CSS.escape(key)}"]`);
+        if (!(anchor instanceof HTMLElement)) return null;
+        if (kind === 'group') {
+            const card = anchor.closest('.tm-checklist-group-card');
+            if (card instanceof HTMLElement && anchor.parentElement === card) {
+                const body = card.querySelector(':scope > .tm-checklist-group-card-items');
+                return body instanceof HTMLElement ? { anchor, content: body, wrapper: false } : { anchor, content: null, wrapper: false };
+            }
+        }
+        const persistedWrapper = anchor.nextElementSibling;
+        if (persistedWrapper instanceof HTMLElement
+            && persistedWrapper.classList.contains('tm-checklist-disclosure')
+            && String(persistedWrapper.dataset?.tmChecklistDisclosureKind || '').trim() === kind
+            && String(persistedWrapper.dataset?.tmChecklistDisclosureKey || '').trim() === key) {
+            return { anchor, content: persistedWrapper, wrapper: true };
+        }
+        const nodes = [];
+        const baseDepth = kind === 'task' ? Math.max(0, Number(anchor.getAttribute('data-depth')) || 0) : 0;
+        let cursor = anchor.nextElementSibling;
+        while (cursor instanceof HTMLElement) {
+            if (cursor.classList.contains('tm-checklist-group')) break;
+            if (kind === 'task' && cursor.classList.contains('tm-checklist-item')) {
+                const depth = Math.max(0, Number(cursor.getAttribute('data-depth')) || 0);
+                if (depth <= baseDepth) break;
+            }
+            nodes.push(cursor);
+            cursor = cursor.nextElementSibling;
+        }
+        if (!nodes.length) return { anchor, content: null, wrapper: false };
+        const parent = nodes[0].parentElement;
+        if (!(parent instanceof HTMLElement) || nodes.some((node) => node.parentElement !== parent)) return { anchor, content: null, wrapper: false };
+        const wrapper = document.createElement('div');
+        wrapper.className = 'tm-checklist-disclosure';
+        wrapper.dataset.tmChecklistDisclosureKind = kind;
+        wrapper.dataset.tmChecklistDisclosureKey = key;
+        parent.insertBefore(wrapper, nodes[0]);
+        nodes.forEach((node) => wrapper.appendChild(node));
+        return { anchor, content: wrapper, wrapper: true };
+    }
+
+    function __tmUnwrapChecklistDisclosure(context) {
+        const content = context?.content;
+        if (context?.wrapper !== true || !(content instanceof HTMLElement)) return;
+        const parent = content.parentElement;
+        if (!(parent instanceof HTMLElement)) return;
+        while (content.firstChild) parent.insertBefore(content.firstChild, content);
+        content.remove();
+    }
+
+    function __tmAnimateChecklistDisclosure(kindInput, keyInput, actionInput, options = {}) {
+        const kind = String(kindInput || '').trim();
+        const key = String(keyInput || '').trim();
+        const action = String(actionInput || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const modal = state.modal instanceof Element ? state.modal : null;
+        if (!modal || !key || !['task', 'group'].includes(kind) || !['collapse', 'expand'].includes(action)) return false;
+        const commit = () => __tmRenderChecklistPreserveScroll({
+            listOnly: true,
+            collapseKind: kind,
+            collapseKey: key,
+        });
+        try { __tmCollapseMotion.cancel(modal); } catch (e) {}
+        let context = __tmGetChecklistDisclosureContext(modal, kind, key);
+        let motionMode = 'none';
+        if (opts.animate === true) {
+            try {
+                const started = __tmCollapseMotion.beginLayout(modal, {
+                    profile: 'checklist',
+                    action,
+                    allowDuringScroll: true,
+                });
+                if (started) motionMode = 'layout';
+            } catch (e) {}
+        }
+        let coldExpansion = false;
+        if (action === 'expand' && !context?.content?.hidden) {
+            commit();
+            coldExpansion = true;
+            context = __tmGetChecklistDisclosureContext(modal, kind, key);
+        }
+        if (!context?.content) {
+            if (motionMode === 'layout') {
+                try { __tmCollapseMotion.cancel(modal); } catch (e) {}
+            }
+            commit();
+            return false;
+        }
+        __tmSetChecklistDisclosureGlyph(context.anchor, kind, action === 'collapse');
+        const groupCard = kind === 'group' ? context.anchor.closest?.('.tm-checklist-group-card') : null;
+        if (groupCard instanceof HTMLElement && context.anchor.parentElement === groupCard) {
+            groupCard.classList.toggle('tm-checklist-group-card--collapsed', action === 'collapse');
+        }
+        try { __tmSyncCurrentViewDomRenderSignature('checklist'); } catch (e) {}
+        const startDisclosure = () => {
+            if (coldExpansion) {
+                const isCollapsed = kind === 'task'
+                    ? state.collapsedTaskIds?.has?.(key) === true
+                    : (__tmIsCompletedRootGroupKey(key)
+                        ? __tmIsCompletedRootGroupCollapsed(key)
+                        : state.collapsedGroups?.has?.(key) === true);
+                if (state.modal !== modal
+                    || String(state.viewMode || '').trim() !== 'checklist'
+                    || !modal.isConnected
+                    || !context.anchor?.isConnected
+                    || !context.content.isConnected
+                    || !modal.contains(context.content)
+                    || isCollapsed) return;
+            }
+            __tmCollapseMotion.setDisclosure(context.content, action === 'expand', {
+                forceMode: motionMode,
+                onFinish() {
+                    if (action === 'expand') __tmUnwrapChecklistDisclosure(context);
+                    try { __tmSyncCurrentViewDomRenderSignature('checklist'); } catch (e) {}
+                },
+            });
+            if (motionMode === 'layout') {
+                try { queueMicrotask(() => { try { __tmCollapseMotion.playLayout(modal); } catch (e) {} }); } catch (e) {}
+            }
+        };
+        startDisclosure();
+        return true;
+    }
+
     function __tmTryRefreshChecklistProjectionGroups(modal, body, nextBody, taskIds, context = {}) {
         const currentItems = body?.querySelector?.('.tm-checklist-items');
         const nextItems = nextBody?.querySelector?.('.tm-checklist-items');
@@ -25836,12 +25806,64 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         }
         let nextBody = null;
         try {
-            nextBody = __tmBuildElementFromHtml(renderBodyHtml());
+            const taskBranchId = opts.listOnly === true
+                && String(opts.collapseKind || '').trim() === 'task'
+                && !state.collapsedTaskIds?.has?.(String(opts.collapseKey || '').trim())
+                ? String(opts.collapseKey || '').trim()
+                : '';
+            nextBody = __tmBuildElementFromHtml(renderBodyHtml({ taskBranchId }));
         } catch (e) {
             return false;
         }
         if (!(nextBody instanceof HTMLElement)) {
             return false;
+        }
+        if (opts.listOnly === true) {
+            const currentItems = body.querySelector('.tm-checklist-items');
+            const branchFragment = nextBody.matches?.('.tm-checklist-items[data-tm-checklist-branch-fragment]') ? nextBody : null;
+            const nextItems = branchFragment || nextBody.querySelector('.tm-checklist-items');
+            if (!(currentItems instanceof HTMLElement) || !(nextItems instanceof HTMLElement)) return false;
+            try {
+                const reconciled = branchFragment
+                    ? __tmInsertChecklistTaskBranchFragment(currentItems, branchFragment, opts.collapseKey)
+                    : __tmReconcileChecklistCollapseList(currentItems, nextItems, opts);
+                if (!reconciled) return false;
+            } catch (e) { return false; }
+            if (branchFragment) {
+                const finishBranchRefresh = () => {
+                    if (!pane.isConnected || state.modal !== modal || String(state.viewMode || '').trim() !== 'checklist') return;
+                    try { pane.__tmChecklistScrollUpdateThumb?.(); } catch (e) {}
+                    try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+                    try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+                    try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+                    try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+                    __tmBindFloatingTooltipsAfterLocalRerender(modal);
+                };
+                try {
+                    if (typeof __tmScheduleIdleTask === 'function') __tmScheduleIdleTask(finishBranchRefresh, 260);
+                    else setTimeout(finishBranchRefresh, 0);
+                } catch (e) {}
+                if (renderSignature) {
+                    try { state.listDomRenderSignature = renderSignature; } catch (e) {}
+                }
+                state.pendingChecklistRenderRestore = null;
+                return true;
+            }
+            try { __tmRefreshChecklistSelectionInPlace(modal, 'checklist-list-only-rerender'); } catch (e) {}
+            try { pane.__tmChecklistScrollUpdateThumb?.(); } catch (e) {}
+            try { requestAnimationFrame(() => pane.__tmChecklistScrollUpdateThumb?.()); } catch (e) {}
+            try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+            try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+            __tmBindFloatingTooltipsAfterLocalRerender(modal);
+            pane.scrollTop = paneTop;
+            pane.scrollLeft = paneLeft;
+            if (renderSignature) {
+                try { state.listDomRenderSignature = renderSignature; } catch (e) {}
+            }
+            state.pendingChecklistRenderRestore = null;
+            return true;
         }
         if (checklistProjectionTaskIds.length > 0
             && __tmTryRefreshChecklistProjectionGroups(modal, body, nextBody, checklistProjectionTaskIds, {

@@ -31,13 +31,20 @@ assert.match(kanbanRuntime, /__tmPatchKanbanProgressiveColumn/, 'the kanban rend
 assert.doesNotMatch(kanbanRuntime, /const scrollTop = Number\(body\.scrollTop[\s\S]*body\.scrollTop = scrollTop/, 'progressive batches must not cancel mobile momentum with an unconditional absolute scroll write');
 assert.match(kanbanRuntime, /insideCollapsedTask \|\| collapsed/, 'hidden descendants of a collapsed parent must stay mounted without consuming the visible-card batch');
 assert.match(kanbanRuntime, /done: false, retry: true/, 'a replaced shell must not permanently finish a pending column');
+assert.match(kanbanRuntime, /__tmPatchKanbanProgressiveColumn[\s\S]*__tmSyncKanbanBottomNavAvoidance\(modal\)/, 'each progressive column batch must refresh mobile bottom-nav avoidance after content grows');
 assert.match(renderRuntime, /__tmRequestKanbanProgressiveColumnLoad\?\.\(colKey\)/, 'expanding a deferred column must request its first batch');
 assert.match(renderRuntime, /__tmScheduleProgressiveViewRender\('kanban', progressiveJob\)/, 'full renders must resume the current kanban progressive job');
+const bottomNavAvoidance = renderRuntime.slice(
+    renderRuntime.indexOf('function __tmSyncKanbanBottomNavAvoidance'),
+    renderRuntime.indexOf('function __tmScheduleKanbanBottomNavAvoidance'),
+);
+assert.doesNotMatch(bottomNavAvoidance, /colBody\.scrollTop\s*=/, 'bottom-nav avoidance refreshes must not overwrite an active mobile column scroll');
 
 assert.match(dialogs, /mode !== 'list' && mode !== 'checklist' && mode !== 'timeline'/, 'table, checklist, and timeline must share one near-bottom loader');
 assert.match(dialogs, /remainingPx > thresholdPx/, 'list-like views must wait until the shared scrollport is near its tail');
 assert.match(dialogs, /appendOnly: true/, 'list-like continuation must preserve mounted rows');
 assert.match(renderRuntime, /return Math\.max\(0, Math\.ceil\(\(Number\(colBody\.scrollHeight\)/, 'mobile bottom-nav measurement must avoid per-card layout reads');
 assert.match(styles, /\.tm-kanban-deferred\s*\{[\s\S]*min-height: 48px;/, 'deferred columns must reserve a stable visible loading area');
+assert.match(styles, /\.tm-modal\.tm-modal--mobile \.tm-body\.tm-body--kanban \.tm-kanban-card\.tm-kanban-card--parent,[\s\S]*?content-visibility: visible;[\s\S]*?contain-intrinsic-size: none;/, 'mobile parent cards with progressively loaded subtasks must retain their live height');
 
 console.log('kanban viewport progressive render contract tests passed');

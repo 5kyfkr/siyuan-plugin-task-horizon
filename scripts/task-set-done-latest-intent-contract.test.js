@@ -48,6 +48,7 @@ const matchesLatestIntent = extractFunction(api, '__tmDoesSetDoneOpMatchLatestIn
 const coalesceQueued = extractFunction(api, '__tmTryCoalesceQueuedSetDone');
 const laneResolver = extractFunction(api, '__tmResolveQueuedMutationLaneKeys');
 const runner = extractFunction(api, '__tmRunSimpleMutation');
+const getVerificationPatch = extractFunction(api, '__tmGetQueuedTaskPatchForVerification');
 const applyOptimistic = extractFunction(api, '__tmApplyQueuedOpOptimistic');
 const rollbackQueued = extractFunction(api, '__tmRollbackQueuedOp');
 const executeQueued = extractFunction(api, '__tmExecuteQueuedOp');
@@ -69,8 +70,16 @@ assert.match(queueSetDone, /__tmIsLatestSetDoneIntent[\s\S]*intentRevision/,
     'success, failure, and delight feedback must belong only to the latest request');
 assert.match(commandPlan, /statusPatch\.customStatus[\s\S]*normalizedPatch\.done = __tmIsTaskMarkerDone\(targetMarker\)/,
     'a custom status marker must derive the same completion state as a checkbox');
+assert.match(commandPlan, /const projectionPatch = \{ \.\.\.normalizedPatch \};[\s\S]*taskMarker: targetMarker,[\s\S]*task_marker: targetMarker,[\s\S]*markdown: __tmBuildTaskMarkdownWithMarker\(task, targetMarker\)/,
+    'a custom status patch must project its marker and markdown atomically with the derived completion state');
 assert.match(queueFieldPatch, /plan\.explicitDone === true[\s\S]*plan\.explicitCustomStatus !== true[\s\S]*__tmBuildSetDoneQueuedDefinition/,
     'only an explicit checkbox completion request may enter the shared setDone queue');
+assert.match(queueFieldPatch, /__tmCaptureTaskPatchInverse\(tid, plan\.projectionPatch\)[\s\S]*projectionPatch: \{ \.\.\.plan\.projectionPatch \}/,
+    'custom status rollback and optimistic projection must use the marker-aware presentation patch');
+assert.match(applyOptimistic, /type === 'taskPatch'[\s\S]*const persistedPatch[\s\S]*const projectionPatch[\s\S]*patchTaskLocal\(taskId, projectionPatch[\s\S]*__tmDispatchQueuedTaskAttrPatch\(op, 'optimistic', taskId, persistedPatch\)[\s\S]*patch: projectionPatch/,
+    'task status projection must update marker-aware local state without broadcasting presentation fields as attrs');
+assert.match(getVerificationPatch, /type === 'taskPatch'[\s\S]*data\.projectionPatch[\s\S]*data\.patch/,
+    'task status acknowledgement and rollback must verify the complete marker-aware projection');
 assert.match(executeQueued, /type === 'taskPatch'[\s\S]*hasOwnProperty\.call\(normalizedPatch, 'customStatus'\)[\s\S]*__tmApplyQueuedTaskStatusPatch/,
     'a pure custom status patch must stay on the dedicated marker writer path');
 assert.match(executeQueued, /type === 'contentPatch'[\s\S]*__tmUpdateTaskContentBlockKernel\(taskId,[\s\S]*fromQueue: true,[\s\S]*touchState: false/,
@@ -103,6 +112,7 @@ const commandPlanContext = vm.createContext({
     __tmNormalizeCompatTaskStatusMarker: (marker) => marker,
     __tmGuessStatusOptionDefaultMarker: () => ' ',
     __tmIsTaskMarkerDone: (marker) => marker !== ' ',
+    __tmBuildTaskMarkdownWithMarker: (task, marker) => String(task.markdown || '').replace(/\[[^\]]\]/, `[${marker}]`),
     __tmBuildTaskCompleteAtPatch: () => ({ taskCompleteAt: 'derived' }),
     __tmResolveTaskStatusId: () => 'done',
 });
@@ -112,6 +122,55 @@ assert.equal(emptyStatusPlan.normalizedPatch.customStatus, 'todo', 'an explicit 
 assert.equal(emptyStatusPlan.normalizedPatch.done, false);
 assert.equal(emptyStatusPlan.normalizedPatch.taskCompleteAt, '');
 assert.equal(emptyStatusPlan.explicitCustomStatus, true);
+
+commandPlanContext.__tmTaskStateKernel.getTask = () => ({
+    done: false,
+    customStatus: 'todo',
+    taskMarker: ' ',
+    task_marker: ' ',
+    markdown: '* [ ] Open task',
+});
+commandPlanContext.__tmResolveTaskMarkdownMarker = () => ' ';
+commandPlanContext.__tmResolveTaskMarker = () => ' ';
+commandPlanContext.__tmFindStatusOptionById = (id) => id === 'done' ? { id: 'done', marker: 'X' } : null;
+const completedStatusPlan = commandPlanContext.buildCommandPlan('task-a', { customStatus: 'done' });
+assert.equal(completedStatusPlan.normalizedPatch.done, true);
+assert.equal(completedStatusPlan.projectionPatch.taskMarker, 'X');
+assert.equal(completedStatusPlan.projectionPatch.task_marker, 'X');
+assert.equal(completedStatusPlan.projectionPatch.markdown, '* [X] Open task');
+assert.equal(completedStatusPlan.projectionPatch.taskCompleteAt, 'derived');
+const completedStatusProjection = JSON.parse(JSON.stringify(completedStatusPlan.projectionPatch));
+
+let appliedTaskPatch = null;
+let dispatchedAttrPatch = null;
+let publishedTaskPatch = null;
+const optimisticTaskPatchContext = vm.createContext({
+    Object,
+    String,
+    __tmMutationTempTaskExistsForOptimisticApply: () => true,
+    __tmTaskStateKernel: {
+        patchTaskLocal: (_taskId, patch) => { appliedTaskPatch = { ...patch }; },
+    },
+    __tmMarkLocalTaskPatchWatermark: () => true,
+    __tmDispatchQueuedTaskAttrPatch: (_op, _phase, _taskId, patch) => { dispatchedAttrPatch = { ...patch }; },
+    __tmPublishQueuedOpMutation: (_op, _phase, detail) => { publishedTaskPatch = { ...detail.patch }; },
+});
+vm.runInContext(`${applyOptimistic}\nthis.applyOptimistic = __tmApplyQueuedOpOptimistic;`, optimisticTaskPatchContext);
+optimisticTaskPatchContext.applyOptimistic({
+    type: 'taskPatch',
+    data: {
+        taskId: 'task-a',
+        patch: { customStatus: 'done', done: true, taskCompleteAt: 'derived' },
+        projectionPatch: completedStatusPlan.projectionPatch,
+        source: 'detail-status',
+    },
+});
+assert.deepEqual(appliedTaskPatch, completedStatusProjection,
+    'detail status completion must reach local task projection before the kernel response');
+assert.deepEqual(dispatchedAttrPatch, { customStatus: 'done', done: true, taskCompleteAt: 'derived' },
+    'marker and markdown presentation fields must not leak into attr-change broadcasts');
+assert.deepEqual(publishedTaskPatch, completedStatusProjection,
+    'view projection must receive the marker-aware completion patch immediately');
 
 const context = vm.createContext({
     Map,

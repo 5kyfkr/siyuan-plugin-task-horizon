@@ -32,7 +32,8 @@ assert.match(detailSource, /await savePromise;[\s\S]*queuedSaveRequested && !sav
 const autoSave = sliceBetween(detailSource, 'const firePendingAutoSave =', 'const isNoteViewCandidate =', 'detail autosave lifecycle');
 assert.match(autoSave, /formState: captureFormStateSnapshot\(\)/, 'autosave scheduling must capture form state before the timer fires');
 assert.match(autoSave, /clearTimeout\(autoSaveTimer\)[\s\S]*doSave\(request\.options, request\.formState\)/, 'aborting a detail session must clear its timer and flush only its captured request');
-assert.match(detailSource, /on\(remarkTextarea, 'blur',[\s\S]*?flushAutoSaveNow\(/, 'remark blur must flush the captured draft before task switching');
+assert.match(detailSource, /on\(remarkTextarea, 'blur',[\s\S]*?commitRemarkValue\(\)/, 'remark blur must commit the current draft through the field mutation path');
+assert.doesNotMatch(detailSource, /on\(remarkTextarea, 'blur',[\s\S]*?flushAutoSaveNow\(/, 'remark blur must not depend on whole-form snapshot orchestration');
 
 for (const forbidden of [
     'findTaskByContent',

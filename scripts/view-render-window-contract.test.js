@@ -193,7 +193,12 @@ assert.match(services, /opts\.appendOnly === true && __tmTryAppendChecklistRende
 assert.match(dialogs, /window\.__tmBindAutoLoadMoreOnScroll = __tmBindAutoLoadMoreOnScroll;/, 'checklist body swaps must be able to rebind the shared auto-load listener');
 assert.match(dialogs, /mode !== 'list' && mode !== 'checklist' && mode !== 'timeline'[\s\S]*?window\.tmTimelineLoadMoreRows\?\.\(\)/, 'timeline must use the shared automatic render-window continuation');
 assert.match(dialogs, /function __tmScheduleAutoLoadMoreRecheck[\s\S]*?__tmAutoLoadMoreScrollHandler/, 'successful batches must recheck the live scroll host without another user gesture');
+assert.match(dialogs, /if \(state\.__tmAutoLoadMoreRecheckTimer\) clearTimeout[\s\S]*?state\.__tmAutoLoadMoreRecheckTimer = setTimeout/, 'automatic continuation rechecks must stay deduplicated');
 assert.match(dialogs, /const progressiveJob = state\.__tmProgressiveViewRender;[\s\S]*?progressiveJob\.tasksRef === state\.filteredTasks\) return;/, 'scroll continuation must not compete with an active view-switch progressive job');
+assert.match(dialogs, /const onScroll = \(\) => \{[\s\S]*?__tmAutoLoadMoreCheckPending[\s\S]*?__tmScheduleIdleTask\(run, 240\)/, 'raw scroll events must coalesce auto-load work into an idle task');
+const autoLoadBinder = segment(dialogs, 'function __tmBindAutoLoadMoreOnScroll', 'window.__tmBindAutoLoadMoreOnScroll');
+const autoLoadScrollHandler = segment(autoLoadBinder, 'const onScroll = () => {', "pane.addEventListener('scroll', onScroll");
+assert.match(autoLoadScrollHandler, /const run = \(\) => \{[\s\S]*?checkNearBottom\(\);[\s\S]*?__tmScheduleIdleTask\(run, 240\)/, 'raw scroll listeners must keep measuring and rendering inside scheduled idle work');
 assert.doesNotMatch(dialogs, /if \(maxScrollTop <= 0\) return;/, 'short initial batches must continue loading until the viewport can scroll');
 assert.match(services, /function __tmBindTimelineStageInteractions[\s\S]*?__tmBindAutoLoadMoreOnScroll\?\.\(modal, 'timeline'\)/, 'full and in-place timeline mounts must bind near-bottom auto loading');
 

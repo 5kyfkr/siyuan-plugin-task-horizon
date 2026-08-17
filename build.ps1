@@ -113,8 +113,8 @@ try {
         try { Remove-Item -LiteralPath $_.FullName -Force } catch {}
     }
 
-    # 重置所有文件的时间戳为中国时间 (UTC+8)
-    $chinaTime = [DateTime]::UtcNow.AddHours(8)
+    # ZIP 时间戳不含时区；使用 Kind=Unspecified 的中国本地时间，避免 LastWriteTime 再做一次 UTC+8 转换。
+    $chinaTime = [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(8)).DateTime
     Get-ChildItem -Path $tempDir -Recurse -File | ForEach-Object {
         try { $_.LastWriteTime = $chinaTime } catch {}
         try { $_.CreationTime = $chinaTime } catch {}

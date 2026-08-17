@@ -34,6 +34,11 @@ const detailSource = fs.readFileSync(
     path.join(root, 'src/task-horizon/main/task-runtime/52-task-detail-runtime.js'),
     'utf8',
 );
+const apiSource = fs.readFileSync(
+    path.join(root, 'src/task-horizon/main/20-api-and-runtime-services.js'),
+    'utf8',
+);
+const quickbarSource = fs.readFileSync(path.join(root, 'quickbar.js'), 'utf8');
 const storesSource = fs.readFileSync(
     path.join(root, 'src/task-horizon/main/10-stores-rules-and-cache.js'),
     'utf8',
@@ -59,22 +64,49 @@ function extractFunction(source, name) {
 }
 
 class FakeElement {
-    constructor(classes = []) {
+    constructor(classes = [], attrs = {}) {
         this.textContent = '';
-        this.style = { width: '' };
+        this.hidden = false;
+        this.title = '';
+        this.attributes = new Map(Object.entries(attrs));
+        this.style = {
+            width: '',
+            setProperty(name, value) {
+                const key = String(name || '').replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
+                this[key] = String(value);
+            },
+            removeProperty(name) {
+                const key = String(name || '').replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
+                this[key] = '';
+            },
+        };
         const values = new Set(classes);
         this.classList = { contains: (name) => values.has(name) };
     }
 
+    getAttribute(name) { return this.attributes.get(name) || null; }
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
     closest() { return null; }
 }
 
 const count = new FakeElement(['tm-badge--count']);
 const progress = new FakeElement();
+const remainingCount = new FakeElement(['tm-task-child-count'], {
+    'data-tm-subtask-count-format': 'remaining',
+});
+const backgroundProgress = new FakeElement(['tm-task-content-cell'], {
+    'data-tm-subtask-progress-kind': 'background',
+});
+const detailCount = new FakeElement(['tm-task-detail-subtask-count']);
+const detailRoot = new FakeElement();
+detailRoot.querySelectorAll = (selector) => {
+    if (selector.includes('data-tm-subtask-count-owner')) return [detailCount];
+    return [];
+};
 const modal = new FakeElement();
 modal.querySelectorAll = (selector) => {
-    if (selector.includes('data-tm-subtask-count-owner')) return [count];
-    if (selector.includes('data-tm-subtask-progress-owner')) return [progress];
+    if (selector.includes('data-tm-subtask-count-owner')) return [count, remainingCount];
+    if (selector.includes('data-tm-subtask-progress-owner')) return [progress, backgroundProgress];
     return [];
 };
 
@@ -97,6 +129,7 @@ context.__tmTaskStore = {
     listProjectedDirectChildren: () => children,
     getProjected: () => null,
 };
+context.__tmCollectVisibleTaskDetailRoots = () => [detailRoot];
 vm.runInContext(extractFunction(runtimeSource, '__tmIsTaskCompletedForProjection'), context);
 vm.runInContext(extractFunction(runtimeSource, '__tmGetProjectedOrderedTaskChildren'), context);
 vm.runInContext(extractFunction(runtimeSource, '__tmGetProjectedDirectChildStats'), context);
@@ -147,12 +180,33 @@ context.__tmTaskStore.listProjectedDirectChildren = () => children;
 
 assert.equal(context.__tmSyncTaskSubtaskSummaryInPlace('parent', modal), true);
 assert.equal(count.textContent, '1/2');
+assert.equal(detailCount.textContent, '1/2');
+assert.equal(remainingCount.textContent, '1');
+assert.equal(remainingCount.hidden, false);
 assert.equal(progress.style.width, '50%');
+assert.match(backgroundProgress.style.backgroundImage, /50%/);
 
 children[0].done = false;
 assert.equal(context.__tmSyncTaskSubtaskSummaryInPlace('parent', modal), true);
 assert.equal(count.textContent, '0/2');
+assert.equal(detailCount.textContent, '0/2');
+assert.equal(remainingCount.textContent, '2');
+assert.equal(remainingCount.hidden, false);
 assert.equal(progress.style.width, '0%');
+assert.equal(backgroundProgress.style.backgroundImage, '');
+
+children[0].done = true;
+children[1].done = true;
+assert.equal(context.__tmSyncTaskSubtaskSummaryInPlace('parent', modal), true);
+assert.equal(remainingCount.textContent, '0');
+assert.equal(remainingCount.hidden, true);
+assert.match(backgroundProgress.style.backgroundImage, /100%/);
+
+children[1].done = false;
+assert.equal(context.__tmSyncTaskSubtaskSummaryInPlace('parent', modal), true);
+assert.equal(remainingCount.textContent, '1');
+assert.equal(remainingCount.hidden, false);
+assert.match(backgroundProgress.style.backgroundImage, /50%/);
 
 const summarySource = extractFunction(runtimeSource, '__tmSyncTaskSubtaskSummaryInPlace');
 assert.doesNotMatch(summarySource, /render\(|__tmScheduleViewRefresh|replaceWith|innerHTML/,
@@ -174,6 +228,16 @@ assert.match(kanbanSource, /const hasDirectChildren = getDirectChildStats\(task\
 assert.match(whiteboardSource, /data-tm-subtask-count-owner=/);
 assert.match(whiteboardSource, /data-tm-subtask-progress-owner=/);
 assert.match(detailSource, /tm-task-detail-section-count" data-tm-subtask-count-owner=/);
+assert.match(listSource, /data-tm-subtask-count-format="remaining"/,
+    'table remaining-count nodes must declare their display format');
+assert.match(listSource, /data-tm-subtask-progress-kind="background"/,
+    'table progress cells must declare their background renderer');
+assert.match(runtimeSource, /tm-task-detail-subtask-count" data-tm-subtask-count-owner=/,
+    'nested detail counts must participate in parent summary projection');
+assert.match(summarySource, /__tmCollectVisibleTaskDetailRoots/,
+    'parent summary projection must include standalone detail roots');
+assert.match(summarySource, /__tmDispatchTaskSubtaskSummaryUpdated\(tid, stats\)/,
+    'optimistic completion projection must notify document quickbars immediately');
 assert.match(runtimeSource, /completionClosureRequired[\s\S]*const parentSummaryIds = new Set\(\)[\s\S]*parentSummaryIds\.forEach[\s\S]*__tmSyncTaskSubtaskSummaryInPlace/,
     'completion closure must update main-view and open-detail parent summaries from the same lightweight projection');
 assert.doesNotMatch(runtimeSource, /completionClosureRequired[\s\S]{0,1200}__tmProjectVisibleTaskDetailSubtasks/,
@@ -185,6 +249,39 @@ assert.match(rowModelSource, /const childTasks = __tmGetProjectedOrderedTaskChil
     'all main-view child rows, including checklist rows, must follow the active filtered-task order');
 assert.doesNotMatch(rowModelSource, /viewMode[\s\S]{0,120}!== 'checklist'[\s\S]{0,120}childTasks\.sort/,
     'checklist child rows must not bypass the active sorting rule');
+assert.match(apiSource, /tm-task-subtask-summary-updated/,
+    'local task completion must broadcast its parent summary to document quickbars');
+assert.match(quickbarSource, /function syncInlineSubtaskSummaryFromEvent\([\s\S]*data-inline-attr="subtask-count"/,
+    'quickbar must patch parent subtask chips from the shared summary event');
+assert.match(quickbarSource, /addEventListener\('tm-task-subtask-summary-updated'/);
+assert.match(quickbarSource, /removeEventListener\('tm-task-subtask-summary-updated'/);
+assert.match(quickbarSource, /op\?\.action !== 'update'[\s\S]*refreshInlineMetaByTaskId/,
+    'remote task updates must target visible parent quickbar summaries');
+
+const inlineValue = new FakeElement();
+const inlineChip = new FakeElement();
+inlineChip.querySelector = (selector) => (
+    selector === '.sy-custom-props-inline-chip-value' ? inlineValue : null
+);
+const inlineHost = new FakeElement();
+inlineHost.dataset = { blockId: '', taskId: 'parent', attrHostId: '' };
+inlineHost.querySelector = (selector) => (
+    selector === '[data-inline-attr="subtask-count"]' ? inlineChip : null
+);
+let unfinishedOnly = false;
+const quickbarContext = vm.createContext({
+    HTMLElement: FakeElement,
+    getQuickbarInlineSettings: () => ({ subtaskCountUnfinishedOnly: unfinishedOnly }),
+    queryInlineMetaHostsInObservedRoots: () => [inlineHost],
+});
+vm.runInContext(extractFunction(quickbarSource, 'syncInlineSubtaskSummaryFromEvent'), quickbarContext);
+assert.equal(quickbarContext.syncInlineSubtaskSummaryFromEvent({ taskId: 'parent', total: 2, completed: 1 }), true);
+assert.equal(inlineValue.textContent, '1/2');
+assert.equal(inlineChip.getAttribute('data-inline-value'), '1/2');
+assert.match(inlineChip.getAttribute('title'), /未完成1个/);
+unfinishedOnly = true;
+assert.equal(quickbarContext.syncInlineSubtaskSummaryFromEvent({ taskId: 'parent', total: 2, completed: 2 }), true);
+assert.equal(inlineValue.textContent, '0');
 
 class FakeChecklistNode {
     constructor(classes = [], attrs = {}) {

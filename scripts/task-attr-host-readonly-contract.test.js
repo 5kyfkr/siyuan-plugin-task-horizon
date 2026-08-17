@@ -84,6 +84,16 @@ assert.equal(state2.state, 'state2-list-item');
 assert.equal(state2.primaryHostID, 'task-b');
 assert.deepEqual(state2.mirrorHostIDs, []);
 assert.deepEqual(state2.legacyHostIDs, []);
+const invalidItem = buildAttrContext({
+    id: 'task-c',
+    parent_id: 'doc-a',
+    parent_type: 'd',
+    parent_task_count: 1,
+    first_task_id: 'task-c',
+});
+assert.equal(invalidItem.state, 'invalid-list-item');
+assert.equal(invalidItem.parentListID, '');
+assert.equal(invalidItem.primaryHostID, 'task-c');
 assert.match(
     kernel,
     /async function buildTaskAttrWriteOperations[\s\S]*const taskID = requireID\(binding\.taskID[\s\S]*return \[\{ action: 'setAttrs', id: taskID/,
@@ -101,8 +111,8 @@ assert.match(
 );
 assert.match(
     kernel,
-    /async function moveTask\(input, options\)[\s\S]*return runTaskLane\(laneID,[\s\S]*await preserveTaskAttrsOnOwnBlockBeforeMove\(beforeTask\)[\s\S]*await api\('\/api\/block\/moveBlock'/,
-    'attribute preservation and the structural move must remain ordered in one kernel lane'
+    /async function moveTask\(input, options\)[\s\S]*return runTaskLanes\(targetLaneIDs,[\s\S]*await preserveTaskAttrsOnOwnBlockBeforeMove\(beforeTask\)[\s\S]*await api\('\/api\/block\/moveBlock'/,
+    'attribute preservation and the structural move must remain ordered in one kernel lane set'
 );
 const completionAttrExpression = sliceFunction(kernel, 'function completionAttrExpression', 'function normalizeTaskScope');
 assert.doesNotMatch(completionAttrExpression, /\.parent_id|first task/i,

@@ -1811,11 +1811,31 @@
             try { render(); } catch (e) {}
             return true;
         }
+        let motionMode = 'none';
+        try {
+            const started = __tmCollapseMotion.beginLayout(state.modal, {
+                profile: 'whiteboard-pool',
+                action: collapsed ? 'collapse' : 'expand',
+            });
+            if (started) motionMode = 'layout';
+        } catch (e) {
+            motionMode = 'none';
+        }
         section.classList.toggle('tm-whiteboard-pool-doc--collapsed', collapsed);
         head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         const label = String(head.getAttribute('data-pool-section-label') || '').trim();
         head.title = `${collapsed ? '展开' : '折叠'}${label || '分组'}`;
-        list.hidden = collapsed;
+        try {
+            __tmCollapseMotion.setDisclosure(list, !collapsed, {
+                forceMode: motionMode,
+            });
+        } catch (e) {
+            list.hidden = collapsed;
+            list.setAttribute('aria-hidden', collapsed ? 'true' : 'false');
+        }
+        if (motionMode === 'layout') {
+            try { queueMicrotask(() => { try { __tmCollapseMotion.playLayout(state.modal); } catch (e) {} }); } catch (e) {}
+        }
         const icon = head.querySelector('.tm-whiteboard-pool-doc-chevron-icon');
         if (icon instanceof HTMLElement || icon instanceof SVGElement) {
             icon.style.transform = `rotate(${collapsed ? 0 : 90}deg)`;
@@ -8400,8 +8420,27 @@
         const id = String(taskId || '').trim();
         if (!id) return;
         const s = __tmKanbanGetCollapsedSet();
-        if (s.has(id)) s.delete(id);
-        else s.add(id);
+        const collapsed = !s.has(id);
+        if (collapsed) s.add(id);
+        else s.delete(id);
         __tmKanbanPersistCollapsed();
         render();
+        try {
+            const selectorId = CSS.escape(id);
+            const modal = state.modal instanceof Element ? state.modal : null;
+            if (!(modal instanceof Element)) return;
+            const targets = modal.querySelectorAll(`.tm-whiteboard-node[data-task-id="${selectorId}"],.tm-whiteboard-stream-task-node[data-task-id="${selectorId}"],.tm-whiteboard-pool-item[data-task-id="${selectorId}"]`);
+            let hasCanvasTarget = false;
+            targets.forEach((target) => {
+                if (!(target instanceof HTMLElement)) return;
+                if (target.classList.contains('tm-whiteboard-node') || target.classList.contains('tm-whiteboard-stream-task-node')) hasCanvasTarget = true;
+                __tmCollapseMotion.fadeClip(modal, target, { expanded: !collapsed });
+            });
+            if (hasCanvasTarget) {
+                modal.querySelectorAll('.tm-whiteboard-edges').forEach((edgeLayer) => {
+                    if (edgeLayer instanceof SVGElement) __tmCollapseMotion.fade(modal, edgeLayer, { from: 0.45, duration: 120 });
+                });
+                __tmScheduleWhiteboardEdgeRedraw();
+            }
+        } catch (e) {}
     };

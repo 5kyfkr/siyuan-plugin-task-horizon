@@ -24,6 +24,14 @@ const dispatch = segment(
 assert.match(dispatch, /localMutation: true/,
     'MutationService notifications must identify already projected local writes');
 
+const commit = segment(
+    services,
+    'function __tmCommitQueuedOp',
+    'function __tmRemapQueuedOpTaskReferences',
+);
+assert.match(commit, /type === 'taskPatch'[\s\S]*__tmPublishQueuedOpMutation\(op, 'commit'[\s\S]*__tmDispatchQueuedTaskAttrPatch\(op, 'commit', taskId, patch\)/,
+    'committed task fields must notify cross-plugin consumers after the Kernel write succeeds');
+
 const handler = segment(
     lifecycle,
     '__tmQuickbarTaskUpdateHandler = (e) =>',

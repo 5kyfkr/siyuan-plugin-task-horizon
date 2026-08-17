@@ -2087,6 +2087,7 @@
                                 nextColumnRender.html || `<div class="tm-kanban-empty">空</div>`
                             );
                             if (!patchResult?.ok) return { done: false, retry: true };
+                            try { __tmSyncKanbanBottomNavAvoidance(modal); } catch (e) {}
                             if (String(state.searchKeyword || '').trim()) {
                                 const highlightRoots = patchResult.replaced
                                     ? [body]

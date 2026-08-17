@@ -25,6 +25,7 @@
         function __tmRenderChecklistBodyHtml(renderOptions = {}) {
             return __tmBuildRenderSceneChecklistBodyHtml({
                 bodyAnimClass: __tmGetBodyAnimClassForRender(renderOptions),
+                taskBranchId: String(renderOptions?.taskBranchId || '').trim(),
             });
         }
 

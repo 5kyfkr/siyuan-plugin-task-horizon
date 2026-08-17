@@ -2190,6 +2190,12 @@
         showSettings();
     };
 
+    window.updateMobileAutoOpenOnStartup = async function(enabled) {
+        SettingsStore.data.mobileAutoOpenOnStartup = enabled === true;
+        await SettingsStore.save();
+        showSettings();
+    };
+
     window.updateDockSidebarEnabled = async function(enabled) {
         SettingsStore.data.dockSidebarEnabled = !!enabled;
         await SettingsStore.save();
@@ -3092,14 +3098,8 @@
             : (state.collapsedGroups.has(k0) ? 'expand' : 'collapse');
         const mode = isKanban ? 'none' : __tmGetCollapseAnimMode();
         const flipOpts = { kind: 'group', key: k0, action, lite: mode === 'lite' };
-        let skipAnim = mode === 'none';
-        if (!isKanban) {
-            try {
-                const tbody = __tmGetActiveTbody(state.modal);
-                const n = __tmCountAffectedRowsForCollapse(tbody, flipOpts, 161);
-                if (n > 240) skipAnim = true;
-                else if (n > 120 && !skipAnim) flipOpts.lite = true;
-            } catch (e) {}
+        const skipAnim = mode === 'none';
+        if (!isKanban && !isChecklist) {
             if (!skipAnim) {
                 try { __tmPrepareFlipAnimation(flipOpts); } catch (e) {}
             } else {
@@ -3133,12 +3133,15 @@
         };
         if (isKanban) {
             persistCollapsedGroups();
-            __tmSetKanbanGroupCollapsedInDom(k0, action === 'collapse', state.modal);
+            __tmSetKanbanGroupCollapsedInDom(k0, action === 'collapse', state.modal, { animate: true });
             return;
         }
         if (isChecklist) {
             persistCollapsedGroups();
-            __tmRenderChecklistPreserveScroll();
+            try {
+                if (__tmAnimateChecklistDisclosure('group', k0, action, { animate: !skipAnim })) return;
+            } catch (e) {}
+            __tmRenderChecklistPreserveScroll({ listOnly: true, collapseKind: 'group', collapseKey: k0 });
             return;
         }
         if (isCalendarSidebarChecklist) {
@@ -3176,20 +3179,12 @@
 
         const action = state.collapsedTaskIds.has(key) ? 'expand' : 'collapse';
         const useFastListCollapse = !isChecklist && isListView && action === 'collapse';
-        const mode = useFastListCollapse ? 'none' : __tmGetCollapseAnimMode();
+        const mode = __tmGetCollapseAnimMode();
         const flipOpts = { kind: 'task', key, action, lite: mode === 'lite' };
-        let skipAnim = mode === 'none' || useFastListCollapse;
-        if (!useFastListCollapse) {
-            try {
-                const tbody = __tmGetActiveTbody(state.modal);
-                const n = __tmCountAffectedRowsForCollapse(tbody, flipOpts, 161);
-                if (n > 240) skipAnim = true;
-                else if (n > 120 && !skipAnim) flipOpts.lite = true;
-            } catch (e) {}
-        }
-        if (!skipAnim) {
+        const skipAnim = mode === 'none';
+        if (!skipAnim && !isChecklist) {
             try { __tmPrepareFlipAnimation(flipOpts); } catch (e) {}
-        } else {
+        } else if (!isChecklist) {
             try { __tmResetFlipState(state.modal); } catch (e) {}
         }
         if (state.collapsedTaskIds.has(key)) state.collapsedTaskIds.delete(key);
@@ -3207,7 +3202,10 @@
         };
         if (isChecklist) {
             persistCollapsedTasks();
-            __tmRenderChecklistPreserveScroll();
+            try {
+                if (__tmAnimateChecklistDisclosure('task', key, action, { animate: !skipAnim })) return;
+            } catch (e) {}
+            __tmRenderChecklistPreserveScroll({ listOnly: true, collapseKind: 'task', collapseKey: key });
             return;
         }
         if (isCalendarSidebarChecklist) {
@@ -3219,6 +3217,9 @@
         if (action === 'collapse') {
             if (useFastListCollapse && state.modal && __tmTryCollapseTaskBranchInList(state.modal, key)) {
                 persistCollapsedTasks();
+                if (!skipAnim) {
+                    try { queueMicrotask(() => { try { __tmRunFlipAnimation(state.modal); } catch (e) {} }); } catch (e) {}
+                }
                 return;
             }
             if (state.modal && __tmApplyVisibilityFromState(state.modal)) {

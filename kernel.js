@@ -94,6 +94,9 @@
             tools: [
                 ['aggregate_task_stats', '任务完成统计'],
                 ['aggregate_time_usage', '时间投入统计'],
+                ['query_focus_statistics', '专注统计'],
+                ['query_routine_statistics', '日常统计'],
+                ['list_focus_sessions', '专注明细'],
             ],
         },
     ]);
@@ -101,6 +104,7 @@
     const MCP_READ_ONLY_TOOLS = new Set([
         'list_task_scopes', 'get_task', 'query_tasks', 'query_schedules',
         'get_task_policy', 'preview_task_policy_patch', 'aggregate_task_stats', 'aggregate_time_usage',
+        'query_focus_statistics', 'query_routine_statistics', 'list_focus_sessions',
     ]);
     const MCP_ACTION_EFFECTS = Object.freeze({
         manage_agent_schedules: Object.freeze({
@@ -886,25 +890,22 @@
         return block;
     }
 
-    async function requireMoveContainer(blockID) {
-        const block = await getBlockRole(blockID, '移动目标');
-        const allowed = block.type === 'd' || block.type === 'l' || (block.type === 'i' && block.subtype === 't');
-        if (!allowed) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '任务只能移动到文档、列表或父任务中', {
-                blockID: block.id,
-                actualType: block.type,
-                actualSubtype: block.subtype,
-            });
-        }
-        return block;
-    }
-
     function buildAttrContext(row) {
         const taskID = text(row && row.id);
         const parentID = text(row && row.parent_id);
         const parentType = text(row && row.parent_type).toLowerCase();
         const count = Number(row && row.parent_task_count);
         const firstTaskID = text(row && row.first_task_id);
+        if (parentType !== 'l') {
+            return {
+                taskID,
+                parentListID: '',
+                state: 'invalid-list-item',
+                primaryHostID: taskID,
+                legacyHostIDs: [],
+                mirrorHostIDs: [],
+            };
+        }
         if (parentType === 'l' && count === 1 && (!firstTaskID || firstTaskID === taskID)) {
             return {
                 taskID,
@@ -927,7 +928,7 @@
         }
         return {
             taskID,
-            parentListID: parentType === 'l' ? parentID : '',
+            parentListID: parentID,
             state: 'state2-list-item',
             primaryHostID: taskID,
             // A parent-list attribute could only ever belong to its first task.
@@ -937,9 +938,10 @@
         };
     }
 
-    async function resolveTaskBinding(blockID) {
+    async function resolveTaskBinding(blockID, control = {}) {
         let current = requireID(blockID, '块 ID');
         for (let depth = 0; depth < 30; depth += 1) {
+            assertFocusStatsDeadline(control, 'task-binding-resolve');
             const row = await getBlockRole(current, '块');
             const type = row.type;
             const subtype = row.subtype;
@@ -975,6 +977,11 @@
 
     async function readTaskAttributes(binding, registry) {
         const primaryAttrs = await readAttrs(binding.taskID);
+        return decodeTaskAttributes(primaryAttrs, registry);
+    }
+
+    function decodeTaskAttributes(primaryAttrsInput, registry) {
+        const primaryAttrs = primaryAttrsInput && typeof primaryAttrsInput === 'object' ? primaryAttrsInput : {};
         const secondaryAttrs = null;
         const hostAttrs = primaryAttrs;
         const fields = {};
@@ -1176,17 +1183,12 @@
     }
 
     async function taskPlacementDTO(rowOrID) {
-        const row = typeof rowOrID === 'string' ? await getTaskRow(rowOrID) : rowOrID;
-        return {
-            taskID: text(row.id),
-            parentListID: text(row.parent_id),
-            parentTaskID: text(row.parent_task_id),
-            parentType: text(row.parent_type),
-            previousSiblingID: text(row.previous_sibling_id),
-            nextSiblingID: text(row.next_sibling_id),
-            firstTaskID: text(row.first_task_id),
-            documentID: text(row.root_id),
-        };
+        const taskID = typeof rowOrID === 'string' ? rowOrID : rowOrID?.id;
+        const source = rowOrID && typeof rowOrID === 'object' ? rowOrID : {};
+        const parentType = text(source.parent_type || source.parentType).toLowerCase();
+        const preferredListID = text(source.parentListID || source.parentListId)
+            || (parentType === 'l' || parentType === 'nodelist' ? text(source.parent_id || source.parentID) : '');
+        return readTaskPlacementFromTree(taskID, preferredListID);
     }
 
     function applyScopedTaskValues(dto, taskID, fields, scope) {
@@ -1564,7 +1566,7 @@
                 if (text(error && error.code) === ERROR.NOT_FOUND) continue;
                 throw error;
             }
-            row = await ensureTaskListContainer(row, registry);
+            row = await ensureTaskListMutationTarget(taskID, registry, row);
             const context = buildAttrContext(row);
             items.push({
                 taskID,
@@ -1638,10 +1640,10 @@
         const id = requireID(taskID, '任务 ID');
         const laneID = text(options?.laneID || options?.laneId) || id;
         return runTaskLane(laneID, async () => {
-            const row = await getTaskRow(id);
-            const context = buildAttrContext(row);
             const attrs = await normalizeUiAttrPayload(rawAttrs);
             const registry = await getFieldRegistry();
+            const row = await ensureTaskListMutationTarget(id, registry);
+            const context = buildAttrContext(row);
             const canonicalAttrs = await buildCanonicalTaskAttrs({ taskID: id, ...context }, attrs, registry);
             if (!Object.keys(canonicalAttrs).length) {
                 return { taskID: id, attrHostID: context.primaryHostID, mirrorHostIDs: context.mirrorHostIDs, written: 0 };
@@ -2697,6 +2699,7 @@
             const id = requireID(source.id, '任务 ID');
             const marker = String(source.marker == null ? '' : source.marker);
             if (marker.length !== 1) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务状态标记必须是单个字符');
+            await ensureTaskListMutationTarget(id);
             await api('/api/block/updateTaskListItemMarker', { id, marker });
             return { id, marker };
         }
@@ -2708,6 +2711,9 @@
                 return { id, marker };
             });
             if (!items.length) return { items: [] };
+            for (const id of uniqueStrings(items.map((item) => item.id))) {
+                await ensureTaskListMutationTarget(id);
+            }
             await api('/api/block/batchUpdateTaskListItemMarker', { items });
             return { items };
         }
@@ -2930,7 +2936,7 @@
             const normalized = await normalizeTaskPatch(rawPatch, options);
             const patch = normalized.patch;
             if (!Object.keys(patch).length) return taskDTO(row);
-            row = await ensureTaskListContainer(row, normalized.registry);
+            row = await ensureTaskListMutationTarget(id, normalized.registry, row);
             const context = buildAttrContext(row);
             const before = await taskDTO(row);
             let taskMarker = null;
@@ -3092,42 +3098,223 @@
         };
     }
 
-    async function capturePlacement(taskID, rowInput) {
-        const row = rowInput && typeof rowInput === 'object' ? rowInput : await getTaskRow(taskID);
-        if (row.__taskHorizonStructureRepaired === true) {
-            return {
-                parentID: text(row.parent_id),
-                documentID: text(row.root_id),
-                previousID: text(row.previous_sibling_id),
-                nextID: text(row.next_sibling_id),
-            };
-        }
-        const siblings = await sql(`SELECT id FROM blocks WHERE parent_id = '${escapeSql(row.parent_id)}' ORDER BY sort ASC, created ASC, id ASC`);
-        const index = siblings.findIndex((item) => text(item.id) === taskID);
+    function normalizeTreeBlock(value) {
+        const source = value && typeof value === 'object' ? value : {};
         return {
-            parentID: text(row.parent_id),
-            documentID: text(row.root_id),
-            previousID: index > 0 ? text(siblings[index - 1].id) : '',
-            nextID: index >= 0 && index + 1 < siblings.length ? text(siblings[index + 1].id) : '',
+            ...source,
+            id: text(source.id || source.ID),
+            type: text(source.type || source.Type).toLowerCase(),
+            subtype: text(source.subType || source.subtype || source.SubType).toLowerCase(),
+        };
+    }
+
+    function isTreeBlockType(block, shortType, nodeType) {
+        const type = text(block?.type).toLowerCase();
+        return type === shortType || type === nodeType;
+    }
+
+    function isTreeDocumentBlock(block) {
+        return isTreeBlockType(block, 'd', 'nodedocument');
+    }
+
+    function isTreeListBlock(block) {
+        return isTreeBlockType(block, 'l', 'nodelist');
+    }
+
+    function isTreeTaskBlock(block) {
+        return isTreeBlockType(block, 'i', 'nodelistitem') && text(block?.subtype).toLowerCase() === 't';
+    }
+
+    async function readBlockTreePath(blockID, label = '块') {
+        const id = requireID(blockID, `${label} ID`);
+        const raw = await api('/api/block/getBlockBreadcrumb', { id, excludeTypes: [] });
+        const path = (Array.isArray(raw) ? raw : []).map(normalizeTreeBlock).filter((item) => item.id);
+        const current = path.find((item) => item.id === id) || null;
+        if (!current) throw new DomainError(ERROR.NOT_FOUND, `未找到${label}`, { blockID: id });
+        const document = path.find(isTreeDocumentBlock) || null;
+        return { id, path, current, document };
+    }
+
+    async function tryReadBlockTreePath(blockID, label = '块') {
+        try {
+            return await readBlockTreePath(blockID, label);
+        } catch (error) {
+            if (error instanceof DomainError && error.code === ERROR.NOT_FOUND) return null;
+            throw error;
+        }
+    }
+
+    async function readTreeChildren(blockID) {
+        const id = requireID(blockID, '父块 ID');
+        const raw = await api('/api/block/getChildBlocks', { id });
+        return (Array.isArray(raw) ? raw : []).map(normalizeTreeBlock).filter((item) => item.id);
+    }
+
+    async function inspectTaskListsUnder(ownerID, preferredListID = '', targetTaskID = '') {
+        const ownerChildren = await readTreeChildren(ownerID);
+        const listBlocks = ownerChildren.filter(isTreeListBlock);
+        const preferredID = text(preferredListID);
+        const targetID = text(targetTaskID);
+        const preferredList = preferredID ? listBlocks.find((list) => list.id === preferredID) : null;
+        const preferred = preferredList ? {
+            list: preferredList,
+            children: await readTreeChildren(preferredList.id),
+        } : null;
+        if (preferred && (!targetID || preferred.children.some((item) => item.id === targetID))) {
+            return { ownerChildren, entries: [preferred], taskList: preferred };
+        }
+        const entries = preferred ? [preferred] : [];
+        for (const list of listBlocks) {
+            if (preferred && list.id === preferred.list.id) continue;
+            const entry = { list, children: await readTreeChildren(list.id) };
+            entries.push(entry);
+            const matched = targetID
+                ? entry.children.some((item) => item.id === targetID)
+                : entry.list.subtype === 't' || entry.children.some(isTreeTaskBlock);
+            if (matched) return { ownerChildren, entries, taskList: entry };
+        }
+        return { ownerChildren, entries, taskList: null };
+    }
+
+    function placementFromTaskList(taskID, listID, children, context = {}) {
+        const id = requireID(taskID, '任务 ID');
+        const taskIDs = (Array.isArray(children) ? children : [])
+            .filter(isTreeTaskBlock)
+            .map((item) => item.id);
+        const index = taskIDs.indexOf(id);
+        if (index < 0) {
+            throw new DomainError(ERROR.CONFLICT, '任务不在预期列表中', {
+                taskID: id,
+                listID: text(listID),
+                childTaskIDs: taskIDs,
+            });
+        }
+        return {
+            taskID: id,
+            parentListID: text(listID),
+            parentTaskID: text(context.parentTaskID),
+            parentType: 'l',
+            previousSiblingID: index > 0 ? taskIDs[index - 1] : '',
+            nextSiblingID: index + 1 < taskIDs.length ? taskIDs[index + 1] : '',
+            firstTaskID: text(taskIDs[0]),
+            documentID: text(context.documentID),
+        };
+    }
+
+    async function readTaskTreeContext(taskID) {
+        const id = requireID(taskID, '任务 ID');
+        const location = await readBlockTreePath(id, '任务');
+        if (!isTreeTaskBlock(location.current)) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '目标块不是任务', { blockID: id });
+        }
+        const currentIndex = location.path.findIndex((item) => item.id === id);
+        const ancestors = currentIndex >= 0 ? location.path.slice(0, currentIndex) : location.path;
+        const parentTasks = ancestors.filter(isTreeTaskBlock);
+        return {
+            ...location,
+            documentID: text(location.document?.id),
+            parentTaskID: text(parentTasks[parentTasks.length - 1]?.id),
+            ancestorTaskIDs: parentTasks.map((item) => item.id),
+        };
+    }
+
+    async function readTaskPlacementFromTree(taskID, preferredListID = '') {
+        const context = await readTaskTreeContext(taskID);
+        const preferredID = text(preferredListID);
+        if (preferredID) {
+            try {
+                const preferredChildren = await readTreeChildren(preferredID);
+                if (preferredChildren.some((item) => item.id === context.id && isTreeTaskBlock(item))) {
+                    return placementFromTaskList(context.id, preferredID, preferredChildren, context);
+                }
+            } catch (error) {}
+        }
+        const currentIndex = context.path.findIndex((item) => item.id === context.id);
+        const ownerCandidates = (currentIndex >= 0 ? context.path.slice(0, currentIndex) : context.path)
+            .slice()
+            .reverse()
+            .filter((item, index, items) => item.id && items.findIndex((candidate) => candidate.id === item.id) === index);
+        if (!ownerCandidates.length) {
+            throw new DomainError(ERROR.CONFLICT, '无法确定任务所在文档', { taskID: context.id });
+        }
+        const summarizeBlock = (item) => ({
+            id: item.id,
+            type: item.type,
+            subtype: item.subtype,
+        });
+        const attempts = [];
+        for (const owner of ownerCandidates) {
+            const inspected = isTreeListBlock(owner)
+                ? {
+                    ownerChildren: await readTreeChildren(owner.id),
+                    entries: [],
+                }
+                : await inspectTaskListsUnder(owner.id, '', context.id);
+            if (isTreeListBlock(owner)) {
+                inspected.entries.push({ list: owner, children: inspected.ownerChildren });
+            }
+            const matches = inspected.entries.filter((entry) => entry.children.some((item) => item.id === context.id));
+            attempts.push({
+                owner: summarizeBlock(owner),
+                ownerChildren: inspected.ownerChildren.map(summarizeBlock),
+                candidateLists: inspected.entries.map((entry) => ({
+                    list: summarizeBlock(entry.list),
+                    children: entry.children.map(summarizeBlock),
+                })),
+                matchingListIDs: matches.map((entry) => entry.list.id),
+            });
+            if (matches.length === 1) {
+                return placementFromTaskList(context.id, matches[0].list.id, matches[0].children, context);
+            }
+            if (matches.length > 1) break;
+        }
+        const diagnostic = {
+            taskID: context.id,
+            documentID: context.documentID,
+            parentTaskID: context.parentTaskID,
+            ancestorTaskIDs: context.ancestorTaskIDs,
+            preferredListID: preferredID,
+            breadcrumb: context.path.map(summarizeBlock),
+            ownerCandidates: ownerCandidates.map(summarizeBlock),
+            attempts,
+            matchingListIDs: attempts.flatMap((attempt) => attempt.matchingListIDs),
+        };
+        throw new DomainError(ERROR.CONFLICT, '无法确定任务所在列表', diagnostic);
+    }
+
+    function comparablePlacement(value) {
+        const source = value && typeof value === 'object' ? value : {};
+        return {
+            parentListID: text(source.parentListID || source.parentListId || source.parentID),
+            documentID: text(source.documentID || source.documentId),
+            previousSiblingID: text(source.previousSiblingID || source.previousSiblingId || source.previousID),
+            nextSiblingID: text(source.nextSiblingID || source.nextSiblingId || source.nextID),
+        };
+    }
+
+    async function capturePlacement(taskID, rowInput) {
+        const source = rowInput && typeof rowInput === 'object' ? rowInput : {};
+        const parentType = text(source.parent_type || source.parentType).toLowerCase();
+        const preferredListID = text(source.parentListID || source.parentListId)
+            || (parentType === 'l' || parentType === 'nodelist' ? text(source.parent_id || source.parentID) : '');
+        const placement = await readTaskPlacementFromTree(taskID, preferredListID);
+        return {
+            ...placement,
+            parentID: placement.parentListID,
+            previousID: placement.previousSiblingID,
+            nextID: placement.nextSiblingID,
         };
     }
 
     async function firstTaskIDInList(listID) {
         const id = text(listID);
         if (!id) return '';
-        let list;
         try {
-            list = await getBlockRole(id, '任务列表');
+            const children = await readTreeChildren(id);
+            return text(children.find(isTreeTaskBlock)?.id);
         } catch (error) {
             return '';
         }
-        if (list.type !== 'l') return '';
-        const rows = await sql(`
-            SELECT id FROM blocks
-            WHERE parent_id = '${escapeSql(id)}' AND type = 'i' AND subtype = 't'
-            ORDER BY sort ASC, created ASC, id ASC LIMIT 1
-        `);
-        return text(rows[0] && rows[0].id);
     }
 
     async function reconcileMovedTaskAttrHosts(taskID, before, moved) {
@@ -3147,37 +3334,99 @@
         return reconcileTaskAttrHostsNow(taskIDs);
     }
 
-    async function buildMovePayload(taskID, source) {
+    async function buildMovePlan(taskID, source, currentPlacement = null) {
         const input = source && typeof source === 'object' ? source : {};
         const payload = { id: taskID };
+        const preferredListID = text(
+            input.targetListID || input.targetListId || input.parentListID || input.parentListId
+                || currentPlacement?.parentListID || currentPlacement?.parentListId
+        );
         if (text(input.previousID || input.previousId)) {
-            const previous = await getBlockRole(input.previousID || input.previousId, '前一块');
+            const previous = await readBlockTreePath(input.previousID || input.previousId, '前一块');
             if (previous.id === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能相对自身移动');
-            if (previous.type === 'd') throw new DomainError(ERROR.INVALID_ARGUMENT, '前一块不能是文档块');
+            if (isTreeDocumentBlock(previous.current)) throw new DomainError(ERROR.INVALID_ARGUMENT, '前一块不能是文档块');
             payload.previousID = previous.id;
-            return payload;
+            const targetPlacement = isTreeTaskBlock(previous.current)
+                ? await readTaskPlacementFromTree(previous.id, preferredListID)
+                : null;
+            return {
+                payload,
+                targetListID: text(targetPlacement?.parentListID || preferredListID),
+                targetContext: targetPlacement ? {
+                    parentTaskID: targetPlacement.parentTaskID,
+                    documentID: targetPlacement.documentID,
+                } : null,
+            };
         }
         if (text(input.nextID || input.nextId)) {
-            const nextTask = await getTaskRow(input.nextID || input.nextId);
-            if (nextTask.id === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能相对自身移动');
-            const siblings = await sql(`SELECT id FROM blocks WHERE parent_id = '${escapeSql(nextTask.parent_id)}' ORDER BY sort ASC, created ASC, id ASC`);
-            const ordered = siblings.map((item) => text(item.id)).filter((id) => id && id !== taskID);
-            const nextIndex = ordered.indexOf(nextTask.id);
-            if (nextIndex < 0) throw new DomainError(ERROR.CONFLICT, '后一任务的位置已经变化，请重新读取任务');
-            if (nextIndex > 0) payload.previousID = ordered[nextIndex - 1];
-            else payload.parentID = text(nextTask.parent_id);
-            return payload;
+            const nextID = requireID(input.nextID || input.nextId, '后一任务 ID');
+            if (nextID === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能相对自身移动');
+            const nextPlacement = await readTaskPlacementFromTree(nextID, preferredListID);
+            let previousID = text(nextPlacement.previousSiblingID);
+            if (previousID === taskID) {
+                const liveCurrentPlacement = currentPlacement && typeof currentPlacement === 'object'
+                    ? currentPlacement
+                    : await readTaskPlacementFromTree(taskID);
+                previousID = liveCurrentPlacement.parentListID === nextPlacement.parentListID
+                    ? text(liveCurrentPlacement.previousSiblingID)
+                    : '';
+            }
+            if (previousID) payload.previousID = previousID;
+            else payload.parentID = nextPlacement.parentListID;
+            return {
+                payload,
+                targetListID: nextPlacement.parentListID,
+                targetContext: {
+                    parentTaskID: nextPlacement.parentTaskID,
+                    documentID: nextPlacement.documentID,
+                },
+            };
         }
         if (text(input.parentID || input.parentId || input.documentID || input.documentId)) {
             const explicitParentID = text(input.parentID || input.parentId);
-            const target = explicitParentID
-                ? await requireMoveContainer(explicitParentID)
-                : await requireDocumentBlock(input.documentID || input.documentId);
+            const target = await readBlockTreePath(
+                explicitParentID || input.documentID || input.documentId,
+                explicitParentID ? '移动目标' : '目标文档',
+            );
+            const allowed = isTreeDocumentBlock(target.current)
+                || isTreeListBlock(target.current)
+                || isTreeTaskBlock(target.current);
+            if (!allowed) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务只能移动到文档、列表或父任务中');
+            if (!explicitParentID && !isTreeDocumentBlock(target.current)) {
+                throw new DomainError(ERROR.INVALID_ARGUMENT, '目标文档 ID 必须指向文档块');
+            }
             if (target.id === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能移动到自身内部');
             payload.parentID = target.id;
-            return payload;
+            const currentIndex = target.path.findIndex((item) => item.id === target.id);
+            const ancestors = currentIndex >= 0 ? target.path.slice(0, currentIndex) : target.path;
+            const parentTasks = ancestors.filter(isTreeTaskBlock);
+            return {
+                payload,
+                targetListID: isTreeListBlock(target.current) ? target.id : '',
+                targetContext: isTreeListBlock(target.current) ? {
+                    parentTaskID: text(parentTasks[parentTasks.length - 1]?.id),
+                    documentID: text(target.document?.id),
+                } : null,
+            };
         }
         throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少目标位置');
+    }
+
+    async function confirmMovePlanPlacement(taskID, plan) {
+        const movePlan = plan && typeof plan === 'object' ? plan : {};
+        const targetListID = text(movePlan.targetListID);
+        const targetContext = movePlan.targetContext && typeof movePlan.targetContext === 'object'
+            ? movePlan.targetContext
+            : null;
+        if (targetListID && targetContext?.documentID) {
+            try {
+                const children = await readTreeChildren(targetListID);
+                if (children.some((item) => item.id === taskID && isTreeTaskBlock(item))) {
+                    return placementFromTaskList(taskID, targetListID, children, targetContext);
+                }
+            } catch (error) {}
+        }
+        return readTaskPlacementFromTree(taskID, targetListID);
     }
 
     function normalizeTaskMoveMode(value) {
@@ -3216,9 +3465,12 @@
         }
         if (mode === 'before' || mode === 'after') {
             const targetTaskID = requireID(input.targetTaskID || input.targetTaskId, '目标任务 ID');
+            const targetListID = text(input.targetListID || input.targetListId);
             return {
                 mode,
-                moveInput: mode === 'before' ? { nextID: targetTaskID } : { previousID: targetTaskID },
+                moveInput: mode === 'before'
+                    ? { nextID: targetTaskID, targetListID }
+                    : { previousID: targetTaskID, targetListID },
             };
         }
         if (mode === 'heading') {
@@ -3262,12 +3514,11 @@
             '目标文档 ID',
         );
         await requireDocumentBlock(documentID);
-        const listRows = await sql(`
-            SELECT id FROM blocks
-            WHERE parent_id = '${escapeSql(documentID)}' AND type = 'l' AND subtype = 't'
-            ORDER BY sort ASC, created ASC, id ASC LIMIT 1
-        `);
-        const containerID = text(listRows[0] && listRows[0].id);
+        const targetLists = await inspectTaskListsUnder(
+            documentID,
+            input.targetListID || input.targetListId,
+        );
+        const containerID = text(targetLists.taskList?.list?.id);
         if (!containerID) {
             return {
                 mode,
@@ -3276,78 +3527,16 @@
                 independentPosition: mode === 'docBottom' ? 'bottom' : 'top',
             };
         }
-        const siblings = await sql(`
-            SELECT id FROM blocks
-            WHERE parent_id = '${escapeSql(containerID)}' AND id <> '${escapeSql(taskID)}'
-            ORDER BY sort ASC, created ASC, id ASC
-        `);
-        const siblingIDs = siblings.map((item) => text(item.id)).filter(Boolean);
+        const siblingIDs = targetLists.taskList.children
+            .filter(isTreeTaskBlock)
+            .map((item) => item.id)
+            .filter((id) => id !== taskID);
         if (!siblingIDs.length) return { mode, moveInput: { parentID: containerID } };
         return {
             mode,
             moveInput: mode === 'docBottom'
                 ? { previousID: siblingIDs[siblingIDs.length - 1] }
                 : { nextID: siblingIDs[0] },
-        };
-    }
-
-    async function requestedMovePlacement(taskID, payload, source, before) {
-        const id = requireID(taskID, '任务 ID');
-        const movePayload = payload && typeof payload === 'object' ? payload : {};
-        const input = source && typeof source === 'object' ? source : {};
-        const previousID = text(movePayload.previousID);
-        let container;
-        let nextSiblingID = '';
-
-        if (previousID) {
-            const previous = await getBlockRole(previousID, '前一块');
-            container = await getBlockRole(previous.parentID, '目标父块');
-            const siblings = await sql(`
-                SELECT id FROM blocks
-                WHERE parent_id = '${escapeSql(container.id)}' AND id <> '${escapeSql(id)}'
-                ORDER BY sort ASC, created ASC, id ASC
-            `);
-            const ordered = siblings.map((item) => text(item.id)).filter(Boolean);
-            const previousIndex = ordered.indexOf(previousID);
-            nextSiblingID = previousIndex >= 0 ? text(ordered[previousIndex + 1]) : '';
-        } else {
-            container = await getBlockRole(movePayload.parentID, '目标父块');
-            const requestedNextID = text(input.nextID || input.nextId);
-            if (requestedNextID) {
-                nextSiblingID = requestedNextID;
-            } else {
-                const siblings = await sql(`
-                    SELECT id FROM blocks
-                    WHERE parent_id = '${escapeSql(container.id)}' AND id <> '${escapeSql(id)}'
-                    ORDER BY sort ASC, created ASC, id ASC LIMIT 1
-                `);
-                nextSiblingID = text(siblings[0] && siblings[0].id);
-            }
-        }
-
-        let parentTaskID = '';
-        if (container.type === 'l' && container.parentID) {
-            const listOwner = await getBlockRole(container.parentID, '列表父块');
-            if (listOwner.type === 'i' && listOwner.subtype === 't') parentTaskID = listOwner.id;
-        } else if (container.type === 'i' && container.subtype === 't') {
-            parentTaskID = container.id;
-        }
-        const firstTaskRows = await sql(`
-            SELECT id FROM blocks
-            WHERE parent_id = '${escapeSql(container.id)}'
-                AND type = 'i' AND subtype = 't' AND id <> '${escapeSql(id)}'
-            ORDER BY sort ASC, created ASC, id ASC LIMIT 1
-        `);
-        const currentFirstTaskID = text(firstTaskRows[0] && firstTaskRows[0].id);
-        return {
-            taskID: id,
-            parentListID: container.id,
-            parentTaskID,
-            parentType: container.type,
-            previousSiblingID: previousID,
-            nextSiblingID,
-            firstTaskID: previousID ? currentFirstTaskID : id,
-            documentID: text(container.rootID || before && before.documentID),
         };
     }
 
@@ -3487,6 +3676,21 @@
             first_task_id: text(source.id),
             __taskHorizonStructureRepaired: true,
         };
+    }
+
+    async function ensureTaskListMutationTarget(taskID, registryInput, rowInput) {
+        const id = requireID(taskID, '任务 ID');
+        let row = rowInput && typeof rowInput === 'object' ? rowInput : await getTaskRow(id);
+        row = await ensureTaskListContainer(row, registryInput);
+        const parentType = text(row && row.parent_type).toLowerCase();
+        if (parentType !== 'l') {
+            throw new DomainError(ERROR.CONFLICT, '任务不在合法的列表容器中', {
+                taskID: id,
+                parentID: text(row && row.parent_id),
+                parentType,
+            });
+        }
+        return row;
     }
 
     async function moveIndependentTaskListToDocument(taskID, documentID, sourceListID, sourceDocumentID, source) {
@@ -3891,66 +4095,44 @@
         if (id === parentID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能移动到自身内部');
 
         const before = sourceRow && typeof sourceRow === 'object' ? sourceRow : await getTaskRow(id);
-        const parentTask = await getTaskRow(parentID);
-
-        const ancestorRows = await sql(`
-            WITH RECURSIVE ancestors(id, parent_id, depth) AS (
-                SELECT id, parent_id, 0 FROM blocks WHERE id = '${escapeSql(parentID)}'
-                UNION ALL
-                SELECT b.id, b.parent_id, ancestors.depth + 1
-                FROM blocks b JOIN ancestors ON b.id = ancestors.parent_id
-                WHERE ancestors.depth < 128
-            )
-            SELECT id FROM ancestors WHERE id = '${escapeSql(id)}' LIMIT 1
-        `);
-        if (ancestorRows.length) throw new DomainError(ERROR.INVALID_ARGUMENT, '父任务不能移动到自己的子任务中');
-
-        const existingLists = await sql(`
-            SELECT id FROM blocks
-            WHERE parent_id = '${escapeSql(parentID)}' AND type = 'l'
-            ORDER BY sort ASC, created ASC, id ASC LIMIT 1
-        `);
-        if (existingLists.length) {
-            const listID = requireID(existingLists[0].id, '子列表 ID');
-            const alreadyAtEdge = text(before.parent_id) === listID
-                && (position === 'top' ? !text(before.previous_sibling_id) : !text(before.next_sibling_id));
+        const parentContext = await readTaskTreeContext(parentID);
+        if (parentContext.ancestorTaskIDs.includes(id)) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '父任务不能移动到自己的子任务中');
+        }
+        const targetLists = await inspectTaskListsUnder(parentID, requestedListID);
+        if (targetLists.taskList) {
+            const listID = requireID(targetLists.taskList.list.id, '子列表 ID');
+            const liveChildren = targetLists.taskList.children;
+            const liveTaskIDs = liveChildren.filter(isTreeTaskBlock).map((item) => item.id);
+            const currentIndex = liveTaskIDs.indexOf(id);
+            const alreadyAtEdge = currentIndex >= 0
+                && (position === 'top' ? currentIndex === 0 : currentIndex === liveTaskIDs.length - 1);
             if (alreadyAtEdge) {
+                const placement = placementFromTaskList(id, listID, liveChildren, {
+                    parentTaskID: parentID,
+                    documentID: parentContext.documentID,
+                });
                 return {
                     changed: false,
                     reason: 'already-there',
-                    task: await taskDTO(before),
-                    placement: await taskPlacementDTO(before),
+                    task: applyPlacementToTaskDTO(await taskDTO(before), placement),
+                    placement,
                     listID,
                     recovered: true,
                 };
             }
-            const siblingRows = await sql(`
-                SELECT id FROM blocks
-                WHERE parent_id = '${escapeSql(listID)}'
-                    AND type = 'i' AND subtype = 't' AND id <> '${escapeSql(id)}'
-                ORDER BY sort ASC, created ASC, id ASC
-            `);
-            const siblingIDs = siblingRows.map((item) => text(item.id)).filter(Boolean);
+            const siblingIDs = liveTaskIDs.filter((taskIDValue) => taskIDValue !== id);
             const firstSiblingID = text(siblingIDs[0]);
             const lastSiblingID = text(siblingIDs[siblingIDs.length - 1]);
             const movePayload = position === 'bottom' && lastSiblingID
                 ? { id, previousID: lastSiblingID }
                 : { id, parentID: listID };
             await api('/api/block/moveBlock', movePayload);
-            const placement = {
-                taskID: id,
-                parentListID: listID,
+            const placement = placementFromTaskList(id, listID, await readTreeChildren(listID), {
                 parentTaskID: parentID,
-                parentType: 'l',
-                previousSiblingID: position === 'bottom' ? lastSiblingID : '',
-                nextSiblingID: position === 'top' ? firstSiblingID : '',
-                firstTaskID: position === 'top' || !firstSiblingID ? id : firstSiblingID,
-                documentID: text(parentTask.root_id),
-            };
+                documentID: parentContext.documentID,
+            });
             return {
-                // SiYuan flushes the block transaction before moveBlock returns.
-                // The SQL task index may still lag, so use the requested structural
-                // target as the authoritative result instead of a second SQL read.
                 task: applyPlacementToTaskDTO(await taskDTO(before), placement),
                 placement,
                 listID,
@@ -3959,55 +4141,35 @@
         }
 
         const listID = requireID(requestedListID, '预生成子列表 ID');
-        const duplicateList = await sql(`SELECT id, parent_id, type FROM blocks WHERE id = '${escapeSql(listID)}' LIMIT 1`);
-        if (duplicateList.length) {
-            const row = duplicateList[0];
-            if (text(row.parent_id) !== parentID || text(row.type).toLowerCase() !== 'l') {
-                throw new DomainError(ERROR.CONFLICT, '预生成子列表 ID 已被其他块占用');
-            }
-            await api('/api/block/moveBlock', { id, parentID: listID });
-        } else {
-            const domResult = await api('/api/block/getBlockDOM', { id });
-            const taskDOM = String(domResult && domResult.dom || '').trim();
-            if (!taskDOM.includes(`data-node-id="${id}"`)) {
-                throw new DomainError(ERROR.STORAGE_ERROR, '读取到的任务块 DOM 与任务 ID 不一致');
-            }
-            const targetChildRows = await sql(`
-                SELECT id FROM blocks
-                WHERE parent_id = '${escapeSql(parentID)}' AND id <> '${escapeSql(id)}'
-                ORDER BY sort DESC, created DESC, id DESC LIMIT 1
-            `);
-            const targetLastChildID = text(targetChildRows[0] && targetChildRows[0].id);
-            const doOperations = [{ action: 'delete', id }];
-            const insertOperation = {
-                action: 'insert',
-                id: listID,
-                parentID,
-                data: nestedTaskListDOM(listID, taskDOM),
-            };
-            if (targetLastChildID) insertOperation.previousID = targetLastChildID;
-            doOperations.push(insertOperation);
-            await api('/api/transactions', {
-                reqId: Date.now(),
-                transactions: [{
-                    doOperations,
-                }],
-            });
+        const duplicateList = await tryReadBlockTreePath(listID, '预生成子列表');
+        if (duplicateList) {
+            throw new DomainError(ERROR.CONFLICT, '预生成子列表 ID 已被其他块占用');
         }
-
-        // The transaction endpoint flushes the document tree before returning.
-        // Do not immediately consult the SQL task index here: indexing is
-        // asynchronous and can report the old parent for a short period.
-        const placement = {
-            taskID: id,
-            parentListID: listID,
-            parentTaskID: parentID,
-            parentType: 'l',
-            previousSiblingID: '',
-            nextSiblingID: '',
-            firstTaskID: id,
-            documentID: text(parentTask.root_id),
+        const domResult = await api('/api/block/getBlockDOM', { id });
+        const taskDOM = String(domResult && domResult.dom || '').trim();
+        if (!taskDOM.includes(`data-node-id="${id}"`)) {
+            throw new DomainError(ERROR.STORAGE_ERROR, '读取到的任务块 DOM 与任务 ID 不一致');
+        }
+        const targetLastChildID = text(targetLists.ownerChildren
+            .filter((item) => item.id !== id)
+            .slice(-1)[0]?.id);
+        const insertOperation = {
+            action: 'insert',
+            id: listID,
+            parentID,
+            data: nestedTaskListDOM(listID, taskDOM),
         };
+        if (targetLastChildID) insertOperation.previousID = targetLastChildID;
+        await api('/api/transactions', {
+            reqId: Date.now(),
+            transactions: [{
+                doOperations: [{ action: 'delete', id }, insertOperation],
+            }],
+        });
+        const placement = placementFromTaskList(id, listID, await readTreeChildren(listID), {
+            parentTaskID: parentID,
+            documentID: parentContext.documentID,
+        });
         return {
             task: applyPlacementToTaskDTO(await taskDTO(before), placement),
             placement,
@@ -4041,53 +4203,34 @@
         if (ids.length < 2) throw new DomainError(ERROR.INVALID_ARGUMENT, '批量移动至少需要两个任务');
         if (ids.includes(parentID)) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能移动到自身内部');
 
-        const [rows, parentTask, registry] = await Promise.all([
+        const [rows, parentContext, registry] = await Promise.all([
             Promise.all(ids.map((id) => getTaskRow(id))),
-            getTaskRow(parentID),
+            readTaskTreeContext(parentID),
             getFieldRegistry(),
         ]);
-        const escapedIDs = ids.map((id) => `'${escapeSql(id)}'`).join(', ');
-        const ancestorRows = await sql(`
-            WITH RECURSIVE ancestors(id, parent_id, depth) AS (
-                SELECT id, parent_id, 0 FROM blocks WHERE id = '${escapeSql(parentID)}'
-                UNION ALL
-                SELECT b.id, b.parent_id, ancestors.depth + 1
-                FROM blocks b JOIN ancestors ON b.id = ancestors.parent_id
-                WHERE ancestors.depth < 128
-            )
-            SELECT id FROM ancestors WHERE id IN (${escapedIDs}) LIMIT 1
-        `);
-        if (ancestorRows.length) throw new DomainError(ERROR.INVALID_ARGUMENT, '父任务不能移动到自己的子任务中');
+        const previousPlacements = await Promise.all(ids.map((id, index) => capturePlacement(id, rows[index])));
+        if (ids.some((id) => parentContext.ancestorTaskIDs.includes(id))) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '父任务不能移动到自己的子任务中');
+        }
 
         const attrOperations = (await Promise.all(rows.map((row) => buildTaskAttrPreservationOperation(row, registry)))).filter(Boolean);
-        const existingLists = await sql(`
-            SELECT id FROM blocks
-            WHERE parent_id = '${escapeSql(parentID)}' AND type = 'l'
-            ORDER BY sort ASC, created ASC, id ASC LIMIT 1
-        `);
-        let listID = text(existingLists[0] && existingLists[0].id);
         const requestedID = text(requestedListID);
+        const targetLists = await inspectTaskListsUnder(parentID, requestedID);
+        let listID = text(targetLists.taskList?.list?.id);
         if (!listID && requestedID) {
             requireID(requestedID, '预生成子列表 ID');
-            const duplicateList = await sql(`SELECT id, parent_id, type FROM blocks WHERE id = '${escapeSql(requestedID)}' LIMIT 1`);
-            if (duplicateList.length) {
-                const row = duplicateList[0];
-                if (text(row.parent_id) !== parentID || text(row.type).toLowerCase() !== 'l') {
-                    throw new DomainError(ERROR.CONFLICT, '预生成子列表 ID 已被其他块占用');
-                }
-                listID = requestedID;
+            const duplicateList = await tryReadBlockTreePath(requestedID, '预生成子列表');
+            if (duplicateList) {
+                throw new DomainError(ERROR.CONFLICT, '预生成子列表 ID 已被其他块占用');
             }
         }
         let transactionCount = 0;
 
         if (listID) {
-            const siblings = await sql(`
-                SELECT id FROM blocks
-                WHERE parent_id = '${escapeSql(listID)}'
-                    AND type = 'i' AND subtype = 't' AND id NOT IN (${escapedIDs})
-                ORDER BY sort ASC, created ASC, id ASC
-            `);
-            const siblingIDs = siblings.map((item) => text(item.id)).filter(Boolean);
+            const siblingIDs = targetLists.taskList.children
+                .filter(isTreeTaskBlock)
+                .map((item) => item.id)
+                .filter((id) => !ids.includes(id));
             const anchorID = position === 'bottom' ? text(siblingIDs[siblingIDs.length - 1]) : '';
             const moveOperations = ids.slice().reverse().map((id) => (
                 anchorID
@@ -4101,12 +4244,9 @@
             const seedID = position === 'top' ? ids[ids.length - 1] : ids[0];
             const seedAttr = attrOperations.find((operation) => text(operation.id) === seedID);
             const taskDOM = await readBlockDOM(seedID);
-            const targetChildRows = await sql(`
-                SELECT id FROM blocks
-                WHERE parent_id = '${escapeSql(parentID)}' AND id NOT IN (${escapedIDs})
-                ORDER BY sort DESC, created DESC, id DESC LIMIT 1
-            `);
-            const targetLastChildID = text(targetChildRows[0] && targetChildRows[0].id);
+            const targetLastChildID = text(targetLists.ownerChildren
+                .filter((item) => !ids.includes(item.id))
+                .slice(-1)[0]?.id);
             const insertOperation = {
                 action: 'insert',
                 id: listID,
@@ -4133,7 +4273,7 @@
 
         const childIDs = await verifyBatchChildMove(listID, ids);
         const firstTaskID = text(childIDs[0]);
-        const results = await Promise.all(rows.map(async (row) => {
+        const results = await Promise.all(rows.map(async (row, rowIndex) => {
             const id = text(row.id);
             const index = childIDs.indexOf(id);
             const placement = {
@@ -4144,18 +4284,12 @@
                 previousSiblingID: index > 0 ? text(childIDs[index - 1]) : '',
                 nextSiblingID: index >= 0 && index + 1 < childIDs.length ? text(childIDs[index + 1]) : '',
                 firstTaskID,
-                documentID: text(parentTask.root_id),
+                documentID: parentContext.documentID,
             };
             return {
                 task: applyPlacementToTaskDTO(await taskDTO(row, undefined, registry), placement),
                 placement,
-                previousPlacement: {
-                    parentID: text(row.parent_id),
-                    parentTaskID: text(row.parent_task_id),
-                    documentID: text(row.root_id),
-                    previousID: text(row.previous_sibling_id),
-                    nextID: text(row.next_sibling_id),
-                },
+                previousPlacement: previousPlacements[rowIndex],
                 authoritative: true,
             };
         }));
@@ -4167,8 +4301,8 @@
             transactionCount,
             authoritative: true,
             refresh: taskMutationRefresh('move', ids, [
-                ...rows.map((row) => text(row.root_id)),
-                text(parentTask.root_id),
+                ...previousPlacements.map((placement) => text(placement.documentID)),
+                parentContext.documentID,
             ]),
         };
     }
@@ -4196,7 +4330,28 @@
         const source = input && typeof input === 'object' ? input : {};
         const taskID = requireID(source.taskID || source.taskId, '任务 ID');
         const laneID = text(source.laneID || source.laneId) || taskID;
-        return runTaskLane(laneID, async () => {
+        const targetLaneIDs = uniqueStrings([
+            laneID,
+            source.parentTaskID,
+            source.parentTaskId,
+            source.targetTaskID,
+            source.targetTaskId,
+            source.previousID,
+            source.previousId,
+            source.nextID,
+            source.nextId,
+            source.parentID,
+            source.parentId,
+            source.targetListID,
+            source.targetListId,
+            source.targetDocumentID,
+            source.targetDocumentId,
+            source.documentID,
+            source.documentId,
+            source.headingID,
+            source.headingId,
+        ]);
+        return runTaskLanes(targetLaneIDs, async () => {
             if (normalizeTaskMoveMode(source.mode) === 'document-list') {
                 const command = await resolveTaskMoveCommand(taskID, source);
                 const moved = await moveIndependentTaskListToDocument(
@@ -4256,57 +4411,34 @@
                     preparedTaskRow,
                 );
             } else {
-                const payload = await buildMovePayload(taskID, command.moveInput);
-                const requestedPlacement = useAuthoritativePlacement
-                    ? await requestedMovePlacement(taskID, payload, command.moveInput, beforeTask)
-                    : null;
-                const unchanged = !!requestedPlacement
-                    && text(before.parentID) === text(requestedPlacement.parentListID)
-                    && text(before.previousID) === text(requestedPlacement.previousSiblingID)
-                    && text(before.nextID) === text(requestedPlacement.nextSiblingID)
-                    && text(before.documentID) === text(requestedPlacement.documentID);
-                if (unchanged) {
-                    const task = applyPlacementToTaskDTO(await taskDTO(beforeTask), requestedPlacement);
-                    return {
-                        changed: false,
-                        reason: 'already-there',
-                        task,
-                        placement: requestedPlacement,
-                        previousPlacement: before,
-                        undoID: '',
-                        authoritative: true,
-                        refresh: taskMutationRefresh('move', [taskID], [task.documentID]),
-                    };
-                }
-                await api('/api/block/moveBlock', payload);
-                if (requestedPlacement) {
-                    const task = applyPlacementToTaskDTO(await taskDTO(beforeTask), requestedPlacement);
-                    moved = {
-                        task,
-                        placement: requestedPlacement,
-                        authoritative: true,
-                    };
-                } else {
-                    moved = { task: await taskDTO(taskID) };
-                }
+                const movePlan = await buildMovePlan(taskID, command.moveInput, before);
+                await api('/api/block/moveBlock', movePlan.payload);
+                const placement = await confirmMovePlanPlacement(taskID, movePlan);
+                moved = {
+                    task: applyPlacementToTaskDTO(await taskDTO(beforeTask || preparedTaskRow), placement),
+                    placement,
+                    authoritative: true,
+                };
             }
             await reconcileMovedTaskAttrHosts(taskID, before, moved);
-            moved.task = await taskDTO(taskID);
+            const confirmedPlacement = moved?.placement || await readTaskPlacementFromTree(taskID);
+            moved.placement = confirmedPlacement;
+            moved.task = applyPlacementToTaskDTO(await taskDTO(taskID), confirmedPlacement);
             const task = moved.task;
-            const expectedPlacement = useAuthoritativePlacement
-                ? (moved.placement || before)
-                : await capturePlacement(taskID);
+            const expectedPlacement = confirmedPlacement;
+            const placementChanged = stableJson(comparablePlacement(before)) !== stableJson(comparablePlacement(confirmedPlacement));
             let undoID = '';
             if (source.recordUndo !== false && (!options || options.recordUndo !== false) && moved.atomic !== true) {
                 state.lastUndo = {
                     id: token('undo'),
                     createdAt: Date.now(),
                     label: `移动任务：${task.title}`,
-                    verify: async () => stableJson(await capturePlacement(taskID)) === stableJson(expectedPlacement),
+                    verify: async () => stableJson(comparablePlacement(await capturePlacement(taskID, expectedPlacement))) === stableJson(comparablePlacement(expectedPlacement)),
                     execute: async () => {
-                        const restore = await buildMovePayload(taskID, before);
-                        await api('/api/block/moveBlock', restore);
-                        const restoredTask = await taskDTO(taskID);
+                        const restorePlan = await buildMovePlan(taskID, before, expectedPlacement);
+                        await api('/api/block/moveBlock', restorePlan.payload);
+                        const restoredPlacement = await confirmMovePlanPlacement(taskID, restorePlan);
+                        const restoredTask = applyPlacementToTaskDTO(await taskDTO(taskID), restoredPlacement);
                         return {
                             task: restoredTask,
                             refresh: taskMutationRefresh('move', [taskID], [task.documentID, restoredTask.documentID]),
@@ -4318,7 +4450,8 @@
             }
             return {
                 ...moved,
-                changed: moved.changed !== false,
+                changed: moved.changed !== false && placementChanged,
+                ...(placementChanged ? {} : { reason: moved.reason || 'already-there' }),
                 task,
                 previousPlacement: before,
                 undoID,
@@ -5998,6 +6131,910 @@
         };
     }
 
+    const FOCUS_STATS_CONTRACT_VERSION = 2;
+    const DOCK_TOMATO_PLUGIN_ID = 'siyuan-plugin-docktomato';
+    const FOCUS_STATS_DEADLINE_MS = 10000;
+    const FOCUS_STATS_SCOPE_TASK_LIMIT = 10000;
+    const FOCUS_STATS_SNAPSHOT_TASK_LIMIT = 20000;
+    const FOCUS_STATS_SNAPSHOT_BYTE_LIMIT = 8 * 1024 * 1024;
+
+    function focusStatsScopeTooLarge(details = {}) {
+        return new DomainError('FOCUS_SCOPE_TOO_LARGE', '专注统计任务范围过大', {
+            maxTaskCount: FOCUS_STATS_SCOPE_TASK_LIMIT,
+            ...details,
+        });
+    }
+
+    function withFocusStatsDeadline(input) {
+        const source = input && typeof input === 'object' ? { ...input } : {};
+        const generated = Date.now() + FOCUS_STATS_DEADLINE_MS;
+        const requested = Math.max(0, Number(source.deadlineAt) || 0);
+        source.deadlineAt = requested > 0 ? Math.min(requested, generated) : generated;
+        return source;
+    }
+
+    function assertFocusStatsDeadline(input, stage) {
+        const deadlineAt = Math.max(0, Number(input?.deadlineAt) || 0);
+        if (!deadlineAt || Date.now() < deadlineAt) return;
+        throw new DomainError('STATS_QUERY_EXPIRED', '统计查询已超过执行期限', {
+            deadlineAt,
+            stage: text(stage),
+        });
+    }
+
+    async function runWithFocusStatsDeadline(input, stage, operation) {
+        assertFocusStatsDeadline(input, stage);
+        const deadlineAt = Math.max(0, Number(input?.deadlineAt) || 0);
+        const remainingMs = Math.max(1, deadlineAt - Date.now());
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        let timer = null;
+        const timeout = new Promise((resolve, reject) => {
+            timer = setTimeout(() => {
+                try { controller?.abort?.(); } catch (e) {}
+                reject(new DomainError('STATS_QUERY_EXPIRED', '统计查询已超过执行期限', {
+                    deadlineAt,
+                    stage: text(stage),
+                }));
+            }, remainingMs);
+        });
+        try {
+            return await Promise.race([
+                Promise.resolve().then(() => operation(controller?.signal)),
+                timeout,
+            ]);
+        } finally {
+            if (timer !== null) clearTimeout(timer);
+        }
+    }
+
+    async function callDockTomatoRpc(method, input) {
+        const requestInput = withFocusStatsDeadline(input);
+        let payload;
+        try {
+            payload = await runWithFocusStatsDeadline(requestInput, `dock-rpc:${method}`, async (signal) => {
+                const response = await siyuan.client.fetch(`/api/plugin/rpc?name=${encodeURIComponent(DOCK_TOMATO_PLUGIN_ID)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: token('dock_stats'),
+                        method,
+                        params: [requestInput],
+                    }),
+                    signal,
+                });
+                if (!response?.ok) {
+                    throw new DomainError('DOCK_TOMATO_STATS_UNAVAILABLE', '底栏番茄钟统计服务不可用', {
+                        method,
+                        status: Number(response?.status) || 0,
+                    });
+                }
+                try {
+                    return await response.json();
+                } catch (error) {
+                    throw new DomainError(ERROR.STORAGE_CORRUPT, '底栏番茄钟统计响应无法解析', {
+                        method,
+                        cause: text(error?.message),
+                    });
+                }
+            });
+        } catch (error) {
+            if (error instanceof DomainError) throw error;
+            throw new DomainError('DOCK_TOMATO_STATS_UNAVAILABLE', '底栏番茄钟统计服务不可用', {
+                method,
+                cause: text(error?.message),
+            });
+        }
+        if (payload?.error) {
+            const rpcCode = Number(payload.error.code);
+            const unavailable = rpcCode === -32001 || rpcCode === -32002;
+            throw new DomainError(unavailable ? 'DOCK_TOMATO_STATS_UNAVAILABLE' : ERROR.UNSUPPORTED,
+                unavailable ? '底栏番茄钟统计服务未加载' : '底栏番茄钟统计接口调用失败', {
+                    method,
+                    rpcCode,
+                    rpcMessage: text(payload.error.message),
+                });
+        }
+
+        const result = payload?.result;
+        if (result?.ok !== true) {
+            if (result?.ok === false && result.error) {
+                throw new DomainError(text(result.error.code) || ERROR.STORAGE_ERROR,
+                    text(result.error.message) || '底栏番茄钟统计失败', {
+                        method,
+                        ...(result.error.details && typeof result.error.details === 'object' ? result.error.details : {}),
+                    });
+            }
+            throw new DomainError(ERROR.UNSUPPORTED, '底栏番茄钟统计响应格式不兼容', { method });
+        }
+        if (Number(result.data?.contractVersion) !== FOCUS_STATS_CONTRACT_VERSION) {
+            throw new DomainError(ERROR.UNSUPPORTED, '底栏番茄钟统计核心不兼容', { method });
+        }
+        return result.data;
+    }
+
+    const queryDockTomatoFocusStats = (input) => callDockTomatoRpc('dockTomatoQueryFocus', input);
+    const queryDockTomatoRoutineStats = (input) => callDockTomatoRpc('dockTomatoQueryRoutine', input);
+    const listDockTomatoSessions = (input) => callDockTomatoRpc('dockTomatoListSessions', input);
+
+    async function collectFocusSubtreeTaskIDs(rootTaskID, input) {
+        const id = requireID(rootTaskID, '根任务 ID');
+        assertFocusStatsDeadline(input, 'before-root-scope');
+        const rows = await sql(`
+            WITH RECURSIVE task_tree(id, depth) AS (
+                SELECT id, 0
+                FROM blocks
+                WHERE id = '${escapeSql(id)}' AND type = 'i' AND subtype = 't'
+                UNION ALL
+                SELECT child.id, task_tree.depth + 1
+                FROM task_tree
+                JOIN blocks child_list
+                    ON child_list.parent_id = task_tree.id AND child_list.type = 'l'
+                JOIN blocks child
+                    ON child.parent_id = child_list.id AND child.type = 'i' AND child.subtype = 't'
+                WHERE task_tree.depth < 128
+                LIMIT ${FOCUS_STATS_SCOPE_TASK_LIMIT + 1}
+            )
+            SELECT id, depth AS tree_depth
+            FROM task_tree
+            ORDER BY depth ASC, id ASC
+            LIMIT ${FOCUS_STATS_SCOPE_TASK_LIMIT + 1}
+        `);
+        assertFocusStatsDeadline(input, 'after-root-scope');
+        if (!rows.length || text(rows[0]?.id) !== id) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '根任务必须指向任务块', { rootTaskID: id });
+        }
+        if (rows.some((item) => Number(item?.tree_depth) >= 128)) {
+            throw focusStatsScopeTooLarge({ rootTaskID: id, maxDepth: 128 });
+        }
+        const taskIDs = uniqueStrings(rows.map((item) => item?.id));
+        if (taskIDs.length > FOCUS_STATS_SCOPE_TASK_LIMIT) {
+            throw focusStatsScopeTooLarge({ rootTaskID: id, taskCount: taskIDs.length });
+        }
+        return taskIDs;
+    }
+
+    async function collectFocusDocumentTaskIDs(documentIDs, input) {
+        const out = new Set();
+        const ids = uniqueStrings(documentIDs).filter((id) => ID_RE.test(id));
+        for (let offset = 0; offset < ids.length; offset += 100) {
+            assertFocusStatsDeadline(input, 'document-scope');
+            const chunk = ids.slice(offset, offset + 100);
+            const rows = await sql(`SELECT id FROM blocks
+                WHERE root_id IN (${chunk.map((id) => `'${escapeSql(id)}'`).join(',')})
+                    AND type = 'i' AND subtype = 't'
+                ORDER BY id ASC
+                LIMIT ${FOCUS_STATS_SCOPE_TASK_LIMIT + 1}`);
+            rows.forEach((row) => {
+                const id = text(row?.id);
+                if (id) out.add(id);
+            });
+            if (out.size > FOCUS_STATS_SCOPE_TASK_LIMIT) {
+                throw focusStatsScopeTooLarge({ documentCount: ids.length, taskCount: out.size });
+            }
+        }
+        return out;
+    }
+
+    async function resolveFocusCandidateIDs(input = {}) {
+        const source = withFocusStatsDeadline(input);
+        assertFocusStatsDeadline(source, 'focus-scope-start');
+        const rootTaskID = text(source.rootTaskID || source.rootTaskId);
+        const hasExplicitScope = !!text(source.scopeToken)
+            || Object.prototype.hasOwnProperty.call(source, 'taskIDs')
+            || Object.prototype.hasOwnProperty.call(source, 'taskIds')
+            || Object.prototype.hasOwnProperty.call(source, 'documentIDs')
+            || Object.prototype.hasOwnProperty.call(source, 'documentIds');
+        if (!rootTaskID && !hasExplicitScope) return null;
+
+        let scopedIDs = null;
+        if (hasExplicitScope) {
+            const rawTaskIDs = Array.isArray(source.taskIDs) ? source.taskIDs : (Array.isArray(source.taskIds) ? source.taskIds : []);
+            const rawDocumentIDs = Array.isArray(source.documentIDs) ? source.documentIDs : (Array.isArray(source.documentIds) ? source.documentIds : []);
+            if (rawTaskIDs.length > FOCUS_STATS_SCOPE_TASK_LIMIT || rawDocumentIDs.length > FOCUS_STATS_SCOPE_TASK_LIMIT) {
+                throw focusStatsScopeTooLarge({
+                    taskCount: rawTaskIDs.length,
+                    documentCount: rawDocumentIDs.length,
+                });
+            }
+            const scope = normalizeTaskScope(source);
+            scopedIDs = new Set(scope.taskIDs);
+            if (scopedIDs.size > FOCUS_STATS_SCOPE_TASK_LIMIT || scope.documentIDs.length > FOCUS_STATS_SCOPE_TASK_LIMIT) {
+                throw focusStatsScopeTooLarge({ taskCount: scopedIDs.size, documentCount: scope.documentIDs.length });
+            }
+            const documentTaskIDs = await collectFocusDocumentTaskIDs(scope.documentIDs, source);
+            documentTaskIDs.forEach((id) => scopedIDs.add(id));
+            if (scopedIDs.size > FOCUS_STATS_SCOPE_TASK_LIMIT) {
+                throw focusStatsScopeTooLarge({ taskCount: scopedIDs.size });
+            }
+        }
+
+        let rootIDs = null;
+        if (rootTaskID) rootIDs = new Set(await collectFocusSubtreeTaskIDs(rootTaskID, source));
+        const candidateIDs = rootIDs && scopedIDs
+            ? Array.from(rootIDs).filter((id) => scopedIDs.has(id))
+            : Array.from(rootIDs || scopedIDs || []);
+        if (candidateIDs.length > FOCUS_STATS_SCOPE_TASK_LIMIT) {
+            throw focusStatsScopeTooLarge({ taskCount: candidateIDs.length });
+        }
+        assertFocusStatsDeadline(source, 'focus-scope-complete');
+        return candidateIDs.sort();
+    }
+
+    function focusStatsUtf8ByteLength(value) {
+        const source = String(value == null ? '' : value);
+        let bytes = 0;
+        for (let index = 0; index < source.length; index += 1) {
+            const code = source.charCodeAt(index);
+            if (code < 0x80) bytes += 1;
+            else if (code < 0x800) bytes += 2;
+            else if (code >= 0xD800 && code <= 0xDBFF && index + 1 < source.length
+                && source.charCodeAt(index + 1) >= 0xDC00 && source.charCodeAt(index + 1) <= 0xDFFF) {
+                bytes += 4;
+                index += 1;
+            } else bytes += 3;
+        }
+        return bytes;
+    }
+
+    function focusStatsSnapshotTooLarge(details = {}) {
+        return new DomainError('FOCUS_SCOPE_TOO_LARGE', '任务统计快照过大', {
+            maxTaskCount: FOCUS_STATS_SNAPSHOT_TASK_LIMIT,
+            maxSnapshotBytes: FOCUS_STATS_SNAPSHOT_BYTE_LIMIT,
+            ...details,
+        });
+    }
+
+    function normalizeFocusTaskSnapshot(value, options = {}) {
+        const source = value && typeof value === 'object' ? value : {};
+        const rows = Array.isArray(source.tasks) ? source.tasks : (Array.isArray(value) ? value : []);
+        if (rows.length > FOCUS_STATS_SNAPSHOT_TASK_LIMIT) throw focusStatsSnapshotTooLarge({ taskCount: rows.length });
+        const customFieldID = text(options?.groupBy) === 'customField'
+            ? text(options?.customFieldID || options?.customFieldId)
+            : '';
+        const tasks = new Map();
+        const aliases = new Map();
+        let snapshotBytes = 2;
+        rows.forEach((row) => {
+            if (!(row && typeof row === 'object')) return;
+            const id = text(row.id || row.taskID || row.taskId);
+            if (!id || tasks.has(id)) return;
+            const aliasIDs = uniqueStrings([id].concat(Array.isArray(row.aliasIDs) ? row.aliasIDs : (Array.isArray(row.aliasIds) ? row.aliasIds : [])));
+            const task = {
+                id,
+                aliasIDs,
+                parentTaskID: text(row.parentTaskID || row.parentTaskId || row.parent_task_id),
+                documentID: text(row.documentID || row.documentId || row.docId || row.root_id),
+                documentName: text(row.documentName || row.docName || row.doc),
+                title: text(row.title || row.content) || '未命名任务',
+                done: row.done === true,
+                customStatus: text(row.customStatus || row.custom_status),
+                customStatusName: text(row.customStatusName),
+                priority: text(row.priority),
+                priorityName: text(row.priorityName),
+                customFieldValues: customFieldID && row.customFieldValues && typeof row.customFieldValues === 'object'
+                    ? { [customFieldID]: row.customFieldValues[customFieldID] }
+                    : {},
+                duration: row.duration,
+                tomatoEstimateCount: row.tomatoEstimateCount,
+                created: text(row.created),
+            };
+            let serialized = '';
+            try { serialized = JSON.stringify(task); } catch (error) { throw focusStatsSnapshotTooLarge({ reason: 'not-serializable' }); }
+            snapshotBytes += focusStatsUtf8ByteLength(serialized) + 1;
+            if (snapshotBytes > FOCUS_STATS_SNAPSHOT_BYTE_LIMIT) {
+                throw focusStatsSnapshotTooLarge({ taskCount: tasks.size + 1, bytes: snapshotBytes });
+            }
+            tasks.set(id, task);
+            aliasIDs.forEach((alias) => { if (!aliases.has(alias)) aliases.set(alias, id); });
+        });
+        return { tasks, aliases, revision: Math.max(0, Number(source.revision) || 0), byteLength: snapshotBytes };
+    }
+
+    function snapshotTaskAncestors(taskID, snapshot) {
+        const out = [];
+        const seen = new Set([text(taskID)]);
+        let parentID = text(snapshot?.tasks?.get(text(taskID))?.parentTaskID);
+        while (parentID && !seen.has(parentID) && out.length < 200) {
+            seen.add(parentID);
+            out.push(parentID);
+            parentID = text(snapshot.tasks.get(parentID)?.parentTaskID);
+        }
+        return out.reverse();
+    }
+
+    function normalizeSemanticTask(task, ancestorTaskIDs = []) {
+        if (!(task && typeof task === 'object')) return null;
+        return {
+            id: text(task.id),
+            aliasIDs: uniqueStrings([task.id].concat(task.aliasIDs || [])),
+            parentTaskID: text(task.parentTaskID),
+            ancestorTaskIDs: uniqueStrings(ancestorTaskIDs),
+            documentID: text(task.documentID),
+            documentName: text(task.documentName),
+            title: text(task.title) || '未命名任务',
+            done: task.done === true,
+            customStatus: text(task.customStatus),
+            customStatusName: text(task.customStatusName),
+            priority: text(task.priority),
+            priorityName: text(task.priorityName),
+            customFieldValues: task.customFieldValues && typeof task.customFieldValues === 'object' ? { ...task.customFieldValues } : {},
+            duration: task.duration,
+            tomatoEstimateCount: task.tomatoEstimateCount,
+            created: text(task.created),
+        };
+    }
+
+    function createSnapshotTaskResolver(snapshotValue, options = {}) {
+        const snapshot = normalizeFocusTaskSnapshot(snapshotValue, options);
+        return {
+            snapshot,
+            async preload() {},
+            async resolve(candidateIDs) {
+                for (const candidate of uniqueStrings(candidateIDs)) {
+                    const id = snapshot.aliases.get(candidate) || (snapshot.tasks.has(candidate) ? candidate : '');
+                    if (!id) continue;
+                    const task = snapshot.tasks.get(id);
+                    return normalizeSemanticTask(task, snapshotTaskAncestors(id, snapshot));
+                }
+                return null;
+            },
+            async get(taskID) {
+                const id = snapshot.aliases.get(text(taskID)) || text(taskID);
+                const task = snapshot.tasks.get(id);
+                return task ? normalizeSemanticTask(task, snapshotTaskAncestors(id, snapshot)) : null;
+            },
+        };
+    }
+
+    function createCompositeTaskResolver(snapshotValue, options = {}) {
+        const snapshotResolver = createSnapshotTaskResolver(snapshotValue, options);
+        let kernelResolverPromise = null;
+        const kernelResolver = () => {
+            if (!kernelResolverPromise) kernelResolverPromise = createKernelTaskResolver(options);
+            return kernelResolverPromise;
+        };
+        return {
+            snapshot: snapshotResolver.snapshot,
+            async preload(candidateGroups, control = options) {
+                const missing = [];
+                const groups = Array.isArray(candidateGroups) ? candidateGroups : [];
+                for (let index = 0; index < groups.length; index += 1) {
+                    if (index % 256 === 0) assertFocusStatsDeadline(control, 'snapshot-preload');
+                    const group = groups[index];
+                    if (!await snapshotResolver.resolve(group)) missing.push(group);
+                }
+                if (missing.length) await (await kernelResolver()).preload(missing, control);
+            },
+            async resolve(candidateIDs) {
+                const projected = await snapshotResolver.resolve(candidateIDs);
+                if (projected) return projected;
+                const persisted = await (await kernelResolver()).resolve(candidateIDs);
+                if (!persisted) return null;
+                return await snapshotResolver.get(persisted.id) || persisted;
+            },
+            async get(taskID) {
+                const projected = await snapshotResolver.get(taskID);
+                if (projected) return projected;
+                return (await kernelResolver()).get(taskID);
+            },
+        };
+    }
+
+    async function readFocusBlockRolesBatch(blockIDs, control = {}) {
+        const result = new Map();
+        const ids = uniqueStrings(blockIDs);
+        for (let offset = 0; offset < ids.length; offset += 200) {
+            assertFocusStatsDeadline(control, 'task-binding-role-batch');
+            const chunk = ids.slice(offset, offset + 200);
+            const rows = await sql(`SELECT id, parent_id, root_id, type, subtype FROM blocks WHERE id IN (${chunk.map((id) => `'${escapeSql(id)}'`).join(',')})`);
+            rows.forEach((row) => result.set(text(row.id), row));
+        }
+        return result;
+    }
+
+    async function readFocusListTasksBatch(listIDs, control = {}) {
+        const result = new Map();
+        const ids = uniqueStrings(listIDs);
+        for (let offset = 0; offset < ids.length; offset += 100) {
+            assertFocusStatsDeadline(control, 'task-binding-list-batch');
+            const chunk = ids.slice(offset, offset + 100);
+            const rows = await sql(`
+                SELECT source.id AS list_id,
+                    COALESCE((
+                        SELECT child.id FROM blocks child
+                        WHERE child.parent_id = source.id AND child.type = 'i' AND child.subtype = 't'
+                        ORDER BY child.sort ASC, child.created ASC, child.id ASC
+                        LIMIT 1
+                    ), '') AS task_id
+                FROM blocks source
+                WHERE source.id IN (${chunk.map((id) => `'${escapeSql(id)}'`).join(',')})
+            `);
+            rows.forEach((row) => result.set(text(row.list_id), text(row.task_id)));
+        }
+        return result;
+    }
+
+    async function resolveFocusBindingsBatch(candidateGroups, control = {}) {
+        const groups = (Array.isArray(candidateGroups) ? candidateGroups : [])
+            .map((group) => uniqueStrings(group))
+            .filter((group) => group.length);
+        const resolved = new Map();
+        const active = new Map(uniqueStrings(groups.flat()).map((id) => [id, {
+            currentID: id,
+            seen: new Set([id]),
+        }]));
+        for (let depth = 0; active.size && depth < 30; depth += 1) {
+            assertFocusStatsDeadline(control, 'task-binding-depth');
+            const roles = await readFocusBlockRolesBatch(Array.from(active.values(), (state) => state.currentID), control);
+            const listTasks = await readFocusListTasksBatch(Array.from(roles.values())
+                .filter((row) => text(row?.type).toLowerCase() === 'l')
+                .map((row) => text(row.id)), control);
+            for (const [candidateID, state] of active) {
+                const row = roles.get(state.currentID);
+                if (!row) {
+                    resolved.set(candidateID, null);
+                    active.delete(candidateID);
+                    continue;
+                }
+                const type = text(row.type).toLowerCase();
+                const subtype = text(row.subtype).toLowerCase();
+                const taskID = type === 'i' && subtype === 't'
+                    ? text(row.id)
+                    : (type === 'l' ? text(listTasks.get(text(row.id))) : '');
+                if (taskID) {
+                    resolved.set(candidateID, taskID);
+                    active.delete(candidateID);
+                    continue;
+                }
+                const parentID = text(row.parent_id);
+                if (!parentID || state.seen.has(parentID)) {
+                    resolved.set(candidateID, null);
+                    active.delete(candidateID);
+                    continue;
+                }
+                state.seen.add(parentID);
+                state.currentID = parentID;
+            }
+        }
+        active.forEach((_state, candidateID) => resolved.set(candidateID, null));
+        const taskIDs = new Set();
+        groups.forEach((group) => {
+            const taskID = group.map((candidate) => text(resolved.get(candidate))).find(Boolean) || '';
+            group.forEach((candidate) => resolved.set(candidate, taskID || null));
+            if (taskID) taskIDs.add(taskID);
+        });
+        return { resolved, taskIDs };
+    }
+
+    async function readFocusTaskRowsBatch(taskIDs, control = {}) {
+        const result = new Map();
+        let frontier = uniqueStrings(taskIDs);
+        let depth = 0;
+        while (frontier.length && depth < 200) {
+            const pending = frontier.filter((id) => !result.has(id));
+            if (!pending.length) break;
+            const next = [];
+            for (let offset = 0; offset < pending.length; offset += 100) {
+                assertFocusStatsDeadline(control, 'focus-task-row-batch');
+                const chunk = pending.slice(offset, offset + 100);
+                const rows = await sql(`
+                    SELECT
+                        task.id,
+                        task.markdown,
+                        task.content AS raw_content,
+                        task.parent_id,
+                        task.root_id,
+                        task.created,
+                        task.updated,
+                        COALESCE(doc.content, '') AS doc_name,
+                        COALESCE(doc.hpath, '') AS doc_path,
+                        COALESCE(parent.type, '') AS parent_type,
+                        COALESCE(CASE WHEN list_parent.type = 'i' AND list_parent.subtype = 't' THEN list_parent.id ELSE '' END, '') AS parent_task_id,
+                        0 AS parent_task_count,
+                        '' AS first_task_id,
+                        '' AS previous_sibling_id,
+                        '' AS next_sibling_id
+                    FROM blocks task
+                    LEFT JOIN blocks doc ON doc.id = task.root_id
+                    LEFT JOIN blocks parent ON parent.id = task.parent_id
+                    LEFT JOIN blocks list_parent ON list_parent.id = parent.parent_id
+                    WHERE task.id IN (${chunk.map((id) => `'${escapeSql(id)}'`).join(',')})
+                        AND task.type = 'i' AND task.subtype = 't'
+                `);
+                rows.forEach((row) => {
+                    const id = text(row.id);
+                    if (!id) return;
+                    result.set(id, row);
+                    const parentID = text(row.parent_task_id);
+                    if (parentID && !result.has(parentID)) next.push(parentID);
+                });
+            }
+            frontier = uniqueStrings(next);
+            depth += 1;
+        }
+        return result;
+    }
+
+    async function readFocusTaskAttrsBatch(taskIDs, attrNames = [], control = {}) {
+        const result = new Map(uniqueStrings(taskIDs).map((id) => [id, {}]));
+        const ids = Array.from(result.keys());
+        const names = uniqueStrings(attrNames);
+        if (!names.length) return result;
+        for (let offset = 0; offset < ids.length; offset += 200) {
+            assertFocusStatsDeadline(control, 'focus-task-attr-batch');
+            const chunk = ids.slice(offset, offset + 200);
+            const rows = await sql(`SELECT block_id, name, value FROM attributes WHERE block_id IN (${chunk.map((id) => `'${escapeSql(id)}'`).join(',')}) AND name IN (${names.map((name) => `'${escapeSql(name)}'`).join(',')})`);
+            rows.forEach((row) => {
+                const id = text(row.block_id);
+                const name = text(row.name);
+                if (result.has(id) && name) result.get(id)[name] = String(row.value == null ? '' : row.value);
+            });
+        }
+        return result;
+    }
+
+    function focusTaskAttributeProjection(registry, customFieldID = '') {
+        const fieldIDs = ['customStatus', 'priority', 'duration', 'tomatoEstimateCount'];
+        if (customFieldID) fieldIDs.push(customFieldID);
+        const fields = fieldIDs.map((fieldID) => registry?.byId?.get(fieldID)).filter(Boolean);
+        return {
+            attrNames: uniqueStrings(fields.flatMap((field) => [field.attr].concat(field.aliases || []))),
+            fields,
+        };
+    }
+
+    function decodeFocusTaskAttributes(attrs, projection, customFieldID = '') {
+        const source = attrs && typeof attrs === 'object' ? attrs : {};
+        const result = { customFieldValues: {} };
+        (projection?.fields || []).forEach((field) => {
+            const raw = uniqueStrings([field.attr].concat(field.aliases || []))
+                .map((name) => own(source, name) ? String(source[name] == null ? '' : source[name]) : '')
+                .find((value) => value !== '') || '';
+            if (field.custom) {
+                if (field.id === customFieldID) result.customFieldValues[field.id] = raw;
+            } else if (field.type === 'boolean') result[field.id] = raw === '1' || raw === 'true';
+            else if (field.type === 'number') result[field.id] = raw === '' ? null : Number(raw);
+            else result[field.id] = raw;
+        });
+        return result;
+    }
+
+    function focusTaskDTOFromBatchRow(row, attrs, registry, fields, attrProjection, customFieldID) {
+        const context = buildAttrContext(row);
+        const dto = {
+            id: text(row.id),
+            title: taskOwnTitle(row),
+            markdown: String(row.markdown || ''),
+            done: parseDone(row.markdown),
+            parentListID: text(row.parent_id),
+            parentTaskID: text(row.parent_task_id),
+            parentType: text(row.parent_type),
+            documentID: text(row.root_id),
+            documentName: text(row.doc_name),
+            documentPath: text(row.doc_path),
+            created: text(row.created),
+            updated: text(row.updated),
+            attrHostID: context.primaryHostID,
+            attrHostState: context.state,
+            priorityScore: null,
+            ...decodeFocusTaskAttributes(attrs, attrProjection, customFieldID),
+        };
+        return projectTaskDTO(applyTaskDisplayNames(dto, registry), fields);
+    }
+
+    async function createKernelTaskResolver(options = {}) {
+        const registry = await getFieldRegistry();
+        const tasks = new Map();
+        const candidates = new Map();
+        const customFieldID = text(options?.groupBy) === 'customField'
+            ? text(options?.customFieldID || options?.customFieldId)
+            : '';
+        const fields = ['created', 'customStatus', 'priority', 'duration', 'tomatoEstimateCount'];
+        if (customFieldID) fields.push('customFieldValues');
+        const attrProjection = focusTaskAttributeProjection(registry, customFieldID);
+        const preload = async (candidateGroups, control = options) => {
+            const groups = (Array.isArray(candidateGroups) ? candidateGroups : [])
+                .map((group) => uniqueStrings(group))
+                .filter((group) => group.length);
+            const bindings = await resolveFocusBindingsBatch(groups, control);
+            bindings.resolved.forEach((taskID, candidateID) => candidates.set(candidateID, taskID));
+            const rows = await readFocusTaskRowsBatch(Array.from(bindings.taskIDs), control);
+            const attrs = await readFocusTaskAttrsBatch(Array.from(rows.keys()), attrProjection.attrNames, control);
+            rows.forEach((row, id) => {
+                const ancestors = [];
+                const seen = new Set([id]);
+                let parentID = text(row.parent_task_id);
+                while (parentID && !seen.has(parentID) && ancestors.length < 200) {
+                    seen.add(parentID);
+                    ancestors.unshift(parentID);
+                    parentID = text(rows.get(parentID)?.parent_task_id);
+                }
+                const dto = focusTaskDTOFromBatchRow(row, attrs.get(id), registry, fields, attrProjection, customFieldID);
+                tasks.set(id, normalizeSemanticTask(dto, ancestors));
+            });
+        };
+        const loadTask = async (taskID) => {
+            const id = text(taskID);
+            if (!id) return null;
+            if (tasks.has(id)) return tasks.get(id);
+            assertFocusStatsDeadline(options, 'focus-task-load');
+            let task = null;
+            try {
+                const [dto, context] = await Promise.all([
+                    taskDTO(id, fields, registry),
+                    readTaskTreeContext(id),
+                ]);
+                task = normalizeSemanticTask({
+                    ...dto,
+                    parentTaskID: context.parentTaskID,
+                }, context.ancestorTaskIDs);
+            } catch (e) {}
+            tasks.set(id, task);
+            return task;
+        };
+        return {
+            snapshot: null,
+            preload,
+            async resolve(candidateIDs) {
+                const ids = uniqueStrings(candidateIDs);
+                const missing = ids.filter((candidate) => !candidates.has(candidate));
+                if (missing.length) await preload([missing], options);
+                for (const candidate of ids) {
+                    const cachedID = candidates.get(candidate);
+                    if (cachedID && tasks.has(cachedID)) return tasks.get(cachedID);
+                }
+                return null;
+            },
+            get: loadTask,
+        };
+    }
+
+    function makeFocusAggregate() {
+        return {
+            focusSec: 0,
+            countdownSec: 0,
+            stopwatchSec: 0,
+            distractionCount: 0,
+            sessionCount: 0,
+            focusSessionCount: 0,
+            completedSessionCount: 0,
+            countdownSessionCount: 0,
+            stopwatchSessionCount: 0,
+            lastEndMs: 0,
+            buckets: new Map(),
+        };
+    }
+
+    function mergeFocusStats(target, source) {
+        target.focusSec += Number(source?.focusSec) || 0;
+        target.countdownSec += Number(source?.countdownSec) || 0;
+        target.stopwatchSec += Number(source?.stopwatchSec) || 0;
+        target.distractionCount += Math.max(0, Number(source?.distractionCount) || 0);
+        target.sessionCount += Math.max(0, Number(source?.sessionCount) || 0);
+        target.focusSessionCount += Math.max(0, Number(source?.focusSessionCount) || 0);
+        target.completedSessionCount += Math.max(0, Number(source?.completedSessionCount) || 0);
+        target.countdownSessionCount += Math.max(0, Number(source?.countdownSessionCount) || 0);
+        target.stopwatchSessionCount += Math.max(0, Number(source?.stopwatchSessionCount) || 0);
+        target.lastEndMs = Math.max(target.lastEndMs, Number(source?.lastEndMs) || 0);
+        (Array.isArray(source?.buckets) ? source.buckets : []).forEach((bucket) => {
+            const key = text(bucket?.key);
+            if (!key) return;
+            if (!target.buckets.has(key)) target.buckets.set(key, { key, from: bucket.from, to: bucket.to, ...makeFocusAggregate() });
+            mergeFocusStats(target.buckets.get(key), { ...bucket, buckets: [] });
+        });
+        return target;
+    }
+
+    function serializeFocusAggregate(value) {
+        return {
+            focusSec: value.focusSec,
+            countdownSec: value.countdownSec,
+            stopwatchSec: value.stopwatchSec,
+            distractionCount: value.distractionCount,
+            sessionCount: value.sessionCount,
+            focusSessionCount: value.focusSessionCount,
+            countdownSessionCount: value.countdownSessionCount,
+            stopwatchSessionCount: value.stopwatchSessionCount,
+            completedSessionCount: value.completedSessionCount,
+            lastEndMs: value.lastEndMs,
+            buckets: Array.from(value.buckets.values()).map((bucket) => ({
+                key: bucket.key,
+                from: bucket.from,
+                to: bucket.to,
+                ...serializeFocusAggregate({ ...bucket, buckets: new Map() }),
+            })),
+        };
+    }
+
+    function taskMatchesFocusScope(task, scope, taskIDs, documentIDs) {
+        if (!scope) return true;
+        if (!scope.taskIDs.length && !scope.documentIDs.length) return false;
+        if (scope.scopeMode === 'documents' && scope.documentIDs.length) return documentIDs.has(task.documentID);
+        if (scope.taskIDs.length) return taskIDs.has(task.id);
+        if (scope.documentIDs.length) return documentIDs.has(task.documentID);
+        return true;
+    }
+
+    function classificationValues(task, options, resolverTasks) {
+        const groupBy = text(options?.groupBy || 'task');
+        if (groupBy === 'document') return [{ id: task.documentID || '__unset', label: task.documentName || '未命名文档' }];
+        if (groupBy === 'status') return [{ id: task.customStatus || '__unset', label: task.customStatusName || task.customStatus || '未设置' }];
+        if (groupBy === 'priority') return [{ id: task.priority || 'none', label: task.priorityName || resolvePriorityName(task.priority) }];
+        if (groupBy === 'customField') {
+            const fieldID = text(options?.customFieldID || options?.customFieldId);
+            const raw = task.customFieldValues?.[fieldID];
+            const values = Array.isArray(raw) ? raw : (text(raw) ? [raw] : []);
+            return values.length
+                ? uniqueStrings(values).map((value) => ({ id: value, label: value }))
+                : [{ id: '__unset', label: '未设置' }];
+        }
+        if (groupBy === 'parent') {
+            const parentID = task.parentTaskID || task.id;
+            const parent = resolverTasks.get(parentID);
+            return [{ id: parentID, label: parent?.title || (parentID === task.id ? task.title : '父任务') }];
+        }
+        return [{ id: task.id, label: task.title }];
+    }
+
+    async function projectFocusStatistics(rawStats, input = {}, snapshotValue = null) {
+        if (Number(rawStats?.contractVersion) !== FOCUS_STATS_CONTRACT_VERSION) {
+            throw new DomainError(ERROR.UNSUPPORTED, '番茄统计数据契约不兼容');
+        }
+        const source = input && typeof input === 'object' ? input : {};
+        assertFocusStatsDeadline(source, 'task-projection-start');
+        const hasExplicitScope = !!text(source.scopeToken)
+            || Object.prototype.hasOwnProperty.call(source, 'taskIDs')
+            || Object.prototype.hasOwnProperty.call(source, 'taskIds')
+            || Object.prototype.hasOwnProperty.call(source, 'documentIDs')
+            || Object.prototype.hasOwnProperty.call(source, 'documentIds');
+        const scope = hasExplicitScope ? normalizeTaskScope(source) : null;
+        const scopeTaskIDs = new Set(scope?.taskIDs || []);
+        const scopeDocumentIDs = new Set(scope?.documentIDs || []);
+        const resolver = snapshotValue ? createCompositeTaskResolver(snapshotValue, source) : await createKernelTaskResolver(source);
+        const taskAggregates = new Map();
+        const taskObjects = new Map();
+        const unattributed = makeFocusAggregate();
+        const associations = Array.isArray(rawStats?.associations) ? rawStats.associations : [];
+        await resolver.preload(associations.map((association) => association?.candidateIds || []), source);
+        assertFocusStatsDeadline(source, 'task-projection-preloaded');
+
+        for (let associationIndex = 0; associationIndex < associations.length; associationIndex += 1) {
+            if (associationIndex % 128 === 0) assertFocusStatsDeadline(source, 'task-projection-scan');
+            const association = associations[associationIndex];
+            const task = await resolver.resolve(association?.candidateIds || []);
+            if (!task || !taskMatchesFocusScope(task, scope, scopeTaskIDs, scopeDocumentIDs)) {
+                if (!scope && (!task || !(association?.candidateIds || []).length)) mergeFocusStats(unattributed, association);
+                continue;
+            }
+            taskObjects.set(task.id, task);
+            if (!taskAggregates.has(task.id)) taskAggregates.set(task.id, makeFocusAggregate());
+            mergeFocusStats(taskAggregates.get(task.id), association);
+            for (const ancestorID of task.ancestorTaskIDs) {
+                if (!taskObjects.has(ancestorID)) {
+                    const ancestor = await resolver.get(ancestorID);
+                    if (ancestor) taskObjects.set(ancestorID, ancestor);
+                }
+            }
+        }
+
+        const total = makeFocusAggregate();
+        taskAggregates.forEach((aggregate) => mergeFocusStats(total, serializeFocusAggregate(aggregate)));
+        if (!scope) mergeFocusStats(total, serializeFocusAggregate(unattributed));
+
+        const tasks = Array.from(taskAggregates.entries()).map(([taskID, aggregate]) => ({
+            ...taskObjects.get(taskID),
+            ...serializeFocusAggregate(aggregate),
+        })).sort((a, b) => b.lastEndMs - a.lastEndMs || b.focusSec - a.focusSec);
+
+        const classification = new Map();
+        tasks.forEach((task) => {
+            classificationValues(task, source, taskObjects).forEach((item) => {
+                if (!classification.has(item.id)) classification.set(item.id, { id: item.id, label: item.label, aggregate: makeFocusAggregate() });
+                mergeFocusStats(classification.get(item.id).aggregate, task);
+            });
+        });
+
+        let parentDetail = null;
+        const rootTaskID = text(source.rootTaskID || source.rootTaskId);
+        if (rootTaskID) {
+            const self = taskAggregates.get(rootTaskID) || makeFocusAggregate();
+            const descendants = makeFocusAggregate();
+            tasks.filter((task) => task.id !== rootTaskID && task.ancestorTaskIDs.includes(rootTaskID))
+                .forEach((task) => mergeFocusStats(descendants, task));
+            const combined = makeFocusAggregate();
+            mergeFocusStats(combined, serializeFocusAggregate(self));
+            mergeFocusStats(combined, serializeFocusAggregate(descendants));
+            parentDetail = {
+                taskID: rootTaskID,
+                self: serializeFocusAggregate(self),
+                descendants: serializeFocusAggregate(descendants),
+                combined: serializeFocusAggregate(combined),
+            };
+        }
+        assertFocusStatsDeadline(source, 'task-projection-complete');
+
+        return {
+            contractVersion: FOCUS_STATS_CONTRACT_VERSION,
+            range: rawStats.range,
+            totals: serializeFocusAggregate(total),
+            tasks,
+            unattributed: serializeFocusAggregate(unattributed),
+            classification: Array.from(classification.values()).map((item) => ({
+                id: item.id,
+                label: item.label,
+                ...serializeFocusAggregate(item.aggregate),
+            })).sort((a, b) => b.focusSec - a.focusSec),
+            parentDetail,
+            meta: {
+                ...(rawStats.meta || {}),
+                taskSnapshotRevision: resolver.snapshot?.revision || 0,
+                taskScope: scope ? taskScopeCoverage(scope) : null,
+            },
+        };
+    }
+
+    async function queryFocusStatistics(input, snapshotValue = null) {
+        const options = withFocusStatsDeadline(input);
+        const candidateIDs = await resolveFocusCandidateIDs(options);
+        const dockOptions = { ...options };
+        if (candidateIDs !== null) {
+            dockOptions.candidateIDs = candidateIDs;
+            dockOptions.candidateIDsConstrainTotals = true;
+        }
+        assertFocusStatsDeadline(options, 'before-dock-query');
+        const raw = await queryDockTomatoFocusStats(dockOptions);
+        assertFocusStatsDeadline(options, 'after-dock-query');
+        return projectFocusStatistics(raw, options, snapshotValue);
+    }
+
+    function withDefaultStatisticsRange(input) {
+        const source = input && typeof input === 'object' ? { ...input } : {};
+        const to = text(source.to) || new Date().toISOString();
+        const toMs = Date.parse(to);
+        if (!Number.isFinite(toMs)) throw new DomainError(ERROR.INVALID_ARGUMENT, 'to 不是有效时间');
+        const from = text(source.from) || new Date(toMs - 30 * 86400000).toISOString();
+        const fromMs = Date.parse(from);
+        if (!Number.isFinite(fromMs) || toMs <= fromMs) throw new DomainError(ERROR.INVALID_ARGUMENT, 'from/to 必须构成有效时间范围');
+        return { ...source, from, to };
+    }
+
+    async function queryAgentFocusStatistics(input) {
+        requireAction(input, 'query');
+        return queryFocusStatistics(withDefaultStatisticsRange(input));
+    }
+
+    async function queryAgentRoutineStatistics(input) {
+        requireAction(input, 'query');
+        return queryDockTomatoRoutineStats(withDefaultStatisticsRange(input));
+    }
+
+    async function listAgentFocusSessions(input) {
+        requireAction(input, 'query');
+        const options = withFocusStatsDeadline(withDefaultStatisticsRange(input));
+        const result = await listDockTomatoSessions(options);
+        assertFocusStatsDeadline(options, 'focus-session-projection-start');
+        const resolver = await createKernelTaskResolver(options);
+        const items = [];
+        const resultItems = Array.isArray(result?.items) ? result.items : [];
+        await resolver.preload(resultItems.map((item) => item?.candidateIds || []), options);
+        for (let itemIndex = 0; itemIndex < resultItems.length; itemIndex += 1) {
+            if (itemIndex % 128 === 0) assertFocusStatsDeadline(options, 'focus-session-projection-scan');
+            const item = resultItems[itemIndex];
+            const task = await resolver.resolve(item?.candidateIds || []);
+            items.push({
+                ...item,
+                task: task ? {
+                    id: task.id,
+                    title: task.title,
+                    documentID: task.documentID,
+                    documentName: task.documentName,
+                } : null,
+            });
+        }
+        return { ...result, items };
+    }
+
     async function aggregateTaskStats(input) {
         const source = input && typeof input === 'object' ? input : {};
         const scope = normalizeTaskScope(source);
@@ -6045,38 +7082,34 @@
     async function aggregateTimeUsage(input) {
         const source = input && typeof input === 'object' ? input : {};
         const scope = normalizeTaskScope(source);
+        const effectiveTo = text(source.to) || new Date().toISOString();
+        const effectiveToMs = Date.parse(effectiveTo);
+        if (!Number.isFinite(effectiveToMs)) throw new DomainError(ERROR.INVALID_ARGUMENT, 'to 不是有效时间');
+        const effectiveFrom = text(source.from) || new Date(effectiveToMs - 30 * 86400000).toISOString();
+        const effectiveFromMs = Date.parse(effectiveFrom);
+        if (!Number.isFinite(effectiveFromMs) || !Number.isFinite(effectiveToMs) || effectiveToMs <= effectiveFromMs) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, 'from/to 必须构成有效时间范围');
+        }
         const registry = await getFieldRegistry();
         const durationField = registry.byId.get('duration');
-        const tomatoMinutesField = registry.byId.get('tomatoMinutes');
-        const tomatoHoursField = registry.byId.get('tomatoHours');
         const estimateExpr = completionAttrExpression([durationField.attr].concat(durationField.aliases || []));
-        const minuteExpr = completionAttrExpression([tomatoMinutesField.attr].concat(tomatoMinutesField.aliases || []));
-        const hourExpr = completionAttrExpression([tomatoHoursField.attr].concat(tomatoHoursField.aliases || []));
         const taskConditions = ["t.type = 'i'", "t.subtype = 't'"];
         appendTaskScopeConditions(taskConditions, scope, 't');
-        const rows = await sql(`SELECT t.id, ${estimateExpr} AS estimate, ${minuteExpr} AS tomato_minutes, ${hourExpr} AS tomato_hours FROM blocks t WHERE ${taskConditions.join(' AND ')}`);
+        const rows = await sql(`SELECT t.id, ${estimateExpr} AS estimate FROM blocks t WHERE ${taskConditions.join(' AND ')}`);
         let estimatedMinutes = 0;
-        let actualMinutes = 0;
         let estimateAvailable = 0;
-        let actualAvailable = 0;
         rows.forEach((row) => {
             const estimate = parseDurationMinutes(row.estimate);
             if (estimate != null) { estimatedMinutes += estimate; estimateAvailable += 1; }
-            const minutes = Number(row.tomato_minutes);
-            const hours = Number(row.tomato_hours);
-            if (Number.isFinite(minutes) && minutes > 0) { actualMinutes += minutes; actualAvailable += 1; }
-            else if (Number.isFinite(hours) && hours > 0) { actualMinutes += hours * 60; actualAvailable += 1; }
         });
         const scopedTaskIDs = new Set(rows.map((row) => text(row.id)).filter(Boolean));
-        const fromMs = text(source.from) ? Date.parse(source.from) : NaN;
-        const toMs = text(source.to) ? Date.parse(source.to) : NaN;
         const scopeRestricted = scope.tokenBacked || scope.taskIDs.length > 0 || scope.documentIDs.length > 0;
         const schedules = (await loadSchedules()).filter((item) => {
             if (scopeRestricted && !scopedTaskIDs.has(text(item.taskId || item.task_id || item.linkedTaskId))) return false;
             const startMs = Date.parse(item.start);
             const endMs = Date.parse(item.end);
-            if (Number.isFinite(fromMs) && Number.isFinite(endMs) && endMs < fromMs) return false;
-            if (Number.isFinite(toMs) && Number.isFinite(startMs) && startMs > toMs) return false;
+            if (Number.isFinite(endMs) && endMs <= effectiveFromMs) return false;
+            if (Number.isFinite(startMs) && startMs >= effectiveToMs) return false;
             return true;
         });
         let plannedMinutes = 0;
@@ -6090,11 +7123,42 @@
             }
             if (Number.isFinite(minutes) && minutes > 0) { plannedMinutes += minutes; plannedAvailable += 1; }
         });
+        const focusScope = scope.scopeMode === 'documents' && scope.documentIDs.length
+            ? { documentIDs: scope.documentIDs }
+            : (scope.taskIDs.length ? { taskIDs: scope.taskIDs } : (scope.documentIDs.length ? { documentIDs: scope.documentIDs } : {}));
+        let actual;
+        try {
+            const focusStats = await queryFocusStatistics({
+                from: effectiveFrom,
+                to: effectiveTo,
+                bucket: 'none',
+                groupBy: 'task',
+                ...focusScope,
+            });
+            const actualMinutes = Math.max(0, Number(focusStats?.totals?.focusSec) || 0) / 60;
+            const actualAvailable = Array.isArray(focusStats?.tasks) ? focusStats.tasks.length : 0;
+            actual = {
+                minutes: Math.round(actualMinutes),
+                availableCount: actualAvailable,
+                missingCount: Math.max(0, rows.length - actualAvailable),
+                available: true,
+                source: 'docktomato-history',
+            };
+        } catch (error) {
+            actual = {
+                minutes: 0,
+                availableCount: 0,
+                missingCount: rows.length,
+                available: false,
+                source: 'docktomato-history',
+                errorCode: text(error?.code) || ERROR.STORAGE_ERROR,
+            };
+        }
         return {
             estimated: { minutes: Math.round(estimatedMinutes), availableCount: estimateAvailable, missingCount: rows.length - estimateAvailable, available: estimateAvailable > 0 },
             planned: { minutes: Math.round(plannedMinutes), availableCount: plannedAvailable, missingCount: schedules.length - plannedAvailable, available: plannedAvailable > 0 },
-            actual: { minutes: Math.round(actualMinutes), availableCount: actualAvailable, missingCount: rows.length - actualAvailable, available: actualAvailable > 0, source: 'tomato' },
-            coverage: { from: text(source.from), to: text(source.to), ...taskScopeCoverage(scope) },
+            actual,
+            coverage: { from: effectiveFrom, to: effectiveTo, ...taskScopeCoverage(scope) },
         };
     }
 
@@ -6347,6 +7411,9 @@
             ['apply_task_policy_patch', '应用已预览的规划策略变更', objectSchema({ action: stringSchema('写操作', ['apply']), expectedRevision: { type: 'integer' }, previewToken: { type: 'string' } }, ['action', 'expectedRevision', 'previewToken']), async (args) => { requireAction(args, 'apply'); return applyPolicyPatch(args); }],
             ['aggregate_task_stats', '聚合任务完成统计；自定义标签同时返回直接计数 items 与按祖先去重汇总的 hierarchyItems（directCount/totalCount）', objectSchema({ action: queryAction, scopeToken: stringSchema('当前任务视图范围令牌'), from: { type: 'string' }, to: { type: 'string' }, period: stringSchema('聚合周期', ['day', 'week', 'month', 'year']), taskIDs: { type: 'array', items: { type: 'string' } }, documentIDs: { type: 'array', items: { type: 'string' } }, customFieldIDs: { type: 'array', description: '需要按自定义标签直接计数和父级汇总时传入 customFieldDefinitions 中的字段 ID', items: { type: 'string' }, maxItems: 20 } }, ['action']), aggregateTaskStats],
             ['aggregate_time_usage', '聚合预估、计划和实际用时', objectSchema({ action: queryAction, scopeToken: stringSchema('当前任务视图范围令牌'), from: { type: 'string' }, to: { type: 'string' }, taskIDs: { type: 'array', items: { type: 'string' } }, documentIDs: { type: 'array', items: { type: 'string' } } }, ['action']), aggregateTimeUsage],
+            ['query_focus_statistics', '查询任意时间范围的专注统计；未指定时间时默认最近30天，可按日、周、月、季度或年直接返回分桶结果', objectSchema({ action: queryAction, scopeToken: stringSchema('当前任务视图范围令牌'), from: { type: 'string' }, to: { type: 'string' }, bucket: stringSchema('时间分桶', ['none', 'hour', 'day', 'week', 'month', 'quarter', 'year']), groupBy: stringSchema('任务分类维度', ['task', 'parent', 'document', 'status', 'priority', 'customField']), customFieldID: { type: 'string' }, rootTaskID: { type: 'string' }, taskIDs: { type: 'array', items: { type: 'string' } }, documentIDs: { type: 'array', items: { type: 'string' } } }, ['action']), queryAgentFocusStatistics],
+            ['query_routine_statistics', '查询任意时间范围的日常事务、专注、休息、覆盖和未记录时长', objectSchema({ action: queryAction, from: { type: 'string' }, to: { type: 'string' }, bucket: stringSchema('时间分桶', ['none', 'hour', 'day', 'week', 'month', 'quarter', 'year']) }, ['action']), queryAgentRoutineStatistics],
+            ['list_focus_sessions', '分页读取专注会话明细；常规汇总应优先使用 query_focus_statistics', objectSchema({ action: queryAction, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 }, cursor: { type: 'integer', minimum: 0 } }, ['action']), listAgentFocusSessions],
         ];
     }
 
@@ -6400,23 +7467,44 @@
         });
     }
 
+    function mcpPersistedConfigSignature() {
+        return JSON.stringify({
+            enabled: state.mcpDesiredEnabled === true,
+            tools: MCP_TOOL_NAMES.map((name) => [name, isMcpToolEnabled(name)]),
+        });
+    }
+
+    function mcpRuntimeConfigSignature() {
+        return `${state.mcpAuthorized === true ? 1 : 0}|${mcpPersistedConfigSignature()}`;
+    }
+
     async function applyMcpConfigChange(change) {
         const previousEnabled = state.mcpEnabled;
         const previousAuthorized = state.mcpAuthorized;
         const previousDesiredEnabled = state.mcpDesiredEnabled;
         const previousTools = { ...state.mcpTools };
+        const previousPersistedSignature = mcpPersistedConfigSignature();
+        const previousRuntimeSignature = mcpRuntimeConfigSignature();
+        let persistedChanged = false;
+        let runtimeChanged = false;
         try {
             change();
-            await reconcileTools();
-            await persistMcpConfig();
+            persistedChanged = mcpPersistedConfigSignature() !== previousPersistedSignature;
+            runtimeChanged = mcpRuntimeConfigSignature() !== previousRuntimeSignature;
+            if (runtimeChanged) await reconcileTools();
+            if (persistedChanged) await persistMcpConfig();
             return getCapabilities();
         } catch (error) {
             state.mcpEnabled = previousEnabled;
             state.mcpAuthorized = previousAuthorized;
             state.mcpDesiredEnabled = previousDesiredEnabled;
             state.mcpTools = previousTools;
-            try { await reconcileTools(); } catch (rollbackError) {}
-            try { await persistMcpConfig(); } catch (rollbackError) {}
+            if (runtimeChanged) {
+                try { await reconcileTools(); } catch (rollbackError) {}
+            }
+            if (persistedChanged) {
+                try { await persistMcpConfig(); } catch (rollbackError) {}
+            }
             throw error;
         }
     }
@@ -6557,6 +7645,15 @@
         await siyuan.rpc.bind('taskHorizonApplyPolicyPatch', (input) => asResult(() => applyPolicyPatch(input || {})));
         await siyuan.rpc.bind('taskHorizonAggregateTaskStats', (input) => asResult(() => aggregateTaskStats(input || {})));
         await siyuan.rpc.bind('taskHorizonAggregateTimeUsage', (input) => asResult(() => aggregateTimeUsage(input || {})));
+        await siyuan.rpc.bind('taskHorizonProjectFocusStatistics', (rawStats, input, taskSnapshot) => asResult(() => (
+            projectFocusStatistics(rawStats || {}, input || {}, taskSnapshot || null)
+        )));
+        await siyuan.rpc.bind('taskHorizonResolveFocusCandidateIDs', (input) => asResult(async () => ({
+            candidateIDs: await resolveFocusCandidateIDs(input || {}),
+        })));
+        await siyuan.rpc.bind('taskHorizonQueryFocusStatistics', (input) => asResult(() => queryFocusStatistics(input || {})));
+        await siyuan.rpc.bind('taskHorizonQueryRoutineStatistics', (input) => asResult(() => queryDockTomatoRoutineStats(input || {})));
+        await siyuan.rpc.bind('taskHorizonListFocusSessions', (input) => asResult(() => listDockTomatoSessions(input || {})));
         await siyuan.rpc.bind('taskHorizonGroupUndoMutations', (input) => asResult(() => groupUndoMutations(input || {})));
         await siyuan.rpc.bind('taskHorizonUndoLastMutation', (input) => asResult(() => undoLastMutation(input || {})));
     }
@@ -6570,6 +7667,7 @@
         'taskHorizonCreateSchedule', 'taskHorizonUpdateSchedule', 'taskHorizonPreviewDeleteSchedule',
         'taskHorizonDeleteSchedule', 'taskHorizonGetPolicy', 'taskHorizonRestorePolicy', 'taskHorizonResolveDurationDefaults', 'taskHorizonPreviewPolicyPatch',
         'taskHorizonApplyPolicyPatch', 'taskHorizonAggregateTaskStats', 'taskHorizonAggregateTimeUsage',
+        'taskHorizonProjectFocusStatistics', 'taskHorizonResolveFocusCandidateIDs', 'taskHorizonQueryFocusStatistics', 'taskHorizonQueryRoutineStatistics', 'taskHorizonListFocusSessions',
         'taskHorizonGroupUndoMutations', 'taskHorizonUndoLastMutation',
     ];
 

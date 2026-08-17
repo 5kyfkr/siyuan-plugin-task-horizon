@@ -2390,6 +2390,12 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
+                            '移动端启动时自动打开任务管理器',
+                            '仅在 Android、iOS 和 HarmonyOS 思源 App 冷启动后生效。启动同步仍在进行时先显示本地数据，数据合并完成后自动刷新。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.mobileAutoOpenOnStartup === true ? 'checked' : ''} onchange="updateMobileAutoOpenOnStartup(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleSwitchSetting(
                             '自动隐藏页签栏',
                             '开启后文档页签栏默认收起；桌面端和 Dock 鼠标移入顶栏展开，移出顶栏和页签区域收起；移动端支持轻触、下滑展开，上滑或点击外部区域收起。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTabsAutoHideEnabled ? 'checked' : ''} onchange="updateDocTabsAutoHideEnabled(this.checked)">`,

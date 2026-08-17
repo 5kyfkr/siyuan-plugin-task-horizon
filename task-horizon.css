@@ -7696,16 +7696,16 @@ select.tm-btn-secondary {
 }
 
 @supports (content-visibility: auto) {
-    .tm-modal.tm-modal--mobile .tm-body.tm-body--kanban .tm-kanban-card:not(.tm-kanban-card--sub),
-    .tm-modal.tm-modal--dock .tm-body.tm-body--kanban .tm-kanban-card:not(.tm-kanban-card--sub),
-    [data-tm-host-mode="dock"] .tm-body.tm-body--kanban .tm-kanban-card:not(.tm-kanban-card--sub) {
+    .tm-modal.tm-modal--mobile .tm-body.tm-body--kanban .tm-kanban-card:not(.tm-kanban-card--sub):not(.tm-kanban-card--parent),
+    .tm-modal.tm-modal--dock .tm-body.tm-body--kanban .tm-kanban-card:not(.tm-kanban-card--sub):not(.tm-kanban-card--parent),
+    [data-tm-host-mode="dock"] .tm-body.tm-body--kanban .tm-kanban-card:not(.tm-kanban-card--sub):not(.tm-kanban-card--parent) {
         content-visibility: auto;
         contain-intrinsic-size: auto 96px;
     }
 
-    .tm-modal.tm-modal--mobile .tm-body.tm-body--kanban.tm-body--kanban-booting .tm-kanban-card:not(.tm-kanban-card--sub),
-    .tm-modal.tm-modal--dock .tm-body.tm-body--kanban.tm-body--kanban-booting .tm-kanban-card:not(.tm-kanban-card--sub),
-    [data-tm-host-mode="dock"] .tm-body.tm-body--kanban.tm-body--kanban-booting .tm-kanban-card:not(.tm-kanban-card--sub) {
+    .tm-modal.tm-modal--mobile .tm-body.tm-body--kanban.tm-body--kanban-booting .tm-kanban-card:not(.tm-kanban-card--sub):not(.tm-kanban-card--parent),
+    .tm-modal.tm-modal--dock .tm-body.tm-body--kanban.tm-body--kanban-booting .tm-kanban-card:not(.tm-kanban-card--sub):not(.tm-kanban-card--parent),
+    [data-tm-host-mode="dock"] .tm-body.tm-body--kanban.tm-body--kanban-booting .tm-kanban-card:not(.tm-kanban-card--sub):not(.tm-kanban-card--parent) {
         content-visibility: auto;
         contain-intrinsic-size: auto 96px;
     }
@@ -7896,6 +7896,13 @@ select.tm-btn-secondary {
            placeholder every time, which causes scrollbar jumps and the
            "row pops in" flicker. */
         contain-intrinsic-size: auto 96px;
+    }
+
+    .tm-modal.tm-modal--mobile .tm-body.tm-body--kanban .tm-kanban-card.tm-kanban-card--parent,
+    .tm-modal.tm-modal--dock .tm-body.tm-body--kanban .tm-kanban-card.tm-kanban-card--parent,
+    [data-tm-host-mode="dock"] .tm-body.tm-body--kanban .tm-kanban-card.tm-kanban-card--parent {
+        content-visibility: visible;
+        contain-intrinsic-size: none;
     }
 }
 
@@ -10261,6 +10268,10 @@ select.tm-btn-secondary {
     border: 1px solid var(--tm-border-color);
     border-radius: 18px;
     background: color-mix(in srgb, var(--tm-section-bg) 90%, var(--tm-bg-color));
+}
+
+.tm-task-detail-section[data-tm-detail-focus-stats][hidden] {
+    display: none !important;
 }
 
 .tm-task-detail .tm-task-detail-section,
@@ -13358,6 +13369,22 @@ select.tm-btn-secondary {
     padding-left: 0;
 }
 
+.tm-checklist-disclosure {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tm-checklist-disclosure[hidden],
+.tm-checklist-group-card-items[hidden] {
+    display: none !important;
+}
+
+.tm-checklist-pane--compact .tm-checklist-disclosure {
+    gap: 0;
+}
+
 .tm-task-drop-gap {
     position: relative;
     height: 0;
@@ -13522,6 +13549,11 @@ select.tm-btn-secondary {
         /* `auto Xpx`: remembered measured size avoids layout shift when
            scrolling rows back into view. */
         contain-intrinsic-size: auto 108px;
+    }
+
+    .tm-checklist-disclosure > .tm-checklist-item {
+        content-visibility: visible;
+        contain-intrinsic-size: none;
     }
 }
 
@@ -14084,6 +14116,45 @@ select.tm-btn-secondary {
 
 .tm-checklist-pane--compact .tm-checklist-title-row {
     gap: 8px;
+}
+
+.tm-checklist-pane--compact .tm-checklist-item.tm-checklist-item--has-remark {
+    --tm-checklist-compact-primary-row-height: 24px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: stretch;
+    column-gap: 2px;
+    row-gap: 0;
+    padding-top: 5px;
+    padding-bottom: 5px;
+}
+
+.tm-checklist-pane--compact .tm-checklist-item.tm-checklist-item--has-remark > .tm-checklist-leading {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: stretch;
+    min-height: var(--tm-checklist-compact-primary-row-height);
+}
+
+.tm-checklist-pane--compact .tm-checklist-item.tm-checklist-item--has-remark > .tm-checklist-item-main {
+    display: contents;
+}
+
+.tm-checklist-pane--compact .tm-checklist-item.tm-checklist-item--has-remark .tm-checklist-title-row {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: var(--tm-checklist-compact-primary-row-height);
+}
+
+.tm-checklist-pane--compact .tm-checklist-item-main > .tm-task-card-remark {
+    grid-column: 2;
+    grid-row: 2;
+    margin-top: 2px;
+    font-size: 11px;
+    line-height: 1.35;
+    -webkit-line-clamp: var(--tm-task-remark-wrap-lines, 2);
+    line-clamp: var(--tm-task-remark-wrap-lines, 2);
 }
 
 .tm-checklist-mobile-toggle {
@@ -17911,6 +17982,14 @@ th[data-col] {
 
 .tm-group-toggle--collapsed .tm-group-toggle-icon {
     transform: rotate(0deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tm-tree-toggle-icon,
+    .tm-group-toggle-icon,
+    .tm-whiteboard-pool-doc-chevron-icon {
+        transition: none !important;
+    }
 }
 
 .tm-tree-spacer {

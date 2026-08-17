@@ -409,10 +409,17 @@ async function run() {
     assert.equal(stats.data.coverage.taskCount, TASK_COUNT);
     assert.equal(Object.hasOwn(stats.data.coverage, 'taskIDs'), false);
 
-    const usage = await mcpTools.aggregate_time_usage.handler({ action: 'query', scopeToken: registered.data.scopeToken });
+    const usage = await mcpTools.aggregate_time_usage.handler({
+        action: 'query',
+        scopeToken: registered.data.scopeToken,
+        from: '2026-01-01T00:00:00+08:00',
+        to: '2026-07-16T00:00:00+08:00',
+    });
     assert.equal(usage.ok, true);
     assert.equal(usage.data.estimated.availableCount, TASK_COUNT);
     assert.equal(usage.data.planned.availableCount, 600);
+    assert.equal(usage.data.actual.available, false);
+    assert.equal(usage.data.actual.source, 'docktomato-history');
     assert.equal(usage.data.coverage.taskCount, TASK_COUNT);
 
     const sourceDeletePreview = await mcpTools.delete_task.handler({ action: 'get', phase: 'preview', taskID: virtualItems[0].sourceTaskID });

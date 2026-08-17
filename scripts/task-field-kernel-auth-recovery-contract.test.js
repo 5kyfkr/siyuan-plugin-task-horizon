@@ -19,15 +19,15 @@ const gatewayEnd = services.indexOf('\n    const __TM_TASK_REPEAT_RULE_ATTR', ga
 const gatewaySource = services.slice(gatewayStart, gatewayEnd);
 
 assert.match(services, /__TM_KERNEL_SESSION_AUTH_ERROR = 'Auth failed \[session\]'/, 'task fields must recognize the exact stale Kernel JWT error');
-assert.doesNotMatch(rpcSource, /__TM_KERNEL_RECOVERY_REPLAYABLE_RPCS/,
-    'task writes must never be replayed automatically after session recovery');
-assert.equal((rpcSource.match(/return await invoke\(\)/g) || []).length, 1,
-    'the Kernel RPC wrapper must invoke a write only once');
+assert.match(services, /__TM_KERNEL_RETRYABLE_READ_RPCS = new Set\(\[[\s\S]*taskHorizonProjectFocusStatistics[\s\S]*\]\)/,
+    'pure focus projection reads must be explicitly retryable after session recovery');
+assert.doesNotMatch(services.match(/__TM_KERNEL_RETRYABLE_READ_RPCS = new Set\(\[[\s\S]*?\]\)/)?.[0] || '', /taskHorizonMutateTask/,
+    'task mutations must never be included in the automatic replay allowlist');
 assert.match(services, /fetch\('\/api\/petal\/setPetalEnabled'[\s\S]*packageName: 'siyuan-plugin-task-horizon'[\s\S]*enabled: true[\s\S]*app: appID/, 'field recovery must restart only the current Task Horizon Kernel session');
 assert.match(services, /async function __tmThrowAfterKernelSessionRecovery\(callName\)[\s\S]*await __tmRecoverTaskHorizonKernelSession\(\)[\s\S]*KERNEL_SESSION_RECOVERED/,
     'field recovery must require a new user write after restarting the stale Kernel session');
-assert.match(services, /async function __tmCallTaskHorizonKernelRpc\(name, \.\.\.args\)[\s\S]*__tmIsKernelSessionAuthError\(error\)[\s\S]*__tmThrowAfterKernelSessionRecovery\(methodName\)/,
-    'field RPC may recover the session but must require a new user write');
+assert.match(rpcSource, /__TM_KERNEL_RETRYABLE_READ_RPCS\.has\(methodName\)[\s\S]*await __tmRecoverTaskHorizonKernelSession\(\)[\s\S]*const recovered = await invoke\(\)[\s\S]*return recovered[\s\S]*__tmThrowAfterKernelSessionRecovery\(methodName\)/,
+    'only allowlisted reads may replay once while task writes require a new user action');
 assert.match(gatewaySource, /__tmIsKernelSessionAuthError\(error\)[\s\S]*__tmThrowAfterKernelSessionRecovery\('taskHorizonMutateTask'\)/,
     'a stale Kernel JWT wrapped in a failed mutation receipt must use the same recovery coordinator');
 assert.equal((gatewaySource.match(/__tmCallTaskHorizonKernelRpc\('taskHorizonMutateTask', command\)/g) || []).length, 1,
@@ -84,7 +84,53 @@ async function verifyReceiptRecoveryDoesNotReplayMutation() {
     assert.equal(recoveryCalls, 1, 'an ordinary failed receipt must not recover the Kernel session');
 }
 
-verifyReceiptRecoveryDoesNotReplayMutation().then(() => {
+async function verifyReadRecoveryReplaysOnlyTheRead() {
+    let rpcCalls = 0;
+    let recoveryCalls = 0;
+    const results = [
+        { ok: false, error: { code: 'STORAGE_ERROR', message: 'Auth failed [session]' } },
+        { ok: true, data: { contractVersion: 2, totals: { focusSec: 120 } } },
+    ];
+    const context = {
+        Error,
+        Set,
+        String,
+        globalThis: null,
+        __TM_KERNEL_RETRYABLE_READ_RPCS: new Set(['taskHorizonProjectFocusStatistics']),
+        __tmIsTaskHorizonKernelUnavailableError: () => false,
+        __tmIsKernelSessionAuthError: (error) => error?.message === 'Auth failed [session]',
+        __tmRecoverTaskHorizonKernelSession: async () => { recoveryCalls += 1; },
+        __tmThrowAfterKernelSessionRecovery: async () => {
+            const error = new Error('任务工具会话已恢复，请重试刚才的操作');
+            error.code = 'KERNEL_SESSION_RECOVERED';
+            throw error;
+        },
+        __taskHorizonHostBridge: {
+            kernel: {
+                rpc: {
+                    call: {
+                        taskHorizonProjectFocusStatistics: async () => {
+                            rpcCalls += 1;
+                            return results.shift();
+                        },
+                    },
+                },
+            },
+        },
+    };
+    context.globalThis = context;
+    vm.runInNewContext(rpcSource + '\nthis.callKernel = __tmCallTaskHorizonKernelRpc;', context);
+    const result = await context.callKernel('taskHorizonProjectFocusStatistics', {}, {}, {});
+    assert.equal(result.available, true);
+    assert.equal(result.data.totals.focusSec, 120);
+    assert.equal(rpcCalls, 2, 'a stale pure read must retry exactly once');
+    assert.equal(recoveryCalls, 1, 'the stale read must use the shared recovery coordinator');
+}
+
+Promise.all([
+    verifyReceiptRecoveryDoesNotReplayMutation(),
+    verifyReadRecoveryReplaysOnlyTheRead(),
+]).then(() => {
     console.log('task field Kernel auth recovery contract tests passed');
 }).catch((error) => {
     console.error(error);

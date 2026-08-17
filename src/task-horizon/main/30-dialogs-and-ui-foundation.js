@@ -3017,7 +3017,7 @@ if (detailTaskId) {
         try {
             if (modal && __tmRerenderChecklistInPlace(modal, opts)) {
                 state.pendingChecklistRenderRestore = null;
-                return;
+                return true;
             }
         } catch (e) {}
         render();
@@ -3035,6 +3035,7 @@ if (detailTaskId) {
             setTimeout(restore, 30);
             setTimeout(restore, 90);
         } catch (e) {}
+        return false;
     }
 
     function __tmCaptureChecklistRenderRestore() {
@@ -3190,6 +3191,7 @@ try {
         const modal = state.modal instanceof Element ? state.modal : null;
         if (!(modal instanceof Element)) return false;
         if (!__tmHasCalendarSidebarChecklist(modal)) return false;
+        try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {}
         try { __tmBindChecklistScrollVisibility(modal); } catch (e) {}
         try { __tmBindFloatingTooltips(modal); } catch (e) {}
         try { __tmRefreshChecklistSelectionInPlace(modal, 'calendar-sidebar-after-render'); } catch (e) {}
@@ -3321,7 +3323,9 @@ try {
             schedule(true);
         };
         try {
-            const ro = new ResizeObserver(() => schedule(true));
+            const ro = new ResizeObserver(() => {
+                schedule(true);
+            });
             ro.observe(pane);
             resizeTargets.forEach((target) => {
                 if (target instanceof HTMLElement) ro.observe(target);
@@ -4116,7 +4120,9 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmScheduleAutoLoadMoreRecheck(modeInput = '') {
         const mode = String(modeInput || state.viewMode || '').trim();
         try {
-            setTimeout(() => {
+            if (state.__tmAutoLoadMoreRecheckTimer) clearTimeout(state.__tmAutoLoadMoreRecheckTimer);
+            state.__tmAutoLoadMoreRecheckTimer = setTimeout(() => {
+                state.__tmAutoLoadMoreRecheckTimer = 0;
                 const currentMode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
                 if (currentMode !== mode) return;
                 const pane = __tmGetAutoLoadMoreScrollHost(state.modal, mode);
@@ -4145,7 +4151,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (mode !== 'list' && mode !== 'checklist' && mode !== 'timeline') return;
         const pane = __tmGetAutoLoadMoreScrollHost(modal, mode);
         if (!(pane instanceof HTMLElement) || pane.__tmAutoLoadMoreScrollBound) return;
-        const onScroll = () => {
+        const checkNearBottom = () => {
             const progressiveJob = state.__tmProgressiveViewRender;
             if (progressiveJob
                 && String(progressiveJob.mode || '').trim() === mode
@@ -4162,6 +4168,23 @@ return Number(state.contextInteractionQuietUntil || 0);
                 mode,
                 source: 'scroll-near-bottom',
             }).catch(() => null);
+        };
+        const onScroll = () => {
+            if (pane.__tmAutoLoadMoreCheckPending) return;
+            pane.__tmAutoLoadMoreCheckPending = true;
+            const run = () => {
+                pane.__tmAutoLoadMoreCheckPending = false;
+                const currentMode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+                if (!pane.isConnected || state.modal !== modal || currentMode !== mode) return;
+                checkNearBottom();
+            };
+            try {
+                if (typeof __tmScheduleIdleTask === 'function') {
+                    __tmScheduleIdleTask(run, 240);
+                    return;
+                }
+            } catch (e) {}
+            try { setTimeout(run, Math.max(80, __tmGetHighPriorityInteractionWaitMs?.(40) || 0)); } catch (e) { run(); }
         };
         pane.addEventListener('scroll', onScroll, { passive: true });
         pane.__tmAutoLoadMoreScrollBound = true;
@@ -4216,6 +4239,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             stateTimerKey: '__tmTimelineScrollStateTimer',
             rafKey: '__tmTimelineScrollFxRaf',
             scrollClass: 'tm-scroll-active',
+            onScroll: () => {
+                try { __tmCancelAnimationsWithin(modal); } catch (e) {}
+            },
         });
     }
 
@@ -16574,7 +16600,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             const startX = __tmGetClientXFromPointerOrTouchEvent(ev);
             const startY = pointerY;
             const startedFullscreen = sheet.classList.contains('tm-checklist-sheet--fullscreen') || state.checklistDetailSheetFullscreen === true;
-            const waitForIntent = allowBodySheetGesture && inBody && !fromHandle && (startedFullscreen || touchTextInputTarget || touchGestureTarget);
+            const waitForIntent = allowBodySheetGesture && inBody && !fromHandle && (startedFullscreen || touchTextInputTarget || touchGestureTarget || !touchInput);
             const prevSheetHeight = sheet.style.height;
             const prevSheetMaxHeight = sheet.style.maxHeight;
             let metrics = null;

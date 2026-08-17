@@ -35,9 +35,30 @@
     function __tmBuildRenderSceneChecklistBodyHtml(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const bodyAnimClass = String(opts.bodyAnimClass || '');
+        const taskBranchId = String(opts.taskBranchId || '').trim();
 
         function __tmRenderChecklistBodyHtml() {
             const rowModel = __tmBuildTaskRowModel();
+            let taskBranchRows = null;
+            if (taskBranchId) {
+                const branchStart = rowModel.findIndex((row) => row?.type === 'task' && String(row?.id || '').trim() === taskBranchId);
+                if (branchStart >= 0) {
+                    const branchDepth = Math.max(0, Number(rowModel[branchStart]?.depth) || 0);
+                    let branchEnd = branchStart + 1;
+                    while (branchEnd < rowModel.length) {
+                        const row = rowModel[branchEnd];
+                        if (row?.type === 'group') break;
+                        if (row?.type === 'task' && Math.max(0, Number(row?.depth) || 0) <= branchDepth) break;
+                        branchEnd += 1;
+                    }
+                    const candidateRows = rowModel.slice(branchStart, branchEnd);
+                    const descendantCount = candidateRows.reduce((count, row, index) => (
+                        index > 0 && row?.type === 'task' ? count + 1 : count
+                    ), 0);
+                    const disclosureLimit = Math.max(1, Number(__tmCollapseMotion.config?.maxDisclosureItems) || 24);
+                    if (descendantCount > 0 && descendantCount <= disclosureLimit) taskBranchRows = candidateRows;
+                }
+            }
             const completedTodayKey = __tmNormalizeDateOnly(new Date());
             const filteredTaskById = new Map(
                 (Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
@@ -47,7 +68,9 @@
             const checklistVirtualThreshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 50;
             const checklistVirtualEnabled = Array.isArray(state.filteredTasks) && state.filteredTasks.length > checklistVirtualThreshold;
             const checklistStep = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
-            const checklistTaskLimit = checklistVirtualEnabled
+            const checklistTaskLimit = taskBranchRows
+                ? Number.POSITIVE_INFINITY
+                : checklistVirtualEnabled
                 ? Math.max(checklistStep, Math.min(state.filteredTasks.length, Number(state.listRenderLimit) || checklistStep))
                 : Number.POSITIVE_INFINITY;
             let renderedChecklistTaskCount = 0;
@@ -351,7 +374,8 @@
                     todayKey: completedTodayKey,
                     inCompletedRootGroup: row?.inCompletedRootGroup === true,
                 });
-                const remarkIconHtml = __tmRenderRemarkIcon(task.remark);
+                const compactRemarkHtml = checklistCompact ? __tmRenderTaskCardRemark(task) : '';
+                const remarkIconHtml = compactRemarkHtml ? '' : __tmRenderRemarkIcon(task.remark);
                 const attachmentIconHtml = __tmRenderTaskAttachmentIcon(task);
                 const statusOptions = __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
                 const statusOption = __tmResolveTaskStatusDisplayOption(task, statusOptions, { fallbackColor: '#757575' });
@@ -456,12 +480,12 @@
                 const touchDragAttr = __tmShouldUseCustomTouchTaskDrag()
                     ? `onpointerdown="tmTaskTouchDragStart(event, '${escSq(String(task.id || ''))}')"`
                     : '';
-                const remarkSearchSnippetHtml = typeof __tmBuildTaskRemarkSearchSnippet === 'function'
+                const remarkSearchSnippetHtml = !compactRemarkHtml && typeof __tmBuildTaskRemarkSearchSnippet === 'function'
                     ? __tmBuildTaskRemarkSearchSnippet(task, state.searchKeyword)
                     : '';
                 renderedChecklistTaskCount += 1;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}${branchLeadingCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" data-tm-subtask-progress-owner="${esc(String(task.id || ''))}" ${itemDragAttrs} ondragenter="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragover="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragleave="tmTaskRowDragLeave(event, '${escSq(String(task.id || ''))}')" ondrop="tmTaskRowDrop(event, '${escSq(String(task.id || ''))}')" ${touchDragAttr} style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ${itemContextMenuAttr}>
+                    <div class="tm-checklist-item${compactRemarkHtml ? ' tm-checklist-item--has-remark' : ''}${activeCls}${doneCls}${branchLeadingCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" data-tm-subtask-progress-owner="${esc(String(task.id || ''))}" ${itemDragAttrs} ondragenter="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragover="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragleave="tmTaskRowDragLeave(event, '${escSq(String(task.id || ''))}')" ondrop="tmTaskRowDrop(event, '${escSq(String(task.id || ''))}')" ${touchDragAttr} style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ${itemContextMenuAttr}>
                         ${treeGuides}
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-checklist-parent-toggle-color);">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
@@ -476,6 +500,7 @@
                                 ${normalCustomFieldTagsHtml}
                                 ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : ''}
                             </div>
+                            ${compactRemarkHtml}
                             ${meta.length ? `<div class="tm-checklist-meta">${meta.join('')}</div>` : ''}
                             ${remarkSearchSnippetHtml}
                         </div>
@@ -508,7 +533,7 @@
                 items.push(`<section class="${cardClasses}"${cardStyle.length ? ` style="${cardStyle.join('')}"` : ''}>${compactGroupCard.header}${cardBodyHtml}</section>`);
                 compactGroupCard = null;
             };
-            for (const row of rowModel) {
+            for (const row of taskBranchRows || rowModel) {
                 if (row?.type === 'group') {
                     if (renderedChecklistTaskCount >= checklistTaskLimit) break;
                     const groupHtml = renderGroup(row);
@@ -545,6 +570,9 @@
             }
             flushCompactGroupCard();
             const itemsHtml = items.join('');
+            if (taskBranchRows) {
+                return `<div class="tm-checklist-items" data-tm-checklist-branch-fragment="${esc(taskBranchId)}">${itemsHtml}</div>`;
+            }
             const totalChecklistTaskCount = rowModel.reduce((acc, row) => (row?.type === 'task' ? acc + 1 : acc), 0);
             const checklistRemain = (checklistVirtualEnabled && renderedChecklistTaskCount >= checklistTaskLimit)
                 ? Math.max(0, totalChecklistTaskCount - renderedChecklistTaskCount)
