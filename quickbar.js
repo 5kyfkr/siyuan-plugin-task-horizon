@@ -3966,14 +3966,13 @@
         }
 
         function normalizeReminderTaskName(value) {
-            let text = String(value || '').split(/\r?\n/)[0].trim();
-            if (!text) return '任务';
-            text = text.replace(/^[\s>*-]*\[[xX ]\]\s*/, '').trim();
-            text = text.replace(/\{\:\s*[^}]*\}/g, '');
-            text = text.replace(/<span\b[^>]*>([\s\S]*?)<\/span>/gi, '$1');
-            text = text.replace(/<[^>]+>/g, '');
-            text = text.replace(/\s{2,}/g, ' ').trim();
-            return text || '任务';
+            try {
+                const presentation = globalThis.__tmGetTaskTitlePresentation?.(value, '任务');
+                if (presentation && typeof presentation.text === 'string' && presentation.text.trim()) {
+                    return presentation.text.trim();
+                }
+            } catch (e) {}
+            return String(value || '').trim() || '任务';
         }
 
         async function openReminderDialogForCurrentTask() {

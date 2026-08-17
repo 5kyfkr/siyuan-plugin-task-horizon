@@ -77,8 +77,8 @@ assert.doesNotMatch(childListLookup, /api\/query\/sql|SELECT id FROM blocks/,
     'child-list discovery must not wait for the SQL index');
 assert.match(queuedMoveKernel, /targetListID: String\(payload\.targetListId \|\| ''\)\.trim\(\)/,
     'the frontend must pass its known target list as a live-verification hint to the kernel');
-assert.match(moveCommit, /applyLocal: false/,
-    'the kernel receipt must not run the local move algorithm a second time');
+assert.match(moveCommit, /applyLocal: op\?\.optimisticApplied !== true/,
+    'the kernel receipt must apply locally only when the optimistic move did not reach the task tree');
 assert.doesNotMatch(moveCommit, /clearPendingStructural/,
     'the move overlay must survive the HTTP receipt until SQL reaches the confirmed placement');
 assert.doesNotMatch(moveAcknowledgement, /clearPendingStructural/,

@@ -41,6 +41,11 @@ assert.match(motion, /allowDuringScroll: options\.allowDuringScroll === true[\s\
 assert.doesNotMatch(motion, /disclosureMode|maxDisclosureViewportRatio|content\.scrollHeight|willChange: ['"]height|\{ height:/, 'structural motion must not animate or measure container height');
 assert.match(motion, /const mode = requestedMode === 'layout' \? 'layout' : 'none';[\s\S]*?content\.style\.removeProperty\('height'\)/, 'visibility commits must only choose FLIP or immediate mode');
 assert.match(motion, /animation\.oncancel = \(\) => entry\.finish\(false\)/, 'canceled animations must share the cleanup path');
+assert.match(motion, /const pending = runtime\.pendingLayout;[\s\S]*?pending\?\.settle\?\.\(false\)/, 'canceling a pending layout must settle its lifecycle callback');
+assert.match(motion, /settle\(completed\) \{[\s\S]*?options\.onSettled\?\.\(completed === true\)/, 'layout transactions must expose one guarded settle callback');
+assert.match(motion, /const animateLayout =[\s\S]*?onFinish: \(\) => finish\(true\)[\s\S]*?onCancel: \(\) => finish\(false\)[\s\S]*?pending\.settle\?\.\(completed\)/, 'layout settlement must wait for compositor animations to finish or cancel');
+assert.match(motion, /pending\.profile === 'checklist' && pending\.action === 'expand'[\s\S]*?pending\.getClipBoundary\?\.\(\)[\s\S]*?clipBoundaryBottom/, 'checklist expansion must resolve one branch boundary from the committed layout');
+assert.match(motion, /const clipTop = clipBoundaryBottom[\s\S]*?previous\.rect\.top[\s\S]*?from\.clipPath = `inset\(\$\{clipTop\}px 0 0 0\)`[\s\S]*?willChange: clipTop > 0 \? 'transform, clip-path' : 'transform'/, 'later checklist rows must be clipped until they emerge below the expanded branch');
 assert.doesNotMatch(motion, /activeDisclosureViewports|isDisclosureViewportActive|__tmCollapseMotionHoldDisclosureViewport/, 'removed height motion must not leave viewport bookkeeping behind');
 assert.doesNotMatch(motion, /cloneNode|position\s*=\s*['"]fixed/, 'layout motion must not create fixed row clones');
 
@@ -73,16 +78,19 @@ const checklistDisclosureEnd = apiRuntime.indexOf('function __tmTryRefreshCheckl
 assert.ok(checklistDisclosureStart > -1 && checklistDisclosureEnd > checklistDisclosureStart, 'checklist disclosure implementation must remain discoverable');
 const checklistDisclosure = apiRuntime.slice(checklistDisclosureStart, checklistDisclosureEnd);
 assert.match(checklistDisclosure, /__tmCollapseMotion\.beginLayout\(modal,[\s\S]*?profile: 'checklist'[\s\S]*?allowDuringScroll: true[\s\S]*?motionMode = 'layout'/, 'checklist task and group collapse must use local FLIP motion');
+assert.match(checklistDisclosure, /onSettled: finishDisclosure/, 'checklist disclosure cleanup must follow the shared FLIP lifecycle');
+assert.match(checklistDisclosure, /getClipBoundary: \(\) => context\?\.content \|\| null/, 'checklist FLIP must use the retained branch wrapper as its clip boundary');
 assert.ok(checklistDisclosure.indexOf('__tmCollapseMotion.beginLayout') < checklistDisclosure.indexOf('commit();'), 'checklist FLIP must capture positions before cold branch insertion');
-assert.match(checklistDisclosure, /forceMode: motionMode[\s\S]*?queueMicrotask\(\(\) => \{ try \{ __tmCollapseMotion\.playLayout\(modal\)/, 'checklist visibility commit must be followed by FLIP playback');
+assert.match(checklistDisclosure, /forceMode: motionMode[\s\S]*?queueMicrotask\(\(\) => \{[\s\S]*?__tmCollapseMotion\.playLayout\(modal\)/, 'checklist visibility commit must be followed by FLIP playback');
 assert.doesNotMatch(checklistDisclosure, /disclosureMode|itemSelector|boundedItemCount|requestAnimationFrame|logContext/, 'checklist FLIP must not retain height-animation setup or delayed first paint');
 assert.match(apiRuntime, /persistedWrapper[\s\S]*?tmChecklistDisclosureKind[\s\S]*?tmChecklistDisclosureKey/, 'collapsed checklist branches must remain mounted for direct expansion');
 assert.match(checklistDisclosure, /action === 'expand' && !context\?\.content\?\.hidden[\s\S]*?commit\(\)[\s\S]*?context = __tmGetChecklistDisclosureContext/, 'checklist expansion must render only when no mounted collapsed branch is available');
 assert.match(checklistDisclosure, /let coldExpansion = false;[\s\S]*?commit\(\);[\s\S]*?coldExpansion = true;/, 'checklist expansion must distinguish newly rendered branches from mounted warm branches');
 assert.match(checklistDisclosure, /__tmSyncCurrentViewDomRenderSignature\('checklist'\);[\s\S]*?const startDisclosure = \(\) =>/, 'checklist state signatures must be committed before cold expansion is scheduled');
-assert.match(checklistDisclosure, /state\.modal !== modal[\s\S]*?state\.viewMode[\s\S]*?!modal\.isConnected[\s\S]*?!context\.content\.isConnected[\s\S]*?isCollapsed\) return;/, 'deferred checklist expansion must ignore stale modal, view, DOM, and collapse state');
+assert.match(checklistDisclosure, /state\.modal !== modal[\s\S]*?state\.viewMode[\s\S]*?!modal\.isConnected[\s\S]*?!context\.content\.isConnected[\s\S]*?isCollapsedNow\(\)\) \{[\s\S]*?__tmCollapseMotion\.cancel\(modal\)/, 'deferred checklist expansion must ignore stale modal, view, DOM, and collapse state');
 assert.match(checklistDisclosure, /const startDisclosure = \(\) => \{[\s\S]*?__tmCollapseMotion\.setDisclosure/, 'checklist cold and warm paths must share one disclosure start implementation');
-assert.match(checklistDisclosure, /onFinish\(\) \{[\s\S]*?action === 'expand'[\s\S]*?__tmUnwrapChecklistDisclosure[\s\S]*?__tmSyncCurrentViewDomRenderSignature\('checklist'\)/, 'checklist disclosure completion must keep collapsed content mounted and unwrap expanded content');
+assert.match(checklistDisclosure, /const finishDisclosure = \(\) => \{[\s\S]*?__tmUnwrapChecklistDisclosure\(context\)[\s\S]*?__tmSyncCurrentViewDomRenderSignature\('checklist'\)/, 'checklist disclosure completion must unwrap expanded content after FLIP settles');
+assert.match(checklistDisclosure, /const deferFinish = action === 'expand' && motionMode === 'layout';[\s\S]*?if \(!deferFinish\) finishDisclosure\(\)/, 'animated checklist expansion must retain its boundary wrapper only while FLIP is active');
 assert.match(checklistDisclosure, /__tmCollapseMotion\.cancel\(modal\)/, 'rapid checklist reversals must cancel the previous disclosure transaction');
 assert.match(apiRuntime, /const persistedWrapper = anchor\.nextElementSibling;[\s\S]*?return \{ anchor, content: persistedWrapper, wrapper: true \}/, 'rapid checklist reversals must reuse the mounted disclosure branch');
 assert.doesNotMatch(apiRuntime, /querySelectorAll\('\.tm-checklist-disclosure'\)[\s\S]*?__tmUnwrapChecklistDisclosure/, 'rapid checklist reversals must not discard mounted collapsed branches');
@@ -94,6 +102,7 @@ assert.match(settingsActions, /if \(!isKanban && !isChecklist\)[\s\S]*?__tmPrepa
 assert.match(settingsActions, /__tmAnimateChecklistDisclosure\('group', k0, action, \{ animate: !skipAnim \}\)/, 'checklist groups must use local disclosure motion');
 assert.match(settingsActions, /__tmAnimateChecklistDisclosure\('task', key, action, \{ animate: !skipAnim \}\)/, 'checklist task branches must use local disclosure motion');
 assert.match(styles, /\.tm-checklist-disclosure[\s\S]*?flex-direction: column/, 'temporary checklist disclosure wrappers must preserve vertical list layout');
+assert.doesNotMatch(styles, /tm-checklist-disclosure--revealing|tm-checklist-group-card--revealing|tm-checklist-disclosure-mask-bg/, 'checklist FLIP clipping must not cover document accent colors with temporary backgrounds');
 assert.match(styles, /\.tm-checklist-disclosure\[hidden\],[\s\S]*?\.tm-checklist-group-card-items\[hidden\][\s\S]*?display: none !important/, 'mounted checklist branches must have an explicit hidden layout state');
 assert.match(styles, /@supports \(content-visibility: auto\)[\s\S]*?\.tm-checklist-disclosure > \.tm-checklist-item \{[\s\S]*?content-visibility: visible;[\s\S]*?contain-intrinsic-size: none;/, 'cold checklist disclosure rows must paint during their first expansion');
 assert.match(whiteboardRuntime, /tmWhiteboardTogglePoolSection[\s\S]*?beginLayout\(state\.modal,[\s\S]*?profile: 'whiteboard-pool'[\s\S]*?forceMode: motionMode[\s\S]*?playLayout\(state\.modal\)/, 'whiteboard pool groups must use scoped FLIP motion');

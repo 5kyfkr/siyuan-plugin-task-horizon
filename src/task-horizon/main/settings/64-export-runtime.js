@@ -154,6 +154,7 @@
         'calendarQuickAddScheduleTimeMode',
         'calendarQuickAddScheduleCustomTime',
         'calendarHourSlotHeightMode',
+        'calendarEventFontSize',
         'calendarVisibleStartTime',
         'calendarVisibleEndTime',
         'calendarScheduleColor',

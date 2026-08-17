@@ -14761,6 +14761,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const payload = await __tmBuildTaskRowMovePayload(sourceId, targetId, moveKind);
         if (customPhysicalPlacement) payload.customOrderPlacement = true;
         payload.preserveRenderWindow = true;
+        payload.preserveTargetCollapse = true;
         const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
         if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
         const moveResult = await moveTask(sourceId, payload, {
@@ -14768,9 +14769,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             showErrorHint: false,
         });
         try { opts.onSuccess?.(moveResult); } catch (e) {}
-        if (moveKind === 'child' || moveKind === 'child-top') {
-            try { state.collapsedTaskIds?.delete?.(targetId); } catch (e) {}
-        }
         return { kind: moveKind, payload };
     }
 
@@ -14822,6 +14820,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
             const payload = await __tmBuildTaskRowMovePayload(ids[0], targetId, kind);
             payload.preserveRenderWindow = true;
+            payload.preserveTargetCollapse = true;
             if (customOrderPlacement) payload.customOrderPlacement = true;
             const batchMoveTasks = globalThis.__tmRequireTaskMutation?.('batchMoveTasks');
             if (typeof batchMoveTasks !== 'function') throw new Error('任务写入队列未就绪: batchMoveTasks');
@@ -14829,7 +14828,6 @@ return Number(state.contextInteractionQuietUntil || 0);
                 wait: true,
                 showErrorHint: false,
             });
-            try { state.collapsedTaskIds?.delete?.(targetId); } catch (e) {}
             return {
                 kind,
                 payload,
@@ -15144,7 +15142,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         const durationExplicit = nextMeta && Object.prototype.hasOwnProperty.call(nextMeta, 'durationExplicit')
             ? safeMeta.durationExplicit === true
             : fallback.durationExplicit === true;
-        const title = String(safeMeta.title || fallback.title || id).trim() || id;
+        const taskLike = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
+        const rawTitle = String(safeMeta.title || fallback.title || taskLike?.content || id).trim() || id;
+        const title = API.getTaskTitlePresentation(taskLike?.markdown || rawTitle, rawTitle).text;
         return {
             taskId: id,
             id,
@@ -15195,12 +15195,14 @@ return Number(state.contextInteractionQuietUntil || 0);
         const centerOnPointer = options?.centerOnPointer === true;
         const rect = sourceEl.getBoundingClientRect();
         const resolvedTaskId = String(taskId || '').trim();
-        const title = String(
+        const rawTitle = String(
             payload?.title
             || globalThis.__tmTaskBoundary?.getTask?.(resolvedTaskId)?.content
             || taskId
             || '任务'
         ).trim() || '任务';
+        const taskLike = globalThis.__tmTaskBoundary?.getTask?.(resolvedTaskId) || null;
+        const title = API.getTaskTitlePresentation(taskLike?.markdown || rawTitle, rawTitle).text;
         const dateText = String(payload?.completionTime || '').trim();
         const ghost = document.createElement('div');
         ghost.className = 'tm-dock-pointer-task-ghost';

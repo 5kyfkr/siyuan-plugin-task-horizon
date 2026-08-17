@@ -923,8 +923,10 @@
                 });
             }
         } catch (e) {}
-        try { state.collapsedTaskIds?.delete?.(pid); } catch (e) {}
-        try { state.collapsedTaskIds?.delete?.(resolvedPid); } catch (e) {}
+        if (opts.preserveCollapsed !== true) {
+            try { state.collapsedTaskIds?.delete?.(pid); } catch (e) {}
+            try { state.collapsedTaskIds?.delete?.(resolvedPid); } catch (e) {}
+        }
         return true;
     }
 
@@ -2105,11 +2107,13 @@
             inserted = __tmInsertTaskAsChildLocal(nextTask, payload?.targetTaskId, {
                 atTop: true,
                 preservePending,
+                preserveCollapsed: payload?.preserveTargetCollapse === true,
             });
         } else if (mode === 'child') {
             inserted = __tmInsertTaskAsChildLocal(nextTask, payload?.targetTaskId, {
                 atTop: String(payload?.targetLastDirectChildId || '').trim() ? false : true,
                 preservePending,
+                preserveCollapsed: payload?.preserveTargetCollapse === true,
             });
         }
         if (!inserted) {

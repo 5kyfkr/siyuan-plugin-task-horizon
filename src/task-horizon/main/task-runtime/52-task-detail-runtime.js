@@ -767,38 +767,13 @@
         return parentTaskId;
     }
 
-    function __tmCleanTaskDetailParentTitle(value, fallback = '') {
-        const stripTaskSyntax = (input) => String(input || '')
-            .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
-            .replace(/\r?\n+/g, ' ')
-            .replace(/\s{2,}/g, ' ')
-            .trim();
-        let text = String(value || fallback || '').trim();
-        if (!text) return '';
-        try {
-            if (typeof API?.extractTaskContentLine === 'function') {
-                text = String(API.extractTaskContentLine(text) || text).trim();
-            } else {
-                text = String(text.split(/\r?\n/)[0] || text).trim();
-            }
-        } catch (e) {}
-        try {
-            if (typeof API?.normalizeTaskContent === 'function') {
-                text = String(API.normalizeTaskContent(text) || text).trim();
-            }
-        } catch (e) {}
-        return stripTaskSyntax(text) || stripTaskSyntax(fallback);
-    }
-
-    function __tmGetTaskDetailParentTitle(taskLike) {
+    function __tmGetTaskDetailParentTitlePresentation(taskLike) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
-        if (!task) return '';
-        try {
-            const parsedContent = String(API.parseTaskStatus(String(task.markdown || '')).content || '').trim();
-            if (parsedContent) return __tmCleanTaskDetailParentTitle(parsedContent, parsedContent);
-        } catch (e) {}
-        const raw = String(task.content || task.raw_content || task.markdown || '').trim();
-        return __tmCleanTaskDetailParentTitle(raw, raw);
+        if (!task) return { html: '', text: '' };
+        const fallback = String(task.content || task.raw_content || task.title || '').trim();
+        const markdown = String(task.markdown || fallback).trim();
+        if (!markdown && !fallback) return { html: '', text: '' };
+        return API.getTaskTitlePresentation(markdown, fallback);
     }
 
     function __tmGetTaskDetailParentInfo(taskLike, options = {}) {
@@ -816,12 +791,13 @@
         const resolvedParentId = String(parentTask.id || parentTaskId || '').trim();
         const childId = String(task.id || task.blockId || '').trim();
         if (resolvedParentId && childId && resolvedParentId === childId) return null;
-        const title = __tmGetTaskDetailParentTitle(parentTask);
-        if (!title) return null;
+        const titlePresentation = __tmGetTaskDetailParentTitlePresentation(parentTask);
+        if (!titlePresentation.text) return null;
         return {
             id: resolvedParentId || parentTaskId,
             task: parentTask,
-            title,
+            title: titlePresentation.text,
+            titleHtml: titlePresentation.html,
         };
     }
 
@@ -831,8 +807,9 @@
         const parentTaskId = String(parentInfo.id || '').trim();
         if (!parentTaskId) return '';
         const title = String(parentInfo.title || '').trim();
+        const titleHtml = String(parentInfo.titleHtml || esc(title));
         const nameWeight = SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800';
-        return `<button type="button" class="tm-task-detail-parent-line tm-kanban-parent-line" data-tm-detail-parent-task="${esc(parentTaskId)}" style="display:block;width:fit-content;max-width:100%;border:0;background:transparent;padding:0;font:inherit;font-size:12px;color:var(--tm-secondary-text);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;cursor:pointer;" title="${esc(title)}" aria-label="打开父任务详情：${esc(title)}"><span>父任务：</span><span style="font-weight:${nameWeight};color:var(--card-foreground);">${esc(title)}</span></button>`;
+        return `<button type="button" class="tm-task-detail-parent-line tm-kanban-parent-line" data-tm-detail-parent-task="${esc(parentTaskId)}" style="display:block;width:fit-content;max-width:100%;border:0;background:transparent;padding:0;font:inherit;font-size:12px;color:var(--tm-secondary-text);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;cursor:pointer;" title="${esc(title)}" aria-label="打开父任务详情：${esc(title)}"><span>父任务：</span><span style="font-weight:${nameWeight};color:var(--card-foreground);">${titleHtml}</span></button>`;
     }
 
     async function __tmEnsureTaskDetailFieldAttrs(taskLike, options = {}) {
@@ -1205,27 +1182,7 @@
 
     function __tmNormalizeTaskTimeHubTitle(value, fallback = '任务') {
         const backup = String(fallback || '').trim() || '任务';
-        let text = String(value || '').trim() || backup;
-        try {
-            text = (typeof API?.extractTaskContentLine === 'function')
-                ? String(API.extractTaskContentLine(text) || text).trim()
-                : String(text.split(/\r?\n/)[0] || text).trim();
-        } catch (e) {
-            text = String(text.split(/\r?\n/)[0] || text).trim();
-        }
-        text = text
-            .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
-            .replace(/\{\:\s*[^}]*\}/g, '')
-            .replace(/<span\b[^>]*>([\s\S]*?)<\/span>/gi, '$1')
-            .replace(/<[^>]+>/g, '')
-            .replace(/\s{2,}/g, ' ')
-            .trim();
-        try {
-            if (typeof API?.normalizeTaskContent === 'function') {
-                text = String(API.normalizeTaskContent(text) || text).trim();
-            }
-        } catch (e) {}
-        return text || backup;
+        return API.getTaskTitlePresentation(value, backup).text || backup;
     }
 
     function __tmGetTaskDetailTimeHubParts(task, options = {}) {
@@ -2520,7 +2477,8 @@
                 side: 'bottom',
                 ...((tipOpts && typeof tipOpts === 'object') ? tipOpts : {}),
             });
-        const title = String(item.title || '\u4efb\u52a1').trim() || '\u4efb\u52a1';
+        const titlePresentation = API.getTaskTitlePresentation(item.markdown || item.title, '\u4efb\u52a1');
+        const title = titlePresentation.text;
         const x = Number(item.x) || 0;
         const y = Number(item.y) || 0;
         const w = Math.max(72, Number(item.w) || 156);
@@ -2552,7 +2510,7 @@
                 style="left:${x.toFixed(2)}px;top:${y.toFixed(2)}px;width:${w.toFixed(2)}px;height:${h.toFixed(2)}px;"
                 ${tip(title, { ariaLabel: false })}>
                 <span class="tm-task-detail-whiteboard-outline-node__check" data-tm-detail-whiteboard-outline-check onpointerdown="event.stopPropagation()" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">${checkboxHtml}</span>
-                <span class="tm-task-detail-whiteboard-outline-node__title">${esc(title)}</span>
+                <span class="tm-task-detail-whiteboard-outline-node__title" title="${esc(title)}">${titlePresentation.html}</span>
             </div>
         `;
     }

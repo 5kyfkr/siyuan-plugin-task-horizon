@@ -9,6 +9,7 @@ const list = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime
 const create = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/53b-task-create-and-quick-add-runtime.js'), 'utf8');
 const fieldRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/51-whiteboard-and-link-runtime.js'), 'utf8');
 const lifecycle = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/56-task-lifecycle-runtime.js'), 'utf8');
+const store = fs.readFileSync(path.join(root, 'src/task-horizon/main/32-runtime-state-and-events.js'), 'utf8');
 
 function extractFunction(source, name) {
     const start = source.indexOf(`function ${name}(`);
@@ -36,6 +37,8 @@ const resolveCreateSnapshot = extractFunction(api, '__tmResolveQueuedCreateTaskS
 const canRunDuringPendingDelete = extractFunction(api, '__tmCanMutationRunDuringPendingDelete');
 const executeQueuedOp = extractFunction(api, '__tmExecuteQueuedOp');
 const commitQueuedOp = extractFunction(api, '__tmCommitQueuedOp');
+const buildBatchMoveItemOp = extractFunction(api, '__tmBuildQueuedBatchMoveItemOp');
+const applyQueuedOpOptimistic = extractFunction(api, '__tmApplyQueuedOpOptimistic');
 const ensurePendingDeletedStore = extractFunction(create, '__tmEnsurePendingDeletedTaskStore');
 const rememberPendingDeleted = extractFunction(create, '__tmRememberPendingDeletedTaskIds');
 const forgetPendingDeleted = extractFunction(create, '__tmForgetPendingDeletedTaskIds');
@@ -84,6 +87,85 @@ assert.doesNotMatch(api, /function __tmScheduleSimpleOptimisticRender/,
     'structural optimistic mutations must not retain a second render queue outside ProjectionEngine');
 assert.doesNotMatch(optimisticPresentation, /mutationDriven|deferChecklistRender|optimisticFilterStateReady|skipOptimisticMainRefresh/,
     'simple mutation presentation must only update local state and publish its ChangeSet');
+assert.match(store, /localApplied = moveTaskLocal\([\s\S]*notified\.localApplied = localApplied/,
+    'TaskStore must report whether a local move actually reached the canonical task tree');
+assert.match(commitQueuedOp, /applyLocal: op\?\.optimisticApplied !== true/,
+    'a confirmed move must repair local state when optimistic application failed');
+
+const batchMovePublications = [];
+const batchMoveRuntime = new Function(
+    '__tmMutationTempTaskExistsForOptimisticApply',
+    '__tmPublishQueuedOpMutation',
+    '__tmMarkDocsPreferSiblingOrder',
+    `${buildBatchMoveItemOp}\n${applyQueuedOpOptimistic}\n${rollback}\n${commitQueuedOp}\nreturn { apply: __tmApplyQueuedOpOptimistic, rollback: __tmRollbackQueuedOp, commit: __tmCommitQueuedOp };`,
+)(
+    (taskId) => ['task-a', 'task-b'].includes(taskId),
+    (op, phase, detail) => batchMovePublications.push({ op, phase, detail }),
+    () => true,
+);
+const batchMoveOp = {
+    id: 'batch-1',
+    type: 'batchMoveTasks',
+    data: {
+        taskIds: ['task-a', 'task-b'],
+        snapshots: [
+            { taskId: 'task-a', task: { id: 'task-a' } },
+            { taskId: 'task-b', task: { id: 'task-b' } },
+        ],
+        targetDocId: 'doc-target',
+        targetTaskId: 'parent-target',
+        mode: 'child',
+    },
+};
+assert.equal(batchMoveRuntime.apply(batchMoveOp), true,
+    'a batch move must apply its local task-tree moves before the kernel response');
+assert.deepEqual(batchMovePublications.map(({ op, phase }) => [op.id, op.type, phase]), [
+    ['batch-1:move:0', 'moveTask', 'optimistic'],
+    ['batch-1:move:1', 'moveTask', 'optimistic'],
+]);
+assert.equal(batchMovePublications.every(({ op }) => !Object.prototype.hasOwnProperty.call(op.data, 'taskIds')), true,
+    'each batch item overlay must be scoped to one task');
+batchMovePublications.length = 0;
+batchMoveRuntime.commit(batchMoveOp, { results: [{ placement: {} }, { placement: {} }] });
+assert.deepEqual(batchMovePublications.map(({ op, phase }) => [op.id, phase]), [
+    ['batch-1:move:0', 'commit'],
+    ['batch-1:move:1', 'commit'],
+], 'batch commit must settle the same per-task overlays created optimistically');
+batchMovePublications.length = 0;
+batchMoveRuntime.rollback(batchMoveOp);
+assert.deepEqual(batchMovePublications.map(({ op, phase }) => [op.id, phase]), [
+    ['batch-1:move:1', 'rollback'],
+    ['batch-1:move:0', 'rollback'],
+], 'batch rollback must restore every moved task and settle its overlay');
+batchMovePublications.length = 0;
+assert.equal(batchMoveRuntime.apply({
+    ...batchMoveOp,
+    data: { ...batchMoveOp.data, snapshots: [batchMoveOp.data.snapshots[0]] },
+}), false, 'an incomplete batch snapshot must not partially move the local tree');
+assert.equal(batchMovePublications.length, 0);
+
+const failedMovePublications = [];
+const failedMoveRuntime = new Function(
+    '__tmMutationTempTaskExistsForOptimisticApply',
+    '__tmPublishQueuedOpMutation',
+    `${buildBatchMoveItemOp}\n${applyQueuedOpOptimistic}\nreturn __tmApplyQueuedOpOptimistic;`,
+)(
+    () => true,
+    (op, phase, detail) => {
+        failedMovePublications.push({ op, phase, detail });
+        return phase === 'optimistic' && op.data.taskId === 'task-b'
+            ? { localApplied: false }
+            : { localApplied: true };
+    },
+);
+assert.equal(failedMoveRuntime(batchMoveOp), false,
+    'a partially failed batch projection must not be marked optimistic');
+assert.deepEqual(failedMovePublications.map(({ op, phase, detail }) => [op.id, phase, detail.applyLocal]), [
+    ['batch-1:move:0', 'optimistic', undefined],
+    ['batch-1:move:1', 'optimistic', undefined],
+    ['batch-1:move:1', 'rollback', false],
+    ['batch-1:move:0', 'rollback', undefined],
+], 'a partial batch projection must settle the failed overlay and restore prior successful items');
 
 const buildOptimisticPresentation = new Function(
     '__TM_SIMPLE_MUTATION_TYPES',

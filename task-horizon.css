@@ -4922,17 +4922,60 @@ select.tm-btn-secondary {
 }
 
 .tm-whiteboard-sidebar {
+    position: relative;
     width: var(--tm-wb-sidebar-width, 300px);
     min-width: var(--tm-wb-sidebar-width, 300px);
     max-width: var(--tm-wb-sidebar-width, 300px);
-    border-right: 1px solid var(--tm-border-color);
+    border-right: 1px solid color-mix(in srgb, var(--tm-border-color) 32%, transparent);
     background: var(--tm-section-bg);
-    overflow: auto;
-    padding: 10px 10px calc(10px + var(--tm-view-bottom-inset, 0px));
+    overflow: hidden;
     box-sizing: border-box;
     z-index: 8;
-    transition: width 220ms ease, min-width 220ms ease, max-width 220ms ease, padding 220ms ease, opacity 180ms ease, border-color 220ms ease;
+    transition: width 220ms ease, min-width 220ms ease, max-width 220ms ease, opacity 180ms ease, border-color 220ms ease;
+}
+
+.tm-whiteboard-sidebar-scroll {
+    width: 100%;
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: none;
+    padding: 10px 8px calc(10px + var(--tm-view-bottom-inset, 0px));
+    box-sizing: border-box;
     scroll-padding-bottom: var(--tm-view-bottom-inset, 0px);
+}
+
+.tm-whiteboard-sidebar-scroll::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+.tm-whiteboard-sidebar-scrollbar {
+    position: absolute;
+    top: 3px;
+    right: 2px;
+    bottom: 3px;
+    width: 4px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+    z-index: 10;
+}
+
+.tm-whiteboard-sidebar-scrollbar-thumb {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 4px;
+    height: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--tm-secondary-text) 32%, transparent);
+    transform: translateY(0);
+}
+
+.tm-whiteboard-sidebar.tm-whiteboard-sidebar--scrolling .tm-whiteboard-sidebar-scrollbar {
+    opacity: 1;
 }
 
 .tm-whiteboard-layout.tm-whiteboard-layout--sidebar-collapsed .tm-whiteboard-sidebar {
@@ -4947,17 +4990,24 @@ select.tm-btn-secondary {
 }
 
 .tm-whiteboard-sidebar-resizer {
-    width: 8px;
-    min-width: 8px;
+    position: relative;
+    width: 1px;
+    min-width: 1px;
     cursor: col-resize;
     background: transparent;
-    border-right: 1px solid var(--tm-border-color);
     transition: background 140ms ease, width 220ms ease, min-width 220ms ease, opacity 180ms ease, border-color 220ms ease;
     z-index: 9;
 }
 
+.tm-whiteboard-sidebar-resizer::before {
+    content: "";
+    position: absolute;
+    inset: 0 -6px;
+    cursor: col-resize;
+}
+
 .tm-whiteboard-sidebar-resizer:hover {
-    background: rgba(127, 127, 127, 0.18);
+    background: color-mix(in srgb, var(--tm-primary-color) 22%, transparent);
 }
 
 .tm-whiteboard-layout.tm-whiteboard-layout--sidebar-collapsed .tm-whiteboard-sidebar-resizer {
@@ -5102,11 +5152,13 @@ select.tm-btn-secondary {
 }
 
 .tm-whiteboard-pool-doc {
+    width: 100%;
     margin-bottom: 10px;
     border: 1px solid var(--tm-border-color);
     border-radius: 10px;
     background: var(--tm-bg-color);
     overflow: hidden;
+    box-sizing: border-box;
 }
 
 .tm-whiteboard-pool-doc-head {
@@ -5188,7 +5240,7 @@ select.tm-btn-secondary {
 }
 
 .tm-whiteboard-pool-list {
-    padding: 6px;
+    padding: 4px;
     display: flex;
     flex-direction: column;
     gap: 6px;

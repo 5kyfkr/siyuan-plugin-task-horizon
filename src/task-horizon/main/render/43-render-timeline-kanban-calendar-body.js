@@ -337,7 +337,7 @@
                             ${toggle}
                         </span>
                         <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
-                            <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${task.id}', event, { surface: 'timeline' })"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                            <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${task.id}', event, { surface: 'timeline' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, task.content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                         </span>
                     </div>`;
                 const taskId = String(task.id || '').trim();
@@ -1357,7 +1357,7 @@
                     collapsed: !!(isParent && totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant),
                 });
                 const titleInnerHtml = `${API.renderTaskContentHtml(task.markdown, content || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
-                const titleAttrs = `onclick="tmTaskTitleClick('${id}', event, { surface: 'kanban' })"${__tmBuildTooltipAttrs(String(content || '(无内容)').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
+                const titleAttrs = `onclick="tmTaskTitleClick('${id}', event, { surface: 'kanban' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
                 const parentTaskTitleCls = !isSub ? ' tm-parent-task-title' : '';
                 const cardMetaParts = docChipHtml ? [...metaParts, docChipHtml] : metaParts;
                 const cardMetaHtml = cardMetaParts.length ? `<div class="tm-kanban-card-meta">${cardMetaParts.join('')}</div>` : '';

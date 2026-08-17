@@ -1341,3 +1341,31 @@
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
     };
+
+    window.tmWhiteboardSidebarScroll = function(event) {
+        const scroller = event?.currentTarget;
+        if (!(scroller instanceof HTMLElement)) return;
+        const sidebar = scroller.closest('.tm-whiteboard-sidebar');
+        const scrollbar = sidebar?.querySelector('.tm-whiteboard-sidebar-scrollbar');
+        const thumb = scrollbar?.querySelector('.tm-whiteboard-sidebar-scrollbar-thumb');
+        if (!(sidebar instanceof HTMLElement)) return;
+        const scrollingClass = 'tm-whiteboard-sidebar--scrolling';
+        const viewportHeight = Number(scroller.clientHeight) || 0;
+        const contentHeight = Number(scroller.scrollHeight) || 0;
+        const hasOverflow = contentHeight > viewportHeight + 1;
+        sidebar.classList.toggle(scrollingClass, hasOverflow);
+        try { clearTimeout(scroller.__tmWhiteboardScrollHideTimer); } catch (e) {}
+        if (!hasOverflow) return;
+        if (thumb instanceof HTMLElement && scrollbar instanceof HTMLElement) {
+            const trackHeight = Math.max(0, Number(scrollbar.clientHeight) || viewportHeight - 6);
+            const thumbHeight = Math.min(trackHeight, Math.max(28, Math.round(trackHeight * viewportHeight / contentHeight)));
+            const travel = Math.max(0, trackHeight - thumbHeight);
+            const progress = Math.min(1, Math.max(0, Number(scroller.scrollTop) / Math.max(1, contentHeight - viewportHeight)));
+            thumb.style.height = `${thumbHeight}px`;
+            thumb.style.transform = `translateY(${Math.round(travel * progress)}px)`;
+        }
+        scroller.__tmWhiteboardScrollHideTimer = setTimeout(() => {
+            try { sidebar.classList.remove(scrollingClass); } catch (e) {}
+            scroller.__tmWhiteboardScrollHideTimer = 0;
+        }, 650);
+    };

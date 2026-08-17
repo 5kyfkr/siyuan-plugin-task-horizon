@@ -8235,6 +8235,13 @@
         return 'timeGridWeek';
     }
 
+    function __tmNormalizeCalendarEventFontSize(value) {
+        const raw = String(value ?? '').trim();
+        const size = Math.round(Number(raw));
+        if (!raw) return 11;
+        return Number.isFinite(size) ? Math.max(10, Math.min(14, size)) : 11;
+    }
+
     const __TM_TOPBAR_BUTTON_VISIBILITY_DEFAULTS = Object.freeze({
         add: true,
         search: true,
@@ -8478,6 +8485,7 @@
             calendarQuickAddScheduleTimeMode: 'current',
             calendarQuickAddScheduleCustomTime: '09:00',
             calendarHourSlotHeightMode: 'normal',
+            calendarEventFontSize: 11,
             calendarVisibleStartTime: '00:00',
             calendarVisibleEndTime: '24:00',
             calendarScheduleColor: '',
@@ -9147,6 +9155,7 @@
                                 if (typeof cloudData.calendarQuickAddScheduleTimeMode === 'string') this.data.calendarQuickAddScheduleTimeMode = cloudData.calendarQuickAddScheduleTimeMode;
                                 if (typeof cloudData.calendarQuickAddScheduleCustomTime === 'string') this.data.calendarQuickAddScheduleCustomTime = cloudData.calendarQuickAddScheduleCustomTime;
                                 if (typeof cloudData.calendarHourSlotHeightMode === 'string') this.data.calendarHourSlotHeightMode = cloudData.calendarHourSlotHeightMode;
+                                if (typeof cloudData.calendarEventFontSize === 'number') this.data.calendarEventFontSize = __tmNormalizeCalendarEventFontSize(cloudData.calendarEventFontSize);
                                 if (typeof cloudData.calendarVisibleStartTime === 'string') this.data.calendarVisibleStartTime = cloudData.calendarVisibleStartTime;
                                 if (typeof cloudData.calendarVisibleEndTime === 'string') this.data.calendarVisibleEndTime = cloudData.calendarVisibleEndTime;
                                 if (typeof cloudData.calendarScheduleColor === 'string') this.data.calendarScheduleColor = cloudData.calendarScheduleColor;
@@ -9667,6 +9676,7 @@
             this.data.calendarQuickAddScheduleTimeMode = String(Storage.get('tm_calendar_quick_add_schedule_time_mode', this.data.calendarQuickAddScheduleTimeMode) || 'current');
             this.data.calendarQuickAddScheduleCustomTime = String(Storage.get('tm_calendar_quick_add_schedule_custom_time', this.data.calendarQuickAddScheduleCustomTime) || '09:00');
             this.data.calendarHourSlotHeightMode = Storage.get('tm_calendar_hour_slot_height_mode', this.data.calendarHourSlotHeightMode);
+            this.data.calendarEventFontSize = __tmNormalizeCalendarEventFontSize(Storage.get('tm_calendar_event_font_size', this.data.calendarEventFontSize));
             this.data.calendarVisibleStartTime = String(Storage.get('tm_calendar_visible_start_time', this.data.calendarVisibleStartTime) || this.data.calendarVisibleStartTime || '00:00');
             this.data.calendarVisibleEndTime = String(Storage.get('tm_calendar_visible_end_time', this.data.calendarVisibleEndTime) || this.data.calendarVisibleEndTime || '24:00');
             this.data.calendarScheduleColor = Storage.get('tm_calendar_schedule_color', this.data.calendarScheduleColor);
@@ -10202,6 +10212,7 @@
             Storage.set('tm_calendar_quick_add_schedule_time_mode', String(this.data.calendarQuickAddScheduleTimeMode || 'current').trim() || 'current');
             Storage.set('tm_calendar_quick_add_schedule_custom_time', String(this.data.calendarQuickAddScheduleCustomTime || '09:00').trim() || '09:00');
             Storage.set('tm_calendar_hour_slot_height_mode', String(this.data.calendarHourSlotHeightMode || 'normal').trim() || 'normal');
+            Storage.set('tm_calendar_event_font_size', __tmNormalizeCalendarEventFontSize(this.data.calendarEventFontSize));
             Storage.set('tm_calendar_visible_start_time', String(this.data.calendarVisibleStartTime || '00:00').trim() || '00:00');
             Storage.set('tm_calendar_visible_end_time', String(this.data.calendarVisibleEndTime || '24:00').trim() || '24:00');
             Storage.set('tm_calendar_schedule_color', String(this.data.calendarScheduleColor || '').trim());
@@ -10516,6 +10527,7 @@
                 const calendarHourSlotHeightMode = String(this.data.calendarHourSlotHeightMode || '').trim();
                 this.data.calendarHourSlotHeightMode = validCalendarHourSlotHeightModes.has(calendarHourSlotHeightMode) ? calendarHourSlotHeightMode : 'normal';
             }
+            this.data.calendarEventFontSize = __tmNormalizeCalendarEventFontSize(this.data.calendarEventFontSize);
             {
                 const validQuickAddModes = new Set(['current', 'nextHour', 'custom']);
                 const quickAddMode = String(this.data.calendarQuickAddScheduleTimeMode || '').trim();

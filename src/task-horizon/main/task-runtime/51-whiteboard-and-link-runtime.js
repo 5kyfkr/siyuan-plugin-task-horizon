@@ -6605,40 +6605,10 @@ return false;
         return { key: 'file', label: '普通文件' };
     }
 
-    function __tmGetAttachmentLibraryTaskTitle(taskLike) {
+    function __tmGetAttachmentLibraryTaskTitlePresentation(taskLike) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
-        const candidates = [
-            task.content,
-            task.raw_content,
-            task.rawContent,
-            task.title,
-            task.markdown,
-            task.name,
-        ];
-        for (const candidate of candidates) {
-            let text = String(candidate || '').trim();
-            if (!text) continue;
-            try {
-                if (typeof API?.extractTaskContentLine === 'function') {
-                    text = String(API.extractTaskContentLine(text) || text).trim();
-                }
-            } catch (e) {}
-            try {
-                if (typeof API?.parseTaskStatus === 'function') {
-                    const parsed = API.parseTaskStatus(text);
-                    text = String(parsed?.content || text).trim();
-                }
-            } catch (e) {}
-            text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*/, '').replace(/^\[[^\]]*]\s*/, '').trim();
-            try {
-                if (typeof API?.normalizeTaskContent === 'function') {
-                    text = String(API.normalizeTaskContent(text) || text).trim();
-                }
-            } catch (e) {}
-            text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*/, '').replace(/^\[[^\]]*]\s*/, '').trim();
-            if (text) return text;
-        }
-        return String(task.id || '').trim() || '未命名任务';
+        const fallback = String(task.content || task.raw_content || task.rawContent || task.title || task.name || task.id || '').trim() || '未命名任务';
+        return API.getTaskTitlePresentation(task.markdown || fallback, fallback);
     }
 
     function __tmGetAttachmentLibraryDocName(taskLike) {
@@ -6879,7 +6849,8 @@ return false;
         const path = __tmNormalizeTaskAttachmentPath(item?.path || '');
         if (!task || !taskId || !path) return null;
         const type = __tmGetAttachmentLibraryTypeInfo(item);
-        const taskTitle = __tmGetAttachmentLibraryTaskTitle(task);
+        const taskTitlePresentation = __tmGetAttachmentLibraryTaskTitlePresentation(task);
+        const taskTitle = taskTitlePresentation.text;
         const docName = __tmGetAttachmentLibraryDocName(task);
         const displayPath = String(item.displayPath || (__tmGetTaskAttachmentLocalDisplayPath(path) || path)).trim() || path;
         const name = String(item.name || __tmGetTaskAttachmentDisplayName(path) || displayPath).trim() || displayPath;
@@ -6891,6 +6862,7 @@ return false;
             id: `${taskId}::${index}::${path}`,
             taskId,
             taskTitle,
+            taskTitleHtml: taskTitlePresentation.html,
             docName,
             path,
             displayPath,
@@ -7001,7 +6973,7 @@ return false;
                     <span class="tm-attachment-library-type-pill tm-attachment-library-type-pill--${esc(row.typeKey)}">${esc(row.typeLabel)}</span>
                 </div>
                 <button type="button" class="tm-attachment-library-task" onclick="tmAttachmentLibraryOpenTaskDetail('${jsTaskId}', event)" title="${esc(row.taskTitle)}">
-                    ${esc(row.taskTitle)}
+                    ${row.taskTitleHtml || esc(row.taskTitle)}
                 </button>
                 <div class="tm-attachment-library-doc" title="${esc(row.docName)}">${esc(row.docName)}</div>
                 <div class="tm-attachment-library-time" title="${esc(timeTitle)}">${esc(timeLabel)}</div>
@@ -7624,15 +7596,18 @@ return false;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
         const html = __tmBuildTaskInlineContentHtml(taskLike);
-        const titleText = String(taskLike.content || '').trim() || '(无内容)';
+        const titlePresentation = API.getTaskTitlePresentation(taskLike.markdown, taskLike.content || '(无内容)');
+        const titleText = titlePresentation.text;
         const taskId = String(taskLike.id || taskLike.blockId || '').trim();
         let touched = false;
         const targets = root.querySelectorAll('.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title, .tm-cal-task-event-title-text');
         targets.forEach((el) => {
             if (!(el instanceof HTMLElement)) return;
             if (taskId && !__tmDoesTaskDomTargetBelongToTask(el, taskId, root)) return;
-            if (el.classList.contains('tm-cal-task-event-title-text')) el.textContent = titleText;
-            else el.innerHTML = html;
+            if (el.classList.contains('tm-cal-task-event-title-text')) {
+                if (el.closest('.tm-cal-task-event--schedule')) return;
+                el.innerHTML = titlePresentation.html;
+            } else el.innerHTML = html;
             try {
                 if (typeof __tmApplyTooltipAttrsToElement === 'function') {
                     __tmApplyTooltipAttrsToElement(el, titleText, { side: 'bottom', ariaLabel: false });
@@ -8213,6 +8188,9 @@ return false;
             : nextPatch;
         const hasControllerPatch = Object.keys(controllerPatch).length > 0;
         let refreshed = hasContentPatch ? !!__tmPatchVisibleTaskContentInDOM(tid) : false;
+        if (hasContentPatch && viewMode === 'timeline') {
+            refreshed = !!__tmUpdateTimelineTaskInDOM(tid) || refreshed;
+        }
         let refreshedList = false;
         let refreshedChecklist = false;
         let refreshedDetail = false;

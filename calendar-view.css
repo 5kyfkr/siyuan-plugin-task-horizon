@@ -32,8 +32,8 @@
     --tm-cal-event-leading-size: 14px;
     --tm-cal-event-leading-compact-size: 12px;
     --tm-cal-event-title-stack-gap: 1px;
-    --tm-cal-event-title-font-size: 11px;
-    --tm-cal-event-time-font-size: 10px;
+    --tm-cal-event-title-font-size: var(--tm-cal-event-font-size, 11px);
+    --tm-cal-event-time-font-size: calc(var(--tm-cal-event-font-size, 11px) - 1px);
     --tm-calendar-half-hour-slot-height: var(--tm-cal-slot-half-hour-height);
     --tm-calendar-timegrid-slot-height: calc(var(--tm-calendar-half-hour-slot-height) / 2);
     --tm-calendar-axis-width: var(--tm-cal-axis-width);
@@ -4410,7 +4410,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-host .fc .fc-event.tm-cal-schedule-event .fc-event-time,
 #tmCalendarSideDockTimeline .fc .fc-event.tm-cal-schedule-event .fc-event-time {
     color: var(--tm-cal-schedule-text) !important;
-    font-size: 11px;
+    font-size: var(--tm-cal-event-time-font-size, 10px);
     font-weight: 700;
 }
 
@@ -4758,20 +4758,20 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     color: var(--tm-cal-schedule-text) !important;
 }
 
-:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event[data-tm-cal-source="schedule"] .fc-event-title,
-:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event[data-tm-cal-source="schedule"] .tm-cal-task-event-title,
-:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event[data-tm-cal-source="schedule"] .tm-cal-task-event-title-text,
-:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event.tm-cal-schedule-event .fc-event-title,
-:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event.tm-cal-schedule-event .tm-cal-task-event-title,
-:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event.tm-cal-schedule-event .tm-cal-task-event-title-text {
-    font-size: 11px !important;
+:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event:not(.fc-list-event)[data-tm-cal-source="schedule"] .fc-event-title,
+:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event:not(.fc-list-event)[data-tm-cal-source="schedule"] .tm-cal-task-event-title,
+:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event:not(.fc-list-event)[data-tm-cal-source="schedule"] .tm-cal-task-event-title-text,
+:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event:not(.fc-list-event).tm-cal-schedule-event .fc-event-title,
+:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event:not(.fc-list-event).tm-cal-schedule-event .tm-cal-task-event-title,
+:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event:not(.fc-list-event).tm-cal-schedule-event .tm-cal-task-event-title-text {
+    font-size: var(--tm-cal-event-title-font-size, 11px) !important;
     font-weight: 500 !important;
     line-height: 1.15 !important;
 }
 
-:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event[data-tm-cal-source="schedule"] .tm-cal-task-event-time,
-:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event.tm-cal-schedule-event .tm-cal-task-event-time {
-    font-size: 10px !important;
+:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event:not(.fc-list-event)[data-tm-cal-source="schedule"] .tm-cal-task-event-time,
+:is(.tm-calendar-host.fc, #tmCalendarSideDockTimeline.fc) .fc-event:not(.fc-list-event).tm-cal-schedule-event .tm-cal-task-event-time {
+    font-size: var(--tm-cal-event-time-font-size, 10px) !important;
     font-weight: 500 !important;
     line-height: 1.2 !important;
     opacity: 0.82;
@@ -4849,7 +4849,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
-    font-size: 10px;
+    font-size: var(--tm-cal-event-time-font-size, 10px);
     line-height: 1.2 !important;
     font-weight: 500 !important;
     opacity: 0.82;
@@ -4892,7 +4892,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 
 .tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source],
 #tmCalendarSideDockTimeline.fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] {
-    font-size: 11px !important;
+    font-size: var(--tm-cal-event-title-font-size, 11px) !important;
     line-height: 1.1 !important;
 }
 
@@ -4922,7 +4922,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 #tmCalendarSideDockTimeline.fc .fc-timegrid-event[data-tm-cal-source] .tm-cal-task-event-title,
 .tm-calendar-host.fc .fc-timegrid-event[data-tm-cal-source] .tm-cal-task-event-title-text,
 #tmCalendarSideDockTimeline.fc .fc-timegrid-event[data-tm-cal-source] .tm-cal-task-event-title-text {
-    font-size: 11px !important;
+    font-size: var(--tm-cal-event-title-font-size, 11px) !important;
     font-weight: 500 !important;
     line-height: 1.15 !important;
     min-height: 1.1em !important;
@@ -4932,7 +4932,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 
 .tm-calendar-host.fc .fc-timegrid-event[data-tm-cal-source] .tm-cal-task-event-time,
 #tmCalendarSideDockTimeline.fc .fc-timegrid-event[data-tm-cal-source] .tm-cal-task-event-time {
-    font-size: 10px !important;
+    font-size: var(--tm-cal-event-time-font-size, 10px) !important;
     font-weight: 500 !important;
     line-height: 1.2 !important;
     min-height: 1.1em !important;
@@ -5134,6 +5134,8 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 }
 
 .fc-popover.tm-cal-main-popover {
+    --tm-cal-event-title-font-size: var(--tm-cal-event-font-size, 11px);
+    --tm-cal-event-time-font-size: calc(var(--tm-cal-event-font-size, 11px) - 1px);
     min-width: 0 !important;
     max-width: min(420px, calc(100vw - 16px)) !important;
     box-sizing: border-box !important;
@@ -5274,13 +5276,13 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 .tm-calendar-host .fc .tm-cn-holiday-event--festival.tm-cal-allday-soft-event .fc-event-title,
 #tmCalendarSideDockTimeline .fc .tm-cn-holiday-event--festival.tm-cal-allday-soft-event .fc-event-title {
     color: var(--tm-cal-schedule-text, var(--tm-text-color)) !important;
-    font-size: 11px !important;
+    font-size: var(--tm-cal-event-title-font-size, 11px) !important;
     line-height: 1.1 !important;
 }
 
 .tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source],
 #tmCalendarSideDockTimeline .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] {
-    font-size: 11px !important;
+    font-size: var(--tm-cal-event-title-font-size, 11px) !important;
     line-height: 1.1 !important;
 }
 
@@ -5288,7 +5290,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
 #tmCalendarSideDockTimeline .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title,
 .tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title-text,
 #tmCalendarSideDockTimeline .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title-text {
-    font-size: 11px !important;
+    font-size: var(--tm-cal-event-title-font-size, 11px) !important;
     line-height: 1.1 !important;
 }
 
@@ -7199,7 +7201,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     background-color: transparent !important;
     box-shadow: none !important;
     color: var(--tm-text-color) !important;
-    font-size: 11px !important;
+    font-size: var(--tm-cal-event-title-font-size, 11px) !important;
     line-height: 1 !important;
     overflow: hidden !important;
     box-sizing: border-box !important;
@@ -7258,7 +7260,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     margin: 0 4px 0 0 !important;
     padding: 0 !important;
     color: var(--tm-secondary-text, var(--tm-text-color)) !important;
-    font-size: 11px !important;
+    font-size: var(--tm-cal-event-time-font-size, 10px) !important;
     font-weight: 600 !important;
     line-height: 1 !important;
     overflow: hidden !important;
@@ -7276,7 +7278,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     min-height: 0 !important;
     padding: 0 !important;
     color: var(--tm-text-color) !important;
-    font-size: 11px !important;
+    font-size: var(--tm-cal-event-title-font-size, 11px) !important;
     font-weight: 500 !important;
     line-height: 1 !important;
     overflow: hidden !important;
@@ -7482,7 +7484,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     max-width: 42% !important;
     margin: 0 4px 0 0 !important;
     color: var(--tm-secondary-text, var(--tm-text-color)) !important;
-    font-size: 11px !important;
+    font-size: var(--tm-cal-event-time-font-size, 10px) !important;
     font-weight: 600 !important;
 }
 
@@ -7491,7 +7493,7 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     min-width: 0 !important;
     max-width: 100% !important;
     color: var(--tm-text-color) !important;
-    font-size: 11px !important;
+    font-size: var(--tm-cal-event-title-font-size, 11px) !important;
     font-weight: 500 !important;
 }
 
@@ -7509,10 +7511,20 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
-    font-size: 10px;
+    font-size: var(--tm-cal-event-time-font-size, 10px);
     line-height: 1.2 !important;
     font-weight: 500 !important;
     opacity: 0.82;
+}
+
+:is(.tm-calendar-host .fc, .tm-calendar-host.fc, #tmCalendarSideDockTimeline .fc, #tmCalendarSideDockTimeline.fc)
+    .fc-event:not(.fc-list-event) .fc-event-title {
+    font-size: var(--tm-cal-event-title-font-size, 11px) !important;
+}
+
+:is(.tm-calendar-host .fc, .tm-calendar-host.fc, #tmCalendarSideDockTimeline .fc, #tmCalendarSideDockTimeline.fc)
+    .fc-event:not(.fc-list-event) .fc-event-time {
+    font-size: var(--tm-cal-event-time-font-size, 10px) !important;
 }
 
 .tm-calendar-host .fc .tm-cal-schedule-stack,

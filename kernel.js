@@ -5419,20 +5419,61 @@
         return { undoID: grouped.id, label: grouped.label, count: undoIDs.length };
     }
 
+    function operationKind(domain, operation, index) {
+        const itemIndex = Math.max(0, Number(index) || 0);
+        const label = domain === 'schedules' ? '日程' : '任务';
+        const supported = domain === 'schedules'
+            ? ['create', 'update', 'delete']
+            : ['create', 'update', 'move', 'delete'];
+        const fields = ['kind', 'action', 'type'].map((key) => ({
+            key,
+            value: text(operation && operation[key]).toLowerCase(),
+        })).filter((item) => item.value);
+        if (!fields.length) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, `第 ${itemIndex + 1} 项${label}操作缺少 kind/action/type`, {
+                index: itemIndex,
+                domain,
+                supported,
+            });
+        }
+        const normalized = fields.map((item) => (
+            domain === 'tasks' && item.value === 'patch' ? 'update' : item.value
+        ));
+        const kinds = Array.from(new Set(normalized));
+        if (kinds.length > 1) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, `第 ${itemIndex + 1} 项${label}操作类型冲突`, {
+                index: itemIndex,
+                domain,
+                fields: Object.fromEntries(fields.map((item) => [item.key, item.value])),
+            });
+        }
+        if (!supported.includes(kinds[0])) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, `第 ${itemIndex + 1} 项${label}操作未知: ${fields[0].value}`, {
+                index: itemIndex,
+                domain,
+                operation: fields[0].value,
+                supported,
+            });
+        }
+        return kinds[0];
+    }
+
     async function executeTaskOperations(operations) {
         const rows = [];
         const undoSteps = [];
         state.lastUndo = null;
-        for (const operation of Array.isArray(operations) ? operations : []) {
-            const kind = text(operation && (operation.kind || operation.type));
+        const items = Array.isArray(operations) ? operations : [];
+        for (let index = 0; index < items.length; index += 1) {
+            const operation = items[index];
+            let kind = '';
             try {
+                kind = operationKind('tasks', operation, index);
                 state.lastUndo = null;
                 let value;
                 if (kind === 'create') value = await createTask(operation);
                 else if (kind === 'update') value = await applyTaskPatch(operation.taskID || operation.taskId, operation.patch || {});
                 else if (kind === 'move') value = await moveTask(operation);
                 else if (kind === 'delete') value = await deleteTaskNow(operation.taskID || operation.taskId);
-                else throw new DomainError(ERROR.INVALID_ARGUMENT, `未知任务操作: ${kind}`);
                 const task = value && (value.task || value);
                 if (kind !== 'delete' && state.lastUndo) undoSteps.push(state.lastUndo);
                 rows.push({ kind: `task:${kind}`, targetID: text(task && task.id) || text(operation.taskID || operation.taskId), targetLabel: text(task && task.title), ok: true, changes: value, error: null, reversible: kind !== 'delete' });
@@ -5448,15 +5489,17 @@
         const rows = [];
         const undoSteps = [];
         state.lastUndo = null;
-        for (const operation of Array.isArray(operations) ? operations : []) {
-            const kind = text(operation && (operation.kind || operation.type));
+        const items = Array.isArray(operations) ? operations : [];
+        for (let index = 0; index < items.length; index += 1) {
+            const operation = items[index];
+            let kind = '';
             try {
+                kind = operationKind('schedules', operation, index);
                 state.lastUndo = null;
                 let value;
                 if (kind === 'create') value = await createSchedule(operation);
                 else if (kind === 'update') value = await updateSchedule(operation);
                 else if (kind === 'delete') value = await deleteScheduleNow(operation.scheduleID || operation.scheduleId || operation.id);
-                else throw new DomainError(ERROR.INVALID_ARGUMENT, `未知日程操作: ${kind}`);
                 const schedule = value && (value.schedule || value);
                 if (kind !== 'delete' && state.lastUndo) undoSteps.push(state.lastUndo);
                 rows.push({ kind: `schedule:${kind}`, targetID: text(schedule && schedule.id) || text(operation.id), targetLabel: text(schedule && schedule.title), ok: true, changes: value, error: null, reversible: kind !== 'delete' });
@@ -5468,8 +5511,8 @@
         return mutationReceipt(rows);
     }
 
-    function operationsHaveDelete(operations) {
-        return (Array.isArray(operations) ? operations : []).some((item) => text(item && (item.kind || item.type)) === 'delete');
+    function operationsHaveDelete(domain, operations) {
+        return (Array.isArray(operations) ? operations : []).some((item, index) => operationKind(domain, item, index) === 'delete');
     }
 
     function requirePhaseAction(args, executeAction) {
@@ -5491,18 +5534,25 @@
 
     async function guardOperationPreview(kind, operations, phase, previewToken) {
         pruneTokens(state.operationTokens);
-        if (!operationsHaveDelete(operations)) {
+        const normalizedOperations = (Array.isArray(operations) ? operations : []).map((operation, index) => {
+            const normalized = { ...(operation || {}), kind: operationKind(kind, operation, index) };
+            delete normalized.action;
+            delete normalized.type;
+            return normalized;
+        });
+        const fingerprint = stableJson(normalizedOperations);
+        if (!operationsHaveDelete(kind, operations)) {
             return phase === 'preview'
                 ? { previewOnly: true, previewToken: '', operations, requiresToken: false }
                 : null;
         }
         if (phase === 'preview') {
             const value = token(`${kind}_plan`);
-            state.operationTokens.set(value, { kind, fingerprint: stableJson(operations), expiresAt: Date.now() + PREVIEW_TOKEN_TTL });
+            state.operationTokens.set(value, { kind, fingerprint, expiresAt: Date.now() + PREVIEW_TOKEN_TTL });
             return { previewOnly: true, previewToken: value, expiresAt: new Date(Date.now() + PREVIEW_TOKEN_TTL).toISOString(), operations };
         }
         const item = state.operationTokens.get(text(previewToken));
-        if (!item || item.kind !== kind || item.fingerprint !== stableJson(operations)) {
+        if (!item || item.kind !== kind || item.fingerprint !== fingerprint) {
             throw new DomainError(ERROR.CONFIRMATION_REQUIRED, '包含删除的批处理必须先预览并使用确认令牌');
         }
         state.operationTokens.delete(text(previewToken));
@@ -7262,8 +7312,9 @@
             ? { create: 'create_schedule', update: 'update_schedule', delete: 'delete_schedule' }
             : { create: 'create_task', update: 'update_task', move: 'move_task', delete: 'delete_task' };
         const disabled = new Set();
-        for (const operation of Array.isArray(operations) ? operations : []) {
-            const kind = text(operation && (operation.kind || operation.type));
+        const items = Array.isArray(operations) ? operations : [];
+        for (let index = 0; index < items.length; index += 1) {
+            const kind = operationKind(domain, items[index], index);
             const toolName = toolMap[kind];
             if (toolName && !isMcpToolEnabled(toolName)) disabled.add(toolName);
         }
@@ -7274,7 +7325,6 @@
 
     function toolDefinitions() {
         const anyObject = { type: 'object', additionalProperties: true };
-        const anyArray = { type: 'array', items: anyObject };
         const taskDateRange = objectSchema({
             field: stringSchema('日期字段', ['taskSpan', 'startDate', 'completionTime', 'taskCompleteAt']),
             from: stringSchema('起始日期 YYYY-MM-DD'),
@@ -7347,6 +7397,33 @@
             reminderOffsetMin: { type: 'integer', description: 'reminderMode=custom 时提前提醒分钟数，仅支持 0、5、10、15、30、60', minimum: 0, maximum: 60 },
         };
         const schedulePatch = objectSchema(scheduleMutableFields);
+        const taskOperationKinds = ['create', 'update', 'move', 'delete'];
+        const scheduleOperationKinds = ['create', 'update', 'delete'];
+        const taskOperation = objectSchema({
+            kind: stringSchema('规范操作类型', taskOperationKinds),
+            action: stringSchema('兼容操作类型；patch 等价于 update', taskOperationKinds.concat('patch')),
+            type: stringSchema('兼容操作类型；patch 等价于 update', taskOperationKinds.concat('patch')),
+            taskID: stringSchema('更新、移动或删除的任务 ID'),
+            title: stringSchema('创建任务时的标题'),
+            documentID: stringSchema('创建或移动任务时的目标文档 ID'),
+            parentTaskID: stringSchema('创建任务时的可选父任务 ID'),
+            patch: anyObject,
+            parentID: stringSchema('移动任务时的目标文档、列表或父任务 ID'),
+            previousID: stringSchema('移动到该块之后'),
+            nextID: stringSchema('移动到该任务之前'),
+        });
+        const scheduleOperation = objectSchema({
+            kind: stringSchema('规范操作类型', scheduleOperationKinds),
+            action: stringSchema('兼容操作类型', scheduleOperationKinds),
+            type: stringSchema('兼容操作类型', scheduleOperationKinds),
+            id: stringSchema('更新日程时的日程 ID'),
+            scheduleID: stringSchema('删除日程时的日程 ID'),
+            scopeToken: stringSchema('关联循环虚拟实例时必填的当前任务范围令牌'),
+            ...scheduleMutableFields,
+            patch: schedulePatch,
+        });
+        const taskOperations = { type: 'array', items: taskOperation };
+        const scheduleOperations = { type: 'array', items: scheduleOperation };
         return [
             ['list_task_scopes', '列出任务范围', objectSchema({ action: listAction }, ['action']), async () => listTaskScopes()],
             ['get_task', '读取完整任务字段；返回 customFieldValues 时同时返回含父级、路径和归档状态的 customFieldDefinitions；循环虚拟任务只读且必须提供 scopeToken', objectSchema({ action: readAction, taskID: stringSchema('任务、子块或循环虚拟任务 ID'), scopeToken: stringSchema('读取当前视图或循环虚拟任务的范围令牌'), fields: taskFields }, ['action', 'taskID']), async (args) => getTaskDTOByReference(args.taskID, args.fields, args.scopeToken)],
@@ -7374,7 +7451,7 @@
                 requirePhaseAction(args, 'delete');
                 return args.phase === 'preview' ? previewTaskDelete(args.taskID) : executeTaskDelete(args.taskID, args.previewToken);
             }],
-            ['batch_tasks', '批量执行任务操作', objectSchema({ action: stringSchema('预览只读，执行为写入', ['get', 'apply']), phase: stringSchema('阶段', ['preview', 'execute']), operations: anyArray, previewToken: { type: 'string' } }, ['action', 'phase', 'operations']), async (args) => {
+            ['batch_tasks', '批量执行任务操作；每项使用 kind，兼容 action/type', objectSchema({ action: stringSchema('预览只读，执行为写入', ['get', 'apply']), phase: stringSchema('阶段', ['preview', 'execute']), operations: taskOperations, previewToken: { type: 'string' } }, ['action', 'phase', 'operations']), async (args) => {
                 requirePhaseAction(args, 'apply');
                 requireMcpOperationTools('tasks', args.operations);
                 return (await guardOperationPreview('tasks', args.operations, args.phase, args.previewToken)) || executeTaskOperations(args.operations);
@@ -7386,17 +7463,17 @@
                 requirePhaseAction(args, 'delete');
                 return args.phase === 'preview' ? previewScheduleDelete(args.scheduleID) : executeScheduleDelete(args.scheduleID, args.previewToken);
             }],
-            ['batch_schedules', '批量执行日程操作；关联循环虚拟实例的 create/update 操作各自携带当前 scopeToken', objectSchema({ action: stringSchema('预览只读，执行为写入', ['get', 'apply']), phase: stringSchema('阶段', ['preview', 'execute']), operations: anyArray, previewToken: { type: 'string' } }, ['action', 'phase', 'operations']), async (args) => {
+            ['batch_schedules', '批量执行日程操作；每项使用 kind，兼容 action/type；关联循环虚拟实例的 create/update 操作各自携带当前 scopeToken', objectSchema({ action: stringSchema('预览只读，执行为写入', ['get', 'apply']), phase: stringSchema('阶段', ['preview', 'execute']), operations: scheduleOperations, previewToken: { type: 'string' } }, ['action', 'phase', 'operations']), async (args) => {
                 requirePhaseAction(args, 'apply');
                 requireMcpOperationTools('schedules', args.operations);
                 return (await guardOperationPreview('schedules', args.operations, args.phase, args.previewToken)) || executeScheduleOperations(args.operations);
             }],
-            ['apply_task_operation_plan', '协调任务与日程操作；关联循环虚拟实例的日程操作各自携带当前 scopeToken', objectSchema({ action: stringSchema('写操作', ['apply']), taskOperations: anyArray, scheduleOperations: anyArray }, ['action']), async (args) => {
+            ['apply_task_operation_plan', '协调任务与日程操作；每项使用 kind，兼容 action/type；关联循环虚拟实例的日程操作各自携带当前 scopeToken', objectSchema({ action: stringSchema('写操作', ['apply']), taskOperations, scheduleOperations }, ['action']), async (args) => {
                 requireAction(args, 'apply');
                 const taskOperations = Array.isArray(args.taskOperations) ? args.taskOperations : [];
                 const scheduleOperations = Array.isArray(args.scheduleOperations) ? args.scheduleOperations : [];
                 if (taskOperations.length + scheduleOperations.length > 50) throw new DomainError(ERROR.INVALID_ARGUMENT, '组合操作最多 50 项');
-                if (operationsHaveDelete(taskOperations) || operationsHaveDelete(scheduleOperations)) throw new DomainError(ERROR.INVALID_ARGUMENT, '组合操作不支持删除，请使用独立删除工具');
+                if (operationsHaveDelete('tasks', taskOperations) || operationsHaveDelete('schedules', scheduleOperations)) throw new DomainError(ERROR.INVALID_ARGUMENT, '组合操作不支持删除，请使用独立删除工具');
                 requireMcpOperationTools('tasks', taskOperations);
                 requireMcpOperationTools('schedules', scheduleOperations);
                 const taskReceipt = await executeTaskOperations(taskOperations);

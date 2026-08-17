@@ -2142,6 +2142,7 @@
     const applyTaskMutation = (mutation = {}, options = {}) => {
         const normalized = normalizeTaskMutation(mutation);
         const opts = (options && typeof options === 'object') ? options : {};
+        let localApplied;
         if (normalized.phase === 'optimistic') beginTaskOverlay(normalized);
         else if (normalized.phase === 'local') settleTaskOverlay(normalized, true);
         else if (normalized.phase === 'commit') settleTaskOverlay(normalized, true);
@@ -2214,7 +2215,7 @@
                     if (parentTaskId) return { mode: 'child-top', targetTaskId: parentTaskId, targetDocId, targetParentTaskId: parentTaskId };
                     return { mode: 'docTop', targetDocId };
                 })() : null;
-                moveTaskLocal({
+                localApplied = moveTaskLocal({
                     ...normalized.data,
                     ...(authoritativeMove || {}),
                     taskId: normalized.taskId,
@@ -2266,7 +2267,9 @@
                 } catch (e) {}
             }
         }
-        return notifyTaskMutation(normalized);
+        const notified = notifyTaskMutation(normalized);
+        if (typeof localApplied === 'boolean') notified.localApplied = localApplied;
+        return notified;
     };
 
     const scheduleMutationSnapshotRefresh = (mutation = {}, context = {}, policy = {}) => {

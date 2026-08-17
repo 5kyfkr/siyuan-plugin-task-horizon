@@ -130,6 +130,17 @@
     }
 
     const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const getTaskTitlePresentation = (source, fallback = '任务') => {
+        const fallbackText = String(fallback || '').trim() || '任务';
+        try {
+            const presentation = globalThis.__tmGetTaskTitlePresentation?.(source, fallbackText);
+            if (presentation && typeof presentation.html === 'string' && typeof presentation.text === 'string') {
+                return presentation;
+            }
+        } catch (e) {}
+        const text = String(source || '').trim() || fallbackText;
+        return { html: esc(text), text };
+    };
     const bridge = () => window?.[NS_KEY]?.aiBridge || null;
     const clone = (v) => { try { return JSON.parse(JSON.stringify(v)); } catch (e) { return v; } };
     const todayKey = () => {
@@ -3132,7 +3143,7 @@
             missing.length ? `缺失信息：${missing.join('；')}` : '',
         ].filter(Boolean).join('\n'));
         const modal = setModal('AI 优化任务名称', `
-            <div class="tm-ai-box"><h4>当前任务</h4><div>${esc(task.content || '(无内容)')}</div></div>
+            <div class="tm-ai-box"><h4>当前任务</h4><div>${getTaskTitlePresentation(task.markdown || task.content, '(无内容)').html}</div></div>
             <div class="tm-ai-box"><h4>建议标题</h4><div class="tm-ai-list">${titles.map((title, index) => `<label class="tm-ai-item"><input type="radio" name="tm-ai-title" value="${esc(title)}" ${index === 0 ? 'checked' : ''}> ${esc(title)}</label>`).join('')}</div></div>
             ${reason ? `<div class="tm-ai-box"><h4>原因</h4><div>${esc(reason)}</div></div>` : ''}
             ${missing.length ? `<div class="tm-ai-box"><h4>缺失信息</h4><div class="tm-ai-list">${missing.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
@@ -4563,15 +4574,19 @@
         return true;
     }
 
-    function renderSelectionChips(ids, cache, removeAction, emptyText) {
+    function renderSelectionChips(ids, cache, removeAction, emptyText, richTaskTitle = false) {
         const arr = Array.isArray(ids) ? ids : [];
         if (!arr.length) return `<div class="tm-ai-sidebar__meta">${esc(emptyText || '当前还没有手动附加上下文。')}</div>`;
-        return `<div class="tm-ai-sidebar__chips">${arr.map((id) => `
+        return `<div class="tm-ai-sidebar__chips">${arr.map((id) => {
+            const label = String(cache.get(id) || id).trim() || id;
+            const title = richTaskTitle ? getTaskTitlePresentation(label, id) : { html: esc(label), text: label };
+            return `
             <span class="tm-ai-sidebar__chip">
-                ${esc(cache.get(id) || id)}
+                <span title="${esc(title.text)}">${title.html}</span>
                 ${removeAction ? `<button type="button" data-ai-sidebar-action="${esc(removeAction)}" data-ai-id="${esc(id)}">×</button>` : ''}
             </span>
-        `).join('')}</div>`;
+        `;
+        }).join('')}</div>`;
     }
 
     function renderConversationMessages(messages) {
@@ -4723,10 +4738,12 @@
                     <div class="tm-ai-sidebar__result-score">${clamp(result?.smartScore?.overall || 0, 0, 100)}/100</div>
                     <div class="tm-ai-sidebar__meta">S ${clamp(dims.specific || 0, 0, 100)} · M ${clamp(dims.measurable || 0, 0, 100)} · A ${clamp(dims.achievable || 0, 0, 100)} · R ${clamp(dims.relevant || 0, 0, 100)} · T ${clamp(dims.timeBound || 0, 0, 100)}</div>
                     ${result?.summary ? `<div class="tm-ai-sidebar__result-body" style="margin-top:8px;">${esc(result.summary)}</div>` : ''}
-                    ${rows.length ? `<div class="tm-ai-sidebar__smart-list">${rows.map((item, index) => `
+                    ${rows.length ? `<div class="tm-ai-sidebar__smart-list">${rows.map((item, index) => {
+                        const currentTitle = getTaskTitlePresentation(item.currentTitle || item.taskId || '任务', item.taskId || '任务');
+                        return `
                         <div class="tm-ai-sidebar__smart-item">
                             <div class="tm-ai-sidebar__smart-head">
-                                <div>${esc(item.currentTitle || item.taskId || '任务')}</div>
+                                <div title="${esc(currentTitle.text)}">${currentTitle.html}</div>
                                 <span>${clamp(item?.score?.overall || 0, 0, 100)}/100</span>
                             </div>
                             ${item.suggestedTitle ? `<div class="tm-ai-sidebar__meta">建议标题：${esc(item.suggestedTitle)}</div>` : ''}
@@ -4737,7 +4754,8 @@
                                 ${item.newTaskSuggestion ? `<button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="create-smart-task" data-ai-index="${index}">创建建议任务</button>` : ''}
                             </div>
                         </div>
-                    `).join('')}</div>` : ''}
+                    `;
+                    }).join('')}</div>` : ''}
                 </div>
             `;
         }
@@ -4873,7 +4891,7 @@
                                 <div class="tm-ai-sidebar__meta" style="margin-top:8px;">任务</div>
                                 ${isCurrentGroupScope
                                     ? `<div class="tm-ai-sidebar__empty">当前分区模式将自动包含本分区内全部未完成任务。</div>`
-                                    : renderSelectionChips(session.selectedTaskIds, aiRuntime.labelCache.task, 'remove-task', '当前还没有手动附加上下文。可拖拽任务添加')}
+                                    : renderSelectionChips(session.selectedTaskIds, aiRuntime.labelCache.task, 'remove-task', '当前还没有手动附加上下文。可拖拽任务添加', true)}
                             </div>
                             ${showTaskPicker ? `
                                 <div class="tm-ai-sidebar__context">
@@ -4891,7 +4909,8 @@
                                                 const tid = String(task?.id || '').trim();
                                                 if (!tid) return '';
                                                 const checked = session.selectedTaskIds.includes(tid) ? 'checked' : '';
-                                                return `<label class="tm-ai-sidebar__task-row"><input type="checkbox" data-ai-sidebar-field="pickedTask" value="${esc(tid)}" ${checked}> <span>${esc(String(task?.content || tid).trim() || tid)}</span></label>`;
+                                                const title = getTaskTitlePresentation(task?.markdown || task?.content || tid, tid);
+                                                return `<label class="tm-ai-sidebar__task-row"><input type="checkbox" data-ai-sidebar-field="pickedTask" value="${esc(tid)}" ${checked}> <span title="${esc(title.text)}">${title.html}</span></label>`;
                                             }).join('') || `<div class="tm-ai-sidebar__empty">${session.contextScope === 'current_group' ? '当前分区没有可选任务。' : '当前视图没有可选任务。'}</div>`}
                                         </div>
                                     `}

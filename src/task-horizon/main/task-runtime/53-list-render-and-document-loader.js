@@ -257,7 +257,7 @@
             const globalCollectIconHtml = hasContentCol ? __tmRenderGlobalCollectDocTaskInlineIcon(task) : '';
             const renderedContent = hasContentCol ? `${API.renderTaskContentHtml(task.markdown, content)}${globalCollectIconHtml}` : '';
             const contentTooltip = hasContentCol
-                ? __tmBuildTooltipAttrs(String(content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })
+                ? __tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, content || '(无内容)').text, { side: 'bottom', ariaLabel: false })
                 : '';
             const startDateText = hasStartDateCol ? __tmFormatTaskTime(startDate) : '';
             const completionTimeText = hasCompletionTimeCol ? __tmFormatTaskTime(completionTime) : '';
@@ -4289,6 +4289,7 @@ if (ev) {
                 snapshot,
                 customOrderPlacement: data.customOrderPlacement === true,
                 preserveRenderWindow: data.preserveRenderWindow === true || hooks.preserveRenderWindow === true,
+                preserveTargetCollapse: data.preserveTargetCollapse === true,
                 crossDoc: String(String(task.docId || task.root_id || '').trim() !== targetDocId ? '1' : ''),
                 showErrorHint: hooks.showErrorHint !== false && typeof hooks.onError !== 'function',
                 suppressHint: hooks.suppressHint === true,
@@ -4353,6 +4354,7 @@ if (ev) {
                 sourceDocIds,
                 customOrderPlacement: data.customOrderPlacement === true,
                 preserveRenderWindow: data.preserveRenderWindow === true || hooks.preserveRenderWindow === true,
+                preserveTargetCollapse: data.preserveTargetCollapse === true,
                 showErrorHint: hooks.showErrorHint !== false && typeof hooks.onError !== 'function',
                 suppressHint: hooks.suppressHint === true,
             },
@@ -4958,18 +4960,10 @@ if (ev) {
     const __tmNormalizeTimerTaskName = (primary, fallback = '任务') => {
         const source = String(primary || '').trim();
         const backup = String(fallback || '').trim() || '任务';
-        const base = source || backup;
-        if (!base) return '任务';
         try {
-            const firstLine = (typeof API?.extractTaskContentLine === 'function')
-                ? API.extractTaskContentLine(base)
-                : base.split(/\r?\n/)[0].trim();
-            const normalized = (typeof API?.normalizeTaskContent === 'function')
-                ? API.normalizeTaskContent(firstLine)
-                : firstLine;
-            return String(normalized || firstLine || backup || '任务').trim() || '任务';
+            return API.getTaskTitlePresentation(source, backup).text || backup;
         } catch (e) {
-            return base;
+            return source || backup;
         }
     };
 

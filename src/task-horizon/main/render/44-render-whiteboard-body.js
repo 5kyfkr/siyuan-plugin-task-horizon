@@ -405,7 +405,7 @@
                                 <div class="tm-whiteboard-stream-task">
                                     <div class="tm-whiteboard-stream-task-head${multiSelectCls}" data-task-id="${esc(tid)}" data-id="${esc(tid)}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(tid)}')" ondragend="tmDragTaskEnd(event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')" onclick="tmWhiteboardStreamTaskHeadClick('${escSq(tid)}', event)">
                                         ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)` })}
-                                        <span class="tm-whiteboard-stream-task-title${parentTaskTitleCls}${task?.done ? ' tm-task-done' : ''}" onpointerdown="tmWhiteboardStreamTaskTitlePointerDown(event)" onmousedown="tmWhiteboardStreamTaskTitleMouseDown(event)" onclick="tmWhiteboardStreamTaskTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, content)}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                                        <span class="tm-whiteboard-stream-task-title${parentTaskTitleCls}${task?.done ? ' tm-task-done' : ''}" onpointerdown="tmWhiteboardStreamTaskTitlePointerDown(event)" onmousedown="tmWhiteboardStreamTaskTitleMouseDown(event)" onclick="tmWhiteboardStreamTaskTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, content)}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                                         ${toggleHtml}
                                     </div>
                                 </div>
@@ -974,7 +974,7 @@
                     const titleAction = isFrozen || isRetained || isCollectionOverlay
                         ? `onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(tid)}')"`
                         : `onclick="tmTaskTitleClick('${escSq(tid)}', event, { surface: 'whiteboard' })"`;
-                    const titleAttrs = `${titleAction}${__tmBuildTooltipAttrs(String(content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
+                    const titleAttrs = `${titleAction}${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
                     const parentTaskTitleCls = depth === 0 ? ' tm-parent-task-title' : '';
                     const subtaskCountButtonHtml = totalChildren
                         ? `<button class="tm-badge tm-badge--count tm-kanban-subtasks-count" type="button" data-tm-subtask-count-owner="${esc(tid)}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${toggleTitle}">${completedChildren}/${totalChildren}</button>`
@@ -1464,7 +1464,7 @@
                             <div class="tm-whiteboard-pool-item${doneCls}${parentCls}${topCls}${lockedCls}${selectedCls}" data-task-id="${esc(tid)}" draggable="${draggableAttr}"${mouseDownAttr}${dragStartAttr}${dragEndAttr} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')" title="${itemTitle}">
                                 ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)`, collapsed: !!collapsed })}
                                 ${docBadgeHtml}
-                                <span class="tm-whiteboard-pool-item-title${parentTaskTitleCls}"${titleDragAttr}><span class="tm-task-content-clickable" onclick="tmWhiteboardPoolTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(task?.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
+                                <span class="tm-whiteboard-pool-item-title${parentTaskTitleCls}"${titleDragAttr}><span class="tm-task-content-clickable" onclick="tmWhiteboardPoolTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, String(task?.content || '').trim() || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
                                 ${toggleHtml}
                             </div>
                             ${kidsHtml}
@@ -1595,7 +1595,7 @@
                                         <div class="tm-whiteboard-pool-node" style="padding-left:${indent}px;">
                                             <div class="tm-whiteboard-pool-item${doneCls}${parentCls}${topCls}${lockedCls}${selectedCls}" data-task-id="${esc(tid)}" draggable="${draggableAttr}"${mouseDownAttr}${dragStartAttr}${dragEndAttr} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')" title="${itemTitle}">
                                                 ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)`, collapsed: !!collapsed })}
-                                                <span class="tm-whiteboard-pool-item-title${parentTaskTitleCls}"${titleDragAttr}><span class="tm-task-content-clickable" onclick="tmWhiteboardPoolTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(task?.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
+                                                <span class="tm-whiteboard-pool-item-title${parentTaskTitleCls}"${titleDragAttr}><span class="tm-task-content-clickable" onclick="tmWhiteboardPoolTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, String(task?.content || '').trim() || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
                                                 ${toggleHtml}
                                             </div>
                                             ${kidsHtml}
@@ -1848,7 +1848,7 @@
                                     <div class="tm-whiteboard-pool-item tm-whiteboard-pool-search-item${doneCls}${placedCls}${selectedCls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}" data-tm-pool-search-result="1" data-tm-pool-placed="${placed ? '1' : '0'}" draggable="${draggableAttr}" onclick="tmWhiteboardSearchResultClick('${escSq(tid)}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')"${blockedPressAttr}${mouseDownAttr}${dragStartAttr}${dragEndAttr} title="${esc(itemTitle)}">
                                         ${__tmRenderTaskCheckboxWrap(tid, task, { checked: taskDone, stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)` })}
                                         <span class="tm-whiteboard-pool-item-prefix" title="${esc(docNameById.get(docId) || '未知文档')}">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 12 })}</span>
-                                        <span class="tm-whiteboard-pool-item-title"${titleDragAttr}><span class="tm-task-content-clickable"${contentDragAttr}${__tmBuildTooltipAttrs(String(task?.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
+                                        <span class="tm-whiteboard-pool-item-title"${titleDragAttr}><span class="tm-task-content-clickable"${contentDragAttr}${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, String(task?.content || '').trim() || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
                                         <span class="tm-badge tm-badge--count tm-whiteboard-pool-search-status${placed ? ' tm-whiteboard-pool-search-status--placed' : ''}">${placed ? '已在白板' : '未加入'}</span>
                                     </div>
                                 `;
@@ -2080,21 +2080,24 @@
                 <div class="tm-body tm-body--whiteboard${bodyAnimClass}" id="tmWhiteboardBody">
                     <div class="tm-whiteboard-layout${layoutClass}" style="--tm-wb-sidebar-width:${sidebarWidth}px;">
                         <aside class="tm-whiteboard-sidebar">
-                            <div class="tm-whiteboard-sidebar-title-row">
-                                <div class="tm-whiteboard-sidebar-title-wrap">
-                                    ${compactSidebarToggleHtml}
-                                    <div class="tm-whiteboard-sidebar-title">任务池</div>
+                            <div class="tm-whiteboard-sidebar-scroll" onscroll="tmWhiteboardSidebarScroll(event)">
+                                <div class="tm-whiteboard-sidebar-title-row">
+                                    <div class="tm-whiteboard-sidebar-title-wrap">
+                                        ${compactSidebarToggleHtml}
+                                        <div class="tm-whiteboard-sidebar-title">任务池</div>
+                                    </div>
+                                    <div class="tm-whiteboard-sidebar-actions">
+                                        <label class="tm-whiteboard-sidebar-switch" title="显示已完成任务">
+                                            <input type="checkbox" ${showDoneTasks ? 'checked' : ''} onchange="tmWhiteboardToggleShowDone(this.checked)">
+                                            <span>已完成</span>
+                                        </label>
+                                        <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-search-toggle${whiteboardPoolSearchOpen ? ' tm-whiteboard-pool-search-toggle--active' : ''}" onclick="tmWhiteboardTogglePoolSearch(event)" aria-pressed="${whiteboardPoolSearchOpen ? 'true' : 'false'}"${__tmBuildTooltipAttrs(whiteboardPoolSearchOpen ? '关闭搜索' : '搜索任务池', { side: 'bottom' })}>${__tmPhosphorBoldSvg('magnifying-glass', { size: 15, className: 'tm-whiteboard-pool-search-toggle__icon' })}</button>
+                                    </div>
                                 </div>
-                                <div class="tm-whiteboard-sidebar-actions">
-                                    <label class="tm-whiteboard-sidebar-switch" title="显示已完成任务">
-                                        <input type="checkbox" ${showDoneTasks ? 'checked' : ''} onchange="tmWhiteboardToggleShowDone(this.checked)">
-                                        <span>已完成</span>
-                                    </label>
-                                    <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-search-toggle${whiteboardPoolSearchOpen ? ' tm-whiteboard-pool-search-toggle--active' : ''}" onclick="tmWhiteboardTogglePoolSearch(event)" aria-pressed="${whiteboardPoolSearchOpen ? 'true' : 'false'}"${__tmBuildTooltipAttrs(whiteboardPoolSearchOpen ? '关闭搜索' : '搜索任务池', { side: 'bottom' })}>${__tmPhosphorBoldSvg('magnifying-glass', { size: 15, className: 'tm-whiteboard-pool-search-toggle__icon' })}</button>
-                                </div>
+                                ${poolSearchBarHtml}
+                                <div id="tmWhiteboardPoolContent">${poolContentHtml}</div>
                             </div>
-                            ${poolSearchBarHtml}
-                            <div id="tmWhiteboardPoolContent">${poolContentHtml}</div>
+                            <div class="tm-whiteboard-sidebar-scrollbar" aria-hidden="true"><div class="tm-whiteboard-sidebar-scrollbar-thumb"></div></div>
                         </aside>
                         <div class="tm-whiteboard-sidebar-resizer" onmousedown="tmStartWhiteboardSidebarResize(event)" title="拖拽调整侧栏宽度"></div>
                         <div class="tm-whiteboard-main">

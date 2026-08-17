@@ -35,6 +35,7 @@ const headingDrop = segment(dialogs, 'window.tmDocHeadingGroupDrop = async funct
 const rowMove = segment(dialogs, 'async function __tmQueueTaskRowMove', 'async function __tmHandleTaskRowDropCore');
 const rowDropCore = segment(dialogs, 'async function __tmHandleTaskRowDropCore', 'window.tmTaskRowDragOver');
 const rowDrop = segment(dialogs, 'window.tmTaskRowDrop = async function', 'window.tmDocTabDrop = async function');
+const moveQueue = segment(taskLoader, 'function __tmQueueMoveTask', 'function __tmQueueBatchMoveTasks');
 const batchMoveQueue = segment(taskLoader, 'function __tmQueueBatchMoveTasks', 'function __tmGetTaskForDetachSubtask');
 const docTabDrop = segment(dialogs, 'window.tmDocTabDrop = async function', 'function __tmIsWhiteboardTaskDragSource');
 const headingCreate = segment(createRuntime, 'window.tmCreateTaskForHeadingGroup = async function', 'async function __tmAppendBlockOnce');
@@ -44,6 +45,8 @@ const quickAddCreate = segment(createRuntime, 'window.tmQuickAddSubmit = async f
 const kanbanChildCandidate = segment(renderRuntime, 'function __tmUpdateKanbanChildDropCandidate', 'function __tmTakeReadyKanbanChildDropTarget');
 const kanbanDragStart = segment(renderRuntime, 'window.tmKanbanDragStart = function', 'window.tmKanbanDragEnd = function');
 const kanbanDrop = segment(renderRuntime, 'window.tmKanbanDrop = async function', 'window.tmKanbanPickDate = async function');
+const insertTaskAsChildLocal = segment(createRuntime, 'function __tmInsertTaskAsChildLocal', 'function __tmIsDocInCurrentTaskScope');
+const optimisticMove = segment(createRuntime, 'function __tmApplyMoveOptimisticLocal', 'function __tmRollbackMoveOptimisticLocal');
 const floatingPriorityDrop = segment(calendarView, 'async function applyFloatingMiniTaskPriority', 'function clearFloatingMiniAutoFlipTimer');
 const floatingDateDrop = segment(calendarView, 'async function applyFloatingMiniCalendarDate', 'async function finalizeFloatingMiniCalendarTouchDrop');
 const allDayDueDateDrop = segment(calendarView, 'async function maybeUpdateEmptyTaskDueDateFromAllDayDrop', 'function parseTaskDropPayload');
@@ -55,16 +58,28 @@ assert.match(headingDrop, /wait: true,[\s\S]*showErrorHint: false/);
 assertAwaitedBeforeSuccess(headingDrop, 'await moveTask(', "hint(String(check.payload", 'heading-group move');
 assert.match(rowMove, /const moveResult = await moveTask\([\s\S]*wait: true,[\s\S]*showErrorHint: false/);
 assert.doesNotMatch(rowMove, /wait: false|onError:/, 'row moves must surface settlement failures to the drop handler');
+assert.match(rowMove, /payload\.preserveTargetCollapse = true/, 'single task child drops must preserve the target collapse state');
+assert.doesNotMatch(rowMove, /collapsedTaskIds\?\.delete/, 'single task child drops must not expand the target after settlement');
 assert.match(rowDropCore, /if \(moveAsChild\)[\s\S]*__tmRequireTaskMutation\?\.\('batchMoveTasks'\)[\s\S]*await batchMoveTasks\(ids, payload,[\s\S]*wait: true/,
     'multi-select child moves must settle through one batch task mutation');
 assert.match(rowDropCore, /if \(moveAsChild\)[\s\S]*return \{[\s\S]*batchCount:[\s\S]*\};[\s\S]*for \(const sourceId of moveSources\)[\s\S]*await __tmQueueTaskRowMove/,
     'only non-child multi-select moves may retain the serial anchor path');
+assert.match(rowDropCore, /payload\.preserveTargetCollapse = true/, 'multi-select child drops must preserve the target collapse state');
+assert.doesNotMatch(rowDropCore, /collapsedTaskIds\?\.delete/, 'multi-select child drops must not expand the target after settlement');
+assert.match(moveQueue, /preserveTargetCollapse: data\.preserveTargetCollapse === true/, 'single task move queues must carry the target collapse policy');
+assert.match(batchMoveQueue, /preserveTargetCollapse: data\.preserveTargetCollapse === true/, 'batch task move queues must carry the target collapse policy');
+assert.match(optimisticMove, /preserveCollapsed: payload\?\.preserveTargetCollapse === true/g, 'optimistic child placement must receive the drag collapse policy');
+assert.match(insertTaskAsChildLocal, /if \(opts\.preserveCollapsed !== true\)[\s\S]*collapsedTaskIds\?\.delete/, 'local child insertion must retain collapsed targets when requested');
 assert.match(batchMoveQueue, /type: 'batchMoveTasks',[\s\S]*taskIds: ids,[\s\S]*snapshots,[\s\S]*sourceDocIds/,
     'the batch queue must reserve one operation with every selected task and source document');
 assert.match(apiRuntime, /if \(type === 'batchMoveTasks'\)[\s\S]*action: 'batchMove',[\s\S]*rawItems\.length !== payload\.taskIds\.length/,
     'the mutation executor must require a complete Kernel acknowledgement for the batch');
-assert.match(apiRuntime, /if \(type === 'batchMoveTasks'\)[\s\S]*results\.forEach\(\(item, index\)[\s\S]*type: 'moveTask',[\s\S]*__tmCommitQueuedOp\(moveOp, item\)/,
-    'a committed batch must reuse the established per-task move projection path');
+assert.match(apiRuntime, /function __tmBuildQueuedBatchMoveItemOp\([\s\S]*id: `\$\{batchId\}:move:\$\{Number\(index\) \|\| 0\}`[\s\S]*type: 'moveTask'/,
+    'batch move phases must share stable per-task operation identities');
+assert.match(apiRuntime, /if \(type === 'batchMoveTasks'\)[\s\S]*__tmBuildQueuedBatchMoveItemOp\([\s\S]*'optimistic'/,
+    'a batch move must publish local per-task moves before kernel settlement');
+assert.match(apiRuntime, /results\.forEach\(\(item, index\)[\s\S]*__tmBuildQueuedBatchMoveItemOp\(op, taskId, snapshots\[index\], index\)[\s\S]*__tmCommitQueuedOp\(moveOp, item\)/,
+    'a committed batch must settle through the same per-task move projection path');
 assertAwaitedBeforeSuccess(rowDrop, 'await __tmHandleTaskRowDropCore(', 'hint(successText', 'task-row move');
 assert.match(docTabDrop, /await moveTask\([\s\S]*wait: true/);
 assert.match(docTabDrop, /wait: true,[\s\S]*showErrorHint: false/);
@@ -92,6 +107,7 @@ assert.match(kanbanDragStart, /setData\('application\/x-tm-task-ids', JSON\.stri
 assert.match(kanbanDrop, /const draggedIds = __tmGetDraggedTaskIds\(ev\);[\s\S]*await __tmHandleTaskRowDropCore\(ev, targetId, 'child'\)/, 'kanban child drops must reuse the settled batch row-move core');
 assert.match(kanbanDrop, /const batchCount = Math\.max\(1, Number\(result\?\.batchCount\) \|\| 0\);[\s\S]*hint\(batchCount > 1/, 'kanban child-drop success must report the settled batch count');
 assert.match(kanbanDrop, /let movingHint = hint\([\s\S]*正在移动[\s\S]*await __tmHandleTaskRowDropCore/, 'kanban child drops must show progress before waiting for the settled batch move');
+assert.doesNotMatch(kanbanDrop, /collapsed\.delete\(targetId\)|__tmKanbanPersistCollapsed/, 'kanban child drops must retain the target collapse state');
 assert.match(kanbanDrop, /finally \{[\s\S]*__tmRemoveHint\(movingHint\);[\s\S]*__tmClearMultiTaskSelection\(\{ keepMode: true \}\)/, 'kanban child drops must dismiss progress and clear selected tasks after every terminal outcome');
 assert.doesNotMatch(kanbanDrop, /baseIds\.length === 1/, 'kanban child drops must not require a single source task');
 
@@ -128,6 +144,26 @@ async function waitForCallCount(calls, expected) {
     assert.equal(calls.length, expected);
 }
 
+function verifyLocalChildInsertionCollapsePolicy() {
+    const parentTask = { id: 'parent-task', children: [] };
+    const context = {
+        globalThis: null,
+        state: { collapsedTaskIds: new Set(['parent-task']) },
+        __tmResolveOptimisticTaskForLocalUse: () => ({ id: 'parent-task', task: parentTask }),
+        __tmResolveOptimisticTaskId: (id) => id,
+        __tmRestoreTaskSubtreeIntoFlatMap() {},
+        __tmAttachOptimisticChildToParentCandidates() {},
+    };
+    context.globalThis = context;
+    vm.runInNewContext(`${insertTaskAsChildLocal}\nthis.insertTaskAsChildLocal = __tmInsertTaskAsChildLocal;`, context);
+
+    assert.equal(context.insertTaskAsChildLocal({ id: 'task-a', children: [] }, 'parent-task', { preserveCollapsed: true }), true);
+    assert.equal(context.state.collapsedTaskIds.has('parent-task'), true);
+
+    assert.equal(context.insertTaskAsChildLocal({ id: 'task-b', children: [] }, 'parent-task'), true);
+    assert.equal(context.state.collapsedTaskIds.has('parent-task'), false);
+}
+
 async function verifyMultiSelectChildMoveSettlement() {
     const calls = [];
     let moveDeferred = createDeferred();
@@ -135,7 +171,7 @@ async function verifyMultiSelectChildMoveSettlement() {
     const context = {
         HTMLElement,
         globalThis: null,
-        state: { collapsedTaskIds: new Set() },
+        state: { collapsedTaskIds: new Set(['parent-task']) },
         __tmGetDraggedTaskIds: () => ['task-a', 'task-b', 'task-c'],
         __tmCanHandleTaskRowBatchDrop: (ids) => ({ ok: true, sourceIds: ids }),
         __tmResolveTaskRowOrDropGapFromTarget: () => null,
@@ -167,10 +203,12 @@ async function verifyMultiSelectChildMoveSettlement() {
     assert.deepEqual(calls[0].ids, ['task-a', 'task-b', 'task-c']);
     assert.equal(calls[0].payload.targetTaskId, 'parent-task');
     assert.equal(calls[0].payload.mode, 'child');
+    assert.equal(calls[0].payload.preserveTargetCollapse, true);
     assert.equal(calls[0].options.wait, true);
     moveDeferred.resolve({ results: [{}, {}, {}] });
     const result = await dropPromise;
     assert.equal(result.batchCount, 3);
+    assert.equal(context.state.collapsedTaskIds.has('parent-task'), true);
 
     calls.length = 0;
     moveDeferred = createDeferred();
@@ -195,6 +233,7 @@ async function verifyKanbanChildDropSettlement() {
     const dropHost = new Element();
     dropHost.dataset = { kind: 'status', status: 'todo' };
     const events = [];
+    const collapsedTaskIds = new Set(['parent-task']);
     let moveDeferred = createDeferred();
     const context = {
         Element,
@@ -214,7 +253,7 @@ async function verifyKanbanChildDropSettlement() {
         __tmKanbanGetTaskById: (id) => ({ id, parentTaskId: id === 'parent-task' ? '' : 'old-parent' }),
         __tmKanbanGetParentTaskId: (task) => task.parentTaskId,
         __tmRememberKanbanViewScroll() {},
-        __tmKanbanGetCollapsedSet: () => new Set(),
+        __tmKanbanGetCollapsedSet: () => collapsedTaskIds,
         __tmKanbanPersistCollapsed() {},
         __tmHandleTaskRowDropCore: () => moveDeferred.promise,
         hint: (message, type) => {
@@ -242,6 +281,7 @@ async function verifyKanbanChildDropSettlement() {
     assert.deepEqual(events, [{ kind: 'hint', message: '正在移动 3 个任务...', type: 'info' }]);
     moveDeferred.resolve({ kind: 'child', batchCount: 3 });
     await dropPromise;
+    assert.equal(collapsedTaskIds.has('parent-task'), true);
     assert.deepEqual(events, [
         { kind: 'hint', message: '正在移动 3 个任务...', type: 'info' },
         { kind: 'remove', message: '正在移动 3 个任务...' },
@@ -263,6 +303,7 @@ async function verifyKanbanChildDropSettlement() {
 }
 
 Promise.resolve().then(async () => {
+    verifyLocalChildInsertionCollapsePolicy();
     await verifyMultiSelectChildMoveSettlement();
     await verifyKanbanChildDropSettlement();
 }).then(() => {

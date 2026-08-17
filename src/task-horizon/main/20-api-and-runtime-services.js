@@ -784,6 +784,14 @@
             return html;
         },
 
+        getTaskTitlePresentation(markdown, fallback = '') {
+            const html = this.renderTaskContentHtml(markdown, fallback);
+            return {
+                html,
+                text: __tmExtractTaskContentTextFromHtml(html, fallback),
+            };
+        },
+
         parseTaskStatus(markdown) {
             if (!markdown) return { done: false, marker: ' ', firstLine: '', content: '' };
 
@@ -3131,6 +3139,10 @@
             const res = await this.call('/api/block/deleteBlock', { id: id });
             if (res.code !== 0) throw new Error(res.msg);
         }
+    };
+
+    globalThis.__tmGetTaskTitlePresentation = function(markdown, fallback = '') {
+        return API.getTaskTitlePresentation(markdown, fallback);
     };
 
     const __TM_WRITER_GUARD_STORAGE_KEY = 'tm_writer_guard';
@@ -6352,6 +6364,23 @@
         return true;
     }
 
+    function __tmBuildQueuedBatchMoveItemOp(op, taskId, snapshot, index) {
+        const data = (op?.data && typeof op.data === 'object') ? { ...op.data } : {};
+        delete data.taskIds;
+        delete data.snapshots;
+        const batchId = String(op?.id || '').trim() || 'batch-move';
+        return {
+            ...op,
+            id: `${batchId}:move:${Number(index) || 0}`,
+            type: 'moveTask',
+            data: {
+                ...data,
+                taskId: String(taskId || '').trim(),
+                snapshot: (snapshot && typeof snapshot === 'object') ? snapshot : null,
+            },
+        };
+    }
+
     function __tmApplyQueuedOpOptimistic(op) {
         const type = String(op?.type || '').trim();
         if (type === 'taskPatch') {
@@ -6443,10 +6472,55 @@
             __tmPublishQueuedOpMutation(op, 'optimistic', { taskId, patch });
             return true;
         }
+        if (type === 'batchMoveTasks') {
+            const taskIds = Array.isArray(op?.data?.taskIds) ? op.data.taskIds : [];
+            const snapshots = Array.isArray(op?.data?.snapshots) ? op.data.snapshots : [];
+            if (taskIds.length < 2 || snapshots.length !== taskIds.length) return false;
+            const moveOps = taskIds.map((taskId, index) => __tmBuildQueuedBatchMoveItemOp(
+                op,
+                taskId,
+                snapshots[index],
+                index,
+            ));
+            if (moveOps.some((moveOp) => !moveOp.data.taskId
+                || !moveOp.data.snapshot
+                || !__tmMutationTempTaskExistsForOptimisticApply(moveOp.data.taskId))) return false;
+            const appliedMoveOps = [];
+            for (const moveOp of moveOps) {
+                const mutation = __tmPublishQueuedOpMutation(moveOp, 'optimistic', {
+                    taskId: moveOp.data.taskId,
+                    snapshot: moveOp.data.snapshot,
+                });
+                if (mutation?.localApplied === false) {
+                    __tmPublishQueuedOpMutation(moveOp, 'rollback', {
+                        taskId: moveOp.data.taskId,
+                        snapshot: moveOp.data.snapshot,
+                        applyLocal: false,
+                    });
+                    appliedMoveOps.reverse().forEach((appliedOp) => {
+                        __tmPublishQueuedOpMutation(appliedOp, 'rollback', {
+                            taskId: appliedOp.data.taskId,
+                            snapshot: appliedOp.data.snapshot,
+                        });
+                    });
+                    return false;
+                }
+                appliedMoveOps.push(moveOp);
+            }
+            return true;
+        }
         if (type === 'moveTask') {
             const taskId = String(op?.data?.taskId || '').trim();
             if (!__tmMutationTempTaskExistsForOptimisticApply(taskId)) return false;
-            __tmPublishQueuedOpMutation(op, 'optimistic', { taskId });
+            const mutation = __tmPublishQueuedOpMutation(op, 'optimistic', { taskId });
+            if (mutation?.localApplied === false) {
+                __tmPublishQueuedOpMutation(op, 'rollback', {
+                    taskId,
+                    snapshot: op?.data?.snapshot,
+                    applyLocal: false,
+                });
+                return false;
+            }
             return true;
         }
         return true;
@@ -6749,6 +6823,22 @@
             });
             return;
         }
+        if (type === 'batchMoveTasks') {
+            const taskIds = Array.isArray(op?.data?.taskIds) ? op.data.taskIds : [];
+            const snapshots = Array.isArray(op?.data?.snapshots) ? op.data.snapshots : [];
+            taskIds.map((taskId, index) => __tmBuildQueuedBatchMoveItemOp(
+                op,
+                taskId,
+                snapshots[index],
+                index,
+            )).reverse().forEach((moveOp) => {
+                __tmPublishQueuedOpMutation(moveOp, 'rollback', {
+                    taskId: moveOp.data.taskId,
+                    snapshot: moveOp.data.snapshot,
+                });
+            });
+            return;
+        }
         if (type === 'moveTask') {
             __tmPublishQueuedOpMutation(op, 'rollback', {
                 taskId: String(op?.data?.taskId || op?.data?.snapshot?.taskId || '').trim(),
@@ -6930,7 +7020,7 @@
                 realId,
                 task: result?.task,
                 changeSet: result?.changeSet,
-                applyLocal: false,
+                applyLocal: op?.optimisticApplied !== true,
             });
             return;
         }
@@ -6957,15 +7047,7 @@
             results.forEach((item, index) => {
                 const taskId = String(taskIds[index] || item?.placement?.taskId || '').trim();
                 if (!taskId) return;
-                const moveOp = {
-                    ...op,
-                    type: 'moveTask',
-                    data: {
-                        ...((op?.data && typeof op.data === 'object') ? op.data : {}),
-                        taskId,
-                        snapshot: snapshots[index] || null,
-                    },
-                };
+                const moveOp = __tmBuildQueuedBatchMoveItemOp(op, taskId, snapshots[index], index);
                 __tmCommitQueuedOp(moveOp, item);
             });
             return;
@@ -10027,10 +10109,12 @@
                     <button class="tm-btn tm-btn-secondary" data-tm-semantic-action="clear-all" style="padding:6px 12px;">全不选</button>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:10px;">
-                    ${modalItems.map((item, index) => `
+                    ${modalItems.map((item, index) => {
+                        const titlePresentation = API.getTaskTitlePresentation(item.content, '未命名任务');
+                        return `
                         <div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
                             <div style="flex:1;min-width:0;">
-                                <div style="font-size:14px;font-weight:600;line-height:1.5;word-break:break-word;">${esc(item.content || '未命名任务')}</div>
+                                <div style="font-size:14px;font-weight:600;line-height:1.5;word-break:break-word;" title="${esc(titlePresentation.text)}">${titlePresentation.html}</div>
                                 <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
                                     ${item.writes.map((write) => `
                                         <label style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--tm-border-color);border-radius:6px;background:var(--tm-bg-color);cursor:pointer;font-size:12px;color:var(--tm-text-color);">
@@ -10041,7 +10125,8 @@
                                 </div>
                             </div>
                         </div>
-                    `).join('')}
+                    `;
+                    }).join('')}
                 </div>
             </div>
             <div class="tm-header" style="padding:12px 16px;border-top:1px solid var(--tm-border-color);justify-content:flex-end;gap:10px;">
@@ -14815,11 +14900,12 @@
             ? list.map((item) => {
                 const typeLabel = item.type === 'schedule' ? '日程' : '截止日';
                 const dueText = item.dueText || item.deadlineText || '-';
+                const titlePresentation = API.getTaskTitlePresentation(item.title, '未命名任务');
                 return `
                     <tr data-tm-penalty-row="${esc(item.id)}">
                         <td class="tm-points-penalty-cell-type" style="padding:6px 8px;font-size:12px;">${esc(typeLabel)}</td>
                         <td style="padding:6px 8px;max-width:360px;">
-                            <div class="tm-points-penalty-task-title" title="${esc(item.title)}">${esc(item.title)}</div>
+                            <div class="tm-points-penalty-task-title" title="${esc(titlePresentation.text)}">${titlePresentation.html}</div>
                         </td>
                         <td class="tm-points-penalty-cell-due" style="padding:6px 8px;font-size:12px;white-space:nowrap;">${esc(dueText)}</td>
                         <td class="tm-points-penalty-cell-amount" style="padding:6px 8px;font-size:12px;white-space:nowrap;">-${Math.max(0, Math.round(Number(item.amount) || 0))}</td>
@@ -19591,6 +19677,19 @@ if (!state.homepageOpen) return;
     function __tmRenderTaskContentInlineHtml(input) {
         const source = __tmPrepareTaskContentInlineSource(input);
         return source ? __tmRenderTaskInlineMarkdownHtml(source) : '';
+    }
+
+    function __tmExtractTaskContentTextFromHtml(html, fallback = '') {
+        const markup = String(html || '');
+        if (markup) {
+            try {
+                const template = document.createElement('template');
+                template.innerHTML = markup;
+                const text = String(template.content?.textContent || '').replace(/\s+/g, ' ').trim();
+                if (text) return text;
+            } catch (e) {}
+        }
+        return String(fallback || '').replace(/\s+/g, ' ').trim() || '(无内容)';
     }
 
     function __tmResolveTaskContentRenderSource(markdownSource, fallbackSource) {
@@ -24584,7 +24683,7 @@ return true;
                         ${toggle}
                     </span>
                     <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
-                        <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${task.id}', event, { surface: 'table' })"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                        <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${task.id}', event, { surface: 'table' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, task.content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                     </span>
                 </div>`;
             return `<tr class="tm-timeline-row ${finalRowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">${__tmRenderTimelineTaskCellsHtml(task, {
@@ -25610,6 +25709,21 @@ return true;
         });
         try { __tmCollapseMotion.cancel(modal); } catch (e) {}
         let context = __tmGetChecklistDisclosureContext(modal, kind, key);
+        const isCollapsedNow = () => kind === 'task'
+            ? state.collapsedTaskIds?.has?.(key) === true
+            : (__tmIsCompletedRootGroupKey(key)
+                ? __tmIsCompletedRootGroupCollapsed(key)
+                : state.collapsedGroups?.has?.(key) === true);
+        let disclosureSettled = false;
+        const finishDisclosure = () => {
+            if (disclosureSettled) return;
+            disclosureSettled = true;
+            const content = context?.content;
+            if (action === 'expand' && !isCollapsedNow() && content instanceof HTMLElement && !content.hidden) {
+                __tmUnwrapChecklistDisclosure(context);
+            }
+            try { __tmSyncCurrentViewDomRenderSignature('checklist'); } catch (e) {}
+        };
         let motionMode = 'none';
         if (opts.animate === true) {
             try {
@@ -25617,6 +25731,8 @@ return true;
                     profile: 'checklist',
                     action,
                     allowDuringScroll: true,
+                    getClipBoundary: () => context?.content || null,
+                    onSettled: finishDisclosure,
                 });
                 if (started) motionMode = 'layout';
             } catch (e) {}
@@ -25642,28 +25758,33 @@ return true;
         try { __tmSyncCurrentViewDomRenderSignature('checklist'); } catch (e) {}
         const startDisclosure = () => {
             if (coldExpansion) {
-                const isCollapsed = kind === 'task'
-                    ? state.collapsedTaskIds?.has?.(key) === true
-                    : (__tmIsCompletedRootGroupKey(key)
-                        ? __tmIsCompletedRootGroupCollapsed(key)
-                        : state.collapsedGroups?.has?.(key) === true);
                 if (state.modal !== modal
                     || String(state.viewMode || '').trim() !== 'checklist'
                     || !modal.isConnected
                     || !context.anchor?.isConnected
                     || !context.content.isConnected
                     || !modal.contains(context.content)
-                    || isCollapsed) return;
+                    || isCollapsedNow()) {
+                    try { __tmCollapseMotion.cancel(modal); } catch (e) {}
+                    return;
+                }
             }
+            const deferFinish = action === 'expand' && motionMode === 'layout';
             __tmCollapseMotion.setDisclosure(context.content, action === 'expand', {
                 forceMode: motionMode,
                 onFinish() {
-                    if (action === 'expand') __tmUnwrapChecklistDisclosure(context);
-                    try { __tmSyncCurrentViewDomRenderSignature('checklist'); } catch (e) {}
+                    if (!deferFinish) finishDisclosure();
                 },
             });
             if (motionMode === 'layout') {
-                try { queueMicrotask(() => { try { __tmCollapseMotion.playLayout(modal); } catch (e) {} }); } catch (e) {}
+                try {
+                    queueMicrotask(() => {
+                        try { __tmCollapseMotion.playLayout(modal); } catch (e) { finishDisclosure(); }
+                    });
+                } catch (e) {
+                    try { __tmCollapseMotion.cancel(modal); } catch (e2) {}
+                    finishDisclosure();
+                }
             }
         };
         startDisclosure();
@@ -26048,7 +26169,8 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         if (!(body instanceof HTMLElement)) return false;
         const bodyTop = Number(body.scrollTop || 0);
         const bodyLeft = Number(body.scrollLeft || 0);
-        const sidebar = modal.querySelector('.tm-whiteboard-sidebar');
+        const sidebar = modal.querySelector('.tm-whiteboard-sidebar-scroll')
+            || modal.querySelector('.tm-whiteboard-sidebar');
         const sidebarTop = Number(sidebar?.scrollTop || 0);
         const nextBody = __tmBuildElementFromHtml(renderBodyHtml());
         if (!(nextBody instanceof HTMLElement)) return false;
@@ -26072,7 +26194,8 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
                 }
             } catch (e) {}
             try {
-                const nextSidebar = modal.querySelector('.tm-whiteboard-sidebar');
+                const nextSidebar = modal.querySelector('.tm-whiteboard-sidebar-scroll')
+                    || modal.querySelector('.tm-whiteboard-sidebar');
                 if (nextSidebar instanceof HTMLElement) {
                     nextSidebar.scrollTop = sidebarTop;
                 }

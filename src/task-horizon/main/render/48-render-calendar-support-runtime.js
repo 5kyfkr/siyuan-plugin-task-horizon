@@ -131,10 +131,11 @@
         const t = (task && typeof task === 'object') ? task : {};
         const fb = String(fallback || '').trim();
         try {
-            if (API && typeof API.parseTaskStatus === 'function') {
-                const parsed = API.parseTaskStatus(String(t?.markdown || ''));
-                const parsedTitle = String(parsed?.content || '').trim();
-                if (parsedTitle) return parsedTitle;
+            if (API && typeof API.getTaskTitlePresentation === 'function') {
+                return API.getTaskTitlePresentation(
+                    t?.markdown,
+                    t?.content || t?.title || t?.raw_content || fb || '(无标题)'
+                ).text;
             }
         } catch (e) {}
         let title = String(t?.content || t?.title || t?.raw_content || '').trim();
@@ -538,7 +539,7 @@
                         <td style="${tableLayout.cellStyle('content')}">
                             <div class="tm-task-cell" style="padding-left:${depthPad}px;">
                                 <span class="tm-task-text">
-                                    <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${escSq(item.id)}', event, { surface: 'calendar' })"${__tmBuildTooltipAttrs(String(item.title || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(item.task)}">${contentHtml}</span>
+                                    <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${escSq(item.id)}', event, { surface: 'calendar' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(item.task?.markdown, item.title || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(item.task)}">${contentHtml}</span>
                                 </span>
                             </div>
                         </td>`;
@@ -595,7 +596,17 @@
                 else spent = __tmFormatSpentMinutes(__tmGetTaskSpentMinutes(t)) || '';
             } catch (e) {}
 
-            out.push({ id, title: title || '(无标题)', spent, durationMin, durationExplicit, documentID: docId, calendarId });
+            out.push({
+                id,
+                title: title || '(无标题)',
+                content: String(t?.content || t?.raw_content || title || '').trim(),
+                markdown: String(t?.markdown || '').trim(),
+                spent,
+                durationMin,
+                durationExplicit,
+                documentID: docId,
+                calendarId,
+            });
             if (out.length >= max) break;
         }
         return out;
@@ -654,6 +665,8 @@
             all.push({
                 id,
                 title,
+                content: String(t?.content || t?.raw_content || title || '').trim(),
+                markdown: String(t?.markdown || '').trim(),
                 spent,
                 durationMin,
                 durationExplicit,
@@ -849,6 +862,7 @@
                 out.push({
                     id,
                     title,
+                    titleMarkdown: String(t?.markdown || t?.content || title || '').trim(),
                     start,
                     endExclusive: endExKey || nextDay(start),
                     calendarId,

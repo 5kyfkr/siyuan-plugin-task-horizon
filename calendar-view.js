@@ -4473,13 +4473,30 @@
         return `${formatCalendarDateTimeText(startDate, includeYear)} - ${formatCalendarDateTimeText(endDate, includeYear)}`;
     }
 
-    function buildTaskEventTitleNode(text, rangeText = '') {
+    function resolveTaskTitlePresentation(source, fallback = '任务') {
+        const fallbackText = String(fallback || '').trim() || '任务';
+        try {
+            const presentation = globalThis.__tmGetTaskTitlePresentation?.(source, fallbackText);
+            if (presentation && typeof presentation.html === 'string' && typeof presentation.text === 'string') {
+                return presentation;
+            }
+        } catch (e) {}
+        const text = String(source || '').trim() || fallbackText;
+        return { html: esc(text), text };
+    }
+
+    function buildTaskEventTitleNode(text, rangeText = '', options = {}) {
         const title = document.createElement('span');
         title.className = 'tm-cal-task-event-title';
         title.draggable = false;
         const titleText = document.createElement('span');
         titleText.className = 'tm-cal-task-event-title-text';
-        titleText.textContent = String(text || '').trim() || '任务';
+        if (options?.rich === true) {
+            const presentation = resolveTaskTitlePresentation(text, options?.fallback || '任务');
+            titleText.innerHTML = presentation.html;
+        } else {
+            titleText.textContent = String(text || '').trim() || String(options?.fallback || '').trim() || '任务';
+        }
         titleText.draggable = false;
         const swallowDragStart = (ev) => {
             try { ev.preventDefault?.(); } catch (e) {}
@@ -4633,7 +4650,11 @@
                 if (isBlockLike) wrapEl.classList.add(taskLikeId ? 'tm-cal-task-event--block' : 'tm-cal-schedule-stack--block');
                 if (useAllDayLayout) wrapEl.classList.add(taskLikeId ? 'tm-cal-task-event--allday' : 'tm-cal-schedule-stack--allday');
                 if (rangeText && taskLikeId) wrapEl.classList.add('tm-cal-task-event--stacked');
-                const { title, titleText } = buildTaskEventTitleNode(String(eventApi?.title || '').trim() || '日程', rangeText);
+                const { title, titleText } = buildTaskEventTitleNode(
+                    String(eventApi?.title || '').trim() || '日程',
+                    rangeText,
+                    { rich: !!taskLikeId, fallback: '日程' }
+                );
                 const leadingEl = isBlockLike ? buildCalendarEventLeadingNode('marker') : null;
                 applyTaskTitleOpacityFromTask(titleText, getTaskLikeForTitleOpacity(taskLikeId, null));
                 if (leadingEl) wrapEl.appendChild(leadingEl);
@@ -5253,7 +5274,10 @@
         }
 
         const titleTextValue = resolveCalendarScheduleEventTitleText(eventApi, '日程');
-        const { title, titleText } = buildTaskEventTitleNode(titleTextValue, '');
+        const { title, titleText } = buildTaskEventTitleNode(titleTextValue, '', {
+            rich: !!taskLikeId,
+            fallback: '日程',
+        });
         title.classList.add('tm-cal-task-event-title--list');
         if (taskLikeId && typeof options.titleClick === 'function') titleText.onclick = options.titleClick(taskLikeId);
         applyTaskTitleOpacityFromTask(titleText, getTaskLikeForTitleOpacity(taskLikeId, null));
@@ -5306,6 +5330,10 @@
         const eventApi = arg?.event || null;
         if (!el || !eventApi || !isCalendarListViewType(String(arg?.view?.type || '').trim())) return false;
         const titleText = resolveCalendarScheduleEventTitleText(eventApi, '日程');
+        const linkedTaskId = String(eventApi?.extendedProps?.__tmTaskId || eventApi?.extendedProps?.__tmBlockId || '').trim();
+        const titlePresentation = linkedTaskId
+            ? resolveTaskTitlePresentation(titleText, '日程')
+            : { html: esc(titleText), text: titleText };
         let touched = false;
         const color = el.classList.contains('tm-cal-event--done')
             ? getCalendarDoneTextColor()
@@ -5324,14 +5352,14 @@
             if (wrapEl instanceof HTMLElement) {
                 let titleTextEl = wrapEl.querySelector?.('.tm-cal-task-event-title-text') || null;
                 if (!(titleTextEl instanceof HTMLElement)) {
-                    const built = buildTaskEventTitleNode(titleText, '');
+                    const built = buildTaskEventTitleNode(titleText, '', { rich: !!linkedTaskId, fallback: '日程' });
                     built.title.classList.add('tm-cal-task-event-title--list');
                     wrapEl.appendChild(built.title);
                     titleTextEl = built.titleText;
                     touched = true;
                 }
-                if (titleTextEl instanceof HTMLElement && String(titleTextEl.textContent || '').trim() !== titleText) {
-                    titleTextEl.textContent = titleText;
+                if (titleTextEl instanceof HTMLElement && String(titleTextEl.textContent || '').trim() !== titlePresentation.text) {
+                    titleTextEl.innerHTML = titlePresentation.html;
                     touched = true;
                 }
                 applyCalendarListScheduleContentLayout(wrapEl);
@@ -5361,7 +5389,7 @@
                         const repairEl = document.createElement('span');
                         repairEl.className = 'tm-cal-schedule-stack tm-cal-schedule-stack--list tm-cal-schedule-list-content';
                         repairEl.setAttribute('data-tm-cal-list-title-repair', 'schedule');
-                        const built = buildTaskEventTitleNode(titleText, '');
+                        const built = buildTaskEventTitleNode(titleText, '', { rich: !!linkedTaskId, fallback: '日程' });
                         built.title.classList.add('tm-cal-task-event-title--list');
                         repairEl.appendChild(built.title);
                         host.appendChild(repairEl);
@@ -5456,7 +5484,7 @@
             const rangeText = !hideRangeText && source === 'schedule' && !suppressAllDayRangeText
                 ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                 : '';
-            let eventTitleText = String(arg?.event?.title || '').trim() || '任务';
+            let eventTitleText = String(ext.__tmTaskTitleMarkdown || arg?.event?.title || '').trim() || '任务';
             const listTimeText = isCalendarListViewType(viewType)
                 ? (source === 'reminder'
                     ? getReminderListTimeText(ext)
@@ -5465,7 +5493,10 @@
             if (source === 'reminder' && listTimeText) {
                 eventTitleText = stripReminderListTimeFromTitle(eventTitleText, listTimeText) || eventTitleText;
             }
-            const { title, titleText } = buildTaskEventTitleNode(eventTitleText, rangeText);
+            const { title, titleText } = buildTaskEventTitleNode(eventTitleText, rangeText, {
+                rich: true,
+                fallback: source === 'schedule' ? '日程' : '任务',
+            });
             if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
             if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
             if (rangeText) wrapEl.classList.add('tm-cal-task-event--stacked');
@@ -5628,6 +5659,13 @@
                 if (nativeMonthTimed) {
                     applyCalendarMonthTimedEventColorVars(el, getCalendarEventColor(arg?.event, 'var(--tm-primary-color)'));
                     bindCalendarMonthTimedEventTitleOpen(el, arg);
+                    const linkedTaskId = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
+                    const nativeTitleEl = linkedTaskId ? el.querySelector?.('.fc-event-title') : null;
+                    if (nativeTitleEl instanceof HTMLElement) {
+                        const presentation = resolveTaskTitlePresentation(arg?.event?.title, '日程');
+                        nativeTitleEl.innerHTML = presentation.html;
+                        nativeTitleEl.setAttribute('title', presentation.text);
+                    }
                 } else if (source === 'schedule' || source === 'tomato' || arg?.isMirror) {
                     applyScheduleEventColorVars(el, getCalendarEventColor(arg?.event, 'var(--tm-primary-color)'));
                 }
@@ -6065,6 +6103,19 @@
     function normalizeCalendarHourSlotHeightMode(value) {
         const mode = String(value || '').trim();
         return Object.prototype.hasOwnProperty.call(CALENDAR_HOUR_SLOT_HEIGHT_DELTA_MAP, mode) ? mode : 'normal';
+    }
+
+    function normalizeCalendarEventFontSize(value) {
+        const raw = String(value ?? '').trim();
+        const size = Math.round(Number(raw));
+        if (!raw) return 11;
+        return Number.isFinite(size) ? Math.max(10, Math.min(14, size)) : 11;
+    }
+
+    function applyCalendarEventFontSize(value) {
+        const size = normalizeCalendarEventFontSize(value);
+        try { document.documentElement.style.setProperty('--tm-cal-event-font-size', `${size}px`); } catch (e) {}
+        return size;
     }
 
     function normalizeCalendarMonthMinVisibleEvents(value) {
@@ -7611,6 +7662,7 @@
         const allDayTime0 = readStoredString('tm_calendar_all_day_reminder_time', s.calendarAllDayReminderTime).trim() || '09:00';
         const defaultMode0 = readStoredString('tm_calendar_schedule_reminder_default_mode', s.calendarScheduleReminderDefaultMode).trim() || '0';
         const hourSlotHeightMode0 = normalizeCalendarHourSlotHeightMode(readStoredString('tm_calendar_hour_slot_height_mode', s.calendarHourSlotHeightMode).trim() || 'normal');
+        const eventFontSize0 = normalizeCalendarEventFontSize(readStoredString('tm_calendar_event_font_size', s.calendarEventFontSize).trim() || '11');
         const monthAdaptiveRowHeight0 = readStoredBool('tm_calendar_month_adaptive_row_height', typeof s.calendarMonthAdaptiveRowHeight === 'boolean' ? s.calendarMonthAdaptiveRowHeight : true);
         const monthMinVisibleEvents0 = normalizeCalendarMonthMinVisibleEvents(readStoredString('tm_calendar_month_min_visible_events', s.calendarMonthMinVisibleEvents).trim() || '3');
         const visibleStartTime0 = normalizeCalendarVisibleTime(readStoredString('tm_calendar_visible_start_time', s.calendarVisibleStartTime).trim() || '00:00', '00:00', false);
@@ -7657,6 +7709,7 @@
             quickAddScheduleTimeMode: quickAddScheduleTimeMode0,
             quickAddScheduleCustomTime: quickAddScheduleCustomTime0,
             hourSlotHeightMode: hourSlotHeightMode0,
+            eventFontSize: eventFontSize0,
             monthAdaptiveRowHeight: monthAdaptiveRowHeight0,
             monthMinVisibleEvents: monthMinVisibleEvents0,
             taskDateAllDayReminderEnabled: readStoredBool('tm_calendar_taskdate_all_day_reminder_enabled', typeof s.calendarTaskDateAllDayReminderEnabled === 'boolean' ? !!s.calendarTaskDateAllDayReminderEnabled : undefined),
@@ -8254,6 +8307,8 @@
                     tasks = (fallbackApi(60) || []).map((t) => ({
                         id: t?.id,
                         title: t?.title,
+                        content: t?.content,
+                        markdown: t?.markdown,
                         spent: t?.spent,
                         durationMin: t?.durationMin,
                         durationExplicit: t?.durationExplicit === true,
@@ -8276,6 +8331,7 @@
             const id = String(t?.id || '').trim();
             if (!id) return '';
             const title = String(t?.title || '').trim();
+            const titlePresentation = resolveTaskTitlePresentation(t?.markdown || t?.content || title, title || '(无标题)');
             const spent = String(t?.spent || '').trim();
             const durationMin = Number(t?.durationMin);
             const durationExplicit = t?.durationExplicit === true;
@@ -8285,10 +8341,10 @@
             const safeDuration = (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60;
             const titleOpacityStyle = buildTaskTitleOpacityStyleForTask(getTaskLikeForTitleOpacity(id, t));
             return `
-                <div class="tm-cal-task" draggable="true" onpointerdown="tmTaskTouchDragStart(event, '${esc(id)}')" data-tm-task-item="1" style="padding-left:${6 + Math.min(6, Math.max(0, depth)) * 10}px" data-task-id="${esc(id)}" data-task-title="${esc(title)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-task-duration-explicit="${durationExplicit ? '1' : '0'}" data-calendar-id="${esc(calendarId)}">
+                <div class="tm-cal-task" draggable="true" onpointerdown="tmTaskTouchDragStart(event, '${esc(id)}')" data-tm-task-item="1" style="padding-left:${6 + Math.min(6, Math.max(0, depth)) * 10}px" data-task-id="${esc(id)}" data-task-title="${esc(titlePresentation.text)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-task-duration-explicit="${durationExplicit ? '1' : '0'}" data-calendar-id="${esc(calendarId)}">
                     <div class="tm-cal-task-left">
                         <span class="tm-cal-task-dot" style="background:${esc(dot)};"></span>
-                        <div class="tm-cal-task-title" title="${esc(title)}" style="${titleOpacityStyle}">${esc(title)}</div>
+                        <div class="tm-cal-task-title" title="${esc(titlePresentation.text)}" style="${titleOpacityStyle}">${titlePresentation.html}</div>
                     </div>
                     <div class="tm-cal-task-spent" title="${esc(spent)}">${esc(spent)}</div>
                 </div>
@@ -8330,6 +8386,8 @@
                     tasks = (fallbackApi(200) || []).map((t) => ({
                         id: t?.id,
                         title: t?.title,
+                        content: t?.content,
+                        markdown: t?.markdown,
                         spent: t?.spent,
                         durationMin: t?.durationMin,
                         durationExplicit: t?.durationExplicit === true,
@@ -8351,6 +8409,7 @@
             const id = String(t?.id || '').trim();
             if (!id) return '';
             const title = String(t?.title || '').trim() || '(无标题)';
+            const titlePresentation = resolveTaskTitlePresentation(t?.markdown || t?.content || title, title);
             const spent = String(t?.spent || '').trim();
             const durationMin = Number(t?.durationMin);
             const durationExplicit = t?.durationExplicit === true;
@@ -8362,10 +8421,10 @@
             const metaParts = [];
             if (durationLabel) metaParts.push(`<span class="tm-checklist-meta-compact-time" title="预计时长">${esc(durationLabel)}</span>`);
             if (spent) metaParts.push(`<span class="tm-checklist-meta-compact-time" title="已耗时">${esc(spent)}</span>`);
-            const tooltipAttrs = ` data-tm-floating-tooltip-label="${esc(title)}" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center"`;
+            const tooltipAttrs = ` data-tm-floating-tooltip-label="${esc(titlePresentation.text)}" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center"`;
             const titleOpacityStyle = buildTaskTitleOpacityStyleForTask(getTaskLikeForTitleOpacity(id, t));
             return `
-                <div class="tm-cal-task tm-cal-task--checklist tm-checklist-item" draggable="true" onpointerdown="tmTaskTouchDragStart(event, '${esc(id)}')" ondragstart="tmDragTaskStart(event, '${esc(id)}')" ondragend="tmDragTaskEnd(event)" data-id="${esc(id)}" data-task-id="${esc(id)}" data-task-title="${esc(title)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-task-duration-explicit="${durationExplicit ? '1' : '0'}" data-calendar-id="${esc(calendarId)}" style="--tm-checklist-accent-color:${esc(accent)};--tm-checklist-compact-indent:${Math.min(8, depth) * 14}px;">
+                <div class="tm-cal-task tm-cal-task--checklist tm-checklist-item" draggable="true" onpointerdown="tmTaskTouchDragStart(event, '${esc(id)}')" ondragstart="tmDragTaskStart(event, '${esc(id)}')" ondragend="tmDragTaskEnd(event)" data-id="${esc(id)}" data-task-id="${esc(id)}" data-task-title="${esc(titlePresentation.text)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-task-duration-explicit="${durationExplicit ? '1' : '0'}" data-calendar-id="${esc(calendarId)}" style="--tm-checklist-accent-color:${esc(accent)};--tm-checklist-compact-indent:${Math.min(8, depth) * 14}px;">
                     <div class="tm-checklist-leading">
                         <span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>
                         <input class="tm-task-checkbox tm-cal-task-check" type="checkbox" title="完成">
@@ -8375,7 +8434,7 @@
                             <div class="tm-checklist-title-main">
                                 <div class="tm-checklist-title">
                                     <span class="tm-checklist-title-button">
-                                        <span class="tm-task-content-clickable" title="${esc(title)}"${tooltipAttrs} style="${titleOpacityStyle}">${esc(title)}</span>
+                                        <span class="tm-task-content-clickable" title="${esc(titlePresentation.text)}"${tooltipAttrs} style="${titleOpacityStyle}">${titlePresentation.html}</span>
                                     </span>
                                 </div>
                             </div>
@@ -15642,18 +15701,7 @@
 
     function normalizeCalendarTaskTitleText(value, fallback = '任务') {
         const fb = String(fallback || '').trim() || '任务';
-        let text = String(value || '').trim() || fb;
-        try {
-            if (typeof API?.normalizeTaskContent === 'function') {
-                text = String(API.normalizeTaskContent(text) || text).trim();
-            }
-        } catch (e) {}
-        text = stripCalendarTaskListStatusPrefix(text)
-            .split(/\r?\n/, 1)[0]
-            .replace(/^\s*[-*]\s*/, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-        return text || fb;
+        return resolveTaskTitlePresentation(value, fb).text || fb;
     }
 
     function readTaskDropDateFields(taskLike) {
@@ -16457,7 +16505,7 @@
                 const fcTimeEl = wrapEl?.querySelector?.('.fc-event-time');
                 if (fcTimeEl instanceof HTMLElement) {
                     if (isAllDayWrap) {
-                        fcTimeEl.style.setProperty('font-size', '10px', 'important');
+                        fcTimeEl.style.setProperty('font-size', 'var(--tm-cal-event-time-font-size, 10px)', 'important');
                         fcTimeEl.style.setProperty('line-height', '1.1', 'important');
                     } else {
                         fcTimeEl.style.removeProperty('font-size');
@@ -17622,6 +17670,7 @@
 
         state.sideDay.rootEl = rootEl;
         const settings = getSettings();
+        applyCalendarEventFontSize(settings.eventFontSize);
         const slotLayout = getTimeGridSlotLayoutOptions(settings);
         const initialDate = String(inOpts.date || '').trim() || undefined;
         const initialScrollSeed = getMainCalendarCurrentTimeScrollSeed(rootEl, settings, {
@@ -19066,6 +19115,7 @@
             const sourceTaskId = String(it?.sourceTaskId || it?.recurringSourceTaskId || '').trim();
             const actionTaskId = sourceTaskId || taskId;
             const title = String(it?.title || '').trim() || '任务';
+            const titleMarkdown = String(it?.titleMarkdown || it?.markdown || title).trim() || title;
             const sourceStartKey = String(it?.sourceStart || '').trim();
             const sourceCompletionKey = String(it?.sourceCompletion || '').trim();
             const isMilestone = it?.milestone === true;
@@ -19117,6 +19167,7 @@
                 extendedProps: {
                     __tmSource: 'taskdate',
                     __tmTaskId: actionTaskId,
+                    __tmTaskTitleMarkdown: titleMarkdown,
                     __tmTaskDateEventTaskId: taskId,
                     __tmSourceTaskId: sourceTaskId,
                     __tmRank: 2,
@@ -19279,6 +19330,7 @@
         [
             '__tmSource',
             '__tmTaskId',
+            '__tmTaskTitleMarkdown',
             '__tmTaskDateEventTaskId',
             '__tmSourceTaskId',
             '__tmRank',
@@ -19345,6 +19397,12 @@
             || fallbackEvent?.title
             || ''
         ).trim();
+        const titleMarkdown = String(
+            taskLike?.markdown
+            || taskLike?.content
+            || fallbackExt.__tmTaskTitleMarkdown
+            || title
+        ).trim();
         const color = String(
             taskLike?.taskDateColor
             || taskLike?.task_date_color
@@ -19356,6 +19414,7 @@
         ).trim();
         return {
             title: normalizeCalendarTaskTitleText(title, '任务'),
+            titleMarkdown: titleMarkdown || title,
             docId,
             milestone,
             calendarId: nonDefaultCalendarId || fallbackCalendarId || 'default',
@@ -19390,6 +19449,12 @@
         const title = Object.prototype.hasOwnProperty.call(p, 'content')
             ? normalizeCalendarTaskTitleText(String(p.content || '').trim(), meta.title || '任务')
             : meta.title;
+        const titleMarkdown = String(
+            (Object.prototype.hasOwnProperty.call(p, 'markdown') ? p.markdown : '')
+            || (Object.prototype.hasOwnProperty.call(p, 'content') ? p.content : '')
+            || meta.titleMarkdown
+            || title
+        ).trim();
         const { startKey, endKey } = resolveTaskDateDisplayRange(sourceStartKey, sourceCompletionKey, meta.milestone);
         if (!tid || !startKey || !endKey) return null;
         const cal = calendar || null;
@@ -19402,6 +19467,7 @@
         const events = buildEventsFromTaskDates([{
             id: tid,
             title,
+            titleMarkdown,
             start: startKey,
             endExclusive: formatDateKey(endExclusiveDate),
             sourceStart: sourceStartKey,
@@ -22676,6 +22742,7 @@
         } catch (e) {}
         try { rootEl.classList.add('tm-calendar-root'); } catch (e) {}
         const s = getSettings();
+        applyCalendarEventFontSize(s.eventFontSize);
         const shouldStartSidebarCollapsed = !isMobileDevice && !isDockHost && !!s.collapseDesktopSidebarDefault;
 
         const wrap = document.createElement('div');
@@ -25689,6 +25756,13 @@
                     </div>
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">
+                            日程块字号
+                            <div class="tm-calendar-settings-label-desc">调整块状视图中的日程标题，时间文字自动小 1px；范围 10–14px，列表视图不受影响。</div>
+                        </div>
+                        <input class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="number" min="10" max="14" step="1" inputmode="numeric" aria-label="日程块字号" data-tm-cal-setting="calendarEventFontSize" value="${s.eventFontSize}">
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
                             月视图自适应行高
                             <div class="tm-calendar-settings-label-desc">根据窗口高度自动分配周行高度，开启时忽略下方的最少日程数量。</div>
                         </div>
@@ -26056,6 +26130,9 @@
                 store.data[key] = normalizeQuickAddScheduleCustomTime(el.value);
             } else if (key === 'calendarHourSlotHeightMode') {
                 store.data[key] = normalizeCalendarHourSlotHeightMode(el.value);
+            } else if (key === 'calendarEventFontSize') {
+                store.data[key] = normalizeCalendarEventFontSize(el.value);
+                el.value = String(store.data[key]);
             } else if (key === 'calendarMonthMinVisibleEvents') {
                 store.data[key] = normalizeCalendarMonthMinVisibleEvents(el.value);
             } else if (key === 'calendarSidebarDefaultPage') {
@@ -26137,6 +26214,8 @@
                 } else if (key === 'calendarHourSlotHeightMode') {
                     const settings = getSettings();
                     try { refreshCalendarSlotHeight(settings); } catch (e2) {}
+                } else if (key === 'calendarEventFontSize') {
+                    applyCalendarEventFontSize(store.data.calendarEventFontSize);
                 } else if (key === 'calendarMonthMinVisibleEvents' || key === 'calendarMonthAdaptiveRowHeight') {
                     if (key === 'calendarMonthAdaptiveRowHeight') {
                         try { renderSettings(containerEl, store); } catch (e2) {}

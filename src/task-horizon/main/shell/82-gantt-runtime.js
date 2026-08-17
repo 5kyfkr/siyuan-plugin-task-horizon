@@ -543,7 +543,9 @@
             const statusLabel = showStatus ? rawStatusLabel : '';
             const statusChipStyle = statusLabel ? __tmBuildStatusChipStyle(statusOption?.color || '#9ca3af') : '';
             const taskCompleteAtText = showTaskCompleteAt ? resolveTimelineTaskCompleteAtText(task) : '';
-            const taskTitle = String(task?.content || '').trim() || '(无内容)';
+            const rawTaskTitle = String(task?.content || '').trim() || '(无内容)';
+            const taskTitlePresentation = API.getTaskTitlePresentation(task?.markdown, rawTaskTitle);
+            const taskTitle = taskTitlePresentation.text;
             const taskLevel = Number(task?.level);
             const parentTaskId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
             const isParentTaskTitle = !!task && (Number.isFinite(taskLevel) ? taskLevel === 0 : !parentTaskId);
@@ -553,6 +555,7 @@
                 statusChipStyle,
                 taskCompleteAtText,
                 taskTitle,
+                taskTitleHtml: taskTitlePresentation.html,
                 docId,
                 done,
                 isMilestone,
@@ -620,7 +623,7 @@
                 ? (showMilestoneLead ? `<span class="tm-gantt-bar__lead tm-gantt-bar__lead--milestone">${__tmRenderLucideIcon('flag', '', { size: 14 })}</span>` : '')
                 : buildTimelineDurationBadgeHtml(layout?.startTs, layout?.endTs);
             const titleHtml = visual.showTitle
-                ? `<span class="tm-gantt-bar__title${visual.isParentTaskTitle ? ' tm-parent-task-title' : ''}">${esc(visual.taskTitle)}</span>`
+                ? `<span class="tm-gantt-bar__title${visual.isParentTaskTitle ? ' tm-parent-task-title' : ''}">${visual.taskTitleHtml}</span>`
                 : '';
             const statusHtml = visual.statusLabel
                 ? `<span class="tm-gantt-bar__status"><span class="tm-status-tag" style="${visual.statusChipStyle}">${esc(visual.statusLabel)}</span></span>`

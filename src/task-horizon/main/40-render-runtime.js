@@ -155,7 +155,8 @@
                 } catch (e) {}
                 savedKanbanColScrollTopByStatus = map;
             } else if (prevWasWhiteboard) {
-                const sidebar = prevModalSnapshot.querySelector('.tm-whiteboard-sidebar');
+                const sidebar = prevModalSnapshot.querySelector('.tm-whiteboard-sidebar-scroll')
+                    || prevModalSnapshot.querySelector('.tm-whiteboard-sidebar');
                 if (sidebar) savedWhiteboardSidebarScrollTop = Number(sidebar.scrollTop) || 0;
                 const body = prevModalSnapshot.querySelector('#tmWhiteboardBody');
                 if (body) {
@@ -2562,7 +2563,8 @@
                         }));
                     }
                 } else if (isWhiteboard) {
-                    const sidebar = state.modal.querySelector('.tm-whiteboard-sidebar');
+                    const sidebar = state.modal.querySelector('.tm-whiteboard-sidebar-scroll')
+                        || state.modal.querySelector('.tm-whiteboard-sidebar');
                     const body = state.modal.querySelector('#tmWhiteboardBody');
                     const focusWhiteboardPoolSearch = () => {
                         if (!state.whiteboardPoolSearchFocusAfterRender) return;
@@ -6072,8 +6074,6 @@
                 );
                 try {
                     try { __tmRememberKanbanViewScroll(state.modal); } catch (e) {}
-                    const collapsed = __tmKanbanGetCollapsedSet();
-                    if (collapsed.delete(targetId)) __tmKanbanPersistCollapsed();
                     const result = await __tmHandleTaskRowDropCore(ev, targetId, 'child');
                     if (result && targetStatus && syncIds.length) {
                         const resolvedIds = Array.from(new Set(syncIds.map((taskId) => {

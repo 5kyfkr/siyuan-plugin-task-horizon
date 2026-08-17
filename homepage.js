@@ -2938,6 +2938,18 @@
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
 
+    function getTaskTitlePresentation(source, fallback = "未命名任务") {
+        const fallbackText = String(fallback || "").trim() || "未命名任务";
+        try {
+            const presentation = globalThis.__tmGetTaskTitlePresentation?.(source, fallbackText);
+            if (presentation && typeof presentation.html === "string" && typeof presentation.text === "string") {
+                return presentation;
+            }
+        } catch (e) {}
+        const text = String(source || "").trim() || fallbackText;
+        return { html: esc(text), text };
+    }
+
     const toNumber = (value, fallback = 0) => {
         const num = Number(value);
         return Number.isFinite(num) ? num : fallback;
@@ -4530,13 +4542,14 @@
                     const meta = kind === "risk"
                         ? (item.diffDays < 0 ? `逾期 ${Math.abs(item.diffDays)} 天` : (item.diffDays === 0 ? "今天到期" : `${item.diffDays} 天后到期`))
                         : formatListDate(item.dateKey);
+                    const titlePresentation = getTaskTitlePresentation(item.title, "未命名任务");
                     const badge = kind === "risk"
                         ? `<span class="tm-homepage-list-badge ${item.diffDays < 0 ? "is-danger" : "is-warning"}">${esc(meta)}</span>`
                         : `<span class="tm-homepage-list-date">${esc(meta)}</span>`;
                     return `
                         <button type="button" class="tm-homepage-list-item" data-tm-home-open-task="${esc(item.id || "")}">
                             <span class="tm-homepage-list-main">
-                                <span class="tm-homepage-list-title">${esc(item.title || "")}</span>
+                                <span class="tm-homepage-list-title" title="${esc(titlePresentation.text)}">${titlePresentation.html}</span>
                                 <span class="tm-homepage-list-doc">${esc(item.doc || "")}${item.priority ? ` · ${esc(item.priority)}` : ""}</span>
                             </span>
                             <span class="tm-homepage-list-side">${badge}</span>
@@ -4792,10 +4805,11 @@
             <div class="tm-homepage-focus-list">
                 ${list.map((item) => {
                     const selected = String(item.id || "").trim() && String(item.id || "").trim() === String(runtime.selectedFocusTaskId || "").trim();
+                    const titlePresentation = getTaskTitlePresentation(item.title, "未命名任务");
                     return `
                         <button type="button" class="tm-homepage-focus-task ${selected ? "is-selected" : ""}" data-tm-home-focus-task="${esc(item.id || "")}" data-tm-home-open-task="${esc(item.id || "")}">
                             <span class="tm-homepage-focus-task-main">
-                                <span class="tm-homepage-focus-task-title">${esc(item.title || "未命名任务")}</span>
+                                <span class="tm-homepage-focus-task-title" title="${esc(titlePresentation.text)}">${titlePresentation.html}</span>
                                 <span class="tm-homepage-focus-task-meta">${esc(item.doc || "未命名文档")} · ${esc(item.lastText || "时间未知")}</span>
                             </span>
                             <span class="tm-homepage-focus-task-side">

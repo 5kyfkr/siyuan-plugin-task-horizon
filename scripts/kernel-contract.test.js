@@ -706,7 +706,7 @@ function createHarness(options = {}) {
 
 async function run() {
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugin.json'), 'utf8'));
-    assert.equal(manifest.version, '2.9.3');
+    assert.equal(manifest.version, '2.9.4');
     assert.ok(Array.isArray(manifest.kernels) && manifest.kernels.includes('all'), 'plugin.json must enable the kernel plugin on supported backends');
     assert.equal(manifest.minAppVersion, '3.8.0', 'the release must require the SiYuan version whose plugin readOnly and startup RPC contracts were reviewed');
 
@@ -1138,6 +1138,19 @@ async function run() {
     assert.equal(proEntitlement.data.mcpAuthorized, true);
     assert.equal(proEntitlement.data.mcpEnabled, true, 'verified Pro entitlement must restore the persisted MCP preference');
     assert.equal(proEntitlement.data.registeredToolCount, 24);
+    const expectedMcpToolNames = [
+        'list_task_scopes', 'get_task', 'query_tasks', 'create_task', 'update_task', 'move_task', 'delete_task', 'batch_tasks',
+        'query_schedules', 'create_schedule', 'update_schedule', 'delete_schedule', 'batch_schedules', 'apply_task_operation_plan',
+        'configure_task_reminder', 'manage_agent_schedules', 'get_task_policy', 'preview_task_policy_patch', 'apply_task_policy_patch',
+        'aggregate_task_stats', 'aggregate_time_usage', 'query_focus_statistics', 'query_routine_statistics', 'list_focus_sessions',
+    ];
+    assert.deepEqual(Object.keys(harness.mcpTools).sort(), expectedMcpToolNames.slice().sort(), 'all 24 configured tools must register a handler');
+    expectedMcpToolNames.forEach((name) => {
+        const tool = harness.mcpTools[name];
+        assert.equal(typeof tool?.handler, 'function', `${name} must register a callable handler`);
+        assert.equal(tool?.schema?.inputSchema?.type, 'object', `${name} must register an object input schema`);
+        assert.ok(tool?.schema?.effects || tool?.schema?.actionEffects, `${name} must declare capability effects`);
+    });
     assert.equal(proEntitlement.data.toolGroups.flatMap((group) => group.tools).find((tool) => tool.name === 'query_tasks').readOnly, true);
     assert.equal(harness.mcpTools.query_tasks.schema.effects.localRead, true, 'plugin read capabilities must declare localRead');
     assert.equal(harness.mcpTools.aggregate_task_stats.schema.effects.localRead, true);
@@ -1165,7 +1178,7 @@ async function run() {
     const guardedBatch = await harness.mcpTools.batch_tasks.handler({
         action: 'get',
         phase: 'preview',
-        operations: [{ kind: 'create', title: 'Must stay blocked', documentID: IDS.doc }],
+        operations: [{ action: 'create', title: 'Must stay blocked', documentID: IDS.doc }],
     });
     assert.equal(guardedBatch.ok, false);
     assert.equal(guardedBatch.error.code, 'UNSUPPORTED');
@@ -1178,6 +1191,16 @@ async function run() {
     const storedMcpConfig = JSON.parse(harness.storage.get('agent-mcp-config.json'));
     assert.equal(storedMcpConfig.schemaVersion, 2);
     assert.equal(storedMcpConfig.tools.create_task, true);
+    await harness.call('taskHorizonSetMcpToolConfig', { toolName: 'update_task', enabled: false });
+    const guardedPatchBatch = await harness.mcpTools.batch_tasks.handler({
+        action: 'get',
+        phase: 'preview',
+        operations: [{ action: 'patch', taskID: IDS.singleTask, patch: { priority: 'must-stay-blocked' } }],
+    });
+    assert.equal(guardedPatchBatch.ok, false);
+    assert.equal(guardedPatchBatch.error.code, 'UNSUPPORTED');
+    assert.deepEqual(Array.from(guardedPatchBatch.error.details.tools), ['update_task']);
+    await harness.call('taskHorizonSetMcpToolConfig', { toolName: 'update_task', enabled: true });
 
     const resolved = await harness.call('taskHorizonResolveTaskBinding', IDS.childBlock);
     assert.equal(resolved.ok, true);
@@ -2240,6 +2263,18 @@ async function run() {
     assert.equal(invalidAction.ok, false);
     assert.equal(invalidAction.error.code, 'INVALID_ARGUMENT');
 
+    const taskOperationSchema = harness.mcpTools.batch_tasks.schema.inputSchema.properties.operations;
+    assert.equal(taskOperationSchema.items.additionalProperties, false, 'batch task operations must not expose an opaque object schema');
+    assert.deepEqual(Array.from(taskOperationSchema.items.properties.kind.enum), ['create', 'update', 'move', 'delete']);
+    assert.deepEqual(Array.from(taskOperationSchema.items.properties.action.enum), ['create', 'update', 'move', 'delete', 'patch']);
+    assert.deepEqual(Array.from(taskOperationSchema.items.properties.type.enum), ['create', 'update', 'move', 'delete', 'patch']);
+    const scheduleOperationSchema = harness.mcpTools.batch_schedules.schema.inputSchema.properties.operations;
+    assert.equal(scheduleOperationSchema.items.additionalProperties, false, 'batch schedule operations must not expose an opaque object schema');
+    assert.deepEqual(Array.from(scheduleOperationSchema.items.properties.kind.enum), ['create', 'update', 'delete']);
+    assert.deepEqual(Array.from(scheduleOperationSchema.items.properties.action.enum), ['create', 'update', 'delete']);
+    assert.deepEqual(harness.mcpTools.apply_task_operation_plan.schema.inputSchema.properties.taskOperations.items, taskOperationSchema.items);
+    assert.deepEqual(harness.mcpTools.apply_task_operation_plan.schema.inputSchema.properties.scheduleOperations.items, scheduleOperationSchema.items);
+
     const batchPreview = await harness.mcpTools.batch_tasks.handler({
         action: 'get',
         phase: 'preview',
@@ -2261,6 +2296,102 @@ async function run() {
     assert.equal(batchUndo.ok, true);
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], 'high');
     assert.equal(batchUndo.data.data.items[0].refresh.action, 'update');
+
+    for (const variant of [
+        { field: 'action', value: 'update', priority: 'batch-action-value' },
+        { field: 'type', value: 'update', priority: 'batch-type-value' },
+        { field: 'action', value: 'patch', priority: 'batch-patch-value' },
+    ]) {
+        const result = await harness.mcpTools.batch_tasks.handler({
+            action: 'apply',
+            phase: 'execute',
+            operations: [{ [variant.field]: variant.value, taskID: IDS.singleTask, patch: { priority: variant.priority } }],
+        });
+        assert.equal(result.ok, true, `${variant.field}=${variant.value} must resolve to a task update`);
+        assert.equal(result.data.items[0].kind, 'task:update');
+        assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], variant.priority);
+    }
+
+    const unknownBatchAction = await harness.mcpTools.batch_tasks.handler({
+        action: 'get',
+        phase: 'preview',
+        operations: [{ action: 'rename', taskID: IDS.singleTask }],
+    });
+    assert.equal(unknownBatchAction.ok, false);
+    assert.equal(unknownBatchAction.error.code, 'INVALID_ARGUMENT');
+    assert.match(unknownBatchAction.error.message, /第 1 项任务操作未知/);
+
+    const missingBatchAction = await harness.mcpTools.batch_tasks.handler({
+        action: 'get',
+        phase: 'preview',
+        operations: [{ taskID: IDS.singleTask, patch: { priority: 'must-not-write' } }],
+    });
+    assert.equal(missingBatchAction.ok, false);
+    assert.equal(missingBatchAction.error.code, 'INVALID_ARGUMENT');
+    assert.match(missingBatchAction.error.message, /第 1 项任务操作缺少 kind\/action\/type/);
+
+    const conflictingBatchAction = await harness.mcpTools.batch_tasks.handler({
+        action: 'get',
+        phase: 'preview',
+        operations: [{ kind: 'update', action: 'delete', taskID: IDS.singleTask, patch: { priority: 'must-not-write' } }],
+    });
+    assert.equal(conflictingBatchAction.ok, false);
+    assert.equal(conflictingBatchAction.error.code, 'INVALID_ARGUMENT');
+    assert.match(conflictingBatchAction.error.message, /第 1 项任务操作类型冲突/);
+    assert.notEqual(harness.attrs.get(IDS.singleTask)['custom-priority'], 'must-not-write');
+
+    const batchScheduleAction = await harness.mcpTools.batch_schedules.handler({
+        action: 'apply',
+        phase: 'execute',
+        operations: [{ action: 'update', id: 'schedule-a', patch: { title: 'Batch schedule action' } }],
+    });
+    assert.equal(batchScheduleAction.ok, true);
+    assert.equal(batchScheduleAction.data.items[0].kind, 'schedule:update');
+    assert.equal(JSON.parse(harness.storage.get('calendar-events.json')).find((item) => item.id === 'schedule-a').title, 'Batch schedule action');
+
+    const aliasDeleteSchedule = await harness.call('taskHorizonCreateSchedule', {
+        id: 'schedule-alias-delete',
+        title: 'Alias delete',
+        start: '2026-07-14T14:00:00+08:00',
+        end: '2026-07-14T14:30:00+08:00',
+    });
+    assert.equal(aliasDeleteSchedule.ok, true);
+    const aliasDeletePreview = await harness.mcpTools.batch_schedules.handler({
+        action: 'get',
+        phase: 'preview',
+        operations: [{ kind: 'delete', scheduleID: 'schedule-alias-delete' }],
+    });
+    assert.equal(aliasDeletePreview.ok, true);
+    assert.match(aliasDeletePreview.data.previewToken, /^schedules_plan_/);
+    const aliasDeleteExecute = await harness.mcpTools.batch_schedules.handler({
+        action: 'apply',
+        phase: 'execute',
+        previewToken: aliasDeletePreview.data.previewToken,
+        operations: [{ action: 'delete', scheduleID: 'schedule-alias-delete' }],
+    });
+    assert.equal(aliasDeleteExecute.ok, true, 'preview and execute may use different supported operation aliases');
+    assert.equal(JSON.parse(harness.storage.get('calendar-events.json')).some((item) => item.id === 'schedule-alias-delete'), false);
+
+    const combinedAliasPlan = await harness.mcpTools.apply_task_operation_plan.handler({
+        action: 'apply',
+        taskOperations: [{ type: 'patch', taskID: IDS.singleTask, patch: { priority: 'combined-alias-value' } }],
+        scheduleOperations: [{ type: 'update', id: 'schedule-b', patch: { title: 'Combined schedule type' } }],
+    });
+    assert.equal(combinedAliasPlan.ok, true);
+    assert.equal(combinedAliasPlan.data.summary.succeeded, 2);
+    assert.deepEqual(Array.from(combinedAliasPlan.data.items.map((item) => item.kind)), ['task:update', 'schedule:update']);
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], 'combined-alias-value');
+    assert.equal(JSON.parse(harness.storage.get('calendar-events.json')).find((item) => item.id === 'schedule-b').title, 'Combined schedule type');
+
+    const combinedDeleteAlias = await harness.mcpTools.apply_task_operation_plan.handler({
+        action: 'apply',
+        taskOperations: [{ action: 'delete', taskID: IDS.singleTask }],
+        scheduleOperations: [],
+    });
+    assert.equal(combinedDeleteAlias.ok, false);
+    assert.equal(combinedDeleteAlias.error.code, 'INVALID_ARGUMENT');
+    assert.match(combinedDeleteAlias.error.message, /组合操作不支持删除/);
+    assert.equal(harness.blocks.has(IDS.singleTask), true);
 
     const deleteWithoutToken = await harness.mcpTools.delete_task.handler({ action: 'delete', phase: 'execute', taskID: IDS.singleTask });
     assert.equal(deleteWithoutToken.ok, false);

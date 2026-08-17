@@ -132,7 +132,9 @@
             const root = __tmCollapseMotionRoot(rootInput);
             const runtime = root ? rootStates.get(root) : null;
             if (!runtime) return false;
+            const pending = runtime.pendingLayout;
             runtime.pendingLayout = null;
+            try { pending?.settle?.(false); } catch (e) {}
             Array.from(runtime.animations).forEach((entry) => {
                 try { entry.animation?.cancel?.(); } catch (e) {}
                 try { entry.finish?.(false); } catch (e) {}
@@ -265,6 +267,7 @@
             const scope = __tmCollapseMotionIsElement(options.scope) ? options.scope : root;
             const surfaces = __tmCollapseMotionSurfaces(root, profile, scope);
             if (!surfaces.length) return false;
+            let settled = false;
             runtime.pendingLayout = {
                 first: __tmCollapseMotionCapture(surfaces),
                 profile,
@@ -272,6 +275,12 @@
                 action: String(options.action || '').trim(),
                 lite: options.lite === true,
                 allowDuringScroll: options.allowDuringScroll === true,
+                getClipBoundary: typeof options.getClipBoundary === 'function' ? options.getClipBoundary : null,
+                settle(completed) {
+                    if (settled) return;
+                    settled = true;
+                    try { options.onSettled?.(completed === true); } catch (e) {}
+                },
             };
             return true;
         }
@@ -282,13 +291,48 @@
             const pending = runtime?.pendingLayout || null;
             if (!root || !runtime || !pending) return false;
             runtime.pendingLayout = null;
-            if (!__tmCollapseMotionCanAnimate(root, pending)) return false;
+            if (!__tmCollapseMotionCanAnimate(root, pending)) {
+                try { pending.settle?.(false); } catch (e) {}
+                return false;
+            }
             const last = __tmCollapseMotionCapture(__tmCollapseMotionSurfaces(root, pending.profile, pending.scope));
             const duration = pending.lite ? config.liteDuration : config.duration;
+            let clipBoundaryBottom = 0;
+            if (pending.profile === 'checklist' && pending.action === 'expand') {
+                try {
+                    const boundary = pending.getClipBoundary?.();
+                    if (__tmCollapseMotionIsElement(boundary)) {
+                        clipBoundaryBottom = Number(boundary.getBoundingClientRect()?.bottom || 0);
+                    }
+                } catch (e) {}
+            }
+            let remaining = 0;
+            let scheduling = true;
+            let completed = true;
+            const animationSettled = (didComplete) => {
+                remaining = Math.max(0, remaining - 1);
+                if (!didComplete) completed = false;
+                if (!scheduling && remaining === 0) pending.settle?.(completed);
+            };
+            const animateLayout = (element, keyframes, options = {}) => {
+                remaining += 1;
+                let callbackFired = false;
+                const finish = (didComplete) => {
+                    if (callbackFired) return;
+                    callbackFired = true;
+                    animationSettled(didComplete);
+                };
+                const entry = __tmCollapseMotionAnimate(root, element, keyframes, {
+                    ...options,
+                    onFinish: () => finish(true),
+                    onCancel: () => finish(false),
+                });
+                if (!entry && !callbackFired) finish(false);
+            };
             last.forEach((next, key) => {
                 const previous = pending.first.get(key);
                 if (!previous) {
-                    __tmCollapseMotionAnimate(root, next.element, [
+                    animateLayout(next.element, [
                         { opacity: 0 },
                         { opacity: 1 },
                     ], { duration: config.enterDuration, willChange: 'opacity' });
@@ -297,11 +341,22 @@
                 const dx = Math.round(Number(previous.rect.left || 0) - Number(next.rect.left || 0));
                 const dy = Math.round(Number(previous.rect.top || 0) - Number(next.rect.top || 0));
                 if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
-                __tmCollapseMotionAnimate(root, next.element, [
-                    { transform: `translate3d(${dx}px, ${dy}px, 0)` },
-                    { transform: 'translate3d(0, 0, 0)' },
-                ], { duration, willChange: 'transform' });
+                const clipTop = clipBoundaryBottom > 0 && Number(next.rect.top || 0) >= clipBoundaryBottom
+                    ? Math.max(0, Math.ceil(clipBoundaryBottom - Number(previous.rect.top || 0)))
+                    : 0;
+                const from = { transform: `translate3d(${dx}px, ${dy}px, 0)` };
+                const to = { transform: 'translate3d(0, 0, 0)' };
+                if (clipTop > 0) {
+                    from.clipPath = `inset(${clipTop}px 0 0 0)`;
+                    to.clipPath = 'inset(0 0 0 0)';
+                }
+                animateLayout(next.element, [from, to], {
+                    duration,
+                    willChange: clipTop > 0 ? 'transform, clip-path' : 'transform',
+                });
             });
+            scheduling = false;
+            if (remaining === 0) pending.settle?.(completed);
             return true;
         }
 
