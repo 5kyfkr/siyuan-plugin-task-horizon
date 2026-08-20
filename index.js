@@ -2314,6 +2314,28 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         return this.ensureCalendarSubscriptionTopBar();
     }
 
+    async openQuickAddTaskWindow() {
+        let openQuickAdd = typeof globalThis.tmQuickAddOpen === "function" ? globalThis.tmQuickAddOpen : null;
+        if (!openQuickAdd) {
+            const loaded = await ensureTaskMainLoaded();
+            if (loaded && typeof this.activateTaskMainRuntime === "function") {
+                try { await this.activateTaskMainRuntime("quick-add-command"); } catch (e) {}
+            }
+            openQuickAdd = typeof globalThis.tmQuickAddOpen === "function" ? globalThis.tmQuickAddOpen : null;
+        }
+        if (!openQuickAdd) {
+            console.warn("[task-horizon] quick add command skipped: tmQuickAddOpen is unavailable");
+            return false;
+        }
+        try {
+            await openQuickAdd();
+            return true;
+        } catch (e) {
+            console.error("[task-horizon] quick add command failed", e);
+            return false;
+        }
+    }
+
     getCurrentElectronWindow() {
         if (this.isRuntimeMobileClient()) return null;
         try {
@@ -2343,28 +2365,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { currentWindow.show?.(); } catch (e) {}
         try { currentWindow.focus?.(); } catch (e) {}
         return true;
-    }
-
-    async openQuickAddTaskWindow() {
-        let openQuickAdd = typeof globalThis.tmQuickAddOpen === "function" ? globalThis.tmQuickAddOpen : null;
-        if (!openQuickAdd) {
-            const loaded = await ensureTaskMainLoaded();
-            if (loaded && typeof this.activateTaskMainRuntime === "function") {
-                try { await this.activateTaskMainRuntime("quick-add-command"); } catch (e) {}
-            }
-            openQuickAdd = typeof globalThis.tmQuickAddOpen === "function" ? globalThis.tmQuickAddOpen : null;
-        }
-        if (!openQuickAdd) {
-            console.warn("[task-horizon] quick add command skipped: tmQuickAddOpen is unavailable");
-            return false;
-        }
-        try {
-            await openQuickAdd();
-            return true;
-        } catch (e) {
-            console.error("[task-horizon] quick add command failed", e);
-            return false;
-        }
     }
 
     async openQuickAddFromMainWindow() {
