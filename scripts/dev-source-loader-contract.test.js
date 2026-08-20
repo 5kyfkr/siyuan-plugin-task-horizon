@@ -14,6 +14,13 @@ for (const script of manifest.scripts) {
     assert.ok(fs.existsSync(path.join(root, 'src/task-horizon', script)), `development source is missing: ${script}`);
 }
 assert.match(index, /const devLoad = await loadTaskDevManifestScripts\(\);[\s\S]*if \(devLoad\.status === "loaded"\)[\s\S]*if \(hasTaskMainRuntime\(\)\)/, 'development sources must load before the bundled fallback');
+const loaderStart = index.indexOf('const buildTaskDevCombinedCode');
+const loaderEnd = index.indexOf('const loadTaskDevManifestScripts');
+const loaderSource = index.slice(loaderStart, loaderEnd);
+assert.match(loaderSource, /Promise\.all\([\s\S]*\)\.catch\(\(\) => null\)/, 'development script load errors must be caught on Promise.all');
+const promiseAllIndex = loaderSource.indexOf('Promise.all(');
+const promiseAllCatchIndex = loaderSource.indexOf(')).catch(() => null)');
+assert.ok(promiseAllIndex >= 0 && promiseAllCatchIndex > promiseAllIndex, 'development script loading must attach catch after Promise.all');
 assert.match(index, /console\.log\(`\[task-horizon\] dev sources loaded \(\$\{devLoad\.scripts\.length\} files\): task-horizon\.dev-main\.js`\)/, 'successful development source startup must be visible in the console');
 assert.match(index, /const bundledLoaded = await loadScriptText\(TASK_SCRIPT_PATH, "task\.js"\)/, 'installed packages must retain the bundled fallback');
 assert.match(index, /const ready = await ensureAiExperienceRuntime\(normalized\);[\s\S]*persistAiExperienceMode\(normalized\)/, 'AI mode changes must load the target runtime before committing the new mode');

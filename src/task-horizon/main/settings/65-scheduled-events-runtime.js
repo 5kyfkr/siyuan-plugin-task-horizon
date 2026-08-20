@@ -39,6 +39,25 @@
         return `${__tmScheduledPad(hour)}:${__tmScheduledPad(minute)}`;
     }
 
+    function __tmScheduledSanitizeOutput(value) {
+        return String(value || '')
+            .replace(/(^|\n)[ \t]*(?:#{1,6}\s*)?按无人值守模式执行：[^\r\n]*?只读\s*SQL\s*(?:(?:补充|复查)\s*)?(?:统计\s*)?字段\s*[:：][ \t]*/gi, '$1')
+            .trim();
+    }
+
+    function __tmScheduledNeutralizeTaskMarkers(value) {
+        return String(value || '')
+            .replace(/(^|\n)([ \t]*(?:[-*+]|\d+[.)]))[ \t]+\[[ xX]\][ \t]+/g, '$1$2 ');
+    }
+
+    function __tmScheduledOutputTitle(value, fallback = '定时事件结果') {
+        const clean = __tmScheduledSanitizeOutput(value)
+            .replace(/^#{1,6}\s+/, '')
+            .replace(/[*_`]/g, '')
+            .trim();
+        return (clean || String(fallback || '定时事件结果').trim() || '定时事件结果').slice(0, 500);
+    }
+
     function __tmScheduledExtractActionPrompt(value) {
         const source = String(value || '').trim();
         if (!source) return '';
@@ -82,13 +101,13 @@
 
     function __tmScheduledNormalizeLastRun(input) {
         const value = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
-        const markdown = String(value.markdown || '').slice(0, __TM_SCHEDULED_EVENT_MAX_RESULT);
+        const markdown = __tmScheduledSanitizeOutput(value.markdown).slice(0, __TM_SCHEDULED_EVENT_MAX_RESULT);
         return {
             occurrenceKey: String(value.occurrenceKey || '').trim(),
             status: String(value.status || 'idle').trim() || 'idle',
             startedAt: Number(value.startedAt) || 0,
             finishedAt: Number(value.finishedAt) || 0,
-            title: String(value.title || '').slice(0, 500),
+            title: __tmScheduledOutputTitle(value.title, ''),
             markdown,
             blockId: String(value.blockId || '').trim(),
             error: String(value.error || '').slice(0, 2000),
@@ -142,7 +161,11 @@
                 time: __tmScheduledParseTime(scheduleInput.time, '19:00'),
             },
             output: {
-                mode: String(outputInput.mode || '') === 'document' ? 'document' : 'notification',
+                mode: String(outputInput.mode || '') === 'document'
+                    ? 'document'
+                    : String(outputInput.mode || '') === 'daily_note'
+                        ? 'daily_note'
+                        : 'notification',
                 documentId: String(outputInput.documentId || '').trim(),
                 documentMode: String(outputInput.documentMode || '') === 'monthly_child' ? 'monthly_child' : 'target',
                 insertPosition: String(outputInput.insertPosition || '') === 'top' ? 'top' : 'bottom',
@@ -226,7 +249,7 @@
 
     function __tmScheduledCompletedTaskSnapshot(task) {
         return {
-            id: String(task?.id || '').trim(),
+            id: __tmScheduledTaskLogicalId(task),
             title: String(task?.content || task?.name || task?.markdown || '').replace(/^\s*-\s*\[[xX]\]\s*/, '').trim().slice(0, 500),
             documentId: String(task?.docId || task?.root_id || '').trim(),
             document: String(task?.docName || task?.doc_name || '').trim(),
@@ -252,9 +275,26 @@
         return timestamp > 0 ? __tmScheduledLocalDateKey(new Date(timestamp)) : '';
     }
 
+    function __tmScheduledTaskLogicalId(task) {
+        const sourceId = String(task?.sourceTaskId || task?.recurringSourceTaskId || '').trim();
+        if (sourceId) return sourceId;
+        const taskId = String(task?.id || '').trim();
+        const virtualMatch = taskId.match(/^repeatinst:([^:]+):/);
+        return String(virtualMatch?.[1] || taskId).trim();
+    }
+
     function __tmScheduledFilterCompletedTasks(tasks, occurrence) {
         const dateKey = __tmScheduledLocalDateKey(occurrence || new Date());
-        return (Array.isArray(tasks) ? tasks : []).filter((task) => task?.done === true && __tmScheduledTaskCompletionDateKey(task) === dateKey);
+        const seenLogicalTasks = new Set();
+        return (Array.isArray(tasks) ? tasks : []).filter((task) => {
+            if (task?.done !== true || __tmScheduledTaskCompletionDateKey(task) !== dateKey) return false;
+            const logicalId = __tmScheduledTaskLogicalId(task);
+            if (!logicalId) return false;
+            const dedupeKey = `${logicalId}|${dateKey}`;
+            if (seenLogicalTasks.has(dedupeKey)) return false;
+            seenLogicalTasks.add(dedupeKey);
+            return true;
+        });
     }
 
     async function __tmScheduledLoadTodayCompletedTasks(occurrence) {
@@ -281,6 +321,29 @@
             .slice(0, 240);
     }
 
+    function __tmScheduledHeadingKey(value) {
+        return String(value || '')
+            .replace(/^#{1,6}\s*/, '')
+            .replace(/[\\*_`~]/g, '')
+            .replace(/[：:]/g, '')
+            .replace(/\s+/g, '')
+            .trim()
+            .toLowerCase();
+    }
+
+    function __tmScheduledStripDuplicateLeadingHeading(markdown, heading, resultTitle, dateKey) {
+        const raw = String(markdown || '').trim();
+        const match = raw.match(/^#{1,6}[ \t]+[^\r\n]*(?:\r?\n|$)(?:\r?\n)*/);
+        if (!match) return raw;
+        const candidateKey = __tmScheduledHeadingKey(match[0]);
+        const headingKey = __tmScheduledHeadingKey(heading);
+        const titleKey = __tmScheduledHeadingKey(resultTitle);
+        const matchesTitle = titleKey && candidateKey === titleKey;
+        const matchesHeading = headingKey && candidateKey === headingKey;
+        if (!matchesHeading && !matchesTitle) return raw;
+        return raw.slice(match[0].length).trim();
+    }
+
     function __tmScheduledMonthKey(value) {
         const date = value instanceof Date ? value : new Date(value);
         if (Number.isNaN(date.getTime())) return '';
@@ -301,38 +364,85 @@
         return resolvedId;
     }
 
+    async function __tmScheduledResolveDailyNoteDocument() {
+        const runtimeSettings = typeof SettingsStore !== 'undefined' ? SettingsStore : null;
+        const runtimeState = typeof state !== 'undefined' ? state : null;
+        const runtimeApi = typeof API !== 'undefined' ? API : null;
+        let notebook = '';
+        const hasConfiguredNotebookResolver = typeof __tmResolveConfiguredDailyNoteNotebookId === 'function';
+        try {
+            notebook = hasConfiguredNotebookResolver
+                ? String(__tmResolveConfiguredDailyNoteNotebookId() || '').trim()
+                : '';
+        } catch (e) {}
+        if (!notebook && !hasConfiguredNotebookResolver) {
+            notebook = String(runtimeSettings?.data?.newTaskDailyNoteNotebookId || '').trim();
+        }
+        if (!notebook) {
+            const activeDocId = String(runtimeState?.activeDocId || '').trim();
+            if (activeDocId && activeDocId !== 'all' && typeof runtimeApi?.getDocNotebook === 'function') {
+                try { notebook = String(await runtimeApi.getDocNotebook(activeDocId) || '').trim(); } catch (e) {}
+            }
+        }
+        if (!notebook && typeof runtimeApi?.getDocNotebook === 'function') {
+            let fallbackDocId = '';
+            try {
+                fallbackDocId = typeof __tmResolveDefaultDocIdAsync === 'function'
+                    ? String(await __tmResolveDefaultDocIdAsync() || '').trim()
+                    : (typeof __tmResolveDefaultDocId === 'function' ? String(__tmResolveDefaultDocId() || '').trim() : '');
+            } catch (e) {}
+            if (fallbackDocId && fallbackDocId !== 'all') {
+                try { notebook = String(await runtimeApi.getDocNotebook(fallbackDocId) || '').trim(); } catch (e) {}
+            }
+        }
+        if (!notebook) {
+            const notebooks = Array.isArray(runtimeState?.notebooks) ? runtimeState.notebooks : [];
+            notebook = String(notebooks[0]?.id || notebooks[0]?.box || '').trim();
+        }
+        if (!notebook || typeof runtimeApi?.createDailyNote !== 'function') {
+            throw new Error('无法确定今天日记所属笔记本');
+        }
+        const documentId = String(await runtimeApi.createDailyNote(notebook) || '').trim();
+        if (!documentId) throw new Error('获取今天日记文档失败');
+        return documentId;
+    }
+
     async function __tmScheduledWriteDocument(event, documentId, markdown) {
-        if (event?.output?.insertPosition !== 'top') {
+        const runtimeSettings = typeof SettingsStore !== 'undefined' ? SettingsStore : null;
+        const appendToBottom = event?.output?.mode === 'daily_note'
+            ? runtimeSettings?.data?.newTaskDailyNoteAppendToBottom === true
+            : event?.output?.insertPosition !== 'top';
+        if (appendToBottom) {
             return String(await __tmBackendAdapter.appendBlock(documentId, markdown) || '').trim();
         }
-        const firstChildId = String(await API.getFirstDirectChildIdOfDoc(documentId) || '').trim();
-        if (!firstChildId) {
-            return String(await __tmBackendAdapter.appendBlock(documentId, markdown) || '').trim();
-        }
-        return String(await __tmBackendAdapter.insertBlock(documentId, markdown, {
-            parentID: documentId,
-            nextID: firstChildId,
-        }) || '').trim();
+        return String(await __tmBackendAdapter.prependBlock(documentId, markdown) || '').trim();
     }
 
     async function __tmScheduledDeliver(event, result, occurrence) {
-        const resultTitle = String(result?.title || event.name || '定时事件').trim();
+        const resultTitle = __tmScheduledOutputTitle(result?.title, event.name || '定时事件');
         const title = `定时事件完成：${String(event.name || '未命名定时事件').trim()}`;
-        const markdown = String(result?.markdown || '').trim();
+        const markdown = __tmScheduledSanitizeOutput(result?.markdown);
+        const documentMarkdown = event.output.mode === 'document' || event.output.mode === 'daily_note'
+            ? __tmScheduledNeutralizeTaskMarkers(markdown)
+            : markdown;
         let blockId = '';
-        if (event.output.mode === 'document') {
-            const dateKey = __tmScheduledLocalDateKey(occurrence || new Date());
-            const documentId = await __tmScheduledResolveOutputDocument(event, occurrence);
-            const heading = resultTitle.includes(dateKey) ? resultTitle : `${dateKey} ${resultTitle}`;
-            blockId = await __tmScheduledWriteDocument(event, documentId, `## ${heading}\n\n${markdown}`);
+        let outputMarkdown = documentMarkdown;
+        const dateKey = __tmScheduledLocalDateKey(occurrence || new Date());
+        const heading = resultTitle.includes(dateKey) ? resultTitle : `${dateKey} ${resultTitle}`;
+        const dedupeHeading = event.output.mode === 'notification' ? resultTitle : heading;
+        outputMarkdown = __tmScheduledStripDuplicateLeadingHeading(documentMarkdown, dedupeHeading, resultTitle, dateKey);
+        if (event.output.mode === 'document' || event.output.mode === 'daily_note') {
+            const documentId = event.output.mode === 'daily_note'
+                ? await __tmScheduledResolveDailyNoteDocument()
+                : await __tmScheduledResolveOutputDocument(event, occurrence);
+            blockId = await __tmScheduledWriteDocument(event, documentId, `## ${heading}\n\n${outputMarkdown}`);
         }
-        const summary = __tmScheduledNotificationSummary(markdown) || title;
+        const summary = __tmScheduledNotificationSummary(outputMarkdown) || title;
         const conversationNote = event.conversationId
             ? `已追加到任务智能体对话“定时：${event.name}”`
             : '';
         const body = [resultTitle, conversationNote, summary].filter(Boolean).join('\n');
-        const calendarNotifier = globalThis.__tmCalendar?.showCompletionNotification
-            || globalThis.__tmCalendar?.showSystemNotification;
+        const calendarNotifier = globalThis.__tmCalendar?.showSystemNotification;
         let notificationResult = { ok: false, error: '未获取到可用的系统通知接口' };
         if (typeof calendarNotifier === 'function') {
             try {
@@ -358,7 +468,7 @@
         }
         const notificationOk = notificationResult === true || notificationResult?.ok === true;
         const notificationError = notificationOk ? '' : String(notificationResult?.error || '系统通知发送失败').trim();
-        hint(notificationOk ? `${title}\n${body}` : `${title}\n${body}\n\n系统通知未发送：${notificationError}`, notificationOk ? 'success' : 'warning');
+        if (!notificationOk) hint(`${title}\n${body}\n\n系统通知未发送：${notificationError}`, 'warning');
         return { blockId, notificationDelivered: notificationOk, notificationError };
     }
 
@@ -771,12 +881,12 @@
                 if (current) current.conversationId = event.conversationId;
                 await __tmScheduledPersist();
             }
-            const markdown = String(result?.markdown || '').trim().slice(0, __TM_SCHEDULED_EVENT_MAX_RESULT);
+            const markdown = __tmScheduledSanitizeOutput(result?.markdown).slice(0, __TM_SCHEDULED_EVENT_MAX_RESULT);
             if (!markdown) throw new Error('智能体未返回内容');
             const cached = {
-                title: String(result?.title || event.name).slice(0, 500),
+                title: __tmScheduledOutputTitle(result?.title, event.name),
                 markdown,
-                deliveryPending: event.output.mode === 'document',
+                deliveryPending: event.output.mode !== 'notification',
                 deliveryCompleted: false,
                 manual,
             };
@@ -1063,5 +1173,8 @@
         loadTodayCompletedTasks: __tmScheduledLoadTodayCompletedTasks,
         mergeEventSnapshots: __tmScheduledMergeEventSnapshots,
         extractPrompt: __tmScheduledExtractActionPrompt,
+        sanitizeOutput: __tmScheduledSanitizeOutput,
+        neutralizeTaskMarkers: __tmScheduledNeutralizeTaskMarkers,
+        stripDuplicateLeadingHeading: __tmScheduledStripDuplicateLeadingHeading,
         deliver: __tmScheduledDeliver,
     };

@@ -37,7 +37,8 @@
         WhiteboardStore.upsertTasks(tasks, opts);
     }
 
-    function __tmDeleteWhiteboardSnapshotTasks(taskIds) {
+    function __tmDeleteWhiteboardSnapshotTasks(taskIds, opts = {}) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
         const list = Array.isArray(taskIds) ? taskIds : [];
         const ids = list.map((x) => String(x || '').trim()).filter(Boolean);
         if (!ids.length) return;
@@ -7797,6 +7798,9 @@ return false;
         if (!(root instanceof HTMLElement) || !taskLike) return false;
         if (!root.classList.contains('tm-kanban-card') && !root.classList.contains('tm-whiteboard-node')) return false;
         root.classList.toggle('tm-kanban-card--overdue', __tmIsTaskCardDateOverdue(taskLike));
+        root.classList.toggle('tm-kanban-card--has-date', typeof __tmHasTaskCardDate === 'function'
+            ? __tmHasTaskCardDate(taskLike)
+            : !!String(taskLike?.startDate || taskLike?.start_date || taskLike?.completionTime || taskLike?.completion_time || '').trim());
         const isSub = root.classList.contains('tm-kanban-card--sub')
             || root.classList.contains('tm-whiteboard-subcard')
             || root.classList.contains('tm-whiteboard-node--sub');
@@ -7828,6 +7832,50 @@ return false;
             try { meta.appendChild(node); } catch (e) {}
         });
         return true;
+    }
+
+    function __tmSyncWhiteboardDependencyClassesInDOM() {
+        if (!(state.modal instanceof Element) || typeof __tmBuildWhiteboardDependencyAffectedTaskIdSet !== 'function') return false;
+        const nodes = Array.from(state.modal.querySelectorAll('.tm-whiteboard-node[data-task-id]'))
+            .filter((node) => node instanceof HTMLElement);
+        if (!nodes.length) return false;
+        const globalCanvas = typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive();
+        const entriesByGroup = new Map();
+        nodes.forEach((node) => {
+            const taskId = String(node.getAttribute('data-task-id') || '').trim();
+            if (!taskId) return;
+            const docId = String(node.getAttribute('data-doc-id') || '').trim();
+            const groupKey = globalCanvas ? '__global__' : (docId || '__unknown__');
+            const task = globalThis.__tmTaskStore?.getProjected?.(taskId)
+                || __tmTaskStateKernel.getTask(taskId)
+                || (typeof __tmGetWhiteboardOutlineTaskLike === 'function' ? __tmGetWhiteboardOutlineTaskLike(taskId, docId) : null);
+            if (!task || typeof task !== 'object') return;
+            if (!entriesByGroup.has(groupKey)) entriesByGroup.set(groupKey, []);
+            entriesByGroup.get(groupKey).push({ node, task });
+        });
+        let touched = false;
+        entriesByGroup.forEach((entries, groupKey) => {
+            const links = globalCanvas
+                ? (typeof __tmGetWhiteboardGlobalTaskLinks === 'function' ? __tmGetWhiteboardGlobalTaskLinks() : [])
+                : (typeof __tmGetAllTaskLinks === 'function' ? __tmGetAllTaskLinks({ docId: groupKey, includeAuto: true }) : []);
+            const affected = __tmBuildWhiteboardDependencyAffectedTaskIdSet(
+                entries.map((entry) => entry.task),
+                links,
+                __tmNormalizeDateOnly(new Date()),
+            );
+            entries.forEach(({ node, task }) => {
+                const hasDate = typeof __tmHasTaskCardDate === 'function'
+                    ? __tmHasTaskCardDate(task)
+                    : !!String(task?.startDate || task?.start_date || task?.completionTime || task?.completion_time || '').trim();
+                const isOverdue = __tmIsTaskCardDateOverdue(task);
+                const isAffected = affected.has(String(task?.id || '').trim());
+                node.classList.toggle('tm-kanban-card--has-date', hasDate);
+                node.classList.toggle('tm-kanban-card--overdue', isOverdue);
+                node.classList.toggle('tm-kanban-card--dependency-affected', isAffected);
+                touched = true;
+            });
+        });
+        return touched;
     }
 
     const __tmViewControllers = {
@@ -8065,6 +8113,12 @@ return false;
                         touched = !!__tmUpdateTaskCardRemarkNodeInDOM(node, task, 'whiteboard') || touched;
                     }
                 });
+                if (Object.prototype.hasOwnProperty.call(patch, 'done')
+                    || Object.prototype.hasOwnProperty.call(patch, 'customStatus')
+                    || Object.prototype.hasOwnProperty.call(patch, 'startDate')
+                    || Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
+                    touched = __tmSyncWhiteboardDependencyClassesInDOM() || touched;
+                }
                 return touched;
             },
         },
@@ -8088,7 +8142,7 @@ return false;
         const directTaskDateKeys = new Set(['content', 'startDate', 'completionTime', 'taskDateColor']);
         const hasDirectTaskDatePatch = keys.some((key) => directTaskDateKeys.has(String(key || '').trim()));
         const hasDonePatch = Object.prototype.hasOwnProperty.call(nextPatch, 'done');
-        const needsVisibleReadback = keys.some((key) => {
+        const needsVisibleReadback = !hasDirectTaskDatePatch && keys.some((key) => {
             const normalized = String(key || '').trim();
             return !directTaskDateKeys.has(normalized) && normalized !== 'done';
         });
@@ -8231,20 +8285,25 @@ refreshed = checklistPatched || refreshed;
             } catch (e) {}
             if (calendarPatchedInPlace && viewMode === 'calendar') refreshed = true;
         }
-        if (viewMode === 'calendar') {
-            try {
-                const calApi = globalThis.__tmCalendar;
-                if (calApi && typeof calApi.requestRefresh === 'function') {
-                    calApi.requestRefresh({
-                        reason: String(opts.reason || 'task-field-calendar-panel').trim() || 'task-field-calendar-panel',
-                        main: false,
-                        side: false,
-                        flushTaskPanel: true,
-                        hard: false,
-                    });
-                    refreshed = true;
-                }
-            } catch (e) {}
+        if (viewMode === 'calendar' && !calendarPatchedInPlace) {
+            if (opts.skipCalendarTaskPanelRefresh === true) {
+                // Priority-only ancestor patches do not alter any visible
+                // calendar event. Avoid scheduling a task-panel repaint.
+            } else {
+                try {
+                    const calApi = globalThis.__tmCalendar;
+                    if (calApi && typeof calApi.requestRefresh === 'function') {
+                        calApi.requestRefresh({
+                            reason: String(opts.reason || 'task-field-calendar-panel').trim() || 'task-field-calendar-panel',
+                            main: false,
+                            side: false,
+                            flushTaskPanel: true,
+                            hard: false,
+                        });
+                        refreshed = true;
+                    }
+                } catch (e) {}
+            }
         }
         if ((fallbackNeeded || fastProjectionApplied) && !(calendarPatchedInPlace && viewMode === 'calendar')) {
             if (viewMode === 'kanban') {
@@ -10715,6 +10774,16 @@ return false;
         if (!isAggregateTab) return new Set();
         const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const ids = new Set();
+        // Manual archive state is authoritative even while a document's task tree is being hydrated.
+        try {
+            const manuallyArchivedIds = typeof __tmGetManualArchivedDocIdsForGroup === 'function'
+                ? __tmGetManualArchivedDocIdsForGroup(currentGroupId)
+                : [];
+            (Array.isArray(manuallyArchivedIds) ? manuallyArchivedIds : []).forEach((docId) => {
+                const id = String(docId || '').trim();
+                if (id) ids.add(id);
+            });
+        } catch (e) {}
         (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
             const docId = String(doc?.id || '').trim();
             if (!docId) return;

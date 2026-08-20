@@ -15,8 +15,8 @@ assert.match(
 );
 assert.match(
     calendarSource,
-    /function beginCalendarSidebarTransition\(wrap\)[\s\S]*transitionend[\s\S]*sidebar-transition-end/,
-    'calendar sidebar transitions must finish with one full layout refresh',
+    /function beginCalendarSidebarTransition\(wrap\)[\s\S]*transitionend[\s\S]*scheduleCalendarSidebarResizeSettle/,
+    'calendar sidebar transitions must finish with one trailing resize settle',
 );
 assert.match(
     calendarSource,
@@ -35,8 +35,8 @@ assert.match(
 );
 assert.match(
     calendarSource,
-    /function scheduleCalendarHostResizeSettle\(wrap, host, calendar\)[\s\S]*setTimeout\([\s\S]*host-height-transition-end[\s\S]*}, 80\)/,
-    'deferred calendar height layout must use a short trailing settle timer',
+    /function scheduleCalendarHostResizeSettle\(wrap, host, calendar\)[\s\S]*setTimeout\([\s\S]*requestAnimationFrame\([\s\S]*finishOverflowGuard[\s\S]*}, 80\)/,
+    'deferred calendar height transitions must use a short trailing overflow settle timer',
 );
 assert.match(
     calendarSource,
@@ -239,8 +239,12 @@ assert.equal(sidebar.listeners.get('transitionend')?.size || 0, 0, 'transition c
 
 runtimeContext.setOpen(wrap, wrap.classList.contains('tm-calendar-wrap--sidebar-collapsed'));
 sidebar.emit('transitionend', { target: sidebar, propertyName: 'width' });
-assert.equal(fullRefreshCount, 1, 'transition completion must run one full layout refresh');
-assert.equal(timers.size, 0, 'transition completion must clear its fallback timer');
+assert.equal(fullRefreshCount, 0, 'transition completion must defer the final full layout refresh');
+const sidebarSettleCallback = Array.from(timers.values())[0];
+timers.clear();
+sidebarSettleCallback();
+assert.equal(fullRefreshCount, 1, 'sidebar settle must run one full layout refresh');
+assert.equal(timers.size, 0, 'sidebar settle must clear its trailing resize timer');
 
 const taskSidebar = new FakeElement();
 const taskWrap = new FakeWrap(taskSidebar);
@@ -264,7 +268,7 @@ assert.equal(runtimeState.rootEl.classList.contains('tm-calendar-root--host-heig
 const settleCallback = Array.from(timers.values())[0];
 timers.clear();
 settleCallback();
-assert.equal(fullRefreshCount, 2, 'settled host height must add one final full layout refresh');
+assert.equal(fullRefreshCount, 1, 'settled host height must not add another full calendar layout refresh');
 assert.equal(runtimeState.rootEl.classList.contains('tm-calendar-root--host-height-transitioning'), true, 'the overflow guard must remain through the final layout frame');
 const firstSettleFrame = Array.from(frames.values())[0];
 frames.clear();

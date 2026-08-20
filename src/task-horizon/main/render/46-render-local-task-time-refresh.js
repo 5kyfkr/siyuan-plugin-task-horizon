@@ -410,9 +410,13 @@ return ok;
                     if (!(node instanceof HTMLElement)) return;
                     synced = !!__tmSyncTaskCardMetaChipsInDOM(node, task, 'whiteboard') || synced;
                 });
-                if (synced) return true;
+                if (synced) {
+                    try { __tmSyncWhiteboardDependencyClassesInDOM?.(); } catch (e) {}
+                    return true;
+                }
             }
         } catch (e) {}
+        try { __tmSyncWhiteboardDependencyClassesInDOM?.(); } catch (e) {}
         const dateShouldExist = cardFields.has('date') && __tmShouldRenderTaskCardDate(task);
         if (dateNodes.length) {
             if (!dateShouldExist) return false;
@@ -500,25 +504,41 @@ return ok;
                 }) || refreshed;
             } catch (e) {}
         }
-if (hasCalendarDatePatch && globalThis.__tmCalendar?.syncTaskDateInPlace) {
+        if (hasCalendarDatePatch && opts.skipCalendarSync !== true && globalThis.__tmCalendar?.syncTaskDateInPlace) {
             Promise.resolve().then(async () => {
                 const isCalendarView = viewMode === 'calendar';
+                const requestTaskDateSourceFallback = () => {
+                    if (typeof globalThis.__tmCalendar?.refreshTaskDateSources === 'function') {
+                        try {
+                            globalThis.__tmCalendar.refreshTaskDateSources({
+                                main: isCalendarView,
+                                side: __tmShouldShowCalendarSideDock(),
+                                allowInactiveFullLoad: true,
+                            });
+                            return true;
+                        } catch (e) {}
+                    }
+                    return false;
+                };
                 const syncResult = await globalThis.__tmCalendar.syncTaskDateInPlace(tid, {
                     main: isCalendarView,
                     side: __tmShouldShowCalendarSideDock(),
                     allowRefetch: false,
                 }).catch(() => null);
+                const sideVisible = __tmShouldShowCalendarSideDock();
                 if (!syncResult) {
+                    if (requestTaskDateSourceFallback()) return;
                     __tmRequestCalendarRefresh({
                         reason: String(opts.reason || 'task-time-calendar-fallback').trim() || 'task-time-calendar-fallback',
                         main: isCalendarView,
-                        side: __tmShouldShowCalendarSideDock(),
+                        side: sideVisible,
                         flushTaskPanel: false,
                         hard: false,
                     }, { hard: false });
                     return;
                 }
 if ((syncResult.needsMainRefresh && isCalendarView) || syncResult.needsSideRefresh) {
+                    if (requestTaskDateSourceFallback()) return;
                     __tmRequestCalendarRefresh({
                         reason: String(opts.reason || 'task-time-calendar-fallback').trim() || 'task-time-calendar-fallback',
                         main: isCalendarView && syncResult.needsMainRefresh,
@@ -576,6 +596,7 @@ if ((syncResult.needsMainRefresh && isCalendarView) || syncResult.needsSideRefre
                     patch,
                     withFilters: false,
                     reason,
+                    skipCalendarSync: true,
                 });
                 if (!refreshed) {
                     try {

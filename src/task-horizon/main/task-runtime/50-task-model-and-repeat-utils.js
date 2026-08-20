@@ -206,6 +206,62 @@
         return String(task?.completionTime || '').trim() || String(task?.startDate || '').trim();
     }
 
+    function __tmHasTaskCardDate(task) {
+        if (!(task && typeof task === 'object')) return false;
+        return !!String(
+            task?.startDate
+            || task?.start_date
+            || task?.completionTime
+            || task?.completion_time
+            || ''
+        ).trim();
+    }
+
+    function __tmBuildWhiteboardDependencyAffectedTaskIdSet(tasks, links, todayKey = '') {
+        const taskList = Array.isArray(tasks) ? tasks : [];
+        const taskById = new Map();
+        taskList.forEach((task) => {
+            const id = String(task?.id || task?.blockId || '').trim();
+            if (id && task && typeof task === 'object') taskById.set(id, task);
+        });
+        if (!taskById.size) return new Set();
+        const adjacency = new Map();
+        (Array.isArray(links) ? links : []).forEach((link) => {
+            const from = String(link?.from || '').trim();
+            const to = String(link?.to || '').trim();
+            if (!from || !to || from === to || !taskById.has(from) || !taskById.has(to)) return;
+            if (!adjacency.has(from)) adjacency.set(from, new Set());
+            adjacency.get(from).add(to);
+        });
+        const queue = [];
+        const visited = new Set();
+        taskById.forEach((task, id) => {
+            if (__tmIsTaskCardDateOverdue(task, todayKey)) {
+                visited.add(id);
+                queue.push(id);
+            }
+        });
+        const affected = new Set();
+        let cursor = 0;
+        while (cursor < queue.length) {
+            const current = queue[cursor];
+            cursor += 1;
+            (adjacency.get(current) || []).forEach((next) => {
+                if (visited.has(next)) return;
+                visited.add(next);
+                const nextTask = taskById.get(next);
+                let nextDone = nextTask?.done === true;
+                try {
+                    if (typeof __tmIsTaskDoneEffective === 'function') nextDone = __tmIsTaskDoneEffective(nextTask);
+                } catch (e) {}
+                if (nextDone) return;
+                affected.add(next);
+                queue.push(next);
+            });
+        }
+        return affected;
+    }
+
     function __tmIsTaskCardDateOverdue(task, todayKey = '') {
         if (!(task && typeof task === 'object')) return false;
         let done = task.done === true;

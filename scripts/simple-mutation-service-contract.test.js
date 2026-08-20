@@ -296,6 +296,8 @@ assert.match(api, /function __tmBuildAtomicCreateAttrs\(taskId, patch\)[\s\S]*__
     'initial task fields must be encoded into the pre-generated task DOM');
 assert.match(api, /const taskElements = Array\.from\(host\.querySelectorAll\('\[data-type="NodeListItem"\]'\)\)\.filter[\s\S]*taskElements\.length !== 1/,
     'stable task DOM must reject content that expands into zero or multiple task items');
+assert.match(api, /\['SetProtyleWYSIWYG', true\],[\s\S]*\['SetBlockRef', true\],[\s\S]*\['SetDataTask', true\]/,
+    'stable task DOM must parse inline block references before inserting generated DOM');
 assert.match(api, /if \(!\/\^\\d\{14\}-\[a-z0-9\]\{7\}\$\/i\.test\(taskId\)/,
     'stable task DOM must only accept a SiYuan-generated node ID');
 assert.match(create, /API\.generateTaskDOM\(stableTaskId, text, __tmIsTaskMarkerDone\(initialMarker\), \{ attrs: initialAttrs \}\)/,

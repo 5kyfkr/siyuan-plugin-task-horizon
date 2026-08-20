@@ -5065,7 +5065,7 @@
             whiteboardNodePos: __tmNormalizeWhiteboardNodePosMap(src.whiteboardNodePos),
             whiteboardPlacedTaskIds: __tmNormalizeWhiteboardPlacedTaskIds(src.whiteboardPlacedTaskIds),
             whiteboardDocFrameSize: __tmNormalizeWhiteboardDocFrameSizeMap(src.whiteboardDocFrameSize),
-            whiteboardAllTabsLayoutMode: String(src.whiteboardAllTabsLayoutMode || 'board').trim() || 'board',
+            whiteboardAllTabsLayoutMode: String(src.whiteboardAllTabsLayoutMode || 'global').trim() || 'global',
             whiteboardAllTabsDocOrderByGroup: __tmNormalizeWhiteboardAllTabsDocOrderMap(src.whiteboardAllTabsDocOrderByGroup),
             whiteboardGlobalBoardsByGroup: __tmNormalizeWhiteboardGlobalBoardsByGroupMap(src.whiteboardGlobalBoardsByGroup),
             whiteboardSequenceMode: !!src.whiteboardSequenceMode,
@@ -6515,6 +6515,10 @@
         });
         if (out.length) return out;
         return __TM_TIMELINE_DEFAULT_COLUMN_ORDER.filter((key) => known.has(key));
+    }
+
+    function __tmNormalizeTimelineDependencyScope(input) {
+        return String(input || '').trim().toLowerCase() === 'local' ? 'local' : 'global';
     }
 
     function __tmGetTimelineColumnOrder() {
@@ -8421,6 +8425,7 @@
             tomatoSpentAttrKeyHours: 'custom-tomato-time',
             tomatoCountAttrKey: 'custom-tomato-count',
             tomatoEstimateAttrKey: 'custom-tomato-estimate-count',
+            tomatoPolicyRevision: 0,
             calendarEnabled: true,
             calendarLinkDockTomato: true,
             calendarIcsEnabled: false,
@@ -8577,6 +8582,7 @@
             timelineColumnOrder: __TM_TIMELINE_DEFAULT_COLUMN_ORDER.slice(),
             timelineCardFields: ['title', 'status'],
             timelineForceSortByCompletionNearToday: false,
+            timelineDependencyScope: 'global',
             groupSortByBestSubtaskTimeInTimeQuadrant: false,
             pinTasksWithinGroups: false,
             // 白板视图
@@ -8607,7 +8613,7 @@
             whiteboardPlacedTaskIds: {},
             whiteboardStateVersion: 0,
             whiteboardDocFrameSize: {},
-            whiteboardAllTabsLayoutMode: 'board',
+            whiteboardAllTabsLayoutMode: 'global',
             whiteboardAllTabsDocOrderByGroup: {},
             whiteboardGlobalBoardsByGroup: {},
             whiteboardSequenceMode: false,
@@ -9086,6 +9092,7 @@
                                 if (typeof cloudData.tomatoSpentAttrKeyHours === 'string') this.data.tomatoSpentAttrKeyHours = cloudData.tomatoSpentAttrKeyHours;
                                 if (typeof cloudData.tomatoCountAttrKey === 'string') this.data.tomatoCountAttrKey = cloudData.tomatoCountAttrKey;
                                 if (typeof cloudData.tomatoEstimateAttrKey === 'string') this.data.tomatoEstimateAttrKey = cloudData.tomatoEstimateAttrKey;
+                                if (typeof cloudData.tomatoPolicyRevision === 'number') this.data.tomatoPolicyRevision = Math.max(0, cloudData.tomatoPolicyRevision);
                                 if (typeof cloudData.calendarEnabled === 'boolean') this.data.calendarEnabled = cloudData.calendarEnabled;
                                 if (typeof cloudData.calendarLinkDockTomato === 'boolean') this.data.calendarLinkDockTomato = cloudData.calendarLinkDockTomato;
                                 if (typeof cloudData.calendarIcsEnabled === 'boolean') this.data.calendarIcsEnabled = cloudData.calendarIcsEnabled;
@@ -9276,6 +9283,7 @@
                                 if (Array.isArray(cloudData.timelineColumnOrder)) this.data.timelineColumnOrder = cloudData.timelineColumnOrder;
                                 if (Array.isArray(cloudData.timelineCardFields)) this.data.timelineCardFields = __tmNormalizeTimelineCardFields(cloudData.timelineCardFields);
                                 if (typeof cloudData.timelineForceSortByCompletionNearToday === 'boolean') this.data.timelineForceSortByCompletionNearToday = cloudData.timelineForceSortByCompletionNearToday;
+                                if (typeof cloudData.timelineDependencyScope === 'string') this.data.timelineDependencyScope = __tmNormalizeTimelineDependencyScope(cloudData.timelineDependencyScope);
                                 if (typeof cloudData.groupSortByBestSubtaskTimeInTimeQuadrant === 'boolean') this.data.groupSortByBestSubtaskTimeInTimeQuadrant = cloudData.groupSortByBestSubtaskTimeInTimeQuadrant;
                                 if (typeof cloudData.pinTasksWithinGroups === 'boolean') this.data.pinTasksWithinGroups = cloudData.pinTasksWithinGroups;
                                 if (typeof cloudData.completedTasksTodayOnly === 'boolean') this.data.completedTasksTodayOnly = cloudData.completedTasksTodayOnly;
@@ -9612,6 +9620,7 @@
             this.data.tomatoSpentAttrKeyHours = Storage.get('tm_tomato_spent_attr_key_hours', this.data.tomatoSpentAttrKeyHours);
             this.data.tomatoCountAttrKey = Storage.get('tm_tomato_count_attr_key', this.data.tomatoCountAttrKey);
             this.data.tomatoEstimateAttrKey = Storage.get('tm_tomato_estimate_attr_key', this.data.tomatoEstimateAttrKey);
+            this.data.tomatoPolicyRevision = Math.max(0, Number(Storage.get('tm_tomato_policy_revision', this.data.tomatoPolicyRevision)) || 0);
             this.data.calendarEnabled = Storage.get('tm_calendar_enabled', this.data.calendarEnabled);
             this.data.calendarLinkDockTomato = Storage.get('tm_calendar_link_docktomato', this.data.calendarLinkDockTomato);
             this.data.calendarIcsEnabled = !!Storage.get('tm_calendar_ics_enabled', this.data.calendarIcsEnabled);
@@ -9758,6 +9767,7 @@
             this.data.timelineColumnOrder = Storage.get('tm_timeline_column_order', this.data.timelineColumnOrder);
             this.data.timelineCardFields = __tmNormalizeTimelineCardFields(Storage.get('tm_timeline_card_fields', this.data.timelineCardFields));
             this.data.timelineForceSortByCompletionNearToday = Storage.get('tm_timeline_force_sort_completion_near_today', this.data.timelineForceSortByCompletionNearToday);
+            this.data.timelineDependencyScope = __tmNormalizeTimelineDependencyScope(Storage.get('tm_timeline_dependency_scope', this.data.timelineDependencyScope));
             this.data.groupSortByBestSubtaskTimeInTimeQuadrant = Storage.get('tm_group_sort_best_subtask_time_time_quadrant', this.data.groupSortByBestSubtaskTimeInTimeQuadrant);
             this.data.pinTasksWithinGroups = !!Storage.get('tm_pin_tasks_within_groups', this.data.pinTasksWithinGroups);
             this.data.completedTasksTodayOnly = !!Storage.get('tm_completed_tasks_today_only', this.data.completedTasksTodayOnly);
@@ -9941,6 +9951,7 @@
             this.data.docDisplayNameMode = __tmNormalizeDocDisplayNameMode(this.data.docDisplayNameMode);
             this.data.timelineSidebarCollapsed = !!this.data.timelineSidebarCollapsed;
             this.data.timelineCardFields = __tmNormalizeTimelineCardFields(this.data.timelineCardFields);
+            this.data.timelineDependencyScope = __tmNormalizeTimelineDependencyScope(this.data.timelineDependencyScope);
             this.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(this.data.taskMetaAttrKeys);
             this.data.taskMetaAttrKeyAliases = __tmNormalizeTaskMetaAttrAliasSettings(this.data.taskMetaAttrKeyAliases);
             this.data.aiExperienceMode = String(this.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
@@ -10162,6 +10173,7 @@
             Storage.set('tm_tomato_spent_attr_key_hours', String(this.data.tomatoSpentAttrKeyHours || '').trim());
             Storage.set('tm_tomato_count_attr_key', String(this.data.tomatoCountAttrKey || '').trim());
             Storage.set('tm_tomato_estimate_attr_key', String(this.data.tomatoEstimateAttrKey || '').trim());
+            Storage.set('tm_tomato_policy_revision', Math.max(0, Number(this.data.tomatoPolicyRevision) || 0));
             Storage.set('tm_calendar_enabled', !!this.data.calendarEnabled);
             Storage.set('tm_calendar_link_docktomato', !!this.data.calendarLinkDockTomato);
             Storage.set('tm_calendar_ics_enabled', !!this.data.calendarIcsEnabled);
@@ -10298,6 +10310,8 @@
             this.data.timelineCardFields = __tmNormalizeTimelineCardFields(this.data.timelineCardFields);
             Storage.set('tm_timeline_card_fields', this.data.timelineCardFields);
             Storage.set('tm_timeline_force_sort_completion_near_today', !!this.data.timelineForceSortByCompletionNearToday);
+            this.data.timelineDependencyScope = __tmNormalizeTimelineDependencyScope(this.data.timelineDependencyScope);
+            Storage.set('tm_timeline_dependency_scope', this.data.timelineDependencyScope);
             Storage.set('tm_group_sort_best_subtask_time_time_quadrant', !!this.data.groupSortByBestSubtaskTimeInTimeQuadrant);
             Storage.set('tm_pin_tasks_within_groups', !!this.data.pinTasksWithinGroups);
             Storage.set('tm_completed_tasks_today_only', !!this.data.completedTasksTodayOnly);
@@ -13297,7 +13311,7 @@
 
     function __tmShouldSuppressLocalTimeTx(payload) {
         try {
-            if (String(state.viewMode || '').trim() === 'calendar') return false;
+            const calendarView = String(state.viewMode || '').trim() === 'calendar';
             const until = Number(__tmLocalTimeTxSuppressUntil || 0);
             if (!until || Date.now() > until) {
                 __tmClearLocalTimeTxSuppression();
@@ -13305,6 +13319,9 @@
             }
             const updates = __tmExtractAttrUpdatesFromTx(payload);
             if (!updates.length) {
+                return false;
+            }
+            if (calendarView && !updates.every((update) => __tmIsVisibleDateAttrKey(update?.key))) {
                 return false;
             }
             const keys = updates.map((update) => String(update?.key || '').trim());
@@ -13319,7 +13336,10 @@
             if (docIds.length && !docIds.every((id) => __tmLocalTimeTxSuppressDocIds.has(id))) {
                 return false;
             }
-            __tmClearLocalTimeTxSuppression();
+            // Calendar date writes can emit several matching attribute transactions.
+            // Keep the scoped suppression armed until its TTL so every local echo is
+            // ignored while the calendar applies the event patch in place.
+            if (!calendarView) __tmClearLocalTimeTxSuppression();
             return true;
         } catch (e) {
             return false;
@@ -13339,6 +13359,24 @@
                 if (__tmResolveTaskMetaFieldByAttrKey(attrKey)) return true;
                 try { return !!__tmGetCustomFieldDefByAttrStorageKey(attrKey); } catch (e) { return false; }
             });
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmShouldSkipCalendarTxRefreshForLocalDateTargets(options = {}) {
+        try {
+            if (String(state.viewMode || '').trim() !== 'calendar') return false;
+            const until = Number(__tmLocalTimeTxSuppressUntil || 0);
+            if (!until || Date.now() > until) {
+                __tmClearLocalTimeTxSuppression();
+                return false;
+            }
+            const ids = Array.from(new Set([
+                ...(Array.isArray(options?.taskIds) ? options.taskIds : []),
+            ].map((id) => String(id || '').trim()).filter(Boolean)));
+            if (!ids.length) return false;
+            return ids.every((id) => __tmLocalTimeTxSuppressTaskIds.has(id));
         } catch (e) {
             return false;
         }
@@ -18330,7 +18368,11 @@
                 return false;
             }
             if (commitView) {
-                try { __tmScheduleCalendarRefetchFromTx(); } catch (e) {}
+                try {
+                    __tmScheduleCalendarRefetchFromTx({
+                        taskIds: classified.resolvedTaskIds,
+                    });
+                } catch (e) {}
             }
             refreshAttempted = true;
             const refreshed = await __tmRunAutoRefreshIfNeeded(sourceLabel, {
@@ -18408,14 +18450,14 @@
         return false;
     }
 
-    function __tmScheduleCalendarRefetchFromTx() {
-        try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+    function __tmScheduleCalendarRefetchFromTx(options = {}) {
         __tmCalendarTxRefreshPending = true;
         const calApi = globalThis.__tmCalendar;
         if (!calApi || (typeof calApi.requestRefresh !== 'function' && typeof calApi.refreshInPlace !== 'function')) {
             __tmCalendarTxRefreshPending = false;
             return;
         }
+        const skipLocalDateRefresh = __tmShouldSkipCalendarTxRefreshForLocalDateTargets(options);
         try { if (__tmCalendarTxRefreshTimer) clearTimeout(__tmCalendarTxRefreshTimer); } catch (e) {}
         const arm = (delayMs, reason = '') => {
             __tmCalendarTxRefreshTimer = setTimeout(() => {
@@ -18433,14 +18475,33 @@
                 }
                 __tmCalendarTxRefreshPending = false;
                 try {
-                    
-                    __tmRequestCalendarRefresh({
-                        reason: 'task-tx-refresh',
-                        main: String(state.viewMode || '').trim() === 'calendar',
-                        side: false,
-                        flushTaskPanel: false,
-                        hard: false,
-                    }, { hard: false });
+                    const isCalendarView = String(state.viewMode || '').trim() === 'calendar';
+                    const refreshTaskDateSources = calApi?.refreshTaskDateSources;
+                    if (isCalendarView && skipLocalDateRefresh) {
+                        // The local date patch already updated the mounted event.
+                        // The transaction echo must not issue a second range query.
+                        return;
+                    }
+                    try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+                    if (isCalendarView && typeof refreshTaskDateSources === 'function') {
+                        // Task transactions can update the title/date projection, but do not
+                        // require rebuilding schedule, tomato, or holiday sources.
+                        refreshTaskDateSources.call(calApi, {
+                            main: true,
+                            side: false,
+                            allowInactiveFullLoad: true,
+                        });
+                    } else if (isCalendarView) {
+                        // Compatibility fallback for older calendar bundles that do not expose
+                        // the task-date source API yet.
+                        __tmRequestCalendarRefresh({
+                            reason: 'task-tx-refresh',
+                            main: String(state.viewMode || '').trim() === 'calendar',
+                            side: false,
+                            flushTaskPanel: false,
+                            hard: false,
+                        }, { hard: false });
+                    }
                 } catch (e) {}
             }, Math.max(120, Number(delayMs || 0) || 120));
         };

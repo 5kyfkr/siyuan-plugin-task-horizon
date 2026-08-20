@@ -2526,6 +2526,15 @@
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
+                        ${renderSingleFieldSetting(
+                            '全部页签时间轴依赖线',
+                            '仅影响全部页签时间轴；单文档时间轴始终使用各文档连线。全局模式读取当前分组的全局白板连线。',
+                            `<select class="b3-select" onchange="tmUpdateTimelineDependencyScope(this.value)" style="width:220px;max-width:100%;">
+                                <option value="global" ${SettingsStore.data.timelineDependencyScope === 'global' ? 'selected' : ''}>全局白板连线</option>
+                                <option value="local" ${SettingsStore.data.timelineDependencyScope === 'local' ? 'selected' : ''}>各文档连线</option>
+                            </select>`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                         <div style="margin-bottom:10px;">
                             ${renderSettingsChipSetting('', '', [
                                 __tmBuildSettingsChipGroup('显示视图', __TM_ALL_VIEWS.map((view) => {

@@ -5415,7 +5415,7 @@ if (ev) {
                 if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, 0, 'stopwatch', timerFocusRestoreOptions);
                 else if (typeof startStopwatch === 'function') p = startStopwatch(timerTaskId, timerTaskName, timerFocusRestoreOptions);
                 else {
-                    hint('⚠ 未检测到正计时功能，请确认番茄插件已启用', 'warning');
+                    hint('⚠ 未检测到专注正计时功能，请确认番茄插件已启用', 'warning');
                     return;
                 }
                 if (p && typeof p.finally === 'function') {
@@ -5642,6 +5642,16 @@ if (ev) {
                 const arr = Array.isArray(list) ? list.map(n => parseInt(n, 10)).filter(n => Number.isFinite(n) && n > 0) : [];
                 return arr.length > 0 ? arr : [5, 15, 25, 30, 45, 60];
             })();
+            const configuredDefaultDuration = (() => {
+                try {
+                    return Number(timer?.getDefaultDurationMinutes?.());
+                } catch (e) {
+                    return NaN;
+                }
+            })();
+            const sliderDefaultMinutes = Math.max(5, Math.min(180, Math.round(
+                ((Number.isFinite(configuredDefaultDuration) && configuredDefaultDuration > 0) ? configuredDefaultDuration : 30) / 5
+            ) * 5));
 
             const timerWrap = document.createElement('div');
             timerWrap.className = 'tm-task-context-timer';
@@ -5665,6 +5675,70 @@ if (ev) {
             btnRow.className = 'tm-task-context-timer__grid';
             btnRow.setAttribute('role', 'group');
             btnRow.setAttribute('aria-label', '计时方式');
+            const sliderRow = document.createElement('div');
+            sliderRow.className = 'tm-task-context-timer__slider-row';
+            const durationSlider = document.createElement('input');
+            durationSlider.type = 'range';
+            durationSlider.className = 'tm-task-context-timer__slider';
+            durationSlider.min = '5';
+            durationSlider.max = '180';
+            durationSlider.step = '5';
+            durationSlider.value = String(sliderDefaultMinutes);
+            durationSlider.setAttribute('aria-label', '设置正计时时长');
+            const durationValue = document.createElement('output');
+            durationValue.className = 'tm-task-context-timer__slider-value';
+            const updateDurationValue = () => {
+                durationValue.value = `${durationSlider.value}分`;
+                durationValue.textContent = `${durationSlider.value}分`;
+            };
+            durationSlider.addEventListener('input', updateDurationValue);
+            durationSlider.addEventListener('pointerenter', () => {
+                durationSlider.classList.add('is-hovered');
+            });
+            durationSlider.addEventListener('pointerleave', () => {
+                durationSlider.classList.remove('is-hovered');
+            });
+            durationSlider.addEventListener('focus', () => durationSlider.classList.add('is-hovered'));
+            durationSlider.addEventListener('blur', () => durationSlider.classList.remove('is-hovered'));
+            let durationSliderDragged = false;
+            let durationSliderPointerDownX = null;
+            let durationSliderResetTimer = null;
+            durationSlider.addEventListener('pointerdown', (event) => {
+                event.stopPropagation();
+                try { durationSlider.setPointerCapture?.(event.pointerId); } catch (e) {}
+                if (durationSliderResetTimer) window.clearTimeout(durationSliderResetTimer);
+                durationSliderPointerDownX = event.clientX;
+                durationSliderDragged = false;
+                durationSlider.classList.add('is-pressed');
+            });
+            durationSlider.addEventListener('pointermove', (event) => {
+                if (durationSliderPointerDownX !== null && Math.abs(event.clientX - durationSliderPointerDownX) > 4) {
+                    durationSliderDragged = true;
+                }
+            });
+            durationSlider.addEventListener('pointercancel', (event) => {
+                try { durationSlider.releasePointerCapture?.(event.pointerId); } catch (e) {}
+                durationSliderPointerDownX = null;
+                durationSliderDragged = false;
+                durationSlider.classList.remove('is-pressed');
+            });
+            durationSlider.addEventListener('pointerup', (event) => {
+                try { durationSlider.releasePointerCapture?.(event.pointerId); } catch (e) {}
+                durationSliderPointerDownX = null;
+                durationSliderResetTimer = window.setTimeout(() => {
+                    durationSliderDragged = false;
+                    durationSlider.classList.remove('is-pressed');
+                }, 120);
+            });
+            updateDurationValue();
+            durationSlider.addEventListener('click', async (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (durationSliderDragged) return;
+                await runTaskTimer(Number(durationSlider.value), 'countdown');
+                menu.remove();
+            });
+            sliderRow.append(durationSlider, durationValue);
             durations.forEach(min => {
                 const b = document.createElement('button');
                 b.type = 'button';
@@ -5688,6 +5762,7 @@ if (ev) {
             };
             btnRow.appendChild(sw);
             timerWrap.appendChild(btnRow);
+            timerWrap.appendChild(sliderRow);
             menu.appendChild(timerWrap);
             hasContextTopBlock = true;
         }

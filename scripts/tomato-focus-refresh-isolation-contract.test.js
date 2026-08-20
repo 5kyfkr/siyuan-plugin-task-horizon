@@ -54,6 +54,12 @@ const focusStateSync = segment(services, 'function __tmSyncTomatoFocusInPlace', 
 assert.match(focusStateSync, /sessionStorage\?\.setItem[\s\S]*__TM_TOMATO_FOCUS_SESSION_KEY/, 'focus sync must preserve the linked task across a Task Horizon reload');
 assert.match(focusStateSync, /sessionStorage\?\.removeItem[\s\S]*__TM_TOMATO_FOCUS_SESSION_KEY/, 'focus cleanup must remove the stored linked task');
 
+const settleSource = segment(services, 'async function __tmSettleTomatoAfterTaskDone', 'function __tmIsTomatoFocusModeEnabled');
+assert.match(settleSource, /__tomatoTimerV2[\s\S]*settleAssociatedTask/, 'task completion must prefer the v2 settle contract');
+assert.match(settleSource, /result\?\.ok === true/, 'only a successful settle response may clear focus');
+assert.match(settleSource, /const focusMatches[\s\S]*const clearMatchedFocus[\s\S]*const api =/, 'focus clearing must be deferred to the settle result path');
+assert.match(settleSource, /'ok' in result[\s\S]*result\??\.ok === true/, 'a v2 failed settle response must not be treated as a legacy matched result');
+
 const startSources = [uiFoundation, renderRuntime, taskRuntime].join('\n');
 assert.match(uiFoundation, /function __tmStartTaskDetailQuickTimer[\s\S]*__tmSyncTomatoFocusInPlace\(timerTaskId\)/, 'task detail timer start must sync focus without rendering');
 assert.match(renderRuntime, /const runTaskTimer = async \(minutes, mode = 'countdown'\)[\s\S]*__tmSyncTomatoFocusInPlace\(timerTaskId\)/, 'other-block timer start must sync focus without rendering');

@@ -49,6 +49,7 @@ const MOBILE_AUTO_OPEN_ON_STARTUP_STORAGE_KEY = "tm_mobile_auto_open_on_startup"
 const MOBILE_STARTUP_AUTO_OPEN_SESSION_KEY_PREFIX = "tm_mobile_startup_auto_opened";
 const MOBILE_STARTUP_READY_TIMEOUT_MS = 10000;
 const SYNCED_DATA_RELOAD_DEBOUNCE_MS = 240;
+const SIYUAN_SYNC_STATUS_EVENT = "tm:task-horizon-siyuan-sync-status";
 const AGENT_WORKBENCH_STORE_FILE = "agent-workbench.json";
 const AGENT_BUILTIN_SKILL_NAMES = Object.freeze(["task-capture", "task-planning", "task-review", "task-template"]);
 
@@ -236,13 +237,19 @@ const readWindowTopbarEnabled = () => {
 
 const hasOfficialMobileRuntimeSignal = () => {
     try {
-        if (globalThis?.JSAndroid) return true;
+        const frontend = getOfficialFrontend();
+        if (frontend === "desktop" || frontend === "desktop-window" || frontend === "browser-desktop") return false;
+    } catch (e) {}
+    let container = "";
+    try { container = String(globalThis?.siyuan?.config?.system?.container || "").trim().toLowerCase(); } catch (e) {}
+    try {
+        if (container === "android" && globalThis?.JSAndroid) return true;
     } catch (e) {}
     try {
-        if (globalThis?.JSHarmony) return true;
+        if (container === "harmony" && globalThis?.JSHarmony) return true;
     } catch (e) {}
     try {
-        const hasIosBridge = !!globalThis?.webkit?.messageHandlers;
+        const hasIosBridge = container === "ios" && !!globalThis?.webkit?.messageHandlers;
         if (!hasIosBridge) return false;
         const ua = String(navigator?.userAgent || "");
         const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
@@ -255,10 +262,15 @@ const hasOfficialMobileRuntimeSignal = () => {
 
 const getOfficialFrontend = () => {
     try {
-        return String(typeof getFrontend === "function" ? getFrontend() : "").trim().toLowerCase();
+        const frontend = String(typeof getFrontend === "function" ? getFrontend() : "").trim().toLowerCase();
+        if (frontend) return frontend;
     } catch (e) {
-        return "";
     }
+    try {
+        const htmlFrontend = String(document?.documentElement?.dataset?.frontend || "").trim().toLowerCase();
+        if (htmlFrontend) return htmlFrontend;
+    } catch (e) {}
+    return "";
 };
 
 const isMobileBrowserViewport = () => {
@@ -278,16 +290,21 @@ const isMobileBrowserViewport = () => {
 const isNativeMobileRuntimeClient = () => hasOfficialMobileRuntimeSignal();
 
 const getRuntimeClientKind = () => {
-    try {
-        if (globalThis?.JSAndroid) return "android-app";
-    } catch (e) {}
-    try {
-        if (globalThis?.JSHarmony) return "harmony-app";
-    } catch (e) {}
-    try {
-        if (globalThis?.webkit?.messageHandlers) return "ios-app";
-    } catch (e) {}
+    const container = (() => {
+        try { return String(globalThis?.siyuan?.config?.system?.container || "").trim().toLowerCase(); } catch (e) { return ""; }
+    })();
     const frontend = getOfficialFrontend();
+    // Native mobile shells can load the desktop bundle in desktop mode.
+    if (frontend === "desktop" || frontend === "desktop-window" || frontend === "browser-desktop") return "desktop-browser";
+    try {
+        if (container === "android" && globalThis?.JSAndroid) return "android-app";
+    } catch (e) {}
+    try {
+        if (container === "harmony" && globalThis?.JSHarmony) return "harmony-app";
+    } catch (e) {}
+    try {
+        if (container === "ios" && globalThis?.webkit?.messageHandlers) return "ios-app";
+    } catch (e) {}
     if (frontend === "mobile") return "mobile-app";
     if (frontend === "browser-mobile") return "mobile-browser";
     if (frontend === "desktop" || frontend === "desktop-window" || frontend === "browser-desktop") return "desktop-browser";
@@ -730,20 +747,19 @@ const rememberTaskWindowExportKeys = (code) => {
 };
 
 const buildTaskDevCombinedCode = async (scripts) => {
-    const chunks = [];
-    for (const scriptPath of scripts) {
+    const chunks = await Promise.all((Array.isArray(scripts) ? scripts : []).map(async (scriptPath) => {
         const fullPath = `${TASK_DEV_SOURCE_ROOT}/${scriptPath}`;
         try {
             const code = await fetchPluginResourceText(fullPath);
-            chunks.push(`/* task-horizon dev: begin ${scriptPath} */\n${code}\n/* task-horizon dev: end ${scriptPath} */\n`);
+            return `/* task-horizon dev: begin ${scriptPath} */\n${code}\n/* task-horizon dev: end ${scriptPath} */\n`;
         } catch (e) {
             console.error("[task-horizon] load task dev script failed", scriptPath, e);
-            return "";
+            throw e;
         } finally {
             releasePluginResourceText(fullPath);
         }
-    }
-    return chunks.join("\n");
+    })).catch(() => null);
+    return Array.isArray(chunks) ? chunks.join("\n") : "";
 };
 
 const loadTaskDevManifestScripts = async () => {
@@ -789,6 +805,18 @@ const loadTaskDevManifestScripts = async () => {
 const ensureTaskMainLoaded = async () => {
     if (hasTaskMainRuntime()) return true;
     resetStaleTaskMainRuntimeFlag();
+
+    const loadBundledMain = async () => {
+        const bundledLoaded = await loadScriptText(TASK_SCRIPT_PATH, "task.js");
+        if (!bundledLoaded) return false;
+        if (hasTaskMainRuntime()) return true;
+        console.error("[task-horizon] task.js loaded but runtime mount is unavailable");
+        resetStaleTaskMainRuntimeFlag();
+        return false;
+    };
+
+    // Development installations keep src/task-horizon and must load it first.
+    // Packaged installations omit src/task-horizon and fall back to task.js.
     const devLoad = await loadTaskDevManifestScripts();
     if (devLoad.status === "loaded") {
         if (hasTaskMainRuntime()) {
@@ -798,16 +826,11 @@ const ensureTaskMainLoaded = async () => {
         console.error("[task-horizon] task dev main loaded but runtime mount is unavailable", devLoad.scripts);
         resetStaleTaskMainRuntimeFlag();
     }
-    const bundledLoaded = await loadScriptText(TASK_SCRIPT_PATH, "task.js");
-    if (bundledLoaded) {
-        if (hasTaskMainRuntime()) return true;
-        console.error("[task-horizon] task.js loaded but runtime mount is unavailable");
-        resetStaleTaskMainRuntimeFlag();
-    }
+    const bundledLoaded = await loadBundledMain();
     if (devLoad.status !== "missing" && !bundledLoaded) {
         console.error("[task-horizon] task main load failed; dev manifest and task.js fallback are unavailable");
     }
-    return false;
+    return bundledLoaded;
 };
 
 const loadScriptText = async (path, sourceName) => {
@@ -1053,6 +1076,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._taskDataChangedScheduledPromise = null;
         this._taskDataChangedScheduledResolve = null;
         this._taskSyncMergeHandler = null;
+        this._taskSiyuanSyncHandlers = null;
         this._taskMobileStartupAutoOpenEnabled = isSupportedNativeMobileAppClient()
             && readLocalJson(MOBILE_AUTO_OPEN_ON_STARTUP_STORAGE_KEY, false) === true;
         this._taskMobileStartupColdLoad = this._taskMobileStartupAutoOpenEnabled
@@ -1085,6 +1109,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonTabType = TAB_TYPE;
         globalThis.__taskHorizonMountToken = mountToken;
         this.registerStartupSyncReloadListener();
+        this.registerSiyuanSyncStatusListeners();
         globalThis.__taskHorizonGetAiExperienceMode = getAiExperienceMode;
         globalThis.__taskHorizonEnsureAiModuleLoaded = ensureAiExperienceRuntime;
         globalThis.__taskHorizonSetAiExperienceMode = async (mode, options = {}) => {
@@ -1154,8 +1179,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         }
         this.addIcons(`
             <symbol id="iconTaskCancelled" viewBox="0 0 32 32">
-                <path d="M28.444 0h-24.889c-1.956 0-3.556 1.6-3.556 3.556v24.889c0 1.956 1.6 3.556 3.556 3.556h24.889c1.956 0 3.556-1.6 3.556-3.556v-24.889c0-1.956-1.6-3.556-3.556-3.556zM28.444 28.445h-24.889v-24.889h24.889v24.889z"></path>
-                <path d="M24.485 10.343l-2.828-2.828-5.657 5.657-5.657-5.657-2.828 2.828 5.657 5.657-5.657 5.657 2.828 2.828 5.657-5.657 5.657 5.657 2.828-2.828-5.657-5.657z"></path>
+                    <path d="M28.444 0h-24.889c-1.956 0-3.556 1.6-3.556 3.556v24.889c0 1.956 1.6 3.556 3.556 3.556h24.889c1.956 0 3.556-1.6 3.556-3.556v-24.889c0-1.956-1.6-3.556-3.556-3.556zM28.444 28.445h-24.889v-24.889h24.889v24.889z"></path>
+                    <path d="M24.485 10.343l-2.828-2.828-5.657 5.657-5.657-5.657-2.828 2.828 5.657 5.657-5.657 5.657 2.828 2.828 5.657-5.657 5.657 5.657 2.828-2.828-5.657-5.657z"></path>
             </symbol>
         `);
     }
@@ -1180,6 +1205,38 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         if (!this._taskSyncMergeHandler) return;
         try { this.eventBus?.off?.("ws-main", this._taskSyncMergeHandler); } catch (e) {}
         this._taskSyncMergeHandler = null;
+    }
+
+    publishSiyuanSyncStatus(status) {
+        const normalizedStatus = status === "syncing" || status === "failed" ? status : "synced";
+        const message = normalizedStatus === "syncing"
+            ? "思源数据正在同步"
+            : (normalizedStatus === "failed" ? "同步失败" : "已同步");
+        const detail = { status: normalizedStatus, message, timestamp: Date.now() };
+        globalThis.__taskHorizonSiyuanSyncStatus = detail;
+        try { window.dispatchEvent(new CustomEvent(SIYUAN_SYNC_STATUS_EVENT, { detail })); } catch (e) {}
+        return detail;
+    }
+
+    registerSiyuanSyncStatusListeners() {
+        if (this._taskSiyuanSyncHandlers || !this.eventBus?.on) return;
+        this.publishSiyuanSyncStatus("synced");
+        this._taskSiyuanSyncHandlers = {
+            "sync-start": () => this.publishSiyuanSyncStatus("syncing"),
+            "sync-end": () => this.publishSiyuanSyncStatus("synced"),
+            "sync-fail": () => this.publishSiyuanSyncStatus("failed"),
+        };
+        Object.entries(this._taskSiyuanSyncHandlers).forEach(([eventName, handler]) => {
+            try { this.eventBus.on(eventName, handler); } catch (e) {}
+        });
+    }
+
+    unregisterSiyuanSyncStatusListeners() {
+        if (!this._taskSiyuanSyncHandlers) return;
+        Object.entries(this._taskSiyuanSyncHandlers).forEach(([eventName, handler]) => {
+            try { this.eventBus?.off?.(eventName, handler); } catch (e) {}
+        });
+        this._taskSiyuanSyncHandlers = null;
     }
 
     requestSyncedDataReload(reason = "siyuan-data-changed", options = {}) {
@@ -1363,14 +1420,22 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 this.openTaskHorizonTab();
             },
         });
-        this.addCommand({
+        if (this.isRuntimeMobileClient()) {
+            this._commandsRegistered = true;
+            return;
+        }
+        const quickAddCommand = {
             langKey: COMMAND_OPEN_QUICK_ADD_TASK_WINDOW,
             langText: "新建任务窗口",
             hotkey: "",
             callback: () => {
-                void this.openQuickAddTaskWindow();
+                void this.openQuickAddFromMainWindow();
             },
-        });
+            globalCallback: () => {
+                void this.openQuickAddFromMainWindow();
+            },
+        };
+        this.addCommand(quickAddCommand);
         this._commandsRegistered = true;
     }
 
@@ -2249,8 +2314,46 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         return this.ensureCalendarSubscriptionTopBar();
     }
 
+    getCurrentElectronWindow() {
+        if (this.isRuntimeMobileClient()) return null;
+        try {
+            const nodeRequire = typeof window !== "undefined" && typeof window.require === "function"
+                ? window.require
+                : (typeof require === "function" ? require : null);
+            if (!nodeRequire) return null;
+            let remote = null;
+            try { remote = nodeRequire("@electron/remote"); } catch (e) {}
+            if (!remote) {
+                try { remote = nodeRequire("electron")?.remote || null; } catch (e) {}
+            }
+            const currentWindow = remote?.getCurrentWindow?.();
+            if (!currentWindow || currentWindow.isDestroyed?.()) return null;
+            return currentWindow;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    showMainElectronWindow() {
+        const currentWindow = this.getCurrentElectronWindow();
+        if (!currentWindow) return false;
+        try {
+            if (currentWindow.isMinimized?.()) currentWindow.restore?.();
+        } catch (e) {}
+        try { currentWindow.show?.(); } catch (e) {}
+        try { currentWindow.focus?.(); } catch (e) {}
+        return true;
+    }
+
     async openQuickAddTaskWindow() {
-        const openQuickAdd = typeof globalThis.tmQuickAddOpen === "function" ? globalThis.tmQuickAddOpen : null;
+        let openQuickAdd = typeof globalThis.tmQuickAddOpen === "function" ? globalThis.tmQuickAddOpen : null;
+        if (!openQuickAdd) {
+            const loaded = await ensureTaskMainLoaded();
+            if (loaded && typeof this.activateTaskMainRuntime === "function") {
+                try { await this.activateTaskMainRuntime("quick-add-command"); } catch (e) {}
+            }
+            openQuickAdd = typeof globalThis.tmQuickAddOpen === "function" ? globalThis.tmQuickAddOpen : null;
+        }
         if (!openQuickAdd) {
             console.warn("[task-horizon] quick add command skipped: tmQuickAddOpen is unavailable");
             return false;
@@ -2262,6 +2365,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             console.error("[task-horizon] quick add command failed", e);
             return false;
         }
+    }
+
+    async openQuickAddFromMainWindow() {
+        if (this.isRuntimeMobileClient()) return false;
+        this.showMainElectronWindow();
+        return await this.openQuickAddTaskWindow();
     }
 
     cancelTaskDockRecovery() {
@@ -2659,6 +2768,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         clearPluginResourceTextCache();
         this._taskDataChangedQueued = false;
         try { this.unregisterStartupSyncReloadListener(); } catch (e) {}
+        try { this.unregisterSiyuanSyncStatusListeners(); } catch (e) {}
         try { this.cancelMobileStartupAutoOpen(); } catch (e) {}
         try {
             if (this._taskDataChangedTimer) {
@@ -2750,6 +2860,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__TaskManagerCleanup; } catch (e) {}
         try { delete globalThis.__taskHorizonMountToken; } catch (e) {}
         try { delete globalThis.__taskHorizonTabType; } catch (e) {}
+        try { delete globalThis.__taskHorizonSiyuanSyncStatus; } catch (e) {}
         try { delete globalThis.__tmHost; } catch (e) {}
         try { delete globalThis.__tmCompat; } catch (e) {}
         try { delete globalThis.__tmCaps; } catch (e) {}

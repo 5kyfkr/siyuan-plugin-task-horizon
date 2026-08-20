@@ -2066,9 +2066,31 @@
         showSettings();
     };
 
+    function __tmNotifyTomatoPolicyChanged(reason) {
+        SettingsStore.data.tomatoPolicyRevision = Math.max(0, Number(SettingsStore.data.tomatoPolicyRevision) || 0) + 1;
+        try {
+            window.dispatchEvent(new CustomEvent('task-horizon:tomato-policy-changed', {
+                detail: {
+                    policyRevision: SettingsStore.data.tomatoPolicyRevision,
+                    policy: {
+                        enabled: SettingsStore.data.enableTomatoIntegration !== false,
+                        tomatoSpentAttrMode: String(SettingsStore.data.tomatoSpentAttrMode || 'minutes') === 'hours' ? 'hours' : 'minutes',
+                        tomatoActualCountBySpentEnabled: SettingsStore.data.tomatoActualCountBySpentEnabled !== false,
+                        tomatoSpentAttrKeyMinutes: String(SettingsStore.data.tomatoSpentAttrKeyMinutes || 'custom-tomato-minutes'),
+                        tomatoSpentAttrKeyHours: String(SettingsStore.data.tomatoSpentAttrKeyHours || 'custom-tomato-time'),
+                        tomatoCountAttrKey: String(SettingsStore.data.tomatoCountAttrKey || 'custom-tomato-count'),
+                        policyRevision: SettingsStore.data.tomatoPolicyRevision,
+                    },
+                    reason: String(reason || 'settings'),
+                }
+            }));
+        } catch (e) {}
+    }
+
     window.updateTomatoSpentAttrMode = async function(mode) {
         const v = String(mode || '').trim();
         SettingsStore.data.tomatoSpentAttrMode = (v === 'hours') ? 'hours' : 'minutes';
+        __tmNotifyTomatoPolicyChanged('spent-mode');
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
@@ -2083,6 +2105,7 @@
 
     window.updateTomatoActualCountBySpentEnabled = async function(enabled) {
         SettingsStore.data.tomatoActualCountBySpentEnabled = !!enabled;
+        __tmNotifyTomatoPolicyChanged('actual-count-mode');
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
@@ -2097,6 +2120,7 @@
 
     window.updateTomatoSpentAttrKeyMinutes = async function(value) {
         SettingsStore.data.tomatoSpentAttrKeyMinutes = String(value || '').trim();
+        __tmNotifyTomatoPolicyChanged('spent-minutes-key');
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
@@ -2110,6 +2134,7 @@
 
     window.updateTomatoSpentAttrKeyHours = async function(value) {
         SettingsStore.data.tomatoSpentAttrKeyHours = String(value || '').trim();
+        __tmNotifyTomatoPolicyChanged('spent-hours-key');
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
@@ -2123,6 +2148,7 @@
 
     window.updateTomatoCountAttrKey = async function(value) {
         SettingsStore.data.tomatoCountAttrKey = String(value || '').trim() || 'custom-tomato-count';
+        __tmNotifyTomatoPolicyChanged('count-key');
         await SettingsStore.save();
         if (state.modal && document.body.contains(state.modal)) {
             loadSelectedDocuments();

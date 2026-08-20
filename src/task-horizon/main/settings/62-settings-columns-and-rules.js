@@ -1282,22 +1282,20 @@
                     <div style="display:flex;flex-direction:column;gap:10px;">
                         <div style="font-size:12px;font-weight:600;color:var(--tm-secondary-text);">已配置自定义列</div>
                         <div style="display:${isCompact ? 'grid' : 'flex'};${isCompact ? `grid-template-columns:${isPhone ? '1fr' : 'repeat(auto-fit,minmax(132px,1fr))'};` : 'flex-direction:column;'}gap:8px;">${listHtml || '<div style="font-size:12px;color:var(--tm-secondary-text);padding:10px;border:1px dashed var(--tm-border-color);border-radius:10px;">还没有自定义列</div>'}</div>
-                        <div style="display:grid;grid-template-columns:${isPhone ? '1fr' : 'repeat(3,minmax(0,1fr))'};gap:8px;">
-                            <button type="button" class="tm-btn tm-btn-primary" data-tm-custom-field-new="single" style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">+ 单选列</button>
-                            <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-new="multi" style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">+ 多选列</button>
-                            <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-new="text" style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">+ 文本列</button>
+                        <div style="display:grid;grid-template-columns:1fr;gap:8px;">
+                            <button type="button" class="tm-btn tm-btn-primary" data-tm-custom-field-new style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">+ 新建自定义列</button>
                         </div>
                         ${defsNow.length ? `<button type="button" class="tm-btn tm-btn-danger" data-tm-custom-field-clear-all style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">清空自定义列设置</button>` : ''}
                     </div>
                     <div style="display:flex;flex-direction:column;gap:14px;">
                         <div style="display:grid;grid-template-columns:${isCompact ? '1fr' : 'minmax(0,1fr) 120px'};gap:12px;">
-                            <label style="display:flex;flex-direction:column;gap:6px;">
+                            <label style="display:flex;flex-direction:column;gap:6px;min-width:0;">
                                 <span style="font-size:12px;color:var(--tm-secondary-text);">自定义列名称</span>
-                                <input type="text" data-tm-custom-field-name value="${esc(String(draft.name || '').trim())}" placeholder="例如：负责人 / 渠道 / 标签" style="width:100%;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);">
+                                <input type="text" data-tm-custom-field-name value="${esc(String(draft.name || '').trim())}" placeholder="例如：负责人 / 渠道 / 标签" style="box-sizing:border-box;width:100%;min-width:0;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);">
                             </label>
-                            <label style="display:flex;flex-direction:column;gap:6px;">
+                            <label style="display:flex;flex-direction:column;gap:6px;min-width:0;">
                                 <span style="font-size:12px;color:var(--tm-secondary-text);">自定义列类型</span>
-                                <select data-tm-custom-field-type style="width:100%;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);">
+                                <select data-tm-custom-field-type style="box-sizing:border-box;width:100%;min-width:0;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);">
                                     <option value="single" ${draftType === 'single' ? 'selected' : ''}>单选</option>
                                     <option value="multi" ${draftType === 'multi' ? 'selected' : ''}>多选</option>
                                     <option value="text" ${draftType === 'text' ? 'selected' : ''}>文本</option>

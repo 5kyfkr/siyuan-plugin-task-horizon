@@ -51,6 +51,20 @@
         return true;
     }
 
+    function __tmSetCalendarSideDockEnabledInPlace(enabled) {
+        const next = !!enabled;
+        const layout = state.modal?.querySelector?.('.tm-main-body-with-cal-dock');
+        const dock = layout?.querySelector?.('.tm-calendar-side-dock');
+        const timelineRoot = layout?.querySelector?.('#tmCalendarSideDockTimeline');
+        if (!(layout instanceof HTMLElement) || !(dock instanceof HTMLElement) || !(timelineRoot instanceof HTMLElement)) return false;
+        try { layout.classList.toggle('tm-main-body-with-cal-dock--calendar-dock-disabled', !next); } catch (e) { return false; }
+        if (next) {
+            try { globalThis.__tmCalendar?.refreshSideDayLayout?.(); } catch (e) {}
+            try { globalThis.__tmCalendar?.relayoutSideDayDate?.(); } catch (e) {}
+        }
+        return true;
+    }
+
     function __tmCalendarDockBuildPanelHtml() {
         const dateKey = __tmCalendarDockGetDateKey();
         return `
@@ -197,7 +211,13 @@
         const next = (typeof enabled === 'boolean') ? enabled : !SettingsStore.data.calendarSideDockEnabled;
         SettingsStore.data.calendarSideDockEnabled = !!next;
         try { await SettingsStore.save(); } catch (e) {}
+        // Keep the mounted side-day calendar alive while toggling visibility. A full shell
+        // render destroys/recreates FullCalendar and makes reopening the dock look like a reload.
+        if (__tmSetCalendarSideDockEnabledInPlace(next)) return next;
+        // The dock was not mounted (for example, it was disabled before this view opened).
+        // In that case a normal render is still required to create its host.
         render();
+        return next;
     };
 
     function __tmShouldShowAiSidebar() {

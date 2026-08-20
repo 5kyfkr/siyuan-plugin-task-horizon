@@ -1769,6 +1769,42 @@
         return text(globalThis.siyuan?.languages?.[key]) || fallback;
     }
 
+    function normalizeAgentUsage(event = {}) {
+        const number = (value) => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
+        const breakdown = event.tokenBreakdown && typeof event.tokenBreakdown === 'object' && !Array.isArray(event.tokenBreakdown)
+            ? Object.fromEntries(Object.entries(event.tokenBreakdown).map(([key, value]) => [text(key), number(value)]).filter(([key, value]) => key && value > 0))
+            : {};
+        return {
+            promptTokens: number(event.promptTokens),
+            completionTokens: number(event.completionTokens),
+            lastPromptTokens: number(event.lastPromptTokens),
+            tokenBreakdown: breakdown,
+            cachedTokens: number(event.cachedTokens),
+            contextLimit: number(event.contextLimit),
+        };
+    }
+
+    function formatAgentTokenCount(value) {
+        return Math.round(Number(value) || 0).toLocaleString();
+    }
+
+    function agentPermissionLabel(mode) {
+        return text(mode) === 'allowSession' ? '本会话允许' : '逐项确认';
+    }
+
+    function renderAgentUsage(usage) {
+        if (!usage || typeof usage !== 'object') return '';
+        const contextTokens = Number(usage.lastPromptTokens) || Number(usage.promptTokens) || 0;
+        const promptTokens = Number(usage.promptTokens) || 0;
+        const completionTokens = Number(usage.completionTokens) || 0;
+        const contextLimit = Number(usage.contextLimit) || 0;
+        if (!contextTokens && !promptTokens && !completionTokens && !contextLimit) return '';
+        const context = contextLimit
+            ? `${formatAgentTokenCount(contextTokens)} / ${formatAgentTokenCount(contextLimit)}`
+            : formatAgentTokenCount(contextTokens);
+        return `<div class="tm-agent-notice tm-agent-usage" data-tm-agent-usage>上下文 ${esc(context)} · 输入 ${esc(formatAgentTokenCount(promptTokens))} · 输出 ${esc(formatAgentTokenCount(completionTokens))}</div>`;
+    }
+
     function renderConfirmEffects(effects) {
         const source = effects && typeof effects === 'object' ? effects : {};
         const items = [];
@@ -1802,7 +1838,8 @@
             const tools = options.omitTools === true
                 ? ''
                 : renderToolGroup(calls.filter((call) => !isTodoToolCall(call)), true);
-            return `<article class="tm-agent-message tm-agent-message--assistant">${todo}${tools}<div class="tm-agent-message__body tm-agent-markdown b3-typography">${renderMarkdown(entry.content)}</div>${renderMessageActions(index, text(entry.content))}</article>`;
+            const permission = entry.permissionMode ? `<div class="tm-agent-notice">权限模式：${esc(agentPermissionLabel(entry.permissionMode))}</div>` : '';
+            return `<article class="tm-agent-message tm-agent-message--assistant">${todo}${tools}<div class="tm-agent-message__body tm-agent-markdown b3-typography">${renderMarkdown(entry.content)}</div>${renderMessageActions(index, text(entry.content))}${permission}${renderAgentUsage(entry.usage)}</article>`;
         }
         if (type === 'thinking') return `<div class="tm-agent-thinking"><svg aria-hidden="true"><use xlink:href="#iconSparkles"></use></svg><span>${esc(entry.content || entry.reasoning || '正在思考')}</span></div>`;
         if (type === 'confirm') {
@@ -1916,8 +1953,11 @@
         const tools = options.omitTools === true
             ? ''
             : renderToolGroup(calls.filter((call) => !isTodoToolCall(call)), live.done === true);
-        if (!text(live.content) && !todo && !tools && !text(live.status)) return '';
-        return `<article class="tm-agent-message tm-agent-message--assistant" data-tm-agent-live><div class="tm-agent-thinking" data-tm-agent-live-status ${live.status ? '' : 'hidden'}>${esc(live.status || '')}</div>${todo}${tools}<div class="tm-agent-message__body" data-tm-agent-live-content>${esc(live.content || '')}</div></article>`;
+        const permission = live.permissionMode ? `<div class="tm-agent-notice">权限模式：${esc(agentPermissionLabel(live.permissionMode))}</div>` : '';
+        const retry = live.retry ? `<div class="tm-agent-notice">正在重试（${esc(live.retry.attempt)} / ${esc(live.retry.maxRetries)}）</div>` : '';
+        const usage = renderAgentUsage(live.usage);
+        if (!text(live.content) && !todo && !tools && !text(live.status) && !permission && !retry && !usage) return '';
+        return `<article class="tm-agent-message tm-agent-message--assistant" data-tm-agent-live><div class="tm-agent-thinking" data-tm-agent-live-status ${live.status ? '' : 'hidden'}>${esc(live.status || '')}</div>${permission}${retry}${todo}${tools}<div class="tm-agent-message__body" data-tm-agent-live-content>${esc(live.content || '')}</div>${usage}</article>`;
     }
 
     function renderConversation(entries, live) {
@@ -1958,6 +1998,8 @@
             type: 'assistant',
             content,
             toolCalls: clone(completedCalls),
+            ...(live.permissionMode ? { permissionMode: live.permissionMode } : {}),
+            ...(live.usage ? { usage: clone(live.usage) } : {}),
             timestamp: Date.now(),
         });
         return true;
@@ -3148,7 +3190,7 @@
         runtime.roundUndoIDs = [];
         runtime.conversationFollowBottom = true;
         runtime.statusText = '智能体正在处理...';
-        runtime.live = { content: '', status: '正在连接', toolCalls: [] };
+        runtime.live = { content: '', status: '正在连接', toolCalls: [], permissionMode: '', usage: null, retry: null };
         runtime.abortController = new AbortController();
         rememberSession(runtime.activeSessionID);
         let turnID = '';
@@ -3243,6 +3285,20 @@
                         questions,
                     });
                     runtime.live.status = '';
+                } else if (event.type === 'permission') {
+                    const permissionMode = text(event.permissionMode) === 'allowSession' ? 'allowSession' : 'confirm';
+                    runtime.live.permissionMode = permissionMode;
+                    if (runtime.session && typeof runtime.session === 'object') runtime.session.permissionMode = permissionMode;
+                    runtime.live.status = '';
+                } else if (event.type === 'usage') {
+                    runtime.live.usage = normalizeAgentUsage(event);
+                    runtime.live.status = '';
+                } else if (event.type === 'retry') {
+                    runtime.live.retry = {
+                        attempt: Math.max(1, Number(event.attempt) || 1),
+                        maxRetries: Math.max(1, Number(event.maxRetries) || 1),
+                    };
+                    runtime.live.status = '正在重新连接模型';
                 } else if (event.type === 'frontend_tool_call') await invokeFrontendTool(event);
                 else if (event.type === 'browser_capability_call') await invokeBrowserCapability(event);
                 else if (event.type === 'snapshot') {
@@ -3265,6 +3321,8 @@
                     type: 'assistant',
                     content: String(live.content || ''),
                     toolCalls: clone(live.toolCalls || []),
+                    ...(live.permissionMode ? { permissionMode: live.permissionMode } : {}),
+                    ...(live.usage ? { usage: clone(live.usage) } : {}),
                     timestamp: Date.now(),
                 });
             }
@@ -3281,6 +3339,8 @@
                         type: 'assistant',
                         content: String(live.content || ''),
                         toolCalls: clone(live.toolCalls || []),
+                        ...(live.permissionMode ? { permissionMode: live.permissionMode } : {}),
+                        ...(live.usage ? { usage: clone(live.usage) } : {}),
                         timestamp: Date.now(),
                     });
                 }
@@ -3870,6 +3930,12 @@
         return text((heading || lines[0] || fallback || '定时事件结果').replace(/^#{1,6}\s+/, '').replace(/[*_`]/g, '')).slice(0, 120);
     }
 
+    function sanitizeAutomationOutput(markdown) {
+        return String(markdown || '')
+            .replace(/(^|\n)[ \t]*(?:#{1,6}\s*)?按无人值守模式执行：[^\r\n]*?只读\s*SQL\s*(?:(?:补充|复查)\s*)?(?:统计\s*)?字段\s*[:：][ \t]*/gi, '$1')
+            .trim();
+    }
+
     async function ensureAutomationTaskToolsReady() {
         await ensureStoreLoaded();
         const settings = aiBridge()?.getSettings?.() || {};
@@ -3961,7 +4027,7 @@
                 if (event.type === 'interrupted') throw new Error(text(event.message) || '智能体响应已中断');
                 if (event.type === 'done') turnID = text(event.turnID) || turnID;
             }, controller.signal);
-            const output = String(markdown || '').trim();
+            const output = sanitizeAutomationOutput(markdown);
             if (!output) throw new Error('智能体未返回内容');
             if (persistent) await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: output, turnID });
             return {
@@ -3976,7 +4042,7 @@
                 : error;
             try { if (persistent && sessionID) reportedError.sessionID = sessionID; } catch (assignError) {}
             if (persistent) {
-                const failure = String(markdown || '').trim() || `执行失败：${text(reportedError?.message || reportedError) || '未知错误'}`;
+                const failure = sanitizeAutomationOutput(markdown) || `执行失败：${text(reportedError?.message || reportedError) || '未知错误'}`;
                 await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: failure, turnID });
             }
             throw reportedError;
@@ -4125,6 +4191,7 @@
         isAllowedTool: automationToolAllowed,
         isAllowedConfirm: automationConfirmAllowed,
         isBlockedEventType: automationEventBlocked,
+        sanitizeAutomationOutput,
         hashContent,
         postAgentInteraction,
         persistSessionCheckpoint,

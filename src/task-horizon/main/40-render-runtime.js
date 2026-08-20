@@ -314,6 +314,7 @@
         const isDockHost = hostInfo?.isDockHost ?? __tmIsDockHost();
         const hostUsesMobileUI = hostInfo?.hostUsesMobileUI ?? __tmHostUsesMobileUI();
         const useCompactTopbarBrand = __tmShouldUseCompactTopbarBrand();
+        const siyuanSyncStatus = __tmNormalizeSiyuanSyncStatus({ status: state.siyuanSyncStatus });
         const managerIconTooltip = '点击折叠/展开页签栏，右击或长按打开全部页签菜单';
         const isAnimatedDockHost = !!(isDockHost && !isRuntimeMobile);
         const docTabsCanMultirow = true;
@@ -671,6 +672,7 @@
                                     type="button"
                                     class="tm-manager-brand-icon"
                                     data-tm-all-doc-menu-trigger="1"
+                                    data-tm-siyuan-sync-status="${siyuanSyncStatus}"
                                     onclick="tmHandleManagerIconClick(event)"
                                     oncontextmenu="return tmHandleManagerIconContextMenu(event)"
                                     onmousedown="tmTopbarManagerIconPressStart(event)"
@@ -1754,6 +1756,10 @@
                         pointer-events: auto;
                         visibility: visible;
                     }
+                    .tm-main-body-with-cal-dock.tm-main-body-with-cal-dock--calendar-dock-disabled > .tm-calendar-side-dock,
+                    .tm-main-body-with-cal-dock.tm-main-body-with-cal-dock--calendar-dock-disabled > .tm-calendar-side-dock-resizer {
+                        display: none !important;
+                    }
                     .tm-calendar-side-dock {
                         border-left: none;
                         background: var(--tm-bg-color);
@@ -1790,21 +1796,23 @@
                         opacity: 1;
                     }
                     .tm-calendar-side-dock-resizer {
-                        width: 6px;
+                        width: 9px;
                         cursor: col-resize;
                         background: transparent;
                         position: relative;
-                        flex: 0 0 6px;
+                        flex: 0 0 9px;
+                        margin-inline: -4px;
+                        z-index: 3;
                     }
                     .tm-calendar-side-dock-resizer::after {
                         content: '';
                         position: absolute;
                         top: 0;
                         bottom: 0;
-                        left: 2px;
+                        left: 4px;
                         width: 1px;
-                        background: var(--tm-calendar-grid-border-color, var(--tm-border-color));
-                        opacity: .65;
+                        background: color-mix(in srgb, var(--tm-calendar-grid-border-color, var(--tm-border-color)) 76%, var(--tm-text-color) 24%);
+                        opacity: .7;
                     }
                     .tm-calendar-side-dock-resizer:hover::after {
                         background: var(--tm-primary-color);
@@ -8216,7 +8224,7 @@
                 if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, 0, 'stopwatch', timerFocusRestoreOptions);
                 else if (typeof startStopwatch === 'function') p = startStopwatch(timerTaskId, timerTaskName, timerFocusRestoreOptions);
                 else {
-                    hint('⚠ 未检测到正计时功能，请确认番茄插件已启用', 'warning');
+                    hint('⚠ 未检测到专注正计时功能，请确认番茄插件已启用', 'warning');
                     return;
                 }
                 if (p && typeof p.finally === 'function') {
@@ -8249,6 +8257,16 @@
                 const arr = Array.isArray(list) ? list.map((n) => parseInt(n, 10)).filter((n) => Number.isFinite(n) && n > 0) : [];
                 return arr.length > 0 ? arr : [5, 15, 25, 30, 45, 60];
             })();
+            const configuredDefaultDuration = (() => {
+                try {
+                    return Number(timer?.getDefaultDurationMinutes?.());
+                } catch (e) {
+                    return NaN;
+                }
+            })();
+            const sliderDefaultMinutes = Math.max(5, Math.min(180, Math.round(
+                ((Number.isFinite(configuredDefaultDuration) && configuredDefaultDuration > 0) ? configuredDefaultDuration : 30) / 5
+            ) * 5));
             const timerWrap = document.createElement('div');
             timerWrap.className = 'tm-task-context-timer';
             const title = document.createElement('div');
@@ -8259,6 +8277,70 @@
             btnRow.className = 'tm-task-context-timer__grid';
             btnRow.setAttribute('role', 'group');
             btnRow.setAttribute('aria-label', '计时方式');
+            const sliderRow = document.createElement('div');
+            sliderRow.className = 'tm-task-context-timer__slider-row';
+            const durationSlider = document.createElement('input');
+            durationSlider.type = 'range';
+            durationSlider.className = 'tm-task-context-timer__slider';
+            durationSlider.min = '5';
+            durationSlider.max = '180';
+            durationSlider.step = '5';
+            durationSlider.value = String(sliderDefaultMinutes);
+            durationSlider.setAttribute('aria-label', '设置正计时时长');
+            const durationValue = document.createElement('output');
+            durationValue.className = 'tm-task-context-timer__slider-value';
+            const updateDurationValue = () => {
+                durationValue.value = `${durationSlider.value}分`;
+                durationValue.textContent = `${durationSlider.value}分`;
+            };
+            durationSlider.addEventListener('input', updateDurationValue);
+            durationSlider.addEventListener('pointerenter', () => {
+                durationSlider.classList.add('is-hovered');
+            });
+            durationSlider.addEventListener('pointerleave', () => {
+                durationSlider.classList.remove('is-hovered');
+            });
+            durationSlider.addEventListener('focus', () => durationSlider.classList.add('is-hovered'));
+            durationSlider.addEventListener('blur', () => durationSlider.classList.remove('is-hovered'));
+            let durationSliderDragged = false;
+            let durationSliderPointerDownX = null;
+            let durationSliderResetTimer = null;
+            durationSlider.addEventListener('pointerdown', (event) => {
+                event.stopPropagation();
+                try { durationSlider.setPointerCapture?.(event.pointerId); } catch (e) {}
+                if (durationSliderResetTimer) window.clearTimeout(durationSliderResetTimer);
+                durationSliderPointerDownX = event.clientX;
+                durationSliderDragged = false;
+                durationSlider.classList.add('is-pressed');
+            });
+            durationSlider.addEventListener('pointermove', (event) => {
+                if (durationSliderPointerDownX !== null && Math.abs(event.clientX - durationSliderPointerDownX) > 4) {
+                    durationSliderDragged = true;
+                }
+            });
+            durationSlider.addEventListener('pointercancel', (event) => {
+                try { durationSlider.releasePointerCapture?.(event.pointerId); } catch (e) {}
+                durationSliderPointerDownX = null;
+                durationSliderDragged = false;
+                durationSlider.classList.remove('is-pressed');
+            });
+            durationSlider.addEventListener('pointerup', (event) => {
+                try { durationSlider.releasePointerCapture?.(event.pointerId); } catch (e) {}
+                durationSliderPointerDownX = null;
+                durationSliderResetTimer = window.setTimeout(() => {
+                    durationSliderDragged = false;
+                    durationSlider.classList.remove('is-pressed');
+                }, 120);
+            });
+            updateDurationValue();
+            durationSlider.addEventListener('click', async (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (durationSliderDragged) return;
+                await runTaskTimer(Number(durationSlider.value), 'countdown');
+                try { closeHandler(); } catch (e) {}
+            });
+            sliderRow.append(durationSlider, durationValue);
             durations.forEach((min) => {
                 const b = document.createElement('button');
                 b.type = 'button';
@@ -8282,6 +8364,7 @@
             };
             btnRow.appendChild(sw);
             timerWrap.appendChild(btnRow);
+            timerWrap.appendChild(sliderRow);
             menu.appendChild(timerWrap);
 
             const hrTimer = document.createElement('hr');

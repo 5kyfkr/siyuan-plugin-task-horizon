@@ -1362,7 +1362,12 @@
                 try { svg.setAttribute('height', String(height)); } catch (e) {}
                 try { svg.setAttribute('viewBox', `0 0 ${width} ${height}`); } catch (e) {}
 
-                const links = __tmGetAllTaskLinks({ includeAuto: true });
+                const links = typeof __tmGetTimelineDependencyLinks === 'function'
+                    ? __tmGetTimelineDependencyLinks({
+                        activeDocId: state.activeDocId,
+                        groupId: SettingsStore?.data?.currentGroupId,
+                    })
+                    : __tmGetAllTaskLinks({ includeAuto: true });
                 const rootRect = inner.getBoundingClientRect();
                 const selectedTimelineLinkId = String(state.timelineSelectedLinkId || '').trim();
                 const getPt = (taskId, kind) => {
@@ -1944,6 +1949,12 @@
                 const handleType = handleEl?.getAttribute?.('data-handle');
                 const action = handleType === 'start' ? 'start' : handleType === 'end' ? 'end' : 'move';
                 const withMultiModifier = !isGroupEntity && (action === 'move') && !!(e?.ctrlKey || e?.metaKey) && Number(e?.button) === 0;
+                const cascadeRequestedAtStart = !isGroupEntity
+                    && action === 'move'
+                    && !isMobileTimelineGlobal
+                    && String(pointerType || '').trim() !== 'touch'
+                    && e?.shiftKey === true
+                    && !withMultiModifier;
 
                 const startTsStr = String(bodyEl.dataset?.tmGanttStartTs || '');
                 const dayWidthStr = String(bodyEl.dataset?.tmGanttDayWidth || '');
@@ -2284,6 +2295,34 @@
 
                     const startDate = formatDateOnlyFromTs(startTs0 + lastStartIdx * DAY_MS);
                     const completionTime = formatDateOnlyFromTs(startTs0 + lastEndIdx * DAY_MS);
+                    const actualDeltaDays = lastStartIdx - initialStartIdx;
+                    if (cascadeRequestedAtStart && actualDeltaDays > 0 && typeof __tmCommitTimelineDependencyShift === 'function') {
+                        try {
+                            const result = await __tmCommitTimelineDependencyShift({
+                                sourceTaskId: taskId,
+                                sourcePatch: { startDate, completionTime },
+                                deltaDays: actualDeltaDays,
+                                getTaskById,
+                                activeDocId: state.activeDocId,
+                                groupId: SettingsStore?.data?.currentGroupId,
+                            });
+                            const cascadeCount = Math.max(0, Number(result?.cascadeCount) || 0);
+                            const skippedCount = Math.max(0, Number(result?.skippedCount) || 0);
+                            hint(`✅ 已顺延${cascadeCount ? ` ${cascadeCount} 个后续任务` : '当前任务'}${skippedCount ? `，跳过 ${skippedCount} 个不可写任务` : ''}`, 'success');
+                        } catch (error) {
+                            try {
+                                if (typeof __tmRerenderTimelineInPlace === 'function') {
+                                    __tmRerenderTimelineInPlace(state.modal, { reuseLeftRows: true });
+                                } else {
+                                    state.__tmTimelineRenderDeps?.();
+                                }
+                            } catch (e2) {
+                                try { state.__tmTimelineRenderDeps?.(); } catch (e3) {}
+                            }
+                            try { hint(`❌ 顺延失败: ${error?.message || String(error)}`, 'error'); } catch (e2) {}
+                        }
+                        return;
+                    }
                     try {
                         if (isGroupEntity) {
                             const groupPatch = groupTimelineState === 'start'

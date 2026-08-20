@@ -2126,14 +2126,23 @@
     }
 
     function hasOfficialMobileRuntimeSignal() {
+        const container = getSiyuanRuntimeBackend();
+        const frontend = (() => {
+            try {
+                const value = String(globalThis.__taskHorizonFrontend || '').trim().toLowerCase();
+                if (value) return value;
+            } catch (e) {}
+            try { return String(document?.documentElement?.dataset?.frontend || '').trim().toLowerCase(); } catch (e) { return ''; }
+        })();
+        if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return false;
         try {
-            if (globalThis?.JSAndroid) return true;
+            if (container === 'android' && globalThis?.JSAndroid) return true;
         } catch (e) {}
         try {
-            if (globalThis?.JSHarmony) return true;
+            if (container === 'harmony' && globalThis?.JSHarmony) return true;
         } catch (e) {}
         try {
-            const hasIosBridge = !!globalThis?.webkit?.messageHandlers;
+            const hasIosBridge = container === 'ios' && !!globalThis?.webkit?.messageHandlers;
             if (!hasIosBridge) return false;
             const ua = String(navigator?.userAgent || '');
             const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
@@ -2145,6 +2154,15 @@
     }
 
     function isMobileBrowserViewport() {
+        const frontend = (() => {
+            try {
+                const value = String(globalThis.__taskHorizonFrontend || '').trim().toLowerCase();
+                if (value) return value;
+            } catch (e) {}
+            try { return String(document?.documentElement?.dataset?.frontend || '').trim().toLowerCase(); } catch (e) { return ''; }
+        })();
+        if (frontend === 'browser-mobile' || frontend === 'mobile') return true;
+        if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return false;
         try {
             if (navigator?.userAgentData?.mobile === true) return true;
         } catch (e) {}
@@ -2162,6 +2180,14 @@
     }
 
     function isInlineMetaMobileSuppressedDevice() {
+        const frontend = (() => {
+            try {
+                const value = String(globalThis.__taskHorizonFrontend || '').trim().toLowerCase();
+                if (value) return value;
+            } catch (e) {}
+            try { return String(document?.documentElement?.dataset?.frontend || '').trim().toLowerCase(); } catch (e) { return ''; }
+        })();
+        if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return false;
         if (hasOfficialMobileRuntimeSignal()) return true;
         try {
             if (navigator?.userAgentData?.mobile === true) return true;
@@ -2176,6 +2202,14 @@
     }
 
     function isMobileDevice() {
+        const frontend = (() => {
+            try {
+                const value = String(globalThis.__taskHorizonFrontend || '').trim().toLowerCase();
+                if (value) return value;
+            } catch (e) {}
+            try { return String(document?.documentElement?.dataset?.frontend || '').trim().toLowerCase(); } catch (e) { return ''; }
+        })();
+        if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return false;
         if (hasOfficialMobileRuntimeSignal()) return true;
         return isMobileBrowserViewport();
     }

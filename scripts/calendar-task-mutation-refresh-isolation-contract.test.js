@@ -76,6 +76,11 @@ const directTaskDatePatch = segment(
     'function syncTaskDatePatchInPlace',
     'async function getTaskDateEventRepeatRule',
 );
+const taskDateDragPersist = segment(
+    calendarView,
+    'async function persistTaskDateEventChange',
+    'function shouldCreateScheduleFromTaskDateDrop',
+);
 const calendarTaskDateQuery = segment(
     calendarSupport,
     'window.tmQueryCalendarTaskDateEvents = async function',
@@ -269,8 +274,8 @@ assert.match(
 );
 assert.match(
     taskFieldRefresh,
-    /if \(viewMode === 'calendar'\)[\s\S]*requestRefresh\(\{[\s\S]*main: false,[\s\S]*side: false,[\s\S]*flushTaskPanel: true,[\s\S]*hard: false/,
-    'calendar task fields must refresh only the task panel after their direct local event patch',
+    /if \(viewMode === 'calendar' && !calendarPatchedInPlace\)[\s\S]*requestRefresh\(\{[\s\S]*main: false,[\s\S]*side: false,[\s\S]*flushTaskPanel: true,[\s\S]*hard: false/,
+    'calendar task fields must refresh the task panel only when the event was not patched locally',
 );
 assert.match(floatingPriority, /wait: true,[\s\S]*skipInteractionGate: true/,
     'floating priority must retain optimistic interaction isolation while awaiting authoritative settlement');
@@ -284,6 +289,21 @@ assert.match(
     directTaskDatePatch,
     /hasOwnProperty\.call\(patch, 'content'\)[\s\S]*normalizedPatch\.content/,
     'the direct calendar patch API must retain the renamed task content',
+);
+assert.match(
+    calendarView,
+    /Most task-date events are ordinary tasks[\s\S]*getTaskLikeForTitleOpacity\(taskId, null\)[\s\S]*tmGetTaskRepeatRule/,
+    'ordinary task-date drags must avoid an unnecessary asynchronous repeat-rule read',
+);
+assert.match(
+    services,
+    /__tmPatchHasVisibleDateField\(nextPatch\) \? 12000 : 2200/,
+    'calendar date transaction suppression must cover delayed host write acknowledgements',
+);
+assert.match(
+    taskTxRefresh,
+    /if \(isCalendarView && skipLocalDateRefresh\)[\s\S]*return;[\s\S]*window\.__tmCalendarAllTasksCache = null/,
+    'calendar task cache must remain intact when a local date patch already handled the transaction echo',
 );
 assert.match(
     localTaskDateEventPatch,
@@ -329,6 +349,36 @@ assert.match(
     localTimeRefresh,
     /syncTaskDateInPlace\(tid,[\s\S]*if \(viewMode === 'calendar'\) refreshed = true;[\s\S]*if \(\(!refreshed/,
     'a successful visible calendar patch must suppress the generic current-view rerender fallback',
+);
+assert.match(
+    taskDateDragPersist,
+    /renderOptimistic:\s*true,[\s\S]*deferProjection:\s*true/,
+    'calendar date drags must update task state immediately without sending the already-moved event through the generic projection pass',
+);
+assert.match(
+    calendarSupport,
+    /syncMirrorTaskAttrs:\s*opts\.syncMirrorTaskAttrs === true,[\s\S]*deferProjection:\s*opts\.deferProjection === true/,
+    'calendar date updates must preserve deferProjection when entering the task mutation queue',
+);
+assert.match(
+    localTaskDateEventPatch,
+    /function buildTaskDateEventDateOnlyFastPath/,
+    'date-only task changes must use an existing-event fast-path candidate',
+);
+assert.match(
+    calendarView,
+    /buildTaskDateEventDateOnlyFastPath[\s\S]*__tmApplyTaskDateEventProps\(existing, nextEvent\)/,
+    'date-only task changes must move an existing event in place without rebuilding all task-date events',
+);
+assert.doesNotMatch(
+    `${calendarView}\n${services}\n${taskRuntime}`,
+    /__tmCalendarReflowLog|calendar-reflow|__tmCalendarReflowDebug|__tmCalendarReflowStackDebug/,
+    'temporary calendar reflow diagnostics must be removed after performance investigation',
+);
+assert.doesNotMatch(
+    taskDateDragPersist,
+    /renderOptimistic:\s*false/,
+    'calendar date drags must not wait for the queued write before applying the local task state',
 );
 assert.match(
     scheduleMutationDispatch,

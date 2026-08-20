@@ -155,9 +155,10 @@
                     </label>
                     <div class="tm-scheduled-events-field tm-scheduled-events-field--wide">
                         <span>输出方式</span>
-                        <div class="tm-scheduled-events-segmented" role="group" aria-label="输出方式">
+                        <div class="tm-scheduled-events-segmented tm-scheduled-events-segmented--output" role="group" aria-label="输出方式">
                             <button type="button" class="${output.mode === 'notification' ? 'is-active' : ''}" data-tm-call="tmScheduledSetOutputMode" data-tm-args='["notification"]'>通知展示</button>
                             <button type="button" class="${output.mode === 'document' ? 'is-active' : ''}" data-tm-call="tmScheduledSetOutputMode" data-tm-args='["document"]'>写入文档</button>
+                            <button type="button" class="${output.mode === 'daily_note' ? 'is-active' : ''}" data-tm-call="tmScheduledSetOutputMode" data-tm-args='["daily_note"]'>写入到日记</button>
                         </div>
                     </div>
                     ${output.mode === 'document' ? `
@@ -183,6 +184,12 @@
                             <span>${output.documentMode === 'monthly_child' ? '父文档 ID' : '文档 ID'}</span>
                             <input class="b3-text-field" type="text" value="${esc(output.documentId)}" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["output.documentId"]' placeholder="也可直接输入文档 ID">
                         </label>
+                    ` : ''}
+                    ${output.mode === 'daily_note' ? `
+                        <div class="tm-scheduled-events-field tm-scheduled-events-field--wide">
+                            <span>日记目标</span>
+                            <div class="tm-settings-section-desc">使用常规设置中的“今天日记默认笔记本”；插入位置由“日记追加到底部”控制。</div>
+                        </div>
                     ` : ''}
                 </div>
                 <div class="tm-scheduled-events-editor__actions">
@@ -216,7 +223,9 @@
             const statusError = String(event.lastRun?.error || '').trim().replace(/^(?:已阻止\s*){2,}/, '已阻止').slice(0, 500);
             const outputLabel = event.output?.mode === 'document'
                 ? `${event.output?.documentMode === 'monthly_child' ? '月度子文档' : '目标文档'} · ${event.output?.insertPosition === 'top' ? '顶部' : '底部'}`
-                : '通知展示';
+                : event.output?.mode === 'daily_note'
+                    ? `今天日记 · ${SettingsStore.data.newTaskDailyNoteAppendToBottom === true ? '底部' : '顶部'}`
+                    : '通知展示';
             const args = esc(JSON.stringify([event.id]));
             return `
                 <div class="tm-scheduled-events-row${event.enabled ? '' : ' is-disabled'}">
@@ -363,8 +372,8 @@
             ? `${status[0]}：${result.error}`
             : (notificationFailed
                 ? `定时事件已完成，但系统通知未发送：${result.notificationError || '未知原因'}；正在打开对话`
-                : (result?.status === 'succeeded' ? '定时事件已完成，正在打开对话' : `定时事件：${status[0]}`));
-        hint(message, notificationFailed ? 'warning' : (result?.status === 'succeeded' ? 'success' : (result?.status === 'skipped_empty' ? 'info' : 'warning')));
+                : (result?.status === 'succeeded' ? '' : `定时事件：${status[0]}`));
+        if (message) hint(message, notificationFailed ? 'warning' : (result?.status === 'skipped_empty' ? 'info' : 'warning'));
         if (result?.status === 'succeeded') state.scheduledEventResultId = String(id || '').trim();
         __tmScheduledRerenderSettings();
         if (result?.status === 'succeeded') await window.tmScheduledOpenConversation(id);

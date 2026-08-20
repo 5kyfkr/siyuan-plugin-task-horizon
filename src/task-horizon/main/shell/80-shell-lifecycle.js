@@ -226,9 +226,19 @@ if (shouldMarkDirty) {
                 __tmThemeModeObserver.disconnect();
                 __tmThemeModeObserver = null;
             }
+            if (__tmThemeHeadObserver) {
+                __tmThemeHeadObserver.disconnect();
+                __tmThemeHeadObserver = null;
+            }
             if (__tmThemeModeRefreshRaf) {
                 try { cancelAnimationFrame(__tmThemeModeRefreshRaf); } catch (e) {}
                 __tmThemeModeRefreshRaf = null;
+            }
+            if (__tmThemeAppearanceRefreshTimers instanceof Set) {
+                __tmThemeAppearanceRefreshTimers.forEach((timer) => {
+                    try { clearTimeout(timer); } catch (e) {}
+                });
+                __tmThemeAppearanceRefreshTimers.clear();
             }
             if (__tmThemeStylesheetLoadHandler) {
                 try { document.removeEventListener('load', __tmThemeStylesheetLoadHandler, true); } catch (e) {}
@@ -238,6 +248,7 @@ if (shouldMarkDirty) {
                 __tmThemeModeRefreshRaf = null;
                 try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
                 try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+                try { themeStyleSignature = readRootThemeStyleSignature(); } catch (e) {}
                 try { if (state.modal) render(); } catch (e) {}
             };
             const scheduleThemeAppearanceRefresh = () => {
@@ -247,23 +258,111 @@ if (shouldMarkDirty) {
                 } catch (e) {
                     refreshThemeAppearance();
                 }
+                // SiYuan updates root attributes before its replacement theme.css finishes loading.
+                // Re-apply after the stylesheet settles so follow-theme colors do not wait for a tab switch.
+                if (__tmThemeAppearanceRefreshTimers.size === 0) {
+                    [96, 320].forEach((delay) => {
+                        const timer = setTimeout(() => {
+                            __tmThemeAppearanceRefreshTimers.delete(timer);
+                            try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
+                            try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+                            try { themeStyleSignature = readRootThemeStyleSignature(); } catch (e) {}
+                            if (delay === 320) {
+                                try { if (state.modal) render(); } catch (e) {}
+                            }
+                        }, delay);
+                        __tmThemeAppearanceRefreshTimers.add(timer);
+                    });
+                }
             };
-            __tmThemeModeObserver = new MutationObserver(scheduleThemeAppearanceRefresh);
-            __tmThemeModeObserver.observe(document.documentElement, {
-                attributes: true,
-                attributeFilter: ['data-theme-mode', 'data-light-theme', 'data-dark-theme', 'data-mode', 'class']
-            });
-            __tmThemeStylesheetLoadHandler = (event) => {
-                const target = event?.target;
-                if (String(target?.tagName || '').toLowerCase() !== 'link') return;
+            const isThemeStylesheet = (target) => {
+                if (!target || String(target.tagName || '').toLowerCase() !== 'link') return false;
                 const id = String(target.id || '');
                 const href = String(target.href || target.getAttribute?.('href') || '');
-                const isThemeStylesheet = id === 'themeDefaultStyle'
+                return id === 'themeDefaultStyle'
                     || id === 'themeStyle'
                     || /\/appearance\/themes\/[^/]+\/theme\.css(?:[?#]|$)/i.test(href);
-                if (isThemeStylesheet) scheduleThemeAppearanceRefresh();
+            };
+            const rootStyleSnapshot = () => {
+                try { return String(document.documentElement?.getAttribute?.('style') || ''); } catch (e) { return ''; }
+            };
+            const readRootThemeStyleSignature = () => {
+                try {
+                    const computed = getComputedStyle(document.documentElement);
+                    const values = [];
+                    for (let index = 0; index < computed.length; index += 1) {
+                        const name = String(computed[index] || '').trim();
+                        if (!name.startsWith('--')) continue;
+                        values.push(`${name}:${String(computed.getPropertyValue(name) || '').trim()}`);
+                    }
+                    return values.sort().join('|');
+                } catch (e) { return ''; }
+            };
+            const getRootThemeStyleSignature = () => String(
+                globalThis.__tmThemeRuntimeComputedStyleSignature || readRootThemeStyleSignature()
+            );
+            let themeStyleSignature = getRootThemeStyleSignature();
+            const shouldRefreshForRootMutation = (records) => {
+                const appliedStyle = String(globalThis.__tmThemeRuntimeRootStyleSnapshot || '');
+                return (Array.isArray(records) ? records : []).some((record) => {
+                    if (!record || record.type !== 'attributes') return false;
+                    if (record.attributeName === 'class') {
+                        const nextSignature = readRootThemeStyleSignature();
+                        const changed = nextSignature !== themeStyleSignature;
+                        themeStyleSignature = nextSignature;
+                        return changed;
+                    }
+                    if (record.attributeName !== 'style') return true;
+                    if (record.target === document.documentElement) {
+                        return rootStyleSnapshot() !== appliedStyle;
+                    }
+                    const nextSignature = readRootThemeStyleSignature();
+                    const changed = nextSignature !== themeStyleSignature;
+                    themeStyleSignature = nextSignature;
+                    return changed;
+                });
+            };
+            __tmThemeModeObserver = new MutationObserver((records) => {
+                if (shouldRefreshForRootMutation(records)) scheduleThemeAppearanceRefresh();
+            });
+            __tmThemeModeObserver.observe(document.documentElement, {
+                attributes: true,
+                // Theme palettes may be represented by root classes. Observe class changes, but
+                // compare computed custom properties so unrelated window/layout classes are ignored.
+                attributeFilter: ['data-theme-mode', 'data-light-theme', 'data-dark-theme', 'data-mode', 'style', 'class']
+            });
+            if (document.body) {
+                __tmThemeModeObserver.observe(document.body, {
+                    attributes: true,
+                    attributeFilter: ['style', 'class']
+                });
+            }
+            __tmThemeStylesheetLoadHandler = (event) => {
+                const target = event?.target;
+                if (isThemeStylesheet(target)) scheduleThemeAppearanceRefresh();
             };
             document.addEventListener('load', __tmThemeStylesheetLoadHandler, true);
+            __tmThemeHeadObserver = new MutationObserver((records) => {
+                const relevant = (Array.isArray(records) ? records : []).some((record) => {
+                    if (!record) return false;
+                    if (record.type === 'attributes') return isThemeStylesheet(record.target);
+                    if (record.type !== 'childList') return false;
+                    return Array.from(record.addedNodes || []).some((node) => {
+                        if (isThemeStylesheet(node)) return true;
+                        try {
+                            return !!node?.querySelector?.('link')
+                                && Array.from(node.querySelectorAll('link')).some(isThemeStylesheet);
+                        } catch (e) { return false; }
+                    });
+                });
+                if (relevant) scheduleThemeAppearanceRefresh();
+            });
+            __tmThemeHeadObserver.observe(document.head, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['href', 'id', 'rel', 'media', 'disabled']
+            });
         } catch (e) {}
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
 
@@ -804,6 +903,7 @@ if (shouldMarkDirty) {
 
     // 插件卸载清理
     function __tmCleanup() {
+        try { window.removeEventListener(__TM_SIYUAN_SYNC_STATUS_EVENT, __tmSiyuanSyncStatusHandler); } catch (e) {}
         try {
             const pendingMutations = globalThis.__tmTaskMutations?.pendingRefs?.({ limit: 20 }) || [];
             if (pendingMutations.length > 0) {
@@ -841,6 +941,24 @@ if (shouldMarkDirty) {
             if (__tmVisibilityHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(document, 'visibilitychange', __tmVisibilityHandler);
                 __tmVisibilityHandler = null;
+            }
+        } catch (e) {}
+        try {
+            if (__tmVisibleResumeSyncCancel) __tmVisibleResumeSyncCancel();
+        } catch (e) {}
+        try {
+            if (__tmVisibleResumeSyncTimer) {
+                clearTimeout(__tmVisibleResumeSyncTimer);
+                __tmVisibleResumeSyncTimer = null;
+            }
+            if (__tmVisibleResumeIdleHandle) {
+                if (__tmVisibleResumeIdleHandleKind === 'idle' && typeof cancelIdleCallback === 'function') {
+                    cancelIdleCallback(__tmVisibleResumeIdleHandle);
+                } else {
+                    clearTimeout(__tmVisibleResumeIdleHandle);
+                }
+                __tmVisibleResumeIdleHandle = null;
+                __tmVisibleResumeIdleHandleKind = '';
             }
         } catch (e) {}
         try {
@@ -1427,9 +1545,19 @@ if (shouldMarkDirty) {
                 __tmThemeModeObserver.disconnect();
                 __tmThemeModeObserver = null;
             }
+            if (__tmThemeHeadObserver) {
+                __tmThemeHeadObserver.disconnect();
+                __tmThemeHeadObserver = null;
+            }
             if (__tmThemeModeRefreshRaf) {
                 try { cancelAnimationFrame(__tmThemeModeRefreshRaf); } catch (e2) {}
                 __tmThemeModeRefreshRaf = null;
+            }
+            if (__tmThemeAppearanceRefreshTimers instanceof Set) {
+                __tmThemeAppearanceRefreshTimers.forEach((timer) => {
+                    try { clearTimeout(timer); } catch (e2) {}
+                });
+                __tmThemeAppearanceRefreshTimers.clear();
             }
             if (__tmThemeStylesheetLoadHandler) {
                 try { document.removeEventListener('load', __tmThemeStylesheetLoadHandler, true); } catch (e2) {}

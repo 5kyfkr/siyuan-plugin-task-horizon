@@ -2642,6 +2642,7 @@
             }
             [
                 ['SetProtyleWYSIWYG', true],
+                ['SetBlockRef', true],
                 ['SetDataTask', true],
                 ['SetArbitraryTaskListItemMarker', true],
                 ['SetEnsureListItemParagraph', true],
@@ -2724,6 +2725,16 @@
             if (res.code !== 0) throw new Error(res.msg);
             const id = this._getInsertedId(res);
             if (!id) throw new Error('追加失败');
+            return id;
+        },
+
+        async prependBlock(parentId, data, options = {}) {
+            const opts = (options && typeof options === 'object') ? options : {};
+            const dataType = String(opts.dataType || 'markdown').trim() === 'dom' ? 'dom' : 'markdown';
+            const res = await this.call('/api/block/prependBlock', { parentID: parentId, data, dataType });
+            if (res.code !== 0) throw new Error(res.msg);
+            const id = this._getInsertedId(res);
+            if (!id) throw new Error('前置插入失败');
             return id;
         },
 
@@ -3324,6 +3335,7 @@
         API.updateBlock = __tmGuardRawApiWrite('updateBlock', API.updateBlock.bind(API));
         API.insertBlock = __tmGuardRawApiWrite('insertBlock', API.insertBlock.bind(API));
         API.appendBlock = __tmGuardRawApiWrite('appendBlock', API.appendBlock.bind(API));
+        API.prependBlock = __tmGuardRawApiWrite('prependBlock', API.prependBlock.bind(API));
         API.moveBlock = __tmGuardRawApiWrite('moveBlock', API.moveBlock.bind(API));
         API.deleteBlock = __tmGuardRawApiWrite('deleteBlock', API.deleteBlock.bind(API));
     } catch (e) {}
@@ -3513,6 +3525,22 @@
                 },
                 laneID: __tmGetActiveTaskMutationLaneId(parentId),
             }, '任务块追加');
+            return String(receipt.value?.id || '').trim();
+        }),
+        prependBlock: __tmGuardBackendWrite('prependBlock', async function(parentId, data, options = {}) {
+            const opts = (options && typeof options === 'object') ? options : {};
+            const dataType = String(opts.dataType || 'markdown').trim() === 'dom' ? 'dom' : 'markdown';
+            const receipt = await __tmExecuteTaskCommandGateway({
+                action: 'blockOperation',
+                operation: {
+                    action: 'prependBlock',
+                    parentID: parentId,
+                    data,
+                    dataType,
+                    requestedID: String(opts.requestedID || '').trim(),
+                },
+                laneID: __tmGetActiveTaskMutationLaneId(parentId),
+            }, '任务块前置插入');
             return String(receipt.value?.id || '').trim();
         }),
         createSubtask: __tmGuardBackendWrite('createSubtask', async function(parentTaskId, taskId, listId, listData, itemData, options = {}) {
@@ -4519,6 +4547,12 @@
         return current;
     }
 
+    const __TM_SIYUAN_SYNC_STATUS_EVENT = 'tm:task-horizon-siyuan-sync-status';
+    function __tmNormalizeSiyuanSyncStatus(value = {}) {
+        return value?.status === 'syncing' || value?.status === 'failed' ? value.status : 'synced';
+    }
+    const __tmInitialSiyuanSyncStatus = __tmNormalizeSiyuanSyncStatus(globalThis.__taskHorizonSiyuanSyncStatus);
+
     let state = {
         // 数据状态
         taskTree: [],
@@ -4534,6 +4568,7 @@
         rulesModal: null,
         priorityModal: null,
         semanticDateConfirmModal: null,
+        siyuanSyncStatus: __tmInitialSiyuanSyncStatus,
         homepageOpen: !!Storage.get('tm_homepage_open', false),
         attachmentLibraryOpen: false,
         attachmentLibrarySearch: '',
@@ -4783,6 +4818,17 @@
         otherBlockSourceDocRefsSigByGroup: {},
         otherBlockSourceDocsLoadingByGroup: {},
     };
+
+    function __tmApplySiyuanSyncStatus(value = {}) {
+        const next = __tmNormalizeSiyuanSyncStatus(value);
+        state.siyuanSyncStatus = next;
+        const statusEl = state.modal?.querySelector?.('[data-tm-siyuan-sync-status]');
+        if (!(statusEl instanceof HTMLElement)) return next;
+        statusEl.dataset.tmSiyuanSyncStatus = next;
+        return next;
+    }
+    const __tmSiyuanSyncStatusHandler = (event) => __tmApplySiyuanSyncStatus(event?.detail);
+    try { window.addEventListener(__TM_SIYUAN_SYNC_STATUS_EVENT, __tmSiyuanSyncStatusHandler); } catch (e) {}
 
     const __TM_SIMPLE_MUTATION_TYPES = new Set([
         'contentPatch',
@@ -5371,6 +5417,8 @@
                     __tmRefreshTaskFieldsAcrossViews(ancestorId, { priorityScore: true }, {
                         reason: String(opts.reason || 'priority-score-ancestor-sync').trim() || 'priority-score-ancestor-sync',
                         fallback: false,
+                        syncCalendar: opts.skipCalendarTaskPanelRefresh === true ? false : undefined,
+                        skipCalendarTaskPanelRefresh: opts.skipCalendarTaskPanelRefresh === true,
                     });
                 } catch (e) {}
             });
@@ -5506,6 +5554,8 @@
                 __tmSyncTaskPriorityScoreLocal(tid, {
                     includeAncestors: affectAncestors,
                     refreshAncestorViews: affectAncestors && options.render === false && options.refreshAncestorViews !== false,
+                    skipCalendarTaskPanelRefresh: options.skipCalendarTaskPanelRefresh === true
+                        || (typeof __tmPatchHasVisibleDateField === 'function' && __tmPatchHasVisibleDateField(nextPatch)),
                     reason: 'attr-patch-priority-sync',
                 });
             } catch (e) {}
@@ -5558,6 +5608,8 @@
                 __tmSyncTaskPriorityScoreLocal(tid, {
                     includeAncestors: affectAncestors,
                     refreshAncestorViews: affectAncestors && options.render === false && options.refreshAncestorViews !== false,
+                    skipCalendarTaskPanelRefresh: options.skipCalendarTaskPanelRefresh === true
+                        || (typeof __tmPatchHasVisibleDateField === 'function' && __tmPatchHasVisibleDateField(prevPatch)),
                     reason: 'attr-patch-priority-rollback-sync',
                 });
             } catch (e) {}
@@ -12562,7 +12614,11 @@
     let __tmWakeReloadBound = false;
     let __tmWasHiddenAt = 0;
     let __tmVisibleResumeSyncTimer = null;
+    let __tmVisibleResumeIdleHandle = null;
+    let __tmVisibleResumeIdleHandleKind = '';
     let __tmVisibleResumeSyncPromise = null;
+    let __tmVisibleResumeSyncCancel = null;
+    let __tmVisibleResumeLastRunAt = 0;
     let __tmVisibilityHandler = null;
     let __tmFocusHandler = null;
     let __tmWhiteboardViewSaveTimer = null;
@@ -13054,6 +13110,16 @@
 
     function __tmCreateUndoRecord(definition = {}) {
         const def = (definition && typeof definition === 'object') ? definition : {};
+        const items = Array.isArray(def.items)
+            ? def.items.map((item) => {
+                const source = (item && typeof item === 'object') ? item : {};
+                return {
+                    taskId: String(source.taskId || '').trim(),
+                    patch: __tmCloneUndoValue(source.patch && typeof source.patch === 'object' ? source.patch : {}),
+                    inversePatch: __tmCloneUndoValue(source.inversePatch && typeof source.inversePatch === 'object' ? source.inversePatch : {}),
+                };
+            }).filter((item) => item.taskId)
+            : [];
         return {
             id: String(def.id || `tmundo_${Date.now()}_${++__tmUndoState.seq}`).trim(),
             type: String(def.type || '').trim(),
@@ -13061,6 +13127,7 @@
             requestedTaskId: String(def.requestedTaskId || '').trim(),
             patch: __tmCloneUndoValue(def.patch && typeof def.patch === 'object' ? def.patch : {}),
             inversePatch: __tmCloneUndoValue(def.inversePatch && typeof def.inversePatch === 'object' ? def.inversePatch : {}),
+            items,
             label: String(def.label || '').trim(),
             source: String(def.source || '').trim(),
             createdAt: Math.max(0, Number(def.createdAt) || Date.now()),
@@ -13070,7 +13137,10 @@
     function __tmPushUndoRecord(definition = {}, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const record = __tmCreateUndoRecord(definition);
-        if (!record.type || !record.taskId) return null;
+        const validTarget = record.type === 'taskPatchBatch'
+            ? record.items.length > 0
+            : !!record.taskId;
+        if (!record.type || !validTarget) return null;
         __tmUndoState.undoStack.push(record);
         if (__tmUndoState.undoStack.length > __TM_UNDO_STACK_LIMIT) {
             __tmUndoState.undoStack.splice(0, __tmUndoState.undoStack.length - __TM_UNDO_STACK_LIMIT);
@@ -15416,7 +15486,12 @@ if (opts.refresh === false) return;
             String(context.task?.root_id || '').trim(),
             String(context.task?.docId || '').trim(),
         ].filter(Boolean)));
-        __tmMarkLocalTimeTxSuppressionIds(localAttrSuppressionIds, localAttrSuppressionDocIds, 2200);
+        // Date writes can be acknowledged by the host after the optimistic
+        // queue has already settled. Keep the calendar echo suppression alive
+        // long enough to cover that delayed transaction without re-reading the
+        // whole visible task-date range.
+        const localAttrSuppressionTtlMs = __tmPatchHasVisibleDateField(nextPatch) ? 12000 : 2200;
+        __tmMarkLocalTimeTxSuppressionIds(localAttrSuppressionIds, localAttrSuppressionDocIds, localAttrSuppressionTtlMs);
 if (hasStatusPatch) {
             __tmPushStatusDebug('meta-patch:context', {
                 requestedTaskId: context.requestedId,
@@ -16009,7 +16084,39 @@ if (hasStatusPatch) {
         }
         __tmUndoState.applying = true;
         try {
-            if (record.type === 'taskPatch') {
+            if (record.type === 'taskPatchBatch') {
+                const items = Array.isArray(record.items) ? record.items : [];
+                const applied = [];
+                try {
+                    for (let index = items.length - 1; index >= 0; index -= 1) {
+                        const item = items[index];
+                        await __tmApplyTaskMetaPatchWithUndo(item.taskId, item.inversePatch, {
+                            recordUndo: false,
+                            refresh: true,
+                            refreshCalendar: true,
+                            source: 'undo',
+                            label: record.label,
+                        });
+                        applied.push(item);
+                    }
+                } catch (error) {
+                    for (let index = applied.length - 1; index >= 0; index -= 1) {
+                        const item = applied[index];
+                        try {
+                            await __tmApplyTaskMetaPatchWithUndo(item.taskId, item.patch, {
+                                recordUndo: false,
+                                refresh: false,
+                                refreshCalendar: true,
+                                source: 'undo-rollback',
+                                label: record.label,
+                            });
+                        } catch (rollbackError) {
+                            try { console.error('[task-horizon] task patch batch undo rollback failed', rollbackError); } catch (e) {}
+                        }
+                    }
+                    throw error;
+                }
+            } else if (record.type === 'taskPatch') {
                 await __tmApplyTaskMetaPatchWithUndo(record.taskId || record.requestedTaskId, record.inversePatch, {
                     recordUndo: false,
                     refresh: true,
@@ -16457,7 +16564,9 @@ if (hasStatusPatch) {
     let __tmBreadcrumbObserverTarget = null;
     let __tmBreadcrumbBtnEl = null;
     let __tmThemeModeObserver = null;
+    let __tmThemeHeadObserver = null;
     let __tmThemeModeRefreshRaf = null;
+    let __tmThemeAppearanceRefreshTimers = new Set();
     let __tmThemeStylesheetLoadHandler = null;
     let __tmTopBarTimer = null;
     let __tmShellEntrancesRefreshRaf = null;
@@ -16480,6 +16589,7 @@ if (hasStatusPatch) {
     let __tmTomatoHistoryUpdatedHandler = null;
     let __tmTomatoStatsAvailabilityHandler = null;
     let __tmTomatoDefaultDurationChangedHandler = null;
+    let __tmTomatoAccountingUpdatedHandler = null;
     let __tmTomatoHistoryVersion = 0;
     let __tmTomatoFocusRestoreRetryTimer = null;
     const __TM_TOMATO_FOCUS_SESSION_KEY = 'tm_tomato_focus_task';
@@ -17118,15 +17228,52 @@ if (!state.homepageOpen) return;
         const sourceLabel = String(source || '').trim() || 'visible-resume';
         if (__tmVisibleResumeSyncPromise) return __tmVisibleResumeSyncPromise;
 
+        const hasUrgentWork = !!state.viewRefreshPending
+            || !!state.listProjectionRefreshPending
+            || __tmCalendarTxRefreshPending === true
+            || __tmHasAutoRefreshPendingSync();
+        if (!hasUrgentWork && Date.now() - (Number(__tmVisibleResumeLastRunAt) || 0) < 1200) {
+            return Promise.resolve(false);
+        }
+
         state.visibleResumeSyncInFlight = true;
         __tmInvalidateQueuedViewCommitForVisibleResume();
         __tmVisibleResumeSyncPromise = new Promise((resolve) => {
+            __tmVisibleResumeSyncCancel = () => resolve(false);
             __tmVisibleResumeSyncTimer = setTimeout(() => {
                 __tmVisibleResumeSyncTimer = null;
-                Promise.resolve(__tmRunVisibleResumeSync(sourceLabel)).then(resolve, () => resolve(false));
+                const run = () => {
+                    __tmVisibleResumeIdleHandle = null;
+                    __tmVisibleResumeIdleHandleKind = '';
+                    let interactionWait = 0;
+                    try {
+                        interactionWait = typeof __tmGetHighPriorityInteractionWaitMs === 'function'
+                            ? __tmGetHighPriorityInteractionWaitMs(48)
+                            : 0;
+                    } catch (e) {}
+                    if (interactionWait > 0) {
+                        __tmVisibleResumeIdleHandleKind = 'timeout';
+                        __tmVisibleResumeIdleHandle = setTimeout(run, Math.max(48, interactionWait));
+                        return;
+                    }
+                    __tmVisibleResumeLastRunAt = Date.now();
+                    Promise.resolve(__tmRunVisibleResumeSync(sourceLabel)).then(resolve, () => resolve(false));
+                };
+                try {
+                    if (typeof requestIdleCallback === 'function') {
+                        __tmVisibleResumeIdleHandleKind = 'idle';
+                        __tmVisibleResumeIdleHandle = requestIdleCallback(run, { timeout: 900 });
+                    } else {
+                        __tmVisibleResumeIdleHandleKind = 'timeout';
+                        __tmVisibleResumeIdleHandle = setTimeout(run, 120);
+                    }
+                } catch (e) {
+                    run();
+                }
             }, 32);
         }).finally(() => {
             __tmVisibleResumeSyncPromise = null;
+            __tmVisibleResumeSyncCancel = null;
             state.visibleResumeSyncInFlight = false;
             if (state.viewRefreshPending) {
                 try { __tmFlushDeferredViewRefreshAfterTaskFieldWork('visible-resume-sync:end'); } catch (e) {}
@@ -17193,14 +17340,14 @@ if (!state.homepageOpen) return;
                     return;
                 }
 
-                await __tmScheduleVisibleResumeSync('visibilitychange');
+                void __tmScheduleVisibleResumeSync('visibilitychange');
 			} catch (e) {}
 		};
 		__tmFocusHandler = async () => {
 			try {
                 try { __tmPollQuickbarRelayStorage(); } catch (e) {}
                 if (!__tmWasPluginVisibleBeforeHide) return;
-                await __tmScheduleVisibleResumeSync('focus');
+                void __tmScheduleVisibleResumeSync('focus');
             } catch (e) {}
         };
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'visibilitychange', __tmVisibilityHandler); } catch (e) {}
@@ -17389,6 +17536,43 @@ if (!state.homepageOpen) return;
         try { state.quickbarModifiedTaskIds && state.quickbarModifiedTaskIds.clear(); } catch (e) {}
         state.quickbarModifiedTaskIdsLoaded = true;
         try { localStorage.removeItem('__tmQuickbarModifiedTasks'); } catch (ex) {}
+    }
+
+    // A ws-main echo for a plugin-owned write can mark QuickBar dirty even
+    // though the table already has the authoritative local projection. In
+    // that case a full document reload is more likely to read the SQL index
+    // before it has caught up and overwrite the local value. Keep the
+    // incremental path when every dirty QuickBar task is still protected by
+    // a local patch watermark.
+    function __tmQuickbarDirtyTasksHaveLocalPatchWatermarks() {
+        const dirty = state.quickbarModifiedTaskIds instanceof Set
+            ? state.quickbarModifiedTaskIds
+            : null;
+        if (!dirty || dirty.size === 0) return false;
+        let protectedCount = 0;
+        for (const rawId of dirty) {
+            const taskId = String(rawId || '').trim();
+            if (!taskId) continue;
+            let protectedTask = false;
+            try {
+                protectedTask = typeof __tmTaskHasLocalPatchWatermark === 'function'
+                    && __tmTaskHasLocalPatchWatermark(taskId) === true;
+            } catch (e) {}
+            if (!protectedTask) {
+                try {
+                    const binding = typeof __tmResolveLocalTaskBindingFromAnyBlockId === 'function'
+                        ? __tmResolveLocalTaskBindingFromAnyBlockId(taskId)
+                        : null;
+                    const resolvedId = String(binding?.taskId || '').trim();
+                    protectedTask = !!resolvedId
+                        && typeof __tmTaskHasLocalPatchWatermark === 'function'
+                        && __tmTaskHasLocalPatchWatermark(resolvedId) === true;
+                } catch (e) {}
+            }
+            if (!protectedTask) return false;
+            protectedCount += 1;
+        }
+        return protectedCount > 0;
     }
 
     function __tmHasExternalTaskTxDirtySync() {
@@ -17589,7 +17773,9 @@ if (!state.homepageOpen) return;
                 clearExternalPending();
                 return true;
             }
-            if (!hadQuickbarDirty && hadExternalDirty) {
+            const quickbarDirtyIsLocallyProtected = hadQuickbarDirty
+                && __tmQuickbarDirtyTasksHaveLocalPatchWatermarks();
+            if (hadExternalDirty && (!hadQuickbarDirty || quickbarDirtyIsLocallyProtected)) {
                 try {
                     const incrementalOk = await __tmRefreshAffectedDocsIncrementally({
                         docIds: pendingTargets.docIds,
@@ -17597,8 +17783,8 @@ if (!state.homepageOpen) return;
                         withFilters: true,
                         reason: `auto:${sourceLabel}:incremental`,
                         deferIfDetailBusy: options?.deferIfDetailBusy !== false,
-                        allowCalendar: hasActiveDetailNoteView,
-                        invalidateCalendarCache: hasActiveDetailNoteView,
+                        allowCalendar: hasActiveDetailNoteView || String(state.viewMode || '').trim() === 'calendar',
+                        invalidateCalendarCache: hasActiveDetailNoteView || String(state.viewMode || '').trim() === 'calendar',
                         resolvedTaskIds: Array.isArray(options?.resolvedTaskIds) ? options.resolvedTaskIds.slice() : [],
                         forceDocRefresh: options?.forceDocRefresh === true,
                         preserveExistingSiblingOrder: options?.preserveExistingSiblingOrder === true,
@@ -17609,6 +17795,7 @@ if (!state.homepageOpen) return;
                         refreshView: commitView,
                     });
                     if (incrementalOk) {
+                        if (quickbarDirtyIsLocallyProtected) __tmClearQuickbarModifications();
                         clearExternalPending();
                         return true;
                     }
@@ -18106,7 +18293,7 @@ if (!state.homepageOpen) return;
         };
         __tmTomatoFocusRestoredHandler = (event) => {
             try {
-                const source = String(event?.detail?.source || '').trim();
+                const source = String(event?.detail?.source || event?.detail?.sourceKind || '').trim();
                 if (!['task-horizon', 'block-menu', 'database-menu'].includes(source)) return;
                 const focusTaskId = String(event?.detail?.taskBlockId || event?.detail?.databaseBlockId || '').trim();
                 if (!focusTaskId) return;
@@ -18137,6 +18324,13 @@ if (!state.homepageOpen) return;
                 }
             } catch (e) {}
         };
+        __tmTomatoAccountingUpdatedHandler = () => {
+            try {
+                if (state.homepageOpen) __tmScheduleHomepageRefresh('tomato-accounting-updated', 0);
+                globalThis.__tmRefreshOpenTaskDetailFocusStats?.({ availabilityChanged: false });
+                globalThis.__taskHorizonQuickbarRefreshInline?.();
+            } catch (e) {}
+        };
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:association-cleared', __tmTomatoAssociationHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:association-changed', __tmTomatoAssociationChangedHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-mode-changed', __tmTomatoFocusModeChangedHandler); } catch (e) {}
@@ -18145,6 +18339,29 @@ if (!state.homepageOpen) return;
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:history-updated', __tmTomatoHistoryUpdatedHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:stats-availability-changed', __tmTomatoStatsAvailabilityHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:default-duration-changed', __tmTomatoDefaultDurationChangedHandler); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:accounting-updated', __tmTomatoAccountingUpdatedHandler); } catch (e) {}
+
+        globalThis.__taskHorizonTomatoV2 = {
+            getCapabilities: () => ({
+                pluginId: 'task-horizon',
+                pluginVersion: String(globalThis.siyuan?.ws?.app?.plugins?.find?.(plugin => plugin?.name === 'siyuan-plugin-task-horizon')?.version || 'unknown'),
+                contractVersion: 2,
+                schemaHash: 'task-horizon-tomato-v2-schema',
+                ready: !!SettingsStore,
+                accountingOwnerSupport: false,
+                ledgerApi: false,
+                eventVersion: 2,
+            }),
+            getAccountingPolicy: () => ({
+                enabled: SettingsStore?.data?.enableTomatoIntegration !== false,
+                tomatoSpentAttrMode: String(SettingsStore?.data?.tomatoSpentAttrMode || 'minutes') === 'hours' ? 'hours' : 'minutes',
+                tomatoActualCountBySpentEnabled: SettingsStore?.data?.tomatoActualCountBySpentEnabled !== false,
+                tomatoSpentAttrKeyMinutes: String(SettingsStore?.data?.tomatoSpentAttrKeyMinutes || 'custom-tomato-minutes'),
+                tomatoSpentAttrKeyHours: String(SettingsStore?.data?.tomatoSpentAttrKeyHours || 'custom-tomato-time'),
+                tomatoCountAttrKey: String(SettingsStore?.data?.tomatoCountAttrKey || 'custom-tomato-count'),
+                policyRevision: Number(SettingsStore?.data?.tomatoPolicyRevision || 0),
+            }),
+        };
         globalThis.__taskHorizonOnTomatoAssociationChanged = (detail) => {
             try { __tmTomatoAssociationChangedHandler({ detail }); } catch (e) {}
         };
@@ -18238,34 +18455,46 @@ if (!state.homepageOpen) return;
             String(__tmGetTaskAttrHostId(opts.task) || '').trim(),
         ].filter(Boolean)));
         let touched = false;
+        const focusMatches = candidateIds.includes(String(state.timerFocusTaskId || '').trim());
+        const clearMatchedFocus = () => {
+            if (!focusMatches) return false;
+            state.timerFocusTaskId = '';
+            __tmClearTomatoFocusRowClasses();
+            touched = true;
+            return true;
+        };
         try {
-            if (candidateIds.includes(String(state.timerFocusTaskId || '').trim())) {
-                state.timerFocusTaskId = '';
-                __tmClearTomatoFocusRowClasses();
-                touched = true;
+            if (!SettingsStore?.data?.enableTomatoIntegration) {
+                clearMatchedFocus();
+                return touched;
             }
-        } catch (e) {}
-        try {
-            if (!SettingsStore?.data?.enableTomatoIntegration) return touched;
-            const timer = globalThis.__tomatoTimer;
-            if (timer && typeof timer === 'object') {
-                const api = typeof timer.completeAssociatedTask === 'function'
-                    ? timer.completeAssociatedTask
-                    : (typeof timer.stopAssociatedTaskAfterDone === 'function' ? timer.stopAssociatedTaskAfterDone : null);
-                if (typeof api === 'function') {
-                    for (const candidateId of candidateIds) {
-                        const result = await api.call(timer, candidateId, {
+            const timerV2 = globalThis.__tomatoTimerV2;
+            const legacyTimer = globalThis.__tomatoTimer;
+            const timer = typeof timerV2?.settleAssociatedTask === 'function' ? timerV2 : legacyTimer;
+            const api = timer === timerV2
+                ? timerV2?.settleAssociatedTask
+                : (typeof legacyTimer?.completeAssociatedTask === 'function'
+                    ? legacyTimer.completeAssociatedTask
+                    : (typeof legacyTimer?.stopAssociatedTaskAfterDone === 'function' ? legacyTimer.stopAssociatedTaskAfterDone : null));
+            if (typeof api === 'function') {
+                for (const candidateId of candidateIds) {
+                    const result = await api.call(timer, candidateId, {
                             source: String(opts.source || 'task-horizon-task-done').trim() || 'task-horizon-task-done',
                             suppressToast: true,
                         });
-                        if (result === true || result?.matched || result?.associationCleared || result?.stopped) {
-                            state.timerFocusTaskId = '';
-                            __tmClearTomatoFocusRowClasses();
-                            touched = true;
-                            break;
-                        }
+                    const settled = result === true || (result && typeof result === 'object'
+                        ? ('ok' in result
+                            ? result?.ok === true
+                            : !!(result.matched || result.associationCleared || result.stopped))
+                        : false);
+                    if (settled) {
+                        clearMatchedFocus();
+                        touched = true;
+                        break;
                     }
                 }
+            } else {
+                clearMatchedFocus();
             }
         } catch (e) {
             try { console.warn('[番茄钟联动] 完成任务后停止番茄钟失败:', e); } catch (e2) {}
@@ -19156,7 +19385,9 @@ if (!state.homepageOpen) return;
     function __tmNormalizeWhiteboardAllTabsLayoutMode(mode) {
         const m = String(mode || '').trim().toLowerCase();
         if (m === 'global') return 'global';
-        return m === 'stream' ? 'stream' : 'board';
+        if (m === 'stream') return 'stream';
+        if (m === 'board') return 'board';
+        return 'global';
     }
 
     function __tmNormalizeWhiteboardSequenceScope(scope) {
@@ -19744,6 +19975,11 @@ if (!state.homepageOpen) return;
     };
 
     const __tmHasOfficialMobileRuntimeSignal = () => {
+        const container = __tmGetRuntimeBackendType();
+        try {
+            const frontend = __tmGetOfficialFrontend();
+            if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return false;
+        } catch (e) {}
         try {
             if (String(globalThis.__taskHorizonRuntimeClientKind || '').trim() === 'desktop-browser') return false;
         } catch (e) {}
@@ -19751,13 +19987,13 @@ if (!state.homepageOpen) return;
             if (globalThis.__taskHorizonPluginIsNativeMobile !== undefined) return !!globalThis.__taskHorizonPluginIsNativeMobile;
         } catch (e) {}
         try {
-            if (globalThis?.JSAndroid) return true;
+            if (container === 'android' && globalThis?.JSAndroid) return true;
         } catch (e) {}
         try {
-            if (globalThis?.JSHarmony) return true;
+            if (container === 'harmony' && globalThis?.JSHarmony) return true;
         } catch (e) {}
         try {
-            const hasIosBridge = !!globalThis?.webkit?.messageHandlers;
+            const hasIosBridge = container === 'ios' && !!globalThis?.webkit?.messageHandlers;
             if (!hasIosBridge) return false;
             const ua = String(navigator?.userAgent || '');
             const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
@@ -19774,7 +20010,12 @@ if (!state.homepageOpen) return;
             if (typeof getter === 'function') return String(getter() || '').trim().toLowerCase();
         } catch (e) {}
         try {
-            return String(globalThis.__taskHorizonFrontend || '').trim().toLowerCase();
+            const frontend = String(globalThis.__taskHorizonFrontend || '').trim().toLowerCase();
+            if (frontend) return frontend;
+        } catch (e) {
+        }
+        try {
+            return String(document?.documentElement?.dataset?.frontend || '').trim().toLowerCase();
         } catch (e) {
             return '';
         }
@@ -19798,6 +20039,9 @@ if (!state.homepageOpen) return;
         try {
             if (globalThis.__taskHorizonRuntimeClientKind) return String(globalThis.__taskHorizonRuntimeClientKind || '').trim() || 'desktop-browser';
         } catch (e) {}
+        const frontend = __tmGetOfficialFrontend();
+        // Native mobile shells can load the desktop bundle in desktop mode.
+        if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return 'desktop-browser';
         if (__tmHasOfficialMobileRuntimeSignal()) {
             try {
                 if (globalThis?.JSAndroid) return 'android-app';
@@ -19807,7 +20051,6 @@ if (!state.homepageOpen) return;
             } catch (e) {}
             return 'ios-app';
         }
-        const frontend = __tmGetOfficialFrontend();
         if (frontend === 'mobile') return 'mobile-app';
         if (frontend === 'browser-mobile') return 'mobile-browser';
         if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return 'desktop-browser';
@@ -19936,17 +20179,17 @@ if (!state.homepageOpen) return;
     };
 
     const __tmHasAndroidNativeBridge = () => {
-        try { return !!globalThis?.JSAndroid; } catch (e) {}
+        try { return __tmGetRuntimeBackendType() === 'android' && !!globalThis?.JSAndroid; } catch (e) {}
         return false;
     };
 
     const __tmHasHarmonyNativeBridge = () => {
-        try { return !!globalThis?.JSHarmony; } catch (e) {}
+        try { return __tmGetRuntimeBackendType() === 'harmony' && !!globalThis?.JSHarmony; } catch (e) {}
         return false;
     };
 
     const __tmHasIOSNativeBridge = () => {
-        try { return !!globalThis?.webkit?.messageHandlers; } catch (e) {}
+        try { return __tmGetRuntimeBackendType() === 'ios' && !!globalThis?.webkit?.messageHandlers; } catch (e) {}
         return false;
     };
 
@@ -26226,6 +26469,14 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
                 return true;
             }
             try {
+                if (typeof globalThis.__tmCalendar?.refreshTaskDateSources === 'function') {
+                    globalThis.__tmCalendar.refreshTaskDateSources({
+                        main: true,
+                        side: true,
+                        allowInactiveFullLoad: true,
+                    });
+                    return true;
+                }
                 if (globalThis.__tmCalendar?.requestRefresh || globalThis.__tmCalendar?.refreshInPlace) {
                     __tmRequestCalendarRefresh({
                         reason: 'rerender-current-calendar-view',

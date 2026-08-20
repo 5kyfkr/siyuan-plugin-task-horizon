@@ -2164,6 +2164,7 @@
         if (!name || !prompt) throw new DomainError(ERROR.INVALID_ARGUMENT, 'AI 定时任务名称和指令不能为空');
         const id = text(source.id || previous.id) || token('agent_schedule');
         const now = Date.now();
+        const outputMode = text(output.mode || previous.output && previous.output.mode);
         const event = {
             id,
             type: 'agent_prompt',
@@ -2181,7 +2182,11 @@
                 time: normalizeAgentScheduleTime(schedule.time || previous.schedule && previous.schedule.time),
             },
             output: {
-                mode: text(output.mode || previous.output && previous.output.mode) === 'document' ? 'document' : 'notification',
+                mode: outputMode === 'document'
+                    ? 'document'
+                    : outputMode === 'daily_note'
+                        ? 'daily_note'
+                        : 'notification',
                 documentId: text(output.documentId || previous.output && previous.output.documentId),
                 documentMode: text(output.documentMode || previous.output && previous.output.documentMode) === 'monthly_child' ? 'monthly_child' : 'target',
                 insertPosition: text(output.insertPosition || previous.output && previous.output.insertPosition) === 'top' ? 'top' : 'bottom',
@@ -2528,7 +2533,7 @@
             const result = await api('/api/block/updateBlock', { id, data, dataType });
             return { id: extractInsertedID(result) || id };
         }
-        if (action === 'insertBlock' || action === 'appendBlock') {
+        if (action === 'insertBlock' || action === 'appendBlock' || action === 'prependBlock') {
             const parentID = requireID(source.parentID || source.parentId, '父块 ID');
             const requestedID = text(source.requestedID || source.requestedId);
             if (requestedID) {
@@ -2542,7 +2547,12 @@
                 if (text(source.nextID || source.nextId)) payload.nextID = requireID(source.nextID || source.nextId, '后一块 ID');
                 if (text(source.previousID || source.previousId)) payload.previousID = requireID(source.previousID || source.previousId, '前一块 ID');
             }
-            const result = await api(action === 'insertBlock' ? '/api/block/insertBlock' : '/api/block/appendBlock', payload);
+            const endpoint = action === 'insertBlock'
+                ? '/api/block/insertBlock'
+                : action === 'prependBlock'
+                    ? '/api/block/prependBlock'
+                    : '/api/block/appendBlock';
+            const result = await api(endpoint, payload);
             const id = requestedID || extractInsertedID(result);
             if (!id) throw new DomainError(ERROR.STORAGE_ERROR, '写入块后未返回块 ID');
             return { id };
@@ -7377,7 +7387,7 @@
             condition: stringSchema('运行条件', ['always', 'today_has_completed_tasks']),
             schedule: agentScheduleRule,
             output: objectSchema({
-                mode: stringSchema('输出方式', ['notification', 'document']),
+                mode: stringSchema('输出方式：notification=通知展示，document=写入指定文档，daily_note=写入今天日记', ['notification', 'document', 'daily_note']),
                 documentId: stringSchema('写入文档 ID'),
                 documentMode: stringSchema('文档组织方式', ['target', 'monthly_child']),
                 insertPosition: stringSchema('插入位置', ['bottom', 'top']),

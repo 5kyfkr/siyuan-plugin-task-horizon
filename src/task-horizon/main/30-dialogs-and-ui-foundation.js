@@ -780,6 +780,17 @@
         try { if (calendarTodayHighlight) root.style.setProperty('--tm-calendar-today-highlight-color', calendarTodayHighlight); } catch (e) {}
         try { if (calendarGridBorder) root.style.setProperty('--tm-calendar-grid-border-color', calendarGridBorder); } catch (e) {}
         try { if (tableBorder) root.style.setProperty('--tm-table-border-color', tableBorder); } catch (e) {}
+        try {
+            globalThis.__tmThemeRuntimeRootStyleSnapshot = root.getAttribute('style') || '';
+            const computed = getComputedStyle(root);
+            const values = [];
+            for (let index = 0; index < computed.length; index += 1) {
+                const name = String(computed[index] || '').trim();
+                if (!name.startsWith('--')) continue;
+                values.push(`${name}:${String(computed.getPropertyValue(name) || '').trim()}`);
+            }
+            globalThis.__tmThemeRuntimeComputedStyleSignature = values.sort().join('|');
+        } catch (e) {}
         try { window.dispatchEvent(new CustomEvent('tm:appearance-theme-updated', { detail: { ts: Date.now(), source: followSiyuan ? 'siyuan' : themeConfig.source, presetId: themeConfig.presetId } })); } catch (e) {}
     }
 
@@ -3146,20 +3157,15 @@ if (detailTaskId) {
         const pane = modal?.querySelector?.('[data-tm-cal-role="task-page-list"] .tm-checklist-scroll');
         const top = Number(pane?.scrollTop || 0);
         const left = Number(pane?.scrollLeft || 0);
-try {
-            if (globalThis.__tmCalendar?.requestRefresh || globalThis.__tmCalendar?.refreshInPlace) {
-                __tmRequestCalendarRefresh({
-                    reason: 'calendar-sidebar-checklist-preserve-scroll',
-                    main: true,
-                    side: true,
-                    flushTaskPanel: true,
-                    hard: false,
-                }, { hard: false });
+        try {
+            // The calendar sidebar checklist is a task-panel concern. Refetching both
+            // calendars here made every checklist update clear and rebuild all-day events.
+            if (typeof globalThis.__tmCalendar?.refreshTaskPage === 'function') {
+                globalThis.__tmCalendar.refreshTaskPage();
+            } else if (String(state.viewMode || '').trim() === 'checklist') {
+                __tmRenderChecklistPreserveScroll();
             }
-            else render();
-        } catch (e) {
-            try { render(); } catch (e2) {}
-        }
+        } catch (e) {}
         const restore = () => {
             try {
                 const nextPane = state.modal?.querySelector?.('[data-tm-cal-role="task-page-list"] .tm-checklist-scroll');
@@ -7148,7 +7154,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             } else if (typeof startStopwatch === 'function') {
                 p = startStopwatch(timerTaskId, timerTaskName, timerFocusRestoreOptions);
             } else {
-                hint('⚠ 未检测到正计时功能，请确认番茄插件已启用', 'warning');
+                hint('⚠ 未检测到专注正计时功能，请确认番茄插件已启用', 'warning');
                 return;
             }
             if (p && typeof p.finally === 'function') {
@@ -7189,7 +7195,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         wrap.className = 'tm-task-detail-more-menu__timer-section';
         const title = document.createElement('div');
         title.className = 'tm-task-detail-more-menu__timer-title';
-        title.textContent = '计时';
+        title.textContent = '🍅 计时';
         wrap.appendChild(title);
         const row = document.createElement('div');
         row.className = 'tm-task-detail-more-menu__timer-row';
@@ -7202,6 +7208,86 @@ return Number(state.contextInteractionQuietUntil || 0);
             ...durations.map((min) => ({ label: `${min}m`, minutes: min, mode: 'countdown' })),
             { label: '正计时', minutes: 0, mode: 'stopwatch', icon: 'timer' },
         ];
+        const normalizeSliderMinutes = (value) => {
+            const raw = Number(value);
+            const safe = Number.isFinite(raw) && raw > 0 ? raw : 25;
+            return Math.max(5, Math.min(180, Math.round(safe / 5) * 5));
+        };
+        const configuredDefaultDuration = (() => {
+            try {
+                return Number(timer?.getDefaultDurationMinutes?.());
+            } catch (e) {
+                return NaN;
+            }
+        })();
+        const sliderRow = document.createElement('div');
+        sliderRow.className = 'tm-task-detail-more-menu__timer-slider-row';
+        const durationSlider = document.createElement('input');
+        durationSlider.type = 'range';
+        durationSlider.className = 'tm-task-detail-more-menu__timer-slider';
+        durationSlider.min = '5';
+        durationSlider.max = '180';
+        durationSlider.step = '5';
+        durationSlider.value = String(normalizeSliderMinutes(
+            Number.isFinite(configuredDefaultDuration) && configuredDefaultDuration > 0
+                ? configuredDefaultDuration
+                : 30
+        ));
+        durationSlider.setAttribute('aria-label', '设置正计时时长');
+        const durationValue = document.createElement('output');
+        durationValue.className = 'tm-task-detail-more-menu__timer-slider-value';
+        const updateDurationValue = () => {
+            durationValue.value = `${durationSlider.value}分`;
+            durationValue.textContent = `${durationSlider.value}分`;
+        };
+        durationSlider.addEventListener('input', updateDurationValue);
+        durationSlider.addEventListener('pointerenter', () => {
+            durationSlider.classList.add('is-hovered');
+        });
+        durationSlider.addEventListener('pointerleave', () => {
+            durationSlider.classList.remove('is-hovered');
+        });
+        durationSlider.addEventListener('focus', () => durationSlider.classList.add('is-hovered'));
+        durationSlider.addEventListener('blur', () => durationSlider.classList.remove('is-hovered'));
+        let durationSliderDragged = false;
+        let durationSliderPointerDownX = null;
+        let durationSliderResetTimer = null;
+        durationSlider.addEventListener('pointerdown', (ev) => {
+            ev.stopPropagation();
+            try { durationSlider.setPointerCapture?.(ev.pointerId); } catch (e) {}
+            if (durationSliderResetTimer) window.clearTimeout(durationSliderResetTimer);
+            durationSliderPointerDownX = ev.clientX;
+            durationSliderDragged = false;
+            durationSlider.classList.add('is-pressed');
+        });
+        durationSlider.addEventListener('pointermove', (ev) => {
+            if (durationSliderPointerDownX !== null && Math.abs(ev.clientX - durationSliderPointerDownX) > 4) {
+                durationSliderDragged = true;
+            }
+        });
+        durationSlider.addEventListener('pointercancel', (ev) => {
+            try { durationSlider.releasePointerCapture?.(ev.pointerId); } catch (e) {}
+            durationSliderPointerDownX = null;
+            durationSliderDragged = false;
+            durationSlider.classList.remove('is-pressed');
+        });
+        durationSlider.addEventListener('pointerup', (ev) => {
+            try { durationSlider.releasePointerCapture?.(ev.pointerId); } catch (e) {}
+            durationSliderPointerDownX = null;
+            durationSliderResetTimer = window.setTimeout(() => {
+                durationSliderDragged = false;
+                durationSlider.classList.remove('is-pressed');
+            }, 120);
+        });
+        updateDurationValue();
+        durationSlider.addEventListener('click', async (ev) => {
+            try { ev.preventDefault(); } catch (e) {}
+            try { ev.stopPropagation(); } catch (e) {}
+            if (durationSliderDragged) return;
+            __tmCloseTaskDetailMoreMenu();
+            await __tmStartTaskDetailQuickTimer(tid, normalizeSliderMinutes(durationSlider.value), 'countdown');
+        });
+        sliderRow.append(durationSlider, durationValue);
         buttons.forEach((item) => {
             const btn = document.createElement('button');
             btn.type = 'button';
@@ -7218,6 +7304,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             row.appendChild(btn);
         });
         wrap.appendChild(row);
+        wrap.appendChild(sliderRow);
         return wrap;
     }
 

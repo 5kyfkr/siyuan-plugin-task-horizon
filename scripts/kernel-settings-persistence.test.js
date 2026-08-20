@@ -97,6 +97,80 @@ async function run() {
         'calendar loading must retain the local shadow after an authoritative read failure');
     assert.doesNotMatch(calendarLoad, /const parsed = JSON\.parse\(raw\);\s*sourceReadError = false;\s*sourceLoaded = true;/,
         'a local calendar shadow must not be mislabeled as an authoritative shared-file read');
+    assert.match(calendarLoad, /sourceMissing = String\(result\?\.error\?\.code \|\| ''\)\.trim\(\) === 'STORAGE_MISSING'/,
+        'calendar loading must distinguish an uninitialized schedule file from other read failures');
+    assert.match(calendarLoad, /sourceLoaded = sourceMissing \|\| !sourceReadError;\s*if \(sourceMissing\) sourceReadError = false;/,
+        'an uninitialized schedule file with no local schedules must load as an empty list');
+    assert.match(calendarLoad, /sourceMissing && Array\.isArray\(parsed\) && parsed\.length === 0[\s\S]*sourceReadError = false;/,
+        'an empty local schedule shadow must confirm that an uninitialized source contains no schedules');
+    assert.match(calendarLoad, /!kernelLoad && isMissingFileReadError\(e\)[\s\S]*sourceMissing = true;/,
+        'the direct file fallback must recognize an uninitialized schedule source when the kernel bridge is unavailable');
+
+    const runCalendarLoad = async ({ kernelResult, kernelAvailable = true, localRaw = null, fileError = 'read failed' }) => {
+        const state = {
+            scheduleCache: { list: null, loadedAt: 0, inflight: null, sourceSignature: '', lastLoadError: false },
+        };
+        const loadScheduleAll = Function(
+            'state', 'cloneScheduleList', 'getKernelScheduleRpc', 'normalizeScheduleList',
+            'computeScheduleSourceSignature', 'setScheduleCache', 'localStorage', 'STORAGE', 'getFileTextRetry',
+            'isMissingFileReadError',
+            `"use strict"; ${calendarLoad}; return loadScheduleAll;`,
+        )(
+            state,
+            (items) => JSON.parse(JSON.stringify(Array.isArray(items) ? items : [])),
+            () => kernelAvailable ? async () => kernelResult : null,
+            (items) => ({ out: Array.isArray(items) ? items : [] }),
+            (raw) => String(raw || ''),
+            (items, sourceSignature) => {
+                state.scheduleCache.list = Array.isArray(items) ? items : [];
+                state.scheduleCache.loadedAt = Date.now();
+                state.scheduleCache.lastLoadError = false;
+                state.scheduleCache.sourceSignature = String(sourceSignature || '');
+            },
+            {
+                getItem: () => localRaw,
+                setItem: () => {},
+            },
+            { SCHEDULE_LS_KEY: 'tm-calendar-events', SCHEDULE_FILE: '/calendar-events.json' },
+            async () => { throw new Error(fileError); },
+            (error) => /(?:\b404\b|not\s+found|does\s+not\s+exist|cannot\s+find|enoent|找不到|不存在)/i.test(String(error?.message || error || '')),
+        );
+        const list = await loadScheduleAll();
+        return { list, lastLoadError: state.scheduleCache.lastLoadError };
+    };
+
+    const uninitializedSchedules = await runCalendarLoad({
+        kernelResult: { ok: false, error: { code: 'STORAGE_MISSING' } },
+    });
+    assert.deepEqual(uninitializedSchedules, { list: [], lastLoadError: false },
+        'a user with no schedule file or local schedules must still publish task date events');
+
+    const emptyLocalSchedules = await runCalendarLoad({
+        kernelResult: { ok: false, error: { code: 'STORAGE_MISSING' } },
+        localRaw: '[]',
+    });
+    assert.deepEqual(emptyLocalSchedules, { list: [], lastLoadError: false },
+        'an empty local schedule shadow must confirm an uninitialized empty schedule source');
+
+    const uninitializedSchedulesWithoutKernel = await runCalendarLoad({
+        kernelAvailable: false,
+        fileError: 'getFile error: 404 file does not exist',
+    });
+    assert.deepEqual(uninitializedSchedulesWithoutKernel, { list: [], lastLoadError: false },
+        'the direct file fallback must accept an explicitly missing schedule file as an empty list');
+
+    const staleLocalSchedules = await runCalendarLoad({
+        kernelResult: { ok: false, error: { code: 'STORAGE_MISSING' } },
+        localRaw: '[{"id":"schedule-from-shadow"}]',
+    });
+    assert.equal(staleLocalSchedules.lastLoadError, true,
+        'a non-empty local shadow must not allow publication after the shared schedule file disappears');
+
+    const corruptSchedules = await runCalendarLoad({
+        kernelResult: { ok: false, error: { code: 'STORAGE_CORRUPT' } },
+    });
+    assert.equal(corruptSchedules.lastLoadError, true,
+        'a corrupt authoritative schedule source must still stop publication');
 
     const harness = createHarness();
     await harness.start();

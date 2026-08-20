@@ -1178,6 +1178,44 @@
                     const attachments = __tmGetLocalTaskPatchWatermarkValue(taskId, 'attachments');
                     if (attachments?.has) applyTaskStoreAttachmentPatch(confirmed, attachments.value);
                 }
+                // Incremental ws-main reads can briefly return the previous
+                // SQL/index snapshot. Keep every field still owned by a local
+                // patch watermark on the confirmed base, not only completion
+                // and attachment fields; otherwise the next projection can
+                // put an old ordinary/custom field back into the table.
+                if (confirmed && protectedFields.size
+                    && typeof __tmGetLocalTaskPatchWatermarkValue === 'function') {
+                    const protectedPatch = {};
+                    const customFieldValues = {};
+                    const completionKeys = new Set([
+                        'done',
+                        'taskMarker',
+                        'task_marker',
+                        'markdown',
+                        'customStatus',
+                        'taskCompleteAt',
+                    ]);
+                    protectedFields.forEach((field) => {
+                        const key = String(field || '').trim();
+                        if (!key || completionKeys.has(key) || key === 'attachments' || key === 'customFieldValues') return;
+                        const value = __tmGetLocalTaskPatchWatermarkValue(taskId, key);
+                        if (!value?.has) return;
+                        if (key.startsWith('customField:')) {
+                            const fieldId = key.slice('customField:'.length).trim();
+                            if (fieldId) customFieldValues[fieldId] = value.value;
+                            return;
+                        }
+                        protectedPatch[key] = value.value;
+                    });
+                    if (protectedFields.has('customFieldValues')) {
+                        const value = __tmGetLocalTaskPatchWatermarkValue(taskId, 'customFieldValues');
+                        if (value?.has && value.value && typeof value.value === 'object' && !Array.isArray(value.value)) {
+                            Object.assign(customFieldValues, value.value);
+                        }
+                    }
+                    if (Object.keys(customFieldValues).length) protectedPatch.customFieldValues = customFieldValues;
+                    if (Object.keys(protectedPatch).length) applyOverlayPatch(confirmed, protectedPatch);
+                }
             } catch (e) {}
             if (confirmed) confirmedTaskBase.set(taskId, confirmed);
         });

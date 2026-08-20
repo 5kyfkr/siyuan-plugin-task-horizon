@@ -84,6 +84,7 @@ async function run() {
     const core = loadScheduledCore();
     const calendarSource = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
     const scheduledRuntimeSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/65-scheduled-events-runtime.js'), 'utf8');
+    const kernelSource = fs.readFileSync(path.join(root, 'kernel.js'), 'utf8');
     const settingsScreenSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/60-settings-screen.js'), 'utf8');
     const scheduledSettingsSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/66-scheduled-events-settings.js'), 'utf8');
     const exportRuntimeSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/64-export-runtime.js'), 'utf8');
@@ -98,6 +99,13 @@ async function run() {
     assert.match(scheduledRuntimeSource, /finally\s*\{\s*__tmScheduledArmTimer\(\);\s*\}/, 'the minute timer must re-arm after both successful and failed checks');
     assert.match(scheduledRuntimeSource, /delivery_commit_pending/, 'successful delivery must be checkpointed separately from its final Kernel commit');
     assert.match(scheduledRuntimeSource, /__tmScheduledFinishWithRetry/, 'completion commits must retry without re-delivering content');
+    assert.match(scheduledRuntimeSource, /__tmBackendAdapter\.prependBlock/, 'top document delivery must use the native prepend path');
+    assert.match(scheduledRuntimeSource, /daily_note/, 'scheduled output must support writing to today\'s diary');
+    assert.match(scheduledRuntimeSource, /__tmScheduledStripDuplicateLeadingHeading/, 'scheduled document delivery must remove a duplicated leading result heading');
+    assert.match(scheduledRuntimeSource, /__tmScheduledSanitizeOutput/, 'scheduled delivery must sanitize leaked unattended control text before persisting results');
+    assert.match(scheduledRuntimeSource, /__tmScheduledNeutralizeTaskMarkers/, 'document delivery must not persist report checkboxes as real tasks');
+    assert.match(kernelSource, /action === 'insertBlock' \|\| action === 'appendBlock' \|\| action === 'prependBlock'/, 'the Kernel block gateway must support native prepend writes');
+    assert.match(kernelSource, /\['notification', 'document', 'daily_note'\]/, 'the Kernel schedule schema must expose diary output');
     assert.match(scheduledRuntimeSource, /resolvedConversationId[\s\S]*result\?\.sessionID[\s\S]*resolvedConversationId !== event\.conversationId/, 'a replacement Agent session must update the scheduled-event binding');
     assert.match(scheduledRuntimeSource, /error\?\.sessionID[\s\S]*scheduled conversation binding update failed/, 'a replacement session must remain bound even when the Agent run later fails');
     assert.doesNotMatch(scheduledRuntimeSource, /Math\.random\(\).*420/, 'scheduled-event deduplication must not rely on randomized frontend timing');
@@ -116,6 +124,7 @@ async function run() {
     assert.match(scheduledSettingsSource, /系统通知未发送/, 'manual runs must surface system notification failures');
     assert.equal(calendarSource.includes('showCompletionNotification: showScheduleCompletionNotification'), true, 'calendar completion notifications must be reusable by scheduled events');
     assert.match(calendarSource, /async function showScheduleSystemNotification/, 'system notification delivery must be awaitable');
+    assert.equal(core.neutralizeTaskMarkers('- [x] 最后一项\n1. [ ] 下一项\n普通文本'), '- 最后一项\n1. 下一项\n普通文本');
 
     {
         const recovery = loadScheduledCore();
@@ -242,7 +251,7 @@ async function run() {
             async ensureAutomationConversation() { return 'session-1'; },
             async runAutomation() { return { title: 'Result', markdown: 'Done', sessionID: 'session-2' }; },
         };
-        completion.context.__tmCalendar = { async showCompletionNotification() { notifications += 1; return { ok: true }; } };
+        completion.context.__tmCalendar = { async showSystemNotification() { notifications += 1; return { ok: true }; } };
         completion.context.__tmCallTaskHorizonKernelRpc = async (name, input) => {
             if (name === 'taskHorizonReplaceAgentSchedules') {
                 stored = input.events.find((item) => item.id === stored.id) || stored;
@@ -307,10 +316,13 @@ async function run() {
         }));
         assert.equal(legacy.output.documentMode, 'target', 'legacy document outputs must keep writing to the selected document');
         assert.equal(legacy.output.insertPosition, 'bottom', 'legacy document outputs must keep appending at the bottom');
+        const diary = core.normalizeEvent(event({ output: { mode: 'daily_note' } }));
+        assert.equal(diary.output.mode, 'daily_note', 'diary output mode must survive frontend normalization');
+        assert.equal(core.validate(diary), '', 'diary output must not require a target document ID');
 
         const notifications = [];
         core.context.__tmCalendar = {
-            showCompletionNotification: async (...args) => {
+            showSystemNotification: async (...args) => {
                 notifications.push(args);
                 await new Promise((resolve) => setTimeout(resolve, 5));
                 return { ok: true, id: 42 };
@@ -328,7 +340,7 @@ async function run() {
         assert.equal(notifications[0][2].channel, 'task-horizon-scheduled-events');
         assert.equal(delivered.notificationDelivered, true, 'delivery must wait for a successful system notification');
         assert.equal(delivered.notificationError, '');
-        assert.equal(core.hints.length, 1, 'in-app notification fallback must remain available');
+        assert.equal(core.hints.length, 0, 'successful system notification must not add a duplicate in-app popup');
 
         const documentWrites = [];
         core.context.__tmBackendAdapter = {
@@ -340,30 +352,40 @@ async function run() {
                 documentWrites.push(['insert', ...args]);
                 return '20260716090001-block02';
             },
+            prependBlock: async (...args) => {
+                documentWrites.push(['prepend', ...args]);
+                return '20260716090001-block02';
+            },
         };
-        core.context.API = { getFirstDirectChildIdOfDoc: async () => '' };
+        core.context.API = {};
         const documentDelivery = await core.deliver(event({
             output: { mode: 'document', documentId: '20260716080000-doc0001' },
-        }), { title: '日报', markdown: '今日任务总结。' }, new Date(2026, 6, 16, 9, 0));
+        }), { title: '日报', markdown: '今日任务总结。\n\n- [x] 最后一项' }, new Date(2026, 6, 16, 9, 0));
         assert.equal(documentDelivery.blockId, '20260716090000-block01');
         assert.equal(documentWrites[0][0], 'append');
         assert.equal(documentWrites[0][1], '20260716080000-doc0001');
+        assert.match(documentWrites[0][2], /- 最后一项/);
+        assert.doesNotMatch(documentWrites[0][2], /- \[x\] 最后一项/);
         assert.equal(notifications.length, 2, 'document delivery must also trigger a system notification');
+
+        const duplicateHeadingDelivery = await core.deliver(event({
+            output: { mode: 'document', documentId: '20260716080000-doc0001' },
+        }), { title: '日报', markdown: '## 2026-07-16 日报\n\n正文只应出现一次标题。' }, new Date(2026, 6, 16, 9, 30));
+        assert.equal(duplicateHeadingDelivery.blockId, '20260716090000-block01');
+        assert.deepEqual(documentWrites[1].slice(0, 3), ['append', '20260716080000-doc0001', '## 2026-07-16 日报\n\n正文只应出现一次标题。']);
 
         core.context.API.getFirstDirectChildIdOfDoc = async () => '20260716070000-first01';
         const topDelivery = await core.deliver(event({
             output: { mode: 'document', documentId: '20260716080000-doc0001', insertPosition: 'top' },
         }), { title: '日报', markdown: '最新总结。' }, new Date(2026, 6, 16, 10, 0));
         assert.equal(topDelivery.blockId, '20260716090001-block02');
-        assert.deepEqual(documentWrites[1].slice(0, 3), ['insert', '20260716080000-doc0001', '## 2026-07-16 日报\n\n最新总结。']);
-        assert.equal(documentWrites[1][3].nextID, '20260716070000-first01');
+        assert.deepEqual(documentWrites[2].slice(0, 3), ['prepend', '20260716080000-doc0001', '## 2026-07-16 日报\n\n最新总结。']);
 
         const monthlyCalls = [];
         core.context.__tmCallTaskHorizonKernelRpc = async (name, input) => {
             monthlyCalls.push([name, input]);
             return { available: true, data: { documentID: '20260101000000-month01' } };
         };
-        core.context.API.getFirstDirectChildIdOfDoc = async () => '';
         const monthlyDelivery = await core.deliver(event({
             output: {
                 mode: 'document',
@@ -372,16 +394,40 @@ async function run() {
                 insertPosition: 'top',
             },
         }), { title: '月末日报 · 2026-01-31', markdown: '按计划日期归档。' }, new Date(2026, 0, 31, 23, 59));
-        assert.equal(monthlyDelivery.blockId, '20260716090000-block01', 'an empty monthly document may append for top placement');
+        assert.equal(monthlyDelivery.blockId, '20260716090001-block02', 'top placement must prepend even when the monthly document is empty');
         assert.equal(monthlyCalls[0][0], 'taskHorizonResolveAgentScheduleOutputDocument');
         assert.deepEqual(JSON.parse(JSON.stringify(monthlyCalls[0][1])), {
             parentDocumentID: '20260716080000-doc0001',
             month: '2026-01',
         }, 'catch-up delivery must resolve the month from the scheduled occurrence');
+        assert.equal(documentWrites.at(-1)[0], 'prepend');
         assert.equal(documentWrites.at(-1)[1], '20260101000000-month01');
         assert.equal(documentWrites.at(-1)[2], '## 月末日报 · 2026-01-31\n\n按计划日期归档。', 'the occurrence date must not be duplicated when the Agent title already contains it');
 
-        core.context.__tmCalendar.showCompletionNotification = async () => ({ ok: false, error: '通知权限未开启' });
+        core.context.SettingsStore = { data: { newTaskDailyNoteNotebookId: 'box-diary', newTaskDailyNoteAppendToBottom: false } };
+        core.context.state = { activeDocId: '20260716080000-doc0001', notebooks: [{ id: 'box-diary' }] };
+        const dailyNotes = [];
+        core.context.API = {
+            async createDailyNote(notebook) {
+                dailyNotes.push(notebook);
+                return '20260716090000-diary01';
+            },
+        };
+        const diaryTopDelivery = await core.deliver(event({
+            output: { mode: 'daily_note' },
+        }), { title: '日记总结', markdown: '今天的 AI 总结。' }, new Date(2026, 6, 16, 11, 0));
+        assert.equal(diaryTopDelivery.blockId, '20260716090001-block02');
+        assert.deepEqual(dailyNotes, ['box-diary'], 'diary output must use the configured default notebook');
+        assert.deepEqual(documentWrites.at(-1).slice(0, 3), ['prepend', '20260716090000-diary01', '## 2026-07-16 日记总结\n\n今天的 AI 总结。']);
+
+        core.context.SettingsStore.data.newTaskDailyNoteAppendToBottom = true;
+        const diaryBottomDelivery = await core.deliver(event({
+            output: { mode: 'daily_note' },
+        }), { title: '日记总结 2', markdown: '追加到日记底部。' }, new Date(2026, 6, 16, 12, 0));
+        assert.equal(diaryBottomDelivery.blockId, '20260716090000-block01');
+        assert.deepEqual(documentWrites.at(-1).slice(0, 3), ['append', '20260716090000-diary01', '## 2026-07-16 日记总结 2\n\n追加到日记底部。']);
+
+        core.context.__tmCalendar.showSystemNotification = async () => ({ ok: false, error: '通知权限未开启' });
         const failedNotification = await core.deliver(event(), { title: '日报', markdown: '今日任务总结。' }, new Date(2026, 6, 16, 9, 0));
         assert.equal(failedNotification.notificationDelivered, false, 'notification failure must be reported without failing the Agent result');
         assert.equal(failedNotification.notificationError, '通知权限未开启');
@@ -501,15 +547,29 @@ async function run() {
     }
 
     {
+        const completed = core.filterCompletedTasks([
+            { id: 'source-task', done: false, taskCompleteAt: '' },
+            { id: 'repeatinst:source-task:20260821000100', sourceTaskId: 'source-task', isRecurringInstance: true, done: true, taskCompleteAt: '20260821000100' },
+            { id: 'repeatinst:source-task:20260821000200', sourceTaskId: 'source-task', isRecurringInstance: true, done: true, taskCompleteAt: '20260821000200' },
+            { id: 'ordinary-task', done: true, taskCompleteAt: '20260821000300' },
+        ], new Date(2026, 7, 21, 19, 0));
+        assert.deepEqual(completed.map((item) => item.id), ['repeatinst:source-task:20260821000100', 'ordinary-task'], 'scheduled completion input must collapse recurring history instances to one logical task');
+    }
+
+    {
         const calls = [];
         core.context.SettingsStore = { data: { selectedDocIds: ['20260715000000-legacy'] } };
         core.context.__tmSummaryBuildGroupScope = async () => ({ allDocIds: ['20260715000001-group'] });
         core.context.__tmSummaryLoadTasksByDocs = async (docIds, options) => {
             calls.push({ docIds: Array.from(docIds), options: { ...options } });
-            return [{ id: 'today', done: true, content: '今日完成', taskCompleteAt: '20260715120000' }];
+            return [
+                { id: 'repeatinst:today:20260715000100', sourceTaskId: 'today', isRecurringInstance: true, done: true, content: '今日完成', taskCompleteAt: '20260715000100' },
+                { id: 'repeatinst:today:20260715000200', sourceTaskId: 'today', isRecurringInstance: true, done: true, content: '今日完成', taskCompleteAt: '20260715000200' },
+                { id: 'ordinary', done: true, content: '普通完成', taskCompleteAt: '20260715120000' },
+            ];
         };
         const loaded = await core.loadTodayCompletedTasks(new Date(2026, 6, 15, 19, 0));
-        assert.deepEqual(Array.from(loaded, (item) => item.id), ['today']);
+        assert.deepEqual(Array.from(loaded, (item) => item.id), ['today', 'ordinary']);
         assert.deepEqual(calls[0].docIds, ['20260715000000-legacy', '20260715000001-group'], 'scheduled summaries must resolve modern document-group scope as well as legacy selected documents');
         assert.deepEqual(calls[0].options, { ignoreExcludeCompleted: true, forceFresh: true, throwOnError: true }, 'scheduled completion checks must bypass stale task caches and surface load failures');
         core.context.__tmSummaryLoadTasksByDocs = async () => { throw new Error('query failed'); };

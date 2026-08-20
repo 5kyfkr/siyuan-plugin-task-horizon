@@ -332,31 +332,19 @@
             });
             return false;
         }
-        const calApi = globalThis.__tmCalendar;
-        let refreshApi = 'none';
-        let requested = false;
-        try {
-            if (calApi && typeof calApi.requestRefresh === 'function') {
-                refreshApi = 'requestRefresh';
-                requested = calApi.requestRefresh({
-                    reason,
-                    main: true,
-                    side: true,
-                    flushTaskPanel: false,
-                    hard: opts.hard === true,
-                }) !== false;
-            }
-        } catch (e) {
-            requested = false;
-        }
+        // Warming the task cache is a data-read concern. It must not refresh the
+        // mounted calendar: tomato/history and background cache events do not
+        // change task-date projections and a source refresh would reproject the
+        // whole all-day lane. Explicit task mutations use the local event patch
+        // path instead.
         __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh', {
             reason,
             taskCount,
-            refreshApi,
-            requested,
+            refreshApi: 'cache-only',
+            requested: false,
             flushTaskPanel: false,
         });
-        return requested;
+        return false;
     }
 
     async function __tmLoadAllTasksForCalendarCache(options = {}) {
@@ -1418,6 +1406,7 @@
                 attrTargetId,
                 mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
+                deferProjection: opts.deferProjection === true,
                 recordUndo: recordBackgroundUndo ? false : opts.recordUndo !== false,
                 renderOptimistic: true,
                 showErrorHint: opts.showErrorHint !== false,
@@ -1471,7 +1460,10 @@
         if (opts.background === true && !persistWait) {
             finishAfterPersist().then(() => {
                 return null;
-            }).catch(() => null);
+            }).catch((error) => {
+                try { opts.onError?.(error); } catch (e) {}
+                return null;
+            });
             return resultPatch;
         }
         await finishAfterPersist();

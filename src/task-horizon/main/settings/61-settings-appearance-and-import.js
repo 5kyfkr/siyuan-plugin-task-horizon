@@ -635,6 +635,13 @@
         render();
     };
 
+    window.tmUpdateTimelineDependencyScope = async function(value) {
+        SettingsStore.data.timelineDependencyScope = __tmNormalizeTimelineDependencyScope(value);
+        await SettingsStore.save();
+        try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+        render();
+    };
+
     window.updateGroupSortByBestSubtaskTimeInTimeQuadrant = async function(enabled) {
         SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant = !!enabled;
         await SettingsStore.save();

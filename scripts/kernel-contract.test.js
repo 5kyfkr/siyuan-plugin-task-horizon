@@ -1867,6 +1867,7 @@ async function run() {
     assert.equal(createdAgentSchedule.data.schedule.time, '19:00');
     assert.equal(createdAgentSchedule.data.output.documentMode, 'monthly_child');
     assert.equal(createdAgentSchedule.data.output.insertPosition, 'top');
+    assert.match(JSON.stringify(agentScheduleTool.schema), /daily_note/, 'manage_agent_schedules must expose diary output mode');
     const existingMonthlyOutput = await harness.call('taskHorizonResolveAgentScheduleOutputDocument', {
         parentDocumentID: IDS.personalParentDoc,
         month: '2026-07',

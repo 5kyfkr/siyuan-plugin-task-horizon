@@ -595,6 +595,9 @@
                 const manualNodeLinks = isGlobalCanvasDoc && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
                     ? __tmGetWhiteboardGlobalTaskLinks()
                     : __tmGetAllTaskLinks({ docId, includeAuto: false });
+                const dependencyAffectedTaskIds = typeof __tmBuildWhiteboardDependencyAffectedTaskIdSet === 'function'
+                    ? __tmBuildWhiteboardDependencyAffectedTaskIdSet(docTasks, manualNodeLinks, todayKey)
+                    : new Set();
                 const linkedTaskIdSet = new Set();
                 const linkedTaskAnchorMap = new Map();
                 manualNodeLinks.forEach((link) => {
@@ -901,10 +904,14 @@
                     const remarkHtml = whiteboardCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '';
                     const multiSelectCls = __tmIsTaskMultiSelected(tid) ? ' tm-task-row--multi-selected' : '';
                     const isTaskOverdue = __tmIsTaskCardDateOverdue(task, todayKey);
+                    const hasTaskDate = typeof __tmHasTaskCardDate === 'function'
+                        ? __tmHasTaskCardDate(task)
+                        : !!String(task?.startDate || task?.start_date || task?.completionTime || task?.completion_time || '').trim();
+                    const isDependencyAffected = dependencyAffectedTaskIds.has(tid);
                     const tomatoFocusCls = tomatoFocusTaskId
                         ? (tomatoFocusTaskId === tid ? ' tm-timer-focus' : (tomatoFocusModeEnabled ? ' tm-timer-dim' : ''))
                         : '';
-                    const kanbanCardCls = `tm-kanban-card${depth > 0 ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${(depth === 0 && detachedOrDetachedLike) ? ' tm-kanban-card--childroot' : ''}${totalChildren ? ' tm-kanban-card--parent' : ''}${task?.done ? ' tm-kanban-card--done' : ''}${isTaskOverdue ? ' tm-kanban-card--overdue' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${multiSelectCls}${tomatoFocusCls}`;
+                    const kanbanCardCls = `tm-kanban-card${depth > 0 ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${(depth === 0 && detachedOrDetachedLike) ? ' tm-kanban-card--childroot' : ''}${totalChildren ? ' tm-kanban-card--parent' : ''}${task?.done ? ' tm-kanban-card--done' : ''}${isTaskOverdue ? ' tm-kanban-card--overdue' : ''}${isDependencyAffected ? ' tm-kanban-card--dependency-affected' : ''}${hasTaskDate ? ' tm-kanban-card--has-date' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${multiSelectCls}${tomatoFocusCls}`;
                     const frozenCls = isFrozen ? ' tm-whiteboard-card--frozen' : '';
                     const cls = depth === 0
                         ? `tm-whiteboard-card tm-whiteboard-node tm-whiteboard-node--root ${kanbanCardCls}${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}${isGhost ? ' tm-whiteboard-card--ghost' : ''}${frozenCls}`

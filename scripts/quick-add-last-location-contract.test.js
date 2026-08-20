@@ -142,6 +142,20 @@ async function runUpdateNewTaskDocId(data, value, mounted = true) {
 
     const rememberSource = extractFunction(runtime, 'function __tmRememberQuickAddLocation');
     assert.equal((rememberSource.match(/SettingsStore\.save/g) || []).length, 1, 'one selection should trigger one settings save');
+    const resolveDocNameSource = extractFunction(runtime, 'function __tmResolveQuickAddDocName');
+    const resolveDocName = (state, recentDocs, docId) => vm.runInNewContext(
+        `${resolveDocNameSource}; __tmResolveQuickAddDocName(docId);`,
+        { state, docId, __tmGetQuickAddRecentDocs: () => recentDocs }
+    );
+    assert.equal(resolveDocName({ allDocuments: [], taskTree: [] }, [{ id: 'doc-last', name: '任务管理器' }], 'doc-last'), '任务管理器');
+    assert.equal(resolveDocName({ allDocuments: [{ id: 'doc-last', name: '已加载名称' }], taskTree: [] }, [{ id: 'doc-last', name: '旧名称' }], 'doc-last'), '已加载名称');
+    assert.equal(resolveDocName({ allDocuments: [], taskTree: [] }, [], 'doc-missing'), '未知文档');
+    assert.match(runtime, /window\.tmQuickAddRenderMeta[\s\S]*__tmResolveQuickAddDocName\(qa\.docId\)/);
+    assert.doesNotMatch(runtime, /__tmQuickAddDebug\('runtime-open:/, 'quick-add runtime must not emit temporary open timing logs');
+    assert.match(runtime, /tm-prompt-title[^>]*style="margin:0;">选择文档<\/div>[\s\S]*id="tmQuickAddDocPickerCloseBtn"[\s\S]*>快捷<\/div>/, 'the document picker close button must be in the title row');
+    assert.equal((runtime.match(/id="tmQuickAddDocPickerCloseBtn"/g) || []).length, 1, 'the document picker must reuse one close button');
+    assert.match(runtime, /if \(target\.id === 'tmQuickAddCloseBtn'\)/, 'the main close handler must target only the main quick-add button');
+    assert.doesNotMatch(runtime, /target\.matches\('\.tm-btn-gray'\)/, 'the document picker close button must not close the main quick-add form');
     assert.match(runtime, /window\.tmQuickAddSelectDoc[\s\S]*__tmRememberQuickAddLocation\('doc', id\)/);
     assert.match(runtime, /window\.tmQuickAddUseTodayDiary[\s\S]*__tmRememberQuickAddLocation\('dailyNote'\)/);
     assert.match(store, /tm_new_task_default_location_mode/);

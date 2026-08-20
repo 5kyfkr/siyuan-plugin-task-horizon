@@ -7812,6 +7812,9 @@
             } catch (e) {}
         }
         const isTimelineDrop = String(state.viewMode || '').trim() === 'timeline';
+        const timelineDependencyScope = typeof __tmGetEffectiveTimelineDependencyScope === 'function'
+            ? __tmGetEffectiveTimelineDependencyScope()
+            : 'local';
         if (isTimelineDrop) {
             __tmResetLinkDragState();
             __tmScheduleWhiteboardEdgeRedraw();
@@ -7829,6 +7832,33 @@
             if (!isTimelineDrop) render();
         };
         const commitDrop = async () => {
+            if (isTimelineDrop && timelineDependencyScope === 'global'
+                && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
+                && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
+                const groupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+                const manual = __tmGetWhiteboardGlobalTaskLinks(groupId);
+                const exists = manual.some((x) => String(x?.from || '') === fromId && String(x?.to || '') === toId);
+                if (exists) {
+                    hint('ℹ 该连线已存在', 'info');
+                    resetAfterDrop();
+                    return;
+                }
+                __tmPushWhiteboardHistorySnapshot('add-link');
+                manual.push({
+                    id: `global_link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    from: fromId,
+                    to: toId,
+                    fromAnchor,
+                    toAnchor,
+                    fromDocId,
+                    toDocId,
+                    createdAt: String(Date.now()),
+                });
+                __tmSetWhiteboardGlobalTaskLinks(manual, groupId, { keepEmpty: true });
+                try { await SettingsStore.save(); } catch (e) {}
+                renderAfterDrop();
+                return;
+            }
             if (globalBody && typeof __tmGetWhiteboardGlobalTaskLinks === 'function' && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
                 let fromDocIdForGlobal = fromDocId;
                 let toDocIdForGlobal = toDocId;
@@ -7971,8 +8001,17 @@
         const id = String(linkId || '').trim();
         if (!id) return;
         return await __tmEnqueueTimelineMutation(async () => {
-            const manual = __tmGetManualTaskLinks().filter((x) => String(x?.id || '').trim() !== id);
-            __tmSetManualTaskLinks(manual);
+            const scope = typeof __tmGetEffectiveTimelineDependencyScope === 'function'
+                ? __tmGetEffectiveTimelineDependencyScope()
+                : 'local';
+            if (scope === 'global' && typeof __tmGetWhiteboardGlobalTaskLinks === 'function' && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
+                const groupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+                const globalLinks = __tmGetWhiteboardGlobalTaskLinks(groupId).filter((x) => String(x?.id || '').trim() !== id);
+                __tmSetWhiteboardGlobalTaskLinks(globalLinks, groupId, { keepEmpty: true });
+            } else {
+                const manual = __tmGetManualTaskLinks().filter((x) => String(x?.id || '').trim() !== id);
+                __tmSetManualTaskLinks(manual);
+            }
             if (String(state.timelineSelectedLinkId || '').trim() === id) state.timelineSelectedLinkId = '';
             try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
             try { await SettingsStore.save(); } catch (e) {}

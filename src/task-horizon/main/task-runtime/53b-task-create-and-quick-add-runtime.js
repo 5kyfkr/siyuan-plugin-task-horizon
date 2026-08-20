@@ -38,6 +38,20 @@
         return out.slice(0, __TM_QUICK_ADD_RECENT_DOCS_LIMIT);
     }
 
+    function __tmResolveQuickAddDocName(docId) {
+        const id = String(docId || '').trim();
+        if (!id) return '未知文档';
+        const loaded = (Array.isArray(state.allDocuments) ? state.allDocuments : [])
+            .find((doc) => String(doc?.id || '').trim() === id)
+            || (Array.isArray(state.taskTree) ? state.taskTree : [])
+                .find((doc) => String(doc?.id || '').trim() === id);
+        const loadedName = String(loaded?.name || '').trim();
+        if (loadedName) return loadedName;
+        const recent = __tmGetQuickAddRecentDocs()
+            .find((doc) => String(doc?.id || '').trim() === id);
+        return String(recent?.name || '').trim() || '未知文档';
+    }
+
     function __tmGetQuickAddLastLocation() {
         return __tmNormalizeQuickAddLastLocation(SettingsStore?.data?.quickAddLastLocation);
     }
@@ -1014,6 +1028,15 @@
         );
         if (!visibleKeys.size) return [];
         return defs.filter((field) => visibleKeys.has(__tmBuildCustomFieldColumnKey(field?.id)));
+    }
+
+    async function __tmRefreshQuickAddCustomFieldScope(docId = '') {
+        try {
+            if (typeof __tmRefreshCustomFieldScopeMembership === 'function') {
+                await __tmRefreshCustomFieldScopeMembership();
+            }
+        } catch (e) {}
+        return __tmGetQuickAddVisibleOptionCustomFieldDefs(docId);
     }
 
     function __tmNormalizeQuickAddCustomFieldValues(input) {
@@ -3604,6 +3627,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     };
 
     window.tmQuickAddOpen = async function() {
+        await __tmEnsureSettingsLoaded();
+        try { __tmApplyAppearanceThemeVars(); } catch (e) {}
         if (state.quickAddModal) {
             state.__quickAddUnstack?.();
             state.__quickAddUnstack = null;
@@ -3624,6 +3649,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             showSettings();
             return;
         }
+        const visibleQuickAddFields = await __tmRefreshQuickAddCustomFieldScope(docId);
 
         const initialMode = initialLocation?.mode === 'dailyNote' ? 'dailyNote' : 'doc';
         const initialDocId = docId;
@@ -3749,6 +3775,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (!state.quickAdd) return;
         state.quickAdd.docMode = 'doc';
         state.quickAdd.docId = id;
+        await __tmRefreshQuickAddCustomFieldScope(id);
         try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
         try {
             const input = document.getElementById('tmQuickAddInput');
@@ -3776,6 +3803,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (date) {
             qa.completionTime = date;
         }
+        if (did) await __tmRefreshQuickAddCustomFieldScope(did);
         try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
         try {
             const input = document.getElementById('tmQuickAddInput');
@@ -3789,7 +3817,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         __tmQuickAddGlobalClickHandler = (e) => {
             const target = e.target;
             // 检查是否点击了文档选择器的关闭按钮（只关闭选择器，不关闭整个弹窗）
-            if (target.id === 'tmQuickAddDocPickerCloseBtn' || (target.matches('.tm-btn-gray') && target.textContent.trim() === '关闭' && target.closest('#tmQuickAddDocList'))) {
+            if (target.id === 'tmQuickAddDocPickerCloseBtn') {
                 if (state.quickAddDocPicker) {
                     tmQuickAddCloseDocPicker();
                 }
@@ -3797,7 +3825,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 return;
             }
             // 检查是否点击了主弹窗的关闭按钮（关闭整个弹窗）
-            if (target.id === 'tmQuickAddCloseBtn' || (target.matches('.tm-btn-gray') && target.textContent.trim() === '关闭' && !target.closest('#tmQuickAddDocList'))) {
+            if (target.id === 'tmQuickAddCloseBtn') {
                 if (state.quickAddModal) {
                     tmQuickAddClose();
                 }
@@ -3813,7 +3841,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             // 更新文档按钮文字
             const docName = qa.docMode === 'dailyNote'
                 ? '今天日记'
-                : (state.allDocuments.find(d => d.id === qa.docId)?.name || '未知文档');
+                : __tmResolveQuickAddDocName(qa.docId);
             const docBtn = document.getElementById('tmQuickAddDocName');
             if (docBtn) docBtn.textContent = docName;
 
@@ -4093,13 +4121,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const groups = SettingsStore.data.docGroups || [];
         // 移除未分组逻辑
 
-        const resolveDocName = (docId) => {
-            if (!docId) return '未知文档';
-            const found = state.allDocuments.find(d => d.id === docId);
-            if (found) return found.name || '未命名文档';
-            const entry = state.taskTree.find(d => d.id === docId);
-            return entry?.name || '未命名文档';
-        };
+        const resolveDocName = (docId) => __tmResolveQuickAddDocName(docId);
         const defaultUsesLastSelection = __tmNormalizeNewTaskDefaultLocationMode(SettingsStore.data.newTaskDefaultLocationMode) === 'lastSelected';
         const defaultLocation = await __tmResolveQuickAddInitialLocation();
         const defaultDocIsDailyNote = defaultLocation?.mode === 'dailyNote';
@@ -4140,7 +4162,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         picker.style.zIndex = '100011';
         picker.innerHTML = `
             <div class="tm-prompt-box" style="width:min(92vw,520px);max-height:70vh;overflow:auto;">
-                <div class="tm-prompt-title" style="margin:0 0 10px 0;">选择文档</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+                    <div class="tm-prompt-title" style="margin:0;">选择文档</div>
+                    <button class="tm-btn tm-btn-gray" id="tmQuickAddDocPickerCloseBtn" onclick="tmQuickAddCloseDocPicker()" style="padding: 6px 12px; font-size: 13px;">关闭</button>
+                </div>
                 <div style="border:1px solid var(--tm-border-color);border-radius:8px;margin-bottom:8px;overflow:hidden;">
                     <div style="padding:8px 10px;background:var(--tm-header-bg);font-weight:600;">快捷</div>
                     <div style="padding:6px 10px;">
@@ -4156,9 +4181,6 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 </div>
                 ${recentSectionHtml}
                 <div id="tmQuickAddDocList"></div>
-                <div style="display:flex;gap:8px;margin-top:10px;">
-                    <button class="tm-btn tm-btn-gray" id="tmQuickAddDocPickerCloseBtn" onclick="tmQuickAddCloseDocPicker()" style="padding: 6px 10px; font-size: 12px;">关闭</button>
-                </div>
             </div>
         `;
         document.body.appendChild(picker);
@@ -4347,8 +4369,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         qa.docMode = 'doc';
         __tmRememberQuickAddLocation('doc', id);
         // 移除对 updateNewTaskDocId 的调用，避免修改全局新建文档设置
-        window.tmQuickAddRenderMeta?.();
         window.tmQuickAddCloseDocPicker?.();
+        await __tmRefreshQuickAddCustomFieldScope(id);
+        window.tmQuickAddRenderMeta?.();
     };
 
     window.tmQuickAddUseTodayDiary = function() {
@@ -4367,6 +4390,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (location?.mode === 'dailyNote') {
             qa.docMode = 'dailyNote';
             __tmRememberQuickAddLocation('dailyNote');
+            await __tmRefreshQuickAddCustomFieldScope(qa.docId);
             window.tmQuickAddRenderMeta?.();
             return;
         }
@@ -4378,6 +4402,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         qa.docId = id;
         qa.docMode = 'doc';
         __tmRememberQuickAddLocation('doc', id);
+        await __tmRefreshQuickAddCustomFieldScope(id);
         window.tmQuickAddRenderMeta?.();
     };
 
@@ -4624,7 +4649,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         }
         window.tmQuickAddClose?.();
         state.quickAddSubmitting = false;
-        (async () => {
+        return (async () => {
             try {
                 let targetDocId = payload.docId;
                 if (payload.docMode === 'dailyNote') {
@@ -4642,7 +4667,13 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 let reminderTaskId = '';
                 const createTaskInDoc = globalThis.__tmRequireTaskMutation?.('createTaskInDoc');
                 if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
-                const insertOptions = await __tmResolveDefaultNewTaskInsertOptions(targetDocId, payload.docMode, { contentCount: payload.contents.length });
+                const insertOptionsTimeoutMs = 1800;
+                const insertOptions = await Promise.race([
+                    Promise.resolve()
+                        .then(() => __tmResolveDefaultNewTaskInsertOptions(targetDocId, payload.docMode, { contentCount: payload.contents.length }))
+                        .catch(() => null),
+                    new Promise((resolve) => setTimeout(() => resolve(null), insertOptionsTimeoutMs)),
+                ]);
                 const normalizedInsertOptions = (insertOptions && typeof insertOptions === 'object') ? insertOptions : {};
                 const { headingPatch, ...createInsertOptions } = normalizedInsertOptions;
                 const insertAfterId = String(createInsertOptions.insertAfterId || '').trim();
@@ -4738,8 +4769,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 } else if (hasReminderDraft) {
                     hint('⚠ 任务已创建，但等待真实任务 ID 超时，提醒未写入', 'warning');
                 }
+                return true;
             } catch (e) {
                 hint(`❌ 创建失败: ${e.message}`, 'error');
+                return false;
             }
         })();
     };
