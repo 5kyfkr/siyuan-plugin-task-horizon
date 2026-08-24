@@ -214,7 +214,14 @@
         } catch (e) {}
 
         if (prevModalSnapshot) {
+            // Calendar renders can be triggered by unrelated host/focus work.
+            // Keep the mounted side-day FullCalendar node across those renders;
+            // rebuilding it causes all three event sources to load again.
+            const preserveCalendarSideDock = !!prevModalSnapshot.querySelector?.('.tm-calendar-side-dock');
+            const previousPreserveCalendarSideDock = state.__tmPreserveCalendarSideDockDuringRender === true;
+            if (preserveCalendarSideDock) state.__tmPreserveCalendarSideDockDuringRender = true;
             try { preservedCalendarSideDockTransfer = __tmPrepareCalendarSideDockFullRenderTransfer(prevModalSnapshot); } catch (e) {}
+            if (preserveCalendarSideDock) state.__tmPreserveCalendarSideDockDuringRender = previousPreserveCalendarSideDock;
             try { __tmDisposeDocTabsRuntime(prevModalSnapshot, { clearHoverTimer: true }); } catch (e) {}
             try {
                 if (prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot')) {
@@ -387,7 +394,6 @@
             return 0;
         })();
         const isCalendarSidebarNarrowHost = calendarSidebarHostWidth > 0 && calendarSidebarHostWidth <= 768;
-
         state.modal = document.createElement('div');
         state.modal.className = 'tm-modal'
             + (__tmMountEl ? ' tm-modal--tab' : '')
@@ -600,14 +606,25 @@
         };
         const whiteboardLayoutMenuOptions = buildWhiteboardLayoutMenuOptions(whiteboardAllTabsLayoutMode, false);
         const whiteboardMobileLayoutMenuOptions = buildWhiteboardLayoutMenuOptions(whiteboardMobileMenuLayoutMode, true);
-        const showCalendarSidebarMobileTopbarToggle = !!(renderMode === 'calendar' && (isMobile || isRuntimeMobile || hostUsesMobileUI));
+        // A desktop Dock can use the compact/mobile-shaped layout when narrow,
+        // but it is still a desktop host and should keep desktop-only controls.
+        const isDesktopCalendarHost = !isRuntimeMobile && (!isMobile || isDockHost);
         const showCalendarSidebarCompactToggle = !!(renderMode === 'calendar'
-            && !showCalendarSidebarMobileTopbarToggle
+            && __tmIsTopbarButtonVisible('calendarSidebar')
+            && isDesktopCalendarHost
             && (isDockHost || isDesktopNarrow || isCalendarSidebarNarrowHost));
         const showCalendarSidebarDesktopToolbarToggle = !!(renderMode === 'calendar'
-            && !showCalendarSidebarMobileTopbarToggle
+            && __tmIsTopbarButtonVisible('calendarSidebar')
+            && isDesktopCalendarHost
             && !showCalendarSidebarCompactToggle);
-        const calendarSidebarCompactButtonHtml = `<button class="tm-btn tm-btn-info tm-calendar-sidebar-toggle-compact tm-calendar-sidebar-toggle-compact--visible bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>`;
+        const calendarSidebarCompactButtonHtml = showCalendarSidebarCompactToggle
+            ? `<button class="tm-btn tm-btn-info tm-calendar-sidebar-toggle-compact tm-calendar-sidebar-toggle-compact--visible bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历视图侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>`
+            : '';
+        const showCalendarSideDockTopbarAction = !!(
+            __tmIsTopbarButtonVisible('calendarSidebar')
+            && isDesktopCalendarHost
+            && ['list', 'checklist', 'timeline', 'kanban', 'whiteboard'].includes(renderMode)
+        );
         const topbarActionCatalog = {
             add: {
                 icon: 'plus',
@@ -631,6 +648,13 @@
                 action: 'tmToggleAiSidebar()',
                 available: __tmIsAiFeatureEnabled(),
             },
+            calendarSidebar: {
+                icon: 'sidebar',
+                iconStyle: 'transform: scaleX(-1);',
+                label: '日历侧边栏',
+                action: 'tmToggleCalendarSideDock()',
+                available: showCalendarSideDockTopbarAction,
+            },
         };
         const renderConfiguredTopbarActions = (ids, options = {}) => {
             const compact = options?.compact === true;
@@ -651,11 +675,12 @@
                 const searchStateAttrs = id === 'search'
                     ? ` aria-pressed="${def.active ? 'true' : 'false'}" aria-expanded="${state.searchBarOpen ? 'true' : 'false'}"`
                     : '';
-                return `<button type="button" class="${classes}" onclick="${def.action}" aria-label="${__tmEscAttr(def.label)}"${searchStateAttrs} style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(def.label, { side: 'bottom' })}>${__tmRenderLucideIcon(def.icon)}</button>`;
+                const iconHtml = __tmRenderLucideIcon(def.icon, '', def.iconStyle ? { style: def.iconStyle } : {});
+                return `<button type="button" class="${classes}" onclick="${def.action}" aria-label="${__tmEscAttr(def.label)}"${searchStateAttrs} style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(def.label, { side: 'bottom' })}>${iconHtml}</button>`;
             }).join('');
         };
-        const desktopTopbarActionButtonsHtml = renderConfiguredTopbarActions(['add', 'search', 'refresh', 'ai']);
-        const compactTopbarActionButtonsHtml = renderConfiguredTopbarActions(['add', 'search', 'refresh'], { compact: true });
+        const desktopTopbarActionButtonsHtml = renderConfiguredTopbarActions(['add', 'search', 'refresh', 'ai', 'calendarSidebar']);
+        const compactTopbarActionButtonsHtml = renderConfiguredTopbarActions(['add', 'search', 'refresh', 'calendarSidebar'], { compact: true });
         const parentTaskNameBoldClass = SettingsStore.data.parentTaskNameBoldEnabled === false ? ' tm-box--parent-task-name-normal' : '';
         try {
             if (state.modal instanceof HTMLElement) {
@@ -691,7 +716,6 @@
                                 className: `tm-topbar-doc-quick-select${showAdaptiveTabDocGroupQuickSelect ? ' tm-topbar-doc-quick-select--tab-adaptive' : ''}`,
                                 tooltip: '切换文档分组'
                             }) : ''}
-                            ${showCalendarSidebarMobileTopbarToggle ? calendarSidebarCompactButtonHtml : ''}
                             ${isMobile && renderMode === 'timeline' && !showTimelineFloatingToolbar ? timelineSidebarToggleButtonHtml : ''}
                             ${showDesktopNarrowTimelineTopbar ? timelineInlineToolbarGroupHtml : ''}
                         </div>
@@ -754,7 +778,7 @@
                             ${showTopbarTimelineToolbar ? `
                                 ${timelineCompactToolbarGroupHtml}
                             ` : ''}
-                            ${showCalendarSidebarDesktopToolbarToggle ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
+                            ${showCalendarSidebarDesktopToolbarToggle ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-calendar-sidebar-toggle" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历视图侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
                         </span>
                         ${!showMobileBottomViewBar ? `
                         <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图">
@@ -1486,9 +1510,9 @@
                             border-radius: 999px;
                             border: 1px solid color-mix(in srgb, var(--tm-border-color) 84%, transparent);
                             background: color-mix(in srgb, var(--tm-header-bg) 96%, rgba(255,255,255,0.12));
-                            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
-                            backdrop-filter: blur(14px);
-                            -webkit-backdrop-filter: blur(14px);
+                            box-shadow: none;
+                            backdrop-filter: none;
+                            -webkit-backdrop-filter: none;
                             overflow-x: auto;
                             scrollbar-width: none;
                             opacity: 0.3;
@@ -1587,9 +1611,9 @@
                         border-radius: 999px;
                         border: 1px solid color-mix(in srgb, var(--tm-border-color) 84%, transparent);
                         background: color-mix(in srgb, var(--tm-header-bg) 96%, rgba(255,255,255,0.12));
-                        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
-                        backdrop-filter: blur(14px);
-                        -webkit-backdrop-filter: blur(14px);
+                        box-shadow: none;
+                        backdrop-filter: none;
+                        -webkit-backdrop-filter: none;
                         overflow-x: auto;
                         scrollbar-width: none;
                         opacity: 0.3;
@@ -1664,9 +1688,9 @@
                         border-radius: 999px;
                         border: 1px solid color-mix(in srgb, var(--tm-border-color) 84%, transparent);
                         background: color-mix(in srgb, var(--tm-header-bg) 96%, rgba(255,255,255,0.12));
-                        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
-                        backdrop-filter: blur(14px);
-                        -webkit-backdrop-filter: blur(14px);
+                        box-shadow: none;
+                        backdrop-filter: none;
+                        -webkit-backdrop-filter: none;
                         overflow-x: auto;
                         scrollbar-width: none;
                         opacity: 0.3;
@@ -2930,19 +2954,14 @@
         return await tracked;
     };
 
-    const __TM_KANBAN_CHILD_DROP_HOLD_MS = 500;
     let __tmKanbanChildDropCandidate = null;
 
     function __tmClearKanbanChildDropCandidate() {
         const candidate = __tmKanbanChildDropCandidate;
         __tmKanbanChildDropCandidate = null;
         if (!candidate) return;
-        try { if (candidate.timer) clearTimeout(candidate.timer); } catch (e) {}
         try {
-            candidate.targetElement?.classList?.remove?.(
-                'tm-kanban-card--child-drop-candidate',
-                'tm-kanban-card--child-drop-ready'
-            );
+            candidate.targetElement?.classList?.remove?.('tm-kanban-card--child-drop-candidate');
         } catch (e) {}
     }
 
@@ -2984,36 +3003,21 @@
             sourceKey,
             targetId,
             targetElement,
-            timer: 0,
-            ready: false,
+            ready: true,
         };
+        const activeSourceIds = Array.isArray(state.__tmKanbanDragIds)
+            ? Array.from(new Set(state.__tmKanbanDragIds.map((id) => String(id || '').trim()).filter(Boolean)))
+            : [];
+        if (
+            String(state.__tmKanbanDragId || '').trim() !== sourceId
+            || activeSourceIds.join('\n') !== sourceKey
+            || !targetElement.isConnected
+        ) {
+            __tmClearKanbanChildDropCandidate();
+            return;
+        }
         __tmKanbanChildDropCandidate = candidate;
         try { targetElement.classList.add('tm-kanban-card--child-drop-candidate'); } catch (e) {}
-        candidate.timer = window.setTimeout(() => {
-            if (__tmKanbanChildDropCandidate !== candidate) return;
-            const activeId = String(state.__tmKanbanDragId || '').trim();
-            const activeSourceIds = Array.isArray(state.__tmKanbanDragIds)
-                ? Array.from(new Set(state.__tmKanbanDragIds.map((id) => String(id || '').trim()).filter(Boolean)))
-                : [];
-            const nextValidation = __tmCanHandleTaskRowBatchDrop(sourceIds, targetId);
-            const stillAllDirectChildren = sourceIds.every((id) => {
-                const sourceTask = __tmKanbanGetTaskById(id);
-                return !!(sourceTask && __tmKanbanGetParentTaskId(sourceTask) === targetId);
-            });
-            if (
-                activeId !== sourceId
-                || activeSourceIds.join('\n') !== sourceKey
-                || !targetElement.isConnected
-                || !nextValidation.ok
-                || stillAllDirectChildren
-            ) {
-                __tmClearKanbanChildDropCandidate();
-                return;
-            }
-            candidate.timer = 0;
-            candidate.ready = true;
-            try { targetElement.classList.add('tm-kanban-card--child-drop-ready'); } catch (e) {}
-        }, __TM_KANBAN_CHILD_DROP_HOLD_MS);
     }
 
     function __tmTakeReadyKanbanChildDropTarget() {

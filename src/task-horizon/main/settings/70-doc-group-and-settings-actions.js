@@ -1925,6 +1925,13 @@
         }
     };
 
+    window.updateDocTitleGroupFocusEnabled = async function(enabled) {
+        SettingsStore.data.docTitleGroupFocusEnabled = !!enabled;
+        await SettingsStore.save();
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { scope: true, duration: true }); } catch (e) {}
+        showSettings();
+    };
+
     window.updateDocTitleEmbeddedTaskFocusEnabled = async function(enabled) {
         SettingsStore.data.docTitleEmbeddedTaskFocusEnabled = !!enabled;
         await SettingsStore.save();

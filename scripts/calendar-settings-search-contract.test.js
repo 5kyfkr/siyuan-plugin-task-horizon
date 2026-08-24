@@ -56,5 +56,15 @@ assert.match(
     /targetTab === 'calendar'[\s\S]*?!root\.querySelector\('\.tm-calendar-settings-row'\)[\s\S]*?return null;/,
     'calendar search focus must wait for the dynamic settings rows to render',
 );
+assert.match(
+    settingsSource,
+    /function __tmEnsureCalendarSettingsForModal\([\s\S]*?__taskHorizonEnsureCalendarAssets[\s\S]*?showSettings\(\);/,
+    'calendar settings must request lazy calendar assets and rebuild the settings modal after loading',
+);
+assert.match(
+    settingsSource,
+    /activeTab === 'calendar'\) __tmEnsureCalendarSettingsForModal\(state\.settingsModal\)/,
+    'calendar settings tab must invoke the lazy asset bridge',
+);
 
 console.log('calendar settings search contract tests passed');

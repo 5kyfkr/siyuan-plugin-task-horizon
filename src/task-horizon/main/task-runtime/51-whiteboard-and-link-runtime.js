@@ -8561,6 +8561,7 @@ return false;
                 source: String(opts.source || 'inline-field').trim() || 'inline-field',
                 label: String(opts.label || '任务字段').trim() || '任务字段',
                 reason: String(opts.reason || opts.source || 'inline-field').trim() || 'inline-field',
+                perfTrace: opts.perfTrace || null,
                 optimisticSkipDetailPatch,
                 presentation: {
                     preserveActiveDetail: opts.skipDetailPatch === true,

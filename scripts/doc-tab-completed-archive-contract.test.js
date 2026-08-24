@@ -8,6 +8,10 @@ const source = fs.readFileSync(
     path.join(root, 'src', 'task-horizon', 'main', 'task-runtime', '51-whiteboard-and-link-runtime.js'),
     'utf8'
 );
+const dialogRuntime = fs.readFileSync(
+    path.join(root, 'src', 'task-horizon', 'main', '30-dialogs-and-ui-foundation.js'),
+    'utf8'
+);
 const start = source.indexOf('function __tmGetArchivedDocIdsForAllTabCompletedTailGroup');
 const end = source.indexOf('function __tmGetTaskDoneSortTs', start);
 assert(start >= 0 && end > start, 'archive filter helper must remain extractable');
@@ -61,5 +65,24 @@ assert.deepStrictEqual(Array.from(buildRuntime({
     manualArchivedIds: ['manual-doc'],
     archiveMode: true,
 }).getArchived()), []);
+
+const scopeStart = dialogRuntime.indexOf('function __tmShouldIncludeDocInActiveAggregateTaskScope');
+const scopeEnd = dialogRuntime.indexOf('function __tmGetArchiveModeFilterRule', scopeStart);
+assert(scopeStart >= 0 && scopeEnd > scopeStart, 'aggregate task scope helper must remain extractable');
+const shouldIncludeInAggregate = new Function(
+    'SettingsStore',
+    '__tmIsDocManuallyArchivedInGroup',
+    '__tmIsDocManuallyUnarchivedInGroup',
+    `${dialogRuntime.slice(scopeStart, scopeEnd)}; return __tmShouldIncludeDocInActiveAggregateTaskScope;`
+)(
+    { data: { currentGroupId: 'group-a' } },
+    (docId, groupId) => docId === 'manual-doc' && groupId === 'group-a',
+    () => false
+);
+assert.equal(shouldIncludeInAggregate('manual-doc', { aggregate: true, archiveMode: false }), false);
+assert.equal(shouldIncludeInAggregate('manual-doc', { aggregate: true, archiveMode: true }), true);
+assert.equal(shouldIncludeInAggregate('manual-doc', { aggregate: false, archiveMode: false }), true);
+assert.match(dialogRuntime, /const isAggregateTaskScope = activeDocId === 'all' \|\| isDocTabCustomGroupActive;/);
+assert.match(dialogRuntime, /__tmShouldIncludeDocInActiveAggregateTaskScope\(docId, \{[\s\S]*aggregate: isAggregateTaskScope/);
 
 console.log('doc tab completed archive contract tests passed');

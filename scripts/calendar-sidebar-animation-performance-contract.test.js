@@ -40,6 +40,11 @@ assert.match(
 );
 assert.match(
     calendarSource,
+    /function scheduleCalendarHostResizeSettle\(wrap, host, calendar\)[\s\S]*dayGridMonth[\s\S]*scheduleMainCalendarLayoutRefresh\(wrap, host, calendar, \{[\s\S]*reason: 'doc-tabs-height-settle'/,
+    'document-tab height transitions must remeasure adaptive month rows after settling',
+);
+assert.match(
+    calendarSource,
     /scheduleCalendarHostResizeSettle\(wrap, host, calendar\)[\s\S]*classList\?\.add\?\.\('tm-calendar-root--host-height-transitioning'\)[\s\S]*requestAnimationFrame\(finishOverflowGuard\)/,
     'the month overflow guard must remain active until the final calendar layout has painted',
 );
@@ -57,7 +62,7 @@ const monthLayoutStart = calendarSource.indexOf('    function syncMainCalendarMo
 const monthLayoutEnd = calendarSource.indexOf('    function applyMainCalendarMonthCellMinHeightLayout', monthLayoutStart);
 assert.ok(monthLayoutStart >= 0 && monthLayoutEnd > monthLayoutStart, 'month layout runtime must remain inspectable');
 const monthLayoutBlock = calendarSource.slice(monthLayoutStart, monthLayoutEnd);
-assert.match(monthLayoutBlock, /targetCalendar\.batchRendering\(applyCalendarOptions\)/, 'month view option changes must be batched into one FullCalendar render');
+assert.match(monthLayoutBlock, /callCalendarAdapter\(targetCalendar, 'batchRendering', applyCalendarOptions\)/, 'month view option changes must be batched into one FullCalendar render');
 
 const layoutRefreshStart = calendarSource.indexOf('    function scheduleMainCalendarLayoutRefresh');
 const layoutFrameStart = calendarSource.indexOf('state.mainLayoutRaf = requestAnimationFrame', layoutRefreshStart);

@@ -7,6 +7,7 @@
     const TASK_ATTR_ITEM_STORAGE_VERSION = 1;
     const MCP_CONFIG_FILE = 'agent-mcp-config.json';
     const SCHEDULE_FILE = 'calendar-events.json';
+    const SCHEDULE_SNAPSHOT_TTL_MS = 30000;
     const AGENT_SCHEDULE_FILE = 'agent-scheduled-events.json';
     const SCHEDULE_REMINDER_MODES = Object.freeze(['inherit', 'custom']);
     const SCHEDULE_REMINDER_OFFSETS = Object.freeze([0, 5, 10, 15, 30, 60]);
@@ -199,6 +200,12 @@
         registeredTools: new Set(),
         taskLanes: new Map(),
         scheduleLane: Promise.resolve(),
+        scheduleSnapshot: {
+            status: 'cold',
+            items: null,
+            loadedAt: 0,
+            inflight: null,
+        },
         agentScheduleLane: Promise.resolve(),
         deleteTokens: new Map(),
         reminderTokens: new Map(),
@@ -808,7 +815,9 @@
             const matched = dom.match(/\bdata-task="([^"]*)"/);
             const actualMarker = normalizeTaskMarker(matched?.[1], ' ');
             const expectedMarker = normalizeTaskMarker(source.marker, ' ');
-            if (actualMarker !== expectedMarker) {
+            const checkboxMarkerMatches = String(actualMarker || '').toUpperCase() === 'X'
+                && String(expectedMarker || '').toUpperCase() === 'X';
+            if (actualMarker !== expectedMarker && !checkboxMarkerMatches) {
                 throw new DomainError(ERROR.CONFLICT, '任务状态标记写入后校验失败', {
                     taskID: id,
                     expectedMarker,
@@ -2711,7 +2720,10 @@
             if (marker.length !== 1) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务状态标记必须是单个字符');
             await ensureTaskListMutationTarget(id);
             await api('/api/block/updateTaskListItemMarker', { id, marker });
-            return { id, marker };
+            // Confirm against the same block tree that accepted the write. The
+            // UI must not perform a second, race-prone kramdown readback.
+            await verifyTaskDirect(id, { marker });
+            return { id, marker, verified: true };
         }
         if (action === 'batchUpdateMarker') {
             const items = (Array.isArray(source.items) ? source.items : []).slice(0, 200).map((item) => {
@@ -4512,7 +4524,7 @@
         await api('/api/block/deleteBlock', { id });
         try {
             await runScheduleLane(async () => {
-                const schedules = await loadSchedules({ allowMissing: true });
+                const schedules = await loadSchedules({ allowMissing: true, fresh: true });
                 const next = schedules.filter((item) => (
                     !deletedTaskIDs.some((deletedID) => isScheduleLinkedToTaskOrVirtualSource(item, deletedID))
                 ));
@@ -4743,7 +4755,7 @@
         pruneTokens(state.deleteTokens);
         const task = await taskDTO(requireID(taskID, '任务 ID'));
         const deletedTaskIDs = await collectTaskSubtreeIDs(task.id);
-        const schedules = await loadSchedules();
+        const schedules = await loadSchedules({ fresh: true });
         const linkedSchedules = schedules.filter((item) => (
             deletedTaskIDs.some((deletedID) => isScheduleLinkedToTaskOrVirtualSource(item, deletedID))
         ));
@@ -5162,21 +5174,91 @@
         return clearVirtualScheduleTaskLinkMetadata(item);
     }
 
-    async function loadSchedules(options) {
-        const record = await readJsonState(SCHEDULE_FILE);
-        if (record.status === 'missing' && options?.allowMissing !== false) return [];
-        if (record.status !== 'valid') throw jsonStorageError(SCHEDULE_FILE, record);
-        if (!Array.isArray(record.value)) {
-            throw jsonStorageError(SCHEDULE_FILE, {
-                status: 'corrupt',
-                error: new Error('schedule list is invalid'),
-            });
+    function cloneScheduleSnapshotItems(items) {
+        const list = Array.isArray(items) ? items : [];
+        try {
+            if (typeof structuredClone === 'function') return structuredClone(list);
+        } catch (error) {}
+        try { return JSON.parse(JSON.stringify(list)); } catch (error) {}
+        return list.map((item) => ({ ...item }));
+    }
+
+    function getScheduleSnapshotError(snapshot) {
+        if (snapshot?.status === 'missing') {
+            return jsonStorageError(SCHEDULE_FILE, { status: 'missing' });
         }
-        return record.value.filter((item) => item && typeof item === 'object');
+        return jsonStorageError(SCHEDULE_FILE, snapshot?.record || {
+            status: 'unavailable',
+            error: new Error('schedule snapshot unavailable'),
+        });
+    }
+
+    async function loadSchedules(options) {
+        const allowMissing = options?.allowMissing !== false;
+        const forceRead = options?.fresh === true;
+        const snapshot = state.scheduleSnapshot;
+        const fresh = Number(snapshot.loadedAt) > 0
+            && Date.now() - Number(snapshot.loadedAt) < SCHEDULE_SNAPSHOT_TTL_MS;
+        if (!forceRead && fresh && snapshot.status === 'valid' && Array.isArray(snapshot.items)) {
+            return cloneScheduleSnapshotItems(snapshot.items);
+        }
+        if (!forceRead && fresh && snapshot.status === 'missing') {
+            if (allowMissing) return [];
+            throw getScheduleSnapshotError(snapshot);
+        }
+        if (!snapshot.inflight) {
+            snapshot.inflight = (async () => {
+                const record = await readJsonState(SCHEDULE_FILE);
+                if (record.status === 'missing') {
+                    return { status: 'missing', items: [], record };
+                }
+                if (record.status !== 'valid' || !Array.isArray(record.value)) {
+                    const invalidRecord = record.status === 'valid'
+                        ? { status: 'corrupt', error: new Error('schedule list is invalid') }
+                        : record;
+                    return { status: 'error', items: [], record: invalidRecord };
+                }
+                return {
+                    status: 'valid',
+                    items: record.value.filter((item) => item && typeof item === 'object'),
+                    record,
+                };
+            })();
+        }
+        const inflight = snapshot.inflight;
+        let result;
+        try {
+            result = await inflight;
+        } finally {
+            if (snapshot.inflight === inflight) snapshot.inflight = null;
+        }
+        snapshot.status = result.status;
+        snapshot.items = cloneScheduleSnapshotItems(result.items);
+        snapshot.record = result.record;
+        snapshot.loadedAt = Date.now();
+        if (result.status === 'missing') {
+            if (allowMissing) return [];
+            throw getScheduleSnapshotError(snapshot);
+        }
+        if (result.status !== 'valid') throw getScheduleSnapshotError(snapshot);
+        return cloneScheduleSnapshotItems(snapshot.items);
     }
 
     async function saveSchedules(items) {
-        await writeJson(SCHEDULE_FILE, Array.isArray(items) ? items : []);
+        const next = Array.isArray(items) ? items.filter((item) => item && typeof item === 'object') : [];
+        await writeJson(SCHEDULE_FILE, next);
+        state.scheduleSnapshot.status = 'valid';
+        state.scheduleSnapshot.items = cloneScheduleSnapshotItems(next);
+        state.scheduleSnapshot.record = null;
+        state.scheduleSnapshot.loadedAt = Date.now();
+    }
+
+    function warmScheduleSnapshot() {
+        try {
+            return loadSchedules({ allowMissing: true }).catch(() => null);
+        } catch (error) {
+            return Promise.resolve(null);
+        }
     }
 
     async function saveScheduleSnapshot(items, options) {
@@ -5184,7 +5266,7 @@
         const opts = options && typeof options === 'object' ? options : {};
         const operation = text(opts.op) || 'replace';
         const changedIDs = uniqueStrings([opts.scheduleId].concat(Array.isArray(opts.scheduleIds) ? opts.scheduleIds : []));
-        const current = await loadSchedules({ allowMissing: true });
+        const current = await loadSchedules({ allowMissing: true, fresh: true });
         const incomingByID = new Map(incoming.map((item) => [text(item.id), item]).filter((entry) => entry[0]));
         let next;
         if (operation === 'delete' && changedIDs.length) {
@@ -7760,7 +7842,11 @@
 
     siyuan.plugin.lifecycle.onload = async function () {
         await ensureTaskAttrItemStorageMigration();
+        const scheduleWarmup = warmScheduleSnapshot();
         await bindRpc();
+        // Keep the warm read off the startup critical path while allowing the
+        // first calendar RPC to reuse its parsed payload when ready.
+        void scheduleWarmup;
         const config = await readJson(MCP_CONFIG_FILE, { schemaVersion: 2, enabled: false, tools: {} });
         const currentConfig = config && config.schemaVersion === 2 ? config : null;
         state.mcpAuthorized = false;

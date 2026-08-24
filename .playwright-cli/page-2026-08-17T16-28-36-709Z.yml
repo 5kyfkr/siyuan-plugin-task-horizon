@@ -1,0 +1,16 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - heading "Cloud" [level=1] [ref=e4]
+    - textbox "请输入锁屏密码" [active] [ref=e6]
+    - generic [ref=e7]:
+      - button "解锁访问" [ref=e8] [cursor=pointer]
+      - generic [ref=e9]:
+        - checkbox "记住我 30 天" [ref=e10]
+        - generic [ref=e11]: 记住我 30 天
+      - button "退出应用" [ref=e12] [cursor=pointer]
+    - generic [ref=e13]:
+      - text: 由
+      - link "思源笔记" [ref=e14] [cursor=pointer]:
+        - /url: https://b3log.org/siyuan
+      - text: 强力驱动
+  - img "star-bg" [ref=e25]

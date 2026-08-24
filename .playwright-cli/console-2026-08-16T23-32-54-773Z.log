@@ -1,0 +1,2 @@
+[   18422ms] [INFO] [TaskHorizon][CollapseMotion #1] start {view: checklist, kind: task, key: reduced-test, action: collapse, mode: none} @ :0
+[   18423ms] [INFO] [TaskHorizon][CollapseMotion #1] finish {view: checklist, kind: task, key: reduced-test, action: collapse, mode: none} @ :0

@@ -12,7 +12,6 @@ const HOMEPAGE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/homepage.js`;
 const QUICKBAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/quickbar.js`;
 const XLSX_VENDOR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/vendor/xlsx.full.min.js`;
 const FULLCALENDAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/fullcalendar.global.js`;
-const FULLCALENDAR_LOCALES_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/locales-all/global.js`;
 const FULLCALENDAR_FORMA_THEME_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/themes/forma/global.js`;
 const FULLCALENDAR_SKELETON_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/skeleton.css`;
 const FULLCALENDAR_FORMA_THEME_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/themes/forma/theme.css`;
@@ -820,7 +819,6 @@ const ensureTaskMainLoaded = async () => {
     const devLoad = await loadTaskDevManifestScripts();
     if (devLoad.status === "loaded") {
         if (hasTaskMainRuntime()) {
-            console.log(`[task-horizon] dev sources loaded (${devLoad.scripts.length} files): task-horizon.dev-main.js`);
             return true;
         }
         console.error("[task-horizon] task dev main loaded but runtime mount is unavailable", devLoad.scripts);
@@ -1068,6 +1066,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._mountExistingTabsTimer = null;
         this._taskPostMainAssetsLoaded = false;
         this._taskPostMainAssetsLoading = null;
+        this._taskCalendarAssetsLoaded = false;
+        this._taskCalendarAssetsLoading = null;
         this._taskMainRuntimeRecoveryTimer = null;
         this._taskDataChangedPromise = null;
         this._taskDataChangedQueued = false;
@@ -1091,6 +1091,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._taskCalendarSubscriptionTopBarMeta = { enabled: false, running: false, title: "立即上传日历 ICS" };
         globalThis.__taskHorizonPluginApp = this.app;
         globalThis.__taskHorizonPluginInstance = this;
+        globalThis.__taskHorizonEnsureCalendarAssets = () => this.loadTaskHorizonCalendarAssets();
         globalThis.__taskHorizonPluginIsMobile = runtimeMobile;
         globalThis.__taskHorizonPluginIsNativeMobile = runtimeNativeMobile;
         globalThis.__taskHorizonFrontend = getOfficialFrontend();
@@ -1684,15 +1685,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             await loadScriptText(BASECOAT_SCRIPT_PATH, "basecoat/basecoat.js");
             await loadScriptText(QUICKBAR_SCRIPT_PATH, "quickbar.js");
             await loadStyleText(BASECOAT_CSS_PATH, "basecoat/basecoat.css");
-            await loadStyleText(FULLCALENDAR_SKELETON_CSS_PATH, "fullcalendar/skeleton.css");
-            await loadStyleText(FULLCALENDAR_FORMA_THEME_CSS_PATH, "fullcalendar/themes/forma/theme.css");
-            await loadStyleText(FULLCALENDAR_FORMA_BASECOAT_CSS_PATH, "fullcalendar/themes/forma/palettes/basecoat.css");
-            await loadScriptText(FULLCALENDAR_SCRIPT_PATH, "fullcalendar/fullcalendar.global.js");
-            await loadScriptText(FULLCALENDAR_FORMA_THEME_SCRIPT_PATH, "fullcalendar/themes/forma/global.js");
-            await loadScriptText(FULLCALENDAR_LOCALES_SCRIPT_PATH, "fullcalendar/locales-all/global.js");
-            await loadScriptText(CALENDAR_SUBSCRIPTION_CORE_SCRIPT_PATH, "calendar-subscription-core.js");
-            await loadScriptText(CALENDAR_VIEW_SCRIPT_PATH, "calendar-view.js");
-            await loadStyleText(CALENDAR_VIEW_CSS_PATH, "calendar-view.css");
             this._taskPostMainAssetsLoaded = true;
             return true;
         }).finally(() => {
@@ -1701,10 +1693,34 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         return await this._taskPostMainAssetsLoading;
     }
 
+    async loadTaskHorizonCalendarAssets() {
+        if (this._taskCalendarAssetsLoaded) return true;
+        if (this._taskCalendarAssetsLoading) return await this._taskCalendarAssetsLoading;
+        this._taskCalendarAssetsLoading = Promise.resolve().then(async () => {
+            await this.loadTaskHorizonPostMainAssets();
+            await loadStyleText(FULLCALENDAR_SKELETON_CSS_PATH, "fullcalendar/skeleton.css");
+            await loadStyleText(FULLCALENDAR_FORMA_THEME_CSS_PATH, "fullcalendar/themes/forma/theme.css");
+            await loadStyleText(FULLCALENDAR_FORMA_BASECOAT_CSS_PATH, "fullcalendar/themes/forma/palettes/basecoat.css");
+            await loadScriptText(FULLCALENDAR_SCRIPT_PATH, "fullcalendar/fullcalendar.global.js");
+            await loadScriptText(FULLCALENDAR_FORMA_THEME_SCRIPT_PATH, "fullcalendar/themes/forma/global.js");
+            await loadScriptText(CALENDAR_SUBSCRIPTION_CORE_SCRIPT_PATH, "calendar-subscription-core.js");
+            await loadScriptText(CALENDAR_VIEW_SCRIPT_PATH, "calendar-view.js");
+            await loadStyleText(CALENDAR_VIEW_CSS_PATH, "calendar-view.css");
+            this._taskCalendarAssetsLoaded = true;
+            return true;
+        }).finally(() => {
+            this._taskCalendarAssetsLoading = null;
+        });
+        return await this._taskCalendarAssetsLoading;
+    }
+
     async activateTaskMainRuntime(reason = "manual") {
         this.cancelTaskMainRuntimeRecovery();
         this.registerCommands();
         await this.loadTaskHorizonPostMainAssets();
+        // Calendar is part of the main plugin experience; preload its runtime so
+        // the first calendar view and calendar settings open without a second load.
+        await this.loadTaskHorizonCalendarAssets();
         this.mountExistingTabs(this.isRuntimeMobileClient() ? 7000 : 5000);
         if (!this.isRuntimeMobileClient()) {
             const dockElement = this.resolveTaskDockElement();
@@ -2283,9 +2299,13 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 position: "right",
                 callback: () => {
                     if (this._taskCalendarSubscriptionTopBarMeta?.running === true) return;
-                    const publisher = globalThis.__tmCalendarSubscription;
-                    if (typeof publisher?.publishNow !== "function") return;
-                    void publisher.publishNow({ source: "topbar", force: true, interactive: true });
+                    void this.loadTaskHorizonCalendarAssets().then(() => {
+                        const publisher = globalThis.__tmCalendarSubscription;
+                        if (typeof publisher?.publishNow !== "function") return;
+                        return publisher.publishNow({ source: "topbar", force: true, interactive: true });
+                    }).catch((error) => {
+                        console.warn("[task-horizon] calendar subscription assets failed", error);
+                    });
                 },
             }) || null;
             this.markCalendarSubscriptionTopBarElement(this._taskCalendarSubscriptionTopBarElement);
@@ -2841,6 +2861,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
         try { delete globalThis.__taskHorizonSyncWindowTopBar; } catch (e) {}
         try { delete globalThis.__taskHorizonSyncCalendarSubscriptionTopBar; } catch (e) {}
+        try { delete globalThis.__taskHorizonEnsureCalendarAssets; } catch (e) {}
         try { delete globalThis.__taskHorizonApplyWindowTopBarIdentity; } catch (e) {}
         try { delete globalThis.__taskHorizonCustomTabId; } catch (e) {}
         try { delete globalThis.__taskHorizonTabElement; } catch (e) {}

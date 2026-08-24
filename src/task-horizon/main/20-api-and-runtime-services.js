@@ -5729,15 +5729,42 @@
                     inversePatch: op?.inversePatch,
                 });
             }
-            const receipt = await __tmExecuteTaskCommandGateway({
-                action: 'patch',
-                commandID: String(op?.id || '').trim(),
-                taskID: taskId,
-                patch: normalizedPatch,
-                options: { allowSystem: true },
-                recordUndo: op?.data?.recordUndo !== false,
-                laneID: __tmGetActiveTaskMutationLaneId(taskId),
-            }, '任务字段写入');
+            const perfTrace = op?.data?.perfTrace || null;
+            try {
+                globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-kernel-write-start', {
+                    path: 'kernel-read-modify-write',
+                    taskId,
+                });
+            } catch (e) {}
+            let receipt;
+            try {
+                receipt = await __tmExecuteTaskCommandGateway({
+                    action: 'patch',
+                    commandID: String(op?.id || '').trim(),
+                    taskID: taskId,
+                    patch: normalizedPatch,
+                    options: { allowSystem: true },
+                    recordUndo: op?.data?.recordUndo !== false,
+                    laneID: __tmGetActiveTaskMutationLaneId(taskId),
+                }, '任务字段写入');
+                try {
+                    globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-kernel-write-confirmed', {
+                        path: 'kernel-read-modify-write',
+                        taskId,
+                        confirmed: true,
+                    });
+                } catch (e) {}
+            } catch (error) {
+                try {
+                    globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-kernel-write-error', {
+                        path: 'kernel-read-modify-write',
+                        taskId,
+                        error: String(error?.message || error || ''),
+                        confirmed: false,
+                    });
+                } catch (e) {}
+                throw error;
+            }
             const task = __tmNormalizeQueuedKernelTaskSnapshot(receipt.task || receipt.value?.task || null);
             return { task, changeSet: receipt.changeSet, commandID: receipt.commandID, authoritative: true };
         }
@@ -9290,7 +9317,7 @@
             .replace(/\s+/g, ' ')
             .trim();
         if (!text) return null;
-        const colon = /(?:^|[^\d])(?:(凌晨|上午|早上|早晨|清晨|今早|今晨|明早|明晨|中午|下午|傍晚|晚上|今晚|明晚|晚|早)\s*)?(\d{1,2})\s*[:：]\s*(\d{1,2})(?!\d)/.exec(text);
+        const colon = /(?:(凌晨|上午|早上|早晨|清晨|今早|今晨|明早|明晨|中午|下午|傍晚|晚上|今晚|明晚|晚|早)\s*|(?:^|[^\d]))(\d{1,2})\s*[:：]\s*(\d{1,2})(?!\d)/.exec(text);
         if (colon) {
             const hour0 = Number(colon[2]);
             const minute = Number(colon[3]);
@@ -9306,7 +9333,7 @@
                 };
             }
         }
-        const cn = /(?:^|[^\d])(?:(凌晨|上午|早上|早晨|清晨|今早|今晨|明早|明晨|中午|下午|傍晚|晚上|今晚|明晚|晚|早)\s*)?(\d{1,2}|[零〇一二两三四五六七八九十]{1,3})\s*点\s*(半|一刻|三刻|整|(\d{1,2})\s*分?)?/.exec(text);
+        const cn = /(?:(凌晨|上午|早上|早晨|清晨|今早|今晨|明早|明晨|中午|下午|傍晚|晚上|今晚|明晚|晚|早)\s*|(?:^|[^\d]))(\d{1,2}|[零〇一二两三四五六七八九十]{1,3})\s*点\s*(半|一刻|三刻|整|(\d{1,2})\s*分?)?/.exec(text);
         if (!cn) return null;
         const hour0 = __tmSemanticHourFromToken(cn[2]);
         let minute = 0;
@@ -15541,6 +15568,7 @@ if (hasStatusPatch) {
                 showErrorHint: opts.showErrorHint !== false,
                 source: String(opts.source || '').trim(),
                 attrTargetId: effectiveAttrTargetId,
+                perfTrace: opts.perfTrace || null,
                 skipSnapshotPersist: opts.skipSnapshotPersist === true,
                 skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
@@ -15562,6 +15590,7 @@ if (hasStatusPatch) {
                 await patchTask(context.persistId, nextPatch, {
                     source: String(opts.source || 'attr-patch').trim() || 'attr-patch',
                     label: __tmGetUndoLabel(opts.label, '任务字段'),
+                    perfTrace: opts.perfTrace || null,
                     background: !shouldWait,
                     wait: shouldWait,
                     skipInteractionGate: opts.skipInteractionGate === true || !shouldWait,
@@ -15891,11 +15920,28 @@ if (hasStatusPatch) {
             return await updateByBlock();
         }
         try {
-            await __tmExecuteTaskCommandGateway({
+            const receipt = await __tmExecuteTaskCommandGateway({
                 action: 'blockOperation',
                 operation: { action: 'updateMarker', id: tid, marker: nextMarker },
                 laneID: __tmGetActiveTaskMutationLaneId(tid),
             }, '任务状态写入');
+            const acknowledged = receipt?.value && typeof receipt.value === 'object'
+                && receipt.value.verified === true;
+            if (acknowledged) {
+                __tmPushStatusDebug('marker-update:success', {
+                    taskId: tid,
+                    marker: nextMarker,
+                    mode: 'task-command-gateway-verified',
+                }, [tid], { force: true });
+                return {
+                    id: tid,
+                    marker: nextMarker,
+                    markdown: String(receipt.value.markdown || '').trim() || null,
+                    usedBatch: false,
+                    usedFallback: false,
+                    authoritative: true,
+                };
+            }
             const verified = await __tmVerifyTaskListItemMarkerPersisted(tid, nextMarker);
             __tmPushStatusDebug('marker-update:success', {
                 taskId: tid,
@@ -17185,9 +17231,30 @@ if (!state.homepageOpen) return;
         return true;
     }
 
+    function __tmVisibleResumePerf(kind, stage, detail = {}) {
+        try {
+            const fn = globalThis.__tmTaskHorizonPerfCreate;
+            const mark = globalThis.__tmTaskHorizonPerfMark;
+            const finish = globalThis.__tmTaskHorizonPerfFinish;
+            if (stage === 'start' && typeof fn === 'function') return fn(kind, detail);
+            if (stage === 'finish' && typeof finish === 'function') return finish(detail?.trace || detail?.traceId, detail);
+            if (typeof mark === 'function') return mark(detail?.trace || detail?.traceId, stage, detail);
+        } catch (e) {}
+        return null;
+    }
+
     async function __tmRunVisibleResumeSync(source = 'visible-resume') {
         const sourceLabel = String(source || '').trim() || 'visible-resume';
-        if (document.visibilityState === 'hidden' || !__tmIsPluginVisibleNow()) return false;
+        const resumeTrace = __tmVisibleResumePerf('calendarRefresh', 'start', {
+            reason: `visible-resume:${sourceLabel}`,
+            refreshReason: sourceLabel,
+            calendar: 'resume',
+            instance: 'resume',
+        });
+        if (document.visibilityState === 'hidden' || !__tmIsPluginVisibleNow()) {
+            try { globalThis.__tmTaskHorizonPerfFinish?.(resumeTrace, { calendar: 'resume', reason: sourceLabel, mode: 'skip-hidden', success: true }); } catch (e) {}
+            return false;
+        }
         const hadPendingView = !!state.viewRefreshPending
             || !!state.listProjectionRefreshPending
             || __tmCalendarTxRefreshPending === true;
@@ -17219,9 +17286,27 @@ if (!state.homepageOpen) return;
         const shouldCommit = hadPendingView || dataRefreshed || collapsedChanged || !!state.viewRefreshPending;
         if (!shouldCommit) {
             try { __tmScheduleReminderTaskNameMarksRefresh(state.modal, true); } catch (e) {}
+            try { globalThis.__tmTaskHorizonPerfFinish?.(resumeTrace, { calendar: 'resume', reason: sourceLabel, mode: 'skip', success: true }); } catch (e) {}
             return false;
         }
-        return __tmCommitVisibleResumeView('visible-resume-sync');
+        const committed = __tmCommitVisibleResumeView('visible-resume-sync');
+        try {
+            globalThis.__tmTaskHorizonPerfMark?.(resumeTrace, 'commit', {
+                calendar: 'resume',
+                reason: sourceLabel,
+                pending: hadPendingView,
+                background: hadPendingData,
+                confirmed: dataRefreshed,
+                main: String(state.viewMode || '').trim() === 'calendar',
+            });
+            globalThis.__tmTaskHorizonPerfFinish?.(resumeTrace, {
+                calendar: 'resume',
+                reason: sourceLabel,
+                confirmed: dataRefreshed,
+                success: committed !== false,
+            });
+        } catch (e) {}
+        return committed;
     }
 
     function __tmScheduleVisibleResumeSync(source = 'visible-resume') {
@@ -17290,35 +17375,37 @@ if (!state.homepageOpen) return;
         if (__tmWakeReloadBound) return;
         __tmWakeReloadBound = true;
 
-        // 检查插件页面是否正在显示
+        // Keep the visibility event turn free of synchronous style/layout reads.
         const isPluginVisible = () => {
-            // 首先检查 state.modal 是否存在且已添加到 DOM
-            if (!state.modal || !document.body.contains(state.modal)) {
-                return false;
+            const modal = state.modal;
+            if (!modal || modal.isConnected === false || !document.body.contains(modal)) return false;
+            const modalStyle = modal.style || {};
+            if (modal.hidden === true
+                || String(modal.getAttribute?.('aria-hidden') || '').trim() === 'true'
+                || modalStyle.display === 'none'
+                || modalStyle.visibility === 'hidden'
+                || String(modalStyle.opacity || '').trim() === '0') return false;
+
+            const mountEl = __tmGetMountRoot();
+            if (mountEl && mountEl !== document.body) {
+                const mountStyle = mountEl.style || {};
+                if (mountEl.isConnected === false
+                    || mountEl.hidden === true
+                    || String(mountEl.getAttribute?.('aria-hidden') || '').trim() === 'true'
+                    || mountStyle.display === 'none'
+                    || mountStyle.visibility === 'hidden'
+                    || String(mountStyle.opacity || '').trim() === '0') return false;
             }
 
-            // 检查弹窗是否可见（display 不为 none，opacity 大于 0）
-            const style = window.getComputedStyle(state.modal);
-            if (style.display === 'none' || style.opacity === '0') {
-                return false;
-            }
-
-            // 关键：检查插件是否在当前激活的思源窗口中
-            // 思源使用 .layout__wnd--active 标记当前激活的窗口
             const activeWindow = globalThis.__tmCompat?.findActiveWindow?.() || null;
             if (activeWindow) {
-                // 检查插件的挂载元素是否在活动窗口中
-                const mountEl = __tmGetMountRoot();
                 if (mountEl && mountEl !== document.body && activeWindow.contains(mountEl)) {
                     return true;
                 }
-                // 也检查 modal 元素是否在活动窗口中
-                if (activeWindow.contains(state.modal)) {
+                if (activeWindow.contains(modal)) {
                     return true;
                 }
             }
-
-            // 如果没有找到活动窗口（可能是在移动端或其他特殊布局），则回退到原来的检查
             return true;
         };
 
@@ -25198,7 +25285,15 @@ return true;
             const isNotePanel = oldPanel.getAttribute('data-tm-detail-view') === 'note'
                 || oldPanel.__tmTaskDetailNoteActive === true
                 || !!oldPanel.querySelector?.('[data-tm-detail-note-mount]');
-            if (!isNotePanel) return;
+            // A soft-keyboard resize can arrive while a detail textarea still owns
+            // the IME. Keep that exact panel node mounted so Android does not see
+            // the focused textarea removed and immediately close the keyboard.
+            const activeElement = document.activeElement;
+            const hasActiveDetailInput = activeElement instanceof Element
+                && oldPanel.contains(activeElement)
+                && !!activeElement.closest?.('input, textarea, select, [contenteditable="true"]');
+            const hasSubtaskDraft = !!oldPanel.querySelector?.('[data-tm-detail-subtask-draft]');
+            if (!isNotePanel && !hasActiveDetailInput && !hasSubtaskDraft) return;
             const nextPanel = toBody.querySelector?.(`#${CSS.escape(panelId)}`);
             if (!(nextPanel instanceof HTMLElement)) return;
             try {

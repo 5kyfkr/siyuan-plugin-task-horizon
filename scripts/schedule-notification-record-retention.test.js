@@ -41,7 +41,7 @@ assert.deepEqual(
 );
 assert.equal(ledger.records[1].notificationSchedules.mobile.status, 'canceled', 'mobile cleanup acknowledgements must remain in the ledger');
 
-assert.match(source, /async function saveScheduleAll[\s\S]*?retainScheduleNotificationRecords\(/, 'schedule edits and deletes must retain previous appointment records before saving');
+assert.match(source, /async function performScheduleSaveAll[\s\S]*?retainScheduleNotificationRecords\(/, 'schedule edits and deletes must retain previous appointment records before saving');
 assert.match(source, /async function refreshScheduleCacheFromSharedFile[\s\S]*?retainScheduleNotificationRecords\(/, 'remote schedule changes must also retain the previous local appointment record');
 assert.match(source, /async function syncScheduleMobileNotifications[\s\S]*?reconcileScheduleNotificationRecordLedger\(\)/, 'mobile notification sync must consume retained cancellation records');
 assert.match(source, /record\.notificationSchedules\[SCHEDULE_SYNC_DEVICE_ID\][\s\S]*?status:\s*'canceled'/, 'mobile cancellation must be acknowledged without deleting the record');

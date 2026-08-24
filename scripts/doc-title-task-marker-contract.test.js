@@ -112,9 +112,23 @@ assert.match(stores, /docTitleEmbeddedTaskFocusEnabled:\s*false/, 'embedded task
 assert.match(stores, /Storage\.get\('tm_doc_title_embedded_task_focus_enabled'/, 'the embedded aggregation preference must load from local storage');
 assert.match(stores, /Storage\.set\('tm_doc_title_embedded_task_focus_enabled'/, 'the embedded aggregation preference must persist locally');
 assert.match(stores, /cloudData\.docTitleEmbeddedTaskFocusEnabled/, 'the embedded aggregation preference must restore from synced settings');
+assert.match(stores, /docTitleGroupFocusEnabled:\s*true/, 'group focus markers must default to visible');
+assert.match(stores, /Storage\.get\('tm_doc_title_group_focus_enabled'/, 'the group focus marker preference must load from local storage');
+assert.match(stores, /Storage\.set\('tm_doc_title_group_focus_enabled'/, 'the group focus marker preference must persist locally');
+assert.match(stores, /cloudData\.docTitleGroupFocusEnabled/, 'the group focus marker preference must restore from synced settings');
 assert.match(settingsScreen, /统计嵌入待办专注时长/, 'the topbar settings screen must expose the embedded aggregation switch');
 assert.match(settingsScreen, /任务管理器范围内的待办通过嵌入块显示在其他文档中时，也会在该文档右上角汇总显示专注时长/, 'the switch description must explain the source tasks, embed destination, and document-level result');
 assert.match(settingsScreen, /docTitleEmbeddedTaskFocusEnabled[\s\S]*enableTomatoIntegration[\s\S]*updateDocTitleEmbeddedTaskFocusEnabled/, 'the switch must depend on tomato integration and bind its settings action');
+assert.match(settingsScreen, /笔记内右上角分组专注标识[\s\S]*docTitleGroupFocusEnabled[\s\S]*updateDocTitleGroupFocusEnabled/, 'the group marker switch must be exposed and bound');
+assert.ok(
+    settingsScreen.indexOf('思源窗口顶栏图标(桌面)') < settingsScreen.indexOf('文档顶栏按钮(桌面)'),
+    'window topbar icon settings must come before document topbar settings',
+);
+assert.ok(
+    settingsScreen.indexOf('笔记内右上角分组专注标识') < settingsScreen.indexOf('统计嵌入待办专注时长'),
+    'the group marker switch must come before embedded focus aggregation',
+);
+assert.match(settings, /updateDocTitleGroupFocusEnabled[\s\S]*\{ scope: true, duration: true \}/, 'changing the group marker switch must refresh open document markers');
 assert.match(settings, /updateDocTitleEmbeddedTaskFocusEnabled[\s\S]*\{ scope: true, duration: true \}/, 'changing the switch must fully reevaluate open document markers');
 
 const batchTaskRead = segment(
@@ -134,6 +148,8 @@ const embeddedGate = segment(
     'function __tmCollectDocTitleEmbeddedBlockIds',
 );
 assert.match(embeddedGate, /enableTomatoIntegration[\s\S]*docTitleEmbeddedTaskFocusEnabled/, 'embedded aggregation must require both feature switches');
+assert.match(hooks, /function __tmIsDocTitleGroupFocusEnabled\(\)[\s\S]*docTitleGroupFocusEnabled !== false/, 'group marker visibility must default to enabled for legacy settings');
+assert.match(markerSync, /if \(!__tmIsDocTitleGroupFocusEnabled\(\)\)[\s\S]*__tmRemoveDocTitleMarker\(controller\)/, 'disabling group markers must remove managed document markers');
 
 const embeddedCollector = segment(
     hooks,

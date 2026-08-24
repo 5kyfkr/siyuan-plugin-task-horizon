@@ -174,6 +174,26 @@ assert.match(
     /window\.visualViewport[\s\S]*visibleBottom = Math\.min\(scrollerRect\.bottom, viewportBottom\)[\s\S]*scroller\.scrollTo\(\{ top: next, behavior: 'auto' \}\)/,
     'mobile subtask drafts must follow the visual viewport above the soft keyboard'
 );
+assert.match(
+    runtime,
+    /function __tmPreserveActiveDetailNotePanelDuringBodySwap[\s\S]*hasActiveDetailInput[\s\S]*oldPanel\.contains\(activeElement\)[\s\S]*hasSubtaskDraft/,
+    'body-only mobile refreshes must keep the mounted detail panel while an editor owns IME focus'
+);
+assert.match(
+    taskDetail,
+    /function __tmShouldPreserveTaskDetailEditorDuringRefresh[\s\S]*data-tm-detail-subtask-draft[\s\S]*active\.closest\?\.\('input, textarea, select, \[contenteditable="true"\]'\)/,
+    'task detail refreshes must recognize both an open subtask draft and a focused editor'
+);
+assert.match(
+    taskDetail,
+    /const nextSignature = __tmBuildChecklistSelectionSignature[\s\S]*__tmShouldPreserveTaskDetailEditorDuringRefresh\(panel, selectedId\)[\s\S]*return true;/,
+    'checklist detail refreshes must defer panel replacement while the editor is active'
+);
+assert.match(
+    taskDetail,
+    /__tmRefreshKanbanDetailInPlace[\s\S]*__tmShouldPreserveTaskDetailEditorDuringRefresh\(panel, selectedId\)[\s\S]*return true;/,
+    'kanban detail refreshes must keep the mounted panel while the editor is active'
+);
 assert.doesNotMatch(
     `${taskDetail}\n${viewRefresh}`,
     /__tmLogSubtaskDetailDirect|\[Task Horizon\]\[SubtaskDetail\]\[Direct\]/,

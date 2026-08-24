@@ -1,0 +1,6 @@
+[   17950ms] [INFO] [TaskHorizon][CollapseMotion #1] start {view: checklist, kind: task, key: test-parent, action: collapse, mode: disclosure} @ D:/AI/trae/siyuan-plugin-task-horizon/src/task-horizon/main/18-collapse-motion-runtime.js:26
+[   18007ms] [INFO] [TaskHorizon][CollapseMotion #1] cancel-settled {view: checklist, kind: task, key: test-parent, action: collapse, mode: disclosure} @ D:/AI/trae/siyuan-plugin-task-horizon/src/task-horizon/main/18-collapse-motion-runtime.js:26
+[   18008ms] [INFO] [TaskHorizon][CollapseMotion #2] start {view: checklist, kind: task, key: test-parent, action: expand, mode: disclosure} @ D:/AI/trae/siyuan-plugin-task-horizon/src/task-horizon/main/18-collapse-motion-runtime.js:26
+[   18206ms] [INFO] [TaskHorizon][CollapseMotion #2] finish {view: checklist, kind: task, key: test-parent, action: expand, mode: disclosure} @ D:/AI/trae/siyuan-plugin-task-horizon/src/task-horizon/main/18-collapse-motion-runtime.js:26
+[   46408ms] [INFO] [TaskHorizon][CollapseMotion #3] start {view: checklist, kind: task, key: verify-fields, action: collapse, mode: disclosure} @ :0
+[   46539ms] [INFO] [TaskHorizon][CollapseMotion #3] finish {view: checklist, kind: task, key: verify-fields, action: collapse, mode: disclosure} @ :0

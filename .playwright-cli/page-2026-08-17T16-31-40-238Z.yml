@@ -1,0 +1,30 @@
+- main [ref=f1e2]:
+  - generic [ref=f1e3]:
+    - heading "主日历月视图" [level=2] [ref=f1e4]
+    - generic [ref=f1e6]:
+      - generic [ref=f1e7]:
+        - generic [ref=f1e8]: 16:00
+        - generic [ref=f1e9]: 油气回收测试
+      - generic [ref=f1e11]:
+        - generic: 到期提醒
+        - generic [ref=f1e12]: 17:00
+      - generic [ref=f1e13]:
+        - generic [ref=f1e14]: 18:00
+        - generic [ref=f1e15]: 番茄记录
+  - generic [ref=f1e16]:
+    - heading "Dock 日视图" [level=2] [ref=f1e17]
+    - generic [ref=f1e19]:
+      - generic [ref=f1e23]:
+        - generic: 普通定时提醒
+        - generic [ref=f1e24]: 16:00 - 17:15
+      - generic [ref=f1e25]:
+        - text: 18:00
+        - generic [ref=f1e26]: 番茄记录
+  - generic [ref=f1e27]:
+    - heading "列表视图" [level=2] [ref=f1e28]
+    - table [ref=f1e31]:
+      - rowgroup [ref=f1e32]:
+        - row [ref=f1e33] [cursor=pointer]:
+          - cell "16:00 - 17:15 列表日程" [ref=f1e34]:
+            - generic [ref=f1e35]: 16:00 - 17:15
+            - generic [ref=f1e36]: 列表日程

@@ -1,0 +1,4 @@
+[   21274ms] [INFO] [TaskHorizon][CollapseMotion #1] start checklist/task/test-parent action=collapse mode=disclosure @ D:/AI/trae/siyuan-plugin-task-horizon/src/task-horizon/main/18-collapse-motion-runtime.js:19
+[   21400ms] [INFO] [TaskHorizon][CollapseMotion #1] finish checklist/task/test-parent action=collapse mode=disclosure hidden=true @ D:/AI/trae/siyuan-plugin-task-horizon/src/task-horizon/main/18-collapse-motion-runtime.js:19
+[   21467ms] [INFO] [TaskHorizon][CollapseMotion #2] start checklist/task/test-parent action=expand mode=disclosure @ D:/AI/trae/siyuan-plugin-task-horizon/src/task-horizon/main/18-collapse-motion-runtime.js:19
+[   21650ms] [INFO] [TaskHorizon][CollapseMotion #2] finish checklist/task/test-parent action=expand mode=disclosure hidden=false @ D:/AI/trae/siyuan-plugin-task-horizon/src/task-horizon/main/18-collapse-motion-runtime.js:19

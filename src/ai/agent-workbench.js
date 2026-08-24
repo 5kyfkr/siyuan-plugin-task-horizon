@@ -848,12 +848,23 @@
         const policy = window.siyuan?.config?.ai?.agent?.capabilityPolicy;
         const overrides = policy?.overrides && typeof policy.overrides === 'object' ? policy.overrides : {};
         const defaultDecision = String(policy?.default || 'allow');
-        const tools = (Array.isArray(value.toolGroups) ? value.toolGroups : [])
-            .flatMap((group) => Array.isArray(group?.tools) ? group.tools : [])
-            .filter((tool) => tool?.registered === true);
-        const denied = tools.filter((tool) => String(overrides[`${TASK_HORIZON_BACKEND_CAPABILITY_PREFIX}${encodeURIComponent(text(tool?.name))}`] || defaultDecision) === 'deny');
+        const toolGroups = (Array.isArray(value.toolGroups) ? value.toolGroups : []).map((group) => ({
+            ...group,
+            tools: (Array.isArray(group?.tools) ? group.tools : []).map((tool) => {
+                const agentAllowed = String(overrides[`${TASK_HORIZON_BACKEND_CAPABILITY_PREFIX}${encodeURIComponent(text(tool?.name))}`] || defaultDecision) !== 'deny';
+                return {
+                    ...tool,
+                    agentAllowed,
+                    effectiveAvailable: tool?.registered === true && agentAllowed,
+                    effectiveEnabled: tool?.enabled === true && tool?.registered === true && agentAllowed,
+                };
+            }),
+        }));
+        const tools = toolGroups.flatMap((group) => group.tools).filter((tool) => tool?.registered === true);
+        const denied = tools.filter((tool) => tool.agentAllowed === false);
         return {
             ...value,
+            toolGroups,
             agentDeniedToolCount: denied.length,
             effectiveRegisteredToolCount: Math.max(0, tools.length - denied.length),
         };
@@ -1350,12 +1361,28 @@
     const TASK_HORIZON_MIXED_READ_TOOLS = new Set([
         'manage_agent_schedules', 'delete_task', 'batch_tasks', 'delete_schedule', 'batch_schedules',
     ]);
+    // SiYuan 3.8 caps model capability names at 64 characters. Task Horizon names
+    // longer than the cap arrive with a 14-character local prefix plus the hash suffix.
+    const TASK_HORIZON_TOOL_NAMES = Object.freeze([
+        'list_task_scopes', 'get_task', 'query_tasks', 'query_schedules',
+        'create_task', 'update_task', 'move_task', 'delete_task', 'batch_tasks',
+        'configure_task_reminder', 'manage_agent_schedules', 'apply_task_operation_plan',
+        'get_task_policy', 'preview_task_policy_patch', 'apply_task_policy_patch',
+        'aggregate_task_stats', 'aggregate_time_usage', 'query_focus_statistics',
+        'query_routine_statistics', 'list_focus_sessions',
+    ]);
+    const TASK_HORIZON_TRUNCATED_TOOL_ALIASES = new Map(
+        TASK_HORIZON_TOOL_NAMES
+            .filter((name) => name.length > 14)
+            .map((name) => [name.slice(0, 14), name]),
+    );
 
     function normalizeToolName(name) {
         const raw = text(name).toLowerCase();
         const prefix = TASK_HORIZON_TOOL_PREFIXES.find((item) => raw.startsWith(item));
-        const localName = prefix ? raw.slice(prefix.length) : raw;
-        return prefix ? localName.replace(/__[0-9a-f]{12}$/, '') : localName;
+        if (!prefix) return raw;
+        const localName = raw.slice(prefix.length).replace(/__[0-9a-f]{12}$/, '');
+        return TASK_HORIZON_TRUNCATED_TOOL_ALIASES.get(localName) || localName;
     }
 
     function isTaskHorizonToolName(name) {
@@ -3866,6 +3893,8 @@
     const AUTOMATION_NATIVE_READ_ACTIONS = new Map([
         ['sql', new Set(['query'])],
     ]);
+    const AUTOMATION_TOMATO_ATTR_PATTERN = /\bcustom-tomato-[a-z0-9_-]+\b/i;
+    const AUTOMATION_FOCUS_TOOLS = Object.freeze(['query_focus_statistics', 'aggregate_time_usage']);
     const AUTOMATION_READ_SKILLS = new Set(['task-capture', 'task-planning', 'task-review', 'task-template']);
 
     function automationToolName(name) {
@@ -3877,7 +3906,13 @@
         const normalized = automationToolName(name);
         if (AUTOMATION_READ_TOOLS.has(normalized) || AUTOMATION_SESSION_TOOLS.has(normalized)) return true;
         const nativeActions = AUTOMATION_NATIVE_READ_ACTIONS.get(normalized);
-        if (nativeActions) return nativeActions.has(text(args?.action).toLowerCase());
+        if (nativeActions) {
+            if (!nativeActions.has(text(args?.action).toLowerCase())) return false;
+            // Focus data has a first-class MCP contract; never fall back to internal Tomato attributes.
+            const sqlText = [args?.stmt, args?.sql, args?.query].map((value) => text(value)).join('\n');
+            if (normalized === 'sql' && AUTOMATION_TOMATO_ATTR_PATTERN.test(sqlText)) return false;
+            return true;
+        }
         if (normalized !== 'skill') return false;
         const action = text(args?.action).toLowerCase();
         if (action === 'list') return true;
@@ -3899,7 +3934,7 @@
     }
 
     function automationSafetyInstruction() {
-        return '\n\n这是无人值守的定时执行。只能读取、筛选和聚合数据，也可以使用只读的 sql.query、skill.list 或加载 Task Horizon 内置技能；禁止创建、修改或删除任何数据，禁止请求用户确认或提问，禁止调用浏览器或其他前端能力。已有任务数据附在提示词中时直接使用，不要重复查询。';
+        return '\n\n这是无人值守的定时执行。只能读取、筛选和聚合数据，也可以使用只读的 sql.query、skill.list 或加载 Task Horizon 内置技能；禁止创建、修改或删除任何数据，禁止请求用户确认或提问，禁止调用浏览器或其他前端能力。已有任务数据附在提示词中时直接使用，不要重复查询；但涉及专注时长或番茄数据时，必须从本轮 tool definitions 中选择描述为“专注统计”或“时间投入统计”的 Task Horizon MCP capability（内部标识为 query_focus_statistics 或 aggregate_time_usage），实际函数名必须使用带 plugin__siyuan_plugin_task_horizon__ 前缀和校验后缀的完整名称，禁止直接调用裸标识，也禁止通过 SQL 读取 custom-tomato-* 属性。';
     }
 
     function automationConfirmAllowed(event = {}) {
@@ -3936,12 +3971,34 @@
             .trim();
     }
 
-    async function ensureAutomationTaskToolsReady() {
+    async function ensureAutomationTaskToolsReady(options = {}) {
         await ensureStoreLoaded();
         const settings = aiBridge()?.getSettings?.() || {};
-        if (settings.agentMcpEnabled !== true) return true;
-        if (!await ensureTaskToolsReadyForSend()) {
+        if (settings.agentMcpEnabled === true && !await ensureTaskToolsReadyForSend()) {
             throw new Error('任务工具正在恢复，本次定时事件尚未发起模型请求');
+        }
+        if (options.focusTools !== true) return true;
+        let capabilities = await getCapabilities();
+        const focusToolsReady = () => AUTOMATION_FOCUS_TOOLS.every((name) => {
+            const tool = (Array.isArray(capabilities?.toolGroups) ? capabilities.toolGroups : [])
+                .flatMap((group) => Array.isArray(group?.tools) ? group.tools : [])
+                .find((item) => text(item?.name) === name);
+            return tool?.registered === true && tool?.enabled === true && tool?.agentAllowed !== false;
+        });
+        // A previous UI toggle may have left SiYuan's capability-policy overrides set to deny
+        // while the plugin MCP switch still reports enabled. Re-sync the enabled policy before
+        // a scheduled round so the focus tools are actually exposed to the model.
+        if (!focusToolsReady()
+            && settings.agentMcpEnabled === true
+            && settings.agentMcpAllowed === true
+            && typeof aiBridge()?.setAgentMcpEnabled === 'function') {
+            try {
+                await aiBridge().setAgentMcpEnabled(true, { notify: false, refreshSettings: false, syncAgentPolicy: true });
+                capabilities = await getCapabilities();
+            } catch (error) {}
+        }
+        if (!focusToolsReady()) {
+            throw new Error('定时事件需要已暴露的专注 MCP 工具（query_focus_statistics、aggregate_time_usage；本轮完整 capability 名称带 plugin__siyuan_plugin_task_horizon__ 前缀和校验后缀）：请保持任务 MCP 工具开启，并在工具设置中启用“统计复盘”');
         }
         if (!runtime.skillSync.installed) {
             const sync = await syncBuiltinSkills();
@@ -3954,7 +4011,7 @@
         const prompt = text(request.prompt || request.message);
         if (!prompt) throw new Error('自动化提示词不能为空');
         const agentPrompt = `${prompt}${automationSafetyInstruction()}`;
-        await ensureAutomationTaskToolsReady();
+        await ensureAutomationTaskToolsReady({ focusTools: request.requireFocusTools === true });
         const persistent = request.persistSession === true;
         const requestedSessionID = text(request.sessionID);
         let sessionID = persistent

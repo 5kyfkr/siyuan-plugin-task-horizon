@@ -780,17 +780,6 @@
         try { if (calendarTodayHighlight) root.style.setProperty('--tm-calendar-today-highlight-color', calendarTodayHighlight); } catch (e) {}
         try { if (calendarGridBorder) root.style.setProperty('--tm-calendar-grid-border-color', calendarGridBorder); } catch (e) {}
         try { if (tableBorder) root.style.setProperty('--tm-table-border-color', tableBorder); } catch (e) {}
-        try {
-            globalThis.__tmThemeRuntimeRootStyleSnapshot = root.getAttribute('style') || '';
-            const computed = getComputedStyle(root);
-            const values = [];
-            for (let index = 0; index < computed.length; index += 1) {
-                const name = String(computed[index] || '').trim();
-                if (!name.startsWith('--')) continue;
-                values.push(`${name}:${String(computed.getPropertyValue(name) || '').trim()}`);
-            }
-            globalThis.__tmThemeRuntimeComputedStyleSignature = values.sort().join('|');
-        } catch (e) {}
         try { window.dispatchEvent(new CustomEvent('tm:appearance-theme-updated', { detail: { ts: Date.now(), source: followSiyuan ? 'siyuan' : themeConfig.source, presetId: themeConfig.presetId } })); } catch (e) {}
     }
 
@@ -850,6 +839,15 @@
         if (manuallyArchived) return options?.archiveMode === true;
         if (options?.archiveMode === true) return !!(automaticallyArchived || manuallyArchived);
         return !!(!automaticallyArchived);
+    }
+
+    function __tmShouldIncludeDocInActiveAggregateTaskScope(docId, options = {}) {
+        if (options?.aggregate !== true || options?.archiveMode === true) return true;
+        const id = String(docId || '').trim();
+        if (!id) return true;
+        const groupId = String(options?.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        if (__tmIsDocManuallyUnarchivedInGroup(id, groupId)) return true;
+        return !__tmIsDocManuallyArchivedInGroup(id, groupId);
     }
 
     function __tmGetArchiveModeFilterRule(rule, archiveMode = state.docTabsArchiveMode === true) {
@@ -7820,6 +7818,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     'on_or_before_today',
                     'on_or_after_today',
                 ]);
+                const noValueOperators = new Set(['is_empty', 'is_not_empty']);
                 let valueDisplay = c.value;
 
                 if (field?.type === 'select') {
@@ -7869,7 +7868,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                 if (field?.type === 'datetime' && String(c.operator || '').trim() === 'range_next_days') {
                     return `${field?.label || c.field} 今天至${valueDisplay}`;
                 }
-                const suffix = field?.type === 'datetime' && noValueDatetimeOperators.has(String(c.operator || '').trim())
+                const suffix = (field?.type === 'datetime' && noValueDatetimeOperators.has(String(c.operator || '').trim()))
+                    || noValueOperators.has(String(c.operator || '').trim())
                     ? ''
                     : ` ${valueDisplay}`;
                 return `${field?.label || c.field} ${operatorLabel}${matchModeText}${suffix}`;
@@ -8018,6 +8018,9 @@ return Number(state.contextInteractionQuietUntil || 0);
     function renderConditionValue(condition, index, fieldInfo) {
         const fieldType = String(fieldInfo?.type || '').trim() || 'text';
         const operator = String(condition?.operator || '').trim();
+        if (operator === 'is_empty' || operator === 'is_not_empty') {
+            return '<span class="tm-rule-condition-value tm-rule-condition-value-empty">无需填写</span>';
+        }
         const noValueDatetimeOperators = new Set([
             'range_today',
             'range_week',
@@ -9513,8 +9516,13 @@ return Number(state.contextInteractionQuietUntil || 0);
             condition.operator = operator;
             const fieldInfo = RuleManager.getFieldInfo(condition.field);
 
+            // 无值操作符不保留之前输入的比较值。
+            if (operator === 'is_empty' || operator === 'is_not_empty') {
+                condition.value = '';
+                delete condition.matchMode;
+            }
             // 如果操作符变为 between，初始化值对象
-            if (operator === 'between') {
+            else if (operator === 'between') {
                 condition.value = { from: '', to: '' };
             }
             else if (fieldInfo?.type === 'datetime' && [
@@ -9930,6 +9938,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             docs: state.taskTree || []
         });
         const isDocTabCustomGroupActive = activeDocTabCustomGroupDocIds instanceof Set && activeDocTabCustomGroupDocIds.size > 0;
+        const isAggregateTaskScope = activeDocId === 'all' || isDocTabCustomGroupActive;
 
         const collect = (list, target) => {
             (list || []).forEach((t) => {
@@ -9945,6 +9954,11 @@ return Number(state.contextInteractionQuietUntil || 0);
         taskTreeForFilter.forEach((doc) => {
             if (archiveMode && !__tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode, groupId: currentGroupId, docStateCache: docTaskStateCache })) return;
             const docId = String(doc?.id || '').trim();
+            if (!__tmShouldIncludeDocInActiveAggregateTaskScope(docId, {
+                aggregate: isAggregateTaskScope,
+                archiveMode,
+                groupId: currentGroupId,
+            })) return;
             if (docId) allTaskDocIdsForTabs.add(docId);
             const docTasks = [];
             collect(doc.tasks, docTasks);

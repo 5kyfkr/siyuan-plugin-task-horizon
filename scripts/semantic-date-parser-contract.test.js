@@ -35,6 +35,8 @@ function parse(content) {
 assert.equal(parse('晚上8点')?.completionValue, '2026-07-23 20:00');
 assert.equal(parse('开会 下午3点')?.completionValue, '2026-07-23 15:00');
 assert.equal(parse('傍晚 6:30')?.completionValue, '2026-07-23 18:30');
+assert.equal(parse('记得8.21下午5点钟')?.completionValue, '2026-07-23 17:00');
+assert.equal(parse('记得8.21下午5:30')?.completionValue, '2026-07-23 17:30');
 assert.equal(parse('明晚8点')?.completionValue, '2026-07-24 20:00');
 assert.equal(parse('明天晚上8点')?.completionValue, '2026-07-24 20:00');
 assert.equal(parse('明天十点半')?.completionValue, '2026-07-24 10:30');

@@ -342,7 +342,7 @@ assert.doesNotMatch(
 );
 assert.match(
     visibleSchedulePatch,
-    /__tmBuildSingleScheduleEventsForCalendar[\s\S]*cal\.addEvent\?\.[\s\S]*__tmApplyScheduleExtendedPropsInPlace[\s\S]*return \{ touched, needsRefresh \}/,
+    /__tmBuildSingleScheduleEventsForCalendar[\s\S]*getCalendarAdapter\(cal\)\?\.addEvent[\s\S]*__tmApplyScheduleExtendedPropsInPlace[\s\S]*return \{ touched, needsRefresh \}/,
     'visible day and week schedule mutations must reconcile events directly',
 );
 assert.match(

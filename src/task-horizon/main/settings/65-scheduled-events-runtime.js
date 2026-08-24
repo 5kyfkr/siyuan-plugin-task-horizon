@@ -7,6 +7,36 @@
     const __TM_SCHEDULED_EVENTS_KERNEL_SCHEMA_VERSION = 2;
     const __TM_SCHEDULED_EVENT_TERMINAL_STATUSES = new Set(['succeeded', 'skipped_empty', 'blocked', 'config_error']);
 
+    function __tmScheduledIsDesktopRuntime() {
+        try {
+            if (typeof __tmIsRuntimeMobileClient === 'function') return !__tmIsRuntimeMobileClient();
+        } catch (e) {}
+        try {
+            const kind = String(globalThis.__taskHorizonRuntimeClientKind || '').trim().toLowerCase();
+            if (kind) return kind === 'desktop-browser';
+        } catch (e) {}
+        try {
+            if (globalThis.__tmHost?.isMobileRuntime?.() === true) return false;
+        } catch (e) {}
+        try {
+            if (globalThis.__taskHorizonPluginIsMobile === true
+                || globalThis.__taskHorizonPluginIsNativeMobile === true
+                || window.siyuan?.config?.isMobile === true) return false;
+        } catch (e) {}
+        try {
+            const frontend = String(
+                globalThis.__taskHorizonFrontend
+                || document?.documentElement?.dataset?.frontend
+                || ''
+            ).trim().toLowerCase();
+            if (frontend === 'mobile' || frontend === 'browser-mobile') return false;
+            if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return true;
+        } catch (e) {}
+        return true;
+    }
+
+    const __TM_SCHEDULED_DESKTOP_ONLY_ERROR = 'AI 定时事件仅在电脑端执行';
+
     function __tmScheduledCoreSupported() {
         const raw = String(window.siyuan?.config?.system?.kernelVersion || window.siyuan?.config?.system?.version || '').trim().replace(/^v/i, '');
         if (!raw) return true;
@@ -310,6 +340,20 @@
             throwOnError: true,
         });
         return __tmScheduledFilterCompletedTasks(tasks, occurrence).map(__tmScheduledCompletedTaskSnapshot);
+    }
+
+    function __tmScheduledFocusRange(occurrence) {
+        const date = occurrence instanceof Date ? occurrence : new Date(occurrence || Date.now());
+        if (Number.isNaN(date.getTime())) return null;
+        const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        const end = new Date(start.getTime() + 86400000);
+        return { from: start.toISOString(), to: end.toISOString() };
+    }
+
+    function __tmScheduledFocusInstruction(occurrence) {
+        const range = __tmScheduledFocusRange(occurrence);
+        const rangeText = range ? `，时间范围为 from=${range.from}、to=${range.to}` : '';
+        return `\n\n专注数据口径（必须遵守）：本次总结涉及专注时长或番茄时，必须从本轮 tool definitions 中选择 Task Horizon MCP 的“专注统计” capability（内部标识 query_focus_statistics），并传 action=query、bucket=none、groupBy=task${rangeText}；实际函数名必须使用当前列表中带 plugin__siyuan_plugin_task_horizon__ 前缀及校验后缀的完整名称，不要直接调用裸的 query_focus_statistics。如提示词附带任务，才将这些任务的 id 作为 taskIDs，否则不要传空的 taskIDs，直接按时间范围查询。需要预估、日程与实际对比时，从本轮 tool definitions 中选择“时间投入统计” capability（内部标识 aggregate_time_usage），同样使用列表中的完整名称，不要直接调用裸的 aggregate_time_usage。禁止使用 sql.query 读取任何 custom-tomato-* 属性，尤其 custom-tomato-applied-records，它是 Dock Tomato 内部去重账本，不是专注数据。MCP 无数据时明确写“暂无专注数据”，不要用其他字段替代或推算。`;
     }
 
     function __tmScheduledNotificationSummary(markdown) {
@@ -827,6 +871,9 @@
 
     async function __tmScheduledRun(eventId, options = {}) {
         const manual = options.manual === true;
+        if (!manual && !__tmScheduledIsDesktopRuntime()) {
+            return { status: 'desktop_only', error: __TM_SCHEDULED_DESKTOP_ONLY_ERROR };
+        }
         let event = __tmScheduledEventById(eventId);
         if (!event) throw new Error('定时事件不存在');
         const occurrence = options.occurrence instanceof Date ? options.occurrence : new Date();
@@ -863,9 +910,10 @@
                 throw new Error('定时事件需要思源 3.7.3 或更高版本，并启用可用的智能体模型');
             }
             const conversationId = String(event.conversationId || '').trim();
-            const context = completedTasks.length
+            const completedTaskContext = completedTasks.length
                 ? `\n\n以下是 ${__tmScheduledLocalDateKey(occurrence)} 当天实际完成的任务（完成日期只按 taskCompleteAt 计算）：\n${JSON.stringify(completedTasks.slice(0, 300), null, 2)}`
                 : '';
+            const context = `${completedTaskContext}${__tmScheduledFocusInstruction(occurrence)}`;
             const result = await globalThis.__tmAI.runAutomation({
                 prompt: `${event.prompt}${context}`,
                 eventId: event.id,
@@ -873,6 +921,7 @@
                 sessionID: conversationId,
                 sessionTitle: `定时：${event.name}`,
                 persistSession: true,
+                requireFocusTools: true,
             });
             const resolvedConversationId = String(result?.sessionID || '').trim();
             if (resolvedConversationId && resolvedConversationId !== event.conversationId) {
@@ -956,7 +1005,7 @@
     }
 
     function __tmScheduledArmTimer() {
-        if (__tmScheduledRuntime.disposed) return;
+        if (__tmScheduledRuntime.disposed || !__tmScheduledIsDesktopRuntime()) return;
         if (__tmScheduledRuntime.timer) clearTimeout(__tmScheduledRuntime.timer);
         const now = Date.now();
         const delay = Math.max(1000, 60000 - (now % 60000) + 40);
@@ -975,6 +1024,7 @@
     async function __tmScheduledCheckDue() {
         if (__tmScheduledRuntime.running
             || __tmScheduledRuntime.disposed
+            || !__tmScheduledIsDesktopRuntime()
             || Date.now() < __tmScheduledRuntime.kernelBackoffUntil
             || !__tmScheduledCoreSupported()) return;
         __tmScheduledRuntime.running = true;
@@ -1109,6 +1159,7 @@
             const promptMigrationNeeded = JSON.stringify(sourcePrompts) !== JSON.stringify(normalizedPrompts);
             const kernelMigrationNeeded = Number(SettingsStore.data.scheduledEventsSchemaVersion) < __TM_SCHEDULED_EVENTS_KERNEL_SCHEMA_VERSION;
             if (!__tmScheduledCoreSupported()) return;
+            if (!__tmScheduledIsDesktopRuntime()) return;
             __tmScheduledRuntime.focusHandler = () => { this.refresh().catch(() => {}); };
             __tmScheduledRuntime.visibilityHandler = () => {
                 if (document.visibilityState === 'visible') this.refresh().catch(() => {});
@@ -1173,8 +1224,10 @@
         loadTodayCompletedTasks: __tmScheduledLoadTodayCompletedTasks,
         mergeEventSnapshots: __tmScheduledMergeEventSnapshots,
         extractPrompt: __tmScheduledExtractActionPrompt,
+        focusInstruction: __tmScheduledFocusInstruction,
         sanitizeOutput: __tmScheduledSanitizeOutput,
         neutralizeTaskMarkers: __tmScheduledNeutralizeTaskMarkers,
         stripDuplicateLeadingHeading: __tmScheduledStripDuplicateLeadingHeading,
         deliver: __tmScheduledDeliver,
+        isDesktopRuntime: __tmScheduledIsDesktopRuntime,
     };

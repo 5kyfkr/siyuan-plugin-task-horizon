@@ -1023,6 +1023,10 @@
             && !!SettingsStore.data.docTitleEmbeddedTaskFocusEnabled;
     }
 
+    function __tmIsDocTitleGroupFocusEnabled() {
+        return SettingsStore.data.docTitleGroupFocusEnabled !== false;
+    }
+
     function __tmCollectDocTitleEmbeddedBlockIds(controller) {
         const root = controller?.embeddedRoot;
         if (!(root instanceof HTMLElement)) return [];
@@ -1240,6 +1244,11 @@
                 __tmRemoveDocTitleMarker(controller);
             }
             __tmRequestDocTitleEmbeddedFocus(controller, embeddedTaskIds);
+            return;
+        }
+        if (!__tmIsDocTitleGroupFocusEnabled()) {
+            __tmResetDocTitleEmbeddedFocusController(controller);
+            __tmRemoveDocTitleMarker(controller);
             return;
         }
         __tmResetDocTitleEmbeddedFocusController(controller);

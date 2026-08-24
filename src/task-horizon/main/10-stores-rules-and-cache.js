@@ -4288,6 +4288,40 @@
         }
     }
 
+    async function __tmReadTaskIndexForScope(options = {}) {
+        try {
+            const opts = (options && typeof options === 'object') ? options : {};
+            const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || []);
+            if (!docIds.length) return null;
+            if (opts.cachedOnly && !__tmTaskIndexStoreCache) {
+                __tmScheduleWarmTaskIndexStore(1800);
+                return null;
+            }
+            const store = opts.cachedOnly
+                ? __tmTaskIndexStoreCache
+                : await __tmLoadTaskIndexStore({ force: !!opts.force });
+            const built = __tmBuildTaskIndexTaskTreeForDocs(store, docIds, opts);
+            if (!built) return null;
+            const reloadDocIds = Array.from(new Set([
+                ...(Array.isArray(built.missingDocIds) ? built.missingDocIds : []),
+                ...(Array.isArray(built.staleDocIds) ? built.staleDocIds : []),
+            ].map((id) => String(id || '').trim()).filter(Boolean)));
+            if (reloadDocIds.length) {
+                const allowPartial = opts.allowPartial === true;
+                const maxPartialMisses = Math.max(0, Math.round(Number(opts.maxPartialMisses || 0) || 0));
+                if (!allowPartial || reloadDocIds.length > maxPartialMisses) return null;
+            }
+            if (!built.taskTree.length && reloadDocIds.length > 0) return null;
+            return {
+                ...built,
+                partial: reloadDocIds.length > 0,
+                reloadDocIds,
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
     function __tmWarmTaskIndexStore() {
         if (__tmTaskIndexStoreCache || __tmTaskIndexStoreLoadPromise) return;
         try { __tmLoadTaskIndexStore().catch(() => null); } catch (e) {}
@@ -8251,6 +8285,7 @@
         search: true,
         refresh: true,
         ai: true,
+        calendarSidebar: true,
     });
 
     function __tmNormalizeTopbarButtonVisibility(input) {
@@ -8408,6 +8443,7 @@
             quickAddLastLocation: null,
             headingGroupCreateAtSectionEnd: false,
             enableTomatoIntegration: true,
+            docTitleGroupFocusEnabled: true,
             docTitleEmbeddedTaskFocusEnabled: false,
             enablePointsRewardIntegration: false,
             pointsRewardExcludedGroupIds: [],
@@ -9075,6 +9111,7 @@
                                 if (cloudData.quickAddLastLocation && typeof cloudData.quickAddLastLocation === 'object') this.data.quickAddLastLocation = __tmNormalizeQuickAddLastLocation(cloudData.quickAddLastLocation);
                                 if (typeof cloudData.headingGroupCreateAtSectionEnd === 'boolean') this.data.headingGroupCreateAtSectionEnd = cloudData.headingGroupCreateAtSectionEnd;
                                 if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
+                                if (typeof cloudData.docTitleGroupFocusEnabled === 'boolean') this.data.docTitleGroupFocusEnabled = cloudData.docTitleGroupFocusEnabled;
                                 if (typeof cloudData.docTitleEmbeddedTaskFocusEnabled === 'boolean') this.data.docTitleEmbeddedTaskFocusEnabled = cloudData.docTitleEmbeddedTaskFocusEnabled;
                                 if (typeof cloudData.enablePointsRewardIntegration === 'boolean') this.data.enablePointsRewardIntegration = cloudData.enablePointsRewardIntegration;
                                 if (Array.isArray(cloudData.pointsRewardExcludedGroupIds)) this.data.pointsRewardExcludedGroupIds = cloudData.pointsRewardExcludedGroupIds;
@@ -9603,6 +9640,7 @@
             this.data.docTabsAutoHideEnabled = !!Storage.get('tm_doc_tabs_auto_hide_enabled', this.data.docTabsAutoHideEnabled);
             this.data.docTabProcrastinationTintEnabled = Storage.get('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled) !== false;
             this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
+            this.data.docTitleGroupFocusEnabled = Storage.get('tm_doc_title_group_focus_enabled', this.data.docTitleGroupFocusEnabled) !== false;
             this.data.docTitleEmbeddedTaskFocusEnabled = !!Storage.get('tm_doc_title_embedded_task_focus_enabled', this.data.docTitleEmbeddedTaskFocusEnabled);
             this.data.enablePointsRewardIntegration = !!Storage.get('tm_enable_points_reward_integration', this.data.enablePointsRewardIntegration);
             this.data.pointsRewardExcludedGroupIds = Storage.get('tm_points_reward_excluded_group_ids', this.data.pointsRewardExcludedGroupIds);
@@ -10156,6 +10194,7 @@
             Storage.set('tm_doc_tabs_auto_hide_enabled', !!this.data.docTabsAutoHideEnabled);
             Storage.set('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled !== false);
             Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
+            Storage.set('tm_doc_title_group_focus_enabled', this.data.docTitleGroupFocusEnabled !== false);
             Storage.set('tm_doc_title_embedded_task_focus_enabled', !!this.data.docTitleEmbeddedTaskFocusEnabled);
             Storage.set('tm_enable_points_reward_integration', !!this.data.enablePointsRewardIntegration);
             Storage.set('tm_points_reward_excluded_group_ids', Array.isArray(this.data.pointsRewardExcludedGroupIds) ? this.data.pointsRewardExcludedGroupIds : []);
@@ -10642,6 +10681,7 @@
             this.data.deleteTaskRemovesWhiteboardCards = this.data.deleteTaskRemovesWhiteboardCards !== false;
             this.data.headingGroupCreateAtSectionEnd = !!this.data.headingGroupCreateAtSectionEnd;
             this.data.autoCompleteParentOnSubtasksDone = !!this.data.autoCompleteParentOnSubtasksDone;
+            this.data.docTitleGroupFocusEnabled = this.data.docTitleGroupFocusEnabled !== false;
             this.data.taskDetailShowCompletedSubtasks = __tmNormalizeTaskDetailShowCompletedSubtasksSetting(
                 this.data.taskDetailShowCompletedSubtasks,
                 __tmNormalizeTaskDetailShowCompletedSubtasksSetting(this.data.taskDetailCompletedSubtasksVisibilityByTask, __TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_DEFAULT)
@@ -11883,6 +11923,18 @@
             return fieldInfo?.multi && String(condition?.matchMode || '').trim() === 'all' ? 'all' : 'any';
         },
 
+        isEmptyFieldValue(value) {
+            if (value === null || typeof value === 'undefined') return true;
+            if (typeof value === 'string') return value.trim() === '';
+            if (Array.isArray(value)) {
+                return value.length === 0 || value.every((item) => this.isEmptyFieldValue(item));
+            }
+            if (typeof value === 'number') return Number.isNaN(value);
+            if (value instanceof Date) return Number.isNaN(value.getTime());
+            if (typeof value === 'object') return Object.keys(value).length === 0;
+            return false;
+        },
+
         // 获取可用操作符
         getOperators(fieldType) {
             const baseOperators = [
@@ -11891,7 +11943,9 @@
                 { value: 'in', label: '在列表中' },        // 多值匹配
                 { value: 'not_in', label: '不在列表中' },  // 多值排除
                 { value: 'contains', label: '包含' },
-                { value: 'not_contains', label: '不包含' }
+                { value: 'not_contains', label: '不包含' },
+                { value: 'is_empty', label: '为空' },
+                { value: 'is_not_empty', label: '不为空' }
             ];
 
             const numberOperators = [
@@ -12030,6 +12084,26 @@
                     : task.done === true;
                 if (operator === '=') return taskDone === targetValue;
                 if (operator === '!=') return taskDone !== targetValue;
+            }
+
+            if (operator === 'is_empty' || operator === 'is_not_empty') {
+                // Select and date fields have normalized representations that
+                // distinguish an unset value from a valid 0/false value.
+                let isEmpty;
+                if (isSelectField && field !== 'customStatus') {
+                    isEmpty = taskSelectValues.length === 0
+                        || taskSelectValues.every((item) => runtime.emptyTokens.has(String(item ?? '').trim()));
+                } else if (runtime.isTimeField) {
+                    isEmpty = this.getTaskTimeValue(task, fieldInfo || field, opts) === 0;
+                } else {
+                    // customStatus falls back to the default status for normal
+                    // comparisons; emptiness must inspect the explicit value.
+                    const rawValue = field === 'customStatus'
+                        ? (task?.customStatus ?? task?.custom_status)
+                        : taskValue;
+                    isEmpty = this.isEmptyFieldValue(rawValue);
+                }
+                return operator === 'is_empty' ? isEmpty : !isEmpty;
             }
 
             // 处理多值匹配（in / not_in）
@@ -14901,6 +14975,23 @@
         } catch (e) {}
         return Date.now();
     }
+
+    // Calendar trace hooks remain as no-op compatibility APIs. They must not
+    // allocate trace objects or write diagnostic output during normal use.
+    function __tmTaskHorizonPerfCreate(kind, meta = {}) { return null; }
+    function __tmTaskHorizonPerfMark(traceOrId, stage, detail = {}) { return traceOrId || null; }
+    function __tmTaskHorizonPerfFinish(traceOrId, detail = {}) { return traceOrId || null; }
+
+    try {
+        globalThis.__tmTaskHorizonPerfCreate = __tmTaskHorizonPerfCreate;
+        globalThis.__tmTaskHorizonPerfMark = __tmTaskHorizonPerfMark;
+        globalThis.__tmTaskHorizonPerfFinish = __tmTaskHorizonPerfFinish;
+        if (typeof window !== 'undefined') {
+            window.__tmTaskHorizonPerfCreate = __tmTaskHorizonPerfCreate;
+            window.__tmTaskHorizonPerfMark = __tmTaskHorizonPerfMark;
+            window.__tmTaskHorizonPerfFinish = __tmTaskHorizonPerfFinish;
+        }
+    } catch (e) {}
 
     function __tmGetStatsSnapshot() {
         return __tmCloneDebugValue(state?.stats || {});
@@ -18451,10 +18542,22 @@
     }
 
     function __tmScheduleCalendarRefetchFromTx(options = {}) {
+        const txTrace = (() => {
+            try {
+                return globalThis.__tmTaskHorizonPerfCreate?.('calendarRefresh', {
+                    calendar: 'tx',
+                    instance: 'tx',
+                    reason: String(options?.reason || 'task-tx-refresh').trim() || 'task-tx-refresh',
+                    refreshReason: String(options?.source || 'transaction').trim() || 'transaction',
+                    pending: true,
+                });
+            } catch (e) { return null; }
+        })();
         __tmCalendarTxRefreshPending = true;
         const calApi = globalThis.__tmCalendar;
         if (!calApi || (typeof calApi.requestRefresh !== 'function' && typeof calApi.refreshInPlace !== 'function')) {
             __tmCalendarTxRefreshPending = false;
+            try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'calendar-api-missing', success: true }); } catch (e) {}
             return;
         }
         const skipLocalDateRefresh = __tmShouldSkipCalendarTxRefreshForLocalDateTargets(options);
@@ -18464,6 +18567,7 @@
                 __tmCalendarTxRefreshTimer = null;
                 const gateMeta = __tmGetBackgroundRefreshGateMeta('calendar-tx');
                 if (!gateMeta.allowRun) {
+                    try { globalThis.__tmTaskHorizonPerfMark?.(txTrace, 'deferred', { calendar: 'tx', reason: gateMeta.reason || reason || 'deferred', pending: true }); } catch (e) {}
                     if (gateMeta.parkUntilScrollIdle) {
                         try { __tmScheduleDeferredRefreshAfterScroll('calendar-tx'); } catch (e) {}
                         return;
@@ -18480,6 +18584,7 @@
                     if (isCalendarView && skipLocalDateRefresh) {
                         // The local date patch already updated the mounted event.
                         // The transaction echo must not issue a second range query.
+                        try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'skip-local-date-refresh', mode: 'skip', success: true }); } catch (e) {}
                         return;
                     }
                     try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
@@ -18491,6 +18596,7 @@
                             side: false,
                             allowInactiveFullLoad: true,
                         });
+                        try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'task-date-source-refresh', main: true, side: false, success: true }); } catch (e) {}
                     } else if (isCalendarView) {
                         // Compatibility fallback for older calendar bundles that do not expose
                         // the task-date source API yet.
@@ -18501,6 +18607,9 @@
                             flushTaskPanel: false,
                             hard: false,
                         }, { hard: false });
+                        try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'calendar-refresh-fallback', main: true, side: false, success: true }); } catch (e) {}
+                    } else {
+                        try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'skip-non-calendar-view', mode: 'skip', success: true }); } catch (e) {}
                     }
                 } catch (e) {}
             }, Math.max(120, Number(delayMs || 0) || 120));

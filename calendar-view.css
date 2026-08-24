@@ -2115,6 +2115,13 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     animation: none !important;
 }
 
+.tm-calendar-host--month-view :is(.tm-cal-allday-summary, .tm-cal-allday-toggle),
+.tm-calendar-wrap--month-view :is(.tm-cal-allday-summary, .tm-cal-allday-toggle) {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
 .tm-calendar-nav-header {
     display: flex;
     align-items: center;
@@ -4031,6 +4038,13 @@ body > .fc-7V.tm-fc-external-mirror-source.tm-fc-mirror-checkbox-circle :is(.tm-
     position: relative !important;
     z-index: 1 !important;
     pointer-events: none !important;
+}
+
+:is(.tm-calendar-host .fc, .tm-calendar-host.fc, #tmCalendarSideDockTimeline .fc, #tmCalendarSideDockTimeline.fc) .fc-timegrid [role="row"] > :has(+ .tm-cal-slot-header-divider) {
+    flex: 0 0 var(--tm-calendar-axis-width, 40px) !important;
+    width: var(--tm-calendar-axis-width, 40px) !important;
+    min-width: var(--tm-calendar-axis-width, 40px) !important;
+    max-width: var(--tm-calendar-axis-width, 40px) !important;
 }
 
 .tm-calendar-host .fc .fc-timegrid-event-harness,

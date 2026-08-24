@@ -21,7 +21,7 @@ assert.match(loaderSource, /Promise\.all\([\s\S]*\)\.catch\(\(\) => null\)/, 'de
 const promiseAllIndex = loaderSource.indexOf('Promise.all(');
 const promiseAllCatchIndex = loaderSource.indexOf(')).catch(() => null)');
 assert.ok(promiseAllIndex >= 0 && promiseAllCatchIndex > promiseAllIndex, 'development script loading must attach catch after Promise.all');
-assert.match(index, /console\.log\(`\[task-horizon\] dev sources loaded \(\$\{devLoad\.scripts\.length\} files\): task-horizon\.dev-main\.js`\)/, 'successful development source startup must be visible in the console');
+assert.doesNotMatch(index, /dev sources loaded.*task-horizon\.dev-main\.js/, 'successful development source startup must stay silent');
 assert.match(index, /const bundledLoaded = await loadScriptText\(TASK_SCRIPT_PATH, "task\.js"\)/, 'installed packages must retain the bundled fallback');
 assert.match(index, /const ready = await ensureAiExperienceRuntime\(normalized\);[\s\S]*persistAiExperienceMode\(normalized\)/, 'AI mode changes must load the target runtime before committing the new mode');
 assert.match(index, /catch \(error\) \{[\s\S]*ensureAiExperienceRuntime\(previousMode\)[\s\S]*persistAiExperienceMode\(previousMode\)[\s\S]*throw error/, 'failed AI mode changes must restore the previous runtime and setting');

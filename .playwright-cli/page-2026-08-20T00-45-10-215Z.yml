@@ -1,0 +1,13 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]: 添加待办
+    - button "关闭" [ref=e6] [cursor=pointer]
+  - textbox "输入事项…每行一个任务；回车换行，Ctrl + 回车提交" [ref=e7]
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - button "📁 项目任务" [ref=e10] [cursor=pointer]
+      - button "中" [ref=e11] [cursor=pointer]
+      - button "待办" [ref=e12] [cursor=pointer]
+      - button "🗓 日期" [ref=e14] [cursor=pointer]
+      - button "标签 未设置" [ref=e15] [cursor=pointer]
+    - button "提交" [ref=e16] [cursor=pointer]

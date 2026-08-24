@@ -6,6 +6,9 @@
                 if (name === 'loadSnapshotForScope' && typeof __tmLoadTaskSnapshotForScope === 'function') {
                     return __tmLoadTaskSnapshotForScope(...args);
                 }
+                if (name === 'readTaskIndexForScope' && typeof __tmReadTaskIndexForScope === 'function') {
+                    return __tmReadTaskIndexForScope(...args);
+                }
                 if (name === 'loadLatestSnapshotForGroup' && typeof __tmLoadLatestTaskSnapshotForGroup === 'function') {
                     return __tmLoadLatestTaskSnapshotForGroup(...args);
                 }
@@ -36,6 +39,7 @@
 
         const snapshot = {
             load: (...args) => callLocal('loadSnapshotForScope', args),
+            readTaskIndex: (...args) => callLocal('readTaskIndexForScope', args),
             loadLatestForGroup: (...args) => callLocal('loadLatestSnapshotForGroup', args),
             refreshCache: (...args) => callLocal('refreshSnapshotCacheIfChanged', args),
             warm: (...args) => callLocal('warmSnapshotStore', args),

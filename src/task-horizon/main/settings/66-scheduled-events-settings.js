@@ -39,7 +39,7 @@
     function __tmScheduledSummaryTemplate() {
         return __tmScheduledSettingsDraft({
             name: '每日完成总结',
-            prompt: '请总结今天完成的任务，提炼主要成果、推进中的方向和明天值得优先关注的事项。内容应简洁、具体，不要虚构任务数据。',
+            prompt: '请总结今天完成的任务，提炼主要成果、推进中的方向和明天值得优先关注的事项。内容应简洁、具体，不要虚构任务数据。涉及专注时长或番茄时，必须从本轮 tool definitions 中选择描述为“专注统计”或“时间投入统计”的 Task Horizon MCP capability（内部标识分别为 query_focus_statistics、aggregate_time_usage），实际调用必须使用带 plugin__siyuan_plugin_task_horizon__ 前缀和校验后缀的完整工具名，禁止直接调用裸标识，也禁止通过 SQL 读取 custom-tomato-* 属性。',
             condition: 'today_has_completed_tasks',
             schedule: { kind: 'daily', date: '', weekday: 1, time: '19:00' },
             output: { mode: 'notification', documentId: '' },
@@ -74,6 +74,7 @@
             skipped_empty: ['空任务跳过', 'is-muted'],
             blocked: ['安全阻断', 'is-danger'],
             config_error: ['配置错误', 'is-warning'],
+            desktop_only: ['仅电脑端', 'is-muted'],
             failed: ['失败', 'is-danger'],
             delivery_commit_pending: ['已投递，等待确认', 'is-warning'],
             commit_pending: ['已投递，等待确认', 'is-warning'],

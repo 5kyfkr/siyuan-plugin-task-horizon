@@ -9,25 +9,22 @@ const source = fs.readFileSync(
 );
 
 assert.match(source,
-    /attributeFilter:\s*\['data-theme-mode', 'data-light-theme', 'data-dark-theme', 'data-mode', 'style', 'class'\]/,
-    'theme refresh must observe theme attributes, root style, and palette classes');
-assert.match(source,
-    /readRootThemeStyleSignature\s*=\s*\(\)\s*=>[\s\S]*?getComputedStyle\(document\.documentElement\)/,
-    'root class changes must be evaluated through computed CSS variables, independent of theme names');
-assert.match(source,
-    /__tmThemeModeObserver\.observe\(document\.body,[\s\S]*?attributeFilter: \['style', 'class'\]/,
-    'body-based theme class/style changes must be covered without a theme-name whitelist');
-assert.match(source,
-    /record\.attributeName === 'class'[\s\S]*?nextSignature !== themeStyleSignature/,
-    'unrelated root class changes must not trigger a full task view render');
-assert.match(source,
+    /attributeFilter:\s*\['data-theme-mode', 'data-light-theme', 'data-dark-theme', 'data-mode', 'class'\]/,
+    'theme refresh must observe theme attributes and palette classes');
+assert.doesNotMatch(source,
+    /__tmThemeModeObserver\.observe\(document\.body/,
+    'body class/style mutations must not trigger global theme refreshes');
+assert.doesNotMatch(source,
     /__tmThemeHeadObserver\s*=\s*new MutationObserver/,
-    'theme refresh must observe replacement stylesheet links in document.head');
-assert.match(source,
+    'head-wide observation must not trigger theme refreshes');
+assert.doesNotMatch(source,
     /\[96, 320\]\.forEach/,
-    'theme refresh must retry after asynchronous theme.css replacement');
-assert.match(source,
-    /__tmThemeRuntimeRootStyleSnapshot/,
-    'theme refresh must ignore root style mutations produced by the plugin itself');
+    'theme changes must not schedule delayed global refreshes');
+assert.doesNotMatch(source,
+    /__tmThemeRuntimeComputedStyleSignature|getComputedStyle\(document\.documentElement\)/,
+    'theme refresh must not scan every root CSS variable on each render');
+assert.doesNotMatch(source,
+    /attributeFilter:\s*\[[^\]]*'style'/,
+    'inline style mutations must not trigger global theme refreshes');
 
 console.log('theme appearance refresh contract tests passed');

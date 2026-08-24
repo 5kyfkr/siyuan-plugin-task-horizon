@@ -352,7 +352,7 @@ const calendarCacheLoad = segment(
     'async function __tmLoadAllTasksForCalendarCache',
     'function __tmCalendarTaskCacheIsFresh',
 );
-assert.match(calendarCacheLoad, /normalizeTaskFields\(task,[\s\S]*__tmMergeLocalTaskPatchIntoTask\(task\)[\s\S]*__tmAppendCalendarTaskAndRepeatHistory/,
+assert.match(calendarRuntime, /function __tmNormalizeCalendarTaskRows[\s\S]*normalizeTaskFields\(task,[\s\S]*__tmMergeLocalTaskPatchIntoTask\(task\)[\s\S]*__tmAppendCalendarTaskAndRepeatHistory/,
     'calendar cache refreshes must not publish stale values over protected local fields');
 
 console.log('task document live refresh contract tests passed');

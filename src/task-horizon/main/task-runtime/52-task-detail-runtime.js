@@ -9429,6 +9429,19 @@
         return list.querySelectorAll('.tm-task-detail-subtask:not(.tm-task-detail-subtask--draft)').length;
     }
 
+    function __tmShouldPreserveTaskDetailEditorDuringRefresh(panelEl, taskId = '') {
+        const panel = panelEl instanceof Element ? panelEl : null;
+        const tid = String(taskId || '').trim();
+        if (!(panel instanceof Element) || !tid) return false;
+        const currentId = String(panel.dataset?.tmDetailTaskId || panel.__tmTaskDetailTaskId || panel.__tmTaskDetailTask?.id || '').trim();
+        if (currentId && !__tmAreTaskDetailIdsEquivalent(currentId, tid)) return false;
+        if (panel.querySelector?.('[data-tm-detail-subtask-draft]')) return true;
+        const active = document.activeElement;
+        return active instanceof Element
+            && panel.contains(active)
+            && !!active.closest?.('input, textarea, select, [contenteditable="true"]');
+    }
+
     function __tmRefreshChecklistSelectionInPlace(modalEl, source = '', options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
@@ -9469,6 +9482,16 @@ const multiSelectedSet = __tmGetMultiSelectedTaskIdSet();
             sheetOpen: state.checklistDetailSheetOpen,
             dismissed: state.checklistDetailDismissed,
         });
+        if (task && selectedId && !forceRebuild && __tmShouldPreserveTaskDetailEditorDuringRefresh(panel, selectedId)) {
+            try { panel.__tmTaskDetailTask = task; } catch (e) {}
+            try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
+            const backdrop = modal.querySelector('#tmChecklistSheetBackdrop, #tmTaskDetailSheetBackdrop');
+            const sheet = modal.querySelector('#tmChecklistSheet, #tmTaskDetailSheet');
+            if (backdrop instanceof HTMLElement) backdrop.classList.toggle('tm-checklist-sheet-backdrop--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
+            if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, !!(sheetMode && state.checklistDetailSheetOpen && task));
+            try { modal.__tmChecklistSelectionSignature = nextSignature; } catch (e) {}
+            return true;
+        }
         if (task && selectedId && __tmKeepTaskDetailNoteViewDuringRefresh(panel, task, selectedId)) {
             const backdrop = modal.querySelector('#tmChecklistSheetBackdrop');
             const sheet = modal.querySelector('#tmChecklistSheet');
@@ -9699,6 +9722,12 @@ return true;
         const task = selectedId
             ? (__tmGetTaskDetailTaskById(selectedId, { includePending: true, preferPending: true, includeWhiteboard: true }) || null)
             : null;
+        if (task && selectedId && !forceRebuild && __tmShouldPreserveTaskDetailEditorDuringRefresh(panel, selectedId)) {
+            try { panel.__tmTaskDetailTask = task; } catch (e) {}
+            try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
+            __tmSyncTaskDetailSheetOpenState(modal, task);
+            return true;
+        }
         if (task && selectedId && __tmKeepTaskDetailNoteViewDuringRefresh(panel, task, selectedId)) {
             __tmSyncTaskDetailSheetOpenState(modal, task);
             return true;
@@ -10906,6 +10935,15 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         if (!(panel instanceof HTMLElement) || !task) {
             __tmClearKanbanDetailFloatingHandlers();
             return false;
+        }
+        if (__tmShouldPreserveTaskDetailEditorDuringRefresh(panel, selectedId)) {
+            try { panel.__tmTaskDetailTask = task; } catch (e) {}
+            try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
+            try { __tmBindKanbanDetailFloatingHandlers(modal); } catch (e) {}
+            if (shouldSchedulePosition) {
+                try { __tmScheduleKanbanDetailFloatSettledPosition(modal); } catch (e) {}
+            }
+            return true;
         }
         if (__tmKeepTaskDetailNoteViewDuringRefresh(panel, task, selectedId)) {
             try { __tmBindKanbanDetailFloatingHandlers(modal); } catch (e) {}

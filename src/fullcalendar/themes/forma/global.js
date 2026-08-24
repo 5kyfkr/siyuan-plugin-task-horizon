@@ -214,13 +214,6 @@ Docs & License: https://fullcalendar.io
                 ? joinClassNames("fc-forma-9ZS", info.isToday && "fc-forma-DIS")
                 : "fc-forma-a3B", info.hasNavLink && "fc-forma-Eu0"),
             listDayBodyClass: "fc-forma-1El fc-forma-2KU fc-forma-lqx fc-forma-Pms",
-            /* Single Month (in Multi-Month)
-            --------------------------------------------------------------------------------------------- */
-            singleMonthClass: (info) => joinClassNames(info.multiMonthColumns > 1 && "fc-forma-jD5", (info.multiMonthColumns === 1 && !info.isLast) && "fc-forma-tfB fc-forma-zi1"),
-            singleMonthHeaderClass: (info) => joinClassNames(info.multiMonthColumns > 1
-                ? "fc-forma-cM0"
-                : "fc-forma-dl6 fc-forma-zi1 fc-forma-tfB fc-forma-RJG", "fc-forma-XpK"),
-            singleMonthHeaderInnerClass: (info) => joinClassNames("fc-forma-aCI fc-forma-Fvv fc-forma-DIS", info.hasNavLink && mutedHoverPressableClass, info.isNarrow ? "fc-forma-1Po" : "fc-forma-9ZS"),
             /* Misc Table
             --------------------------------------------------------------------------------------------- */
             tableHeaderClass: "fc-forma-RJG",
@@ -242,31 +235,6 @@ Docs & License: https://fullcalendar.io
             highlightClass: "fc-forma-rRL",
             nowIndicatorLineClass: "fc-forma-CH7 fc-forma-qQW fc-forma-Baf",
             nowIndicatorDotClass: "fc-forma-aAW fc-forma-Vpk fc-forma-Baf fc-forma-63n fc-forma-AAA fc-forma-GBJ fc-forma-c3P",
-            /* Resource Day Header
-            --------------------------------------------------------------------------------------------- */
-            resourceDayHeaderClass: (info) => joinClassNames("fc-forma-wsy", info.isMajor ? "fc-forma-BST" : "fc-forma-tfB"),
-            resourceDayHeaderInnerClass: (info) => joinClassNames("fc-forma-bvX fc-forma-dl1 fc-forma-sgX", info.isNarrow ? "fc-forma-a3B" : "fc-forma-9yp"),
-            /* Resource Data Grid
-            --------------------------------------------------------------------------------------------- */
-            resourceColumnHeaderClass: "fc-forma-wsy fc-forma-tfB fc-forma-E9P",
-            resourceColumnHeaderInnerClass: "fc-forma-bvX fc-forma-9yp",
-            resourceColumnResizerClass: "fc-forma-1EY fc-forma-AWB fc-forma-4Tv fc-forma-dnf",
-            resourceGroupHeaderClass: "fc-forma-wsy fc-forma-tfB fc-forma-Wv4",
-            resourceGroupHeaderInnerClass: "fc-forma-bvX fc-forma-9yp",
-            resourceCellClass: "fc-forma-wsy fc-forma-tfB",
-            resourceCellInnerClass: "fc-forma-bvX fc-forma-9yp",
-            resourceIndentClass: "fc-forma-Wga fc-forma-p9t fc-forma-E9P",
-            resourceExpanderClass: `fc-forma-bCs fc-forma-KUX fc-forma-Fvv ${mutedHoverPressableClass} ${outlineWidthFocusClass} ${primaryOutlineColorClass}`,
-            resourceExpanderContent: (info) => chevronDown(joinClassNames(`fc-forma-vnf ${mutedFgPressableGroupClass}`, !info.isExpanded && "fc-forma-KxI fc-forma-ZW3")),
-            resourceHeaderRowClass: "fc-forma-wsy fc-forma-tfB",
-            resourceRowClass: "fc-forma-wsy fc-forma-tfB",
-            resourceColumnDividerClass: "fc-forma-1Wx fc-forma-tfB fc-forma-a7i fc-forma-Wv4",
-            /* Timeline Lane
-            --------------------------------------------------------------------------------------------- */
-            resourceGroupLaneClass: "fc-forma-wsy fc-forma-tfB fc-forma-Wv4",
-            resourceLaneClass: "fc-forma-wsy fc-forma-tfB",
-            resourceLaneBottomClass: (info) => info.options.eventOverlap && "fc-forma-vYi",
-            timelineBottomClass: "fc-forma-vYi",
         },
         views: {
             dayGrid: {
@@ -277,13 +245,6 @@ Docs & License: https://fullcalendar.io
             },
             dayGridMonth: {
                 dayHeaderFormat: { weekday: "long" },
-            },
-            multiMonth: {
-                ...dayRowCommonClasses,
-                dayHeaderDividerClass: (info) => joinClassNames(info.multiMonthColumns === 1 && "fc-forma-zi1 fc-forma-tfB"),
-                dayCellBottomClass: getShortDayCellBottomClass,
-                dayHeaderInnerClass: (info) => info.isNarrow && "fc-forma-V1v",
-                tableBodyClass: (info) => joinClassNames(info.multiMonthColumns > 1 && "fc-forma-wsy fc-forma-tfB fc-forma-Fvv fc-forma-pKG"),
             },
             timeGrid: {
                 ...dayRowCommonClasses,
@@ -319,26 +280,38 @@ Docs & License: https://fullcalendar.io
                 noEventsClass: "fc-forma-1El fc-forma-dl1 fc-forma-sgX fc-forma-XpK fc-forma-E9P",
                 noEventsInnerClass: "fc-forma-P9h",
             },
-            timeline: {
-                /* Timeline > Row Event
-                ------------------------------------------------------------------------------------------- */
-                rowEventClass: (info) => info.isEnd && "fc-forma-9hC",
-                rowEventInnerClass: (info) => (info.options.eventOverlap
-                    ? "fc-forma-s0x"
-                    : "fc-forma-dl6"),
-                /* Timeline > More-Link
-                ------------------------------------------------------------------------------------------- */
-                rowMoreLinkClass: `fc-forma-9hC fc-forma-Ika fc-forma-Fvv fc-forma-wsy fc-forma-d0j fc-forma-4MR ${strongSolidPressableClass} fc-forma-vwH`,
-                rowMoreLinkInnerClass: "fc-forma-aCI fc-forma-s0x fc-forma-a3B",
-                /* Timeline > Slot Header
-                ------------------------------------------------------------------------------------------- */
-                slotHeaderAlign: (info) => info.isTime ? "start" : "center",
-                slotHeaderClass: (info) => joinClassNames("fc-forma-E9P", !info.level && "fc-forma-pKG"),
-                slotHeaderInnerClass: (info) => joinClassNames("fc-forma-bvX fc-forma-9yp", info.hasNavLink && "fc-forma-Eu0"),
-                slotHeaderDividerClass: "fc-forma-zi1 fc-forma-tfB",
-            },
         },
     };
+    // Forma owns these class hooks in this plugin. FullCalendar v7 filters
+    // user-supplied options through optionRefiners, so declaring the theme's
+    // own defaults here prevents a warning for every compatible class hook.
+    // Keep core's typed refiners intact: formatter options must be converted
+    // to NativeDateFormatter before DateEnv.formatToParts() uses them.
+    const coreTypedOptionKeys = new Set([
+        "popoverFormat",
+        "eventTimeFormat",
+        "weekNumberFormat",
+        "monthStartFormat",
+        "dayCellFormat",
+        "dayHeaderFormat",
+        "slotHeaderFormat",
+        "listDayFormat",
+        "listDayAltFormat",
+        "slotDuration",
+        "snapDuration",
+        "dateIncrement",
+        "defaultAllDayEventDuration",
+        "defaultTimedEventDuration",
+        "nextDayThreshold",
+        "scrollTime",
+        "slotMinTime",
+        "slotMaxTime",
+    ]);
+    index.optionRefiners = Object.fromEntries(
+        Object.keys(index.optionDefaults)
+            .filter((key) => !coreTypedOptionKeys.has(key))
+            .map((key) => [key, (value) => value])
+    );
     /* SVGs
     ------------------------------------------------------------------------------------------------- */
     function chevronDown(className) {

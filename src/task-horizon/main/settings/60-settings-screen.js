@@ -594,6 +594,71 @@
         if (__tmFocusSettingsSearchTarget(state.settingsModal, pending)) state.settingsSearchPendingTarget = null;
     };
 
+    function __tmRenderCalendarSettingsForModal(modal = state.settingsModal) {
+        if (!(modal instanceof HTMLElement)) return false;
+        const container = modal.querySelector('#tm-calendar-settings-root');
+        const renderer = globalThis.__tmCalendar?.renderSettings;
+        if (!(container instanceof HTMLElement) || typeof renderer !== 'function') return false;
+        try {
+            if (renderer(container, SettingsStore) === false) return false;
+            try {
+                requestAnimationFrame(() => {
+                    try { __tmSyncSettingsSectionNav(modal); } catch (e) {}
+                });
+            } catch (e) {}
+            if (__tmShouldRenderSettingsSearch(state.settingsActiveTab || 'docs')) {
+                __tmRefreshSettingsSearchResults(modal);
+                __tmRunPendingSettingsSearchFocus(modal);
+            }
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmEnsureCalendarSettingsForModal(modal = state.settingsModal) {
+        if (__tmRenderCalendarSettingsForModal(modal)) return;
+        if (!(modal instanceof HTMLElement)) return;
+        const container = modal.querySelector('#tm-calendar-settings-root');
+        const ensure = globalThis.__taskHorizonEnsureCalendarAssets;
+        if (container instanceof HTMLElement) {
+            container.innerHTML = `
+                <div class="tm-calendar-settings-panel">
+                    <div class="tm-settings-section-desc">日历设置加载中...</div>
+                </div>
+            `;
+        }
+        if (typeof ensure !== 'function') {
+            if (container instanceof HTMLElement) {
+                container.innerHTML = `
+                    <div class="tm-calendar-settings-panel">
+                        <div class="tm-settings-section-desc">日历模块尚未加载，请重新打开设置。</div>
+                    </div>
+                `;
+            }
+            return;
+        }
+        const token = `${Date.now()}:${Math.random()}`;
+        state.__tmCalendarSettingsLoadToken = token;
+        Promise.resolve().then(() => ensure()).then(() => {
+            if (state.__tmCalendarSettingsLoadToken !== token) return;
+            if (state.settingsModal !== modal || !document.body.contains(modal)) return;
+            if (state.settingsActiveTab !== 'calendar') return;
+            // Rebuild once so the calendar settings search entries are included too.
+            showSettings();
+        }).catch(() => {
+            if (state.__tmCalendarSettingsLoadToken !== token) return;
+            if (state.settingsModal !== modal || !document.body.contains(modal)) return;
+            if (container instanceof HTMLElement) {
+                container.innerHTML = `
+                    <div class="tm-calendar-settings-panel">
+                        <div class="tm-settings-section-desc">日历模块加载失败，请稍后重试。</div>
+                    </div>
+                `;
+            }
+        });
+    }
+
     function showSettings() {
         try { __tmHideMobileMenu(); } catch (e) {}
         const shouldAnimateOpen = !state.settingsModal;
@@ -1970,7 +2035,7 @@
                                 </select>`
                             )}
                         </div>
-                        <div class="tm-settings-panel" data-tm-settings-section="topbar" ${__tmSettingsSearchAttrs('appearance', '顶栏按钮', '控制新建、搜索、刷新和 AI 工作台按钮的显示')}>
+                        <div class="tm-settings-panel" data-tm-settings-section="topbar" ${__tmSettingsSearchAttrs('appearance', '顶栏按钮', '控制新建、搜索、刷新、日历侧边栏和 AI 工作台按钮的显示')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">🔘 顶栏按钮</div>
                             ${renderSingleSwitchSetting(
                                 '新建任务按钮',
@@ -1986,6 +2051,11 @@
                                 '刷新按钮',
                                 '在桌面宽屏和紧凑顶栏显示手动刷新入口。',
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('refresh') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('refresh', this.checked)">`
+                            )}
+                            ${renderSingleSwitchSetting(
+                                '日历侧边栏按钮',
+                                '在非日历桌面视图顶栏显示展开或关闭日历侧边栏的按钮。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('calendarSidebar') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('calendarSidebar', this.checked)">`
                             )}
                             ${renderSingleSwitchSetting(
                                 'AI 工作台按钮',
@@ -2824,6 +2894,16 @@
                         <div class="tm-settings-section-title">🔘 顶栏入口</div>
                         <div class="tm-settings-section-desc">分别控制文档顶栏按钮与思源窗口顶栏图标在桌面端、移动端的显示。</div>
                         ${renderSingleSwitchSetting(
+                            '思源窗口顶栏图标(桌面)',
+                            '控制桌面端思源窗口顶栏中的任务管理入口。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.windowTopbarIconDesktop !== false ? 'checked' : ''} onchange="updateWindowTopbarIconDesktop(this.checked)">`
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '思源窗口顶栏图标(移动)',
+                            '控制移动端思源窗口顶栏中的任务管理入口；在移动端会出现在右侧抽屉菜单中。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.windowTopbarIconMobile !== false ? 'checked' : ''} onchange="updateWindowTopbarIconMobile(this.checked)">`
+                        )}
+                        ${renderSingleSwitchSetting(
                             '文档顶栏按钮(桌面)',
                             '控制桌面端文档顶栏中的任务管理按钮。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonDesktop !== false ? 'checked' : ''} onchange="updateDocTopbarButtonDesktop(this.checked)">`
@@ -2844,19 +2924,14 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonLocateCurrentDocTab ? 'checked' : ''} onchange="updateDocTopbarButtonLocateCurrentDocTab(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
+                            '笔记内右上角分组专注标识',
+                            '开启后，在属于任务管理器分组的笔记右上角显示分组和专注时长标识。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTitleGroupFocusEnabled !== false ? 'checked' : ''} onchange="updateDocTitleGroupFocusEnabled(this.checked)">`
+                        )}
+                        ${renderSingleSwitchSetting(
                             '统计嵌入待办专注时长',
                             '开启后，任务管理器范围内的待办通过嵌入块显示在其他文档中时，也会在该文档右上角汇总显示专注时长。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTitleEmbeddedTaskFocusEnabled ? 'checked' : ''} ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateDocTitleEmbeddedTaskFocusEnabled(this.checked)">`
-                        )}
-                        ${renderSingleSwitchSetting(
-                            '思源窗口顶栏图标(桌面)',
-                            '控制桌面端思源窗口顶栏中的任务管理入口。',
-                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.windowTopbarIconDesktop !== false ? 'checked' : ''} onchange="updateWindowTopbarIconDesktop(this.checked)">`
-                        )}
-                        ${renderSingleSwitchSetting(
-                            '思源窗口顶栏图标(移动)',
-                            '控制移动端思源窗口顶栏中的任务管理入口；在移动端会出现在右侧抽屉菜单中。',
-                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.windowTopbarIconMobile !== false ? 'checked' : ''} onchange="updateWindowTopbarIconMobile(this.checked)">`
                         )}
                     </div>
 
@@ -3204,21 +3279,7 @@
             state.settingsSearchPendingTarget = null;
         }
         try {
-            if (activeTab === 'calendar') {
-                const el = state.settingsModal.querySelector('#tm-calendar-settings-root');
-                if (el && globalThis.__tmCalendar && typeof globalThis.__tmCalendar.renderSettings === 'function') {
-                    globalThis.__tmCalendar.renderSettings(el, SettingsStore);
-                    try {
-                        requestAnimationFrame(() => {
-                            try { __tmSyncSettingsSectionNav(state.settingsModal); } catch (e2) {}
-                        });
-                    } catch (e) {}
-                    if (settingsSearchEnabled) {
-                        __tmRefreshSettingsSearchResults(state.settingsModal);
-                        __tmRunPendingSettingsSearchFocus(state.settingsModal);
-                    }
-                }
-            }
+            if (activeTab === 'calendar') __tmEnsureCalendarSettingsForModal(state.settingsModal);
         } catch (e) {}
     }
     window.showSettings = showSettings;

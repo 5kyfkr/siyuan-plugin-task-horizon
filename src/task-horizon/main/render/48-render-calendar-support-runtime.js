@@ -300,83 +300,305 @@
     globalThis.__tmResolveCalendarCachedTaskForDetail = __tmResolveCalendarCachedTaskForDetail;
 
     let __tmCalendarTaskCacheWarmPromise = null;
+    let __tmCalendarTaskFullLoadPromise = null;
 
-    function __tmIsCalendarMainViewActiveForTaskCache() {
+    // The calendar can be mounted more than once (main view, dock, hot-reload).
+    // Keep the in-flight full-load handle on the stable window object so those
+    // runtime closures share one SQL request instead of each loading all tasks.
+    const __tmCalendarTaskLoadHost = (() => {
+        try { return window; } catch (e) {}
+        try { return globalThis; } catch (e) {}
+        return null;
+    })();
+    function __tmGetCalendarTaskSharedLoadState(requestedKey = '') {
+        const key = String(requestedKey || '').trim();
         try {
-            if (String(state.viewMode || '').trim() !== 'calendar') return false;
-            const root = state.modal?.querySelector?.('#tmCalendarRoot');
-            return root instanceof HTMLElement && root.isConnected;
-        } catch (e) {
-            return false;
+            const direct = __tmCalendarTaskLoadHost?.__tmCalendarTaskFullLoadState;
+            if (direct && typeof direct === 'object'
+                && (!key || direct.key === key || direct.scopeKey === key)) return direct;
+        } catch (e) {}
+        try {
+            const direct = globalThis.__tmCalendarTaskFullLoadState;
+            if (direct && typeof direct === 'object'
+                && (!key || direct.key === key || direct.scopeKey === key)) return direct;
+        } catch (e) {}
+        // Document-scope expansion can finish with a slightly different
+        // ordering/fingerprint in parallel startup callers. All calendar
+        // callers still request the same authoritative "all documents"
+        // snapshot, so keep one stable any-scope lock while that read is in
+        // flight instead of allowing duplicate 20k-row SQL reads.
+        try {
+            const any = __tmCalendarTaskLoadHost?.__tmCalendarTaskFullLoadAnyState;
+            if (any && typeof any === 'object' && any.promise) return any;
+        } catch (e) {}
+        try {
+            const any = globalThis.__tmCalendarTaskFullLoadAnyState;
+            if (any && typeof any === 'object' && any.promise) return any;
+        } catch (e) {}
+        return null;
+    }
+    function __tmSetCalendarTaskSharedLoadState(value) {
+        try {
+            if (__tmCalendarTaskLoadHost) __tmCalendarTaskLoadHost.__tmCalendarTaskFullLoadState = value;
+            if (__tmCalendarTaskLoadHost) __tmCalendarTaskLoadHost.__tmCalendarTaskFullLoadAnyState = value;
+        } catch (e) {}
+        try {
+            globalThis.__tmCalendarTaskFullLoadState = value;
+            globalThis.__tmCalendarTaskFullLoadAnyState = value;
+        } catch (e) {}
+    }
+    function __tmClearCalendarTaskSharedLoadState(promise) {
+        const current = __tmGetCalendarTaskSharedLoadState();
+        if (!current || current.promise !== promise) return;
+        try {
+            if (__tmCalendarTaskLoadHost) delete __tmCalendarTaskLoadHost.__tmCalendarTaskFullLoadState;
+            if (__tmCalendarTaskLoadHost?.__tmCalendarTaskFullLoadAnyState?.promise === promise) {
+                delete __tmCalendarTaskLoadHost.__tmCalendarTaskFullLoadAnyState;
+            }
+        } catch (e) {}
+        try {
+            if (globalThis.__tmCalendarTaskFullLoadState?.promise === promise) delete globalThis.__tmCalendarTaskFullLoadState;
+            if (globalThis.__tmCalendarTaskFullLoadAnyState?.promise === promise) delete globalThis.__tmCalendarTaskFullLoadAnyState;
+        } catch (e) {}
+    }
+
+    // Multiple calendar sources can ask for the same document scope during a
+    // cold mount. Keep scope expansion on the stable host as well, because a
+    // hot-reloaded runtime may have a different closure but the same window.
+    function __tmResolveCalendarTaskDocIdsShared(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const forceRefreshScope = opts.forceRefreshScope === true;
+        const includeQuickAddDoc = opts.includeQuickAddDoc !== false;
+        if (typeof resolveDocIdsFromGroups !== 'function') return Promise.resolve([]);
+        if (forceRefreshScope) {
+            return Promise.resolve().then(() => resolveDocIdsFromGroups({
+                groupId: 'all',
+                includeQuickAddDoc,
+                forceRefreshScope,
+            }));
         }
-    }
-
-    function __tmShouldAllowCalendarTaskCacheFullLoad(options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        if (opts.allowInactiveFullLoad === true || opts.allowInactiveView === true) return true;
-        return __tmIsCalendarMainViewActiveForTaskCache();
-    }
-
-    function __tmPushCalendarTaskCacheDiag(phase, detail = {}) {
-    }
-
-    function __tmRequestCalendarTaskCacheWarmRefresh(options = {}, tasks = []) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        const reason = String(opts.source || opts.reason || 'taskdate-cache-warm').trim() || 'taskdate-cache-warm';
-        const taskCount = Array.isArray(tasks) ? tasks.length : 0;
-        if (!__tmIsCalendarMainViewActiveForTaskCache()) {
-            __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh-skip', {
-                reason,
-                taskCount,
-                skipReason: 'inactive-calendar-view',
-            });
-            return false;
-        }
-        // Warming the task cache is a data-read concern. It must not refresh the
-        // mounted calendar: tomato/history and background cache events do not
-        // change task-date projections and a source refresh would reproject the
-        // whole all-day lane. Explicit task mutations use the local event patch
-        // path instead.
-        __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh', {
-            reason,
-            taskCount,
-            refreshApi: 'cache-only',
-            requested: false,
-            flushTaskPanel: false,
-        });
-        return false;
-    }
-
-    async function __tmLoadAllTasksForCalendarCache(options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        const limit = __TM_TASK_INDEX_QUERY_LIMIT;
-        const allDocIds = await resolveDocIdsFromGroups({
+        const key = `all|quick:${includeQuickAddDoc ? 1 : 0}`;
+        const host = __tmCalendarTaskLoadHost;
+        let current = null;
+        try { current = host?.__tmCalendarTaskDocIdsResolveState || null; } catch (e) {}
+        if (current?.promise && current.key === key) return current.promise;
+        const run = Promise.resolve().then(() => resolveDocIdsFromGroups({
             groupId: 'all',
-            includeQuickAddDoc: true,
-            forceRefreshScope: opts.forceRefreshScope === true,
+            includeQuickAddDoc,
+        })).then((ids) => Array.isArray(ids) ? ids.slice() : []);
+        const tracked = run.finally(() => {
+            try {
+                if (host?.__tmCalendarTaskDocIdsResolveState?.promise === tracked) {
+                    delete host.__tmCalendarTaskDocIdsResolveState;
+                }
+            } catch (e) {}
         });
-        const docKey = allDocIds.slice().sort().join(',');
-        const key = `${limit}|${docKey}`;
-        const maxAgeMs = Number.isFinite(Number(opts.maxAgeMs)) ? Math.max(0, Math.floor(Number(opts.maxAgeMs))) : 8000;
-        const prev = window.__tmCalendarAllTasksCache;
-        const forceFresh = opts.force === true || opts.forceFresh === true;
-        if (!forceFresh && prev && prev.key === key && Array.isArray(prev.tasks)
-            && (opts.requireCompleteCache !== true || prev.complete === true)
-            && (Date.now() - (Number(prev.ts) || 0) < maxAgeMs)) {
-            return prev.tasks;
+        try { if (host) host.__tmCalendarTaskDocIdsResolveState = { key, promise: tracked }; } catch (e) {}
+        return tracked;
+    }
+
+    function __tmGetCalendarTaskDateIndex(tasks) {
+        const list = Array.isArray(tasks) ? tasks : [];
+        const cache = window.__tmCalendarAllTasksCache;
+        const storeRevision = Number(globalThis.__tmTaskStore?.revision?.() || 0) || 0;
+        const key = `${String(cache?.key || '').trim()}|${Number(cache?.ts || 0) || 0}|${storeRevision}|${list.length}`;
+        const previous = globalThis.__tmCalendarTaskDateIndex;
+        if (previous && previous.key === key && previous.tasks === list && Array.isArray(previous.entries)) {
+            return { tasks: list, hit: true, indexedCount: previous.entries.length };
         }
-        if (!allDocIds.length) {
-            window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: [], complete: true };
-            return [];
+        const toTs = (value) => {
+            const key0 = __tmNormalizeDateOnly(value);
+            if (!key0) return 0;
+            const date = new Date(`${key0}T12:00:00`);
+            return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+        };
+        const entries = [];
+        list.forEach((task) => {
+            if (!task || typeof task !== 'object') return;
+            const startKey = __tmNormalizeDateOnly(task.startDate);
+            const endKey = __tmNormalizeDateOnly(task.completionTime);
+            if (!startKey && !endKey) return;
+            const startTs = toTs(startKey);
+            const endBaseTs = toTs(endKey || startKey) || startTs || toTs(endKey);
+            const intervalStartTs = Math.min(startTs || endBaseTs, endBaseTs || startTs);
+            const endTs = Math.max(startTs || endBaseTs, endBaseTs || startTs) + 86400000;
+            entries.push({ task, startTs: intervalStartTs, endTs });
+        });
+        entries.sort((a, b) => a.startTs - b.startTs);
+        const index = { key, tasks: list, entries };
+        globalThis.__tmCalendarTaskDateIndex = index;
+        return { tasks: list, hit: false, indexedCount: entries.length };
+    }
+
+    function __tmGetCalendarTaskDateCandidates(tasks, rangeStartTs, rangeEndTs) {
+        const indexed = __tmGetCalendarTaskDateIndex(tasks);
+        const entries = indexed.entries || globalThis.__tmCalendarTaskDateIndex?.entries || [];
+        if (!entries.length || !rangeEndTs) return { tasks: indexed.tasks, hit: indexed.hit, indexedCount: entries.length };
+        let low = 0;
+        let high = entries.length;
+        while (low < high) {
+            const mid = (low + high) >> 1;
+            if (entries[mid].startTs < rangeEndTs) low = mid + 1;
+            else high = mid;
         }
-        try { await MetaStore.load?.(); } catch (e) {}
-        const res = await API.getTasksByDocuments(allDocIds, limit, { doneOnly: false, forceFresh });
-        if (opts.failOnTruncation === true && res?.limitReached) {
-            throw new Error('任务数量超过读取上限');
-        }
-        const tasks = Array.isArray(res?.tasks) ? res.tasks : [];
         const out = [];
-        for (const task of tasks) {
+        for (let i = 0; i < low; i += 1) {
+            const entry = entries[i];
+            if (entry.endTs > rangeStartTs) out.push(entry.task);
+        }
+        return { tasks: out, hit: indexed.hit, indexedCount: entries.length };
+    }
+
+    function __tmGetCalendarTaskStoreRowsSync() {
+        const store = globalThis.__tmTaskStore;
+        if (!store || typeof store.listFlat !== 'function') return [];
+        const byId = new Map();
+        const add = (task) => {
+            if (!task || typeof task !== 'object') return;
+            const id = String(task?.id || '').trim();
+            if (!id || __tmIsCalendarTaskPendingDeletedSync(id)) return;
+            let live = task;
+            try { live = store.getProjected?.(id) || store.get?.(id) || task; } catch (e) {}
+            if (live && typeof live === 'object') byId.set(id, live);
+        };
+        try { store.listFlat().forEach(add); } catch (e) {}
+        try { store.listPending?.().forEach(add); } catch (e) {}
+        return Array.from(byId.values());
+    }
+
+    function __tmCalendarTaskStoreScopeMatches(docIds = []) {
+        const expected = new Set((Array.isArray(docIds) ? docIds : [])
+            .map((id) => String(id || '').trim()).filter(Boolean));
+        if (!expected.size) return false;
+        const loaded = new Set((Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks : [])
+            .map((id) => String(id || '').trim()).filter(Boolean));
+        if (loaded.size !== expected.size || Array.from(expected).some((id) => !loaded.has(id))) return false;
+        const scope = state.__tmGlobalWhiteboardAuthoritativeScope;
+        if (scope && scope.complete === false) return false;
+        const lastScope = state.__tmLastDocGroupScopeLoad;
+        if (lastScope && String(lastScope.source || '').trim() && String(lastScope.source || '').trim() !== 'fresh') return false;
+        return true;
+    }
+
+    function __tmFlattenCalendarSnapshotTasks(snapshot) {
+        const source = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        const docs = Array.isArray(source?.taskTree) ? source.taskTree : [];
+        const out = [];
+        const seen = new Set();
+        const walk = (tasks, doc) => {
+            (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+                if (!task || typeof task !== 'object') return;
+                const id = String(task.id || '').trim();
+                if (!id || seen.has(id)) return;
+                seen.add(id);
+                const next = { ...task };
+                if (!next.root_id && doc?.id) next.root_id = String(doc.id || '').trim();
+                if (!next.docId && next.root_id) next.docId = next.root_id;
+                if (!next.docName && doc?.name) next.docName = String(doc.name || '').trim();
+                out.push(next);
+                walk(task.children, doc);
+            });
+        };
+        docs.forEach((doc) => walk(doc?.tasks, doc));
+        return out;
+    }
+
+    async function __tmLoadCalendarTasksFromSharedSnapshot(allDocIds, options = {}) {
+        const ids = Array.isArray(allDocIds) ? allDocIds.slice() : [];
+        const service = globalThis.__tmTaskSnapshotService;
+        if (!service || typeof service.load !== 'function' || !ids.length) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        let snapshot = null;
+        let exact = true;
+        try {
+            snapshot = await service.load({
+                docIds: ids,
+                groupId: 'all',
+                cachedOnly: opts.cachedOnly === true,
+            });
+            if (!snapshot && typeof service.loadLatestForGroup === 'function') {
+                exact = false;
+                snapshot = await service.loadLatestForGroup(
+                    String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
+                    { cachedOnly: opts.cachedOnly === true, checkRemote: false },
+                );
+            }
+        } catch (e) {
+            snapshot = null;
+        }
+        const requested = new Set(ids.map((id) => String(id || '').trim()).filter(Boolean));
+        const snapshotDocIds = new Set((Array.isArray(snapshot?.docIds) && snapshot.docIds.length
+            ? snapshot.docIds
+            : (Array.isArray(snapshot?.taskTree) ? snapshot.taskTree.map((doc) => doc?.id) : []))
+            .map((id) => String(id || '').trim()).filter((id) => requested.has(id)));
+        const tasks = __tmFlattenCalendarSnapshotTasks(snapshot)
+            .filter((task) => {
+                const docId = String(task?.root_id || task?.docId || '').trim();
+                return !docId || requested.has(docId);
+            });
+        if (!snapshot || !tasks.length) return null;
+        tasks.forEach((task) => {
+            try { __tmMergeLocalTaskPatchIntoTask(task); } catch (e) {}
+        });
+        const out = [];
+        tasks.forEach((task) => {
+            if (!task || __tmIsCalendarTaskPendingDeletedSync(task.id)) return;
+            __tmAppendCalendarTaskAndRepeatHistory(out, task);
+        });
+        if (!out.length) return null;
+        const reloadDocIds = exact
+            ? []
+            : ids.filter((id) => !snapshotDocIds.has(String(id || '').trim()));
+        return {
+            tasks: out,
+            source: 'task-snapshot',
+            snapshotUpdatedAt: Number(snapshot.updatedAt || snapshot.createdAt || 0) || 0,
+            complete: reloadDocIds.length === 0,
+            reloadDocIds,
+        };
+    }
+
+    async function __tmLoadCalendarTasksFromSharedTaskIndex(allDocIds, options = {}) {
+        const ids = Array.isArray(allDocIds) ? allDocIds.slice() : [];
+        const service = globalThis.__tmTaskSnapshotService;
+        if (!service || typeof service.readTaskIndex !== 'function' || !ids.length) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        let result = null;
+        try {
+            result = await service.readTaskIndex({
+                docIds: ids,
+                queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                cachedOnly: opts.cachedOnly === true,
+                allowPartial: opts.allowPartial === true,
+                maxPartialMisses: opts.maxPartialMisses,
+            });
+        } catch (e) {
+            result = null;
+        }
+        const docs = Array.isArray(result?.taskTree) ? result.taskTree : [];
+        const tasks = __tmFlattenCalendarSnapshotTasks({ taskTree: docs });
+        if (!tasks.length) return null;
+        tasks.forEach((task) => {
+            try { __tmMergeLocalTaskPatchIntoTask(task); } catch (e) {}
+        });
+        const out = [];
+        tasks.forEach((task) => {
+            if (!task || __tmIsCalendarTaskPendingDeletedSync(task.id)) return;
+            __tmAppendCalendarTaskAndRepeatHistory(out, task);
+        });
+        if (!out.length) return null;
+        return {
+            tasks: out,
+            source: 'task-index',
+            indexedDocCount: docs.length,
+            complete: result?.partial !== true,
+            reloadDocIds: Array.isArray(result?.reloadDocIds) ? result.reloadDocIds.slice() : [],
+        };
+    }
+
+    function __tmNormalizeCalendarTaskRows(tasks = []) {
+        const out = [];
+        for (const task of (Array.isArray(tasks) ? tasks : [])) {
             if (!task || typeof task !== 'object') continue;
             if (__tmIsCalendarTaskPendingDeletedSync(task.id)) continue;
             const prevTask = __tmGetCalendarFlatTaskByIdSync(task.id);
@@ -394,13 +616,375 @@
             try { __tmMergeLocalTaskPatchIntoTask(task); } catch (e) {}
             __tmAppendCalendarTaskAndRepeatHistory(out, task);
         }
-        window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: out, complete: !res?.limitReached };
         return out;
+    }
+
+    function __tmMergeCalendarTaskRows(baseTasks = [], patchTasks = [], reloadDocIds = []) {
+        const reload = new Set((Array.isArray(reloadDocIds) ? reloadDocIds : [])
+            .map((id) => String(id || '').trim()).filter(Boolean));
+        const merged = [];
+        const byId = new Map();
+        const add = (task) => {
+            if (!task || typeof task !== 'object') return;
+            const id = String(task.id || '').trim();
+            if (!id) return;
+            if (byId.has(id)) {
+                const index = byId.get(id);
+                merged[index] = task;
+                return;
+            }
+            byId.set(id, merged.length);
+            merged.push(task);
+        };
+        (Array.isArray(baseTasks) ? baseTasks : []).forEach((task) => {
+            const docId = String(task?.root_id || task?.docId || '').trim();
+            if (docId && reload.has(docId)) return;
+            add(task);
+        });
+        (Array.isArray(patchTasks) ? patchTasks : []).forEach(add);
+        return merged;
+    }
+
+    function __tmIsCalendarMainViewActiveForTaskCache() {
+        try {
+            if (String(state.viewMode || '').trim() !== 'calendar') return false;
+            const root = state.modal?.querySelector?.('#tmCalendarRoot');
+            return root instanceof HTMLElement && root.isConnected;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmIsCalendarSideDockActiveForTaskCache() {
+        try {
+            const root = state.modal?.querySelector?.('#tmCalendarSideDockTimeline');
+            return root instanceof HTMLElement && root.isConnected;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmIsAnyCalendarSurfaceActiveForTaskCache() {
+        return __tmIsCalendarMainViewActiveForTaskCache() || __tmIsCalendarSideDockActiveForTaskCache();
+    }
+
+    function __tmShouldAllowCalendarTaskCacheFullLoad(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.allowInactiveFullLoad === true || opts.allowInactiveView === true) return true;
+        return __tmIsCalendarMainViewActiveForTaskCache();
+    }
+
+    function __tmPushCalendarTaskCacheDiag(phase, detail = {}) {
+    }
+
+    function __tmRequestCalendarTaskCacheWarmRefresh(options = {}, tasks = []) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const reason = String(opts.source || opts.reason || 'taskdate-cache-warm').trim() || 'taskdate-cache-warm';
+        const taskCount = Array.isArray(tasks) ? tasks.length : 0;
+        const previousTaskCount = Number(opts.__tmPreviousTaskCount);
+        const cacheChanged = Number.isFinite(previousTaskCount)
+            ? previousTaskCount !== taskCount
+            : true;
+        if (!__tmIsAnyCalendarSurfaceActiveForTaskCache()) {
+            __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh-skip', {
+                reason,
+                taskCount,
+                previousTaskCount: Number.isFinite(previousTaskCount) ? previousTaskCount : undefined,
+                cacheChanged,
+                skipReason: 'inactive-calendar-view',
+            });
+            return false;
+        }
+        if (!cacheChanged) {
+            __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh-skip', {
+                reason,
+                taskCount,
+                previousTaskCount,
+                cacheChanged: false,
+                skipReason: 'cache-unchanged',
+            });
+            return false;
+        }
+        // A fast-first calendar query may paint from a partial task snapshot.
+        // Once the shared full snapshot is ready, update only the task-date
+        // source in place so the all-day lane reflects the complete index
+        // without rebuilding FullCalendar or touching schedule sources.
+        let requested = false;
+        try {
+            const refresh = window.__tmCalendar?.refreshTaskDateSources;
+            if (typeof refresh === 'function') {
+                const result = refresh({
+                    main: true,
+                    side: true,
+                    allowInactiveFullLoad: true,
+                });
+                requested = !!(result?.main || result?.side);
+            }
+        } catch (e) {}
+        if (!requested) {
+            try {
+                window.dispatchEvent(new CustomEvent('tm:calendar-task-cache-ready', {
+                    detail: { reason, taskCount, previousTaskCount: Number.isFinite(previousTaskCount) ? previousTaskCount : 0 },
+                }));
+            } catch (e) {}
+        }
+        __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh', {
+            reason,
+            taskCount,
+            previousTaskCount: Number.isFinite(previousTaskCount) ? previousTaskCount : undefined,
+            cacheChanged: true,
+            refreshApi: requested ? 'task-date-in-place' : 'calendar-task-cache-ready-event',
+            requested,
+            flushTaskPanel: false,
+        });
+        return requested;
+    }
+
+    async function __tmLoadAllTasksForCalendarCache(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const limit = __TM_TASK_INDEX_QUERY_LIMIT;
+        const maxAgeMs = Number.isFinite(Number(opts.maxAgeMs)) ? Math.max(0, Math.floor(Number(opts.maxAgeMs))) : 8000;
+        const forceFresh = opts.force === true || opts.forceFresh === true;
+        // Check before document-scope expansion. Main and dock mounts can enter
+        // this loader within the same frame; once an authoritative full read is
+        // already in flight, waiting for scope resolution only adds duplicate
+        // work before the caller eventually reuses the same promise.
+        const earlySharedLoad = __tmGetCalendarTaskSharedLoadState();
+        if (earlySharedLoad?.promise) {
+            opts.__tmCalendarTaskLoadReused = true;
+            opts.__tmCalendarTaskLoadCachePath = 'inflight';
+            opts.__tmCalendarTaskLoadCacheStatus = 'reuse';
+            return earlySharedLoad.promise;
+        }
+        if (__tmCalendarTaskFullLoadPromise) {
+            opts.__tmCalendarTaskLoadReused = true;
+            opts.__tmCalendarTaskLoadCachePath = 'inflight';
+            opts.__tmCalendarTaskLoadCacheStatus = 'reuse';
+            return __tmCalendarTaskFullLoadPromise;
+        }
+        const allDocIds = await __tmResolveCalendarTaskDocIdsShared({
+            includeQuickAddDoc: true,
+            forceRefreshScope: opts.forceRefreshScope === true,
+        });
+        const docKey = allDocIds.slice().sort().join(',');
+        const key = `${limit}|${docKey}`;
+        const prev = window.__tmCalendarAllTasksCache;
+        const storeRevision = Number(globalThis.__tmTaskStore?.revision?.() || 0) || 0;
+        const storeScopeMatch = !forceFresh && __tmCalendarTaskStoreScopeMatches(allDocIds);
+        try {
+            const expectedDocCount = new Set((Array.isArray(allDocIds) ? allDocIds : []).map((id) => String(id || '').trim()).filter(Boolean)).size;
+            const loadedDocCount = new Set((Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks : []).map((id) => String(id || '').trim()).filter(Boolean)).size;
+            window.__tmCalendarTaskLastStoreScope = {
+                match: storeScopeMatch,
+                expectedDocCount,
+                loadedDocCount,
+                storeRevision,
+            };
+        } catch (e) {}
+        // A SQL snapshot is authoritative for its short TTL. The task store
+        // revision can advance while startup hydration is still running, and
+        // that must not make the same complete SQL result run again.
+        const cacheRevisionMatches = prev?.source !== 'task-store'
+            || !Number.isFinite(Number(prev.storeRevision))
+            || Number(prev.storeRevision) === storeRevision;
+        if (!forceFresh && prev && prev.key === key && Array.isArray(prev.tasks)
+            && (opts.requireCompleteCache !== true || prev.complete === true)
+            && cacheRevisionMatches
+            && (Date.now() - (Number(prev.ts) || 0) < maxAgeMs)) {
+            return prev.tasks;
+        }
+        if (!allDocIds.length) {
+            window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: [], complete: true, source: 'store', storeRevision };
+            return [];
+        }
+        const sharedLoad = __tmGetCalendarTaskSharedLoadState(key);
+        if (sharedLoad?.promise
+            && (sharedLoad.key === key
+                || sharedLoad.scopeKey === key
+                || sharedLoad.anyScope === true)) {
+            opts.__tmCalendarTaskLoadReused = true;
+            opts.__tmCalendarTaskLoadCachePath = 'inflight';
+            opts.__tmCalendarTaskLoadCacheStatus = 'reuse';
+            try {
+                window.__tmCalendarTaskLastLoadMeta = {
+                    key,
+                    cachePath: 'inflight',
+                    cacheStatus: 'reuse',
+                    reused: true,
+                };
+            } catch (e) {}
+            return sharedLoad.promise;
+        }
+        if (__tmCalendarTaskFullLoadPromise) {
+            opts.__tmCalendarTaskLoadReused = true;
+            opts.__tmCalendarTaskLoadCachePath = 'inflight';
+            opts.__tmCalendarTaskLoadCacheStatus = 'reuse';
+            return __tmCalendarTaskFullLoadPromise;
+        }
+        opts.__tmCalendarTaskLoadReused = false;
+        opts.__tmCalendarTaskLoadCachePath = 'sql';
+        opts.__tmCalendarTaskLoadCacheStatus = 'miss';
+        try {
+            window.__tmCalendarTaskLastLoadMeta = {
+                key,
+                cachePath: 'sql',
+                cacheStatus: 'miss',
+                reused: false,
+            };
+        } catch (e) {}
+        const run = (async () => {
+            if (storeScopeMatch) {
+                const storeTasks = __tmGetCalendarTaskStoreRowsSync();
+                if (storeTasks.length > 0) {
+                    const out = [];
+                    storeTasks.forEach((task) => __tmAppendCalendarTaskAndRepeatHistory(out, task));
+                    window.__tmCalendarAllTasksCache = {
+                        key,
+                        ts: Date.now(),
+                        tasks: out,
+                        complete: true,
+                        source: 'task-store',
+                        storeRevision: Number(globalThis.__tmTaskStore?.revision?.() || 0) || 0,
+                    };
+                    return out;
+                }
+            }
+            // Reuse the same durable task snapshot that list/checklist and
+            // other task views restore before falling back to a cold SQL read.
+            // The calendar still owns only its date interval index and event
+            // projection; task data stays on the shared read path.
+            if (!forceFresh) {
+                const snapshotResult = await __tmLoadCalendarTasksFromSharedSnapshot(allDocIds, {
+                    cachedOnly: opts.cachedOnly === true,
+                });
+                if (snapshotResult?.tasks?.length) {
+                    let snapshotTasks = snapshotResult.tasks;
+                    let snapshotComplete = snapshotResult.complete !== false;
+                    const reloadDocIds = Array.isArray(snapshotResult.reloadDocIds) ? snapshotResult.reloadDocIds : [];
+                    if (reloadDocIds.length > 0) {
+                        try {
+                            const patchRes = await API.getTasksByDocuments(reloadDocIds, limit, {
+                                doneOnly: false,
+                                forceFresh,
+                                skipParentTaskJoin: true,
+                                customFieldIds: [],
+                                disableChunkedQuery: true,
+                            });
+                            const patchTasks = __tmNormalizeCalendarTaskRows(patchRes?.tasks);
+                            snapshotTasks = __tmMergeCalendarTaskRows(snapshotTasks, patchTasks, reloadDocIds);
+                            snapshotComplete = !patchRes?.limitReached;
+                        } catch (e) {
+                            snapshotComplete = false;
+                        }
+                    }
+                    if (!(reloadDocIds.length > 0 && !snapshotComplete)) {
+                        window.__tmCalendarAllTasksCache = {
+                            key,
+                            ts: Date.now(),
+                            tasks: snapshotTasks,
+                            complete: snapshotComplete,
+                            source: snapshotResult.source,
+                            snapshotUpdatedAt: snapshotResult.snapshotUpdatedAt,
+                            reloadDocIds,
+                            storeRevision: Number(globalThis.__tmTaskStore?.revision?.() || 0) || 0,
+                        };
+                        opts.__tmCalendarTaskLoadCachePath = snapshotResult.source;
+                        opts.__tmCalendarTaskLoadCacheStatus = snapshotComplete ? 'hit' : 'partial';
+                        return snapshotTasks;
+                    }
+                }
+                const indexResult = await __tmLoadCalendarTasksFromSharedTaskIndex(allDocIds, {
+                    cachedOnly: opts.cachedOnly === true,
+                    allowPartial: true,
+                    maxPartialMisses: Math.max(0, allDocIds.length),
+                });
+                if (indexResult?.tasks?.length) {
+                    let indexedTasks = indexResult.tasks;
+                    let complete = indexResult.complete !== false;
+                    const reloadDocIds = Array.isArray(indexResult.reloadDocIds) ? indexResult.reloadDocIds : [];
+                    if (reloadDocIds.length > 0) {
+                        try {
+                            const patchRes = await API.getTasksByDocuments(reloadDocIds, limit, {
+                                doneOnly: false,
+                                forceFresh,
+                                skipParentTaskJoin: true,
+                                customFieldIds: [],
+                                disableChunkedQuery: true,
+                            });
+                            const patchTasks = __tmNormalizeCalendarTaskRows(patchRes?.tasks);
+                            indexedTasks = __tmMergeCalendarTaskRows(indexedTasks, patchTasks, reloadDocIds);
+                            complete = !patchRes?.limitReached;
+                        } catch (e) {
+                            complete = false;
+                        }
+                    }
+                    if (reloadDocIds.length > 0 && !complete) {
+                        // A partial index is safe for first paint, but a caller
+                        // still needs an authoritative all-scope result after the
+                        // targeted patch fails, so continue to the SQL fallback.
+                    } else {
+                        window.__tmCalendarAllTasksCache = {
+                            key,
+                            ts: Date.now(),
+                            tasks: indexedTasks,
+                            complete,
+                            source: indexResult.source,
+                            indexedDocCount: indexResult.indexedDocCount,
+                            reloadDocIds,
+                            storeRevision: Number(globalThis.__tmTaskStore?.revision?.() || 0) || 0,
+                        };
+                        opts.__tmCalendarTaskLoadCachePath = 'task-index';
+                        opts.__tmCalendarTaskLoadCacheStatus = complete ? 'hit' : 'partial';
+                        return indexedTasks;
+                    }
+                }
+            }
+            try { await MetaStore.load?.(); } catch (e) {}
+            const res = await API.getTasksByDocuments(allDocIds, limit, {
+                doneOnly: false,
+                forceFresh,
+                // Calendar projection does not need parent aggregates or
+                // custom-field hydration. Keep the canonical task query, but
+                // use its lightweight options to avoid work for the list UI.
+                skipParentTaskJoin: true,
+                customFieldIds: [],
+                // The calendar already resolves the complete document scope;
+                // one SQL query is materially cheaper than the API's default
+                // serial 24-document chunk loop for a cold all-scope read.
+                disableChunkedQuery: true,
+            });
+            if (opts.failOnTruncation === true && res?.limitReached) {
+                throw new Error('任务数量超过读取上限');
+            }
+            const tasks = Array.isArray(res?.tasks) ? res.tasks : [];
+            const out = __tmNormalizeCalendarTaskRows(tasks);
+            window.__tmCalendarAllTasksCache = {
+                key,
+                ts: Date.now(),
+                tasks: out,
+                complete: !res?.limitReached,
+                source: 'sql',
+                storeRevision: Number(globalThis.__tmTaskStore?.revision?.() || 0) || 0,
+            };
+            return out;
+        })();
+        let tracked = run.finally(() => {
+            if (__tmCalendarTaskFullLoadPromise === tracked) __tmCalendarTaskFullLoadPromise = null;
+            __tmClearCalendarTaskSharedLoadState(tracked);
+        });
+        __tmCalendarTaskFullLoadPromise = tracked;
+        __tmSetCalendarTaskSharedLoadState({ key, scopeKey: key, anyScope: true, promise: tracked });
+        return tracked;
     }
 
     function __tmCalendarTaskCacheIsFresh(maxAgeMs = 8000) {
         const prev = window.__tmCalendarAllTasksCache;
         if (!prev || !Array.isArray(prev.tasks)) return false;
+        // A partial task snapshot is useful for the first paint, but it is
+        // never authoritative. Treat it as stale so a mounted calendar can
+        // continue the full index warm-up instead of getting stuck on the
+        // partial candidate list.
+        if (prev.complete !== true) return false;
         return (Date.now() - (Number(prev.ts) || 0)) < maxAgeMs;
     }
 
@@ -418,9 +1002,16 @@
         if (__tmCalendarTaskCacheWarmPromise) return __tmCalendarTaskCacheWarmPromise;
         const run = Promise.resolve().then(async () => {
             try { await window.tmCalendarWarmDocsToGroupCache?.(); } catch (e) {}
+            const previousCache = window.__tmCalendarAllTasksCache;
+            const previousTaskCount = Array.isArray(previousCache?.tasks) ? previousCache.tasks.length : NaN;
             const tasks = await __tmLoadAllTasksForCalendarCache(opts);
             if (opts.refresh !== false) {
-                try { __tmRequestCalendarTaskCacheWarmRefresh(opts, tasks); } catch (e) {}
+                try {
+                    __tmRequestCalendarTaskCacheWarmRefresh({
+                        ...opts,
+                        __tmPreviousTaskCount: previousTaskCount,
+                    }, tasks);
+                } catch (e) {}
             }
             return tasks;
         });
@@ -679,6 +1270,21 @@
         const queryStartedAt = Date.now();
         const startKey = __tmNormalizeDateOnly(rangeStart);
         const endKey = __tmNormalizeDateOnly(rangeEnd);
+        const perfCalendar = String(opts.calendar || opts.instance || '').trim() || 'background';
+        const perfTrace = (() => {
+            try {
+                return typeof globalThis.__tmTaskHorizonPerfCreate === 'function'
+                    ? globalThis.__tmTaskHorizonPerfCreate('taskDateQuery', {
+                        calendar: perfCalendar,
+                        instance: perfCalendar,
+                        viewType: String(opts.viewType || '').trim() || 'background',
+                        rangeStart: startKey,
+                        rangeEnd: endKey,
+                        requestSeq: Number(opts.requestSeq || 0) || undefined,
+                    })
+                    : null;
+            } catch (e) { return null; }
+        })();
         const forceFreshUntil = Number(globalThis.__tmCalendarTaskDateForceFreshUntil || 0) || 0;
         const forceFresh = opts.forceFresh === true || (forceFreshUntil > Date.now());
         const toTs = (k) => {
@@ -697,6 +1303,22 @@
             return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
         };
         const pushTaskDateQueryDiag = (phase, detail = {}) => {
+            const payload = {
+                calendar: perfCalendar,
+                instance: perfCalendar,
+                viewType: String(opts.viewType || '').trim() || 'background',
+                rangeStart: startKey,
+                rangeEnd: endKey,
+                source: String(opts.source || 'taskdate').trim() || 'taskdate',
+                path: String(phase || '').trim(),
+                durationMs: Math.max(0, Date.now() - queryStartedAt),
+                ...(detail && typeof detail === 'object' ? detail : {}),
+            };
+            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, String(phase || 'taskdate').trim() || 'taskdate', payload); } catch (e) {}
+            const terminal = /^(taskdate-(?:inactive-cache|inactive-memory|skip-inactive-view|cache|stale-cache|memory|side-deferred|full))$/.test(String(phase || '').trim());
+            if (terminal) {
+                try { globalThis.__tmTaskHorizonPerfFinish?.(perfTrace, { ...payload, resultCount: Number(payload.eventCount || 0), success: payload.success !== false }); } catch (e) {}
+            }
         };
         const scheduleTaskDateCacheWarm = (reason = 'taskdate-fast-first') => {
             const runtimeMobile = (() => {
@@ -709,6 +1331,7 @@
             })();
             const jobStartedAt = Date.now();
             const maxPostponeMs = runtimeMobile ? 18000 : 8000;
+            const allowInactiveFullLoad = opts.allowInactiveFullLoad === true || opts.allowInactiveView === true;
             const getWarmWaitMeta = () => {
                 const reasons = [];
                 let waitMs = 0;
@@ -782,6 +1405,8 @@
                         refresh: true,
                         source: reason,
                         maxAgeMs: 8000,
+                        allowInactiveFullLoad,
+                        allowInactiveView: allowInactiveFullLoad,
                     });
                 } catch (e) {}
             };
@@ -792,8 +1417,8 @@
                         if (typeof __tmScheduleIdleTask === 'function') {
                             __tmScheduleIdleTask(run, runtimeMobile ? 1800 : 900);
                             return;
-                        }
-                    } catch (e2) {}
+                    }
+                } catch (e2) {}
                     run();
                 }, delayMs);
             } catch (e) {
@@ -801,6 +1426,8 @@
                     refresh: true,
                     source: reason,
                     maxAgeMs: 8000,
+                    allowInactiveFullLoad,
+                    allowInactiveView: allowInactiveFullLoad,
                 });
             }
         };
@@ -877,32 +1504,40 @@
                 const cachedTasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
                 const cacheAgeMs = Date.now() - (Number(cache?.ts) || 0);
                 if (cachedTasks.length > 0 && (opts.requireCompleteCache !== true || cache?.complete === true)) {
-                    const events = buildTaskDateEventsFromTasks(cachedTasks, __tmGetCalendarDocsToGroupMapSync());
+                    const indexed = __tmGetCalendarTaskDateCandidates(cachedTasks, rangeStartTs, rangeEndTs);
+                    const events = buildTaskDateEventsFromTasks(indexed.tasks, __tmGetCalendarDocsToGroupMapSync());
                     pushTaskDateQueryDiag('taskdate-inactive-cache', {
                         taskCount: cachedTasks.length,
+                        candidateCount: indexed.tasks.length,
+                        indexHit: indexed.hit,
                         eventCount: events.length,
-                        cacheAgeMs,
-                        forcedButInactive: forceFresh,
-                        activeViewMode: String(state.viewMode || '').trim(),
+                        cachePath: 'memory',
+                        cacheStatus: 'hit',
+                        cacheHit: true,
                     });
                     return events;
                 }
                 const candidateMeta = __tmGetCalendarTaskCandidatesSync();
                 const candidateTasks = Array.isArray(candidateMeta?.tasks) ? candidateMeta.tasks : [];
                 if (candidateTasks.length > 0 && opts.requireCompleteCache !== true) {
-                    const events = buildTaskDateEventsFromTasks(candidateTasks, candidateMeta?.docsToGroup);
+                    const indexed = __tmGetCalendarTaskDateCandidates(candidateTasks, rangeStartTs, rangeEndTs);
+                    const events = buildTaskDateEventsFromTasks(indexed.tasks, candidateMeta?.docsToGroup);
                     pushTaskDateQueryDiag('taskdate-inactive-memory', {
                         taskCount: candidateTasks.length,
+                        candidateCount: indexed.tasks.length,
+                        indexHit: indexed.hit,
                         eventCount: events.length,
-                        forcedButInactive: forceFresh,
-                        activeViewMode: String(state.viewMode || '').trim(),
+                        cachePath: 'memory',
+                        cacheStatus: 'hit',
+                        cacheHit: true,
                     });
                     return events;
                 }
             } catch (e) {}
             pushTaskDateQueryDiag('taskdate-skip-inactive-view', {
-                forcedButInactive: forceFresh,
-                activeViewMode: String(state.viewMode || '').trim(),
+                cachePath: 'inactive',
+                cacheStatus: 'skipped',
+                cacheHit: false,
             });
             return [];
         }
@@ -911,6 +1546,7 @@
                 const cache = window.__tmCalendarAllTasksCache;
                 const cachedTasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
                 const cacheAgeMs = Date.now() - (Number(cache?.ts) || 0);
+                const cacheComplete = cache?.complete === true;
                 const fastMaxStaleMs = Number.isFinite(Number(opts.fastMaxStaleMs))
                     ? Math.max(8000, Math.round(Number(opts.fastMaxStaleMs)))
                     : 300000;
@@ -918,12 +1554,24 @@
                     && (opts.requireCompleteCache !== true || cache?.complete === true)
                     && cacheAgeMs >= 0 && cacheAgeMs <= fastMaxStaleMs) {
                     const docsToGroup = __tmGetCalendarDocsToGroupMapSync();
-                    const events = buildTaskDateEventsFromTasks(cachedTasks, docsToGroup);
-                    if (cacheAgeMs > 8000) scheduleTaskDateCacheWarm('taskdate-stale-cache-first');
+                    const indexed = __tmGetCalendarTaskDateCandidates(cachedTasks, rangeStartTs, rangeEndTs);
+                    const events = buildTaskDateEventsFromTasks(indexed.tasks, docsToGroup);
+                    // The partial snapshot is intentionally allowed to paint
+                    // first, but it must also trigger the full index warm-up.
+                    // Previously a fresh-looking partial cache skipped this
+                    // call forever, leaving the dock on its initial subset.
+                    if (cacheAgeMs > 8000 || !cacheComplete) {
+                        scheduleTaskDateCacheWarm(cacheComplete ? 'taskdate-stale-cache-first' : 'taskdate-incomplete-cache-first');
+                    }
                     pushTaskDateQueryDiag(cacheAgeMs > 8000 ? 'taskdate-stale-cache' : 'taskdate-cache', {
                         taskCount: cachedTasks.length,
+                        candidateCount: indexed.tasks.length,
+                        indexHit: indexed.hit,
                         eventCount: events.length,
-                        cacheAgeMs,
+                        cachePath: 'memory',
+                        cacheStatus: cacheAgeMs > 8000 ? 'stale-hit' : 'hit',
+                        cacheHit: true,
+                        cacheComplete,
                         fastFirst: true,
                     });
                     return events;
@@ -931,17 +1579,38 @@
                 const candidateMeta = __tmGetCalendarTaskCandidatesSync();
                 const candidateTasks = Array.isArray(candidateMeta?.tasks) ? candidateMeta.tasks : [];
                 if (candidateTasks.length > 0 && opts.requireCompleteCache !== true) {
-                    const events = buildTaskDateEventsFromTasks(candidateTasks, candidateMeta?.docsToGroup);
+                    const indexed = __tmGetCalendarTaskDateCandidates(candidateTasks, rangeStartTs, rangeEndTs);
+                    const events = buildTaskDateEventsFromTasks(indexed.tasks, candidateMeta?.docsToGroup);
                     scheduleTaskDateCacheWarm('taskdate-memory-first');
                     pushTaskDateQueryDiag('taskdate-memory', {
                         taskCount: candidateTasks.length,
+                        candidateCount: indexed.tasks.length,
+                        indexHit: indexed.hit,
                         eventCount: events.length,
-                        cacheAgeMs: Number.isFinite(cacheAgeMs) ? cacheAgeMs : 0,
+                        cachePath: 'memory',
+                        cacheStatus: 'hit',
+                        cacheHit: true,
                         fastFirst: true,
                     });
                     return events;
                 }
             } catch (e) {}
+        }
+
+        if (!forceFresh && opts.deferFullLoad === true) {
+            // A side dock can paint an empty viewport and let the shared task
+            // cache warm in the background. Waiting here turns a cold index
+            // read into a visible calendar freeze.
+            scheduleTaskDateCacheWarm('taskdate-side-deferred');
+            pushTaskDateQueryDiag('taskdate-side-deferred', {
+                eventCount: 0,
+                cachePath: 'deferred',
+                cacheStatus: 'warming',
+                cacheHit: false,
+                fastFirst: true,
+                deferred: true,
+            });
+            return [];
         }
 
         const getDocsToGroupMap = async () => {
@@ -980,20 +1649,59 @@
         };
 
         let docsToGroup = new Map();
-        try { docsToGroup = await getDocsToGroupMap(); } catch (e) {}
+        try {
+            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-doc-range-resolve', { path: 'doc-range-resolve' }); } catch (e0) {}
+            docsToGroup = await getDocsToGroupMap();
+            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-doc-range-ready', { path: 'doc-range-resolve', documentCount: docsToGroup.size }); } catch (e0) {}
+        } catch (e) {
+            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-doc-range-error', { path: 'doc-range-resolve', error: String(e?.message || e || '') }); } catch (e0) {}
+        }
 
         let filtered = [];
+        let fullLoadError = '';
         try {
-            filtered = await __tmLoadAllTasksForCalendarCache({ ...opts, forceFresh, maxAgeMs: 8000 });
+            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-index-read-start', { path: 'task-index-read' }); } catch (e0) {}
+            // Keep the loader metadata on the same options object so the
+            // task-date trace can report cachePath/reused for early in-flight
+            // joins as well as the normal SQL path.
+            Object.assign(opts, { forceFresh, maxAgeMs: 8000 });
+            filtered = await __tmLoadAllTasksForCalendarCache(opts);
+            try {
+                globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-index-read-ready', {
+                    path: 'task-index-read',
+                    taskCount: filtered.length,
+                    cachePath: String(opts.__tmCalendarTaskLoadCachePath || window.__tmCalendarAllTasksCache?.source || 'sql').trim() || 'sql',
+                    cacheStatus: String(opts.__tmCalendarTaskLoadCacheStatus || '').trim() || undefined,
+                    cacheHit: window.__tmCalendarAllTasksCache?.source === 'task-store',
+                    reused: opts.__tmCalendarTaskLoadReused === true,
+                    storeScopeMatch: window.__tmCalendarTaskLastStoreScope?.match === true,
+                    expectedDocCount: Number(window.__tmCalendarTaskLastStoreScope?.expectedDocCount || 0) || 0,
+                    loadedDocCount: Number(window.__tmCalendarTaskLastStoreScope?.loadedDocCount || 0) || 0,
+                });
+            } catch (e0) {}
         } catch (e) {
-            if (opts.throwOnError === true) throw e;
+            fullLoadError = String(e?.message || e || '').trim();
+            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-index-read-error', { path: 'task-index-read', error: String(e?.message || e || '') }); } catch (e0) {}
+            if (opts.throwOnError === true) {
+                try { globalThis.__tmTaskHorizonPerfFinish?.(perfTrace, { path: 'task-index-read', error: fullLoadError, success: false }); } catch (e0) {}
+                throw e;
+            }
             filtered = [];
         }
-        const out = buildTaskDateEventsFromTasks(filtered, docsToGroup);
+        try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-projection', { path: 'task-date-projection', taskCount: filtered.length }); } catch (e) {}
+        const indexed = __tmGetCalendarTaskDateCandidates(filtered, rangeStartTs, rangeEndTs);
+        const out = buildTaskDateEventsFromTasks(indexed.tasks, docsToGroup);
         pushTaskDateQueryDiag('taskdate-full', {
             taskCount: filtered.length,
+            candidateCount: indexed.tasks.length,
+            indexHit: indexed.hit,
             eventCount: out.length,
+            cachePath: String(opts.__tmCalendarTaskLoadCachePath || window.__tmCalendarAllTasksCache?.source || 'sql').trim() || 'sql',
+            cacheStatus: String(opts.__tmCalendarTaskLoadCacheStatus || '').trim() || (window.__tmCalendarAllTasksCache?.source === 'task-store' ? 'store' : 'miss'),
+            cacheHit: window.__tmCalendarAllTasksCache?.source === 'task-store',
+            reused: opts.__tmCalendarTaskLoadReused === true,
             fastFirst: false,
+            ...(fullLoadError ? { error: fullLoadError, success: false } : {}),
         });
         return out;
     };
@@ -1281,14 +1989,40 @@
 
     window.tmUpdateTaskDates = async function(taskId, patch = {}, options = {}) {
         const requestedId = String(taskId || '').trim();
-        if (!requestedId) throw new Error('缺少任务 ID');
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         const opts = (options && typeof options === 'object') ? options : {};
+        const perfTrace = (() => {
+            try {
+                return typeof globalThis.__tmTaskHorizonPerfCreate === 'function'
+                    ? globalThis.__tmTaskHorizonPerfCreate('taskDateWrite', {
+                        calendar: String(opts.calendar || opts.instance || '').trim() || 'background',
+                        instance: String(opts.instance || opts.calendar || '').trim() || 'background',
+                        taskId: requestedId,
+                        source: String(opts.source || 'calendar-dates').trim() || 'calendar-dates',
+                        background: opts.background === true,
+                    })
+                    : null;
+            } catch (e) { return null; }
+        })();
+        const perfMark = (stage, detail = {}) => {
+            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, stage, detail); } catch (e) {}
+        };
+        const perfFinish = (detail = {}) => {
+            try { globalThis.__tmTaskHorizonPerfFinish?.(perfTrace, detail); } catch (e) {}
+        };
+        if (!requestedId) {
+            perfFinish({ error: '缺少任务 ID', success: false });
+            throw new Error('缺少任务 ID');
+        }
+        perfMark('taskdate-write-start', { path: 'task-date-write', taskId: requestedId });
         const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate');
         const hasCompletionTime = Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime');
         const hasTaskDateColor = Object.prototype.hasOwnProperty.call(nextPatch, 'taskDateColor')
             || Object.prototype.hasOwnProperty.call(nextPatch, 'color');
-        if (!hasStartDate && !hasCompletionTime && !hasTaskDateColor) throw new Error('缺少日期字段');
+        if (!hasStartDate && !hasCompletionTime && !hasTaskDateColor) {
+            perfFinish({ taskId: requestedId, error: '缺少日期字段', success: false });
+            throw new Error('缺少日期字段');
+        }
         let resolvedId = requestedId;
         let task = __tmGetCalendarFlatTaskByIdSync(requestedId);
         if (opts.requireTaskIdentity === true) {
@@ -1296,8 +2030,10 @@
             try { strictResolvedId = String(await __tmResolveTaskIdFromAnyBlockId(requestedId, { preferLocal: false }) || '').trim(); } catch (e) {}
             if (!strictResolvedId) {
                 if (opts.ignoreMissingTask === true) {
+                    perfFinish({ taskId: requestedId, path: 'identity-resolve', success: true, confirmed: false });
                     return { id: '', requestedId, skipped: true, reason: 'not-task' };
                 }
+                perfFinish({ taskId: requestedId, path: 'identity-resolve', error: '未找到任务', success: false });
                 throw new Error('未找到任务');
             }
             resolvedId = strictResolvedId;
@@ -1323,8 +2059,10 @@
         }
         const persistId = String(task?.id || resolvedId || requestedId).trim();
         if (!persistId) {
+            perfFinish({ taskId: requestedId, path: 'identity-resolve', error: '未找到任务', success: false });
             throw new Error('未找到任务');
         }
+        perfMark('taskdate-identity-ready', { path: 'identity-resolve', taskId: persistId });
 
         const normalizeDate = (value) => {
             const raw = String(value || '').trim();
@@ -1389,7 +2127,9 @@
         if (hasTaskDateColor) inversePatch.taskDateColor = prevColor;
         const persistWait = opts.wait === true;
         const recordBackgroundUndo = opts.background === true && opts.recordUndo !== false;
-        const persistPromise = __tmApplyTaskMetaPatchWithUndo(persistId, attrPatch, {
+        let persistPromise;
+        try {
+            persistPromise = __tmApplyTaskMetaPatchWithUndo(persistId, attrPatch, {
                 source: refreshReason,
                 label: __tmBuildUndoLabelFromMetaPatch(attrPatch, '日期'),
                 skipNoopCheck: opts.skipNoopCheck === true || opts.background === true,
@@ -1398,6 +2138,7 @@
                 queued: true,
                 background: opts.background === true,
                 wait: persistWait,
+                perfTrace,
                 skipFlush: persistSkipFlush,
                 docId: taskDocId,
                 skipSnapshotPersist,
@@ -1412,7 +2153,16 @@
                 showErrorHint: opts.showErrorHint !== false,
                 skipDetailPatch: opts.skipDetailPatch === true,
                 allowMountedInactive: opts.allowMountedInactive === true,
-});
+            });
+        } catch (error) {
+            perfFinish({ taskId: persistId, path: 'persist', error: String(error?.message || error || ''), success: false, confirmed: false });
+            throw error;
+        }
+        perfMark('taskdate-optimistic', {
+            path: 'optimistic-cache',
+            taskId: persistId,
+            optimistic: true,
+        });
         if (recordBackgroundUndo) {
             try {
                 if (!__tmUndoState?.applying && typeof __tmPushUndoRecord === 'function') {
@@ -1440,8 +2190,17 @@
             try {
                 await persistPromise;
             } catch (error) {
+                perfFinish({
+                    taskId: persistId,
+                    path: 'persist',
+                    error: String(error?.message || error || ''),
+                    success: false,
+                    confirmed: false,
+                });
                 throw error;
             }
+            perfMark('taskdate-write-confirmed', { path: 'persist', taskId: persistId, confirmed: true });
+            perfFinish({ path: 'persist', taskId: persistId, confirmed: true, success: true });
             try {
                 const recordReschedule = globalThis.__tmRecordTaskProcrastinationDateReschedule;
                 if (hasCompletionTime && typeof recordReschedule === 'function') {
@@ -1461,6 +2220,7 @@
             finishAfterPersist().then(() => {
                 return null;
             }).catch((error) => {
+                perfFinish({ taskId: persistId, error: String(error?.message || error || ''), success: false, confirmed: false });
                 try { opts.onError?.(error); } catch (e) {}
                 return null;
             });

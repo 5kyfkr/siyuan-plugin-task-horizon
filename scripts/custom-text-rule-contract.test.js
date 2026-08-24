@@ -103,7 +103,7 @@ assert.equal(sortFieldIds.has('customField:tags'), true);
 
 assert.deepEqual(
     Array.from(RuleManager.getOperators('text'), (operator) => operator.value),
-    ['=', '!=', 'in', 'not_in', 'contains', 'not_contains'],
+    ['=', '!=', 'in', 'not_in', 'contains', 'not_contains', 'is_empty', 'is_not_empty'],
 );
 
 const tasks = [
@@ -128,6 +128,29 @@ assert.deepEqual(filterIds('not_contains', 'ALPHA'), ['project10', 'project2', '
 assert.deepEqual(filterIds('in', 'Alpha 10,项目2'), ['alpha10', 'project2']);
 assert.deepEqual(filterIds('not_in', 'Alpha 10,项目2'), ['alpha2', 'project10', 'empty']);
 assert.deepEqual(filterIds('=', ''), ['empty']);
+assert.deepEqual(filterIds('is_empty', ''), ['empty']);
+assert.deepEqual(filterIds('is_not_empty', ''), ['alpha10', 'alpha2', 'project10', 'project2']);
+
+const filterFieldIds = (sourceTasks, field, operator) => Array.from(
+    RuleManager.applyRuleFilter(sourceTasks, {
+        id: `empty-${field}`,
+        conditions: [{ field, operator, value: '' }],
+    }),
+    (task) => task.id,
+);
+assert.deepEqual(filterFieldIds([
+    { id: 'unset', customFieldValues: {} },
+    { id: 'selected', customFieldValues: { stage: 'now' } },
+], 'customField:stage', 'is_empty'), ['unset']);
+assert.deepEqual(filterFieldIds([
+    { id: 'zero', level: 0 },
+    { id: 'unset' },
+    { id: 'positive', level: 2 },
+], 'level', 'is_empty'), ['unset']);
+assert.deepEqual(filterFieldIds([
+    { id: 'unset' },
+    { id: 'dated', startDate: '2026-08-01' },
+], 'startDate', 'is_not_empty'), ['dated']);
 
 const sortIds = (sourceTasks, field, order) => Array.from(
     RuleManager.applyRuleSort(sourceTasks, {

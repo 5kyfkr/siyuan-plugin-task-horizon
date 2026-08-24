@@ -99,11 +99,16 @@ async function run() {
     assert.match(scheduledRuntimeSource, /finally\s*\{\s*__tmScheduledArmTimer\(\);\s*\}/, 'the minute timer must re-arm after both successful and failed checks');
     assert.match(scheduledRuntimeSource, /delivery_commit_pending/, 'successful delivery must be checkpointed separately from its final Kernel commit');
     assert.match(scheduledRuntimeSource, /__tmScheduledFinishWithRetry/, 'completion commits must retry without re-delivering content');
+    assert.match(scheduledRuntimeSource, /__tmScheduledIsDesktopRuntime/, 'scheduled events must have a single desktop-only runtime guard');
+    assert.match(scheduledRuntimeSource, /if \(!manual && !__tmScheduledIsDesktopRuntime\(\)\)/, 'only automatic scheduled runs must require a desktop runtime');
     assert.match(scheduledRuntimeSource, /__tmBackendAdapter\.prependBlock/, 'top document delivery must use the native prepend path');
     assert.match(scheduledRuntimeSource, /daily_note/, 'scheduled output must support writing to today\'s diary');
     assert.match(scheduledRuntimeSource, /__tmScheduledStripDuplicateLeadingHeading/, 'scheduled document delivery must remove a duplicated leading result heading');
     assert.match(scheduledRuntimeSource, /__tmScheduledSanitizeOutput/, 'scheduled delivery must sanitize leaked unattended control text before persisting results');
     assert.match(scheduledRuntimeSource, /__tmScheduledNeutralizeTaskMarkers/, 'document delivery must not persist report checkboxes as real tasks');
+    assert.equal(scheduledRuntimeSource.includes('__tmScheduledFocusInstruction'), true, 'scheduled summaries must have a dedicated focus-data instruction');
+    assert.equal(scheduledRuntimeSource.includes('query_focus_statistics'), true, 'scheduled summaries must use the focus MCP contract');
+    assert.equal(scheduledRuntimeSource.includes('custom-tomato-applied-records'), true, 'scheduled summaries must identify the internal Tomato deduplication attribute');
     assert.match(kernelSource, /action === 'insertBlock' \|\| action === 'appendBlock' \|\| action === 'prependBlock'/, 'the Kernel block gateway must support native prepend writes');
     assert.match(kernelSource, /\['notification', 'document', 'daily_note'\]/, 'the Kernel schedule schema must expose diary output');
     assert.match(scheduledRuntimeSource, /resolvedConversationId[\s\S]*result\?\.sessionID[\s\S]*resolvedConversationId !== event\.conversationId/, 'a replacement Agent session must update the scheduled-event binding');
@@ -125,6 +130,30 @@ async function run() {
     assert.equal(calendarSource.includes('showCompletionNotification: showScheduleCompletionNotification'), true, 'calendar completion notifications must be reusable by scheduled events');
     assert.match(calendarSource, /async function showScheduleSystemNotification/, 'system notification delivery must be awaitable');
     assert.equal(core.neutralizeTaskMarkers('- [x] 最后一项\n1. [ ] 下一项\n普通文本'), '- 最后一项\n1. 下一项\n普通文本');
+    assert.match(core.focusInstruction(new Date(2026, 6, 15, 19, 0)), /query_focus_statistics/);
+    assert.match(core.focusInstruction(new Date(2026, 6, 15, 19, 0)), /custom-tomato-applied-records/);
+
+    {
+        const mobile = loadScheduledCore();
+        mobile.context.__tmIsRuntimeMobileClient = () => true;
+        assert.equal(mobile.isDesktopRuntime(), false, 'mobile runtimes must not be treated as scheduled-event executors');
+        mobile.context.SettingsStore = { data: { scheduledEvents: [event({ id: 'evt-mobile' })] } };
+        let manualRunCalled = false;
+        mobile.context.__tmCallTaskHorizonKernelRpc = async (name, input) => {
+            if (name === 'taskHorizonClaimAgentScheduleOccurrence') {
+                manualRunCalled = input.manual === true;
+                return { available: true, data: { claimed: false } };
+            }
+            throw new Error(`unexpected RPC: ${name}`);
+        };
+        const result = await mobile.context['siyuan-plugin-task-horizon'].scheduledEvents.runNow('evt-mobile');
+        assert.equal(manualRunCalled, true, 'mobile users must still be able to invoke a manual run');
+        assert.equal(result.status, 'deduplicated');
+        manualRunCalled = false;
+        await mobile.context['siyuan-plugin-task-horizon'].scheduledEvents.refresh();
+        assert.equal(manualRunCalled, false, 'mobile automatic checks must not claim scheduled occurrences');
+        mobile.context['siyuan-plugin-task-horizon'].scheduledEvents.dispose();
+    }
 
     {
         const recovery = loadScheduledCore();
@@ -586,12 +615,20 @@ async function run() {
     assert.equal(agentSource.includes('if (!persistent) scheduleAutomationSessionCleanup(sessionID);'), true, 'persistent conversations must not be deleted');
     assert.equal(agentSource.includes('openConversation: async (sessionID)'), true, 'scheduled conversations must be openable from settings');
     assert.equal(agentSource.includes('session.entries = baseEntries;'), true, 'each automation run must append visible conversation entries');
-    assert.match(agentSource, /async function ensureAutomationTaskToolsReady\(\)[\s\S]*ensureTaskToolsReadyForSend\(\)[\s\S]*syncBuiltinSkills\(\)[\s\S]*async function runAutomation[\s\S]*await ensureAutomationTaskToolsReady\(\)/, 'scheduled automation must restore task capabilities and current built-in skills before starting a model round');
+    assert.match(agentSource, /async function ensureAutomationTaskToolsReady\(options = \{\}\)[\s\S]*ensureTaskToolsReadyForSend\(\)[\s\S]*syncBuiltinSkills\(\)[\s\S]*async function runAutomation[\s\S]*await ensureAutomationTaskToolsReady\(\{ focusTools: request\.requireFocusTools === true \}\)/, 'scheduled automation must restore task capabilities and current built-in skills before starting a model round');
+    assert.match(scheduledRuntimeSource, /requireFocusTools: true/, 'scheduled summaries must require the focus MCP capability before starting a model round');
+    assert.match(agentSource, /AUTOMATION_FOCUS_TOOLS[\s\S]*query_focus_statistics[\s\S]*aggregate_time_usage/, 'scheduled automation must declare the focus MCP tools it requires');
+    assert.match(agentSource, /setAgentMcpEnabled\(true, \{ notify: false, refreshSettings: false, syncAgentPolicy: true \}\)/, 'scheduled automation must repair stale denied capability policy before sending');
+    assert.match(agentSource, /定时事件需要已暴露的专注 MCP 工具/, 'scheduled automation must fail before the model round when focus tools are unavailable');
     assert.equal(scheduledSettingsSource.includes('tmScheduledOpenConversation'), true, 'scheduled settings must expose the conversation entry');
     assert.equal(safety.isAllowedTool('plugin__siyuan_plugin_task_horizon__query_tasks'), true);
     assert.equal(safety.isAllowedTool('plugin__siyuan_plugin_task_horizon__query_tasks__0123456789ab'), true);
+    assert.equal(safety.isAllowedTool('plugin__siyuan_plugin_task_horizon__query_focus_st__0123456789ab'), true, 'SiYuan 3.8 truncated focus capability names must remain read-only');
+    assert.equal(safety.isAllowedTool('plugin__siyuan_plugin_task_horizon__aggregate_time__0123456789ab'), true, 'SiYuan 3.8 truncated time capability names must remain read-only');
     assert.equal(safety.normalizeToolName('plugin__siyuan-plugin-task-horizon__query_tasks'), 'query_tasks');
     assert.equal(safety.normalizeToolName('plugin__siyuan_plugin_task_horizon__query_tasks__0123456789ab'), 'query_tasks');
+    assert.equal(safety.normalizeToolName('plugin__siyuan_plugin_task_horizon__query_focus_st__0123456789ab'), 'query_focus_statistics');
+    assert.equal(safety.normalizeToolName('plugin__siyuan_plugin_task_horizon__aggregate_time__0123456789ab'), 'aggregate_time_usage');
     assert.equal(safety.automaticConfirmKind({ confirmID: 'foreign', name: 'plugin__another_plugin__create_task', arguments: { action: 'create' } }), '', 'another plugin must never inherit Task Horizon quick-write approval');
     assert.equal(safety.isAllowedTool('plugin__another_plugin__query_tasks'), false, 'scheduled automation must reject another plugin that reuses a Task Horizon local tool name');
     assert.equal(safety.automaticConfirmKind({ confirmID: 'read', name: 'plugin__siyuan-plugin-task-horizon__query_tasks', arguments: { action: 'query' } }), 'read');
@@ -601,6 +638,9 @@ async function run() {
     assert.equal(safety.isAllowedTool('todo_write', { todos: [{ content: '汇总任务', status: 'in_progress' }] }), true, 'session-only todo tracking is safe');
     assert.equal(safety.isAllowedTool('file_write', { path: 'result.md' }), false, 'workspace writes must remain blocked');
     assert.equal(safety.isAllowedTool('sql', { action: 'query', stmt: 'SELECT * FROM blocks LIMIT 1' }), true, 'SiYuan read-only SQL queries must be available to scheduled summaries');
+    assert.equal(safety.isAllowedTool('sql', { action: 'query', stmt: "SELECT * FROM attributes WHERE name = 'custom-tomato-applied-records'" }), false, 'scheduled focus summaries must not read the internal Tomato deduplication attribute');
+    assert.equal(safety.isAllowedTool('sql', { action: 'query', stmt: "SELECT * FROM attributes WHERE name = 'custom-tomato-unknown-internal-field'" }), false, 'all internal Tomato attributes must remain unavailable to scheduled summaries');
+    assert.equal(safety.isAllowedTool('sql', { action: 'query', stmt: 'SELECT 1', sql: "SELECT * FROM attributes WHERE name = 'custom-tomato-hidden-field'" }), false, 'Tomato attributes must be blocked across every native SQL argument alias');
     assert.equal(safety.isAllowedTool('sql', { action: 'select', stmt: 'SELECT * FROM blocks' }), false, 'only the declared SQL query action may run unattended');
     assert.equal(safety.isAllowedTool('sql', { stmt: 'SELECT * FROM blocks' }), false, 'SQL calls without the declared read-only action must remain blocked');
     assert.equal(safety.isAllowedTool('skill', { action: 'list' }), true, 'listing skills is read-only in SiYuan 3.8');
@@ -633,6 +673,20 @@ async function run() {
     assert.equal(safety.isReminderModeChoiceIntent('给当前任务添加提醒'), true, 'task reminder writes without a time must still choose follow or independent mode');
     assert.equal(safety.isReminderModeChoiceIntent('查看已有的定时事件'), false, 'read-only scheduled-event requests must not open the choice');
     assert.equal(safety.isReminderModeChoiceIntent('提醒功能怎么用'), false, 'help requests must not open the choice');
+    {
+        const automation = loadAutomationSafety();
+        let chatCalls = 0;
+        automation.context.fetch = async (url) => {
+            if (String(url).endsWith('/chat')) chatCalls += 1;
+            throw new Error('unexpected request');
+        };
+        await assert.rejects(
+            () => automation.runAutomation({ prompt: 'Summarize', requireFocusTools: true }),
+            /query_focus_statistics[\s\S]*aggregate_time_usage/,
+            'scheduled automation must fail before /chat when the focus MCP capability is unavailable',
+        );
+        assert.equal(chatCalls, 0);
+    }
     {
         const automation = loadAutomationSafety();
         const requests = [];
@@ -685,6 +739,7 @@ async function run() {
         assert.equal(chat.sessionID, result.sessionID);
         assert.equal(chat.contentRevision, 1);
         assert.match(chat.message, /无人值守的定时执行[\s\S]*只能读取、筛选和聚合数据/, 'scheduled requests must tell the model about the read-only safety boundary');
+        assert.match(chat.message, /query_focus_statistics[\s\S]*aggregate_time_usage[\s\S]*custom-tomato-\*/, 'scheduled requests must route focus data through MCP instead of Tomato attributes');
         assert.deepEqual(chat.frontendCapabilities, [], 'scheduled requests must not expose SiYuan 3.8 browser capabilities');
         const finalSave = requests.filter((item) => item.route === '/saveSession').at(-1);
         assert.equal(finalSave.body.commitTurnID, 'turn-new', 'scheduled conversations must explicitly commit the SiYuan 3.8 runtime turn');

@@ -1,0 +1,95 @@
+- generic [active] [ref=e1]:
+  - heading "Directory listing for /" [level=1] [ref=e2]
+  - separator [ref=e3]
+  - list [ref=e4]:
+    - listitem [ref=e5]:
+      - link ".git/" [ref=e6] [cursor=pointer]:
+        - /url: .git/
+    - listitem [ref=e7]:
+      - link ".github/" [ref=e8] [cursor=pointer]:
+        - /url: .github/
+    - listitem [ref=e9]:
+      - link ".gitignore" [ref=e10] [cursor=pointer]:
+        - /url: .gitignore
+    - listitem [ref=e11]:
+      - link ".impeccable.md" [ref=e12] [cursor=pointer]:
+        - /url: .impeccable.md
+    - listitem [ref=e13]:
+      - link ".playwright-cli/" [ref=e14] [cursor=pointer]:
+        - /url: .playwright-cli/
+    - listitem [ref=e15]:
+      - link "ai.js" [ref=e16] [cursor=pointer]:
+        - /url: ai.js
+    - listitem [ref=e17]:
+      - link "build.bat" [ref=e18] [cursor=pointer]:
+        - /url: build.bat
+    - listitem [ref=e19]:
+      - link "build.ps1" [ref=e20] [cursor=pointer]:
+        - /url: build.ps1
+    - listitem [ref=e21]:
+      - link "build.sh" [ref=e22] [cursor=pointer]:
+        - /url: build.sh
+    - listitem [ref=e23]:
+      - link "calendar-subscription-core.js" [ref=e24] [cursor=pointer]:
+        - /url: calendar-subscription-core.js
+    - listitem [ref=e25]:
+      - link "calendar-view.css" [ref=e26] [cursor=pointer]:
+        - /url: calendar-view.css
+    - listitem [ref=e27]:
+      - link "calendar-view.js" [ref=e28] [cursor=pointer]:
+        - /url: calendar-view.js
+    - listitem [ref=e29]:
+      - link "CHANGELOG.md" [ref=e30] [cursor=pointer]:
+        - /url: CHANGELOG.md
+    - listitem [ref=e31]:
+      - link "docs/" [ref=e32] [cursor=pointer]:
+        - /url: docs/
+    - listitem [ref=e33]:
+      - link "homepage.js" [ref=e34] [cursor=pointer]:
+        - /url: homepage.js
+    - listitem [ref=e35]:
+      - link "icon.png" [ref=e36] [cursor=pointer]:
+        - /url: icon.png
+    - listitem [ref=e37]:
+      - link "index.js" [ref=e38] [cursor=pointer]:
+        - /url: index.js
+    - listitem [ref=e39]:
+      - link "kernel.js" [ref=e40] [cursor=pointer]:
+        - /url: kernel.js
+    - listitem [ref=e41]:
+      - link "LICENSE" [ref=e42] [cursor=pointer]:
+        - /url: LICENSE
+    - listitem [ref=e43]:
+      - link "output/" [ref=e44] [cursor=pointer]:
+        - /url: output/
+    - listitem [ref=e45]:
+      - link "package.zip" [ref=e46] [cursor=pointer]:
+        - /url: package.zip
+    - listitem [ref=e47]:
+      - link "plugin.json" [ref=e48] [cursor=pointer]:
+        - /url: plugin.json
+    - listitem [ref=e49]:
+      - link "preview.png" [ref=e50] [cursor=pointer]:
+        - /url: preview.png
+    - listitem [ref=e51]:
+      - link "PRODUCT.md" [ref=e52] [cursor=pointer]:
+        - /url: PRODUCT.md
+    - listitem [ref=e53]:
+      - link "quickbar.js" [ref=e54] [cursor=pointer]:
+        - /url: quickbar.js
+    - listitem [ref=e55]:
+      - link "README.md" [ref=e56] [cursor=pointer]:
+        - /url: README.md
+    - listitem [ref=e57]:
+      - link "scripts/" [ref=e58] [cursor=pointer]:
+        - /url: scripts/
+    - listitem [ref=e59]:
+      - link "skills/" [ref=e60] [cursor=pointer]:
+        - /url: skills/
+    - listitem [ref=e61]:
+      - link "src/" [ref=e62] [cursor=pointer]:
+        - /url: src/
+    - listitem [ref=e63]:
+      - link "task-horizon.css" [ref=e64] [cursor=pointer]:
+        - /url: task-horizon.css
+  - separator [ref=e65]

@@ -77,23 +77,22 @@
             }));
             return { gid, ids };
         }));
-        const docToGroup = new Map();
         const groupDocIdsMap = {};
+        const docGroupIdsMap = {};
         const allDocIds = new Set();
         scopes.filter(Boolean).forEach(({ gid, ids }) => {
             groupDocIdsMap[gid] = ids;
             ids.forEach((id) => {
                 allDocIds.add(id);
-                if (!docToGroup.has(id)) docToGroup.set(id, gid);
+                if (!Array.isArray(docGroupIdsMap[id])) docGroupIdsMap[id] = [];
+                if (!docGroupIdsMap[id].includes(gid)) docGroupIdsMap[id].push(gid);
             });
         });
-        if (allDocIds.size === 0) {
-            Object.values(state.flatTasks || {}).forEach((task) => {
-                const docId = String(task?.docId || task?.root_id || '').trim();
-                if (docId) allDocIds.add(docId);
-            });
-        }
-        return { docToGroup, groupDocIdsMap, allDocIds: Array.from(allDocIds) };
+        Object.values(state.flatTasks || {}).forEach((task) => {
+            const docId = String(task?.docId || task?.root_id || '').trim();
+            if (docId) allDocIds.add(docId);
+        });
+        return { groupDocIdsMap, docGroupIdsMap, allDocIds: Array.from(allDocIds) };
     }
 
     function __tmSummaryStatusName(task, statusMap) {
@@ -308,14 +307,14 @@
         const out = [];
         const arr = Array.isArray(ctx.summaryTasks) ? ctx.summaryTasks : [];
         const docNameMap = ctx.docNameMap || {};
-        const docToGroup = ctx.docToGroup || new Map();
-        const groupDocIdsMap = (ctx.groupDocIdsMap && typeof ctx.groupDocIdsMap === 'object') ? ctx.groupDocIdsMap : {};
+        const docGroupIdsMap = (ctx.docGroupIdsMap && typeof ctx.docGroupIdsMap === 'object') ? ctx.docGroupIdsMap : {};
         const f = filter || {};
         const start = String(f.start || '').trim();
         const end = String(f.end || '').trim();
         const status = String(f.status || '__all__').trim();
         const priority = String(f.priority || '__all__').trim();
-        const groupId = String(f.groupId || '__all__').trim();
+        const groupIds = __tmSummaryGetGroupIds(f);
+        const allGroupsSelected = groupIds.includes('__all__');
         const docIdFilter = String(f.docId || '__all__').trim();
         const idMap = new Map();
         const levelMemo = new Map();
@@ -348,12 +347,10 @@
             const docId = String(task.docId || task.root_id || '').trim();
             if (!docId) return;
             if (docIdFilter !== '__all__' && docId !== docIdFilter) return;
-            const gid = String(docToGroup.get(docId) || '').trim();
-            const groupDocIds = Array.isArray(groupDocIdsMap[groupId]) ? groupDocIdsMap[groupId] : [];
-            if (groupId === '__ungrouped__') {
-                if (gid) return;
-            } else if (groupId !== '__all__') {
-                if (!groupDocIds.includes(docId)) return;
+            if (!allGroupsSelected) {
+                const memberships = Array.isArray(docGroupIdsMap[docId]) ? docGroupIdsMap[docId] : [];
+                const matches = groupIds.some((groupId) => memberships.includes(groupId));
+                if (!matches) return;
             }
 
             const completedAtTs = __tmSummaryTaskCompletedAtTs(task);
@@ -401,9 +398,10 @@
         const preset = String(filter.preset || 'all').trim();
         const isDailyReport = preset === 'today_report';
         const isWeeklyReport = preset === 'this_week_report' || preset === 'last_week_report';
-        const groupName = ctx.groupNameMap?.[String(filter.groupId || '__all__')] || '全部分组';
+        const selectedGroupIds = __tmSummaryGetGroupIds(filter);
+        const groupName = __tmSummaryGroupLabel(selectedGroupIds, ctx.groupNameMap, { compact: false });
         const docName = filter.docId === '__all__'
-            ? (filter.groupId && filter.groupId !== '__all__' ? '当前分区全部文档' : '全部分区内文档')
+            ? (selectedGroupIds.includes('__all__') ? '全部分区内文档' : '已选分组内全部文档')
             : (ctx.docNameMap?.[String(filter.docId || '')] || '指定文档');
         const statusName = String(filter.status || '__all__') === '__all__'
             ? '全部状态'
@@ -515,6 +513,73 @@
 
     const __TM_SUMMARY_FILTER_STORAGE_KEY = 'tm_summary_filter';
 
+    function __tmSummaryNormalizeGroupIds(value) {
+        const source = Array.isArray(value) ? value : [value];
+        const ids = Array.from(new Set(source
+            .map((id) => String(id || '').trim())
+            .filter((id) => id !== '__ungrouped__')
+            .filter(Boolean)));
+        if (!ids.length || ids.includes('__all__')) return ['__all__'];
+        return ids;
+    }
+
+    function __tmSummaryGetGroupIds(filter) {
+        if (Array.isArray(filter?.groupIds)) return __tmSummaryNormalizeGroupIds(filter.groupIds);
+        return __tmSummaryNormalizeGroupIds(filter?.groupId || '__all__');
+    }
+
+    function __tmSummaryGroupLabel(groupIds, groupNameMap, options = {}) {
+        const ids = __tmSummaryNormalizeGroupIds(groupIds);
+        if (ids.includes('__all__')) return '全部分组';
+        const names = ids.map((id) => String(groupNameMap?.[id] || id)).filter(Boolean);
+        if (names.length === 1 || options.compact === false) return names.join('、');
+        return `已选 ${names.length} 个分组`;
+    }
+
+    function __tmSummaryReadGroupIds(root) {
+        const options = Array.from(root?.querySelectorAll?.('[data-tm-summary-group-option]:checked') || []);
+        if (options.length) return __tmSummaryNormalizeGroupIds(options.map((option) => option.value));
+        const hidden = root?.querySelector?.('[data-tm-summary="group"]');
+        const raw = String(hidden?.value || '__all__').trim();
+        return __tmSummaryNormalizeGroupIds(raw ? raw.split(',') : ['__all__']);
+    }
+
+    function __tmSummarySyncGroupPicker(root, groupIds = null) {
+        const requested = __tmSummaryNormalizeGroupIds(groupIds || __tmSummaryReadGroupIds(root));
+        const available = new Set(Array.from(root?.querySelectorAll?.('[data-tm-summary-group-option]') || [])
+            .map((option) => String(option.value || '').trim())
+            .filter(Boolean));
+        const ids = requested.includes('__all__')
+            ? ['__all__']
+            : requested.filter((id) => available.has(id));
+        if (!ids.length && available.has('__all__')) ids.push('__all__');
+        const selected = new Set(ids);
+        root?.querySelectorAll?.('[data-tm-summary-group-option]').forEach((option) => {
+            option.checked = selected.has(String(option.value || '').trim());
+        });
+        const hidden = root?.querySelector?.('[data-tm-summary="group"]');
+        if (hidden) hidden.value = ids.join(',');
+        const label = root?.querySelector?.('[data-tm-summary-group-label]');
+        if (label) label.textContent = __tmSummaryGroupLabel(ids, root?.__tmSummaryGroupNameMap || {});
+        return ids;
+    }
+
+    function __tmSummaryHandleGroupOptionChange(root, option) {
+        const id = String(option?.value || '').trim();
+        let ids = __tmSummaryReadGroupIds(root);
+        if (id === '__all__' && option.checked) {
+            ids = ['__all__'];
+        } else if (id === '__all__' && !option.checked) {
+            ids = ids.filter((item) => item !== '__all__');
+        } else if (option.checked) {
+            ids = ids.filter((item) => item !== '__all__');
+            if (!ids.includes(id)) ids.push(id);
+        } else {
+            ids = ids.filter((item) => item !== id);
+        }
+        return __tmSummarySyncGroupPicker(root, ids.length ? ids : ['__all__']);
+    }
+
     function __tmSummaryNormalizeSavedFilter(value) {
         const source = (value && typeof value === 'object' && !Array.isArray(value)) ? value : null;
         if (!source) return null;
@@ -526,11 +591,18 @@
         const preset = String(source.preset || '').trim();
         const priority = String(source.priority || '').trim();
         const groupBy = String(source.groupBy || '').trim();
-        return {
+        const sourceGroupIds = Array.isArray(source.groupIds)
+            ? source.groupIds
+            : [String(source.groupId || '__all__').trim() || '__all__'];
+        const groupIds = Array.from(new Set(sourceGroupIds
+            .map((id) => String(id || '').trim())
+            .filter((id) => id && id !== '__ungrouped__')));
+        if (!groupIds.length || groupIds.includes('__all__')) groupIds.splice(0, groupIds.length, '__all__');
+        const normalized = {
             preset: allowedPreset.has(preset) ? preset : 'this_week',
             start: __tmNormalizeDateOnly(source.start || ''),
             end: __tmNormalizeDateOnly(source.end || ''),
-            groupId: String(source.groupId || '__all__').trim() || '__all__',
+            groupId: groupIds.length === 1 ? groupIds[0] : '__all__',
             docId: String(source.docId || '__all__').trim() || '__all__',
             status: String(source.status || '__all__').trim() || '__all__',
             priority: allowedPriority.has(priority) ? priority : '__all__',
@@ -544,6 +616,9 @@
                 focusDuration: booleanOr('focusDuration', false),
             },
         };
+        // Keep the legacy normalized shape stable while persisting the new multi-select value.
+        if (Array.isArray(source.groupIds)) normalized.groupIds = groupIds;
+        return normalized;
     }
 
     function __tmSummaryLoadSavedFilter() {
@@ -569,7 +644,7 @@
         setValue('preset', filter.preset, 'this_week');
         setValue('start', filter.start, '');
         setValue('end', filter.end, '');
-        setValue('group', filter.groupId, '__all__');
+        __tmSummarySyncGroupPicker(root, __tmSummaryGetGroupIds(filter));
         if (options.includeDoc === true) setValue('doc', filter.docId, '__all__');
         setValue('status', filter.status, '__all__');
         setValue('priority', filter.priority, '__all__');
@@ -601,11 +676,13 @@
             if (startInput) startInput.value = start;
             if (endInput) endInput.value = end;
         }
+        const groupIds = __tmSummaryReadGroupIds(root);
         return {
             preset,
             start: __tmNormalizeDateOnly(start),
             end: __tmNormalizeDateOnly(end),
-            groupId: String(q('[data-tm-summary="group"]')?.value || '__all__').trim(),
+            groupIds,
+            groupId: groupIds.length === 1 ? groupIds[0] : '__all__',
             docId: String(q('[data-tm-summary="doc"]')?.value || '__all__').trim(),
             status: String(q('[data-tm-summary="status"]')?.value || '__all__').trim(),
             priority: String(q('[data-tm-summary="priority"]')?.value || '__all__').trim(),
@@ -622,39 +699,40 @@
     }
 
     function __tmSummaryRefreshDocOptions(root, ctx) {
-        const groupSel = root.querySelector('[data-tm-summary="group"]');
         const docSel = root.querySelector('[data-tm-summary="doc"]');
-        if (!groupSel || !docSel) return;
+        if (!docSel) return;
         const prevDoc = String(docSel.value || '__all__').trim();
-        const gid = String(groupSel.value || '__all__').trim();
-        const docToGroup = ctx.docToGroup || new Map();
+        const groupIds = __tmSummaryReadGroupIds(root);
+        const allGroups = groupIds.includes('__all__');
         const docTaskCount = (ctx.docTaskCount && typeof ctx.docTaskCount === 'object') ? ctx.docTaskCount : {};
         const groupDocIdsMap = (ctx.groupDocIdsMap && typeof ctx.groupDocIdsMap === 'object') ? ctx.groupDocIdsMap : {};
-        const allLabel = gid === '__all__' ? '全部分区内文档' : (gid === '__ungrouped__' ? '未分组全部文档' : '当前分区全部文档');
+        const allLabel = allGroups
+            ? '全部分区内文档'
+            : '已选分组内全部文档';
         const options = [{ id: '__all__', name: allLabel }];
-        if (gid !== '__all__' && gid !== '__ungrouped__') {
-            const ids = Array.isArray(groupDocIdsMap[gid]) ? groupDocIdsMap[gid] : [];
-            ids.forEach((docId) => {
-                const id = String(docId || '').trim();
-                if (!id) return;
-                const name = String((ctx.docNameMap || {})[id] || id);
-                options.push({ id, name });
+        const ids = new Set();
+        if (allGroups) {
+            Object.entries(ctx.docNameMap || {}).forEach(([docId]) => {
+                if (Number(docTaskCount[String(docId)] || 0)) ids.add(String(docId));
             });
         } else {
-            Object.entries(ctx.docNameMap || {}).forEach(([docId, name]) => {
-                if (!Number(docTaskCount[String(docId)] || 0)) return;
-                const g = String(docToGroup.get(String(docId)) || '').trim();
-                if (gid === '__all__' || (gid === '__ungrouped__' ? !g : g === gid)) {
-                    options.push({ id: String(docId), name: String(name || docId) });
-                }
+            groupIds.forEach((gid) => {
+                (Array.isArray(groupDocIdsMap[gid]) ? groupDocIdsMap[gid] : []).forEach((docId) => ids.add(String(docId)));
             });
         }
+        Array.from(ids).forEach((docId) => {
+            const id = String(docId || '').trim();
+            if (!id) return;
+            const name = String((ctx.docNameMap || {})[id] || id);
+            options.push({ id, name });
+        });
         docSel.innerHTML = options
             .filter((it, idx, arr) => arr.findIndex((x) => String(x.id) === String(it.id)) === idx)
             .sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'))
             .map((it) => `<option value="${esc(it.id)}">${esc(it.name)}</option>`)
             .join('');
         docSel.value = options.some(it => it.id === prevDoc) ? prevDoc : '__all__';
+        __tmSummarySyncGroupPicker(root, groupIds);
     }
 
     async function __tmSummaryEnsureTasksForFilter(ctx, filter) {
@@ -663,11 +741,15 @@
         const groupDocIdsMap = (ctx.groupDocIdsMap && typeof ctx.groupDocIdsMap === 'object') ? ctx.groupDocIdsMap : {};
         let targetDocIds = [];
         const docId = String(f.docId || '__all__').trim();
-        const groupId = String(f.groupId || '__all__').trim();
+        const groupIds = __tmSummaryGetGroupIds(f);
         if (docId && docId !== '__all__') {
             targetDocIds = [docId];
-        } else if (groupId && groupId !== '__all__' && groupId !== '__ungrouped__') {
-            targetDocIds = Array.isArray(groupDocIdsMap[groupId]) ? groupDocIdsMap[groupId] : [];
+        } else if (!groupIds.includes('__all__')) {
+            const ids = new Set();
+            groupIds.forEach((groupId) => {
+                (Array.isArray(groupDocIdsMap[groupId]) ? groupDocIdsMap[groupId] : []).forEach((id) => ids.add(String(id)));
+            });
+            targetDocIds = Array.from(ids);
         } else {
             return;
         }
@@ -771,7 +853,7 @@
         });
 
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
-        const groupNameMap = { '__all__': '全部分组', '__ungrouped__': '未分组' };
+        const groupNameMap = { '__all__': '全部分组' };
         groups.forEach((g) => {
             const gid = String(g?.id || '').trim();
             if (gid) groupNameMap[gid] = __tmResolveDocGroupName(g);
@@ -779,8 +861,7 @@
 
         const groupOptions = [
             { id: '__all__', name: '全部分组' },
-            ...groups.map((g) => ({ id: String(g?.id || '').trim(), name: __tmResolveDocGroupName(g) })).filter(g => g.id),
-            { id: '__ungrouped__', name: '未分组' }
+            ...groups.map((g) => ({ id: String(g?.id || '').trim(), name: __tmResolveDocGroupName(g) })).filter(g => g.id)
         ];
         const statusSelectOptions = [
             { id: '__all__', name: '全部状态' },
@@ -817,9 +898,15 @@
                     <input class="tm-input" type="date" data-tm-summary="start" style="width:140px;">
                     <span style="color:var(--tm-secondary-text);">~</span>
                     <input class="tm-input" type="date" data-tm-summary="end" style="width:140px;">
-                    <select class="tm-rule-select" data-tm-summary="group" style="min-width:140px;">
-                        ${groupOptions.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('')}
-                    </select>
+                    <details class="tm-summary-group-picker" data-tm-summary-group-picker>
+                        <summary class="tm-rule-select tm-summary-group-trigger" data-tm-summary-group-trigger aria-label="选择摘要文档分组范围">
+                            <span data-tm-summary-group-label>全部分组</span><span class="tm-summary-group-trigger__icon" aria-hidden="true">⌄</span>
+                        </summary>
+                        <div class="tm-summary-group-menu" data-tm-summary-group-menu role="listbox" aria-label="摘要文档分组范围" aria-multiselectable="true">
+                            ${groupOptions.map((g) => `<label class="tm-summary-group-option"><input type="checkbox" data-tm-summary-group-option value="${esc(g.id)}"${g.id === '__all__' ? ' checked' : ''}><span>${esc(g.name)}</span></label>`).join('')}
+                        </div>
+                    </details>
+                    <input type="hidden" data-tm-summary="group" value="__all__">
                     <select class="tm-rule-select" data-tm-summary="doc" style="min-width:160px;"></select>
                     <select class="tm-rule-select" data-tm-summary="status" style="min-width:130px;">
                         ${statusSelectOptions.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}
@@ -848,7 +935,7 @@
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDate">日期</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldFocusDuration">专注时长</label>
                 </div>
-                <textarea class="tm-summary-preview" data-tm-summary="preview" style="width:100%;height:100%;box-sizing:border-box;padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.875rem;line-height:1.55;background:var(--tm-input-bg);color:var(--tm-text-color);border:1px solid var(--tm-input-border);border-radius:8px;resize:vertical;"></textarea>
+                <textarea class="tm-summary-preview" data-tm-summary="preview" style="width:100%;height:100%;box-sizing:border-box;padding:12px;font-size:0.875rem;line-height:1.55;background:var(--tm-input-bg);color:var(--tm-text-color);border:1px solid var(--tm-input-border);border-radius:8px;resize:vertical;"></textarea>
             </div>
             <div class="tm-header tm-summary-footer" style="padding:12px 16px;border-top:1px solid var(--tm-border-color);justify-content:flex-end;gap:10px;">
                 <button class="tm-btn tm-btn-secondary" data-tm-summary-action="refresh" style="padding:8px 16px;">生成</button>
@@ -864,12 +951,14 @@
         state.__summaryUnstack = __tmModalStackBind(() => __tmCloseSummaryModal());
 
         const root = state.summaryModal;
+        root.__tmSummaryGroupNameMap = groupNameMap;
         const savedFilter = __tmSummaryLoadSavedFilter();
         const ctx = {
             docNameMap,
             docTaskCount: {},
-            docToGroup: new Map(),
             groupDocIdsMap: {},
+            docGroupIdsMap: {},
+            allDocIds: [],
             statusMap,
             groupNameMap,
             summaryTasks: [],
@@ -883,6 +972,11 @@
             root.querySelectorAll('[data-tm-summary]:not([data-tm-summary="preview"]), [data-tm-summary-action]:not([data-tm-summary-action="close"])').forEach((control) => {
                 control.disabled = loading;
             });
+            root.querySelectorAll('[data-tm-summary-group-option]').forEach((control) => {
+                control.disabled = loading;
+            });
+            const groupTrigger = root.querySelector('[data-tm-summary-group-trigger]');
+            if (groupTrigger) groupTrigger.setAttribute('aria-disabled', loading ? 'true' : 'false');
             const preview = root.querySelector('[data-tm-summary="preview"]');
             if (preview) preview.placeholder = loading ? '正在加载摘要数据…' : '';
         };
@@ -892,9 +986,19 @@
             if (ctx.loading) return;
             const target = e.target;
             if (!(target instanceof Element)) return;
+            if (target.matches('[data-tm-summary-group-option]')) {
+                __tmSummaryHandleGroupOptionChange(root, target);
+                __tmSummaryRefreshDocOptions(root, ctx);
+                const filter = __tmSummaryReadFilter(root);
+                __tmSummarySaveFilter(filter);
+                await __tmSummaryEnsureTasksForFilter(ctx, filter);
+                await __tmSummaryEnsureH2Contexts(ctx, filter);
+                if (state.summaryModal !== root) return;
+                __tmSummaryUpdatePreview(root, ctx);
+                return;
+            }
             const key = String(target.getAttribute('data-tm-summary') || '').trim();
             if (!key) return;
-            if (key === 'group') __tmSummaryRefreshDocOptions(root, ctx);
             const filter = __tmSummaryReadFilter(root);
             __tmSummarySaveFilter(filter);
             await __tmSummaryEnsureTasksForFilter(ctx, filter);
@@ -904,6 +1008,9 @@
         });
 
         root.addEventListener('click', async (e) => {
+            if (!e.target?.closest?.('[data-tm-summary-group-picker]')) {
+                root.querySelectorAll('[data-tm-summary-group-picker][open]').forEach((picker) => { picker.open = false; });
+            }
             const target = e.target?.closest?.('[data-tm-summary-action]');
             if (!target) return;
             const action = String(target.getAttribute('data-tm-summary-action') || '').trim();
@@ -981,8 +1088,9 @@
         if (state.summaryModal !== root) return;
 
         Object.assign(docNameMap, resolvedDocNameMap);
-        ctx.docToGroup = groupScope.docToGroup;
         ctx.groupDocIdsMap = groupScope.groupDocIdsMap;
+        ctx.docGroupIdsMap = groupScope.docGroupIdsMap;
+        ctx.allDocIds = groupScope.allDocIds;
         ctx.summaryTasks = summaryTasks;
         summaryTasks.forEach((task) => {
             const docId = String(task?.docId || task?.root_id || '').trim();

@@ -255,7 +255,7 @@ async function run() {
     assert.equal(unloadedCalls.length, 0, 'an unloaded calendar view must not continue its old WeChat reconcile');
 
     assert.match(source, /\/api\/cloud\/setCloudReminder/);
-    assert.match(source, /async function saveScheduleAll[\s\S]*scheduleWechatReminderReconcile\(`schedule-save:/);
+    assert.match(source, /async function performScheduleSaveAll[\s\S]*scheduleWechatReminderReconcile\(`schedule-save:/);
     assert.doesNotMatch(source, /微信提醒预约已更新/);
     assert.match(source, /collectAllDayScheduleSummaryTargets\(list, settings\)/);
     assert.match(source, /await withWechatReminderReconcileLock\(async \(\) => \{[\s\S]*wechatRegistryLoaded = false[\s\S]*loadWechatReminderRegistry\(\)/, 'cross-view reconciliation must serialize and then reload the registry');

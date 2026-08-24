@@ -320,6 +320,19 @@ async function testMarkerReadbackAndFallback() {
     assert.equal(canonicalXResult.marker, 'X');
     assert.equal(parseMarker(canonicalXResult.markdown), 'x');
 
+    let authoritativeReadbackCalls = 0;
+    context.API.getBlockKramdown = async () => {
+        authoritativeReadbackCalls += 1;
+        return '* [ ] Task';
+    };
+    context.__tmExecuteTaskCommandGateway = async () => ({
+        value: { id: 'task-1', marker: 'X', verified: true },
+    });
+    const authoritativeResult = await context.__tmUpdateTaskListItemMarkerWithFallback('task-1', 'X');
+    assert.equal(authoritativeResult.authoritative, true);
+    assert.equal(authoritativeReadbackCalls, 0,
+        'an authoritative kernel marker receipt must avoid a race-prone UI kramdown readback');
+
     let attempts = 0;
     context.API.getBlockKramdown = async () => {
         attempts += 1;

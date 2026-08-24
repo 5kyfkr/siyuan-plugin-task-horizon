@@ -226,19 +226,9 @@ if (shouldMarkDirty) {
                 __tmThemeModeObserver.disconnect();
                 __tmThemeModeObserver = null;
             }
-            if (__tmThemeHeadObserver) {
-                __tmThemeHeadObserver.disconnect();
-                __tmThemeHeadObserver = null;
-            }
             if (__tmThemeModeRefreshRaf) {
                 try { cancelAnimationFrame(__tmThemeModeRefreshRaf); } catch (e) {}
                 __tmThemeModeRefreshRaf = null;
-            }
-            if (__tmThemeAppearanceRefreshTimers instanceof Set) {
-                __tmThemeAppearanceRefreshTimers.forEach((timer) => {
-                    try { clearTimeout(timer); } catch (e) {}
-                });
-                __tmThemeAppearanceRefreshTimers.clear();
             }
             if (__tmThemeStylesheetLoadHandler) {
                 try { document.removeEventListener('load', __tmThemeStylesheetLoadHandler, true); } catch (e) {}
@@ -248,7 +238,6 @@ if (shouldMarkDirty) {
                 __tmThemeModeRefreshRaf = null;
                 try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
                 try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-                try { themeStyleSignature = readRootThemeStyleSignature(); } catch (e) {}
                 try { if (state.modal) render(); } catch (e) {}
             };
             const scheduleThemeAppearanceRefresh = () => {
@@ -257,22 +246,6 @@ if (shouldMarkDirty) {
                     __tmThemeModeRefreshRaf = requestAnimationFrame(refreshThemeAppearance);
                 } catch (e) {
                     refreshThemeAppearance();
-                }
-                // SiYuan updates root attributes before its replacement theme.css finishes loading.
-                // Re-apply after the stylesheet settles so follow-theme colors do not wait for a tab switch.
-                if (__tmThemeAppearanceRefreshTimers.size === 0) {
-                    [96, 320].forEach((delay) => {
-                        const timer = setTimeout(() => {
-                            __tmThemeAppearanceRefreshTimers.delete(timer);
-                            try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
-                            try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-                            try { themeStyleSignature = readRootThemeStyleSignature(); } catch (e) {}
-                            if (delay === 320) {
-                                try { if (state.modal) render(); } catch (e) {}
-                            }
-                        }, delay);
-                        __tmThemeAppearanceRefreshTimers.add(timer);
-                    });
                 }
             };
             const isThemeStylesheet = (target) => {
@@ -283,86 +256,16 @@ if (shouldMarkDirty) {
                     || id === 'themeStyle'
                     || /\/appearance\/themes\/[^/]+\/theme\.css(?:[?#]|$)/i.test(href);
             };
-            const rootStyleSnapshot = () => {
-                try { return String(document.documentElement?.getAttribute?.('style') || ''); } catch (e) { return ''; }
-            };
-            const readRootThemeStyleSignature = () => {
-                try {
-                    const computed = getComputedStyle(document.documentElement);
-                    const values = [];
-                    for (let index = 0; index < computed.length; index += 1) {
-                        const name = String(computed[index] || '').trim();
-                        if (!name.startsWith('--')) continue;
-                        values.push(`${name}:${String(computed.getPropertyValue(name) || '').trim()}`);
-                    }
-                    return values.sort().join('|');
-                } catch (e) { return ''; }
-            };
-            const getRootThemeStyleSignature = () => String(
-                globalThis.__tmThemeRuntimeComputedStyleSignature || readRootThemeStyleSignature()
-            );
-            let themeStyleSignature = getRootThemeStyleSignature();
-            const shouldRefreshForRootMutation = (records) => {
-                const appliedStyle = String(globalThis.__tmThemeRuntimeRootStyleSnapshot || '');
-                return (Array.isArray(records) ? records : []).some((record) => {
-                    if (!record || record.type !== 'attributes') return false;
-                    if (record.attributeName === 'class') {
-                        const nextSignature = readRootThemeStyleSignature();
-                        const changed = nextSignature !== themeStyleSignature;
-                        themeStyleSignature = nextSignature;
-                        return changed;
-                    }
-                    if (record.attributeName !== 'style') return true;
-                    if (record.target === document.documentElement) {
-                        return rootStyleSnapshot() !== appliedStyle;
-                    }
-                    const nextSignature = readRootThemeStyleSignature();
-                    const changed = nextSignature !== themeStyleSignature;
-                    themeStyleSignature = nextSignature;
-                    return changed;
-                });
-            };
-            __tmThemeModeObserver = new MutationObserver((records) => {
-                if (shouldRefreshForRootMutation(records)) scheduleThemeAppearanceRefresh();
-            });
+            __tmThemeModeObserver = new MutationObserver(scheduleThemeAppearanceRefresh);
             __tmThemeModeObserver.observe(document.documentElement, {
                 attributes: true,
-                // Theme palettes may be represented by root classes. Observe class changes, but
-                // compare computed custom properties so unrelated window/layout classes are ignored.
-                attributeFilter: ['data-theme-mode', 'data-light-theme', 'data-dark-theme', 'data-mode', 'style', 'class']
+                attributeFilter: ['data-theme-mode', 'data-light-theme', 'data-dark-theme', 'data-mode', 'class']
             });
-            if (document.body) {
-                __tmThemeModeObserver.observe(document.body, {
-                    attributes: true,
-                    attributeFilter: ['style', 'class']
-                });
-            }
             __tmThemeStylesheetLoadHandler = (event) => {
                 const target = event?.target;
                 if (isThemeStylesheet(target)) scheduleThemeAppearanceRefresh();
             };
             document.addEventListener('load', __tmThemeStylesheetLoadHandler, true);
-            __tmThemeHeadObserver = new MutationObserver((records) => {
-                const relevant = (Array.isArray(records) ? records : []).some((record) => {
-                    if (!record) return false;
-                    if (record.type === 'attributes') return isThemeStylesheet(record.target);
-                    if (record.type !== 'childList') return false;
-                    return Array.from(record.addedNodes || []).some((node) => {
-                        if (isThemeStylesheet(node)) return true;
-                        try {
-                            return !!node?.querySelector?.('link')
-                                && Array.from(node.querySelectorAll('link')).some(isThemeStylesheet);
-                        } catch (e) { return false; }
-                    });
-                });
-                if (relevant) scheduleThemeAppearanceRefresh();
-            });
-            __tmThemeHeadObserver.observe(document.head, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['href', 'id', 'rel', 'media', 'disabled']
-            });
         } catch (e) {}
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
 

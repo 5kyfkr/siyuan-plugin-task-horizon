@@ -2535,6 +2535,23 @@ var FullCalendar = (function (exports) {
 
   var classNames = {"popoverZ":"fc-oH","isolate":"fc-XR","borderBoxRoot":"fc-7V","notAllowed":"fc-Ph","noScrollbars":"fc-ia","noShrink":"fc-zx","calendarScreenRoot":"fc-Qv","safeTiles":"fc-zg","calendarPrintRoot":"fc-SB","cursorPointer":"fc-oq","cursorResizeT":"fc-7Z","cursorResizeB":"fc-qE","cursorResizeS":"fc-FE","cursorResizeE":"fc-cf","cursorColResizer":"fc-zd","hit":"fc-OF","hitX":"fc-Vs","hitY":"fc-vB","hitXSkinny":"fc-Za","selectNone":"fc-5b","invisible":"fc-Ok","borderNone":"fc-4g","borderOnlyT":"fc-k2","borderOnlyB":"fc-5H","borderOnlyS":"fc-eu","borderOnlyE":"fc-Cu","borderlessX":"fc-k0","borderlessY":"fc-5s","fakeBorderS":"fc-qp","flexRow":"fc-iE","flexCol":"fc-Si","grow":"fc-lf","liquid":"fc-EI","minHeight0":"fc-At","liquidX":"fc-4T","printRoot":"fc-E1","printHeader":"fc-r7","noPadding":"fc-p2","noMargin":"fc-9j","noMarginY":"fc-gE","noMarginX":"fc-zo","whiteSpaceNoWrap":"fc-xd","whiteSpacePre":"fc-zK","overflowAnchorNone":"fc-4c","crop":"fc-d5","cropNowrap":"fc-lN","rel":"fc-RP","abs":"fc-d7","start0":"fc-mj","fill":"fc-7z","fillTop":"fc-88","fillX":"fc-cb","fillY":"fc-PG","fillStart":"fc-6E","sticky":"fc-Zx","stickyT":"fc-vZ","stickyS":"fc-ry","tableHeaderSticky":"fc-Uy","contentBox":"fc-Pv","offscreen":"fc-E4","alignCenter":"fc-dV","alignStart":"fc-Zt","alignEnd":"fc-fP","footerScrollbarSticky":"fc-sm","footerScrollbar":"fc-gr","breakInsideAvoid":"fc-V4","printSiblingRow":"fc-uo","z0":"fc-CX","z1":"fc-ts","focusZ2":"fc-cW","internalTimelineSlot":"fc-AW","internalEvent":"fc-So","internalEventMirror":"fc-Mr","internalEventDraggable":"fc-y7","internalEventSelected":"fc-eG","internalEventResizable":"fc-Mb","internalEventResizer":"fc-9u","internalEventResizerStart":"fc-BY","internalEventResizerEnd":"fc-iD","internalBgEvent":"fc-GL","internalMoreLink":"fc-QC","internalNavLink":"fc-hY","internalPopover":"fc-2y","internalView":"fc-kO","internalScroller":"fc-Pz"};
 
+  // Stable plugin-facing selectors. Internal hashed classes remain private to interaction logic.
+  var pluginClassNames = {
+      viewHarness: 'fc-view-harness',
+      viewHarnessActive: 'fc-view-harness-active',
+      scroller: 'fc-scroller',
+      event: 'fc-event',
+      eventMirror: 'fc-event-mirror',
+      eventResizer: 'fc-event-resizer',
+      backgroundEvent: 'fc-bg-event',
+      moreLink: 'fc-more fc-more-link',
+      popover: 'fc-popover',
+      dayGridEventHarness: 'fc-daygrid-event-harness',
+      dayGridEventHarnessAbs: 'fc-daygrid-event-harness-abs',
+      timeGridAllDayRow: 'tm-cal-timegrid-allday-row',
+      timeGridAllDayLane: 'fc-timegrid-all-day tm-cal-timegrid-allday-lane',
+  };
+
   function joinClassNames(...args) {
       return args.filter(Boolean).join(' ');
   }
@@ -3290,16 +3307,6 @@ var FullCalendar = (function (exports) {
       noEventsDidMount: identity,
       noEventsWillUnmount: identity,
       // noEventsText is defined in base options
-      // multimonth-only
-      multiMonthMaxColumns: Number,
-      //
-      singleMonthMinWidth: Number,
-      singleMonthTitleFormat: createFormatter,
-      singleMonthDidMount: identity,
-      singleMonthWillUnmount: identity,
-      singleMonthClass: refineClassNameGenerator,
-      singleMonthHeaderClass: refineClassNameGenerator,
-      singleMonthHeaderInnerClass: refineClassNameGenerator,
   };
   // do NOT give a type here. need `typeof BASE_OPTION_DEFAULTS` to give real results.
   // raw values.
@@ -3434,7 +3441,6 @@ var FullCalendar = (function (exports) {
       plugins: isMaybeArraysEqual,
       events: isMaybeArraysEqual,
       eventSources: isMaybeArraysEqual,
-      ['resources']: isMaybeArraysEqual,
   };
   // util funcs
   // ----------------------------------------------------------------------------------------------------
@@ -8490,10 +8496,10 @@ var FullCalendar = (function (exports) {
                       classNames.overflowAnchorNone, 
                       // workaround for Safari pushing content area extremely wide after returning from
                       // print-view. probably a good idea regardless, to circumvent 'auto' dimentions
-                      classNames.minHeight0, viewHeightLiquid && classNames.liquid), style: {
+                      classNames.minHeight0, pluginClassNames.viewHarness, viewHeightLiquid && classNames.liquid), style: {
                           height: viewHeight,
                           aspectRatio: viewAspectRatio != null ? String(viewAspectRatio) : undefined,
-                      }, children: [this.renderView(joinClassNames((viewHeightLiquid || viewHeight) && classNames.liquid, viewAspectRatio != null && classNames.fill, classNames.internalView)), this.buildAppendContent()] }), toolbarConfig.footer && (u$1(Toolbar, { model: toolbarConfig.footer, isHeader: false, ...props.toolbarProps }))] }));
+                      }, children: [this.renderView(joinClassNames((viewHeightLiquid || viewHeight) && classNames.liquid, viewAspectRatio != null && classNames.fill, classNames.internalView, pluginClassNames.viewHarnessActive, 'fc-view')), this.buildAppendContent()] }), toolbarConfig.footer && (u$1(Toolbar, { model: toolbarConfig.footer, isHeader: false, ...props.toolbarProps }))] }));
       }
       renderView(className) {
           const { props } = this;
@@ -9262,7 +9268,7 @@ var FullCalendar = (function (exports) {
           // scrollbars too if we don't force to 'hidden'
           const fallbackOverflow = (props.horizontal || props.vertical) ? 'hidden' : '';
           return (u$1("div", { ref: this.handleEl, className: joinClassNames(props.className, classNames.noPadding, classNames.rel, // for children fillTop/fillStart
-              props.hideScrollbars && classNames.noScrollbars, classNames.internalScroller), style: {
+              props.hideScrollbars && classNames.noScrollbars, classNames.internalScroller, pluginClassNames.scroller), style: {
                   ...props.style,
                   overflowX: (props.horizontal ? 'auto' : fallbackOverflow),
                   overflowY: (props.vertical ? 'auto' : fallbackOverflow),
@@ -9439,7 +9445,7 @@ var FullCalendar = (function (exports) {
           const outerClassName = joinClassNames(// already includes eventClass below
           isBlock && generateClassName(options.blockEventClass, renderProps), props.display === 'row' && generateClassName(options.rowEventClass, renderProps), props.display === 'column' && generateClassName(options.columnEventClass, renderProps), props.display === 'list-item' && generateClassName(options.listItemEventClass, renderProps), eventUi.className, props.className, props.display === 'column'
               ? classNames.flexCol
-              : classNames.flexRow, (eventRange.def.url || isDraggable) && classNames.cursorPointer, classNames.internalEvent, props.isMirror && classNames.internalEventMirror, isDraggable && classNames.internalEventDraggable, renderProps.isSelected && classNames.internalEventSelected, (renderProps.isStartResizable || renderProps.isEndResizable) && classNames.internalEventResizable);
+              : classNames.flexRow, (eventRange.def.url || isDraggable) && classNames.cursorPointer, classNames.internalEvent, pluginClassNames.event, props.isMirror && joinClassNames(classNames.internalEventMirror, pluginClassNames.eventMirror), isDraggable && classNames.internalEventDraggable, renderProps.isSelected && classNames.internalEventSelected, (renderProps.isStartResizable || renderProps.isEndResizable) && classNames.internalEventResizable);
           const beforeClassName = joinClassNames(generateClassName(options.eventBeforeClass, renderProps), isBlock && generateClassName(options.blockEventBeforeClass, renderProps), props.display === 'row' && generateClassName(options.rowEventBeforeClass, renderProps), props.display === 'column' && generateClassName(options.columnEventBeforeClass, renderProps), props.display === 'list-item' && generateClassName(options.listItemEventBeforeClass, renderProps));
           const afterClassName = joinClassNames(generateClassName(options.eventAfterClass, renderProps), isBlock && generateClassName(options.blockEventAfterClass, renderProps), props.display === 'row' && generateClassName(options.rowEventAfterClass, renderProps), props.display === 'column' && generateClassName(options.columnEventAfterClass, renderProps), props.display === 'list-item' && generateClassName(options.listItemEventAfterClass, renderProps));
           const innerClassName = joinClassNames(generateClassName(options.eventInnerClass, renderProps), isBlock && generateClassName(options.blockEventInnerClass, renderProps), props.display === 'row' && generateClassName(options.rowEventInnerClass, renderProps), props.display === 'column' && generateClassName(options.columnEventInnerClass, renderProps), props.display === 'list-item' && generateClassName(options.listItemEventInnerClass, renderProps), !props.disableLiquid && classNames.liquid);
@@ -9459,11 +9465,11 @@ var FullCalendar = (function (exports) {
                               ? classNames.cursorResizeT
                               : classNames.cursorResizeS, 
                           // these classnames required for dnd
-                          classNames.internalEventResizer, classNames.internalEventResizerStart)), children: [beforeContent && (u$1(ContentContainer, { tag: 'div', style: { display: 'contents' }, attrs: { 'aria-hidden': true }, renderProps: renderProps, generatorName: undefined, customGenerator: beforeContent })), Boolean(renderProps.isStartResizable && renderProps.isSelected) && (u$1("div", { className: classNames.hit }))] })), u$1(InnerContent, { tag: "div", className: joinClassNames(innerClassName, !props.disableZindexes && classNames.z0) }), (afterClassName || afterContent) && (u$1("div", { className: joinClassNames(afterClassName, !props.disableZindexes && classNames.z1, renderProps.isEndResizable && joinClassNames(props.display === 'column'
+                          classNames.internalEventResizer, classNames.internalEventResizerStart, pluginClassNames.eventResizer)), children: [beforeContent && (u$1(ContentContainer, { tag: 'div', style: { display: 'contents' }, attrs: { 'aria-hidden': true }, renderProps: renderProps, generatorName: undefined, customGenerator: beforeContent })), Boolean(renderProps.isStartResizable && renderProps.isSelected) && (u$1("div", { className: classNames.hit }))] })), u$1(InnerContent, { tag: "div", className: joinClassNames(innerClassName, !props.disableZindexes && classNames.z0) }), (afterClassName || afterContent) && (u$1("div", { className: joinClassNames(afterClassName, !props.disableZindexes && classNames.z1, renderProps.isEndResizable && joinClassNames(props.display === 'column'
                               ? classNames.cursorResizeB
                               : classNames.cursorResizeE, 
                           // these classnames required for dnd
-                          classNames.internalEventResizer, classNames.internalEventResizerEnd)), children: [afterContent && (u$1(ContentContainer, { tag: 'div', style: { display: 'contents' }, attrs: { 'aria-hidden': true }, renderProps: renderProps, generatorName: undefined, customGenerator: afterContent })), Boolean(renderProps.isEndResizable && renderProps.isSelected) && (u$1("div", { className: classNames.hit }))] }))] })) }));
+                          classNames.internalEventResizer, classNames.internalEventResizerEnd, pluginClassNames.eventResizer)), children: [afterContent && (u$1(ContentContainer, { tag: 'div', style: { display: 'contents' }, attrs: { 'aria-hidden': true }, renderProps: renderProps, generatorName: undefined, customGenerator: afterContent })), Boolean(renderProps.isEndResizable && renderProps.isSelected) && (u$1("div", { className: classNames.hit }))] }))] })) }));
       }
       componentDidUpdate(prevProps) {
           if (this.el && this.props.eventRange !== prevProps.eventRange) {
@@ -9922,7 +9928,7 @@ var FullCalendar = (function (exports) {
               options: { eventOverlap: Boolean(options.eventOverlap) },
           };
           // does not include backgroundEventClass.. added below
-          const outerClassName = joinClassNames(eventUi.className, classNames.fill, classNames.internalEvent, classNames.internalBgEvent, props.isVertical ? classNames.flexCol : classNames.flexRow);
+          const outerClassName = joinClassNames(eventUi.className, classNames.fill, classNames.internalEvent, classNames.internalBgEvent, pluginClassNames.event, pluginClassNames.backgroundEvent, props.isVertical ? classNames.flexCol : classNames.flexRow);
           const innerClassName = joinClassNames(generateClassName(options.backgroundEventInnerClass, renderProps), classNames.liquid);
           return (u$1(ContentContainer, { tag: 'div', className: outerClassName, style: {
                   '--fc-event-color': renderProps.color,
@@ -10035,7 +10041,7 @@ var FullCalendar = (function (exports) {
               ? dayHeaderAlign({ level: 0, inPopover: true, isNarrow: false })
               : dayHeaderAlign;
           const isRtl = computeElIsRtl(props.alignEl);
-          return $(u$1("div", { "data-date": fullDateStr, id: props.id, role: 'dialog', "aria-labelledby": props.titleId, className: joinClassNames(options.popoverClass, classNames.flexCol, classNames.popoverZ, classNames.abs, classNames.borderBoxRoot, classNames.internalPopover), style: {
+          return $(u$1("div", { "data-date": fullDateStr, id: props.id, role: 'dialog', "aria-labelledby": props.titleId, className: joinClassNames(options.popoverClass, classNames.flexCol, classNames.popoverZ, classNames.abs, classNames.borderBoxRoot, classNames.internalPopover, pluginClassNames.popover), style: {
                   // positioning is mutated directly in updateSize, HOWEVER, we don't want popover to start
                   // low on screen because might cause unnecessary scrollbars
                   top: 0,
@@ -10254,7 +10260,7 @@ var FullCalendar = (function (exports) {
                                   : options.columnMoreLinkClass, // column
                               renderProps), props.className, props.display === 'row'
                                   ? classNames.flexRow
-                                  : classNames.flexCol, classNames.internalMoreLink, classNames.cursorPointer), style: props.style, attrs: {
+                              : classNames.flexCol, classNames.internalMoreLink, pluginClassNames.moreLink, classNames.cursorPointer), style: props.style, attrs: {
                                   ...props.attrs,
                                   ...createAriaClickAttrs(this.handleClick),
                                   title: hint,
@@ -11098,7 +11104,7 @@ var FullCalendar = (function (exports) {
       }
       render() {
           const { props } = this;
-          return (u$1("div", { className: joinClassNames(props.className, classNames.abs), style: props.style, ref: this.rootElRef, children: props.children }));
+          return (u$1("div", { className: joinClassNames(props.className, classNames.abs, pluginClassNames.dayGridEventHarness, pluginClassNames.dayGridEventHarnessAbs), style: props.style, ref: this.rootElRef, children: props.children }));
       }
       componentDidMount() {
           this._isUnmounting = false;
@@ -11664,17 +11670,14 @@ var FullCalendar = (function (exports) {
                           borderlessX,
                           borderlessTop,
                           borderlessBottom,
-                          multiMonthColumns: 0,
                       }), classNames.printHeader, // either flexCol or table-header-group
                       tableHeaderSticky && classNames.tableHeaderSticky), children: [u$1("div", { className: classNames.flexRow, children: [u$1(DayGridHeader, { headerTiers: props.headerTiers, cellIsNarrow: cellIsNarrow, cellIsMicro: cellIsMicro }), Boolean(endScrollbarWidth) && (u$1("div", { className: joinClassNames(generateClassName(options.fillerClass, { inTableHeader: true }), classNames.borderOnlyS), style: { minWidth: endScrollbarWidth } }))] }), u$1("div", { className: generateClassName(options.dayHeaderDividerClass, {
                                   isSticky: tableHeaderSticky,
-                                  multiMonthColumns: 0,
                                   options: { allDaySlot: Boolean(options.allDaySlot) },
                               }) })] })), u$1(Scroller, { vertical: verticalScrollbars, className: joinClassNames(generateClassName(options.tableBodyClass, {
                           borderlessX,
                           borderlessTop,
                           borderlessBottom,
-                          multiMonthColumns: 0,
                       }), 
                       // HACK for Safari. Can't do break-inside:avoid with flexbox items, likely b/c it's not standard:
                       // https://stackoverflow.com/a/60256345
@@ -11762,11 +11765,9 @@ var FullCalendar = (function (exports) {
                           borderlessX,
                           borderlessTop,
                           borderlessBottom,
-                          multiMonthColumns: 0,
                       }), classNames.printHeader, // either flexCol or table-header-group
                       tableHeaderSticky && classNames.tableHeaderSticky), children: [u$1(Scroller, { horizontal: true, hideScrollbars: true, className: classNames.flexRow, ref: this.headerScrollerRef, children: [u$1(DayGridHeader, { headerTiers: props.headerTiers, colWidth: colWidth, viewportWidth: clientWidth, width: canvasWidth, cellIsNarrow: cellIsNarrow, cellIsMicro: cellIsMicro }), Boolean(endScrollbarWidth) && (u$1("div", { className: joinClassNames(generateClassName(options.fillerClass, { inTableHeader: true }), classNames.borderOnlyS), style: { minWidth: endScrollbarWidth } }))] }), u$1("div", { className: generateClassName(options.dayHeaderDividerClass, {
                                   isSticky: tableHeaderSticky,
-                                  multiMonthColumns: 0,
                                   options: { allDaySlot: Boolean(options.allDaySlot) },
                               }) })] })), u$1(Scroller, { vertical: verticalScrollbars, horizontal: true, hideScrollbars: footerScrollbarSticky ||
                           props.forPrint // prevents blank space in print-view on Safari
@@ -11774,7 +11775,6 @@ var FullCalendar = (function (exports) {
                           borderlessX,
                           borderlessTop,
                           borderlessBottom,
-                          multiMonthColumns: 0,
                       }), 
                       // HACK for Safari. Can't do break-inside:avoid with flexbox items, likely b/c it's not standard:
                       // https://stackoverflow.com/a/60256345
@@ -11876,7 +11876,6 @@ var FullCalendar = (function (exports) {
                   borderlessX,
                   borderlessTop,
                   borderlessBottom,
-                  multiMonthColumns: 0,
               })), children: options.dayMinWidth ? (u$1(DayGridLayoutPannable, { ...commonLayoutProps, dayMinWidth: options.dayMinWidth })) : (u$1(DayGridLayoutNormal, { ...commonLayoutProps })) }));
       }
       // Lifecycle
@@ -13135,7 +13134,6 @@ var FullCalendar = (function (exports) {
                           borderlessX,
                           borderlessTop,
                           borderlessBottom,
-                          multiMonthColumns: 0,
                       }), 
                       // see note in TimeGridLayout about why we don't do classNames.printHeader
                       classNames.flexCol, tableHeaderSticky && classNames.tableHeaderSticky), style: {
@@ -13149,21 +13147,19 @@ var FullCalendar = (function (exports) {
                                           options: { dayMinWidth: options.dayMinWidth },
                                       }) }), u$1(Scroller, { horizontal: true, hideScrollbars: true, className: joinClassNames(classNames.flexRow, classNames.liquid), ref: this.headerScrollerRef, children: [u$1("div", { role: 'rowgroup', className: canvasWidth == null ? classNames.liquid : '', style: { width: canvasWidth }, children: props.headerTiers.map((rowConfig, tierNum) => (k$1(DayGridHeaderRow, { ...rowConfig, key: tierNum, role: 'row', rowIndex: tierNum, borderBottom: tierNum < props.headerTiers.length - 1, height: state.headerTierHeights[tierNum], colWidth: colWidth, viewportWidth: clientWidth, innerHeightRef: headerMainInnerHeightRefMap.createRef(tierNum), cellIsNarrow: cellIsNarrow, cellIsMicro: cellIsMicro, rowLevel: props.headerTiers.length - tierNum - 1 }))) }), Boolean(endScrollbarWidth) && (u$1("div", { className: joinClassNames(generateClassName(options.fillerClass, { inTableHeader: true }), classNames.borderOnlyS), style: { minWidth: endScrollbarWidth } }))] })] }), u$1("div", { className: generateClassName(options.dayHeaderDividerClass, {
                                   isSticky: tableHeaderSticky,
-                                  multiMonthColumns: 0,
                                   options: { allDaySlot: Boolean(options.allDaySlot) },
                               }) })] })), u$1("div", { role: 'rowgroup', className: joinClassNames(generateClassName(options.tableBodyClass, {
                           borderlessX,
                           borderlessTop,
                           borderlessBottom,
-                          multiMonthColumns: 0,
                       }), classNames.flexCol, verticalScrolling && classNames.liquid, classNames.isolate), style: {
                           zIndex: 0,
-                      }, children: [options.allDaySlot && (u$1(S, { children: [u$1("div", { role: 'row', "aria-rowindex": firstBodyRowIndex, className: classNames.flexRow, style: { zIndex: 1 }, children: [u$1(TimeGridAllDayHeader, { width: axisWidth, innerWidthRef: this.handleAllDayLabelInnerWidth, isNarrow: cellIsNarrow }), u$1("div", { className: generateClassName(options.slotHeaderDividerClass, {
+                      }, children: [options.allDaySlot && (u$1(S, { children: [u$1("div", { role: 'row', "aria-rowindex": firstBodyRowIndex, className: joinClassNames(classNames.flexRow, pluginClassNames.timeGridAllDayRow), style: { zIndex: 1 }, children: [u$1(TimeGridAllDayHeader, { width: axisWidth, innerWidthRef: this.handleAllDayLabelInnerWidth, isNarrow: cellIsNarrow }), u$1("div", { className: generateClassName(options.slotHeaderDividerClass, {
                                                   inTableHeader: false,
                                                   options: { dayMinWidth: options.dayMinWidth },
                                               }) }), u$1(Scroller, { horizontal: true, hideScrollbars: true, 
                                               // fill remaining width
-                                              className: joinClassNames(classNames.flexRow, classNames.liquidX), ref: this.allDayScrollerRef, children: [u$1("div", { className: classNames.flexRow, style: { width: canvasWidth }, children: u$1(TimeGridAllDayLane, { dateProfile: props.dateProfile, todayRange: props.todayRange, cells: props.cells, showDayNumbers: false, forPrint: forPrint, isHitComboAllowed: props.isHitComboAllowed, className: joinClassNames(classNames.borderNone, classNames.liquidX), cellIsNarrow: cellIsNarrow, cellIsMicro: cellIsMicro, 
+                                              className: joinClassNames(classNames.flexRow, classNames.liquidX, pluginClassNames.timeGridAllDayLane), ref: this.allDayScrollerRef, children: [u$1("div", { className: classNames.flexRow, style: { width: canvasWidth }, children: u$1(TimeGridAllDayLane, { dateProfile: props.dateProfile, todayRange: props.todayRange, cells: props.cells, showDayNumbers: false, forPrint: forPrint, isHitComboAllowed: props.isHitComboAllowed, className: joinClassNames(classNames.borderNone, classNames.liquidX), cellIsNarrow: cellIsNarrow, cellIsMicro: cellIsMicro,
                                                           // content
                                                           fgEventSegs: props.fgEventSegs, bgEventSegs: props.bgEventSegs, businessHourSegs: props.businessHourSegs, dateSelectionSegs: props.dateSelectionSegs, eventSelection: props.eventSelection, eventDrag: props.eventDrag, eventResize: props.eventResize, dayMaxEvents: props.dayMaxEvents, dayMaxEventRows: props.dayMaxEventRows, 
                                                           // dimensions
@@ -13366,7 +13362,6 @@ var FullCalendar = (function (exports) {
                           borderlessX,
                           borderlessTop,
                           borderlessBottom,
-                          multiMonthColumns: 0,
                       }), 
                       // see note in TimeGridLayout about why we don't do classNames.printHeader
                       classNames.flexCol, tableHeaderSticky && classNames.tableHeaderSticky), style: {
@@ -13378,19 +13373,17 @@ var FullCalendar = (function (exports) {
                                           options: { dayMinWidth: options.dayMinWidth },
                                       }) }), u$1(DayGridHeaderRow, { ...rowConfig, className: classNames.liquid, borderBottom: tierNum < props.headerTiers.length - 1, viewportWidth: clientWidth, cellIsNarrow: cellIsNarrow, cellIsMicro: cellIsMicro, rowLevel: props.headerTiers.length - tierNum - 1 }), Boolean(endScrollbarWidth) && (u$1("div", { className: joinClassNames(generateClassName(options.fillerClass, { inTableHeader: true }), classNames.borderOnlyS), style: { minWidth: endScrollbarWidth } }))] }, tierNum))), u$1("div", { className: generateClassName(options.dayHeaderDividerClass, {
                                   isSticky: tableHeaderSticky,
-                                  multiMonthColumns: 0,
                                   options: { allDaySlot: Boolean(options.allDaySlot) },
                               }) })] })), u$1("div", { role: 'rowgroup', className: joinClassNames(generateClassName(options.tableBodyClass, {
                           borderlessX,
                           borderlessTop,
                           borderlessBottom,
-                          multiMonthColumns: 0,
                       }), classNames.flexCol, verticalScrolling && classNames.liquid, classNames.isolate), style: {
                           zIndex: 0,
-                      }, children: [options.allDaySlot && (u$1(S, { children: [u$1("div", { role: 'row', className: classNames.flexRow, style: { zIndex: 1 }, children: [u$1(TimeGridAllDayHeader, { width: axisWidth, innerWidthRef: this.handleAllDayLabelInnerWidth, isNarrow: cellIsNarrow }), u$1("div", { className: generateClassName(options.slotHeaderDividerClass, {
+                      }, children: [options.allDaySlot && (u$1(S, { children: [u$1("div", { role: 'row', className: joinClassNames(classNames.flexRow, pluginClassNames.timeGridAllDayRow), style: { zIndex: 1 }, children: [u$1(TimeGridAllDayHeader, { width: axisWidth, innerWidthRef: this.handleAllDayLabelInnerWidth, isNarrow: cellIsNarrow }), u$1("div", { className: generateClassName(options.slotHeaderDividerClass, {
                                                   inTableHeader: false,
                                                   options: { dayMinWidth: options.dayMinWidth },
-                                              }) }), u$1(TimeGridAllDayLane, { dateProfile: props.dateProfile, todayRange: props.todayRange, cells: props.cells, showDayNumbers: false, forPrint: forPrint, isHitComboAllowed: props.isHitComboAllowed, className: joinClassNames(classNames.liquidX, classNames.borderNone), cellIsNarrow: cellIsNarrow, cellIsMicro: cellIsMicro, 
+                                              }) }), u$1(TimeGridAllDayLane, { dateProfile: props.dateProfile, todayRange: props.todayRange, cells: props.cells, showDayNumbers: false, forPrint: forPrint, isHitComboAllowed: props.isHitComboAllowed, className: joinClassNames(classNames.liquidX, classNames.borderNone, pluginClassNames.timeGridAllDayLane), cellIsNarrow: cellIsNarrow, cellIsMicro: cellIsMicro,
                                               // content
                                               fgEventSegs: props.fgEventSegs, bgEventSegs: props.bgEventSegs, businessHourSegs: props.businessHourSegs, dateSelectionSegs: props.dateSelectionSegs, eventDrag: props.eventDrag, eventResize: props.eventResize, eventSelection: props.eventSelection, dayMaxEvents: props.dayMaxEvents, dayMaxEventRows: props.dayMaxEventRows }), Boolean(endScrollbarWidth) && (u$1("div", { className: joinClassNames(generateClassName(options.fillerClass, { inTableHeader: false }), classNames.borderOnlyS), style: { minWidth: endScrollbarWidth } }))] }), u$1("div", { className: joinClassNames(options.allDayDividerClass), style: { zIndex: 2 } })] })), u$1(Scroller, { vertical: verticalScrolling, className: joinClassNames(classNames.flexCol, classNames.rel, // for Ruler.fillStart
                               verticalScrolling && classNames.liquid), style: {
@@ -13569,7 +13562,6 @@ var FullCalendar = (function (exports) {
                   borderlessX,
                   borderlessTop,
                   borderlessBottom,
-                  multiMonthColumns: 0,
               }), 
               // we don't do classNames.printRoot/classNames.printHeader here because works poorly with print:
               // - Firefox >85ish CAN have flexboxes within it, but those cannot do absolute positioning
@@ -16391,7 +16383,7 @@ var FullCalendar = (function (exports) {
       }
       // ensure 6 weeks
       if (props.fixedWeekCount) {
-          // TODO: instead of these date-math gymnastics (for multimonth view),
+          // TODO: instead of these date-math gymnastics (for fixed six-week grid),
           // compute dateprofiles of all months, then use start of first and end of last.
           let lastMonthRenderStart = dateEnv.startOfWeek(dateEnv.startOfMonth(addDays(currentRange.end, -1)));
           let rowCount = Math.ceil(// could be partial weeks due to hiddenDays
@@ -16819,364 +16811,6 @@ var FullCalendar = (function (exports) {
       'default': listPlugin
   });
 
-  class SingleMonth extends DateComponent {
-      constructor() {
-          super(...arguments);
-          this.state = {};
-          // memo
-          this.buildDayTableModel = memoize(buildDayTableModel);
-          this.createDayHeaderFormatter = memoize(createDayHeaderFormatter);
-          this.buildDateRowConfig = memoize(buildDateRowConfig);
-          // ref
-          this.titleElRef = M$1();
-          this.tableHeaderElRef = M$1();
-          this.rowHeightRefMap = new RefMap(() => {
-              afterSize(this.handleHeights);
-          });
-          this.slicer = new DayTableSlicer();
-          this.handleEl = (el) => {
-              const { options } = this.context;
-              if (el) {
-                  this.rootEl = el;
-                  options.singleMonthDidMount?.({
-                      el: this.rootEl,
-                      ...this.renderProps,
-                  });
-              }
-          };
-          this.handleGridWidth = (gridWidth) => {
-              if (this._isUnmounting)
-                  return;
-              this.setState({ gridWidth });
-          };
-          this.handleHeights = () => {
-              if (this._isUnmounting)
-                  return;
-              setRef(this.props.heightsRef, {
-                  titleHeight: this.titleHeight,
-                  tableHeaderHeight: this.tableHeaderHeight,
-                  rowHeightMap: this.rowHeightRefMap.current,
-                  cellRows: this.cellRows,
-              });
-          };
-      }
-      get titleId() {
-          return this.context.baseId + 'month-' + this.props.isoDateStr;
-      }
-      render() {
-          const { props, state, context } = this;
-          const { dateProfile, forPrint } = props;
-          const { options, dateEnv } = context;
-          const { borderlessX, borderlessTop, borderlessBottom } = computeViewBorderless(options);
-          const dayTableModel = this.buildDayTableModel(dateProfile, context.dateProfileGenerator, dateEnv);
-          const slicedProps = this.slicer.sliceProps(props, dateProfile, options.nextDayThreshold, context, dayTableModel);
-          const dayHeaderFormat = this.createDayHeaderFormatter(options.dayHeaderFormat, false, // datesRepDistinctDays
-          dayTableModel.colCount);
-          const rowConfig = this.buildDateRowConfig(dayTableModel.headerDates, false, // datesRepDistinctDays
-          dateProfile, props.todayRange, dayHeaderFormat, context);
-          this.cellRows = dayTableModel.cellRows;
-          const isTitleAndHeaderSticky = !forPrint && props.colCount === 1;
-          const isAspectRatio = !forPrint || props.hasLateralSiblings;
-          const cellColCnt = dayTableModel.cellRows[0].length;
-          const colWidth = state.gridWidth != null ? state.gridWidth / cellColCnt : undefined;
-          const cellIsMicro = colWidth != null && colWidth <= dayMicroWidth;
-          const cellIsNarrow = cellIsMicro || (colWidth != null && colWidth <= options.dayNarrowWidth);
-          const rowHeightGuess = state.gridWidth != null
-              ? (1 / options.aspectRatio) * state.gridWidth / 6
-              : undefined;
-          const headerStickyBottom = isTitleAndHeaderSticky
-              ? rowHeightGuess
-              : undefined;
-          const titleStickyBottom = isTitleAndHeaderSticky && rowHeightGuess != null && state.tableHeaderHeight != null
-              ? rowHeightGuess + state.tableHeaderHeight + 1
-              : undefined;
-          const businessHourSegs = forPrint ? [] : slicedProps.businessHourSegs;
-          const dateSelectionSegs = forPrint ? [] : slicedProps.dateSelectionSegs;
-          const eventDrag = forPrint ? null : slicedProps.eventDrag;
-          const eventResize = forPrint ? null : slicedProps.eventResize;
-          const hasNavLink = options.navLinks && props.colCount > 1;
-          const headerRenderProps = {
-              multiMonthColumns: props.colCount || 0,
-              isSticky: isTitleAndHeaderSticky,
-              isNarrow: cellIsNarrow,
-              hasNavLink,
-          };
-          const monthStartDate = props.dateProfile.currentRange.start;
-          const navLinkAttrs = hasNavLink
-              ? buildNavLinkAttrs(context, monthStartDate, 'month', props.isoDateStr)
-              : {};
-          return (u$1("div", { role: 'listitem', style: { width: props.width }, children: u$1("div", { role: 'grid', "aria-labelledby": this.titleId, "data-date": props.isoDateStr, className: joinClassNames(generateClassName(options.singleMonthClass, {
-                      isFirst: props.isFirst,
-                      isLast: props.isLast,
-                      multiMonthColumns: props.colCount || 0,
-                  }), classNames.flexCol, props.hasLateralSiblings && classNames.breakInsideAvoid), children: [u$1(Ruler, { widthRef: this.handleGridWidth }), u$1("div", { id: this.titleId, ref: this.titleElRef, className: joinClassNames(generateClassName(options.singleMonthHeaderClass, headerRenderProps), isTitleAndHeaderSticky && classNames.stickyT, classNames.flexCol), style: {
-                              // HACK to keep zIndex above table-header,
-                              // because in Chrome, something about position:sticky on this title div
-                              // causes its bottom border to no be considered part of its mass,
-                              // and would get overlapped and hidden by the table-header div
-                              zIndex: isTitleAndHeaderSticky ? 3 : undefined, // TODO: className?
-                              marginBottom: titleStickyBottom,
-                          }, children: u$1("div", { ...navLinkAttrs, className: joinClassNames(generateClassName(options.singleMonthHeaderInnerClass, headerRenderProps), navLinkAttrs.className), children: joinDateTimeFormatParts(dateEnv.formatToParts(monthStartDate, props.titleFormat)) }) }), u$1("div", { className: joinClassNames(generateClassName(options.tableClass, {
-                              borderlessX,
-                              borderlessTop,
-                              borderlessBottom,
-                              multiMonthColumns: props.colCount || 0,
-                          }), classNames.flexCol), style: {
-                              marginTop: titleStickyBottom != null ? -titleStickyBottom : undefined,
-                          }, children: [u$1("div", { ref: this.tableHeaderElRef, className: joinClassNames(generateClassName(options.tableHeaderClass, {
-                                      isSticky: isTitleAndHeaderSticky,
-                                      borderlessX,
-                                      borderlessTop,
-                                      borderlessBottom,
-                                      multiMonthColumns: props.colCount || 0,
-                                  }), classNames.flexCol, isTitleAndHeaderSticky && classNames.sticky), style: {
-                                      zIndex: isTitleAndHeaderSticky ? 2 : undefined, // TODO: className?
-                                      top: isTitleAndHeaderSticky ? state.titleHeight : 0,
-                                      marginBottom: headerStickyBottom,
-                                  }, children: [u$1(DayGridHeaderRow, { ...rowConfig, role: 'row', borderBottom: false, cellIsNarrow: cellIsNarrow, cellIsMicro: cellIsMicro, rowLevel: 0 }), u$1("div", { className: generateClassName(options.dayHeaderDividerClass, {
-                                              isSticky: isTitleAndHeaderSticky,
-                                              multiMonthColumns: props.colCount || 0,
-                                              options: { allDaySlot: Boolean(options.allDaySlot) },
-                                          }) })] }), u$1("div", { className: joinClassNames(generateClassName(options.tableBodyClass, {
-                                      borderlessX,
-                                      borderlessTop,
-                                      borderlessBottom,
-                                      multiMonthColumns: props.colCount || 0,
-                                  }), classNames.flexCol, isAspectRatio && classNames.rel), style: {
-                                      zIndex: isTitleAndHeaderSticky ? 1 : undefined, // TODO: className?
-                                      marginTop: headerStickyBottom != null ? -headerStickyBottom : undefined,
-                                      aspectRatio: isAspectRatio ? String(options.aspectRatio) : undefined,
-                                  }, children: u$1(DayGridRows, { dateProfile: props.dateProfile, todayRange: props.todayRange, cellRows: dayTableModel.cellRows, className: isAspectRatio ? classNames.fill : '', forPrint: forPrint && !props.hasLateralSiblings, dayMaxEventRows: (forPrint && props.hasLateralSiblings)
-                                          ? 1 // for side-by-side multimonths, limit to one row
-                                          : true // otherwise, always do +more link, never expand rows
-                                      , 
-                                      // content
-                                      fgEventSegs: slicedProps.fgEventSegs, bgEventSegs: slicedProps.bgEventSegs, businessHourSegs: businessHourSegs, dateSelectionSegs: dateSelectionSegs, eventDrag: eventDrag, eventResize: eventResize, eventSelection: slicedProps.eventSelection, 
-                                      // dimensions
-                                      visibleWidth: state.gridWidth, cellIsNarrow: cellIsNarrow, cellIsMicro: cellIsMicro, rowHeightRefMap: this.rowHeightRefMap }) })] })] }) }));
-      }
-      componentDidMount() {
-          this._isUnmounting = false;
-          this.disconnectTitleHeight = watchHeight(this.titleElRef.current, (height) => {
-              this.setState({ titleHeight: this.titleHeight = height });
-              afterSize(this.handleHeights);
-          });
-          this.disconnectTableHeaderHeight = watchHeight(this.tableHeaderElRef.current, (height) => {
-              this.setState({ tableHeaderHeight: this.tableHeaderHeight = height });
-              afterSize(this.handleHeights);
-          });
-      }
-      componentWillUnmount() {
-          const { options } = this.context;
-          this._isUnmounting = true;
-          this.disconnectTitleHeight();
-          this.disconnectTableHeaderHeight();
-          options.singleMonthWillUnmount?.({
-              el: this.rootEl,
-              ...this.renderProps,
-          });
-      }
-  }
-
-  class MultiMonthView extends DateComponent {
-      constructor() {
-          super(...arguments);
-          this.state = {};
-          // memo
-          this.splitDateProfileByMonth = memoize(splitDateProfileByMonth);
-          this.buildMonthFormat = memoize(buildMonthFormat);
-          // ref
-          this.scrollerRef = M$1();
-          this.tilesElRef = M$1();
-          this.scrollState = {};
-          // Scrolling
-          // -----------------------------------------------------------------------------------------------
-          this.handleInnerWidth = (innerWidth) => {
-              if (this._isUnmounting)
-                  return;
-              this.setState({ innerWidth });
-          };
-          this.handleScrollStart = () => {
-              this.scrollState.date = undefined;
-              this.scrollState.top = undefined;
-          };
-          this.handleScrollEnd = (isDevice) => {
-              const scroller = this.scrollerRef.current;
-              if (isDevice && scroller) {
-                  this.scrollState.top = scroller.y;
-                  this.scrollState.date = undefined;
-              }
-          };
-      }
-      render() {
-          const { context, props, state } = this;
-          const { options } = context;
-          const verticalScrolling = !props.forPrint && !getIsHeightAuto(options);
-          const monthDateProfiles = this.splitDateProfileByMonth(context.dateProfileGenerator, props.dateProfile, context.dateEnv, options.fixedWeekCount, options.showNonCurrentDates);
-          const monthTitleFormat = this.buildMonthFormat(options.singleMonthTitleFormat, monthDateProfiles);
-          const { multiMonthMaxColumns, singleMonthMinWidth } = options;
-          const { innerWidth } = state;
-          let cols;
-          let cssMonthWidth;
-          let hasLateralSiblings = false;
-          if (innerWidth != null) {
-              cols = Math.max(1, Math.min(multiMonthMaxColumns, Math.floor(innerWidth / singleMonthMinWidth)));
-              if (props.forPrint) {
-                  cols = Math.min(cols, 2);
-              }
-              cssMonthWidth = fracToCssDim(1 / cols);
-              hasLateralSiblings = cols > 1;
-          }
-          return (u$1(NowTimer, { unit: "day", children: (nowDate, todayRange) => (u$1(ViewContainer, { viewSpec: context.viewSpec, className: joinClassNames(
-                  // HACK for Safari. Can't do break-inside:avoid with flexbox items, likely b/c it's not standard:
-                  // https://stackoverflow.com/a/60256345
-                  !props.forPrint && classNames.flexCol, props.className), children: [u$1(Scroller, { vertical: verticalScrolling, className: verticalScrolling ? classNames.liquid : '', ref: this.scrollerRef, children: u$1("div", { role: 'list', ref: this.tilesElRef, "aria-labelledby": props.labelId, "aria-label": props.labelStr, className: classNames.safeTiles, children: monthDateProfiles.map((monthDateProfile, i) => {
-                                  const monthStr = formatIsoMonthStr(monthDateProfile.currentRange.start);
-                                  return (k$1(SingleMonth, { ...props, key: monthStr, todayRange: todayRange, isoDateStr: monthStr, titleFormat: monthTitleFormat, dateProfile: monthDateProfile, width: cssMonthWidth, colCount: cols, isFirst: !i, isLast: i === monthDateProfiles.length - 1, hasLateralSiblings: hasLateralSiblings }));
-                              }) }) }), u$1(Ruler, { widthRef: this.handleInnerWidth })] })) }));
-      }
-      // Lifecycle
-      // -----------------------------------------------------------------------------------------------
-      componentDidMount() {
-          this._isUnmounting = false;
-          this.scrollState.date = this.props.dateProfile.currentDate;
-          this.scrollerRef.current.addScrollStartListener(this.handleScrollStart);
-          this.scrollerRef.current.addScrollEndListener(this.handleScrollEnd);
-          // this.applyScroll() // definitely not ready yet b/c doesn't have state.innerWidth
-          // workaround for off-by-a-few-pixels on first time when multiMonthMaxColumns=1, not sure why
-          setTimeout(() => {
-              this.applyScroll();
-          }, 0);
-      }
-      componentDidUpdate(prevProps, prevState) {
-          if (prevProps.dateProfile !== this.props.dateProfile) {
-              if (this.context.options.scrollTimeReset) {
-                  this.resetScroll();
-              }
-              else {
-                  this.applyScroll();
-              }
-          }
-          else if (prevState.innerWidth !== this.state.innerWidth) {
-              this.applyScroll();
-          }
-      }
-      componentWillUnmount() {
-          this._isUnmounting = true;
-          this.scrollerRef.current.removeScrollStartListener(this.handleScrollStart);
-          this.scrollerRef.current.removeScrollEndListener(this.handleScrollEnd);
-      }
-      resetScroll() {
-          this.scrollState.date = this.props.dateProfile.currentDate;
-          this.scrollState.top = undefined;
-          this.applyScroll();
-      }
-      applyScroll() {
-          const scroller = this.scrollerRef.current;
-          const top = this.computeScrollTop();
-          if (scroller && top != null) {
-              scroller.scrollTo({ y: top });
-          }
-      }
-      computeScrollTop() {
-          const { scrollState } = this;
-          if (scrollState.top != null) {
-              return scrollState.top;
-          }
-          if (scrollState.date != null) {
-              const tilesEl = this.tilesElRef.current;
-              const monthEl = tilesEl?.querySelector(`[data-date="${formatIsoMonthStr(scrollState.date)}"]`);
-              const monthWrapEl = monthEl?.parentElement;
-              if (tilesEl && monthWrapEl) {
-                  // rounding required for proper alignment
-                  const monthTop = Math.round(monthWrapEl.getBoundingClientRect().top);
-                  const originTop = Math.round(tilesEl.getBoundingClientRect().top);
-                  return monthTop - originTop;
-              }
-          }
-      }
-  }
-  // date profile
-  // -------------------------------------------------------------------------------------------------
-  const oneMonthDuration = createDuration(1, 'month');
-  function splitDateProfileByMonth(dateProfileGenerator, dateProfile, dateEnv, fixedWeekCount, showNonCurrentDates) {
-      const { start, end } = dateProfile.currentRange;
-      let monthStart = start;
-      const monthDateProfiles = [];
-      while (monthStart.valueOf() < end.valueOf()) {
-          const monthEnd = dateEnv.add(monthStart, oneMonthDuration);
-          const currentRange = {
-              // yuck
-              start: dateProfileGenerator.skipHiddenDays(monthStart),
-              end: dateProfileGenerator.skipHiddenDays(monthEnd, -1, true),
-          };
-          let renderRange = buildDayTableRenderRange({
-              currentRange,
-              snapToWeek: true,
-              fixedWeekCount,
-              dateEnv,
-          });
-          renderRange = {
-              // yuck
-              start: dateProfileGenerator.skipHiddenDays(renderRange.start),
-              end: dateProfileGenerator.skipHiddenDays(renderRange.end, -1, true),
-          };
-          const activeRange = dateProfile.activeRange ?
-              intersectRanges(dateProfile.activeRange, showNonCurrentDates ? renderRange : currentRange) :
-              null;
-          monthDateProfiles.push({
-              currentDate: dateProfile.currentDate,
-              isValid: dateProfile.isValid,
-              validRange: dateProfile.validRange,
-              renderRange,
-              activeRange,
-              currentRange,
-              currentRangeUnit: 'month',
-              isRangeAllDay: true,
-              dateIncrement: dateProfile.dateIncrement,
-              slotMinTime: dateProfile.slotMaxTime,
-              slotMaxTime: dateProfile.slotMinTime,
-          });
-          monthStart = monthEnd;
-      }
-      return monthDateProfiles;
-  }
-  // date formatting
-  // -------------------------------------------------------------------------------------------------
-  const YEAR_MONTH_FORMATTER = createFormatter({ year: 'numeric', month: 'long' });
-  const YEAR_FORMATTER = createFormatter({ month: 'long' });
-  function buildMonthFormat(formatOverride, monthDateProfiles) {
-      return formatOverride ||
-          ((monthDateProfiles[0].currentRange.start.getUTCFullYear() !==
-              monthDateProfiles[monthDateProfiles.length - 1].currentRange.start.getUTCFullYear())
-              ? YEAR_MONTH_FORMATTER
-              : YEAR_FORMATTER);
-  }
-
-  var multiMonthPlugin = {
-      name: 'multimonth',
-      initialView: 'multiMonthYear',
-      views: {
-          multiMonth: {
-              component: MultiMonthView,
-              dateProfileGeneratorClass: TableDateProfileGenerator,
-              multiMonthMaxColumns: 3,
-              singleMonthMinWidth: 350,
-          },
-          multiMonthYear: {
-              type: 'multiMonth',
-              duration: { years: 1 },
-              fixedWeekCount: true, // TODO: apply to all multi-col layouts?
-              showNonCurrentDates: false, // TODO: looks bad when single-col layout
-          },
-      },
-  };
-
-  var multimonth = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      'default': multiMonthPlugin
-  });
-
   const blankButtonState = {
       text: '', hint: '', isDisabled: false,
   };
@@ -17437,7 +17071,6 @@ var FullCalendar = (function (exports) {
       dayGridPlugin,
       timeGridPlugin,
       listPlugin,
-      multiMonthPlugin,
   ];
   class Calendar extends Calendar$1 {
       constructor(el, optionOverrides = {}) {
@@ -17459,7 +17092,6 @@ var FullCalendar = (function (exports) {
   exports.Interaction = interaction;
   exports.JsonRequestError = JsonRequestError;
   exports.List = list;
-  exports.MultiMonth = multimonth;
   exports.Preact = preact;
   exports.PreactJSXRuntime = jsxRuntime;
   exports.ProtectedApi = protectedApi;

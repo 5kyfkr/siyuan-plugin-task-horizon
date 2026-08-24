@@ -5,16 +5,32 @@ const vm = require('vm');
 
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
+const runtimeSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/48-render-calendar-support-runtime.js'), 'utf8');
 
 assert.match(
     source,
-    /const mainCalendarEventSourceRequestSignatures = new Map\(\);[\s\S]*rememberMainCalendarEventSourceRequest\(EVENT_SOURCE_IDS\.mainAux[\s\S]*rememberMainCalendarEventSourceRequest\(EVENT_SOURCE_IDS\.mainSchedule[\s\S]*rememberMainCalendarEventSourceRequest\(EVENT_SOURCE_IDS\.mainTaskDate/,
+    /const SCHEDULE_READ_CACHE_TTL_MS = 10000;[\s\S]*async function loadScheduleAll\(\)[\s\S]*Date\.now\(\) - \(Number\(cache\.loadedAt\) \|\| 0\) < SCHEDULE_READ_CACHE_TTL_MS/,
+    'schedule reads must survive the delay between preload and sidebar mount',
+);
+assert.match(
+    source,
+    /function readScheduleLocalStorageSnapshot\(\)[\s\S]*function queueScheduleAuthoritativeRefresh\([\s\S]*authoritativeInflight[\s\S]*schedule-authoritative-read-ready/,
+    'cold schedule reads must paint from the last confirmed local snapshot while refreshing from the kernel in the background',
+);
+assert.match(
+    source,
+    /const mainCalendarEventSourceRequestSignatures = .*new Map\(\);[\s\S]*rememberMainCalendarEventSourceRequest\(EVENT_SOURCE_IDS\.mainAux[\s\S]*rememberMainCalendarEventSourceRequest\(EVENT_SOURCE_IDS\.mainSchedule[\s\S]*rememberMainCalendarEventSourceRequest\(EVENT_SOURCE_IDS\.mainTaskDate/,
     'all main event sources must record their requested view and range',
 );
 assert.match(
     source,
-    /sourceIds\.every\(\(sourceId\) => mainCalendarEventSourceRequestSignatures\.get\(sourceId\) === expectedSignature\)[\s\S]*view-type-refetch-skip[\s\S]*calendar\.refetchEvents/,
+    /sourceIds\.every\(\(sourceId\) => mainCalendarEventSourceRequestSignatures\.get\(sourceId\) === expectedSignature\)[\s\S]*view-type-refetch-skip[\s\S]*callCalendarAdapter\(calendar, 'refetchEvents'\)/,
     'view changes must skip the fallback refetch only after every source requested the new range',
+);
+assert.match(
+    source,
+    /const currentDateKey = \(\(\) => \{[\s\S]*const preferredDateKey = formatDateKey\(preferredInitialDate\)[\s\S]*else if \(currentDateKey !== preferredDateKey\)[\s\S]*callCalendarAdapter\(calendar, 'gotoDate'/,
+    'initial calendar mount must not navigate to the same date and race the first event-source fetch',
 );
 assert.match(
     source,
@@ -23,7 +39,32 @@ assert.match(
 );
 assert.match(
     source,
-    /const pending = state\.scheduleRangeInflight\.get\(rangeKey\);[\s\S]*if \(pending\) return \(await pending\)\.slice\(\);/,
+    /function saveScheduleAll\(items, options\)[\s\S]*state\.scheduleWriteTail = pending\.catch[\s\S]*async function performScheduleSaveAll\(items, options\)[\s\S]*const optimisticSignature = computeScheduleSourceSignature\(serialized\);[\s\S]*setScheduleCache\(list, optimisticSignature\)/,
+    'local schedule writes must replace the extended read cache immediately',
+);
+assert.match(
+    source,
+    /async function performScheduleSaveAll\(items, options\)[\s\S]*schedule-optimistic-cache[\s\S]*catch \(e\) \{[\s\S]*setScheduleCache\(previousList[\s\S]*schedule-optimistic-rollback/,
+    'failed schedule persistence must roll back the optimistic memory snapshot',
+);
+assert.match(
+    source,
+    /schedule-kernel-write-confirmed|schedule-file-write-confirmed/,
+    'schedule persistence must expose a confirmed write stage before post-save side effects',
+);
+assert.match(
+    source,
+    /async function refreshScheduleCacheFromSharedFile\(\)[\s\S]*const parsed = JSON\.parse\(raw\);[\s\S]*normalizeScheduleList\(parsed\)[\s\S]*computeScheduleSourceSignature\(JSON\.stringify\(out, null, 2\)\)/,
+    'shared-file schedule polling must compare normalized content, not raw file formatting',
+);
+assert.match(
+    source,
+    /const cachedList = Array\.isArray\(state\.scheduleCache\.list\) \? state\.scheduleCache\.list : null;[\s\S]*normalizeScheduleList\(cachedList\)\.out[\s\S]*if \(!state\.scheduleCache\.sourceSignature\) state\.scheduleCache\.sourceSignature = prevSignature;/,
+    'shared-file polling must initialize a missing signature from the mounted cache before deciding to refresh',
+);
+assert.match(
+    source,
+    /const pending = state\.scheduleRangeInflight\.get\(rangeKey\);[\s\S]*if \(pending\)[\s\S]*await pending[\s\S]*return (?:list\.slice\(\)|\(await pending\)\.slice\(\);)/,
     'parallel schedule sources must share one range computation',
 );
 assert.match(
@@ -33,8 +74,38 @@ assert.match(
 );
 assert.match(
     source,
+    /A dock is allowed to finish a full load[\s\S]*fastFirst: opts\.fastFirst/,
+    'sidebar task-date reads must use an available task-store snapshot before waiting for a full load',
+);
+assert.match(
+    source,
     /const rangeKey = `\$\{version\}\|\$\{startMs\}\|\$\{endMs\}`;[\s\S]*Date\.now\(\) - Number\(cached\.ts \|\| 0\) < 1200/,
     'tomato history range requests must use a short versioned cache',
+);
+assert.match(
+    source,
+    /async function loadRecordsForRange\(rangeStart, rangeEnd\)[\s\S]*if \(!s\.linkDockTomato\) return \[\];[\s\S]*if \(s\.showTomatoMaster === false\) return \[\];/,
+    'hidden sidebar tomato records must not pre-read Dock Tomato history',
+);
+assert.match(
+    source,
+    /function peekReminderBlocks\(\)[\s\S]*function peekCnHolidayYear\(year\)[\s\S]*cachedHolidayParts[\s\S]*remindersNeedBackgroundRead/,
+    'optional reminder and holiday data must use snapshots on the calendar paint path',
+);
+assert.match(
+    source,
+    /deferFullLoad: taskDateCalendarName === 'side'[\s\S]*side-taskdate-background-complete/,
+    'side task-date sources must defer the authoritative full load after fast-first paint',
+);
+assert.match(
+    source,
+    /const DOCK_HISTORY_PAINT_BUDGET_MS = 120;[\s\S]*peekRecordsForRange\(info\.start, info\.end\)[\s\S]*historyNeedsBackgroundRead[\s\S]*optionalBackgroundPromise[\s\S]*deferCalendarTomatoHistoryRefetch\(optionalBackgroundPromise/,
+    'cold tomato history and optional auxiliary data must paint from snapshots and refetch after cache-miss reads complete',
+);
+assert.match(
+    runtimeSource,
+    /scheduleTaskDateCacheWarm\('taskdate-side-deferred'\)[\s\S]*taskdate-side-deferred/,
+    'side task-date queries must warm the shared cache without blocking the source request',
 );
 assert.match(
     source,
@@ -45,6 +116,26 @@ assert.match(
     source,
     /state\.tomatoListener = \(ev\) => \{[\s\S]*clearDockHistoryRangeCache\(\);[\s\S]*scheduleReminderCalendarRefetch\(\);/,
     'tomato history updates must invalidate range results before refetching',
+);
+assert.match(
+    source,
+    /state\.tomatoListener = \(ev\) => \{[\s\S]*dockHistoryReadInFlight[\s\S]*dockHistoryLastInvalidationAt[\s\S]*< 750/,
+    'tomato history notifications must be coalesced while a range read or recent invalidation is settling',
+);
+assert.match(
+    source,
+    /function isCalendarAuxRangeMaterialized\(rangeStart, rangeEnd\)[\s\S]*peekRecordsForRange\(rangeStart, rangeEnd\)[\s\S]*peekReminderBlocks\(\)/,
+    'deferred auxiliary refetches must verify all snapshots are materialized before scheduling another source request',
+);
+assert.match(
+    source,
+    /async function loadCnHolidayYearUncached\(year, options = \{\}\)[\s\S]*async function loadCnHolidayYear\(year, options = \{\}\)[\s\S]*cnHolidayInflight/,
+    'holiday year reads must share one in-flight request per year',
+);
+assert.match(
+    source,
+    /state\.dockHistoryRangeVersion = \(Number\(state\.dockHistoryRangeVersion \|\| 0\) \+ 1\)[\s\S]*state\.linkedDocIdInflight\.clear\(\)[\s\S]*state\.scheduleTaskTitleInflight\.clear\(\)/,
+    'calendar unmount must invalidate late reads and release auxiliary query caches',
 );
 assert.match(
     source,
@@ -65,6 +156,10 @@ const runtimeState = {
 };
 const context = {
     state: runtimeState,
+    __tmPerfCreate() { return null; },
+    __tmPerfMark() {},
+    __tmPerfFinish() {},
+    formatDateKey(value) { return value instanceof Date ? value.toISOString().slice(0, 10) : ''; },
     toMs(value) { return value instanceof Date ? value.getTime() : Number(value); },
     async loadScheduleAll() {
         loadCount += 1;

@@ -111,12 +111,15 @@ async function run() {
             scheduleCache: { list: null, loadedAt: 0, inflight: null, sourceSignature: '', lastLoadError: false },
         };
         const loadScheduleAll = Function(
-            'state', 'cloneScheduleList', 'getKernelScheduleRpc', 'normalizeScheduleList',
+            'state', '__tmPerfCreate', '__tmPerfMark', '__tmPerfFinish', 'cloneScheduleList', 'getKernelScheduleRpc', 'normalizeScheduleList',
             'computeScheduleSourceSignature', 'setScheduleCache', 'localStorage', 'STORAGE', 'getFileTextRetry',
             'isMissingFileReadError',
             `"use strict"; ${calendarLoad}; return loadScheduleAll;`,
         )(
             state,
+            () => null,
+            () => {},
+            () => {},
             (items) => JSON.parse(JSON.stringify(Array.isArray(items) ? items : [])),
             () => kernelAvailable ? async () => kernelResult : null,
             (items) => ({ out: Array.isArray(items) ? items : [] }),

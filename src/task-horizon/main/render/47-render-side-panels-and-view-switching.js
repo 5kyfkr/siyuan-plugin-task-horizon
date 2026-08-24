@@ -116,6 +116,19 @@
             timelineRoot = root.querySelector('#tmCalendarSideDockTimeline');
         }
         if (!(timelineRoot instanceof HTMLElement)) return;
+        const ensureCalendarAssets = globalThis.__taskHorizonEnsureCalendarAssets;
+        if (!globalThis.__tmCalendar && typeof ensureCalendarAssets === 'function') {
+            timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历模块加载中...</div>`;
+            Promise.resolve().then(() => ensureCalendarAssets()).then(() => {
+                if (state.calendarSideDockMountToken !== token) return;
+                if (!root.isConnected || (state.modal && !state.modal.contains(root))) return;
+                if (!__tmShouldShowCalendarSideDock()) return;
+                __tmCalendarDockMount(0, token);
+            }).catch(() => {
+                if (timelineRoot.isConnected) timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历模块加载失败。</div>`;
+            });
+            return;
+        }
         if (!globalThis.__tmCalendar || typeof globalThis.__tmCalendar.mountSideDayTimeline !== 'function') {
             timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历模块加载中...</div>`;
             if (attempt < 80) {
@@ -552,6 +565,7 @@
         const mode = String(modeInput || '').trim();
         if (mode === 'timeline') return scene?.showTopbarTimelineToolbar ? String(scene.timelineCompactToolbarGroupHtml || '') : '';
         if (mode === 'calendar') {
+            if (!__tmIsTopbarButtonVisible('calendarSidebar')) return '';
             const modal = state.modal instanceof Element ? state.modal : null;
             const usesCompactToggle = !!(modal && (
                 modal.classList.contains('tm-modal--dock')
@@ -560,7 +574,7 @@
                 || modal.classList.contains('tm-modal--host-mobile-ui')
             ));
             if (usesCompactToggle) return '';
-            return `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>`;
+            return `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-calendar-sidebar-toggle" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>`;
         }
         if (mode !== 'kanban') return '';
         const boardMode = __tmGetKanbanBoardMode();
@@ -669,6 +683,17 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const root = modal?.querySelector?.('#tmCalendarRoot');
         if (!(root instanceof HTMLElement)) return false;
+        const ensureCalendarAssets = globalThis.__taskHorizonEnsureCalendarAssets;
+        if (!globalThis.__tmCalendar && typeof ensureCalendarAssets === 'function') {
+            root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块加载中...</div>`;
+            Promise.resolve().then(() => ensureCalendarAssets()).then(() => {
+                if (!root.isConnected || (state.modal && !state.modal.contains(root))) return;
+                __tmMountCalendarViewRoot(modal, opts);
+            }).catch(() => {
+                if (root.isConnected) root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块加载失败。</div>`;
+            });
+            return true;
+        }
         const mount = (attempt = 0) => {
             if (!root.isConnected || (state.modal && !state.modal.contains(root))) return;
             if (!SettingsStore.data.calendarEnabled) {
@@ -989,6 +1014,10 @@
         } else if (prev === next) {
             return;
         }
+        // The desktop topbar action catalog depends on whether the calendar
+        // side-dock action is available, so calendar transitions need a shell
+        // render to add or remove that action with the view controls.
+        if (prev === 'calendar' || next === 'calendar') forceFullRender = true;
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
