@@ -1656,28 +1656,19 @@
                             padding: 3px;
                             border-radius: 999px;
                             border: 1px solid color-mix(in srgb, var(--tm-border-color) 84%, transparent);
-                            background: color-mix(in srgb, var(--tm-header-bg) 96%, rgba(255,255,255,0.12));
+                            background: color-mix(in srgb, var(--tm-header-bg) 70%, transparent);
                             box-shadow: none;
-                            backdrop-filter: none;
-                            -webkit-backdrop-filter: none;
+                            backdrop-filter: blur(2px);
+                            -webkit-backdrop-filter: blur(2px);
                             overflow-x: auto;
                             scrollbar-width: none;
-                            opacity: 0.3;
-                            transition: opacity 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+                            opacity: 1;
+                            transition: box-shadow 0.18s ease;
                         }
 
                         .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner::-webkit-scrollbar,
                         .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar__inner::-webkit-scrollbar {
                             display: none;
-                        }
-
-                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar.tm-mobile-bottom-viewbar--active .tm-mobile-bottom-viewbar__inner,
-                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar:active .tm-mobile-bottom-viewbar__inner,
-                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar:focus-within .tm-mobile-bottom-viewbar__inner,
-                        .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar.tm-mobile-bottom-viewbar--active .tm-mobile-bottom-viewbar__inner,
-                        .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar:active .tm-mobile-bottom-viewbar__inner,
-                        .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar:focus-within .tm-mobile-bottom-viewbar__inner {
-                            opacity: 0.8;
                         }
 
                         .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher,
@@ -1788,22 +1779,17 @@
                         padding: 3px;
                         border-radius: 999px;
                         border: 1px solid color-mix(in srgb, var(--tm-border-color) 84%, transparent);
-                        background: color-mix(in srgb, var(--tm-header-bg) 96%, rgba(255,255,255,0.12));
+                        background: color-mix(in srgb, var(--tm-header-bg) 70%, transparent);
                         box-shadow: none;
-                        backdrop-filter: none;
-                        -webkit-backdrop-filter: none;
+                        backdrop-filter: blur(2px);
+                        -webkit-backdrop-filter: blur(2px);
                         overflow-x: auto;
                         scrollbar-width: none;
-                        opacity: 0.3;
-                        transition: opacity 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+                        opacity: 1;
+                        transition: box-shadow 0.18s ease;
                     }
                     .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner::-webkit-scrollbar {
                         display: none;
-                    }
-                    .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar.tm-mobile-bottom-viewbar--active .tm-mobile-bottom-viewbar__inner,
-                    .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar:active .tm-mobile-bottom-viewbar__inner,
-                    .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar:focus-within .tm-mobile-bottom-viewbar__inner {
-                        opacity: 0.8;
                     }
                     .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher {
                         display: flex;
@@ -1865,26 +1851,17 @@
                         padding: 3px;
                         border-radius: 999px;
                         border: 1px solid color-mix(in srgb, var(--tm-border-color) 84%, transparent);
-                        background: color-mix(in srgb, var(--tm-header-bg) 96%, rgba(255,255,255,0.12));
+                        background: color-mix(in srgb, var(--tm-header-bg) 70%, transparent);
                         box-shadow: none;
-                        backdrop-filter: none;
-                        -webkit-backdrop-filter: none;
+                        backdrop-filter: blur(2px);
+                        -webkit-backdrop-filter: blur(2px);
                         overflow-x: auto;
                         scrollbar-width: none;
-                        opacity: 0.3;
-                        transition: opacity 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+                        opacity: 1;
+                        transition: box-shadow 0.18s ease;
                     }
                     .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar__inner::-webkit-scrollbar {
                         display: none;
-                    }
-                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar.tm-mobile-bottom-viewbar--active .tm-mobile-bottom-viewbar__inner,
-                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar:active .tm-mobile-bottom-viewbar__inner,
-                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar:focus-within .tm-mobile-bottom-viewbar__inner {
-                        opacity: 0.8;
-                    }
-                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar:hover .tm-mobile-bottom-viewbar__inner,
-                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar__inner:hover {
-                        opacity: 1;
                     }
                     .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher {
                         display: flex;
@@ -1926,10 +1903,10 @@
                     .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar:focus-within .tm-mobile-bottom-viewbar__inner,
                     .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar:hover .tm-mobile-bottom-viewbar__inner,
                     .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar__inner:hover {
-                        background: color-mix(in srgb, var(--tm-header-bg) 98%, rgba(255,255,255,0.08));
+                        background: color-mix(in srgb, var(--tm-header-bg) 70%, transparent);
                         box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
-                        backdrop-filter: none;
-                        -webkit-backdrop-filter: none;
+                        backdrop-filter: blur(2px);
+                        -webkit-backdrop-filter: blur(2px);
                         transition-duration: 0.08s;
                     }
                     .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-view-switcher .tm-view-seg-item,
@@ -3968,12 +3945,17 @@
         state.__tmKanbanDragId = taskId;
         state.__tmKanbanDragIds = sourceIds;
         state.__tmKanbanDragSourceEl = dragCard instanceof HTMLElement ? dragCard : null;
+        let floatingMiniStarted = false;
         try { __tmBindKanbanDocumentAutoScroll(); } catch (e) {}
         try { dragCard?.classList?.add?.('tm-kanban-card--dragging'); } catch (e) {}
         try {
             const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function') ? window.tmCalendarGetTaskDragMeta(taskId) : null;
-            __tmCalendarFloatingDragStart(taskId, meta, ev);
+            floatingMiniStarted = __tmScheduleTaskFloatingMiniStart(taskId, meta, ev, dragCard, {
+                startedKey: '__tmKanbanDragFloatingMiniStarted',
+                pendingKey: '__tmKanbanDragFloatingMiniPending',
+            });
         } catch (e) {}
+        state.__tmKanbanDragFloatingMiniStarted = floatingMiniStarted;
 
         if (!SettingsStore.data.kanbanDragSyncSubtasks) {
             try {
@@ -3999,6 +3981,8 @@
     };
 
     window.tmKanbanDragEnd = function(ev, id) {
+        const floatingMiniStarted = state.__tmKanbanDragFloatingMiniStarted === true;
+        try { __tmCancelTaskFloatingMiniStart('__tmKanbanDragFloatingMiniPending'); } catch (e) {}
         try { globalThis.__tmSuppressTaskPointerClickAfterDrag?.(420); } catch (e) {}
         try { ev.currentTarget?.classList?.remove?.('tm-kanban-card--dragging'); } catch (e) {}
         try {
@@ -4009,11 +3993,14 @@
         state.draggingTaskIds = [];
         try { __tmClearDocTabDropTarget(); } catch (e) {}
         try { __tmSetCalendarSideDockDragHidden(false); } catch (e) {}
-        try { __tmCalendarFloatingDragEnd(); } catch (e) {}
+        if (floatingMiniStarted) {
+            try { __tmCalendarFloatingDragEnd(); } catch (e) {}
+        }
         try { __tmUnbindKanbanDocumentAutoScroll(); } catch (e) {}
         try { delete state.__tmKanbanDragId; } catch (e) {}
         try { delete state.__tmKanbanDragIds; } catch (e) {}
         try { delete state.__tmKanbanDragSourceEl; } catch (e) {}
+        try { delete state.__tmKanbanDragFloatingMiniStarted; } catch (e) {}
         __tmKanbanClearDragOver();
     };
 

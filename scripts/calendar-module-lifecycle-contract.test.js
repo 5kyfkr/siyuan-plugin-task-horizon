@@ -20,6 +20,10 @@ assert.ok(cleanupStart >= 0 && cleanupEnd > cleanupStart, 'calendar cleanup func
 const cleanupSource = source.slice(cleanupStart, cleanupEnd);
 
 assert.match(cleanupSource, /__tmCalendarModuleLifecycleAbort\.abort\(\)/);
+assert.match(source, /function closeTrackedPrototypeEventPopover\(\)[\s\S]*state\.__tmPrototypeEventPopover = null/,
+    'body-level event detail popovers must have a shared tracked cleanup');
+assert.match(source, /function unmount\(options = \{\}\)[\s\S]*closeTrackedPrototypeEventPopover\(\)/,
+    'calendar unmount must dispose body-level event detail popovers');
 assert.doesNotMatch(source, /__tmCalendarDebugLog/,
     'calendar diagnostics must not leave a production debug-log hook');
 assert.doesNotMatch(source, /protoResizeLog|logMainCalendarHostDefault/,

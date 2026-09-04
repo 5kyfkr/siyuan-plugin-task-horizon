@@ -336,6 +336,21 @@ assert.match(
     /invalidatePrototypeMonthMeasurement\(\{ resetRenderKey: false, resetBudget: false \}\)[\s\S]*schedulePrototypeMonthAdaptiveMeasure\(\)/,
     'event-source updates must preserve the committed month budget until the refreshed geometry is measured',
 );
+assert.match(
+    source,
+    /key === 'calendarMonthMinVisibleEvents'\) \{[\s\S]*state\.__tmMonthFoldBudget = null[\s\S]*state\.invalidatePrototypeMonthMeasurement\?\.\(\{ resetBudget: true \}\)[\s\S]*syncMainCalendarMonthViewLayout/,
+    'changing the configured month row count must discard the previous fold budget before layout sync',
+);
+assert.match(
+    source,
+    /Number\(__tmSavedMonthFold\.configuredVisible\) === __tmConfiguredMonthVisibleEvents/,
+    'restored month fold budgets must match the configured visible-event count',
+);
+assert.match(
+    source,
+    /state\.invalidatePrototypeMonthMeasurement = invalidatePrototypeMonthMeasurement[\s\S]*state\.invalidatePrototypeMonthMeasurement = null/,
+    'the month-budget invalidation bridge must be released with the calendar mount',
+);
 assert.doesNotMatch(
     source,
     /if \(isMonthView && viewSwitching\) prototypeSurface\.style\.removeProperty\('--tm-proto-span-lanes'\)/,
@@ -440,6 +455,26 @@ assert.match(
     styles,
     /\.tm-proto-opacity-pop b\{[\s\S]*white-space:\s*nowrap;/,
     'opacity percentage must stay on one line inside the popup',
+);
+assert.match(
+    source,
+    /tm-proto-more-popover-event[\s\S]*protoEventMarkup\(eventApi, 'chip', eventApi\?\.allDay !== true, '', 'timeGridDay'\)/,
+    '+N events must use the expanded event view so linked-task checkboxes remain available',
+);
+assert.match(
+    source,
+    /const morePopover = anchorEl instanceof Element[\s\S]*morePopover\.contains\(node\)/,
+    'detail popovers opened from +N must ignore the +N container as a viewport boundary',
+);
+assert.match(
+    styles,
+    /\.tm-proto-more-popover-event > \.tm-proto-event--chip::before\{[\s\S]*display:\s*none\s*!important;/,
+    '+N event cards must not render the compact mobile color-dot marker',
+);
+assert.match(
+    styles,
+    /\.tm-proto-more-popover-event > \.tm-proto-event--chip\{[\s\S]*border:\s*1px solid[\s\S]*background:[\s\S]*box-shadow:/,
+    '+N event cards must retain the desktop card treatment on mobile',
 );
 
 console.log('calendar layout performance contract tests passed');

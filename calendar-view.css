@@ -4306,6 +4306,11 @@
     min-width: 0;
     color: var(--tm-cal-faint);
     font-size: 9px;
+}.tm-proto-timeline-head--compact .tm-proto-timeline-day{
+    min-height: 42px;
+    padding: 4px 0 3px;
+}.tm-proto-timeline-head--compact .tm-proto-timeline-day small:empty{
+    display: none;
 }.tm-proto-allday{
     position: relative;
     flex: 0 0 auto;
@@ -4322,6 +4327,10 @@
     left: var(--tm-proto-axis-width);
     z-index: 1;
     border-left: 1px solid var(--tm-cal-border);
+    /* Match the neighboring grid edges, which are drawn as right borders.
+       Without this correction the all-day divider lands one pixel into the
+       first day column and looks like the toggle's edge is sticking out. */
+    transform: translateX(-1px);
     pointer-events: none;
 }.tm-proto-allday::-webkit-scrollbar,
 .tm-proto-day-panel-allday::-webkit-scrollbar{
@@ -4785,6 +4794,9 @@
         height: 26px;
         font-size: 14px;
         line-height: 26px;
+    }.tm-proto-timeline-head--compact .tm-proto-timeline-day{
+        min-height: 38px;
+        padding: 3px 0 2px;
     }.tm-proto-time-canvas{
         min-width: 100%;
         min-height: 1100px;
@@ -7552,4 +7564,152 @@
     .tm-calendar-edit-modal:not(.tm-calendar-schedule-editor-modal) .tm-calendar-edit-box{width:100%;max-height:calc(100vh - 24px);padding:16px 14px calc(16px + env(safe-area-inset-bottom, 0px));border-radius:16px}
     .tm-calendar-edit-modal:not(.tm-calendar-schedule-editor-modal) .tm-calendar-edit-row{flex-direction:column;align-items:stretch;gap:6px}
     .tm-calendar-edit-modal:not(.tm-calendar-schedule-editor-modal) .tm-calendar-edit-label{width:auto}
+}
+
+/* The +N surface is portaled to body, so month-cell rules do not constrain
+   its event cards. Keep the card contents on one measured row on narrow
+   screens instead of allowing the inherited chip layout to stack/overlap. */
+.tm-proto-more-popover-event > .tm-proto-event--chip{
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 22px !important;
+    height: auto !important;
+    max-height: none !important;
+    box-sizing: border-box !important;
+    padding: 4px 7px !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+    border: 1px solid color-mix(in srgb, var(--tm-proto-event-color) 18%, var(--tm-cal-border)) !important;
+    border-radius: var(--tm-proto-card-radius, 6px) !important;
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel)) !important;
+    box-shadow: inset 3px 0 0 var(--tm-proto-event-color) !important;
+}
+.tm-proto-more-popover-event > .tm-proto-event--chip::before{
+    display: none !important;
+    content: none !important;
+}
+.tm-proto-more-popover-event > .tm-proto-event--chip > .tm-proto-event-check-wrap,
+.tm-proto-more-popover-event > .tm-proto-event--chip .tm-proto-event-check{
+    display: inline-flex !important;
+}
+.tm-proto-more-popover-event > .tm-proto-event--chip > .tm-proto-event-copy{
+    display: flex !important;
+    flex: 1 1 auto !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    gap: 4px !important;
+}
+.tm-proto-more-popover-event > .tm-proto-event--chip .tm-proto-event-title,
+.tm-proto-more-popover-event > .tm-proto-event--chip .tm-proto-event-time{
+    display: block !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    line-height: 1.25 !important;
+}
+.tm-proto-more-popover-event > .tm-proto-event--chip .tm-proto-event-title{ flex: 1 1 auto !important; }
+.tm-proto-more-popover-event > .tm-proto-event--chip .tm-proto-event-time{ flex: 0 1 auto !important; }
+@media (max-width: 768px){
+    .tm-proto-more-popover{
+        width: min(260px, calc(100vw - 16px)) !important;
+        max-width: calc(100vw - 16px) !important;
+        padding: 8px !important;
+    }
+    .tm-proto-more-popover-event > .tm-proto-event--chip{
+        min-height: 22px !important;
+        height: auto !important;
+        max-height: none !important;
+        padding-block: 4px !important;
+    }
+}
+.tm-calendar-holiday-editor{
+    position:fixed;
+    inset:0;
+    z-index:100040;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    background:rgba(0,0,0,.42);
+}
+.tm-calendar-holiday-editor__panel{
+    width:min(680px,100%);
+    max-height:min(900px,calc(100vh - 40px));
+    overflow:auto;
+    background:var(--b3-theme-background,#fff);
+    color:var(--b3-theme-on-background,#222);
+    border:1px solid var(--b3-theme-surface-lighter,rgba(0,0,0,.12));
+    border-radius:8px;
+    box-shadow:0 18px 48px rgba(0,0,0,.24);
+    padding:18px;
+}
+.tm-calendar-holiday-editor__header,
+.tm-calendar-holiday-editor__toolbar,
+.tm-calendar-holiday-editor__footer,
+.tm-calendar-holiday-editor__modified-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+}
+.tm-calendar-holiday-editor__sub,
+.tm-calendar-holiday-editor__legend,
+.tm-calendar-holiday-editor__empty{
+    color:var(--tm-secondary-text,var(--b3-theme-on-surface,#777));
+    font-size:12px;
+}
+.tm-calendar-holiday-editor__sub{margin-top:4px}
+.tm-calendar-holiday-editor__close,
+.tm-calendar-holiday-editor__toolbar button,
+.tm-calendar-holiday-editor__mode button,
+.tm-calendar-holiday-editor__modified-row button{
+    min-width:44px;
+    min-height:44px;
+    border:1px solid var(--b3-theme-surface-lighter,rgba(0,0,0,.14));
+    border-radius:6px;
+    background:var(--b3-theme-surface,#f6f7f8);
+    color:inherit;
+    cursor:pointer;
+}
+.tm-calendar-holiday-editor__close{font-size:24px;line-height:1}
+.tm-calendar-holiday-editor__toolbar{margin:14px 0 10px}
+.tm-calendar-holiday-editor__toolbar button{font-size:25px;line-height:1}
+.tm-calendar-holiday-editor__month{font-weight:700;min-width:130px;text-align:center}
+.tm-calendar-holiday-editor__mode{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.tm-calendar-holiday-editor__mode button{font-weight:700}
+.tm-calendar-holiday-editor__mode button.is-active{background:var(--tm-cal-primary,var(--b3-theme-primary,#3b82f6));border-color:var(--tm-cal-primary,var(--b3-theme-primary,#3b82f6));color:#fff}
+.tm-calendar-holiday-editor__mode input{flex:1;min-width:0;height:44px;padding:0 10px;border:1px solid var(--b3-theme-surface-lighter,rgba(0,0,0,.16));border-radius:6px;background:var(--b3-theme-background,#fff);color:inherit}
+.tm-calendar-holiday-editor__legend{display:flex;gap:14px;align-items:center;margin:5px 0 8px}
+.tm-calendar-holiday-editor__legend .is-custom{color:var(--tm-cal-primary,var(--b3-theme-primary,#3b82f6));font-weight:700}
+.tm-calendar-holiday-editor__weekdays,
+.tm-calendar-holiday-editor__grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.tm-calendar-holiday-editor__weekdays{margin-bottom:4px;color:var(--tm-secondary-text,var(--b3-theme-on-surface,#777));font-size:12px;text-align:center}
+.tm-calendar-holiday-editor__day{position:relative;display:flex;min-height:58px;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;border:1px solid transparent;border-radius:6px;background:var(--b3-theme-surface,#f6f7f8);color:inherit;cursor:pointer}
+.tm-calendar-holiday-editor__day:hover{border-color:var(--tm-cal-primary,var(--b3-theme-primary,#3b82f6))}
+.tm-calendar-holiday-editor__day.is-outside{opacity:.35;cursor:default}
+.tm-calendar-holiday-editor__day.has-official{box-shadow:inset 0 -3px 0 rgba(234,67,53,.7)}
+.tm-calendar-holiday-editor__day.has-official:not(.has-official-work){box-shadow:inset 0 -3px 0 rgba(52,168,83,.8)}
+.tm-calendar-holiday-editor__day.has-custom{outline:2px solid var(--tm-cal-primary,var(--b3-theme-primary,#3b82f6));outline-offset:-2px}
+.tm-calendar-holiday-editor__day.is-work.has-custom{outline-color:#e85d5d}
+.tm-calendar-holiday-editor__day small{font-size:11px;font-weight:700;color:var(--tm-secondary-text,var(--b3-theme-on-surface,#777))}
+.tm-calendar-holiday-editor__day.has-custom small{color:var(--tm-cal-primary,var(--b3-theme-primary,#3b82f6))}
+.tm-calendar-holiday-editor__day.is-work.has-custom small{color:#d64b4b}
+.tm-calendar-holiday-editor__modified{margin-top:16px;border-top:1px solid var(--b3-theme-surface-lighter,rgba(0,0,0,.12));padding-top:12px}
+.tm-calendar-holiday-editor__section-title{font-size:13px;font-weight:700;margin-bottom:6px}
+.tm-calendar-holiday-editor__modified-row{padding:5px 0;font-size:12px}
+.tm-calendar-holiday-editor__modified-row button{min-width:auto;min-height:32px;padding:0 8px;background:transparent;font-size:12px}
+.tm-calendar-holiday-editor__footer{justify-content:flex-end;margin-top:16px;padding-top:12px;border-top:1px solid var(--b3-theme-surface-lighter,rgba(0,0,0,.12))}
+@media (max-width:640px){
+    .tm-calendar-holiday-editor{padding:0;align-items:stretch}
+    .tm-calendar-holiday-editor__panel{width:100%;max-height:none;border:0;border-radius:0;padding:14px 12px}
+    .tm-calendar-holiday-editor__day{min-height:54px}
+    .tm-calendar-holiday-editor__toolbar button{min-width:44px}
 }

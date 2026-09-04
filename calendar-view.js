@@ -74,6 +74,7 @@
     // the same frame. Share the single SQL read without coupling it to either
     // title or document-color cache.
     const calendarLinkedMetadataInflight = new Map();
+
     const CALENDAR_ZH_CN_LOCALE = {
         code: 'zh-cn',
         week: { dow: 1, doy: 4 },
@@ -3008,10 +3009,19 @@
     }
 
     function formatCnLunarDateKey(dateKey) {
-        if (__tmCnLunarDateFormatterUnsupported || typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') return '';
         const d = parseDateOnly(dateKey);
         if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
         try {
+            const shared = globalThis.__tmGetChineseLunarDateInfo;
+            if (typeof shared === 'function') {
+                const info = shared(d);
+                if (info) {
+                    const month = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'][Number(info.month) - 1] || '';
+                    const day = TM_CN_LUNAR_DAY_NAMES[Number(info.day)] || '';
+                    if (month && day) return `${info.isLeap ? '闰' : ''}${month}${day}`;
+                }
+            }
+            if (__tmCnLunarDateFormatterUnsupported || typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') return '';
             if (!__tmCnLunarDateFormatter) {
                 __tmCnLunarDateFormatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', { month: 'long', day: 'numeric' });
                 const calendar = String(__tmCnLunarDateFormatter.resolvedOptions?.().calendar || '').trim();
@@ -4765,7 +4775,8 @@
     function buildCnHolidayEventContent(arg) {
         const ext = arg?.event?.extendedProps || {};
         const type = Number(ext.__tmCnHolidayType);
-        const name = normalizeCnHolidayName(String(ext.__tmCnHolidayName || '').trim());
+        const rawName = String(ext.__tmCnHolidayName || '').trim();
+        const name = ext.__tmCnHolidayCustom === true ? rawName : normalizeCnHolidayName(rawName);
         if (!name) return true;
         try {
             const id = String(arg?.event?.id || '').trim();
@@ -6602,8 +6613,8 @@
     function buildSharedPrototypeLunarText(key, settings, holidayMap = null) {
         if (settings?.showLunar !== true || !key) return '';
         const item = holidayMap?.get?.(key);
-        const raw = String(item?.lunar || '').trim()
-            || (typeof formatCnLunarDateKey === 'function' ? String(formatCnLunarDateKey(key) || '').trim() : '');
+        const raw = (typeof formatCnLunarDateKey === 'function' ? String(formatCnLunarDateKey(key) || '').trim() : '')
+            || String(item?.lunar || '').trim();
         const monthIndex = raw.lastIndexOf('月');
         return monthIndex >= 0 && monthIndex < raw.length - 1 ? raw.slice(monthIndex + 1).trim() : raw;
     }
@@ -6637,6 +6648,35 @@
         return `<button type="button" class="${classes}" ${actionAttr}="${esc(action)}" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${collapsed ? '展开全天' : '折叠全天'}"><span>全天</span><span class="tm-proto-day-panel-allday-chevron" aria-hidden="true"></span></button>`;
     }
 
+    function closeTrackedPrototypeMorePopover() {
+        const current = state.__tmPrototypeMorePopover;
+        if (!current) return false;
+        try { document.removeEventListener('click', current.onDocumentClick, true); } catch (e) {}
+        try { current.el?.remove?.(); } catch (e) {}
+        state.__tmPrototypeMorePopover = null;
+        return true;
+    }
+
+    function closeTrackedPrototypeEventPopover() {
+        const current = state.__tmPrototypeEventPopover;
+        if (!current) return false;
+        try { document.removeEventListener('click', current.onDocumentClick, true); } catch (e) {}
+        try { document.removeEventListener('pointerdown', current.onDocumentPointerDown, true); } catch (e) {}
+        try { if (current.onViewportChange) window.removeEventListener('resize', current.onViewportChange); } catch (e) {}
+        try {
+            if (current.onVisualViewportChange && window.visualViewport) {
+                window.visualViewport.removeEventListener('resize', current.onVisualViewportChange);
+                window.visualViewport.removeEventListener('scroll', current.onVisualViewportChange);
+            }
+        } catch (e) {}
+        try { current.el?.remove?.(); } catch (e) {}
+        state.__tmPrototypeEventPopover = null;
+        try {
+            document.querySelectorAll('[data-tm-proto-selection-preview]').forEach((node) => node.remove());
+        } catch (e) {}
+        return true;
+    }
+
     // Shared +N popover entry point. Main and docked timelines can use
     // different CalendarEngine instances, so the caller supplies the active
     // calendar while the markup and dismissal behavior stay identical.
@@ -6662,12 +6702,7 @@
             const bStart = Number(toMs(b?.start)) || 0;
             return aStart - bStart || String(a?.id || '').localeCompare(String(b?.id || ''));
         });
-        const current = state.__tmPrototypeMorePopover;
-        try {
-            if (current?.onDocumentClick) document.removeEventListener('click', current.onDocumentClick, true);
-            current?.el?.remove?.();
-        } catch (e) {}
-        state.__tmPrototypeMorePopover = null;
+        closeTrackedPrototypeMorePopover();
         const pop = document.createElement('div');
         pop.className = 'tm-proto-more-popover';
         const header = `${date.getMonth() + 1}月${date.getDate()}日 周${['日', '一', '二', '三', '四', '五', '六'][date.getDay()]}${buildSharedPrototypeLunarText(dayKey, settings, state.cnHolidayMap) ? ` · ${buildSharedPrototypeLunarText(dayKey, settings, state.cnHolidayMap)}` : ''}`;
@@ -7052,7 +7087,8 @@
         const toggleAction = String(options.toggleAction || 'toggleAllDay').trim() || 'toggleAllDay';
         const allDayToggle = buildSharedPrototypeAllDayToggleMarkup({ actionAttr, action: toggleAction, collapsed: allDayCollapsed });
         const timelineClass = ['tm-proto-view', 'tm-proto-timeline', options.timelineClass || ''].filter(Boolean).join(' ');
-        const headerMarkup = showHeader ? `<div class="tm-proto-timeline-head"><span class="tm-proto-axis-corner"></span>${header}</div>` : '';
+        const compactHeader = settings.showLunar !== true;
+        const headerMarkup = showHeader ? `<div class="tm-proto-timeline-head${compactHeader ? ' tm-proto-timeline-head--compact' : ''}"><span class="tm-proto-axis-corner"></span>${header}</div>` : '';
         // The docked day panel adds a second grid column for its axis label.
         // Main week/day/3-day timelines already own the full axis + day grid;
         // applying the panel class there collapses the all-day lane to two
@@ -8290,6 +8326,8 @@
             icsIncludeTomatoReminders: s.calendarIcsIncludeTomatoReminders !== false,
             icsIncludeTaskDates: s.calendarIcsIncludeTaskDates === true,
             icsIncludeTaskNotes: s.calendarIcsIncludeTaskNotes === true,
+            icsIncludeCustomHolidays: s.calendarIcsIncludeCustomHolidays === true,
+            customHolidayOverrides: normalizeCalendarCustomHolidayOverrides(s.calendarCustomHolidayOverrides),
             initialViewDesktop: initialViewDesktop0,
             initialViewMobile: initialViewMobile0,
             firstDay: Number(s.calendarFirstDay) === 0 ? 0 : 1,
@@ -15452,7 +15490,8 @@
             if (settings.showCnHoliday) {
                 try {
                     const years = Array.from(new Set([today0.getFullYear(), queryEnd.getFullYear()])).filter((x) => Number.isFinite(Number(x)));
-                    const cnHolidayDays = await Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat()).catch(() => []);
+                    const officialHolidayDays = await Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat()).catch(() => []);
+                    const cnHolidayDays = applyCalendarCustomHolidayOverrides(officialHolidayDays, settings.customHolidayOverrides);
                     const evs = buildCnHolidayEvents(cnHolidayDays, today0, queryEnd, 'dayGridMonth', settings);
                     for (const ev of Array.isArray(evs) ? evs : []) {
                         const title = String(ev?.title || '').trim();
@@ -17667,6 +17706,9 @@
     function shouldShowCalendarEventCheckbox(ext, options) {
         const optionSource = (options && typeof options === 'object') ? options : {};
         const runtimeState = (typeof state !== 'undefined' && state && typeof state === 'object') ? state : {};
+        // Tomato history entries are read-only records, regardless of whether
+        // they carry a task association. They must never inherit task toggles.
+        if (String(ext?.__tmSource || '').trim() === 'tomato') return false;
         const explicitViewType = String(optionSource.viewType || '').trim();
         const activeViewType = explicitViewType
             || String(runtimeState._lastViewType
@@ -18279,6 +18321,7 @@
             reason: 'unmount',
             pending: !!state.sideDay?.calendar,
         });
+        try { closeTrackedPrototypeMorePopover(); } catch (e) {}
         try { clearTimeGridAutoCenterState('sideDay'); } catch (e) {}
         if (state.sideDay.layoutRaf) {
             try { cancelAnimationFrame(state.sideDay.layoutRaf); } catch (e) {}
@@ -19691,6 +19734,10 @@
                     const date = sidePrototypeDate();
                     const timeArea = target?.closest?.('.tm-proto-time-col');
                     const canvas = target?.closest?.('.tm-proto-time-canvas');
+                    // The visual time axis does not receive pointer events, so
+                    // its clicks land on the canvas/columns layer underneath.
+                    // Only a real day column may create a timed schedule.
+                    if (canvas instanceof HTMLElement && !(timeArea instanceof HTMLElement)) return;
                     const allDay = !!target?.closest?.('.tm-proto-allday');
                     if (timeArea && canvas instanceof HTMLElement) {
                         const liveSettings = getSettings();
@@ -20407,12 +20454,13 @@
                     const remindersNeedBackgroundRead = curSettings.linkDockTomato
                         && curSettings.showTaskReminders !== false
                         && cachedReminderBlocks === null;
-                    const [cnHolidayDays, reminders] = await Promise.all([
+                    const [officialHolidayDays, reminders] = await Promise.all([
                         curSettings.showCnHoliday
                             ? Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat())
                             : Promise.resolve([]),
                         remindersNeedBackgroundRead ? loadReminderBlocks().catch(() => []) : Promise.resolve(cachedReminderBlocks),
                     ]);
+                    const cnHolidayDays = applyCalendarCustomHolidayOverrides(officialHolidayDays, curSettings.customHolidayOverrides);
                     const reminderReadIncomplete = remindersNeedBackgroundRead;
                     const remindersLoadedWithData = Array.isArray(reminders) && reminders.length > 0;
                     const preservedAuxEvents = reminderReadIncomplete
@@ -20452,7 +20500,7 @@
                             state.cnHolidayMap = mergedMap;
                         }
                         state.cnHolidaySignature = wantMap
-                            ? `${info?.start?.toISOString?.() || ''}|${info?.end?.toISOString?.() || ''}|${cnHolidayDays.length}|${curSettings.showCnHoliday ? 1 : 0}|${curSettings.showLunar ? 1 : 0}`
+                            ? `${info?.start?.toISOString?.() || ''}|${info?.end?.toISOString?.() || ''}|${cnHolidayDays.length}|${curSettings.showCnHoliday ? 1 : 0}|${curSettings.showLunar ? 1 : 0}|${getCalendarCustomHolidaySignature(curSettings.customHolidayOverrides)}`
                             : '';
                         applyCnHolidayDots(rootEl);
                         applyCnLunarLabels(rootEl);
@@ -24252,6 +24300,62 @@
         return out;
     }
 
+    function normalizeCalendarCustomHolidayOverrides(input) {
+        const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+        const output = {};
+        const dateRe = /^(\d{4})-(\d{2})-(\d{2})$/;
+        for (const [rawDate, rawValue] of Object.entries(source)) {
+            const date = String(rawDate || '').trim();
+            const match = date.match(dateRe);
+            if (!match) continue;
+            const year = Number(match[1]);
+            const month = Number(match[2]);
+            const day = Number(match[3]);
+            const probe = new Date(year, month - 1, day);
+            if (probe.getFullYear() !== year || probe.getMonth() !== month - 1 || probe.getDate() !== day) continue;
+            const value = rawValue && typeof rawValue === 'object' ? rawValue : {};
+            const type = String(value.type || '').trim().toLowerCase();
+            if (type !== 'rest' && type !== 'work') continue;
+            const name = String(value.name || '').trim().slice(0, 80);
+            output[date] = { type, ...(name ? { name } : {}) };
+        }
+        return output;
+    }
+
+    function getCalendarCustomHolidayFallbackName(type) {
+        return String(type || '').trim() === 'work' ? '个人调休工作日' : '个人休息日';
+    }
+
+    function getCalendarCustomHolidaySignature(overrides) {
+        return Object.entries(normalizeCalendarCustomHolidayOverrides(overrides))
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([date, value]) => `${date}:${value.type}:${value.name || ''}`)
+            .join('|');
+    }
+
+    function applyCalendarCustomHolidayOverrides(days, overrides) {
+        const dayMap = new Map();
+        for (const item of Array.isArray(days) ? days : []) {
+            const date = String(item?.date || '').trim();
+            const type = Number(item?.type);
+            if (!date || (type !== 2 && type !== 3 && type !== 4)) continue;
+            dayMap.set(date, { ...item, date, type });
+        }
+        for (const [date, value] of Object.entries(normalizeCalendarCustomHolidayOverrides(overrides))) {
+            const previous = dayMap.get(date) || {};
+            const type = value.type === 'work' ? 4 : 2;
+            dayMap.set(date, {
+                ...previous,
+                date,
+                type,
+                name: value.name || getCalendarCustomHolidayFallbackName(value.type),
+                custom: true,
+                customType: value.type,
+            });
+        }
+        return Array.from(dayMap.values()).sort((left, right) => String(left?.date || '').localeCompare(String(right?.date || '')));
+    }
+
     async function loadCnHolidayYearUncached(year, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const meta = (opts.result && typeof opts.result === 'object') ? opts.result : null;
@@ -24440,7 +24544,7 @@
             if (!all && (type !== 2 && type !== 3 && type !== 4)) continue;
             const name = String(it?.name || '').trim();
             const lunar = String(it?.lunar || it?.cnLunar || '').trim();
-            map.set(dateKey, { type, name, lunar });
+            map.set(dateKey, { type, name, lunar, custom: it?.custom === true });
         }
         return map;
     }
@@ -24641,8 +24745,8 @@
         };
         const lunarFor = (dateKey) => {
             const it = map.get(String(dateKey || ''));
-            const l = String(it?.lunar || '').trim();
-            return lunarDayText(l || formatCnLunarDateKey(dateKey));
+            const l = String(formatCnLunarDateKey(dateKey) || it?.lunar || '').trim();
+            return lunarDayText(l);
         };
         const addWeek = (labelEl, dateKey) => {
             if (!labelEl) return;
@@ -24814,9 +24918,10 @@
             if (!dateKey) continue;
             const type = Number(it?.type);
             if (type !== 2 && type !== 3 && type !== 4) continue;
-            const name = normalizeCnHolidayName(String(it?.name || '').trim());
+            const rawName = String(it?.name || '').trim();
+            const name = it?.custom === true ? rawName : normalizeCnHolidayName(rawName);
             if (!name) continue;
-            dayMap.set(dateKey, { type, name });
+            dayMap.set(dateKey, { type, name, custom: it?.custom === true });
         }
         const chosen = Array.from(dayMap, ([dateKey, value]) => ({ dateKey, ...value }))
             .sort((a, b) => String(a.dateKey || '').localeCompare(String(b.dateKey || '')));
@@ -24841,7 +24946,7 @@
                     display: 'background',
                     backgroundColor: 'rgba(234, 67, 53, 0.22)',
                     __tmRank: 9,
-                    extendedProps: { __tmSource: 'cnHoliday', __tmCnHolidayName: name, __tmCnHolidayType: type, __tmRank: 9 },
+                    extendedProps: { __tmSource: 'cnHoliday', __tmCnHolidayName: name, __tmCnHolidayType: type, __tmCnHolidayCustom: it?.custom === true, __tmRank: 9 },
                 });
             }
             out.push({
@@ -24856,7 +24961,7 @@
                 textColor: '#fff',
                 classNames: ['tm-cn-holiday-event', 'tm-cn-holiday-event--festival'],
                 __tmRank: 0,
-                extendedProps: { __tmSource: 'cnHoliday', __tmCnHolidayName: name, __tmCnHolidayType: type, __tmRank: 0 },
+                extendedProps: { __tmSource: 'cnHoliday', __tmCnHolidayName: name, __tmCnHolidayType: type, __tmCnHolidayCustom: it?.custom === true, __tmRank: 0 },
             });
         }
         return out;
@@ -24879,6 +24984,85 @@
             sessionId: r?.sessionId ?? '',
         };
         return key;
+    }
+
+    function normalizeCalendarTomatoRecord(record) {
+        if (!record || typeof record !== 'object') return null;
+        const out = { ...record };
+        const asIso = (value) => {
+            if (value instanceof Date) {
+                return Number.isNaN(value.getTime()) ? '' : value.toISOString();
+            }
+            if (typeof value === 'number' && !Number.isFinite(value)) return '';
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            const compact = raw.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+            if (compact) {
+                const date = new Date(
+                    Number(compact[1]),
+                    Number(compact[2]) - 1,
+                    Number(compact[3]),
+                    Number(compact[4]),
+                    Number(compact[5]),
+                    Number(compact[6]),
+                );
+                const valid = date.getFullYear() === Number(compact[1])
+                    && date.getMonth() === Number(compact[2]) - 1
+                    && date.getDate() === Number(compact[3])
+                    && date.getHours() === Number(compact[4])
+                    && date.getMinutes() === Number(compact[5])
+                    && date.getSeconds() === Number(compact[6]);
+                return valid ? date.toISOString() : '';
+            }
+            if (/^(?:\d{10}|\d{13})$/.test(raw)) {
+                const numeric = Number(raw);
+                const date = new Date(raw.length === 10 ? numeric * 1000 : numeric);
+                return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+            }
+            if (typeof value === 'number') {
+                const date = new Date(Math.abs(value) < 100000000000 ? value * 1000 : value);
+                return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+            }
+            const date = new Date(raw);
+            return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+        };
+        const durationMs = (() => {
+            const ms = Number(record.durationMs);
+            if (Number.isFinite(ms) && ms > 0) return ms;
+            const sec = Number(record.durationSec);
+            if (Number.isFinite(sec) && sec > 0) return sec * 1000;
+            const min = Number(record.durationMin);
+            return Number.isFinite(min) && min > 0 ? min * 60000 : 0;
+        })();
+        let end = asIso(record.end ?? record.endTime ?? record.endedAt ?? record.endAt ?? record.timestamp);
+        let start = asIso(record.start ?? record.startTime ?? record.startedAt ?? record.startAt);
+        if (!start && end && durationMs) {
+            const endMs = Date.parse(end);
+            if (Number.isFinite(endMs)) start = new Date(endMs - durationMs).toISOString();
+        } else if (start && !end && durationMs) {
+            const startMs = Date.parse(start);
+            if (Number.isFinite(startMs)) end = new Date(startMs + durationMs).toISOString();
+        }
+        if (start) out.start = start;
+        if (end) out.end = end;
+        if (!out.durationMs && durationMs) out.durationMs = durationMs;
+        if (!out.durationMin && durationMs) out.durationMin = durationMs / 60000;
+        return out;
+    }
+
+    function normalizeCalendarTomatoRecords(records, rangeStartMs, rangeEndMs) {
+        const startMs = Number(rangeStartMs);
+        const endMs = Number(rangeEndMs);
+        return (Array.isArray(records) ? records : [])
+            .map(normalizeCalendarTomatoRecord)
+            .filter((record) => {
+                const recordStartMs = toMs(record?.start);
+                const recordEndMs = toMs(record?.end);
+                return Number.isFinite(recordStartMs)
+                    && Number.isFinite(recordEndMs)
+                    && recordEndMs > recordStartMs
+                    && (!Number.isFinite(startMs) || !Number.isFinite(endMs) || overlap(recordStartMs, recordEndMs, startMs, endMs));
+            });
     }
 
     function formatDurationMinutes(totalMinutes) {
@@ -25189,13 +25373,10 @@
                                     nextRecords = all;
                                 }
                             }
-                            nextRecords = nextRecords.filter((r) => {
-                                const rs = toMs(r?.start);
-                                const re = toMs(r?.end);
-                                return Number.isFinite(rs) && Number.isFinite(re) && re > rs && overlap(rs, re, startMs, endMs);
-                            });
                         }
-                        const normalized = Array.isArray(nextRecords) ? nextRecords : [];
+                        // Keep every valid timer record in the range,
+                        // including records without taskBlockId/taskBlockName.
+                        const normalized = normalizeCalendarTomatoRecords(nextRecords, startMs, endMs);
                         if (version === Number(state.dockHistoryRangeVersion || 0)) {
                             state.dockHistoryRangeCache.set(rangeKey, {
                                 ts: Date.now(),
@@ -25225,7 +25406,8 @@
                 if (state.dockHistoryRangeInflight.get(rangeKey) === pending) state.dockHistoryRangeInflight.delete(rangeKey);
             }
         }
-        return (Array.isArray(records) ? records : []).filter((r) => shouldShowMode(r?.mode, s));
+        return normalizeCalendarTomatoRecords(records, startMs, endMs)
+            .filter((r) => shouldShowMode(r?.mode, s));
     }
 
     // Read only the already materialized range snapshot.  A cache miss must
@@ -25315,23 +25497,26 @@
     }
 
     function buildEventsFromRecords(records, settings, viewType) {
-        const filtered = (Array.isArray(records) ? records : []).filter((r) => shouldShowMode(r?.mode, settings));
+        const filtered = normalizeCalendarTomatoRecords(records)
+            .filter((r) => shouldShowMode(r?.mode, settings));
         if (settings.monthAggregate && String(viewType || '').trim() === 'dayGridMonth') {
             return [];
         }
 
         return filtered.map((r) => {
-            const rs = toMs(r?.start);
-            const re = toMs(r?.end);
+            const normalizedRecord = normalizeCalendarTomatoRecord(r);
+            const rs = toMs(normalizedRecord?.start);
+            const re = toMs(normalizedRecord?.end);
+            if (!Number.isFinite(rs) || !Number.isFinite(re) || re <= rs) return null;
             const start = new Date(rs);
             const end = new Date(re);
-            const mode = String(r?.mode || '').trim();
-            const titleBase = String(r?.taskBlockName || '').trim() || modeLabel(mode);
-            const durMin = Number(r?.durationMin);
+            const mode = String(normalizedRecord?.mode || '').trim();
+            const titleBase = String(normalizedRecord?.taskBlockName || '').trim() || modeLabel(mode);
+            const durMin = Number(normalizedRecord?.durationMin);
             const minutes = Number.isFinite(durMin) && durMin > 0 ? durMin : Math.max(1, Math.round((re - rs) / 60000));
             const color = resolveModeColor(mode, settings);
             return {
-                id: `tm-${String(r?.sessionId || '')}-${String(r?.timestamp || re)}`,
+                id: `tm-${String(normalizedRecord?.sessionId || '')}-${String(normalizedRecord?.timestamp || re)}`,
                 title: `${titleBase} · ${formatDurationMinutes(minutes)}`,
                 start,
                 end,
@@ -25341,10 +25526,10 @@
                 __tmRank: 0,
                 extendedProps: {
                     __tmSource: 'tomato',
-                    __tmRecordKey: buildRecordKey(r),
+                    __tmRecordKey: buildRecordKey(normalizedRecord),
                     __tmRank: 0,
-                    taskBlockId: String(r?.taskBlockId || '').trim(),
-                    taskBlockName: String(r?.taskBlockName || '').trim(),
+                    taskBlockId: String(normalizedRecord?.taskBlockId || normalizedRecord?.taskId || normalizedRecord?.blockId || '').trim(),
+                    taskBlockName: String(normalizedRecord?.taskBlockName || normalizedRecord?.taskName || '').trim(),
                     mode,
                     durationMin: minutes,
                 },
@@ -25587,11 +25772,9 @@
                 return;
             }
             if (action === 'jumpTask') {
-                if (taskBlockId && globalThis.siyuan?.block?.scrollToBlock) {
-                    try { globalThis.siyuan.block.scrollToBlock(taskBlockId); } catch (e2) {}
-                } else {
-                    toast('⚠ 无法跳转任务块', 'warning');
-                }
+                const jumped = taskBlockId ? await openCalendarLinkedTask(taskBlockId, e) : false;
+                if (jumped !== false) closeModal();
+                else toast('⚠ 无法跳转任务块', 'warning');
                 return;
             }
             if (!recordKey) {
@@ -27433,10 +27616,14 @@
         // here makes the first paint identical to the settled paint, so the
         // fold is reused instead of being recomputed by this load.
         const __tmSavedMonthFold = (state.__tmMonthFoldBudget instanceof Object) ? state.__tmMonthFoldBudget : null;
+        const __tmConfiguredMonthVisibleEvents = normalizeCalendarMonthMinVisibleEvents(
+            getSettings()?.monthMinVisibleEvents
+        );
         if (__tmSavedMonthFold
             && __tmSavedMonthFold.rangeKey
             && (__tmSavedMonthFold.capacity instanceof Map)
             && __tmSavedMonthFold.capacity.size > 0
+            && Number(__tmSavedMonthFold.configuredVisible) === __tmConfiguredMonthVisibleEvents
             && Number.isFinite(Number(__tmSavedMonthFold.visible))
             && Number.isFinite(Number(__tmSavedMonthFold.spanLanes))) {
             prototypeMonthCapacityByDay = new Map(__tmSavedMonthFold.capacity);
@@ -27523,6 +27710,7 @@
                     state.__tmMonthFoldBudget = {
                         rangeKey: prototypeMonthCapacityRangeKey,
                         adaptive: prototypeMonthMeasurementAdaptive !== false,
+                        configuredVisible: normalizeCalendarMonthMinVisibleEvents(getSettings()?.monthMinVisibleEvents),
                         visible: nextVisible,
                         spanLanes: nextSpanLanes,
                         capacity: new Map(nextCapacityByDay),
@@ -27595,6 +27783,7 @@
             }
             if (options?.resetRenderKey !== false) prototypeLastRenderKey = '';
         };
+        state.invalidatePrototypeMonthMeasurement = invalidatePrototypeMonthMeasurement;
         const PROTOTYPE_OPACITY_MIN = 0.05;
         const PROTOTYPE_OPACITY_MAX = 0.6;
         const PROTOTYPE_OPACITY_DEFAULT = 0.25;
@@ -27911,6 +28100,7 @@
                     state.__tmMonthFoldBudget = {
                         rangeKey: prototypeMonthCapacityRangeKey,
                         adaptive: prototypeMonthMeasurementAdaptive !== false,
+                        configuredVisible,
                         visible: nextVisible,
                         spanLanes: nextSpanLanes,
                         capacity: new Map(nextCapacityByDay),
@@ -27933,13 +28123,7 @@
         // that live outside the prototype mount closure.
         state.schedulePrototypeMonthAdaptiveMeasure = schedulePrototypeMonthAdaptiveMeasure;
         state.schedulePrototypeMonthOverflowRepair = schedulePrototypeMonthOverflowRepair;
-        const closePrototypeMorePopover = () => {
-            const current = state.__tmPrototypeMorePopover;
-            if (!current) return;
-            try { document.removeEventListener('click', current.onDocumentClick, true); } catch (e) {}
-            try { current.el?.remove?.(); } catch (e) {}
-            state.__tmPrototypeMorePopover = null;
-        };
+        const closePrototypeMorePopover = closeTrackedPrototypeMorePopover;
         const showPrototypeMorePopover = (anchorEl, dayKey, calendarOverride = null) => {
             if (!(anchorEl instanceof Element)) return;
             const date = dayKey ? new Date(`${dayKey}T00:00:00`) : null;
@@ -27993,7 +28177,7 @@
             const header = `${date.getMonth() + 1}月${date.getDate()}日 周${protoWeekLabels[date.getDay()]}${protoLunarText(dayKey, getSettings()) ? ` · ${protoLunarText(dayKey, getSettings())}` : ''}`;
             pop.innerHTML = `<div class="tm-proto-more-popover-head">${esc(header)}</div>`
                 + (events.length
-                    ? events.map((eventApi) => `<div class="tm-proto-more-popover-event" data-tm-proto-event="${esc(String(eventApi.id || ''))}" style="--tm-proto-event-color:${protoEventColor(eventApi)}">${protoEventMarkup(eventApi, 'chip', eventApi?.allDay !== true)}</div>`).join('')
+                    ? events.map((eventApi) => `<div class="tm-proto-more-popover-event" data-tm-proto-event="${esc(String(eventApi.id || ''))}" style="--tm-proto-event-color:${protoEventColor(eventApi)}">${protoEventMarkup(eventApi, 'chip', eventApi?.allDay !== true, '', 'timeGridDay')}</div>`).join('')
                     : '<div class="tm-proto-more-popover-empty">这一天暂无安排</div>');
             try {
                 const computed = getComputedStyle(anchorEl);
@@ -31689,25 +31873,7 @@
             try { requestAnimationFrame(() => runAttempt(0)); } catch (e) { runAttempt(0); }
             return true;
         };
-        const closePrototypeEventPopover = () => {
-            const current = state.__tmPrototypeEventPopover;
-            if (!current) return;
-            // Keep prototypeSelectedEventId/sidePrototypeSelectedEventId
-            // untouched so closing a detail card does not lose selection.
-            try { document.removeEventListener('click', current.onDocumentClick, true); } catch (e) {}
-            try { document.removeEventListener('pointerdown', current.onDocumentPointerDown, true); } catch (e) {}
-            try { if (current.onViewportChange) window.removeEventListener('resize', current.onViewportChange); } catch (e) {}
-            try { if (current.onVisualViewportChange && window.visualViewport) { window.visualViewport.removeEventListener('resize', current.onVisualViewportChange); window.visualViewport.removeEventListener('scroll', current.onVisualViewportChange); } } catch (e) {}
-            try { current.el?.remove?.(); } catch (e) {}
-            state.__tmPrototypeEventPopover = null;
-            // A blank-slot drag uses a temporary event card as the visual
-            // draft while the editor is open. Remove it only when the editor
-            // actually closes, so the card does not disappear between the
-            // pointer release and the save/cancel action.
-            try {
-                document.querySelectorAll('[data-tm-proto-selection-preview]').forEach((node) => node.remove());
-            } catch (e) {}
-        };
+        const closePrototypeEventPopover = closeTrackedPrototypeEventPopover;
         // Body-level popovers are positioned in viewport coordinates, while a
         // mobile/dock calendar can occupy only a clipped slice of the browser
         // viewport. Use the intersection of visualViewport and the calendar
@@ -31742,6 +31908,9 @@
             let top = offsetTop;
             let bottom = offsetTop + viewportHeight;
             const knownHostSelector = '[data-tm-cal-surface], [data-tm-side-proto-surface], .tm-calendar-surface, .tm-proto-side-surface, .tm-calendar-main, .tm-calendar-wrap, .tm-calendar-root';
+            const morePopover = anchorEl instanceof Element
+                ? anchorEl.closest('.tm-proto-more-popover')
+                : null;
             const minClipWidth = Math.max(180, viewportWidth * 0.35);
             const minClipHeight = Math.max(140, viewportHeight * 0.35);
             const seen = new Set();
@@ -31796,8 +31965,13 @@
                 if (rootContainsAnchor && rootIntersectsAnchor) intersectRect(rootEl, true);
                 let node = anchorEl instanceof Element ? anchorEl.parentElement : null;
                 while (node && node !== document.body && node !== document.documentElement) {
-                    const knownHost = !!node.matches?.(knownHostSelector);
-                    intersectRect(node, knownHost);
+                    // The +N list is a body-level portal. It is an anchor
+                    // container, not the viewport for another body-level
+                    // detail card, so do not inherit its narrow width.
+                    if (!(morePopover instanceof Element && morePopover.contains(node))) {
+                        const knownHost = !!node.matches?.(knownHostSelector);
+                        intersectRect(node, knownHost);
+                    }
                     node = node.parentElement;
                 }
             } catch (e) {}
@@ -34454,7 +34628,8 @@
                         ? Promise.allSettled(backgroundLoads)
                         : null;
                     const [records] = await Promise.all([recordsForPaint]);
-                    const cnHolidayDays = cachedHolidayParts.filter(Array.isArray).flat();
+                    const officialHolidayDays = cachedHolidayParts.filter(Array.isArray).flat();
+                    const cnHolidayDays = applyCalendarCustomHolidayOverrides(officialHolidayDays, settings.customHolidayOverrides);
                     const reminders = Array.isArray(cachedReminderBlocks) ? cachedReminderBlocks : [];
                     const auxReadIncomplete = historyNeedsBackgroundRead
                         || holidayNeedsBackgroundRead
@@ -34466,7 +34641,8 @@
                             viewType,
                         )
                         : null;
-                    if (auxReadIncomplete
+                    if (info?.context?.sourceRefetch === true
+                        && auxReadIncomplete
                         && !preservedAuxEvents?.length
                         && hasCalendarSourceEventsInRange(calendar, EVENT_SOURCE_IDS.mainAux, info.start, info.end)) {
                         __tmCalendarPerfSourceFinish(sourceTrace, {
@@ -34527,7 +34703,7 @@
                             state.cnHolidayMap = mergedMap;
                         }
                         state.cnHolidaySignature = wantMap
-                            ? `${info?.start?.toISOString?.() || ''}|${info?.end?.toISOString?.() || ''}|${cnHolidayDays.length}|${settings.showCnHoliday ? 1 : 0}|${settings.showLunar ? 1 : 0}|${String(viewType || '').trim()}`
+                            ? `${info?.start?.toISOString?.() || ''}|${info?.end?.toISOString?.() || ''}|${cnHolidayDays.length}|${settings.showCnHoliday ? 1 : 0}|${settings.showLunar ? 1 : 0}|${String(viewType || '').trim()}|${getCalendarCustomHolidaySignature(settings.customHolidayOverrides)}`
                             : '';
                         applyCnHolidayDots(wrap);
                         applyCnLunarLabels(wrap);
@@ -36222,13 +36398,14 @@
             try { state.prototypeEventDocumentClick?.(); } catch (e) {}
             try { state.prototypeMonthOverflowCancel?.(); } catch (e) {}
             try { state.prototypeMonthScrollCleanup?.(); } catch (e) {}
-            try {
-                const morePopover = state.__tmPrototypeMorePopover;
-                if (morePopover?.onDocumentClick) document.removeEventListener('click', morePopover.onDocumentClick, true);
-                morePopover?.el?.remove?.();
-                state.__tmPrototypeMorePopover = null;
-            } catch (e) {}
         }
+        // The +N popover is portaled to document.body, so it is outside the
+        // calendar wrapper and must be disposed even when the wrapper was
+        // already detached by the host close flow.
+        try { closeTrackedPrototypeMorePopover(); } catch (e) {}
+        // The event detail card is also portaled to document.body and owns
+        // viewport listeners, so dispose it independently of the wrapper.
+        try { closeTrackedPrototypeEventPopover(); } catch (e) {}
         if (state.mainCalendarScrollTimeResetRestoreTimer) {
             try { clearTimeout(state.mainCalendarScrollTimeResetRestoreTimer); } catch (e) {}
             state.mainCalendarScrollTimeResetRestoreTimer = null;
@@ -36266,6 +36443,7 @@
         state.prototypeMonthScrollRaf = 0;
         state.schedulePrototypeMonthAdaptiveMeasure = null;
         state.schedulePrototypeMonthOverflowRepair = null;
+        state.invalidatePrototypeMonthMeasurement = null;
         state.schedulePrototypeNowIndicatorRefresh = null;
         state.__tmShowPrototypeMorePopover = null;
         if (state.mainPopoverObserver) {
@@ -36535,19 +36713,21 @@
     function getCalendarSubscriptionSourceStatusText() {
         const settings = getSettings();
         const includesTaskDates = settings.icsIncludeTaskDates === true;
+        const includesCustomHolidays = settings.icsIncludeCustomHolidays === true;
+        const customSuffix = includesCustomHolidays ? '与个人节假日' : '';
         if (settings.icsIncludeTomatoReminders !== true) {
             return includesTaskDates
-                ? '包含任务管理器日程与任务全天日程'
-                : '仅包含任务管理器日程';
+                ? `包含任务管理器日程、任务全天日程${customSuffix}`
+                : `仅包含任务管理器日程${customSuffix}`;
         }
         if (isDockTomatoPluginLoaded()) {
             return includesTaskDates
-                ? '包含任务管理器日程、任务全天日程与底栏番茄钟提醒'
-                : '包含任务管理器日程与底栏番茄钟提醒';
+                ? `包含任务管理器日程、任务全天日程与底栏番茄钟提醒${customSuffix}`
+                : `包含任务管理器日程与底栏番茄钟提醒${customSuffix}`;
         }
         return includesTaskDates
-            ? '未启用底栏番茄钟，包含任务管理器日程与任务全天日程'
-            : '未启用底栏番茄钟，仅发布任务管理器日程';
+            ? `未启用底栏番茄钟，包含任务管理器日程与任务全天日程${customSuffix}`
+            : `未启用底栏番茄钟，仅发布任务管理器日程${customSuffix}`;
     }
 
     function getCalendarSubscriptionDisplayUrl(settings = getSettings()) {
@@ -36664,6 +36844,29 @@
         return { start, end, startAt: start.getTime(), endAt: end.getTime() };
     }
 
+    function buildCustomHolidaySubscriptionEvents(overrides, range) {
+        const rangeStart = range?.start instanceof Date ? range.start : new Date(range?.start);
+        const rangeEnd = range?.end instanceof Date ? range.end : new Date(range?.end);
+        if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime()) || rangeEnd <= rangeStart) return [];
+        const events = [];
+        for (const [date, value] of Object.entries(normalizeCalendarCustomHolidayOverrides(overrides)).sort(([left], [right]) => left.localeCompare(right))) {
+            const day = parseDateOnly(date);
+            if (!(day instanceof Date) || Number.isNaN(day.getTime())) continue;
+            if (day.getTime() < rangeStart.getTime() || day.getTime() >= rangeEnd.getTime()) continue;
+            const end = new Date(day.getTime());
+            end.setDate(end.getDate() + 1);
+            events.push({
+                uidSeed: `custom-holiday:${date}`,
+                source: 'holiday',
+                title: String(value?.name || '').trim() || getCalendarCustomHolidayFallbackName(value?.type),
+                allDay: true,
+                startDate: date,
+                endDate: formatDateKey(end),
+            });
+        }
+        return events;
+    }
+
     function getScheduleSubscriptionAlarm(item, occurrence, settings, allDay, completed) {
         if (completed || !settings.scheduleReminderEnabled) return null;
         const reminderMode = String(item?.reminderMode || '').trim() === 'custom' ? 'custom' : 'inherit';
@@ -36755,6 +36958,8 @@
             calendarIcsIncludeTomatoReminders: 'boolean',
             calendarIcsIncludeTaskDates: 'boolean',
             calendarIcsIncludeTaskNotes: 'boolean',
+            calendarIcsIncludeCustomHolidays: 'boolean',
+            calendarCustomHolidayOverrides: 'object',
         };
         let changed = false;
         for (const [key, type] of Object.entries(fields)) {
@@ -36764,8 +36969,13 @@
                 sharedValue = '任务管理器';
             } else if (key === 'calendarIcsPublishMode') {
                 sharedValue = String(sharedValue || '').trim() === 'manual' ? 'manual' : 'auto';
+            } else if (key === 'calendarCustomHolidayOverrides') {
+                sharedValue = normalizeCalendarCustomHolidayOverrides(sharedValue);
             }
-            if (store.data[key] === sharedValue) continue;
+            const sameValue = key === 'calendarCustomHolidayOverrides'
+                ? getCalendarCustomHolidaySignature(store.data[key]) === getCalendarCustomHolidaySignature(sharedValue)
+                : store.data[key] === sharedValue;
+            if (sameValue) continue;
             store.data[key] = sharedValue;
             changed = true;
         }
@@ -36982,6 +37192,16 @@
                     throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
                 }
             }
+        }
+        if (settings.icsIncludeCustomHolidays === true) {
+            const customHolidayEvents = buildCustomHolidaySubscriptionEvents(settings.customHolidayOverrides, range);
+            for (const event of customHolidayEvents) {
+                events.push(event);
+                if (events.length > CALENDAR_SUBSCRIPTION_EVENT_LIMIT) {
+                    throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
+                }
+            }
+            if (customHolidayEvents.length > 0) sourceMode = `${sourceMode}-and-custom-holidays`;
         }
         return { events, sourceMode, tomatoLoaded, range };
     }
@@ -37588,6 +37808,165 @@
         }
     }
 
+    function countCalendarCustomHolidayOverrides(year, overrides) {
+        const prefix = `${Number(year) || new Date().getFullYear()}-`;
+        return Object.keys(normalizeCalendarCustomHolidayOverrides(overrides)).filter((date) => date.startsWith(prefix)).length;
+    }
+
+    function openCalendarCustomHolidayEditor(containerEl) {
+        const store = state.settingsStore;
+        if (!store?.data) return false;
+        const initial = normalizeCalendarCustomHolidayOverrides(store.data.calendarCustomHolidayOverrides);
+        const draft = { ...initial };
+        const now = new Date();
+        let year = now.getFullYear();
+        let month = now.getMonth();
+        let mode = 'rest';
+        let name = '';
+        let official = new Map();
+        let saving = false;
+        const overlay = document.createElement('div');
+        overlay.className = 'tm-calendar-holiday-editor';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        const close = (force = false) => {
+            if (!force && saving) return false;
+            const dirty = JSON.stringify(Object.entries(draft).sort()) !== JSON.stringify(Object.entries(initial).sort());
+            if (!force && dirty && !window.confirm('有未保存的个人节假日修改，确定关闭吗？')) return false;
+            try { overlay.remove(); } catch (e) {}
+            return true;
+        };
+        const getMonthDays = () => {
+            const first = new Date(year, month, 1);
+            const offset = (first.getDay() + 6) % 7;
+            const days = [];
+            for (let index = 0; index < 42; index += 1) {
+                const date = new Date(year, month, index - offset + 1);
+                days.push({ date, key: formatDateKey(date), current: date.getMonth() === month });
+            }
+            return days;
+        };
+        const render = () => {
+            const days = getMonthDays();
+            const modified = Object.entries(draft).sort(([a], [b]) => a.localeCompare(b));
+            overlay.innerHTML = `
+                <div class="tm-calendar-holiday-editor__panel">
+                    <div class="tm-calendar-holiday-editor__header">
+                        <div><strong>管理个人节假日</strong><div class="tm-calendar-holiday-editor__sub">${year} 年已修改 ${countCalendarCustomHolidayOverrides(year, draft)} 天</div></div>
+                        <button type="button" class="tm-calendar-holiday-editor__close" data-tm-holiday-editor-action="close" aria-label="关闭">×</button>
+                    </div>
+                    <div class="tm-calendar-holiday-editor__toolbar">
+                        <button type="button" data-tm-holiday-editor-action="prev-year" aria-label="上一年">‹</button>
+                        <button type="button" data-tm-holiday-editor-action="prev-month" aria-label="上个月">‹</button>
+                        <span class="tm-calendar-holiday-editor__month">${year} 年 ${month + 1} 月</span>
+                        <button type="button" data-tm-holiday-editor-action="next-month" aria-label="下个月">›</button>
+                        <button type="button" data-tm-holiday-editor-action="next-year" aria-label="下一年">›</button>
+                    </div>
+                    <div class="tm-calendar-holiday-editor__mode" role="group" aria-label="设置类型">
+                        <button type="button" class="${mode === 'rest' ? 'is-active' : ''}" data-tm-holiday-editor-mode="rest">休</button>
+                        <button type="button" class="${mode === 'work' ? 'is-active' : ''}" data-tm-holiday-editor-mode="work">班</button>
+                        <input type="text" maxlength="80" data-tm-holiday-editor-name value="${esc(name)}" placeholder="节假日名称（可选）" aria-label="节假日名称">
+                    </div>
+                    <div class="tm-calendar-holiday-editor__legend"><span>官方状态</span><span class="is-custom">个人覆盖</span></div>
+                    <div class="tm-calendar-holiday-editor__weekdays">${['一', '二', '三', '四', '五', '六', '日'].map((item) => `<span>${item}</span>`).join('')}</div>
+                    <div class="tm-calendar-holiday-editor__grid">
+                        ${days.map(({ date, key, current }) => {
+                            const officialValue = official.get(key);
+                            const custom = draft[key];
+                            const officialText = officialValue ? `官${Number(officialValue.type) === 4 ? '班' : '休'}` : '';
+                            const customText = custom ? `个${custom.type === 'work' ? '班' : '休'}` : '';
+                            const stateText = [officialText, customText].filter(Boolean).join(' · ');
+                            const classes = [
+                                'tm-calendar-holiday-editor__day',
+                                current ? '' : 'is-outside',
+                                officialValue ? 'has-official' : '',
+                                Number(officialValue?.type) === 4 ? 'has-official-work' : '',
+                                custom ? 'has-custom' : '',
+                                custom?.type === 'work' ? 'is-work' : '',
+                            ].filter(Boolean).join(' ');
+                            const officialTitle = officialValue ? `官方：${String(officialValue?.name || '').trim() || (Number(officialValue?.type) === 4 ? '调休工作日' : '休息日')}（${Number(officialValue?.type) === 4 ? '班' : '休'}）` : '官方：普通日期';
+                            const customTitle = custom ? `；个人：${custom.name || getCalendarCustomHolidayFallbackName(custom.type)}（${custom.type === 'work' ? '班' : '休'}）` : '';
+                            return `<button type="button" class="${classes}" data-tm-holiday-editor-date="${key}" title="${esc(officialTitle + customTitle)}" ${current ? '' : 'disabled'}><span>${date.getDate()}</span><small>${esc(stateText)}</small></button>`;
+                        }).join('')}
+                    </div>
+                    <div class="tm-calendar-holiday-editor__modified">
+                        <div class="tm-calendar-holiday-editor__section-title">已修改日期</div>
+                        ${modified.length ? modified.map(([date, value]) => `<div class="tm-calendar-holiday-editor__modified-row"><span>${date} · ${esc(value.name || getCalendarCustomHolidayFallbackName(value.type))}（${value.type === 'work' ? '班' : '休'}）</span><button type="button" data-tm-holiday-editor-restore="${date}">恢复官方</button></div>`).join('') : '<div class="tm-calendar-holiday-editor__empty">暂无个人覆盖</div>'}
+                    </div>
+                    <div class="tm-calendar-holiday-editor__footer"><button type="button" class="tm-btn tm-btn-secondary" data-tm-holiday-editor-action="close">取消</button><button type="button" class="tm-btn" data-tm-holiday-editor-action="save" ${saving ? 'disabled' : ''}>${saving ? '保存中…' : '保存'}</button></div>
+                </div>`;
+        };
+        const loadOfficial = async () => {
+            const requestedYear = year;
+            try {
+                const days = await loadCnHolidayYear(requestedYear);
+                if (requestedYear !== year || !overlay.isConnected) return;
+                official = new Map((Array.isArray(days) ? days : []).map((item) => [String(item?.date || '').trim(), item]));
+                render();
+            } catch (e) {}
+        };
+        overlay.addEventListener('click', async (event) => {
+            if (saving) return;
+            const actionEl = event.target?.closest?.('[data-tm-holiday-editor-action]');
+            const modeEl = event.target?.closest?.('[data-tm-holiday-editor-mode]');
+            const dateEl = event.target?.closest?.('[data-tm-holiday-editor-date]');
+            const restoreEl = event.target?.closest?.('[data-tm-holiday-editor-restore]');
+            if (modeEl) { mode = String(modeEl.getAttribute('data-tm-holiday-editor-mode') || '') === 'work' ? 'work' : 'rest'; render(); return; }
+            if (dateEl) {
+                const date = String(dateEl.getAttribute('data-tm-holiday-editor-date') || '').trim();
+                if (/^\d{4}-\d{2}-\d{2}$/.test(date)) draft[date] = { type: mode, ...(name.trim() ? { name: name.trim().slice(0, 80) } : {}) };
+                render();
+                return;
+            }
+            if (restoreEl) { delete draft[String(restoreEl.getAttribute('data-tm-holiday-editor-restore') || '').trim()]; render(); return; }
+            if (!actionEl) return;
+            const action = String(actionEl.getAttribute('data-tm-holiday-editor-action') || '').trim();
+            if (action === 'close') { close(); return; }
+            if (action === 'prev-year') { year = Math.max(1900, year - 1); official = new Map(); render(); loadOfficial(); return; }
+            if (action === 'next-year') { year = Math.min(2100, year + 1); official = new Map(); render(); loadOfficial(); return; }
+            if (action === 'prev-month' || action === 'next-month') {
+                month += action === 'next-month' ? 1 : -1;
+                if (month < 0) { month = 11; year = Math.max(1900, year - 1); }
+                if (month > 11) { month = 0; year = Math.min(2100, year + 1); }
+                official = new Map(); render(); loadOfficial(); return;
+            }
+            if (action === 'save') {
+                if (saving) return;
+                saving = true; render();
+                const previousOverrides = store.data.calendarCustomHolidayOverrides;
+                try {
+                    store.data.calendarCustomHolidayOverrides = normalizeCalendarCustomHolidayOverrides(draft);
+                    if (typeof store.flushSave === 'function') { store.saveDirty = true; try { if (store.saveTimer) clearTimeout(store.saveTimer); } catch (e) {} store.saveTimer = null; await store.flushSave(); }
+                    else if (typeof store.save === 'function') await store.save();
+                    const savedSettings = JSON.parse(String(await getFileTextRetry(CALENDAR_SUBSCRIPTION_SETTINGS_FILE, 1) || '{}'));
+                    if (getCalendarCustomHolidaySignature(savedSettings?.calendarCustomHolidayOverrides) !== getCalendarCustomHolidaySignature(draft)) {
+                        throw new Error('设置文件回读校验未通过');
+                    }
+                    state.cnHolidayMap = new Map(); state.cnHolidaySignature = '';
+                    try { scheduleCalendarRefresh({ reason: 'custom-holiday-updated', main: true, side: true, hard: true }); } catch (e) {}
+                    if (getSettings().icsEnabled === true && getSettings().icsIncludeCustomHolidays === true) markCalendarSubscriptionDirty('custom-holiday-updated', 0);
+                    close(true);
+                    try { renderSettings(containerEl, store); } catch (e) {}
+                } catch (error) {
+                    store.data.calendarCustomHolidayOverrides = previousOverrides;
+                    try { store.syncToLocal?.(); } catch (e) {}
+                    saving = false; render();
+                    toast(`个人节假日保存失败：${String(error?.message || error || '未知错误')}`, 'error');
+                }
+            }
+        });
+        overlay.addEventListener('input', (event) => {
+            if (saving) return;
+            if (event.target?.matches?.('[data-tm-holiday-editor-name]')) name = String(event.target.value || '').slice(0, 80);
+        });
+        overlay.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); });
+        overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+        document.body.appendChild(overlay);
+        render();
+        loadOfficial();
+        return true;
+    }
+
     function renderSettings(containerEl, settingsStore, options = {}) {
         if (!containerEl || !(containerEl instanceof Element)) return false;
         const indexOnly = options?.indexOnly === true;
@@ -37867,6 +38246,13 @@
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowLunar" ${s.showLunar ? 'checked' : ''}>
                     </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            个人节假日
+                            <div class="tm-calendar-settings-label-desc">${new Date().getFullYear()} 年已设置 ${countCalendarCustomHolidayOverrides(new Date().getFullYear(), s.customHolidayOverrides)} 天，可覆盖官方休息日或添加任意日期。</div>
+                        </div>
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-setting-action="manageCustomHolidays">管理个人节假日</button>
+                    </div>
                     ${tomatoRows}
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">
@@ -38031,6 +38417,13 @@
                             <div class="tm-calendar-settings-label-desc">将日程、任务全天日程和番茄钟提醒的备注写入 ICS 描述；开启后请注意订阅地址可能公开。</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsIncludeTaskNotes" ${s.icsIncludeTaskNotes ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            同步个人节假日
+                            <div class="tm-calendar-settings-label-desc">仅同步你明确设置的休息日和调休工作日，不包含未修改的官方节假日；使用全天事件，无提醒。</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsIncludeCustomHolidays" ${s.icsIncludeCustomHolidays ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">
@@ -38266,6 +38659,11 @@
                     try { state.prototypeOpacitySync?.(); } catch (e2) {}
                 } else if (key === 'calendarMonthMinVisibleEvents') {
                     const settings = getSettings();
+                    // The committed capacity map belongs to the previous row
+                    // count. Drop it before syncing layout so hidden compact
+                    // calendars cannot keep painting the stale +N budget.
+                    try { state.__tmMonthFoldBudget = null; } catch (e2) {}
+                    try { state.invalidatePrototypeMonthMeasurement?.({ resetBudget: true }); } catch (e2) {}
                     try { syncMainCalendarMonthViewLayout(state.wrapEl, state.calendarEl, state.calendar, settings); } catch (e2) {}
                     try { scheduleMainCalendarLayoutRefresh(state.wrapEl, state.calendarEl, state.calendar, { updateSize: true }); } catch (e2) {}
                 } else if (key === 'calendarScheduleReminderEnabled' || key === 'calendarScheduleReminderSystemEnabled' || key === 'calendarScheduleReminderWechatEnabled' || key === 'calendarScheduleReminderDefaultMode' || key === 'calendarAllDayReminderEnabled' || key === 'calendarAllDayReminderTime' || key === 'calendarTaskDateAllDayReminderEnabled' || key === 'calendarAllDaySummaryIncludeExtras') {
@@ -38329,6 +38727,11 @@
                 if (action === 'pickIndependentScheduleTaskDoc') {
                     event.preventDefault();
                     await pickCalendarIndependentScheduleTaskDoc(containerEl, settingButton);
+                    return;
+                }
+                if (action === 'manageCustomHolidays') {
+                    event.preventDefault();
+                    openCalendarCustomHolidayEditor(containerEl);
                     return;
                 }
             }
@@ -39113,6 +39516,12 @@
         importMigrationData,
         showCompletionNotification: showScheduleCompletionNotification,
         showSystemNotification: showScheduleSystemNotification,
+        normalizeCalendarCustomHolidayOverrides,
+        applyCalendarCustomHolidayOverrides,
+        buildCnHolidayMap,
+        buildCnHolidayEvents,
+        buildCustomHolidaySubscriptionEvents,
+        openCalendarCustomHolidayEditor,
     };
     try {
         if (globalThis.__taskHorizonSettingsStore) setSettingsStore(globalThis.__taskHorizonSettingsStore);

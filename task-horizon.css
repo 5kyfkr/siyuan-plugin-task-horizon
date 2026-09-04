@@ -9563,19 +9563,19 @@ select.tm-btn-secondary {
     align-items: center;
 }
 
-/* Keep single-line subtasks centered. When wrapping is enabled and the
-   title actually occupies multiple lines, match the parent card's
-   flex-start layout so the checkbox stays with the first title line. */
-.tm-modal.tm-modal--task-wrap .tm-kanban-subtask-row-main.tm-kanban-subtask-row-main--title-wrapped {
+/* In wrapping mode, anchor subtask controls to the first title line. This
+   remains correct before runtime wrap measurements finish and when metadata
+   makes the row taller than the title itself. */
+.tm-modal.tm-modal--task-wrap .tm-kanban-subtask-row-main {
     align-items: flex-start;
 }
 
-.tm-modal.tm-modal--task-wrap .tm-kanban-subtask-row-main.tm-kanban-subtask-row-main--title-wrapped > .tm-task-checkbox-wrap {
+.tm-modal.tm-modal--task-wrap .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap {
     margin-top: 1px;
 }
 
-.tm-modal.tm-modal--task-wrap .tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main.tm-kanban-subtask-row-main--title-wrapped > .tm-task-checkbox-wrap,
-.tm-modal.tm-modal--task-wrap .tm-whiteboard.tm-kanban--clean .tm-kanban-subtask-row-main.tm-kanban-subtask-row-main--title-wrapped > .tm-task-checkbox-wrap {
+.tm-modal.tm-modal--task-wrap .tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap,
+.tm-modal.tm-modal--task-wrap .tm-whiteboard.tm-kanban--clean .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap {
     margin-top: max(0px, calc(0.675em - 8px));
 }
 

@@ -1636,6 +1636,11 @@
         } catch (e) {}
         try { __tmUnbindMobileViewportAutoRefresh(); } catch (e) {}
         __tmClearTimelineTodayIndicatorTimer();
+        // Calendar +N popovers are portaled to document.body. Tear down the
+        // page-owned calendar instances before removing the host modal so no
+        // detached popover or calendar listener survives closing the page.
+        try { globalThis.__tmCalendar?.unmountSideDayTimeline?.(); } catch (e) {}
+        try { globalThis.__tmCalendar?.unmount?.(); } catch (e) {}
         try {
             state.searchBarOpen = false;
             window.__tmRemoveInlineSearchBarPortal?.();

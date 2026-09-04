@@ -91,6 +91,11 @@ assert.deepEqual(
 );
 
 const lunar = dates({ enabled: true, type: 'yearly', every: 1, calendarMode: 'lunar', anchorDate: '2025-01-29' }, '2025-01-29', '2028-12-31');
-assert.deepEqual(lunar, ['2025-01-29', '2026-02-17', '2027-02-07', '2028-01-26'], 'lunar yearly baseline must remain stable');
+assert.deepEqual(lunar, ['2025-01-29', '2026-02-17', '2027-02-06', '2028-01-26'], 'lunar yearly dates must use the authoritative table instead of stale ICU data');
+assert.deepEqual(
+    { ...core.lunarInfo('2027-02-06') },
+    { relatedYear: 2027, month: 1, day: 1, isLeap: false },
+    '2027 lunar New Year must be February 6',
+);
 
 console.log('repeat parity tests passed');

@@ -52,6 +52,28 @@
         }
     };
 
+    function __tmNormalizeCalendarCustomHolidayOverrides(input) {
+        const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+        const output = {};
+        const dateRe = /^(\d{4})-(\d{2})-(\d{2})$/;
+        for (const [rawDate, rawValue] of Object.entries(source)) {
+            const date = String(rawDate || '').trim();
+            const match = date.match(dateRe);
+            if (!match) continue;
+            const year = Number(match[1]);
+            const month = Number(match[2]);
+            const day = Number(match[3]);
+            const probe = new Date(year, month - 1, day);
+            if (probe.getFullYear() !== year || probe.getMonth() !== month - 1 || probe.getDate() !== day) continue;
+            const value = rawValue && typeof rawValue === 'object' ? rawValue : {};
+            const type = String(value.type || '').trim().toLowerCase();
+            if (type !== 'rest' && type !== 'work') continue;
+            const name = String(value.name || '').trim().slice(0, 80);
+            output[date] = { type, ...(name ? { name } : {}) };
+        }
+        return output;
+    }
+
     const PLUGIN_STORAGE_DIR = '/data/storage/petal/siyuan-plugin-task-horizon';
     const META_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-meta.json`;
     const SETTINGS_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-settings.json`;
@@ -8487,6 +8509,8 @@
             calendarIcsIncludeTomatoReminders: true,
             calendarIcsIncludeTaskDates: false,
             calendarIcsIncludeTaskNotes: false,
+            calendarIcsIncludeCustomHolidays: false,
+            calendarCustomHolidayOverrides: {},
             calendarInitialView: 'timeGridWeek',
             calendarInitialViewDesktop: 'timeGridWeek',
             calendarInitialViewMobile: 'timeGridDay',
@@ -9175,6 +9199,8 @@
                                 if (typeof cloudData.calendarIcsIncludeTomatoReminders === 'boolean') this.data.calendarIcsIncludeTomatoReminders = cloudData.calendarIcsIncludeTomatoReminders;
                                 if (typeof cloudData.calendarIcsIncludeTaskDates === 'boolean') this.data.calendarIcsIncludeTaskDates = cloudData.calendarIcsIncludeTaskDates;
                                 if (typeof cloudData.calendarIcsIncludeTaskNotes === 'boolean') this.data.calendarIcsIncludeTaskNotes = cloudData.calendarIcsIncludeTaskNotes;
+                                if (typeof cloudData.calendarIcsIncludeCustomHolidays === 'boolean') this.data.calendarIcsIncludeCustomHolidays = cloudData.calendarIcsIncludeCustomHolidays;
+                                if (cloudData.calendarCustomHolidayOverrides && typeof cloudData.calendarCustomHolidayOverrides === 'object') this.data.calendarCustomHolidayOverrides = __tmNormalizeCalendarCustomHolidayOverrides(cloudData.calendarCustomHolidayOverrides);
                                 if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = __tmNormalizeCalendarInitialView(cloudData.calendarInitialView, this.data.calendarInitialView);
                                 if (typeof cloudData.calendarInitialViewDesktop === 'string') {
                                     this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(cloudData.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
@@ -9725,6 +9751,8 @@
             this.data.calendarIcsIncludeTomatoReminders = !!Storage.get('tm_calendar_ics_include_tomato_reminders', this.data.calendarIcsIncludeTomatoReminders);
             this.data.calendarIcsIncludeTaskDates = !!Storage.get('tm_calendar_ics_include_task_dates', this.data.calendarIcsIncludeTaskDates);
             this.data.calendarIcsIncludeTaskNotes = !!Storage.get('tm_calendar_ics_include_task_notes', this.data.calendarIcsIncludeTaskNotes);
+            this.data.calendarIcsIncludeCustomHolidays = !!Storage.get('tm_calendar_ics_include_custom_holidays', this.data.calendarIcsIncludeCustomHolidays);
+            this.data.calendarCustomHolidayOverrides = __tmNormalizeCalendarCustomHolidayOverrides(Storage.get('tm_calendar_custom_holiday_overrides', this.data.calendarCustomHolidayOverrides));
             this.data.calendarInitialView = __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view', this.data.calendarInitialView), this.data.calendarInitialView);
             this.data.calendarInitialViewDesktop = Storage.has('tm_calendar_initial_view_desktop')
                 ? __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view_desktop', this.data.calendarInitialViewDesktop), this.data.calendarInitialView || 'timeGridWeek')
@@ -10287,6 +10315,9 @@
             Storage.set('tm_calendar_ics_include_tomato_reminders', !!this.data.calendarIcsIncludeTomatoReminders);
             Storage.set('tm_calendar_ics_include_task_dates', !!this.data.calendarIcsIncludeTaskDates);
             Storage.set('tm_calendar_ics_include_task_notes', !!this.data.calendarIcsIncludeTaskNotes);
+            Storage.set('tm_calendar_ics_include_custom_holidays', !!this.data.calendarIcsIncludeCustomHolidays);
+            this.data.calendarCustomHolidayOverrides = __tmNormalizeCalendarCustomHolidayOverrides(this.data.calendarCustomHolidayOverrides);
+            Storage.set('tm_calendar_custom_holiday_overrides', this.data.calendarCustomHolidayOverrides);
             this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
             this.data.calendarInitialViewMobile = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewMobile, 'timeGridDay');
             this.data.calendarInitialView = this.data.calendarInitialViewDesktop;

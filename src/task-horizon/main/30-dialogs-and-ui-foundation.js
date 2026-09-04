@@ -14289,12 +14289,25 @@ return Number(state.contextInteractionQuietUntil || 0);
         };
     }
 
-    async function __tmResolveTaskMovePlacementMeta(targetTaskId) {
+    async function __tmResolveTaskMovePlacementMeta(targetTaskId, moveKind = '') {
         const targetId = String(targetTaskId || '').trim();
+        const normalizedMoveKind = String(moveKind || '').trim();
+        const moveAsChild = normalizedMoveKind === 'child' || normalizedMoveKind === 'child-top';
         const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
         if (!targetId || !targetTask) throw new Error('未找到目标任务');
         const targetDocId = String(targetTask.docId || targetTask.root_id || '').trim();
-        const targetListId = await __tmResolveTaskListBlockId(targetId);
+        let targetListId = '';
+        let targetChildBlocks = [];
+        // These block reads are independent. Run them together so a first
+        // drag does not pay the sum of several backend round trips.
+        try {
+            const [resolvedListId, childBlocks] = await Promise.all([
+                moveAsChild ? Promise.resolve('') : __tmResolveTaskListBlockId(targetId),
+                moveAsChild ? API.getChildBlocks(targetId) : Promise.resolve([]),
+            ]);
+            targetListId = String(resolvedListId || '').trim();
+            targetChildBlocks = Array.isArray(childBlocks) ? childBlocks : [];
+        } catch (e) {}
         let prevSiblingTaskId = '';
         let targetListOrderSource = '';
         let targetListDomTaskIds = [];
@@ -14316,27 +14329,50 @@ return Number(state.contextInteractionQuietUntil || 0);
         let childListOrderSource = '';
         let childListDomTaskIds = [];
         let childListSqlTaskIds = [];
-        try { childListId = String(await API.getChildListIdOfTask(targetId) || '').trim(); } catch (e) { childListId = ''; }
+        const childListFromBlocks = targetChildBlocks.find((block) => {
+            const type = String(block?.type || '').trim().toLowerCase();
+            return (type === 'l' || type === 'nodelist')
+                && String(block?.subType || block?.subtype || '').trim().toLowerCase() === 't';
+        }) || targetChildBlocks.find((block) => {
+            const type = String(block?.type || '').trim().toLowerCase();
+            return type === 'l' || type === 'nodelist';
+        });
+        childListId = String(childListFromBlocks?.id || '').trim();
+        if (!childListId && !moveAsChild) {
+            try { childListId = String(await API.getChildListIdOfTask(targetId) || '').trim(); } catch (e) { childListId = ''; }
+        }
         if (childListId) {
-            try {
-                const fallbackChildTaskIds = (Array.isArray(targetTask.children) ? targetTask.children : [])
+            if (moveAsChild && Array.isArray(targetTask.children)) {
+                const childTaskIds = targetTask.children
                     .map((child) => String(child?.id || '').trim())
                     .filter(Boolean);
-                const resolved = await __tmResolveTaskIdsForPlacement(childListId, fallbackChildTaskIds);
-                const childTaskIds = Array.isArray(resolved?.taskIds) ? resolved.taskIds : [];
-                childListOrderSource = String(resolved?.source || '').trim();
-                childListDomTaskIds = Array.isArray(resolved?.domTaskIds) ? resolved.domTaskIds : [];
-                childListSqlTaskIds = Array.isArray(resolved?.sqlTaskIds) ? resolved.sqlTaskIds : [];
-                if (Array.isArray(childTaskIds) && childTaskIds.length) {
-                    firstDirectChildId = String(childTaskIds[0] || '').trim();
-                    lastDirectChildId = String(childTaskIds[childTaskIds.length - 1] || '').trim();
+                childListOrderSource = 'task-tree';
+                if (childTaskIds.length) {
+                    firstDirectChildId = childTaskIds[0];
+                    lastDirectChildId = childTaskIds[childTaskIds.length - 1];
                 }
-            } catch (e) {}
+            } else {
+                try {
+                    const fallbackChildTaskIds = (Array.isArray(targetTask.children) ? targetTask.children : [])
+                        .map((child) => String(child?.id || '').trim())
+                        .filter(Boolean);
+                    const resolved = await __tmResolveTaskIdsForPlacement(childListId, fallbackChildTaskIds);
+                    const childTaskIds = Array.isArray(resolved?.taskIds) ? resolved.taskIds : [];
+                    childListOrderSource = String(resolved?.source || '').trim();
+                    childListDomTaskIds = Array.isArray(resolved?.domTaskIds) ? resolved.domTaskIds : [];
+                    childListSqlTaskIds = Array.isArray(resolved?.sqlTaskIds) ? resolved.sqlTaskIds : [];
+                    if (Array.isArray(childTaskIds) && childTaskIds.length) {
+                        firstDirectChildId = String(childTaskIds[0] || '').trim();
+                        lastDirectChildId = String(childTaskIds[childTaskIds.length - 1] || '').trim();
+                    }
+                } catch (e) {}
+            }
         }
         let targetContentAnchorId = '';
         try {
-            const childBlocks = await API.getChildBlocks(targetId);
-            const ordered = Array.isArray(childBlocks) ? childBlocks.filter(Boolean) : [];
+            const ordered = (Array.isArray(targetChildBlocks) && targetChildBlocks.length)
+                ? targetChildBlocks.filter(Boolean)
+                : await API.getChildBlocks(targetId);
             const contentBlocks = ordered.filter((block) => String(block?.id || '').trim() && String(block?.id || '').trim() !== childListId);
             const anchorBlock = contentBlocks[contentBlocks.length - 1] || null;
             targetContentAnchorId = String(anchorBlock?.id || '').trim();
@@ -14351,6 +14387,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             prevSiblingTaskId,
             lastDirectChildId,
             targetContentAnchorId,
+            childListOrderSource,
             targetHeadingId: String(targetTask.h2Id || '').trim(),
             targetHeading: String(targetTask.h2 || '').trim(),
             targetHeadingRank: Number(targetTask.h2Rank),
@@ -14359,14 +14396,40 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function __tmClearTaskRowDropIndicators(root = null) {
         const host = root instanceof Element ? root : (state.modal instanceof Element ? state.modal : document);
-        try {
-            host.querySelectorAll?.('.tm-task-drop--before, .tm-task-drop--after, .tm-task-drop--child, .tm-task-drop--child-top, .tm-task-drop--forbidden, .tm-time-group-drop--active, .tm-time-group-drop--forbidden')?.forEach?.((el) => {
-                try {
-                    el.classList.remove('tm-task-drop--before', 'tm-task-drop--after', 'tm-task-drop--child', 'tm-task-drop--child-top', 'tm-task-drop--forbidden', 'tm-time-group-drop--active', 'tm-time-group-drop--forbidden');
-                    el.style.removeProperty('--tm-task-drop-indent');
-                } catch (e) {}
-            });
-        } catch (e) {}
+        const active = state.__tmActiveTaskRowDropIndicator;
+        const activeGroup = state.__tmActiveTaskGroupDropIndicator;
+        let activeCleared = false;
+        if (active?.row instanceof HTMLElement && (!root || host.contains(active.row))) {
+            try {
+                active.row.classList.remove('tm-task-drop--before', 'tm-task-drop--after', 'tm-task-drop--child', 'tm-task-drop--child-top', 'tm-task-drop--forbidden');
+                active.row.style.removeProperty('--tm-task-drop-indent');
+            } catch (e) {}
+            state.__tmActiveTaskRowDropIndicator = null;
+            activeCleared = true;
+        }
+        if (activeGroup?.el instanceof HTMLElement && (!root || host.contains(activeGroup.el))) {
+            try {
+                activeGroup.el.classList.remove('tm-time-group-drop--active', 'tm-time-group-drop--forbidden');
+            } catch (e) {}
+            state.__tmActiveTaskGroupDropIndicator = null;
+            activeCleared = true;
+        }
+        if (!activeCleared) {
+            try {
+                host.querySelectorAll?.('.tm-task-drop--before, .tm-task-drop--after, .tm-task-drop--child, .tm-task-drop--child-top, .tm-task-drop--forbidden, .tm-time-group-drop--active, .tm-time-group-drop--forbidden')?.forEach?.((el) => {
+                    try {
+                        el.classList.remove('tm-task-drop--before', 'tm-task-drop--after', 'tm-task-drop--child', 'tm-task-drop--child-top', 'tm-task-drop--forbidden', 'tm-time-group-drop--active', 'tm-time-group-drop--forbidden');
+                        el.style.removeProperty('--tm-task-drop-indent');
+                    } catch (e) {}
+                });
+            } catch (e) {}
+        }
+        if (!activeCleared && (!active || !root || host.contains(active.row))) {
+            state.__tmActiveTaskRowDropIndicator = null;
+        }
+        if (!activeCleared && (!activeGroup || !root || host.contains(activeGroup.el))) {
+            state.__tmActiveTaskGroupDropIndicator = null;
+        }
     }
 
     try { globalThis.__tmClearTaskRowDropIndicators = __tmClearTaskRowDropIndicators; } catch (e) {}
@@ -14374,8 +14437,18 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmApplyTaskRowDropIndicator(row, kind) {
         const el = row instanceof HTMLElement ? row : null;
         if (!(el instanceof HTMLElement)) return;
-        __tmClearTaskRowDropIndicators();
         const dropKind = String(kind || '').trim();
+        const active = state.__tmActiveTaskRowDropIndicator;
+        if (active?.row === el && active.kind === dropKind) return;
+        if (active?.row instanceof HTMLElement) {
+            try {
+                active.row.classList.remove('tm-task-drop--before', 'tm-task-drop--after', 'tm-task-drop--child', 'tm-task-drop--child-top', 'tm-task-drop--forbidden');
+                active.row.style.removeProperty('--tm-task-drop-indent');
+            } catch (e) {}
+            state.__tmActiveTaskRowDropIndicator = null;
+        } else {
+            __tmClearTaskRowDropIndicators();
+        }
         if (!dropKind) return;
         const depth = Math.max(0, Number(el.getAttribute('data-depth') || 0) || 0);
         const visualDepth = (dropKind === 'child' || dropKind === 'child-top')
@@ -14386,6 +14459,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const indentStep = el.classList.contains('tm-checklist-item') && el.closest('.tm-checklist-pane--compact') ? 14 : (isTableRow ? 18 : 22);
         try { el.style.setProperty('--tm-task-drop-indent', `${indentBase + (visualDepth * indentStep)}px`); } catch (e) {}
         el.classList.add(`tm-task-drop--${dropKind}`);
+        state.__tmActiveTaskRowDropIndicator = { row: el, kind: dropKind };
     }
 
     function __tmResolveTimeGroupDropElementFromTarget(target) {
@@ -14434,8 +14508,12 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmApplyTimeGroupDropIndicator(groupEl, allowed) {
         const el = groupEl instanceof HTMLElement ? groupEl : null;
         if (!(el instanceof HTMLElement)) return;
+        const kind = allowed ? 'active' : 'forbidden';
+        const active = state.__tmActiveTaskGroupDropIndicator;
+        if (active?.el === el && active.kind === kind) return;
         __tmClearTaskRowDropIndicators();
         el.classList.add(allowed ? 'tm-time-group-drop--active' : 'tm-time-group-drop--forbidden');
+        state.__tmActiveTaskGroupDropIndicator = { el, kind };
     }
 
     window.tmTimeGroupDragOver = function(ev, groupKey) {
@@ -14464,6 +14542,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (related && groupEl.contains(related)) return;
         } catch (e) {}
         try { groupEl.classList.remove('tm-time-group-drop--active', 'tm-time-group-drop--forbidden'); } catch (e) {}
+        if (state.__tmActiveTaskGroupDropIndicator?.el === groupEl) {
+            state.__tmActiveTaskGroupDropIndicator = null;
+        }
     };
 
     window.tmTimeGroupDrop = async function(ev, groupKey) {
@@ -14593,8 +14674,12 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmApplyDocHeadingGroupDropIndicator(groupEl, allowed) {
         const el = groupEl instanceof HTMLElement ? groupEl : null;
         if (!(el instanceof HTMLElement)) return;
+        const kind = allowed ? 'active' : 'forbidden';
+        const active = state.__tmActiveTaskGroupDropIndicator;
+        if (active?.el === el && active.kind === kind) return;
         __tmClearTaskRowDropIndicators();
         el.classList.add(allowed ? 'tm-time-group-drop--active' : 'tm-time-group-drop--forbidden');
+        state.__tmActiveTaskGroupDropIndicator = { el, kind };
     }
 
     window.tmDocHeadingGroupDragOver = function(ev) {
@@ -14626,6 +14711,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (related && groupEl.contains(related)) return;
         } catch (e) {}
         try { groupEl.classList.remove('tm-time-group-drop--active', 'tm-time-group-drop--forbidden'); } catch (e) {}
+        if (state.__tmActiveTaskGroupDropIndicator?.el === groupEl) {
+            state.__tmActiveTaskGroupDropIndicator = null;
+        }
     };
 
     window.tmDocHeadingGroupDrop = async function(ev) {
@@ -14733,10 +14821,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         const sourceId = String(sourceTaskId || '').trim();
         const targetId = String(targetTaskId || '').trim();
         const moveKind = String(kind || '').trim();
-        const sourceTask = await __tmEnsureTaskRowDropTaskById(sourceId);
-        const targetTask = await __tmEnsureTaskRowDropTaskById(targetId);
+        const [sourceTask, targetTask] = await Promise.all([
+            __tmEnsureTaskRowDropTaskById(sourceId),
+            __tmEnsureTaskRowDropTaskById(targetId),
+        ]);
         if (!sourceTask || !targetTask || !sourceId || !targetId || !moveKind) throw new Error('拖拽目标无效');
-        const meta = await __tmResolveTaskMovePlacementMeta(targetId);
+        const meta = await __tmResolveTaskMovePlacementMeta(targetId, moveKind);
         return {
             taskId: sourceId,
             targetDocId: meta.targetDocId,
@@ -14891,7 +14981,9 @@ return Number(state.contextInteractionQuietUntil || 0);
     async function __tmHandleTaskRowDropCore(ev, targetTaskId, overrideKind = '') {
         const targetId = String(targetTaskId || '').trim();
         const sourceTaskIds = __tmGetDraggedTaskIds(ev);
-        if (!sourceTaskIds.length || !targetId) return null;
+        if (!sourceTaskIds.length || !targetId) {
+            return null;
+        }
         const validation = __tmCanHandleTaskRowBatchDrop(sourceTaskIds, targetId);
         const row = ev?.currentTarget instanceof HTMLElement
             ? ev.currentTarget
@@ -14903,7 +14995,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             return null;
         }
         const ids = __tmFilterDraggedTaskRootIds(validation.sourceIds?.length ? validation.sourceIds : sourceTaskIds);
-        if (!ids.length) return null;
+        if (!ids.length) {
+            return null;
+        }
         if (ids.length === 1) {
             return await __tmQueueTaskRowMove(ids[0], targetId, kind);
         }
@@ -15008,19 +15102,23 @@ return Number(state.contextInteractionQuietUntil || 0);
             row.classList.remove('tm-task-drop--before', 'tm-task-drop--after', 'tm-task-drop--child', 'tm-task-drop--child-top', 'tm-task-drop--forbidden');
             row.style.removeProperty('--tm-task-drop-indent');
         } catch (e) {}
+        if (state.__tmActiveTaskRowDropIndicator?.row === row) {
+            state.__tmActiveTaskRowDropIndicator = null;
+        }
     };
 
     window.tmTaskRowDrop = async function(ev, targetTaskId, overrideKind = '') {
+        let dropResult = null;
         try { __tmMarkHighPriorityInteraction('task-row-drop', 1200); } catch (e) {}
         try {
             ev.preventDefault?.();
             ev.stopPropagation?.();
         } catch (e) {}
         try {
-            const result = await __tmHandleTaskRowDropCore(ev, targetTaskId, overrideKind);
-            const moveKind = String(result?.kind || '').trim();
+            dropResult = await __tmHandleTaskRowDropCore(ev, targetTaskId, overrideKind);
+            const moveKind = String(dropResult?.kind || '').trim();
             if (moveKind) {
-                const batchCount = Math.max(0, Number(result?.batchCount) || 0);
+                const batchCount = Math.max(0, Number(dropResult?.batchCount) || 0);
                 const successText = batchCount > 1
                     ? (moveKind === 'before'
                         ? `✅ 已将 ${batchCount} 个任务移动到目标任务前`
@@ -15145,13 +15243,75 @@ return Number(state.contextInteractionQuietUntil || 0);
         };
     }
 
+    function __tmCancelTaskFloatingMiniStart(pendingKey) {
+        const key = String(pendingKey || '').trim();
+        if (!key) return;
+        const pending = state[key];
+        if (pending?.timer) {
+            try { clearTimeout(pending.timer); } catch (e) {}
+        }
+        state[key] = null;
+    }
+
+    function __tmScheduleTaskFloatingMiniStart(taskId, meta, ev, sourceEl, options = {}) {
+        const id = String(taskId || '').trim();
+        if (!id) return false;
+        const startedKey = String(options.startedKey || '').trim();
+        const pendingKey = String(options.pendingKey || '').trim();
+        if (startedKey) state[startedKey] = false;
+        const viewMode = String(state.viewMode || '').trim();
+        const source = sourceEl instanceof Element ? sourceEl : null;
+        const calendarSource = !!source?.closest?.(
+            '.tm-calendar-surface, [data-tm-cal-surface], .tm-calendar-layout-anchor, .tm-calendar-side-dock, .tm-cal-task[data-task-id], .tm-cal-task[data-id]'
+        );
+        const shouldDefer = !calendarSource && viewMode !== 'calendar';
+        __tmCancelTaskFloatingMiniStart(pendingKey);
+        if (!shouldDefer) {
+            try {
+                const started = __tmCalendarFloatingDragStart(id, meta, ev);
+                if (startedKey) state[startedKey] = started === true;
+                return started === true;
+            } catch (e) {
+                if (startedKey) state[startedKey] = false;
+                return false;
+            }
+        }
+        const pointerEvent = {
+            clientX: Number(ev?.clientX),
+            clientY: Number(ev?.clientY),
+            target: source,
+            currentTarget: source,
+        };
+        const token = {};
+        const run = () => {
+            if (pendingKey && state[pendingKey] !== token) return;
+            if (pendingKey) state[pendingKey] = null;
+            if (String(state.draggingTaskId || '').trim() !== id) return;
+            try {
+                const started = __tmCalendarFloatingDragStart(id, meta, pointerEvent);
+                if (startedKey) state[startedKey] = started === true;
+            } catch (e) {
+                if (startedKey) state[startedKey] = false;
+            }
+        };
+        if (pendingKey) {
+            token.timer = setTimeout(run, 80);
+            state[pendingKey] = token;
+        } else {
+            setTimeout(run, 80);
+        }
+        return false;
+    }
+
     window.tmDragTaskStart = function(ev, taskId) {
         const id = String(taskId || '').trim();
         if (!id) return;
         try { __tmMarkHighPriorityInteraction('task-native-drag-start', 1800); } catch (e) {}
         const targetEl = ev?.target instanceof Element ? ev.target : null;
         const sourceEl = ev?.currentTarget instanceof Element ? ev.currentTarget : targetEl;
-        if (__tmIsWhiteboardTaskDragSource(sourceEl) || __tmIsWhiteboardTaskDragSource(targetEl)) return;
+        if (__tmIsWhiteboardTaskDragSource(sourceEl) || __tmIsWhiteboardTaskDragSource(targetEl)) {
+            return;
+        }
         const fallback = __tmResolveTaskDragSnapshot(id, sourceEl, targetEl);
         const dragTaskIds = __tmBuildTaskDragSelectionIds(id);
         state.draggingTaskId = id;
@@ -15190,23 +15350,30 @@ return Number(state.contextInteractionQuietUntil || 0);
             }));
             ev.dataTransfer.setData('text/plain', id);
         } catch (e) {}
+        let floatingMiniStarted = false;
         try {
-            const shouldSuppressFloatingMini = !!sourceEl?.closest?.('.tm-calendar-sidebar, [data-tm-cal-role="task-page-list"], [data-tm-cal-role="task-list"], .tm-cal-task[data-task-id]');
-            if (!shouldSuppressFloatingMini) {
-                __tmCalendarFloatingDragStart(id, meta, ev);
-            }
+            floatingMiniStarted = __tmScheduleTaskFloatingMiniStart(id, meta, ev, sourceEl, {
+                startedKey: '__tmNativeTaskDragFloatingMiniStarted',
+                pendingKey: '__tmNativeTaskDragFloatingMiniPending',
+            });
         } catch (e) {}
         try { state.modal?.classList?.add?.('tm-task-drag-active'); } catch (e) {}
+        state.__tmNativeTaskDragFloatingMiniStarted = floatingMiniStarted;
     };
 
     window.tmDragTaskEnd = function() {
+        const floatingMiniStarted = state.__tmNativeTaskDragFloatingMiniStarted === true;
+        try { __tmCancelTaskFloatingMiniStart('__tmNativeTaskDragFloatingMiniPending'); } catch (e) {}
         try { __tmMarkHighPriorityInteraction('task-native-drag-end', 520); } catch (e) {}
         try { __tmSuppressDockPointerTaskClick(420); } catch (e) {}
         state.draggingTaskId = '';
         state.draggingTaskIds = [];
+        state.__tmNativeTaskDragFloatingMiniStarted = false;
         try { __tmClearDocTabDropTarget(); } catch (e) {}
         try { __tmClearTaskRowDropIndicators(); } catch (e) {}
-        try { __tmCalendarFloatingDragEnd(); } catch (e) {}
+        if (floatingMiniStarted) {
+            try { __tmCalendarFloatingDragEnd(); } catch (e) {}
+        }
         try { state.modal?.classList?.remove?.('tm-task-drag-active'); } catch (e) {}
     };
 
@@ -15470,7 +15637,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             const sourceEl = source.sourceEl instanceof HTMLElement ? source.sourceEl : null;
             const sourceType = String(source.sourceType || 'task').trim() || 'task';
             if (!taskId || !(sourceEl instanceof HTMLElement)) return;
-
             let dragMeta = null;
             try {
                 if (typeof window.tmCalendarGetTaskDragMeta === 'function') {
@@ -15492,6 +15658,12 @@ return Number(state.contextInteractionQuietUntil || 0);
             let ended = false;
             let captured = false;
             let ghostMeta = null;
+            let hoverSyncFrame = null;
+            let calendarHoverActive = false;
+            let kanbanHoverActive = false;
+            let kanbanHoverTarget = null;
+            let taskRowHoverRow = null;
+            let taskRowHoverKey = '';
             const prevOpacity = String(sourceEl.style.opacity || '');
             const resolvePointTarget = (x, y) => {
                 if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
@@ -15517,40 +15689,78 @@ return Number(state.contextInteractionQuietUntil || 0);
             };
             const clearKanbanHover = () => {
                 if (sourceType !== 'kanban') return;
+                if (!kanbanHoverActive && !(kanbanHoverTarget instanceof Element)) return;
                 try { __tmKanbanClearDragOver(); } catch (e) {}
+                kanbanHoverActive = false;
+                kanbanHoverTarget = null;
             };
             const clearDocHover = () => {
                 try { __tmClearDocTabDropTarget(); } catch (e) {}
             };
             const clearTaskRowHover = () => {
+                taskRowHoverRow = null;
+                taskRowHoverKey = '';
+                if (!state.__tmActiveTaskRowDropIndicator && !state.__tmActiveTaskGroupDropIndicator) return;
                 try { __tmClearTaskRowDropIndicators(); } catch (e) {}
+            };
+            const isCalendarHoverTarget = (target) => {
+                if (!(target instanceof Element)) return false;
+                try {
+                    return !!target.closest('.tm-calendar-surface, [data-tm-cal-surface], .tm-calendar-layout-anchor, .tm-calendar-side-dock, .tm-calendar-side-dock-resizer, #tmCalendarSideDockPanel, #tmCalendarSideDockTimeline, .tm-calendar-floating-mini, .tm-floating-mini-calendar, .tm-floating-mini-cal, .tm-cal-side-drag-ghost');
+                } catch (e) {}
+                return false;
             };
             const syncHover = () => {
                 const pointTarget = resolvePointTarget(lastX, lastY);
-                const sideInfo = globalThis.__tmCalendar?.updateSideDayCalendarDragPreview?.({
-                    taskId,
-                    payload,
-                    clientX: lastX,
-                    clientY: lastY,
-                    target: pointTarget || sourceEl,
-                });
-                if (sideInfo?.overSideDay) {
-                    try { __tmCalendarFloatingDragEnd(); } catch (e) {}
-                    clearDocHover();
-                    clearKanbanHover();
-                    clearTaskRowHover();
-                    return;
-                }
-                const floatingInfo = __tmCalendarFloatingDragMove({
-                    clientX: lastX,
-                    clientY: lastY,
-                    target: pointTarget || sourceEl,
-                }, { mode: floatingMiniMode });
-                if (floatingInfo?.overFloatingMini) {
-                    clearDocHover();
-                    clearKanbanHover();
-                    clearTaskRowHover();
-                    return;
+                const calendarTarget = isCalendarHoverTarget(pointTarget);
+                const floatingTarget = (() => {
+                    if (!(pointTarget instanceof Element)) return false;
+                    try { return !!pointTarget.closest('.tm-calendar-floating-mini, .tm-floating-mini-calendar, .tm-floating-mini-cal'); } catch (e) {}
+                    return false;
+                })();
+                if (calendarTarget) {
+                    calendarHoverActive = true;
+                    if (floatingTarget) {
+                        const floatingInfo = __tmCalendarFloatingDragMove({
+                            clientX: lastX,
+                            clientY: lastY,
+                            target: pointTarget || sourceEl,
+                        }, { mode: floatingMiniMode });
+                        if (floatingInfo?.overFloatingMini) {
+                            clearDocHover();
+                            clearKanbanHover();
+                            clearTaskRowHover();
+                            return;
+                        }
+                    } else {
+                        const sideInfo = globalThis.__tmCalendar?.updateSideDayCalendarDragPreview?.({
+                            taskId,
+                            payload,
+                            clientX: lastX,
+                            clientY: lastY,
+                            target: pointTarget || sourceEl,
+                        });
+                        if (sideInfo?.overSideDay) {
+                            try { __tmCalendarFloatingDragEnd(); } catch (e) {}
+                            clearDocHover();
+                            clearKanbanHover();
+                            clearTaskRowHover();
+                            return;
+                        }
+                    }
+                } else if (calendarHoverActive) {
+                    // Clear a calendar preview once when leaving its surface;
+                    // do not run the calendar hit-test for every task-row move.
+                    calendarHoverActive = false;
+                    try {
+                        globalThis.__tmCalendar?.updateSideDayCalendarDragPreview?.({
+                            taskId,
+                            payload,
+                            clientX: lastX,
+                            clientY: lastY,
+                            target: pointTarget || sourceEl,
+                        });
+                    } catch (e) {}
                 }
                 const docTabEl = pointTarget?.closest?.('.tm-doc-tab') || null;
                 if (docTabEl instanceof Element) {
@@ -15568,6 +15778,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 }
                 const docHeadingGroupEl = __tmResolveDocHeadingGroupDropElementFromTarget(pointTarget);
                 if (docHeadingGroupEl instanceof HTMLElement) {
+                    clearTaskRowHover();
                     try {
                         window.tmDocHeadingGroupDragOver?.({
                             preventDefault() {},
@@ -15580,6 +15791,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 } else {
                 const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTarget);
                 if (timeGroupEl instanceof HTMLElement) {
+                    clearTaskRowHover();
                     try {
                         window.tmTimeGroupDragOver?.({
                             preventDefault() {},
@@ -15592,17 +15804,28 @@ return Number(state.contextInteractionQuietUntil || 0);
                 } else {
                     const taskRowEl = __tmResolveTaskRowOrDropGapFromTarget(pointTarget);
                     if (taskRowEl instanceof HTMLElement) {
+                        try { __tmMarkHighPriorityInteraction('task-row-drag-over', 260); } catch (e) {}
                         const rowTarget = __tmReadTaskRowOrDropGapTarget(taskRowEl, pointTarget);
-                        try {
-                            window.tmTaskRowDragOver?.({
-                                preventDefault() {},
-                                stopPropagation() {},
-                                clientY: lastY,
-                                dataTransfer: syntheticTransfer,
-                                target: pointTarget || taskRowEl,
-                                currentTarget: taskRowEl,
-                            }, rowTarget.targetId, rowTarget.overrideKind);
-                        } catch (e) {}
+                        const capabilities = __tmGetTaskDropCapabilities();
+                        const resolvedKind = rowTarget.overrideKind
+                            || __tmResolveTaskRowDropIntent({ clientY: lastY }, taskRowEl, capabilities)
+                            || 'child';
+                        const hoverKey = `${rowTarget.targetId}|${resolvedKind}`;
+                        const indicatorStillActive = state.__tmActiveTaskRowDropIndicator?.row === taskRowEl;
+                        if (taskRowHoverRow !== taskRowEl || taskRowHoverKey !== hoverKey || !indicatorStillActive) {
+                            try {
+                                window.tmTaskRowDragOver?.({
+                                    preventDefault() {},
+                                    stopPropagation() {},
+                                    clientY: lastY,
+                                    dataTransfer: syntheticTransfer,
+                                    target: pointTarget || taskRowEl,
+                                    currentTarget: taskRowEl,
+                                }, rowTarget.targetId, rowTarget.overrideKind);
+                            } catch (e) {}
+                            taskRowHoverRow = taskRowEl;
+                            taskRowHoverKey = hoverKey;
+                        }
                     } else {
                         clearTaskRowHover();
                     }
@@ -15610,12 +15833,44 @@ return Number(state.contextInteractionQuietUntil || 0);
                 }
                 if (sourceType === 'kanban') {
                     try { window.__tmKanbanAutoScrollByPoint?.(lastX, lastY, pointTarget); } catch (e) {}
-                    try { __tmApplyKanbanDragHoverFromTarget(__tmResolveKanbanPointTarget(lastX, lastY) || pointTarget); } catch (e) {}
+                    const kanbanTarget = pointTarget?.closest?.('.tm-kanban-card[data-id], .tm-kanban-col, .tm-kanban-group-title, .tm-kanban-group') || null;
+                    if (kanbanTarget instanceof Element) {
+                        kanbanHoverActive = true;
+                        if (kanbanHoverTarget !== kanbanTarget) {
+                            try { __tmApplyKanbanDragHoverFromTarget(pointTarget); } catch (e) {}
+                            kanbanHoverTarget = kanbanTarget;
+                        }
+                    } else {
+                        clearKanbanHover();
+                    }
                 }
+            };
+            const queueHoverSync = () => {
+                if (hoverSyncFrame != null || ended) return;
+                try {
+                    hoverSyncFrame = requestAnimationFrame(() => {
+                        hoverSyncFrame = null;
+                        if (!ended) syncHover();
+                    });
+                } catch (e) {
+                    hoverSyncFrame = null;
+                    syncHover();
+                }
+            };
+            const flushHoverSync = () => {
+                if (hoverSyncFrame != null) {
+                    try { cancelAnimationFrame(hoverSyncFrame); } catch (e) {}
+                    hoverSyncFrame = null;
+                }
+                if (!ended && dragging) syncHover();
             };
             const cleanup = (suppressClick) => {
                 if (ended) return;
                 ended = true;
+                if (hoverSyncFrame != null) {
+                    try { cancelAnimationFrame(hoverSyncFrame); } catch (e) {}
+                    hoverSyncFrame = null;
+                }
                 try { document.removeEventListener('pointermove', onMove, true); } catch (e) {}
                 try { document.removeEventListener('pointerup', onUp, true); } catch (e) {}
                 try { document.removeEventListener('pointercancel', onUp, true); } catch (e) {}
@@ -15773,7 +16028,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                         containerRect: dockModalRect,
                     });
                 } catch (e) {}
-                syncHover();
+                queueHoverSync();
             };
             const onMove = (e2) => {
                 if (ended || completing || !samePointer(e2)) return;
@@ -15786,7 +16041,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     startDrag();
                 }
                 __tmPlaceDockPointerTaskGhost(ghostMeta, lastX, lastY);
-                syncHover();
+                queueHoverSync();
                 try { e2.preventDefault(); } catch (e) {}
             };
             const onUp = async (e2) => {
@@ -15797,6 +16052,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                         __tmSuppressDockPointerTaskClick(suppressClickMs);
                         lastX = Number(e2?.clientX) || lastX;
                         lastY = Number(e2?.clientY) || lastY;
+                        flushHoverSync();
                         await finishDrop();
                     }
                 } finally {

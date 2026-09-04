@@ -43,13 +43,18 @@ assert.match(contentRuntime, /__tmSyncKanbanSubtaskWrappedTitleClasses\?\.\(root
 
 assert.match(
     styles,
-    /\.tm-modal\.tm-modal--task-wrap \.tm-kanban-subtask-row-main\.tm-kanban-subtask-row-main--title-wrapped\s*\{[\s\S]*?align-items:\s*flex-start;/,
-    'wrapped kanban subtasks must follow the parent card top-aligned layout',
+    /\.tm-modal\.tm-modal--task-wrap \.tm-kanban-subtask-row-main\s*\{[\s\S]*?align-items:\s*flex-start;/,
+    'wrapping mode must align every kanban subtask against its first title line without waiting for runtime measurement',
 );
 assert.match(
     styles,
-    /\.tm-modal\.tm-modal--task-wrap \.tm-kanban\.tm-kanban--clean \.tm-kanban-subtask-row-main\.tm-kanban-subtask-row-main--title-wrapped > \.tm-task-checkbox-wrap,\s*\.tm-modal\.tm-modal--task-wrap \.tm-whiteboard\.tm-kanban--clean \.tm-kanban-subtask-row-main\.tm-kanban-subtask-row-main--title-wrapped > \.tm-task-checkbox-wrap\s*\{[\s\S]*?margin-top:\s*max\(0px,\s*calc\(0\.675em - 8px\)\);/,
-    'wrapped clean kanban and whiteboard subtasks must share the parent checkbox offset',
+    /\.tm-modal\.tm-modal--task-wrap \.tm-kanban\.tm-kanban--clean \.tm-kanban-subtask-row-main > \.tm-task-checkbox-wrap,\s*\.tm-modal\.tm-modal--task-wrap \.tm-whiteboard\.tm-kanban--clean \.tm-kanban-subtask-row-main > \.tm-task-checkbox-wrap\s*\{[\s\S]*?margin-top:\s*max\(0px,\s*calc\(0\.675em - 8px\)\);/,
+    'wrapping mode must give clean kanban and whiteboard subtasks the parent first-line checkbox offset',
+);
+assert.doesNotMatch(
+    styles,
+    /\.tm-kanban-subtask-row-main\.tm-kanban-subtask-row-main--title-wrapped/,
+    'first-line alignment must not depend on the runtime wrap-measurement class',
 );
 assert.match(
     styles,

@@ -92,6 +92,22 @@ assert.match(taskDate, /X-TASK-HORIZON-SOURCE:TASK/);
 assert.match(taskDate, /X-TASK-HORIZON-COMPLETED:TRUE/);
 assert.doesNotMatch(taskDate, /BEGIN:VALARM/);
 
+const customHoliday = core.serializeCalendar({
+    generatedAt,
+    events: [{
+        uidSeed: 'custom-holiday:2026-10-01',
+        source: 'holiday',
+        title: '国庆节',
+        allDay: true,
+        startDate: '2026-10-01',
+        endDate: '2026-10-02',
+    }],
+});
+assert.match(customHoliday, /DTSTART;VALUE=DATE:20261001\r\nDTEND;VALUE=DATE:20261002/);
+assert.match(customHoliday, /CATEGORIES:Task Horizon,Custom Holiday/);
+assert.match(customHoliday, /X-TASK-HORIZON-SOURCE:HOLIDAY/);
+assert.doesNotMatch(customHoliday, /BEGIN:VALARM/);
+
 const completed = core.serializeCalendar({
     generatedAt,
     events: [{

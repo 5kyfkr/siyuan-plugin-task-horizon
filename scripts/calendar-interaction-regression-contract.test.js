@@ -91,6 +91,16 @@ assert.match(
 );
 assert.match(
     source,
+    /if \(action === 'jumpTask'\) \{\s*const jumped = taskBlockId \? await openCalendarLinkedTask\(taskBlockId, e\) : false;[\s\S]*if \(jumped !== false\) closeModal\(\);/,
+    'the tomato record dialog must use the shared task navigation path',
+);
+assert.doesNotMatch(
+    source,
+    /if \(action === 'jumpTask'\) \{[\s\S]{0,300}siyuan\?\.block\?\.scrollToBlock/,
+    'the tomato record dialog must not depend only on the optional scrollToBlock API',
+);
+assert.match(
+    source,
     /eventApi && !drag\.resizeEdge && event\.pointerType !== 'mouse'/,
     'mouse clicks must rely on the click delegate instead of opening a duplicate popover on pointerup',
 );
@@ -107,6 +117,13 @@ assert.match(
 assert.doesNotMatch(source, /setCalendarTouchGestureLock/, 'obsolete synchronous gesture locks must be removed');
 assert.match(source, /renderPrototypeSelectionPreview\(surface, selection, range\)/, 'the side blank-range drag must render the shared live preview');
 assert.match(source, /renderPrototypeSelectionPreview\(prototypeSurface, selection, range\)/, 'the main blank-range drag must render the shared live preview');
+const sideDateClickStart = source.indexOf("const panel = target?.closest?.('.tm-proto-side-panel')");
+const sideDateClickEnd = source.indexOf("surface.addEventListener('contextmenu'", sideDateClickStart);
+assert.ok(sideDateClickStart >= 0 && sideDateClickEnd > sideDateClickStart, 'side date-click handler must remain inspectable');
+const sideDateClick = source.slice(sideDateClickStart, sideDateClickEnd);
+assert.match(sideDateClick, /const timeArea = target\?\.closest\?\.\('\.tm-proto-time-col'\)/);
+assert.match(sideDateClick, /const canvas = target\?\.closest\?\.\('\.tm-proto-time-canvas'\)/);
+assert.match(sideDateClick, /if \(canvas instanceof HTMLElement && !\(timeArea instanceof HTMLElement\)\) return;/, 'side time-axis clicks must not create a timed schedule outside a real day column');
 assert.match(styles, /\.tm-proto-day-panel\s*>\s*header\s*\{[^}]*min-height:\s*40px;[^}]*padding:\s*3px 8px;/, 'the side panel header must stay compact while retaining button clearance');
 const prototypeClickStart = source.indexOf("prototypeSurface.addEventListener('click'");
 const prototypeViewStart = source.indexOf("else if (action === 'view')", prototypeClickStart);

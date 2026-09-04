@@ -12,6 +12,7 @@ const lifecycleSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/s
 assert.doesNotMatch(apiSource, /tmMobileKeepaliveHidden|__tmHideMobileManagerModalForKeepalive|__tmRestoreMobileManagerModalFromKeepalive/, 'closed mobile manager DOM must not be kept alive');
 assert.doesNotMatch(lifecycleSource, /__tmRestoreMobileManagerModalFromKeepalive/, 'opening must not revive a retained mobile modal');
 assert.match(closeSource, /document\.querySelectorAll\('\.tm-modal, \.tm-settings-modal, \.tm-rules-modal, \.tm-prompt-modal'\)[\s\S]*el\.remove\(\)[\s\S]*state\.modal = null;/, 'closing must remove manager modals and clear state.modal');
+assert.match(closeSource, /globalThis\.__tmCalendar\?\.unmountSideDayTimeline\?\.\(\)[\s\S]*globalThis\.__tmCalendar\?\.unmount\?\.\(\)/, 'closing must unmount calendar surfaces and body-level popovers');
 assert.doesNotMatch(closeSource, /keepaliveModal|__tmHideMobileManagerModalForKeepalive/, 'close path must not exempt the mobile manager modal');
 
 console.log('mobile manager close lifecycle contract tests passed');

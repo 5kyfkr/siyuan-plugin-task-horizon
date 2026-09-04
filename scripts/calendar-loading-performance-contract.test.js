@@ -108,6 +108,11 @@ assert.match(
     'cold tomato history and optional auxiliary data must paint from snapshots and refetch after cache-miss reads complete',
 );
 assert.match(
+    source,
+    /const auxReadIncomplete = historyNeedsBackgroundRead[\s\S]*if \(info\?\.context\?\.sourceRefetch === true[\s\S]*&& auxReadIncomplete[\s\S]*failure\(new Error\('calendar-aux-partial-result'\)\)/,
+    'normal page navigation must not preserve overlapping events from the previous page',
+);
+assert.match(
     runtimeSource,
     /scheduleTaskDateCacheWarm\('taskdate-side-deferred'\)[\s\S]*taskdate-side-deferred/,
     'side task-date queries must warm the shared cache without blocking the source request',

@@ -6302,6 +6302,10 @@
         const targetDocId = String(payload.targetDocId || '').trim();
         if (!targetTaskId || !targetDocId) throw new Error('移动任务缺少子任务目标');
 
+        const suppliedListId = String(payload.targetChildListId || '').trim();
+        if (suppliedListId) {
+            return { listId: suppliedListId, createAtomically: false };
+        }
         const existingListId = String(await API.getChildListIdOfTask(targetTaskId) || '').trim();
         if (existingListId) {
             if (String(payload.targetChildListId || '').trim() !== existingListId) {
@@ -11219,6 +11223,13 @@
         const dt = dateLike instanceof Date ? new Date(dateLike.getTime()) : __tmReminderToDateSafe(dateLike);
         if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return null;
         dt.setHours(12, 0, 0, 0);
+        try {
+            const shared = globalThis.__tmGetChineseLunarDateInfo;
+            if (typeof shared === 'function') {
+                const info = shared(dt);
+                if (info) return { ...info };
+            }
+        } catch (e) {}
         const formatter = __tmGetReminderChineseCalendarFormatter();
         if (!formatter) return null;
         try {

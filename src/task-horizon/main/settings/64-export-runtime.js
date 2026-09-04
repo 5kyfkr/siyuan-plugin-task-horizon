@@ -105,6 +105,8 @@
         'calendarIcsIncludeTomatoReminders',
         'calendarIcsIncludeTaskDates',
         'calendarIcsIncludeTaskNotes',
+        'calendarIcsIncludeCustomHolidays',
+        'calendarCustomHolidayOverrides',
         'calendarInitialView',
         'calendarInitialViewDesktop',
         'calendarInitialViewMobile',
