@@ -7096,6 +7096,10 @@
                         kind: type,
                     });
                 } catch (e) {}
+                // Queued creates use a pre-generated stable block ID, so this
+                // branch does not pass through __tmCommitOptimisticTaskId.
+                // Project its dates into mounted calendars after confirmation.
+                try { __tmSyncCommittedCreatedTaskDateInCalendar(effectiveTaskId); } catch (e) {}
             }
             __tmPublishQueuedOpMutation(op, 'commit', {
                 taskId: effectiveTaskId,

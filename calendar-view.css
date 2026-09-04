@@ -5964,8 +5964,13 @@
 }
 #tmCalendarSideDockTimeline .tm-proto-time-scroll{
     overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--tm-cal-muted) 34%, transparent) transparent;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+#tmCalendarSideDockTimeline .tm-proto-time-scroll::-webkit-scrollbar{
+    display: none;
+    width: 0;
+    height: 0;
 }
 #tmCalendarSideDockTimeline .tm-proto-time-canvas{
     padding-bottom: max(12px, var(--tm-view-bottom-inset, 0px));

@@ -85,6 +85,16 @@ assert.match(
     /\.tm-modal--doc-tabs-transitioning \.tm-calendar-root--month-fit,\s*\.tm-calendar-root--month-fit\.tm-calendar-root--host-height-transitioning\s*\{\s*overflow-y: hidden !important;/,
     'adaptive month view must suppress transient scrollbars while document-tab height settles',
 );
+assert.match(
+    calendarStyles,
+    /#tmCalendarSideDockTimeline \.tm-proto-time-scroll\s*\{[\s\S]*?scrollbar-width:\s*none;[\s\S]*?-ms-overflow-style:\s*none;[\s\S]*?\}/,
+    'the list-view calendar side dock must hide its native timeline scrollbar without disabling scrolling',
+);
+assert.match(
+    calendarStyles,
+    /#tmCalendarSideDockTimeline \.tm-proto-time-scroll::\-webkit-scrollbar\s*\{[\s\S]*?display:\s*none;[\s\S]*?width:\s*0;[\s\S]*?height:\s*0;[\s\S]*?\}/,
+    'the list-view calendar side dock must hide its Chromium timeline scrollbar',
+);
 
 const readRule = (pattern, label) => {
     const rule = taskStyles.match(pattern)?.[0] || '';

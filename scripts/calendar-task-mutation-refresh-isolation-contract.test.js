@@ -223,6 +223,11 @@ assert.doesNotMatch(
 });
 assert.match(queuedCreateCommit, /__tmBuildQueuedCreateCommitOptions\(op/,
     'create ID commit must preserve stable identity metadata');
+assert.match(
+    queuedCreateCommit,
+    /else if \(effectiveTaskId\)[\s\S]*__tmTaskIdentity\?\.commit\?\.\([\s\S]*__tmSyncCommittedCreatedTaskDateInCalendar\(effectiveTaskId\)/,
+    'stable-ID quick creates must project their dates into mounted calendar all-day surfaces after commit',
+);
 assert.doesNotMatch(queuedCreateCommit, /__tmRefreshQueuedStructuralProjection|__tmScheduleSimpleStructuralRefresh/,
     'successful create commits must not reload task documents');
 assert.doesNotMatch(queuedCreateCommitPolicy, /refreshPolicy|refreshCurrentView/,
