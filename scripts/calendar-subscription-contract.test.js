@@ -165,6 +165,7 @@ for (const key of [
     'calendarIcsExcludeCompletedSchedules',
     'calendarIcsIncludeTomatoReminders',
     'calendarIcsIncludeTaskDates',
+    'calendarIcsIncludeTaskNotes',
 ]) {
     assert.match(settingsStore, new RegExp(`\\b${key}\\b`), `settings store must define ${key}`);
     assert.match(exportRuntime, new RegExp(`['"]${key}['"]`), `settings export must include ${key}`);
@@ -216,6 +217,18 @@ assert.match(calendar, /calendarIcsIncludeTaskDates: 'boolean'/, 'publisher star
 assert.match(calendar, /data-tm-cal-setting="calendarIcsIncludeTaskDates"/, 'task date ICS export must have a settings switch');
 assert.match(calendar, /同步任务全天日程[\s\S]*开始日期或截止日期的未完成任务作为全天事件同步/, 'task date ICS settings must explain the included tasks concisely');
 assert.doesNotMatch(calendar, /同时设置时按日期范围同步/, 'task date ICS settings must not expose unnecessary range implementation detail');
+assert.match(settingsStore, /calendarIcsIncludeTaskNotes:\s*false/, 'task note ICS export must default to disabled');
+assert.match(settingsStore, /typeof cloudData\.calendarIcsIncludeTaskNotes === 'boolean'/, 'task note ICS export must merge from synchronized settings');
+assert.match(settingsStore, /Storage\.get\('tm_calendar_ics_include_task_notes'/, 'task note ICS export must load from local settings storage');
+assert.match(settingsStore, /Storage\.set\('tm_calendar_ics_include_task_notes'/, 'task note ICS export must save to local settings storage');
+assert.match(calendar, /calendarIcsIncludeTaskNotes: 'boolean'/, 'publisher startup must refresh the synchronized task note setting');
+assert.match(calendar, /data-tm-cal-setting="calendarIcsIncludeTaskNotes"/, 'task note ICS export must have a settings switch');
+assert.match(calendar, /同步关联任务备注[\s\S]*写入 ICS 描述/, 'task note ICS settings must explain the included descriptions');
+assert.ok(calendar.indexOf('data-tm-cal-setting="calendarIcsIncludeTaskNotes"') < calendar.indexOf('data-tm-cal-setting="calendarIcsIncludeTaskDates"'), 'task note ICS setting must appear before task date synchronization');
+assert.match(calendar, /event\.description = combineCalendarSubscriptionDescriptions/, 'schedule ICS events must include schedule and linked task notes');
+assert.match(calendar, /description: getCalendarTaskRemark\(item\) \|\| resolveTaskRemark\(taskId\)/, 'task date ICS events must include task remarks');
+assert.match(calendar, /description: resolveTaskRemark\(blockId\)/, 'Tomato ICS events must include task remarks');
+assert.match(taskDateRuntime, /remark: String\(t\?\.remark \|\| t\?\.custom_remark \|\| t\?\.customRemark/, 'task date projection must expose task remarks');
 assert.match(calendar, /包含任务管理器日程、任务全天日程与底栏番茄钟提醒/, 'data scope status must name task all-day events when enabled');
 assert.match(calendar, /if \(!calendarName \|\| calendarName === 'Task Horizon'\) \{\s*state\.settingsStore\.data\.calendarIcsCalendarName = '任务管理器'/, 'the legacy English default must migrate without replacing other custom names');
 assert.match(settingsStore, /globalThis\.__taskHorizonSettingsStore = SettingsStore/, 'publisher startup must not depend on opening the task manager UI');

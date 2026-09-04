@@ -36,4 +36,8 @@ assert.doesNotMatch(
     'editing a schedule title must not patch the linked task title',
 );
 
+assert.match(source, /function getCalendarTaskRelationMeta\(task\)/, 'relation metadata should use a dedicated human-readable formatter');
+assert.match(source, /!\/\^\\d\{14\}-\[a-zA-Z0-9\]\+\$\/\.test\(text\)/, 'relation metadata must suppress block ids');
+assert.doesNotMatch(source, /task\?\.project \|\| task\?\.root_id \|\| task\?\.docId/, 'relation UI must not fall back to raw block ids');
+
 console.log('calendar linked schedule title contract tests passed');

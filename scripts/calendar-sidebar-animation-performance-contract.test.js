@@ -10,8 +10,8 @@ const taskStyles = fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8');
 
 assert.match(
     calendarSource,
-    /function scheduleCalendarSidebarResizeFrame\(calendar\)[\s\S]*callFullCalendarUpdateSize\(targetCalendar\)/,
-    'calendar sidebar transitions must keep live FullCalendar size updates',
+    /function scheduleCalendarSidebarResizeFrame\(calendar\)[\s\S]*callMainCalendarEngineUpdateSizeIfChanged\(targetCalendar, state\.calendarEl\)/,
+    'calendar sidebar transitions must keep live calendar engine size updates',
 );
 assert.match(
     calendarSource,
@@ -62,16 +62,17 @@ const monthLayoutStart = calendarSource.indexOf('    function syncMainCalendarMo
 const monthLayoutEnd = calendarSource.indexOf('    function applyMainCalendarMonthCellMinHeightLayout', monthLayoutStart);
 assert.ok(monthLayoutStart >= 0 && monthLayoutEnd > monthLayoutStart, 'month layout runtime must remain inspectable');
 const monthLayoutBlock = calendarSource.slice(monthLayoutStart, monthLayoutEnd);
-assert.match(monthLayoutBlock, /callCalendarAdapter\(targetCalendar, 'batchRendering', applyCalendarOptions\)/, 'month view option changes must be batched into one FullCalendar render');
+assert.match(monthLayoutBlock, /callCalendarAdapter\(targetCalendar, 'batchRendering', applyCalendarOptions\)/, 'month view option changes must be batched into one calendar engine render');
 
 const layoutRefreshStart = calendarSource.indexOf('    function scheduleMainCalendarLayoutRefresh');
-const layoutFrameStart = calendarSource.indexOf('state.mainLayoutRaf = requestAnimationFrame', layoutRefreshStart);
-const layoutFrameEnd = calendarSource.indexOf('            return true;', layoutFrameStart);
-assert.ok(layoutRefreshStart >= 0 && layoutFrameStart > layoutRefreshStart && layoutFrameEnd > layoutFrameStart, 'calendar layout frame must remain inspectable');
-const layoutFrameBlock = calendarSource.slice(layoutFrameStart, layoutFrameEnd);
-assert.equal((layoutFrameBlock.match(/applyMainCalendarMonthLayoutPass\(/g) || []).length, 1, 'one layout frame must traverse month cells only once');
-assert.equal((layoutFrameBlock.match(/applyTimeGridAllDayMoreLinkLayout\(/g) || []).length, 1, 'one layout frame must apply all-day more-link layout only once');
-assert.equal((layoutFrameBlock.match(/applyTimeAxisColumnLayout\(/g) || []).length, 1, 'one layout frame must apply time-axis layout only once');
+const layoutRefreshEnd = calendarSource.indexOf('    async function markTodayScheduledTaskRows', layoutRefreshStart);
+assert.ok(layoutRefreshStart >= 0 && layoutRefreshEnd > layoutRefreshStart, 'calendar layout refresh runtime must remain inspectable');
+const layoutRefreshBlock = calendarSource.slice(layoutRefreshStart, layoutRefreshEnd);
+assert.match(layoutRefreshBlock, /state\.queuePrototypeSurfaceRender\?\.\(\)/, 'calendar layout refresh must render through the prototype surface');
+assert.match(layoutRefreshBlock, /if \(options\.updateSize === true\)[\s\S]*callMainCalendarEngineUpdateSizeIfChanged\(targetCalendar, targetHost\)/, 'calendar engine sizing must remain opt-in');
+assert.doesNotMatch(layoutRefreshBlock, /applyMainCalendarMonthLayoutPass\(/, 'layout refresh must not repeat the prototype renderer month-cell traversal');
+assert.doesNotMatch(layoutRefreshBlock, /applyTimeGridAllDayMoreLinkLayout\(/, 'layout refresh must not run the removed all-day DOM repair pass');
+assert.doesNotMatch(layoutRefreshBlock, /applyTimeAxisColumnLayout\(/, 'layout refresh must not run the removed time-axis DOM repair pass');
 assert.match(calendarSource, /eventsSet: \(\) => \{[\s\S]*if \(!wrap\.classList\.contains\('tm-calendar-wrap--view-switching'\)\)/, 'eventsSet must leave final layout to the loading completion while a view is switching');
 assert.match(calendarSource, /datesSet: \(\) => \{[\s\S]*if \(!wrap\.classList\.contains\('tm-calendar-wrap--view-switching'\)\)/, 'datesSet must leave final layout to the loading completion while a view is switching');
 assert.match(
@@ -206,7 +207,7 @@ const runtimeContext = {
     state: runtimeState,
     getSettings() { return {}; },
     scheduleTaskPageRender() { taskPageRenderCount += 1; },
-    callFullCalendarUpdateSize() { liveResizeCount += 1; },
+    callMainCalendarEngineUpdateSizeIfChanged() { liveResizeCount += 1; },
     scheduleMainCalendarLayoutRefresh() { fullRefreshCount += 1; },
     requestAnimationFrame(callback) {
         const id = nextFrameId++;
@@ -263,7 +264,7 @@ for (let index = 0; index < 20; index += 1) runtimeContext.scheduleResize(runtim
 assert.equal(frames.size, 1, 'live sidebar resize updates must coalesce into one frame');
 Array.from(frames.values()).forEach((callback) => callback());
 frames.clear();
-assert.equal(liveResizeCount, 1, 'a coalesced resize frame must update FullCalendar once');
+assert.equal(liveResizeCount, 1, 'a coalesced resize frame must update calendar engine once');
 
 for (let index = 0; index < 1000; index += 1) {
     runtimeContext.scheduleHostSettle(wrap, runtimeState.calendarEl, runtimeState.calendar);

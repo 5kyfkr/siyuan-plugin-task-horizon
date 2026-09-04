@@ -698,33 +698,74 @@
         };
     }
 
+    function __tmQuickbarConfiguredDocScopeFingerprint() {
+        try {
+            if (typeof __tmBuildDocGroupLoaderContext === 'function') {
+                const ctx = __tmBuildDocGroupLoaderContext({ groupId: 'all', includeQuickAddDoc: true });
+                const key = String(ctx?.scopeKey || '').trim();
+                if (key) return key;
+            }
+        } catch (e) {}
+        return '';
+    }
+
+    function __tmInvalidateQuickbarConfiguredDocIdsCache() {
+        const currentRevision = Number(__tmQuickbarResolveConfiguredDocIds.__revision) || 0;
+        __tmQuickbarResolveConfiguredDocIds.__revision = currentRevision + 1;
+        __tmQuickbarResolveConfiguredDocIds.__cache = null;
+        __tmQuickbarResolveConfiguredDocIds.__inflight = null;
+    }
+
     async function __tmQuickbarResolveConfiguredDocIds(forceRefresh = false) {
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
         const legacyIds = Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
         const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+        const allDocsExcludedDocIds = typeof __tmGetAllDocsExcludedDocIds === 'function'
+            ? __tmNormalizeDocGroupExcludedDocIds(__tmGetAllDocsExcludedDocIds())
+            : [];
+        const allDocsExcludedSet = new Set(allDocsExcludedDocIds);
         const targetDocs = [];
         legacyIds.forEach((id) => {
             const did = String(id || '').trim();
-            if (did) targetDocs.push({ id: did, kind: 'doc', recursive: false });
+            if (did) targetDocs.push({
+                id: did,
+                kind: 'doc',
+                recursive: false,
+                excludedDocIds: allDocsExcludedDocIds.slice(),
+            });
         });
         groups.forEach((group) => {
             targetDocs.push(...__tmGetGroupSourceEntries(group));
         });
         const normalizedDocs = targetDocs
             .map((entry) => {
-                const id = String((typeof entry === 'object' ? entry?.id : entry) || '').trim();
+                const source = (entry && typeof entry === 'object') ? entry : {};
+                const id = String((typeof entry === 'object' ? source.id : entry) || '').trim();
                 if (!id) return null;
                 return {
                     id,
-                    kind: String((typeof entry === 'object' ? entry?.kind : '') || 'doc').trim() || 'doc',
-                    recursive: !!(typeof entry === 'object' ? entry?.recursive : false)
+                    kind: String((typeof entry === 'object' ? source.kind : '') || 'doc').trim() || 'doc',
+                    recursive: !!(typeof entry === 'object' ? source.recursive : false),
+                    calendarOptimization: source.calendarOptimization,
+                    excludedDocIds: typeof __tmNormalizeDocGroupExcludedDocIds === 'function'
+                        ? __tmNormalizeDocGroupExcludedDocIds(source.excludedDocIds)
+                        : [],
                 };
             })
             .filter(Boolean);
-        const cacheKey = [
+        const scopeFingerprint = __tmQuickbarConfiguredDocScopeFingerprint();
+        const fallbackFingerprint = [
             quickAddDocId && quickAddDocId !== '__dailyNote__' ? `quickAdd:${quickAddDocId}` : '',
-            ...normalizedDocs.map((entry) => `${entry.kind}:${entry.id}:${entry.recursive ? 1 : 0}`)
+            `allExcluded:${allDocsExcludedDocIds.join(',')}`,
+            ...normalizedDocs.map((entry) => [
+                entry.kind,
+                entry.id,
+                entry.recursive ? 1 : 0,
+                __tmNormalizeDocGroupExcludedDocIds(entry.excludedDocIds).join(','),
+                JSON.stringify(entry.calendarOptimization || null),
+            ].join(':'))
         ].filter(Boolean).join('|');
+        const cacheKey = `quickbar-configured-docs:${scopeFingerprint || fallbackFingerprint}`;
         const now = Date.now();
         const cacheEnt = __tmQuickbarResolveConfiguredDocIds.__cache;
         if (!forceRefresh
@@ -743,15 +784,19 @@
         const finalIds = [];
         const pushDocId = (id0) => {
             const id = String(id0 || '').trim();
-            if (!id || seen.has(id)) return;
+            if (!id || allDocsExcludedSet.has(id) || seen.has(id)) return;
             seen.add(id);
             finalIds.push(id);
         };
+        const requestRevision = Number(__tmQuickbarResolveConfiguredDocIds.__revision) || 0;
         const resolvePromise = Promise.resolve().then(async () => {
             if (quickAddDocId && quickAddDocId !== '__dailyNote__') pushDocId(quickAddDocId);
             await Promise.all(normalizedDocs.map((entry) => __tmExpandSourceEntryDocIds(entry, pushDocId)));
             const out = finalIds.slice();
-            __tmQuickbarResolveConfiguredDocIds.__cache = { key: cacheKey, ids: out, t: Date.now() };
+            const currentRevision = Number(__tmQuickbarResolveConfiguredDocIds.__revision) || 0;
+            if (currentRevision === requestRevision) {
+                __tmQuickbarResolveConfiguredDocIds.__cache = { key: cacheKey, ids: out, t: Date.now() };
+            }
             return out;
         });
         __tmQuickbarResolveConfiguredDocIds.__inflight = { key: cacheKey, promise: resolvePromise };
@@ -759,11 +804,14 @@
             const ids = await resolvePromise;
             return Array.isArray(ids) ? ids.slice() : [];
         } finally {
-            if (__tmQuickbarResolveConfiguredDocIds.__inflight?.key === cacheKey) {
+            if (__tmQuickbarResolveConfiguredDocIds.__inflight?.key === cacheKey
+                && __tmQuickbarResolveConfiguredDocIds.__inflight?.promise === resolvePromise) {
                 __tmQuickbarResolveConfiguredDocIds.__inflight = null;
             }
         }
     }
+
+    try { globalThis.__taskHorizonQuickbarInvalidateDocScope = __tmInvalidateQuickbarConfiguredDocIdsCache; } catch (e) {}
 
     async function __tmAiGetSummaryTasksByDocIds(docIds, options = {}) {
         return await __tmSummaryLoadTasksByDocs(docIds, { ignoreExcludeCompleted: options?.ignoreExcludeCompleted === true });
@@ -1512,6 +1560,12 @@
         },
         formatTaskCompletedAtTime(value) {
             try { return __tmFormatTaskCompletedAtTime(value); } catch (e) { return String(value || '').trim(); }
+        },
+        getTaskRemainingTimeInfo(task, options = {}) {
+            try { return __tmGetTaskRemainingTimeInfo(task, options); } catch (e) { return null; }
+        },
+        renderTaskRemainingTimeInfoHtml(info) {
+            try { return __tmRenderTaskRemainingTimeInfoHtml(info); } catch (e) { return ''; }
         },
         notifyAttrUpdated(detail = {}) {
             const next = (detail && typeof detail === 'object' && !Array.isArray(detail)) ? detail : {};

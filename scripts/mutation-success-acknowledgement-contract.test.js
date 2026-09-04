@@ -42,6 +42,7 @@ const headingCreate = segment(createRuntime, 'window.tmCreateTaskForHeadingGroup
 const subtaskCreate = segment(createRuntime, 'window.tmCreateSubtask = async function', 'window.tmCreateSiblingTask = async function');
 const siblingCreate = segment(createRuntime, 'window.tmCreateSiblingTask = async function', 'let __tmQuickbarScheduledRefreshTimer');
 const quickAddCreate = segment(createRuntime, 'window.tmQuickAddSubmit = async function', 'window.tmAdd = async function');
+const resolveKanbanChildDropCard = segment(renderRuntime, 'function __tmResolveKanbanChildDropCard', 'function __tmClearKanbanChildDropCandidate');
 const kanbanChildCandidate = segment(renderRuntime, 'function __tmUpdateKanbanChildDropCandidate', 'function __tmTakeReadyKanbanChildDropTarget');
 const kanbanDragStart = segment(renderRuntime, 'window.tmKanbanDragStart = function', 'window.tmKanbanDragEnd = function');
 const kanbanDrop = segment(renderRuntime, 'window.tmKanbanDrop = async function', 'window.tmKanbanPickDate = async function');
@@ -50,6 +51,7 @@ const optimisticMove = segment(createRuntime, 'function __tmApplyMoveOptimisticL
 const floatingPriorityDrop = segment(calendarView, 'async function applyFloatingMiniTaskPriority', 'function clearFloatingMiniAutoFlipTimer');
 const floatingDateDrop = segment(calendarView, 'async function applyFloatingMiniCalendarDate', 'async function finalizeFloatingMiniCalendarTouchDrop');
 const allDayDueDateDrop = segment(calendarView, 'async function maybeUpdateEmptyTaskDueDateFromAllDayDrop', 'function parseTaskDropPayload');
+const taskContextDate = segment(taskLoader, 'const createDateBlock = () =>', 'const createPriorityBlock = () =>');
 const priorityFieldEntry = segment(fieldEditRuntime, 'window.tmSetTaskPriority = async function', 'window.tmSetTaskCompletionTime = async function');
 const completionTimeFieldEntry = segment(fieldEditRuntime, 'window.tmSetTaskCompletionTime = async function', 'function __tmOpenPriorityInlinePicker');
 
@@ -117,6 +119,8 @@ assert.match(floatingDateDrop, /await window\.tmUpdateTaskDates\([\s\S]*wait: tr
 assertAwaitedBeforeSuccess(floatingDateDrop, 'await window.tmUpdateTaskDates(', 'toast(`✅ 截止日期已更新', 'floating calendar due date');
 assert.match(allDayDueDateDrop, /await window\.tmUpdateTaskDates\([\s\S]*wait: true,[\s\S]*showErrorHint: false/);
 assertAwaitedBeforeSuccess(allDayDueDateDrop, 'await window.tmUpdateTaskDates(', 'toast(`✅ 截止日期已更新', 'all-day calendar due date');
+assert.match(taskContextDate, /opt\.mode === 'clear'[\s\S]*window\.tmUpdateTaskDates\(taskId, \{ startDate: '', completionTime: '' \}/,
+    'context-menu date clearing must remove both task start and deadline');
 const priorityBackgroundBranch = priorityFieldEntry.slice(priorityFieldEntry.indexOf('Promise.resolve(result).catch'));
 const completionTimeBackgroundBranch = completionTimeFieldEntry.slice(completionTimeFieldEntry.indexOf('Promise.resolve(result).catch'));
 assert.doesNotMatch(priorityBackgroundBranch, /✅|['"]success['"]/,
@@ -266,7 +270,7 @@ async function verifyKanbanChildDropSettlement() {
         },
         __tmClearMultiTaskSelection: (options) => events.push({ kind: 'clear', keepMode: options?.keepMode === true }),
     };
-    vm.runInNewContext(kanbanDrop + '\nthis.kanbanDrop = window.tmKanbanDrop;', context);
+    vm.runInNewContext(resolveKanbanChildDropCard + '\n' + kanbanDrop + '\nthis.kanbanDrop = window.tmKanbanDrop;', context);
     const event = {
         preventDefault() {},
         stopPropagation() {},

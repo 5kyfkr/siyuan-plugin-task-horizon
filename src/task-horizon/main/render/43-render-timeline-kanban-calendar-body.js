@@ -309,9 +309,12 @@
 
                 const allChildren = task.children || [];
                 const totalChildren = allChildren.length;
-                const completedChildren = allChildren.filter(c => c.done).length;
+                const completedChildren = allChildren.filter((child) => (
+                    typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(child) : !!child?.done
+                )).length;
                 const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
-                const isDoneSubtask = !!task.done && (Math.max(0, Number(row.depth) || 0) > 0);
+                const isDoneSubtask = (typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(task) : !!task.done)
+                    && (Math.max(0, Number(row.depth) || 0) > 0);
                 const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
                 const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
                 const baseBg = groupBg || doneSubtaskBg;

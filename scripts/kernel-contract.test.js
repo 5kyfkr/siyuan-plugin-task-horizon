@@ -26,6 +26,19 @@ const IDS = Object.freeze({
     childTask: '20260101000019-task',
 });
 
+async function expectCapabilityFailure(invoke, code, message) {
+    let failure;
+    try {
+        await invoke();
+    } catch (error) {
+        failure = error;
+    }
+    assert.ok(failure, `Agent capability must reject with ${code}`);
+    assert.equal(failure.code, code);
+    if (message) assert.match(failure.message, message);
+    return failure;
+}
+
 function createHarness(options = {}) {
     const blocks = new Map([
         [IDS.doc, { id: IDS.doc, parent_id: '', root_id: IDS.doc, type: 'd', subtype: '', markdown: '', content: 'Contract Doc', path: `/${IDS.doc}.sy`, hpath: '/Contract Doc', updated: '20260101000000', created: '20260101000000', sort: 0 }],
@@ -147,7 +160,11 @@ function createHarness(options = {}) {
         const title = id === IDS.paragraphTitleTask
             ? String(block.markdown.split(/\r?\n/)[1] || '').trim()
             : String(block.markdown || '').replace(/^\s*[*+-]\s+\[[^\]]\]\s*/, '').split(/\r?\n/)[0].trim();
-        return `<div data-task="${marker}" data-marker="*" data-subtype="t" data-node-id="${id}" data-type="NodeListItem" class="li${done ? ' protyle-task--done' : ''}"><div class="protyle-action protyle-action--task"><svg><use xlink:href="#icon${done ? 'Check' : 'Uncheck'}"></use></svg></div><div data-node-id="${id.slice(0, 14)}-paragraph" data-type="NodeParagraph" class="p"><div contenteditable="true">${escapeHtml(title)}</div><div class="protyle-attr" contenteditable="false"></div></div><div class="protyle-attr" contenteditable="false"></div></div>`;
+        const customAttrs = Object.entries(attrs.get(id) || {})
+            .filter(([key]) => String(key || '').startsWith('custom-'))
+            .map(([key, value]) => ` ${key}="${escapeHtml(value).replace(/"/g, '&quot;')}"`)
+            .join('');
+        return `<div data-task="${marker}" data-marker="*" data-subtype="t" data-node-id="${id}" data-type="NodeListItem" class="li${done ? ' protyle-task--done' : ''}"${customAttrs}><div class="protyle-action protyle-action--task"><svg><use xlink:href="#icon${done ? 'Check' : 'Uncheck'}"></use></svg></div><div data-node-id="${id.slice(0, 14)}-paragraph" data-type="NodeParagraph" class="p"><div contenteditable="true">${escapeHtml(title)}</div><div class="protyle-attr" contenteditable="false"></div></div><div class="protyle-attr" contenteditable="false"></div></div>`;
     }
 
     function applyTaskDOMUpdate(id, dom) {
@@ -460,9 +477,15 @@ function createHarness(options = {}) {
                             sort: 1,
                         });
                         if (isList) {
-                            const taskMatch = dom.match(/<div[^>]*data-node-id="([^"]+)"[^>]*data-type="NodeListItem"/);
+                            const taskMatch = dom.match(/<div(?=[^>]*data-type="NodeListItem")[^>]*data-node-id="([^"]+)"[^>]*>/);
                             const taskID = String(taskMatch?.[1] || '');
                             if (taskID) {
+                                const taskTag = String(taskMatch?.[0] || '');
+                                const restoredAttrs = {};
+                                for (const match of taskTag.matchAll(/\s(custom-[\w-]+)="([^"]*)"/g)) {
+                                    restoredAttrs[match[1]] = decodeHtml(match[2]);
+                                }
+                                if (Object.keys(restoredAttrs).length) attrs.set(taskID, restoredAttrs);
                                 const marker = String(dom.match(/\bdata-task="([^"]*)"/)?.[1] || ' ');
                                 const title = decodeHtml(String(dom.match(/data-type="NodeParagraph"[\s\S]*?<div contenteditable="true">([\s\S]*?)<\/div>/)?.[1] || '').replace(/<[^>]+>/g, ''));
                                 blocks.set(taskID, {
@@ -706,7 +729,7 @@ function createHarness(options = {}) {
 
 async function run() {
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugin.json'), 'utf8'));
-    assert.equal(manifest.version, '2.9.6');
+    assert.equal(manifest.version, '2.9.7');
     assert.ok(Array.isArray(manifest.kernels) && manifest.kernels.includes('all'), 'plugin.json must enable the kernel plugin on supported backends');
     assert.equal(manifest.minAppVersion, '3.8.1', 'the release must require the SiYuan version whose plugin readOnly and startup RPC contracts were reviewed');
 
@@ -1175,13 +1198,12 @@ async function run() {
     const createOff = await harness.call('taskHorizonSetMcpToolConfig', { toolName: 'create_task', enabled: false });
     assert.equal(createOff.ok, true);
     assert.equal(harness.mcpTools.create_task, undefined);
-    const guardedBatch = await harness.mcpTools.batch_tasks.handler({
+    const guardedBatch = await expectCapabilityFailure(() => harness.mcpTools.batch_tasks.handler({
         action: 'get',
         phase: 'preview',
         operations: [{ action: 'create', title: 'Must stay blocked', documentID: IDS.doc }],
-    });
-    assert.equal(guardedBatch.ok, false);
-    assert.equal(guardedBatch.error.code, 'UNSUPPORTED');
+    }), 'UNSUPPORTED');
+    assert.deepEqual(Array.from(guardedBatch.details.tools), ['create_task']);
     harness.failNextRegistration('create_task');
     const failedCreateOn = await harness.call('taskHorizonSetMcpToolConfig', { toolName: 'create_task', enabled: true });
     assert.equal(failedCreateOn.ok, false, 'failed MCP registration must surface to the caller');
@@ -1192,14 +1214,12 @@ async function run() {
     assert.equal(storedMcpConfig.schemaVersion, 2);
     assert.equal(storedMcpConfig.tools.create_task, true);
     await harness.call('taskHorizonSetMcpToolConfig', { toolName: 'update_task', enabled: false });
-    const guardedPatchBatch = await harness.mcpTools.batch_tasks.handler({
+    const guardedPatchBatch = await expectCapabilityFailure(() => harness.mcpTools.batch_tasks.handler({
         action: 'get',
         phase: 'preview',
         operations: [{ action: 'patch', taskID: IDS.singleTask, patch: { priority: 'must-stay-blocked' } }],
-    });
-    assert.equal(guardedPatchBatch.ok, false);
-    assert.equal(guardedPatchBatch.error.code, 'UNSUPPORTED');
-    assert.deepEqual(Array.from(guardedPatchBatch.error.details.tools), ['update_task']);
+    }), 'UNSUPPORTED');
+    assert.deepEqual(Array.from(guardedPatchBatch.details.tools), ['update_task']);
     await harness.call('taskHorizonSetMcpToolConfig', { toolName: 'update_task', enabled: true });
 
     const resolved = await harness.call('taskHorizonResolveTaskBinding', IDS.childBlock);
@@ -1686,26 +1706,22 @@ async function run() {
     assert.equal(createdFollow.data.refresh.action, 'reminder');
     assert.deepEqual(Array.from(createdFollow.data.refresh.documentIDs), [IDS.doc]);
     assert.equal(JSON.parse(harness.attrs.get(createdFollow.data.attrHostID)['custom-tomato-reminder']).repeatMode, 'followTaskRepeat');
-    const missingReminderTarget = await reminderTool.handler({
+    await expectCapabilityFailure(() => reminderTool.handler({
         action: 'apply',
         operation: 'set',
         taskTitle: '缺少位置',
         mode: 'independent',
         schedule: { startDate: '2026-07-25', times: ['10:00'], interval: 'once' },
-    });
-    assert.equal(missingReminderTarget.ok, false);
-    assert.equal(missingReminderTarget.error.code, 'INVALID_ARGUMENT');
+    }), 'INVALID_ARGUMENT');
     const tasksBeforeFailedReminder = Array.from(harness.blocks.values()).filter((block) => block.type === 'i' && block.subtype === 't').length;
-    const failedCreatedReminder = await reminderTool.handler({
+    await expectCapabilityFailure(() => reminderTool.handler({
         action: 'apply',
         operation: 'set',
         taskTitle: '不应残留的提醒任务',
         documentID: IDS.doc,
         mode: 'independent',
         schedule: { startDate: '2026-07-25', times: ['10:00'], interval: 'unsupported' },
-    });
-    assert.equal(failedCreatedReminder.ok, false);
-    assert.equal(failedCreatedReminder.error.code, 'INVALID_ARGUMENT');
+    }), 'INVALID_ARGUMENT');
     assert.equal(Array.from(harness.blocks.values()).filter((block) => block.type === 'i' && block.subtype === 't').length, tasksBeforeFailedReminder, 'failed reminder creation must remove its carrier task');
     harness.attrs.set(IDS.singleList, {
         ...harness.attrs.get(IDS.singleList),
@@ -1841,7 +1857,7 @@ async function run() {
 
     const agentScheduleTool = harness.mcpTools.manage_agent_schedules;
     assert.ok(agentScheduleTool, 'manage_agent_schedules must be registered');
-    const invalidAgentSchedule = await agentScheduleTool.handler({
+    await expectCapabilityFailure(() => agentScheduleTool.handler({
         action: 'create',
         event: {
             name: 'Invalid date',
@@ -1849,9 +1865,7 @@ async function run() {
             schedule: { kind: 'once', date: '2026-02-31', time: '19:00' },
             output: { mode: 'notification' },
         },
-    });
-    assert.equal(invalidAgentSchedule.ok, false, 'nonexistent calendar dates must be rejected');
-    assert.equal(invalidAgentSchedule.error.code, 'INVALID_ARGUMENT');
+    }), 'INVALID_ARGUMENT');
     assert.match(agentScheduleTool.schema.description, /必须先用 question/);
     const createdAgentSchedule = await agentScheduleTool.handler({
         action: 'create',
@@ -2174,15 +2188,13 @@ async function run() {
     };
     Object.entries(harness.mcpTools).forEach(([name, tool]) => assertStringSchemaEnums(tool.schema.inputSchema, name));
 
-    const invalidScheduleLink = await harness.mcpTools.create_schedule.handler({
+    await expectCapabilityFailure(() => harness.mcpTools.create_schedule.handler({
         action: 'create',
         taskId: IDS.doc,
         title: 'Invalid link',
         start: '2026-07-16T09:00:00+08:00',
         end: '2026-07-16T10:00:00+08:00',
-    });
-    assert.equal(invalidScheduleLink.ok, false);
-    assert.equal(invalidScheduleLink.error.code, 'NOT_FOUND');
+    }), 'NOT_FOUND');
     const childLinkedSchedule = await harness.mcpTools.create_schedule.handler({
         action: 'create',
         taskId: IDS.childBlock,
@@ -2260,9 +2272,10 @@ async function run() {
     ]);
     assert.equal(JSON.parse(harness.storage.get('calendar-events.json')).length, 4);
 
-    const invalidAction = await harness.mcpTools.create_task.handler({ action: 'update', title: 'Should not write', documentID: IDS.doc });
-    assert.equal(invalidAction.ok, false);
-    assert.equal(invalidAction.error.code, 'INVALID_ARGUMENT');
+    await expectCapabilityFailure(
+        () => harness.mcpTools.create_task.handler({ action: 'update', title: 'Should not write', documentID: IDS.doc }),
+        'INVALID_ARGUMENT',
+    );
 
     const taskOperationSchema = harness.mcpTools.batch_tasks.schema.inputSchema.properties.operations;
     assert.equal(taskOperationSchema.items.additionalProperties, false, 'batch task operations must not expose an opaque object schema');
@@ -2298,6 +2311,18 @@ async function run() {
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], 'high');
     assert.equal(batchUndo.data.data.items[0].refresh.action, 'update');
 
+    const partialBatch = await harness.mcpTools.batch_tasks.handler({
+        action: 'apply',
+        phase: 'execute',
+        operations: [
+            { kind: 'update', taskID: IDS.singleTask, patch: { priority: 'partial-success' } },
+            { kind: 'update', taskID: '20260101999999-missing', patch: { priority: 'must-fail' } },
+        ],
+    });
+    assert.equal(partialBatch.ok, true, 'item failures must remain a normal batch receipt');
+    assert.deepEqual(Array.from(partialBatch.data.summary && [partialBatch.data.summary.succeeded, partialBatch.data.summary.failed]), [1, 1]);
+    assert.deepEqual(Array.from(partialBatch.data.items.map((item) => item.ok)), [true, false]);
+
     for (const variant of [
         { field: 'action', value: 'update', priority: 'batch-action-value' },
         { field: 'type', value: 'update', priority: 'batch-type-value' },
@@ -2313,32 +2338,23 @@ async function run() {
         assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], variant.priority);
     }
 
-    const unknownBatchAction = await harness.mcpTools.batch_tasks.handler({
+    await expectCapabilityFailure(() => harness.mcpTools.batch_tasks.handler({
         action: 'get',
         phase: 'preview',
         operations: [{ action: 'rename', taskID: IDS.singleTask }],
-    });
-    assert.equal(unknownBatchAction.ok, false);
-    assert.equal(unknownBatchAction.error.code, 'INVALID_ARGUMENT');
-    assert.match(unknownBatchAction.error.message, /第 1 项任务操作未知/);
+    }), 'INVALID_ARGUMENT', /第 1 项任务操作未知/);
 
-    const missingBatchAction = await harness.mcpTools.batch_tasks.handler({
+    await expectCapabilityFailure(() => harness.mcpTools.batch_tasks.handler({
         action: 'get',
         phase: 'preview',
         operations: [{ taskID: IDS.singleTask, patch: { priority: 'must-not-write' } }],
-    });
-    assert.equal(missingBatchAction.ok, false);
-    assert.equal(missingBatchAction.error.code, 'INVALID_ARGUMENT');
-    assert.match(missingBatchAction.error.message, /第 1 项任务操作缺少 kind\/action\/type/);
+    }), 'INVALID_ARGUMENT', /第 1 项任务操作缺少 kind\/action\/type/);
 
-    const conflictingBatchAction = await harness.mcpTools.batch_tasks.handler({
+    await expectCapabilityFailure(() => harness.mcpTools.batch_tasks.handler({
         action: 'get',
         phase: 'preview',
         operations: [{ kind: 'update', action: 'delete', taskID: IDS.singleTask, patch: { priority: 'must-not-write' } }],
-    });
-    assert.equal(conflictingBatchAction.ok, false);
-    assert.equal(conflictingBatchAction.error.code, 'INVALID_ARGUMENT');
-    assert.match(conflictingBatchAction.error.message, /第 1 项任务操作类型冲突/);
+    }), 'INVALID_ARGUMENT', /第 1 项任务操作类型冲突/);
     assert.notEqual(harness.attrs.get(IDS.singleTask)['custom-priority'], 'must-not-write');
 
     const batchScheduleAction = await harness.mcpTools.batch_schedules.handler({
@@ -2384,19 +2400,17 @@ async function run() {
     assert.equal(harness.attrs.get(IDS.singleTask)['custom-priority'], 'combined-alias-value');
     assert.equal(JSON.parse(harness.storage.get('calendar-events.json')).find((item) => item.id === 'schedule-b').title, 'Combined schedule type');
 
-    const combinedDeleteAlias = await harness.mcpTools.apply_task_operation_plan.handler({
+    await expectCapabilityFailure(() => harness.mcpTools.apply_task_operation_plan.handler({
         action: 'apply',
         taskOperations: [{ action: 'delete', taskID: IDS.singleTask }],
         scheduleOperations: [],
-    });
-    assert.equal(combinedDeleteAlias.ok, false);
-    assert.equal(combinedDeleteAlias.error.code, 'INVALID_ARGUMENT');
-    assert.match(combinedDeleteAlias.error.message, /组合操作不支持删除/);
+    }), 'INVALID_ARGUMENT', /组合操作不支持删除/);
     assert.equal(harness.blocks.has(IDS.singleTask), true);
 
-    const deleteWithoutToken = await harness.mcpTools.delete_task.handler({ action: 'delete', phase: 'execute', taskID: IDS.singleTask });
-    assert.equal(deleteWithoutToken.ok, false);
-    assert.equal(deleteWithoutToken.error.code, 'CONFIRMATION_REQUIRED');
+    await expectCapabilityFailure(
+        () => harness.mcpTools.delete_task.handler({ action: 'delete', phase: 'execute', taskID: IDS.singleTask }),
+        'CONFIRMATION_REQUIRED',
+    );
 
     const deletePreview = await harness.mcpTools.delete_task.handler({ action: 'get', phase: 'preview', taskID: directCreate.data.task.id });
     assert.equal(deletePreview.ok, true);

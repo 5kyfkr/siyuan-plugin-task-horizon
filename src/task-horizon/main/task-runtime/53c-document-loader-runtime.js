@@ -603,6 +603,7 @@
         const forceShellRender = !!(options && options.forceShellRender === true);
         const refreshAfterTaskIndexFirstPaint = !!(options && options.refreshAfterTaskIndexFirstPaint === true);
         const waitForDocScopeResolve = !!(options && options.waitForDocScopeResolve === true);
+        const retryEmptyDocScope = !!(options && options.retryEmptyDocScope === true);
         const skipFullLoadAfterFastFirstPaint = !!(options && options.skipFullLoadAfterFastFirstPaint === true);
         const skipTaskIndexWarmup = !!(options && options.skipTaskIndexWarmup === true);
         const skipSiblingRankFirstPaint = !!(options && options.skipSiblingRankFirstPaint === true);
@@ -836,14 +837,17 @@
             }
         };
         const armInlineLoadingWatchdog = () => {
-            const defaultWatchdogMs = sourceLabel === 'openManager' ? 18000 : 30000;
+            const isManagerOpenSource = sourceLabel === 'openManager'
+                || sourceLabel === 'mobile-startup-auto-open'
+                || sourceLabel === 'openManager-watchdog-retry';
+            const defaultWatchdogMs = isManagerOpenSource ? 18000 : 30000;
             const watchdogMs = Math.max(6000, Math.min(60000, Math.round(Number(options?.loadingWatchdogMs) || defaultWatchdogMs)));
             inlineLoadingWatchdogTimer = setTimeout(() => {
                 inlineLoadingWatchdogTimer = 0;
                 if (!isTokenCurrent()) return;
                 if (Number(state.uiInlineLoadingToken) !== token) return;
                 clearInlineLoadingForCurrentToken();
-                if (sourceLabel !== 'openManager' || __tmHasTaskDataReadyForUi()) return;
+                if (!isManagerOpenSource || __tmHasTaskDataReadyForUi()) return;
                 try {
                     if (runtimeState && typeof runtimeState.nextOpenToken === 'function') {
                         runtimeState.nextOpenToken();
@@ -866,6 +870,9 @@
                         loadingStyleKind: 'topbar',
                         loadingDelayMs: 0,
                         loadingWatchdogMs: 30000,
+                        waitNotebookCache: sourceLabel === 'mobile-startup-auto-open',
+                        waitForDocScopeResolve: sourceLabel === 'mobile-startup-auto-open',
+                        retryEmptyDocScope: sourceLabel === 'mobile-startup-auto-open',
                         source: 'openManager-watchdog-retry',
                     }).catch(() => null);
                 } catch (e) {}
@@ -1009,6 +1016,47 @@
         };
         let allDocIds = [];
         allDocIds = await resolveDocIdsFromGroups(resolveScopeOptions);
+        // During a native mobile cold start, SiYuan can expose the plugin after
+        // settings are ready but before notebook/file-tree queries are usable.
+        // An empty result is otherwise cached as a valid empty group and the
+        // first render stays blank until the user manually refreshes.
+        if (allDocIds.length === 0 && (retryEmptyDocScope || waitForDocScopeResolve)) {
+            let configuredScope = false;
+            try {
+                const scopeContext = __tmBuildDocGroupLoaderContext({
+                    groupId: currentGroupId,
+                    includeQuickAddDoc: true,
+                });
+                const quickAddDocId = String(scopeContext?.quickAddDocId || '').trim();
+                configuredScope = !!(
+                    (Array.isArray(scopeContext?.entries) && scopeContext.entries.length > 0)
+                    || (quickAddDocId && quickAddDocId !== '__dailyNote__')
+                    || (Array.isArray(scopeContext?.otherBlockRefs) && scopeContext.otherBlockRefs.length > 0)
+                );
+            } catch (e) {}
+            if (configuredScope) {
+                const retryCount = Math.max(1, Math.min(4, Math.round(Number(options?.emptyDocScopeRetryCount) || 3)));
+                const retryDelays = [120, 280, 600, 1000];
+                for (let retryIndex = 0; retryIndex < retryCount && allDocIds.length === 0; retryIndex += 1) {
+                    try {
+                        await new Promise((resolve) => setTimeout(resolve, retryDelays[retryIndex] || 600));
+                    } catch (e) {}
+                    if (!isTokenCurrent()) return;
+                    try { await __tmRefreshNotebookCache(true); } catch (e) {}
+                    try {
+                        allDocIds = await resolveDocIdsFromGroups({
+                            ...resolveScopeOptions,
+                            forceRefreshScope: true,
+                            skipPersistedScope: true,
+                            skipResolvedDocIdsCache: true,
+                            verifyCachedScope: false,
+                        });
+                    } catch (e) {
+                        allDocIds = [];
+                    }
+                }
+            }
+        }
         const editorOrderSnapshots = forceSyncFlowRank
             ? __tmCaptureEditorDocumentTaskOrder(allDocIds, { maxTasks: 80 })
             : [];
@@ -1345,7 +1393,7 @@
             }
         }
 
-        // 如果没有文档，打开设置
+        // 仅在“全部文档”范围也没有任何文档时打开设置；具体分组为空是合法的空状态。
         if (allDocIds.length === 0) {
             state.taskTree = [];
             globalThis.__tmTaskStore?.clearFlat?.({ mergeOtherBlocks: true });
@@ -1357,7 +1405,10 @@
                 renderLoadedState();
             }
             scheduleDeferredPostLoadWork();
-            if (!(Array.isArray(state.otherBlocks) && state.otherBlocks.length) && activeModal && isTokenCurrent()) showSettings();
+            const shouldOpenSettings = currentGroupId === 'all'
+                && !(Array.isArray(state.otherBlocks) && state.otherBlocks.length);
+            if (shouldOpenSettings && activeModal && isTokenCurrent()) showSettings();
+            if (retryEmptyDocScope || waitForDocScopeResolve) return false;
             return;
         }
 
@@ -1793,6 +1844,10 @@
                     }
 
                     __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask);
+                    // A full read can briefly lag behind a just-committed repeat
+                    // advance. Preserve all fields still owned by the local
+                    // mutation watermark before collecting reconcile candidates.
+                    try { __tmMergeLocalTaskPatchIntoTask(task); } catch (e) {}
 
                     // 标准化字段
                     const docName = task.docName || task.doc_name || '未命名文档';
@@ -1865,9 +1920,15 @@
                         });
                     }
                     const repeatRule = (task.repeatRule && typeof task.repeatRule === 'object') ? task.repeatRule : null;
-                    if (!task.done && repeatRule?.enabled && repeatRule.trigger === 'due' && repeatRule.type !== 'none') {
+                    const nativeTaskDone = typeof __tmIsTaskNativeDone === 'function'
+                        ? __tmIsTaskNativeDone(task)
+                        : !!task.done;
+                    const pendingNativeDoneReset = task?.repeatState?.pendingNativeDoneReset === true;
+                    if (pendingNativeDoneReset) {
                         recurringReconcileCandidateIds.push(String(task.id || '').trim());
-                    } else if (task.done && repeatRule?.enabled && repeatRule.type !== 'none'
+                    } else if (!nativeTaskDone && repeatRule?.enabled && repeatRule.trigger === 'due' && repeatRule.type !== 'none') {
+                        recurringReconcileCandidateIds.push(String(task.id || '').trim());
+                    } else if (nativeTaskDone && repeatRule?.enabled && repeatRule.type !== 'none'
                         && !(queuedTaskFieldPatch && Object.prototype.hasOwnProperty.call(queuedTaskFieldPatch, 'done'))
                         && __tmNormalizeTaskCompleteAtValue(task?.taskCompleteAt || task?.task_complete_at || '')) {
                         recurringReconcileCandidateIds.push(String(task.id || '').trim());
@@ -2386,6 +2447,7 @@
 
             console.error('[加载] 获取任务失败:', e);
             hint('❌ 加载任务失败', 'error');
+            if (retryEmptyDocScope || waitForDocScopeResolve) return false;
         } finally {
             if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) {
                 try { __tmSetInlineLoading(false); } catch (e) {}
@@ -2395,6 +2457,7 @@
 
             try { console.error('[加载] 获取任务失败:', e); } catch (e2) {}
             try { hint('❌ 加载任务失败', 'error'); } catch (e3) {}
+            if (retryEmptyDocScope || waitForDocScopeResolve) return false;
         } finally {
             clearInlineLoadingWatchdog();
             clearInlineLoadingForCurrentToken();

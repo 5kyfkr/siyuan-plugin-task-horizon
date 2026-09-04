@@ -84,6 +84,7 @@ try {
         '.git',
         '.gitignore',
         '.impeccable.md',
+        '.codex-tmp',
         '.github',
         '.history',
         '.idea',

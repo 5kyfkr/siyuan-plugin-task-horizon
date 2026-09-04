@@ -73,7 +73,9 @@
     const __TM_TASK_SNAPSHOT_MAX_ENTRIES = 20;
     const __TM_TASK_SNAPSHOT_MAX_BYTES = 20 * 1024 * 1024;
     const __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES = 20 * 1024 * 1024;
-    const __TM_TASK_INDEX_VERSION = 5;
+    // The calendar task index now stores repeat history so recurring task
+    // instances can be projected during the first calendar paint.
+    const __TM_TASK_INDEX_VERSION = 6;
     const __TM_TASK_INDEX_MAX_BYTES = 24 * 1024 * 1024;
     const __TM_TASK_INDEX_MAX_DOCS = 1200;
     const __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES = 10 * 1024 * 1024;
@@ -726,7 +728,10 @@
     }
 
     function __tmNormalizeNewTaskDefaultLocationMode(value) {
-        return String(value || '').trim() === 'lastSelected' ? 'lastSelected' : 'configured';
+        const mode = String(value || '').trim();
+        if (mode === 'lastSelected') return 'lastSelected';
+        if (mode === 'dailyNote') return 'dailyNote';
+        return 'configured';
     }
 
     function __tmNormalizeDocDefaultTaskHeadingMap(input) {
@@ -3578,6 +3583,7 @@
             priorityScore: Number.isFinite(Number(source.priorityScore)) ? Number(source.priorityScore) : undefined,
             repeatRule: __tmCompactTaskIndexValue(source.repeatRule || source.repeat_rule, { maxBytes: 4096 }),
             repeatState: __tmCompactTaskIndexValue(source.repeatState || source.repeat_state, { maxBytes: 4096 }),
+            repeatHistory: __tmCompactTaskIndexValue(source.repeatHistory || source.repeat_history, { maxBytes: 32768 }),
             attachments: __tmCompactTaskIndexValue(attachmentPaths, { maxBytes: 16384 }),
             attachmentMeta: __tmCompactTaskIndexValue(attachmentMeta, { maxBytes: 16384 }),
             attachmentAttrsLoaded: __tmHasTaskAttachmentAttrSnapshot(source) === true,
@@ -3709,8 +3715,8 @@
             repeat_rule: __tmCloneTaskSnapshotValue(item.repeatRule, 0),
             repeatState: __tmCloneTaskSnapshotValue(item.repeatState, 0),
             repeat_state: __tmCloneTaskSnapshotValue(item.repeatState, 0),
-            repeatHistory: __tmCloneTaskSnapshotValue(item.repeatHistory, 0) || [],
-            repeat_history: __tmCloneTaskSnapshotValue(item.repeatHistory, 0) || [],
+            repeatHistory: __tmCloneTaskSnapshotValue(item.repeatHistory || item.repeat_history, 0) || [],
+            repeat_history: __tmCloneTaskSnapshotValue(item.repeatHistory || item.repeat_history, 0) || [],
             customFieldValues: __tmCloneTaskSnapshotValue(item.customFieldValues, 0) || {},
             attachments: __tmCloneTaskSnapshotValue(item.attachments, 0) || [],
             attachmentMeta: restoredAttachmentMeta,
@@ -4120,6 +4126,7 @@
     function __tmInvalidateDocScopeCache() {
         try { __tmDocScopeCacheStore = null; } catch (e) {}
         try { __tmDocScopeCacheLoadPromise = null; } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarInvalidateDocScope?.(); } catch (e) {}
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { scope: true }); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
     }
@@ -8337,6 +8344,7 @@
             defaultViewMode: 'checklist',
             defaultViewModeMobile: 'checklist',
             mobileAutoOpenOnStartup: false,
+            mobileSidebarEnabled: false,
             dockSidebarEnabled: true,
             dockDefaultViewMode: 'follow-mobile',
             dockSidebarFollowCurrentDocument: false,
@@ -8388,7 +8396,8 @@
             rowHeightMode: 'normal',
             rowHeightPx: 0,
             taskAutoWrapEnabled: true,
-            taskContentWrapMaxLines: 3,
+            taskContentWrapMaxLines: 2,
+            taskContentWrapMaxLinesMobile: 2,
             taskRemarkWrapMaxLines: 2,
             parentTaskNameBoldEnabled: true,
             taskCheckboxCircleStyleEnabled: false,
@@ -8397,6 +8406,7 @@
             docTabProcrastinationTintEnabled: true,
             enableQuickbar: true,
             taskDoneDelightEnabled: true,
+            recurringTaskKeepNativeDoneUntilNextOccurrence: false,
             fsrsDesiredRetention: 0.9,
             fsrsMaximumIntervalDays: 3650,
             fsrsEnableFuzz: false,
@@ -8476,12 +8486,12 @@
             calendarIcsExcludeCompletedSchedules: false,
             calendarIcsIncludeTomatoReminders: true,
             calendarIcsIncludeTaskDates: false,
+            calendarIcsIncludeTaskNotes: false,
             calendarInitialView: 'timeGridWeek',
             calendarInitialViewDesktop: 'timeGridWeek',
             calendarInitialViewMobile: 'timeGridDay',
             calendarFirstDay: 1,
             calendarMonthAggregate: true,
-            calendarMonthAdaptiveRowHeight: true,
             calendarMonthMinVisibleEvents: 3,
             calendarShowSchedule: true,
             calendarScheduleReminderEnabled: true,
@@ -8524,9 +8534,13 @@
             calendar3DayTodayPosition: 1,
             calendarNewScheduleMaxDurationMin: 60,
             calendarQuickAddScheduleTimeMode: 'current',
+            calendarCreateTaskForIndependentSchedule: false,
+            calendarIndependentScheduleTaskLocation: '',
             calendarQuickAddScheduleCustomTime: '09:00',
             calendarHourSlotHeightMode: 'normal',
             calendarEventFontSize: 11,
+            calendarEventOpacityLight: 0.25,
+            calendarEventOpacityDark: 0.25,
             calendarVisibleStartTime: '00:00',
             calendarVisibleEndTime: '24:00',
             calendarScheduleColor: '',
@@ -8603,9 +8617,9 @@
             taskHeadingLevel: 'h2',
             // 时长显示格式: 'hours' 或 'minutes'
             durationFormat: 'hours',
-            // 默认隐藏已完成任务（仅视图过滤，任务仍会进入索引）
-            excludeCompletedTasks: true,
-            showCompletedTasks: false,
+            // 默认显示已完成任务（仅视图过滤，任务仍会进入索引）
+            excludeCompletedTasks: false,
+            showCompletedTasks: true,
             completedTasksTodayOnly: false,
             completedTasksInlineInGroups: false,
             // 开始日期（新增列）
@@ -9008,6 +9022,7 @@
                                 if (typeof cloudData.defaultViewMode === 'string') this.data.defaultViewMode = cloudData.defaultViewMode;
                                 if (typeof cloudData.defaultViewModeMobile === 'string') this.data.defaultViewModeMobile = cloudData.defaultViewModeMobile;
                                 if (typeof cloudData.mobileAutoOpenOnStartup === 'boolean') this.data.mobileAutoOpenOnStartup = cloudData.mobileAutoOpenOnStartup;
+                                if (typeof cloudData.mobileSidebarEnabled === 'boolean') this.data.mobileSidebarEnabled = cloudData.mobileSidebarEnabled;
                                 if (typeof cloudData.dockSidebarEnabled === 'boolean') this.data.dockSidebarEnabled = cloudData.dockSidebarEnabled;
                                 if (typeof cloudData.dockDefaultViewMode === 'string') this.data.dockDefaultViewMode = cloudData.dockDefaultViewMode;
                                 if (typeof cloudData.dockSidebarFollowCurrentDocument === 'boolean') this.data.dockSidebarFollowCurrentDocument = cloudData.dockSidebarFollowCurrentDocument;
@@ -9062,6 +9077,7 @@
                                 if (typeof cloudData.rowHeightPx === 'number') this.data.rowHeightPx = cloudData.rowHeightPx;
                                 if (typeof cloudData.taskAutoWrapEnabled === 'boolean') this.data.taskAutoWrapEnabled = cloudData.taskAutoWrapEnabled;
                                 if (typeof cloudData.taskContentWrapMaxLines === 'number') this.data.taskContentWrapMaxLines = cloudData.taskContentWrapMaxLines;
+                                if (typeof cloudData.taskContentWrapMaxLinesMobile === 'number') this.data.taskContentWrapMaxLinesMobile = cloudData.taskContentWrapMaxLinesMobile;
                                 if (typeof cloudData.taskRemarkWrapMaxLines === 'number') this.data.taskRemarkWrapMaxLines = cloudData.taskRemarkWrapMaxLines;
                                 if (typeof cloudData.parentTaskNameBoldEnabled === 'boolean') this.data.parentTaskNameBoldEnabled = cloudData.parentTaskNameBoldEnabled;
                                 if (typeof cloudData.taskCheckboxCircleStyleEnabled === 'boolean') this.data.taskCheckboxCircleStyleEnabled = cloudData.taskCheckboxCircleStyleEnabled;
@@ -9072,6 +9088,7 @@
                                 if (typeof cloudData.docTabProcrastinationTintEnabled === 'boolean') this.data.docTabProcrastinationTintEnabled = cloudData.docTabProcrastinationTintEnabled;
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
                                 if (typeof cloudData.taskDoneDelightEnabled === 'boolean') this.data.taskDoneDelightEnabled = cloudData.taskDoneDelightEnabled;
+                                if (typeof cloudData.recurringTaskKeepNativeDoneUntilNextOccurrence === 'boolean') this.data.recurringTaskKeepNativeDoneUntilNextOccurrence = cloudData.recurringTaskKeepNativeDoneUntilNextOccurrence;
                                 if (typeof cloudData.fsrsDesiredRetention === 'number') {
                                     this.data.fsrsDesiredRetention = Math.max(0.8, Math.min(0.97, cloudData.fsrsDesiredRetention));
                                 }
@@ -9101,8 +9118,18 @@
                                     }
                                 }
                                 if (Array.isArray(cloudData.subtaskInheritedFields)) this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(cloudData.subtaskInheritedFields);
-                                if (typeof cloudData.newTaskDocId === 'string') this.data.newTaskDocId = cloudData.newTaskDocId;
-                                if (typeof cloudData.newTaskDefaultLocationMode === 'string') this.data.newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(cloudData.newTaskDefaultLocationMode);
+                                let cloudNewTaskLocationMode = null;
+                                let cloudDocIdForcedDailyNote = false;
+                                if (typeof cloudData.newTaskDocId === 'string') {
+                                    const cloudNewTaskDocId = String(cloudData.newTaskDocId || '').trim();
+                                    this.data.newTaskDocId = cloudNewTaskDocId === '__dailyNote__' || cloudNewTaskDocId === '__lastSelected__' ? '' : cloudNewTaskDocId;
+                                    if (cloudNewTaskDocId === '__dailyNote__') {
+                                        cloudDocIdForcedDailyNote = true;
+                                        cloudNewTaskLocationMode = 'dailyNote';
+                                    }
+                                }
+                                if (!cloudDocIdForcedDailyNote && typeof cloudData.newTaskDefaultLocationMode === 'string') cloudNewTaskLocationMode = __tmNormalizeNewTaskDefaultLocationMode(cloudData.newTaskDefaultLocationMode);
+                                if (cloudNewTaskLocationMode) this.data.newTaskDefaultLocationMode = cloudNewTaskLocationMode;
                                 if (typeof cloudData.newTaskDailyNoteNotebookId === 'string') this.data.newTaskDailyNoteNotebookId = cloudData.newTaskDailyNoteNotebookId;
                                 if (typeof cloudData.newTaskDailyNoteTargetHeadingText === 'string') this.data.newTaskDailyNoteTargetHeadingText = cloudData.newTaskDailyNoteTargetHeadingText;
                                 if (typeof cloudData.newTaskDailyNoteAppendToBottom === 'boolean') this.data.newTaskDailyNoteAppendToBottom = cloudData.newTaskDailyNoteAppendToBottom;
@@ -9147,6 +9174,7 @@
                                 if (typeof cloudData.calendarIcsExcludeCompletedSchedules === 'boolean') this.data.calendarIcsExcludeCompletedSchedules = cloudData.calendarIcsExcludeCompletedSchedules;
                                 if (typeof cloudData.calendarIcsIncludeTomatoReminders === 'boolean') this.data.calendarIcsIncludeTomatoReminders = cloudData.calendarIcsIncludeTomatoReminders;
                                 if (typeof cloudData.calendarIcsIncludeTaskDates === 'boolean') this.data.calendarIcsIncludeTaskDates = cloudData.calendarIcsIncludeTaskDates;
+                                if (typeof cloudData.calendarIcsIncludeTaskNotes === 'boolean') this.data.calendarIcsIncludeTaskNotes = cloudData.calendarIcsIncludeTaskNotes;
                                 if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = __tmNormalizeCalendarInitialView(cloudData.calendarInitialView, this.data.calendarInitialView);
                                 if (typeof cloudData.calendarInitialViewDesktop === 'string') {
                                     this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(cloudData.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
@@ -9154,7 +9182,6 @@
                                 if (typeof cloudData.calendarInitialViewMobile === 'string') this.data.calendarInitialViewMobile = __tmNormalizeCalendarInitialView(cloudData.calendarInitialViewMobile, 'timeGridDay');
                                 if (typeof cloudData.calendarFirstDay === 'number') this.data.calendarFirstDay = cloudData.calendarFirstDay;
                                 if (typeof cloudData.calendarMonthAggregate === 'boolean') this.data.calendarMonthAggregate = cloudData.calendarMonthAggregate;
-                                if (typeof cloudData.calendarMonthAdaptiveRowHeight === 'boolean') this.data.calendarMonthAdaptiveRowHeight = cloudData.calendarMonthAdaptiveRowHeight;
                                 if (typeof cloudData.calendarMonthMinVisibleEvents === 'number') this.data.calendarMonthMinVisibleEvents = cloudData.calendarMonthMinVisibleEvents;
                                 if (typeof cloudData.calendarShowSchedule === 'boolean') this.data.calendarShowSchedule = cloudData.calendarShowSchedule;
                                 if (typeof cloudData.calendarScheduleReminderEnabled === 'boolean') this.data.calendarScheduleReminderEnabled = cloudData.calendarScheduleReminderEnabled;
@@ -9197,9 +9224,13 @@
                                 if (typeof cloudData.calendar3DayTodayPosition === 'number') this.data.calendar3DayTodayPosition = cloudData.calendar3DayTodayPosition;
                                 if (typeof cloudData.calendarNewScheduleMaxDurationMin === 'number') this.data.calendarNewScheduleMaxDurationMin = cloudData.calendarNewScheduleMaxDurationMin;
                                 if (typeof cloudData.calendarQuickAddScheduleTimeMode === 'string') this.data.calendarQuickAddScheduleTimeMode = cloudData.calendarQuickAddScheduleTimeMode;
+                                if (typeof cloudData.calendarCreateTaskForIndependentSchedule === 'boolean') this.data.calendarCreateTaskForIndependentSchedule = cloudData.calendarCreateTaskForIndependentSchedule;
+                                if (typeof cloudData.calendarIndependentScheduleTaskLocation === 'string') this.data.calendarIndependentScheduleTaskLocation = cloudData.calendarIndependentScheduleTaskLocation;
                                 if (typeof cloudData.calendarQuickAddScheduleCustomTime === 'string') this.data.calendarQuickAddScheduleCustomTime = cloudData.calendarQuickAddScheduleCustomTime;
                                 if (typeof cloudData.calendarHourSlotHeightMode === 'string') this.data.calendarHourSlotHeightMode = cloudData.calendarHourSlotHeightMode;
                                 if (typeof cloudData.calendarEventFontSize === 'number') this.data.calendarEventFontSize = __tmNormalizeCalendarEventFontSize(cloudData.calendarEventFontSize);
+                                if (typeof cloudData.calendarEventOpacityLight === 'number') this.data.calendarEventOpacityLight = Math.max(0.05, Math.min(0.6, cloudData.calendarEventOpacityLight));
+                                if (typeof cloudData.calendarEventOpacityDark === 'number') this.data.calendarEventOpacityDark = Math.max(0.05, Math.min(0.6, cloudData.calendarEventOpacityDark));
                                 if (typeof cloudData.calendarVisibleStartTime === 'string') this.data.calendarVisibleStartTime = cloudData.calendarVisibleStartTime;
                                 if (typeof cloudData.calendarVisibleEndTime === 'string') this.data.calendarVisibleEndTime = cloudData.calendarVisibleEndTime;
                                 if (typeof cloudData.calendarScheduleColor === 'string') this.data.calendarScheduleColor = cloudData.calendarScheduleColor;
@@ -9325,6 +9356,7 @@
                                 if (typeof cloudData.pinTasksWithinGroups === 'boolean') this.data.pinTasksWithinGroups = cloudData.pinTasksWithinGroups;
                                 if (typeof cloudData.completedTasksTodayOnly === 'boolean') this.data.completedTasksTodayOnly = cloudData.completedTasksTodayOnly;
                                 if (typeof cloudData.completedTasksInlineInGroups === 'boolean') this.data.completedTasksInlineInGroups = cloudData.completedTasksInlineInGroups;
+                                if (typeof cloudData.recurringTaskKeepNativeDoneUntilNextOccurrence === 'boolean') this.data.recurringTaskKeepNativeDoneUntilNextOccurrence = cloudData.recurringTaskKeepNativeDoneUntilNextOccurrence;
                                 if (typeof cloudData.collapseAllIncludesGroups === 'boolean') this.data.collapseAllIncludesGroups = cloudData.collapseAllIncludesGroups;
                                 if (typeof cloudData.enableGroupTaskBgByGroupColor === 'boolean') this.data.enableGroupTaskBgByGroupColor = cloudData.enableGroupTaskBgByGroupColor;
                                 if (typeof cloudData.whiteboardAutoConnectByCreated === 'boolean') this.data.whiteboardAutoConnectByCreated = cloudData.whiteboardAutoConnectByCreated;
@@ -9464,6 +9496,7 @@
         // 从本地缓存加载
         loadFromLocal() {
             this.data.settingsUpdatedAt = Number(Storage.get('tm_settings_updated_at', this.data.settingsUpdatedAt)) || 0;
+            let migratedCalendarOpacity = false;
             const rawSettingsFieldUpdatedAt = Storage.get('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt);
             this.data.settingsFieldUpdatedAt = rawSettingsFieldUpdatedAt;
             const localTaskTitleSettings = { settingsFieldUpdatedAt: rawSettingsFieldUpdatedAt };
@@ -9494,6 +9527,7 @@
             this.data.defaultViewMode = Storage.get('tm_default_view_mode', this.data.defaultViewMode);
             this.data.defaultViewModeMobile = Storage.get('tm_default_view_mode_mobile', this.data.defaultViewModeMobile || this.data.defaultViewMode);
             this.data.mobileAutoOpenOnStartup = Storage.get('tm_mobile_auto_open_on_startup', this.data.mobileAutoOpenOnStartup) === true;
+            this.data.mobileSidebarEnabled = Storage.get('tm_mobile_sidebar_enabled', this.data.mobileSidebarEnabled) === true;
             this.data.dockSidebarEnabled = !!Storage.get('tm_dock_sidebar_enabled', this.data.dockSidebarEnabled);
             this.data.dockDefaultViewMode = Storage.get('tm_dock_default_view_mode', this.data.dockDefaultViewMode || 'follow-mobile');
             this.data.dockSidebarFollowCurrentDocument = !!Storage.get('tm_dock_sidebar_follow_current_document', this.data.dockSidebarFollowCurrentDocument);
@@ -9598,6 +9632,7 @@
             this.data.enableQuickbar = Storage.get('tm_enable_quickbar', true);
             this.data.enableQuickbarInlineMeta = !!Storage.get('tm_enable_quickbar_inline_meta', this.data.enableQuickbarInlineMeta);
             this.data.taskDoneDelightEnabled = Storage.get('tm_task_done_delight_enabled', this.data.taskDoneDelightEnabled);
+            this.data.recurringTaskKeepNativeDoneUntilNextOccurrence = !!Storage.get('tm_recurring_task_keep_native_done_until_next_occurrence', this.data.recurringTaskKeepNativeDoneUntilNextOccurrence);
             this.data.fsrsDesiredRetention = Math.max(0.8, Math.min(0.97, Number(Storage.get('tm_fsrs_desired_retention', this.data.fsrsDesiredRetention)) || 0.9));
             this.data.fsrsMaximumIntervalDays = Math.max(30, Math.min(3650, Math.round(Number(Storage.get('tm_fsrs_maximum_interval_days', this.data.fsrsMaximumIntervalDays)) || 3650)));
             this.data.fsrsEnableFuzz = !!Storage.get('tm_fsrs_enable_fuzz', this.data.fsrsEnableFuzz);
@@ -9621,8 +9656,10 @@
                 showCompletedSubtasksFallback
             );
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(Storage.get('tm_subtask_inherited_fields', this.data.subtaskInheritedFields));
-            this.data.newTaskDocId = Storage.get('tm_new_task_doc_id', '');
-            this.data.newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(Storage.get('tm_new_task_default_location_mode', this.data.newTaskDefaultLocationMode));
+            const storedNewTaskDocId = String(Storage.get('tm_new_task_doc_id', '') || '').trim();
+            this.data.newTaskDocId = storedNewTaskDocId === '__dailyNote__' || storedNewTaskDocId === '__lastSelected__' ? '' : storedNewTaskDocId;
+            const storedNewTaskLocationMode = __tmNormalizeNewTaskDefaultLocationMode(Storage.get('tm_new_task_default_location_mode', this.data.newTaskDefaultLocationMode));
+            this.data.newTaskDefaultLocationMode = storedNewTaskDocId === '__dailyNote__' ? 'dailyNote' : storedNewTaskLocationMode;
             this.data.newTaskDailyNoteNotebookId = String(Storage.get('tm_new_task_daily_note_notebook_id', this.data.newTaskDailyNoteNotebookId) || '').trim();
             this.data.newTaskDailyNoteTargetHeadingText = String(Storage.get('tm_new_task_daily_note_target_heading_text', this.data.newTaskDailyNoteTargetHeadingText) || '').trim();
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(Storage.get(__TM_QUICK_ADD_RECENT_DOCS_KEY, this.data.quickAddRecentDocs));
@@ -9633,6 +9670,7 @@
             this.data.docTabsManualArchiveOnly = !!Storage.get('tm_doc_tabs_manual_archive_only', this.data.docTabsManualArchiveOnly);
             this.data.taskAutoWrapEnabled = Storage.get('tm_task_auto_wrap_enabled', this.data.taskAutoWrapEnabled);
             this.data.taskContentWrapMaxLines = Number(Storage.get('tm_task_content_wrap_max_lines', this.data.taskContentWrapMaxLines));
+            this.data.taskContentWrapMaxLinesMobile = Number(Storage.get('tm_task_content_wrap_max_lines_mobile', this.data.taskContentWrapMaxLinesMobile));
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
             this.data.parentTaskNameBoldEnabled = Storage.get('tm_parent_task_name_bold_enabled', this.data.parentTaskNameBoldEnabled);
             this.data.taskCheckboxCircleStyleEnabled = !!Storage.get('tm_task_checkbox_circle_style_enabled', this.data.taskCheckboxCircleStyleEnabled);
@@ -9686,6 +9724,7 @@
             this.data.calendarIcsExcludeCompletedSchedules = !!Storage.get('tm_calendar_ics_exclude_completed_schedules', this.data.calendarIcsExcludeCompletedSchedules);
             this.data.calendarIcsIncludeTomatoReminders = !!Storage.get('tm_calendar_ics_include_tomato_reminders', this.data.calendarIcsIncludeTomatoReminders);
             this.data.calendarIcsIncludeTaskDates = !!Storage.get('tm_calendar_ics_include_task_dates', this.data.calendarIcsIncludeTaskDates);
+            this.data.calendarIcsIncludeTaskNotes = !!Storage.get('tm_calendar_ics_include_task_notes', this.data.calendarIcsIncludeTaskNotes);
             this.data.calendarInitialView = __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view', this.data.calendarInitialView), this.data.calendarInitialView);
             this.data.calendarInitialViewDesktop = Storage.has('tm_calendar_initial_view_desktop')
                 ? __tmNormalizeCalendarInitialView(Storage.get('tm_calendar_initial_view_desktop', this.data.calendarInitialViewDesktop), this.data.calendarInitialView || 'timeGridWeek')
@@ -9695,7 +9734,6 @@
                 : __tmNormalizeCalendarInitialView(this.data.calendarInitialViewMobile, 'timeGridDay');
             this.data.calendarFirstDay = Number(Storage.get('tm_calendar_first_day', this.data.calendarFirstDay));
             this.data.calendarMonthAggregate = Storage.get('tm_calendar_month_aggregate', this.data.calendarMonthAggregate);
-            this.data.calendarMonthAdaptiveRowHeight = !!Storage.get('tm_calendar_month_adaptive_row_height', this.data.calendarMonthAdaptiveRowHeight);
             this.data.calendarMonthMinVisibleEvents = Number(Storage.get('tm_calendar_month_min_visible_events', this.data.calendarMonthMinVisibleEvents));
             this.data.calendarShowSchedule = Storage.get('tm_calendar_show_schedule', this.data.calendarShowSchedule);
             this.data.calendarScheduleReminderEnabled = !!Storage.get('tm_calendar_schedule_reminder_enabled', this.data.calendarScheduleReminderEnabled);
@@ -9721,9 +9759,26 @@
             this.data.calendar3DayTodayPosition = Number(Storage.get('tm_calendar_3day_today_position', this.data.calendar3DayTodayPosition));
             this.data.calendarNewScheduleMaxDurationMin = Number(Storage.get('tm_calendar_new_schedule_max_duration_min', this.data.calendarNewScheduleMaxDurationMin));
             this.data.calendarQuickAddScheduleTimeMode = String(Storage.get('tm_calendar_quick_add_schedule_time_mode', this.data.calendarQuickAddScheduleTimeMode) || 'current');
+            this.data.calendarCreateTaskForIndependentSchedule = !!Storage.get('tm_calendar_create_task_for_independent_schedule', this.data.calendarCreateTaskForIndependentSchedule);
+            this.data.calendarIndependentScheduleTaskLocation = String(Storage.get('tm_calendar_independent_schedule_task_location', this.data.calendarIndependentScheduleTaskLocation) || '').trim();
             this.data.calendarQuickAddScheduleCustomTime = String(Storage.get('tm_calendar_quick_add_schedule_custom_time', this.data.calendarQuickAddScheduleCustomTime) || '09:00');
             this.data.calendarHourSlotHeightMode = Storage.get('tm_calendar_hour_slot_height_mode', this.data.calendarHourSlotHeightMode);
             this.data.calendarEventFontSize = __tmNormalizeCalendarEventFontSize(Storage.get('tm_calendar_event_font_size', this.data.calendarEventFontSize));
+            {
+                const normalizeCalendarEventOpacity = (value, fallback) => {
+                    const parsed = Number(value);
+                    return Number.isFinite(parsed) ? Math.max(0.05, Math.min(0.6, parsed)) : fallback;
+                };
+                const migrateOpacity = (storageKey, fallback) => {
+                    if (!Storage.has(storageKey)) return fallback;
+                    migratedCalendarOpacity = true;
+                    const value = normalizeCalendarEventOpacity(Storage.get(storageKey, fallback), fallback);
+                    try { Storage.remove(storageKey); } catch (e) {}
+                    return value;
+                };
+                this.data.calendarEventOpacityLight = migrateOpacity('tm_calendar_event_opacity_light', this.data.calendarEventOpacityLight);
+                this.data.calendarEventOpacityDark = migrateOpacity('tm_calendar_event_opacity_dark', this.data.calendarEventOpacityDark);
+            }
             this.data.calendarVisibleStartTime = String(Storage.get('tm_calendar_visible_start_time', this.data.calendarVisibleStartTime) || this.data.calendarVisibleStartTime || '00:00');
             this.data.calendarVisibleEndTime = String(Storage.get('tm_calendar_visible_end_time', this.data.calendarVisibleEndTime) || this.data.calendarVisibleEndTime || '24:00');
             this.data.calendarScheduleColor = Storage.get('tm_calendar_schedule_color', this.data.calendarScheduleColor);
@@ -9898,7 +9953,7 @@
             this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.dockChecklistCompactMetaFields);
             this.data.mobileChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.mobileChecklistCompactMetaFields, this.data.dockChecklistCompactMetaFields);
             {
-                const allowInlineFields = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'subtask-count', 'custom-priority', 'custom-start-date', 'custom-focus-summary', 'custom-tomato-estimate-count', 'custom-tomato-count', 'custom-remark']);
+                const allowInlineFields = new Set(['custom-status', 'custom-completion-time', 'remainingTime', 'taskCompleteAt', 'subtask-count', 'custom-priority', 'custom-start-date', 'custom-focus-summary', 'custom-tomato-estimate-count', 'custom-tomato-count', 'custom-remark']);
                 const rawInlineFields = Array.isArray(this.data.quickbarInlineFields) ? this.data.quickbarInlineFields : ['custom-status', 'custom-completion-time'];
                 const seenInlineFields = new Set();
                 this.data.quickbarInlineFields = rawInlineFields.map((v) => {
@@ -10000,7 +10055,7 @@
             }
             this.normalizeColumns();
             try { __tmApplyTaskCheckboxPriorityColorStyle(this.data.taskCheckboxPriorityColorEnabled !== false); } catch (e) {}
-            return migratedLegacyTaskTitleClickSettings;
+            return migratedLegacyTaskTitleClickSettings || migratedCalendarOpacity;
         },
 
         // 同步到本地缓存
@@ -10047,11 +10102,13 @@
             this.data.defaultViewMode = __tmGetSafeViewMode(this.data.defaultViewMode);
             this.data.defaultViewModeMobile = __tmGetSafeViewMode(this.data.defaultViewModeMobile || this.data.defaultViewMode);
             this.data.mobileAutoOpenOnStartup = this.data.mobileAutoOpenOnStartup === true;
+            this.data.mobileSidebarEnabled = this.data.mobileSidebarEnabled === true;
             this.data.dockSidebarEnabled = this.data.dockSidebarEnabled !== false;
             this.data.dockSidebarFollowCurrentDocument = !!this.data.dockSidebarFollowCurrentDocument;
             Storage.set('tm_default_view_mode', String(this.data.defaultViewMode || 'checklist').trim() || 'checklist');
             Storage.set('tm_default_view_mode_mobile', String(this.data.defaultViewModeMobile || this.data.defaultViewMode || 'checklist').trim() || 'checklist');
             Storage.set('tm_mobile_auto_open_on_startup', this.data.mobileAutoOpenOnStartup);
+            Storage.set('tm_mobile_sidebar_enabled', this.data.mobileSidebarEnabled);
             Storage.set('tm_dock_sidebar_enabled', !!this.data.dockSidebarEnabled);
             Storage.set('tm_dock_default_view_mode', String(this.data.dockDefaultViewMode || 'follow-mobile').trim() || 'follow-mobile');
             Storage.set('tm_dock_sidebar_follow_current_document', this.data.dockSidebarFollowCurrentDocument);
@@ -10157,6 +10214,7 @@
             Storage.set('tm_enable_quickbar', !!this.data.enableQuickbar);
             Storage.set('tm_enable_quickbar_inline_meta', !!this.data.enableQuickbarInlineMeta);
             Storage.set('tm_task_done_delight_enabled', !!this.data.taskDoneDelightEnabled);
+            Storage.set('tm_recurring_task_keep_native_done_until_next_occurrence', !!this.data.recurringTaskKeepNativeDoneUntilNextOccurrence);
             Storage.set('tm_fsrs_desired_retention', Math.max(0.8, Math.min(0.97, Number(this.data.fsrsDesiredRetention) || 0.9)));
             Storage.set('tm_fsrs_maximum_interval_days', Math.max(30, Math.min(3650, Math.round(Number(this.data.fsrsMaximumIntervalDays) || 3650))));
             Storage.set('tm_fsrs_enable_fuzz', !!this.data.fsrsEnableFuzz);
@@ -10185,7 +10243,8 @@
             Storage.set('tm_doc_tabs_manual_archive_only', !!this.data.docTabsManualArchiveOnly);
             Storage.set('tm_priority_icon_style', String(this.data.priorityIconStyle || 'jira').trim() === 'flag' ? 'flag' : 'jira');
             Storage.set('tm_task_auto_wrap_enabled', !!this.data.taskAutoWrapEnabled);
-            Storage.set('tm_task_content_wrap_max_lines', Number(this.data.taskContentWrapMaxLines) || 3);
+            Storage.set('tm_task_content_wrap_max_lines', Number(this.data.taskContentWrapMaxLines) || 2);
+            Storage.set('tm_task_content_wrap_max_lines_mobile', Number(this.data.taskContentWrapMaxLinesMobile) || 2);
             Storage.set('tm_task_remark_wrap_max_lines', Number(this.data.taskRemarkWrapMaxLines) || 2);
             Storage.set('tm_parent_task_name_bold_enabled', this.data.parentTaskNameBoldEnabled !== false);
             Storage.set('tm_task_checkbox_circle_style_enabled', !!this.data.taskCheckboxCircleStyleEnabled);
@@ -10227,6 +10286,7 @@
             Storage.set('tm_calendar_ics_exclude_completed_schedules', !!this.data.calendarIcsExcludeCompletedSchedules);
             Storage.set('tm_calendar_ics_include_tomato_reminders', !!this.data.calendarIcsIncludeTomatoReminders);
             Storage.set('tm_calendar_ics_include_task_dates', !!this.data.calendarIcsIncludeTaskDates);
+            Storage.set('tm_calendar_ics_include_task_notes', !!this.data.calendarIcsIncludeTaskNotes);
             this.data.calendarInitialViewDesktop = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewDesktop, this.data.calendarInitialView || 'timeGridWeek');
             this.data.calendarInitialViewMobile = __tmNormalizeCalendarInitialView(this.data.calendarInitialViewMobile, 'timeGridDay');
             this.data.calendarInitialView = this.data.calendarInitialViewDesktop;
@@ -10235,7 +10295,6 @@
             Storage.set('tm_calendar_initial_view_mobile', this.data.calendarInitialViewMobile);
             Storage.set('tm_calendar_first_day', Number(this.data.calendarFirstDay) === 0 ? 0 : 1);
             Storage.set('tm_calendar_month_aggregate', !!this.data.calendarMonthAggregate);
-            Storage.set('tm_calendar_month_adaptive_row_height', !!this.data.calendarMonthAdaptiveRowHeight);
             Storage.set('tm_calendar_month_min_visible_events', Number(this.data.calendarMonthMinVisibleEvents) || 3);
             Storage.set('tm_calendar_show_schedule', !!this.data.calendarShowSchedule);
             Storage.set('tm_calendar_schedule_reminder_enabled', !!this.data.calendarScheduleReminderEnabled);
@@ -10261,9 +10320,13 @@
             Storage.set('tm_calendar_3day_today_position', Number(this.data.calendar3DayTodayPosition) || 1);
             Storage.set('tm_calendar_new_schedule_max_duration_min', Number(this.data.calendarNewScheduleMaxDurationMin) || 60);
             Storage.set('tm_calendar_quick_add_schedule_time_mode', String(this.data.calendarQuickAddScheduleTimeMode || 'current').trim() || 'current');
+            Storage.set('tm_calendar_create_task_for_independent_schedule', !!this.data.calendarCreateTaskForIndependentSchedule);
+            Storage.set('tm_calendar_independent_schedule_task_location', String(this.data.calendarIndependentScheduleTaskLocation || '').trim());
             Storage.set('tm_calendar_quick_add_schedule_custom_time', String(this.data.calendarQuickAddScheduleCustomTime || '09:00').trim() || '09:00');
             Storage.set('tm_calendar_hour_slot_height_mode', String(this.data.calendarHourSlotHeightMode || 'normal').trim() || 'normal');
             Storage.set('tm_calendar_event_font_size', __tmNormalizeCalendarEventFontSize(this.data.calendarEventFontSize));
+            Storage.set('tm_calendar_event_opacity_light', Math.max(0.05, Math.min(0.6, Number(this.data.calendarEventOpacityLight) || 0.25)));
+            Storage.set('tm_calendar_event_opacity_dark', Math.max(0.05, Math.min(0.6, Number(this.data.calendarEventOpacityDark) || 0.25)));
             Storage.set('tm_calendar_visible_start_time', String(this.data.calendarVisibleStartTime || '00:00').trim() || '00:00');
             Storage.set('tm_calendar_visible_end_time', String(this.data.calendarVisibleEndTime || '24:00').trim() || '24:00');
             Storage.set('tm_calendar_schedule_color', String(this.data.calendarScheduleColor || '').trim());
@@ -10435,6 +10498,7 @@
 
         normalizeColumns() {
             this.data.mobileAutoOpenOnStartup = this.data.mobileAutoOpenOnStartup === true;
+            this.data.mobileSidebarEnabled = this.data.mobileSidebarEnabled === true;
             this.data.customFieldDefs = __tmNormalizeCustomFieldDefs(this.data.customFieldDefs);
             this.data.customFieldDefsVersion = __tmParseVersionNumber(this.data.customFieldDefsVersion);
             try { __tmInvalidateCustomFieldDefsRuntimeCache(); } catch (e) {}
@@ -10581,6 +10645,12 @@
                 this.data.calendarHourSlotHeightMode = validCalendarHourSlotHeightModes.has(calendarHourSlotHeightMode) ? calendarHourSlotHeightMode : 'normal';
             }
             this.data.calendarEventFontSize = __tmNormalizeCalendarEventFontSize(this.data.calendarEventFontSize);
+            const normalizeCalendarEventOpacity = (value) => {
+                const parsed = Number(value);
+                return Number.isFinite(parsed) ? Math.max(0.05, Math.min(0.6, parsed)) : 0.25;
+            };
+            this.data.calendarEventOpacityLight = normalizeCalendarEventOpacity(this.data.calendarEventOpacityLight);
+            this.data.calendarEventOpacityDark = normalizeCalendarEventOpacity(this.data.calendarEventOpacityDark);
             {
                 const validQuickAddModes = new Set(['current', 'nextHour', 'custom']);
                 const quickAddMode = String(this.data.calendarQuickAddScheduleTimeMode || '').trim();
@@ -10599,15 +10669,19 @@
                     ? Math.max(1, Math.min(8, Math.round(monthMinVisibleEvents)))
                     : 3;
             }
-            this.data.calendarMonthAdaptiveRowHeight = this.data.calendarMonthAdaptiveRowHeight !== false;
             this.data.calendarScheduleDatesFollowSchedule = this.data.calendarScheduleDatesFollowSchedule !== false;
+            this.data.calendarCreateTaskForIndependentSchedule = this.data.calendarCreateTaskForIndependentSchedule === true;
+            const calendarIndependentScheduleTaskLocation = String(this.data.calendarIndependentScheduleTaskLocation || '').trim();
+            this.data.calendarIndependentScheduleTaskLocation = calendarIndependentScheduleTaskLocation === '__lastSelected__' ? '' : calendarIndependentScheduleTaskLocation;
             this.data.calendarSidebarDefaultPage = String(this.data.calendarSidebarDefaultPage || '').trim() === 'tasks' ? 'tasks' : 'calendar';
             {
                 const pos = Number(this.data.calendar3DayTodayPosition);
                 this.data.calendar3DayTodayPosition = (pos === 2 || pos === 3) ? pos : 1;
             }
             const wrapContentLines = Number(this.data.taskContentWrapMaxLines);
-            this.data.taskContentWrapMaxLines = Number.isFinite(wrapContentLines) ? Math.max(1, Math.min(10, Math.round(wrapContentLines))) : 3;
+            this.data.taskContentWrapMaxLines = Number.isFinite(wrapContentLines) ? Math.max(1, Math.min(10, Math.round(wrapContentLines))) : 2;
+            const wrapContentLinesMobile = Number(this.data.taskContentWrapMaxLinesMobile);
+            this.data.taskContentWrapMaxLinesMobile = Number.isFinite(wrapContentLinesMobile) ? Math.max(1, Math.min(10, Math.round(wrapContentLinesMobile))) : 2;
             const wrapRemarkLines = Number(this.data.taskRemarkWrapMaxLines);
             this.data.taskRemarkWrapMaxLines = Number.isFinite(wrapRemarkLines) ? Math.max(1, Math.min(10, Math.round(wrapRemarkLines))) : 2;
             this.data.enableMoveBlockToDailyNote = !!this.data.enableMoveBlockToDailyNote;
@@ -10712,6 +10786,7 @@
             this.data.pinTasksWithinGroups = !!this.data.pinTasksWithinGroups;
             this.data.completedTasksTodayOnly = !!this.data.completedTasksTodayOnly;
             this.data.completedTasksInlineInGroups = !!this.data.completedTasksInlineInGroups;
+            this.data.recurringTaskKeepNativeDoneUntilNextOccurrence = !!this.data.recurringTaskKeepNativeDoneUntilNextOccurrence;
             this.data.whiteboardLinks = Array.isArray(this.data.whiteboardLinks) ? this.data.whiteboardLinks : [];
             this.data.whiteboardAutoConnectByCreated = false;
             this.data.whiteboardDetachedChildren = (this.data.whiteboardDetachedChildren && typeof this.data.whiteboardDetachedChildren === 'object' && !Array.isArray(this.data.whiteboardDetachedChildren))
@@ -13393,6 +13468,16 @@
             }
             const updates = __tmExtractAttrUpdatesFromTx(payload);
             if (!updates.length) {
+                // Some host acknowledgements contain only the transaction
+                // envelope and omit the nested attribute rows. A calendar
+                // date write still owns that acknowledgement; letting it
+                // through would clear the task cache and start a full source
+                // refetch even though the mounted event was already patched.
+                if (calendarView
+                    && __tmLocalTimeTxSuppressTaskIds.size > 0
+                    && __tmHasOnlyAttrOperationsInTx(payload)) {
+                    return true;
+                }
                 return false;
             }
             if (calendarView && !updates.every((update) => __tmIsVisibleDateAttrKey(update?.key))) {
@@ -13449,7 +13534,11 @@
             const ids = Array.from(new Set([
                 ...(Array.isArray(options?.taskIds) ? options.taskIds : []),
             ].map((id) => String(id || '').trim()).filter(Boolean)));
-            if (!ids.length) return false;
+            // Fast attribute-only transaction notifications may not expose
+            // task IDs. While a local calendar date write is suppressed, the
+            // transaction is still an acknowledgement of that write and must
+            // not schedule an unscoped task-date source refetch.
+            if (!ids.length) return __tmLocalTimeTxSuppressTaskIds.size > 0;
             return ids.every((id) => __tmLocalTimeTxSuppressTaskIds.has(id));
         } catch (e) {
             return false;
@@ -18458,10 +18547,27 @@
                 if (__tmClearPendingTxRefreshTargets(pendingTargets)) __tmClearExternalTaskTxDirty();
                 return false;
             }
+            const calendarTaskIds = Array.isArray(classified.resolvedTaskIds)
+                ? classified.resolvedTaskIds.slice()
+                : [];
+            const skipCalendarTaskRefresh = commitView
+                && String(state.viewMode || '').trim() === 'calendar'
+                && (
+                    __tmShouldSkipCalendarTxRefreshForLocalDateTargets({ taskIds: calendarTaskIds })
+                    || globalThis.__tmCalendar?.shouldSkipTaskDateSourceRefresh?.({ taskIds: calendarTaskIds }) === true
+                );
+            if (skipCalendarTaskRefresh) {
+                // The calendar date mutation already patched its mounted
+                // events.  Do not run document/task-cache refresh for the
+                // transaction echo, as that would repaint the whole all-day
+                // source a second time.
+                if (__tmClearPendingTxRefreshTargets(pendingTargets)) __tmClearExternalTaskTxDirty();
+                return true;
+            }
             if (commitView) {
                 try {
                     __tmScheduleCalendarRefetchFromTx({
-                        taskIds: classified.resolvedTaskIds,
+                        taskIds: calendarTaskIds,
                     });
                 } catch (e) {}
             }
@@ -18560,7 +18666,6 @@
             try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'calendar-api-missing', success: true }); } catch (e) {}
             return;
         }
-        const skipLocalDateRefresh = __tmShouldSkipCalendarTxRefreshForLocalDateTargets(options);
         try { if (__tmCalendarTxRefreshTimer) clearTimeout(__tmCalendarTxRefreshTimer); } catch (e) {}
         const arm = (delayMs, reason = '') => {
             __tmCalendarTxRefreshTimer = setTimeout(() => {
@@ -18581,10 +18686,27 @@
                 try {
                     const isCalendarView = String(state.viewMode || '').trim() === 'calendar';
                     const refreshTaskDateSources = calApi?.refreshTaskDateSources;
+                    // Evaluate this at execution time. The host may deliver
+                    // the transaction envelope before the calendar write has
+                    // armed its local suppression token; checking only when
+                    // scheduling would miss that short race window.
+                    const skipLocalDateRefresh = __tmShouldSkipCalendarTxRefreshForLocalDateTargets(options);
+                    const skipPendingLocalDateRefresh = isCalendarView
+                        && typeof calApi?.shouldSkipTaskDateSourceRefresh === 'function'
+                        && calApi.shouldSkipTaskDateSourceRefresh({
+                            taskIds: Array.isArray(options?.taskIds) ? options.taskIds : [],
+                        });
                     if (isCalendarView && skipLocalDateRefresh) {
                         // The local date patch already updated the mounted event.
                         // The transaction echo must not issue a second range query.
                         try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'skip-local-date-refresh', mode: 'skip', success: true }); } catch (e) {}
+                        return;
+                    }
+                    if (isCalendarView && skipPendingLocalDateRefresh) {
+                        // The mounted event already contains the pending local
+                        // date patch; do not replace it with a duplicate source
+                        // snapshot from the transaction echo.
+                        try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'skip-pending-local-date-refresh', mode: 'skip', success: true }); } catch (e) {}
                         return;
                     }
                     try { window.__tmCalendarAllTasksCache = null; } catch (e) {}

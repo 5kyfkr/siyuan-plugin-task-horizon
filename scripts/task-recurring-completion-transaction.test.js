@@ -51,6 +51,16 @@ const scheduleAdvanceFunction = extractBetween(
     'function __tmScheduleRecurringTaskAdvanceAfterCompletion(',
     'function __tmBuildTaskRepeatDueAdvancePatch(',
 );
+const resetNativeDoneFunction = extractBetween(
+    recurringSource,
+    'const __tmRecurringNativeDoneResetInFlight = new Map();',
+    'const __tmRecurringAdvanceTimers = new Map();',
+);
+const resetNativeDoneSweepRuntime = extractBetween(
+    recurringSource,
+    'let __tmRecurringNativeDoneResetSweepPromise = null;',
+    'let __tmRecurringDueReconcilePromise = null;',
+);
 const dueAdvanceFunction = extractBetween(
     recurringSource,
     'function __tmBuildTaskRepeatDueAdvancePatch(',
@@ -67,7 +77,7 @@ function testPostCommitDefersRecurringReminderSettlementToAdvance() {
     const context = vm.createContext({
         state: { flatTasks: { 'task-1': task }, pendingInsertedTasks: {} },
         __tmNormalizeTaskCompleteAtValue: (value) => String(value || '').trim(),
-        __tmGetTaskRepeatRule: () => task.repeatRule,
+        __tmGetTaskRepeatRule: (value) => value.repeatRule,
         __tmBuildTaskRepeatAdvancePatch: () => ({ startDate: '2026-07-24' }),
         __tmScheduleRecurringTaskAdvanceAfterCompletion: (_taskId, options) => events.push(['recurring', options.completedAt]),
         __tmQueueTaskDoneDelight: () => events.push(['delight']),
@@ -220,12 +230,18 @@ function createAdvanceHarness(task, buildPatch, options = {}) {
     const calls = { persist: [], reset: 0, sync: 0, refresh: 0, reminderSettle: 0, projections: [], broadcasts: [], snapshots: [] };
     const context = vm.createContext({
         state: { viewMode: 'list' },
+        SettingsStore: {
+            data: {
+                recurringTaskKeepNativeDoneUntilNextOccurrence: options.keepNativeDone === true,
+            },
+        },
         window: {},
         __tmWaitForGlobalUnlock: async () => true,
         __tmResolveTaskForRepeat: async () => task,
         __tmResolveTaskIdFromAnyBlockId: async (id) => id,
-        __tmGetTaskRepeatRule: () => task.repeatRule,
+        __tmGetTaskRepeatRule: (value) => value.repeatRule,
         __tmNormalizeTaskRepeatState: (value) => ({ occurrenceCount: 1, lastCompletedAt: '', ...(value || {}) }),
+        __tmIsTaskNativeDone: (value) => value?.done === true,
         __tmNormalizeTaskCompleteAtValue: (value) => String(value || '').trim(),
         __tmNormalizeTaskRepeatHistory: (value) => Array.isArray(value) ? value : [],
         __tmNormalizeTaskTomatoAmount: (value) => Math.max(0, Math.round((Number(value) || 0) * 100) / 100),
@@ -337,6 +353,30 @@ async function testRecurringAdvanceStateMachine() {
     assert.equal(first.calls.persist[0].options.deferProjection, true,
         'intermediate recurring metadata must remain hidden until completion reset succeeds');
 
+    const heldTask = {
+        ...newTask,
+        done: true,
+        taskCompleteAt: completedAt,
+        startDate: '2026-07-23',
+        completionTime: '2026-07-23',
+        repeatState: { occurrenceCount: 1, lastCompletedAt: '' },
+        repeatHistory: [],
+    };
+    const held = createAdvanceHarness(heldTask, nextPatch, { keepNativeDone: true });
+    assert.equal(await held.advance('task-1', { completedAt, suppressHint: true }), true);
+    assert.equal(held.calls.persist.length, 1);
+    assert.equal(held.calls.persist[0].patch.repeatState.pendingNativeDoneReset, true);
+    assert.equal(held.calls.reset, 0, 'enabled mode must preserve the native completed marker');
+    assert.equal(heldTask.done, true);
+    assert.equal(heldTask.taskCompleteAt, completedAt);
+    assert.equal(held.calls.projections.length, 1);
+    assert.equal(held.calls.projections[0].patch.done, false,
+        'the plugin must project the advanced occurrence as unfinished');
+    assert.equal(held.calls.projections[0].patch.completionTime, '2026-07-24');
+    assert.equal(held.calls.broadcasts[0].done, undefined,
+        'the projected unfinished state must not be broadcast as a persisted native attribute');
+    assert.equal(held.calls.broadcasts[0].taskCompleteAt, undefined);
+
     const resetOnlyTask = {
         ...newTask,
         done: true,
@@ -398,6 +438,139 @@ async function testRecurringAdvanceStateMachine() {
     assert.equal(resetFailureTask.repeatHistory.length, 1);
 }
 
+async function testRecurringNativeDoneResetIsDateBoundAndIdempotent() {
+    const completedAt = '2026-07-23T10:00:00.000+08:00';
+    const task = {
+        id: 'task-1',
+        done: true,
+        taskMarker: 'X',
+        taskCompleteAt: completedAt,
+        startDate: '2026-07-24',
+        completionTime: '2026-07-24',
+        repeatRule: { enabled: true, type: 'daily' },
+        repeatState: { lastCompletedAt: completedAt, pendingNativeDoneReset: true },
+    };
+    const calls = { reset: 0, reconcile: 0 };
+    const context = vm.createContext({
+        window: {},
+        __tmResolveTaskForRepeat: async () => task,
+        __tmNormalizeTaskRepeatState: (value) => ({ occurrenceCount: 1, pendingNativeDoneReset: false, ...(value || {}) }),
+        __tmGetTaskRepeatRule: (value) => value.repeatRule,
+        __tmIsTaskNativeDone: (value) => value?.taskMarker !== ' ',
+        __tmIsRecurringNativeDoneHeld: (value) => value?.repeatState?.pendingNativeDoneReset === true
+            && value.repeatState.lastCompletedAt === value.taskCompleteAt,
+        __tmGetRecurringNativeDoneResetDateKey: () => '2026-07-24',
+        __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
+        __tmApplyTaskMetaPatchWithUndo: async (_taskId, patch) => {
+            calls.reconcile += 1;
+            task.repeatState = patch.repeatState;
+        },
+    });
+    context.window.tmSetDone = async (_taskId, done, _event, options) => {
+        calls.reset += 1;
+        task.done = done;
+        task.taskMarker = done ? 'X' : ' ';
+        task.taskCompleteAt = options.additionalPatch.taskCompleteAt;
+        task.repeatState = options.additionalPatch.repeatState;
+        return true;
+    };
+    vm.runInContext(`${resetNativeDoneFunction}\nthis.resetNativeDone = __tmResetRecurringNativeDoneIfDue;`, context);
+
+    assert.equal(await context.resetNativeDone(task, { todayKey: '2026-07-23' }), false);
+    assert.equal(calls.reset, 0);
+    assert.equal(task.done, true);
+    assert.equal(await context.resetNativeDone(task, { todayKey: '2026-07-24' }), true);
+    assert.equal(calls.reset, 1);
+    assert.equal(task.done, false);
+    assert.equal(task.taskCompleteAt, '');
+    assert.equal(task.repeatState.pendingNativeDoneReset, false);
+    assert.equal(await context.resetNativeDone(task, { todayKey: '2026-07-24' }), false);
+    assert.equal(calls.reset, 1, 'a second client-side check must not write the same reset twice');
+
+    const closedTask = {
+        ...task,
+        done: true,
+        taskMarker: 'X',
+        taskCompleteAt: completedAt,
+        repeatRule: { enabled: false, type: 'none' },
+        repeatState: { lastCompletedAt: completedAt, pendingNativeDoneReset: true },
+    };
+    assert.equal(await context.resetNativeDone(closedTask, { todayKey: '2026-07-24' }), true);
+    assert.equal(closedTask.done, true, 'closing recurrence must keep the native completed marker');
+    assert.equal(calls.reconcile, 1);
+}
+
+async function testRecurringNativeDoneResetFallsThroughToDueCatchUp() {
+    const task = {
+        id: 'task-catch-up',
+        done: true,
+        taskMarker: 'X',
+        taskCompleteAt: '2026-07-23T10:00:00.000+08:00',
+        startDate: '2026-07-24',
+        completionTime: '2026-07-24',
+        repeatRule: { enabled: true, trigger: 'due', type: 'daily' },
+        repeatState: { lastCompletedAt: '2026-07-23T10:00:00.000+08:00', pendingNativeDoneReset: true },
+    };
+    const calls = [];
+    let nativeDoneHeld = true;
+    const context = vm.createContext({
+        window: {},
+        __tmResolveTaskForRepeat: async () => ({ ...task }),
+        __tmNormalizeTaskRepeatState: (value) => ({ pendingNativeDoneReset: false, ...(value || {}) }),
+        __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
+        __tmResetRecurringNativeDoneIfDue: async () => true,
+        __tmGetTaskRepeatRule: () => task.repeatRule,
+        __tmIsTaskNativeDone: (value) => value?.taskMarker !== ' ',
+        __tmIsRecurringNativeDoneHeld: () => nativeDoneHeld,
+        __tmGetRecurringNativeDoneResetDateKey: () => '2026-07-24',
+        __tmBuildTaskRepeatDueAdvancePatch: () => ({ startDate: '2026-07-26', completionTime: '2026-07-26', repeatState: {} }),
+        __tmBuildRecurringDueReconcileMemoKey: () => 'catch-up',
+        __tmRecurringDueReconcileMemo: new Map(),
+        __tmApplyTaskMetaPatchWithUndo: async (_id, patch) => { calls.push(patch); return { changed: true }; },
+    });
+    vm.runInContext(`${resetNativeDoneSweepRuntime.replace(/let __tmRecurringDueReconcilePromise = null;[\s\S]*$/, '')}\n${extractBetween(recurringSource, 'let __tmRecurringDueReconcilePromise = null;', 'window.tmGetTaskRepeatRule = async function')}
+this.reconcile = __tmReconcileRecurringTasksOnLoad;`, context);
+    const changed = await context.reconcile(['task-catch-up'], { todayKey: '2026-07-26' });
+    assert.equal(changed, 2, 'reset and due catch-up must both settle in one load pass');
+    assert.equal(calls.length, 1, 'due catch-up must persist the latest occurrence after reset');
+    nativeDoneHeld = false;
+    const reconciledOnly = await context.reconcile(['task-catch-up'], { todayKey: '2026-07-26' });
+    assert.equal(reconciledOnly, 1, 'an inconsistent pending flag must be reconciled without advancing the occurrence');
+    assert.equal(calls.length, 1, 'state-only reconciliation must not persist a due catch-up patch');
+}
+
+async function testRecurringNativeDoneResetSweepRunsOncePerLocalDay() {
+    const tasks = {
+        one: { id: 'one', repeatState: { pendingNativeDoneReset: true } },
+        two: { id: 'two', repeatState: { pendingNativeDoneReset: true } },
+    };
+    const calls = { reset: [], refresh: 0 };
+    const context = vm.createContext({
+        state: {
+            flatTasks: tasks,
+            taskTree: [{ tasks: [tasks.one, tasks.two] }],
+        },
+        __tmNormalizeTaskRepeatState: (value) => ({ pendingNativeDoneReset: false, ...(value || {}) }),
+        __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
+        __tmResetRecurringNativeDoneIfDue: async (taskId) => {
+            calls.reset.push(taskId);
+            return true;
+        },
+        __tmRefreshViewsAfterTaskMutation: () => { calls.refresh += 1; },
+        setTimeout: () => 1,
+        clearTimeout: () => {},
+        Date,
+    });
+    vm.runInContext(`${resetNativeDoneSweepRuntime}\nthis.runResetSweep = __tmRunRecurringNativeDoneResetSweep;`, context);
+
+    assert.equal(await context.runResetSweep({ todayKey: '2026-07-24' }), 2);
+    assert.deepEqual(calls.reset, ['one', 'two'], 'tree and flat mirrors must be de-duplicated');
+    assert.equal(calls.refresh, 1, 'a sweep must batch its view refresh');
+    assert.equal(await context.runResetSweep({ todayKey: '2026-07-24' }), 0);
+    assert.deepEqual(calls.reset, ['one', 'two'], 'repeated wake events on the same day must not scan again');
+    assert.equal(calls.refresh, 1);
+}
+
 async function testRecurringFailureSchedulesOneFallbackRefresh() {
     let refreshCount = 0;
     let hintCount = 0;
@@ -424,6 +597,10 @@ function testDueAdvanceResetsTomatoBaseline() {
         Date,
         __tmNormalizeTaskRepeatRule: (value) => value,
         __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
+        __tmGetTaskRepeatLocalDayOrdinal: (value) => {
+            const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            return match ? Math.floor(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / 86400000) : Number.NaN;
+        },
         __tmNormalizeTaskRepeatState: (value) => ({ occurrenceCount: 1, ...(value || {}) }),
         __tmBuildTaskRepeatAdvancePatch: (task) => ({
             startDate: '2026-08-13',
@@ -500,6 +677,9 @@ async function run() {
     await testCommittedEffectsRewardDoesNotWaitForStaleSqlOrTomato();
     testRecurringInstanceSyncOnlyTouchesLoadedDocuments();
     await testRecurringAdvanceStateMachine();
+    await testRecurringNativeDoneResetIsDateBoundAndIdempotent();
+    await testRecurringNativeDoneResetFallsThroughToDueCatchUp();
+    await testRecurringNativeDoneResetSweepRunsOncePerLocalDay();
     await testFsrsCompletionUsesTheSameRecoverableTransaction();
     await testRecurringFailureSchedulesOneFallbackRefresh();
     testDueAdvanceResetsTomatoBaseline();

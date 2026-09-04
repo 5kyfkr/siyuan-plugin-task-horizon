@@ -1093,7 +1093,14 @@
         return runtime.skillSync;
     }
 
+    function sessionSwitchBlocked() {
+        if (!runtime.busy) return false;
+        showSessionNotice('当前会话正在处理，请停止后再切换会话', 'warning');
+        return true;
+    }
+
     function createSession() {
+        if (sessionSwitchBlocked()) return runtime.session;
         const id = newID();
         runtime.activeSessionID = id;
         runtime.session = { id, title: DEFAULT_SESSION_TITLE, titled: false, entries: [], createdAt: Date.now(), updatedAt: Date.now() };
@@ -1132,6 +1139,7 @@
     }
 
     async function loadSession(id) {
+        if (sessionSwitchBlocked()) return runtime.session;
         const sessionID = text(id);
         if (!sessionID) return createSession();
         try {
@@ -2505,7 +2513,7 @@
             : runtime.sessions;
         return `<aside class="tm-agent-history" aria-label="任务工作台会话">
             <div class="tm-agent-history__head"><strong>会话</strong><div class="tm-agent-history__actions"><label class="tm-agent-history__filter"><span>已启用定时任务</span><input class="b3-switch fn__flex-center" type="checkbox" data-agent-action="toggle-scheduled-history" ${runtime.historyScheduledOnly ? 'checked' : ''} aria-label="只显示已启用定时任务的会话"></label><button type="button" class="block__icon" data-agent-action="close-history" aria-label="关闭会话列表"><svg><use xlink:href="#iconClose"></use></svg></button></div></div>
-            <div class="tm-agent-history__list">${sessions.map((session) => `<div class="tm-agent-history__row ${text(session.id) === runtime.activeSessionID ? 'is-active' : ''}"><button type="button" class="tm-agent-history__main" data-agent-action="select-session" data-id="${esc(session.id)}"><span>${esc(session.title || DEFAULT_SESSION_TITLE)}</span><small>${new Date(Number(session.updatedAt) || Date.now()).toLocaleString()}</small></button><div class="tm-agent-history__row-actions"><button type="button" class="block__icon ariaLabel" data-position="parentW" data-agent-action="rename-session" data-id="${esc(session.id)}" aria-label="重命名会话"><svg><use xlink:href="#iconEdit"></use></svg></button><button type="button" class="block__icon ariaLabel" data-position="parentW" data-agent-action="toggle-session-menu" data-id="${esc(session.id)}" aria-label="更多"><svg><use xlink:href="#iconMore"></use></svg></button><div class="tm-agent-history__menu b3-menu"><button type="button" class="b3-menu__item b3-menu__item--warning" data-agent-action="delete-session" data-id="${esc(session.id)}"><svg class="b3-menu__icon"><use xlink:href="#iconTrashcan"></use></svg><span class="b3-menu__label">删除</span></button></div></div></div>`).join('') || `<div class="tm-agent-empty">${runtime.historyScheduledOnly ? '当前没有已启用定时任务的会话' : '还没有思源智能体会话'}</div>`}</div>
+            <div class="tm-agent-history__list">${sessions.map((session) => `<div class="tm-agent-history__row ${text(session.id) === runtime.activeSessionID ? 'is-active' : ''}"><button type="button" class="tm-agent-history__main" data-agent-action="select-session" data-id="${esc(session.id)}" ${runtime.busy ? 'disabled' : ''}><span>${esc(session.title || DEFAULT_SESSION_TITLE)}</span><small>${new Date(Number(session.updatedAt) || Date.now()).toLocaleString()}</small></button><div class="tm-agent-history__row-actions"><button type="button" class="block__icon ariaLabel" data-position="parentW" data-agent-action="rename-session" data-id="${esc(session.id)}" aria-label="重命名会话"><svg><use xlink:href="#iconEdit"></use></svg></button><button type="button" class="block__icon ariaLabel" data-position="parentW" data-agent-action="toggle-session-menu" data-id="${esc(session.id)}" aria-label="更多"><svg><use xlink:href="#iconMore"></use></svg></button><div class="tm-agent-history__menu b3-menu"><button type="button" class="b3-menu__item b3-menu__item--warning" data-agent-action="delete-session" data-id="${esc(session.id)}"><svg class="b3-menu__icon"><use xlink:href="#iconTrashcan"></use></svg><span class="b3-menu__label">删除</span></button></div></div></div>`).join('') || `<div class="tm-agent-empty">${runtime.historyScheduledOnly ? '当前没有已启用定时任务的会话' : '还没有思源智能体会话'}</div>`}</div>
         </aside>`;
     }
 
@@ -2732,7 +2740,7 @@
             <header class="tm-agent-header">
                 <div class="tm-agent-header__title" title="${esc(headerTitle)}"><span class="tm-agent-status-dot ${caps.mcpEnabled ? 'is-ready' : ''}" aria-hidden="true"></span><span>${esc(headerTitle)}</span></div>
                 <div class="tm-agent-header__actions">
-                    <button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="new-session" aria-label="新会话"><svg><use xlink:href="#iconAdd"></use></svg></button>
+                    <button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="new-session" aria-label="新会话" ${runtime.busy ? 'disabled' : ''}><svg><use xlink:href="#iconAdd"></use></svg></button>
                     <button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="open-scheduled-events" aria-label="管理定时事件">${phosphorBoldContextIcon('calendarDots')}</button>
                     <button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="open-history" aria-label="会话历史"><svg><use xlink:href="#iconHistory"></use></svg></button>
                     ${runtime.mobile ? '<button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="close-sidebar" aria-label="关闭 AI 对话"><svg><use xlink:href="#iconClose"></use></svg></button>' : ''}
@@ -2897,18 +2905,6 @@
         if (!policy || typeof policy !== 'object') return true;
         const overrides = policy.overrides && typeof policy.overrides === 'object' ? policy.overrides : {};
         return String(overrides[id] || policy.default || 'allow') !== 'deny';
-    }
-
-    async function invokeFrontendTool(event) {
-        const args = event.arguments && typeof event.arguments === 'object' ? event.arguments : {};
-        const action = text(args.action);
-        let outcome;
-        try {
-            outcome = frontendActionResult(await globalThis.__taskHorizonInvokeAgentAction?.(action, args));
-        } catch (error) {
-            outcome = { result: text(error?.message || error) || '前端操作失败', isError: true };
-        }
-        await postAgentInteraction('/frontendToolResult', { callID: event.callID, result: outcome.result, isError: outcome.isError });
     }
 
     async function invokeBrowserCapability(event) {
@@ -3237,7 +3233,6 @@
                 references: refs,
                 sessionID: runtime.activeSessionID,
                 editorContext,
-                pluginActions: Array.isArray(globalThis.__taskHorizonAgentActionDescriptors) ? globalThis.__taskHorizonAgentActionDescriptors : [],
                 frontendCapabilities: Array.isArray(globalThis.__taskHorizonFrontendCapabilityDescriptors) ? globalThis.__taskHorizonFrontendCapabilityDescriptors : [],
                 userEntryID: prepared.userEntryID,
                 contentRevision: prepared.revision,
@@ -3326,8 +3321,7 @@
                         maxRetries: Math.max(1, Number(event.maxRetries) || 1),
                     };
                     runtime.live.status = '正在重新连接模型';
-                } else if (event.type === 'frontend_tool_call') await invokeFrontendTool(event);
-                else if (event.type === 'browser_capability_call') await invokeBrowserCapability(event);
+                } else if (event.type === 'browser_capability_call') await invokeBrowserCapability(event);
                 else if (event.type === 'snapshot') {
                     settleLiveBeforeInteraction();
                     runtime.session.entries.push({ id: newID(), type: 'snapshot', snapshotID: event.snapshotID });
@@ -3929,7 +3923,6 @@
     function automationEventBlocked(type) {
         return type === 'confirm'
             || type === 'question'
-            || type === 'frontend_tool_call'
             || type === 'browser_capability_call';
     }
 
@@ -4046,7 +4039,6 @@
                 references: [],
                 sessionID,
                 editorContext: {},
-                pluginActions: [],
                 frontendCapabilities: [],
                 ...(userEntryID ? { userEntryID, contentRevision } : {}),
             }, async (event) => {
@@ -4206,6 +4198,7 @@
     globalThis.tmAiOpenChat = (docID) => openWorkbench({ docID });
     globalThis.tmAiShowHistory = async (docID) => openWorkbench({ docID, showHistory: true });
     const reloadData = async () => {
+        if (sessionSwitchBlocked()) return false;
         if (saveTimer) {
             clearTimeout(saveTimer);
             saveTimer = 0;

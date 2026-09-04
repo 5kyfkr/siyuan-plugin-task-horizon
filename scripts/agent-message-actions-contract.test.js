@@ -45,7 +45,7 @@ assert.equal(renderContext.renderConversation([
     { type: 'question', questionID: 'q2' },
 ], { content: 'stream' }), '[0:user:u1][2:assistant:a1][1:question:q1][3:confirm:c1][4:user:u2][5:assistant:a2][live:stream][6:question:q2]', 'each turn must keep assistant output above its interaction cards');
 const confirmEventSource = workbench.slice(workbench.indexOf("else if (event.type === 'confirm')"), workbench.indexOf("else if (event.type === 'question')"));
-const questionEventSource = workbench.slice(workbench.indexOf("else if (event.type === 'question')"), workbench.indexOf("else if (event.type === 'frontend_tool_call')"));
+const questionEventSource = workbench.slice(workbench.indexOf("else if (event.type === 'question')"), workbench.indexOf("else if (event.type === 'browser_capability_call')"));
 assert.doesNotMatch(confirmEventSource, /settleLiveBeforeInteraction/, 'manual confirmations must not consume the live output that renders above them');
 assert.doesNotMatch(questionEventSource, /settleLiveBeforeInteraction/, 'question cards must not consume the live output that renders above them');
 assert.doesNotMatch(workbench, /tm-agent-message__label/, 'messages must not render redundant user or Agent labels');
@@ -130,7 +130,7 @@ assert.match(workbench, /按可见标题在全部任务中先精确、再模糊�
 assert.match(workbench, /任务来源'[\s\S]*taskMatchType === 'fuzzy' \? '已绑定相似任务' : '已绑定同名任务'/, 'reminder receipts must distinguish fuzzy and exact task reuse');
 assert.match(workbench, /async function postQuestion[\s\S]*await postAgentInteraction\('\/question'[\s\S]*entry\.status = 'submitted'[\s\S]*saveSession/, 'question cards must persist their submitted state only after SiYuan accepts the interaction');
 assert.match(workbench, /postQuestion\(questionID[\s\S]*catch \(error\)[\s\S]*return false/, 'failed questions must remain retryable');
-assert.match(workbench, /invokeFrontendTool[\s\S]*postAgentInteraction\('\/frontendToolResult'/, 'frontend tool results must validate the SiYuan Agent API response');
+assert.match(workbench, /invokeBrowserCapability[\s\S]*postAgentInteraction\('\/browserCapabilityResult'/, 'frontend capability results must validate the SiYuan Agent API response');
 assert.match(workbench, /buffer \+= decoder\.decode\(\);[\s\S]*for \(const raw of buffer\.split\('\\n'\)\)/, 'the SSE client must flush a final event without a trailing newline');
 assert.match(workbench, /terminalReceived[\s\S]*完整终态/, 'the SSE client must reject a connection that closes without a terminal event');
 assert.match(workbench, /function shouldFollowConversation[\s\S]*function restoreConversationScroll[\s\S]*function render\(options = \{\}\)[\s\S]*restoreConversationScroll\(messages/, 'full renders must preserve user-controlled conversation scrolling');

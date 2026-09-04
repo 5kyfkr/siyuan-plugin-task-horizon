@@ -9,6 +9,7 @@ const policySource = fs.readFileSync(path.join(root, 'src/task-horizon/main/31-v
 const renderSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/41-render-scene-context.js'), 'utf8');
 const detailSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/52-task-detail-runtime.js'), 'utf8');
 const gestureSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
+const styleSource = fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8');
 
 assert.match(
     policySource,
@@ -19,6 +20,11 @@ assert.match(
     renderSource,
     /id="tmTaskDetailSheet"[\s\S]*?onpointerdown="tmTaskDetailSheetDragStart\(event\)"/,
     'the shared task detail sheet must expose the pointer gesture entry',
+);
+assert.match(
+    styleSource,
+    /#tmChecklistSheetBackdrop,\s*#tmTaskDetailSheetBackdrop\s*\{\s*z-index:\s*70;[\s\S]*?#tmChecklistSheet,\s*#tmTaskDetailSheet\s*\{\s*z-index:\s*71;/,
+    'checklist and task detail sheets must stay above the mobile bottom view bar',
 );
 assert.match(
     detailSource,

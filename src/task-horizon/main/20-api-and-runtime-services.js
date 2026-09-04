@@ -4112,8 +4112,15 @@
         return taskLike?.done ? 'X' : ' ';
     }
 
+    function __tmIsTaskNativeDone(task, statusOptionsInput = null) {
+        return __tmIsTaskMarkerDone(__tmResolveTaskMarker(task, statusOptionsInput));
+    }
+
     function __tmResolveTaskStatusId(task, statusOptionsInput = null) {
         const statusOptions = __tmGetStatusOptions(statusOptionsInput);
+        if (typeof __tmIsRecurringNativeDoneHeld === 'function' && __tmIsRecurringNativeDoneHeld(task)) {
+            return __tmGetDefaultUndoneStatusId(statusOptions);
+        }
         const configuredStatus = String(task?.customStatus ?? task?.custom_status ?? '').trim();
         if (configuredStatus) return configuredStatus;
         const marker = __tmResolveTaskMarker(task, statusOptions);
@@ -4126,18 +4133,8 @@
 
     function __tmIsTaskDoneEffective(task, statusOptionsInput = null) {
         const taskLike = (task && typeof task === 'object') ? task : {};
-        const hasDirectMarker = Object.prototype.hasOwnProperty.call(taskLike, 'taskMarker')
-            || Object.prototype.hasOwnProperty.call(taskLike, 'task_marker')
-            || Object.prototype.hasOwnProperty.call(taskLike, 'marker');
-        if (hasDirectMarker) {
-            const directMarker = __tmNormalizeTaskStatusMarker(taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker, '');
-            if (directMarker) return __tmIsTaskMarkerDone(directMarker);
-        }
-        const markdownMarker = __tmResolveTaskMarkdownMarker(taskLike);
-        if (markdownMarker) return __tmIsTaskMarkerDone(markdownMarker);
-        const statusId = String(taskLike.customStatus ?? taskLike.custom_status ?? '').trim();
-        if (statusId) return __tmDoesStatusIdResolveToDone(statusId, statusOptionsInput);
-        return taskLike.done === true;
+        if (typeof __tmIsRecurringNativeDoneHeld === 'function' && __tmIsRecurringNativeDoneHeld(taskLike)) return false;
+        return __tmIsTaskNativeDone(taskLike, statusOptionsInput);
     }
 
     function __tmNormalizeCheckboxStatusBindingValue(value) {
@@ -4222,11 +4219,14 @@
         const statusOptions = Array.isArray(statusArtifacts.options) ? statusArtifacts.options : [];
         const opts = (options && typeof options === 'object') ? options : {};
         const taskLike = (task && typeof task === 'object') ? task : {};
-        const directMarker = taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker;
+        const nativeDoneHeld = typeof __tmIsRecurringNativeDoneHeld === 'function' && __tmIsRecurringNativeDoneHeld(taskLike);
+        const directMarker = nativeDoneHeld ? ' ' : (taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker);
         let marker = __tmNormalizeTaskStatusMarker(directMarker, '');
         if (!marker) marker = __tmResolveTaskMarkdownMarker(taskLike);
         if (marker) marker = __tmNormalizeTaskStatusMarker(marker, ' ');
-        const configuredStatus = String(taskLike?.customStatus ?? taskLike?.custom_status ?? '').trim();
+        const configuredStatus = nativeDoneHeld
+            ? __tmGetDefaultUndoneStatusId(statusOptions)
+            : String(taskLike?.customStatus ?? taskLike?.custom_status ?? '').trim();
         const configuredMatched = configuredStatus
             ? ((statusArtifacts.idMap instanceof Map ? statusArtifacts.idMap.get(configuredStatus) : null) || null)
             : null;
@@ -4639,6 +4639,10 @@
         multiSelectMenuCloseHandler: null,
         mobileBottomViewbarActiveUntil: 0,
         mobileBottomViewbarTimer: 0,
+        mobileBottomViewbarSwipeCleanup: null,
+        mobileBottomViewbarDismissDragging: false,
+        mobileBottomViewbarDismissClosing: false,
+        mobileBottomViewbarDismissCloseTimer: 0,
         mobileViewportRefreshSig: '',
         mobileViewportRefreshTimer: 0,
         mobileViewportRefreshHandler: null,
@@ -4727,8 +4731,8 @@
         notebooksLoadingPromise: null,
         queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
         recursiveDocLimit: 2000,
-        showCompletedTasks: false,
-        excludeCompletedTasks: true,
+        showCompletedTasks: true,
+        excludeCompletedTasks: false,
         groupByDocName: true,
         groupByTaskName: false,
         groupByTime: false,
@@ -7956,6 +7960,87 @@
         ].some((id) => ids.has(String(id || '').trim()));
     };
 
+    // Some task writes (notably date edits) need to resolve task identity before
+    // they can enter the serialized mutation lane. Track that short ingress
+    // window so a following completion request cannot overtake the write.
+    const __tmPendingTaskWriteIntents = new Map();
+    const __tmGetPendingTaskWritePromises = (ids) => {
+        const seen = new Set();
+        const pending = [];
+        (ids instanceof Set ? ids : new Set()).forEach((id) => {
+            const entries = __tmPendingTaskWriteIntents.get(String(id || '').trim());
+            if (!(entries instanceof Set)) return;
+            entries.forEach((entry) => {
+                if (!entry || seen.has(entry)) return;
+                seen.add(entry);
+                if (entry.promise) pending.push(entry.promise);
+            });
+        });
+        return pending;
+    };
+    function __tmTrackPendingTaskWrite(taskId, promise) {
+        const ids = __tmTaskWriteIds(taskId);
+        const request = Promise.resolve(promise);
+        if (!ids.size) return promise;
+        const entry = { promise: request };
+        ids.forEach((id) => {
+            const key = String(id || '').trim();
+            if (!key) return;
+            let entries = __tmPendingTaskWriteIntents.get(key);
+            if (!(entries instanceof Set)) {
+                entries = new Set();
+                __tmPendingTaskWriteIntents.set(key, entries);
+            }
+            entries.add(entry);
+        });
+        const cleanup = () => {
+            ids.forEach((id) => {
+                const key = String(id || '').trim();
+                const entries = __tmPendingTaskWriteIntents.get(key);
+                if (!(entries instanceof Set)) return;
+                entries.delete(entry);
+                if (!entries.size) __tmPendingTaskWriteIntents.delete(key);
+            });
+        };
+        request.then(cleanup, cleanup);
+        return promise;
+    }
+
+    async function __tmWaitForPendingTaskWrites(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return { ok: false, code: 'INVALID_ARGUMENT', message: '任务 ID 为空' };
+        const opts = (options && typeof options === 'object') ? options : {};
+        const timeoutMs = Math.max(200, Math.min(10000, Number(opts.timeoutMs) || 4000));
+        const ids = __tmTaskWriteIds(tid);
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < timeoutMs) {
+            const pending = __tmGetPendingTaskWritePromises(ids);
+            if (!pending.length) return { ok: true };
+            const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
+            const settled = await Promise.race([
+                Promise.allSettled(pending),
+                new Promise((resolve) => setTimeout(() => resolve(null), remainingMs)),
+            ]);
+            if (settled === null) {
+                return { ok: false, code: 'TASK_WRITE_TIMEOUT', message: '任务写入超时' };
+            }
+            const failure = settled.find((result) => result.status === 'rejected');
+            if (failure) {
+                return {
+                    ok: false,
+                    code: 'TASK_WRITE_FAILED',
+                    message: String(failure.reason?.message || failure.reason || '任务写入失败'),
+                };
+            }
+        }
+        return { ok: false, code: 'TASK_WRITE_TIMEOUT', message: '任务写入超时' };
+    }
+
+    try {
+        globalThis.__tmTrackPendingTaskWrite = __tmTrackPendingTaskWrite;
+        globalThis.__tmWaitForPendingTaskWrites = __tmWaitForPendingTaskWrites;
+    } catch (e) {}
+
 
     const __tmTaskWriteSnapshotMatches = (task, expected = {}) => {
         if (!task || typeof task !== 'object') return false;
@@ -7993,7 +8078,8 @@
                     && types.has(String(op?.type || '').trim())
                     && __tmQueuedOpTouchesTask(op, ids);
             });
-            if (!pending.length) {
+            const pendingIngress = __tmGetPendingTaskWritePromises(ids);
+            if (!pending.length && !pendingIngress.length) {
                 const task = __tmMutationGetTask(tid, { includePending: true, preferPending: true });
                 if (!Object.keys(expected).length || __tmTaskWriteSnapshotMatches(task, expected)) {
                     return { ok: true, task: task || null };
@@ -8007,7 +8093,10 @@
             }
             const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
             const settled = await Promise.race([
-                Promise.allSettled(pending.map((op) => __tmEnsureQueuedOpPromise(op))),
+                Promise.allSettled([
+                    ...pending.map((op) => __tmEnsureQueuedOpPromise(op)),
+                    ...pendingIngress,
+                ]),
                 new Promise((resolve) => setTimeout(() => resolve(null), remainingMs)),
             ]);
             if (settled === null) break;
@@ -8197,9 +8286,22 @@
         if (typeof __tmQueueSetDoneTask !== 'function') {
             return Promise.reject(new Error('任务完成状态写入队列未就绪'));
         }
-        const task = __tmMutationGetTask(tid, { includePending: true, preferPending: true });
-        if (!task) return Promise.reject(new Error('未找到任务'));
-        return __tmQueueSetDoneTask(tid, !!done, task, options);
+        const initialTask = __tmMutationGetTask(tid, { includePending: true, preferPending: true });
+        if (!initialTask) return Promise.reject(new Error('未找到任务'));
+        const enqueue = () => {
+            const latestTask = __tmMutationGetTask(tid, { includePending: true, preferPending: true }) || initialTask;
+            return __tmQueueSetDoneTask(tid, !!done, latestTask, options);
+        };
+        const waitForPendingTaskWrites = globalThis.__tmWaitForPendingTaskWrites;
+        if (typeof waitForPendingTaskWrites !== 'function') return enqueue();
+        const request = Promise.resolve(waitForPendingTaskWrites(tid)).then((result) => {
+            if (result?.ok !== true) {
+                throw new Error(result?.message || '任务字段写入仍在进行中，请稍后重试');
+            }
+            return enqueue();
+        });
+        if (options?.wait !== true) request.catch(() => null);
+        return request;
     }
 
     function __tmMutationCreateTaskInDoc(options = {}, queueOptions = {}) {
@@ -10627,6 +10729,212 @@
         return touched;
     }
 
+    function __tmSyncChecklistWrappedTitleClasses(rootEl) {
+        const root = rootEl instanceof Element ? rootEl : null;
+        if (!root) return 0;
+        const panes = [];
+        if (root.matches?.('.tm-checklist-pane--compact')) panes.push(root);
+        else if (root.matches?.('.tm-checklist-item[data-id]')) {
+            const pane = root.closest?.('.tm-checklist-pane--compact');
+            if (pane instanceof HTMLElement) panes.push(pane);
+        }
+        else root.querySelectorAll?.('.tm-checklist-pane--compact').forEach((pane) => panes.push(pane));
+        let changed = 0;
+        panes.forEach((pane) => {
+            if (!(pane instanceof HTMLElement)) return;
+            const items = root.matches?.('.tm-checklist-item[data-id]')
+                ? [root]
+                : Array.from(pane.querySelectorAll('.tm-checklist-item[data-id]'));
+            items.forEach((item) => {
+                if (!(item instanceof HTMLElement)) return;
+                const title = item.querySelector('.tm-checklist-title-button > span');
+                if (!(title instanceof HTMLElement)) {
+                    if (item.classList.contains('tm-checklist-item--title-wrapped')) {
+                        item.classList.remove('tm-checklist-item--title-wrapped');
+                        changed += 1;
+                    }
+                    return;
+                }
+                let wrapped = false;
+                let measurable = true;
+                try {
+                    const style = getComputedStyle(title);
+                    const fontSize = Number.parseFloat(style.fontSize || '0');
+                    const parsedLineHeight = Number.parseFloat(style.lineHeight || '0');
+                    const lineHeight = Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
+                        ? parsedLineHeight
+                        : (Number.isFinite(fontSize) && fontSize > 0 ? fontSize * 1.32 : 0);
+                    // While an item is hidden or mid-rebuild its title measures 0;
+                    // treating that as "single line" would strip the wrapped class
+                    // and the row would only snap back on the next interaction.
+                    const measuredHeight = Number(title.offsetHeight || title.getBoundingClientRect?.().height || 0);
+                    if (measuredHeight <= 0) {
+                        measurable = false;
+                    } else {
+                        wrapped = pane.classList.contains('tm-checklist-pane--wrap')
+                            && lineHeight > 0
+                            && measuredHeight > lineHeight * 1.45;
+                    }
+                } catch (e) {}
+                if (measurable) {
+                    const next = item.classList.contains('tm-checklist-item--title-wrapped');
+                    if (next !== wrapped) {
+                        item.classList.toggle('tm-checklist-item--title-wrapped', wrapped);
+                        changed += 1;
+                    }
+                }
+            });
+            if (!pane.__tmChecklistTitleWrapResizeObserver && typeof ResizeObserver === 'function') {
+                try {
+                    const observer = new ResizeObserver(() => {
+                        if (!pane.isConnected) {
+                            try { observer.disconnect(); } catch (e) {}
+                            return;
+                        }
+                        try { __tmSyncChecklistWrappedTitleClasses(pane); } catch (e) {}
+                    });
+                    observer.observe(pane);
+                    pane.__tmChecklistTitleWrapResizeObserver = observer;
+                } catch (e) {}
+            }
+            try {
+                const observer = pane.__tmChecklistTitleWrapResizeObserver;
+                if (observer && typeof observer.observe === 'function') {
+                    items.forEach((item) => {
+                        const title = item.querySelector('.tm-checklist-title-button > span');
+                        if (title instanceof HTMLElement) observer.observe(title);
+                    });
+                }
+            } catch (e) {}
+        });
+        return changed;
+    }
+
+    function __tmSyncKanbanSubtaskWrappedTitleClasses(rootEl) {
+        const root = rootEl instanceof Element ? rootEl : null;
+        if (!root) return 0;
+        const rows = [];
+        if (root.matches?.('.tm-kanban-subtask-row-main')) rows.push(root);
+        else if (root.matches?.('.tm-kanban-subtask-row')) {
+            const row = root.querySelector?.('.tm-kanban-subtask-row-main');
+            if (row instanceof HTMLElement) rows.push(row);
+        } else root.querySelectorAll?.('.tm-kanban-subtask-row-main').forEach((row) => rows.push(row));
+        let changed = 0;
+        rows.forEach((row) => {
+            if (!(row instanceof HTMLElement)) return;
+            const title = row.querySelector('.tm-kanban-subtask-title');
+            let wrapped = false;
+            let measurable = true;
+            try {
+                const wrapEnabled = !!row.closest?.('.tm-modal--task-wrap');
+                if (wrapEnabled && title instanceof HTMLElement) {
+                    const style = getComputedStyle(title);
+                    const fontSize = Number.parseFloat(style.fontSize || '0');
+                    const parsedLineHeight = Number.parseFloat(style.lineHeight || '0');
+                    const lineHeight = Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
+                        ? parsedLineHeight
+                        : (Number.isFinite(fontSize) && fontSize > 0 ? fontSize * 1.35 : 0);
+                    // offsetHeight ignores transforms, so move/FLIP animations
+                    // cannot skew the line count; rect only covers inline titles.
+                    const measuredHeight = Number(title.offsetHeight || title.getBoundingClientRect?.().height || 0);
+                    if (measuredHeight <= 0) {
+                        // Hidden or mid-rebuild row: keep the last known good
+                        // class instead of stripping it, otherwise the row comes
+                        // back centered and only snaps into place on the next
+                        // unrelated DOM change (the reported flicker).
+                        measurable = false;
+                    } else {
+                        wrapped = lineHeight > 0 && measuredHeight > lineHeight * 1.45;
+                    }
+                }
+            } catch (e) {}
+            if (measurable) {
+                const next = row.classList.contains('tm-kanban-subtask-row-main--title-wrapped');
+                if (next !== wrapped) {
+                    row.classList.toggle('tm-kanban-subtask-row-main--title-wrapped', wrapped);
+                    changed += 1;
+                }
+            }
+            if (!row.__tmKanbanSubtaskWrapResizeObserver && typeof ResizeObserver === 'function') {
+                try {
+                    const observer = new ResizeObserver(() => {
+                        if (!row.isConnected) {
+                            try { observer.disconnect(); } catch (e) {}
+                            return;
+                        }
+                        try { __tmSyncKanbanSubtaskWrappedTitleClasses(row); } catch (e) {}
+                    });
+                    observer.observe(row);
+                    if (title instanceof HTMLElement) observer.observe(title);
+                    row.__tmKanbanSubtaskWrapResizeObserver = observer;
+                } catch (e) {}
+            }
+        });
+        return changed;
+    }
+
+    function __tmCollectKanbanSubtaskWrapRowsFromMutation(mutation, rows) {
+        if (!mutation || !(rows instanceof Set)) return;
+        const consider = (node) => {
+            if (!(node instanceof Element)) return;
+            if (node.matches?.('.tm-kanban-subtask-row-main')) {
+                rows.add(node);
+            } else {
+                node.querySelectorAll?.('.tm-kanban-subtask-row-main').forEach((row) => rows.add(row));
+            }
+            const owner = node.closest?.('.tm-kanban-subtask-row-main');
+            if (owner) rows.add(owner);
+        };
+        if (mutation.type === 'childList') {
+            mutation.addedNodes?.forEach(consider);
+        }
+        // Reveal paths are attribute-only (hidden/aria-hidden/style/class flips on
+        // the row or one of its containers), so they must be watched too or the
+        // row would stay in its pre-hidden alignment until the next interaction.
+        const target = mutation.target;
+        if (target instanceof Element) {
+            consider(target);
+        }
+    }
+
+    // Single authoritative guard: instead of every renderer remembering to resync
+    // wrapped subtask titles, the view shell watches its own subtree so cards
+    // rebuilt by any path (progressive batches, projections, deletes, detail
+    // panels) are measured synchronously inside the mutation microtask. The
+    // correction must land before the browser paints: deferring it to a frame
+    // would draw the default centered layout first, which shows up as the
+    // checkbox row jittering on every rebuild.
+    function __tmEnsureKanbanSubtaskWrapAutoSync(host) {
+        const root = host instanceof Element ? host : null;
+        if (!root || typeof MutationObserver !== 'function') return false;
+        if (root.__tmKanbanSubtaskWrapAutoSyncObserver) return true;
+        const observer = new MutationObserver((mutations) => {
+            if (!root.isConnected) {
+                try { observer.disconnect(); } catch (e) {}
+                if (root.__tmKanbanSubtaskWrapAutoSyncObserver === observer) {
+                    root.__tmKanbanSubtaskWrapAutoSyncObserver = null;
+                }
+                return;
+            }
+            const rows = new Set();
+            mutations.forEach((mutation) => {
+                __tmCollectKanbanSubtaskWrapRowsFromMutation(mutation, rows);
+            });
+            rows.forEach((row) => {
+                if (!row.isConnected) return;
+                try { __tmSyncKanbanSubtaskWrappedTitleClasses(row); } catch (e) {}
+            });
+        });
+        observer.observe(root, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['hidden', 'aria-hidden', 'class', 'style'],
+        });
+        root.__tmKanbanSubtaskWrapAutoSyncObserver = observer;
+        return true;
+    }
+
     function __tmEscapeSearchHighlightRegex(value) {
         return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
@@ -10765,6 +11073,9 @@
         globalThis.__tmBuildTaskTitleOpacityStyle = __tmBuildTaskTitleOpacityStyle;
         globalThis.__tmApplyTaskTitleOpacityToElement = __tmApplyTaskTitleOpacityToElement;
         globalThis.__tmApplyTaskTitleOpacityInContainer = __tmApplyTaskTitleOpacityInContainer;
+        globalThis.__tmSyncChecklistWrappedTitleClasses = __tmSyncChecklistWrappedTitleClasses;
+        globalThis.__tmSyncKanbanSubtaskWrappedTitleClasses = __tmSyncKanbanSubtaskWrappedTitleClasses;
+        globalThis.__tmEnsureKanbanSubtaskWrapAutoSync = __tmEnsureKanbanSubtaskWrapAutoSync;
         globalThis.__tmGetTaskRemarkSearchText = __tmGetTaskRemarkSearchText;
         globalThis.__tmTaskRemarkMatchesSearch = __tmTaskRemarkMatchesSearch;
         globalThis.__tmTaskMatchesSearch = __tmTaskMatchesSearch;
@@ -12648,6 +12959,10 @@
     let __tmVisibleResumeLastRunAt = 0;
     let __tmVisibilityHandler = null;
     let __tmFocusHandler = null;
+    let __tmBlurHandler = null;
+    let __tmVisibilityNativeFallbackBound = false;
+    let __tmFocusNativeFallbackBound = false;
+    let __tmBlurNativeFallbackBound = false;
     let __tmWhiteboardViewSaveTimer = null;
     let __tmTimelineTodayIndicatorTimer = null;
     // 存储被悬浮条修改过的任务 ID
@@ -15464,7 +15779,7 @@ if (opts.refresh === false) return;
         }
     }
 
-    async function __tmApplyTaskMetaPatchWithUndo(taskId, patch, options = {}) {
+    async function __tmApplyTaskMetaPatchWithUndoCore(taskId, patch, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!Object.keys(nextPatch).length) return { ok: true, changed: false, taskId: String(taskId || '').trim() };
@@ -15493,6 +15808,9 @@ if (opts.refresh === false) return;
         }
         if (!context?.persistId) {
             throw new Error('未找到任务');
+        }
+        if (String(opts.source || '').trim() !== 'task-repeat-due') {
+            try { globalThis.__tmClearRecurringDueReconcileMemo?.(context.persistId); } catch (e) {}
         }
         const inversePatch = __tmCaptureTaskPatchInverse(context.persistId, nextPatch);
         let effectiveAttrTargetId = explicitAttrTargetId || context.attrHostId;
@@ -15728,6 +16046,17 @@ if (hasStatusPatch) {
                 inversePatch: settledInversePatch,
             };
         });
+    }
+
+    function __tmApplyTaskMetaPatchWithUndo(taskId, patch, options = {}) {
+        const request = __tmApplyTaskMetaPatchWithUndoCore(taskId, patch, options);
+        try {
+            // Reserve the task write before identity/attribute resolution yields;
+            // completion toggles can then wait until this request has entered
+            // the shared mutation lane.
+            __tmTrackPendingTaskWrite(taskId, request);
+        } catch (e) {}
+        return request;
     }
 
     async function __tmApplyTaskAttrUpdateWithUndo(taskId, attrKey, attrValue, options = {}) {
@@ -16515,6 +16844,12 @@ if (hasStatusPatch) {
     function __tmCreateKeepaliveSnapshot(sourceEl, kind = 'dock') {
         if (!(sourceEl instanceof HTMLElement)) return null;
         try {
+            // The source node may be focused when a host handoff starts. Clear
+            // that focus before its replacement is marked aria-hidden.
+            try {
+                const active = document.activeElement;
+                if (active instanceof Element && sourceEl.contains(active)) active.blur?.();
+            } catch (e) {}
             const snapshot = sourceEl.cloneNode(true);
             snapshot.setAttribute('data-task-horizon-dock-snapshot', '1');
             snapshot.setAttribute('data-task-horizon-snapshot-kind', kind === 'tab' ? 'tab' : 'dock');
@@ -17122,8 +17457,20 @@ if (!state.homepageOpen) return;
         if (entryOptions.restoreDocTopbarContext !== false) {
             try { await __tmRestoreDefaultManagerContextAfterDocTopbarLocate(); } catch (e) {}
         }
+        // The mobile Dock and the top-bar entry are separate hosts. When the
+        // Dock is live, switch the next open back to the full-screen host so
+        // render() can freeze the Dock with its existing keepalive snapshot
+        // handoff, matching the desktop Dock/tab behavior.
+        try {
+            if (__tmIsRuntimeMobileClient() && __tmIsDockHost()) {
+                __tmSetMount(null);
+                try { globalThis.__taskHorizonTabElement = null; } catch (e2) {}
+            }
+        } catch (e) {}
         const options = { preserveViewMode: true };
         if (entryOptions.skipEnsureTabOpened === true) options.skipEnsureTabOpened = true;
+        if (entryOptions.awaitInitialLoad === true) options.awaitInitialLoad = true;
+        if (String(entryOptions.source || '').trim()) options.source = String(entryOptions.source).trim();
         try {
             if (!__tmIsRuntimeMobileClient()) options.forceOpenTab = true;
         } catch (e) {
@@ -17281,7 +17628,6 @@ if (!state.homepageOpen) return;
         try {
             collapsedChanged = await __tmSyncRemoteCollapsedSessionStateIfNeeded({ rerender: false }) === true;
         } catch (e) {}
-
         if (hadPendingData && !dataRefreshed && __tmHasAutoRefreshPendingSync()) return false;
         const shouldCommit = hadPendingView || dataRefreshed || collapsedChanged || !!state.viewRefreshPending;
         if (!shouldCommit) {
@@ -17311,12 +17657,11 @@ if (!state.homepageOpen) return;
 
     function __tmScheduleVisibleResumeSync(source = 'visible-resume') {
         const sourceLabel = String(source || '').trim() || 'visible-resume';
-        if (__tmVisibleResumeSyncPromise) return __tmVisibleResumeSyncPromise;
-
         const hasUrgentWork = !!state.viewRefreshPending
             || !!state.listProjectionRefreshPending
             || __tmCalendarTxRefreshPending === true
             || __tmHasAutoRefreshPendingSync();
+        if (__tmVisibleResumeSyncPromise) return __tmVisibleResumeSyncPromise;
         if (!hasUrgentWork && Date.now() - (Number(__tmVisibleResumeLastRunAt) || 0) < 1200) {
             return Promise.resolve(false);
         }
@@ -17421,6 +17766,7 @@ if (!state.homepageOpen) return;
                 }
 
                 try { __tmPollQuickbarRelayStorage(); } catch (e) {}
+                try { void globalThis.__tmScheduleRecurringNativeDoneResetSweep?.('visibilitychange'); } catch (e) {}
 
                 // 只有当最小化前插件页面正在显示时才继续处理
                 if (!__tmWasPluginVisibleBeforeHide) {
@@ -17428,17 +17774,43 @@ if (!state.homepageOpen) return;
                 }
 
                 void __tmScheduleVisibleResumeSync('visibilitychange');
-			} catch (e) {}
+            } catch (e) {
+            }
 		};
-		__tmFocusHandler = async () => {
+        __tmFocusHandler = async () => {
 			try {
                 try { __tmPollQuickbarRelayStorage(); } catch (e) {}
-                if (!__tmWasPluginVisibleBeforeHide) return;
+                try { void globalThis.__tmScheduleRecurringNativeDoneResetSweep?.('focus'); } catch (e) {}
+                if (!__tmWasPluginVisibleBeforeHide) {
+                    return;
+                }
                 void __tmScheduleVisibleResumeSync('focus');
-            } catch (e) {}
+            } catch (e) {
+            }
+		};
+        __tmBlurHandler = () => {
+            try {
+                __tmWasHiddenAt = Date.now();
+                state.wasHidden = true;
+                __tmWasPluginVisibleBeforeHide = isPluginVisible();
+            } catch (e) {
+            }
         };
-        try { globalThis.__tmRuntimeEvents?.on?.(document, 'visibilitychange', __tmVisibilityHandler); } catch (e) {}
-        try { globalThis.__tmRuntimeEvents?.on?.(window, 'focus', __tmFocusHandler); } catch (e) {}
+        let visibilityBound = false;
+        let focusBound = false;
+        let blurBound = false;
+        try { visibilityBound = globalThis.__tmRuntimeEvents?.on?.(document, 'visibilitychange', __tmVisibilityHandler) === true; } catch (e) {}
+        try { focusBound = globalThis.__tmRuntimeEvents?.on?.(window, 'focus', __tmFocusHandler) === true; } catch (e) {}
+        try { blurBound = globalThis.__tmRuntimeEvents?.on?.(window, 'blur', __tmBlurHandler) === true; } catch (e) {}
+        if (!visibilityBound) {
+            try { document.addEventListener('visibilitychange', __tmVisibilityHandler); __tmVisibilityNativeFallbackBound = true; visibilityBound = true; } catch (e) {}
+        }
+        if (!focusBound) {
+            try { window.addEventListener('focus', __tmFocusHandler); __tmFocusNativeFallbackBound = true; focusBound = true; } catch (e) {}
+        }
+        if (!blurBound) {
+            try { window.addEventListener('blur', __tmBlurHandler); __tmBlurNativeFallbackBound = true; blurBound = true; } catch (e) {}
+        }
     }
 
     let __tmOriginalCenterSwitchTab = null;
@@ -21353,7 +21725,9 @@ if (!state.homepageOpen) return;
     const __tmDispatchDockSettingsChanged = (reason = '') => {
         const runtimeMobile = __tmIsRuntimeMobileClient();
         const detail = {
-            enabled: !runtimeMobile && SettingsStore?.data?.dockSidebarEnabled !== false,
+            enabled: runtimeMobile
+                ? SettingsStore?.data?.mobileSidebarEnabled === true
+                : SettingsStore?.data?.dockSidebarEnabled !== false,
             defaultViewMode: __tmGetDockDefaultViewValue(),
             reason: String(reason || '').trim()
         };
@@ -21725,6 +22099,335 @@ if (!state.homepageOpen) return;
         };
     }
 
+    // Mobile Dock is embedded in SiYuan's shell, whose edge-swipe handler can
+    // win the gesture before a nested view surface receives it.
+    // Mark only plugin view surfaces as swipe-safe. Touches outside those
+    // surfaces still belong to SiYuan, while native scrolling stays untouched.
+    function __tmBindMobileDockHorizontalTouchScroll(modalEl) {
+        try {
+            state.dockHorizontalTouchScrollCleanup?.();
+        } catch (e) {}
+        state.dockHorizontalTouchScrollCleanup = null;
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof HTMLElement)) return false;
+        const isRuntimeMobile = modal.classList.contains('tm-modal--runtime-mobile')
+            || (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient());
+        if (!modal.classList.contains('tm-modal--dock') || !isRuntimeMobile) return false;
+
+        const candidateSelector = [
+            '.tm-body.tm-body--list',
+            '.tm-body.tm-body--timeline',
+            '.tm-body.tm-body--kanban',
+            '.tm-body.tm-body--whiteboard',
+            '.tm-timeline-scroll-host',
+            '.tm-timeline-left-body',
+            '.tm-body.tm-body--attachment-library',
+            '.tm-body.tm-body--homepage',
+            '#tmCalendarRoot .tm-proto-main-view > .tm-proto-timeline',
+            '#tmCalendarRoot .tm-proto-month-cell[data-tm-proto-day]',
+            '#tmCalendarRoot [data-tm-proto-month-scroll]',
+            '#tmCalendarRoot .tm-proto-time-scroll',
+            '#tmCalendarRoot .fc-timegrid-body .fc-scroller',
+            '#tmCalendarRoot .fc-scroller',
+            '#tmWhiteboardViewport',
+            '.tm-whiteboard-viewport',
+        ].join(',');
+        const interactiveSelector = 'input,button,select,textarea,a,[contenteditable="true"],[role="button"]';
+        const gestureExcludedSelector = `${interactiveSelector},.tm-gantt-bar,.tm-gantt-bar-handle,.tm-gantt-milestone,.tm-task-link-dot,.tm-cal-task,.tm-cal-task-event,[data-tm-proto-event],.tm-proto-resize-handle,.tm-proto-more`;
+        let startX = NaN;
+        let startY = NaN;
+        let activeScroller = null;
+        let active = false;
+        let touchActive = false;
+        let inputSource = '';
+        let activePointerId = null;
+        let lastCalendarGestureActive = false;
+        let calendarHostBoundaryClearTimer = 0;
+        const swipeGuardEntries = [];
+        const persistentSwipeGuardEntries = [];
+        let persistentSwipeGuardObserver = null;
+        const clearSwipeGuards = () => {
+            while (swipeGuardEntries.length) {
+                const entry = swipeGuardEntries.pop();
+                const el = entry?.el;
+                if (!(el instanceof HTMLElement)) continue;
+                try {
+                    if (entry.hadAttribute) el.setAttribute('data-prevent-swipe', entry.value ?? '');
+                    else el.removeAttribute('data-prevent-swipe');
+                } catch (e) {}
+            }
+        };
+        const clearPersistentSwipeGuards = () => {
+            while (persistentSwipeGuardEntries.length) {
+                const entry = persistentSwipeGuardEntries.pop();
+                const el = entry?.el;
+                if (!(el instanceof HTMLElement)) continue;
+                try {
+                    if (entry.hadAttribute) el.setAttribute('data-prevent-swipe', entry.value ?? '');
+                    else el.removeAttribute('data-prevent-swipe');
+                } catch (e) {}
+            }
+        };
+        const armSwipeGuard = (el) => {
+            if (!(el instanceof HTMLElement) || swipeGuardEntries.some((entry) => entry?.el === el)) return;
+            swipeGuardEntries.push({
+                el,
+                hadAttribute: el.hasAttribute('data-prevent-swipe'),
+                value: el.getAttribute('data-prevent-swipe'),
+            });
+            try { el.setAttribute('data-prevent-swipe', ''); } catch (e) {}
+        };
+        const armPersistentSwipeGuard = (el) => {
+            if (!(el instanceof HTMLElement) || persistentSwipeGuardEntries.some((entry) => entry?.el === el)) return;
+            persistentSwipeGuardEntries.push({
+                el,
+                hadAttribute: el.hasAttribute('data-prevent-swipe'),
+                value: el.getAttribute('data-prevent-swipe'),
+            });
+            try { el.setAttribute('data-prevent-swipe', ''); } catch (e) {}
+        };
+        const syncPersistentSwipeGuards = () => {
+            try {
+                modal.querySelectorAll(candidateSelector).forEach((el) => {
+                    // Calendar navigation has its own gesture lifecycle. Do
+                    // not permanently mark its surfaces; the modal bubble
+                    // guard below only blocks SiYuan after a real horizontal
+                    // calendar gesture is established.
+                    if (el instanceof Element && el.closest?.('#tmCalendarRoot')) return;
+                    if (el instanceof HTMLElement) armPersistentSwipeGuard(el);
+                });
+            } catch (e) {}
+        };
+        // SiYuan checks data-prevent-swipe during touchstart, before it can
+        // inspect horizontal overflow. Keep it on native-scroll surfaces for
+        // the lifetime of this binding; calendar gestures use the bubble-phase
+        // handoff below so the host can still handle non-calendar touches.
+        syncPersistentSwipeGuards();
+        try {
+            if (typeof MutationObserver === 'function') {
+                persistentSwipeGuardObserver = new MutationObserver(() => syncPersistentSwipeGuards());
+                persistentSwipeGuardObserver.observe(modal, { childList: true, subtree: true });
+            }
+        } catch (e) {
+            persistentSwipeGuardObserver = null;
+        }
+        const reset = () => {
+            clearSwipeGuards();
+            startX = NaN;
+            startY = NaN;
+            activeScroller = null;
+            active = false;
+            touchActive = false;
+            inputSource = '';
+            activePointerId = null;
+        };
+        const getPoint = (event) => {
+            if (String(event?.type || '').startsWith('pointer')) {
+                const x = Number(event?.clientX);
+                const y = Number(event?.clientY);
+                return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+            }
+            const liveTouches = event?.touches;
+            const touches = liveTouches?.length
+                ? (liveTouches.length === 1 ? liveTouches : null)
+                : (event?.changedTouches?.length === 1 ? event.changedTouches : null);
+            if (!touches) return null;
+            const touch = touches[0];
+            const x = Number(touch?.clientX);
+            const y = Number(touch?.clientY);
+            return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+        };
+        const findScroller = (target) => {
+            if (!(target instanceof Element)) return null;
+            const scroller = target.closest(candidateSelector);
+            return scroller instanceof HTMLElement && modal.contains(scroller) ? scroller : null;
+        };
+        const isPluginGestureScroller = (scroller) => {
+            if (!(scroller instanceof Element)) return false;
+            // Kanban, whiteboard, and the calendar surface each own their
+            // pointer gesture lifecycle. Let their move/end handlers receive
+            // the event; native-scroll surfaces are protected by the marker
+            // above, while calendar handoff is handled at modal bubble phase.
+            return !!scroller.closest?.(
+                '.tm-body.tm-body--kanban, .tm-body.tm-body--whiteboard, #tmWhiteboardViewport, .tm-body.tm-body--calendar, #tmCalendarRoot'
+            );
+        };
+        const beginInput = (event, source) => {
+            if (calendarHostBoundaryClearTimer) {
+                try { clearTimeout(calendarHostBoundaryClearTimer); } catch (e) {}
+                calendarHostBoundaryClearTimer = 0;
+            }
+            lastCalendarGestureActive = false;
+            reset();
+            if (source === 'pointer') {
+                const pointerType = String(event?.pointerType || '').trim().toLowerCase();
+                if (pointerType && pointerType !== 'touch' && pointerType !== 'pen') return;
+            }
+            const point = getPoint(event);
+            if (!point) return;
+            const target = event?.target instanceof Element ? event.target : null;
+            if (target?.closest?.(gestureExcludedSelector)) return;
+            const scroller = findScroller(target);
+            if (!(scroller instanceof HTMLElement)) return;
+            const available = Math.max(0, Number(scroller.scrollWidth || 0) - Number(scroller.clientWidth || 0));
+            const isCalendarScroller = !!scroller.closest?.('#tmCalendarRoot');
+            // Calendar navigation is gesture-driven even when the compact
+            // timeline itself has no native horizontal overflow. Keep the
+            // touch marker for that surface so SiYuan cannot cancel the
+            // calendar's own date-swipe lifecycle.
+            if (available <= 1 && !isCalendarScroller) return;
+            startX = point.x;
+            startY = point.y;
+            activeScroller = scroller;
+            touchActive = true;
+            inputSource = source;
+            activePointerId = source === 'pointer' ? event?.pointerId : null;
+            // SiYuan checks this marker during touchstart. Scope it to the
+            // current nested native scroller so edge swipes outside the
+            // plugin remain available to the host shell. Calendar navigation
+            // deliberately relies on its own pointer lifecycle instead.
+            if (!isCalendarScroller) armSwipeGuard(scroller);
+        };
+        const moveInput = (event, source) => {
+            const synthesizedTouch = inputSource === 'pointer' && source === 'touch';
+            if (!touchActive || (!synthesizedTouch && inputSource !== source) || !(activeScroller instanceof HTMLElement)) return;
+            if (source === 'pointer' && event?.pointerId !== activePointerId) return;
+            const point = getPoint(event);
+            if (!point) {
+                reset();
+                return;
+            }
+            const dx = point.x - startX;
+            const dy = point.y - startY;
+            const absX = Math.abs(dx);
+            const absY = Math.abs(dy);
+            if (!active) {
+                if (absX < 4 || absX <= absY * 0.72) return;
+                const dragState = state.dockTouchTaskDragState;
+                const samePointer = !dragState
+                    || !Number.isFinite(Number(dragState.pointerId))
+                    || Number(dragState.pointerId) === Number(activePointerId);
+                if (samePointer && typeof dragState?.cancelPending === 'function') {
+                    const canceledPending = dragState.cancelPending() === true;
+                    if (!canceledPending && dragState.isDragging?.() === true) return;
+                }
+                active = true;
+            }
+            // Keep the browser's native scrolling path for smooth movement and
+            // momentum; only stop propagation so SiYuan's edge-swipe handler
+            // cannot steal an active horizontal gesture.
+            // Kanban and whiteboard have their own document-level pointer
+            // gesture handlers. Let those handlers receive the move; the
+            // persistent swipe marker already keeps SiYuan out of the touch
+            // stream for these surfaces.
+            if (!isPluginGestureScroller(activeScroller)) {
+                try { event.stopPropagation?.(); } catch (e) {}
+            }
+        };
+        const endInput = (event, source) => {
+            const synthesizedTouch = inputSource === 'pointer' && source === 'touch';
+            if (!touchActive || (!synthesizedTouch && inputSource !== source)) return;
+            if (source === 'pointer' && event?.pointerId !== activePointerId) return;
+            lastCalendarGestureActive = !!(active
+                && isPluginGestureScroller(activeScroller)
+                && activeScroller?.closest?.('#tmCalendarRoot'));
+            if (active && activeScroller instanceof HTMLElement && !isPluginGestureScroller(activeScroller)) {
+                // Native scrolling owns the final position and any momentum.
+                try { event.stopPropagation?.(); } catch (e) {}
+            }
+            reset();
+        };
+        const onTouchStart = (event) => {
+            if (inputSource === 'pointer') return;
+            beginInput(event, 'touch');
+        };
+        const onTouchMove = (event) => moveInput(event, 'touch');
+        const onTouchEnd = (event) => endInput(event, 'touch');
+        const onTouchCancel = () => {
+            if (inputSource === 'touch' || inputSource === 'pointer') {
+                lastCalendarGestureActive = false;
+                reset();
+            }
+        };
+        const onPointerStart = (event) => {
+            if (touchActive && inputSource === 'pointer') return;
+            beginInput(event, 'pointer');
+        };
+        const onPointerMove = (event) => moveInput(event, 'pointer');
+        const onPointerEnd = (event) => endInput(event, 'pointer');
+        const onPointerCancel = () => {
+            if (inputSource === 'pointer') {
+                lastCalendarGestureActive = false;
+                reset();
+            }
+        };
+        const stopCalendarGestureAtHostBoundary = (event) => {
+            if (!lastCalendarGestureActive) return;
+            try { event.stopPropagation?.(); } catch (e) {}
+            // Pointer-capable WebViews commonly emit a paired touchend after
+            // pointerup. Keep the guard through that paired event so SiYuan's
+            // touch handler cannot run one frame later.
+            if (String(event?.type || '') === 'pointerup') {
+                if (calendarHostBoundaryClearTimer) {
+                    try { clearTimeout(calendarHostBoundaryClearTimer); } catch (e) {}
+                }
+                calendarHostBoundaryClearTimer = setTimeout(() => {
+                    calendarHostBoundaryClearTimer = 0;
+                    lastCalendarGestureActive = false;
+                }, 80);
+            } else {
+                lastCalendarGestureActive = false;
+            }
+        };
+        const stopCalendarGestureMoveAtHostBoundary = (event) => {
+            if (!active || !isPluginGestureScroller(activeScroller)
+                || !activeScroller?.closest?.('#tmCalendarRoot')) return;
+            try { event.stopPropagation?.(); } catch (e) {}
+        };
+        // Window capture runs before SiYuan's document listeners. Only active
+        // horizontal drags on native-scroll surfaces are stopped; taps,
+        // vertical moves, and custom board surfaces keep their own handlers.
+        try { window.addEventListener('pointerdown', onPointerStart, { capture: true, passive: true }); } catch (e) {}
+        try { window.addEventListener('pointermove', onPointerMove, { capture: true, passive: false }); } catch (e) {}
+        try { window.addEventListener('pointerup', onPointerEnd, { capture: true, passive: false }); } catch (e) {}
+        try { window.addEventListener('pointercancel', onPointerCancel, { capture: true, passive: true }); } catch (e) {}
+        try { window.addEventListener('touchstart', onTouchStart, { capture: true, passive: true }); } catch (e) {}
+        try { window.addEventListener('touchmove', onTouchMove, { capture: true, passive: false }); } catch (e) {}
+        try { window.addEventListener('touchend', onTouchEnd, { capture: true, passive: false }); } catch (e) {}
+        try { window.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true }); } catch (e) {}
+        // Bubble-phase guards run after the calendar's own capture listeners,
+        // so date navigation still receives move/end events while SiYuan's
+        // host gesture is blocked only for an active horizontal swipe.
+        try { modal.addEventListener('pointermove', stopCalendarGestureMoveAtHostBoundary, { passive: true }); } catch (e) {}
+        try { modal.addEventListener('touchmove', stopCalendarGestureMoveAtHostBoundary, { passive: true }); } catch (e) {}
+        try { modal.addEventListener('pointerup', stopCalendarGestureAtHostBoundary, { passive: true }); } catch (e) {}
+        try { modal.addEventListener('touchend', stopCalendarGestureAtHostBoundary, { passive: true }); } catch (e) {}
+        state.dockHorizontalTouchScrollCleanup = () => {
+            try { window.removeEventListener('pointerdown', onPointerStart, true); } catch (e) {}
+            try { window.removeEventListener('pointermove', onPointerMove, true); } catch (e) {}
+            try { window.removeEventListener('pointerup', onPointerEnd, true); } catch (e) {}
+            try { window.removeEventListener('pointercancel', onPointerCancel, true); } catch (e) {}
+            try { window.removeEventListener('touchstart', onTouchStart, true); } catch (e) {}
+            try { window.removeEventListener('touchmove', onTouchMove, true); } catch (e) {}
+            try { window.removeEventListener('touchend', onTouchEnd, true); } catch (e) {}
+            try { window.removeEventListener('touchcancel', onTouchCancel, true); } catch (e) {}
+            try { modal.removeEventListener('pointermove', stopCalendarGestureMoveAtHostBoundary); } catch (e) {}
+            try { modal.removeEventListener('touchmove', stopCalendarGestureMoveAtHostBoundary); } catch (e) {}
+            try { modal.removeEventListener('pointerup', stopCalendarGestureAtHostBoundary); } catch (e) {}
+            try { modal.removeEventListener('touchend', stopCalendarGestureAtHostBoundary); } catch (e) {}
+            try { persistentSwipeGuardObserver?.disconnect?.(); } catch (e) {}
+            persistentSwipeGuardObserver = null;
+            if (calendarHostBoundaryClearTimer) {
+                try { clearTimeout(calendarHostBoundaryClearTimer); } catch (e) {}
+                calendarHostBoundaryClearTimer = 0;
+            }
+            lastCalendarGestureActive = false;
+            reset();
+            clearPersistentSwipeGuards();
+        };
+        return true;
+    }
+
     function __tmBindTopbarOverflowTooltips(modalEl) {
         try {
             if (state.topbarOverflowTooltipResizeObserver) {
@@ -22048,11 +22751,17 @@ if (!state.homepageOpen) return;
 
     const __tmGetWrapConfig = () => {
         const enabled = SettingsStore.data.taskAutoWrapEnabled !== false;
-        const contentRaw = Number(SettingsStore.data.taskContentWrapMaxLines);
+        const hostInfo = globalThis.__tmRuntimeHost?.getInfo?.() || null;
+        const isDockHost = hostInfo?.isDockHost ?? __tmIsDockHost();
+        const isMobileDevice = hostInfo?.isMobileDevice ?? __tmIsMobileDevice();
+        const useMobileContentLines = isDockHost || isMobileDevice;
+        const contentKey = useMobileContentLines ? 'taskContentWrapMaxLinesMobile' : 'taskContentWrapMaxLines';
+        const contentFallback = 2;
+        const contentRaw = Number(SettingsStore.data[contentKey]);
         const remarkRaw = Number(SettingsStore.data.taskRemarkWrapMaxLines);
         return {
             enabled,
-            contentLines: Number.isFinite(contentRaw) ? Math.max(1, Math.min(10, Math.round(contentRaw))) : 3,
+            contentLines: Number.isFinite(contentRaw) ? Math.max(1, Math.min(10, Math.round(contentRaw))) : contentFallback,
             remarkLines: Number.isFinite(remarkRaw) ? Math.max(1, Math.min(10, Math.round(remarkRaw))) : 2,
         };
     };
@@ -24452,6 +25161,71 @@ if (!state.homepageOpen) return;
         return '';
     }
 
+    // Keep a content anchor when a refresh cannot use the append-only path.
+    // Absolute scrollTop is not stable when rows above the viewport change height.
+    function __tmCaptureViewScrollAnchor(hostEl, itemSelector = '[data-id]') {
+        const host = hostEl instanceof HTMLElement ? hostEl : null;
+        if (!host) return null;
+        const selector = String(itemSelector || '[data-id]').trim() || '[data-id]';
+        const scrollTop = Math.max(0, Number(host.scrollTop) || 0);
+        let hostRect = null;
+        try { hostRect = host.getBoundingClientRect(); } catch (e) {}
+        if (!hostRect || !(hostRect.height > 0)) return { scrollTop, id: '', offsetTop: 0, selector };
+        let anchor = null;
+        try {
+            anchor = Array.from(host.querySelectorAll(selector)).find((node) => {
+                if (!(node instanceof HTMLElement) || !node.getAttribute('data-id')) return false;
+                const rect = node.getBoundingClientRect();
+                return rect.bottom > hostRect.top + 1 && rect.top < hostRect.bottom;
+            }) || null;
+        } catch (e) {}
+        if (!(anchor instanceof HTMLElement)) return { scrollTop, id: '', offsetTop: 0, selector };
+        let offsetTop = 0;
+        try { offsetTop = Number(anchor.getBoundingClientRect().top - hostRect.top) || 0; } catch (e) {}
+        return {
+            scrollTop,
+            id: String(anchor.getAttribute('data-id') || '').trim(),
+            offsetTop,
+            selector,
+        };
+    }
+
+    function __tmRestoreViewScrollAnchor(hostEl, snapshot) {
+        const host = hostEl instanceof HTMLElement ? hostEl : null;
+        const saved = snapshot && typeof snapshot === 'object' ? snapshot : null;
+        if (!host || !saved) return false;
+        let anchor = null;
+        const id = String(saved.id || '').trim();
+        if (id) {
+            try {
+                const escaped = CSS.escape(id);
+                anchor = host.querySelector(`${String(saved.selector || '[data-id]').trim()}[data-id="${escaped}"]`);
+            } catch (e) {}
+        }
+        if (anchor instanceof HTMLElement) {
+            try {
+                const hostRect = host.getBoundingClientRect();
+                const nextOffset = Number(anchor.getBoundingClientRect().top - hostRect.top) || 0;
+                const delta = nextOffset - (Number(saved.offsetTop) || 0);
+                if (Math.abs(delta) > 0.5) {
+                    const maxTop = Math.max(0, (Number(host.scrollHeight) || 0) - (Number(host.clientHeight) || 0));
+                    host.scrollTop = Math.min(maxTop, Math.max(0, (Number(host.scrollTop) || 0) + delta));
+                }
+                return true;
+            } catch (e) {}
+        }
+        try {
+            const maxTop = Math.max(0, (Number(host.scrollHeight) || 0) - (Number(host.clientHeight) || 0));
+            host.scrollTop = Math.min(maxTop, Math.max(0, Number(saved.scrollTop) || 0));
+        } catch (e) {}
+        return true;
+    }
+
+    try {
+        globalThis.__tmCaptureViewScrollAnchor = __tmCaptureViewScrollAnchor;
+        globalThis.__tmRestoreViewScrollAnchor = __tmRestoreViewScrollAnchor;
+    } catch (e) {}
+
     function __tmReconcileListRowsForAppend(tbodyEl, nextRowsHtml, options = {}) {
         const tbody = tbodyEl instanceof HTMLElement ? tbodyEl : null;
         const opts = (options && typeof options === 'object') ? options : {};
@@ -24465,17 +25239,19 @@ if (!state.homepageOpen) return;
         const desiredRows = Array.from(stagingBody.children).filter((row) => row instanceof HTMLElement);
         const currentRows = Array.from(tbody.children).filter((row) => row instanceof HTMLElement);
         const currentKeys = new Set();
+        const currentByKey = new Map();
         for (const row of currentRows) {
             const key = __tmGetListRowStableKey(row);
             if (!key) return false;
             if (key === 'control:load-more') {
-                row.remove();
                 continue;
             }
             if (currentKeys.has(key)) return false;
             currentKeys.add(key);
+            currentByKey.set(key, row);
         }
-        let insertedCount = 0;
+        const desiredEntries = [];
+        const desiredKeys = new Set();
         let loadMoreRow = null;
         for (const row of desiredRows) {
             const key = __tmGetListRowStableKey(row);
@@ -24484,11 +25260,38 @@ if (!state.homepageOpen) return;
                 loadMoreRow = row;
                 continue;
             }
-            if (currentKeys.has(key)) continue;
-            currentKeys.add(key);
-            tbody.appendChild(row);
-            insertedCount += 1;
+            if (desiredKeys.has(key)) return false;
+            desiredKeys.add(key);
+            desiredEntries.push({ key, row });
         }
+
+        // Validate before mutating the live table. A failed append must leave
+        // the existing load-more control and row order untouched so callers
+        // can safely fall back to a full render.
+        currentRows.forEach((row) => {
+            if (__tmGetListRowStableKey(row) === 'control:load-more') row.remove();
+        });
+
+        let insertedCount = 0;
+        desiredEntries.forEach((entry, index) => {
+            if (currentByKey.has(entry.key)) return;
+
+            // A segment render repeats group headers around the slice. Insert
+            // each new row before the next already-mounted stable row, rather
+            // than blindly appending after a later group.
+            let anchor = null;
+            for (let i = index + 1; i < desiredEntries.length; i += 1) {
+                const candidate = currentByKey.get(desiredEntries[i].key);
+                if (candidate instanceof HTMLElement && candidate.parentElement === tbody) {
+                    anchor = candidate;
+                    break;
+                }
+            }
+            if (anchor) tbody.insertBefore(entry.row, anchor);
+            else tbody.appendChild(entry.row);
+            currentByKey.set(entry.key, entry.row);
+            insertedCount += 1;
+        });
         if (loadMoreRow) tbody.appendChild(loadMoreRow);
         tbody.dataset.tmLastIncrementalAppendCount = String(Math.max(0, insertedCount));
         return true;
@@ -24514,8 +25317,8 @@ if (!state.homepageOpen) return;
             __tmBindFloatingTooltipsAfterLocalRerender(modal);
             return true;
         }
-        const top = Number(body?.scrollTop) || 0;
         const left = Number(body?.scrollLeft) || 0;
+        const scrollAnchor = __tmCaptureViewScrollAnchor(body, 'tr[data-id]');
         const isCalendarTaskTable = String(table?.getAttribute?.('data-tm-table') || '') === 'calendar';
         const originalOrder = SettingsStore.data.columnOrder;
         const originalWidths = SettingsStore.data.columnWidths;
@@ -24567,7 +25370,9 @@ if (!state.homepageOpen) return;
         } catch (e) {
             return false;
         }
-        try { if (body) body.scrollTop = top; } catch (e) {}
+        try {
+            if (body) __tmRestoreViewScrollAnchor(body, scrollAnchor);
+        } catch (e) {}
         try { if (body) body.scrollLeft = left; } catch (e) {}
         try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
         const progressiveAppend = incrementallyPatched
@@ -25805,7 +26610,8 @@ return true;
             try {
                 const nextPane = modal.querySelector('.tm-checklist-scroll');
                 if (nextPane instanceof HTMLElement) {
-                    nextPane.scrollTop = Number(context?.paneTop || 0);
+                    __tmRestoreViewScrollAnchor(nextPane, context?.scrollAnchor);
+                    if (!context?.scrollAnchor?.id) nextPane.scrollTop = Number(context?.paneTop || 0);
                     nextPane.scrollLeft = Number(context?.paneLeft || 0);
                     try { nextPane.__tmChecklistScrollUpdateThumb?.(); } catch (e2) {}
                 }
@@ -25818,6 +26624,7 @@ return true;
         }
         state.pendingChecklistRenderRestore = null;
         __tmClearChecklistProjectionGroupRefresh();
+        try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(modal); } catch (e) {}
         return true;
     }
 
@@ -26197,7 +27004,8 @@ return true;
             try {
                 const nextPane = modal.querySelector('.tm-checklist-scroll');
                 if (nextPane instanceof HTMLElement) {
-                    nextPane.scrollTop = Number(context?.paneTop || 0);
+                    __tmRestoreViewScrollAnchor(nextPane, context?.scrollAnchor);
+                    if (!context?.scrollAnchor?.id) nextPane.scrollTop = Number(context?.paneTop || 0);
                     nextPane.scrollLeft = Number(context?.paneLeft || 0);
                     try { nextPane.__tmChecklistScrollUpdateThumb?.(); } catch (e2) {}
                 }
@@ -26237,6 +27045,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
             try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
             __tmBindFloatingTooltipsAfterLocalRerender(modal);
+            try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(modal); } catch (e) {}
             state.pendingChecklistRenderRestore = null;
             return true;
         }
@@ -26249,6 +27058,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         const detailTaskId = String(detailPanel?.__tmTaskDetailTask?.id || detailPanel?.dataset?.tmDetailTaskId || state.detailTaskId || '').trim();
         const paneTop = Number((staged && Number.isFinite(Number(staged.top))) ? Number(staged.top) : Number(pane.scrollTop || 0));
         const paneLeft = Number((staged && Number.isFinite(Number(staged.left))) ? Number(staged.left) : Number(pane.scrollLeft || 0));
+        const scrollAnchor = __tmCaptureViewScrollAnchor(pane, '.tm-checklist-item[data-id]');
         const detailTop = Number(detailPanel?.scrollTop || 0);
         const detailLeft = Number(detailPanel?.scrollLeft || 0);
         if (detailTaskId) {
@@ -26289,6 +27099,9 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
                 if (!reconciled) return false;
             } catch (e) { return false; }
             if (branchFragment) {
+                __tmRestoreViewScrollAnchor(pane, scrollAnchor);
+                if (!scrollAnchor?.id) pane.scrollTop = paneTop;
+                pane.scrollLeft = paneLeft;
                 const finishBranchRefresh = () => {
                     if (!pane.isConnected || state.modal !== modal || String(state.viewMode || '').trim() !== 'checklist') return;
                     try { pane.__tmChecklistScrollUpdateThumb?.(); } catch (e) {}
@@ -26297,6 +27110,11 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
                     try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
                     try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
                     __tmBindFloatingTooltipsAfterLocalRerender(modal);
+                    try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(modal); } catch (e) {}
+                    try {
+                        __tmRestoreViewScrollAnchor(pane, scrollAnchor);
+                        if (!scrollAnchor?.id) pane.scrollTop = paneTop;
+                    } catch (e) {}
                 };
                 try {
                     if (typeof __tmScheduleIdleTask === 'function') __tmScheduleIdleTask(finishBranchRefresh, 260);
@@ -26316,7 +27134,9 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
             try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
             __tmBindFloatingTooltipsAfterLocalRerender(modal);
-            pane.scrollTop = paneTop;
+            try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(modal); } catch (e) {}
+            __tmRestoreViewScrollAnchor(pane, scrollAnchor);
+            if (!scrollAnchor?.id) pane.scrollTop = paneTop;
             pane.scrollLeft = paneLeft;
             if (renderSignature) {
                 try { state.listDomRenderSignature = renderSignature; } catch (e) {}
@@ -26328,8 +27148,10 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             && __tmTryRefreshChecklistProjectionGroups(modal, body, nextBody, checklistProjectionTaskIds, {
                 paneTop,
                 paneLeft,
+                scrollAnchor,
                 renderSignature,
             })) {
+            try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(modal); } catch (e) {}
             return true;
         }
         __tmClearChecklistProjectionGroupRefresh();
@@ -26342,6 +27164,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
             try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
             __tmBindFloatingTooltipsAfterLocalRerender(modal);
+            try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(modal); } catch (e) {}
             if (renderSignature) {
                 try { state.listDomRenderSignature = renderSignature; } catch (e) {}
             }
@@ -26366,7 +27189,8 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             try {
                 const nextPane = modal.querySelector('.tm-checklist-scroll');
                 if (nextPane instanceof HTMLElement) {
-                    nextPane.scrollTop = paneTop;
+                    __tmRestoreViewScrollAnchor(nextPane, scrollAnchor);
+                    if (!scrollAnchor?.id) nextPane.scrollTop = paneTop;
                     nextPane.scrollLeft = paneLeft;
                     try { nextPane.__tmChecklistScrollUpdateThumb?.(); } catch (e2) {}
                 }
@@ -26400,6 +27224,133 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         if (kind || doc || heading) return `kind:${kind}|doc:${doc}|heading:${heading}`;
         return '';
     }
+
+    // Reconcile a changed parent card without replacing the kanban body. This
+    // keeps the card identity (and its surrounding scroll/layout state) stable
+    // while letting the renderer remain the single source of truth for markup.
+    function __tmTryReconcileKanbanParentCards(modalEl, taskIds = [], options = {}) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!(modal instanceof Element) || String(state.viewMode || '').trim() !== 'kanban') return false;
+        const renderBodyHtml = state.renderKanbanBodyHtml;
+        const body = modal.querySelector('.tm-body.tm-body--kanban');
+        if (typeof renderBodyHtml !== 'function' || !(body instanceof HTMLElement)) return false;
+
+        const parentIds = new Set();
+        const addParentId = (value) => {
+            const id = String(value || '').trim();
+            if (!id) return;
+            let resolvedId = '';
+            try {
+                resolvedId = String(globalThis.__tmTaskIdentity?.resolve?.(id) || '').trim();
+            } catch (e) {}
+            if (!resolvedId) {
+                try {
+                    resolvedId = typeof __tmResolveOptimisticTaskId === 'function'
+                    ? String(__tmResolveOptimisticTaskId(id) || '').trim()
+                    : '';
+                } catch (e) {}
+            }
+            parentIds.add(resolvedId || id);
+        };
+        (Array.isArray(opts.parentTaskIds) ? opts.parentTaskIds : []).forEach(addParentId);
+        (Array.isArray(taskIds) ? taskIds : []).forEach((value) => {
+            const taskId = String(value || '').trim();
+            if (!taskId) return;
+            let task = null;
+            try {
+                task = globalThis.__tmTaskStore?.getProjected?.(taskId)
+                    || __tmTaskStateKernel.getTask(taskId);
+            } catch (e) {}
+            addParentId(task?.parentTaskId || task?.parent_task_id);
+        });
+        if (!parentIds.size) return false;
+
+        const findParentCard = (root, id) => {
+            if (!(root instanceof Element)) return null;
+            const escaped = CSS.escape(id);
+            const cards = Array.from(root.querySelectorAll(`.tm-kanban-card[data-id="${escaped}"]:not(.tm-kanban-card--sub)`))
+                .filter((card) => card instanceof HTMLElement);
+            return cards.find((card) => !card.hidden) || cards[0] || null;
+        };
+        const hasActiveEditor = (card) => {
+            if (!(card instanceof HTMLElement)) return false;
+            const active = document.activeElement;
+            if (active instanceof Element && card.contains(active)
+                && (active.matches('input:not([type="checkbox"]), textarea, [contenteditable="true"]')
+                    || active.closest('[data-tm-inline-editor], [data-tm-editing]'))) return true;
+            return !!card.querySelector('input:not([type="checkbox"]), textarea, [contenteditable="true"]');
+        };
+
+        const progressiveJob = state.__tmProgressiveViewRender;
+        const progressiveCache = typeof __tmKanbanColsHtmlCache !== 'undefined'
+            ? __tmKanbanColsHtmlCache
+            : null;
+        let nextBody = null;
+        try {
+            // Staging must contain the complete parent subtree. Temporarily
+            // suspend progressive mode so already-loaded child cards are not
+            // truncated back to the initial batch during reconciliation.
+            if (progressiveJob) state.__tmProgressiveViewRender = null;
+            if (typeof __tmKanbanColsHtmlCache !== 'undefined') __tmKanbanColsHtmlCache = null;
+            nextBody = __tmBuildElementFromHtml(renderBodyHtml());
+        } catch (e) {
+            return false;
+        } finally {
+            if (progressiveJob) state.__tmProgressiveViewRender = progressiveJob;
+            if (typeof __tmKanbanColsHtmlCache !== 'undefined') __tmKanbanColsHtmlCache = progressiveCache;
+        }
+        if (!(nextBody instanceof HTMLElement)) return false;
+
+        const replacements = [];
+        for (const parentId of parentIds) {
+            const currentCard = findParentCard(body, parentId);
+            const nextCard = findParentCard(nextBody, parentId);
+            // If either side is outside the current progressive window, let the
+            // existing full refresh path decide whether it should be mounted.
+            if (!(currentCard instanceof HTMLElement) || !(nextCard instanceof HTMLElement)) return false;
+            if (hasActiveEditor(currentCard)) return false;
+            replacements.push({ currentCard, nextCard });
+        }
+        if (!replacements.length) return false;
+
+        let reconcileFailed = false;
+        replacements.forEach(({ currentCard, nextCard }) => {
+            try {
+                const nextAttributes = new Map(Array.from(nextCard.attributes || []).map((attr) => [attr.name, attr.value]));
+                Array.from(currentCard.attributes || []).forEach((attr) => {
+                    if (attr.name === 'data-id' || attr.name.startsWith('data-tm-')) return;
+                    if (!nextAttributes.has(attr.name)) currentCard.removeAttribute(attr.name);
+                });
+                if (currentCard.hasAttribute('data-tm-hidden-by-completion')
+                    && !nextAttributes.has('data-tm-hidden-by-completion')) {
+                    currentCard.removeAttribute('data-tm-hidden-by-completion');
+                }
+                nextAttributes.forEach((value, name) => {
+                    if (name === 'data-id') return;
+                    currentCard.setAttribute(name, value);
+                });
+                currentCard.replaceChildren(...Array.from(nextCard.childNodes).map((node) => node.cloneNode(true)));
+            } catch (e) {
+                reconcileFailed = true;
+            }
+        });
+        if (reconcileFailed) return false;
+        try { globalThis.__tmSyncKanbanSubtaskWrappedTitleClasses?.(modal); } catch (e) {}
+        try { globalThis.__tmEnsureKanbanSubtaskWrapAutoSync?.(modal); } catch (e) {}
+        try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        try {
+            if (String(state.searchKeyword || '').trim()) __tmApplySearchHighlights(modal, state.searchKeyword);
+        } catch (e) {}
+        try { __tmBindFloatingTooltipsAfterLocalRerender(modal); } catch (e) {}
+        try { __tmKanbanColsHtmlCache = null; } catch (e) {}
+        return true;
+    }
+
+    try { globalThis.__tmTryReconcileKanbanParentCards = __tmTryReconcileKanbanParentCards; } catch (e) {}
 
     function __tmRerenderKanbanInPlace(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;

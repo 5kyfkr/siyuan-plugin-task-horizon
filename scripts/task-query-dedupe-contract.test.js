@@ -28,6 +28,11 @@ assert.match(apiRuntime, /async getTasksByDocuments\(docIds,[\s\S]*?let tasks = 
 assert.match(apiRuntime, /SELECT root_id, COUNT\(DISTINCT id\) AS task_count/, 'task count probes must count logical IDs');
 assert.match(apiRuntime, /COUNT\(DISTINCT task\.id\) AS parent_list_task_count/, 'parent-list shape queries must count logical IDs');
 assert.match(storesRuntime, /const __TM_TASK_SNAPSHOT_VERSION = 4;/, 'task snapshots must invalidate duplicate-bearing v3 data');
-assert.match(storesRuntime, /const __TM_TASK_INDEX_VERSION = 5;/, 'task indexes must invalidate duplicate-bearing v4 data');
+assert.match(storesRuntime, /const __TM_TASK_INDEX_VERSION = 6;/, 'task indexes must invalidate entries created before repeat-history projection');
+assert.match(
+    storesRuntime,
+    /function __tmBuildTaskIndexBlockEntry\(task,[\s\S]*repeatHistory: __tmCompactTaskIndexValue\(source\.repeatHistory \|\| source\.repeat_history/,
+    'task indexes must persist repeat history for the calendar first paint',
+);
 
 console.log('task query dedupe contract tests passed');

@@ -1,6 +1,10 @@
 ﻿    function __tmShouldShowCalendarSideDock() {
         if (state.homepageOpen) return false;
-        const mode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+        // Prefer this module's live state. A stale runtime facade during a
+        // dev reload can otherwise report the previous task view.
+        const mode = String(state.viewMode || '').trim()
+            || globalThis.__tmRuntimeState?.getViewMode?.('')
+            || '';
         if (!SettingsStore.data.calendarSideDockEnabled) return false;
         return mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'whiteboard';
     }
@@ -66,16 +70,7 @@
     }
 
     function __tmCalendarDockBuildPanelHtml() {
-        const dateKey = __tmCalendarDockGetDateKey();
         return `
-            <div class="tm-calendar-dock-head">
-                <div class="tm-calendar-dock-title">${esc(__tmCalendarDockLabel(dateKey))}</div>
-                <div class="tm-calendar-dock-nav">
-                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-calendar-dock-nav-btn--icon" onclick="tmCalendarDockShiftDay(-1)">${__tmRenderLucideIcon('chevron-left')}</button>
-                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-calendar-dock-nav-btn--today" onclick="tmCalendarDockToday()">今天</button>
-                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-calendar-dock-nav-btn--icon" onclick="tmCalendarDockShiftDay(1)">${__tmRenderLucideIcon('chevron-right')}</button>
-                </div>
-            </div>
             <div id="tmCalendarSideDockTimeline" class="tm-calendar-side-dock-timeline"></div>
         `;
     }
@@ -181,8 +176,7 @@
             const pad = (n) => String(n).padStart(2, '0');
             state.calendarDockDate = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`;
         }
-        const labelEl = state.modal?.querySelector?.('.tm-calendar-dock-title');
-        if (labelEl) labelEl.textContent = __tmCalendarDockLabel(__tmCalendarDockGetDateKey());
+        try { globalThis.__tmCalendar?.refreshSideDayLayout?.(); } catch (e) {}
     };
 
     window.tmCalendarDockToday = function() {
@@ -192,8 +186,7 @@
         if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSideDayDate === 'function') {
             globalThis.__tmCalendar.setSideDayDate(state.calendarDockDate);
         }
-        const labelEl = state.modal?.querySelector?.('.tm-calendar-dock-title');
-        if (labelEl) labelEl.textContent = __tmCalendarDockLabel(state.calendarDockDate);
+        try { globalThis.__tmCalendar?.refreshSideDayLayout?.(); } catch (e) {}
     };
 
     window.tmStartCalendarSideDockResize = function(ev) {
@@ -223,13 +216,41 @@
     window.tmToggleCalendarSideDock = async function(enabled) {
         const next = (typeof enabled === 'boolean') ? enabled : !SettingsStore.data.calendarSideDockEnabled;
         SettingsStore.data.calendarSideDockEnabled = !!next;
-        try { await SettingsStore.save(); } catch (e) {}
+        const persist = () => {
+            try {
+                const pendingSave = SettingsStore.save();
+                Promise.resolve(pendingSave).catch(() => {});
+            } catch (e) {}
+        };
         // Keep the mounted side-day calendar alive while toggling visibility. A full shell
-        // render destroys/recreates FullCalendar and makes reopening the dock look like a reload.
-        if (__tmSetCalendarSideDockEnabledInPlace(next)) return next;
+        // render destroys/recreates the calendar engine and makes reopening the dock look like a reload.
+        // Apply the visual state first, then persist without blocking the interaction.
+        const viewMode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+        const layout = state.modal?.querySelector?.('.tm-main-body-with-cal-dock');
+        const suppressTransition = viewMode === 'checklist' && layout instanceof HTMLElement;
+        if (suppressTransition) layout.classList.add('tm-main-body-with-cal-dock--no-transition');
+        if (__tmSetCalendarSideDockEnabledInPlace(next)) {
+            // Checklist detail layout depends on whether the calendar dock is
+            // shown: with the dock it uses a sheet, without it a right drawer.
+            // Rebuild only the checklist body so closing the dock restores the
+            // previously selected task in the correct detail surface.
+            if (viewMode === 'checklist' && typeof __tmRerenderChecklistInPlace === 'function') {
+                try {
+                    state.listDomRenderSignature = '';
+                    __tmRerenderChecklistInPlace(state.modal, { reason: 'calendar-side-dock-toggle' });
+                } catch (e) {}
+            }
+            if (suppressTransition) {
+                try { requestAnimationFrame(() => layout.classList.remove('tm-main-body-with-cal-dock--no-transition')); } catch (e) { layout.classList.remove('tm-main-body-with-cal-dock--no-transition'); }
+            }
+            persist();
+            return next;
+        }
+        if (suppressTransition) layout.classList.remove('tm-main-body-with-cal-dock--no-transition');
         // The dock was not mounted (for example, it was disabled before this view opened).
         // In that case a normal render is still required to create its host.
         render();
+        persist();
         return next;
     };
 
@@ -447,6 +468,10 @@
     function __tmGetCalendarScrollHost(rootEl) {
         const root = rootEl instanceof Element ? rootEl : null;
         if (!root) return null;
+        const monthScroller = root.querySelector('[data-tm-proto-month-scroll]');
+        if (monthScroller instanceof HTMLElement) return monthScroller;
+        const prototypeTimeScroller = root.querySelector('.tm-proto-time-scroll');
+        if (prototypeTimeScroller instanceof HTMLElement) return prototypeTimeScroller;
         const preferred = root.querySelector('.fc-timegrid-body .fc-scroller');
         if (preferred instanceof HTMLElement && preferred.scrollHeight > preferred.clientHeight + 1) return preferred;
         const candidates = Array.from(root.querySelectorAll('.fc-scroller'));
@@ -564,18 +589,9 @@
     function __tmRenderBodyOnlyViewToolbarExtra(modeInput, scene) {
         const mode = String(modeInput || '').trim();
         if (mode === 'timeline') return scene?.showTopbarTimelineToolbar ? String(scene.timelineCompactToolbarGroupHtml || '') : '';
-        if (mode === 'calendar') {
-            if (!__tmIsTopbarButtonVisible('calendarSidebar')) return '';
-            const modal = state.modal instanceof Element ? state.modal : null;
-            const usesCompactToggle = !!(modal && (
-                modal.classList.contains('tm-modal--dock')
-                || modal.classList.contains('tm-modal--mobile')
-                || modal.classList.contains('tm-modal--runtime-mobile')
-                || modal.classList.contains('tm-modal--host-mobile-ui')
-            ));
-            if (usesCompactToggle) return '';
-            return `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-calendar-sidebar-toggle" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>`;
-        }
+        // Calendar owns its sidebar trigger in the calendar toolbar on desktop;
+        // mobile and dock hosts use the reusable topbar compact button instead.
+        if (mode === 'calendar') return '';
         if (mode !== 'kanban') return '';
         const boardMode = __tmGetKanbanBoardMode();
         return __tmRenderTopbarSelect({
@@ -589,6 +605,52 @@
                 { value: 'time', label: '时间', selected: boardMode === 'time', action: "tmSetKanbanBoardMode('time')" },
             ],
         });
+    }
+
+    function __tmSyncCalendarTopbarActionForView(modeInput, modalEl) {
+        const mode = String(modeInput || '').trim();
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        const actionNodes = Array.from(modal.querySelectorAll('[data-tm-topbar-action-id="calendarSidebar"]'));
+        const compactToggleNodes = Array.from(modal.querySelectorAll('[data-tm-calendar-compact-toggle="1"]'));
+        const hostUsesMobileUI = !!__tmHostUsesMobileUI()
+            || modal.classList.contains('tm-modal--host-mobile-ui');
+        const isMobile = !!__tmIsMobileDevice()
+            || modal.classList.contains('tm-modal--mobile')
+            || modal.classList.contains('tm-modal--runtime-mobile')
+            || hostUsesMobileUI
+            || !!modal.closest?.('[data-tm-ui-mode="mobile"]');
+        const isRuntimeMobile = !!__tmIsRuntimeMobileClient()
+            || modal.classList.contains('tm-modal--runtime-mobile');
+        const isDockHost = !!__tmIsDockHost()
+            || modal.classList.contains('tm-modal--dock')
+            || !!modal.closest?.('[data-tm-host-mode="dock"]');
+        const isDesktopCalendarHost = !isRuntimeMobile && (!isMobile || isDockHost);
+        const show = __tmIsTopbarButtonVisible('calendarSidebar')
+            && isDesktopCalendarHost
+            && ['list', 'checklist', 'timeline', 'kanban', 'whiteboard'].includes(mode);
+        const showCompact = mode === 'calendar'
+            && __tmIsTopbarButtonVisible('calendarSidebar')
+            && (isMobile || isRuntimeMobile || hostUsesMobileUI || isDockHost);
+        // A hidden topbar action is intentionally absent when the user disabled it;
+        // only require a fallback render when the target mode needs a visible action
+        // but the current shell has no reusable placeholder.
+        actionNodes.forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            node.style.display = show ? 'inline-flex' : 'none';
+            node.setAttribute('aria-hidden', show ? 'false' : 'true');
+        });
+        compactToggleNodes.forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            node.classList.toggle('tm-calendar-sidebar-toggle-compact--visible', showCompact);
+            // The shell keeps one reusable placeholder across body-only view
+            // switches. Set the inline display state as well as the class so
+            // a stale visible class or host stylesheet cannot leak the toggle
+            // into non-calendar mobile views.
+            node.style.display = showCompact ? 'inline-flex' : 'none';
+            node.setAttribute('aria-hidden', showCompact ? 'false' : 'true');
+        });
+        return actionNodes.length > 0 || compactToggleNodes.length > 0 || (!show && !showCompact);
     }
 
     function __tmSyncBodyOnlyViewSwitcherButtons(modalEl, activeMode) {
@@ -703,7 +765,7 @@
             if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.mount === 'function') {
                 const ok = globalThis.__tmCalendar.mount(root, { settingsStore: SettingsStore });
                 if (!ok) {
-                    root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败，请确认 FullCalendar 已加载。</div>`;
+                    root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败，请确认日历引擎已加载。</div>`;
                     return;
                 }
                 try { opts.onMounted?.(root); } catch (e) {}
@@ -764,8 +826,10 @@
         } else {
             return false;
         }
+        try { __tmBindMobileDockHorizontalTouchScroll(modal); } catch (e) {}
         __tmScheduleAfterNextPaint(() => {
             if (state.modal !== modal || String(modal.getAttribute('data-tm-render-mode') || '').trim() !== mode) return;
+            try { __tmBindMobileDockHorizontalTouchScroll(modal); } catch (e) {}
             try { __tmBindResponsiveTableResize(modal); } catch (e) {}
             try { __tmApplySearchHighlights(modal, state.searchKeyword); } catch (e) {}
             try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
@@ -971,6 +1035,7 @@
             }
             state.listDomRenderSignature = '';
             toolbarExtra.innerHTML = __tmRenderBodyOnlyViewToolbarExtra(nextMode, scene);
+            if (!__tmSyncCalendarTopbarActionForView(nextMode, modal)) return false;
             __tmCommitPersistentSideDockTransfers(persistentDockTransfers);
             stage.replaceWith(nextStage);
             const cleanupPreviousView = () => {
@@ -1014,9 +1079,9 @@
         } else if (prev === next) {
             return;
         }
-        // The desktop topbar action catalog depends on whether the calendar
-        // side-dock action is available, so calendar transitions need a shell
-        // render to add or remove that action with the view controls.
+        // The desktop topbar action catalog and persistent side-dock shell
+        // change with the calendar view, so do a full shell render at this
+        // boundary instead of carrying the task-view dock through a body swap.
         if (prev === 'calendar' || next === 'calendar') forceFullRender = true;
         state.viewMode = next;
         state.uiAnimKind = '';

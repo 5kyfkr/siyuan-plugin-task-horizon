@@ -52,7 +52,7 @@
     --tm-gantt-card-overflow-fg: rgba(71, 85, 105, 0.68);
     --tm-gantt-weekend-col-bg: rgba(15, 23, 42, 0.04);
     --tm-gantt-month-start-bg: rgba(148, 163, 184, 0.09);
-    --tm-task-content-wrap-lines: 3;
+    --tm-task-content-wrap-lines: 2;
     --tm-task-remark-wrap-lines: 2;
     --tm-empty-cell-bg: #f1f3f4;
     --tm-topbar-grad-start: #E3ECF2;
@@ -3433,6 +3433,106 @@
     --tm-view-bottom-inset: calc(var(--tm-mobile-bottom-viewbar-offset, env(safe-area-inset-bottom, 0px)) + 52px);
 }
 
+/* The full-screen mobile view bar keeps horizontal tab scrolling native while
+   reserving vertical drags for the page-dismiss gesture. Dock bars are excluded
+   because they remain embedded in SiYuan's host shell. */
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner {
+    touch-action: pan-x !important;
+    overscroll-behavior: contain !important;
+}
+
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock) {
+    overscroll-behavior: none !important;
+}
+
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar {
+    /* The outer bar is the full-width transparent gesture boundary. Blocking
+       its vertical native pan prevents the swipe from reaching the host page. */
+    pointer-events: auto !important;
+    height: 52px;
+    min-height: 52px;
+    box-sizing: border-box;
+    align-items: center;
+    z-index: 10030 !important;
+    touch-action: pan-x !important;
+    overscroll-behavior: none !important;
+}
+
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar--gesture-active {
+    touch-action: none !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+
+/* Once a vertical drag is recognized, keep the plugin view from claiming the
+   remaining stream. The transparent bottom bar remains the only hit surface. */
+html.tm-task-horizon-mobile-dismiss-drag .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-main-stage > :not(.tm-mobile-bottom-viewbar) {
+    pointer-events: none !important;
+}
+
+html.tm-task-horizon-mobile-dismiss-drag .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar {
+    pointer-events: auto !important;
+}
+
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-drag,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing {
+    will-change: transform;
+}
+
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing {
+    /* Keep the closing shell as the hit-test surface until it is removed.
+       Letting events fall through here hands the trailing touch to SiYuan's
+       page-scroller while the dismiss animation is still running. */
+    pointer-events: auto !important;
+    touch-action: none !important;
+}
+
+/* A view switch or host handoff may rebuild the detail surface while the
+   full-screen shell is leaving. Keep any recreated drawer/skeleton hidden
+   for the whole exit transition so it cannot flash in the trailing frame. */
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-drag #tmTaskDetailSheetBackdrop,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-drag #tmTaskDetailSheet,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-drag #tmChecklistSheetBackdrop,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-drag #tmChecklistSheet,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-drag .tm-task-detail-overlay,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-drag .tm-task-detail-shell,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-drag .tm-checklist-detail-card,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing #tmTaskDetailSheetBackdrop,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing #tmTaskDetailSheet,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing #tmChecklistSheetBackdrop,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing #tmChecklistSheet,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing .tm-checklist-side,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing .tm-checklist-detail-wrap,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing .tm-task-detail-overlay,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing .tm-task-detail-shell,
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-closing .tm-checklist-detail-card {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+html.tm-task-horizon-mobile-dismiss-drag [data-task-horizon-dock-snapshot="1"],
+html.tm-task-horizon-mobile-dismiss-drag .tm-modal--dock-snapshot,
+html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-sheet-backdrop,
+html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-sheet,
+html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-side,
+html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-wrap,
+html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-sheet-body,
+html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-empty-detail,
+html.tm-task-horizon-mobile-dismiss-drag .tm-task-detail-overlay,
+html.tm-task-horizon-mobile-dismiss-drag .tm-task-detail-shell,
+html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-card {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tm-modal.tm-modal--mobile:not(.tm-modal--dock).tm-modal--mobile-bottom-dismiss-drag:not(.tm-modal--mobile-bottom-dismiss-closing) {
+        transition: none !important;
+    }
+}
+
 .tm-main-stage > .tm-body,
 .tm-main-stage > .tm-list-pane,
 .tm-main-stage > .tm-main-body-with-cal-dock {
@@ -4494,6 +4594,10 @@ select.tm-btn-secondary {
     display: inline-flex !important;
 }
 
+.tm-filter-rule-bar .tm-calendar-sidebar-toggle__icon {
+    transform: scaleX(-1);
+}
+
 .tm-filter-rule-bar .tm-compact-topbar-action {
     flex: 0 0 auto;
 }
@@ -4676,10 +4780,6 @@ select.tm-btn-secondary {
     .tm-modal:not(.tm-modal--dock) .tm-topbar-right {
         gap: 6px !important;
     }
-
-    .tm-modal:not(.tm-modal--dock) .tm-calendar-sidebar-toggle-compact {
-        display: inline-flex !important;
-    }
 }
 
 .tm-filter-rule-bar #tmMobileMenu {
@@ -4825,6 +4925,32 @@ select.tm-btn-secondary {
     scrollbar-gutter: auto;
     --tm-list-body-bottom-inset: max(0px, calc(var(--tm-view-bottom-inset, 0px) - 16px));
     padding-bottom: var(--tm-list-body-bottom-inset);
+}
+
+/* Mobile task Docks yield ordinary touches to SiYuan, but horizontal
+   overflow regions still need a chance to consume an intentional swipe. */
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile .tm-body.tm-body--list,
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile .tm-body.tm-body--timeline,
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile .tm-timeline-scroll-host,
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile .tm-timeline-left-body,
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile .tm-body.tm-body--attachment-library,
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile .tm-body.tm-body--homepage {
+    touch-action: pan-x pan-y;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Calendar navigation is implemented by its own pointer gesture handler.
+   Keep vertical scrolling native while leaving horizontal moves in the
+   pointer stream so repeated date swipes are not cancelled by the browser. */
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile .tm-body.tm-body--calendar,
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile #tmCalendarRoot .tm-proto-main-view > .tm-proto-timeline,
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile #tmCalendarRoot .tm-proto-main-view .tm-proto-time-scroll,
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile #tmCalendarRoot [data-tm-proto-month-scroll],
+.tm-modal.tm-modal--dock.tm-modal--runtime-mobile #tmCalendarRoot .fc-scroller {
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
 }
 
 .tm-body.tm-body--list::-webkit-scrollbar {
@@ -6146,8 +6272,8 @@ select.tm-btn-secondary {
     word-break: break-word;
     overflow-wrap: anywhere;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: var(--tm-task-content-wrap-lines, 3);
-    line-clamp: var(--tm-task-content-wrap-lines, 3);
+    -webkit-line-clamp: var(--tm-task-content-wrap-lines, 2);
+    line-clamp: var(--tm-task-content-wrap-lines, 2);
 }
 
 .tm-whiteboard-stream-task-title:hover {
@@ -9432,12 +9558,31 @@ select.tm-btn-secondary {
     min-width: 0;
 }
 
-.tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main {
+.tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main,
+.tm-whiteboard.tm-kanban--clean .tm-kanban-subtask-row-main {
     align-items: center;
 }
 
+/* Keep single-line subtasks centered. When wrapping is enabled and the
+   title actually occupies multiple lines, match the parent card's
+   flex-start layout so the checkbox stays with the first title line. */
+.tm-modal.tm-modal--task-wrap .tm-kanban-subtask-row-main.tm-kanban-subtask-row-main--title-wrapped {
+    align-items: flex-start;
+}
+
+.tm-modal.tm-modal--task-wrap .tm-kanban-subtask-row-main.tm-kanban-subtask-row-main--title-wrapped > .tm-task-checkbox-wrap {
+    margin-top: 1px;
+}
+
+.tm-modal.tm-modal--task-wrap .tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main.tm-kanban-subtask-row-main--title-wrapped > .tm-task-checkbox-wrap,
+.tm-modal.tm-modal--task-wrap .tm-whiteboard.tm-kanban--clean .tm-kanban-subtask-row-main.tm-kanban-subtask-row-main--title-wrapped > .tm-task-checkbox-wrap {
+    margin-top: max(0px, calc(0.675em - 8px));
+}
+
 .tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap,
-.tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap .tm-task-checkbox {
+.tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap .tm-task-checkbox,
+.tm-whiteboard.tm-kanban--clean .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap,
+.tm-whiteboard.tm-kanban--clean .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap .tm-task-checkbox {
     margin-top: 0;
 }
 
@@ -12854,6 +12999,11 @@ select.tm-btn-secondary {
     color: var(--tm-primary-color);
 }
 
+.tm-task-time-hub__day.is-today::after {
+    outline: 1.5px solid color-mix(in srgb, var(--tm-primary-color) 72%, transparent);
+    outline-offset: 1px;
+}
+
 .tm-task-time-hub__day.is-range {
     color: var(--tm-primary-color);
 }
@@ -14321,7 +14471,7 @@ select.tm-btn-secondary {
 
 .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-item {
     --tm-checklist-compact-divider-start: calc(var(--tm-checklist-card-divider-start) + var(--tm-checklist-compact-indent, 0px) + 24px);
-    min-height: var(--tm-checklist-compact-row-height);
+    min-height: var(--tm-checklist-compact-single-line-row-height);
     padding-top: 0;
     padding-bottom: 0;
     padding-left: calc(var(--tm-checklist-card-divider-start) + 2px + var(--tm-checklist-compact-indent, 0px));
@@ -14346,8 +14496,9 @@ select.tm-btn-secondary {
 }
 
 .tm-checklist-pane--compact .tm-checklist-item {
+    --tm-checklist-compact-single-line-row-height: max(0px, calc(var(--tm-checklist-compact-row-height, 34px) - 4px));
     align-items: center;
-    min-height: var(--tm-checklist-compact-row-height, 34px);
+    min-height: var(--tm-checklist-compact-single-line-row-height);
     padding: 0 10px 0 calc(6px + var(--tm-checklist-compact-indent, 0px));
     border: 0;
     border-radius: 0;
@@ -14461,7 +14612,8 @@ select.tm-btn-secondary {
 }
 
 .tm-checklist-pane--compact .tm-checklist-item.tm-checklist-item--has-remark {
-    --tm-checklist-compact-primary-row-height: 24px;
+    --tm-checklist-compact-primary-row-height: max(0px, calc(24px - 4px));
+    --tm-checklist-compact-single-line-row-height: var(--tm-checklist-compact-primary-row-height);
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-rows: auto auto;
@@ -14476,6 +14628,7 @@ select.tm-btn-secondary {
     grid-column: 1;
     grid-row: 1;
     align-self: stretch;
+    height: auto;
     min-height: var(--tm-checklist-compact-primary-row-height);
 }
 
@@ -14715,8 +14868,29 @@ select.tm-btn-secondary {
     display: -webkit-box;
     white-space: normal;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: var(--tm-task-content-wrap-lines, 3);
-    line-clamp: var(--tm-task-content-wrap-lines, 3);
+    -webkit-line-clamp: var(--tm-task-content-wrap-lines, 2);
+    line-clamp: var(--tm-task-content-wrap-lines, 2);
+}
+
+/* Wrapped checklist titles keep the row geometry from the 2.9.6 compact
+   layout. Only the checkbox moves to the first title line, matching the
+   task-detail subtask treatment; tree controls remain centered in the row. */
+.tm-checklist-pane--compact .tm-checklist-item.tm-checklist-item--title-wrapped {
+    --tm-checklist-compact-title-line-height: calc(var(--tm-font-size) * 0.96 * 1.32);
+    --tm-checklist-compact-title-vertical-padding: max(0px, calc((var(--tm-checklist-compact-single-line-row-height) - var(--tm-checklist-compact-title-line-height)) / 2));
+}
+
+.tm-checklist-pane--compact .tm-checklist-item.tm-checklist-item--title-wrapped .tm-checklist-title {
+    padding-top: var(--tm-checklist-compact-title-vertical-padding);
+    padding-bottom: var(--tm-checklist-compact-title-vertical-padding);
+}
+
+.tm-checklist-pane--compact .tm-checklist-item.tm-checklist-item--title-wrapped > .tm-checklist-leading {
+    align-self: stretch;
+}
+
+.tm-checklist-pane--compact .tm-checklist-item.tm-checklist-item--title-wrapped > .tm-checklist-leading input.tm-task-checkbox[type="checkbox"]:not(.tm-task-checkbox--delight) {
+    top: calc(var(--tm-checklist-compact-title-line-height) / 2 + var(--tm-checklist-compact-title-vertical-padding)) !important;
 }
 
 .tm-checklist-pane--compact .tm-checklist-title > .tm-task-reminder-emoji,
@@ -15008,10 +15182,12 @@ select.tm-btn-secondary {
     border-top-right-radius: 14px;
 }
 
+#tmChecklistSheetBackdrop,
 #tmTaskDetailSheetBackdrop {
     z-index: 70;
 }
 
+#tmChecklistSheet,
 #tmTaskDetailSheet {
     z-index: 71;
 }
@@ -18179,8 +18355,8 @@ th[data-col] {
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: var(--tm-task-content-wrap-lines, 3);
-    line-clamp: var(--tm-task-content-wrap-lines, 3);
+    -webkit-line-clamp: var(--tm-task-content-wrap-lines, 2);
+    line-clamp: var(--tm-task-content-wrap-lines, 2);
     text-overflow: ellipsis;
 }
 
@@ -18235,8 +18411,8 @@ th[data-col] {
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: var(--tm-task-content-wrap-lines, 3);
-    line-clamp: var(--tm-task-content-wrap-lines, 3);
+    -webkit-line-clamp: var(--tm-task-content-wrap-lines, 2);
+    line-clamp: var(--tm-task-content-wrap-lines, 2);
     text-overflow: ellipsis;
 }
 

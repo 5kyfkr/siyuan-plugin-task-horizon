@@ -508,6 +508,14 @@ async function testDeleteRelationCleanupIsolation() {
     assert.equal(cleanupWarnings.some((message) => message.includes('linked whiteboard')), true);
 
     cleanupSteps.length = 0;
+    await context.lifecycleTest.cleanup(['task-permanently-deleted'], {
+        source: 'contract-test-permanent-delete',
+        skipDeletedTaskBlockWrites: true,
+    });
+    assert.deepEqual(cleanupSteps, ['reminder', 'schedule', 'whiteboard'],
+        'permanent-delete cleanup may remove external reminders but must not write attributes to a deleted task block');
+
+    cleanupSteps.length = 0;
     tasks.set('task-recycle-failures', { id: 'task-recycle-failures', root_id: 'doc-source', done: false, parent_task_id: '' });
     const result = await context.__tmTaskLifecycle.execute({
         action: 'archiveDeleted',
@@ -551,6 +559,18 @@ function testStaticContracts() {
     const headingMoveKernelSource = kernelSource.slice(
         kernelSource.indexOf('async function moveTaskIntoHeading'),
         kernelSource.indexOf('async function moveTaskIntoParent'),
+    );
+    const ensureTaskListContainerSource = kernelSource.slice(
+        kernelSource.indexOf('async function ensureTaskListContainer'),
+        kernelSource.indexOf('async function ensureTaskListMutationTarget'),
+    );
+    const deleteBlockKernelSource = kernelSource.slice(
+        kernelSource.indexOf("if (action === 'deleteBlock')"),
+        kernelSource.indexOf("if (action === 'updateMarker')"),
+    );
+    const deleteTaskNowSource = kernelSource.slice(
+        kernelSource.indexOf('async function deleteTaskNow'),
+        kernelSource.indexOf('function pruneTokens'),
     );
     assert.match(storeSource, /deleteTaskRemovesWhiteboardCards:\s*true/, 'whiteboard card cleanup must default to enabled');
     assert.match(storeSource, /tm_delete_task_removes_whiteboard_cards'[\s\S]*!== false/, 'missing persisted cleanup setting must remain enabled');
@@ -622,6 +642,16 @@ function testStaticContracts() {
         'recycle must verify the live document tree before reporting success');
     assert.match(kernelSource, /async function ensureTaskListContainer[\s\S]*operations\.push\(\{ action: 'delete', id: childID \}, insertOperation\)[\s\S]*await pushTaskTransaction\(operations\)/,
         'document-level task items must be wrapped in valid task lists in one transaction');
+    assert.doesNotMatch(ensureTaskListContainerSource, /setAttrs|readAttrs|buildCanonicalTaskAttrs/,
+        'task-list repair must preserve attributes through block DOM instead of writing the deleted task ID');
+    assert.equal((deleteBlockKernelSource.match(/\/api\/sqlite\/flushTransaction/g) || []).length, 2,
+        'permanent block deletion must drain older transactions and then confirm the delete commit');
+    assert.equal((deleteTaskNowSource.match(/\/api\/sqlite\/flushTransaction/g) || []).length, 2,
+        'legacy task deletion must use the same transaction barrier');
+    assert.match(listSource, /await __tmEnqueueQueuedOp\(\{[\s\S]*type: 'deleteTask'[\s\S]*\}, \{[\s\S]*wait: true/,
+        'the delete interaction must resolve only after the committed delete command settles');
+    assert.match(listSource, /__tmCleanupDeletedTaskRelations\(scheduleCleanupTaskIds,[\s\S]*skipDeletedTaskBlockWrites: true/,
+        'permanent delete cleanup must not enqueue writes against deleted task blocks');
     assert.match(kernelSource, /if \(!containerID\)[\s\S]*independentDocument: true/,
         'document moves without an existing task list must create an independent list instead of a naked list item');
     assert.match(apiSource, /moveToRecycleDocument[\s\S]*mode: 'recycle-document'/,

@@ -3025,6 +3025,139 @@
         return true;
     }
 
+    const __TM_TASK_DETAIL_SUBTASK_DRAFT_STORAGE_KEY = 'tm_task_detail_subtask_drafts_v1';
+    const __TM_TASK_DETAIL_SUBTASK_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+    let __tmTaskDetailSubtaskDraftMemory = null;
+
+    function __tmReadTaskDetailSubtaskDraftStorage() {
+        try {
+            const raw = globalThis.localStorage?.getItem?.(__TM_TASK_DETAIL_SUBTASK_DRAFT_STORAGE_KEY);
+            const stored = raw ? JSON.parse(raw) : null;
+            return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmPersistTaskDetailSubtaskDraftStorage(entry) {
+        const next = entry && typeof entry === 'object' ? entry : null;
+        __tmTaskDetailSubtaskDraftMemory = next;
+        try {
+            if (next) globalThis.localStorage?.setItem?.(__TM_TASK_DETAIL_SUBTASK_DRAFT_STORAGE_KEY, JSON.stringify(next));
+            else globalThis.localStorage?.removeItem?.(__TM_TASK_DETAIL_SUBTASK_DRAFT_STORAGE_KEY);
+        } catch (e) {}
+    }
+
+    function __tmSaveTaskDetailSubtaskDraft(taskId, value, options = {}) {
+        const tid = String(taskId || '').trim();
+        const draftValue = String(value || '');
+        if (!tid) return false;
+        if (!draftValue.trim()) {
+            __tmClearTaskDetailSubtaskDraft(tid);
+            return true;
+        }
+        __tmPersistTaskDetailSubtaskDraftStorage({
+            taskId: tid,
+            value: draftValue,
+            updatedAt: Date.now(),
+            selectionStart: Number(options?.selectionStart || 0),
+            selectionEnd: Number(options?.selectionEnd || 0),
+        });
+        return true;
+    }
+
+    function __tmGetTaskDetailSubtaskDraft(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        const stored = __tmReadTaskDetailSubtaskDraftStorage();
+        const memory = __tmTaskDetailSubtaskDraftMemory;
+        const entry = memory && (!stored || Number(memory.updatedAt || 0) >= Number(stored.updatedAt || 0))
+            ? memory
+            : stored;
+        const updatedAt = Number(entry?.updatedAt || 0);
+        if (!entry || String(entry.taskId || '').trim() !== tid || !String(entry.value || '').trim()
+            || !updatedAt || Date.now() - updatedAt > __TM_TASK_DETAIL_SUBTASK_DRAFT_MAX_AGE_MS) {
+            if (entry && String(entry.taskId || '').trim() === tid) __tmClearTaskDetailSubtaskDraft(tid);
+            return null;
+        }
+        __tmTaskDetailSubtaskDraftMemory = entry;
+        return { ...entry };
+    }
+
+    function __tmClearTaskDetailSubtaskDraft(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        const stored = __tmReadTaskDetailSubtaskDraftStorage();
+        const memory = __tmTaskDetailSubtaskDraftMemory;
+        const entry = memory && (!stored || Number(memory.updatedAt || 0) >= Number(stored.updatedAt || 0))
+            ? memory
+            : stored;
+        if (!entry || String(entry.taskId || '').trim() !== tid) return false;
+        __tmPersistTaskDetailSubtaskDraftStorage(null);
+        return true;
+    }
+
+    const __TM_QUICK_ADD_DRAFT_STORAGE_KEY = 'tm_quick_add_draft_v1';
+    const __TM_QUICK_ADD_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+    let __tmQuickAddDraftMemory = null;
+
+    function __tmReadQuickAddDraftStorage() {
+        try {
+            const raw = globalThis.localStorage?.getItem?.(__TM_QUICK_ADD_DRAFT_STORAGE_KEY);
+            const stored = raw ? JSON.parse(raw) : null;
+            return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmPersistQuickAddDraftStorage(entry) {
+        const next = entry && typeof entry === 'object' ? entry : null;
+        __tmQuickAddDraftMemory = next;
+        try {
+            if (next) globalThis.localStorage?.setItem?.(__TM_QUICK_ADD_DRAFT_STORAGE_KEY, JSON.stringify(next));
+            else globalThis.localStorage?.removeItem?.(__TM_QUICK_ADD_DRAFT_STORAGE_KEY);
+        } catch (e) {}
+    }
+
+    function __tmSaveQuickAddDraft(value, options = {}) {
+        const draftValue = String(value || '');
+        if (!draftValue.trim()) {
+            __tmClearQuickAddDraft();
+            return true;
+        }
+        __tmPersistQuickAddDraftStorage({
+            value: draftValue,
+            updatedAt: Date.now(),
+            selectionStart: Number(options?.selectionStart || 0),
+            selectionEnd: Number(options?.selectionEnd || 0),
+        });
+        return true;
+    }
+
+    function __tmGetQuickAddDraft() {
+        const stored = __tmReadQuickAddDraftStorage();
+        const memory = __tmQuickAddDraftMemory;
+        const entry = memory && (!stored || Number(memory.updatedAt || 0) >= Number(stored.updatedAt || 0))
+            ? memory
+            : stored;
+        const updatedAt = Number(entry?.updatedAt || 0);
+        if (!entry || !String(entry.value || '').trim() || !updatedAt
+            || Date.now() - updatedAt > __TM_QUICK_ADD_DRAFT_MAX_AGE_MS) {
+            if (entry) __tmClearQuickAddDraft();
+            return null;
+        }
+        __tmQuickAddDraftMemory = entry;
+        return { ...entry };
+    }
+
+    function __tmClearQuickAddDraft() {
+        const stored = __tmReadQuickAddDraftStorage();
+        if (!stored && !__tmQuickAddDraftMemory) return false;
+        __tmPersistQuickAddDraftStorage(null);
+        return true;
+    }
+
     function __tmCaptureTaskDetailSubtaskDraftSnapshot(rootEl, expectedTaskId = '') {
         const root = rootEl instanceof Element ? rootEl : null;
         if (!(root instanceof Element)) return null;
@@ -3037,13 +3170,15 @@
             const input = draftRow.querySelector('[data-tm-detail-subtask-draft-input]');
             if (!(input instanceof HTMLTextAreaElement)) return null;
             const active = document.activeElement === input;
-            return {
+            const snapshot = {
                 taskId: currentId || requestedId,
                 value: String(input.value || ''),
                 focused: active,
                 selectionStart: active ? Number(input.selectionStart || 0) : 0,
                 selectionEnd: active ? Number(input.selectionEnd || input.selectionStart || 0) : 0,
             };
+            __tmSaveTaskDetailSubtaskDraft(snapshot.taskId, snapshot.value, snapshot);
+            return snapshot;
         } catch (e) {
             return null;
         }
@@ -4198,6 +4333,14 @@ return false;
                 } else if (filtersApplied && entry.mode === 'kanban') {
                     applied = __tmTryApplyKanbanOptimisticProjectionInPlace(entry.taskId, entry.patch, { filtersApplied: true });
                 }
+                if (!applied && entry.mode === 'kanban') {
+                    try {
+                        applied = globalThis.__tmTryReconcileKanbanParentCards?.(
+                            state.modal,
+                            [entry.taskId],
+                        ) === true;
+                    } catch (e) {}
+                }
                 if (applied) return;
                 __tmScheduleViewRefresh({
                     mode: 'current',
@@ -5168,6 +5311,24 @@ return false;
                         })) projected = false;
                     });
                 }
+            }
+            if (!projected
+                && mode === 'kanban'
+                && batch.structural === true
+                && Array.isArray(opts.structuralTypes)
+                && opts.structuralTypes.some((type) => (
+                    type === 'createSubtask'
+                    || type === 'createSibling'
+                    || type === 'deleteTask'
+                    || type === 'moveTask'
+                ))) {
+                try {
+                    projected = globalThis.__tmTryReconcileKanbanParentCards?.(
+                        state.modal,
+                        taskIds,
+                        { parentTaskIds: batch.affectedGroupIds },
+                    ) === true;
+                } catch (e) {}
             }
         }
 
@@ -7619,7 +7780,12 @@ return false;
             try { __tmApplyTaskTitleOpacityToElement(el, taskLike); } catch (e) {}
             touched = true;
         });
-        return touched;
+        if (root.matches?.('.tm-checklist-item[data-id]')) {
+            try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(root); } catch (e) {}
+        }
+        if (root.closest?.('.tm-body--kanban')) {
+            try { globalThis.__tmSyncKanbanSubtaskWrappedTitleClasses?.(root); } catch (e) {}
+        }        return touched;
     }
 
     function __tmPatchVisibleTaskContentInDOM(taskId, taskLike = null) {
@@ -9342,10 +9508,46 @@ return false;
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'tm-cell-editor-input';
-            input.value = String(__tmNormalizeCustomFieldValue(customField, __tmGetTaskCustomFieldValue(task, customFieldId)) || '');
+            const initialValue = String(__tmNormalizeCustomFieldValue(customField, __tmGetTaskCustomFieldValue(task, customFieldId)) || '');
+            input.value = initialValue;
             td.appendChild(input);
             const focusState = __tmPrimeCellTextEditorFocus(input, cleanupFns, { selection: 'all' });
-            const save = () => commitAndClose(input.value, false);
+            let closed = false;
+            const restoreDisplay = (value) => {
+                if (!(td instanceof HTMLElement)) return;
+                const text = String(__tmNormalizeCustomFieldValue(customField, value) || '').trim();
+                try { td.setAttribute('title', text); } catch (e) {}
+                td.innerHTML = `<div class="tm-custom-field-cell">${__tmBuildCustomFieldDisplayHtml(customField, text, { allowEmpty: false, maxTags: 1 })}</div>`;
+            };
+            const setCloseRestore = (valueGetter) => {
+                if (!__tmCellEditorState || __tmCellEditorState.td !== td) return;
+                __tmCellEditorState.restore = () => {
+                    const value = typeof valueGetter === 'function' ? valueGetter() : valueGetter;
+                    restoreDisplay(value);
+                };
+            };
+            setCloseRestore(() => input.value);
+            const save = () => {
+                if (closed) return Promise.resolve(false);
+                closed = true;
+                setCloseRestore(() => input.value);
+                return commitAndClose(input.value, false);
+            };
+            const closeWithoutSave = () => {
+                if (closed) return;
+                closed = true;
+                setCloseRestore(initialValue);
+                cancel();
+            };
+            const closeOnOutsidePointerDown = (e) => {
+                const target = e?.target;
+                if (target === input) return;
+                save();
+            };
+            document.addEventListener('pointerdown', closeOnOutsidePointerDown, true);
+            cleanupFns.push(() => document.removeEventListener('pointerdown', closeOnOutsidePointerDown, true));
+            document.addEventListener('mousedown', closeOnOutsidePointerDown, true);
+            cleanupFns.push(() => document.removeEventListener('mousedown', closeOnOutsidePointerDown, true));
             input.onblur = () => {
                 if (!focusState.isReady()) {
                     focusState.focus();
@@ -9354,7 +9556,10 @@ return false;
                 save();
             };
             input.onkeydown = (e) => {
-                if (e.key === 'Escape') cancel();
+                if (e.key === 'Escape') {
+                    closeWithoutSave();
+                    return;
+                }
                 if (e.key === 'Enter') save();
             };
             return;
@@ -10383,8 +10588,16 @@ return false;
     };
 
     window.updateTaskContentWrapMaxLines = async function(value) {
-        const n = Math.max(1, Math.min(10, Math.round(Number(value) || 3)));
+        const n = Math.max(1, Math.min(10, Math.round(Number(value) || 2)));
         SettingsStore.data.taskContentWrapMaxLines = n;
+        await SettingsStore.save();
+        if (state.settingsModal) showSettings();
+        render();
+    };
+
+    window.updateTaskContentWrapMaxLinesMobile = async function(value) {
+        const n = Math.max(1, Math.min(10, Math.round(Number(value) || 2)));
+        SettingsStore.data.taskContentWrapMaxLinesMobile = n;
         await SettingsStore.save();
         if (state.settingsModal) showSettings();
         render();
@@ -10634,6 +10847,7 @@ return false;
 
     function __tmInvalidateFilteredTaskDerivedStateCache() {
         try { state.__tmFilteredTaskDerivedStateCache = null; } catch (e) {}
+        try { state.__tmTaskRowModelCacheByMode = null; } catch (e) {}
     }
 
     function __tmBuildFilteredTaskDerivedState(currentGroupId) {
@@ -10849,9 +11063,113 @@ return false;
         }
     }
 
+    function __tmBuildTaskRowModelCacheMeta() {
+        const settings = SettingsStore?.data || {};
+        const setSignature = (value) => value instanceof Set
+            ? Array.from(value).map((item) => String(item || '').trim()).filter(Boolean).sort().join(',')
+            : '';
+        const activeRule = Array.isArray(state.filterRules)
+            ? state.filterRules.find((rule) => String(rule?.id || '').trim() === String(state.currentRule || '').trim())
+            : null;
+        let quadrantSignature = '';
+        try { quadrantSignature = JSON.stringify(settings.quadrantConfig || {}); } catch (e) {}
+        return {
+            filteredTasksRef: Array.isArray(state.filteredTasks) ? state.filteredTasks : null,
+            taskTreeRef: Array.isArray(state.taskTree) ? state.taskTree : null,
+            taskDocHeadingGroupTasksRef: Array.isArray(state.taskDocHeadingGroupTasks) ? state.taskDocHeadingGroupTasks : null,
+            filterRulesRef: Array.isArray(state.filterRules) ? state.filterRules : null,
+            taskStoreRevision: Number(globalThis.__tmTaskStore?.revision?.() || 0) || 0,
+            viewMode: String(state.viewMode || '').trim(),
+            activeDocId: String(state.activeDocId || 'all').trim() || 'all',
+            currentGroupId: String(settings.currentGroupId || 'all').trim() || 'all',
+            currentRule: String(state.currentRule || '').trim(),
+            searchKeyword: String(state.searchKeyword || '').trim(),
+            listRenderSignature: String(state.listRenderSignature || '').trim(),
+            activeRuleSignature: activeRule ? (() => {
+                try { return JSON.stringify(activeRule); } catch (e) { return String(activeRule?.id || ''); }
+            })() : '',
+            groupByDocName: !!state.groupByDocName,
+            groupByTaskName: !!state.groupByTaskName,
+            groupByTime: !!state.groupByTime,
+            quadrantEnabled: !!state.quadrantEnabled,
+            showCompletedTasks: !!state.showCompletedTasks,
+            docTabsArchiveMode: state.docTabsArchiveMode === true,
+            calendarSidebarChecklistRender: state.__tmCalendarSidebarChecklistRender === true,
+            calendarSidebarChecklistMounted: (() => {
+                try {
+                    return typeof __tmHasCalendarSidebarChecklist === 'function'
+                        && __tmHasCalendarSidebarChecklist(state.modal);
+                } catch (e) {
+                    return false;
+                }
+            })(),
+            isDark: !!__tmIsDarkMode(),
+            collapsedTaskIds: setSignature(state.collapsedTaskIds),
+            collapsedGroups: setSignature(state.collapsedGroups),
+            expandedCompletedGroups: setSignature(state.expandedCompletedGroups),
+            todayKey: (() => {
+                const now = new Date();
+                return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+            })(),
+            settingsSignature: [
+                settings.completedTasksInlineInGroups === true ? 1 : 0,
+                settings.completedTasksTodayOnly === true ? 1 : 0,
+                settings.docH2SubgroupEnabled !== false ? 1 : 0,
+                settings.groupSortByBestSubtaskTimeInTimeQuadrant === true ? 1 : 0,
+                settings.pinTasksWithinGroups === true ? 1 : 0,
+                settings.timelineForceSortByCompletionNearToday === true ? 1 : 0,
+                settings.alwaysShowTaskDocHeadingGroups === true ? 1 : 0,
+                settings.taskHeadingLevel || 'h2',
+                String(settings.timeGroupBaseColorLight || ''),
+                String(settings.timeGroupBaseColorDark || ''),
+                String(settings.timeGroupOverdueColorLight || ''),
+                String(settings.timeGroupOverdueColorDark || ''),
+                (() => {
+                    try { return JSON.stringify(settings.customStatusOptions || []); } catch (e) { return ''; }
+                })(),
+                quadrantSignature,
+            ].join('|'),
+        };
+    }
+
+    function __tmTaskRowModelCacheMatches(cache, meta) {
+        if (!cache || !meta || !Array.isArray(cache.rows)) return false;
+        const keys = [
+            'filteredTasksRef', 'taskTreeRef', 'taskDocHeadingGroupTasksRef', 'filterRulesRef', 'taskStoreRevision', 'viewMode',
+            'activeDocId', 'currentGroupId', 'currentRule', 'searchKeyword', 'listRenderSignature', 'activeRuleSignature', 'groupByDocName',
+            'groupByTaskName', 'groupByTime', 'quadrantEnabled', 'showCompletedTasks',
+            'docTabsArchiveMode', 'calendarSidebarChecklistRender', 'calendarSidebarChecklistMounted', 'isDark', 'collapsedTaskIds', 'collapsedGroups',
+            'expandedCompletedGroups', 'todayKey', 'settingsSignature',
+        ];
+        return keys.every((key) => cache[key] === meta[key]);
+    }
+
+    function __tmRememberTaskRowModelCache(rows, meta) {
+        const value = Array.isArray(rows) ? rows : [];
+        try {
+            const store = state.__tmTaskRowModelCacheByMode instanceof Map
+                ? state.__tmTaskRowModelCacheByMode
+                : new Map();
+            state.__tmTaskRowModelCacheByMode = store;
+            store.delete(meta.viewMode);
+            store.set(meta.viewMode, { ...meta, rows: value });
+            while (store.size > 4) store.delete(store.keys().next().value);
+        } catch (e) {}
+        return value;
+    }
+
     function __tmBuildTaskRowModel() {
+        const cacheMeta = __tmBuildTaskRowModelCacheMeta();
+        const cacheableMode = ['list', 'checklist', 'timeline'].includes(cacheMeta.viewMode);
+        const cacheStore = cacheableMode && state.__tmTaskRowModelCacheByMode instanceof Map
+            ? state.__tmTaskRowModelCacheByMode
+            : null;
+        const cached = cacheStore?.get(cacheMeta.viewMode);
+        if (__tmTaskRowModelCacheMatches(cached, cacheMeta)) return cached.rows;
         const alwaysVisibleHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks();
-        if ((!Array.isArray(state.filteredTasks) || state.filteredTasks.length === 0) && alwaysVisibleHeadingTasks.length === 0) return [];
+        if ((!Array.isArray(state.filteredTasks) || state.filteredTasks.length === 0) && alwaysVisibleHeadingTasks.length === 0) {
+            return cacheableMode ? __tmRememberTaskRowModelCache([], cacheMeta) : [];
+        }
 
         const isDark = __tmIsDarkMode();
         const timeBaseColor = isDark
@@ -11127,7 +11445,7 @@ return false;
                 walkTaskList(normalRoots, 0);
             }
             appendCompletedRootGroup();
-            return rows;
+            return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
         if (state.quadrantEnabled && normalRoots.length > 0) {
@@ -11210,7 +11528,7 @@ return false;
                 }
             });
             appendCompletedRootGroup();
-            return rows;
+            return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
         if (state.groupByDocName) {
@@ -11295,7 +11613,7 @@ return false;
                 }
             });
             appendCompletedRootGroup();
-            return rows;
+            return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
         // 按任务名分组
@@ -11346,7 +11664,7 @@ return false;
                 }
             });
             appendCompletedRootGroup();
-            return rows;
+            return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
         if (state.groupByTime && normalRoots.length > 0) {
@@ -11396,12 +11714,12 @@ return false;
                 }
             });
             appendCompletedRootGroup();
-            return rows;
+            return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
         walkTaskList(normalRoots, 0);
         appendCompletedRootGroup();
-        return rows;
+        return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
     }
 
     function __tmResolveFirstVisibleTaskIdFromRowModel(rowModel) {

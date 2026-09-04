@@ -160,6 +160,21 @@ async function verifyAllDayDateSettlement() {
     assert.equal(events[0].type, 'success');
 
     events.length = 0;
+    let existingDatePatch = null;
+    context.window.tmUpdateTaskDates = (_taskId, patch) => {
+        existingDatePatch = patch;
+        return Promise.resolve({ id: 'task-1' });
+    };
+    const existingDateHandled = await context.applyAllDayDate(
+        { taskId: 'task-1', dateFieldsKnown: true, startDate: '2026-08-01', completionTime: '2026-08-20' },
+        new Date('2026-08-22T00:00:00+08:00'),
+        true,
+    );
+    assert.equal(existingDateHandled, true, 'all-day drops must update deadlines for tasks that already have dates');
+    assert.equal(existingDatePatch?.completionTime, '2026-08-20');
+    assert.equal(Object.keys(existingDatePatch || {}).length, 1, 'all-day drops must not write a start date');
+
+    events.length = 0;
     const failed = createDeferred();
     context.window.tmUpdateTaskDates = () => failed.promise;
     const failedPending = context.applyAllDayDate(
@@ -173,10 +188,41 @@ async function verifyAllDayDateSettlement() {
     assert.equal(events[0].type, 'error');
 }
 
+async function verifyMonthDropAlwaysUpdatesDeadline() {
+    const { context, events } = createContext();
+    let receivedPatch = null;
+    let receivedOptions = null;
+    context.formatDateKey = () => '2026-08-25';
+    context.resolveTaskDropDateFields = () => ({
+        known: true,
+        startDate: '2026-08-01',
+        completionTime: '2026-08-20',
+    });
+    context.window.tmUpdateTaskDates = (_taskId, patch, nextOptions) => {
+        receivedPatch = patch;
+        receivedOptions = nextOptions;
+        return Promise.resolve({ id: 'task-1', completionTime: '2026-08-25' });
+    };
+    vm.runInContext(`${allDayDateSource}\nthis.applyMonthDate = maybeUpdateEmptyTaskDueDateFromAllDayDrop;`, context);
+    const handled = await context.applyMonthDate(
+        { taskId: 'task-1', dateFieldsKnown: true, startDate: '2026-08-01', completionTime: '2026-08-20' },
+        new Date('2026-08-25T00:00:00+08:00'),
+        false,
+        { viewType: 'dayGridMonth' },
+    );
+    assert.equal(handled, true, 'month-cell drops must be handled as deadline updates');
+    assert.equal(receivedPatch?.completionTime, '2026-08-25');
+    assert.equal(Object.keys(receivedPatch || {}).length, 1, 'month-cell drops must not write a start date');
+    assert.equal(receivedOptions.wait, true);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'success');
+}
+
 Promise.resolve()
     .then(verifyPrioritySettlement)
     .then(verifyFloatingDateSettlement)
     .then(verifyAllDayDateSettlement)
+    .then(verifyMonthDropAlwaysUpdatesDeadline)
     .then(() => console.log('calendar mutation success acknowledgement contract tests passed'))
     .catch((error) => {
         console.error(error);

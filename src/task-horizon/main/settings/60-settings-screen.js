@@ -1424,45 +1424,9 @@
             const fallbackName = resolveDocName(defaultDocId);
             defaultDocOptions.push(`<option value="${defaultDocId}" selected>${esc(fallbackName)} (不在当前列表)</option>`);
         }
-        const allDocsForNewTask = (() => {
-            const list = [];
-            const legacyIds = SettingsStore.data.selectedDocIds || [];
-            legacyIds.forEach(id => list.push({ id, recursive: false }));
-            (SettingsStore.data.docGroups || []).forEach(g => {
-                if (Array.isArray(g?.docs)) list.push(...g.docs);
-            });
-            (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
-                const id = String(doc?.id || '').trim();
-                if (id) list.push({ id, recursive: false });
-            });
-            const seen = new Set();
-            return list.filter(d => {
-                const id = String(d?.id || '').trim();
-                if (!id) return false;
-                if (seen.has(id)) return false;
-                seen.add(id);
-                return true;
-            });
-        })();
-        const allDocIdsForNewTask = allDocsForNewTask.map(d => String(d?.id || '').trim()).filter(Boolean);
         const newTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
-        const newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(SettingsStore.data.newTaskDefaultLocationMode);
-        const selectedNewTaskLocation = newTaskDefaultLocationMode === 'lastSelected' ? '__lastSelected__' : newTaskDocId;
+        const newTaskLocationMode = __tmNormalizeNewTaskDefaultLocationMode(SettingsStore.data.newTaskDefaultLocationMode);
         const newTaskDailyNoteNotebookId = String(SettingsStore.data.newTaskDailyNoteNotebookId || '').trim();
-        const newTaskDocOptions = [
-            `<option value="" ${selectedNewTaskLocation ? '' : 'selected'}>未设置</option>`,
-            `<option value="__dailyNote__" style="font-weight:700;" ${selectedNewTaskLocation === '__dailyNote__' ? 'selected' : ''}>今天日记</option>`,
-            `<option value="__lastSelected__" style="font-weight:700;" ${selectedNewTaskLocation === '__lastSelected__' ? 'selected' : ''}>上次选择</option>`
-        ];
-        allDocsForNewTask.forEach(docItem => {
-            const docId = typeof docItem === 'object' ? docItem.id : docItem;
-            const docName = resolveDocName(docId);
-            newTaskDocOptions.push(`<option value="${docId}" ${selectedNewTaskLocation === docId ? 'selected' : ''}>${esc(docName)}</option>`);
-        });
-        if (newTaskDocId && newTaskDocId !== '__dailyNote__' && !allDocIdsForNewTask.includes(newTaskDocId)) {
-            const fallbackName = resolveDocName(newTaskDocId);
-            newTaskDocOptions.push(`<option value="${newTaskDocId}" ${selectedNewTaskLocation === newTaskDocId ? 'selected' : ''}>${esc(fallbackName)} (不在当前列表)</option>`);
-        }
         const dailyNoteNotebookOptions = [
             `<option value="" ${newTaskDailyNoteNotebookId ? '' : 'selected'}>跟随当前文档所属笔记本</option>`
         ];
@@ -2188,11 +2152,20 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskAutoWrapEnabled !== false ? 'checked' : ''} onchange="updateTaskAutoWrapEnabled(this.checked)">`
                         )}
                         ${renderSingleFieldSetting(
-                            '内容行数',
-                            '限制任务内容最多显示的行数。',
-                            `<input class="b3-text-field" type="number" value="${Math.max(1, Math.min(10, Number(SettingsStore.data.taskContentWrapMaxLines) || 3))}" min="1" max="10"
+                            '桌面端内容行数',
+                            '限制桌面端任务内容最多显示的行数。',
+                            `<input class="b3-text-field" type="number" value="${Math.max(1, Math.min(10, Number(SettingsStore.data.taskContentWrapMaxLines) || 2))}" min="1" max="10"
                                    ${SettingsStore.data.taskAutoWrapEnabled !== false ? '' : 'disabled'}
                                    onchange="updateTaskContentWrapMaxLines(this.value)" style="width:88px;opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};">
+                             <span class="tm-setting-field-unit">行</span>`,
+                            { style: `opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};` }
+                        )}
+                        ${renderSingleFieldSetting(
+                            '移动端与 Dock 内容行数',
+                            '限制移动端和 Dock 侧边栏任务内容最多显示的行数。',
+                            `<input class="b3-text-field" type="number" value="${Math.max(1, Math.min(10, Number(SettingsStore.data.taskContentWrapMaxLinesMobile) || 2))}" min="1" max="10"
+                                   ${SettingsStore.data.taskAutoWrapEnabled !== false ? '' : 'disabled'}
+                                   onchange="updateTaskContentWrapMaxLinesMobile(this.value)" style="width:88px;opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};">
                              <span class="tm-setting-field-unit">行</span>`,
                             { style: `opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};` }
                         )}
@@ -2238,36 +2211,30 @@
                         <div class="tm-settings-section-title">📍 新建/归档</div>
                         <div class="tm-settings-section-desc">设置新建任务的默认位置，以及删除和完成任务后的归档方式。</div>
                         ${renderSingleFieldSetting(
-                            '默认新建文档',
-                            '用于“快速新建任务界面”的默认位置；选择“上次选择”后，会记住最近一次手动选择的文档或今天日记。',
-                            `<select class="b3-select" onchange="updateNewTaskDocIdFromSelect(this.value)" style="width:100%;">
-                                ${newTaskDocOptions.join('')}
-                            </select>`,
+                            '收集箱文档',
+                            '固定的自定义新建文档 ID；快速新建中临时选择其他位置不会修改这里。',
+                            `<div style="display:flex; gap:8px; align-items:center;">
+                                <input class="b3-text-field" type="text" readonly aria-label="已选择的收集箱文档"
+                                       value="${esc(newTaskDocId)}" placeholder="尚未选择收集箱文档" title="${esc(newTaskDocId)}" style="flex:1;">
+                                <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenNewTaskDocSearch(this)" style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">
+                                    ${typeof __tmRenderLucideIcon === 'function' ? __tmRenderLucideIcon('search', '', { size: 14 }) : ''}<span>搜索文档</span>
+                                </button>
+                            </div>`,
                             { style: 'margin-bottom:10px;' }
                         )}
-                        <div style="display:flex; gap:8px; margin-top: 8px; align-items:center;">
-                            <input id="tmNewTaskDocIdInput" class="b3-text-field" list="tmNewTaskDocIdList"
-                                   value="${esc(selectedNewTaskLocation === '__dailyNote__' || selectedNewTaskLocation === '__lastSelected__' ? '' : (newTaskDocId || ''))}"
-                                   placeholder="也可直接输入文档ID"
-                                   style="flex: 1;">
-                            <button class="tm-btn tm-btn-secondary" onclick="tmApplyNewTaskDocIdInput()" style="padding: 6px 10px; font-size: 12px;">应用</button>
-                            <button class="tm-btn tm-btn-gray" onclick="tmClearNewTaskDocIdInput()" style="padding: 6px 10px; font-size: 12px;">清空</button>
-                        </div>
-                        <datalist id="tmNewTaskDocIdList">
-                            ${allDocsForNewTask.map(docItem => {
-                                const docId = typeof docItem === 'object' ? docItem.id : docItem;
-                                const docName = resolveDocName(docId);
-                                return `<option value="${docId}">${esc(docName)}</option>`;
-                            }).join('')}
-                            ${newTaskDocId && newTaskDocId !== '__dailyNote__' && !allDocIdsForNewTask.includes(newTaskDocId) ? `<option value="${newTaskDocId}"></option>` : ''}
-                        </datalist>
-                        <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px;">
-                            也可以直接输入文档 ID，适合当前列表里没有加载出来的文档。
-                        </div>
+                        ${renderSingleFieldSetting(
+                            '新建位置',
+                            '控制快速新建任务实际使用的位置；选择“上次选择”后会随每次手动选择变化，但不会改动上面的收集箱文档 ID。',
+                            `<select class="b3-select" onchange="updateNewTaskLocationMode(this.value)" style="width:100%;">
+                                <option value="configured" ${newTaskLocationMode === 'configured' ? 'selected' : ''}>收集箱文档</option>
+                                <option value="dailyNote" ${newTaskLocationMode === 'dailyNote' ? 'selected' : ''}>今天日记</option>
+                                <option value="lastSelected" ${newTaskLocationMode === 'lastSelected' ? 'selected' : ''}>上次选择</option>
+                            </select>`
+                        )}
                         <div style="margin-top:10px;">
                             ${renderSingleFieldSetting(
                                 '今天日记默认笔记本',
-                                '当默认新建文档或快速新建目标选择“今天日记”时，优先在这里指定的笔记本下创建/写入今天日记；留空则继续跟随当前文档所属笔记本。',
+                                '当收集箱文档或快速新建目标选择“今天日记”时，优先在这里指定的笔记本下创建/写入今天日记；留空则继续跟随当前文档所属笔记本。',
                                 `<select class="b3-select" onchange="updateNewTaskDailyNoteNotebookId(this.value)" style="width:100%;">
                                     ${dailyNoteNotebookOptions.join('')}
                                 </select>`
@@ -2410,6 +2377,12 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.autoCompleteParentOnSubtasksDone ? 'checked' : ''} onchange="updateAutoCompleteParentOnSubtasksDone(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
+                        ${renderSingleSwitchSetting(
+                            '循环任务完成后，在笔记中保持勾选',
+                            '开启后，本次完成会在笔记中保持勾选；插件仍推进到下一次，并在下一次循环日期当天恢复为未完成。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.recurringTaskKeepNativeDoneUntilNextOccurrence === true ? 'checked' : ''} onchange="updateRecurringTaskKeepNativeDoneUntilNextOccurrence(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);">
                             <div class="tm-settings-section-title">FSRS 间隔重复</div>
                             <div class="tm-settings-section-desc">FSRS 根据实际复习反馈安排下一次日期；参数修改只影响后续评分。</div>
@@ -2480,7 +2453,7 @@
                         ${!__tmIsRuntimeMobileClient() ? `
                         ${renderSingleSwitchSetting(
                             '启用 Dock 侧边栏',
-                            '桌面端新增一个类似番茄钟的任务 Dock，界面跟随手机端布局。',
+                            '桌面端新增一个类似番茄钟的任务 Dock，界面跟随移动端布局。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.dockSidebarEnabled !== false ? 'checked' : ''} onchange="updateDockSidebarEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2813,7 +2786,7 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmGetShowCompletedTasksFromSettings(SettingsStore.data) ? 'checked' : ''} onchange="updateShowCompletedTasks(this.checked)">`
                         )}
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px; margin-bottom: 12px;">
-                            默认关闭以保持日常列表清爽。打开后默认显示索引中的全部已完成任务；若开启下方限制，则仅显示今天完成。
+                            默认开启，避免完成任务后从列表中消失。若关闭则仅在视图中隐藏已完成任务；开启下方限制后仅显示今天完成。
                             <br>规则设置中将「完成状态」设为「所有状态」或「是」时，也会显示对应已完成任务。
                         </div>
                         ${renderSingleSwitchSetting(
@@ -2889,10 +2862,15 @@
                         )}
                     </div>
 
-                    ${(settingsSearchCurrentSection = 'topbar', '')}
+                        ${(settingsSearchCurrentSection = 'topbar', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="topbar">
                         <div class="tm-settings-section-title">🔘 顶栏入口</div>
-                        <div class="tm-settings-section-desc">分别控制文档顶栏按钮与思源窗口顶栏图标在桌面端、移动端的显示。</div>
+                        <div class="tm-settings-section-desc">分别控制文档顶栏按钮、思源窗口顶栏图标与移动端侧栏入口的显示。</div>
+                        ${renderSingleSwitchSetting(
+                            '移动端任务侧栏',
+                            '在思源移动端侧栏注册任务管理器，点击侧栏图标即可打开任务清单；默认关闭，可单独开启，不影响移动端顶栏入口。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.mobileSidebarEnabled === true ? 'checked' : ''} onchange="updateMobileSidebarEnabled(this.checked)">`
+                        )}
                         ${renderSingleSwitchSetting(
                             '思源窗口顶栏图标(桌面)',
                             '控制桌面端思源窗口顶栏中的任务管理入口。',
@@ -2985,15 +2963,16 @@
                         <div style="margin-top:10px;opacity:${SettingsStore.data.enableQuickbarInlineMeta ? 1 : 0.6};">
                             ${renderSingleFieldSetting(
                                 '常驻显示字段',
-                                '默认显示状态和截止日期，字段越多越容易挤占任务正文空间。',
+                                '默认显示状态和截止日期；剩余时间规则与桌面端紧凑右侧字段一致。字段越多越容易挤占任务正文空间。',
                                 renderSettingsChipSetting('', '', [
                                     __tmBuildSettingsChipGroup('字段', [
                                         { key: 'subtask-count', label: '子任务数量' },
                                         { key: 'custom-status', label: '状态' },
-                                        { key: 'custom-completion-time', label: '截止日期' },
-                                        { key: 'taskCompleteAt', label: '完成时间' },
                                         { key: 'custom-priority', label: '重要性' },
                                         { key: 'custom-start-date', label: '开始日期' },
+                                        { key: 'custom-completion-time', label: '截止日期' },
+                                        { key: 'remainingTime', label: '剩余时间' },
+                                        { key: 'taskCompleteAt', label: '完成时间' },
                                         { key: 'custom-focus-summary', label: '专注/耗时' },
                                         { key: 'custom-remark', label: '备注' },
                                         ...__tmBuildSettingsCustomFieldChipItems()

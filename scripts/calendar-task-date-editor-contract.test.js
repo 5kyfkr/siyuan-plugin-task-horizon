@@ -1,0 +1,54 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const source = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
+const styles = fs.readFileSync(path.join(root, 'calendar-view.css'), 'utf8');
+const branchStart = source.indexOf("if (source === 'taskdate' && eventApi.allDay === true");
+assert.ok(branchStart >= 0, '全天任务日期事件必须有独立编辑入口');
+const branchEnd = source.indexOf('const title = protoEventTitle(eventApi);', branchStart);
+assert.ok(branchEnd > branchStart, '任务日期编辑入口应位于通用详情弹窗渲染之前');
+const branch = source.slice(branchStart, branchEnd);
+
+assert.match(branch, /ext\.__tmTaskDateReadOnly !== true/);
+assert.match(branch, /taskDateEditor:\s*true/);
+assert.match(branch, /taskStartDate:\s*startKey/);
+assert.match(branch, /taskCompletionTime:\s*completionKey/);
+assert.match(branch, /taskDateStartKey:\s*startKey/);
+assert.match(branch, /taskDateEndExclusiveKey:\s*endExclusiveKey/);
+assert.match(branch, /showPrototypeScheduleEditorCard\(eventApi, anchorEl, \{[\s\S]*taskDateEditor:\s*true/);
+assert.doesNotMatch(branch, /openScheduleModal\(/);
+assert.match(source, /const isTaskDateEditor = options\?\.taskDateEditor === true/);
+assert.match(source, /tm-proto-inline-schedule-editor\$\{isNew \? ' is-new' : ''\}\$\{isTaskDateEditor \? ' is-task-date' : ''\}/);
+assert.match(source, /taskdate-inline-editor-save/);
+assert.match(source, /window\.tmUpdateTaskDates\(targetId, taskDatePatch/);
+assert.match(source, /startDate:\s*nextStartDate/);
+assert.match(source, /completionTime:\s*nextCompletionDate/);
+assert.match(source, /tm-proto-inline-task-date-owner/);
+assert.match(source, /data-tm-proto-task-date-action="open-task"/);
+assert.match(source, /data-tm-proto-task-date-action="locate"/);
+assert.match(source, /endLabel\.textContent = '截止日期'/);
+assert.match(source, /colorRow\?\.remove/);
+assert.match(source, /footer\.insertBefore\(button, saveButton\)/);
+assert.match(source, /data-tm-proto-edit-action="cancel"\]'\)\?\.remove/);
+assert.match(source, /titleField\.replaceWith\(titleDisplay\)/);
+assert.match(source, /<textarea class="quick-title tm-proto-inline-title\$\{isTaskDateEditor \? ' is-readonly' : ''\}"/);
+assert.match(source, /titleField instanceof HTMLInputElement \|\| titleField instanceof HTMLTextAreaElement/);
+assert.match(source, /syncTitleFieldHeight = \(\) =>/);
+assert.match(source, /titleField\.style\.height = 'auto'/);
+assert.match(source, /const syncRelation = \(options = \{\}\) =>/);
+assert.match(source, /event\.isComposing \|\| event\.inputType === 'insertCompositionText'/);
+assert.match(source, /addEventListener\('compositionend'/);
+assert.match(source, /setSelectionRange\(selectionStart, selectionEnd\)/);
+assert.match(styles, /is-task-date \.tm-proto-inline-title\{[\s\S]*white-space:normal/);
+assert.match(styles, /\.tm-proto-inline-schedule-editor \.quick-title,[\s\S]*width:100% !important/);
+assert.match(styles, /\.tm-proto-inline-schedule-editor \.quick-title,[\s\S]*padding:2px 8px 2px 0/);
+assert.match(styles, /\.tm-proto-inline-schedule-editor \.quick-title,[\s\S]*font-weight:700/);
+assert.match(styles, /\.tm-proto-inline-schedule-editor \.quick-title,[\s\S]*white-space:normal/);
+assert.match(styles, /\.tm-proto-inline-edit-row\.top:has\(\[data-tm-proto-inline-relation\]\)[\s\S]*align-items:center/);
+assert.match(styles, /is-task-date \.tm-proto-inline-date-only-rows\{[\s\S]*gap:7px/);
+
+console.log('calendar task-date editor contract tests passed');

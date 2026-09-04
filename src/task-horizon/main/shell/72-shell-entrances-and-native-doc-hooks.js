@@ -2618,6 +2618,25 @@
         const previousStatus = String(previousState?.status || '').trim();
         const previousTaskCompleteAt = String(previousState?.taskCompleteAt || '').trim();
         const userInitiatedCheckboxChange = previousState?.userInitiated === true;
+        let revertedPendingRecurringCompletion = false;
+        if (!domDone && userInitiatedCheckboxChange
+            && typeof __tmIsRecurringNativeDoneHeld === 'function'
+            && __tmIsRecurringNativeDoneHeld(task)) {
+            const heldState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
+            const heldCompletedAt = String(heldState.lastCompletedAt || '').trim();
+            if (heldCompletedAt && typeof __tmDeleteTaskRepeatHistoryEntry === 'function') {
+                try {
+                    revertedPendingRecurringCompletion = await __tmDeleteTaskRepeatHistoryEntry(tid, heldCompletedAt, {
+                        source: 'native-doc-checkbox-repeat-undo',
+                        recordUndo: true,
+                    });
+                    if (revertedPendingRecurringCompletion) {
+                        const refreshedTask = await __tmResolveTaskForRepeat(tid);
+                        if (refreshedTask?.id) task = refreshedTask;
+                    }
+                } catch (e) {}
+            }
+        }
         const taskDoneBefore = hasPreviousState ? !!previousState.previousDone : !!task.done;
         const currentStatusDoneBefore = currentStatus ? __tmDoesStatusIdResolveToDone(currentStatus, statusOptions) : false;
         const previousStatusDoneBefore = previousStatus ? __tmDoesStatusIdResolveToDone(previousStatus, statusOptions) : false;
@@ -2690,6 +2709,7 @@
                 userInitiated: previousState.userInitiated === true,
             } : null,
             userInitiatedCheckboxChange,
+            revertedPendingRecurringCompletion,
             currentTaskCompleteAt,
             persistedTaskCompleteAtBefore,
         }, [rawId, tid, __tmGetTaskAttrHostId(task)], { force: true });

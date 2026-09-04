@@ -8,40 +8,40 @@ const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
 const styles = fs.readFileSync(path.join(root, 'calendar-view.css'), 'utf8');
 
-assert.match(
-    source,
-    /function syncTimeGridAllDayCollapseUi\(rootEl, calendar\)[\s\S]*const supported = isTimeGridAllDayCollapseSupported\(calendar\);[\s\S]*if \(!supported\)[\s\S]*clearTimeGridAllDayCollapseArtifacts\(rootEl\);/,
-    'non-time-grid views must clear synthetic all-day collapse controls before returning',
-);
-assert.match(
-    source,
-    /function clearTimeGridAllDayCollapseArtifacts\(rootEl\)[\s\S]*rootEl\.querySelectorAll\('\.tm-cal-allday-summary, \.tm-cal-allday-toggle'\)/,
-    'all-day collapse cleanup must remove both the summary overlay and axis toggle',
-);
-assert.match(
-    styles,
-    /\.tm-calendar-host--month-view :is\(\.tm-cal-allday-summary, \.tm-cal-allday-toggle\)[\s\S]*display: none !important/,
-    'month view must hide stale all-day collapse controls as a CSS fallback',
-);
-assert.match(
-    source,
-    /function scheduleMainCalendarTimeGridLayoutSettle\(wrap, host, calendar\)[\s\S]*applyTimeAxisColumnLayout\(targetHost, 40, \{ force: true \}\)[\s\S]*syncTimeGridAllDayCollapseUi\(targetHost, targetCalendar\)[\s\S]*requestAnimationFrame\(/,
-    'time-grid view switches must reapply axis and all-day layout after FullCalendar replaces the view DOM',
-);
-assert.match(
-    source,
-    /datesSet:\s*\(\) => \{[\s\S]*scheduleMainCalendarTimeGridLayoutSettle\(wrap, host, calendar\)/,
-    'main calendar date changes must schedule the post-switch time-grid settle pass',
-);
-assert.match(
-    source,
-    /querySelectorAll\('\.fc-timegrid \.tm-cal-slot-header-divider'\)[\s\S]*previousElementSibling[\s\S]*v7AxisHosts\.push\(axisHost\)[\s\S]*flex-basis', width, 'important'/,
-    'FullCalendar v7 axis wrappers must share the same fixed width as the all-day axis',
-);
-assert.match(
-    styles,
-    /\.fc-timegrid \[role="row"\] > :has\(\+ \.tm-cal-slot-header-divider\)[\s\S]*flex: 0 0 var\(--tm-calendar-axis-width, 40px\) !important/,
-    'time-grid axis wrappers must be aligned before the JavaScript settle pass runs',
-);
+assert.match(source, /function toggleTimeGridAllDayCollapsed\(rootEl, calendar, nextCollapsed\)/);
+assert.match(source, /buildSharedPrototypeAllDayToggleMarkup/);
+assert.match(source, /function countSharedPrototypeAllDayEvents\(events, date, eventEndResolver = resolveSharedPrototypeEventEnd\)/);
+assert.match(source, /actionAttr:\s*'data-tm-proto-action'/);
+assert.ok(source.includes("tm-proto-allday ${allDayCollapsed ? 'is-collapsed' : ''}"));
+assert.match(source, /const allDayCollapsed = options\.allDayCollapsed === true/);
+assert.match(source, /collapsedAllDayCounts\.set\(dateKey\(date\), count\)/, 'collapsed all-day counts must be calculated per day');
+assert.match(source, /collapsedCountMarkup = allDayCollapsed && collapsedCount > 0/, 'collapsed all-day summary must display the folded count');
+assert.match(source, /viewType\.startsWith\('timeGrid'\) && eventApi\?\.allDay !== true/, 'time-grid +N popovers must exclude timed events');
+assert.match(source, /tm-proto-allday-collapsed-count/, 'all-day cells must expose collapsed counts');
+assert.match(source, /<button class="tm-proto-more tm-proto-allday-collapsed-count"[^>]+data-tm-proto-day=/, 'collapsed counts must use the shared more-popover trigger');
+assert.match(source, /state\.__tmShowPrototypeMorePopover\s*=\s*showPrototypeMorePopover/, 'side-day collapsed counts must reuse the shared more popover');
+assert.match(source, /function showSharedPrototypeMorePopover\(anchorEl, dayKey, calendarOverride = null\)/, 'shared more popover must be available without the main surface closure');
+assert.match(source, /const openMore = state\.__tmShowPrototypeMorePopover \|\| showSharedPrototypeMorePopover/, 'side-day clicks must have a shared fallback popover entry point');
+assert.match(source, /const moreEl = target\?\.closest\?\.\('\.tm-proto-more'\)/, 'side-day clicks must resolve the shared more trigger');
+assert.doesNotMatch(source, /tm-proto-timeline-day-allday-count|tm-proto-day-panel-allday-count/, 'collapsed counts must not be rendered beside day headers');
+assert.match(source, /allDayCollapsed: state\.sideDay\.allDayCollapsed === true/);
+assert.match(source, /sideAction === 'toggleAllDay'/);
+assert.match(source, /tm-proto-day-panel-allday-chevron" aria-hidden="true"><\/span>/, 'the shared toggle must not depend on font-specific arrow glyphs');
+assert.doesNotMatch(source, /collapsed \? '›' : '⌄'/, 'the shared toggle must not restore mismatched text arrows');
+assert.match(styles, /\.tm-proto-allday\.is-collapsed[\s\S]*max-height:\s*32px/);
+assert.match(styles, /\.tm-proto-day-panel-allday\.is-collapsed[\s\S]*max-height:\s*32px/);
+assert.match(styles, /\.tm-proto-allday\.is-collapsed \.tm-proto-allday-cell > \.tm-proto-allday-collapsed-count[\s\S]*display:\s*flex[\s\S]*visibility:\s*visible/, 'collapsed counts must remain visible inside the all-day row');
+assert.match(styles, /\.tm-proto-allday\.is-collapsed \.tm-proto-allday-cell > :not\(\.tm-proto-allday-collapsed-count\)[\s\S]*display:\s*none\s*!important/, 'collapsed all-day siblings must leave the flex layout');
+assert.match(styles, /\.tm-proto-allday-collapsed-count\s*\{[\s\S]*cursor:\s*pointer;[\s\S]*pointer-events:\s*auto;/, 'collapsed counts must remain clickable');
+assert.match(styles, /\.tm-proto-day-panel-allday\.is-collapsed > div[\s\S]*display:\s*flex\s*!important/, 'the side panel must keep its all-day row visible while collapsed');
+assert.match(styles, /\.tm-proto-timeline-head,[\s\S]*\.tm-proto-allday\s*\{[\s\S]*grid-template-columns: var\(--tm-proto-axis-width\) repeat/);
+assert.match(styles, /\.tm-proto-day-panel-allday-toggle\s*\{[\s\S]*align-items:\s*center;[\s\S]*height:\s*30px;[\s\S]*text-align:\s*right\s*!important;/, 'main and side all-day toggles must share one vertically centered layout');
+assert.match(styles, /\.tm-proto-allday::before\s*\{[\s\S]*top:\s*0;[\s\S]*bottom:\s*0;[\s\S]*left:\s*var\(--tm-proto-axis-width\);[\s\S]*border-left:\s*1px solid var\(--tm-cal-border\);/, 'the all-day divider must span the full row height');
+assert.match(styles, /\.tm-proto-day-panel-allday\s*\{[\s\S]*padding:\s*3px 4px 3px 0\s*!important;/, 'the side all-day lane must use the timed lane outer inset');
+assert.match(styles, /\.tm-proto-day-panel-allday-events\s*>\s*\.tm-proto-allday-cell\s*\{[\s\S]*padding:\s*var\(--tm-proto-card-gap\) 0;/, 'side all-day cards must keep equal horizontal spacing');
+assert.match(styles, /\.tm-proto-day-panel-allday-chevron::before\s*\{[\s\S]*border-inline-end:\s*1\.5px solid currentColor;[\s\S]*border-block-end:\s*1\.5px solid currentColor;/, 'the all-day toggle must draw a stable CSS chevron');
+assert.match(styles, /\.tm-proto-day-panel-allday-toggle\[aria-expanded="false"\][^{]*\{[\s\S]*transform:\s*rotate\(-45deg\);/, 'the collapsed toggle chevron must point toward the hidden content');
+assert.match(styles, /\.tm-proto-event--allday\.is-span[\s\S]*border-radius: 0/);
+assert.equal((source.match(/getFullCalendarCompatClassOptions/g) || []).length, 0);
 
-console.log('calendar all-day collapse contract tests passed');
+console.log('calendar prototype all-day collapse contract tests passed');

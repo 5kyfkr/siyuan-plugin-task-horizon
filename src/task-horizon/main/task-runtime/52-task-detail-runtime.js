@@ -1605,7 +1605,10 @@
         };
         const renderPreviewHtml = () => {
             if (draftMode) return '';
-            const dates = __tmCollectTaskRepeatPreviewDates(task || {}, { limit: 4 });
+            const dates = __tmCollectTaskRepeatPreviewDates(task || {}, {
+                limit: 4,
+                fromDateKey: __tmNormalizeDateOnly(new Date()),
+            });
             if (!dates.length) return '';
             return `
                 <div class="tm-task-time-hub__preview">
@@ -6379,7 +6382,10 @@
             };
             const renderRepeatPreviewHtml = () => {
                 const boundTask = getBoundTask() || task || {};
-                const list = __tmCollectTaskRepeatPreviewDates(boundTask, { limit: 5 });
+                const list = __tmCollectTaskRepeatPreviewDates(boundTask, {
+                    limit: 5,
+                    fromDateKey: __tmNormalizeDateOnly(new Date()),
+                });
                 if (!list.length) return '<span class="tm-task-detail-inline-popover__preview-chip">未设置循环</span>';
                 return list.map((item) => `<span class="tm-task-detail-inline-popover__preview-chip">${esc(__tmFormatTaskTimeCompact(item))}</span>`).join('');
             };
@@ -6696,7 +6702,10 @@
                     startDate: readHiddenInputValue('startDate'),
                     completionTime: readHiddenInputValue('completionTime'),
                 };
-                const dates = __tmCollectTaskRepeatPreviewDates(task, { limit: 4 });
+                const dates = __tmCollectTaskRepeatPreviewDates(task, {
+                    limit: 4,
+                    fromDateKey: __tmNormalizeDateOnly(new Date()),
+                });
                 if (!dates.length) return '';
                 return `
                     <div class="tm-task-time-hub__preview">
@@ -7815,8 +7824,20 @@
             const cancelBtn = draftRow.querySelector('[data-tm-detail-subtask-draft-cancel]');
             const saveBtn = draftRow.querySelector('[data-tm-detail-subtask-draft-save]');
             if (!(input instanceof HTMLTextAreaElement)) return;
+            const draftOwnerId = () => String(getBoundTaskId() || taskId || '').trim();
+            const persistDraft = () => {
+                try {
+                    __tmSaveTaskDetailSubtaskDraft(draftOwnerId(), input.value, {
+                        selectionStart: Number(input.selectionStart || 0),
+                        selectionEnd: Number(input.selectionEnd || input.selectionStart || 0),
+                    });
+                } catch (e) {}
+            };
             const removeDraft = (reason = 'manual') => {
                 cancelSubtaskDraftVisibility();
+                if (reason === 'cancel' || reason === 'escape' || reason === 'submitted' || reason === 'manual') {
+                    try { __tmClearTaskDetailSubtaskDraft(draftOwnerId()); } catch (e) {}
+                }
                 try { draftRow.remove(); } catch (e) {}
                 restoreSubtaskEmptyState();
             };
@@ -7866,6 +7887,7 @@
             syncAutoHeight(input, subtaskTextareaMinHeight);
             on(input, 'input', () => {
                 syncAutoHeight(input, subtaskTextareaMinHeight);
+                persistDraft();
                 scheduleSubtaskDraftVisibility();
             });
             on(input, 'keydown', (ev) => {
@@ -7966,6 +7988,20 @@
             if (pendingDraftSnapshot && typeof pendingDraftSnapshot === 'object') {
                 delete root.__tmPendingSubtaskDraftSnapshot;
                 __tmRestoreTaskDetailSubtaskDraftSnapshot(root, pendingDraftSnapshot);
+            } else {
+                const draftOwnerId = String(getBoundTaskId() || taskId || '').trim();
+                const persistedDraft = typeof __tmGetTaskDetailSubtaskDraft === 'function'
+                    ? __tmGetTaskDetailSubtaskDraft(draftOwnerId)
+                    : null;
+                if (persistedDraft && String(persistedDraft.value || '').trim()) {
+                    __tmRestoreTaskDetailSubtaskDraftSnapshot(root, {
+                        taskId: String(__tmResolveTaskDetailRootTaskId(root) || draftOwnerId).trim(),
+                        value: String(persistedDraft.value || ''),
+                        focused: false,
+                        selectionStart: Number(persistedDraft.selectionStart || 0),
+                        selectionEnd: Number(persistedDraft.selectionEnd || persistedDraft.selectionStart || 0),
+                    });
+                }
             }
         } catch (e) {}
         const bindSubtaskEditors = (scope = root) => {

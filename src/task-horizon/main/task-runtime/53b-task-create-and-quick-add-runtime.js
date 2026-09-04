@@ -38,6 +38,10 @@
         return out.slice(0, __TM_QUICK_ADD_RECENT_DOCS_LIMIT);
     }
 
+    function __tmGetQuickAddLastLocation() {
+        return __tmNormalizeQuickAddLastLocation(SettingsStore?.data?.quickAddLastLocation);
+    }
+
     function __tmResolveQuickAddDocName(docId) {
         const id = String(docId || '').trim();
         if (!id) return '未知文档';
@@ -50,10 +54,6 @@
         const recent = __tmGetQuickAddRecentDocs()
             .find((doc) => String(doc?.id || '').trim() === id);
         return String(recent?.name || '').trim() || '未知文档';
-    }
-
-    function __tmGetQuickAddLastLocation() {
-        return __tmNormalizeQuickAddLastLocation(SettingsStore?.data?.quickAddLastLocation);
     }
 
     function __tmRememberQuickAddLocation(mode, docId = '') {
@@ -104,22 +104,21 @@
     async function __tmResolveQuickAddInitialLocation() {
         const configured = String(SettingsStore.data.newTaskDocId || '').trim();
         const fallbackDocId = String(await __tmResolveDefaultDocIdAsync() || '').trim();
-        if (__tmNormalizeNewTaskDefaultLocationMode(SettingsStore.data.newTaskDefaultLocationMode) !== 'lastSelected') {
-            return configured === '__dailyNote__'
-                ? { mode: 'dailyNote', docId: fallbackDocId }
-                : { mode: 'doc', docId: fallbackDocId };
+        const mode = __tmNormalizeNewTaskDefaultLocationMode(SettingsStore.data.newTaskDefaultLocationMode);
+        if (configured === '__dailyNote__') return { mode: 'dailyNote', docId: fallbackDocId };
+        if (mode === 'dailyNote') return { mode: 'dailyNote', docId: fallbackDocId };
+        if (mode === 'lastSelected') {
+            const lastLocation = __tmGetQuickAddLastLocation();
+            if (lastLocation?.mode === 'dailyNote') return { mode: 'dailyNote', docId: fallbackDocId };
+            if (lastLocation?.mode === 'doc' && lastLocation.docId) return lastLocation;
         }
-        const lastLocation = __tmGetQuickAddLastLocation();
-        if (lastLocation?.mode === 'dailyNote') return { mode: 'dailyNote', docId: fallbackDocId };
-        if (lastLocation?.mode === 'doc' && lastLocation.docId) return lastLocation;
-        return configured === '__dailyNote__'
-            ? { mode: 'dailyNote', docId: fallbackDocId }
-            : { mode: 'doc', docId: fallbackDocId };
+        return { mode: 'doc', docId: fallbackDocId };
     }
 
     function __tmResolveQuickAddDocId() {
         const configured = String(SettingsStore.data.newTaskDocId || '').trim();
-        if (configured === '__dailyNote__') return __tmResolveDefaultDocId();
+        const mode = __tmNormalizeNewTaskDefaultLocationMode(SettingsStore.data.newTaskDefaultLocationMode);
+        if (mode === 'dailyNote' || configured === '__dailyNote__') return __tmResolveDefaultDocId();
         const configuredDocId = __tmResolveConfiguredQuickAddDocId();
         if (configuredDocId) return configuredDocId;
         return __tmResolveDefaultDocId();
@@ -3736,6 +3735,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         // 自动聚焦 (兼容移动端)
         const input = document.getElementById('tmQuickAddInput');
         if (input) {
+            const persistedDraft = typeof __tmGetQuickAddDraft === 'function' ? __tmGetQuickAddDraft() : null;
+            if (persistedDraft && String(persistedDraft.value || '').trim()) {
+                input.value = String(persistedDraft.value || '');
+            }
             input.enterKeyHint = 'enter';
             input.setAttribute('enterkeyhint', 'enter');
             setTimeout(() => {
@@ -3750,6 +3753,12 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 window.tmQuickAddSubmit?.();
             };
             input.addEventListener('input', () => {
+                try {
+                    __tmSaveQuickAddDraft(input.value, {
+                        selectionStart: Number(input.selectionStart || 0),
+                        selectionEnd: Number(input.selectionEnd || input.selectionStart || 0),
+                    });
+                } catch (e) {}
                 const lines = __tmSplitTaskInputLines(input.value || '');
                 if (lines.length > 1 && state.quickAdd?.reminderDraft) {
                     state.quickAdd.reminderDraft = null;
@@ -4132,7 +4141,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const defaultDocReady = defaultDocIsDailyNote || !!defaultDocId;
         const defaultLocationLabel = defaultUsesLastSelection
             ? `上次选择：${defaultDocName}`
-            : `默认任务文档：${defaultDocName}`;
+            : `收集箱文档：${defaultDocName}`;
         const recentDocs = __tmGetQuickAddRecentDocs();
         const recentSectionHtml = recentDocs.length > 0 ? `
                 <div style="border:1px solid var(--tm-border-color);border-radius:8px;margin-bottom:8px;overflow:hidden;">
@@ -4368,7 +4377,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         qa.docId = id;
         qa.docMode = 'doc';
         __tmRememberQuickAddLocation('doc', id);
-        // 移除对 updateNewTaskDocId 的调用，避免修改全局新建文档设置
+        // 仅记录最近选择，避免修改全局默认新建文档设置
         window.tmQuickAddCloseDocPicker?.();
         await __tmRefreshQuickAddCustomFieldScope(id);
         window.tmQuickAddRenderMeta?.();
@@ -4396,7 +4405,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         }
         const id = String(location?.docId || '').trim();
         if (!id) {
-            hint('⚠ 未设置默认任务文档', 'warning');
+            hint('⚠ 未设置收集箱文档', 'warning');
             return;
         }
         qa.docId = id;
@@ -4600,6 +4609,62 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         return '';
     };
 
+    // Calendar independent schedules use a fixed calendar-selected location
+    // while retaining regular task insertion and diary-heading rules.
+    window.__tmCreateTaskForCalendarSchedule = async function(title, options = {}) {
+        const content = String(title || '').trim();
+        if (!content) throw new Error('任务标题不能为空');
+        const opts = (options && typeof options === 'object') ? options : {};
+        const configuredLocation = String(SettingsStore?.data?.calendarIndependentScheduleTaskLocation || '').trim();
+        if (!configuredLocation || configuredLocation === '__lastSelected__') {
+            throw new Error('请先在日历设置中选择固定任务位置');
+        }
+        const mode = configuredLocation === '__dailyNote__' ? 'dailyNote' : 'doc';
+        let targetDocId = mode === 'doc' ? configuredLocation : '';
+
+        if (mode === 'dailyNote') {
+            let notebook = __tmResolveConfiguredDailyNoteNotebookId();
+            if (!notebook) {
+                try { await __tmRefreshNotebookCache(); } catch (e) {}
+                notebook = __tmResolveConfiguredDailyNoteNotebookId();
+            }
+            if (!notebook) {
+                const fallbackDocId = String(__tmResolveConfiguredQuickAddDocId() || await __tmResolveDefaultDocIdAsync() || '').trim();
+                if (fallbackDocId) {
+                    try { notebook = await API.getDocNotebook(fallbackDocId); } catch (e) {}
+                }
+            }
+            if (!notebook) throw new Error('无法确定日记所属笔记本');
+            targetDocId = String(await API.createDailyNote(notebook) || '').trim();
+            if (!targetDocId) throw new Error('获取日记文档失败');
+        }
+
+        if (!targetDocId) throw new Error('请先在日历设置中选择固定任务位置');
+        const insertOptions = await __tmResolveDefaultNewTaskInsertOptions(targetDocId, mode, { contentCount: 1 });
+        const { headingPatch, ...createInsertOptions } = (insertOptions && typeof insertOptions === 'object') ? insertOptions : {};
+        const createTaskInDoc = globalThis.__tmRequireTaskMutation?.('createTaskInDoc');
+        if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪');
+
+        const taskId = String(await createTaskInDoc({
+            docId: targetDocId,
+            content,
+            ...(opts.priority !== undefined ? { priority: opts.priority } : {}),
+            ...(opts.customStatus !== undefined ? { customStatus: opts.customStatus } : {}),
+            ...(opts.customFieldValues !== undefined ? { customFieldValues: opts.customFieldValues } : {}),
+            ...(opts.completionTime !== undefined ? { completionTime: String(opts.completionTime || '').trim() } : {}),
+            ...createInsertOptions,
+            wait: true,
+            showErrorHint: false,
+            suppressHint: true,
+        }) || '').trim();
+        if (!taskId) throw new Error('任务创建失败');
+
+        if (headingPatch) {
+            try { __tmApplyHeadingPatchToTaskLocal(taskId, headingPatch, 'calendar-linked-task-create'); } catch (e) {}
+        }
+        return { taskId, docId: targetDocId, mode };
+    };
+
     window.tmQuickAddSubmit = async function() {
         const qa = state.quickAdd;
         if (!qa) return;
@@ -4713,6 +4778,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     hint(`⚠ 已创建 ${createdTaskIds.length} 个任务，${createFailures.length} 个失败${message ? `: ${message}` : ''}`, 'warning');
                     return;
                 }
+                try { __tmClearQuickAddDraft?.(); } catch (e) {}
                 hint(payload.contents.length > 1 ? `✅ 已创建 ${payload.contents.length} 个任务` : '✅ 任务已创建', 'success');
                 const createdTaskId = reminderTaskId || '';
                 if (payload.reminderDraft && createdTaskId) {

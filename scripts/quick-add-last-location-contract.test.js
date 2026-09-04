@@ -45,6 +45,7 @@ assert.deepEqual(plain(normalize({ mode: 'dailyNote', docId: 'ignored' })), { mo
 assert.equal(normalize({ mode: 'doc', docId: '' }), null);
 assert.equal(normalize({ mode: 'unknown', docId: 'doc-a' }), null);
 assert.equal(normalizeDefaultMode('lastSelected'), 'lastSelected');
+assert.equal(normalizeDefaultMode('dailyNote'), 'dailyNote');
 assert.equal(normalizeDefaultMode('unknown'), 'configured');
 
 const resolveSource = extractFunction(runtime, 'async function __tmResolveQuickAddInitialLocation');
@@ -122,21 +123,24 @@ async function runUpdateNewTaskDocId(data, value, mounted = true) {
     assert.equal(lastSelected.loadCalls.length, 0);
 
     const dailyNote = await runUpdateNewTaskDocId({ newTaskDocId: 'doc-old' }, '__dailyNote__');
-    assert.equal(dailyNote.data.newTaskDocId, '__dailyNote__');
-    assert.equal(dailyNote.data.newTaskDefaultLocationMode, 'configured');
-    assert.deepEqual(dailyNote.loadCalls, [{
-        forceRefreshScope: true,
-        showInlineLoading: false,
-        source: 'new-task-doc-change',
-    }]);
+    assert.equal(dailyNote.data.newTaskDocId, 'doc-old');
+    assert.equal(dailyNote.data.newTaskDefaultLocationMode, 'dailyNote');
+    assert.equal(dailyNote.loadCalls.length, 0);
 
     const closedManager = await runUpdateNewTaskDocId({ newTaskDocId: 'doc-old' }, 'doc-new', false);
     assert.equal(closedManager.data.newTaskDocId, 'doc-new');
     assert.equal(closedManager.loadCalls.length, 0);
 
-    assert.match(settings, /<option value="__dailyNote__" style="font-weight:700;"[^>]*>今天日记<\/option>/);
-    assert.match(settings, /<option value="__lastSelected__" style="font-weight:700;"[^>]*>上次选择<\/option>/);
-    assert.match(actions, /const useLastSelection = v === '__lastSelected__';[\s\S]*if \(!useLastSelection\) SettingsStore\.data\.newTaskDocId = v;/);
+    assert.match(settings, /收集箱文档[\s\S]*tmOpenNewTaskDocSearch\(this\)/);
+    assert.match(settings, /<option value="dailyNote"[^>]*>今天日记<\/option>/);
+    assert.match(settings, /<option value="lastSelected"[^>]*>上次选择<\/option>/);
+    assert.match(settings, /updateNewTaskLocationMode\(this\.value\)/);
+    assert.match(settings, /tmOpenNewTaskDocSearch\(this\)/);
+    assert.doesNotMatch(settings, /tmNewTaskDocIdInput|tmApplyNewTaskDocIdInput|也可直接输入文档ID/);
+    assert.match(actions, /window\.tmOpenNewTaskDocSearch = async function[\s\S]*__tmOpenDocSearchPrompt\('选择收集箱文档'/);
+    assert.match(actions, /window\.updateNewTaskLocationMode = async function/);
+    assert.match(actions, /v === '__dailyNote__'[\s\S]*newTaskDefaultLocationMode = 'dailyNote'/);
+    assert.match(actions, /v === '__lastSelected__'[\s\S]*newTaskDefaultLocationMode = 'lastSelected'/);
     assert.doesNotMatch(whiteboard, /__lastSelected__/);
     assert.doesNotMatch(aiBridge, /__lastSelected__/);
 
@@ -158,7 +162,12 @@ async function runUpdateNewTaskDocId(data, value, mounted = true) {
     assert.doesNotMatch(runtime, /target\.matches\('\.tm-btn-gray'\)/, 'the document picker close button must not close the main quick-add form');
     assert.match(runtime, /window\.tmQuickAddSelectDoc[\s\S]*__tmRememberQuickAddLocation\('doc', id\)/);
     assert.match(runtime, /window\.tmQuickAddUseTodayDiary[\s\S]*__tmRememberQuickAddLocation\('dailyNote'\)/);
+    const quickAddSelectSource = extractFunction(runtime, 'window.tmQuickAddSelectDoc = async function');
+    assert.doesNotMatch(quickAddSelectSource, /updateNewTaskDocId/);
+    assert.match(runtime, /__tmGetQuickAddLastLocation\(\)/);
     assert.match(store, /tm_new_task_default_location_mode/);
+    assert.match(store, /storedNewTaskDocId = String\(Storage\.get\('tm_new_task_doc_id'/);
+    assert.match(store, /cloudNewTaskDocId = String\(cloudData\.newTaskDocId/);
     assert.match(store, /__TM_QUICK_ADD_LAST_LOCATION_KEY/);
     assert.match(exportsRuntime, /'newTaskDefaultLocationMode'/);
     assert.match(exportsRuntime, /'quickAddLastLocation'/);

@@ -40,7 +40,7 @@ assert.match(
 );
 assert.match(
     calendar,
-    /window\.tmUpdateTaskDates\(target\.targetId,[\s\S]*?requireTaskIdentity: true,[\s\S]*?ignoreMissingTask: true,[\s\S]*?if \(result\?\.skipped === true\) continue;/,
+    /window\.tmUpdateTaskDates\(pendingTaskId, patch,[\s\S]*?requireTaskIdentity: true,[\s\S]*?ignoreMissingTask: true,[\s\S]*?if \(result\?\.skipped === true\) \{[\s\S]*?continue;/,
     'date-follow updates must silently skip stale schedule links that no longer resolve to tasks'
 );
 assert.match(

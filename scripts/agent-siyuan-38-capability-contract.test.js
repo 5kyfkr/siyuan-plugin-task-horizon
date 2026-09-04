@@ -11,16 +11,15 @@ const screen = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/6
 const scheduledSettings = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/66-scheduled-events-settings.js'), 'utf8');
 const styles = fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8');
 
-assert.match(index, /typeof this\.addAgentCapability === "function"/, 'SiYuan 3.8 frontend capability API must be detected');
+assert.match(index, /typeof this\.addAgentCapability !== "function"/, 'SiYuan 3.8 frontend capability API must be required');
 assert.match(index, /this\.addAgentCapability\(\{ name, title, description, inputSchema, effects, handler \}\)/, '3.8 capabilities must declare schemas and effects');
-assert.match(index, /typeof this\.addAgentAction !== "function"/, 'legacy SiYuan frontend actions must remain supported');
+assert.doesNotMatch(index, /addAgentAction|legacyDescriptors|__taskHorizonAgentActionDescriptors/, 'the minimum supported SiYuan version must use only native frontend capabilities');
 assert.match(index, /__taskHorizonFrontendCapabilityDescriptors = frontendDescriptors/, 'the workbench must receive current frontend manifests');
 
 assert.match(workbench, /frontendCapabilities: Array\.isArray\(globalThis\.__taskHorizonFrontendCapabilityDescriptors\)/, 'ordinary chats must send SiYuan 3.8 frontend capability manifests');
 assert.match(workbench, /event\.type === 'browser_capability_call'[\s\S]*invokeBrowserCapability\(event\)/, 'ordinary chats must dispatch SiYuan 3.8 browser capability calls');
 assert.match(workbench, /postAgentInteraction\('\/browserCapabilityResult'/, '3.8 browser results must use the current endpoint');
-assert.match(workbench, /event\.type === 'frontend_tool_call'[\s\S]*invokeFrontendTool\(event\)/, 'legacy frontend calls must remain supported');
-assert.match(workbench, /postAgentInteraction\('\/frontendToolResult'/, 'legacy frontend results must keep their endpoint');
+assert.doesNotMatch(workbench, /frontend_tool_call|frontendToolResult|pluginActions/, 'removed frontend action protocol fields must not be sent to SiYuan 3.8');
 assert.match(workbench, /prepareConversationTurn\(runtime\.activeSessionID, prompt,[\s\S]*displayPrompt: userText[\s\S]*references: refs[\s\S]*editorContext/, 'ordinary chats must checkpoint the exact model prompt before starting SiYuan 3.8 Agent');
 assert.match(workbench, /userEntryID: prepared\.userEntryID,[\s\S]*contentRevision: prepared\.revision/, 'ordinary chats must anchor the request to the saved user entry revision');
 assert.match(workbench, /event\.type === 'turn'[\s\S]*turnID = text\(event\.turnID\)[\s\S]*saveSession\(turnID\)/, 'ordinary chats must commit the SiYuan runtime turn explicitly');
@@ -88,6 +87,8 @@ assert.deepEqual(registered.map((item) => item.name), ['open_task_manager', 'foc
 assert.equal(registered.every((item) => item.id.startsWith('plugin/frontend/siyuan-plugin-task-horizon/')), true);
 assert.equal(registered.every((item) => item.generation > 0 && item.inputSchema?.type === 'object' && item.effects), true);
 assert.equal(context.__taskHorizonFrontendCapabilityDescriptors.length, 3);
-assert.equal(context.__taskHorizonAgentActionDescriptors.length, 0, '3.8 must not send legacy action descriptors');
+assert.equal(registered.find((item) => item.name === 'open_task_manager').effects.localWrite, true, 'opening the manager may persist UI state');
+assert.equal(registered.find((item) => item.name === 'focus_task').effects.localRead, true, 'focusing a task must not be classified as a business-data write');
+assert.equal(Object.prototype.hasOwnProperty.call(context, '__taskHorizonAgentActionDescriptors'), false);
 
 console.log('SiYuan 3.8 capability compatibility contract tests passed');

@@ -212,6 +212,7 @@ function createStatusContext() {
         },
         __tmResolveCheckboxLinkedStatusId: (done) => done ? 'done' : 'todo',
         __tmGetDefaultUndoneStatusId: () => 'todo',
+        __tmIsRecurringNativeDoneHeld: (task) => task?.pendingNativeDoneReset === true,
         __tmDoesStatusIdResolveToDone(statusId, input) {
             const matched = (Array.isArray(input) ? input : []).find((item) => item.id === statusId);
             return !!matched && (SettingsStore.data.legacyWin7CompatMode
@@ -225,6 +226,8 @@ function createStatusContext() {
         '__tmNormalizeCompatTaskStatusMarker',
         '__tmIsTaskMarkerDone',
         '__tmResolveTaskMarkdownMarker',
+        '__tmResolveTaskMarker',
+        '__tmIsTaskNativeDone',
         '__tmIsTaskDoneEffective',
         '__tmResolveTaskStatusDisplayOption',
     ].forEach((name) => vm.runInContext(extractFunction(apiSource, name), context, { filename: `${name}.js` }));
@@ -250,6 +253,10 @@ async function testMarkerRulesAndStatusResolution() {
     assert.equal(context.__tmResolveTaskStatusDisplayOption({ taskMarker: '-', customStatus: 'done' }, options).id, 'cancelled');
     assert.equal(context.__tmResolveTaskStatusDisplayOption({ taskMarker: ' ', customStatus: 'done' }, options).id, 'todo');
     assert.equal(context.__tmResolveTaskStatusDisplayOption({ taskMarker: 'X', customStatus: 'done' }, options).id, 'done');
+    const heldTask = { taskMarker: 'X', customStatus: 'done', pendingNativeDoneReset: true };
+    assert.equal(context.__tmIsTaskNativeDone(heldTask, options), true);
+    assert.equal(context.__tmIsTaskDoneEffective(heldTask, options), false);
+    assert.equal(context.__tmResolveTaskStatusDisplayOption(heldTask, options).id, 'todo');
 
     context.SettingsStore.data.legacyWin7CompatMode = true;
     assert.equal(context.__tmIsTaskMarkerDone('x'), true);
@@ -750,6 +757,8 @@ async function run() {
         'the unreachable plugin-origin checkbox ignore queue must not return');
     assert.match(nativeCheckboxSyncSource, /const persistedAttrsBefore = await __tmReadDocCheckboxBlockAttrs/,
         'native checkbox synchronization must still reconcile against persisted task attributes');
+    assert.match(nativeCheckboxSyncSource, /!domDone && userInitiatedCheckboxChange[\s\S]*__tmIsRecurringNativeDoneHeld\(task\)[\s\S]*__tmDeleteTaskRepeatHistoryEntry/,
+        'only a user-originated native uncheck may roll back a held recurring completion');
     assert.doesNotMatch(nativeCheckboxLocalStateSource, /doneOverrides/,
         'native document checkbox state must not create a compatibility override');
     assert.match(nativeDocHooksSource, /globalThis\.__tmTaskStore\?\.applyMutation\?\./,
@@ -788,7 +797,7 @@ async function run() {
     assert.match(buildSetDoneSource, /patch: optimisticPatch,[\s\S]*projectionPatch,/,
         'completion persistence and presentation fields must remain in one command but separate patches');
     assert.match(listRuntimeSource, /effectiveTaskDone[\s\S]*originalDone[\s\S]*inversePatch\.done = originalDone/);
-    assert.match(listRuntimeSource, /const currentDone = typeof __tmIsTaskDoneEffective[\s\S]*const explicitCheckboxIntent[\s\S]*if \(currentDone === targetDone && !explicitCheckboxIntent\) return/,
+    assert.match(listRuntimeSource, /const currentDone = typeof __tmIsTaskDoneEffective[\s\S]*const explicitCheckboxIntent[\s\S]*if \(currentDone === targetDone && !explicitCheckboxIntent && opts\.force !== true\) return/,
         'an explicit checkbox intent must enter the mutation queue even when a local projection already matches it');
     assert.ok((storesSource.match(/__tmApplyDoneOverrideToTaskIfPresent\((?:task|target)\)/g) || []).length >= 4);
     assert.match(storesSource, /function __tmMergeLocalTaskPatchIntoTask\(task\)[\s\S]*__tmApplyDoneOverrideToTaskIfPresent\(target\)/);

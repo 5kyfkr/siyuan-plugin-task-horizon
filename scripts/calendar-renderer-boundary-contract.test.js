@@ -6,54 +6,48 @@ const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
 const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
 const calendarCss = fs.readFileSync(path.join(root, 'calendar-view.css'), 'utf8');
-const formaTheme = fs.readFileSync(path.join(root, 'src/fullcalendar/themes/forma/global.js'), 'utf8');
+const calendarModules = [
+    'calendar-date.js',
+    'calendar-store.js',
+    'calendar-layout.js',
+    'calendar-renderer.js',
+    'calendar-interaction.js',
+    'calendar-engine.js',
+];
+
+calendarModules.forEach((file) => {
+    const modulePath = path.join(root, 'src', 'calendar', file);
+    assert.ok(fs.existsSync(modulePath), `calendar module must exist: ${file}`);
+    assert.ok(fs.readFileSync(modulePath, 'utf8').length > 200, `calendar module must contain implementation: ${file}`);
+});
+
 const stateIndex = source.indexOf('    const state = {');
 assert.ok(stateIndex > 0, 'calendar state boundary must remain discoverable');
-
 const businessSource = source.slice(stateIndex);
 const rawCalendarApiPattern = /\b(?:calendar|cal|targetCalendar|mainCalendar|sideCalendar|calendarForRoot|state\.calendar|state\.sideDay\.calendar)\??\.(?:view|changeView|gotoDate|refetchEvents|setOption|rerenderEvents|getDate|getOption|getEvents|getEventById|getEventSourceById|addEvent|batchRendering|updateSize|destroy)\b/g;
-assert.deepEqual(
-    businessSource.match(rawCalendarApiPattern) || [],
-    [],
-    'business calendar code must use Calendar Renderer Adapter helpers instead of raw FullCalendar APIs',
-);
-
-assert.match(source, /function createFullCalendarAdapter\(/, 'FullCalendar renderer adapter must exist');
+assert.deepEqual(businessSource.match(rawCalendarApiPattern) || [], [], 'business code must use adapter helpers');
+assert.match(source, /function createCalendarEngineAdapter\(/, 'calendar engine adapter must exist');
 assert.match(source, /function getCalendarView\(/, 'calendar view reads must have an adapter helper');
 assert.match(source, /function callCalendarAdapter\(/, 'calendar commands must have an adapter helper');
-assert.equal((source.match(/locale: CALENDAR_ZH_CN_LOCALE/g) || []).length, 2, 'main and side calendars must share the inline locale');
-assert.doesNotMatch(index, /locales-all|FULLCALENDAR_LOCALES/, 'all-locale asset must stay out of the runtime loader');
-assert.doesNotMatch(index, /CALENDAR_KERNEL_SCRIPT_PATH|calendar-kernel\.js|__tmCreateCalendarKernel/, 'calendar kernel must not be loaded or exposed as a separate asset');
+assert.doesNotMatch(source, /globalThis\.FullCalendar|window\.FullCalendar/, 'calendar runtime must not resolve FullCalendar');
+assert.doesNotMatch(index, /FULLCALENDAR_SCRIPT_PATH|fullcalendar\.global\.js/, 'runtime loader must not load FullCalendar');
+assert.match(index, /CALENDAR_ENGINE_SCRIPT_PATHS\s*=\s*\[/, 'runtime loader must list plugin calendar modules');
+assert.match(index, /calendar-engine\.js/, 'runtime loader must load the plugin calendar engine');
 assert.match(index, /async loadTaskHorizonCalendarAssets\(\)/, 'calendar assets must have a dedicated loader');
-const commonLoaderStart = index.indexOf('async loadTaskHorizonPostMainAssets()');
-const calendarLoaderStart = index.indexOf('async loadTaskHorizonCalendarAssets()');
-assert.ok(commonLoaderStart >= 0 && calendarLoaderStart > commonLoaderStart, 'common and calendar loaders must be ordered');
-const commonLoader = index.slice(commonLoaderStart, calendarLoaderStart);
-assert.doesNotMatch(commonLoader, /FULLCALENDAR_|CALENDAR_KERNEL_SCRIPT_PATH|CALENDAR_VIEW_SCRIPT_PATH|CALENDAR_SUBSCRIPTION_CORE_SCRIPT_PATH/, 'shared asset loader must keep calendar loading isolated');
 assert.match(index, /__taskHorizonEnsureCalendarAssets\s*=\s*\(\)\s*=>\s*this\.loadTaskHorizonCalendarAssets\(\)/, 'runtime must expose one shared calendar asset loader');
-assert.match(index, /async activateTaskMainRuntime\([\s\S]*?await this\.loadTaskHorizonPostMainAssets\(\);[\s\S]*?await this\.loadTaskHorizonCalendarAssets\(\);/, 'main runtime activation must eagerly preload calendar assets');
-const viewSwitching = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/47-render-side-panels-and-view-switching.js'), 'utf8');
-assert.match(viewSwitching, /function __tmMountCalendarViewRoot[\s\S]*__taskHorizonEnsureCalendarAssets/, 'calendar view must request assets before mounting');
-assert.match(viewSwitching, /function __tmCalendarDockMount[\s\S]*__taskHorizonEnsureCalendarAssets/, 'calendar side dock must request assets before mounting');
-assert.doesNotMatch(index, /calendar-style-bridge|CALENDAR_STYLE_BRIDGE_CSS_PATH/, 'calendar styles must not add a separate bridge asset');
-assert.match(calendarCss, /\.tm-calendar-host \.fc,\s*\.tm-calendar-host\.fc\s*\{[\s\S]*height: 100%/, 'existing calendar CSS must own the FullCalendar host boundary');
-const fullCalendarBundle = fs.readFileSync(path.join(root, 'src/fullcalendar/fullcalendar.global.js'), 'utf8');
-assert.match(fullCalendarBundle, /FullCalendar \(Vanilla JS\) v7\.0\.0/, 'plugin-owned FullCalendar bundle must remain pinned to the known-compatible runtime');
-assert.doesNotMatch(fullCalendarBundle, /multiMonthPlugin|MultiMonthView|exports\.MultiMonth|name: 'multimonth'/, 'plugin-owned FullCalendar bundle must exclude the unused multiMonth runtime');
-assert.doesNotMatch(fullCalendarBundle, /\[['"]resources['"]\]|resourceTimeline|timelinePlugin/, 'plugin-owned FullCalendar bundle must not carry scheduler-only option validation');
-assert.match(fullCalendarBundle, /var pluginClassNames = \{[\s\S]*viewHarness: 'fc-view-harness'[\s\S]*timeGridAllDayLane: 'fc-timegrid-all-day tm-cal-timegrid-allday-lane'/, 'plugin-owned FullCalendar core must emit stable selectors at render time');
-assert.doesNotMatch(source, /applyFullCalendarV7LegacyDomClasses|scheduleFullCalendarV7LegacyDomClasses|addFullCalendarLegacyClassesByProtectedClass/, 'calendar views must not rescan rendered DOM to reconstruct stable core classes');
-assert.doesNotMatch(formaTheme, /resourceDayHeader|resourceColumn|resourceGroup|resourceLane|timelineBottom|views:\s*\{[\s\S]*timeline:/, 'Forma theme must only register the calendar views used by the plugin');
-assert.match(formaTheme, /index\.optionRefiners\s*=\s*Object\.fromEntries\([\s\S]*Object\.keys\(index\.optionDefaults\)/, 'Forma theme class hooks must be declared as owned FullCalendar options');
-
-const nativeViewBlock = source.slice(source.indexOf('    const MAIN_CALENDAR_CUSTOM_VIEWS = {'), source.indexOf('    const MAIN_CALENDAR_ALLOWED_VIEWS =', source.indexOf('    const MAIN_CALENDAR_CUSTOM_VIEWS = {')));
-assert.doesNotMatch(nativeViewBlock, /component\s*:/, 'month/week/list view declarations must keep FullCalendar native view components');
-assert.equal((source.match(/moreLinkClick:\s*'popover'/g) || []).length, 2, 'main and side calendars must use the native +N popover');
-assert.ok((source.match(/selectable:\s*true/g) || []).length >= 2, 'calendar selection must stay on the native FullCalendar interaction path');
-assert.ok((source.match(/droppable:\s*true/g) || []).length >= 2, 'calendar drag/drop must stay on the native FullCalendar interaction path');
-assert.ok((source.match(/eventDrop:\s*async/g) || []).length >= 2, 'plugin callbacks must consume native FullCalendar event-drop payloads');
-assert.ok((source.match(/eventResize:\s*async/g) || []).length >= 2, 'plugin callbacks must consume native FullCalendar resize payloads');
-assert.match(fullCalendarBundle, /role:\s*['"]grid['"]/, 'FullCalendar bundle must retain its native accessible grid output');
-assert.match(fullCalendarBundle, /aria-labelledby/, 'FullCalendar bundle must retain its native accessible labels');
+assert.match(calendarCss, /\.tm-calendar-surface\s*\{[\s\S]*z-index:\s*2/, 'the prototype surface must own the visible layer');
+assert.doesNotMatch(calendarCss, /\.fc(?:[-.{ :]|$)|--fc-/, 'calendar CSS must not contain FullCalendar visual rules');
+assert.match(source, /function markCalendarEngineEvent\(arg, options = \{\}\)/, 'calendar events must expose stable association markers');
+assert.equal((source.match(/getFullCalendarCompatClassOptions/g) || []).length, 0, 'legacy visual class options must be removed');
+assert.doesNotMatch(source, /applyFullCalendarV7LegacyDomClasses|scheduleFullCalendarV7LegacyDomClasses|addFullCalendarLegacyClassesByProtectedClass/, 'calendar views must not rescan legacy calendar DOM');
+assert.equal((source.match(/moreLinkClick:\s*'popover'/g) || []).length, 0, 'calendar surface must not expose native popovers');
+assert.match(source, /drag\.visualEl\.style\.setProperty\('transform', `translateY\(/, 'side day event drag must update its visual position during pointermove');
+assert.match(source, /const minuteDelta = Math\.round\([\s\S]*drag\.canvasRect\.height[\s\S]*\/ 15\) \* 15/, 'side day event drag preview must snap to the shared 15-minute timeline');
+assert.match(source, /sidePrototypeSuppressClickEventId = drag\.id/, 'side day event drag must suppress the follow-up click on the moved card');
+assert.match(source, /drag\.edge === 'start' && pointerDate[\s\S]*nextStart = pointerDate[\s\S]*nextEnd = new Date\(oldEnd/, 'side start-edge resize must preserve the opposite edge');
+assert.match(source, /drag\.edge === 'end' && pointerDate[\s\S]*nextStart = new Date\(oldStart[\s\S]*nextEnd = pointerDate/, 'side end-edge resize must preserve the opposite edge');
+assert.match(source, /const nowMarkup = Number\.isFinite\(nowTop\)[\s\S]*tm-proto-now-indicator/, 'shared day panel must render the current-time indicator');
+assert.match(source, /tm-proto-time-col[^`]*\$\{nowMarkup\}/, 'current-time indicator must live in the shared timed-events column');
+assert.match(source, /const visualEl = eventEl;/, 'side day drag must transform the shared event card itself');
 
 console.log('calendar renderer boundary contract tests passed');

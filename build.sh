@@ -11,6 +11,7 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 cp -R "$PLUGIN_DIR"/. "$TEMP_DIR/"
 
 rm -rf "$TEMP_DIR/.git"
+rm -rf "$TEMP_DIR/.codex-tmp"
 rm -rf "$TEMP_DIR/.github"
 rm -rf "$TEMP_DIR/.vscode"
 rm -f  "$TEMP_DIR/.gitignore"

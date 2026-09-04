@@ -14,6 +14,14 @@ const runtimeSource = fs.readFileSync(
     path.join(root, 'src', 'task-horizon', 'main', 'task-runtime', '54-recurring-task-runtime.js'),
     'utf8',
 );
+const loaderSource = fs.readFileSync(
+    path.join(root, 'src', 'task-horizon', 'main', 'task-runtime', '53c-document-loader-runtime.js'),
+    'utf8',
+);
+const apiRuntimeSource = fs.readFileSync(
+    path.join(root, 'src', 'task-horizon', 'main', '20-api-and-runtime-services.js'),
+    'utf8',
+);
 const dialogSource = fs.readFileSync(
     path.join(root, 'src', 'task-horizon', 'main', '30-dialogs-and-ui-foundation.js'),
     'utf8',
@@ -36,16 +44,43 @@ const normalizeDateOnly = (value) => {
     return match ? match[0] : '';
 };
 
-const context = vm.createContext({ Date, Intl, Math, Number, String, JSON, __tmNormalizeDateOnly: normalizeDateOnly });
-vm.runInContext(`${modelSource.slice(start, end)}\nthis.__test = { __tmNormalizeTaskRepeatRule, __tmNormalizeTaskRepeatState, __tmNormalizeTaskRepeatHistory, __tmBuildTaskRepeatAdvancePatch, __tmGetTaskRepeatSummary, __tmGetTaskRepeatCompletedCount, __tmGetTaskRepeatProgressText, __tmResolveTaskRepeatHistoryOccurrenceNumber };`, context);
+const context = vm.createContext({
+    Date,
+    Intl,
+    Math,
+    Number,
+    String,
+    JSON,
+    __tmNormalizeDateOnly: normalizeDateOnly,
+    __tmResolveTaskCompletedAtRaw: (task) => String(task?.taskCompleteAt || ''),
+});
+vm.runInContext(`${modelSource.slice(start, end)}\nthis.__test = { __tmNormalizeTaskRepeatRule, __tmNormalizeTaskRepeatState, __tmNormalizeTaskRepeatHistory, __tmBuildTaskRepeatAdvancePatch, __tmGetTaskRepeatSummary, __tmGetTaskRepeatCompletedCount, __tmGetTaskRepeatProgressText, __tmResolveTaskRepeatHistoryOccurrenceNumber, __tmIsRecurringNativeDoneHeld, __tmGetRecurringNativeDoneResetDateKey, tmRepeatCore: globalThis.tmRepeatCore };`, context);
 
-const { __tmNormalizeTaskRepeatRule: normalizeRule, __tmNormalizeTaskRepeatState: normalizeState, __tmNormalizeTaskRepeatHistory: normalizeHistory, __tmBuildTaskRepeatAdvancePatch: buildPatch, __tmGetTaskRepeatSummary: getSummary, __tmGetTaskRepeatCompletedCount: getCompletedCount, __tmGetTaskRepeatProgressText: getProgressText, __tmResolveTaskRepeatHistoryOccurrenceNumber: getHistoryNumber } = context.__test;
+const { __tmNormalizeTaskRepeatRule: normalizeRule, __tmNormalizeTaskRepeatState: normalizeState, __tmNormalizeTaskRepeatHistory: normalizeHistory, __tmBuildTaskRepeatAdvancePatch: buildPatch, __tmGetTaskRepeatSummary: getSummary, __tmGetTaskRepeatCompletedCount: getCompletedCount, __tmGetTaskRepeatProgressText: getProgressText, __tmResolveTaskRepeatHistoryOccurrenceNumber: getHistoryNumber, __tmIsRecurringNativeDoneHeld: isNativeDoneHeld, __tmGetRecurringNativeDoneResetDateKey: getNativeDoneResetDateKey } = context.__test;
+assert.equal(context.__test.tmRepeatCore?.version, 1, 'repeat core facade must be exported');
+assert.equal(typeof context.__test.tmRepeatCore?.iterate, 'function', 'repeat core must expose range iteration');
 
 const countRule = normalizeRule({ enabled: true, trigger: 'due', type: 'daily', every: 1, until: '2026-12-31', maxOccurrences: 500, anchorDate: '2026-07-18' });
 assert.equal(countRule.maxOccurrences, 200, 'count limit must clamp to 200');
 assert.equal(countRule.until, '', 'count mode must take precedence over a stale date limit');
 assert.equal(normalizeRule({ enabled: true, type: 'daily', maxOccurrences: 0 }).maxOccurrences, 0, 'zero must mean unlimited');
 assert.equal(normalizeState(null).occurrenceCount, 1, 'existing tasks must default to the first occurrence');
+assert.equal(normalizeState({ pending_native_done_reset: true }).pendingNativeDoneReset, true);
+const heldNativeTask = {
+    taskCompleteAt: '2026-07-23T10:00:00.000+08:00',
+    startDate: '2026-07-28',
+    completionTime: '2026-07-27',
+    repeatState: {
+        lastCompletedAt: '2026-07-23T10:00:00.000+08:00',
+        pendingNativeDoneReset: true,
+    },
+};
+assert.equal(isNativeDoneHeld(heldNativeTask), true);
+assert.equal(getNativeDoneResetDateKey(heldNativeTask), '2026-07-27', 'the next due date owns the reset boundary');
+assert.equal(getNativeDoneResetDateKey({ ...heldNativeTask, startDate: '2026-07-23', completionTime: '' }), '2026-07-24',
+    'without a due date, the start date must be used without resetting during the completion day');
+assert.equal(isNativeDoneHeld({ ...heldNativeTask, taskCompleteAt: '2026-07-24T09:00:00.000+08:00' }), false,
+    'a stale pending flag must not hide a different completion');
 
 const rule = normalizeRule({ enabled: true, trigger: 'complete', type: 'daily', every: 1, maxOccurrences: 3, anchorDate: '2026-07-18' });
 const firstTask = { startDate: '2026-07-18', completionTime: '2026-07-18', repeatState: { occurrenceCount: 1 } };
@@ -123,6 +158,21 @@ assert.match(runtimeSource, /occurrenceNumber:\s*currentRepeatState\.occurrenceC
 assert.match(runtimeSource, /totalOccurrences:\s*repeatRule\.maxOccurrences/, 'history records must persist the configured total');
 assert.match(runtimeSource, /const occurrenceReset =[\s\S]*__tmBuildTaskTomatoBaselinePatch\(task\)/, 'resetting a recurring series must reset its Tomato occurrence baseline');
 assert.ok(runtimeSource.indexOf('__tmResolveTaskIdFromAnyBlockId(requestedTaskId)') < runtimeSource.indexOf('__tmRecurringAdvanceInFlightIds.has(advanceTaskId)'), 'recurring advancement must canonicalize aliases before taking its lock');
+assert.match(
+    loaderSource,
+    /__tmMergeVisibleDateFieldsFromPrevTask\(task, prevTask\);[\s\S]*__tmMergeLocalTaskPatchIntoTask\(task\);[\s\S]*recurringReconcileCandidateIds\.push/,
+    'full document loads must preserve locally committed repeat fields before collecting reconcile candidates',
+);
+assert.match(
+    runtimeSource,
+    /__tmRecurringDueReconcileMemo\.get\(task\.id\) === memoKey[\s\S]*__tmApplyTaskMetaPatchWithUndo[\s\S]*__tmRecurringDueReconcileMemo\.set\(task\.id, memoKey\)/,
+    'due reconciliation must submit the same source snapshot at most once',
+);
+assert.match(
+    apiRuntimeSource,
+    /String\(opts\.source \|\| ''\)\.trim\(\) !== 'task-repeat-due'[\s\S]*__tmClearRecurringDueReconcileMemo/,
+    'ordinary task edits must release the due-reconcile memo',
+);
 assert.match(modelSource, /循环记录\$\{progressText\}/, 'recurring record badges must show their occurrence number');
 assert.match(dialogSource, /data-tm-repeat-field="maxOccurrences"[^>]*max="200"/, 'repeat dialog must cap the count input at 200');
 assert.match(dialogSource, /const currentTriggerType = currentRule\.enabled && currentRule\.type !== 'none'[\s\S]*?: 'due';/, 'an unset repeat rule must default to due-triggered recurrence');

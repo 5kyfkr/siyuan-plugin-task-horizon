@@ -120,10 +120,11 @@
     const quickbarInlineFieldDefs = [
         { attrKey: 'subtask-count', name: '子任务数量', type: 'readonly', readonly: true },
         { attrKey: 'custom-status', name: '状态', type: 'select' },
-        { attrKey: 'custom-completion-time', name: '截止日期', type: 'date' },
-        { attrKey: 'taskCompleteAt', name: '完成时间', type: 'completed-time', readonly: true },
         { attrKey: 'custom-priority', name: '重要性', type: 'select' },
         { attrKey: 'custom-start-date', name: '开始日期', type: 'date' },
+        { attrKey: 'custom-completion-time', name: '截止日期', type: 'date' },
+        { attrKey: 'remainingTime', name: '剩余时间', type: 'remaining-time', readonly: true },
+        { attrKey: 'taskCompleteAt', name: '完成时间', type: 'completed-time', readonly: true },
         { attrKey: 'custom-focus-summary', name: '专注/耗时', type: 'focus-summary', placeholder: '设置时长与番茄' },
         { attrKey: 'custom-tomato-estimate-count', name: '预计番茄', type: 'tomato-count', placeholder: '输入番茄数' },
         { attrKey: 'custom-tomato-count', name: '实际番茄', type: 'tomato-count', readonly: true },
@@ -228,6 +229,7 @@
     let quickbarCustomFieldScopePromises = new Map();
     let quickbarCustomFieldScopeRevision = 0;
     let inlineMetaWakeTimer = null;
+    let inlineMetaRemainingTimer = null;
     let inlineMetaWakeForceRefresh = false;
     let inlineMetaWakeBootstrap = false;
     let inlineMetaWakeClearLayout = false;
@@ -474,6 +476,15 @@
         if (index > 0) {
             next.splice(index, 1);
             next.unshift('subtask-count');
+        }
+        const dateKeys = ['custom-start-date', 'custom-completion-time', 'remainingTime'];
+        const selectedDateKeys = dateKeys.filter((key) => next.includes(key));
+        if (selectedDateKeys.length > 1) {
+            const firstIndex = Math.min(...selectedDateKeys.map((key) => next.indexOf(key)));
+            const withoutDates = next.filter((key) => !dateKeys.includes(key));
+            const beforeCount = next.slice(0, firstIndex).filter((key) => !dateKeys.includes(key)).length;
+            withoutDates.splice(beforeCount, 0, ...selectedDateKeys);
+            return withoutDates;
         }
         return next;
     }
@@ -3419,6 +3430,9 @@
                 min-width: 0;
                 padding: 0 6px;
             }
+            .sy-custom-props-inline-chip--remaining-time {
+                font-variant-numeric: tabular-nums;
+            }
             .sy-custom-props-inline-chip--subtask-count {
                 cursor: default;
             }
@@ -5491,6 +5505,32 @@
                 return `
                     <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--time" data-inline-attr="${escapedAttr}" data-inline-type="${config.type}" data-inline-name="${escapedName}" data-inline-value="${escapedValue}" title="${escapedName}">
                         <span class="sy-custom-props-inline-chip-value">${esc(timeText)}</span>
+                    </span>
+                `.trim();
+            }
+            if (attrKey === 'remainingTime') {
+                const startDate = String(sourceProps['custom-start-date'] || '').trim();
+                const completionTime = String(sourceProps['custom-completion-time'] || '').trim();
+                if (!startDate && !completionTime) return '';
+                const bridge = getTaskHorizonSharedApi()?.quickbarBridge;
+                const getInfo = bridge?.getTaskRemainingTimeInfo;
+                const renderInfo = bridge?.renderTaskRemainingTimeInfoHtml;
+                if (typeof getInfo !== 'function' || typeof renderInfo !== 'function') return '';
+                const info = getInfo({
+                    ...sourceProps,
+                    startDate,
+                    completionTime,
+                    done: sourceProps.done === true,
+                });
+                if (!info || !String(info.label || '').trim()) return '';
+                const label = String(info.label || '').trim();
+                const escapedLabel = esc(label).replace(/"/g, '&quot;');
+                const escapedTitle = esc(`${escapedName}：${label}`).replace(/"/g, '&quot;');
+                const infoHtml = String(renderInfo(info) || '').trim();
+                if (!infoHtml) return '';
+                return `
+                    <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--time sy-custom-props-inline-chip--remaining-time" data-inline-attr="${escapedAttr}" data-inline-type="remaining-time" data-inline-name="${escapedName}" data-inline-value="${escapedLabel}" title="${escapedTitle}">
+                        <span class="sy-custom-props-inline-chip-value">${infoHtml}</span>
                     </span>
                 `.trim();
             }
@@ -10660,6 +10700,13 @@
                     eb.on('ws-main', inlineMetaWsHandler);
                 }
             } catch (e) {}
+            if (inlineMetaRemainingTimer) clearInterval(inlineMetaRemainingTimer);
+            inlineMetaRemainingTimer = setInterval(() => {
+                try {
+                    const cfg = getQuickbarInlineSettings();
+                    if (cfg?.fields?.includes('remainingTime')) requestInlineMetaRender(false);
+                } catch (e) {}
+            }, 60000);
             requestInlineMetaRender(true);
         }
 
@@ -10667,6 +10714,8 @@
             inlineMetaStarted = false;
             clearInlineMetaBootstrapTimers();
             clearInlineMetaWakeTimer();
+            if (inlineMetaRemainingTimer) clearInterval(inlineMetaRemainingTimer);
+            inlineMetaRemainingTimer = null;
             if (inlineMetaRenderTimer) clearTimeout(inlineMetaRenderTimer);
             inlineMetaRenderTimer = null;
             clearInlineMetaRenderQueue();

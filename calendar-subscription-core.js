@@ -138,6 +138,8 @@
             lines.push(`DTEND;TZID=${CALENDAR_TIMEZONE}:${formatCalendarTime(endAt)}`);
         }
         lines.push(`SUMMARY:${escapeText(title)}`);
+        const description = String(event?.description || '').trim();
+        if (description) lines.push(`DESCRIPTION:${escapeText(description)}`);
         lines.push(`CATEGORIES:${source === 'tomato'
             ? 'Task Horizon,Task Reminder'
             : (source === 'task' ? 'Task Horizon,Task Date' : 'Task Horizon,Schedule')}`);

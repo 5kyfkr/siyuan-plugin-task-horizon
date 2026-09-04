@@ -76,6 +76,16 @@ const directTaskDatePatch = segment(
     'function syncTaskDatePatchInPlace',
     'async function getTaskDateEventRepeatRule',
 );
+const taskDateCalendarRender = segment(
+    calendarView,
+    'function queueTaskDateCalendarRender',
+    'function applyPendingTaskDateEventPatches',
+);
+const timelineTaskDatePartialRefresh = segment(
+    calendarView,
+    "if (!(currentView instanceof Element)) return rejectPartial('timeline-view-missing'",
+    '            commitPartialState();\n            return true;\n        };',
+);
 const taskDateDragPersist = segment(
     calendarView,
     'async function persistTaskDateEventChange',
@@ -341,6 +351,31 @@ assert.doesNotMatch(
     'side task-date refetches must not be enabled by default',
 );
 assert.match(
+    taskDatePatch,
+    /if \(touchedMain\)\s*\{[\s\S]*queueTaskDateCalendarRender\(state\.calendar\)/,
+    'every local main task-date mutation must repaint the calendar and its single-day panel',
+);
+assert.match(
+    taskDateCalendarRender,
+    /calendar === state\.sideDay\?\.calendar[\s\S]*state\.sideDay\?\.prototypeRender\?\.\(\)[\s\S]*state\.queuePrototypeSurfaceRender\?\.\(\)/,
+    'task-date repaint routing must update the main prototype surface as well as the standalone side dock',
+);
+assert.match(
+    timelineTaskDatePartialRefresh,
+    /if \(prototypeShowDayPanel && panelKey && keys\.has\(panelKey\)\)[\s\S]*panelHost\.innerHTML = protoRenderDayPanel\(events, settings\)[\s\S]*currentPanel\.replaceWith\(nextPanel\)/,
+    'time-grid task-date changes must render and replace an affected single-day panel from the latest events',
+);
+assert.doesNotMatch(
+    timelineTaskDatePartialRefresh,
+    /nextHolder\.querySelector\('\.tm-proto-day-panel'\)/,
+    'time-grid partial refresh must not search for the single-day panel inside timeline-only markup',
+);
+assert.match(
+    taskDatePatch,
+    /if \(touchedSide\)\s*\{[\s\S]*queueTaskDateCalendarRender\(state\.sideDay\?\.calendar\)/,
+    'every local side task-date mutation must repaint the prototype all-day surface',
+);
+assert.match(
     visibleSchedulePatch,
     /__tmBuildSingleScheduleEventsForCalendar[\s\S]*getCalendarAdapter\(cal\)\?\.addEvent[\s\S]*__tmApplyScheduleExtendedPropsInPlace[\s\S]*return \{ touched, needsRefresh \}/,
     'visible day and week schedule mutations must reconcile events directly',
@@ -354,6 +389,11 @@ assert.match(
     taskDateDragPersist,
     /renderOptimistic:\s*true,[\s\S]*deferProjection:\s*true/,
     'calendar date drags must update task state immediately without sending the already-moved event through the generic projection pass',
+);
+assert.match(
+    calendarSupport,
+    /if \(Object\.prototype\.hasOwnProperty\.call\(attrPatch, 'repeatState'\)\)[\s\S]*inversePatch\.repeatState = __tmNormalizeTaskRepeatState\(task\?\.repeatState/,
+    'calendar date drag undo must restore the recurring metadata changed with the date',
 );
 assert.match(
     calendarSupport,

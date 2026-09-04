@@ -23,8 +23,13 @@ assert.match(
     'all main event sources must record their requested view and range',
 );
 assert.match(
+    fs.readFileSync(path.join(root, 'src/task-horizon/main/render/39-render-doc-group-sync-and-refresh.js'), 'utf8'),
+    /styleKind: 'topbar',[\s\S]*delayMs: 180/,
+    'refresh loading indicator must be delayed so short refreshes do not flash in the top-right corner',
+);
+assert.match(
     source,
-    /sourceIds\.every\(\(sourceId\) => mainCalendarEventSourceRequestSignatures\.get\(sourceId\) === expectedSignature\)[\s\S]*view-type-refetch-skip[\s\S]*callCalendarAdapter\(calendar, 'refetchEvents'\)/,
+    /sourceIds\.every\(\(sourceId\) => mainCalendarEventSourceRequestSignatures\.get\(sourceId\) === expectedSignature\)[\s\S]*return;[\s\S]*callCalendarAdapter\(calendar, 'refetchEvents'\)/,
     'view changes must skip the fallback refetch only after every source requested the new range',
 );
 assert.match(
@@ -111,6 +116,11 @@ assert.match(
     source,
     /let pending = state\.dockHistoryRangeInflight\.get\(rangeKey\);[\s\S]*state\.dockHistoryRangeInflight\.set\(rangeKey, pending\);/,
     'parallel tomato history requests must share one in-flight request',
+);
+assert.match(
+    source,
+    /function findMaterializedDockHistoryRange\([\s\S]*cachedStart > requestedStart \|\| cachedEnd < requestedEnd[\s\S]*findMaterializedDockHistoryRange\(startMs, endMs, version\)/,
+    'a materialized larger tomato range must serve contained view ranges',
 );
 assert.match(
     source,

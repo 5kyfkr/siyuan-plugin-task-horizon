@@ -184,7 +184,10 @@
 
     function __tmTaskCardStatusHasValue(task) {
         if (!(task && typeof task === 'object')) return false;
-        if (task.done === true) return true;
+        const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+            ? __tmIsTaskDoneEffective(task)
+            : task.done === true;
+        if (taskDone) return true;
         const statusId = String(task?.customStatus ?? task?.custom_status ?? '').trim();
         if (!statusId) return false;
         const statusOptions = Array.isArray(SettingsStore?.data?.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
@@ -559,12 +562,34 @@
             lastAdvancedAt: String(raw.lastAdvancedAt || '').trim(),
             lastInstanceStart: __tmNormalizeDateOnly(raw.lastInstanceStart || ''),
             lastInstanceDue: __tmNormalizeDateOnly(raw.lastInstanceDue || ''),
+            pendingNativeDoneReset: raw.pendingNativeDoneReset === true || raw.pending_native_done_reset === true,
             tomatoBaselineMinutes: __tmNormalizeTaskTomatoAmount(raw.tomatoBaselineMinutes ?? raw.tomato_baseline_minutes),
             tomatoBaselineHours: __tmNormalizeTaskTomatoAmount(raw.tomatoBaselineHours ?? raw.tomato_baseline_hours),
             tomatoBaselineCount: __tmNormalizeTaskTomatoCount(raw.tomatoBaselineCount ?? raw.tomato_baseline_count),
             tomatoBaselineSet,
             fsrsCard,
         };
+    }
+
+    function __tmIsRecurringNativeDoneHeld(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
+        if (repeatState.pendingNativeDoneReset !== true) return false;
+        const completedAt = String(__tmResolveTaskCompletedAtRaw(task, { completedOnly: false }) || '').trim();
+        return !!completedAt && completedAt === String(repeatState.lastCompletedAt || '').trim();
+    }
+
+    function __tmGetRecurringNativeDoneResetDateKey(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        if (!__tmIsRecurringNativeDoneHeld(task)) return '';
+        const repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
+        const completedDate = __tmNormalizeDateOnly(repeatState.lastCompletedAt || __tmResolveTaskCompletedAtRaw(task, { completedOnly: false }));
+        if (!completedDate) return '';
+        const earliestResetDate = __tmShiftTaskRepeatDateKey(completedDate, 1);
+        const nextOccurrenceDate = __tmNormalizeDateOnly(task?.completionTime || '')
+            || __tmNormalizeDateOnly(task?.startDate || '');
+        if (!nextOccurrenceDate) return earliestResetDate;
+        return nextOccurrenceDate < earliestResetDate ? earliestResetDate : nextOccurrenceDate;
     }
 
     function __tmNormalizeTaskTomatoAmount(value) {
@@ -1092,7 +1117,15 @@
             next = rule.calendarMode === 'lunar'
                 ? __tmFindTaskRepeatNextLunarMonthlyDate(base, rule)
                 : rule.monthlyMode === 'weekday'
-                ? __tmBuildTaskRepeatMonthlyWeekdayDate(base, rule.every)
+                ? (() => {
+                    // A month may not contain the requested fifth weekday. Skip
+                    // that interval and continue to the next scheduled month.
+                    for (let step = Math.max(1, Number(rule.every) || 1), guard = 0; guard < 120; guard += 1, step += Math.max(1, Number(rule.every) || 1)) {
+                        const candidate = __tmBuildTaskRepeatMonthlyWeekdayDate(base, step);
+                        if (candidate) return candidate;
+                    }
+                    return null;
+                })()
                 : __tmBuildTaskRepeatMonthlyDate(base, rule.every, rule.anchorDate);
         } else if (rule.type === 'yearly') {
             next = rule.calendarMode === 'lunar'
@@ -1100,10 +1133,93 @@
                 : __tmBuildTaskRepeatYearlyDate(base, rule.every);
         }
         const nextKey = __tmFormatDateKeyFromDate(next);
-        if (!nextKey) return key;
+        // A missing calendar occurrence must terminate the sequence. Returning
+        // the current key here makes monthly weekday rules loop forever when a
+        // target month has no matching ordinal weekday.
+        if (!nextKey || nextKey <= key) return '';
         if (rule.until && nextKey > rule.until) return '';
         return nextKey;
     }
+
+    function __tmRepeatCoreNormalizeRule(value, options = {}) {
+        return __tmNormalizeTaskRepeatRule(value, options);
+    }
+
+    function __tmRepeatCoreNext(ruleInput, cursorInput = {}) {
+        const cursor = (cursorInput && typeof cursorInput === 'object') ? cursorInput : {};
+        const rule = __tmNormalizeTaskRepeatRule(ruleInput, {
+            anchorDate: cursor.anchorDate,
+            startDate: cursor.dateKey,
+        });
+        const dateKey = __tmNormalizeDateOnly(cursor.dateKey || rule.anchorDate);
+        if (!dateKey || !rule.enabled || rule.type === 'none' || rule.type === 'fsrs') return null;
+        const nextDateKey = __tmAdvanceTaskRepeatDateKey(dateKey, rule);
+        if (!nextDateKey || nextDateKey === dateKey) return null;
+        const ordinal = Math.max(1, Math.trunc(Number(cursor.ordinal) || 1)) + 1;
+        if (rule.maxOccurrences > 0 && ordinal > rule.maxOccurrences) return null;
+        return { dateKey: nextDateKey, ordinal };
+    }
+
+    function __tmRepeatCoreIterate(ruleInput, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const rule = __tmNormalizeTaskRepeatRule(ruleInput, {
+            anchorDate: opts.anchorDate,
+            startDate: opts.anchorDate || opts.fromDateKey,
+        });
+        if (!rule.enabled || rule.type === 'none' || rule.type === 'fsrs') return [];
+        const anchorDate = __tmNormalizeDateOnly(opts.anchorDate || rule.anchorDate);
+        if (!anchorDate) return [];
+        if (rule.until && anchorDate > rule.until) return [];
+        const fromDateKey = __tmNormalizeDateOnly(opts.fromDateKey || opts.from || anchorDate) || anchorDate;
+        const toDateKey = __tmNormalizeDateOnly(opts.toDateKey || opts.to || fromDateKey) || fromDateKey;
+        if (toDateKey < anchorDate || toDateKey < fromDateKey) return [];
+        const limit = Math.max(1, Math.min(2400, Math.trunc(Number(opts.limit) || 2400)));
+        let current = { dateKey: anchorDate, ordinal: 1 };
+        const out = [];
+        const guardLimit = Math.max(2400, Math.min(200000, limit * 16));
+        for (let guard = 0; guard < guardLimit && out.length < limit; guard += 1) {
+            if (rule.until && current.dateKey > rule.until) break;
+            if (current.dateKey >= fromDateKey && current.dateKey <= toDateKey) out.push({ ...current });
+            if (current.dateKey >= toDateKey) break;
+            const next = __tmRepeatCoreNext(rule, current);
+            if (!next || next.dateKey <= current.dateKey) break;
+            current = next;
+        }
+        return out;
+    }
+
+    function __tmRepeatCoreIsWorkday(dateLike) {
+        const date = dateLike instanceof Date ? dateLike : __tmBuildLocalNoonDateFromKey(dateLike);
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return false;
+        const weekday = date.getDay();
+        return weekday !== 0 && weekday !== 6;
+    }
+
+    function __tmRepeatCoreLunarInfo(dateLike) {
+        const info = __tmGetLunarDateInfo(dateLike);
+        return info ? { ...info } : null;
+    }
+
+    // Public, versioned facade. Calendar code must depend on this facade rather
+    // than the private recurrence helpers above.
+    try {
+        const host = typeof globalThis !== 'undefined' ? globalThis : null;
+        if (host) {
+            host.tmRepeatCore = Object.freeze({
+                version: 1,
+                normalizeRule: __tmRepeatCoreNormalizeRule,
+                next: __tmRepeatCoreNext,
+                nextDateKey: __tmAdvanceTaskRepeatDateKey,
+                nextWeekly: __tmFindTaskRepeatNextWeeklyDate,
+                monthlyDate: __tmBuildTaskRepeatMonthlyDate,
+                monthlyWeekday: __tmBuildTaskRepeatMonthlyWeekdayDate,
+                yearlyDate: __tmBuildTaskRepeatYearlyDate,
+                iterate: __tmRepeatCoreIterate,
+                isWorkday: __tmRepeatCoreIsWorkday,
+                lunarInfo: __tmRepeatCoreLunarInfo,
+            });
+        }
+    } catch (e) {}
 
     function __tmBuildTaskRepeatAdvancePatch(taskLike, ruleInput, options = {}) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
@@ -1508,14 +1624,25 @@
 
     function __tmCollectTaskRepeatPreviewDates(taskLike, options = {}) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const opts = (options && typeof options === 'object') ? options : {};
         const rule = __tmGetTaskRepeatRule(task, {
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
         if (!rule.enabled || rule.type === 'none') return [];
         if (rule.type === 'fsrs') return [];
-        const limit = Math.max(1, Math.min(4096, Number(options.limit) || 5));
-        const untilDate = __tmNormalizeDateOnly(options.until || '');
+        const limit = Math.max(1, Math.min(4096, Number(opts.limit) || 5));
+        const untilDate = __tmNormalizeDateOnly(opts.until || '');
+        // Keep the original recurrence anchor, but skip historical instances
+        // for a "next" preview. This matters for dates such as birthdays
+        // whose anchor is earlier in the current year.
+        const getOrdinal = typeof __tmGetTaskRepeatLocalDayOrdinal === 'function'
+            ? __tmGetTaskRepeatLocalDayOrdinal
+            : () => Number.NaN;
+        const requestedFromDate = __tmNormalizeDateOnly(opts.fromDateKey || opts.fromDate || '');
+        const fromDate = typeof __tmGetTaskRepeatLocalDayOrdinal === 'function'
+            ? (requestedFromDate || __tmNormalizeDateOnly(new Date()))
+            : '';
         const out = [];
         let cursorTask = {
             ...task,
@@ -1523,23 +1650,36 @@
             completionTime: __tmNormalizeDateOnly(task?.completionTime || ''),
             repeatState: __tmNormalizeTaskRepeatState(task?.repeatState),
         };
-        for (let i = 0; i < limit; i += 1) {
+        const initialDate = __tmNormalizeDateOnly(cursorTask.completionTime || cursorTask.startDate || rule.anchorDate || '');
+        const initialOrdinal = initialDate ? getOrdinal(initialDate) : Number.NaN;
+        const fromOrdinal = fromDate ? getOrdinal(fromDate) : Number.NaN;
+        const untilOrdinal = untilDate ? getOrdinal(untilDate) : Number.NaN;
+        const catchUpGuardLimit = Number.isFinite(initialOrdinal) && Number.isFinite(fromOrdinal) && fromOrdinal > initialOrdinal
+            ? Math.min(100000, Math.max(64, fromOrdinal - initialOrdinal + limit + 8))
+            : Math.max(64, limit + 8);
+        let guard = 0;
+        while (out.length < limit && guard < catchUpGuardLimit) {
+            guard += 1;
             const patch = __tmBuildTaskRepeatAdvancePatch(cursorTask, rule, {
-                advancedAt: String(options.advancedAt || new Date().toISOString()).trim() || new Date().toISOString(),
+                advancedAt: String(opts.advancedAt || new Date().toISOString()).trim() || new Date().toISOString(),
                 completedAt: String(cursorTask?.repeatState?.lastCompletedAt || '').trim(),
             });
             if (!patch) break;
             const nextDate = __tmNormalizeDateOnly(patch.completionTime || patch.startDate || '');
             if (!nextDate) break;
             if (untilDate && nextDate > untilDate) break;
-            out.push(nextDate);
             cursorTask = {
                 ...cursorTask,
                 startDate: __tmNormalizeDateOnly(patch.startDate || ''),
                 completionTime: __tmNormalizeDateOnly(patch.completionTime || ''),
                 repeatState: __tmNormalizeTaskRepeatState(patch.repeatState),
             };
+            const nextOrdinal = getOrdinal(nextDate);
+            if (!fromDate || !Number.isFinite(fromOrdinal) || !Number.isFinite(nextOrdinal) || nextOrdinal >= fromOrdinal) {
+                out.push(nextDate);
+            }
             if (untilDate && nextDate === untilDate) break;
+            if (untilDate && Number.isFinite(nextOrdinal) && Number.isFinite(untilOrdinal) && nextOrdinal >= untilOrdinal) break;
         }
         return out;
     }

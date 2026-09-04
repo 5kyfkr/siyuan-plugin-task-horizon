@@ -61,6 +61,10 @@ function taskRow(id, index) {
     };
 }
 
+async function assertRejectsCode(action, code) {
+    await assert.rejects(action, (error) => error?.code === code);
+}
+
 async function run() {
     let now = Date.parse('2026-07-15T00:00:00Z');
     let lastSQL = '';
@@ -117,6 +121,7 @@ async function run() {
                     const body = JSON.parse(options?.body || '{}');
                     if (pathname === '/api/query/sql') return { ok: true, status: 200, async json() { return { code: 0, data: query(String(body.stmt || '')) }; } };
                     if (pathname === '/api/attr/getBlockAttrs') return { ok: true, status: 200, async json() { return { code: 0, data: {} }; } };
+                    if (pathname === '/api/sqlite/flushTransaction') return { ok: true, status: 200, async json() { return { code: 0, data: null }; } };
                     if (pathname === '/api/block/deleteBlock') return { ok: true, status: 200, async json() { return { code: 0, data: null }; } };
                     throw new Error(`Unhandled API: ${pathname}`);
                 } catch (error) {
@@ -223,12 +228,13 @@ async function run() {
     const today = new Date();
     const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     assert.match(lastSQL, new RegExp(todayKey));
-    const invalidDateRange = await mcpTools.query_tasks.handler({
-        action: 'query',
-        filters: { scopeToken: documentScope.data.scopeToken, dateRange: { field: 'completionTime', from: '07/01/2026' } },
-    });
-    assert.equal(invalidDateRange.ok, false);
-    assert.equal(invalidDateRange.error.code, 'INVALID_ARGUMENT');
+    await assert.rejects(
+        () => mcpTools.query_tasks.handler({
+            action: 'query',
+            filters: { scopeToken: documentScope.data.scopeToken, dateRange: { field: 'completionTime', from: '07/01/2026' } },
+        }),
+        (error) => error?.code === 'INVALID_ARGUMENT',
+    );
 
     const virtualItems = Array.from({ length: 250 }, (_, index) => virtualTask(index));
     const virtualScope = await rpcCalls.taskHorizonRegisterTaskScope({
@@ -289,9 +295,10 @@ async function run() {
     assert.equal(virtualSecondPage.data.items.length, 50);
     assert.equal(virtualSecondPage.data.nextCursor, '');
 
-    const virtualWithoutScope = await mcpTools.get_task.handler({ action: 'get', taskID: virtualItems[0].id });
-    assert.equal(virtualWithoutScope.ok, false);
-    assert.equal(virtualWithoutScope.error.code, 'NOT_FOUND');
+    await assertRejectsCode(
+        () => mcpTools.get_task.handler({ action: 'get', taskID: virtualItems[0].id }),
+        'NOT_FOUND',
+    );
     const virtualRead = await mcpTools.get_task.handler({ action: 'get', taskID: virtualItems[0].id, scopeToken: virtualScope.data.scopeToken });
     assert.equal(virtualRead.ok, true);
     assert.equal(virtualRead.data.sourceTaskID, virtualItems[0].sourceTaskID);
@@ -307,12 +314,14 @@ async function run() {
         start: '2026-07-16T09:00:00+08:00',
         end: '2026-07-16T09:45:00+08:00',
     };
-    const virtualScheduleWithoutScope = await mcpTools.create_schedule.handler(virtualScheduleInput);
-    assert.equal(virtualScheduleWithoutScope.ok, false);
-    assert.equal(virtualScheduleWithoutScope.error.code, 'NOT_FOUND');
-    const virtualScheduleWrongScope = await mcpTools.create_schedule.handler({ ...virtualScheduleInput, scopeToken: registered.data.scopeToken });
-    assert.equal(virtualScheduleWrongScope.ok, false);
-    assert.equal(virtualScheduleWrongScope.error.code, 'NOT_FOUND');
+    await assertRejectsCode(
+        () => mcpTools.create_schedule.handler(virtualScheduleInput),
+        'NOT_FOUND',
+    );
+    await assertRejectsCode(
+        () => mcpTools.create_schedule.handler({ ...virtualScheduleInput, scopeToken: registered.data.scopeToken }),
+        'NOT_FOUND',
+    );
 
     const virtualScheduleCreate = await mcpTools.create_schedule.handler({ ...virtualScheduleInput, scopeToken: virtualScope.data.scopeToken });
     assert.equal(virtualScheduleCreate.ok, true);
@@ -390,12 +399,14 @@ async function run() {
     assert.equal(plannedVirtualSchedule.data.summary.succeeded, 1);
     assert.equal(plannedVirtualSchedule.data.items[0].changes.schedule.sourceTaskId, virtualItems[3].sourceTaskID);
 
-    const virtualUpdate = await mcpTools.update_task.handler({ action: 'update', taskID: virtualItems[0].id, patch: { priority: 'low' } });
-    assert.equal(virtualUpdate.ok, false);
-    assert.equal(virtualUpdate.error.code, 'INVALID_ARGUMENT');
-    const virtualDelete = await mcpTools.delete_task.handler({ action: 'get', phase: 'preview', taskID: virtualItems[0].id });
-    assert.equal(virtualDelete.ok, false);
-    assert.equal(virtualDelete.error.code, 'INVALID_ARGUMENT');
+    await assertRejectsCode(
+        () => mcpTools.update_task.handler({ action: 'update', taskID: virtualItems[0].id, patch: { priority: 'low' } }),
+        'INVALID_ARGUMENT',
+    );
+    await assertRejectsCode(
+        () => mcpTools.delete_task.handler({ action: 'get', phase: 'preview', taskID: virtualItems[0].id }),
+        'INVALID_ARGUMENT',
+    );
 
     const virtualStats = await mcpTools.aggregate_task_stats.handler({ action: 'query', scopeToken: virtualScope.data.scopeToken });
     assert.equal(virtualStats.ok, true);
@@ -449,14 +460,16 @@ async function run() {
     assert.notEqual(second.data.scopeToken, registered.data.scopeToken);
     assert.equal(second.data.taskCount, 5);
 
-    const unknown = await mcpTools.query_tasks.handler({ action: 'query', filters: { scopeToken: 'task_scope_missing' } });
-    assert.equal(unknown.ok, false);
-    assert.equal(unknown.error.code, 'NOT_FOUND');
+    await assertRejectsCode(
+        () => mcpTools.query_tasks.handler({ action: 'query', filters: { scopeToken: 'task_scope_missing' } }),
+        'NOT_FOUND',
+    );
 
     now += 11 * 60 * 1000;
-    const expired = await mcpTools.aggregate_task_stats.handler({ action: 'query', scopeToken: second.data.scopeToken });
-    assert.equal(expired.ok, false);
-    assert.equal(expired.error.code, 'NOT_FOUND');
+    await assertRejectsCode(
+        () => mcpTools.aggregate_task_stats.handler({ action: 'query', scopeToken: second.data.scopeToken }),
+        'NOT_FOUND',
+    );
 
     now = Date.parse('2026-07-15T01:00:00Z');
     const tokens = [];
@@ -464,9 +477,10 @@ async function run() {
         const item = await rpcCalls.taskHorizonRegisterTaskScope({ scopeID: `bounded-${index}`, taskIDs: [taskIDs[index]], documentIDs: [documentID] });
         tokens.push(item.data.scopeToken);
     }
-    const evicted = await mcpTools.query_tasks.handler({ action: 'query', filters: { scopeToken: tokens[0] } });
-    assert.equal(evicted.ok, false);
-    assert.equal(evicted.error.code, 'NOT_FOUND');
+    await assertRejectsCode(
+        () => mcpTools.query_tasks.handler({ action: 'query', filters: { scopeToken: tokens[0] } }),
+        'NOT_FOUND',
+    );
 
     process.stdout.write('task scope token tests passed\n');
 }

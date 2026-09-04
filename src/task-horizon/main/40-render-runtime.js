@@ -1,5 +1,12 @@
     function render() {
         try {
+            const dismissingModal = state.modal;
+            if ((state.mobileBottomViewbarDismissDragging === true
+                || state.mobileBottomViewbarDismissClosing === true)
+                && dismissingModal instanceof Element
+                && document.body.contains(dismissingModal)) return;
+        } catch (e) {}
+        try {
             const guardUntil = Number(state.__tmChecklistRenderGuardUntil || 0);
             if (guardUntil && Date.now() < guardUntil && String(state.viewMode || '').trim() === 'checklist'
                 && state.modal instanceof Element && document.body.contains(state.modal)) {
@@ -18,6 +25,7 @@
         try { __tmEnsureDocTabsAutoHideTouchDelegation(); } catch (e) {}
         try { state.dockTaskPointerGestureCleanup?.(); } catch (e) {}
         try { state.multiSelectPointerGestureCleanup?.(); } catch (e) {}
+        try { state.mobileBottomViewbarSwipeCleanup?.(); } catch (e) {}
         try { __tmCloseMultiSelectMoreMenu(); } catch (e) {}
         if (!__tmIsTomatoFocusModeEnabled()) {
             __tmClearTomatoFocusRowClasses();
@@ -75,7 +83,11 @@
             && prevModalSnapshot
             && nextMountRoot instanceof HTMLElement
             && nextMountRoot !== document.body
-            && !__tmIsRuntimeMobileClient()
+            // Keep the outgoing shell out of the Dock flex flow while the
+            // replacement view is mounted. Runtime-mobile Dock hosts need
+            // the same overlay treatment as desktop Dock hosts; full-screen
+            // mobile views continue to use the existing non-overlay path.
+            && (!__tmIsRuntimeMobileClient() || __tmIsDockHost())
             && (!__tmIsMobileDevice() || __tmIsDockHost()));
         const snapshotKind = prevMountRoot instanceof Element ? __tmGetKeepaliveSnapshotKind(prevMountRoot) : '';
         const keepMountSnapshot = !!(prevModalSnapshot && snapshotKind && prevMountRoot !== nextMountRoot);
@@ -103,6 +115,8 @@
         // 保存滚动位置
         let savedScrollTop = 0;
         let savedScrollLeft = 0;
+        let savedListScrollAnchor = null;
+        let savedChecklistScrollAnchor = null;
         let savedChecklistDetailScrollSnapshot = null;
         let savedTimelineScrollTop = 0;
         let savedTimelineScrollLeft = 0;
@@ -166,7 +180,9 @@
             } else if (prevWasCalendar) {
                 try {
                     const root = prevModalSnapshot.querySelector('#tmCalendarRoot');
-                    const preferred = root?.querySelector?.('.fc-timegrid-body .fc-scroller') || null;
+                    const preferred = root?.querySelector?.('[data-tm-proto-month-scroll]')
+                        || root?.querySelector?.('.fc-timegrid-body .fc-scroller')
+                        || null;
                     const list = Array.from(root?.querySelectorAll?.('.fc-scroller') || []);
                     const scroller = (preferred && preferred.scrollHeight > preferred.clientHeight + 1)
                         ? preferred
@@ -181,6 +197,7 @@
                 if (pane) {
                     savedScrollTop = Number(pane.scrollTop) || 0;
                     savedScrollLeft = Number(pane.scrollLeft) || 0;
+                    savedChecklistScrollAnchor = __tmCaptureViewScrollAnchor(pane, '.tm-checklist-item[data-id]');
                 }
                 savedChecklistDetailScrollSnapshot = __tmCaptureChecklistDetailScrollSnapshot(prevModalSnapshot);
             } else if (prevWasHomepage) {
@@ -194,6 +211,7 @@
                 if (body) {
                     savedScrollTop = body.scrollTop;
                     savedScrollLeft = body.scrollLeft;
+                    savedListScrollAnchor = __tmCaptureViewScrollAnchor(body, 'tr[data-id]');
                 }
             }
         }
@@ -209,13 +227,22 @@
                 };
                 else if (prevWasCalendar) state.viewScroll.calendar = { top: Number(savedCalendarScrollTop) || 0, left: Number(savedCalendarScrollLeft) || 0 };
                 else if (prevWasHomepage) state.viewScroll.home = { top: Number(savedHomepageScrollTop) || 0, left: Number(savedHomepageScrollLeft) || 0 };
-                else state.viewScroll.list = { top: Number(savedScrollTop) || 0, left: Number(savedScrollLeft) || 0 };
+                else if (prevWasChecklist) state.viewScroll.list = {
+                    top: Number(savedScrollTop) || 0,
+                    left: Number(savedScrollLeft) || 0,
+                    anchor: savedChecklistScrollAnchor || null,
+                };
+                else state.viewScroll.list = {
+                    top: Number(savedScrollTop) || 0,
+                    left: Number(savedScrollLeft) || 0,
+                    anchor: savedListScrollAnchor || null,
+                };
             }
         } catch (e) {}
 
         if (prevModalSnapshot) {
             // Calendar renders can be triggered by unrelated host/focus work.
-            // Keep the mounted side-day FullCalendar node across those renders;
+            // Keep the mounted side-day calendar node across those renders;
             // rebuilding it causes all three event sources to load again.
             const preserveCalendarSideDock = !!prevModalSnapshot.querySelector?.('.tm-calendar-side-dock');
             const previousPreserveCalendarSideDock = state.__tmPreserveCalendarSideDockDuringRender === true;
@@ -340,6 +367,9 @@
             String(SettingsStore.data.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'tm-doc-tabs--archive-before-all' : 'tm-doc-tabs--archive-after-docs',
         ].filter(Boolean).join(' ');
         const docTabsToggleTitle = docTabsCollapsed ? '展开多行文档页签' : '折叠为单行文档页签';
+        const docTabsPinned = !docTabsAutoHide;
+        const docTabsPinTitle = docTabsPinned ? '取消钉住页签栏' : '钉住页签栏';
+        const docTabsPinIcon = docTabsPinned ? 'push-pin-slash' : 'push-pin';
         const docTabsArchiveButtonPosition = String(SettingsStore.data.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
         const docTabsArchiveButtonHtml = `<div
                             class="tm-doc-tab tm-doc-tab--archive ${docTabsArchiveMode ? 'active' : ''}"
@@ -380,20 +410,6 @@
             return values.find((n) => Number.isFinite(n) && n > 0) || 0;
         })() : 0;
         state.tableAvailableWidth = tableAvailableWidth;
-        const calendarSidebarHostWidth = (() => {
-            try {
-                if (nextMountRoot instanceof HTMLElement && nextMountRoot !== document.body && nextMountRoot !== document.documentElement) {
-                    const rect = nextMountRoot.getBoundingClientRect();
-                    const width = Number(rect?.width) || Number(nextMountRoot.clientWidth) || 0;
-                    if (width > 0) return width;
-                }
-            } catch (e) {}
-            try {
-                return Number(window.innerWidth || document.documentElement?.clientWidth || 0) || 0;
-            } catch (e) {}
-            return 0;
-        })();
-        const isCalendarSidebarNarrowHost = calendarSidebarHostWidth > 0 && calendarSidebarHostWidth <= 768;
         state.modal = document.createElement('div');
         state.modal.className = 'tm-modal'
             + (__tmMountEl ? ' tm-modal--tab' : '')
@@ -609,16 +625,29 @@
         // A desktop Dock can use the compact/mobile-shaped layout when narrow,
         // but it is still a desktop host and should keep desktop-only controls.
         const isDesktopCalendarHost = !isRuntimeMobile && (!isMobile || isDockHost);
+        // Calendar's own toolbar owns the sidebar trigger on regular desktop.
+        // Mobile and dock hosts expose the trigger in the plugin topbar instead,
+        // because their compact calendar toolbar has no room for a duplicate.
+        const mountUiMode = String(nextMountRoot?.dataset?.tmUiMode || '').trim();
+        const mountHostMode = String(nextMountRoot?.dataset?.tmHostMode || '').trim();
+        const calendarSidebarTopbarHost = !!(
+            isMobile
+            || isRuntimeMobile
+            || hostUsesMobileUI
+            || isDockHost
+            || mountUiMode === 'mobile'
+            || mountHostMode === 'dock'
+        );
         const showCalendarSidebarCompactToggle = !!(renderMode === 'calendar'
             && __tmIsTopbarButtonVisible('calendarSidebar')
-            && isDesktopCalendarHost
-            && (isDockHost || isDesktopNarrow || isCalendarSidebarNarrowHost));
-        const showCalendarSidebarDesktopToolbarToggle = !!(renderMode === 'calendar'
-            && __tmIsTopbarButtonVisible('calendarSidebar')
-            && isDesktopCalendarHost
-            && !showCalendarSidebarCompactToggle);
-        const calendarSidebarCompactButtonHtml = showCalendarSidebarCompactToggle
-            ? `<button class="tm-btn tm-btn-info tm-calendar-sidebar-toggle-compact tm-calendar-sidebar-toggle-compact--visible bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历视图侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>`
+            && calendarSidebarTopbarHost);
+        // Keep a hidden placeholder in every shell. Host metadata can arrive
+        // one tick after a plugin reload; the view-switch synchronizer can then
+        // reveal this node without rebuilding the entire topbar.
+        const canRenderCalendarSidebarCompactToggle = __tmIsTopbarButtonVisible('calendarSidebar');
+        const showCalendarSidebarDesktopToolbarToggle = false;
+        const calendarSidebarCompactButtonHtml = canRenderCalendarSidebarCompactToggle
+            ? `<button class="tm-btn tm-btn-info tm-calendar-sidebar-toggle-compact${showCalendarSidebarCompactToggle ? ' tm-calendar-sidebar-toggle-compact--visible' : ''} bc-btn bc-btn--sm" data-tm-calendar-compact-toggle="1" onclick="tmCalendarToggleSidebar()" aria-hidden="${showCalendarSidebarCompactToggle ? 'false' : 'true'}" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: none; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历视图侧边栏', { side: 'bottom' })}>${__tmPhosphorBoldSvg('sidebar', { size: 16, className: 'tm-calendar-sidebar-toggle__icon' })}</button>`
             : '';
         const showCalendarSideDockTopbarAction = !!(
             __tmIsTopbarButtonVisible('calendarSidebar')
@@ -650,7 +679,6 @@
             },
             calendarSidebar: {
                 icon: 'sidebar',
-                iconStyle: 'transform: scaleX(-1);',
                 label: '日历侧边栏',
                 action: 'tmToggleCalendarSideDock()',
                 available: showCalendarSideDockTopbarAction,
@@ -660,7 +688,13 @@
             const compact = options?.compact === true;
             return ids.map((id) => {
                 const def = topbarActionCatalog[id];
-                if (!def || def.available === false || !__tmIsTopbarButtonVisible(id)) return '';
+                if (!def || !__tmIsTopbarButtonVisible(id)) return '';
+                // Keep the calendar action in the shell as a hidden placeholder while
+                // the calendar view owns its toggle in the view-specific toolbar. This
+                // lets body-only view switches update visibility without rebuilding the
+                // entire topbar and task shell.
+                const keepUnavailableCalendarAction = id === 'calendarSidebar' && def.available === false;
+                if (def.available === false && !keepUnavailableCalendarAction) return '';
                 const classes = [
                     'tm-btn',
                     'tm-btn-info',
@@ -675,8 +709,13 @@
                 const searchStateAttrs = id === 'search'
                     ? ` aria-pressed="${def.active ? 'true' : 'false'}" aria-expanded="${state.searchBarOpen ? 'true' : 'false'}"`
                     : '';
-                const iconHtml = __tmRenderLucideIcon(def.icon, '', def.iconStyle ? { style: def.iconStyle } : {});
-                return `<button type="button" class="${classes}" onclick="${def.action}" aria-label="${__tmEscAttr(def.label)}"${searchStateAttrs} style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(def.label, { side: 'bottom' })}>${iconHtml}</button>`;
+                const iconHtml = id === 'calendarSidebar'
+                    ? __tmPhosphorBoldSvg('sidebar', { size: 16, className: 'tm-calendar-sidebar-toggle__icon' })
+                    : __tmRenderLucideIcon(def.icon, '', def.iconStyle ? { style: def.iconStyle } : {});
+                const hiddenStyle = keepUnavailableCalendarAction ? ' display:none;' : '';
+                const actionDataAttr = id === 'calendarSidebar' ? ` data-tm-topbar-action-id="${id}"` : '';
+                const hiddenAriaAttr = keepUnavailableCalendarAction ? ' aria-hidden="true"' : '';
+                return `<button type="button" class="${classes}" onclick="${def.action}" aria-label="${__tmEscAttr(def.label)}"${searchStateAttrs}${actionDataAttr}${hiddenAriaAttr} style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;${hiddenStyle}"${__tmBuildTooltipAttrs(def.label, { side: 'bottom' })}>${iconHtml}</button>`;
             }).join('');
         };
         const desktopTopbarActionButtonsHtml = renderConfiguredTopbarActions(['add', 'search', 'refresh', 'ai', 'calendarSidebar']);
@@ -749,7 +788,7 @@
                             </div>
                             ` : ''}
                             ${!isMobile && renderMode === 'timeline' && !showDesktopNarrowTimelineTopbar && !showTopbarTimelineToolbar ? timelineSidebarToggleButtonHtml : ''}
-                            ${showCalendarSidebarCompactToggle ? calendarSidebarCompactButtonHtml : ''}
+                            ${calendarSidebarCompactButtonHtml}
 
                         <!-- 移动端菜单按钮 -->
                             <div class="tm-mobile-menu-btn" style="display:${isMobile ? 'flex' : 'none'};">
@@ -1037,6 +1076,13 @@
                             ${__tmBuildTooltipAttrs(docTabsToggleTitle, { side: 'bottom', ariaLabel: false })}>
                             ${__tmRenderLucideIcon(docTabsCollapsed ? 'chevrons-up-down' : 'chevrons-down-up')}
                         </button>
+                        <button type="button" class="tm-doc-tabs-pin-toggle bc-btn bc-btn--sm bc-btn--ghost"
+                            onclick="tmToggleDocTabsPinned(event)"
+                            aria-label="${docTabsPinTitle}"
+                            aria-pressed="${docTabsPinned ? 'true' : 'false'}"
+                            ${__tmBuildTooltipAttrs(docTabsPinTitle, { side: 'bottom', ariaLabel: false })}>
+                            ${__tmPhosphorBoldSvg(docTabsPinIcon, { size: 14, className: 'tm-doc-tabs-pin-icon' })}
+                        </button>
                     </div>
                     ` : ''}
                 </div>
@@ -1109,7 +1155,7 @@
                         overflow-x: hidden;
                         overflow-y: auto;
                         padding-left: 6px !important;
-                        padding-right: 4px !important;
+                        padding-right: var(--tm-doc-tabs-action-width) !important;
                     }
                     .tm-doc-tabs--multirow:not(.tm-doc-tabs--collapsed) .tm-doc-tab {
                         max-width: min(220px, calc(50% - 8px));
@@ -1118,9 +1164,10 @@
                         margin-left: 2px;
                     }
                     .tm-doc-tabs-actions {
-                        display: none;
+                        display: flex;
                         align-items: center;
                         justify-content: center;
+                        gap: 4px;
                         position: absolute;
                         top: 0;
                         right: 0;
@@ -1131,10 +1178,24 @@
                         background: var(--tm-header-bg);
                         z-index: 5;
                     }
-                    .tm-doc-tabs--overflowing .tm-doc-tabs-actions {
-                        display: flex;
+                    .tm-doc-tabs--overflowing {
+                        --tm-doc-tabs-action-width: 58px;
                     }
                     .tm-doc-tabs-toggle {
+                        display: none;
+                        width: 24px;
+                        min-width: 24px;
+                        height: 24px;
+                        min-height: 24px;
+                        padding: 0;
+                        align-items: center;
+                        justify-content: center;
+                        transition: background 0.16s ease, border-color 0.16s ease;
+                    }
+                    .tm-doc-tabs--overflowing .tm-doc-tabs-toggle {
+                        display: inline-flex;
+                    }
+                    .tm-doc-tabs-pin-toggle {
                         width: 24px;
                         min-width: 24px;
                         height: 24px;
@@ -1143,7 +1204,11 @@
                         display: inline-flex;
                         align-items: center;
                         justify-content: center;
+                        color: var(--tm-secondary-text);
                         transition: background 0.16s ease, border-color 0.16s ease;
+                    }
+                    .tm-doc-tabs-pin-icon {
+                        display: block;
                     }
                     .tm-doc-tabs--multirow:not(.tm-doc-tabs--collapsed) .tm-doc-tabs-toggle {
                         transform: rotate(180deg);
@@ -1154,8 +1219,28 @@
                         padding: 4px 2px;
                     }
                     .tm-modal.tm-modal--mobile .tm-doc-tabs,
+                    .tm-modal.tm-modal--runtime-mobile .tm-doc-tabs,
+                    .tm-modal.tm-modal--host-mobile-ui .tm-doc-tabs,
                     .tm-modal.tm-modal--dock .tm-doc-tabs {
                         --tm-doc-tabs-action-width: 34px;
+                    }
+                    .tm-modal.tm-modal--mobile .tm-doc-tabs-pin-toggle,
+                    .tm-modal.tm-modal--runtime-mobile .tm-doc-tabs-pin-toggle,
+                    .tm-modal.tm-modal--host-mobile-ui .tm-doc-tabs-pin-toggle,
+                    .tm-modal.tm-modal--dock .tm-doc-tabs-pin-toggle {
+                        display: none;
+                    }
+                    .tm-modal.tm-modal--mobile .tm-doc-tabs-actions,
+                    .tm-modal.tm-modal--runtime-mobile .tm-doc-tabs-actions,
+                    .tm-modal.tm-modal--host-mobile-ui .tm-doc-tabs-actions,
+                    .tm-modal.tm-modal--dock .tm-doc-tabs-actions {
+                        display: none;
+                    }
+                    .tm-modal.tm-modal--mobile .tm-doc-tabs--overflowing .tm-doc-tabs-actions,
+                    .tm-modal.tm-modal--runtime-mobile .tm-doc-tabs--overflowing .tm-doc-tabs-actions,
+                    .tm-modal.tm-modal--host-mobile-ui .tm-doc-tabs--overflowing .tm-doc-tabs-actions,
+                    .tm-modal.tm-modal--dock .tm-doc-tabs--overflowing .tm-doc-tabs-actions {
+                        display: flex;
                     }
                     .tm-modal.tm-modal--mobile .tm-doc-tabs-toggle,
                     .tm-modal.tm-modal--dock .tm-doc-tabs-toggle {
@@ -1163,6 +1248,34 @@
                         min-width: 28px;
                         height: 28px;
                         min-height: 28px;
+                    }
+                    @media (max-width: 768px) {
+                        .tm-doc-tabs {
+                            --tm-doc-tabs-action-width: 30px;
+                        }
+                        .tm-doc-tabs-pin-toggle {
+                            display: none;
+                        }
+                        .tm-doc-tabs-actions {
+                            display: none;
+                        }
+                        .tm-doc-tabs--overflowing .tm-doc-tabs-actions {
+                            display: flex;
+                        }
+                    }
+                    @container tm-modal (max-width: 768px) {
+                        .tm-doc-tabs {
+                            --tm-doc-tabs-action-width: 30px;
+                        }
+                        .tm-doc-tabs-pin-toggle {
+                            display: none;
+                        }
+                        .tm-doc-tabs-actions {
+                            display: none;
+                        }
+                        .tm-doc-tabs--overflowing .tm-doc-tabs-actions {
+                            display: flex;
+                        }
                     }
                     .tm-box--with-cal-dock .tm-doc-tabs {
                         flex: 0 0 auto;
@@ -1502,6 +1615,40 @@
                             z-index: 45;
                         }
 
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar {
+                            pointer-events: auto;
+                            height: 52px;
+                            min-height: 52px;
+                            box-sizing: border-box;
+                            align-items: center;
+                            z-index: 10030;
+                        }
+
+                        /* Embedded mirror of task-horizon.css: keep the
+                           full-screen bar horizontally scrollable while
+                           reserving vertical drags for the dismiss gesture,
+                           so the pill never hands a vertical pan to the host
+                           WebView before the gesture handler can claim it. */
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar,
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner {
+                            touch-action: pan-x;
+                            overscroll-behavior: none;
+                        }
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar--gesture-active {
+                            touch-action: none;
+                            user-select: none;
+                            -webkit-user-select: none;
+                        }
+                        html.tm-task-horizon-mobile-dismiss-drag .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-main-stage > :not(.tm-mobile-bottom-viewbar) {
+                            pointer-events: none !important;
+                        }
+                        html.tm-task-horizon-mobile-dismiss-drag .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar {
+                            pointer-events: auto !important;
+                        }
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner {
+                            overscroll-behavior: contain;
+                        }
+
                         .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner,
                         .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar__inner {
                             pointer-events: auto;
@@ -1603,6 +1750,37 @@
                         justify-content: center;
                         pointer-events: none;
                         z-index: 45;
+                    }
+                    .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar {
+                        pointer-events: auto;
+                        height: 52px;
+                        min-height: 52px;
+                        box-sizing: border-box;
+                        align-items: center;
+                        z-index: 10030;
+                    }
+                    /* Embedded mirror of task-horizon.css: keep the full-screen
+                       bar horizontally scrollable while reserving vertical drags
+                       for the dismiss gesture, so the pill never hands a vertical
+                       pan to the host WebView before the gesture can claim it. */
+                    .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar,
+                    .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner {
+                        touch-action: pan-x;
+                        overscroll-behavior: none;
+                    }
+                    .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar--gesture-active {
+                        touch-action: none;
+                        user-select: none;
+                        -webkit-user-select: none;
+                    }
+                    html.tm-task-horizon-mobile-dismiss-drag .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-main-stage > :not(.tm-mobile-bottom-viewbar) {
+                        pointer-events: none !important;
+                    }
+                    html.tm-task-horizon-mobile-dismiss-drag .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar {
+                        pointer-events: auto !important;
+                    }
+                    .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner {
+                        overscroll-behavior: contain;
                     }
                     .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner {
                         pointer-events: auto;
@@ -1775,6 +1953,10 @@
                         min-height: 0;
                         min-width: 0;
                     }
+                    .tm-main-body-with-cal-dock.tm-main-body-with-cal-dock--no-transition > .tm-calendar-side-dock,
+                    .tm-main-body-with-cal-dock.tm-main-body-with-cal-dock--no-transition > .tm-calendar-side-dock-resizer {
+                        transition: none !important;
+                    }
                     .tm-main-body-with-cal-dock.tm-main-body-with-cal-dock--calendar-dock-hidden > .tm-calendar-side-dock,
                     .tm-main-body-with-cal-dock.tm-main-body-with-cal-dock--calendar-dock-hidden > .tm-calendar-side-dock-resizer {
                         pointer-events: auto;
@@ -1782,7 +1964,12 @@
                     }
                     .tm-main-body-with-cal-dock.tm-main-body-with-cal-dock--calendar-dock-disabled > .tm-calendar-side-dock,
                     .tm-main-body-with-cal-dock.tm-main-body-with-cal-dock--calendar-dock-disabled > .tm-calendar-side-dock-resizer {
-                        display: none !important;
+                        width: 0 !important;
+                        min-width: 0 !important;
+                        flex-basis: 0 !important;
+                        opacity: 0;
+                        pointer-events: none;
+                        overflow: hidden;
                     }
                     .tm-calendar-side-dock {
                         border-left: none;
@@ -1790,6 +1977,7 @@
                         overflow: hidden;
                         display: flex;
                         flex-direction: column;
+                        transition: width 160ms ease-out, min-width 160ms ease-out, flex-basis 160ms ease-out, opacity 120ms ease-out;
                     }
                     .tm-ai-side-dock {
                         border-left: 1px solid var(--tm-border-color);
@@ -1827,6 +2015,7 @@
                         flex: 0 0 9px;
                         margin-inline: -4px;
                         z-index: 3;
+                        transition: width 160ms ease-out, flex-basis 160ms ease-out, opacity 120ms ease-out;
                     }
                     .tm-calendar-side-dock-resizer::after {
                         content: '';
@@ -1841,56 +2030,6 @@
                     .tm-calendar-side-dock-resizer:hover::after {
                         background: var(--tm-primary-color);
                         opacity: 1;
-                    }
-                    .tm-calendar-dock-head {
-                        display: flex;
-                        align-items: center;
-                        justify-content: space-between;
-                        gap: 8px;
-                        padding: 4px 10px 4px;
-                        border-bottom: none;
-                    }
-                    .tm-calendar-dock-title {
-                        font-size: 15px;
-                        font-weight: 700;
-                        line-height: 1.2;
-                        transform: translateY(1px);
-                    }
-                    .tm-calendar-dock-nav {
-                        display: inline-flex;
-                        align-items: center;
-                        gap: 4px;
-                        transform: translateY(1px);
-                    }
-                    .tm-calendar-dock-nav .bc-btn,
-                    .tm-calendar-dock-nav .bc-btn--sm {
-                        height: 26px;
-                        min-height: 26px;
-                        font-size: 11px;
-                        font-weight: 500;
-                        border-radius: var(--tm-topbar-control-radius);
-                        border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-control-border);
-                        background: var(--tm-topbar-control-bg);
-                        color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text));
-                        box-shadow: var(--tm-topbar-control-shadow);
-                        display: inline-flex;
-                        align-items: center;
-                        justify-content: center;
-                        line-height: 24px;
-                        white-space: nowrap;
-                    }
-                    .tm-calendar-dock-nav .bc-btn:hover,
-                    .tm-calendar-dock-nav .bc-btn--sm:hover {
-                        background: var(--tm-topbar-control-hover);
-                    }
-                    .tm-calendar-dock-nav .tm-calendar-dock-nav-btn--icon {
-                        width: 26px;
-                        min-width: 26px;
-                        padding: 0;
-                    }
-                    .tm-calendar-dock-nav .tm-calendar-dock-nav-btn--today {
-                        padding: 0 8px;
-                        min-width: 44px;
                     }
                     .tm-calendar-dock-date {
                         padding: 6px 10px;
@@ -1912,114 +2051,6 @@
                     #tmCalendarSideDockTimeline::-webkit-scrollbar {
                         width: 0;
                         height: 0;
-                    }
-                    #tmCalendarSideDockTimeline .fc {
-                        height: 100%;
-                        min-height: 0;
-                        box-shadow: none !important;
-                        filter: none !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc-view-harness {
-                        min-height: 0 !important;
-                        height: 100% !important;
-                        box-shadow: none !important;
-                        filter: none !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid,
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-liquid {
-                        border-top: 0 !important;
-                        border-left: 0 !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > td:first-child,
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > th:first-child,
-                    #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-label,
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-axis,
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-axis-frame {
-                        border-left: 0 !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-all-day {
-                        border-bottom: 1px solid var(--fc-border-color) !important;
-                        box-shadow: none !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-divider,
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-divider td,
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-divider div {
-                        border-top: 0 !important;
-                        box-shadow: none !important;
-                        background: transparent !important;
-                        height: 0 !important;
-                        padding: 0 !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky,
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky > td,
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky > th,
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky td,
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky th {
-                        background: var(--tm-bg-color) !important;
-                        border-color: var(--fc-border-color) !important;
-                        box-shadow: none !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky {
-                        border-bottom: 1px solid var(--fc-border-color) !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky .fc-timegrid-all-day {
-                        background: var(--tm-bg-color) !important;
-                        border-bottom: 1px solid var(--fc-border-color) !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid col:first-child,
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > td:first-child,
-                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > th:first-child,
-                    #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-label,
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-axis {
-                        border-right: 1px solid var(--fc-border-color) !important;
-                        width: 40px !important;
-                        min-width: 40px !important;
-                        max-width: 40px !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-axis-frame,
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-slot-label-frame {
-                        display: flex !important;
-                        align-items: center !important;
-                        justify-content: center !important;
-                        height: 100% !important;
-                        width: 100% !important;
-                        min-width: 40px !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-axis-cushion,
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-slot-label-cushion {
-                        display: flex !important;
-                        align-items: flex-start !important;
-                        justify-content: center !important;
-                        width: 100% !important;
-                        min-height: 100% !important;
-                        min-width: 40px !important;
-                        padding: 0 !important;
-                        text-align: center !important;
-                        margin: 0 auto !important;
-                        color: color-mix(in srgb, var(--tm-text-color) 72%, var(--tm-secondary-text) 28%) !important;
-                        font-size: 14px !important;
-                        line-height: 1 !important;
-                        font-weight: 400 !important;
-                        opacity: 0.82 !important;
-                        transform: translateY(var(--tm-calendar-hour-translate-y, -46%)) !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-label,
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-axis {
-                        text-align: center !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-slot-label-cushion {
-                        font-size: 14px !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-timegrid-axis-cushion {
-                        align-items: center !important;
-                        font-size: 14px !important;
-                        opacity: 0.74 !important;
-                        transform: none !important;
-                    }
-                    #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-lane,
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-col,
-                    #tmCalendarSideDockTimeline .fc .fc-timegrid-slot-frame {
-                        border-left: 0 !important;
                     }
                     #tmCalendarSideDockPanel {
                         height: 100%;
@@ -2108,6 +2139,31 @@
             __tmPruneMountedManagerShells(finalMountRoot, keepMountedShell);
         } catch (e) {}
         finalMountRoot.appendChild(state.modal);
+        try { if (renderMode === 'checklist') globalThis.__tmSyncChecklistWrappedTitleClasses?.(state.modal); } catch (e) {}
+        try {
+            if (renderMode === 'kanban' || renderMode === 'whiteboard') {
+                globalThis.__tmSyncKanbanSubtaskWrappedTitleClasses?.(state.modal);
+                // Any later DOM rebuild (progressive batches, projections, deletes,
+                // detail panels) is covered by this shell-level watcher.
+                globalThis.__tmEnsureKanbanSubtaskWrapAutoSync?.(state.modal);
+            }
+        } catch (e) {}
+        // Host metadata may be attached just after a plugin reload. Re-sync the
+        // calendar sidebar action on the next frame and once more after layout
+        // settles so a late mobile/dock classification can reveal its already
+        // mounted placeholder without rebuilding the shell.
+        try {
+            if (state.__tmCalendarTopbarSyncTimer) clearTimeout(state.__tmCalendarTopbarSyncTimer);
+            const syncCalendarTopbarAction = () => {
+                state.__tmCalendarTopbarSyncTimer = null;
+                try { __tmSyncCalendarTopbarActionForView(state.viewMode, state.modal); } catch (e) {}
+            };
+            syncCalendarTopbarAction();
+            requestAnimationFrame(() => {
+                syncCalendarTopbarAction();
+                state.__tmCalendarTopbarSyncTimer = setTimeout(syncCalendarTopbarAction, 180);
+            });
+        } catch (e) {}
         try { window.__tmSyncInlineSearchBarPortal?.(); } catch (e) {}
         if (state.searchBarFocusAfterRender) {
             state.searchBarFocusAfterRender = false;
@@ -2128,6 +2184,7 @@
         try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
         const bindDeferredNonCriticalShellWork = () => {
             try { __tmBindDockScrollIsolation(state.modal); } catch (e) {}
+            try { __tmBindMobileDockHorizontalTouchScroll(state.modal); } catch (e) {}
             try { __tmBindTopbarOverflowTooltips(state.modal); } catch (e) {}
             try { __tmBindDocTabsAutoHide(state.modal); } catch (e) {}
             try { __tmBindResponsiveTableResize(state.modal); } catch (e) {}
@@ -2150,6 +2207,8 @@
             }
         } catch (e) {}
         try { __tmBindDockPointerTaskDrag(state.modal); } catch (e) {}
+        try { __tmBindMobileDockHorizontalTouchScroll(state.modal); } catch (e) {}
+        try { __tmBindMobileFullscreenBottomViewbarSwipe(state.modal); } catch (e) {}
         const bindDeferredMainScrollLayoutWork = () => {
             try { if (renderMode === 'list') __tmBindListScrollVisibility(state.modal); } catch (e) {}
             try { if (renderMode === 'checklist') __tmBindChecklistScrollVisibility(state.modal); } catch (e) {}
@@ -2308,6 +2367,11 @@
             const wbBodyLeft = pickNum(state.viewScroll?.whiteboard?.left, 0);
             const desiredTop = isHomepage ? homeTop : (prevWasTimeline ? timelineTop : listTop);
             const desiredLeft = isHomepage ? homeLeft : (isTimeline ? timelineLeft : listLeft);
+            const desiredListAnchor = isChecklist
+                ? (prevWasChecklist ? savedChecklistScrollAnchor : null)
+                : ((!isHomepage && !isTimeline && !isKanban && !isWhiteboard && !prevWasChecklist)
+                    ? savedListScrollAnchor
+                    : null);
 
             if (isHomepage) {
                 const body = state.modal.querySelector('.tm-body.tm-body--homepage');
@@ -2508,7 +2572,8 @@
                         try {
                             if (!shouldRestoreCalendarScroll) return;
                             if (!root || !root.querySelectorAll) return;
-                            const preferred = root.querySelector('.fc-timegrid-body .fc-scroller');
+                            const preferred = root.querySelector('[data-tm-proto-month-scroll]')
+                                || root.querySelector('.fc-timegrid-body .fc-scroller');
                             const list = Array.from(root.querySelectorAll('.fc-scroller'));
                             const scroller = (preferred && preferred.scrollHeight > preferred.clientHeight + 1)
                                 ? preferred
@@ -2638,7 +2703,8 @@
                     const apply = () => {
                         try {
                             if (pane) {
-                                pane.scrollTop = desiredTop;
+                                __tmRestoreViewScrollAnchor(pane, desiredListAnchor);
+                                if (!desiredListAnchor?.id) pane.scrollTop = desiredTop;
                                 pane.scrollLeft = desiredLeft;
                                 try { pane.__tmChecklistScrollUpdateThumb?.(); } catch (e) {}
                             }
@@ -2662,13 +2728,19 @@
                     // 列表模式
                     const body = state.modal.querySelector('.tm-body');
                     if (body) {
-                        body.scrollTop = desiredTop;
+                        __tmRestoreViewScrollAnchor(body, desiredListAnchor);
+                        if (!desiredListAnchor?.id) body.scrollTop = desiredTop;
                         body.scrollLeft = desiredLeft;
                         try { body.__tmTableScrollUpdateThumb?.(); } catch (e) {}
                     }
 
                     requestAnimationFrame(() => requestAnimationFrame(() => {
-                         try { if (body) body.scrollTop = desiredTop; } catch (e) {}
+                         try {
+                             if (body) {
+                                 __tmRestoreViewScrollAnchor(body, desiredListAnchor);
+                                 if (!desiredListAnchor?.id) body.scrollTop = desiredTop;
+                             }
+                         } catch (e) {}
                          try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
                          runFlipAnimationAfterRender();
                          if (state.viewMode === 'whiteboard') {
@@ -2956,6 +3028,25 @@
 
     let __tmKanbanChildDropCandidate = null;
 
+    function __tmResolveKanbanChildDropCard(targetOrEvent) {
+        const directTarget = targetOrEvent instanceof Element
+            ? targetOrEvent
+            : (targetOrEvent?.target instanceof Element ? targetOrEvent.target : null);
+        const directCard = directTarget?.closest?.('.tm-kanban-card[data-id]') || null;
+        if (directCard instanceof Element) return directCard;
+
+        const x = Number(targetOrEvent?.clientX);
+        const y = Number(targetOrEvent?.clientY);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        try {
+            const pointTarget = document.elementFromPoint(x, y);
+            const pointCard = pointTarget?.closest?.('.tm-kanban-card[data-id]') || null;
+            return pointCard instanceof Element ? pointCard : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     function __tmClearKanbanChildDropCandidate() {
         const candidate = __tmKanbanChildDropCandidate;
         __tmKanbanChildDropCandidate = null;
@@ -2965,15 +3056,13 @@
         } catch (e) {}
     }
 
-    function __tmUpdateKanbanChildDropCandidate(target) {
+    function __tmUpdateKanbanChildDropCandidate(targetOrEvent) {
         const sourceId = String(state.__tmKanbanDragId || '').trim();
         const sourceIds = Array.isArray(state.__tmKanbanDragIds)
             ? Array.from(new Set(state.__tmKanbanDragIds.map((id) => String(id || '').trim()).filter(Boolean)))
             : [];
         const sourceKey = sourceIds.join('\n');
-        const targetElement = target instanceof Element
-            ? target.closest('.tm-kanban-card[data-id]')
-            : null;
+        const targetElement = __tmResolveKanbanChildDropCard(targetOrEvent);
         const targetId = String(targetElement?.getAttribute?.('data-id') || '').trim();
         if (!sourceId || !sourceIds.length || !targetElement || !targetId || sourceIds.includes(targetId)) {
             __tmClearKanbanChildDropCandidate();
@@ -2982,7 +3071,6 @@
 
         const current = __tmKanbanChildDropCandidate;
         if (current?.sourceKey === sourceKey && current?.targetId === targetId && current?.targetElement === targetElement) {
-            try { targetElement.classList.add('tm-kanban-card--child-drop-candidate'); } catch (e) {}
             return;
         }
 
@@ -3498,7 +3586,10 @@
         const doneBoardEnabled = (kanbanBoardMode === 'heading' || kanbanBoardMode === 'time')
             && !!state.showCompletedTasks
             && !!SettingsStore.data.kanbanShowDoneColumn;
-        if (!!task.done && doneBoardEnabled) return '__done__';
+        const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+            ? __tmIsTaskDoneEffective(task)
+            : !!task.done;
+        if (taskDone && doneBoardEnabled) return '__done__';
         return String(__tmResolveTaskStatusId(task, SettingsStore.data.customStatusOptions || []) || '').trim();
     }
 
@@ -3929,7 +4020,7 @@
     window.tmKanbanDragOver = function(ev) {
         try { ev.preventDefault(); } catch (e) {}
         try { ev.dataTransfer.dropEffect = 'move'; } catch (e) {}
-        __tmUpdateKanbanChildDropCandidate(ev?.target);
+        __tmUpdateKanbanChildDropCandidate(ev);
         const host = __tmResolveKanbanDropHost(ev);
         const col = host?.closest?.('.tm-kanban-col') || null;
         if (!col) return;
@@ -3958,7 +4049,7 @@
         try { ev.preventDefault(); } catch (e) {}
         try { ev.stopPropagation(); } catch (e) {}
         try { ev.dataTransfer.dropEffect = 'move'; } catch (e) {}
-        __tmUpdateKanbanChildDropCandidate(ev?.target);
+        __tmUpdateKanbanChildDropCandidate(ev);
         const ct = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
         const el0 = ct || (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-group-title, .tm-kanban-group') : null);
         if (!el0) return;
@@ -5080,9 +5171,17 @@
     function __tmShouldIsolatePluginHostGestures(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
-        return modal.classList.contains('tm-modal--mobile')
-            || modal.classList.contains('tm-modal--dock')
+        const isDockHost = modal.classList.contains('tm-modal--dock')
             || !!modal.closest?.('[data-tm-host-mode="dock"]');
+        const isRuntimeMobile = modal.classList.contains('tm-modal--runtime-mobile')
+            || (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient());
+        // The mobile Dock is embedded in SiYuan's shell. Keep ordinary touches
+        // available to the host; the Dock's own horizontal-scroll handler below
+        // claims only an intentional horizontal drag. Full-screen mobile pages
+        // still isolate their gestures as before.
+        if (isDockHost && isRuntimeMobile) return false;
+        return modal.classList.contains('tm-modal--mobile')
+            || isDockHost;
     }
 
     function __tmBindPluginHostGestureIsolation(modalEl) {
@@ -5113,6 +5212,17 @@
             try { return !!(ev?.target instanceof Element && ev.target.closest('.tm-kanban-board-nav')); } catch (e) {}
             return false;
         };
+        const isRuntimeMobileDockHost = () => {
+            const modal = bodyEl.closest?.('.tm-modal');
+            if (!(modal instanceof Element) || !modal.classList.contains('tm-modal--dock')) return false;
+            if (!modal.classList.contains('tm-modal--runtime-mobile')) return false;
+            return typeof __tmIsRuntimeMobileClient !== 'function' || __tmIsRuntimeMobileClient();
+        };
+        const shouldIsolateKanbanHostGesture = () => {
+            const modal = bodyEl.closest?.('.tm-modal');
+            if (__tmShouldIsolatePluginHostGestures(modal)) return true;
+            return isRuntimeMobileDockHost();
+        };
         const getTouchPoint = (ev) => {
             const touches = ev?.touches || ev?.changedTouches || null;
             const touch = touches && touches.length ? touches[0] : null;
@@ -5128,6 +5238,7 @@
             bodyEl.__tmKanbanHostGestureHorizontal = false;
         };
         const onTouchStart = (ev) => {
+            if (!shouldIsolateKanbanHostGesture()) return;
             if (!__tmIsKanbanColumnSnapMode(bodyEl)) return;
             if (isFromBoardNav(ev)) return;
             const pt = getTouchPoint(ev);
@@ -5135,9 +5246,12 @@
             bodyEl.__tmKanbanHostGestureStartX = pt.x;
             bodyEl.__tmKanbanHostGestureStartY = pt.y;
             bodyEl.__tmKanbanHostGestureHorizontal = false;
-            try { ev.stopPropagation?.(); } catch (e) {}
+            if (!isRuntimeMobileDockHost()) {
+                try { ev.stopPropagation?.(); } catch (e) {}
+            }
         };
         const onTouchMove = (ev) => {
+            if (!shouldIsolateKanbanHostGesture()) return;
             if (!__tmIsKanbanColumnSnapMode(bodyEl)) return;
             if (isFromBoardNav(ev)) return;
             const pt = getTouchPoint(ev);
@@ -5157,6 +5271,10 @@
             try { ev.stopPropagation?.(); } catch (e) {}
         };
         const onTouchEnd = (ev) => {
+            if (!shouldIsolateKanbanHostGesture()) {
+                reset();
+                return;
+            }
             if (isFromBoardNav(ev)) {
                 reset();
                 return;
@@ -5527,7 +5645,9 @@
                     preventDefault() {},
                     stopPropagation() {},
                     currentTarget: dropHost,
-                    target: dropHost,
+                    target: pointTarget,
+                    clientX: lastX,
+                    clientY: lastY,
                     dataTransfer: {
                         dropEffect: 'move',
                         getData(type) {
@@ -5984,7 +6104,7 @@
             if (isDoneCol) {
                 await Promise.all(ids.map((id) => {
                     const task = globalThis.__tmTaskBoundary?.getTask?.(String(id || '').trim()) || null;
-                    if (task && !!task.done) return Promise.resolve(false);
+                    if (task && (typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(task) : !!task.done)) return Promise.resolve(false);
                     return patchTask(id, { done: true }, {
                         source: 'kanban-drop-status',
                         label: '完成状态',
@@ -6024,6 +6144,7 @@
         try { ev.preventDefault(); } catch (e) {}
         try { ev.stopPropagation(); } catch (e) {}
 
+        const eventChildDropCard = __tmResolveKanbanChildDropCard(ev);
         const readyChildDrop = __tmTakeReadyKanbanChildDropTarget();
         const dropHost = __tmResolveKanbanDropHost(ev);
         // 首先检查是否拖放到组标题（文档标题或标题分组）
@@ -6062,8 +6183,17 @@
         const readySourceIds = Array.isArray(readyChildDrop?.sourceIds)
             ? readyChildDrop.sourceIds.map((taskId) => String(taskId || '').trim()).filter(Boolean)
             : [];
-        if (readyChildDrop && readyChildDrop.sourceId === id && readySourceIds.join('\n') === baseIds.join('\n')) {
-            const targetId = String(readyChildDrop.targetId || '').trim();
+        const directChildDropTargetId = String(eventChildDropCard?.getAttribute?.('data-id') || '').trim();
+        const candidateChildDropTargetId = readyChildDrop
+            && readyChildDrop.sourceId === id
+            && readySourceIds.join('\n') === baseIds.join('\n')
+            ? String(readyChildDrop.targetId || '').trim()
+            : '';
+        const childDropTargetId = eventChildDropCard
+            ? directChildDropTargetId
+            : candidateChildDropTargetId;
+        if (childDropTargetId) {
+            const targetId = childDropTargetId;
             const validation = __tmCanHandleTaskRowBatchDrop(baseIds, targetId);
             const targetTask = __tmKanbanGetTaskById(targetId);
             const allAlreadyChildren = baseIds.every((taskId) => {
@@ -7421,12 +7551,10 @@
 
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         if (currentGroupId === gid) {
-            if (archived) {
-                state.docTabsArchiveMode = true;
-                state.activeDocId = id;
-                state.docTabsScrollLeft = 0;
-                state.docTabsScrollTop = 0;
-            } else if (state.docTabsArchiveMode === true && String(state.activeDocId || '').trim() === id) {
+            // Manual archive changes only the tab's visibility. Keep the current
+            // active/archive region unchanged and release a hidden active tab.
+            if (String(state.activeDocId || '').trim() === id
+                && (!!archived !== (state.docTabsArchiveMode === true))) {
                 state.activeDocId = 'all';
             }
             try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
@@ -7462,7 +7590,12 @@
 
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         if (currentGroupId === gid) {
+            // Moving a tab out of the archive only changes its visibility; never
+            // infer a mode switch from the tab mutation itself.
             if (unarchived && state.docTabsArchiveMode === true && String(state.activeDocId || '').trim() === id) {
+                state.activeDocId = 'all';
+            }
+            if (!unarchived && state.docTabsArchiveMode !== true && String(state.activeDocId || '').trim() === id) {
                 state.activeDocId = 'all';
             }
             try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}

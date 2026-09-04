@@ -60,12 +60,12 @@ assert.doesNotMatch(snapshotFirstPaint, /if\s*\(\s*!viewSnapshotMeta\s*\)[\s\S]{
 
 const coldOpen = segment(
     shellRuntime,
-    'if (quickbarDirty) {',
-    'if (shouldForceFreshOpenLoad) {',
+    'const quickbarDirty = __tmHasQuickbarModificationsSync();',
+    'if (awaitInitialLoad) return await initialLoadPromise;',
 );
 assert.ok(coldOpen.indexOf('__tmApplyCurrentContextViewProfile({') >= 0,
     'plugin reload must restore the current context rule before loading tasks');
-assert.ok(coldOpen.indexOf('__tmApplyCurrentContextViewProfile({') < coldOpen.indexOf('loadSelectedDocuments({'),
+assert.ok(coldOpen.indexOf('__tmApplyCurrentContextViewProfile({') < coldOpen.indexOf('const initialLoadPromise = loadSelectedDocuments({'),
     'plugin reload must restore the current context rule before dispatching the initial task load');
 
 const rowModel = segment(

@@ -12,6 +12,7 @@ const shellControlsRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/m
 const renderRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/40-render-runtime.js'), 'utf8');
 const renderStateRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/21-view-render-state.js'), 'utf8');
 const sceneRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/41-render-scene-context.js'), 'utf8');
+const rowModelRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/51-whiteboard-and-link-runtime.js'), 'utf8');
 const kanbanRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/43-render-timeline-kanban-calendar-body.js'), 'utf8');
 const dialogRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
 const servicesRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/20-api-and-runtime-services.js'), 'utf8');
@@ -62,6 +63,12 @@ assert.doesNotMatch(viewSwitchRuntime, /if \(__tmShouldShowCalendarSideDock\(\) 
 assert.doesNotMatch(viewSwitchRuntime, /scene\.showTaskDetailSheet\s*\|\|/, 'mobile task views must not full-render merely because the task-detail sheet is supported');
 assert.match(viewSwitchRuntime, /isMobile,[\s\S]*?isDockHost,[\s\S]*?isRuntimeMobile,[\s\S]*?isLandscape,[\s\S]*?isDesktopNarrow,/, 'stage-only scene construction must use the live host flags');
 assert.match(sceneRuntime, /const __tmTimelineFullRowModel = renderMode === 'timeline' \? __tmBuildTaskRowModel\(\) : null;[\s\S]*?__tmSliceTaskRowModelByTaskWindow/, 'timeline switches must build one full row model and slice it for the first batch');
+assert.match(rowModelRuntime, /function __tmBuildTaskRowModelCacheMeta[\s\S]*?taskStoreRevision[\s\S]*?collapsedTaskIds[\s\S]*?settingsSignature/, 'list-like view row models must expose a state-aware cache key');
+assert.match(rowModelRuntime, /function __tmBuildTaskRowModelCacheMeta[\s\S]*?searchKeyword[\s\S]*?listRenderSignature[\s\S]*?docTabsArchiveMode[\s\S]*?calendarSidebarChecklistMounted/, 'row-model reuse must invalidate for search, projection, archive, and mounted-sidebar context changes');
+assert.match(rowModelRuntime, /function __tmBuildTaskRowModel[\s\S]*?__tmTaskRowModelCacheMatches[\s\S]*?__tmRememberTaskRowModelCache/, 'list-like view switches must reuse cached row models until task or view state changes');
+const rowModelBuilder = segment(rowModelRuntime, 'function __tmBuildTaskRowModel()', 'function __tmResolveFirstVisibleTaskIdFromRowModel');
+assert.doesNotMatch(rowModelBuilder, /return rows;/, 'every list-like row-model branch must pass through the state-aware cache before returning');
+assert.match(rowModelRuntime, /function __tmInvalidateFilteredTaskDerivedStateCache[\s\S]*?state\.__tmTaskRowModelCacheByMode = null/, 'projection invalidation must discard all cached row models');
 assert.match(viewSwitchRuntime, /__tmRerenderTimelineInPlace\(modal, \{[\s\S]*?rowModel: scene\?\.timelineRowModel,[\s\S]*?reuseLeftRows: true/, 'timeline stage binding must reuse the left rows produced by the scene');
 assert.match(servicesRuntime, /window\.tmTimelineLoadMoreRows[\s\S]*?__tmSliceTaskRowModelByTaskWindow\(fullRowModel, grown\.previousLimit, grown\.limit\)[\s\S]*?appendOnly: true/, 'timeline progressive rendering must append only the next row-model slice');
 assert.match(ganttRuntime, /const rangeRowModel =[\s\S]*?const appendOnly =[\s\S]*?if \(appendOnly\)[\s\S]*?inner\.appendChild\(row\)/, 'Gantt rendering must keep a stable full range while appending only batch rows');

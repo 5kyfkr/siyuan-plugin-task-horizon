@@ -1793,6 +1793,12 @@
         showSettings();
     };
 
+    window.updateRecurringTaskKeepNativeDoneUntilNextOccurrence = async function(enabled) {
+        SettingsStore.data.recurringTaskKeepNativeDoneUntilNextOccurrence = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+
     window.updateFsrsDesiredRetentionPercent = async function(value) {
         const percent = Math.max(80, Math.min(97, Math.round(Number(value) || 90)));
         SettingsStore.data.fsrsDesiredRetention = percent / 100;
@@ -1870,14 +1876,17 @@
     }
 
     window.updateQuickbarInlineField = async function(field, enabled) {
-        const allow = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'subtask-count', 'custom-priority', 'custom-start-date', 'custom-focus-summary', 'custom-tomato-estimate-count', 'custom-tomato-count', 'custom-remark']);
+        const allow = new Set(['custom-status', 'custom-completion-time', 'remainingTime', 'taskCompleteAt', 'subtask-count', 'custom-priority', 'custom-start-date', 'custom-focus-summary', 'custom-tomato-estimate-count', 'custom-tomato-count', 'custom-remark']);
         const rawKey0 = String(field || '').trim();
         const rawKey = rawKey0 === 'custom-duration' ? 'custom-focus-summary' : rawKey0;
         const customFieldId = __tmParseCustomFieldColumnKey(rawKey);
         const key = customFieldId ? `customField:${customFieldId}` : rawKey;
         if (!allow.has(key) && !customFieldId) return;
         const prev = Array.isArray(SettingsStore.data.quickbarInlineFields) ? SettingsStore.data.quickbarInlineFields : ['custom-status', 'custom-completion-time'];
-        const next = __tmSetQuickbarSettingItemEnabled(prev, key, !!enabled, allow, ['custom-status', 'custom-completion-time'], key === 'taskCompleteAt' ? 'custom-completion-time' : '');
+        const insertAfterKey = key === 'remainingTime'
+            ? 'custom-completion-time'
+            : (key === 'custom-completion-time' ? 'custom-start-date' : (key === 'taskCompleteAt' ? 'remainingTime' : ''));
+        const next = __tmSetQuickbarSettingItemEnabled(prev, key, !!enabled, allow, ['custom-status', 'custom-completion-time'], insertAfterKey);
         if (!next.length) next.push('custom-status');
         SettingsStore.data.quickbarInlineFields = next;
         await SettingsStore.save();
@@ -2226,6 +2235,13 @@
     window.updateMobileAutoOpenOnStartup = async function(enabled) {
         SettingsStore.data.mobileAutoOpenOnStartup = enabled === true;
         await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateMobileSidebarEnabled = async function(enabled) {
+        SettingsStore.data.mobileSidebarEnabled = enabled === true;
+        await SettingsStore.save();
+        __tmDispatchDockSettingsChanged('mobile-sidebar-enabled');
         showSettings();
     };
 
@@ -2629,12 +2645,92 @@
         showSettings();
     };
 
+    async function __tmCollectDefaultNewTaskSearchDocs() {
+        let loaded = [];
+        if (typeof globalThis.__tmEnsureAllDocumentsLoaded === 'function') {
+            try { loaded = await globalThis.__tmEnsureAllDocumentsLoaded(true); } catch (e) {}
+        }
+        const docsById = new Map();
+        const collect = (list) => {
+            (Array.isArray(list) ? list : []).forEach((doc) => {
+                const id = String((typeof doc === 'object' ? doc?.id : doc) || '').trim();
+                if (!id || id === '__dailyNote__') return;
+                const previous = docsById.get(id) || {};
+                docsById.set(id, typeof doc === 'object'
+                    ? { ...previous, ...doc, id }
+                    : { ...previous, id, name: previous.name || id });
+            });
+        };
+        collect(loaded);
+        collect(state.allDocuments);
+        collect(state.taskTree);
+        collect(SettingsStore.data.selectedDocIds);
+        (Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : []).forEach((group) => collect(group?.docs));
+        const currentId = String(SettingsStore.data.newTaskDocId || '').trim();
+        if (currentId && currentId !== '__dailyNote__' && !docsById.has(currentId)) {
+            docsById.set(currentId, { id: currentId, name: currentId });
+        }
+        return Array.from(docsById.values());
+    }
+
+    window.tmOpenNewTaskDocSearch = async function(buttonEl) {
+        const button = buttonEl instanceof HTMLButtonElement ? buttonEl : null;
+        if (button) button.disabled = true;
+        try {
+            const docs = await __tmCollectDefaultNewTaskSearchDocs();
+            if (typeof globalThis.__tmOpenDocSearchPrompt !== 'function') {
+                hint('⚠ 文档搜索组件尚未加载，请刷新后重试', 'warning');
+                return false;
+            }
+            const selectedId = await globalThis.__tmOpenDocSearchPrompt('选择收集箱文档', docs, {
+                placeholder: '搜索文档名、别名、路径或 ID',
+                emptyText: '没有匹配的文档',
+                limit: 80,
+            });
+            const nextId = String(selectedId || '').trim();
+            if (!nextId || nextId === '__dailyNote__') return false;
+            await updateNewTaskDocId(nextId, { refreshPicker: false });
+            showSettings();
+            return true;
+        } catch (e) {
+            hint(`⚠ 搜索文档失败：${String(e?.message || e || '未知错误')}`, 'error');
+            return false;
+        } finally {
+            if (button && button.isConnected) button.disabled = false;
+        }
+    };
+
+    window.updateNewTaskLocationMode = async function(value) {
+        SettingsStore.data.newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(value);
+        await SettingsStore.save();
+        const qa = state.quickAdd;
+        if (qa) {
+            const location = await __tmResolveQuickAddInitialLocation();
+            qa.docMode = location?.mode === 'dailyNote' ? 'dailyNote' : 'doc';
+            qa.docId = String(location?.docId || '').trim();
+            try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
+        }
+        if (state.quickAddDocPicker) {
+            try { window.tmQuickAddOpenDocPicker?.(); } catch (e) {}
+        }
+        showSettings();
+    };
+
+    // Keep the previous global name available for older settings markup.
+    window.updateNewTaskDefaultLocationMode = window.updateNewTaskLocationMode;
+
     window.updateNewTaskDocId = async function(value, options) {
         const previousDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         const v = String(value || '').trim();
-        const useLastSelection = v === '__lastSelected__';
-        SettingsStore.data.newTaskDefaultLocationMode = useLastSelection ? 'lastSelected' : 'configured';
-        if (!useLastSelection) SettingsStore.data.newTaskDocId = v;
+        if (v === '__dailyNote__') {
+            SettingsStore.data.newTaskDocId = previousDocId;
+            SettingsStore.data.newTaskDefaultLocationMode = 'dailyNote';
+        } else if (v === '__lastSelected__') {
+            SettingsStore.data.newTaskDocId = previousDocId;
+            SettingsStore.data.newTaskDefaultLocationMode = 'lastSelected';
+        } else {
+            SettingsStore.data.newTaskDocId = v;
+        }
         await SettingsStore.save();
         const opt = (options && typeof options === 'object') ? options : {};
         if (opt.refreshQuickAdd !== false) {
@@ -2661,27 +2757,6 @@
                 });
             } catch (e) {}
         }
-    };
-
-    window.updateNewTaskDocIdFromSelect = async function(value) {
-        await updateNewTaskDocId(value);
-        try {
-            const input = document.getElementById('tmNewTaskDocIdInput');
-            const v = String(value || '').trim();
-            if (input) input.value = v === '__dailyNote__' || v === '__lastSelected__' ? '' : v;
-        } catch (e) {}
-    };
-
-    window.tmApplyNewTaskDocIdInput = async function() {
-        const input = document.getElementById('tmNewTaskDocIdInput');
-        const v = String(input?.value || '').trim();
-        await updateNewTaskDocId(v);
-        showSettings();
-    };
-
-    window.tmClearNewTaskDocIdInput = async function() {
-        await updateNewTaskDocId('');
-        showSettings();
     };
 
     window.tmUpdateEntryIconPreset = async function(value) {

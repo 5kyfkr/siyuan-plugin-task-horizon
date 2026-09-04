@@ -1,4 +1,4 @@
-    async function __tmMoveBlockViaBackendAdapter(blockId, placement = {}) {
+﻿    async function __tmMoveBlockViaBackendAdapter(blockId, placement = {}) {
         const id = String(blockId || '').trim();
         if (!id) throw new Error('移动失败：缺少块 ID');
         const adapter = globalThis.__tmTaskHorizonBackendAdapter;
@@ -40,7 +40,7 @@
                 if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 768px)').matches) return true;
             } catch (e) {}
             return false;
-        })();
+})();
         const swatchSize = isMobilePicker ? 32 : 32;
         const swatchGap = isMobilePicker ? 8 : 10;
         const maxPaletteColumns = isMobilePicker
@@ -3011,6 +3011,9 @@
         const detailTaskId = String(detailPanel?.__tmTaskDetailTask?.id || detailPanel?.dataset?.tmDetailTaskId || state.detailTaskId || '').trim();
         const top = Number((staged && Number.isFinite(Number(staged.top))) ? Number(staged.top) : Number(pane?.scrollTop || 0));
         const left = Number((staged && Number.isFinite(Number(staged.left))) ? Number(staged.left) : Number(pane?.scrollLeft || 0));
+        const scrollAnchor = staged?.anchor
+            || globalThis.__tmCaptureViewScrollAnchor?.(pane, '.tm-checklist-item[data-id]')
+            || null;
 if (detailTaskId) {
             try {
                 __tmPushDetailDebug('detail-host-rerender-request', {
@@ -3035,7 +3038,8 @@ if (detailTaskId) {
             const restore = () => {
                 const nextPane = state.modal?.querySelector?.('.tm-checklist-scroll');
                 if (!(nextPane instanceof HTMLElement)) return;
-                nextPane.scrollTop = top;
+                globalThis.__tmRestoreViewScrollAnchor?.(nextPane, scrollAnchor);
+                if (!scrollAnchor?.id) nextPane.scrollTop = top;
                 nextPane.scrollLeft = left;
                 try { nextPane.__tmChecklistScrollUpdateThumb?.(); } catch (e3) {}
             };
@@ -3056,6 +3060,7 @@ if (detailTaskId) {
         return {
             top: Number(pane.scrollTop || 0),
             left: Number(pane.scrollLeft || 0),
+            anchor: globalThis.__tmCaptureViewScrollAnchor?.(pane, '.tm-checklist-item[data-id]') || null,
         };
     }
 
@@ -3065,6 +3070,7 @@ if (detailTaskId) {
         state.pendingChecklistRenderRestore = {
             top: Number(next.top || 0),
             left: Number(next.left || 0),
+            anchor: next.anchor || null,
         };
         try {
             state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
@@ -3086,7 +3092,8 @@ if (detailTaskId) {
                 if (!(globalThis.__tmRuntimeState?.isViewMode?.('checklist') ?? (String(state.viewMode || '').trim() === 'checklist'))) return;
                 const pane = modal.querySelector('.tm-checklist-scroll');
                 if (pane instanceof HTMLElement) {
-                    pane.scrollTop = Number(next.top || 0);
+                    globalThis.__tmRestoreViewScrollAnchor?.(pane, next.anchor);
+                    if (!next.anchor?.id) pane.scrollTop = Number(next.top || 0);
                     pane.scrollLeft = Number(next.left || 0);
                     try { pane.__tmChecklistScrollUpdateThumb?.(); } catch (e2) {}
                 }
@@ -3342,6 +3349,7 @@ if (detailTaskId) {
 
     function __tmBindChecklistScrollVisibility(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
+        try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(modal); } catch (e) {}
         const pane = modal?.querySelector?.('.tm-checklist-scroll');
         const track = modal?.querySelector?.('.tm-checklist-scrollbar');
         const thumb = track?.querySelector?.('.tm-checklist-scrollbar-thumb');
@@ -4406,7 +4414,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         } catch (e) {
             total = Number(pane.scrollWidth) || 0;
         }
-        return total > (Number(pane.clientWidth) || 0) + 2;
+        let available = Number(pane.clientWidth) || 0;
+        try {
+            const cs = window.getComputedStyle(pane);
+            available -= (Number.parseFloat(cs.paddingLeft || '0') || 0) + (Number.parseFloat(cs.paddingRight || '0') || 0);
+        } catch (e) {}
+        return total > Math.max(0, available) + 2;
     }
 
     function __tmSyncDocTabsOverflowToggle(modalEl) {
@@ -5302,6 +5315,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             renderList();
         });
     }
+
+    window.__tmOpenDocSearchPrompt = __tmOpenDocSearchPrompt;
 
     function showChoiceButtonsPrompt(title, choices) {
         return new Promise((resolve) => {
@@ -15203,11 +15218,12 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmResolveDockPointerTaskDragSource(target) {
         const el = target instanceof Element ? target : null;
         if (!(el instanceof Element)) return null;
-        const candidate = el.closest('.tm-kanban-card[data-id], .tm-checklist-item[data-id], #tmTimelineLeftTable tbody tr[data-id], #tmTaskTable tbody tr[data-id]');
+        const candidate = el.closest('.tm-kanban-card[data-id], .tm-checklist-item[data-id], .tm-cal-task[data-task-id], .tm-cal-task[data-id], #tmTimelineLeftTable tbody tr[data-id], #tmTaskTable tbody tr[data-id]');
         if (!(candidate instanceof HTMLElement)) return null;
         const taskId = String(candidate.getAttribute('data-id') || candidate.getAttribute('data-task-id') || '').trim();
         if (!taskId) return null;
         const isKanban = candidate.classList.contains('tm-kanban-card');
+        const isCalendar = candidate.classList.contains('tm-cal-task');
         const skipSelector = isKanban
             ? 'input,button,select,textarea,a,label,[contenteditable="true"],.tm-task-checkbox,.tm-task-checkbox-wrap,.tm-kanban-toggle,.tm-kanban-more,.tm-status-tag,.tm-kanban-chip,.tm-priority-jira,.tm-kanban-priority-chip'
             : 'input,button,select,textarea,a,label,[contenteditable="true"],.tm-tree-toggle,.tm-col-resize,.tm-checklist-mobile-toggle,.tm-status-tag';
@@ -15218,13 +15234,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         return {
             taskId: String(resolvedKanbanDrag?.taskId || taskId || '').trim(),
             sourceEl: resolvedKanbanDrag?.cardEl instanceof HTMLElement ? resolvedKanbanDrag.cardEl : candidate,
-            sourceType: isKanban ? 'kanban' : 'task',
+            sourceType: isKanban ? 'kanban' : (isCalendar ? 'calendar' : 'task'),
         };
     }
 
-    function __tmShouldLetFullCalendarHandleExternalDrag(sourceEl) {
+    function __tmShouldLetCalendarEngineHandleExternalDrag(sourceEl) {
         const source = sourceEl instanceof Element ? sourceEl : null;
-        if (!source?.closest?.('[data-tm-fc-external-drag-host="1"]')) return false;
+        if (!source?.closest?.('[data-tm-calendar-external-drag-host="1"]')) return false;
         if (source.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]')) return false;
         return true;
     }
@@ -15391,7 +15407,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
         if (!__tmDockPointerTaskDragIsEnabled()) return;
-        if (globalThis.__tmRuntimeState?.isViewMode?.('calendar') ?? (String(state.viewMode || '').trim() === 'calendar')) return;
         const abort = new AbortController();
         state.dockTaskPointerDragAbort = abort;
 
@@ -15409,7 +15424,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             ) {
                 return;
             }
-            if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
+            if (__tmShouldLetCalendarEngineHandleExternalDrag(source.sourceEl)) {
+                return;
+            }
+            if (ev?.target instanceof Element && ev.target.closest('.tm-checklist-title-button, .tm-task-content-clickable, .tm-cal-task-title')) {
                 return;
             }
             try { ev.preventDefault(); } catch (e) {}
@@ -15428,7 +15446,6 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         modal.addEventListener('pointerdown', (ev) => {
             if (!__tmDockPointerTaskDragIsEnabled()) return;
-            if (globalThis.__tmRuntimeState?.isViewMode?.('calendar') ?? (String(state.viewMode || '').trim() === 'calendar')) return;
             if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
             const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
             if (pointerType === 'touch') return;
@@ -15440,7 +15457,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             ) {
                 return;
             }
-            if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
+            if (__tmShouldLetCalendarEngineHandleExternalDrag(source.sourceEl)) {
+                return;
+            }
+            if (ev?.target instanceof Element && ev.target.closest('.tm-checklist-title-button, .tm-task-content-clickable, .tm-cal-task-title')) {
                 return;
             }
 
@@ -15716,13 +15736,16 @@ return Number(state.contextInteractionQuietUntil || 0);
                 return false;
             };
             const startDrag = () => {
-                if (dragging || ended) return;
+            if (dragging || ended) return;
             dragging = true;
             capturePointer();
             state.draggingTaskId = taskId;
             state.draggingTaskIds = __tmBuildTaskDragSelectionIds(taskId);
             if (!state.draggingTaskIds.length) state.draggingTaskIds = [taskId];
             try { state.modal?.classList?.add?.('tm-task-drag-active'); } catch (e) {}
+            if (sourceEl.closest('.tm-calendar-sidebar')) {
+                try { globalThis.__tmCalendar?.closeSidebar?.(); } catch (e) {}
+            }
             if (sourceType === 'kanban') {
                 state.__tmKanbanDragId = taskId;
                 state.__tmKanbanDragIds = state.draggingTaskIds;
@@ -15889,7 +15912,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (ev && typeof ev.button === 'number' && ev.button !== 0) return false;
         const source = __tmResolveTouchTaskDragSource(ev, taskId);
         if (!source) return false;
-        if (__tmShouldLetFullCalendarHandleExternalDrag(source.sourceEl)) {
+        if (__tmShouldLetCalendarEngineHandleExternalDrag(source.sourceEl)) {
             return false;
         }
         const target = ev?.target;
@@ -15931,6 +15954,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         let dragStartedAt = 0;
         let dragStartX = NaN;
         let dragStartY = NaN;
+        let touchDragState = null;
         const restoreStyleTargets = [];
         const restoreDraggableTargets = [];
         const rememberDraggableState = (el) => {
@@ -16084,10 +16108,33 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
             try { document.body.style.userSelect = ''; } catch (e) {}
             try { document.body.style.cursor = ''; } catch (e) {}
+            try {
+                if (state.dockTouchTaskDragState === touchDragState) {
+                    state.dockTouchTaskDragState = null;
+                }
+            } catch (e) {}
             if (suppressClick) {
                 __tmSuppressDockPointerTaskClick(260);
             }
         };
+        // The mobile Dock's horizontal scroller may claim a gesture before
+        // this long-press drag reaches its timer. Let it cancel only the
+        // pending press; an already active drag keeps ownership of the pointer.
+        touchDragState = {
+            pointerId,
+            cancelPending() {
+                if (ended || dragging) return false;
+                cleanup(false);
+                return true;
+            },
+            isDragging() {
+                return !ended && dragging;
+            },
+        };
+        try {
+            state.dockTouchTaskDragState?.cancelPending?.();
+            state.dockTouchTaskDragState = touchDragState;
+        } catch (e) {}
         const startDrag = () => {
             if (dragging || ended) return;
             dragging = true;
@@ -17461,6 +17508,14 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!__tmApplyDocTabsVisibilityClasses(state.modal)) render();
     };
 
+    window.tmToggleDocTabsPinned = function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const update = globalThis.updateDocTabsAutoHideEnabled;
+        if (typeof update !== 'function') return;
+        return update(!__tmDocTabsAutoHideEnabled());
+    };
+
     window.tmToggleDocTabsCollapsed = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
@@ -17535,6 +17590,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         'menu': 'M228,128a12,12,0,0,1-12,12H40a12,12,0,0,1,0-24H216A12,12,0,0,1,228,128ZM40,76H216a12,12,0,0,0,0-24H40a12,12,0,0,0,0,24ZM216,180H40a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24Z',
         'minus': 'M216,140H40a12,12,0,0,1,0-24H216a12,12,0,0,1,0,24Z',
         'pin': 'M216,164h-5.93L190.3,52H192a12,12,0,0,0,0-24H64a12,12,0,0,0,0,24h1.7L45.93,164H40a12,12,0,0,0,0,24h76v52a12,12,0,0,0,24,0V188h76a12,12,0,0,0,0-24ZM90.07,52h75.86L185.7,164H70.3Z',
+        'push-pin': 'M238.15,78.54,177.46,17.86a20,20,0,0,0-28.3,0L97.2,70c-12.43-3.33-36.68-5.72-61.74,14.5a20,20,0,0,0-1.6,29.73l45.46,45.47-39.8,39.8a12,12,0,0,0,17,17l39.8-39.81,45.47,45.46A20,20,0,0,0,155.91,228c.46,0,.93,0,1.4-.05A20,20,0,0,0,171.87,220c4.69-6.23,11-16.13,14.44-28s3.45-22.88.16-33.4l51.7-51.87A20,20,0,0,0,238.15,78.54Zm-74.26,68.79a12,12,0,0,0-2.23,13.84c3.43,6.86,6.9,21-6.28,40.65L54.08,100.53c21.09-14.59,39.53-6.64,41-6a11.67,11.67,0,0,0,13.81-2.29l54.43-54.61,55,55Z',
+        'push-pin-slash': 'M56.88,31.93A12,12,0,1,0,39.12,48.07L60,71A76,76,0,0,0,35.46,84.51a20,20,0,0,0-1.6,29.73l45.46,45.47-39.8,39.8a12,12,0,0,0,17,17l39.8-39.81,45.47,45.46A20,20,0,0,0,155.9,228c.47,0,.94,0,1.41-.05A20,20,0,0,0,171.87,220a97.47,97.47,0,0,0,9.54-15.46l17.72,19.49a12,12,0,1,0,17.76-16.14Zm98.49,169.88L54.08,100.52C62,95,70.31,92.12,78.91,91.83l84.51,93A62,62,0,0,1,155.37,201.81Zm82.78-95-39,39.11a12,12,0,1,1-17-16.95l36.19-36.3-55-55L130.59,70.5a12,12,0,0,1-17-16.94l35.57-35.69a20,20,0,0,1,28.3,0l60.69,60.68A20,20,0,0,1,238.15,106.83Z',
         'play': 'M234.49,111.07,90.41,22.94A20,20,0,0,0,60,39.87V216.13a20,20,0,0,0,30.41,16.93l144.08-88.13a19.82,19.82,0,0,0,0-33.86ZM84,208.85V47.15L216.16,128Z',
         'plus': 'M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z',
         'puzzle': 'M222.41,155.16a12,12,0,0,0-11.56-.69A16,16,0,0,1,188,139,16.2,16.2,0,0,1,202.8,124a15.83,15.83,0,0,1,8,1.5A12,12,0,0,0,228,114.7V72a20,20,0,0,0-20-20H176a40.15,40.15,0,0,0-12.62-29.16,39.67,39.67,0,0,0-29.94-10.76,40.08,40.08,0,0,0-37.34,37C96,50.07,96,51,96,52H64A20,20,0,0,0,44,72v28a40.15,40.15,0,0,0-29.16,12.62A40,40,0,0,0,41.1,179.9a28.3,28.3,0,0,0,2.9.1v28a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V165.31A12,12,0,0,0,222.41,155.16ZM204,204H68V165.31a12,12,0,0,0-17.15-10.84A15.9,15.9,0,0,1,42.8,156,16.2,16.2,0,0,1,28,141.06a16,16,0,0,1,22.82-15.52A12,12,0,0,0,68,114.7V76h42.7a12,12,0,0,0,10.83-17.15A15.9,15.9,0,0,1,120,50.8,16.19,16.19,0,0,1,134.94,36a16,16,0,0,1,15.53,22.81A12,12,0,0,0,161.31,76H204v24c-1,0-1.93,0-2.9.11A40,40,0,0,0,204,180h0Z',
@@ -17550,6 +17607,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     __tmPhosphorBoldPaths['sidebar'] = 'M216,36H40A20,20,0,0,0,20,56V200a20,20,0,0,0,20,20H216a20,20,0,0,0,20-20V56A20,20,0,0,0,216,36ZM44,104H72v20H44ZM72,60V80H44V60ZM44,148H72v48H44Zm168,48H96V60H212Z';
     __tmPhosphorBoldPaths['calendar-blank'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Z';
+    __tmPhosphorBoldPaths['circle-half'] = 'M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm12,24.87a83.53,83.53,0,0,1,24,7.25V203.88a83.53,83.53,0,0,1-24,7.25ZM44,128a84.12,84.12,0,0,1,72-83.13V211.13A84.12,84.12,0,0,1,44,128Zm144,58.71V69.29a83.81,83.81,0,0,1,0,117.42Z';
     __tmPhosphorBoldPaths['ruler'] = 'M238.15,70.54,185.46,17.86a20,20,0,0,0-28.29,0L17.85,157.17a20,20,0,0,0,0,28.29l52.69,52.68a20,20,0,0,0,28.29,0L238.15,98.83A20,20,0,0,0,238.15,70.54ZM84.68,218.34l-47-47L64,145l23.52,23.52a12,12,0,0,0,17-17L81,128l15-15,23.51,23.52a12,12,0,0,0,17-17L113,96l15-15,23.52,23.52a12,12,0,0,0,17-17L145,64l26.35-26.34,47,47Z';
     __tmPhosphorBoldPaths['caret-down'] = 'M216.49,104.49l-80,80a12,12,0,0,1-17,0l-80-80a12,12,0,0,1,17-17L128,159l71.51-71.52a12,12,0,0,1,17,17Z';
     __tmPhosphorBoldPaths['magnifying-glass'] = __tmPhosphorBoldPaths['search'];
@@ -17689,6 +17747,10 @@ return Number(state.contextInteractionQuietUntil || 0);
         })();
         return `<svg class="${__tmEscAttr(className)}" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"${styleAttr}><g fill="none" stroke="currentColor" stroke-width="2.45" stroke-linecap="round" stroke-linejoin="round">${body}</g></svg>`;
     }
+
+    // Calendar view is loaded as an independent script and needs the shared
+    // Phosphor renderer through the global runtime surface.
+    try { globalThis.__tmPhosphorBoldSvg = __tmPhosphorBoldSvg; } catch (e) {}
 
     function __tmRenderLucideIcon(iconName, extraClass = '', options = {}) {
         const normalizedName = __tmNormalizeLucideIconName(iconName);

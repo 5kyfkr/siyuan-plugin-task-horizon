@@ -301,6 +301,7 @@
 
     let __tmCalendarTaskCacheWarmPromise = null;
     let __tmCalendarTaskFullLoadPromise = null;
+    let __tmCalendarTaskFullLoadRequireComplete = false;
 
     // The calendar can be mounted more than once (main view, dock, hot-reload).
     // Keep the in-flight full-load handle on the stable window object so those
@@ -674,41 +675,26 @@
         return __tmIsCalendarMainViewActiveForTaskCache();
     }
 
-    function __tmPushCalendarTaskCacheDiag(phase, detail = {}) {
-    }
-
     function __tmRequestCalendarTaskCacheWarmRefresh(options = {}, tasks = []) {
         const opts = (options && typeof options === 'object') ? options : {};
         const reason = String(opts.source || opts.reason || 'taskdate-cache-warm').trim() || 'taskdate-cache-warm';
         const taskCount = Array.isArray(tasks) ? tasks.length : 0;
         const previousTaskCount = Number(opts.__tmPreviousTaskCount);
+        const previousCacheComplete = opts.__tmPreviousTaskCacheComplete === true;
+        const cacheComplete = window.__tmCalendarAllTasksCache?.complete === true;
         const cacheChanged = Number.isFinite(previousTaskCount)
-            ? previousTaskCount !== taskCount
+            ? previousTaskCount !== taskCount || previousCacheComplete !== cacheComplete
             : true;
         if (!__tmIsAnyCalendarSurfaceActiveForTaskCache()) {
-            __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh-skip', {
-                reason,
-                taskCount,
-                previousTaskCount: Number.isFinite(previousTaskCount) ? previousTaskCount : undefined,
-                cacheChanged,
-                skipReason: 'inactive-calendar-view',
-            });
             return false;
         }
         if (!cacheChanged) {
-            __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh-skip', {
-                reason,
-                taskCount,
-                previousTaskCount,
-                cacheChanged: false,
-                skipReason: 'cache-unchanged',
-            });
             return false;
         }
         // A fast-first calendar query may paint from a partial task snapshot.
         // Once the shared full snapshot is ready, update only the task-date
         // source in place so the all-day lane reflects the complete index
-        // without rebuilding FullCalendar or touching schedule sources.
+        // without rebuilding the calendar engine or touching schedule sources.
         let requested = false;
         try {
             const refresh = window.__tmCalendar?.refreshTaskDateSources;
@@ -718,7 +704,7 @@
                     side: true,
                     allowInactiveFullLoad: true,
                 });
-                requested = !!(result?.main || result?.side);
+                requested = !!(result?.main || result?.side || result?.skipped === 'pending-local-date-patch');
             }
         } catch (e) {}
         if (!requested) {
@@ -728,15 +714,6 @@
                 }));
             } catch (e) {}
         }
-        __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh', {
-            reason,
-            taskCount,
-            previousTaskCount: Number.isFinite(previousTaskCount) ? previousTaskCount : undefined,
-            cacheChanged: true,
-            refreshApi: requested ? 'task-date-in-place' : 'calendar-task-cache-ready-event',
-            requested,
-            flushTaskPanel: false,
-        });
         return requested;
     }
 
@@ -745,22 +722,26 @@
         const limit = __TM_TASK_INDEX_QUERY_LIMIT;
         const maxAgeMs = Number.isFinite(Number(opts.maxAgeMs)) ? Math.max(0, Math.floor(Number(opts.maxAgeMs))) : 8000;
         const forceFresh = opts.force === true || opts.forceFresh === true;
+        const requireComplete = opts.requireCompleteCache === true;
         // Check before document-scope expansion. Main and dock mounts can enter
         // this loader within the same frame; once an authoritative full read is
         // already in flight, waiting for scope resolution only adds duplicate
         // work before the caller eventually reuses the same promise.
         const earlySharedLoad = __tmGetCalendarTaskSharedLoadState();
-        if (earlySharedLoad?.promise) {
+        if (earlySharedLoad?.promise
+            && (!requireComplete || earlySharedLoad.requireComplete === true)) {
             opts.__tmCalendarTaskLoadReused = true;
             opts.__tmCalendarTaskLoadCachePath = 'inflight';
             opts.__tmCalendarTaskLoadCacheStatus = 'reuse';
             return earlySharedLoad.promise;
         }
         if (__tmCalendarTaskFullLoadPromise) {
-            opts.__tmCalendarTaskLoadReused = true;
-            opts.__tmCalendarTaskLoadCachePath = 'inflight';
-            opts.__tmCalendarTaskLoadCacheStatus = 'reuse';
-            return __tmCalendarTaskFullLoadPromise;
+            if (!requireComplete || __tmCalendarTaskFullLoadRequireComplete === true) {
+                opts.__tmCalendarTaskLoadReused = true;
+                opts.__tmCalendarTaskLoadCachePath = 'inflight';
+                opts.__tmCalendarTaskLoadCacheStatus = 'reuse';
+                return __tmCalendarTaskFullLoadPromise;
+            }
         }
         const allDocIds = await __tmResolveCalendarTaskDocIdsShared({
             includeQuickAddDoc: true,
@@ -801,7 +782,8 @@
         if (sharedLoad?.promise
             && (sharedLoad.key === key
                 || sharedLoad.scopeKey === key
-                || sharedLoad.anyScope === true)) {
+                || sharedLoad.anyScope === true)
+            && (!requireComplete || sharedLoad.requireComplete === true)) {
             opts.__tmCalendarTaskLoadReused = true;
             opts.__tmCalendarTaskLoadCachePath = 'inflight';
             opts.__tmCalendarTaskLoadCacheStatus = 'reuse';
@@ -816,10 +798,12 @@
             return sharedLoad.promise;
         }
         if (__tmCalendarTaskFullLoadPromise) {
-            opts.__tmCalendarTaskLoadReused = true;
-            opts.__tmCalendarTaskLoadCachePath = 'inflight';
-            opts.__tmCalendarTaskLoadCacheStatus = 'reuse';
-            return __tmCalendarTaskFullLoadPromise;
+            if (!requireComplete || __tmCalendarTaskFullLoadRequireComplete === true) {
+                opts.__tmCalendarTaskLoadReused = true;
+                opts.__tmCalendarTaskLoadCachePath = 'inflight';
+                opts.__tmCalendarTaskLoadCacheStatus = 'reuse';
+                return __tmCalendarTaskFullLoadPromise;
+            }
         }
         opts.__tmCalendarTaskLoadReused = false;
         opts.__tmCalendarTaskLoadCachePath = 'sql';
@@ -877,7 +861,8 @@
                             snapshotComplete = false;
                         }
                     }
-                    if (!(reloadDocIds.length > 0 && !snapshotComplete)) {
+                    if (!(reloadDocIds.length > 0 && !snapshotComplete)
+                        && (opts.requireCompleteCache !== true || snapshotComplete)) {
                         window.__tmCalendarAllTasksCache = {
                             key,
                             ts: Date.now(),
@@ -918,7 +903,8 @@
                             complete = false;
                         }
                     }
-                    if (reloadDocIds.length > 0 && !complete) {
+                    if ((reloadDocIds.length > 0 && !complete)
+                        || (opts.requireCompleteCache === true && !complete)) {
                         // A partial index is safe for first paint, but a caller
                         // still needs an authoritative all-scope result after the
                         // targeted patch fails, so continue to the SQL fallback.
@@ -969,11 +955,19 @@
             return out;
         })();
         let tracked = run.finally(() => {
-            if (__tmCalendarTaskFullLoadPromise === tracked) __tmCalendarTaskFullLoadPromise = null;
+            if (__tmCalendarTaskFullLoadPromise === tracked) {
+                __tmCalendarTaskFullLoadPromise = null;
+                __tmCalendarTaskFullLoadRequireComplete = false;
+            }
             __tmClearCalendarTaskSharedLoadState(tracked);
         });
         __tmCalendarTaskFullLoadPromise = tracked;
+        __tmCalendarTaskFullLoadRequireComplete = requireComplete;
         __tmSetCalendarTaskSharedLoadState({ key, scopeKey: key, anyScope: true, promise: tracked });
+        try {
+            const sharedState = __tmGetCalendarTaskSharedLoadState();
+            if (sharedState && sharedState.promise === tracked) sharedState.requireComplete = requireComplete;
+        } catch (e) {}
         return tracked;
     }
 
@@ -992,11 +986,6 @@
         const opts = (options && typeof options === 'object') ? options : {};
         if (!__tmShouldAllowCalendarTaskCacheFullLoad(opts)) {
             const cachedTasks = Array.isArray(window.__tmCalendarAllTasksCache?.tasks) ? window.__tmCalendarAllTasksCache.tasks : [];
-            __tmPushCalendarTaskCacheDiag('taskcache-skip-inactive-view', {
-                source: opts.source,
-                refresh: opts.refresh === true,
-                cachedCount: cachedTasks.length,
-            });
             return cachedTasks;
         }
         if (__tmCalendarTaskCacheWarmPromise) return __tmCalendarTaskCacheWarmPromise;
@@ -1004,12 +993,14 @@
             try { await window.tmCalendarWarmDocsToGroupCache?.(); } catch (e) {}
             const previousCache = window.__tmCalendarAllTasksCache;
             const previousTaskCount = Array.isArray(previousCache?.tasks) ? previousCache.tasks.length : NaN;
+            const previousTaskCacheComplete = previousCache?.complete === true;
             const tasks = await __tmLoadAllTasksForCalendarCache(opts);
             if (opts.refresh !== false) {
                 try {
                     __tmRequestCalendarTaskCacheWarmRefresh({
                         ...opts,
                         __tmPreviousTaskCount: previousTaskCount,
+                        __tmPreviousTaskCacheComplete: previousTaskCacheComplete,
                     }, tasks);
                 } catch (e) {}
             }
@@ -1029,15 +1020,13 @@
         if (__tmCalendarTaskCacheWarmPromise) return false;
         if (__tmCalendarTaskCacheIsFresh(maxAgeMs)) return false;
         if (!__tmShouldAllowCalendarTaskCacheFullLoad(opts)) {
-            __tmPushCalendarTaskCacheDiag('taskcache-warm-skip-inactive-view', {
-                source: opts.source,
-                refresh: opts.refresh === true,
-                maxAgeMs,
-            });
             return false;
         }
         try {
-            Promise.resolve().then(() => window.tmEnsureCalendarTaskCache?.(opts)).catch(() => null);
+            const warmOptions = opts.refresh === true && opts.requireCompleteCache !== false
+                ? { ...opts, requireCompleteCache: true }
+                : opts;
+            Promise.resolve().then(() => window.tmEnsureCalendarTaskCache?.(warmOptions)).catch(() => null);
             return true;
         } catch (e) {
             return false;
@@ -1064,7 +1053,7 @@
 
         const out = [];
         for (const task of tasks) {
-            if (!task || task.done) continue;
+            if (!task || __tmIsCalendarTaskDoneSync(task)) continue;
             const id = String(task.id || '').trim();
             if (!id) continue;
             const title = __tmResolveCalendarTaskDisplayTitle(task, '(无标题)');
@@ -1267,6 +1256,30 @@
 
     window.tmQueryCalendarTaskDateEvents = async function(rangeStart, rangeEnd, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        // Keep cache completeness alongside the projected array. Calendar
+        // source refreshes must not treat a partial first-paint snapshot as an
+        // authoritative replacement for events already on screen.
+        const markTaskDateQueryResult = (events, complete, path = '') => {
+            const list = Array.isArray(events) ? events : [];
+            try {
+                Object.defineProperties(list, {
+                    __tmTaskDateQueryComplete: {
+                        value: complete === true,
+                        writable: true,
+                        configurable: true,
+                    },
+                    __tmTaskDateQueryPath: {
+                        value: String(path || '').trim(),
+                        writable: true,
+                        configurable: true,
+                    },
+                });
+            } catch (e) {
+                try { list.__tmTaskDateQueryComplete = complete === true; } catch (e2) {}
+                try { list.__tmTaskDateQueryPath = String(path || '').trim(); } catch (e2) {}
+            }
+            return list;
+        };
         const queryStartedAt = Date.now();
         const startKey = __tmNormalizeDateOnly(rangeStart);
         const endKey = __tmNormalizeDateOnly(rangeEnd);
@@ -1478,6 +1491,7 @@
                     id,
                     title,
                     titleMarkdown: String(t?.markdown || t?.content || title || '').trim(),
+                    remark: String(t?.remark || t?.custom_remark || t?.customRemark || '').trim(),
                     start,
                     endExclusive: endExKey || nextDay(start),
                     calendarId,
@@ -1515,7 +1529,7 @@
                         cacheStatus: 'hit',
                         cacheHit: true,
                     });
-                    return events;
+                    return markTaskDateQueryResult(events, cache?.complete === true, 'inactive-cache');
                 }
                 const candidateMeta = __tmGetCalendarTaskCandidatesSync();
                 const candidateTasks = Array.isArray(candidateMeta?.tasks) ? candidateMeta.tasks : [];
@@ -1531,7 +1545,7 @@
                         cacheStatus: 'hit',
                         cacheHit: true,
                     });
-                    return events;
+                    return markTaskDateQueryResult(events, false, 'inactive-memory');
                 }
             } catch (e) {}
             pushTaskDateQueryDiag('taskdate-skip-inactive-view', {
@@ -1539,7 +1553,7 @@
                 cacheStatus: 'skipped',
                 cacheHit: false,
             });
-            return [];
+            return markTaskDateQueryResult([], false, 'skip-inactive-view');
         }
         if (!forceFresh && opts.fastFirst !== false) {
             try {
@@ -1574,7 +1588,7 @@
                         cacheComplete,
                         fastFirst: true,
                     });
-                    return events;
+                    return markTaskDateQueryResult(events, cacheComplete, cacheComplete ? 'cache' : 'partial-cache');
                 }
                 const candidateMeta = __tmGetCalendarTaskCandidatesSync();
                 const candidateTasks = Array.isArray(candidateMeta?.tasks) ? candidateMeta.tasks : [];
@@ -1592,7 +1606,7 @@
                         cacheHit: true,
                         fastFirst: true,
                     });
-                    return events;
+                    return markTaskDateQueryResult(events, false, 'memory');
                 }
             } catch (e) {}
         }
@@ -1610,7 +1624,7 @@
                 fastFirst: true,
                 deferred: true,
             });
-            return [];
+            return markTaskDateQueryResult([], false, 'side-deferred');
         }
 
         const getDocsToGroupMap = async () => {
@@ -1703,7 +1717,11 @@
             fastFirst: false,
             ...(fullLoadError ? { error: fullLoadError, success: false } : {}),
         });
-        return out;
+        return markTaskDateQueryResult(
+            out,
+            !fullLoadError && window.__tmCalendarAllTasksCache?.complete === true,
+            fullLoadError ? 'full-error' : 'full',
+        );
     };
 
     window.tmRenderCalendarTaskTableHtml = function() {
@@ -2125,6 +2143,9 @@
         if (shouldPersistStartDate) inversePatch.startDate = prevStart;
         if (shouldPersistCompletionTime) inversePatch.completionTime = prevEnd;
         if (hasTaskDateColor) inversePatch.taskDateColor = prevColor;
+        if (Object.prototype.hasOwnProperty.call(attrPatch, 'repeatState')) {
+            inversePatch.repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
+        }
         const persistWait = opts.wait === true;
         const recordBackgroundUndo = opts.background === true && opts.recordUndo !== false;
         let persistPromise;

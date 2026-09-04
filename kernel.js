@@ -314,6 +314,17 @@
         }
     }
 
+    async function asAgentCapabilityResult(handler, args) {
+        const result = await handler(args);
+        if (result?.ok === false) {
+            const error = new Error(text(result.error?.message) || '任务工具调用失败');
+            error.code = text(result.error?.code) || ERROR.STORAGE_ERROR;
+            error.details = result.error?.details || null;
+            throw error;
+        }
+        return result;
+    }
+
     async function api(path, body) {
         const response = await siyuan.client.fetch(path, {
             method: 'POST',
@@ -2709,9 +2720,11 @@
         }
         if (action === 'deleteBlock') {
             const id = requireID(source.id, '块 ID');
+            await api('/api/sqlite/flushTransaction', {});
             const existing = await sql(`SELECT id FROM blocks WHERE id = '${escapeSql(id)}' LIMIT 1`);
             if (!existing.length) return { id, recovered: true };
             await api('/api/block/deleteBlock', { id });
+            await api('/api/sqlite/flushTransaction', {});
             return { id };
         }
         if (action === 'updateMarker') {
@@ -3629,19 +3642,12 @@
         ));
         if (!nakedTaskRows.length) return source;
 
-        const registry = registryInput || await getFieldRegistry();
         const nakedTaskIDs = new Set(nakedTaskRows.map((child) => text(child.id)).filter(Boolean));
         const prepared = new Map();
         for (const taskID of nakedTaskIDs) {
-            const taskRow = taskID === text(source.id) ? source : await getTaskRow(taskID);
-            const [taskDOM, rawAttrs] = await Promise.all([readBlockDOM(taskID), readAttrs(taskID)]);
-            const context = buildAttrContext(taskRow);
-            const canonicalAttrs = await buildCanonicalTaskAttrs({ taskID, ...context }, {}, registry);
+            const taskDOM = await readBlockDOM(taskID);
             prepared.set(taskID, {
-                taskRow,
                 taskDOM,
-                rawAttrs,
-                canonicalAttrs,
                 listID: newNodeID(),
             });
         }
@@ -3663,10 +3669,6 @@
             };
             if (previousFinalID) insertOperation.previousID = previousFinalID;
             operations.push({ action: 'delete', id: childID }, insertOperation);
-            const restoredTaskAttrs = { ...entry.rawAttrs, ...entry.canonicalAttrs };
-            if (Object.keys(restoredTaskAttrs).length) {
-                operations.push({ action: 'setAttrs', id: childID, data: JSON.stringify(restoredTaskAttrs) });
-            }
             previousFinalID = entry.listID;
         }
         await pushTaskTransaction(operations);
@@ -4521,7 +4523,9 @@
                 message: text(error && error.message) || '无法收集任务子树',
             });
         }
+        await api('/api/sqlite/flushTransaction', {});
         await api('/api/block/deleteBlock', { id });
+        await api('/api/sqlite/flushTransaction', {});
         try {
             await runScheduleLane(async () => {
                 const schedules = await loadSchedules({ allowMissing: true, fresh: true });
@@ -5102,6 +5106,9 @@
         copy('reminderMode', ['reminderMode']);
         copy('reminderEnabled', ['reminderEnabled']);
         copy('reminderOffsetMin', ['reminderOffsetMin']);
+        copy('repeatRule', ['repeatRule', 'repeat_rule']);
+        copy('completedOccurrences', ['completedOccurrences']);
+        copy('skippedOccurrences', ['skippedOccurrences']);
         out.taskId = text(out.taskId);
         out.title = text(out.title);
         out.start = text(out.start);
@@ -5109,6 +5116,22 @@
         out.calendarId = text(out.calendarId);
         out.color = text(out.color);
         out.allDay = !!out.allDay;
+        if (out.repeatRule != null && typeof out.repeatRule !== 'object') {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '日程循环规则无效');
+        }
+        if (out.repeatRule && typeof out.repeatRule === 'object') {
+            try {
+                out.repeatRule = JSON.parse(JSON.stringify(out.repeatRule));
+            } catch (e) {
+                throw new DomainError(ERROR.INVALID_ARGUMENT, '日程循环规则无效');
+            }
+        }
+        if (out.completedOccurrences != null && !Array.isArray(out.completedOccurrences)) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '已完成日程实例无效');
+        }
+        if (out.skippedOccurrences != null && !Array.isArray(out.skippedOccurrences)) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '已跳过日程实例无效');
+        }
         if (out.plannedMinutes != null && text(out.plannedMinutes) !== '') {
             const minutes = Number(out.plannedMinutes);
             if (!Number.isFinite(minutes) || minutes < 0) throw new DomainError(ERROR.INVALID_ARGUMENT, '计划时长无效');
@@ -7379,7 +7402,7 @@
         if (typeof agent?.registerCapability === 'function' && typeof agent?.unregisterCapability === 'function') {
             return {
                 kind: 'agent',
-                register: (name, definition, handler) => agent.registerCapability(name, agentCapabilityConfig(name, definition), handler),
+                register: (name, definition, handler) => agent.registerCapability(name, agentCapabilityConfig(name, definition), (args) => asAgentCapabilityResult(handler, args)),
                 unregister: (name) => agent.unregisterCapability(name),
             };
         }
@@ -7487,6 +7510,7 @@
             reminderMode: stringSchema('inherit=继承全局日程提醒，custom=使用本日程提醒设置', SCHEDULE_REMINDER_MODES),
             reminderEnabled: { type: 'boolean', description: 'reminderMode=custom 时启用或关闭本日程提醒' },
             reminderOffsetMin: { type: 'integer', description: 'reminderMode=custom 时提前提醒分钟数，仅支持 0、5、10、15、30、60', minimum: 0, maximum: 60 },
+            repeatRule: anyObject,
         };
         const schedulePatch = objectSchema(scheduleMutableFields);
         const taskOperationKinds = ['create', 'update', 'move', 'delete'];

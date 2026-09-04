@@ -79,25 +79,31 @@ assert.match(
     /--tm-cal-event-time-font-size:\s*calc\(var\(--tm-cal-event-font-size,\s*11px\)\s*-\s*1px\)/,
     'event times must remain one pixel smaller than titles',
 );
-assert.match(
-    calendarStyles,
-    /\.fc-popover\.tm-cal-main-popover\s*\{[\s\S]*?--tm-cal-event-title-font-size:\s*var\(--tm-cal-event-font-size,\s*11px\);[\s\S]*?--tm-cal-event-time-font-size:\s*calc\(var\(--tm-cal-event-font-size,\s*11px\)\s*-\s*1px\);/,
-    'body-level main calendar popovers must recreate the semantic event font-size variables',
-);
-assert.match(
-    calendarStyles,
-    /\.fc-event:not\(\.fc-list-event\) \.fc-event-title[\s\S]*?\.fc-event:not\(\.fc-list-event\) \.fc-event-time/,
-    'native FullCalendar event text must be covered while list rows are excluded',
-);
-assert.match(
-    calendarStyles,
-    /\.fc-event:not\(\.fc-list-event\)\[data-tm-cal-source="schedule"\] \.tm-cal-task-event-title-text[\s\S]*?\.fc-event:not\(\.fc-list-event\)\[data-tm-cal-source="schedule"\] \.tm-cal-task-event-time/,
-    'custom schedule typography must also exclude list rows',
-);
-assert.match(
-    calendarStyles,
-    /--tm-cal-list-title-font-size:\s*15px;[\s\S]*?--tm-cal-list-time-font-size:\s*14px;/,
-    'list view typography must retain its independent sizes',
-);
+assert.match(calendarStyles, /\.tm-proto-event-title\s*\{[\s\S]*?font-size:\s*var\(--tm-cal-event-title-font-size,\s*11px\)/, 'prototype event titles must consume the shared title size');
+assert.match(calendarStyles, /\.tm-proto-span-title\s*\{[\s\S]*?font-size:\s*var\(--tm-cal-event-title-font-size,\s*11px\)/, 'cross-day event titles must consume the shared title size');
+
+const prototypeTitleRules = [...calendarStyles.matchAll(/([^{}]*(?:\.tm-proto-event-title|\.tm-proto-span-title)[^{}]*)\{([^{}]*)\}/g)];
+assert.ok(prototypeTitleRules.length > 0, 'prototype title rules must be discoverable');
+for (const [, selector, declarations] of prototypeTitleRules) {
+    const fontSize = declarations.match(/font-size:\s*([^;!}]+)/)?.[1]?.trim();
+    if (!fontSize) continue;
+    const hidesContinuationTitle = fontSize === '0' && selector.includes('.is-span-continuation');
+    const isCompactMonthTitle = selector.includes('.tm-calendar-root--month-view .tm-proto-event--chip.tm-proto-month-event .tm-proto-event-title')
+        || selector.includes('.tm-proto-surface--compact-month .tm-proto-event--chip:not(.tm-proto-month-event) .tm-proto-event-title');
+    if (isCompactMonthTitle) {
+        assert.match(
+            declarations,
+            /font-size:\s*(?:9|10\.5)px\s*!important/,
+            `compact month event titles must retain their fixed compact size: ${selector.trim()}`,
+        );
+        continue;
+    }
+    assert.ok(
+        hidesContinuationTitle || fontSize.startsWith('var(--tm-cal-event-title-font-size,'),
+        `prototype event title font size must use the setting variable: ${selector.trim()}`,
+    );
+}
+assert.match(calendarStyles, /\.tm-proto-event-time\s*\{[\s\S]*font-size:\s*10px/, 'prototype event times must remain visually subordinate');
+assert.match(calendarStyles, /\.tm-proto-list-time\s*\{[\s\S]*font-size:\s*11px/, 'prototype list rows must retain a compact time column');
 
 console.log('calendar event font-size contract tests passed');

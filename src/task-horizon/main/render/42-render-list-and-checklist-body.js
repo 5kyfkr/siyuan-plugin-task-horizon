@@ -470,10 +470,18 @@
                     ? `--tm-checklist-compact-indent:${indent}px;`
                     : `margin-left:${indent}px;`;
                 const useDesktopTaskDragLogic = __tmShouldUseDesktopTaskDragLogic();
+                const useCustomTouchTaskDrag = __tmShouldUseCustomTouchTaskDrag();
+                const useDockPointerTaskDrag = (globalThis.__tmViewPolicy?.shouldUseDockPointerTaskDrag?.()
+                    ?? globalThis.__tmRuntimeHost?.isDesktopDockHost?.()
+                    ?? false) === true;
                 const itemDragAttrs = useDesktopTaskDragLogic
                     ? `draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)"`
                     : 'draggable="false"';
-                const titleDragAttrs = '';
+                const titleDragAttrs = useCustomTouchTaskDrag
+                    ? `onpointerdown="tmTaskTouchDragStart(event, '${escSq(String(task.id || ''))}')"`
+                    : useDockPointerTaskDrag
+                    ? `draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)"`
+                    : '';
                 const itemContextMenuAttr = useDesktopTaskDragLogic
                     ? `oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')"`
                     : 'oncontextmenu="event.preventDefault();event.stopPropagation();return false;"';

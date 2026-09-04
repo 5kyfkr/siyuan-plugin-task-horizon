@@ -1005,7 +1005,12 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                     __tmSetInlineLoading(true, {
                         token: refreshToken,
                         styleKind: 'topbar',
-                        delayMs: 0,
+                        // Do not flash the top-right indicator for refreshes
+                        // that complete within a frame or two. The calendar
+                        // keeps its previous layout visible while data and
+                        // month geometry settle; reveal the indicator only
+                        // when the refresh is genuinely taking longer.
+                        delayMs: 180,
                     });
                 } catch (e) {}
             }

@@ -255,6 +255,7 @@
             }
             return true;
         }
+        if (opts.skipDeletedTaskBlockWrites === true) return true;
         for (const taskId of ids) {
             await __tmExecuteTaskCommandGateway({
                 action: 'patch',

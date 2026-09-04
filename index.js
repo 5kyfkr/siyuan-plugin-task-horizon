@@ -11,14 +11,18 @@ const AGENT_WORKBENCH_STYLE_PATH = `/data/plugins/${PLUGIN_ID}/src/ai/agent-work
 const HOMEPAGE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/homepage.js`;
 const QUICKBAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/quickbar.js`;
 const XLSX_VENDOR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/vendor/xlsx.full.min.js`;
-const FULLCALENDAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/fullcalendar.global.js`;
-const FULLCALENDAR_FORMA_THEME_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/themes/forma/global.js`;
-const FULLCALENDAR_SKELETON_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/skeleton.css`;
-const FULLCALENDAR_FORMA_THEME_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/themes/forma/theme.css`;
-const FULLCALENDAR_FORMA_BASECOAT_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/themes/forma/palettes/basecoat.css`;
 const BASECOAT_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/basecoat/basecoat.js`;
 const BASECOAT_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/basecoat/basecoat.css`;
 const CALENDAR_SUBSCRIPTION_CORE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/calendar-subscription-core.js`;
+const CALENDAR_SOURCE_ROOT = `/data/plugins/${PLUGIN_ID}/src/calendar`;
+const CALENDAR_ENGINE_SCRIPT_PATHS = [
+    `${CALENDAR_SOURCE_ROOT}/calendar-date.js`,
+    `${CALENDAR_SOURCE_ROOT}/calendar-store.js`,
+    `${CALENDAR_SOURCE_ROOT}/calendar-layout.js`,
+    `${CALENDAR_SOURCE_ROOT}/calendar-renderer.js`,
+    `${CALENDAR_SOURCE_ROOT}/calendar-interaction.js`,
+    `${CALENDAR_SOURCE_ROOT}/calendar-engine.js`,
+];
 const CALENDAR_VIEW_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.js`;
 const CALENDAR_VIEW_CSS_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.css`;
 const PLUGIN_MANIFEST_PATH = `/data/plugins/${PLUGIN_ID}/plugin.json`;
@@ -45,6 +49,7 @@ const DOCK_VIEW_IDS = new Set(["list", "checklist", "timeline", "kanban", "calen
 const AI_EXPERIENCE_MODE_KEY = "tm_ai_experience_mode";
 const AI_EXPERIENCE_MODE_INITIALIZED_KEY = "tm_ai_experience_mode_initialized";
 const MOBILE_AUTO_OPEN_ON_STARTUP_STORAGE_KEY = "tm_mobile_auto_open_on_startup";
+const MOBILE_SIDEBAR_ENABLED_STORAGE_KEY = "tm_mobile_sidebar_enabled";
 const MOBILE_STARTUP_AUTO_OPEN_SESSION_KEY_PREFIX = "tm_mobile_startup_auto_opened";
 const MOBILE_STARTUP_READY_TIMEOUT_MS = 10000;
 const SYNCED_DATA_RELOAD_DEBOUNCE_MS = 240;
@@ -229,6 +234,8 @@ const readTaskDockSettings = () => ({
     defaultViewMode: normalizeDockDefaultViewMode(readLocalJson("tm_dock_default_view_mode", "follow-mobile")),
 });
 
+const readMobileSidebarEnabled = () => readLocalJson(MOBILE_SIDEBAR_ENABLED_STORAGE_KEY, false) === true;
+
 const readWindowTopbarEnabled = () => {
     const key = isRuntimeMobileClient() ? "tm_window_topbar_icon_mobile" : "tm_window_topbar_icon_desktop";
     return readLocalJson(key, true) !== false;
@@ -386,7 +393,6 @@ const getDockContainmentHosts = (element) => {
         out.push(host);
     };
     push(element?.parentElement || null);
-    push(resolveDockHostElement(element));
     return out;
 };
 
@@ -401,6 +407,55 @@ const getDockHostsByType = (type) => {
         return Array.from(set);
     } catch (e) {
         return [];
+    }
+};
+
+const getMobileDockContainmentHosts = (element) => {
+    const out = [];
+    const seen = new Set();
+    const push = (host) => {
+        if (!(host instanceof HTMLElement) || seen.has(host)) return;
+        seen.add(host);
+        out.push(host);
+    };
+    push(element?.parentElement || null);
+    push(resolveDockHostElement(element));
+    return out;
+};
+
+const getMobileTaskDockType = (plugin) => `${String(plugin?.name || PLUGIN_ID).trim() || PLUGIN_ID}${TASK_DOCK_TYPE}`;
+
+const getMobileTaskDockNodes = (plugin) => {
+    try {
+        const type = getMobileTaskDockType(plugin);
+        return Array.from(document.querySelectorAll(
+            `[data-mobile-plugin-dock-tab="${type}"], [data-mobile-plugin-dock-content="${type}"], `
+            + `[data-type="sidebar-${type}-tab"], [data-type="sidebar-${type}"]`
+        ));
+    } catch (e) {
+        return [];
+    }
+};
+
+// aria-hidden must never be applied while focus is still inside the hidden Dock.
+// Blurring the active control is the safest fallback because a Dock may not have
+// a stable trigger element (for example when SiYuan changes host layouts).
+const clearFocusInsideElement = (element) => {
+    if (!(element instanceof HTMLElement)) return false;
+    try {
+        const active = document.activeElement;
+        if (!(active instanceof Element) || !element.contains(active)) return false;
+        if (typeof active.blur === "function") active.blur();
+        if (document.activeElement && element.contains(document.activeElement)) {
+            document.activeElement.blur?.();
+        }
+        return true;
+    } catch (e) {
+        try {
+            const active = document.activeElement;
+            if (active instanceof Element && element.contains(active)) active.blur?.();
+        } catch (e2) {}
+        return false;
     }
 };
 
@@ -1094,6 +1149,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonEnsureCalendarAssets = () => this.loadTaskHorizonCalendarAssets();
         globalThis.__taskHorizonPluginIsMobile = runtimeMobile;
         globalThis.__taskHorizonPluginIsNativeMobile = runtimeNativeMobile;
+        globalThis.__taskHorizonMobileColdStartPending = runtimeMobile
+            && globalThis?.siyuan?.isReady !== true;
         globalThis.__taskHorizonFrontend = getOfficialFrontend();
         globalThis.__taskHorizonRuntimeClientKind = getRuntimeClientKind();
         globalThis.__taskHorizonOpenTab = typeof openTab === "function" ? openTab : null;
@@ -1158,8 +1215,11 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             if (!runtimeMobile && readWindowTopbarEnabled()) this.ensureWindowTopBar();
         } catch (e) {}
         this.ensureCustomTab();
-        this.initTaskDock();
-        this.suppressTaskDockOnMobile();
+        if (runtimeMobile) {
+            this.initMobileTaskDock();
+        } else {
+            this.initTaskDock();
+        }
         try {
             document.querySelectorAll('style[data-tm-style-source]').forEach((el) => { try { el.remove(); } catch (e) {} });
         } catch (e) {}
@@ -1380,7 +1440,10 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     } catch (e) {}
                     this._taskMobileStartupOpened = true;
                     try {
-                        const result = await opener();
+                        const result = await opener({
+                            awaitInitialLoad: true,
+                            source: "mobile-startup-auto-open",
+                        });
                         if (result === false) {
                             this._taskMobileStartupOpened = false;
                             try { globalThis?.sessionStorage?.removeItem?.(sessionKey); } catch (e) {}
@@ -1408,6 +1471,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._taskWindowTopBarLayoutReady = true;
         this.syncWindowTopBar();
         this.syncCalendarSubscriptionTopBar();
+        try {
+            if (this.isRuntimeMobileClient() && readMobileSidebarEnabled()) {
+                if (!this._taskDockAdded) this.ensureMobileTaskDockRegistered("layout-ready");
+                else this.scheduleMobileTaskDockRecovery("layout-ready");
+            }
+        } catch (e) {}
         this.scheduleMobileStartupAutoOpen();
     }
 
@@ -1477,31 +1546,23 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     registerTaskHorizonAgentActions() {
         if (this._taskHorizonAgentActionsRegistered) return true;
-        const usesCapabilities = typeof this.addAgentCapability === "function";
-        if (!usesCapabilities && typeof this.addAgentAction !== "function") return false;
+        if (typeof this.addAgentCapability !== "function") return false;
         const handlers = new Map();
-        const legacyDescriptors = [];
         const frontendDescriptors = [];
         const register = (name, title, description, inputSchema, effects, handler) => {
-            let fullName = name;
-            if (usesCapabilities) {
-                fullName = this.addAgentCapability({ name, title, description, inputSchema, effects, handler });
-                const generation = Number(this.agentCapabilities?.find?.((item) => item?.id === fullName)?.generation) || 0;
-                frontendDescriptors.push({
-                    id: fullName,
-                    title,
-                    description,
-                    inputSchema,
-                    effects,
-                    source: "plugin",
-                    ownerId: this.name,
-                    ownerName: this.displayName || this.name,
-                    generation,
-                });
-            } else {
-                fullName = this.addAgentAction({ name, description, handler });
-                legacyDescriptors.push({ name: fullName, description });
-            }
+            const fullName = this.addAgentCapability({ name, title, description, inputSchema, effects, handler });
+            const generation = Number(this.agentCapabilities?.find?.((item) => item?.id === fullName)?.generation) || 0;
+            frontendDescriptors.push({
+                id: fullName,
+                title,
+                description,
+                inputSchema,
+                effects,
+                source: "plugin",
+                ownerId: this.name,
+                ownerName: this.displayName || this.name,
+                generation,
+            });
             handlers.set(name, handler);
             handlers.set(fullName, handler);
             return fullName;
@@ -1537,7 +1598,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 properties: { taskID: { type: "string" } },
                 required: ["taskID"],
                 additionalProperties: false,
-            }, { localWrite: true }, async (args = {}) => {
+            }, { localRead: true }, async (args = {}) => {
                 const taskID = String(args.taskID || args.taskId || "").trim();
                 if (!taskID) return { error: "缺少任务 ID" };
                 try {
@@ -1666,7 +1727,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 }
             }),
         ];
-        globalThis.__taskHorizonAgentActionDescriptors = legacyDescriptors;
         globalThis.__taskHorizonFrontendCapabilityDescriptors = frontendDescriptors;
         globalThis.__taskHorizonInvokeAgentAction = async (name, args = {}) => {
             const handler = handlers.get(String(name || "").trim());
@@ -1698,11 +1758,10 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         if (this._taskCalendarAssetsLoading) return await this._taskCalendarAssetsLoading;
         this._taskCalendarAssetsLoading = Promise.resolve().then(async () => {
             await this.loadTaskHorizonPostMainAssets();
-            await loadStyleText(FULLCALENDAR_SKELETON_CSS_PATH, "fullcalendar/skeleton.css");
-            await loadStyleText(FULLCALENDAR_FORMA_THEME_CSS_PATH, "fullcalendar/themes/forma/theme.css");
-            await loadStyleText(FULLCALENDAR_FORMA_BASECOAT_CSS_PATH, "fullcalendar/themes/forma/palettes/basecoat.css");
-            await loadScriptText(FULLCALENDAR_SCRIPT_PATH, "fullcalendar/fullcalendar.global.js");
-            await loadScriptText(FULLCALENDAR_FORMA_THEME_SCRIPT_PATH, "fullcalendar/themes/forma/global.js");
+            for (const scriptPath of CALENDAR_ENGINE_SCRIPT_PATHS) {
+                const fileName = scriptPath.split('/').pop() || 'calendar-engine.js';
+                await loadScriptText(scriptPath, `calendar/${fileName}`);
+            }
             await loadScriptText(CALENDAR_SUBSCRIPTION_CORE_SCRIPT_PATH, "calendar-subscription-core.js");
             await loadScriptText(CALENDAR_VIEW_SCRIPT_PATH, "calendar-view.js");
             await loadStyleText(CALENDAR_VIEW_CSS_PATH, "calendar-view.css");
@@ -1728,6 +1787,13 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 this.reloadTaskDockFrame();
             } else {
                 this.scheduleTaskDockRecovery(`runtime-ready:${reason}`, { delayMs: 80 });
+            }
+        } else {
+            const dockElement = this.resolveMobileTaskDockElement();
+            if (dockElement instanceof HTMLElement) {
+                this.reloadMobileTaskDockFrame();
+            } else {
+                this.scheduleMobileTaskDockRecovery(`runtime-ready:${reason}`, { delayMs: 80 });
             }
         }
     }
@@ -2416,6 +2482,18 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         return null;
     }
 
+    resolveMobileTaskDockElement(preferred = null) {
+        const direct = preferred instanceof HTMLElement ? preferred : null;
+        if (direct && document.body.contains(direct)) return direct;
+        const cached = this._taskDockElement instanceof HTMLElement ? this._taskDockElement : null;
+        if (cached && document.body.contains(cached)) return cached;
+        const target = getMobileTaskDockNodes(this).find((node) =>
+            node instanceof HTMLElement && document.body.contains(node)
+            && (node.matches?.('[data-mobile-plugin-dock-content]') || node.matches?.('[data-type^="sidebar-"]'))
+        ) || null;
+        return target instanceof HTMLElement ? target : null;
+    }
+
     scheduleTaskDockRecovery(reason = "manual", options = {}) {
         if (this.isRuntimeMobileClient()) return;
         if (readTaskDockSettings().enabled === false) {
@@ -2460,6 +2538,48 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         }, delayMs);
     }
 
+    scheduleMobileTaskDockRecovery(reason = "manual", options = {}) {
+        if (!this.isRuntimeMobileClient() || !readMobileSidebarEnabled()) {
+            this.cancelTaskDockRecovery();
+            return;
+        }
+        const attempt = Math.max(0, Number(options?.attempt) || 0);
+        const maxAttempts = Math.max(1, Number(options?.maxAttempts) || 5);
+        if (attempt >= maxAttempts) return;
+        const delayMs = Math.max(60, Number(options?.delayMs) || (attempt === 0 ? 120 : Math.min(1800, 180 * (attempt + 1))));
+        const element = options?.element instanceof HTMLElement ? options.element : null;
+        const token = `${Date.now()}:${Math.random()}:${reason}:${attempt}`;
+        this.cancelTaskDockRecovery();
+        this._taskDockRecoveryToken = token;
+        this._taskDockRecoveryTimer = setTimeout(() => {
+            if (this._taskDockRecoveryToken !== token) return;
+            this._taskDockRecoveryTimer = null;
+            if (!this.isRuntimeMobileClient() || !readMobileSidebarEnabled()) return;
+            const target = this.resolveMobileTaskDockElement(element);
+            if (!(target instanceof HTMLElement)) {
+                this.scheduleMobileTaskDockRecovery(reason, {
+                    attempt: attempt + 1,
+                    maxAttempts,
+                    delayMs: Math.min(2200, delayMs * 2),
+                });
+                return;
+            }
+            const mounted = this.mountTaskDockElement(target, {
+                reactivate: true,
+                reason: `recover:${reason}:${attempt + 1}`,
+                fromRecovery: true,
+            });
+            if (!mounted) {
+                this.scheduleMobileTaskDockRecovery(reason, {
+                    element: target,
+                    attempt: attempt + 1,
+                    maxAttempts,
+                    delayMs: Math.min(2200, Math.round(delayMs * 1.8)),
+                });
+            }
+        }, delayMs);
+    }
+
     initTaskDock() {
         if (this.isRuntimeMobileClient()) return;
         this._taskDockSettingsHandler = () => {
@@ -2483,10 +2603,24 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         }
     }
 
+    initMobileTaskDock() {
+        if (!this.isRuntimeMobileClient()) return;
+        this._taskMobileDockSettingsHandler = () => this.handleMobileTaskDockSettingsChanged();
+        this._taskMobileDockStorageHandler = (event) => {
+            if (String(event?.key || "") !== MOBILE_SIDEBAR_ENABLED_STORAGE_KEY) return;
+            this.handleMobileTaskDockSettingsChanged();
+        };
+        try { window.addEventListener("tm:task-horizon-dock-settings-changed", this._taskMobileDockSettingsHandler); } catch (e) {}
+        try { window.addEventListener("storage", this._taskMobileDockStorageHandler); } catch (e) {}
+        if (readMobileSidebarEnabled()) {
+            this.ensureMobileTaskDockRegistered("startup");
+        }
+    }
+
     handleTaskDockSettingsChanged() {
         if (this.isRuntimeMobileClient()) {
             this.destroyTaskDockFrame();
-            this.syncTaskDockVisibility();
+            this.syncMobileTaskDockVisibility();
             return;
         }
         const settings = readTaskDockSettings();
@@ -2499,8 +2633,23 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this.syncTaskDockVisibility();
     }
 
+    handleMobileTaskDockSettingsChanged() {
+        if (!this.isRuntimeMobileClient()) return;
+        if (readMobileSidebarEnabled()) {
+            this.ensureMobileTaskDockRegistered("settings");
+            this.reloadMobileTaskDockFrame();
+        } else {
+            this.destroyTaskDockFrame();
+            if (this._taskDockAdded && typeof this.removeDock === "function") {
+                try { this.removeDock(TASK_DOCK_TYPE); } catch (e) {}
+                this._taskDockAdded = false;
+                this._taskDockElement = null;
+            }
+        }
+        this.syncMobileTaskDockVisibility();
+    }
+
     ensureTaskDockRegistered(reason = "manual") {
-        if (this.isRuntimeMobileClient()) return false;
         if (typeof this.addDock !== "function") return false;
         if (this._taskDockAdded) {
             this.syncTaskDockVisibility();
@@ -2561,18 +2710,87 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         return true;
     }
 
+    ensureMobileTaskDockRegistered(reason = "manual") {
+        if (!this.isRuntimeMobileClient() || !readMobileSidebarEnabled()) return false;
+        if (typeof this.addDock !== "function") return false;
+        if (this._taskDockAdded) {
+            this.syncMobileTaskDockVisibility();
+            return true;
+        }
+        const plugin = this;
+        this.addDock({
+            type: TASK_DOCK_TYPE,
+            config: {
+                position: "RightBottom",
+                size: { width: 420, height: 680 },
+                icon: ICON_ID,
+                title: TASK_DOCK_TITLE,
+            },
+            data: { plugin: this, reason },
+            init() {
+                plugin._taskDockElement = this.element || null;
+                plugin._taskDockOpen = true;
+                notifyTaskHorizonHostLifecycle("dock-init", this.element || null);
+                const mounted = plugin.mountTaskDockElement(this.element || null);
+                if (!mounted) {
+                    plugin.scheduleMobileTaskDockRecovery("dock-init", { element: this.element || null });
+                }
+            },
+            update() {
+                plugin._taskDockElement = this.element || null;
+                plugin._taskDockOpen = true;
+                notifyTaskHorizonHostLifecycle("dock-update", this.element || null);
+                const mounted = plugin.mountTaskDockElement(this.element || null, { reactivate: false, reason: "update" });
+                if (!mounted) {
+                    plugin.scheduleMobileTaskDockRecovery("dock-update", { element: this.element || null });
+                }
+            },
+            destroy() {
+                if (plugin._taskDockElement === (this.element || null)) {
+                    plugin._taskDockElement = null;
+                }
+                plugin._taskDockOpen = false;
+                plugin.destroyTaskDockFrame(this.element || null);
+                notifyTaskHorizonHostLifecycle("dock-destroy", this.element || null);
+            },
+        });
+        this._taskDockAdded = true;
+        this.syncMobileTaskDockVisibility();
+        return true;
+    }
+
     getTaskDockHosts() {
         return getDockHostsByType(TASK_DOCK_TYPE);
     }
 
     syncTaskDockVisibility() {
-        const visible = !this.isRuntimeMobileClient() && readTaskDockSettings().enabled;
+        const visible = readTaskDockSettings().enabled;
         const hosts = this.getTaskDockHosts();
         hosts.forEach((host) => {
             try { host.style.display = visible ? "" : "none"; } catch (e) {}
             try {
                 if (visible) host.removeAttribute("aria-hidden");
                 else host.setAttribute("aria-hidden", "true");
+            } catch (e) {}
+        });
+    }
+
+    syncMobileTaskDockVisibility() {
+        if (!this.isRuntimeMobileClient()) return;
+        const visible = readMobileSidebarEnabled();
+        getMobileTaskDockNodes(this).forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            if (!visible) clearFocusInsideElement(node);
+            try { node.style.display = visible ? "" : "none"; } catch (e) {}
+            try { node.classList.toggle("fn__none", !visible); } catch (e) {}
+            try {
+                if (visible) {
+                    node.removeAttribute("inert");
+                    node.removeAttribute("aria-hidden");
+                } else {
+                    node.setAttribute("inert", "");
+                    node.setAttribute("aria-hidden", "true");
+                }
             } catch (e) {}
         });
     }
@@ -2656,7 +2874,9 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             element.style.overscrollBehavior = "none";
         } catch (e) {}
         try {
-            const containmentHosts = getDockContainmentHosts(element);
+            const containmentHosts = this.isRuntimeMobileClient()
+                ? getMobileDockContainmentHosts(element)
+                : getDockContainmentHosts(element);
             containmentHosts.forEach((host) => {
                 host.style.minWidth = "0";
                 host.style.minHeight = "0";
@@ -2705,7 +2925,9 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         const fromRecovery = options?.fromRecovery === true;
         this._taskDockElement = element;
         this._taskDockOpen = true;
-        const settings = readTaskDockSettings();
+        const settings = this.isRuntimeMobileClient()
+            ? { enabled: readMobileSidebarEnabled() }
+            : readTaskDockSettings();
         if (!settings.enabled) {
             this.renderTaskDockNotice(
                 element,
@@ -2784,6 +3006,17 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         }
     }
 
+    reloadMobileTaskDockFrame() {
+        if (!this.isRuntimeMobileClient()) return;
+        const element = this.resolveMobileTaskDockElement();
+        if (!(element instanceof HTMLElement)) return;
+        this.destroyTaskDockFrame(element);
+        const mounted = this.mountTaskDockElement(element, { reactivate: true, reason: "mobile-reload" });
+        if (!mounted) {
+            this.scheduleMobileTaskDockRecovery("mobile-dock-reload", { element });
+        }
+    }
+
     onunload() {
         clearPluginResourceTextCache();
         this._taskDataChangedQueued = false;
@@ -2827,6 +3060,14 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 window.removeEventListener("storage", this._taskDockStorageHandler);
                 this._taskDockStorageHandler = null;
             }
+            if (this._taskMobileDockSettingsHandler) {
+                window.removeEventListener("tm:task-horizon-dock-settings-changed", this._taskMobileDockSettingsHandler);
+                this._taskMobileDockSettingsHandler = null;
+            }
+            if (this._taskMobileDockStorageHandler) {
+                window.removeEventListener("storage", this._taskMobileDockStorageHandler);
+                this._taskMobileDockStorageHandler = null;
+            }
         } catch (e) {}
         try { this.cancelTaskDockRecovery(); } catch (e) {}
         try { this.removeCalendarSubscriptionTopBar(); } catch (e) {}
@@ -2850,6 +3091,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonPluginManifest; } catch (e) {}
         try { delete globalThis.__taskHorizonPluginIsMobile; } catch (e) {}
         try { delete globalThis.__taskHorizonPluginIsNativeMobile; } catch (e) {}
+        try { delete globalThis.__taskHorizonMobileColdStartPending; } catch (e) {}
         try { delete globalThis.__taskHorizonFrontend; } catch (e) {}
         try { delete globalThis.__taskHorizonRuntimeClientKind; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTab; } catch (e) {}
@@ -2873,7 +3115,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonEnsureAiModuleLoaded; } catch (e) {}
         try { delete globalThis.__taskHorizonGetAiExperienceMode; } catch (e) {}
         try { delete globalThis.__taskHorizonSetAiExperienceMode; } catch (e) {}
-        try { delete globalThis.__taskHorizonAgentActionDescriptors; } catch (e) {}
         try { delete globalThis.__taskHorizonFrontendCapabilityDescriptors; } catch (e) {}
         try { delete globalThis.__taskHorizonInvokeAgentAction; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureXlsxModuleLoaded; } catch (e) {}

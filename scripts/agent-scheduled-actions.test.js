@@ -28,12 +28,16 @@ const installedSkills = {
 class PluginStub {
     constructor() {
         this.name = 'siyuan-plugin-task-horizon';
+        this.displayName = 'Task Horizon';
         this.app = {};
+        this.agentCapabilities = [];
     }
 
-    addAgentAction(options) {
+    addAgentCapability(options) {
         registered.push(options);
-        return `plugin__${this.name}__${options.name}`;
+        const id = `plugin/frontend/${this.name}/${options.name}`;
+        this.agentCapabilities.push({ id, generation: this.agentCapabilities.length + 1 });
+        return id;
     }
 
     async loadData(name) {

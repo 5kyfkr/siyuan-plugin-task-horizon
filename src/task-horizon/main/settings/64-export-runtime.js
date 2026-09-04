@@ -104,12 +104,12 @@
         'calendarIcsExcludeCompletedSchedules',
         'calendarIcsIncludeTomatoReminders',
         'calendarIcsIncludeTaskDates',
+        'calendarIcsIncludeTaskNotes',
         'calendarInitialView',
         'calendarInitialViewDesktop',
         'calendarInitialViewMobile',
         'calendarFirstDay',
         'calendarMonthAggregate',
-        'calendarMonthAdaptiveRowHeight',
         'calendarMonthMinVisibleEvents',
         'calendarShowSchedule',
         'calendarScheduleReminderEnabled',
@@ -151,10 +151,14 @@
         'calendarScheduleFollowDocColor',
         'calendar3DayTodayPosition',
         'calendarNewScheduleMaxDurationMin',
+        'calendarCreateTaskForIndependentSchedule',
+        'calendarIndependentScheduleTaskLocation',
         'calendarQuickAddScheduleTimeMode',
         'calendarQuickAddScheduleCustomTime',
         'calendarHourSlotHeightMode',
         'calendarEventFontSize',
+        'calendarEventOpacityLight',
+        'calendarEventOpacityDark',
         'calendarVisibleStartTime',
         'calendarVisibleEndTime',
         'calendarScheduleColor',
@@ -768,7 +772,19 @@
             waiting: '#999999',
             pending: '#8e69c9',
         };
-        if (task?.done === true) return makeInfo('完成', colors.done, '9');
+        if (task?.done === true) {
+            const completionRaw = typeof __tmResolveTaskCompletedAtRaw === 'function'
+                ? __tmResolveTaskCompletedAtRaw(task, { completedOnly: false })
+                : String(task?.taskCompleteAt || task?.task_complete_at || task?.completedAt || '').trim();
+            const completionStartTs = parseToLocalDayBoundaryTs(completionRaw, 'start');
+            const dueStartTs = parseToLocalDayBoundaryTs(task?.completionTime, 'start');
+            if (completionStartTs > 0 && dueStartTs > 0) {
+                const completedDeltaDays = Math.round((dueStartTs - completionStartTs) / DAY_MS);
+                if (completedDeltaDays > 0) return makeInfo(`提前${completedDeltaDays}天`, colors.done, '9', true);
+                if (completedDeltaDays < 0) return makeInfo(`延期${Math.abs(completedDeltaDays)}天`, colors.overdue, '9', true);
+            }
+            return makeInfo('完成', colors.done, '9');
+        }
 
         const startStartTs = parseToLocalDayBoundaryTs(task?.startDate, 'start');
         const startEndTs = parseToLocalDayBoundaryTs(task?.startDate, 'end');

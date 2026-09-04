@@ -33,6 +33,7 @@ assert.doesNotMatch(nativeCheck, /userAgent|innerWidth|matchMedia/, 'native App 
 assert.match(index, /_taskMobileStartupColdLoad = this\._taskMobileStartupAutoOpenEnabled[\s\S]*siyuan\?\.isReady !== true/, 'hot plugin loads after SiYuan readiness must not auto-open');
 assert.match(index, /globalThis\?\.siyuan\?\.isReady === true && typeof opener === "function"/, 'startup opening must wait for SiYuan and the manager runtime');
 assert.match(index, /__taskHorizonOpenManagerFromTopbarEntry/, 'startup must use the mobile-compatible manager opener');
+assert.match(index, /opener\(\{[\s\S]*awaitInitialLoad: true,[\s\S]*source: "mobile-startup-auto-open"/, 'startup must wait for the initial task data load before completing auto-open');
 assert.match(index, /sessionStorage\?\.setItem\?\.\(sessionKey, "1"\)/, 'startup must be guarded once per workspace session');
 assert.match(index, /MOBILE_STARTUP_READY_TIMEOUT_MS/, 'readiness waiting must be bounded');
 assert.match(index, /onLayoutReady\(\)[\s\S]*scheduleMobileStartupAutoOpen\(\)/, 'auto-open must begin from the layout-ready lifecycle');
@@ -59,5 +60,13 @@ assert.match(settings, /Android、iOS 和 HarmonyOS 思源 App 冷启动后生�
 assert.match(settings, /updateMobileAutoOpenOnStartup\(this\.checked\)/, 'the switch must call its settings action');
 assert.match(actions, /window\.updateMobileAutoOpenOnStartup = async function\(enabled\)/, 'the switch action must exist');
 assert.match(actions, /SettingsStore\.data\.mobileAutoOpenOnStartup = enabled === true/, 'the switch action must store a strict boolean');
+
+const lifecycle = fs.readFileSync(
+    path.join(root, 'src/task-horizon/main/shell/80-shell-lifecycle.js'),
+    'utf8',
+);
+assert.match(lifecycle, /const mobileStartupOpen = openOptions\.source === 'mobile-startup-auto-open'/, 'manager open must identify the cold-start path');
+assert.match(lifecycle, /waitNotebookCache: hardenMobileStartupLoad,[\s\S]*waitForDocScopeResolve: hardenMobileStartupLoad,[\s\S]*retryEmptyDocScope: hardenMobileStartupLoad/, 'cold-start loading must wait for notebook cache and retry an empty configured scope');
+assert.match(lifecycle, /if \(awaitInitialLoad\) return await initialLoadPromise/, 'cold-start opener must await the first task load');
 
 console.log('mobile startup auto-open contract tests passed');

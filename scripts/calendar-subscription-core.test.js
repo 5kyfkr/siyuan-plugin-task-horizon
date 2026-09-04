@@ -26,6 +26,7 @@ const timed = core.serializeCalendar({
         uidSeed: 'schedule:s1:100',
         source: 'schedule',
         title: '评审;会议',
+        description: '备注第一行\n备注,第二行;\\第三行',
         startAt: Date.UTC(2026, 6, 25, 1, 0, 0),
         endAt: Date.UTC(2026, 6, 25, 2, 0, 0),
         alarm: { trigger: '-PT15M' },
@@ -42,6 +43,7 @@ assert.match(timed, /DTEND;TZID=Asia\/Shanghai:20260725T100000/);
 assert.doesNotMatch(timed, /DTSTART:.*Z|DTEND:.*Z/, 'event times must not be serialized as UTC');
 assert.match(timed, /TRIGGER:-PT15M/);
 assert.match(timed, /SUMMARY:评审\\;会议/);
+assert.match(timed, /DESCRIPTION:备注第一行\\n备注\\,第二行\\;\\\\第三行/);
 
 const pointInTime = core.serializeCalendar({
     generatedAt,

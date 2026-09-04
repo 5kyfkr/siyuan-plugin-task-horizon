@@ -678,6 +678,631 @@
         } catch (e) {}
     };
 
+    // A full-screen mobile manager can be dismissed directly from its bottom
+    // view bar. Keep Dock hosts out of this gesture: their bar is embedded in
+    // SiYuan and must continue yielding vertical movement to the host shell.
+    function __tmBindMobileFullscreenBottomViewbarSwipe(modalEl) {
+        try { state.mobileBottomViewbarSwipeCleanup?.(); } catch (e) {}
+        state.mobileBottomViewbarSwipeCleanup = null;
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof HTMLElement)
+            || !modal.classList.contains('tm-modal--mobile')
+            || modal.classList.contains('tm-modal--dock')) return false;
+        const bar = modal.querySelector('.tm-mobile-bottom-viewbar');
+        if (!(bar instanceof HTMLElement)) return false;
+
+        let inputSource = '';
+        let activePointerId = null;
+        let startX = NaN;
+        let startY = NaN;
+        let lastX = NaN;
+        let lastY = NaN;
+        let axis = '';
+        let tracking = false;
+        let gestureStartedAt = 0;
+        let touchStreamActive = false;
+        let closing = false;
+        let suppressClickUntil = 0;
+        let settleAnimation = null;
+        let dismissTransitionEndHandler = null;
+        let pointerCancelSettleTimer = 0;
+        let pageScrollLockSnapshot = null;
+        let pageScrollUnlockTimer = 0;
+
+        const setPageScrollLock = (locked) => {
+            const html = document.documentElement;
+            const body = document.body;
+            if (!(html instanceof HTMLElement) || !(body instanceof HTMLElement)) return;
+            if (locked) {
+                if (pageScrollUnlockTimer) {
+                    try { clearTimeout(pageScrollUnlockTimer); } catch (e) {}
+                    pageScrollUnlockTimer = 0;
+                }
+                if (pageScrollLockSnapshot) return;
+                pageScrollLockSnapshot = {
+                    htmlOverflow: html.style.overflow,
+                    htmlOverscrollBehavior: html.style.overscrollBehavior,
+                    htmlTouchAction: html.style.touchAction,
+                    bodyOverflow: body.style.overflow,
+                    bodyOverscrollBehavior: body.style.overscrollBehavior,
+                    bodyTouchAction: body.style.touchAction,
+                };
+                try { html.style.setProperty('overflow', 'hidden', 'important'); } catch (e) {}
+                try { html.style.setProperty('overscroll-behavior', 'none', 'important'); } catch (e) {}
+                try { html.style.setProperty('touch-action', 'none', 'important'); } catch (e) {}
+                try { body.style.setProperty('overflow', 'hidden', 'important'); } catch (e) {}
+                try { body.style.setProperty('overscroll-behavior', 'none', 'important'); } catch (e) {}
+                try { body.style.setProperty('touch-action', 'none', 'important'); } catch (e) {}
+                return;
+            }
+            const snapshot = pageScrollLockSnapshot;
+            pageScrollLockSnapshot = null;
+            if (pageScrollUnlockTimer) {
+                try { clearTimeout(pageScrollUnlockTimer); } catch (e) {}
+                pageScrollUnlockTimer = 0;
+            }
+            if (!snapshot) return;
+            try { html.style.overflow = snapshot.htmlOverflow; } catch (e) {}
+            try { html.style.overscrollBehavior = snapshot.htmlOverscrollBehavior; } catch (e) {}
+            try { html.style.touchAction = snapshot.htmlTouchAction; } catch (e) {}
+            try { body.style.overflow = snapshot.bodyOverflow; } catch (e) {}
+            try { body.style.overscrollBehavior = snapshot.bodyOverscrollBehavior; } catch (e) {}
+            try { body.style.touchAction = snapshot.bodyTouchAction; } catch (e) {}
+        };
+
+        const reducedMotion = () => {
+            try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches; } catch (e) { return false; }
+        };
+        const getPoint = (event, touchId = null) => {
+            if (String(event?.type || '').startsWith('pointer')) {
+                const x = Number(event?.clientX);
+                const y = Number(event?.clientY);
+                return Number.isFinite(x) && Number.isFinite(y) ? { x, y, id: event.pointerId } : null;
+            }
+            const touches = event?.changedTouches || event?.touches;
+            if (!touches?.length) return null;
+            const touch = touchId === null
+                ? touches[0]
+                : Array.from(touches).find((item) => item.identifier === touchId) || touches[0];
+            const x = Number(touch?.clientX);
+            const y = Number(touch?.clientY);
+            return Number.isFinite(x) && Number.isFinite(y) ? { x, y, id: touch.identifier } : null;
+        };
+        const isBarTarget = (event) => {
+            const target = event?.target instanceof Element ? event.target : null;
+            if (!target) return false;
+            try { return !!target.closest?.('.tm-mobile-bottom-viewbar'); } catch (e) { return false; }
+        };
+        const viewportHeightOf = () => Math.max(1, Number(modal.clientHeight || 0), Number(window.innerHeight || 0));
+        // A large viewport percentage is too long for a gesture that starts on
+        // a small bar at the bottom of the screen - normal swipes rarely reach it,
+        // which made dismissal feel nearly impossible. Use a much shorter base
+        // distance so an ordinary upward swipe qualifies.
+        const baseDismissDistance = () => {
+            const viewportHeight = viewportHeightOf();
+            return Math.max(24, Math.min(44, Math.round(viewportHeight * 0.04)));
+        };
+        // The fullscreen shell is dismissed only by an upward swipe. Keep one
+        // direction-independent threshold so downward movement can never sneak
+        // through a special "room below" or velocity path.
+        const resolveDismissThreshold = () => baseDismissDistance();
+        const isVerticalIntent = (dx, dy) => {
+            const absX = Math.abs(Number(dx) || 0);
+            const absY = Math.abs(Number(dy) || 0);
+            // Allow a natural diagonal start, but keep horizontal tab scrolling
+            // from being mistaken for a dismiss gesture.
+            return absY >= 6 && absY >= absX * 0.8;
+        };
+        const clearMotionStyles = () => {
+            try { modal.style.removeProperty('transform'); } catch (e) {}
+            try { modal.style.removeProperty('will-change'); } catch (e) {}
+            try { modal.style.removeProperty('transition'); } catch (e) {}
+            try { modal.classList.remove('tm-modal--mobile-bottom-dismiss-drag', 'tm-modal--mobile-bottom-dismiss-closing'); } catch (e) {}
+            settleAnimation = null;
+        };
+        const cancelSettleAnimation = () => {
+            if (!settleAnimation) return;
+            try { settleAnimation.cancel?.(); } catch (e) {}
+            settleAnimation = null;
+        };
+        const clearCloseFallbackTimer = () => {
+            const timer = Number(state.mobileBottomViewbarDismissCloseTimer) || 0;
+            if (!timer) return;
+            try { clearTimeout(timer); } catch (e) {}
+            state.mobileBottomViewbarDismissCloseTimer = 0;
+        };
+        const clearPointerCancelSettleTimer = () => {
+            if (!pointerCancelSettleTimer) return;
+            try { clearTimeout(pointerCancelSettleTimer); } catch (e) {}
+            pointerCancelSettleTimer = 0;
+        };
+        const setDismissSurfaceLock = (locked) => {
+            try { document.documentElement?.classList?.toggle?.('tm-task-horizon-mobile-dismiss-drag', !!locked); } catch (e) {}
+        };
+        const resetTracking = (options = {}) => {
+            const releasePointerCapture = options?.releasePointerCapture !== false;
+            const releasePageScrollLock = options?.releasePageScrollLock !== false && !closing;
+            const pointerId = activePointerId;
+            if (releasePointerCapture && Number.isFinite(Number(pointerId))) {
+                try { bar.releasePointerCapture?.(Number(pointerId)); } catch (e) {}
+            }
+            inputSource = '';
+            activePointerId = null;
+            startX = NaN;
+            startY = NaN;
+            lastX = NaN;
+            lastY = NaN;
+            axis = '';
+            tracking = false;
+            gestureStartedAt = 0;
+            touchStreamActive = false;
+            try { bar.classList.remove('tm-mobile-bottom-viewbar--gesture-active'); } catch (e) {}
+            state.mobileBottomViewbarDismissDragging = false;
+            if (releasePageScrollLock) setPageScrollLock(false);
+        };
+        const settleBack = () => {
+            const currentY = Number.isFinite(lastY) && Number.isFinite(startY)
+                ? Math.min(0, lastY - startY)
+                : 0;
+            resetTracking();
+            if (reducedMotion() || typeof modal.animate !== 'function') {
+                setDismissSurfaceLock(false);
+                clearMotionStyles();
+                return;
+            }
+            cancelSettleAnimation();
+            try {
+                modal.style.setProperty('will-change', 'transform');
+                settleAnimation = modal.animate([
+                    { transform: `translate3d(0, ${Math.round(currentY)}px, 0)` },
+                    { transform: 'translate3d(0, 0, 0)' },
+                ], {
+                    duration: 180,
+                    easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+                    fill: 'forwards',
+                });
+                settleAnimation.onfinish = () => { setDismissSurfaceLock(false); clearMotionStyles(); };
+                settleAnimation.oncancel = () => { setDismissSurfaceLock(false); clearMotionStyles(); };
+            } catch (e) {
+                setDismissSurfaceLock(false);
+                clearMotionStyles();
+            }
+        };
+        const finishDismiss = (direction) => {
+            // This guard is intentionally inside the finalizer as well as at
+            // each recognition site. It keeps future callers from re-enabling
+            // the old downward-close behavior by passing a positive direction.
+            if (Number(direction) !== -1) return;
+            if (closing) return;
+            const currentY = Number.isFinite(lastY) && Number.isFinite(startY) ? lastY - startY : 0;
+            closing = true;
+            state.mobileBottomViewbarDismissClosing = true;
+            clearCloseFallbackTimer();
+            // Keep the active pointer captured until tmClose() removes the
+            // modal. Otherwise the tail of the dismiss animation can retarget
+            // the touch to SiYuan's page and start native vertical scrolling.
+            resetTracking({ releasePointerCapture: false, releasePageScrollLock: false });
+            cancelSettleAnimation();
+            suppressClickUntil = Date.now() + 700;
+            setDismissSurfaceLock(true);
+            const transientTaskDetailSelectors = [
+                '#tmTaskDetailSheetBackdrop',
+                '#tmTaskDetailSheet',
+                '#tmChecklistSheetBackdrop',
+                '#tmChecklistSheet',
+                '.tm-checklist-sheet-backdrop',
+                '.tm-checklist-sheet',
+                '#tm-task-detail-overlay',
+                '.tm-task-detail-overlay',
+                '#tmKanbanDetailFloat',
+                '.tm-checklist-side',
+                '.tm-checklist-detail-wrap',
+                '.tm-checklist-sheet-body',
+                '.tm-task-detail-shell',
+                '.tm-task-detail',
+                '.tm-checklist-detail-card',
+                '.tm-task-detail-note-view',
+                '.tm-task-detail-note-mount',
+                '.tm-task-detail-note-loading',
+                '.tm-checklist-empty-detail',
+            ].join(',');
+            const removeTransientTaskDetailSurface = (root) => {
+                if (!(root instanceof Element)) return;
+                try { globalThis.__tmDisposeTaskDetailRuntime?.(root); } catch (e) {}
+                const isLiveModal = root === modal;
+                const concealOrRemove = (el) => {
+                    try {
+                        if (isLiveModal) {
+                            el.style.setProperty('display', 'none', 'important');
+                            el.style.setProperty('visibility', 'hidden', 'important');
+                            el.style.setProperty('pointer-events', 'none', 'important');
+                        } else {
+                            el.remove();
+                        }
+                    } catch (e) {}
+                };
+                try {
+                    if (root.matches?.(transientTaskDetailSelectors)) concealOrRemove(root);
+                    root.querySelectorAll(transientTaskDetailSelectors).forEach(concealOrRemove);
+                } catch (e) {}
+            };
+            // A Dock keepalive snapshot can contain the task-detail sheet that
+            // was open during the host handoff. It is temporary and must not
+            // be exposed underneath the full-screen dismiss animation.
+            try {
+                removeTransientTaskDetailSurface(modal);
+                document.querySelectorAll('[data-task-horizon-dock-snapshot="1"], .tm-modal--dock-snapshot, .tm-modal--dock')
+                    .forEach((shell) => {
+                        if (!(shell instanceof HTMLElement) || shell === modal) return;
+                        try {
+                            shell.style.setProperty('display', 'none', 'important');
+                            shell.style.setProperty('visibility', 'hidden', 'important');
+                            shell.style.setProperty('pointer-events', 'none', 'important');
+                        } catch (e) {}
+                        removeTransientTaskDetailSurface(shell);
+                    });
+                // Standalone task details are mounted on body rather than the
+                // modal stage; remove them before the host is revealed too.
+                document.querySelectorAll('#tm-task-detail-overlay, .tm-task-detail-overlay, #tmKanbanDetailFloat')
+                    .forEach(removeTransientTaskDetailSurface);
+            } catch (e) {}
+            try { bar.setAttribute('aria-hidden', 'true'); } catch (e) {}
+            try {
+                modal.classList.remove('tm-modal--mobile-bottom-dismiss-drag');
+                modal.classList.add('tm-modal--mobile-bottom-dismiss-closing');
+            } catch (e) {}
+            const height = Math.max(
+                1,
+                Number(modal.clientHeight || 0),
+                Number(window.innerHeight || 0),
+                Number(document.documentElement?.clientHeight || 0),
+            );
+            const targetY = -height;
+            const close = () => {
+                clearCloseFallbackTimer();
+                if (dismissTransitionEndHandler) {
+                    try { modal.removeEventListener('transitionend', dismissTransitionEndHandler); } catch (e) {}
+                    dismissTransitionEndHandler = null;
+                }
+                try {
+                    if (typeof window.tmClose === 'function') window.tmClose();
+                    else {
+                        try { modal.remove(); } catch (e) {}
+                        if (state.modal === modal) state.modal = null;
+                    }
+                } catch (e) {
+                } finally {
+                    // tmClose() removes the modal synchronously. Clear the
+                    // animation styles after removal so table/list content
+                    // cannot flash back to its original position for one frame.
+                    try {
+                        if (document.body.contains(modal)) {
+                            modal.style.setProperty('visibility', 'hidden', 'important');
+                            modal.style.setProperty('pointer-events', 'none', 'important');
+                        }
+                    } catch (e) {}
+                    clearMotionStyles();
+                    state.mobileBottomViewbarDismissClosing = false;
+                    setDismissSurfaceLock(false);
+                    setPageScrollLock(false);
+                }
+            };
+            const runCssDismiss = () => {
+                try {
+                    modal.style.setProperty('will-change', 'transform');
+                    modal.style.setProperty('transition', 'none');
+                    modal.style.transform = `translate3d(0, ${Math.round(currentY)}px, 0)`;
+                    // Force the starting position to be committed before the
+                    // target is applied, otherwise WebView may coalesce both
+                    // writes and skip the visible slide animation.
+                    void modal.offsetHeight;
+                    modal.style.setProperty('transition', 'transform 280ms cubic-bezier(0.16, 1, 0.3, 1)');
+                    const applyTarget = () => {
+                        try { modal.style.transform = `translate3d(0, ${targetY}px, 0)`; } catch (e) {}
+                    };
+                    if (typeof requestAnimationFrame === 'function') {
+                        requestAnimationFrame(() => requestAnimationFrame(applyTarget));
+                    } else {
+                        setTimeout(applyTarget, 16);
+                    }
+                    dismissTransitionEndHandler = (event) => {
+                        if (event?.target !== modal || String(event?.propertyName || '') !== 'transform') return;
+                        close();
+                    };
+                    modal.addEventListener('transitionend', dismissTransitionEndHandler);
+                    state.mobileBottomViewbarDismissCloseTimer = setTimeout(close, 360);
+                } catch (e) {
+                    close();
+                }
+            };
+            runCssDismiss();
+        };
+        const finishInput = (event, source, cancelled = false) => {
+            if (closing) {
+                try { event?.preventDefault?.(); } catch (e) {}
+                try { event?.stopPropagation?.(); } catch (e) {}
+                try { event?.stopImmediatePropagation?.(); } catch (e) {}
+                return;
+            }
+            if (!tracking || inputSource !== source) return;
+            if (source === 'pointer' && event?.pointerId !== activePointerId) return;
+            const point = getPoint(event);
+            if (point) {
+                lastX = point.x;
+                lastY = point.y;
+            }
+            const dx = Number.isFinite(lastX) && Number.isFinite(startX) ? lastX - startX : 0;
+            const dy = Number.isFinite(lastY) && Number.isFinite(startY) ? lastY - startY : 0;
+            const viewportHeight = viewportHeightOf();
+            const threshold = resolveDismissThreshold();
+            const elapsedMs = Math.max(1, Date.now() - (Number(gestureStartedAt) || Date.now()));
+            const averageVelocity = Math.abs(dy) / elapsedMs;
+            // Re-evaluate the final axis from the complete displacement. Some
+            // mobile WebViews drop an intermediate move, leaving `axis` empty
+            // even though the release is clearly a vertical swipe. Vertical only
+            // needs to dominate - real swipes rarely stay perfectly axis-aligned.
+            const verticalIntent = isVerticalIntent(dx, dy);
+            // A fast swipe can be cancelled by the WebView before a final
+            // pointerup/touchend is delivered. Accept a shorter, high-velocity
+            // vertical stream so it still enters the same animated dismissal.
+            const quickVerticalIntent = dy < 0
+                && Math.abs(dy) >= Math.max(16, Math.min(32, Math.round(viewportHeight * 0.045)))
+                && verticalIntent
+                && averageVelocity >= 0.3
+                && elapsedMs <= 420;
+            // A cancelled stream (touchcancel / pointercancel with no follow-up)
+            // means the WebView already took the gesture away; by then the user has
+            // clearly attempted a vertical drag on the bar, so accept a shorter
+            // travel than a normal release would need.
+            const cancelledShortDismiss = !!cancelled
+                && dy < 0
+                && verticalIntent
+                && Math.abs(dy) >= Math.max(12, Math.min(26, Math.round(viewportHeight * 0.035)));
+            const didDismiss = dy < 0
+                && Math.abs(dy) >= threshold
+                && (axis === 'y' || verticalIntent);
+            const shouldDismiss = didDismiss || quickVerticalIntent || cancelledShortDismiss;
+            if (shouldDismiss) {
+                try { event.preventDefault?.(); } catch (e) {}
+                try { event.stopPropagation?.(); } catch (e) {}
+                try { event.stopImmediatePropagation?.(); } catch (e) {}
+                finishDismiss(-1);
+                return;
+            }
+            if (axis !== 'y') {
+                setDismissSurfaceLock(false);
+                resetTracking();
+                clearMotionStyles();
+                return;
+            }
+            setDismissSurfaceLock(true);
+            if (axis === 'y' && Math.abs(dy) >= 6) suppressClickUntil = Date.now() + 260;
+            settleBack();
+        };
+        const beginInput = (event, source) => {
+            if (closing) return;
+            clearPointerCancelSettleTimer();
+            setDismissSurfaceLock(false);
+            if (source === 'pointer') {
+                const pointerType = String(event?.pointerType || '').trim().toLowerCase();
+                if (pointerType && pointerType !== 'touch' && pointerType !== 'pen') return;
+                if (inputSource === 'pointer') return;
+            } else {
+                if (inputSource === 'pointer' || event?.touches?.length > 1) return;
+            }
+            const point = getPoint(event);
+            if (!point) return;
+            cancelSettleAnimation();
+            clearMotionStyles();
+            inputSource = source;
+            activePointerId = source === 'pointer' ? point.id : null;
+            if (source === 'pointer' && Number.isFinite(Number(point.id))) {
+                try { bar.setPointerCapture?.(Number(point.id)); } catch (e) {}
+            }
+            startX = point.x;
+            startY = point.y;
+            lastX = point.x;
+            lastY = point.y;
+            axis = '';
+            tracking = true;
+            gestureStartedAt = Date.now();
+            state.mobileBottomViewbarDismissDragging = true;
+            try { bar.classList.add('tm-mobile-bottom-viewbar--gesture-active'); } catch (e) {}
+        };
+        const moveInput = (event, source) => {
+            if (closing) {
+                try { event?.preventDefault?.(); } catch (e) {}
+                try { event?.stopPropagation?.(); } catch (e) {}
+                try { event?.stopImmediatePropagation?.(); } catch (e) {}
+                return;
+            }
+            if (!tracking || inputSource !== source) return;
+            if (source === 'pointer' && event?.pointerId !== activePointerId) return;
+            const point = getPoint(event);
+            if (!point) return;
+            lastX = point.x;
+            lastY = point.y;
+            const dx = point.x - startX;
+            const dy = point.y - startY;
+            if (!axis && Math.hypot(dx, dy) >= 6 && isVerticalIntent(dx, dy)) {
+                // Do not lock onto the horizontal axis on the first move. A
+                // diagonal start can become a vertical swipe a few frames later.
+                axis = 'y';
+            }
+            if (axis !== 'y') return;
+            setDismissSurfaceLock(true);
+            setPageScrollLock(true);
+            try { event.preventDefault?.(); } catch (e) {}
+            try { event.stopPropagation?.(); } catch (e) {}
+            try { event.stopImmediatePropagation?.(); } catch (e) {}
+            try {
+                modal.classList.add('tm-modal--mobile-bottom-dismiss-drag');
+                modal.style.setProperty('will-change', 'transform');
+                // Downward movement is tracked only to reject it. Keep the
+                // shell pinned instead of visibly dropping over the table.
+                modal.style.transform = `translate3d(0, ${Math.round(Math.min(0, dy))}px, 0)`;
+            } catch (e) {}
+            // Commit as soon as the drag is clearly vertical and has covered the
+            // same distance used on release. Committing mid-stream also covers
+            // WebViews that stop delivering the release event after a move.
+            if (dy < 0 && Math.abs(dy) >= resolveDismissThreshold() && axis === 'y') {
+                finishDismiss(-1);
+            }
+        };
+        const onPointerDown = (event) => beginInput(event, 'pointer');
+        const onPointerMove = (event) => moveInput(event, 'pointer');
+        const onPointerUp = (event) => finishInput(event, 'pointer');
+        const onPointerCancel = (event) => {
+            // Hybrid WebViews can cancel the Pointer stream as native touch
+            // events continue. Hand the same gesture to the Touch path instead
+            // of resetting it before the final release can trigger dismissal.
+            const pointerType = String(event?.pointerType || '').trim().toLowerCase();
+            if (pointerType === 'touch' && tracking) {
+                const point = getPoint(event);
+                if (point) {
+                    lastX = point.x;
+                    lastY = point.y;
+                }
+                const dx = Number.isFinite(lastX) && Number.isFinite(startX) ? lastX - startX : 0;
+                const dy = Number.isFinite(lastY) && Number.isFinite(startY) ? lastY - startY : 0;
+                const viewportHeight = viewportHeightOf();
+                const threshold = resolveDismissThreshold();
+                const elapsedMs = Math.max(1, Date.now() - (Number(gestureStartedAt) || Date.now()));
+                const verticalIntent = isVerticalIntent(dx, dy);
+                const quickVerticalIntent = dy < 0
+                    && Math.abs(dy) >= Math.max(16, Math.min(32, Math.round(viewportHeight * 0.045)))
+                    && verticalIntent
+                    && Math.abs(dy) / elapsedMs >= 0.3
+                    && elapsedMs <= 420;
+                // When the WebView claims the pan it may stop delivering the whole
+                // input stream (no continuing touch events, no release). A drag that
+                // already shows clear vertical intent should dismiss from the
+                // distance it covered instead of bouncing back to the settled state.
+                const cancelledVerticalDrag = verticalIntent
+                    && dy < 0
+                    && Math.abs(dy) >= Math.max(12, Math.min(26, Math.round(viewportHeight * 0.035)));
+                if (dy < 0
+                    && (axis === 'y' || verticalIntent)
+                    && (Math.abs(dy) >= threshold || quickVerticalIntent || cancelledVerticalDrag)) {
+                    try { event?.preventDefault?.(); } catch (e) {}
+                    try { event?.stopPropagation?.(); } catch (e) {}
+                    try { event?.stopImmediatePropagation?.(); } catch (e) {}
+                    finishDismiss(-1);
+                    return;
+                }
+                clearPointerCancelSettleTimer();
+                try { event?.preventDefault?.(); } catch (e) {}
+                try { event?.stopPropagation?.(); } catch (e) {}
+                try { event?.stopImmediatePropagation?.(); } catch (e) {}
+                inputSource = 'touch';
+                activePointerId = null;
+                if (!touchStreamActive) {
+                    pointerCancelSettleTimer = setTimeout(() => {
+                        pointerCancelSettleTimer = 0;
+                        if (!closing && tracking && inputSource === 'touch' && !touchStreamActive) settleBack();
+                    }, 320);
+                }
+                return;
+            }
+            finishInput(event, 'pointer', true);
+        };
+        const onTouchStart = (event) => {
+            clearPointerCancelSettleTimer();
+            touchStreamActive = !(event?.touches?.length > 1);
+            beginInput(event, 'touch');
+        };
+        const onTouchMove = (event) => moveInput(event, 'touch');
+        const onTouchEnd = (event) => {
+            touchStreamActive = false;
+            finishInput(event, 'touch');
+        };
+        const onTouchCancel = (event) => {
+            touchStreamActive = false;
+            finishInput(event, 'touch', true);
+        };
+        // Start listeners at window capture as well as on the bar: a host shell
+        // may stop propagation inside its own capture phase before the event ever
+        // reaches the bar element. The bar-target filter keeps other touches out.
+        const onWindowPointerDown = (event) => { if (!isBarTarget(event)) return; beginInput(event, 'pointer'); };
+        const onWindowTouchStart = (event) => { if (!isBarTarget(event)) return; onTouchStart(event); };
+        const onDocumentMove = (event) => {
+            // A host-level listener may sit outside the modal subtree. Once a
+            // vertical dismiss is recognized, cancel that stream at document
+            // capture as a second barrier against native page scrolling.
+            if (!closing && axis !== 'y') return;
+            try { event?.preventDefault?.(); } catch (e) {}
+            try { event?.stopPropagation?.(); } catch (e) {}
+            try { event?.stopImmediatePropagation?.(); } catch (e) {}
+        };
+        const onClickCapture = (event) => {
+            if (Date.now() >= suppressClickUntil) return;
+            try { event.preventDefault?.(); } catch (e) {}
+            try { event.stopPropagation?.(); } catch (e) {}
+            try { event.stopImmediatePropagation?.(); } catch (e) {}
+        };
+
+        try { bar.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true }); } catch (e) {}
+        try { window.addEventListener('pointermove', onPointerMove, { capture: true, passive: false }); } catch (e) {}
+        try { window.addEventListener('pointerup', onPointerUp, { capture: true, passive: false }); } catch (e) {}
+        try { window.addEventListener('pointercancel', onPointerCancel, { capture: true, passive: false }); } catch (e) {}
+        try { bar.addEventListener('touchstart', onTouchStart, { capture: true, passive: true }); } catch (e) {}
+        try { window.addEventListener('touchmove', onTouchMove, { capture: true, passive: false }); } catch (e) {}
+        try { window.addEventListener('touchend', onTouchEnd, { capture: true, passive: false }); } catch (e) {}
+        try { window.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: false }); } catch (e) {}
+        try { window.addEventListener('pointerdown', onWindowPointerDown, { capture: true, passive: true }); } catch (e) {}
+        try { window.addEventListener('touchstart', onWindowTouchStart, { capture: true, passive: true }); } catch (e) {}
+        try { document.addEventListener('pointermove', onDocumentMove, { capture: true, passive: false }); } catch (e) {}
+        try { document.addEventListener('touchmove', onDocumentMove, { capture: true, passive: false }); } catch (e) {}
+        try { bar.addEventListener('click', onClickCapture, { capture: true, passive: false }); } catch (e) {}
+        const cleanup = () => {
+            try { bar.removeEventListener('pointerdown', onPointerDown, true); } catch (e) {}
+            try { window.removeEventListener('pointermove', onPointerMove, true); } catch (e) {}
+            try { window.removeEventListener('pointerup', onPointerUp, true); } catch (e) {}
+            try { window.removeEventListener('pointercancel', onPointerCancel, true); } catch (e) {}
+            try { bar.removeEventListener('touchstart', onTouchStart, true); } catch (e) {}
+            try { window.removeEventListener('touchmove', onTouchMove, true); } catch (e) {}
+            try { window.removeEventListener('touchend', onTouchEnd, true); } catch (e) {}
+            try { window.removeEventListener('touchcancel', onTouchCancel, true); } catch (e) {}
+            try { window.removeEventListener('pointerdown', onWindowPointerDown, true); } catch (e) {}
+            try { window.removeEventListener('touchstart', onWindowTouchStart, true); } catch (e) {}
+            try { document.removeEventListener('pointermove', onDocumentMove, true); } catch (e) {}
+            try { document.removeEventListener('touchmove', onDocumentMove, true); } catch (e) {}
+            try { bar.removeEventListener('click', onClickCapture, true); } catch (e) {}
+            if (!closing) clearCloseFallbackTimer();
+            if (dismissTransitionEndHandler) {
+                try { modal.removeEventListener('transitionend', dismissTransitionEndHandler); } catch (e) {}
+                dismissTransitionEndHandler = null;
+            }
+            clearPointerCancelSettleTimer();
+            setDismissSurfaceLock(false);
+            cancelSettleAnimation();
+            resetTracking();
+            if (closing) {
+                const release = () => {
+                    pageScrollUnlockTimer = setTimeout(() => {
+                        pageScrollUnlockTimer = 0;
+                        setPageScrollLock(false);
+                    }, 420);
+                };
+                try {
+                    requestAnimationFrame(() => requestAnimationFrame(release));
+                } catch (e) {
+                    release();
+                }
+            } else {
+                setPageScrollLock(false);
+            }
+            // During an active upward-dismiss, tmClose() removes the modal
+            // immediately after this cleanup. Keep its offscreen transform
+            // until removal so table view cannot flash back for one frame.
+            if (!closing) clearMotionStyles();
+            try { bar.removeAttribute('aria-hidden'); } catch (e) {}
+            if (state.mobileBottomViewbarSwipeCleanup === cleanup) state.mobileBottomViewbarSwipeCleanup = null;
+        };
+        state.mobileBottomViewbarSwipeCleanup = cleanup;
+        return true;
+    }
+
     function __tmMarkMobileBottomViewbarSwitching(bar, durationMs = 520) {
         const duration = Math.max(180, Math.min(1000, Math.round(Number(durationMs) || 520)));
         const until = Date.now() + duration;
@@ -985,6 +1610,14 @@
         try { state.dockTaskPointerDragAbort?.abort?.(); } catch (e) {}
         try { state.multiSelectPointerGestureCleanup?.(); } catch (e) {}
         try { state.multiSelectPointerSweepAbort?.abort?.(); } catch (e) {}
+        try { state.mobileBottomViewbarSwipeCleanup?.(); } catch (e) {}
+        try {
+            const timer = Number(state.mobileBottomViewbarDismissCloseTimer) || 0;
+            if (timer) clearTimeout(timer);
+            state.mobileBottomViewbarDismissCloseTimer = 0;
+            state.mobileBottomViewbarDismissDragging = false;
+            state.mobileBottomViewbarDismissClosing = false;
+        } catch (e) {}
         try { __tmCloseMultiSelectMoreMenu(); } catch (e) {}
         state.dockTaskPointerGestureCleanup = null;
         state.dockTaskPointerDragAbort = null;

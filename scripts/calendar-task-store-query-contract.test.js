@@ -74,7 +74,7 @@ assert.match(
 );
 assert.match(
     support,
-    /function __tmRequestCalendarTaskCacheWarmRefresh\(options = \{\}, tasks = \[\]\)[\s\S]*previousTaskCount[\s\S]*refreshTaskDateSources[\s\S]*task-date-in-place/,
+    /function __tmRequestCalendarTaskCacheWarmRefresh\(options = \{\}, tasks = \[\]\)[\s\S]*previousTaskCount[\s\S]*refreshTaskDateSources[\s\S]*allowInactiveFullLoad: true/,
     'a changed full task snapshot must refresh mounted task-date sources in place',
 );
 assert.match(

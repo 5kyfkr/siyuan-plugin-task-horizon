@@ -504,6 +504,13 @@ return ok;
                 }) || refreshed;
             } catch (e) {}
         }
+        // Calendar date-follow notifications are emitted after the calendar
+        // mounted event has already been patched in place.  There is no view
+        // DOM work left to do here; marking the refresh as handled prevents
+        // the generic fallback from refetching the entire task-date source.
+        if (hasCalendarDatePatch && opts.skipCalendarSync === true && viewMode === 'calendar') {
+            refreshed = true;
+        }
         if (hasCalendarDatePatch && opts.skipCalendarSync !== true && globalThis.__tmCalendar?.syncTaskDateInPlace) {
             Promise.resolve().then(async () => {
                 const isCalendarView = viewMode === 'calendar';

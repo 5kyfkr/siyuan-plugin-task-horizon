@@ -3184,6 +3184,22 @@ if (ev) {
             try { task = await __tmEnsureTaskInStateById(tid); } catch (e) { task = null; }
         }
         if (!task || __tmIsCollectedOtherBlockTask(task)) {
+            try {
+                const waitForPendingTaskWrites = globalThis.__tmWaitForPendingTaskWrites;
+                if (typeof waitForPendingTaskWrites === 'function') {
+                    const pendingResult = await waitForPendingTaskWrites(tid);
+                    if (pendingResult?.ok !== true) {
+                        throw new Error(pendingResult?.message || '任务字段写入仍在进行中，请稍后重试');
+                    }
+                }
+            } catch (e) {
+                if (opts.suppressHint !== true) hint(`❌ 操作失败: ${e?.message || String(e)}`, 'error');
+                if (ev?.target) {
+                    try { ev.target.checked = !targetDone; } catch (e2) {}
+                }
+                try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e2) {}
+                return false;
+            }
             return await __tmSetDoneKernel(tid, done, ev, opts);
         }
         const currentDone = typeof __tmIsTaskDoneEffective === 'function'
@@ -3204,7 +3220,7 @@ if (ev) {
             }
         }
         const explicitCheckboxIntent = String(ev?.target?.type || '').toLowerCase() === 'checkbox';
-        if (currentDone === targetDone && !explicitCheckboxIntent) return;
+        if (currentDone === targetDone && !explicitCheckboxIntent && opts.force !== true) return;
         try {
             const setDone = globalThis.__tmRequireTaskMutation?.('setDone');
             if (typeof setDone !== 'function') throw new Error('任务完成状态写入队列未就绪');
@@ -3224,6 +3240,14 @@ if (ev) {
             });
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
             if (opts.wait === true) await request;
+            else {
+                Promise.resolve(request).catch((error) => {
+                    if (opts.suppressHint !== true) hint(`❌ 操作失败: ${error?.message || String(error)}`, 'error');
+                    if (ev?.target) {
+                        try { ev.target.checked = !targetDone; } catch (e2) {}
+                    }
+                });
+            }
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
             return true;
         } catch (e) {
@@ -4168,7 +4192,9 @@ if (ev) {
         const text = __tmNormalizeTaskContentEditInput(nextContent);
         if (!text) throw new Error('任务内容不能为空');
         let nextMarkdown = String(task.markdown || '').trim();
-        const checked = !!task.done;
+        const checked = typeof __tmIsTaskNativeDone === 'function'
+            ? __tmIsTaskNativeDone(task)
+            : !!task.done;
         const normalizedFirstLine = `- [${checked ? 'x' : ' '}] ${text}`;
         if (!nextMarkdown) {
             nextMarkdown = normalizedFirstLine;
@@ -4760,6 +4786,32 @@ if (ev) {
         try { setTimeout(restore, 30); } catch (e) {}
     }
 
+    function __tmCancelPendingTaskMutationTimers(taskIds) {
+        const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [taskIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (!ids.length) return false;
+        ids.forEach((tid) => {
+            try {
+                const pending = __tmNativeDocTaskContentSyncTimers.get(tid);
+                if (pending?.timer) clearTimeout(pending.timer);
+                __tmNativeDocTaskContentSyncTimers.delete(tid);
+            } catch (e) {}
+            try { __tmClearNativeDocCheckboxReconcileTimers(tid); } catch (e) {}
+            try { __tmNativeDocCheckboxPendingBatch.delete(tid); } catch (e) {}
+            try { __tmNativeDocCheckboxPreviousStateMap.delete(tid); } catch (e) {}
+            try { __tmNativeDocCheckboxLastSyncedStateMap.delete(tid); } catch (e) {}
+            try { __tmNativeDocCheckboxStructuralChangeAtMap.delete(tid); } catch (e) {}
+        });
+        try {
+            if (__tmNativeDocCheckboxBatchTimer && __tmNativeDocCheckboxPendingBatch.size === 0) {
+                clearTimeout(__tmNativeDocCheckboxBatchTimer);
+                __tmNativeDocCheckboxBatchTimer = null;
+            }
+        } catch (e) {}
+        return true;
+    }
+
     async function __tmDeleteTaskKernel(id, options = {}) {
         const tid = String(id || '').trim();
         if (!tid) throw new Error('未找到任务');
@@ -4769,6 +4821,11 @@ if (ev) {
             tid,
             ...(Array.isArray(opts.scheduleCleanupTaskIds) ? opts.scheduleCleanupTaskIds : []),
         ]);
+        try {
+            if (typeof __tmCancelPendingTaskMutationTimers === 'function') {
+                __tmCancelPendingTaskMutationTimers(scheduleCleanupTaskIds);
+            }
+        } catch (e) {}
         try {
             await __tmBackendAdapter.deleteBlock(tid);
         } catch (deleteError) {
@@ -4789,6 +4846,7 @@ if (ev) {
             source: 'task-delete',
             reason: 'task-delete-schedules',
             background: opts.backgroundScheduleCleanup === true,
+            skipDeletedTaskBlockWrites: true,
         });
         try { scheduleCleanupTaskIds.forEach((taskId) => __tmPurgeRecurringInstanceTasks(taskId)); } catch (e) {}
         return true;
@@ -4904,8 +4962,12 @@ if (ev) {
         try {
             const snapshot = __tmCaptureTaskLocalSnapshot(tid);
             const scheduleCleanupTaskIds = __tmCollectTaskTreeIdsForScheduleCleanup(snapshot?.task || task, tid);
-            let pendingPromise = null;
-            const queuePromise = __tmEnqueueQueuedOp({
+            try {
+                if (typeof __tmCancelPendingTaskMutationTimers === 'function') {
+                    __tmCancelPendingTaskMutationTimers(scheduleCleanupTaskIds);
+                }
+            } catch (e) {}
+            await __tmEnqueueQueuedOp({
                 type: 'deleteTask',
                 docId: String(task?.root_id || task?.docId || '').trim(),
                 laneKey: String(task?.root_id || task?.docId || '').trim() ? `doc:${String(task?.root_id || task?.docId || '').trim()}` : `task:${tid}`,
@@ -4916,16 +4978,9 @@ if (ev) {
                     snapshot,
                 },
             }, {
-                wait: false,
-                onPending: (promise) => {
-                    pendingPromise = promise;
-                },
+                wait: true,
             });
-            Promise.resolve(pendingPromise || queuePromise).then(() => {
-                hint('✅ 任务已删除', 'success');
-            }).catch((e) => {
-                hint(`❌ 删除失败: ${e.message}`, 'error');
-            });
+            hint('✅ 任务已删除', 'success');
             return true;
         } catch (e) {
             hint(`❌ 删除失败: ${e.message}`, 'error');
@@ -5507,15 +5562,27 @@ if (ev) {
                         return;
                     }
                     btn.disabled = true;
-                    const savePromise = typeof window.tmSetTaskCompletionTime === 'function'
-                        ? window.tmSetTaskCompletionTime(taskId, opt.value || '', {
-                            source: 'context-menu-completion-time',
-                            background: true,
-                            queueDelayMs: 0,
-                            skipInteractionGate: true,
-                            silent: true,
-                        })
-                        : Promise.reject(new Error('任务日期写入函数未就绪'));
+                    const clearDates = opt.mode === 'clear';
+                    const savePromise = clearDates
+                        ? (typeof window.tmUpdateTaskDates === 'function'
+                            ? window.tmUpdateTaskDates(taskId, { startDate: '', completionTime: '' }, {
+                                source: 'context-menu-clear-task-dates',
+                                background: true,
+                                wait: true,
+                                queueDelayMs: 0,
+                                skipInteractionGate: true,
+                                silent: true,
+                            })
+                            : Promise.reject(new Error('任务日期写入函数未就绪')))
+                        : (typeof window.tmSetTaskCompletionTime === 'function'
+                            ? window.tmSetTaskCompletionTime(taskId, opt.value || '', {
+                                source: 'context-menu-completion-time',
+                                background: true,
+                                queueDelayMs: 0,
+                                skipInteractionGate: true,
+                                silent: true,
+                            })
+                            : Promise.reject(new Error('任务日期写入函数未就绪')));
                     menu.remove();
                     Promise.resolve(savePromise).then((ok) => {
                         if (!ok) hint('❌ 截止日期更新失败', 'error');
@@ -5970,6 +6037,8 @@ if (ev) {
             });
         return await __tmAllDocumentsFetchPromise;
     }
+
+    window.__tmEnsureAllDocumentsLoaded = __tmEnsureAllDocumentsLoaded;
 
     const TM_MAIN_SETTINGS_SECTIONS = Object.freeze([
         { id: 'display', label: '基础显示' },

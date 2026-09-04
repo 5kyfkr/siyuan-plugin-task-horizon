@@ -27,16 +27,25 @@ const reminderLoader = sourceBetween(
     '    async function loadReminderBlocks',
     '    function buildEventsFromReminders',
 );
+const reminderDedupe = sourceBetween(
+    '    async function dedupeReminderBlocks',
+    '    async function loadReminderBlocks',
+);
 
 assert.match(
     reminderLoader,
     /const cacheEpoch = Number\(state\.reminderCacheEpoch\) \|\| 0;[\s\S]*if \(\(Number\(state\.reminderCacheEpoch\) \|\| 0\) !== cacheEpoch\)[\s\S]*return await loadReminderBlocks\(\);/,
     'an invalidated in-flight reminder read must retry instead of restoring stale cache data',
 );
+assert.doesNotMatch(
+    reminderDedupe,
+    /perfTrace|uniq\.length|out\.size/,
+    'reminder dedupe must not reference unrelated query metrics that reject the TOMATO read',
+);
 assert.match(
     refreshRuntime,
-    /function clearReminderCalendarCache\(\)[\s\S]*state\.reminderCacheEpoch = \(Number\(state\.reminderCacheEpoch\) \|\| 0\) \+ 1;[\s\S]*state\.reminderCache = \{ list: \[\], loadedAt: 0, inflight: null \};/,
-    'reminder cache invalidation must advance the read epoch',
+    /function clearReminderCalendarCache\(\)[\s\S]*state\.reminderCacheEpoch = \(Number\(state\.reminderCacheEpoch\) \|\| 0\) \+ 1;[\s\S]*state\.reminderCache = \{ list: null, loadedAt: 0, inflight: null \};/,
+    'reminder cache invalidation must advance the read epoch and mark the snapshot as unloaded',
 );
 assert.match(
     refreshRuntime,
@@ -82,7 +91,7 @@ vm.runInContext(
 
 context.refreshReminders();
 assert.equal(context.state.reminderCacheEpoch, 1);
-assert.equal(context.state.reminderCache.list.length, 0);
+assert.equal(context.state.reminderCache.list, null);
 assert.equal(refetches.length, 0, 'suppressed reminder updates must wait before refetching');
 assert.equal(timers.length, 1, 'suppressed reminder updates must retain one deferred refresh');
 assert.ok(timers[0].delay >= 16);

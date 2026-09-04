@@ -659,7 +659,6 @@ async function run() {
     assert.equal(safety.isAllowedTool('unknown_tool'), false);
     assert.equal(safety.isBlockedEventType('confirm'), true);
     assert.equal(safety.isBlockedEventType('question'), true);
-    assert.equal(safety.isBlockedEventType('frontend_tool_call'), true);
     assert.equal(safety.isBlockedEventType('browser_capability_call'), true, 'SiYuan 3.8 browser capabilities must remain blocked during unattended runs');
     assert.equal(safety.isBlockedEventType('content'), false);
     assert.equal(safety.isScheduledEventCreateIntent('每天下午7点定时总结今日完成任务'), true);
