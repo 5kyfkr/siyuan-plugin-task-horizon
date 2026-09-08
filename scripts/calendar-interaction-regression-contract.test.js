@@ -10,6 +10,17 @@ const source = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
 const styles = fs.readFileSync(path.join(root, 'calendar-view.css'), 'utf8');
 const uiFoundation = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
 
+assert.match(
+    source,
+    /const isCalendarEngineManagedDrag = \(\) => \{[\s\S]*?const managed = !taskDragActive && hasMirror;[\s\S]*?return managed;\s*\};/,
+    'native table/checklist task drags must not be mistaken for calendar-event drags',
+);
+assert.match(
+    source,
+    /if \(!payload\?\.taskId \|\| !Number\.isFinite\(x\) \|\| !Number\.isFinite\(y\)\) \{\s*return \{ overMainCalendar: false, overSideDay: false, main: null, side: null, payload: payload \|\| null \};\s*\}/,
+    'a floating-mini update without a task payload must not clear another view drag state',
+);
+
 function readFunction(sourceText, name, context = {}) {
     const start = sourceText.indexOf(`function ${name}(`);
     assert.ok(start >= 0, `${name} must be defined`);

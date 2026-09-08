@@ -3453,7 +3453,7 @@
     min-height: 52px;
     box-sizing: border-box;
     align-items: center;
-    z-index: 10030 !important;
+    z-index: 45 !important;
     touch-action: pan-x !important;
     overscroll-behavior: none !important;
 }

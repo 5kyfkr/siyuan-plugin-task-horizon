@@ -1621,7 +1621,7 @@
                             min-height: 52px;
                             box-sizing: border-box;
                             align-items: center;
-                            z-index: 10030;
+                            z-index: 45;
                         }
 
                         /* Embedded mirror of task-horizon.css: keep the

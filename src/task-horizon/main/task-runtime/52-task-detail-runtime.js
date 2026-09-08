@@ -2786,6 +2786,46 @@
 
     globalThis.__tmRefreshOpenTaskDetailFocusStats = __tmRefreshOpenTaskDetailFocusStats;
 
+    function __tmGetTaskDetailLocationDocName(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        const docId = String(task?.root_id || task?.docId || '').trim();
+        let resolvedName = '';
+        if (docId && typeof __tmGetDocDisplayName === 'function') {
+            try { resolvedName = String(__tmGetDocDisplayName(docId, '') || '').trim(); } catch (e) {}
+        }
+        return resolvedName || String(task?.docName || task?.doc_name || '').trim();
+    }
+
+    function __tmSyncTaskDetailLocationInPlace(panelEl, taskLike) {
+        const panel = panelEl instanceof Element ? panelEl : null;
+        const location = panel?.querySelector?.('.tm-task-detail-location');
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!(location instanceof HTMLElement) || !task) return false;
+        const docName = __tmGetTaskDetailLocationDocName(task);
+        const docChip = location.querySelector('[data-tm-detail="location-doc"]');
+        if (docName && docChip instanceof HTMLElement) {
+            docChip.innerHTML = `${__tmRenderLucideIcon('file-text')} ${esc(docName)}`;
+        } else if (!docName && docChip instanceof HTMLElement) {
+            docChip.remove();
+        } else if (docName) {
+            return false;
+        }
+        const headingChip = location.querySelector('[data-tm-detail="location-heading"]');
+        const docId = String(task?.root_id || task?.docId || '').trim();
+        const showHeadingLocation = !!__tmIsCollectedOtherBlockTask(task) || __tmDocHasAnyHeading(docId);
+        if (showHeadingLocation && headingChip instanceof HTMLElement) {
+            const headingLevel = String(task?.headingLevel || SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2';
+            const headingName = __tmNormalizeHeadingText(task?.h2 || task?.h2Name);
+            const headingRawText = String(task?.h2 || task?.h2Name || '').trim();
+            headingChip.innerHTML = __tmRenderHeadingLevelIconLabel(headingRawText || headingName || '无', headingLevel, { size: 14 });
+        } else if (!showHeadingLocation && headingChip instanceof HTMLElement) {
+            headingChip.remove();
+        } else if (showHeadingLocation) {
+            return false;
+        }
+        return true;
+    }
+
     function __tmBuildTaskDetailInnerHtml(task, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const embedded = !!opts.embedded;
@@ -9325,6 +9365,7 @@ const multiSelectedSet = __tmGetMultiSelectedTaskIdSet();
         });
         if (task && selectedId && !forceRebuild && __tmShouldPreserveTaskDetailEditorDuringRefresh(panel, selectedId)) {
             try { panel.__tmTaskDetailTask = task; } catch (e) {}
+            try { __tmSyncTaskDetailLocationInPlace(panel, task); } catch (e) {}
             try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
             const backdrop = modal.querySelector('#tmChecklistSheetBackdrop, #tmTaskDetailSheetBackdrop');
             const sheet = modal.querySelector('#tmChecklistSheet, #tmTaskDetailSheet');
@@ -9557,6 +9598,7 @@ return true;
             : null;
         if (task && selectedId && !forceRebuild && __tmShouldPreserveTaskDetailEditorDuringRefresh(panel, selectedId)) {
             try { panel.__tmTaskDetailTask = task; } catch (e) {}
+            try { __tmSyncTaskDetailLocationInPlace(panel, task); } catch (e) {}
             try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
             __tmSyncTaskDetailSheetOpenState(modal, task);
             return true;

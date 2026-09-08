@@ -1387,7 +1387,7 @@
                     ? __tmIsTaskPinned(task)
                     : (task?.pinned === true || task?.pinned === 1 || task?.pinned === 'true' || task?.pinned === '1');
                 const cardClass = `tm-kanban-card${isSub ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}${taskDone ? ' tm-kanban-card--done' : ''}${isTaskOverdue ? ' tm-kanban-card--overdue' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${isPinnedCard ? ' tm-kanban-card--pinned' : ''}${multiSelectCls}${tomatoFocusCls}`;
-                const pinnedCardStyle = isPinnedCard ? ' style="border-left:3px solid var(--tm-danger-color,#d32f2f);"' : '';
+                const pinnedCardStyle = isPinnedCard ? ' style="border-left:3px solid var(--tm-primary-color);"' : '';
                 const completedChildren = Number(directChildStats.completed) || 0;
                 const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
                 const isChildrenCollapsed = !!(totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant);

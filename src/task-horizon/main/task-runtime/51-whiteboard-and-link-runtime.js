@@ -4909,7 +4909,7 @@ return false;
             && !!(state.groupByDocName || state.groupByTaskName || state.groupByTime || state.quadrantEnabled);
         const pinned = __tmIsTaskPinned(task);
         card.classList.toggle('tm-kanban-card--pinned', pinned);
-        card.style.borderLeft = pinned ? '3px solid var(--tm-danger-color,#d32f2f)' : '';
+        card.style.borderLeft = pinned ? '3px solid var(--tm-primary-color)' : '';
 
         const sourceGroup = card.parentElement?.closest?.('.tm-kanban-group') || null;
         const sourceGroupKey = String(sourceGroup?.querySelector?.(':scope > .tm-kanban-group-title[data-group-key]')?.getAttribute?.('data-group-key') || '').trim();
@@ -8205,7 +8205,7 @@ return false;
                         const pinned = __tmIsTaskPinned(task);
                         card.classList.toggle('tm-kanban-card--pinned', pinned);
                         card.style.borderLeft = pinned
-                            ? '3px solid var(--tm-danger-color,#d32f2f)'
+                            ? '3px solid var(--tm-primary-color)'
                             : '';
                         touched = true;
                     }

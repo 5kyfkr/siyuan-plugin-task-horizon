@@ -9,6 +9,7 @@ const policySource = fs.readFileSync(path.join(root, 'src/task-horizon/main/31-v
 const renderSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/41-render-scene-context.js'), 'utf8');
 const detailSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/52-task-detail-runtime.js'), 'utf8');
 const gestureSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
+const renderRuntimeSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/40-render-runtime.js'), 'utf8');
 const styleSource = fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8');
 
 assert.match(
@@ -25,6 +26,16 @@ assert.match(
     styleSource,
     /#tmChecklistSheetBackdrop,\s*#tmTaskDetailSheetBackdrop\s*\{\s*z-index:\s*70;[\s\S]*?#tmChecklistSheet,\s*#tmTaskDetailSheet\s*\{\s*z-index:\s*71;/,
     'checklist and task detail sheets must stay above the mobile bottom view bar',
+);
+assert.match(
+    styleSource,
+    /\.tm-modal\.tm-modal--mobile:not\(\.tm-modal--dock\) \.tm-mobile-bottom-viewbar \{[\s\S]*?z-index:\s*45\s*!important;/,
+    'the full-screen mobile bottom view bar must stay below the detail sheet',
+);
+assert.match(
+    renderRuntimeSource,
+    /\.tm-modal\.tm-modal--mobile:not\(\.tm-modal--dock\) \.tm-mobile-bottom-viewbar \{[\s\S]*?z-index:\s*45;/,
+    'the runtime style mirror must keep the full-screen mobile bottom view bar below the detail sheet',
 );
 assert.match(
     detailSource,

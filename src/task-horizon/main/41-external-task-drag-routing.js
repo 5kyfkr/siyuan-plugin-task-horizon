@@ -240,7 +240,11 @@
             return false;
         }
         const isKanbanHit = hit.type === 'kanban' || hit.type === 'kanban-group';
-        const preserveKanbanCandidate = isKanbanHit && __tmIsExternalKanbanCardDrag(ctx);
+        const activeKanbanDragId = String(state.__tmKanbanDragId || '').trim();
+        const preserveKanbanCandidate = isKanbanHit && (
+            __tmIsExternalKanbanCardDrag(ctx)
+            || (activeKanbanDragId && activeKanbanDragId === ctx.taskId)
+        );
         window.__tmClearExternalTaskDragIndicators?.(null, {
             preserveKanbanChildDropCandidate: preserveKanbanCandidate,
         });

@@ -2766,6 +2766,18 @@ return finish(false, 'noop');
         return task.done === true;
     }
 
+    function __tmAutoCompleteIsSubtaskDone(task) {
+        if (!(task && typeof task === 'object')) return false;
+        try {
+            if (typeof __tmIsRecurringNativeDoneHeld === 'function'
+                && __tmIsRecurringNativeDoneHeld(task)
+                && typeof __tmIsTaskNativeDone === 'function') {
+                return !!__tmIsTaskNativeDone(task);
+            }
+        } catch (e) {}
+        return __tmAutoCompleteIsTaskDone(task);
+    }
+
     function __tmFindParentTaskIdForAutoComplete(childId, childTask = null) {
         const cid = String(childId || '').trim();
         if (!cid) return '';
@@ -2997,7 +3009,7 @@ return finish(false, 'noop');
         let allChildrenDone = children.every((child) => {
             const childTaskId = String(child?.id || child?.blockId || '').trim();
             const latestChild = childTaskId ? (__tmAutoCompleteGetTaskById(childTaskId) || child) : child;
-            return __tmAutoCompleteIsTaskDone(latestChild);
+            return __tmAutoCompleteIsSubtaskDone(latestChild);
         });
         if (childBecameDone && !allChildrenDone && await refreshDocForAutoComplete()) {
             parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
@@ -3008,7 +3020,7 @@ return finish(false, 'noop');
             allChildrenDone = children.every((child) => {
                 const childTaskId = String(child?.id || child?.blockId || '').trim();
                 const latestChild = childTaskId ? (__tmAutoCompleteGetTaskById(childTaskId) || child) : child;
-                return __tmAutoCompleteIsTaskDone(latestChild);
+                return __tmAutoCompleteIsSubtaskDone(latestChild);
             });
         }
         if (childBecameDone && !allChildrenDone) return false;

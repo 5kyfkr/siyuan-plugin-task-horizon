@@ -958,6 +958,13 @@ if (shouldMarkDirty) {
             }
         } catch (e) {}
         try {
+            if (state.__tmTimelineGroupRangeTouchOpenHandler) {
+                document.removeEventListener('touchend', state.__tmTimelineGroupRangeTouchOpenHandler, true);
+                state.__tmTimelineGroupRangeTouchOpenHandler = null;
+            }
+            state.__tmTimelineGroupRangeTouchOpenBound = false;
+        } catch (e) {}
+        try {
             state.__settingsUnstack?.();
             state.__settingsUnstack = null;
         } catch (e) {}

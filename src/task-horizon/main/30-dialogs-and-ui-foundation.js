@@ -6362,6 +6362,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { event.stopPropagation?.(); } catch (e) {}
             try { event.stopImmediatePropagation?.(); } catch (e) {}
         };
+        state.__tmTimelineGroupRangeTouchOpenHandler = onTouchEnd;
         try { document.addEventListener('touchend', onTouchEnd, { capture: true, passive: false }); } catch (e) {}
     }
     __tmBindTimelineGroupRangeTouchOpen();

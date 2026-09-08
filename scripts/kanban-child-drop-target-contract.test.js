@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const runtime = fs.readFileSync(path.join(root, 'src/task-horizon/main/40-render-runtime.js'), 'utf8');
+const routing = fs.readFileSync(path.join(root, 'src/task-horizon/main/41-external-task-drag-routing.js'), 'utf8');
 
 const segment = (source, start, end) => {
     const from = source.indexOf(start);
@@ -34,6 +35,12 @@ assert.match(
     candidateUpdate,
     /if \(current\?\.sourceKey === sourceKey[\s\S]*?current\?\.targetElement === targetElement\) \{\s*return;/,
     'an unchanged card target must not rewrite its highlight class on every dragover',
+);
+
+assert.match(
+    routing,
+    /const activeKanbanDragId = String\(state\.__tmKanbanDragId \|\| ''\)\.trim\(\);[\s\S]*?const preserveKanbanCandidate = isKanbanHit && \([\s\S]*?activeKanbanDragId && activeKanbanDragId === ctx\.taskId/,
+    'active kanban drags must preserve the child-drop candidate while global drag routing runs',
 );
 
 const touchDrop = segment(runtime, 'const finishDrag = async () => {', 'const cleanup = () => {');

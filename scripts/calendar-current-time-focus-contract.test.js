@@ -36,6 +36,9 @@ assert.match(sideLayoutSource, /state\.sideDay\?\.prototypeRender\?\.\(\)[\s\S]*
 assert.doesNotMatch(sideLayoutSource, /state\.sideDay\?\.prototypeRender\?\.\(\)[\s\S]*return true;\s*const sideDay/, 'side-day layout must not return before its centering path');
 assert.match(mainRenderSource, /previousTimeScroller[\s\S]*nextTimeScroller\.scrollTop = previousTimeScrollTop[\s\S]*scheduleCurrentTimeAutoCenter\(prototypeSurface, calendar/, 'main prototype redraw must restore scroll position and recheck current-time focus');
 assert.match(sideRenderSource, /previousTimeScroller[\s\S]*nextTimeScroller\.scrollTop = previousTimeScrollTop[\s\S]*scheduleCurrentTimeAutoCenter\(surface, active/, 'side prototype redraw must restore scroll position and recheck current-time focus');
+assert.match(sideRenderSource, /scheduleSideDayNowIndicatorRefreshFallback\(\)/, 'side prototype redraw must use its local current-time indicator scheduler');
+assert.match(source, /function scheduleMainNowIndicatorRefresh\([\s\S]*const nextRefreshAt = \(Math\.floor\(now \/ 60000\) \+ 1\) \* 60000 \+ 120[\s\S]*nowIndicatorTimerTarget[\s\S]*=== nextRefreshAt[\s\S]*return/, 'main current-time refresh must keep the same absolute minute boundary across redraws');
+assert.match(source, /main\.nowIndicatorTimerTarget = 0[\s\S]*const delay = Math\.max\(100, nextRefreshAt - Date\.now\(\)/, 'main current-time refresh must clear its target before scheduling the next minute');
 assert.match(renderSource, /const shouldRestoreCalendarScroll = prevWasCalendar;/, 'calendar scroll restoration must only apply to an existing calendar render');
 const guardedRestores = renderSource.match(/if \(!shouldRestoreCalendarScroll\) return;/g) || [];
 assert.equal(guardedRestores.length, 2, 'both post-mount calendar scroll restoration paths must skip first entry from another view');

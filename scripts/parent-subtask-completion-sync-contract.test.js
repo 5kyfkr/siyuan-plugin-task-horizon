@@ -20,7 +20,9 @@ const nativeSource = fs.readFileSync(
 );
 
 function extractFunction(source, name) {
-    const start = source.indexOf(`async function ${name}(`);
+    const asyncStart = source.indexOf(`async function ${name}(`);
+    const syncStart = source.indexOf(`function ${name}(`);
+    const start = asyncStart >= 0 ? asyncStart : syncStart;
     assert.notEqual(start, -1, `${name} must exist`);
     const bodyStart = source.indexOf('{', source.indexOf(')', start));
     let depth = 0;
@@ -34,6 +36,7 @@ function extractFunction(source, name) {
 }
 
 const syncParentSource = extractFunction(listSource, '__tmSyncParentDoneStateFromSubtasks');
+const subtaskDoneSource = extractFunction(listSource, '__tmAutoCompleteIsSubtaskDone');
 
 function createHarness() {
     const tasks = {
@@ -48,6 +51,8 @@ function createHarness() {
         __tmAutoCompleteGetTaskById: (id) => tasks[id] || null,
         __tmAutoCompleteGetTaskDone: (task) => task?.done === true,
         __tmAutoCompleteIsTaskDone: (task) => task?.done === true,
+        __tmIsRecurringNativeDoneHeld: (task) => task?.recurringNativeDoneHeld === true,
+        __tmIsTaskNativeDone: (task) => task?.nativeDone === true || task?.done === true,
         __tmFindParentTaskIdForAutoComplete: (_id, task) => String(task?.parentTaskId || ''),
         __tmCollectDirectChildrenForAutoComplete: (parentId) => Object.values(tasks)
             .filter((task) => task.parentTaskId === parentId),
@@ -68,7 +73,7 @@ function createHarness() {
         },
         window: { tmSetDone: async () => true },
     });
-    vm.runInContext(`${syncParentSource}\nthis.syncParent = __tmSyncParentDoneStateFromSubtasks;`, context);
+    vm.runInContext(`${subtaskDoneSource}\n${syncParentSource}\nthis.syncParent = __tmSyncParentDoneStateFromSubtasks;`, context);
     return { context, tasks, definitions };
 }
 
@@ -82,6 +87,31 @@ async function run() {
     assert.equal(completeParent.data.taskId, 'parent');
     assert.equal(completeParent.data.done, true, 'all direct children done must complete the parent');
     assert.equal(completeParent.data.previousDone, false);
+
+    completion.tasks.child1.recurringNativeDoneHeld = true;
+    completion.tasks.child1.nativeDone = true;
+    completion.tasks.child2.recurringNativeDoneHeld = true;
+    completion.tasks.child2.nativeDone = true;
+    completion.tasks.child1.done = false;
+    completion.tasks.child2.done = false;
+    completion.tasks.parent.done = false;
+    const heldRecurringChildren = await completion.context.syncParent('child2', {
+        done: true,
+        effectId: 'held-recurring-child-complete',
+        returnMutationDefinition: true,
+    });
+    assert.equal(heldRecurringChildren.data.done, true,
+        'held native completion from recurring subtasks must still complete the parent');
+
+    completion.tasks.child2.nativeDone = false;
+    completion.tasks.parent.done = true;
+    const heldRecurringChildUndone = await completion.context.syncParent('child2', {
+        done: false,
+        effectId: 'held-recurring-child-restore',
+        returnMutationDefinition: true,
+    });
+    assert.equal(heldRecurringChildUndone.data.done, false,
+        'explicitly unchecking a held recurring subtask must restore the parent');
 
     completion.tasks.parent.done = true;
     completion.tasks.child2.done = false;

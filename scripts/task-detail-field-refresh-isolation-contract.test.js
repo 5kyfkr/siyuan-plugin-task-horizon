@@ -128,6 +128,16 @@ assert.match(
     /const detailPatched = !!patchVisibleDetailPanel\(overlay\)/,
     'standalone details must use the same field-scoped patch path as embedded drawers',
 );
+assert.match(detailSource, /function __tmSyncTaskDetailLocationInPlace\(/,
+    'task detail location rendering must have a reusable in-place sync path');
+assert.match(detailSource, /__tmShouldPreserveTaskDetailEditorDuringRefresh\(panel, selectedId\)[\s\S]*__tmSyncTaskDetailLocationInPlace\(panel, task\)/,
+    'checklist detail refreshes must update location chips while preserving active edits');
+const sheetRefresh = detailSource.slice(
+    detailSource.indexOf('function __tmRefreshTaskDetailSheetInPlace('),
+    detailSource.indexOf('function __tmRefreshVisibleTaskDetailForTask('),
+);
+assert.match(sheetRefresh, /__tmShouldPreserveTaskDetailEditorDuringRefresh\(panel, selectedId\)[\s\S]*__tmSyncTaskDetailLocationInPlace\(panel, task\)/,
+    'task detail sheet refreshes must update location chips while preserving active edits');
 
 assert.match(
     timeRefreshSource,

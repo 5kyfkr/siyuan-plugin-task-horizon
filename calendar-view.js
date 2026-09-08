@@ -2069,7 +2069,6 @@
             const x = Number(opt.clientX);
             const y = Number(opt.clientY);
             if (!payload?.taskId || !Number.isFinite(x) || !Number.isFinite(y)) {
-                this.clear({ preservePayload: true });
                 return { overMainCalendar: false, overSideDay: false, main: null, side: null, payload: payload || null };
             }
             state.externalDragPreview.activePayload = payload;
@@ -6656,11 +6655,44 @@
             }
         } catch (e) {}
         try { current.el?.remove?.(); } catch (e) {}
+        try {
+            if (current.anchorEl?.getAttribute?.('data-tm-proto-point-anchor') === '1') {
+                current.anchorEl.remove();
+            }
+        } catch (e) {}
         state.__tmPrototypeEventPopover = null;
         try {
             document.querySelectorAll('[data-tm-proto-selection-preview]').forEach((node) => node.remove());
         } catch (e) {}
         return true;
+    }
+
+    function createPrototypePointAnchor(jsEvent, hostEl) {
+        const clientX = Number(jsEvent?.clientX);
+        const clientY = Number(jsEvent?.clientY);
+        if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+        const host = hostEl instanceof Element
+            ? hostEl
+            : (state.calendarEl instanceof Element ? state.calendarEl : state.wrapEl instanceof Element ? state.wrapEl : null);
+        if (!(host instanceof Element)) return null;
+        const anchor = document.createElement('span');
+        anchor.setAttribute('data-tm-proto-point-anchor', '1');
+        anchor.setAttribute('aria-hidden', 'true');
+        anchor.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;pointer-events:none;opacity:0;';
+        host.appendChild(anchor);
+        const rect = {
+            x: clientX,
+            y: clientY,
+            left: clientX,
+            top: clientY,
+            right: clientX + 1,
+            bottom: clientY + 1,
+            width: 1,
+            height: 1,
+            toJSON() { return this; },
+        };
+        try { anchor.getBoundingClientRect = () => rect; } catch (e) {}
+        return anchor;
     }
 
     // Shared +N popover entry point. Main and docked timelines can use
@@ -6859,6 +6891,7 @@
             if (aStart !== bStart) return aStart - bStart;
             return String(a?.id || '').localeCompare(String(b?.id || ''));
         };
+        const timedLaneHints = options.timedLaneHints instanceof Map ? options.timedLaneHints : new Map();
         const eventMarkup = typeof options.eventMarkup === 'function'
             ? options.eventMarkup
             : (eventApi, mode, includeTime, extraClass) => buildSharedPrototypeEventMarkup(eventApi, mode, includeTime, extraClass, settings, {
@@ -7038,19 +7071,54 @@
                 const visibleSegments = getPrototypeTimelineVisibleEventSegments(start, end, timeMetrics);
                 return visibleSegments.length ? { ...item, startMinute: start, endMinute: end, visibleSegments } : null;
             }).filter(Boolean).sort((a, b) => a.start.getTime() - b.start.getTime() || b.end.getTime() - a.end.getTime());
-            const lanes = [];
+            const overlapGroups = [];
             items.forEach((item) => {
-                const lane = lanes.findIndex((end) => item.start.getTime() >= end);
-                if (lane < 0) { item.lane = lanes.length; lanes.push(item.end.getTime()); }
-                else { item.lane = lane; lanes[lane] = item.end.getTime(); }
+                const startMs = item.start.getTime();
+                const endMs = item.end.getTime();
+                const currentGroup = overlapGroups[overlapGroups.length - 1];
+                if (!currentGroup || startMs >= currentGroup.endMs) {
+                    overlapGroups.push({ items: [item], endMs });
+                    return;
+                }
+                currentGroup.items.push(item);
+                currentGroup.endMs = Math.max(currentGroup.endMs, endMs);
             });
-            const laneCount = Math.max(1, lanes.length);
+            overlapGroups.forEach((group) => {
+                const lanes = [];
+                const orderedItems = group.items.slice().sort((a, b) => {
+                    const aHinted = Number.isFinite(Number(timedLaneHints.get(String(a.eventApi?.id || '').trim())));
+                    const bHinted = Number.isFinite(Number(timedLaneHints.get(String(b.eventApi?.id || '').trim())));
+                    return Number(bHinted) - Number(aHinted);
+                });
+                orderedItems.forEach((item) => {
+                    const eventId = String(item.eventApi?.id || '').trim();
+                    const hintedLane = Number(timedLaneHints.get(eventId));
+                    let lane = -1;
+                    if (group.items.length > 1 && Number.isInteger(hintedLane) && hintedLane >= 0) {
+                        const laneEnd = lanes[hintedLane];
+                        if (!Number.isFinite(laneEnd) || item.start.getTime() >= laneEnd) {
+                            lane = hintedLane;
+                            while (lanes.length <= lane) lanes.push(Number.NaN);
+                            lanes[lane] = item.end.getTime();
+                        }
+                    }
+                    if (lane < 0) {
+                        lane = lanes.findIndex((end) => !Number.isFinite(end) || item.start.getTime() >= end);
+                        if (lane < 0) { item.lane = lanes.length; lanes.push(item.end.getTime()); }
+                        else { item.lane = lane; lanes[lane] = item.end.getTime(); }
+                    } else {
+                        item.lane = lane;
+                    }
+                });
+                const laneCount = Math.max(1, lanes.length);
+                group.items.forEach((item) => { item.laneCount = laneCount; });
+            });
             const blocks = items.flatMap((item) => item.visibleSegments.map((segment) => {
                 const topPx = prototypeTimelineYForMinute(segment.start, timeMetrics);
                 const bottomPx = prototypeTimelineYForMinute(segment.end, timeMetrics);
                 const top = topPx / canvasHeight * 100;
                 const bottom = bottomPx / canvasHeight * 100;
-                const width = 100 / laneCount;
+                const width = 100 / Math.max(1, item.laneCount || 1);
                 const left = item.lane * width;
                 const startsEvent = Math.abs(segment.start - item.startMinute) < 0.01;
                 const endsEvent = Math.abs(segment.end - item.endMinute) < 0.01;
@@ -7060,7 +7128,8 @@
                     endsEvent ? 'is-fold-fragment-end' : '',
                 ].filter(Boolean).join(' ');
                 return eventMarkup(item.eventApi, 'block', true, fragmentClass)
-                    .replace('style="--tm-proto-event-color:', `style="top:${top}%;height:${Math.max(0.01, bottom - top)}%;left:calc(${left}% + 4px);width:calc(${width}% - 9px);--tm-proto-event-color:`);
+                    .replace('data-tm-proto-event="', `data-tm-proto-lane="${item.lane}" data-tm-proto-lane-count="${item.laneCount}" data-tm-proto-event="`)
+                    .replace('style="--tm-proto-event-color:', `style="top:${top}%;height:${Math.max(0.01, bottom - top)}%;left:calc(${left}% + 4px);width:calc(${width}% - 5px);--tm-proto-event-color:`);
             })).join('');
             const nowTop = key === currentDayKey && Number.isFinite(currentNowTop)
                 ? currentNowTop
@@ -11629,7 +11698,10 @@
         let scrollRefreshFrame = null;
         let externalDragPayloadClearTimer = null;
         const isCalendarEngineManagedDrag = () => {
-            return hasVisibleCalendarEngineManagedExternalMirror(host);
+            const taskDragActive = !!String(state.draggingTaskId || '').trim();
+            const hasMirror = hasVisibleCalendarEngineManagedExternalMirror(host);
+            const managed = !taskDragActive && hasMirror;
+            return managed;
         };
         const syncPreviewDayCell = (dateKey) => syncCalendarDropDayPreview(host, dateKey);
         const clearDropPreview = () => {
@@ -12744,21 +12816,22 @@
     async function loadScheduleAll() {
         try {
             const cache = state.scheduleCache;
-            if (Array.isArray(cache.list) && (Date.now() - (Number(cache.loadedAt) || 0) < SCHEDULE_READ_CACHE_TTL_MS)) {
+            const forceRefresh = cache.forceAuthoritativeRead === true || arguments[0]?.force === true;
+            if (!forceRefresh && Array.isArray(cache.list) && (Date.now() - (Number(cache.loadedAt) || 0) < SCHEDULE_READ_CACHE_TTL_MS)) {
                 return cloneScheduleList(cache.list);
             }
-            if (Array.isArray(cache.list)
+            if (!forceRefresh && Array.isArray(cache.list)
                 && Date.now() - (Number(cache.loadedAt) || 0) < SCHEDULE_STALE_CACHE_TTL_MS) {
                 // Keep view switches responsive while a stale snapshot is
                 // still usable. Mutations invalidate the cache explicitly;
                 // the next idle refresh will pick up external changes.
                 return cloneScheduleList(cache.list);
             }
-            if (cache.inflight) {
+            if (!forceRefresh && cache.inflight) {
                 const list = await cache.inflight;
                 return cloneScheduleList(list);
             }
-            const localSnapshot = readScheduleLocalStorageSnapshot();
+            const localSnapshot = forceRefresh ? null : readScheduleLocalStorageSnapshot();
             if (localSnapshot) {
                 setScheduleCache(localSnapshot.out, localSnapshot.signature);
                 queueScheduleAuthoritativeRefresh();
@@ -14358,18 +14431,40 @@
         return subscribed ? { ok: true, reason: '' } : { ok: false, reason: '微信提醒需要有效的思源订阅' };
     }
 
+    const wechatReminderOperationFlights = (() => {
+        const key = '__tmCalendarWechatReminderOperationFlights';
+        const existing = globalThis[key];
+        if (existing instanceof Map) return existing;
+        const created = new Map();
+        globalThis[key] = created;
+        return created;
+    })();
+
     async function setCloudWechatReminder(target, cancel = false) {
-        const response = await postJSON('/api/cloud/setCloudReminder', {
-            id: target.dataId,
-            content: target.content,
-            timed: cancel ? '0' : target.timed,
-        });
-        let payload = null;
-        try { payload = await response.json(); } catch (e) {}
-        if (!response.ok || payload?.code !== 0) {
-            throw new Error(String(payload?.msg || `HTTP ${response.status}` || '微信提醒同步失败'));
+        const operationKey = `${cancel ? 'remove' : 'upsert'}:${String(target?.dataId || '').trim()}:${cancel ? '0' : String(target?.fingerprint || '').trim()}`;
+        const active = wechatReminderOperationFlights.get(operationKey);
+        if (active) return await active;
+        const flight = (async () => {
+            const response = await postJSON('/api/cloud/setCloudReminder', {
+                id: target.dataId,
+                content: target.content,
+                timed: cancel ? '0' : target.timed,
+            });
+            let payload = null;
+            try { payload = await response.json(); } catch (e) {}
+            if (!response.ok || payload?.code !== 0) {
+                throw new Error(String(payload?.msg || `HTTP ${response.status}` || '微信提醒同步失败'));
+            }
+            return true;
+        })();
+        wechatReminderOperationFlights.set(operationKey, flight);
+        try {
+            return await flight;
+        } finally {
+            if (wechatReminderOperationFlights.get(operationKey) === flight) {
+                wechatReminderOperationFlights.delete(operationKey);
+            }
         }
-        return true;
     }
 
     function collectWechatTargets(list, settings, options = {}) {
@@ -14446,6 +14541,10 @@
         return /^(bind|set-store|visibility|focus|pageshow|app-visibility|app-focus|app-pageshow|mobile-periodic)$/.test(String(reason || '').trim());
     }
 
+    async function loadScheduleAllAuthoritative() {
+        return await loadScheduleAll({ force: true });
+    }
+
     async function withWechatReminderReconcileLock(callback) {
         const worker = typeof callback === 'function' ? callback : async () => undefined;
         const locks = globalThis?.navigator?.locks;
@@ -14483,7 +14582,7 @@
                 if (reasonText.includes('settings')) toast(eligibility.reason, 'warning');
                 return;
             }
-            const list = await loadScheduleAll();
+            const list = await loadScheduleAllAuthoritative();
             if (lifecycleToken !== (Number(sr.wechatLifecycleToken) || 0)) return;
             if (state.scheduleCache.lastLoadError === true && !cleanupCurrentTargets) return;
             const currentTargets = collectWechatTargets(list, settings, { force: cleanupCurrentTargets });
@@ -18145,6 +18244,11 @@
     function unmountSideDayTimeline() {
         try { closeTrackedPrototypeMorePopover(); } catch (e) {}
         try { clearTimeGridAutoCenterState('sideDay'); } catch (e) {}
+        if (state.sideDay.nowIndicatorTimer) {
+            try { clearTimeout(state.sideDay.nowIndicatorTimer); } catch (e) {}
+            state.sideDay.nowIndicatorTimer = null;
+        }
+        state.sideDay.nowIndicatorTimerTarget = 0;
         if (state.sideDay.layoutRaf) {
             try { cancelAnimationFrame(state.sideDay.layoutRaf); } catch (e) {}
             state.sideDay.layoutRaf = null;
@@ -18186,6 +18290,65 @@
         state.sideDay.resolveTask = null;
         state.sideDay.allowInactiveFullLoad = false;
         state.sideDay.autoCenterSuppressed = false;
+    }
+
+    function scheduleSideDayNowIndicatorRefreshFallback() {
+        const side = state.sideDay;
+        if (!side || typeof side.prototypeRender !== 'function') return;
+        const now = Date.now();
+        const nextRefreshAt = (Math.floor(now / 60000) + 1) * 60000 + 120;
+        if (side.nowIndicatorTimer
+            && Number(side.nowIndicatorTimerTarget) === nextRefreshAt) return;
+        if (side.nowIndicatorTimer) {
+            try { clearTimeout(side.nowIndicatorTimer); } catch (e) {}
+            side.nowIndicatorTimer = null;
+        }
+        side.nowIndicatorTimerTarget = nextRefreshAt;
+        const delay = Math.max(100, nextRefreshAt - Date.now());
+        try {
+            side.nowIndicatorTimer = setTimeout(() => {
+                side.nowIndicatorTimer = null;
+                side.nowIndicatorTimerTarget = 0;
+                try { side.prototypeRender(); } catch (e) {}
+                scheduleSideDayNowIndicatorRefreshFallback();
+            }, delay);
+        } catch (e) {
+            side.nowIndicatorTimerTarget = 0;
+        }
+    }
+
+    function scheduleMainNowIndicatorRefresh() {
+        const main = state;
+        if (!main || typeof main.queuePrototypeSurfaceRender !== 'function') return;
+        const viewType = String(getCalendarView(main.calendar)?.type || main._lastViewType || '').trim();
+        if (!isTimeGridViewType(viewType)) {
+            if (main.nowIndicatorTimer) {
+                try { clearTimeout(main.nowIndicatorTimer); } catch (e) {}
+                main.nowIndicatorTimer = null;
+            }
+            main.nowIndicatorTimerTarget = 0;
+            return;
+        }
+        const now = Date.now();
+        const nextRefreshAt = (Math.floor(now / 60000) + 1) * 60000 + 120;
+        if (main.nowIndicatorTimer
+            && Number(main.nowIndicatorTimerTarget) === nextRefreshAt) return;
+        if (main.nowIndicatorTimer) {
+            try { clearTimeout(main.nowIndicatorTimer); } catch (e) {}
+            main.nowIndicatorTimer = null;
+        }
+        main.nowIndicatorTimerTarget = nextRefreshAt;
+        const delay = Math.max(100, nextRefreshAt - Date.now());
+        try {
+            main.nowIndicatorTimer = setTimeout(() => {
+                main.nowIndicatorTimer = null;
+                main.nowIndicatorTimerTarget = 0;
+                try { main.queuePrototypeSurfaceRender(); } catch (e) {}
+                scheduleMainNowIndicatorRefresh();
+            }, delay);
+        } catch (e) {
+            main.nowIndicatorTimerTarget = 0;
+        }
     }
 
     function scheduleSideDayTaskDateSourceRefresh(options = {}) {
@@ -18696,6 +18859,7 @@
         let scrollRefreshFrame = null;
         let livePreviewTimer = null;
         const clearDropPreview = () => {
+            const hadPreview = liveDrag || state.sideDay.previewKey || state.sideDay.previewEl instanceof HTMLElement;
             liveDrag = null;
             if (scrollRefreshFrame != null) {
                 try { cancelAnimationFrame(scrollRefreshFrame); } catch (e) {}
@@ -18705,10 +18869,7 @@
                 try { clearInterval(livePreviewTimer); } catch (e) {}
                 livePreviewTimer = null;
             }
-            if (state.sideDay.previewEl instanceof HTMLElement) {
-                try { state.sideDay.previewEl.style.display = 'none'; } catch (e) {}
-            }
-            calendarExternalDragPreviewController.clear({ preservePayload: true });
+            if (hadPreview) clearSideDayDropPreview();
         };
         try { abort.signal.addEventListener('abort', clearDropPreview, { once: true }); } catch (e) {}
         const rememberLiveDrag = (payload, x, y) => {
@@ -18725,21 +18886,9 @@
             liveDrag = { payload, x: xp, y: yp };
             if (livePreviewTimer == null) {
                 livePreviewTimer = setInterval(() => {
-                    refreshPreviewFromLiveDrag();
+                    schedulePreviewRefresh();
                 }, 80);
             }
-        };
-        const renderDropPreview = (payload, hit, point = {}) => {
-            if (point && Number.isFinite(Number(point.clientX)) && Number.isFinite(Number(point.clientY))) {
-                updateSideDayCalendarDragPreview({
-                    payload,
-                    clientX: Number(point.clientX),
-                    clientY: Number(point.clientY),
-                    target: point.target,
-                });
-                return;
-            }
-            renderSideDayDropPreview(rootEl, payload, hit);
         };
         const getDropInfo = (target, x, y) => resolveSideDayDropHitFromPoint(rootEl, target, x, y);
         const refreshPreviewFromLiveDrag = () => {
@@ -18756,69 +18905,22 @@
             } catch (e) {}
             const target = resolveCalendarExternalDragPointTarget(xp, yp, null, rootEl);
             const hit = getDropInfo(target, xp, yp);
-            renderDropPreview(liveDrag.payload, hit, { clientX: xp, clientY: yp, target });
+            renderSideDayDropPreview(rootEl, liveDrag.payload, hit);
         };
         const schedulePreviewRefresh = () => {
-            if (scrollRefreshFrame != null) return;
+            if (!liveDrag?.payload?.taskId || scrollRefreshFrame != null) return;
             scrollRefreshFrame = requestAnimationFrame(() => {
                 scrollRefreshFrame = null;
                 refreshPreviewFromLiveDrag();
             });
         };
 
-        rootEl.addEventListener('dragover', (e) => {
-            // 检查是否为白板连线操作，如果是则不阻止默认行为
-            const types = Array.from(e.dataTransfer?.types || []);
-            const isWhiteboardLink = types.includes('application/x-tm-task-link');
-            if (isWhiteboardLink) return;
-
-            const ok = e.dataTransfer && (
-                types.includes('application/x-tm-task')
-                || types.includes('application/x-tm-task-id')
-                || types.includes('text/plain')
-            );
-            if (!ok) {
-                const payload = buildDraggingTaskPayload(resolveTask);
-                if (!payload?.taskId) {
-                    clearDropPreview();
-                    return;
-                }
-                e.preventDefault();
-                rememberLiveDrag(payload, e.clientX, e.clientY);
-                const hit = getDropInfo(e.target, e.clientX, e.clientY);
-                renderDropPreview(payload, hit, { clientX: e.clientX, clientY: e.clientY, target: e.target });
-                return;
-            }
-            e.preventDefault();
-            const payload = parseTaskDropPayload(e, null, resolveTask) || buildDraggingTaskPayload(resolveTask);
-            rememberLiveDrag(payload, e.clientX, e.clientY);
-            const hit = getDropInfo(e.target, e.clientX, e.clientY);
-            renderDropPreview(payload, hit, { clientX: e.clientX, clientY: e.clientY, target: e.target });
-        }, { signal: abort.signal });
         document.addEventListener('dragover', (e) => {
             const types = Array.from(e.dataTransfer?.types || []);
             const isWhiteboardLink = types.includes('application/x-tm-task-link');
             if (isWhiteboardLink) return;
             const x = Number(e.clientX);
             const y = Number(e.clientY);
-            const ok = e.dataTransfer && (
-                types.includes('application/x-tm-task')
-                || types.includes('application/x-tm-task-id')
-                || types.includes('text/plain')
-            );
-            if (!ok) {
-                const payload = buildDraggingTaskPayload(resolveTask);
-                if (!payload?.taskId) {
-                    clearDropPreview();
-                    return;
-                }
-                e.preventDefault();
-                rememberLiveDrag(payload, x, y);
-                const target = resolveCalendarExternalDragPointTarget(x, y, null, rootEl);
-                const hit = getDropInfo(target, x, y);
-                renderDropPreview(payload, hit, { clientX: x, clientY: y, target });
-                return;
-            }
             if (!Number.isFinite(x) || !Number.isFinite(y)) {
                 clearDropPreview();
                 return;
@@ -18829,19 +18931,18 @@
                 clearDropPreview();
                 return;
             }
-            e.preventDefault();
             const payload = parseTaskDropPayload(e, null, resolveTask) || buildDraggingTaskPayload(resolveTask);
-            rememberLiveDrag(payload, x, y);
-            const target = resolveCalendarExternalDragPointTarget(x, y, null, rootEl);
-            const hit = getDropInfo(target, x, y);
-            renderDropPreview(payload, hit, { clientX: x, clientY: y, target });
-        }, { signal: abort.signal, capture: true });
-        document.addEventListener('drag', (e) => {
-            const payload = buildDraggingTaskPayload(resolveTask);
             if (!payload?.taskId) {
                 clearDropPreview();
                 return;
             }
+            e.preventDefault();
+            rememberLiveDrag(payload, x, y);
+            schedulePreviewRefresh();
+        }, { signal: abort.signal, capture: true });
+        document.addEventListener('drag', (e) => {
+            const types = Array.from(e.dataTransfer?.types || []);
+            if (types.includes('application/x-tm-task-link')) return;
             const x = Number(e.clientX);
             const y = Number(e.clientY);
             if (!Number.isFinite(x) || !Number.isFinite(y) || (x === 0 && y === 0)) return;
@@ -18853,10 +18954,13 @@
                     return;
                 }
             } catch (e2) {}
+            const payload = buildDraggingTaskPayload(resolveTask);
+            if (!payload?.taskId) {
+                clearDropPreview();
+                return;
+            }
             rememberLiveDrag(payload, x, y);
-            const target = resolveCalendarExternalDragPointTarget(x, y, null, rootEl);
-            const hit = getDropInfo(target, x, y);
-            renderDropPreview(payload, hit, { clientX: x, clientY: y, target });
+            schedulePreviewRefresh();
         }, { signal: abort.signal, capture: true });
         rootEl.addEventListener('scroll', schedulePreviewRefresh, { signal: abort.signal, capture: true });
         Array.from(rootEl.querySelectorAll('.tm-legacy-calendar-scroller')).forEach((scroller) => {
@@ -19362,6 +19466,8 @@
                 };
                 surface.addEventListener('click', (event) => {
                     const target = event.target instanceof Element ? event.target : null;
+                    const pointTarget = document.elementFromPoint?.(Number(event.clientX) || 0, Number(event.clientY) || 0);
+                    const geometryTarget = pointTarget instanceof Element ? pointTarget : target;
                     const resolveEventAtPoint = () => {
                         const direct = target?.closest?.('[data-tm-proto-event]');
                         if (direct) return direct;
@@ -19519,11 +19625,12 @@
                         try { callCalendarAdapter(activeCalendar, 'dispatchEventClick', id, event, eventEl); } catch (e) {}
                         return;
                     }
-                    const panel = target?.closest?.('.tm-proto-side-panel');
+                    const panel = target?.closest?.('.tm-proto-side-panel') || geometryTarget?.closest?.('.tm-proto-side-panel');
                     if (!(panel instanceof Element)) return;
+                    if (target?.closest?.('.tm-proto-side-panel > header') || geometryTarget?.closest?.('.tm-proto-side-panel > header')) return;
                     const date = sidePrototypeDate();
-                    const timeArea = target?.closest?.('.tm-proto-time-col');
-                    const canvas = target?.closest?.('.tm-proto-time-canvas');
+                    const timeArea = target?.closest?.('.tm-proto-time-col') || geometryTarget?.closest?.('.tm-proto-time-col');
+                    const canvas = target?.closest?.('.tm-proto-time-canvas') || geometryTarget?.closest?.('.tm-proto-time-canvas');
                     // The visual time axis does not receive pointer events, so
                     // its clicks land on the canvas/columns layer underneath.
                     // Only a real day column may create a timed schedule.
@@ -19535,7 +19642,8 @@
                         if (Number.isFinite(minute)) date.setMinutes(Math.round(minute / 15) * 15, 0, 0);
                     }
                     const activeCalendar = state.sideDay?.calendar || cal;
-                    callCalendarAdapter(activeCalendar, 'dispatchDateClick', date, allDay, event, panel);
+                    const pointAnchor = createPrototypePointAnchor(event, timeArea || panel);
+                    callCalendarAdapter(activeCalendar, 'dispatchDateClick', date, allDay, event, pointAnchor || panel);
                 });
                 surface.addEventListener('contextmenu', (event) => {
                     const target = event.target instanceof Element ? event.target : null;
@@ -19595,6 +19703,7 @@
                         const timeCol = eventEl.closest?.('.tm-proto-time-col');
                         const colRect = timeCol?.getBoundingClientRect?.() || null;
                         const timeCanvas = eventEl.closest?.('.tm-proto-time-canvas') || null;
+                        const originLane = Number(eventEl.getAttribute('data-tm-proto-lane'));
                         const canvasRect = timeCanvas?.getBoundingClientRect?.() || null;
                         const liveSettings = getSettings();
                         const timeMetrics = getPrototypeTimelineMetricsFromCanvas(timeCanvas, liveSettings);
@@ -19626,7 +19735,7 @@
                             timeTotalMin: 1440,
                             originTopPx: originRect && colRect ? originRect.top - colRect.top : 0,
                             originHeightPx: originRect?.height || 28,
-                            originStart, originEnd,
+                            originStart, originEnd, originLane,
                             previewMode: '', previewStart: null, previewEnd: null, previewKey: '',
                         };
                         try { visualEl?.classList?.add?.('tm-proto-event--dragging'); } catch (e) {}
@@ -19753,6 +19862,11 @@
                                     drag.previewEnd = new Date(drag.originEnd.getTime() + minuteDelta * 60000);
                                 }
                                 drag.previewMode = 'timed';
+                                const previewKey = `${drag.id}|timed|${drag.previewStart.getTime()}|${drag.previewEnd.getTime()}`;
+                                if (drag.previewKey !== previewKey) {
+                                    drag.previewKey = previewKey;
+                                    try { queueSidePrototypeRender(); } catch (e) {}
+                                }
                                 try {
                                     if (drag.edge === 'start') {
                                         const dayStart = drag.timeDayStart instanceof Date ? drag.timeDayStart : sidePrototypeDayStart(drag.previewStart);
@@ -20025,6 +20139,7 @@
                 panelClass: 'tm-proto-side-panel',
                 actionAttr: 'data-tm-side-day-action',
                 actions: { prev: 'prev', today: 'today', next: 'next', close: 'close', toggleAllDay: 'toggleAllDay' },
+                timedLaneHints: sideTimedPreview && Number.isInteger(Number(sideTimedPreview.originLane)) ? new Map([[String(sideTimedPreview.id || '').trim(), Number(sideTimedPreview.originLane)]]) : undefined,
                 timeRangeExpanded: sidePrototypeTimeRangeExpanded,
             });
             applySidePrototypeSelectedEventState();
@@ -20042,6 +20157,7 @@
                 try { requestAnimationFrame(restoreScroll); } catch (e) {}
             }
             try { scheduleCurrentTimeAutoCenter(surface, active, liveSettings, { scope: 'sideDay', reason: 'side-prototype-render' }); } catch (e) {}
+            try { scheduleSideDayNowIndicatorRefreshFallback(); } catch (e) {}
         };
         const queueSidePrototypeRender = () => {
             if (sidePrototypeRenderRaf) return;
@@ -20531,13 +20647,21 @@
                 if (!d || Number.isNaN(d.getTime())) return;
                 const start = new Date(d.getTime());
                 start.setSeconds(0, 0);
-                const end = new Date(start.getTime() + (info?.allDay === true ? 24 * 60 : 30) * 60000);
+                const end = new Date(start.getTime() + (info?.allDay === true ? 24 * 60 : 60) * 60000);
                 if (typeof state.openPrototypeNewScheduleCard !== 'function') {
                     try { ensurePrototypePopoverFactory(); } catch (e0) {}
                 }
                 const newCard = state.openPrototypeNewScheduleCard;
+                const clickAnchor = info?.el instanceof Element ? info.el : info?.jsEvent?.target;
+                const timeCol = clickAnchor?.closest?.('.tm-proto-time-col');
+                const canvas = timeCol?.closest?.('.tm-proto-time-canvas');
+                const previewRange = !info?.allDay
+                    && timeCol instanceof HTMLElement
+                    && canvas instanceof HTMLElement
+                    ? { start, end, canvas, metrics: getPrototypeTimelineMetricsFromCanvas(canvas, getSettings()) }
+                    : null;
                 const opened = typeof newCard === 'function'
-                    ? newCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()) }, info?.el || info?.jsEvent?.target)
+                    ? newCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: sidePrototypeSurface, __tmPreviewRange: previewRange }, clickAnchor)
                     : false;
                 if (!opened) return;
             },
@@ -27471,6 +27595,7 @@
         let syncPrototypeDayPanelDragGeometry = () => {};
         const queuePrototypeSurfaceRender = () => {
             if (!(prototypeSurface instanceof HTMLElement)) return;
+            try { scheduleMainNowIndicatorRefresh(); } catch (e) {}
             if (prototypeRenderRaf) return;
             const run = () => {
                 prototypeRenderRaf = 0;
@@ -27479,22 +27604,6 @@
             try { prototypeRenderRaf = requestAnimationFrame(run); } catch (e) { run(); }
         };
         state.queuePrototypeSurfaceRender = queuePrototypeSurfaceRender;
-        const schedulePrototypeNowIndicatorRefresh = (viewType) => {
-            if (state.prototypeNowIndicatorTimer) {
-                try { clearTimeout(state.prototypeNowIndicatorTimer); } catch (e) {}
-                state.prototypeNowIndicatorTimer = null;
-            }
-            if (!isTimeGridViewType(viewType)) return;
-            const now = Date.now();
-            const delay = Math.max(1000, 60000 - (now % 60000) + 120);
-            try {
-                state.prototypeNowIndicatorTimer = setTimeout(() => {
-                    state.prototypeNowIndicatorTimer = null;
-                    try { queuePrototypeSurfaceRender(); } catch (e) {}
-                }, delay);
-            } catch (e) {}
-        };
-        state.schedulePrototypeNowIndicatorRefresh = schedulePrototypeNowIndicatorRefresh;
         const schedulePrototypeMonthAdaptiveMeasure = () => {
             // The virtual strip owns its row budget from the fixed canvas
             // geometry; painted-cell measurement would fight it every frame.
@@ -28289,6 +28398,8 @@
             }, true);
             prototypeSurface.addEventListener('click', (event) => {
                 const target = event.target instanceof Element ? event.target : null;
+                const pointTarget = document.elementFromPoint?.(Number(event.clientX) || 0, Number(event.clientY) || 0);
+                const geometryTarget = pointTarget instanceof Element ? pointTarget : target;
                 const actionEl = target?.closest?.('[data-tm-proto-action]');
                 const action = String(actionEl?.getAttribute?.('data-tm-proto-action') || '').trim();
                 // A swipe can synthesize a follow-up click on the surface.
@@ -28525,7 +28636,8 @@
                 // They carry the same day attribute as the grid columns for
                 // rendering, but clicking one must not open the new-event
                 // card in week/day/3-day/workday views.
-                const timelineHeaderDay = target?.closest?.('.tm-proto-timeline-head .tm-proto-timeline-day');
+                const timelineHeaderDay = target?.closest?.('.tm-proto-timeline-head .tm-proto-timeline-day')
+                    || geometryTarget?.closest?.('.tm-proto-timeline-head .tm-proto-timeline-day');
                 if (timelineHeaderDay) {
                     event.preventDefault();
                     event.stopPropagation();
@@ -28533,13 +28645,13 @@
                 }
                 const dayEl = compactMonthEventCell
                     ? resolvePrototypeMonthCellAtPoint(event, clickedEventEl)
-                    : target?.closest?.('[data-tm-proto-day]');
+                    : target?.closest?.('[data-tm-proto-day]') || geometryTarget?.closest?.('[data-tm-proto-day]');
                 if (dayEl && (!clickedEventEl || compactMonthEventCell)) {
                     const dayKey = String(dayEl.getAttribute('data-tm-proto-day') || '').trim();
                     const day = dayKey ? new Date(`${dayKey}T00:00:00`) : null;
                     if (day && !Number.isNaN(day.getTime())) {
                         event.preventDefault();
-                        const timeCol = target?.closest?.('.tm-proto-time-col');
+                        const timeCol = target?.closest?.('.tm-proto-time-col') || geometryTarget?.closest?.('.tm-proto-time-col');
                         const allDay = !timeCol && String(dayEl.getAttribute('data-tm-proto-all-day') || '') === '1';
                         // Week, 3-day and workday views reserve the all-day
                         // lane for existing events; clicking empty space there
@@ -28562,7 +28674,8 @@
                             togglePrototypeDayPanelForDate(day);
                             return;
                         }
-                        callCalendarAdapter(activeCalendar, 'dispatchDateClick', day, allDay, event, dayEl);
+                        const pointAnchor = createPrototypePointAnchor(event, dayEl);
+                        callCalendarAdapter(activeCalendar, 'dispatchDateClick', day, allDay, event, pointAnchor || dayEl);
                     }
                     return;
                 }
@@ -29603,7 +29716,7 @@
                 const selection = prototypePointerSelection;
                 prototypePointerSelection = null;
                 clearTimeout(selection?.timer);
-                    const range = resolvePrototypeSelectionRange(prototypeSurface, selection, event.clientX, event.clientY, getSettings());
+                const range = resolvePrototypeSelectionRange(prototypeSurface, selection, event.clientX, event.clientY, getSettings());
                 if (!selection?.started || !selection.moved || !range) {
                     renderPrototypeSelectionPreview(prototypeSurface, null, null);
                     return;
@@ -33003,7 +33116,7 @@
                 ? resolveCalendarDocColor(docId, '')
                 : '';
             const color = requestedColor || docColor || String(calendarDef?.color || 'var(--tm-primary-color)').trim();
-            const anchor = anchorEl instanceof Element
+            let anchor = anchorEl instanceof Element
                 ? anchorEl
                 : (state.calendarEl instanceof Element ? state.calendarEl : state.wrapEl instanceof Element ? state.wrapEl : null);
             if (!(anchor instanceof Element)) {
@@ -33011,6 +33124,20 @@
             }
             closeModal();
             closePrototypeEventPopover();
+            const previewSurface = params.__tmPreviewSurface instanceof HTMLElement ? params.__tmPreviewSurface : null;
+            const previewRange = params.__tmPreviewRange && typeof params.__tmPreviewRange === 'object'
+                ? params.__tmPreviewRange
+                : null;
+            if (!allDay && previewSurface && previewRange?.start instanceof Date && previewRange?.end instanceof Date) {
+                renderPrototypeSelectionPreview(previewSurface, { started: true, moved: true }, previewRange);
+                const preview = previewSurface.querySelector('[data-tm-proto-selection-preview]');
+                if (preview instanceof Element) {
+                    if (anchor.getAttribute?.('data-tm-proto-point-anchor') === '1') {
+                        try { anchor.remove(); } catch (e) {}
+                    }
+                    anchor = preview;
+                }
+            }
             const opened = showPrototypeScheduleEditorCard({
                 id: `__tm-new-schedule-${Date.now()}`,
                 title: String(params.title || '').trim(),
@@ -33596,7 +33723,6 @@
             if (!(prototypeSurface instanceof HTMLElement) || !calendar) return;
             const view = getCalendarView(calendar) || {};
             const viewType = String(view.type || state._lastViewType || preferredInitialView || 'timeGridWeek').trim();
-            schedulePrototypeNowIndicatorRefresh(viewType);
             const previousRenderedViewType = String(prototypeLastRenderedViewType || '').trim();
             const viewRangeKey = [
                 viewType,
@@ -34626,8 +34752,16 @@
                 if (!d || Number.isNaN(d.getTime())) return;
                 const start = new Date(d.getTime());
                 start.setSeconds(0, 0);
-                const end = new Date(start.getTime() + (info?.allDay === true ? 24 * 60 : 30) * 60000);
-                openPrototypeNewScheduleCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()) }, info?.el || info?.jsEvent?.target);
+                const end = new Date(start.getTime() + (info?.allDay === true ? 24 * 60 : 60) * 60000);
+                const clickAnchor = info?.el instanceof Element ? info.el : info?.jsEvent?.target;
+                const timeCol = clickAnchor?.closest?.('.tm-proto-time-col');
+                const canvas = timeCol?.closest?.('.tm-proto-time-canvas');
+                const previewRange = !info?.allDay
+                    && timeCol instanceof HTMLElement
+                    && canvas instanceof HTMLElement
+                    ? { start, end, canvas, metrics: getPrototypeTimelineMetricsFromCanvas(canvas, getSettings()) }
+                    : null;
+                openPrototypeNewScheduleCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: prototypeSurface, __tmPreviewRange: previewRange }, clickAnchor);
             },
             eventContextMenu: (arg) => handleCalendarEventContextMenu(arg),
             eventDrop: async (arg) => {
@@ -35905,10 +36039,6 @@
         }
         state.calendarInitialReminderWarmupPromise = null;
         state.calendarInitialReminderWarmupAttempts = 0;
-        if (state.prototypeNowIndicatorTimer) {
-            try { clearTimeout(state.prototypeNowIndicatorTimer); } catch (e) {}
-            state.prototypeNowIndicatorTimer = null;
-        }
         state.mainCalendarViewSwitchDeferUntil = 0;
         state.mainCalendarViewSwitchToken = (Number(state.mainCalendarViewSwitchToken || 0) + 1) % Number.MAX_SAFE_INTEGER;
         state.mainViewButtonClickCapture = null;
@@ -35928,7 +36058,11 @@
         state.schedulePrototypeMonthAdaptiveMeasure = null;
         state.schedulePrototypeMonthOverflowRepair = null;
         state.invalidatePrototypeMonthMeasurement = null;
-        state.schedulePrototypeNowIndicatorRefresh = null;
+        if (state.nowIndicatorTimer) {
+            try { clearTimeout(state.nowIndicatorTimer); } catch (e) {}
+            state.nowIndicatorTimer = null;
+        }
+        state.nowIndicatorTimerTarget = 0;
         state.__tmShowPrototypeMorePopover = null;
         if (state.mainPopoverObserver) {
             try { state.mainPopoverObserver.disconnect(); } catch (e) {}
@@ -38300,7 +38434,6 @@
             }
         }
         try { bindScheduleReminderEngine(); } catch (e) {}
-        try { scheduleScheduleReminderRefresh('set-store'); } catch (e) {}
         try { reconcileCalendarSubscriptionPublisher({ reason: 'set-store' }); } catch (e) {}
         return true;
     }

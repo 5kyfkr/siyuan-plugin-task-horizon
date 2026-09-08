@@ -2284,6 +2284,8 @@
             : '';
         const done = !!expectedDone;
         if (!rawId || !tid || (!expectedStatus && !hasExpectedCompleteAtPatch) || !__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
+        const task = await API.getTaskById(tid);
+        if (!task || typeof task !== 'object') return false;
         let attrTargetId = String(opts.attrTargetId || '').trim();
         if (!attrTargetId) {
             try { attrTargetId = __tmResolveNativeDocCheckboxAttrHostIdFromDom(rawId, tid); } catch (e) { attrTargetId = ''; }
@@ -2547,25 +2549,22 @@
         }
 
 
-        let taskId = '';
-        try { taskId = await __tmResolveTaskIdFromAnyBlockId(rawId); } catch (e) { taskId = ''; }
-        const tid = String(taskId || rawId || '').trim();
+        let binding = null;
+        try { binding = await __tmResolveTaskBindingFromAnyBlockId(rawId, { preferLocal: false }); } catch (e) {}
+        const tid = String(binding?.taskId || '').trim();
         if (!tid) return false;
-        const previousState = __tmConsumeNativeDocCheckboxPreviousState([rawId, tid]);
-        const insertedSync = __tmConsumeNativeDocCheckboxInsertedBlock(rawId) || __tmConsumeNativeDocCheckboxInsertedBlock(tid);
-
-        let task = null;
-        try {
-            const liveTask = globalThis.__tmTaskBoundary?.getTask?.(tid, { includePending: false, preferPending: false });
-            task = liveTask ? { ...liveTask } : null;
-        } catch (e) { task = null; }
+        let task = binding?.task || null;
         if (!task || typeof task !== 'object') {
             try { task = await API.getTaskById(tid); } catch (e) { task = null; }
         }
-        if (!task || typeof task !== 'object') {
-            try { task = await __tmBuildTaskLikeFromBlockId(tid); } catch (e) { task = null; }
-        }
         if (!task || typeof task !== 'object') return false;
+        const previousState = __tmConsumeNativeDocCheckboxPreviousState([rawId, tid]);
+        const insertedSync = __tmConsumeNativeDocCheckboxInsertedBlock(rawId) || __tmConsumeNativeDocCheckboxInsertedBlock(tid);
+
+        try {
+            const liveTask = globalThis.__tmTaskBoundary?.getTask?.(tid, { includePending: false, preferPending: false });
+            if (liveTask && typeof liveTask === 'object') task = { ...liveTask };
+        } catch (e) {}
         try { normalizeTaskFields(task, String(task.doc_name || task.docName || '').trim()); } catch (e) {}
         let checkboxAttrTargetId = '';
         try { checkboxAttrTargetId = __tmResolveNativeDocCheckboxAttrHostIdFromDom(rawId, tid); } catch (e) { checkboxAttrTargetId = ''; }
