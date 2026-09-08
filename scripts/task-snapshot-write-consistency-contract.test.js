@@ -19,16 +19,18 @@ const segment = (start, end) => {
 };
 
 const lock = segment('function __tmWithTaskSnapshotWriteLock', 'function __tmBuildTaskParentListHostShape');
+const sharedLock = segment('function __tmWithDerivedCacheWriteLock', 'async function __tmReadDerivedCacheFile');
 const persist = segment('function __tmSchedulePersistTaskSnapshot', 'function __tmResolveCreatedTaskDocId');
 const createdDocUpdate = segment('async function __tmUpdateSnapshotsContainingCreatedTaskDoc', 'function __tmScheduleCreatedTaskSnapshotRefresh');
 
-assert.match(lock, /__tmTaskSnapshotWriteTail\.then\(run, run\)/,
+assert.match(sharedLock, /__tmDerivedCacheWriteTails\.get\(name\)[\s\S]*\.then\(run, run\)/,
     'snapshot writes in one window must run through one promise tail');
-assert.match(lock, /navigator\?\.locks[\s\S]*locks\.request\('task-horizon:task-snapshot-write'/,
+assert.match(lock, /__tmWithDerivedCacheWriteLock\('task-horizon:task-snapshot-write'/,
     'snapshot writes across windows must use the browser exclusive lock');
-assert.match(persist, /__tmWithTaskSnapshotWriteLock\(async \(\) =>[\s\S]*__tmReadJsonFile\(TASK_SNAPSHOT_FILE_PATH\)[\s\S]*__tmWriteJsonFile\(TASK_SNAPSHOT_FILE_PATH, nextStore\)/,
+assert.match(sharedLock, /navigator\?\.locks[\s\S]*locks\.request\(name, \{ mode: 'exclusive' \}, callback\)/);
+assert.match(persist, /__tmWithTaskSnapshotWriteLock\(async \(\) =>[\s\S]*__tmReadDerivedCacheFile\(TASK_SNAPSHOT_FILE_PATH\)[\s\S]*__tmWriteJsonFile\(TASK_SNAPSHOT_FILE_PATH, nextStore\)/,
     'scheduled snapshot persistence must keep read, merge and write in one lock');
-assert.match(createdDocUpdate, /__tmWithTaskSnapshotWriteLock\(async \(\) =>[\s\S]*__tmReadJsonFile\(TASK_SNAPSHOT_FILE_PATH\)[\s\S]*__tmWriteJsonFile\(TASK_SNAPSHOT_FILE_PATH, nextStore\)/,
+assert.match(createdDocUpdate, /__tmWithTaskSnapshotWriteLock\(async \(\) =>[\s\S]*__tmReadDerivedCacheFile\(TASK_SNAPSHOT_FILE_PATH\)[\s\S]*__tmWriteJsonFile\(TASK_SNAPSHOT_FILE_PATH, nextStore\)/,
     'created-task snapshot updates must share the same read-modify-write lock');
 assert.match(persist, /const saved = await __tmWriteJsonFile\(TASK_SNAPSHOT_FILE_PATH, nextStore\)[\s\S]*if \(saved\) \{[\s\S]*__tmTaskSnapshotStoreCache = nextStore/,
     'scheduled persistence must update its memory cache only after a successful disk write');

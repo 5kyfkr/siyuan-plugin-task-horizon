@@ -14,10 +14,15 @@ const sourceSlice = (startText, endText) => {
     const end = source.indexOf(endText, start + startText.length);
     return start >= 0 && end > start ? source.slice(start, end) : '';
 };
+const sourceSliceFromLast = (startText, endText) => {
+    const start = source.lastIndexOf(startText);
+    const end = source.indexOf(endText, start + startText.length);
+    return start >= 0 && end > start ? source.slice(start, end) : source.slice(start);
+};
 const centerSource = sourceSlice('function centerCurrentTimeInTimeGrid(', 'function scheduleCurrentTimeAutoCenter(');
 const mainInitialSource = sourceSlice('function scheduleMainCalendarInitialTimeAutoCenter(', 'function formatMonthDayZh(');
 const sideLayoutSource = sourceSlice('function scheduleSideDayLayout(', 'function refreshAllDayCollapseLayout(');
-const mainRenderSource = sourceSlice('renderPrototypeSurface = () => {', 'let mainCalendarEventsPerfTrace = null;');
+const mainRenderSource = sourceSliceFromLast('renderPrototypeSurface = () => {', 'let mainCalendarLastEventSourceViewType =');
 const sideRenderSource = sourceSlice('const renderSidePrototype = () => {', 'const queueSidePrototypeRender = () => {');
 assert.match(source, /function centerCurrentTimeInPrototypeTimeline\([\s\S]*\.tm-proto-time-scroll[\s\S]*getPrototypeTimelineMetricsFromCanvas[\s\S]*prototypeTimelineYForMinute[\s\S]*const canvasOffset = canvasRect\.top - scrollerRect\.top \+ Number\(scroller\.scrollTop/, 'prototype timeline focus must use the rendered timeline geometry and folded coordinate mapping');
 assert.match(source, /const desiredTop = targetContentY - clientHeight \* 0\.35/, 'prototype timeline focus must place the current time in the upper-middle viewport');

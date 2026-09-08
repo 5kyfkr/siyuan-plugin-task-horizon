@@ -950,16 +950,7 @@
             const barrier = __tmGetBusyTaskDetailBarrier();
             if (barrier) {
                 try {
-                    __tmPushDetailDebug('detail-host-schedule-render-deferred', {
-                        withFilters,
-                        reason,
-                        barrier: barrier.entries.map((entry) => ({
-                            scope: entry.scope,
-                            taskId: entry.taskId,
-                            reasons: entry.reasons.slice(),
-                            holdMsLeft: entry.holdMsLeft,
-                        })),
-                    });
+
                 } catch (e) {}
                 __tmScheduleBusyDetailViewRefresh({
                     mode: 'full',
@@ -1232,11 +1223,6 @@
         if (!tid || !key) return finish(false, 'invalid-input');
         const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task || typeof task !== 'object') return finish(false, 'task-missing');
-        const customFieldDef = __tmGetCustomFieldDefByAttrStorageKey(key);
-        const customFieldId = String(customFieldDef?.id || '').trim();
-        const isCustomFieldAttr = !!customFieldId;
-        if (isCustomFieldAttr) {
-        }
         const rawValue = attrValue == null ? '' : String(attrValue);
         const trimmedValue = String(rawValue || '').trim();
         const metaUpdate = __tmBuildMetaPatchFromAttrUpdate(key, rawValue, task);
@@ -1448,8 +1434,6 @@ return finish(false, 'noop');
         try {
             if (metaPatch && typeof metaPatch === 'object') MetaStore.set(tid, metaPatch);
         } catch (e) {}
-        if (isCustomFieldAttr) {
-        }
         return finish(true, 'applied');
     }
 
@@ -1684,16 +1668,6 @@ return finish(false, 'noop');
             updated: String(blockRow?.updated || '').trim(),
         };
         try { normalizeTaskFields(row, docName); } catch (e) {}
-        if (__tmShouldLogStatusDebug([bid, sourceId, attrsId], false)) {
-            __tmPushStatusDebug('build-task-like', {
-                blockId: bid,
-                sourceId,
-                attrHostId: attrsId,
-                customStatus: String(row.customStatus || '').trim(),
-                done: !!row.done,
-                parentId: String(row.parent_id || '').trim(),
-            }, [bid, sourceId, attrsId], { force: false });
-        }
         return row;
     }
 
@@ -2133,6 +2107,7 @@ return finish(false, 'noop');
         const followUpOps = [];
         const effectId = String(opts.effectId || tid).trim() || tid;
         const targetDone = opts.done === true;
+
         if (!targetDone) {
             try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
             if (opts.skipAutoCompleteParent !== true) {
@@ -2218,15 +2193,17 @@ return finish(false, 'noop');
             if (recurringTask) {
                 const advance = globalThis.__tmAdvanceRecurringTaskAfterCompletion;
                 if (typeof advance !== 'function') throw new Error('循环任务推进服务未就绪');
+
                 recurringAdvanced = await advance(tid, {
                     source: opts.source,
                     completedAt,
                     scheduleId: String(opts.scheduleId || '').trim(),
                     fsrsRating: Number(opts.fsrsRating) || 0,
                     task: latestTask,
-                    suppressHint: true,
+                    suppressHint: opts.advanceHintSuppressed === true,
                     fromMutationEffect: true,
                 }) === true;
+
             }
         }
 
@@ -2952,6 +2929,7 @@ return finish(false, 'noop');
                     scheduleId: String(opts.scheduleId || '').trim(),
                     fsrsRating: Number(opts.fsrsRating) || 0,
                     suppressHint: true,
+                    advanceHintSuppressed: opts.suppressHint === true,
                     previousDone: originalDone,
                     previousMarker: previousMarker,
                     previousMarkdown: previousMarkdown,
@@ -3068,6 +3046,7 @@ return finish(false, 'noop');
         const built = __tmBuildSetDoneQueuedDefinition(tid, done, task, opts);
         if (!built?.definition) return Promise.resolve(false);
         const targetDone = built.targetDone;
+
         let pendingPromise = null;
         let intentRevision = 0;
         const opPromise = __tmEnqueueQueuedOp(built.definition, {
@@ -3075,6 +3054,7 @@ return finish(false, 'noop');
             onPending: (promise, op) => {
                 pendingPromise = promise;
                 intentRevision = Number(op?.data?.intentRevision) || 0;
+
             },
         });
         const settlePromise = pendingPromise || opPromise;
@@ -3157,6 +3137,7 @@ if (ev) {
                 const result = await __tmDeleteTaskRepeatHistoryEntry(sourceTaskId, completedAt, {
                     source: String(opts.source || 'recurring-instance-uncomplete').trim() || 'recurring-instance-uncomplete',
                     recordUndo: opts.recordUndo !== false,
+                    resetNativeDone: true,
                 });
                 if (!result) {
                     if (opts.suppressHint !== true) hint('⚠️ 未找到可撤销的循环记录', 'warning');
@@ -3201,6 +3182,45 @@ if (ev) {
                 return false;
             }
             return await __tmSetDoneKernel(tid, done, ev, opts);
+        }
+        if (!targetDone
+            && typeof __tmIsRecurringNativeDoneHeld === 'function'
+            && __tmIsRecurringNativeDoneHeld(task)) {
+            const heldState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
+            const heldCompletedAt = String(heldState.lastCompletedAt || '').trim();
+            if (heldCompletedAt && typeof __tmDeleteTaskRepeatHistoryEntry === 'function') {
+                try {
+                    const result = await __tmDeleteTaskRepeatHistoryEntry(tid, heldCompletedAt, {
+                        source: String(opts.source || 'recurring-source-uncomplete').trim() || 'recurring-source-uncomplete',
+                        recordUndo: opts.recordUndo !== false,
+                        resetNativeDone: true,
+                    });
+                    if (!result) throw new Error('未找到可撤销的循环记录');
+                    if (ev?.target) {
+                        try { ev.target.checked = false; } catch (e) {}
+                    }
+                    try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
+                    if (opts.suppressHint !== true) hint('✅ 已撤销循环完成记录', 'success');
+                    return true;
+                } catch (e) {
+                    if (opts.suppressHint !== true) hint(`❌ 撤销失败: ${e?.message || String(e)}`, 'error');
+                    if (ev?.target) {
+                        try { ev.target.checked = true; } catch (e2) {}
+                    }
+                    try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e2) {}
+                    return false;
+                }
+            }
+        }
+        if (!targetDone
+            && typeof __tmIsRecurringNativeDoneHeld === 'function'
+            && __tmIsRecurringNativeDoneHeld(task)) {
+            if (opts.suppressHint !== true) hint('⚠️ 循环完成记录已丢失，请先刷新任务数据', 'warning');
+            if (ev?.target) {
+                try { ev.target.checked = true; } catch (e) {}
+            }
+            try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
+            return false;
         }
         const currentDone = typeof __tmIsTaskDoneEffective === 'function'
             ? !!__tmIsTaskDoneEffective(task)
@@ -4093,15 +4113,7 @@ if (ev) {
             + (SettingsStore.data.taskCheckboxCircleStyleEnabled === true ? ' tm-task-detail--task-checkbox-circle' : '');
 
         try {
-            __tmPushDetailDebug('detail-rebuild-html', {
-                taskId: tid,
-                embedded: false,
-                source: 'standalone-overlay-open',
-                rootTag: __tmDescribeDebugElement(overlay),
-                pendingSave: overlay.__tmTaskDetailPendingSave === true,
-                hasActivePopover: !!overlay.__tmTaskDetailActiveInlinePopover,
-                refreshHoldMsLeft: Math.max(0, Number(overlay.__tmTaskDetailRefreshHoldUntil || 0) - Date.now()),
-            });
+
         } catch (e) {}
         overlay.innerHTML = __tmBuildTaskDetailInnerHtml(task, { embedded: false });
 
@@ -4904,6 +4916,7 @@ if (ev) {
             try {
                 const removed = await __tmDeleteTaskRepeatHistoryEntry(recurringSourceTaskId, recurringCompletedAt, {
                     source: String(opts.source || 'task-delete-recurring-instance').trim() || 'task-delete-recurring-instance',
+                    resetNativeDone: true,
                 });
                 if (removed !== true) {
                     hint('⚠️ 循环记录已不存在', 'warning');

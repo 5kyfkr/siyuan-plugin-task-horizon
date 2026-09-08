@@ -21,6 +21,8 @@ const handler = index.slice(handlerStart, handlerEnd);
 
 assert.match(handler, /async onDataChanged\(\)[\s\S]*requestSyncedDataReload\("siyuan-data-changed"/,
     'SiYuan data-change notifications must enter the shared synchronized reload scheduler');
+assert.match(handler, /arguments\[0\][\s\S]*requestSyncedDataReload\('overwrite'/,
+    '3.8.3 overwrite notifications must use a read-only synchronized reload path');
 assert.doesNotMatch(handler, /super\.onDataChanged|this\.onunload|removeWindowTopBar/, 'storage sync must not unload the plugin or remove its topbar');
 assert.match(handler, /_taskDataChangedPromise/, 'concurrent data-change notifications must share one reload');
 assert.match(handler, /_taskDataChangedQueued/, 'a notification received during reload must be replayed once');
@@ -43,6 +45,7 @@ assert.match(reload, /__tmInvalidateTaskSnapshotStoreCache\(\)/, 'task snapshot 
 assert.match(reload, /__tmInvalidateTaskIndexStoreCache\(\)/, 'task index cache must be invalidated');
 assert.match(reload, /__tmInvalidateDocScopeCache\(\)/, 'document scope cache must be invalidated');
 assert.match(reload, /skipSharedStateReload: true/, 'the view refresh must not write synchronized storage back before reading it');
+assert.match(reload, /suppressStorageWrites/, 'overwrite reloads must suppress storage writes while remote data is hydrated');
 const saveNowIndex = reload.indexOf('await SettingsStore.saveNow?.()');
 const cancelPendingSaveIndex = reload.indexOf('__tmCancelSettingsStorePendingSave()');
 const settingsLoadIndex = reload.indexOf('await SettingsStore.load(');

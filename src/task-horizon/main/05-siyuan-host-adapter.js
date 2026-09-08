@@ -207,6 +207,29 @@
         }
     };
 
+    const getStorageRequestApp = () => {
+        try {
+            return String(getApp()?.appId || getPlugin()?.app?.appId || getBridge()?.app?.appId || '').trim();
+        } catch (e) {
+            return '';
+        }
+    };
+
+    const appendStorageRequestApp = (form) => {
+        const appId = getStorageRequestApp();
+        if (!appId || !form || typeof form.append !== 'function') return form;
+        try {
+            if (typeof form.get !== 'function' || !form.get('app')) form.append('app', appId);
+        } catch (e) {}
+        return form;
+    };
+
+    const withStorageRequestApp = (payload) => {
+        const source = payload && typeof payload === 'object' ? payload : {};
+        const appId = getStorageRequestApp();
+        return appId ? { ...source, app: appId } : { ...source };
+    };
+
     const postKernel = async (path, payload, options = {}) => {
         const url = String(path || '').trim();
         if (!url) return null;
@@ -253,6 +276,9 @@
         loadData,
         saveData,
         removeData,
+        getStorageRequestApp,
+        appendStorageRequestApp,
+        withStorageRequestApp,
         postKernel,
     };
 })();

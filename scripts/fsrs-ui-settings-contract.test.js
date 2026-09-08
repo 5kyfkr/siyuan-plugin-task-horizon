@@ -33,7 +33,7 @@ assert.match(css, /\.tm-task-context-fsrs__row[\s\S]*?grid-template-columns:\s*r
 assert.match(css, /\.tm-task-context-fsrs__btn--good\.is-default[\s\S]*?background:/, 'the checkbox-default Good rating must be visually recommended');
 assert.match(css, /\.tm-task-context-fsrs__due[\s\S]*?background:/, 'context preview dates must have a distinct background');
 assert.match(listRuntime, /if \(!fsrsRating && ev\?\.target\) fsrsRating = 3/, 'a real checkbox event must default to Good');
-assert.match(recurringRuntime, /if \(!fsrsRating \|\| fsrsRating === 1\) return false/, 'Again and missing ratings must not enter the completion transaction');
+assert.match(recurringRuntime, /if \(!fsrsRating \|\| fsrsRating === 1\) \{[\s\S]*?return false;/, 'Again and missing ratings must not enter the completion transaction');
 assert.match(detailRuntime, /data-tm-detail-fsrs-review/, 'task detail must render inline ratings below the title');
 assert.match(detailRuntime, /默认良好 · 下次/, 'task detail must show the default Good preview');
 assert.match(detailRuntime, /data-tm-detail-fsrs-rating/, 'task detail ratings must be directly actionable');

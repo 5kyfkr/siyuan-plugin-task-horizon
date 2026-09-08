@@ -34,6 +34,6 @@ assert.match(actions, /const allow = new Set\(\[[^\]]*remainingTime/);
 assert.match(stores, /const allowInlineFields = new Set\(\[[^\]]*remainingTime/);
 assert.match(bridge, /getTaskRemainingTimeInfo\(task, options = \{\}\)/);
 assert.match(bridge, /renderTaskRemainingTimeInfoHtml\(info\)/);
-assert.match(remainingRuntime, /if \(task\?\.done === true\) \{[\s\S]*__tmResolveTaskCompletedAtRaw[\s\S]*completedDeltaDays[\s\S]*提前\$\{completedDeltaDays\}天[\s\S]*延期\$\{Math\.abs\(completedDeltaDays\)\}天/);
+assert.match(remainingRuntime, /const taskDone = typeof __tmIsTaskDoneEffective[\s\S]*if \(taskDone\) \{[\s\S]*__tmResolveTaskCompletedAtRaw[\s\S]*recurringSourceDue[\s\S]*completedDeltaDays[\s\S]*提前\$\{completedDeltaDays\}天[\s\S]*延期\$\{Math\.abs\(completedDeltaDays\)\}天/);
 
 console.log('quickbar inline remaining time contract tests passed');

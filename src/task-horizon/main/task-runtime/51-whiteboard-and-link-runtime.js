@@ -3545,30 +3545,14 @@
                 const nextBarrier = __tmGetBusyTaskDetailBarrier();
                 if (nextBarrier) {
                     try {
-                        __tmPushDetailDebug('detail-host-defer-refresh-still-busy', {
-                            mode: pending.mode,
-                            reason: pending.reason,
-                            withFilters: pending.withFilters !== false,
-                            taskIds: Array.isArray(pending.taskIds) ? pending.taskIds.slice() : [],
-                            barrier: nextBarrier.entries.map((entry) => ({
-                                scope: entry.scope,
-                                taskId: entry.taskId,
-                                reasons: entry.reasons.slice(),
-                                holdMsLeft: entry.holdMsLeft,
-                            })),
-                        });
+
                     } catch (e) {}
                     armTimer();
                     return;
                 }
                 state.busyDetailViewRefreshPending = null;
                 try {
-                    __tmPushDetailDebug('detail-host-defer-refresh-flush', {
-                        mode: pending.mode,
-                        reason: pending.reason,
-                        withFilters: pending.withFilters !== false,
-                        taskIds: Array.isArray(pending.taskIds) ? pending.taskIds.slice() : [],
-                    });
+
                 } catch (e) {}
                 __tmScheduleViewRefresh(pending);
             }, waitMs);
@@ -3576,18 +3560,7 @@
         };
         try {
             const barrier = __tmGetBusyTaskDetailBarrier();
-            __tmPushDetailDebug('detail-host-defer-refresh', {
-                mode: next.mode,
-                reason: next.reason,
-                withFilters: next.withFilters !== false,
-                taskIds: Array.isArray(next.taskIds) ? next.taskIds.slice() : [],
-                barrier: Array.isArray(barrier?.entries) ? barrier.entries.map((entry) => ({
-                    scope: entry.scope,
-                    taskId: entry.taskId,
-                    reasons: entry.reasons.slice(),
-                    holdMsLeft: entry.holdMsLeft,
-                })) : [],
-            });
+
         } catch (e) {}
         return armTimer();
     }
@@ -3639,24 +3612,6 @@
     function __tmPerformViewRefresh(detail = {}) {
         const next = __tmNormalizeViewRefreshDetail(detail);
         const bypassBusyDetailDefer = next.bypassDefer === true || next.bypassTaskFieldDefer === true;
-        try {
-            const currentDetailId = String(state.detailTaskId || state.kanbanDetailTaskId || '').trim();
-            if (currentDetailId) {
-                __tmPushDetailDebug('detail-host-view-refresh', {
-                    taskId: currentDetailId,
-                    mode: next.mode,
-                    reason: next.reason,
-                    withFilters: next.withFilters !== false,
-                    taskIds: Array.isArray(next.taskIds) ? next.taskIds.slice() : [],
-                    viewMode: String(state.viewMode || '').trim(),
-                    bypassBusyDetailDefer,
-                    bypassTaskFieldDefer: next.bypassTaskFieldDefer === true,
-                    allowMountedInactive: next.allowMountedInactive === true,
-                    modalMounted: state.modal instanceof Element && document.body.contains(state.modal),
-                    pluginVisible: typeof __tmIsPluginVisibleNow !== 'function' || __tmIsPluginVisibleNow(),
-                });
-            }
-        } catch (e) {}
         if (next.mode !== 'detail' && !bypassBusyDetailDefer) {
             const barrier = __tmGetBusyTaskDetailBarrier();
             if (barrier) {
@@ -3798,8 +3753,7 @@ if (deferForActiveScroll) {
                 if (!pending) return;
                 try {
                     __tmPerformViewRefresh(pending);
-                } catch (e) {
-                }
+                } catch (e) {}
             };
             try { requestAnimationFrame(runRefresh); } catch (e) { runRefresh(); }
         }, 24);
@@ -3850,20 +3804,6 @@ __tmScheduleViewRefresh(pending);
         const allowMountedInactive = options?.allowMountedInactive === true
             && state.modal instanceof Element
             && document.body.contains(state.modal);
-try {
-            const currentDetailId = String(state.detailTaskId || state.kanbanDetailTaskId || '').trim();
-            if (currentDetailId) {
-                __tmPushDetailDebug('detail-host-main-view-refresh', {
-                    taskId: currentDetailId,
-                    viewMode: String(state.viewMode || '').trim(),
-                    withFilters,
-                    reason,
-                    allowMountedInactive,
-                    deferIfDetailBusy: options?.deferIfDetailBusy !== false,
-                    pluginVisible: typeof __tmIsPluginVisibleNow !== 'function' || __tmIsPluginVisibleNow(),
-                });
-            }
-        } catch (e) {}
         if (options?.deferIfDetailBusy !== false) {
             const barrier = __tmGetBusyTaskDetailBarrier();
             if (barrier) {
@@ -4401,17 +4341,6 @@ return false;
         const item = modal.querySelector(`.tm-checklist-item[data-id="${CSS.escape(tid)}"]`);
         if (!(item instanceof HTMLElement)) return false;
         const detailTaskId = String(state.detailTaskId || state.kanbanDetailTaskId || '').trim();
-        const traceDetailPlacement = (result, nextTaskId = '', extra = {}) => {
-            if (!detailTaskId || detailTaskId !== tid) return;
-            try {
-                __tmPushDetailDebug('detail-checklist-placement', {
-                    taskId: tid,
-                    nextTaskId: String(nextTaskId || '').trim(),
-                    result: String(result || '').trim(),
-                    ...((extra && typeof extra === 'object') ? extra : {}),
-                });
-            } catch (e) {}
-        };
         if (options?.filtersApplied !== true) return __tmScheduleOptimisticProjectionFrame('checklist', tid, patch);
 
         const rows = __tmBuildTaskRowModel();
@@ -4439,7 +4368,7 @@ return false;
         const targetIndex = taskRows.findIndex((row) => row.id === tid);
         if (targetIndex < 0) {
             __tmSetChecklistProjectionDomBlockVisibility(block, visibleTaskIds, true);
-            traceDetailPlacement('hidden-by-projection');
+
             return true;
         }
         __tmSetChecklistProjectionDomBlockVisibility(block, visibleTaskIds, false);
@@ -4475,11 +4404,7 @@ return false;
         }
         const nextNode = nextTaskRow ? findTaskNode(nextTaskRow.id) : null;
         if (nextTaskRow && !(nextNode instanceof HTMLElement)) {
-            traceDetailPlacement('fallback-next-task-unmounted', nextTaskRow.id, {
-                targetIndex,
-                targetGroupKey: target.groupKey,
-                targetDepth: target.depth,
-            });
+
             return false;
         }
         if (nextNode instanceof HTMLElement) {
@@ -4534,11 +4459,7 @@ return false;
             sourceGroupCard.remove();
         }
         try { state.listDomRenderSignature = ''; } catch (e) {}
-        traceDetailPlacement('moved', nextTaskRow?.id || '', {
-            targetIndex,
-            targetGroupKey: target.groupKey,
-            targetDepth: target.depth,
-        });
+
         return true;
     }
 
@@ -5175,6 +5096,78 @@ return false;
         return fieldPatchByTaskId instanceof Map ? Array.from(fieldPatchByTaskId.keys()) : [];
     }
 
+    function __tmTryPatchChecklistCompletionRow(batch, changes) {
+        if (state.viewMode !== 'checklist' || batch.structural === true || changes.length !== 1) return false;
+        const change = changes[0];
+        if (change.completionChanged === false || !Object.prototype.hasOwnProperty.call(change.patch || {}, 'done')) return false;
+        const taskId = String(change.taskId || '').trim();
+        const task = globalThis.__tmTaskStore?.getProjected?.(taskId) || __tmTaskStateKernel.getTask(taskId);
+        if (!task || task.parentTaskId || task.parent_task_id || task.children?.length) return false;
+        const items = state.modal?.querySelector('.tm-checklist-items');
+        if (!(items instanceof HTMLElement)) return false;
+        const current = Array.from(items.querySelectorAll('.tm-checklist-item[data-id], .tm-checklist-group[data-group-key]'));
+        if (current.some((node) => node.hidden)) return false;
+        const step = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
+        const total = state.filteredTasks?.length || 0;
+        const limit = total > (state.__tmSnapshotFirstRenderLimitMode ? 0 : 50)
+            ? Math.max(step, Math.min(total, Number(state.listRenderLimit) || step))
+            : Number.POSITIVE_INFINITY;
+        const desired = __tmSliceTaskRowModelByTaskWindow(__tmBuildTaskRowModel(), 0, limit).rows;
+        const targetVisible = desired.some((row) => row.type === 'task' && String(row.id) === taskId);
+        const removed = targetVisible ? [] : current.filter((node) => node.getAttribute('data-id') === taskId);
+        const retained = current.filter((node) => !removed.includes(node));
+        if (!retained.length || desired.length !== retained.length || removed.length > 1) return false;
+        const nodeKey = (node) => node.getAttribute('data-id') ? `task:${node.getAttribute('data-id')}` : `group:${node.getAttribute('data-group-key')}`;
+        const rowKey = (row) => `${row.type}:${row.type === 'task' ? row.id : row.key}`;
+        const targetKey = `task:${taskId}`;
+        const retainedKeys = retained.map(nodeKey);
+        const desiredKeys = desired.map(rowKey);
+        if (retainedKeys.filter((key) => key !== targetKey).join('|') !== desiredKeys.filter((key) => key !== targetKey).join('|')) return false;
+        const groupForTarget = (keys) => keys.slice(0, keys.indexOf(targetKey)).filter((key) => key.startsWith('group:')).pop() || '';
+        if (targetVisible && groupForTarget(retainedKeys) !== groupForTarget(desiredKeys)) return false;
+        const byKey = new Map(retained.map((node) => [nodeKey(node), node]));
+        const ordered = desiredKeys.map((key) => byKey.get(key));
+        if (byKey.size !== retained.length || ordered.some((node) => !(node instanceof HTMLElement))) return false;
+        for (let index = 0; index < desired.length; index += 1) {
+            const row = desired[index];
+            const node = ordered[index];
+            if (row.type === 'task') {
+                if (String(row.id) !== node.getAttribute('data-id')
+                    || Math.max(0, Number(row.depth) || 0) !== Math.max(0, Number(node.getAttribute('data-depth')) || 0)) return false;
+            } else if (row.type === 'group') {
+                if (String(row.key) !== node.getAttribute('data-group-key')) return false;
+                const durationBadge = node.querySelector('.tm-badge--duration');
+                if (!!durationBadge !== !!String(row.durationSum || '').trim()
+                    || (durationBadge && durationBadge.lastChild?.nodeType !== 3)) return false;
+                if (Number(row.count) > 0 && !node.querySelector('.tm-badge--count')) return false;
+            } else return false;
+        }
+        if (ordered.some((node, index) => node !== retained[index])) {
+            const target = byKey.get(targetKey);
+            const container = target?.parentElement;
+            const next = ordered[desiredKeys.indexOf(targetKey) + 1];
+            if (!(container instanceof HTMLElement) || (next?.getAttribute('data-id') && next.parentElement !== container)) return false;
+            const anchor = next?.parentElement === container ? next : null;
+            const block = Array.from(container.children).filter((node) => node === target || node.getAttribute('data-target-task-id') === taskId);
+            block.forEach((node) => container.insertBefore(node, anchor));
+        }
+        removed.forEach((node) => node.remove());
+        if (removed.length) {
+            items.querySelectorAll('.tm-task-drop-gap[data-target-task-id]').forEach((node) => {
+                if (node.getAttribute('data-target-task-id') === taskId) node.remove();
+            });
+        }
+        desired.forEach((row, index) => {
+            if (row.type !== 'group') return;
+            const badge = ordered[index].querySelector('.tm-badge--count');
+            if (badge) badge.textContent = String(Math.max(0, Number(row.count) || 0));
+            const durationBadge = ordered[index].querySelector('.tm-badge--duration');
+            if (durationBadge) durationBadge.lastChild.nodeValue = String(row.durationSum);
+        });
+        try { __tmSyncCurrentViewDomRenderSignature('checklist'); } catch (e) {}
+        return true;
+    }
+
     function __tmRunTaskProjectionBatch(batchInput = {}, options = {}) {
         const batch = batchInput && typeof batchInput === 'object' ? batchInput : {};
         const opts = (options && typeof options === 'object') ? options : {};
@@ -5206,6 +5199,15 @@ return false;
             || __tmIsPluginVisibleNow());
         let filtersApplied = false;
         const filteredProjectionTaskIds = new Set();
+        const renderWindow = visible && completionClosureRequired ? __tmCaptureViewRenderWindow() : null;
+        const scrollHost = visible && completionClosureRequired
+            ? state.modal.querySelector(state.viewMode === 'checklist' ? '.tm-checklist-scroll' : '.tm-body')
+            : null;
+        const scrollAnchor = __tmCaptureViewScrollAnchor(scrollHost, state.viewMode === 'checklist' ? '.tm-checklist-item[data-id]' : 'tr[data-id]');
+        if (scrollAnchor?.anchors?.length > 1) {
+            const stableAnchors = scrollAnchor.anchors.filter((anchor) => !fieldPatchByTaskId.has(anchor.id));
+            if (stableAnchors.length) scrollAnchor.anchors = stableAnchors;
+        }
 
         if (visible && projectionRequired) {
             try {
@@ -5216,6 +5218,9 @@ return false;
             } catch (e) {
                 filtersApplied = false;
             }
+        }
+        if (filtersApplied && renderWindow) {
+            __tmRestoreViewRenderWindow(renderWindow, state.filteredTasks?.length || 0);
         }
         if (filtersApplied && completionClosureRequired) {
             const stack = Array.isArray(state.filteredTasks) ? state.filteredTasks.slice() : [];
@@ -5261,8 +5266,11 @@ return false;
             });
         }
 
+        const completionRowPatched = visible && filtersApplied && completionClosureRequired
+            && __tmTryPatchChecklistCompletionRow(batch, changes);
         let projected = !projectionRequired || !visible;
-        if (visible && projectionRequired && filtersApplied) {
+        if (completionRowPatched) projected = true;
+        if (visible && projectionRequired && filtersApplied && !completionRowPatched) {
             const mode = String(state.viewMode || '').trim();
             if (mode === 'list') {
                 projected = __tmTryApplyListProjectionBatchInPlace(taskIds);
@@ -5332,27 +5340,11 @@ return false;
             }
         }
 
+        if (projected && scrollAnchor) __tmRestoreViewScrollAnchor(scrollHost, scrollAnchor);
+
         if (opts.allowMountedInactive === true) {
             try {
-                __tmPushDetailDebug('detail-projection-batch', {
-                    reason: String(batch.reason || 'change-set-projection').trim() || 'change-set-projection',
-                    viewMode: String(state.viewMode || '').trim(),
-                    taskIds: taskIds.slice(),
-                    fields: changes.map((change) => ({
-                        taskId: String(change?.taskId || '').trim(),
-                        fields: Object.keys(change?.patch || {}),
-                        completionChanged: change?.completionChanged,
-                    })),
-                    ruleSorts: typeof __tmGetNormalizedRuleSorts === 'function'
-                        ? __tmGetNormalizedRuleSorts(__tmGetCurrentRule?.())
-                        : [],
-                    projectionRequired,
-                    completionClosureRequired,
-                    filtersApplied,
-                    projected,
-                    fallbackRequired: visible && projectionRequired && !projected,
-                    allowMountedInactive,
-                });
+
             } catch (e) {}
         }
 
@@ -5490,17 +5482,7 @@ return false;
         });
         if (detailProjectionChanges.length > 0) {
             try {
-                __tmPushDetailDebug('detail-projection-change-set', {
-                    taskIds: detailProjectionChanges.map((change) => String(change?.taskId || '').trim()),
-                    fields: detailProjectionChanges.map((change) => ({
-                        taskId: String(change?.taskId || '').trim(),
-                        fields: Object.keys(change?.patch || {}),
-                    })),
-                    viewMode: String(state.viewMode || '').trim(),
-                    reasons: Array.from(new Set((Array.isArray(entries) ? entries : [])
-                        .map((entry) => String(entry?.mutation?.source || '').trim())
-                        .filter(Boolean))),
-                });
+
             } catch (e) {}
         }
         changes.forEach((change, index) => {
@@ -7542,7 +7524,6 @@ return false;
         const root = container instanceof Element ? container : null;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
-        const debugTaskId = String(taskLike?.id || '').trim();
         const patchFieldValues = (patch && typeof patch.customFieldValues === 'object' && patch.customFieldValues)
             ? patch.customFieldValues
             : null;
@@ -7557,8 +7538,6 @@ return false;
                 .concat(Object.keys(taskFieldValues || {}))
                 .concat(Object.keys(patchFieldValues || {}))
         ));
-        if (patchFieldValues) {
-        }
         let touched = false;
         const syncCompactWrapVisibility = (wrap) => {
             if (!(wrap instanceof HTMLElement)) return;
@@ -7590,8 +7569,6 @@ return false;
             const value = __tmGetTaskCustomFieldValue(taskLike, fieldId);
             const nodes = Array.from(root.querySelectorAll(`[data-tm-custom-field-cell="${CSS.escape(fid)}"]`))
                 .filter((node) => node instanceof HTMLElement);
-            if (patchFieldValues && Object.prototype.hasOwnProperty.call(patchFieldValues, fid)) {
-            }
             nodes.forEach((node) => {
                 const cell = node.querySelector('.tm-custom-field-cell');
                 if (cell instanceof HTMLElement) {
@@ -7679,8 +7656,6 @@ return false;
             syncCompactWrapVisibility(compactWrap);
             touched = true;
         });
-        if (patchFieldValues) {
-        }
         return touched || fieldIds.length === 0;
     }
 
@@ -8727,7 +8702,6 @@ return false;
                 source: String(opts.source || 'inline-field').trim() || 'inline-field',
                 label: String(opts.label || '任务字段').trim() || '任务字段',
                 reason: String(opts.reason || opts.source || 'inline-field').trim() || 'inline-field',
-                perfTrace: opts.perfTrace || null,
                 optimisticSkipDetailPatch,
                 presentation: {
                     preserveActiveDetail: opts.skipDetailPatch === true,
@@ -8844,8 +8818,6 @@ return false;
             const patch = this.buildPatchFromAttr(tid, attrKey, attrValue);
             const opts = (options && typeof options === 'object') ? options : {};
             if (!tid || !patch) return false;
-            const customFieldDef = __tmGetCustomFieldDefByAttrStorageKey(attrKey);
-            const customFieldId = String(customFieldDef?.id || '').trim();
             if (__tmMutationEngine.isTaskSuppressed(tid)) return true;
             const applyResult = __tmApplyQuickbarAttrUpdateInState(tid, attrKey, attrValue, {
                 returnReason: true,
@@ -8855,19 +8827,6 @@ return false;
                 ? String(applyResult.reason || '').trim()
                 : (applied ? 'applied' : '');
             const handledAsNoop = applyReason === 'noop';
-            try {
-                __tmPushDetailDebug('change-feed-handle-attr', {
-                    taskId: tid,
-                    attrKey: String(attrKey || '').trim(),
-                    attrValue: String(attrValue ?? ''),
-                    patch: patch ? { ...patch } : null,
-                    applied: !!applied,
-                    applyReason,
-                    reason: String(opts.reason || '').trim(),
-                });
-            } catch (e) {}
-            if (customFieldId) {
-            }
             if (!applied && !handledAsNoop) return false;
             try {
                 const task = globalThis.__tmTaskStore?.getProjected?.(tid) || null;
@@ -8917,11 +8876,6 @@ return false;
         const tid = String(id || '').trim();
         const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return Promise.resolve(false);
-        try {
-            if (field === 'startDate' || field === 'completionTime') {
-                
-            }
-        } catch (e) {}
         const customFieldId = __tmParseCustomFieldColumnKey(field);
         const customField = customFieldId ? __tmGetCustomFieldDefMap().get(customFieldId) : null;
         if (customField && !__tmIsCustomFieldApplicableToTask(customField, task)) return Promise.resolve(false);
@@ -9653,11 +9607,7 @@ return false;
     function __tmCloseInlineEditor(reason = '') {
         const closeReason = String(reason || '').trim() || 'manual';
         try {
-            __tmPushDetailDebug('inline-editor-close', {
-                reason: closeReason,
-                anchor: __tmDescribeDebugElement(__tmInlineEditorState?.anchorEl || null),
-                editorOpen: !!__tmInlineEditorState?.el,
-            });
+
         } catch (e) {}
         __inlineEditorUnstack?.();
         __inlineEditorUnstack = null;
@@ -9712,11 +9662,7 @@ return false;
 
         build(api);
         try {
-            __tmPushDetailDebug('inline-editor-open', {
-                anchor: __tmDescribeDebugElement(anchorEl),
-                inTaskDetail: !!anchorEl.closest?.('.tm-task-detail, #tm-task-detail-overlay, #tmChecklistDetailPanel, #tmChecklistSheetPanel, #tmKanbanDetailPanel'),
-                editorChildCount: Number(editor.childElementCount || 0),
-            });
+
         } catch (e) {}
 
         const customRect = opts.anchorRect && typeof opts.anchorRect === 'object' ? opts.anchorRect : null;
@@ -11158,14 +11104,18 @@ return false;
         return value;
     }
 
-    function __tmBuildTaskRowModel() {
+    function __tmBuildTaskRowModel(options = {}) {
+        const rowModelOptions = options && typeof options === 'object' ? options : {};
+        const maxTaskRows = Number.isFinite(Number(rowModelOptions.maxTaskRows))
+            ? Math.max(1, Math.round(Number(rowModelOptions.maxTaskRows)))
+            : Number.POSITIVE_INFINITY;
         const cacheMeta = __tmBuildTaskRowModelCacheMeta();
         const cacheableMode = ['list', 'checklist', 'timeline'].includes(cacheMeta.viewMode);
         const cacheStore = cacheableMode && state.__tmTaskRowModelCacheByMode instanceof Map
             ? state.__tmTaskRowModelCacheByMode
             : null;
         const cached = cacheStore?.get(cacheMeta.viewMode);
-        if (__tmTaskRowModelCacheMatches(cached, cacheMeta)) return cached.rows;
+        if (maxTaskRows === Number.POSITIVE_INFINITY && __tmTaskRowModelCacheMatches(cached, cacheMeta)) return cached.rows;
         const alwaysVisibleHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks();
         if ((!Array.isArray(state.filteredTasks) || state.filteredTasks.length === 0) && alwaysVisibleHeadingTasks.length === 0) {
             return cacheableMode ? __tmRememberTaskRowModelCache([], cacheMeta) : [];
@@ -11190,6 +11140,8 @@ return false;
         };
 
         const rows = [];
+        let builtTaskRows = 0;
+        const hasTaskBudget = () => builtTaskRows < maxTaskRows;
 
         const derived = __tmGetFilteredTaskDerivedState();
         const filteredIdSet = derived.filteredIdSet;
@@ -11333,6 +11285,7 @@ return false;
         const normalRoots = keepPinnedInGroups ? activeRoots.slice() : activeRoots.filter(t => !t.pinned);
 
         const emitTask = (task, depth, hasChildren, collapsed, inCompletedRootGroup = false) => {
+            if (!hasTaskBudget()) return false;
             rows.push({
                 type: 'task',
                 id: String(task?.id || ''),
@@ -11341,6 +11294,8 @@ return false;
                 collapsed: !!collapsed,
                 inCompletedRootGroup: inCompletedRootGroup === true,
             });
+            builtTaskRows += 1;
+            return true;
         };
 
         const emitSiblingDropGap = (task, depth, kind) => {
@@ -11371,11 +11326,12 @@ return false;
 
         const walkTaskList = (tasks, depth, inheritedHideCompleted = false, inCompletedRootGroup = false) => {
             const list = Array.isArray(tasks) ? tasks : [];
-            list.forEach((task, index) => {
+            for (let index = 0; index < list.length && hasTaskBudget(); index += 1) {
+                const task = list[index];
                 emitSiblingDropGap(task, depth, 'before');
                 walkTaskTree(task, depth, inheritedHideCompleted, inCompletedRootGroup);
                 if (index === list.length - 1) emitSiblingDropGap(task, depth, 'after');
-            });
+            }
         };
 
         const walkTaskTree = (task, depth, inheritedHideCompleted = false, inCompletedRootGroup = false) => {
@@ -11386,8 +11342,8 @@ return false;
             const hasChildren = childTasks.length > 0;
             const collapsed = state.collapsedTaskIds.has(String(task.id));
             const showChildren = hasChildren;
-            emitTask(task, depth, showChildren, collapsed, inCompletedRootGroup);
-            if (showChildren && !collapsed) {
+            if (!emitTask(task, depth, showChildren, collapsed, inCompletedRootGroup)) return;
+            if (showChildren && !collapsed && hasTaskBudget()) {
                 emitChildDropGap(task, depth + 1);
                 walkTaskList(childTasks, depth + 1, hideCompletedDescendants, inCompletedRootGroup);
             }
@@ -11445,7 +11401,9 @@ return false;
                 walkTaskList(normalRoots, 0);
             }
             appendCompletedRootGroup();
-            return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
+            rows.__tmTotalTaskCount = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : builtTaskRows;
+            rows.__tmHasMoreTaskRows = builtTaskRows < rows.__tmTotalTaskCount;
+            return maxTaskRows === Number.POSITIVE_INFINITY && cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
         if (state.quadrantEnabled && normalRoots.length > 0) {
@@ -11528,7 +11486,9 @@ return false;
                 }
             });
             appendCompletedRootGroup();
-            return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
+            rows.__tmTotalTaskCount = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : builtTaskRows;
+            rows.__tmHasMoreTaskRows = builtTaskRows < rows.__tmTotalTaskCount;
+            return maxTaskRows === Number.POSITIVE_INFINITY && cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
         if (state.groupByDocName) {
@@ -11719,7 +11679,9 @@ return false;
 
         walkTaskList(normalRoots, 0);
         appendCompletedRootGroup();
-        return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
+        rows.__tmTotalTaskCount = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : builtTaskRows;
+        rows.__tmHasMoreTaskRows = builtTaskRows < rows.__tmTotalTaskCount;
+        return maxTaskRows === Number.POSITIVE_INFINITY && cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
     }
 
     function __tmResolveFirstVisibleTaskIdFromRowModel(rowModel) {

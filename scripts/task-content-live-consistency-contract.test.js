@@ -226,8 +226,8 @@ assert.match(saveOnce, /background:\s*!waitForCommit[\s\S]*wait:\s*waitForCommit
 assert.match(saveOnce, /if \(waitForCommit\) \{\s*await contentSavePromise;/, 'close must wait for content mutation settlement');
 assert.match(saveOnce, /if \(waitForCommit\) \{\s*const fieldResult = await fieldSavePromise;/, 'close must wait for field mutation settlement');
 assert.match(saveOnce, /trackDetailCommit\(pendingPromise,/, 'detail saves must track queued mutation settlement independently of enqueue mode');
-assert.match(saveOnce, /reason:\s*'serialized-same'/, 'an earlier autosave may already own the current title');
-assert.match(saveOnce, /formState\.hasContentEditor === false[\s\S]*reason:\s*'content-editor-absent'[\s\S]*return true;/, 'note view close must skip absent form controls without reporting a failed save');
+assert.match(saveOnce, /serialized === lastSerialized && !showHint[\s\S]*return true;/, 'an earlier autosave may already own the current title');
+assert.match(saveOnce, /formState\.hasContentEditor === false[\s\S]*return true;/, 'note view close must skip absent form controls without reporting a failed save');
 assert.ok(saveOnce.indexOf('formState.hasContentEditor === false') < saveOnce.indexOf('if (!nextContent)'), 'an absent note-view title editor must be handled before real empty-title validation');
 assert.doesNotMatch(saveOnce, /reason:\s*'detail-content-save'[\s\S]*__tmScheduleBusyDetailViewRefresh/, 'parent title save must not queue a stale full-view refresh for drawer close');
 

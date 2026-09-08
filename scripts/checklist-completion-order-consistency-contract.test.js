@@ -62,10 +62,10 @@ assert.match(
     /let nextTaskRow = null;[\s\S]*nextTaskRow = taskRows\[index\];[\s\S]*if \(nextTaskRow && !\(nextNode instanceof HTMLElement\)\)[\s\S]*return false;/,
     'a missing desired next peer must fall back to grouped rendering instead of appending the task to the end',
 );
-assert.match(
+assert.doesNotMatch(
     checklistPlacement,
-    /__tmPushDetailDebug\('detail-checklist-placement',[\s\S]*nextTaskId:[\s\S]*result:/,
-    'detail-driven checklist placement must print its intended neighbor and result',
+    /__tmPushDetailDebug|traceDetailPlacement/,
+    'checklist placement must not retain temporary diagnostics in the hot path',
 );
 
 const checklistRerender = extractFunction(runtimeServices, '__tmRerenderChecklistInPlace');
@@ -123,6 +123,17 @@ class FakeElement {
 
     get firstElementChild() {
         return this.children[0] || null;
+    }
+
+    get nextElementSibling() {
+        return this.parentNode?.children[this.parentNode.children.indexOf(this) + 1] || null;
+    }
+
+    isEqualNode(node) {
+        return this.className === node.className
+            && JSON.stringify(Array.from(this.attributes)) === JSON.stringify(Array.from(node.attributes))
+            && this.children.length === node.children.length
+            && this.children.every((child, index) => child.isEqualNode(node.children[index]));
     }
 
     getAttribute(name) {
@@ -212,7 +223,8 @@ const nextCard = card(documentOrder);
 const currentBody = currentCard.querySelector(':scope > .tm-checklist-group-card-items');
 const currentTaskNodes = new Map(currentBody.children.map((item) => [item.getAttribute('data-id'), item]));
 const reconcileContext = vm.createContext({ FakeElement, HTMLElement: FakeElement, Set, Array, String });
-vm.runInContext(extractFunction(runtimeServices, '__tmReconcileChecklistProjectionCard'), reconcileContext);
+vm.runInContext(['__tmSelectChecklistProjectionNodes', '__tmReconcileChecklistProjectionNodeList', '__tmReconcileChecklistProjectionCard']
+    .map((name) => extractFunction(runtimeServices, name)).join('\n'), reconcileContext);
 assert.equal(
     reconcileContext.__tmReconcileChecklistProjectionCard(
         currentCard,

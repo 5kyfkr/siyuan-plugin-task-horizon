@@ -1280,24 +1280,8 @@
             }
             return list;
         };
-        const queryStartedAt = Date.now();
         const startKey = __tmNormalizeDateOnly(rangeStart);
         const endKey = __tmNormalizeDateOnly(rangeEnd);
-        const perfCalendar = String(opts.calendar || opts.instance || '').trim() || 'background';
-        const perfTrace = (() => {
-            try {
-                return typeof globalThis.__tmTaskHorizonPerfCreate === 'function'
-                    ? globalThis.__tmTaskHorizonPerfCreate('taskDateQuery', {
-                        calendar: perfCalendar,
-                        instance: perfCalendar,
-                        viewType: String(opts.viewType || '').trim() || 'background',
-                        rangeStart: startKey,
-                        rangeEnd: endKey,
-                        requestSeq: Number(opts.requestSeq || 0) || undefined,
-                    })
-                    : null;
-            } catch (e) { return null; }
-        })();
         const forceFreshUntil = Number(globalThis.__tmCalendarTaskDateForceFreshUntil || 0) || 0;
         const forceFresh = opts.forceFresh === true || (forceFreshUntil > Date.now());
         const toTs = (k) => {
@@ -1314,24 +1298,6 @@
             const d = new Date(ts + 86400000);
             const pad = (n) => String(n).padStart(2, '0');
             return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        };
-        const pushTaskDateQueryDiag = (phase, detail = {}) => {
-            const payload = {
-                calendar: perfCalendar,
-                instance: perfCalendar,
-                viewType: String(opts.viewType || '').trim() || 'background',
-                rangeStart: startKey,
-                rangeEnd: endKey,
-                source: String(opts.source || 'taskdate').trim() || 'taskdate',
-                path: String(phase || '').trim(),
-                durationMs: Math.max(0, Date.now() - queryStartedAt),
-                ...(detail && typeof detail === 'object' ? detail : {}),
-            };
-            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, String(phase || 'taskdate').trim() || 'taskdate', payload); } catch (e) {}
-            const terminal = /^(taskdate-(?:inactive-cache|inactive-memory|skip-inactive-view|cache|stale-cache|memory|side-deferred|full))$/.test(String(phase || '').trim());
-            if (terminal) {
-                try { globalThis.__tmTaskHorizonPerfFinish?.(perfTrace, { ...payload, resultCount: Number(payload.eventCount || 0), success: payload.success !== false }); } catch (e) {}
-            }
         };
         const scheduleTaskDateCacheWarm = (reason = 'taskdate-fast-first') => {
             const runtimeMobile = (() => {
@@ -1520,15 +1486,6 @@
                 if (cachedTasks.length > 0 && (opts.requireCompleteCache !== true || cache?.complete === true)) {
                     const indexed = __tmGetCalendarTaskDateCandidates(cachedTasks, rangeStartTs, rangeEndTs);
                     const events = buildTaskDateEventsFromTasks(indexed.tasks, __tmGetCalendarDocsToGroupMapSync());
-                    pushTaskDateQueryDiag('taskdate-inactive-cache', {
-                        taskCount: cachedTasks.length,
-                        candidateCount: indexed.tasks.length,
-                        indexHit: indexed.hit,
-                        eventCount: events.length,
-                        cachePath: 'memory',
-                        cacheStatus: 'hit',
-                        cacheHit: true,
-                    });
                     return markTaskDateQueryResult(events, cache?.complete === true, 'inactive-cache');
                 }
                 const candidateMeta = __tmGetCalendarTaskCandidatesSync();
@@ -1536,23 +1493,9 @@
                 if (candidateTasks.length > 0 && opts.requireCompleteCache !== true) {
                     const indexed = __tmGetCalendarTaskDateCandidates(candidateTasks, rangeStartTs, rangeEndTs);
                     const events = buildTaskDateEventsFromTasks(indexed.tasks, candidateMeta?.docsToGroup);
-                    pushTaskDateQueryDiag('taskdate-inactive-memory', {
-                        taskCount: candidateTasks.length,
-                        candidateCount: indexed.tasks.length,
-                        indexHit: indexed.hit,
-                        eventCount: events.length,
-                        cachePath: 'memory',
-                        cacheStatus: 'hit',
-                        cacheHit: true,
-                    });
                     return markTaskDateQueryResult(events, false, 'inactive-memory');
                 }
             } catch (e) {}
-            pushTaskDateQueryDiag('taskdate-skip-inactive-view', {
-                cachePath: 'inactive',
-                cacheStatus: 'skipped',
-                cacheHit: false,
-            });
             return markTaskDateQueryResult([], false, 'skip-inactive-view');
         }
         if (!forceFresh && opts.fastFirst !== false) {
@@ -1577,17 +1520,6 @@
                     if (cacheAgeMs > 8000 || !cacheComplete) {
                         scheduleTaskDateCacheWarm(cacheComplete ? 'taskdate-stale-cache-first' : 'taskdate-incomplete-cache-first');
                     }
-                    pushTaskDateQueryDiag(cacheAgeMs > 8000 ? 'taskdate-stale-cache' : 'taskdate-cache', {
-                        taskCount: cachedTasks.length,
-                        candidateCount: indexed.tasks.length,
-                        indexHit: indexed.hit,
-                        eventCount: events.length,
-                        cachePath: 'memory',
-                        cacheStatus: cacheAgeMs > 8000 ? 'stale-hit' : 'hit',
-                        cacheHit: true,
-                        cacheComplete,
-                        fastFirst: true,
-                    });
                     return markTaskDateQueryResult(events, cacheComplete, cacheComplete ? 'cache' : 'partial-cache');
                 }
                 const candidateMeta = __tmGetCalendarTaskCandidatesSync();
@@ -1596,16 +1528,6 @@
                     const indexed = __tmGetCalendarTaskDateCandidates(candidateTasks, rangeStartTs, rangeEndTs);
                     const events = buildTaskDateEventsFromTasks(indexed.tasks, candidateMeta?.docsToGroup);
                     scheduleTaskDateCacheWarm('taskdate-memory-first');
-                    pushTaskDateQueryDiag('taskdate-memory', {
-                        taskCount: candidateTasks.length,
-                        candidateCount: indexed.tasks.length,
-                        indexHit: indexed.hit,
-                        eventCount: events.length,
-                        cachePath: 'memory',
-                        cacheStatus: 'hit',
-                        cacheHit: true,
-                        fastFirst: true,
-                    });
                     return markTaskDateQueryResult(events, false, 'memory');
                 }
             } catch (e) {}
@@ -1616,14 +1538,6 @@
             // cache warm in the background. Waiting here turns a cold index
             // read into a visible calendar freeze.
             scheduleTaskDateCacheWarm('taskdate-side-deferred');
-            pushTaskDateQueryDiag('taskdate-side-deferred', {
-                eventCount: 0,
-                cachePath: 'deferred',
-                cacheStatus: 'warming',
-                cacheHit: false,
-                fastFirst: true,
-                deferred: true,
-            });
             return markTaskDateQueryResult([], false, 'side-deferred');
         }
 
@@ -1664,59 +1578,23 @@
 
         let docsToGroup = new Map();
         try {
-            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-doc-range-resolve', { path: 'doc-range-resolve' }); } catch (e0) {}
             docsToGroup = await getDocsToGroupMap();
-            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-doc-range-ready', { path: 'doc-range-resolve', documentCount: docsToGroup.size }); } catch (e0) {}
-        } catch (e) {
-            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-doc-range-error', { path: 'doc-range-resolve', error: String(e?.message || e || '') }); } catch (e0) {}
-        }
+        } catch (e) {}
 
         let filtered = [];
         let fullLoadError = '';
         try {
-            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-index-read-start', { path: 'task-index-read' }); } catch (e0) {}
-            // Keep the loader metadata on the same options object so the
-            // task-date trace can report cachePath/reused for early in-flight
-            // joins as well as the normal SQL path.
             Object.assign(opts, { forceFresh, maxAgeMs: 8000 });
             filtered = await __tmLoadAllTasksForCalendarCache(opts);
-            try {
-                globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-index-read-ready', {
-                    path: 'task-index-read',
-                    taskCount: filtered.length,
-                    cachePath: String(opts.__tmCalendarTaskLoadCachePath || window.__tmCalendarAllTasksCache?.source || 'sql').trim() || 'sql',
-                    cacheStatus: String(opts.__tmCalendarTaskLoadCacheStatus || '').trim() || undefined,
-                    cacheHit: window.__tmCalendarAllTasksCache?.source === 'task-store',
-                    reused: opts.__tmCalendarTaskLoadReused === true,
-                    storeScopeMatch: window.__tmCalendarTaskLastStoreScope?.match === true,
-                    expectedDocCount: Number(window.__tmCalendarTaskLastStoreScope?.expectedDocCount || 0) || 0,
-                    loadedDocCount: Number(window.__tmCalendarTaskLastStoreScope?.loadedDocCount || 0) || 0,
-                });
-            } catch (e0) {}
         } catch (e) {
             fullLoadError = String(e?.message || e || '').trim();
-            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-index-read-error', { path: 'task-index-read', error: String(e?.message || e || '') }); } catch (e0) {}
             if (opts.throwOnError === true) {
-                try { globalThis.__tmTaskHorizonPerfFinish?.(perfTrace, { path: 'task-index-read', error: fullLoadError, success: false }); } catch (e0) {}
                 throw e;
             }
             filtered = [];
         }
-        try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, 'taskdate-projection', { path: 'task-date-projection', taskCount: filtered.length }); } catch (e) {}
         const indexed = __tmGetCalendarTaskDateCandidates(filtered, rangeStartTs, rangeEndTs);
         const out = buildTaskDateEventsFromTasks(indexed.tasks, docsToGroup);
-        pushTaskDateQueryDiag('taskdate-full', {
-            taskCount: filtered.length,
-            candidateCount: indexed.tasks.length,
-            indexHit: indexed.hit,
-            eventCount: out.length,
-            cachePath: String(opts.__tmCalendarTaskLoadCachePath || window.__tmCalendarAllTasksCache?.source || 'sql').trim() || 'sql',
-            cacheStatus: String(opts.__tmCalendarTaskLoadCacheStatus || '').trim() || (window.__tmCalendarAllTasksCache?.source === 'task-store' ? 'store' : 'miss'),
-            cacheHit: window.__tmCalendarAllTasksCache?.source === 'task-store',
-            reused: opts.__tmCalendarTaskLoadReused === true,
-            fastFirst: false,
-            ...(fullLoadError ? { error: fullLoadError, success: false } : {}),
-        });
         return markTaskDateQueryResult(
             out,
             !fullLoadError && window.__tmCalendarAllTasksCache?.complete === true,
@@ -2009,36 +1887,14 @@
         const requestedId = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         const opts = (options && typeof options === 'object') ? options : {};
-        const perfTrace = (() => {
-            try {
-                return typeof globalThis.__tmTaskHorizonPerfCreate === 'function'
-                    ? globalThis.__tmTaskHorizonPerfCreate('taskDateWrite', {
-                        calendar: String(opts.calendar || opts.instance || '').trim() || 'background',
-                        instance: String(opts.instance || opts.calendar || '').trim() || 'background',
-                        taskId: requestedId,
-                        source: String(opts.source || 'calendar-dates').trim() || 'calendar-dates',
-                        background: opts.background === true,
-                    })
-                    : null;
-            } catch (e) { return null; }
-        })();
-        const perfMark = (stage, detail = {}) => {
-            try { globalThis.__tmTaskHorizonPerfMark?.(perfTrace, stage, detail); } catch (e) {}
-        };
-        const perfFinish = (detail = {}) => {
-            try { globalThis.__tmTaskHorizonPerfFinish?.(perfTrace, detail); } catch (e) {}
-        };
         if (!requestedId) {
-            perfFinish({ error: '缺少任务 ID', success: false });
             throw new Error('缺少任务 ID');
         }
-        perfMark('taskdate-write-start', { path: 'task-date-write', taskId: requestedId });
         const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate');
         const hasCompletionTime = Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime');
         const hasTaskDateColor = Object.prototype.hasOwnProperty.call(nextPatch, 'taskDateColor')
             || Object.prototype.hasOwnProperty.call(nextPatch, 'color');
         if (!hasStartDate && !hasCompletionTime && !hasTaskDateColor) {
-            perfFinish({ taskId: requestedId, error: '缺少日期字段', success: false });
             throw new Error('缺少日期字段');
         }
         let resolvedId = requestedId;
@@ -2048,10 +1904,8 @@
             try { strictResolvedId = String(await __tmResolveTaskIdFromAnyBlockId(requestedId, { preferLocal: false }) || '').trim(); } catch (e) {}
             if (!strictResolvedId) {
                 if (opts.ignoreMissingTask === true) {
-                    perfFinish({ taskId: requestedId, path: 'identity-resolve', success: true, confirmed: false });
                     return { id: '', requestedId, skipped: true, reason: 'not-task' };
                 }
-                perfFinish({ taskId: requestedId, path: 'identity-resolve', error: '未找到任务', success: false });
                 throw new Error('未找到任务');
             }
             resolvedId = strictResolvedId;
@@ -2077,10 +1931,8 @@
         }
         const persistId = String(task?.id || resolvedId || requestedId).trim();
         if (!persistId) {
-            perfFinish({ taskId: requestedId, path: 'identity-resolve', error: '未找到任务', success: false });
             throw new Error('未找到任务');
         }
-        perfMark('taskdate-identity-ready', { path: 'identity-resolve', taskId: persistId });
 
         const normalizeDate = (value) => {
             const raw = String(value || '').trim();
@@ -2159,7 +2011,6 @@
                 queued: true,
                 background: opts.background === true,
                 wait: persistWait,
-                perfTrace,
                 skipFlush: persistSkipFlush,
                 docId: taskDocId,
                 skipSnapshotPersist,
@@ -2176,14 +2027,8 @@
                 allowMountedInactive: opts.allowMountedInactive === true,
             });
         } catch (error) {
-            perfFinish({ taskId: persistId, path: 'persist', error: String(error?.message || error || ''), success: false, confirmed: false });
             throw error;
         }
-        perfMark('taskdate-optimistic', {
-            path: 'optimistic-cache',
-            taskId: persistId,
-            optimistic: true,
-        });
         if (recordBackgroundUndo) {
             try {
                 if (!__tmUndoState?.applying && typeof __tmPushUndoRecord === 'function') {
@@ -2211,17 +2056,8 @@
             try {
                 await persistPromise;
             } catch (error) {
-                perfFinish({
-                    taskId: persistId,
-                    path: 'persist',
-                    error: String(error?.message || error || ''),
-                    success: false,
-                    confirmed: false,
-                });
                 throw error;
             }
-            perfMark('taskdate-write-confirmed', { path: 'persist', taskId: persistId, confirmed: true });
-            perfFinish({ path: 'persist', taskId: persistId, confirmed: true, success: true });
             try {
                 const recordReschedule = globalThis.__tmRecordTaskProcrastinationDateReschedule;
                 if (hasCompletionTime && typeof recordReschedule === 'function') {
@@ -2241,7 +2077,6 @@
             finishAfterPersist().then(() => {
                 return null;
             }).catch((error) => {
-                perfFinish({ taskId: persistId, error: String(error?.message || error || ''), success: false, confirmed: false });
                 try { opts.onError?.(error); } catch (e) {}
                 return null;
             });

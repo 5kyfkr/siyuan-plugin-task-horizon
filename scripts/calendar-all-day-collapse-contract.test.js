@@ -14,6 +14,9 @@ assert.match(source, /function countSharedPrototypeAllDayEvents\(events, date, e
 assert.match(source, /actionAttr:\s*'data-tm-proto-action'/);
 assert.ok(source.includes("tm-proto-allday ${allDayCollapsed ? 'is-collapsed' : ''}"));
 assert.match(source, /const allDayCollapsed = options\.allDayCollapsed === true/);
+const allDayDropResolver = source.slice(source.indexOf('function resolveMainCalendarDropHitFromPoint'), source.indexOf('function syncCalendarDropDayPreview'));
+assert.match(allDayDropResolver, /const allDayCell = Array\.from\(protoSurface\.querySelectorAll\('\.tm-proto-allday-cell'\)\)\.find\(\(cell\) => isPointWithin\(cell\)\)/, 'prototype all-day drops must resolve the cell from pointer geometry');
+assert.match(allDayDropResolver, /const allDayCell[\s\S]*?return \{ start, allDay: true \};[\s\S]*?const timeCol =/, 'all-day hit detection must run before timed-column fallback');
 assert.match(source, /collapsedAllDayCounts\.set\(dateKey\(date\), count\)/, 'collapsed all-day counts must be calculated per day');
 assert.match(source, /collapsedCountMarkup = allDayCollapsed && collapsedCount > 0/, 'collapsed all-day summary must display the folded count');
 assert.match(source, /viewType\.startsWith\('timeGrid'\) && eventApi\?\.allDay !== true/, 'time-grid +N popovers must exclude timed events');

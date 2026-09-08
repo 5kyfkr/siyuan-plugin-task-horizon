@@ -19,6 +19,8 @@ assert.match(source, /for \(let minute = 0; minute <= 1440; minute \+= 60\)/, 'h
 assert.match(source, /if \(isMinuteCollapsed\(minute\)\) continue;/, 'hour labels inside a collapsed range must be omitted');
 assert.match(source, /const labelsMarkup = labels\.join\('\'\);/);
 assert.match(source, /isHour \? 'is-hour' : 'is-half-hour'/);
+assert.match(source, /height:\$\{Math\.max\(0\.01, bottom - top\)\}%/, 'timed event height must follow its actual start/end span');
+assert.doesNotMatch(source, /height:\$\{Math\.max\(4, bottom - top\)\}%/, 'timed events must not use a whole-canvas percentage floor');
 assert.match(source, /tm-proto-allday/);
 assert.match(source, /tm-proto-span-bar/);
 assert.match(styles, /\.tm-proto-time-canvas\s*\{[\s\S]*min-height:\s*960px/);
@@ -30,6 +32,7 @@ assert.match(styles, /\.tm-proto-time-line\.is-half-hour[^}]*border-top-style:\s
 assert.match(styles, /\.tm-proto-time-line\.is-hour[^}]*border-top-style:\s*solid/);
 assert.match(styles, /\.tm-proto-time-lines\s*\{[^}]*z-index:\s*2/);
 assert.match(styles, /\.tm-proto-time-col\s*>\s*\.tm-proto-event--block\s*\{[\s\S]*z-index:\s*3/);
+assert.match(styles, /\/\* Keep the block boundary equal to its actual start\/end time span\. \*\/[\s\S]*?\.tm-proto-time-col\s*>\s*\.tm-proto-event--block\s*\{[\s\S]*?min-height:\s*0\s*!important/, 'timed events must not have a CSS height floor');
 assert.match(styles, /--tm-cal-today-bg:\s*color-mix\(in\s+srgb,[\s\S]*var\(--tm-cal-panel\)\)/);
 assert.equal((source.match(/getFullCalendarCompatClassOptions/g) || []).length, 0);
 assert.equal((source.match(/eventClass:\s*\(/g) || []).length, 0);

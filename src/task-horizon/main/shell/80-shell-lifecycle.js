@@ -34,11 +34,6 @@
                 const attrKey = String(e.detail.attrKey || '').trim();
                 const attrValue = String(e.detail.value ?? '');
                 const attrHostId = String(e.detail.attrHostId || '').trim();
-                const relayTransport = String(e.detail.__relayTransport || '').trim();
-                const relaySource = String(e.detail.__relaySource || '').trim();
-                const relaySeq = Number(e.detail.__relaySeq || 0) || 0;
-                const relayTime = String(e.detail.__relayTime || '').trim();
-                const source = String(e.detail.source || relaySource || '').trim();
                 const localMutationEvent = e.detail.localMutation === true;
                 const customFieldDef = __tmGetCustomFieldDefByAttrStorageKey(attrKey);
                 const customFieldId = String(customFieldDef?.id || '').trim();
@@ -50,24 +45,10 @@
                     state.__tmPendingCustomFieldFreshOpenAt = Date.now();
                     state.__tmPendingCustomFieldFreshTaskId = taskId;
                 }
-                try {
-                    __tmPushDetailDebug('global-attr-updated', {
-                        taskId,
-                        requestedTaskId,
-                        attrKey,
-                        attrValue,
-                        source,
-                        relayTransport,
-                        relaySeq,
-                    });
-                } catch (e2) {}
-                if (isCustomFieldAttr) {
-                }
 if (__tmIsVisibleDateAttrKey(attrKey)) {
                     __tmMarkVisibleDateFallbackTask(taskId);
                 }
                 let handledInline = false;
-                let resolveRetryScheduled = false;
                 if (localMutationEvent) {
                     // State and projection are already owned by MutationService.
                     // This event only notifies quickbar, calendar and reminder consumers.
@@ -76,28 +57,19 @@ if (__tmIsVisibleDateAttrKey(attrKey)) {
                     handledInline = __tmChangeFeed.handleAttrUpdate(taskId, attrKey, attrValue, {
                         reason: 'quickbar-attr-update',
                     });
-                    if (isCustomFieldAttr) {
-                    }
                     if (!handledInline) {
-                        resolveRetryScheduled = true;
                         Promise.resolve(__tmResolveTaskIdFromAnyBlockId(taskId))
                             .then((resolvedTaskId) => {
                                 const nextTaskId = String(resolvedTaskId || '').trim();
                                 if (!nextTaskId || nextTaskId === taskId) {
 return;
                                 }
-                                if (isCustomFieldAttr) {
-                                }
                                 const resolvedHandledInline = !!__tmChangeFeed.handleAttrUpdate(nextTaskId, attrKey, attrValue, {
                                     reason: 'quickbar-attr-update',
                                 });
                                 handledInline = resolvedHandledInline || handledInline;
-                                if (isCustomFieldAttr) {
-                                }
 })
                             .catch((error) => {
-                                if (isCustomFieldAttr) {
-                                }
 return null;
                             });
                     }
@@ -107,8 +79,6 @@ return null;
                 const shouldMarkDirty = !localMutationEvent && (!handledInline || shouldDeferToAutoRefresh);
 if (shouldMarkDirty) {
                     __tmMarkQuickbarModifiedTask(taskId);
-                }
-                if (isCustomFieldAttr) {
                 }
                 if (attrKey === 'bookmark') {
                     try { __tmClearReminderSnapshotCache(taskId); } catch (ex) {}
@@ -515,6 +485,22 @@ if (shouldMarkDirty) {
 
     async function openManager(options) {
         const openOptions = (options && typeof options === 'object') ? options : {};
+        const existingOpenGate = state.__tmOpenManagerInFlight;
+        if (existingOpenGate?.active === true) {
+            return openOptions.awaitInitialLoad === true
+                ? existingOpenGate.promise
+                : undefined;
+        }
+        let resolveOpenGate = null;
+        const openGatePromise = new Promise((resolve) => { resolveOpenGate = resolve; });
+        const openGate = { active: true, promise: openGatePromise };
+        state.__tmOpenManagerInFlight = openGate;
+        const settleOpenGate = (value) => {
+            if (!openGate.active) return;
+            openGate.active = false;
+            try { resolveOpenGate?.(value); } catch (e) {}
+            if (state.__tmOpenManagerInFlight === openGate) state.__tmOpenManagerInFlight = null;
+        };
         const awaitInitialLoad = openOptions.awaitInitialLoad === true;
         const mobileStartupOpen = openOptions.source === 'mobile-startup-auto-open';
         const token = globalThis.__tmRuntimeState?.nextOpenToken?.() ?? (() => {
@@ -580,7 +566,6 @@ if (shouldMarkDirty) {
             state.viewMode = 'list';
             state.viewModeInitialized = true;
         }
-
         // 仅在必要时重渲染，避免页签切换返回时闪烁和滚动位置丢失
         try {
             if (!forceRenderForHostHandoff) {
@@ -601,6 +586,12 @@ if (shouldMarkDirty) {
                 try { __tmScheduleCalendarDefaultViewForCurrentHost('open-manager-reuse-host', { preserveCurrentView: true }); } catch (e) {}
             }
             if (!reusedExistingModal) {
+                try {
+                    state.activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+                    await __tmApplyCurrentContextViewProfile({
+                        applyDefaultViewMode: !forceRenderForHostHandoff,
+                    });
+                } catch (e) {}
                 try { render(); } catch (e) {
                     console.error('[OpenManager] Render failed:', e);
                 }
@@ -647,6 +638,7 @@ if (shouldMarkDirty) {
             const readyDeadline = Date.now() + 10000;
             while (globalThis?.siyuan?.isReady !== true && Date.now() < readyDeadline) {
                 if (!(globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) {
+                    settleOpenGate(false);
                     return false;
                 }
                 try { await new Promise((resolve) => setTimeout(resolve, 80)); } catch (e) {}
@@ -687,11 +679,13 @@ if (shouldMarkDirty) {
             hint('⚠ 请先在设置中添加要显示的文档', 'warning');
             const activeModal = globalThis.__tmRuntimeState?.getModal?.() || state.modal;
             if (activeModal && (globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) showSettings();
+            settleOpenGate(false);
             return;
         }
 
         if (!(globalThis.__tmRuntimeState?.getModal?.() || state.modal)
             || !(globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) {
+            settleOpenGate(false);
             return;
         }
         try {
@@ -720,8 +714,6 @@ if (shouldMarkDirty) {
         })();
         const hasPendingHiddenCustomFieldFreshOpen = Number(state.__tmPendingCustomFieldFreshOpenAt || 0) > 0;
         const shouldForceFreshOpenLoad = quickbarDirty || hasPendingAutoRefreshDirty || hasPendingHiddenCustomFieldFreshOpen;
-        if (shouldForceFreshOpenLoad) {
-        }
         const hasPendingLocalTaskWrites = hasPendingLocalTaskWritesForOpen();
         const canSkipRenderOnReuse = reusedExistingModal
             && hasDataReadyForSoftReuse
@@ -755,11 +747,17 @@ if (shouldMarkDirty) {
                 waitForDocScopeResolve: hardenMobileStartupLoad,
                 retryEmptyDocScope: hardenMobileStartupLoad,
                 emptyDocScopeRetryCount: 3,
-                source: 'openManager-soft-reuse'
+                source: 'openManager-soft-reuse',
             }).then((loadResult) => {
-                if (hardenMobileStartupLoad && loadResult === false) return false;
+                if (hardenMobileStartupLoad && loadResult === false) {
+                    settleOpenGate(false);
+                    return false;
+                }
                 markMobileStartupLoadSettled();
-                if (!(globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) return;
+                if (!(globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) {
+                    settleOpenGate(false);
+                    return;
+                }
                 try {
                     __tmRefreshMainViewInPlace({
                         withFilters: false,
@@ -780,8 +778,10 @@ if (shouldMarkDirty) {
                         }, { hard: false });
                     }
                 } catch (e) {}
-                return true;
+                settleOpenGate(loadResult !== false);
+                return loadResult !== false;
             }).catch((e) => {
+                settleOpenGate(false);
                 if (awaitInitialLoad) {
                     try { hint(`❌ 加载失败: ${e?.message || e}`, 'error'); } catch (e2) {}
                     return false;
@@ -796,12 +796,6 @@ if (shouldMarkDirty) {
             try { await new Promise(resolve => setTimeout(resolve, 200)); } catch (e) {}
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
         }
-        try {
-            state.activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-            await __tmApplyCurrentContextViewProfile({
-                applyDefaultViewMode: !forceRenderForHostHandoff,
-            });
-        } catch (e) {}
         const forceFreshOpenLoad = hardenMobileStartupLoad || shouldForceFreshOpenLoad;
         const initialLoadPromise = loadSelectedDocuments({
             skipRender: canSkipRenderOnReuse,
@@ -823,29 +817,34 @@ if (shouldMarkDirty) {
             waitForDocScopeResolve: hardenMobileStartupLoad,
             retryEmptyDocScope: hardenMobileStartupLoad,
             emptyDocScopeRetryCount: 3,
-            source: mobileStartupOpen ? 'mobile-startup-auto-open' : 'openManager'
+            source: mobileStartupOpen ? 'mobile-startup-auto-open' : 'openManager',
         }).then((loadResult) => {
-            if (hardenMobileStartupLoad && loadResult === false) return false;
+            if (hardenMobileStartupLoad && loadResult === false) {
+                settleOpenGate(false);
+                return false;
+            }
             markMobileStartupLoadSettled();
             if (forceFreshOpenLoad) {
                 try { state.__tmPendingCustomFieldFreshOpenAt = 0; } catch (e) {}
                 try { state.__tmPendingCustomFieldFreshTaskId = ''; } catch (e) {}
             }
-            if (!canSkipRenderOnReuse) return;
-            try {
-                if ((globalThis.__tmRuntimeState?.isViewMode?.('calendar') ?? String(state.viewMode || '').trim() === 'calendar')
-                    && (globalThis.__tmCalendar?.requestRefresh || globalThis.__tmCalendar?.refreshInPlace)) {
-                    __tmRequestCalendarRefresh({
-                        reason: 'open-manager-soft-reuse-after-load',
-                        main: true,
-                        side: true,
-                        flushTaskPanel: true,
-                        layoutOnly: true,
-                        hard: false,
-                    }, { layoutOnly: true, hard: false });
-                }
-            } catch (e) {}
-            return true;
+            if (canSkipRenderOnReuse) {
+                try {
+                    if ((globalThis.__tmRuntimeState?.isViewMode?.('calendar') ?? String(state.viewMode || '').trim() === 'calendar')
+                        && (globalThis.__tmCalendar?.requestRefresh || globalThis.__tmCalendar?.refreshInPlace)) {
+                        __tmRequestCalendarRefresh({
+                            reason: 'open-manager-soft-reuse-after-load',
+                            main: true,
+                            side: true,
+                            flushTaskPanel: true,
+                            layoutOnly: true,
+                            hard: false,
+                        }, { layoutOnly: true, hard: false });
+                    }
+                } catch (e) {}
+            }
+            settleOpenGate(loadResult !== false);
+            return loadResult !== false;
         }).catch(e => {
             try {
                 if (Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false);
@@ -854,6 +853,7 @@ if (shouldMarkDirty) {
                 try { state.__tmPendingCustomFieldFreshOpenAt = Date.now(); } catch (e2) {}
             }
             hint(`❌ 加载失败: ${e.message}`, 'error');
+            settleOpenGate(false);
             return false;
         });
         if (awaitInitialLoad) return await initialLoadPromise;

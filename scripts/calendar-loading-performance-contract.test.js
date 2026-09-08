@@ -14,7 +14,7 @@ assert.match(
 );
 assert.match(
     source,
-    /function readScheduleLocalStorageSnapshot\(\)[\s\S]*function queueScheduleAuthoritativeRefresh\([\s\S]*authoritativeInflight[\s\S]*schedule-authoritative-read-ready/,
+    /function readScheduleLocalStorageSnapshot\(\)[\s\S]*function queueScheduleAuthoritativeRefresh\([\s\S]*authoritativeInflight[\s\S]*setScheduleCache\(localSnapshot\.out, localSnapshot\.signature\)[\s\S]*queueScheduleAuthoritativeRefresh\(\)/,
     'cold schedule reads must paint from the last confirmed local snapshot while refreshing from the kernel in the background',
 );
 assert.match(
@@ -49,13 +49,13 @@ assert.match(
 );
 assert.match(
     source,
-    /async function performScheduleSaveAll\(items, options\)[\s\S]*schedule-optimistic-cache[\s\S]*catch \(e\) \{[\s\S]*setScheduleCache\(previousList[\s\S]*schedule-optimistic-rollback/,
+    /async function performScheduleSaveAll\(items, options\)[\s\S]*const optimisticSignature = computeScheduleSourceSignature\(serialized\);[\s\S]*setScheduleCache\(list, optimisticSignature\)[\s\S]*catch \(e\) \{[\s\S]*setScheduleCache\(previousList, computeScheduleSourceSignature\(rollbackSerialized\)\)/,
     'failed schedule persistence must roll back the optimistic memory snapshot',
 );
 assert.match(
     source,
-    /schedule-kernel-write-confirmed|schedule-file-write-confirmed/,
-    'schedule persistence must expose a confirmed write stage before post-save side effects',
+    /if \(kernelSave\)[\s\S]*await kernelSave\(list, opts\)[\s\S]*else \{[\s\S]*await putFileText\(STORAGE\.SCHEDULE_FILE, serialized\)/,
+    'schedule persistence must complete the selected authoritative write before post-save side effects',
 );
 assert.match(
     source,
@@ -114,7 +114,7 @@ assert.match(
 );
 assert.match(
     runtimeSource,
-    /scheduleTaskDateCacheWarm\('taskdate-side-deferred'\)[\s\S]*taskdate-side-deferred/,
+    /scheduleTaskDateCacheWarm\('taskdate-side-deferred'\)/,
     'side task-date queries must warm the shared cache without blocking the source request',
 );
 assert.match(
@@ -171,9 +171,6 @@ const runtimeState = {
 };
 const context = {
     state: runtimeState,
-    __tmPerfCreate() { return null; },
-    __tmPerfMark() {},
-    __tmPerfFinish() {},
     formatDateKey(value) { return value instanceof Date ? value.toISOString().slice(0, 10) : ''; },
     toMs(value) { return value instanceof Date ? value.getTime() : Number(value); },
     async loadScheduleAll() {

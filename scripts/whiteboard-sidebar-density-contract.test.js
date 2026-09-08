@@ -7,6 +7,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const styles = fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8');
 const bodySource = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/44-render-whiteboard-body.js'), 'utf8');
+const interactionSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/49-render-whiteboard-interactions.js'), 'utf8');
 const resizeSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/45-render-shell-controls-and-resize.js'), 'utf8');
 const renderRuntimeSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/40-render-runtime.js'), 'utf8');
 const apiRuntimeSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/20-api-and-runtime-services.js'), 'utf8');
@@ -51,6 +52,10 @@ assert.match(bodySource, /<div class="tm-whiteboard-sidebar-scroll" onscroll="tm
     'the task pool scroll container must report scroll activity');
 assert.match(bodySource, /tm-whiteboard-sidebar-scrollbar[\s\S]*?tm-whiteboard-sidebar-scrollbar-thumb/,
     'the floating scrollbar must remain separate from task pool layout');
+assert.match(bodySource, /const sidebarCollapsed[\s\S]*?const poolContentHtml = sidebarCollapsed[\s\S]*?tm-whiteboard-pool-deferred/,
+    'a collapsed whiteboard sidebar must defer building task pool DOM nodes');
+assert.match(interactionSource, /const deferredPool = !next[\s\S]*?data-tm-whiteboard-pool-deferred[\s\S]*?if \(deferredPool \|\| !layout \|\| !btn\) render\(\)/,
+    'opening a deferred whiteboard sidebar must materialize the task pool through the existing render path');
 assert.match(resizeSource, /window\.tmWhiteboardSidebarScroll = function[\s\S]*?scrollingClass = 'tm-whiteboard-sidebar--scrolling'/,
     'scroll activity must use the class that reveals the overlay thumb');
 assert.match(resizeSource, /clientHeight[\s\S]*?scrollHeight[\s\S]*?classList\.toggle\(scrollingClass, hasOverflow\)[\s\S]*?thumb\.style\.height[\s\S]*?thumb\.style\.transform[\s\S]*?setTimeout\([\s\S]*?, 650\)/,

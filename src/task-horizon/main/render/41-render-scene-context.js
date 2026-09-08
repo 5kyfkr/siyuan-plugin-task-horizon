@@ -63,11 +63,12 @@
         const __tmTimelineProgressive = renderMode === 'timeline'
             && state.__tmProgressiveViewRender?.mode === 'timeline'
             && state.__tmProgressiveViewRender?.tasksRef === state.filteredTasks;
+        const __tmTimelineRenderLimit = Math.max(20, Number(state.listRenderLimit) || 20);
         const __tmTimelineRowModel = __tmTimelineProgressive
             ? __tmSliceTaskRowModelByTaskWindow(
                 __tmTimelineFullRowModel,
                 0,
-                Math.max(20, Number(state.listRenderLimit) || 20)
+                __tmTimelineRenderLimit
             ).rows
             : __tmTimelineFullRowModel;
         if (renderMode === 'timeline') {

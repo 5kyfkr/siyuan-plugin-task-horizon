@@ -38,7 +38,15 @@
         const taskBranchId = String(opts.taskBranchId || '').trim();
 
         function __tmRenderChecklistBodyHtml() {
-            const rowModel = __tmBuildTaskRowModel();
+            const initialChecklistTaskLimit = (() => {
+                if (taskBranchId) return Number.POSITIVE_INFINITY;
+                const total = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
+                const threshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 50;
+                if (total <= threshold) return Number.POSITIVE_INFINITY;
+                const step = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
+                return Math.max(step, Math.min(total, Number(state.listRenderLimit) || step));
+            })();
+            const rowModel = __tmBuildTaskRowModel({ maxTaskRows: initialChecklistTaskLimit });
             let taskBranchRows = null;
             if (taskBranchId) {
                 const branchStart = rowModel.findIndex((row) => row?.type === 'task' && String(row?.id || '').trim() === taskBranchId);
@@ -367,7 +375,10 @@
                     : '';
                 const multiSelectCls = isMultiSelected ? ' tm-task-row--multi-selected' : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
-                const doneCls = task.done ? ' tm-checklist-item--done' : '';
+                const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+                    ? !!__tmIsTaskDoneEffective(task)
+                    : !!task.done;
+                const doneCls = taskDone ? ' tm-checklist-item--done' : '';
                 const branchLeadingCls = hasChildren ? ' tm-checklist-item--has-branch-leading' : '';
                 const reminderHtml = __tmHasReminderMark(task) ? __tmRenderReminderIcon() : '';
                 const completedTodayBadgeHtml = __tmRenderCompletedTodayBadge(task, {
@@ -498,7 +509,7 @@
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-checklist-parent-toggle-color);">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
                             ${hasChildren && collapsed ? '<span class="tm-task-leading-ring" aria-hidden="true"></span>' : ''}
-                            ${__tmRenderTaskCheckbox(String(task.id || ''), task, { checked: task.done, extraClass: GlobalLock.isLocked() ? 'tm-operating' : '', stopMouseDown: true, stopPointerDown: true, stopClick: true })}
+                            ${__tmRenderTaskCheckbox(String(task.id || ''), task, { checked: taskDone, extraClass: GlobalLock.isLocked() ? 'tm-operating' : '', stopMouseDown: true, stopPointerDown: true, stopClick: true })}
                         </div>
                         <div class="tm-checklist-item-main">
                             <div class="${titleRowClass}">
@@ -581,8 +592,9 @@
             if (taskBranchRows) {
                 return `<div class="tm-checklist-items" data-tm-checklist-branch-fragment="${esc(taskBranchId)}">${itemsHtml}</div>`;
             }
-            const totalChecklistTaskCount = rowModel.reduce((acc, row) => (row?.type === 'task' ? acc + 1 : acc), 0);
-            const checklistRemain = (checklistVirtualEnabled && renderedChecklistTaskCount >= checklistTaskLimit)
+            const totalChecklistTaskCount = Number(rowModel.__tmTotalTaskCount)
+                || rowModel.reduce((acc, row) => (row?.type === 'task' ? acc + 1 : acc), 0);
+            const checklistRemain = (checklistVirtualEnabled && (rowModel.__tmHasMoreTaskRows === true || renderedChecklistTaskCount >= checklistTaskLimit))
                 ? Math.max(0, totalChecklistTaskCount - renderedChecklistTaskCount)
                 : 0;
             const checklistLoadMoreHtml = checklistRemain > 0

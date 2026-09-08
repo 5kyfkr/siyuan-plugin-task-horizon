@@ -234,9 +234,11 @@
         return '';
     };
     const ensurePluginStorageDir = async () => {
+        if (globalThis.__tmSuppressStorageWrites === true) return;
         const formDir = new FormData();
         formDir.append('path', PLUGIN_STORAGE_DIR);
         formDir.append('isDir', 'true');
+        globalThis.__tmHost?.appendStorageRequestApp?.(formDir);
         await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
     };
     const readJsonFile = async (path, fallback) => {
@@ -255,11 +257,13 @@
         }
     };
     const writeJsonFile = async (path, value) => {
+        if (globalThis.__tmSuppressStorageWrites === true) return false;
         await ensurePluginStorageDir();
         const form = new FormData();
         form.append('path', path);
         form.append('isDir', 'false');
         form.append('file', new Blob([JSON.stringify(value ?? {}, null, 2)], { type: 'application/json' }));
+        globalThis.__tmHost?.appendStorageRequestApp?.(form);
         await fetch('/api/file/putFile', { method: 'POST', body: form }).catch(() => null);
     };
 
@@ -1394,10 +1398,12 @@
     }
 
     async function saveDebugRecord(record) {
+        if (globalThis.__tmSuppressStorageWrites === true) return;
         try {
             const formDir = new FormData();
             formDir.append('path', PLUGIN_STORAGE_DIR);
             formDir.append('isDir', 'true');
+            globalThis.__tmHost?.appendStorageRequestApp?.(formDir);
             await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
 
             let list = [];
@@ -1426,6 +1432,7 @@
             form.append('path', AI_DEBUG_FILE_PATH);
             form.append('isDir', 'false');
             form.append('file', new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' }));
+            globalThis.__tmHost?.appendStorageRequestApp?.(form);
             await fetch('/api/file/putFile', { method: 'POST', body: form }).catch(() => null);
         } catch (e) {}
     }

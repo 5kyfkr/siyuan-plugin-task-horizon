@@ -1520,9 +1520,6 @@
     }
 
     __tmNs.quickbarBridge = {
-        debugPush(channel, tag, payload = {}) {
-            return __tmPushDebugChannel(channel, tag, payload);
-        },
         async getTaskCustomPropsByAnyId(taskIdOrBlockId, options = {}) {
             return await __tmGetQuickbarTaskCustomPropsByAnyId(taskIdOrBlockId, options);
         },
@@ -1671,7 +1668,7 @@
                 await fetch('/api/file/removeFile', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path }),
+                    body: JSON.stringify(globalThis.__tmHost?.withStorageRequestApp?.({ path }) || { path }),
                 }).catch(() => null);
             } catch (e) {}
         };

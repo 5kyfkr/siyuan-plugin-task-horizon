@@ -52,6 +52,7 @@ const context = vm.createContext({
     String,
     JSON,
     __tmNormalizeDateOnly: normalizeDateOnly,
+    __tmNormalizeTaskCompleteAtValue: (value) => String(value || '').trim(),
     __tmResolveTaskCompletedAtRaw: (task) => String(task?.taskCompleteAt || ''),
 });
 vm.runInContext(`${modelSource.slice(start, end)}\nthis.__test = { __tmNormalizeTaskRepeatRule, __tmNormalizeTaskRepeatState, __tmNormalizeTaskRepeatHistory, __tmBuildTaskRepeatAdvancePatch, __tmGetTaskRepeatSummary, __tmGetTaskRepeatCompletedCount, __tmGetTaskRepeatProgressText, __tmResolveTaskRepeatHistoryOccurrenceNumber, __tmIsRecurringNativeDoneHeld, __tmGetRecurringNativeDoneResetDateKey, tmRepeatCore: globalThis.tmRepeatCore };`, context);
@@ -195,6 +196,7 @@ assert.match(detailSource, /__tmGetTaskRepeatProgressText\(repeatTask, rule\)/, 
     const lockContext = vm.createContext({
         String,
         Set,
+        __tmLogRecurringAdvance: () => {},
         __tmRecurringAdvanceInFlightIds: new Set(),
         __tmResolveTaskIdFromAnyBlockId: async () => 'task-1',
         __tmResolveTaskForRepeat: async () => ({ id: 'task-1' }),

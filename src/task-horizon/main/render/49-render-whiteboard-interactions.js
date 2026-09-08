@@ -3279,7 +3279,6 @@
             startY: v0.y,
             pointerId: hasPointerId ? pointerId : null,
             rightButtonPan,
-            debugMoveCount: 0,
         };
         if (rightButtonPan) state.whiteboardSuppressViewportContextMenuUntil = Date.now() + 1200;
         try { viewport.classList.add('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
@@ -3298,9 +3297,6 @@
             const dy = (Number(e2?.clientY) || 0) - s.startClientY;
             __tmSetWhiteboardView({ x: s.startX + dx, y: s.startY + dy }, { persist: false, syncLocal: false });
             __tmApplyWhiteboardTransform();
-            s.debugMoveCount = (Number(s.debugMoveCount) || 0) + 1;
-            if (s.debugMoveCount === 1 || s.debugMoveCount % 15 === 0) {
-            }
         };
         const onUp = (e2) => {
             const s = state.whiteboardPanSession;
@@ -8051,7 +8047,8 @@
                 btn.title = next ? '展开侧栏' : '折叠侧栏';
             } catch (e) {}
         }
-        if (!layout || !btn) render();
+        const deferredPool = !next ? body?.querySelector?.('[data-tm-whiteboard-pool-deferred="1"]') : null;
+        if (deferredPool || !layout || !btn) render();
         if (!compactHost) {
             try { await SettingsStore.save(); } catch (e) {}
         }

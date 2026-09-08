@@ -1,9 +1,142 @@
     const __TM_VIEW_RENDER_WINDOW_POLICY = Object.freeze({
-        list: Object.freeze({ desktopInitial: 80, mobileInitial: 64, desktopGrow: 40, mobileGrow: 32 }),
-        checklist: Object.freeze({ desktopInitial: 120, mobileInitial: 20, desktopGrow: 60, mobileGrow: 20 }),
-        timeline: Object.freeze({ desktopInitial: 80, mobileInitial: 64, desktopGrow: 40, mobileGrow: 32 }),
+        list: Object.freeze({ desktopInitial: 36, mobileInitial: 24, desktopGrow: 24, mobileGrow: 20 }),
+        checklist: Object.freeze({ desktopInitial: 48, mobileInitial: 24, desktopGrow: 24, mobileGrow: 20 }),
+        timeline: Object.freeze({ desktopInitial: 40, mobileInitial: 24, desktopGrow: 24, mobileGrow: 20 }),
     });
     const __TM_KANBAN_PROGRESSIVE_BATCH_SIZE = 10;
+    const __TM_VIEW_WINDOW_ADAPTERS = new Map();
+
+    function __tmRegisterViewWindowAdapter(modeInput, adapterInput = {}) {
+        const mode = String(modeInput || '').trim();
+        if (!mode) return false;
+        const adapter = adapterInput && typeof adapterInput === 'object' ? adapterInput : {};
+        __TM_VIEW_WINDOW_ADAPTERS.set(mode, {
+            name: String(adapter.name || mode).trim() || mode,
+            axis: String(adapter.axis || 'vertical').trim() || 'vertical',
+            getScrollHost: typeof adapter.getScrollHost === 'function' ? adapter.getScrollHost : null,
+        });
+        return true;
+    }
+
+    function __tmGetViewWindowAdapter(modeInput = '') {
+        const mode = String(modeInput || state?.viewMode || '').trim();
+        return __TM_VIEW_WINDOW_ADAPTERS.get(mode) || {
+            name: mode || 'unknown',
+            axis: 'vertical',
+            getScrollHost: null,
+        };
+    }
+
+    function __tmGetViewWindowRevisionToken() {
+        return {
+            taskStoreRevision: Number(globalThis.__tmTaskStore?.revision?.() || 0) || 0,
+            projectionGeneration: Number(globalThis.__tmProjectionService?.getAppliedGeneration?.() || 0) || 0,
+        };
+    }
+
+    function __tmCancelViewWindowJob(jobInput = null) {
+        const job = jobInput || state?.__tmProgressiveViewRender;
+        if (!job || typeof job !== 'object') return false;
+        job.status = 'cancelled';
+        try { job.unsubscribeTaskStore?.(); } catch (e) {}
+        job.unsubscribeTaskStore = null;
+        if (state?.__tmProgressiveViewRender === job) state.__tmProgressiveViewRender = null;
+        return true;
+    }
+
+    function __tmCreateViewWindowJob(modeInput = '', options = {}) {
+        const mode = String(modeInput || state?.viewMode || '').trim();
+        if (!mode) return null;
+        const tasks = Array.isArray(state?.filteredTasks) ? state.filteredTasks : [];
+        const adapter = __tmGetViewWindowAdapter(mode);
+        const policy = __tmGetViewRenderWindowPolicy(mode);
+        const revision = __tmGetViewWindowRevisionToken();
+        const current = state?.__tmProgressiveViewRender;
+        if (options?.reset !== true
+            && current
+            && current.status === 'active'
+            && current.mode === mode
+            && current.tasksRef === tasks
+            && current.contextKey === __tmGetViewRenderWindowContextKey(mode)
+            && current.taskStoreRevision === revision.taskStoreRevision
+            && current.projectionGeneration === revision.projectionGeneration) {
+            return current;
+        }
+        __tmCancelViewWindowJob(current);
+        const sequence = Math.max(0, Math.round(Number(state?.__tmViewWindowSequence) || 0)) + 1;
+        const job = {
+            kind: 'view-window',
+            sequence,
+            mode,
+            adapter: adapter.name,
+            axis: adapter.axis,
+            tasksRef: tasks,
+            contextKey: __tmGetViewRenderWindowContextKey(mode),
+            taskStoreRevision: revision.taskStoreRevision,
+            projectionGeneration: revision.projectionGeneration,
+            initialBatchSize: policy.initial,
+            batchSize: policy.grow,
+            cursor: Math.max(0, Math.round(Number(options?.cursor) || 0)),
+            status: 'active',
+        };
+        state.__tmViewWindowSequence = sequence;
+        state.__tmProgressiveViewRender = job;
+        return job;
+    }
+
+    function __tmIsViewWindowJobCurrent(jobInput, options = {}) {
+        const job = jobInput;
+        const mode = String(options?.mode || state?.viewMode || '').trim();
+        if (!job
+            || state?.__tmProgressiveViewRender !== job
+            || job.status !== 'active'
+            || String(job.mode || '').trim() !== mode
+            || !Array.isArray(state?.filteredTasks)
+            || state.filteredTasks !== job.tasksRef
+            || job.contextKey !== __tmGetViewRenderWindowContextKey(mode)) return false;
+        if (options?.requireRevision === true) {
+            const revision = __tmGetViewWindowRevisionToken();
+            if (job.taskStoreRevision !== revision.taskStoreRevision
+                || job.projectionGeneration !== revision.projectionGeneration) return false;
+        }
+        return true;
+    }
+
+    function __tmRunViewWindowBatch(jobInput, callback, options = {}) {
+        const job = jobInput;
+        if (!__tmIsViewWindowJobCurrent(job, { mode: options?.mode, requireRevision: true })) {
+            try { job.status = 'stale'; } catch (e) {}
+            return { ok: false, stale: true };
+        }
+        if (typeof callback !== 'function') return { ok: false, stale: false };
+        let value;
+        try { value = callback(job); } catch (e) { return { ok: false, error: e }; }
+        if (!__tmIsViewWindowJobCurrent(job, { mode: options?.mode, requireRevision: true })) {
+            try { job.status = 'stale'; } catch (e) {}
+            return { ok: false, stale: true };
+        }
+        return { ok: true, value };
+    }
+
+    function __tmEnsureViewWindowJob(modeInput = '', options = {}) {
+        const mode = String(modeInput || state?.viewMode || '').trim();
+        if (!mode) return null;
+        const current = state?.__tmProgressiveViewRender;
+        if (current && current.status === 'active') {
+            return __tmCreateViewWindowJob(mode, options);
+        }
+        return __tmCreateViewWindowJob(mode, { ...options, reset: true });
+    }
+
+    try {
+        globalThis.__tmRegisterViewWindowAdapter = __tmRegisterViewWindowAdapter;
+        globalThis.__tmGetViewWindowAdapter = __tmGetViewWindowAdapter;
+        globalThis.__tmCreateViewWindowJob = __tmCreateViewWindowJob;
+        globalThis.__tmEnsureViewWindowJob = __tmEnsureViewWindowJob;
+        globalThis.__tmCancelViewWindowJob = __tmCancelViewWindowJob;
+        globalThis.__tmIsViewWindowJobCurrent = __tmIsViewWindowJobCurrent;
+        globalThis.__tmRunViewWindowBatch = __tmRunViewWindowBatch;
+    } catch (e) {}
 
     function __tmUnbindKanbanProgressiveViewport(job) {
         if (!job || typeof job !== 'object') return false;
@@ -34,7 +167,7 @@
             if (job?.viewportTimer && typeof clearTimeout === 'function') clearTimeout(job.viewportTimer);
         } catch (e) {}
         try { __tmUnbindKanbanProgressiveViewport(job); } catch (e) {}
-        try { state.__tmProgressiveViewRender = null; } catch (e) {}
+        try { __tmCancelViewWindowJob(job); } catch (e) {}
         return true;
     }
 
@@ -42,28 +175,65 @@
         __tmCancelProgressiveViewRender();
         const value = String(mode || state?.viewMode || '').trim();
         const tasks = Array.isArray(state?.filteredTasks) ? state.filteredTasks : [];
-        if (value !== 'kanban' || tasks.length <= __TM_KANBAN_PROGRESSIVE_BATCH_SIZE) return null;
+        const listLike = __tmIsListLikeViewMode(value);
+        const policy = listLike ? __tmGetViewRenderWindowPolicy(value) : null;
+        if (listLike && tasks.length <= policy.initial) return null;
+        if (value !== 'kanban' && !listLike) return null;
+        if (value === 'kanban' && tasks.length <= __TM_KANBAN_PROGRESSIVE_BATCH_SIZE) return null;
+        const viewWindowJob = __tmCreateViewWindowJob(value, { reset: true });
+        if (!viewWindowJob) return null;
+        if (value === 'timeline') return viewWindowJob;
+        if (listLike) return viewWindowJob;
         const batchSize = __TM_KANBAN_PROGRESSIVE_BATCH_SIZE;
-        const sequence = Math.max(0, Math.round(Number(state.__tmProgressiveViewRenderSeq) || 0)) + 1;
-        const job = {
-            sequence,
-            mode: value,
-            tasksRef: tasks,
-            batchSize,
-            // Keep the first render small; later cards stay viewport driven in the same batch size.
-            initialBatchSize: __TM_KANBAN_PROGRESSIVE_BATCH_SIZE,
-            columns: [],
-            viewportTimer: 0,
-            viewportObserver: null,
-            viewportListeners: [],
-            viewportCursor: 0,
-            viewportBound: false,
-            boundBody: null,
-            viewportProbeAttempts: 0,
+        viewWindowJob.batchSize = batchSize;
+        viewWindowJob.initialBatchSize = __TM_KANBAN_PROGRESSIVE_BATCH_SIZE;
+        viewWindowJob.columns = [];
+        viewWindowJob.viewportTimer = 0;
+        viewWindowJob.viewportObserver = null;
+        viewWindowJob.viewportListeners = [];
+        viewWindowJob.viewportCursor = 0;
+        viewWindowJob.viewportBound = false;
+        viewWindowJob.boundBody = null;
+        viewWindowJob.viewportProbeAttempts = 0;
+        viewWindowJob.unsubscribeTaskStore = globalThis.__tmTaskStore?.subscribe?.((mutation) => {
+            __tmSyncKanbanProgressiveFieldMutation(viewWindowJob, mutation);
+        }) || null;
+        return viewWindowJob;
+    }
+
+    function __tmSyncKanbanProgressiveFieldMutation(job, mutation = {}) {
+        if (state?.viewMode !== 'kanban' || !__tmIsViewWindowJobCurrent(job, { mode: 'kanban' })) return false;
+        if (!['taskPatch', 'contentPatch'].includes(String(mutation.type || ''))
+            || mutation.data?.deferProjection === true || mutation.changeSet?.structural === true) return false;
+        const revision = __tmGetViewWindowRevisionToken();
+        if (job.projectionGeneration !== revision.projectionGeneration
+            || revision.taskStoreRevision !== job.taskStoreRevision + 1) return false;
+        const taskId = String(mutation.taskId || '').trim();
+        const patch = {
+            ...(mutation.patch || {}),
+            ...(mutation.phase === 'rollback' ? mutation.inversePatch || {} : {}),
         };
-        state.__tmProgressiveViewRenderSeq = sequence;
-        state.__tmProgressiveViewRender = job;
-        return job;
+        if (!taskId || !Object.keys(patch).length || typeof __tmAnalyzeTaskProjectionPatch !== 'function') return false;
+        const analysis = __tmAnalyzeTaskProjectionPatch(taskId, patch);
+        if (analysis?.projection !== false || analysis?.requiresClosure === true) return false;
+        job.taskStoreRevision = revision.taskStoreRevision;
+        return __tmScheduleKanbanProgressiveViewportCheck(job, 0);
+    }
+
+    function __tmCreateKanbanInitialColumnWindow(columnWidth, collapsedWidth = 56) {
+        const modal = state?.modal;
+        const body = modal?.querySelector?.('.tm-body--kanban');
+        const stage = modal?.querySelector?.('.tm-main-stage');
+        const width = Math.max(1, Number(body?.clientWidth || stage?.clientWidth || modal?.clientWidth || globalThis.innerWidth) || 960);
+        const left = Math.max(0, Number(body?.scrollLeft ?? state?.viewScroll?.kanban?.left) || 0);
+        const expandedWidth = Math.max(220, Number(columnWidth) || 320);
+        let cursor = 0;
+        return (collapsed) => {
+            const next = cursor + (collapsed ? collapsedWidth : expandedWidth);
+            const visible = !collapsed && next >= left && cursor <= left + width;
+            cursor = next + 12;
+            return visible;
+        };
     }
 
     function __tmRegisterKanbanProgressiveColumn(job, column) {
@@ -77,7 +247,7 @@
             loadNextBatch: column.loadNextBatch,
             done: false,
             loading: false,
-            loaded: false,
+            loaded: column.loaded === true,
             retryCount: 0,
             retryAt: 0,
         };
@@ -415,11 +585,16 @@
     function __tmIsProgressiveViewRenderCurrent(job, mode = '') {
         const current = state?.__tmProgressiveViewRender;
         const value = String(mode || state?.viewMode || '').trim();
+        const revision = __tmGetViewWindowRevisionToken();
         return !!job
             && current === job
+            && job.status !== 'cancelled'
             && String(job.mode || '').trim() === value
             && Array.isArray(state?.filteredTasks)
-            && state.filteredTasks === job.tasksRef;
+            && state.filteredTasks === job.tasksRef
+            && job.contextKey === __tmGetViewRenderWindowContextKey(value)
+            && job.taskStoreRevision === revision.taskStoreRevision
+            && job.projectionGeneration === revision.projectionGeneration;
     }
 
     function __tmFinishProgressiveViewRender(job, mode = '') {
@@ -436,6 +611,7 @@
 
     function __tmScheduleProgressiveViewRender(mode = '', job = null) {
         if (!__tmIsProgressiveViewRenderCurrent(job, mode)) return false;
+        if (String(mode || '').trim() === 'timeline') return true;
         if (String(mode || '').trim() !== 'kanban') return false;
         // Table, checklist, and timeline already share the near-bottom append-only loader.
         // Kanban needs a column-aware equivalent because each visible column scrolls independently.
@@ -448,6 +624,23 @@
         return value === 'list' || value === 'checklist' || value === 'timeline';
     }
 
+    function __tmGetViewRenderViewportHeight() {
+        const modal = state?.modal;
+        const candidates = [
+            modal?.querySelector?.('.tm-main-stage'),
+            modal?.querySelector?.('.tm-body--list'),
+            modal?.querySelector?.('.tm-body--checklist'),
+            modal?.querySelector?.('.tm-body--timeline'),
+            modal,
+        ];
+        for (const candidate of candidates) {
+            const height = Number(candidate?.clientHeight || candidate?.getBoundingClientRect?.()?.height || 0);
+            if (Number.isFinite(height) && height >= 240) return height;
+        }
+        const fallback = Number(globalThis?.innerHeight || 0);
+        return Number.isFinite(fallback) && fallback >= 240 ? fallback * 0.68 : 0;
+    }
+
     function __tmGetViewRenderWindowPolicy(mode = '') {
         const value = String(mode || state?.viewMode || 'list').trim() || 'list';
         const source = __TM_VIEW_RENDER_WINDOW_POLICY[value] || __TM_VIEW_RENDER_WINDOW_POLICY.list;
@@ -455,9 +648,17 @@
         try {
             mobileLike = !!(__tmIsMobileDevice() || __tmIsRuntimeMobileClient() || __tmHostUsesMobileUI());
         } catch (e) {}
+        const fallbackInitial = mobileLike ? source.mobileInitial : source.desktopInitial;
+        const viewportHeight = __tmGetViewRenderViewportHeight();
+        const rowHeight = value === 'checklist' ? 54 : 44;
+        const bufferRows = mobileLike ? 6 : 8;
+        const minInitial = mobileLike ? 16 : 20;
+        const visibleInitial = viewportHeight > 0
+            ? Math.ceil(viewportHeight / rowHeight) + bufferRows
+            : fallbackInitial;
         return {
             mode: value,
-            initial: mobileLike ? source.mobileInitial : source.desktopInitial,
+            initial: Math.max(minInitial, Math.min(fallbackInitial, visibleInitial)),
             grow: mobileLike ? source.mobileGrow : source.desktopGrow,
         };
     }
@@ -466,7 +667,7 @@
         const value = String(mode || state?.viewMode || '').trim();
         if (!__tmIsListLikeViewMode(value)) return null;
         const policy = __tmGetViewRenderWindowPolicy(value);
-        const total = Number.isFinite(Number(totalInput))
+        const total = totalInput != null && Number.isFinite(Number(totalInput))
             ? Math.max(0, Math.round(Number(totalInput)))
             : Math.max(0, Array.isArray(state?.filteredTasks) ? state.filteredTasks.length : 0);
         state.listRenderStep = policy.initial;
@@ -482,7 +683,7 @@
         const value = String(mode || state?.viewMode || '').trim();
         if (!__tmIsListLikeViewMode(value)) return null;
         const policy = __tmGetViewRenderWindowPolicy(value);
-        const total = Number.isFinite(Number(totalInput))
+        const total = totalInput != null && Number.isFinite(Number(totalInput))
             ? Math.max(0, Math.round(Number(totalInput)))
             : Math.max(0, Array.isArray(state?.filteredTasks) ? state.filteredTasks.length : 0);
         const currentLimit = Math.max(
@@ -532,7 +733,7 @@
         if (String(state?.viewMode || '').trim() !== mode) return false;
         if (String(saved.contextKey || '') !== __tmGetViewRenderWindowContextKey(mode)) return false;
         const policy = __tmGetViewRenderWindowPolicy(mode);
-        const total = Number.isFinite(Number(totalInput))
+        const total = totalInput != null && Number.isFinite(Number(totalInput))
             ? Math.max(0, Math.round(Number(totalInput)))
             : Math.max(0, Array.isArray(state?.filteredTasks) ? state.filteredTasks.length : 0);
         const savedLimit = Math.max(policy.initial, Math.round(Number(saved.limit) || policy.initial));

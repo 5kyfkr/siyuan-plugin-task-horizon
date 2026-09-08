@@ -24,6 +24,14 @@ const segment = (source, start, end) => {
     return source.slice(from, to);
 };
 
+assert.match(dialogs, /function __tmBuildFilteredTaskRenderContextSignature\(\)[\s\S]*?function __tmUpdateFilteredTaskRenderWindowState\(finalOrdered\)/, 'filtered task window state must separate context from content changes');
+const renderWindowUpdate = segment(dialogs, 'function __tmUpdateFilteredTaskRenderWindowState', 'function __tmGetVisibleTaskFingerprint');
+assert.match(renderWindowUpdate, /previousContextSignature === contextSignature[\s\S]*?Math\.max\(step, previousLimit \|\| step\)/, 'task content refreshes must retain the grown render window in the same context');
+assert.match(renderWindowUpdate, /previousContextSignature === contextSignature[\s\S]*?: \(total > 0 \? Math\.min\(total, step\) : step\)/, 'context changes must start from the bounded initial render window');
+assert.match(dialogs, /state\.viewScroll\.list = \{ top, left, anchor \}/, 'checklist document reloads must preserve a content anchor with scroll state');
+const checklistRestore = segment(dialogs, 'function __tmRestoreChecklistRenderRestore', 'async function __tmLoadSelectedDocumentsPreserveChecklistScroll');
+assert.doesNotMatch(checklistRestore, /setTimeout\(restore, (30|90)\)/, 'checklist scroll restore must not replay an old position after delayed mobile input');
+
 const context = {
     state: { viewMode: 'list', filteredTasks: Array.from({ length: 400 }, (_, index) => ({ id: `task-${index}` })) },
     __tmIsMobileDevice: () => false,
@@ -33,27 +41,35 @@ const context = {
 vm.createContext(context);
 vm.runInContext(runtime, context, { filename: '21-view-render-state.js' });
 
+const taskReferenceBeforeWindowing = context.state.filteredTasks;
+assert.equal(context.__tmResetViewRenderWindow('list').total, 400, 'omitted render-window totals must use the complete filtered task count');
+assert.equal(context.__tmGetViewRenderWindow('list').total, 400, 'null render-window totals must preserve the complete filtered task count');
+assert.equal(context.__tmGetViewRenderWindow('list', 0).total, 0, 'an explicit zero render-window total must remain zero');
+assert.strictEqual(context.state.filteredTasks, taskReferenceBeforeWindowing, 'render-window bookkeeping must not replace the ordered task source');
+
 let windowState = context.__tmResetViewRenderWindow('list', 400);
-assert.equal(windowState.limit, 80, 'desktop table view must start with 80 tasks');
-assert.equal(context.state.listRenderStep, 80);
+assert.equal(windowState.limit, 36, 'desktop table view must start with a bounded task window');
+assert.equal(context.state.listRenderStep, 36);
 windowState = context.__tmGrowViewRenderWindow('list', 400);
-assert.equal(windowState.previousLimit, 80);
-assert.equal(windowState.limit, 120, 'desktop table auto-load must add 40 tasks');
+assert.equal(windowState.previousLimit, 36);
+assert.equal(windowState.limit, 60, 'desktop table auto-load must add one bounded batch');
 
 const progressiveJob = context.__tmStartProgressiveViewRender('list');
-assert.equal(progressiveJob, null, 'table view switches must use the shared near-bottom loader instead of a frame loop');
+assert.ok(progressiveJob, 'list view must use the shared cancellable window job');
 windowState = context.__tmResetViewRenderWindow('list', 400);
-assert.equal(windowState.limit, 80, 'table switches must keep the desktop initial viewport window');
+assert.equal(windowState.limit, 36, 'table switches must keep the bounded desktop initial window');
 windowState = context.__tmGrowViewRenderWindow('list', 400);
-assert.equal(windowState.limit, 120, 'table switches must grow through the shared near-bottom policy');
+assert.equal(windowState.limit, 60, 'table switches must grow through the shared near-bottom policy');
 context.__tmCancelProgressiveViewRender();
 
 const timelineJob = context.__tmStartProgressiveViewRender('timeline');
-assert.equal(timelineJob, null, 'timeline switches must use the shared near-bottom loader instead of a frame loop');
+assert.ok(timelineJob, 'large timeline switches must create a bounded progressive render job');
+assert.equal(timelineJob.batchSize, 24, 'desktop timeline switches must grow by one bounded batch');
+assert.equal(timelineJob.initialBatchSize, 40, 'desktop timeline switches must start with a bounded task window');
 windowState = context.__tmResetViewRenderWindow('timeline', 400);
-assert.equal(windowState.limit, 80, 'timeline switches must keep the desktop initial viewport window');
+assert.equal(windowState.limit, 40, 'timeline switches must keep the desktop initial viewport window');
 windowState = context.__tmGrowViewRenderWindow('timeline', 400);
-assert.equal(windowState.limit, 120, 'timeline switches must grow through the shared near-bottom policy');
+assert.equal(windowState.limit, 64, 'timeline switches must grow through the shared near-bottom policy');
 const sliced = context.__tmSliceTaskRowModelByTaskWindow([
     { type: 'group', key: 'group-a' },
     { type: 'task', id: 'task-0' },
@@ -124,29 +140,41 @@ assert.equal(kanbanJob.columns.length, 1, 'expanded kanban columns must register
 context.__tmCancelProgressiveViewRender();
 
 windowState = context.__tmResetViewRenderWindow('checklist', 400);
-assert.equal(windowState.limit, 120, 'desktop checklist must start with 120 tasks');
+assert.equal(windowState.limit, 48, 'desktop checklist must start with a bounded task window');
 windowState = context.__tmGrowViewRenderWindow('checklist', 400);
-assert.equal(windowState.limit, 180, 'desktop checklist auto-load must add 60 tasks');
+assert.equal(windowState.limit, 72, 'desktop checklist auto-load must add one bounded batch');
 
 context.__tmIsMobileDevice = () => true;
 windowState = context.__tmResetViewRenderWindow('list', 400);
-assert.equal(windowState.limit, 64, 'mobile table view must use the smaller initial window');
+assert.equal(windowState.limit, 24, 'mobile table view must use the smaller initial window');
 windowState = context.__tmGrowViewRenderWindow('list', 400);
-assert.equal(windowState.limit, 96, 'mobile table auto-load must add 32 tasks');
+assert.equal(windowState.limit, 44, 'mobile table auto-load must add one bounded batch');
 context.state.viewMode = 'checklist';
 windowState = context.__tmResetViewRenderWindow('checklist', 400);
-assert.equal(windowState.limit, 20, 'mobile checklist must commit after its first 20 tasks are ready');
+assert.equal(windowState.limit, 24, 'mobile checklist must commit after its first bounded batch is ready');
 windowState = context.__tmGrowViewRenderWindow('checklist', 400);
-assert.equal(windowState.limit, 40, 'mobile checklist load-more must add 20 tasks');
+assert.equal(windowState.limit, 44, 'mobile checklist load-more must add one bounded batch');
 const preservedChecklistWindow = context.__tmCaptureViewRenderWindow('checklist');
 context.state.listRenderLimit = 20;
 assert.equal(context.__tmRestoreViewRenderWindow(preservedChecklistWindow, 400), true, 'same-context task refreshes must restore the grown checklist window');
-assert.equal(context.state.listRenderLimit, 40, 'task refreshes must not collapse a 40-row mobile checklist back to 20 rows');
+assert.equal(context.state.listRenderLimit, 44, 'task refreshes must not collapse the grown mobile checklist window');
 context.state.activeDocId = 'other-doc';
 context.state.listRenderLimit = 20;
 assert.equal(context.__tmRestoreViewRenderWindow(preservedChecklistWindow, 400), false, 'a changed document context must reject a stale render window');
 assert.equal(context.state.listRenderLimit, 20, 'context changes must retain their fresh initial render window');
 context.state.activeDocId = 'all';
+
+context.state.modal = {
+    clientHeight: 640,
+    querySelector: () => null,
+};
+context.__tmIsMobileDevice = () => false;
+windowState = context.__tmResetViewRenderWindow('list', 400);
+assert.ok(windowState.limit < 36 && windowState.limit >= 20, 'desktop table windows must adapt to the visible stage with a bounded buffer');
+windowState = context.__tmResetViewRenderWindow('checklist', 400);
+assert.ok(windowState.limit < 48 && windowState.limit >= 20, 'desktop checklist windows must adapt to the visible stage with a bounded buffer');
+windowState = context.__tmResetViewRenderWindow('timeline', 400);
+assert.ok(windowState.limit < 40 && windowState.limit >= 20, 'desktop timeline windows must adapt to the visible stage with a bounded buffer');
 
 const serviceIndex = manifest.scripts.indexOf('main/20-api-and-runtime-services.js');
 const renderStateIndex = manifest.scripts.indexOf('main/21-view-render-state.js');
@@ -169,7 +197,7 @@ assert.doesNotMatch(refreshCapture, /listRender(?:Limit|Step)/, 'manual refresh 
 assert.doesNotMatch(refreshRestore, /saved\.listRender(?:Limit|Step)/, 'manual refresh must not restore render windows');
 
 assert.match(viewSwitch, /state\.viewMode = next;[\s\S]*__tmScheduleViewSwitchCommit\(generation, next,[\s\S]*progressiveJob = __tmStartProgressiveViewRender\(next\);[\s\S]*__tmResetViewRenderWindow\(next\)/, 'deferred view entry must reset its initial render window after the interface paint');
-assert.match(runtime, /value !== 'kanban' \|\| tasks\.length <= __TM_KANBAN_PROGRESSIVE_BATCH_SIZE/, 'only kanban snapshots larger than the first ten cards need a progressive job');
+assert.match(runtime, /value === 'kanban' && tasks\.length <= __TM_KANBAN_PROGRESSIVE_BATCH_SIZE/, 'kanban snapshots larger than the first ten cards need a progressive job');
 assert.match(runtime, /Table, checklist, and timeline already share the near-bottom append-only loader/, 'list-like views must not retain a frame-driven fill loop');
 assert.doesNotMatch(runtime, /job\.frameId = requestAnimationFrame\(run\)/, 'progressive view rendering must not continuously refill table or timeline rows');
 assert.match(viewSwitch, /__tmScheduleProgressiveViewRender\(next, progressiveJob\)/, 'view switches must retain the shared kanban continuation hook');
@@ -194,7 +222,7 @@ assert.match(dialogs, /window\.__tmBindAutoLoadMoreOnScroll = __tmBindAutoLoadMo
 assert.match(dialogs, /mode !== 'list' && mode !== 'checklist' && mode !== 'timeline'[\s\S]*?window\.tmTimelineLoadMoreRows\?\.\(\)/, 'timeline must use the shared automatic render-window continuation');
 assert.match(dialogs, /function __tmScheduleAutoLoadMoreRecheck[\s\S]*?__tmAutoLoadMoreScrollHandler/, 'successful batches must recheck the live scroll host without another user gesture');
 assert.match(dialogs, /if \(state\.__tmAutoLoadMoreRecheckTimer\) clearTimeout[\s\S]*?state\.__tmAutoLoadMoreRecheckTimer = setTimeout/, 'automatic continuation rechecks must stay deduplicated');
-assert.match(dialogs, /const progressiveJob = state\.__tmProgressiveViewRender;[\s\S]*?progressiveJob\.tasksRef === state\.filteredTasks\) return;/, 'scroll continuation must not compete with an active view-switch progressive job');
+assert.match(dialogs, /if \(mode === 'kanban'[\s\S]*?progressiveJob\.tasksRef === state\.filteredTasks\) return;/, 'kanban continuation must not compete with an active view-switch progressive job');
 assert.match(dialogs, /const onScroll = \(\) => \{[\s\S]*?__tmAutoLoadMoreCheckPending[\s\S]*?__tmScheduleIdleTask\(run, 240\)/, 'raw scroll events must coalesce auto-load work into an idle task');
 const autoLoadBinder = segment(dialogs, 'function __tmBindAutoLoadMoreOnScroll', 'window.__tmBindAutoLoadMoreOnScroll');
 const autoLoadScrollHandler = segment(autoLoadBinder, 'const onScroll = () => {', "pane.addEventListener('scroll', onScroll");

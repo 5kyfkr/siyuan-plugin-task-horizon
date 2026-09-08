@@ -17,5 +17,6 @@ assert.match(portalStyles, /max-width:\s*100vw;/, 'the search portal must not ex
 assert.match(portalStyles, /box-sizing:\s*border-box;/, 'the search portal width must include its horizontal padding');
 assert.match(inputStyles, /min-width:\s*0;/, 'the search input must shrink inside narrow mobile and Dock hosts');
 assert.match(runtime, /stageWidth[\s\S]*Math\.min\(stageWidth, viewportWidth\)[\s\S]*maxLeft[\s\S]*Math\.min\(Math\.round\(stageLeft\), Math\.round\(maxLeft\)\)/, 'search portal geometry must stay within the visible viewport');
+assert.match(runtime, /function __tmGetInlineSearchBarPortalHost\(\)[\s\S]*closest\?\.\('\.tm-tab-root'\)[\s\S]*portalHost\.appendChild\(bar\)/, 'the search portal must stay inside the plugin tab host so other document tabs cannot display it');
 
 console.log('inline searchbar responsive contract tests passed');

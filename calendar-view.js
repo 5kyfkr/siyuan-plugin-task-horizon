@@ -2220,14 +2220,6 @@
         return true;
     }
 
-    // Performance tracing is disabled after startup diagnostics are complete.
-    // Keep the local hooks so older event-source code remains structurally stable.
-    function __tmPerfCreate() { return null; }
-    function __tmPerfMark(trace) { return trace || null; }
-    function __tmPerfFinish(trace) { return trace || null; }
-    function __tmCalendarPerfSourceCreate() { return null; }
-    function __tmCalendarPerfSourceFinish() {}
-
     const MAIN_CALENDAR_CUSTOM_VIEWS = {
         timeGridDay: {
             type: 'timeGridDay',
@@ -4205,18 +4197,10 @@
     function callCalendarEngineUpdateSize(calendar) {
         if (!calendar || !getCalendarAdapter(calendar)) return false;
         const calendarName = calendar === state.sideDay?.calendar ? 'side' : 'main';
-        const lifecycleTrace = __tmPerfCreate('calendarLifecycle', {
-            calendar: calendarName,
-            instance: calendarName,
-            viewType: String(getCalendarView(calendar)?.type || '').trim(),
-        });
-        __tmPerfMark(lifecycleTrace, 'updateSize-start', { calendar: calendarName });
         try {
             const updated = callCalendarAdapter(calendar, 'updateSize') === true;
-            __tmPerfFinish(lifecycleTrace, { calendar: calendarName, updated, skipped: !updated, success: true });
             return updated;
         } catch (e) {
-            __tmPerfFinish(lifecycleTrace, { calendar: calendarName, error: String(e?.message || e || ''), success: false });
         }
         return false;
     }
@@ -5960,12 +5944,14 @@
         const formDir = new FormData();
         formDir.append('path', '/data/storage/petal/siyuan-plugin-task-horizon');
         formDir.append('isDir', 'true');
+        globalThis.__tmHost?.appendStorageRequestApp?.(formDir);
         const dirRes = await fetch('/api/file/putFile', { method: 'POST', body: formDir });
         if (!dirRes.ok) throw new Error(`HTTP ${dirRes.status}`);
         const form = new FormData();
         form.append('path', path);
         form.append('isDir', 'false');
         form.append('file', new Blob([String(text ?? '')], { type: 'application/json' }));
+        globalThis.__tmHost?.appendStorageRequestApp?.(form);
         const res = await fetch('/api/file/putFile', { method: 'POST', body: form });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return true;
@@ -7074,7 +7060,7 @@
                     endsEvent ? 'is-fold-fragment-end' : '',
                 ].filter(Boolean).join(' ');
                 return eventMarkup(item.eventApi, 'block', true, fragmentClass)
-                    .replace('style="--tm-proto-event-color:', `style="top:${top}%;height:${Math.max(4, bottom - top)}%;left:calc(${left}% + 4px);width:calc(${width}% - 9px);--tm-proto-event-color:`);
+                    .replace('style="--tm-proto-event-color:', `style="top:${top}%;height:${Math.max(0.01, bottom - top)}%;left:calc(${left}% + 4px);width:calc(${width}% - 9px);--tm-proto-event-color:`);
             })).join('');
             const nowTop = key === currentDayKey && Number.isFinite(currentNowTop)
                 ? currentNowTop
@@ -8011,33 +7997,14 @@
         return true;
     }
 
-    function syncSideDayLayout(rootEl, calendar, settings, trace = null) {
+    function syncSideDayLayout(rootEl, calendar, settings) {
         if (!(rootEl instanceof HTMLElement)) return false;
         const nextSettings = settings || getSettings();
-        const startedAt = (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now();
-        let previousAt = startedAt;
-        const markStage = (stage, detail = {}) => {
-            if (!trace) return;
-            const now = (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now();
-            try {
-                __tmPerfMark(trace, `side-layout-${stage}`, {
-                    calendar: 'side',
-                    durationMs: Math.max(0, Number((now - previousAt).toFixed(1))),
-                    elapsedMs: Math.max(0, Number((now - startedAt).toFixed(1))),
-                    ...(detail && typeof detail === 'object' ? detail : {}),
-                });
-            } catch (e) {}
-            previousAt = now;
-        };
-        markStage('core-dom-ready');
         try {
             if (getCalendarOption(calendar, 'height') !== 'parent') callCalendarAdapter(calendar, 'setOption', 'height', 'parent');
         } catch (e) {}
-        markStage('height-option');
         try { applyTimeAxisColumnLayout(rootEl, 40); } catch (e) {}
-        markStage('time-axis');
         try { forceSideDaySlotHeight(rootEl, nextSettings); } catch (e) {}
-        markStage('slot-height');
         const sideDay = state.sideDay || (state.sideDay = {});
         const sizeSignature = getCalendarUpdateSizeSignature(calendar, rootEl, 'side');
         let didUpdateSize = false;
@@ -8046,11 +8013,8 @@
             sideDay.lastUpdateSizeSignature = sizeSignature;
             didUpdateSize = true;
         }
-        markStage('update-size', { updateSize: didUpdateSize });
         try { enhanceNowIndicator(rootEl); } catch (e) {}
-        markStage('now-indicator');
         try { scheduleCurrentTimeAutoCenter(rootEl, calendar, nextSettings, { scope: 'sideDay' }); } catch (e) {}
-        markStage('auto-center');
         return true;
     }
 
@@ -11168,11 +11132,30 @@
                 : (() => {
                 try { return document.elementFromPoint(Number(x) || 0, Number(y) || 0); } catch (e) { return null; }
             })();
-            const timeCol = pointTarget?.closest?.('.tm-proto-time-col') || (() => {
+            const isPointWithin = (el) => {
+                if (!(el instanceof Element)) return false;
+                try {
+                    const rect = el.getBoundingClientRect?.();
+                    return !!rect
+                        && Number(x) >= rect.left
+                        && Number(x) < rect.right
+                        && Number(y) >= rect.top
+                        && Number(y) < rect.bottom;
+                } catch (e) {}
+                return false;
+            };
+            const allDayCell = Array.from(protoSurface.querySelectorAll('.tm-proto-allday-cell')).find((cell) => isPointWithin(cell))
+                || pointTarget?.closest?.('.tm-proto-allday-cell');
+            if (allDayCell instanceof HTMLElement && isPointWithin(allDayCell)) {
+                const dayKey = String(allDayCell.getAttribute('data-tm-proto-day') || '').trim();
+                const start = new Date(`${dayKey}T00:00:00`);
+                if (dayKey && !Number.isNaN(start.getTime())) return { start, allDay: true };
+            }
+            const targetedTimeCol = pointTarget?.closest?.('.tm-proto-time-col');
+            const timeCol = targetedTimeCol && isPointWithin(targetedTimeCol) ? targetedTimeCol : (() => {
                 const cols = Array.from(host.querySelectorAll('.tm-proto-time-col'));
                 return cols.find((col) => {
-                    const rect = col.getBoundingClientRect?.();
-                    return rect && Number(x) >= rect.left && Number(x) <= rect.right && Number(y) >= rect.top && Number(y) <= rect.bottom;
+                    return isPointWithin(col);
                 }) || null;
             })();
             if (timeCol instanceof HTMLElement) {
@@ -11185,12 +11168,6 @@
                 const start = new Date(`${dayKey}T00:00:00`);
                 start.setMinutes(minute, 0, 0);
                 if (dayKey && !Number.isNaN(start.getTime())) return { start, allDay: false };
-            }
-            const allDayCell = pointTarget?.closest?.('.tm-proto-allday-cell');
-            if (allDayCell instanceof HTMLElement) {
-                const dayKey = String(allDayCell.getAttribute('data-tm-proto-day') || '').trim();
-                const start = new Date(`${dayKey}T00:00:00`);
-                if (dayKey && !Number.isNaN(start.getTime())) return { start, allDay: true };
             }
             const monthCell = pointTarget?.closest?.('.tm-proto-month-cell[data-tm-proto-day]');
             if (monthCell instanceof HTMLElement) {
@@ -12700,13 +12677,8 @@
         const refreshToken = (Number(cache.authoritativeRefreshToken) || 0) + 1;
         cache.authoritativeRefreshToken = refreshToken;
         const previousSignature = String(cache.sourceSignature || '');
-        const perfTrace = __tmPerfCreate('scheduleRead', {
-            source: 'schedule-authoritative',
-            cachePath: 'kernel-background',
-        });
         const inflight = (async () => {
             try {
-                __tmPerfMark(perfTrace, 'schedule-authoritative-read-start', { cachePath: 'kernel-background' });
                 const result = await kernelLoad();
                 if (!result || result.ok !== true || !Array.isArray(result.data)) {
                     throw new Error(String(result?.error?.message || '内核日程服务读取失败'));
@@ -12715,23 +12687,12 @@
                 const serialized = JSON.stringify(out, null, 2);
                 const nextSignature = computeScheduleSourceSignature(serialized);
                 if (Number(cache.authoritativeRefreshToken) !== refreshToken) {
-                    __tmPerfFinish(perfTrace, {
-                        cachePath: 'kernel-background',
-                        discarded: true,
-                        success: true,
-                    });
                     return null;
                 }
                 const changed = !!previousSignature && previousSignature !== nextSignature;
                 setScheduleCache(out, nextSignature);
                 try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, serialized); } catch (e) {}
                 queueScheduleCanonicalMigration(out, normalizedChanged, nextSignature);
-                __tmPerfMark(perfTrace, 'schedule-authoritative-read-ready', {
-                    cachePath: 'kernel-background',
-                    cacheStatus: changed ? 'changed' : 'unchanged',
-                    scheduleCount: out.length,
-                    changed,
-                });
                 if (changed && state.mounted) {
                     scheduleCalendarRefresh({
                         reason: String(reason || 'schedule-authoritative-refresh').trim() || 'schedule-authoritative-refresh',
@@ -12741,20 +12702,9 @@
                     });
                 }
                 cache.lastLoadError = false;
-                __tmPerfFinish(perfTrace, {
-                    cachePath: 'kernel-background',
-                    scheduleCount: out.length,
-                    changed,
-                    success: true,
-                });
                 return out;
             } catch (e) {
                 cache.lastLoadError = true;
-                __tmPerfFinish(perfTrace, {
-                    cachePath: 'kernel-background',
-                    error: String(e?.message || e || ''),
-                    success: false,
-                });
                 return null;
             } finally {
                 if (cache.authoritativeInflight === inflight) cache.authoritativeInflight = null;
@@ -12792,14 +12742,9 @@
     }
 
     async function loadScheduleAll() {
-        const perfTrace = __tmPerfCreate('scheduleRead', { source: 'schedule-all' });
-        const perfMark = (stage, detail = {}) => __tmPerfMark(perfTrace, stage, { source: 'schedule-all', ...(detail || {}) });
-        const perfFinish = (detail = {}) => __tmPerfFinish(perfTrace, { source: 'schedule-all', ...(detail || {}) });
         try {
             const cache = state.scheduleCache;
             if (Array.isArray(cache.list) && (Date.now() - (Number(cache.loadedAt) || 0) < SCHEDULE_READ_CACHE_TTL_MS)) {
-                perfMark('schedule-cache-hit', { cachePath: 'memory', cacheStatus: 'hit', cacheHit: true, scheduleCount: cache.list.length });
-                perfFinish({ cachePath: 'memory', cacheStatus: 'hit', cacheHit: true, scheduleCount: cache.list.length, success: true });
                 return cloneScheduleList(cache.list);
             }
             if (Array.isArray(cache.list)
@@ -12807,46 +12752,16 @@
                 // Keep view switches responsive while a stale snapshot is
                 // still usable. Mutations invalidate the cache explicitly;
                 // the next idle refresh will pick up external changes.
-                perfMark('schedule-stale-cache-hit', {
-                    cachePath: 'memory',
-                    cacheStatus: 'stale-hit',
-                    cacheHit: true,
-                    scheduleCount: cache.list.length,
-                });
-                perfFinish({
-                    cachePath: 'memory',
-                    cacheStatus: 'stale-hit',
-                    cacheHit: true,
-                    scheduleCount: cache.list.length,
-                    success: true,
-                });
                 return cloneScheduleList(cache.list);
             }
             if (cache.inflight) {
-                perfMark('schedule-request-reuse', { cachePath: 'inflight', cacheStatus: 'reuse', reused: true });
                 const list = await cache.inflight;
-                perfFinish({ cachePath: 'inflight', cacheStatus: 'reuse', reused: true, scheduleCount: Array.isArray(list) ? list.length : 0, success: true });
                 return cloneScheduleList(list);
             }
             const localSnapshot = readScheduleLocalStorageSnapshot();
             if (localSnapshot) {
                 setScheduleCache(localSnapshot.out, localSnapshot.signature);
-                perfMark('schedule-localstorage-snapshot', {
-                    cachePath: 'localStorage',
-                    cacheStatus: 'snapshot',
-                    cacheHit: true,
-                    authoritativePending: true,
-                    scheduleCount: localSnapshot.out.length,
-                });
                 queueScheduleAuthoritativeRefresh();
-                perfFinish({
-                    cachePath: 'localStorage',
-                    cacheStatus: 'snapshot',
-                    cacheHit: true,
-                    authoritativePending: true,
-                    scheduleCount: localSnapshot.out.length,
-                    success: true,
-                });
                 return cloneScheduleList(localSnapshot.out);
             }
         } catch (e) {}
@@ -12856,7 +12771,6 @@
             let sourceMissing = false;
             const kernelLoad = getKernelScheduleRpc('taskHorizonLoadSchedules');
             if (kernelLoad) {
-                perfMark('schedule-kernel-read-start', { cachePath: 'kernel' });
                 try {
                     const result = await kernelLoad();
                     if (result?.ok === true && Array.isArray(result.data)) {
@@ -12868,12 +12782,11 @@
                         try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, serialized); } catch (e) {}
                         queueScheduleCanonicalMigration(out, normalizedChanged, sourceSignature);
                         state.scheduleCache.lastLoadError = false;
-                        perfMark('schedule-kernel-read-ready', { cachePath: 'kernel', cacheStatus: 'hit', cacheHit: true, scheduleCount: out.length });
                         return out;
                     }
                     sourceMissing = String(result?.error?.code || '').trim() === 'STORAGE_MISSING';
                     sourceReadError = true;
-                } catch (e) { sourceReadError = true; perfMark('schedule-kernel-read-error', { cachePath: 'kernel', error: String(e?.message || e || '') }); }
+                } catch (e) { sourceReadError = true; }
             }
             try {
                 // Keep reads side-effect free: mobile startup may run before cloud sync settles.
@@ -12887,14 +12800,12 @@
                     setScheduleCache(out, sourceSignature);
                     queueScheduleCanonicalMigration(out, normalizedChanged, sourceSignature);
                     state.scheduleCache.lastLoadError = false;
-                    perfMark('schedule-file-fallback-ready', { cachePath: 'file', cacheStatus: 'hit', cacheHit: true, scheduleCount: out.length });
                     return Array.isArray(state.scheduleCache.list) ? state.scheduleCache.list : out;
                 }
                 sourceReadError = true;
             } catch (e) {
                 if (!kernelLoad && isMissingFileReadError(e)) sourceMissing = true;
                 sourceReadError = true;
-                perfMark('schedule-file-fallback-error', { cachePath: 'file', error: String(e?.message || e || '') });
             }
             try {
                 const raw = String(localStorage.getItem(STORAGE.SCHEDULE_LS_KEY) || '');
@@ -12902,7 +12813,6 @@
                     sourceLoaded = sourceMissing || !sourceReadError;
                     if (sourceMissing) sourceReadError = false;
                     setScheduleCache([], '');
-                    perfMark('schedule-localstorage-fallback-empty', { cachePath: 'localStorage', cacheStatus: 'empty', scheduleCount: 0 });
                     return [];
                 }
                 const parsed = JSON.parse(raw);
@@ -12910,12 +12820,10 @@
                 sourceLoaded = true;
                 const { out } = normalizeScheduleList(parsed);
                 setScheduleCache(out, computeScheduleSourceSignature(JSON.stringify(out, null, 2)));
-                perfMark('schedule-localstorage-fallback-ready', { cachePath: 'localStorage', cacheStatus: 'hit', cacheHit: true, scheduleCount: out.length });
                 return Array.isArray(state.scheduleCache.list) ? state.scheduleCache.list : out;
             } catch (e) {
                 sourceReadError = true;
                 setScheduleCache([], '');
-                perfMark('schedule-localstorage-fallback-error', { cachePath: 'localStorage', error: String(e?.message || e || '') });
                 return [];
             } finally {
                 state.scheduleCache.lastLoadError = !sourceLoaded || sourceReadError;
@@ -12923,10 +12831,8 @@
         })();
         try {
             const list = await state.scheduleCache.inflight;
-            perfFinish({ cachePath: 'read', scheduleCount: Array.isArray(list) ? list.length : 0, success: true });
             return cloneScheduleList(list);
         } catch (e) {
-            perfFinish({ cachePath: 'read', error: String(e?.message || e || ''), success: false });
             throw e;
         } finally {
             state.scheduleCache.inflight = null;
@@ -13089,13 +12995,6 @@
 
     async function performScheduleSaveAll(items, options) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const perfTrace = __tmPerfCreate('scheduleWrite', {
-            source: String(opts.source || 'schedule').trim() || 'schedule',
-            reason: String(opts.reason || opts.op || 'save-schedule-all').trim() || 'save-schedule-all',
-            requestSeq: Number(opts.version || 0) || undefined,
-        });
-        const perfMark = (stage, detail = {}) => __tmPerfMark(perfTrace, stage, { source: 'schedule-write', ...(detail || {}) });
-        const perfFinish = (detail = {}) => __tmPerfFinish(perfTrace, { source: 'schedule-write', ...(detail || {}) });
         const previousList = Array.isArray(state.scheduleCache.list) ? cloneScheduleList(state.scheduleCache.list) : [];
         const list = (await mergeSharedSchedulesForNonPruneSave(Array.isArray(items) ? items : [], opts))
             .map((item) => {
@@ -13127,11 +13026,9 @@
         const optimisticSignature = computeScheduleSourceSignature(serialized);
         state.scheduleCache.authoritativeRefreshToken = (Number(state.scheduleCache.authoritativeRefreshToken) || 0) + 1;
         setScheduleCache(list, optimisticSignature);
-        perfMark('schedule-optimistic-cache', { optimistic: true, scheduleCount: list.length, cachePath: 'memory' });
         try {
             const kernelSave = getKernelScheduleRpc('taskHorizonSaveSchedules');
             if (kernelSave) {
-                perfMark('schedule-kernel-write-start', { cachePath: 'kernel', scheduleCount: list.length });
                 const result = await kernelSave(list, opts);
                 if (!result || result.ok !== true) throw new Error(String(result?.error?.message || '内核日程服务保存失败'));
                 if (Array.isArray(result.data?.items)) {
@@ -13143,12 +13040,9 @@
                 } else {
                     try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, serialized); } catch (e) {}
                 }
-                perfMark('schedule-kernel-write-confirmed', { cachePath: 'kernel', confirmed: true, scheduleCount: Array.isArray(result.data?.items) ? result.data.items.length : list.length });
             } else {
-                perfMark('schedule-file-write-start', { cachePath: 'file', scheduleCount: list.length });
                 await putFileText(STORAGE.SCHEDULE_FILE, serialized);
                 try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, serialized); } catch (e) {}
-                perfMark('schedule-file-write-confirmed', { cachePath: 'file', confirmed: true, scheduleCount: list.length });
             }
         } catch (e) {
             const shouldRollbackCache = String(state.scheduleCache.sourceSignature || '') === optimisticSignature;
@@ -13159,13 +13053,6 @@
             if (Number(state.calendarMutationVersion) === version) {
                 state.calendarMutationVersion = previousMutationVersion;
             }
-            perfMark('schedule-optimistic-rollback', {
-                optimistic: false,
-                rolledBack: shouldRollbackCache,
-                scheduleCount: previousList.length,
-                cachePath: 'memory',
-            });
-            perfFinish({ error: String(e?.message || e || ''), success: false, confirmed: false, scheduleCount: list.length });
             try { console.warn('[task-horizon] save schedule file failed', e); } catch (e2) {}
             throw e;
         }
@@ -13203,7 +13090,6 @@
         if (!opts.skipDeviceSync && shouldPreferDeviceNotificationBackend()) {
             try { scheduleScheduleMobileSync('save-schedule-all'); } catch (e) {}
         }
-        perfFinish({ confirmed: true, success: true, scheduleCount: list.length, eventCount: scheduleChanges.length, reason: String(opts.reason || opts.op || 'save-schedule-all').trim() || 'save-schedule-all' });
         return true;
     }
 
@@ -13404,23 +13290,6 @@
 
     function __tmApplyCalendarRefreshDetail(detail) {
         const next = __tmNormalizeCalendarRefreshDetail(detail);
-        const refreshTrace = __tmPerfCreate('calendarRefresh', {
-            reason: next.reason,
-            reasons: next.reasons,
-            main: next.main === true,
-            side: next.side === true,
-            layoutOnly: next.layoutOnly === true,
-            hard: next.hard === true,
-            version: next.version,
-        });
-        __tmPerfMark(refreshTrace, 'apply-start', {
-            reason: next.reason,
-            reasons: next.reasons,
-            main: next.main === true,
-            side: next.side === true,
-            layoutOnly: next.layoutOnly === true,
-            hard: next.hard === true,
-        });
         const wrap = state.wrapEl;
         const mainCalendar = state.calendar;
         const sideCalendar = state.sideDay?.calendar || null;
@@ -13460,15 +13329,6 @@
             state.calendarRenderedVersionSide = Math.max(Number(state.calendarRenderedVersionSide) || 0, Number(next.version) || 0);
         }
         state.calendarRefreshLastApplied = { ...next, appliedAt: Date.now() };
-        __tmPerfFinish(refreshTrace, {
-            reason: next.reason,
-            reasons: next.reasons,
-            main: next.main === true && !!mainCalendar,
-            side: next.side === true && !!sideCalendar,
-            layoutOnly: next.layoutOnly === true,
-            hard: next.hard === true,
-            success: true,
-        });
         return true;
     }
 
@@ -13478,29 +13338,7 @@
         const previous = state.calendarRefreshPending;
         state.calendarRefreshPending = __tmMergeCalendarRefreshDetail(previous, incoming);
         const merged = state.calendarRefreshPending;
-        const trace = __tmPerfCreate('calendarRefresh', {
-            reason: incoming.reason,
-            reasons: incoming.reasons,
-            main: incoming.main === true,
-            side: incoming.side === true,
-            layoutOnly: incoming.layoutOnly === true,
-            hard: incoming.hard === true,
-            merged: hadPending,
-            scheduled: !!state.calendarRefreshTimer,
-        });
-        __tmPerfMark(trace, 'schedule', {
-            reason: incoming.reason,
-            reasons: incoming.reasons,
-            merged: hadPending,
-            scheduled: !!state.calendarRefreshTimer,
-            pendingReasons: merged?.reasons,
-            pendingMain: merged?.main === true,
-            pendingSide: merged?.side === true,
-            pendingLayoutOnly: merged?.layoutOnly === true,
-            pendingHard: merged?.hard === true,
-        });
         if (state.calendarRefreshTimer) {
-            __tmPerfFinish(trace, { merged: true, scheduled: false, success: true });
             return true;
         }
         state.calendarRefreshTimer = setTimeout(() => {
@@ -13508,19 +13346,9 @@
             const next = state.calendarRefreshPending;
             state.calendarRefreshPending = null;
             if (!next) {
-                __tmPerfFinish(trace, { merged: hadPending, executed: false, success: true });
                 return;
             }
-            __tmPerfMark(trace, 'execute', {
-                reason: next.reason,
-                reasons: next.reasons,
-                main: next.main === true,
-                side: next.side === true,
-                layoutOnly: next.layoutOnly === true,
-                hard: next.hard === true,
-            });
             __tmApplyCalendarRefreshDetail(next);
-            __tmPerfFinish(trace, { executed: true, success: true });
         }, 24);
         return true;
     }
@@ -18315,12 +18143,6 @@
     }
 
     function unmountSideDayTimeline() {
-        const unmountTrace = __tmPerfCreate('calendarMount', {
-            calendar: 'side',
-            instance: 'side',
-            reason: 'unmount',
-            pending: !!state.sideDay?.calendar,
-        });
         try { closeTrackedPrototypeMorePopover(); } catch (e) {}
         try { clearTimeGridAutoCenterState('sideDay'); } catch (e) {}
         if (state.sideDay.layoutRaf) {
@@ -18364,7 +18186,6 @@
         state.sideDay.resolveTask = null;
         state.sideDay.allowInactiveFullLoad = false;
         state.sideDay.autoCenterSuppressed = false;
-        __tmPerfFinish(unmountTrace, { calendar: 'side', reason: 'unmount', success: true });
     }
 
     function scheduleSideDayTaskDateSourceRefresh(options = {}) {
@@ -19182,13 +19003,6 @@
     function mountSideDayTimeline(rootEl, opts) {
         if (!(rootEl instanceof HTMLElement)) return false;
         if (typeof globalThis.__tmCalendarEngine?.createCalendarEngine !== 'function') return false;
-        const mountTrace = __tmPerfCreate('calendarMount', {
-            calendar: 'side',
-            instance: 'side',
-            reason: 'mount',
-            pending: !!state.sideDay?.calendar,
-            mode: state.sideDay?.rootEl === rootEl ? 'reuse-root' : (state.sideDay?.rootEl ? 'replace-root' : 'create'),
-        });
         // A render can replace only the dock shell while the existing
         // CalendarEngine instance is still alive. Move its root into the new
         // shell instead of destroying the instance and reloading all sources.
@@ -19199,7 +19013,6 @@
                     rootEl.replaceWith(previousRoot);
                     rootEl = previousRoot;
                     state.sideDay.rootEl = previousRoot;
-                    __tmPerfFinish(mountTrace, { calendar: 'side', reason: 'reparent-existing', mode: 'reuse', success: true });
                 }
             } catch (e) {}
         }
@@ -19279,7 +19092,6 @@
             try {
                 requestAnimationFrame(syncReusedSideDayLayout);
             } catch (e) { syncReusedSideDayLayout(); }
-            __tmPerfFinish(mountTrace, { calendar: 'side', reason: 'reuse-existing', mode: 'reuse', success: true });
             return true;
         }
 
@@ -19304,11 +19116,6 @@
         let sidePrototypeSuppressClickEventId = '';
         let sidePrototypeTimeRangeExpanded = false;
         let sidePrototypeDragScrollSnapshot = null;
-        const logSidePrototypeDrag = (phase, details = {}) => {
-            // Kept as a no-op so existing drag call sites remain lightweight
-            // without emitting diagnostic output in production.
-            return false;
-        };
         const beginSidePrototypeDragScrollSnapshot = (surface, activeCalendar, pointerId) => {
             const scroller = surface?.querySelector?.('.tm-proto-time-scroll');
             const scrollTop = scroller instanceof HTMLElement ? Number(scroller.scrollTop || 0) : 0;
@@ -19538,10 +19345,6 @@
             }
             if (!surface.__tmSideProtoBound) {
                 surface.__tmSideProtoBound = true;
-                logSidePrototypeDrag('surface-bound', {
-                    surfaceId: String(surface.id || ''),
-                    className: String(surface.className || ''),
-                });
                 const resolveSidePrototypeTimedDropAtPoint = (clientX, clientY) => {
                     const pointTarget = document.elementFromPoint?.(Number(clientX) || 0, Number(clientY) || 0);
                     const target = pointTarget instanceof Element ? pointTarget : null;
@@ -19596,20 +19399,10 @@
                             }) || null;
                     };
                     const hitEventEl = resolveEventAtPoint();
-                    const hitMode = target?.closest?.('[data-tm-proto-event]') ? 'closest' : (hitEventEl ? 'geometry' : 'none');
                     const clickedEventId = String(hitEventEl?.getAttribute?.('data-tm-proto-event') || '').trim();
-                    if (clickedEventId) {
-                        logSidePrototypeDrag('click-event', {
-                            eventId: clickedEventId,
-                            hitMode,
-                            popoverHandler: typeof state.__tmShowPrototypeEventPopover === 'function',
-                            suppressActive: sidePrototypeSuppressClickUntil > Date.now(),
-                        });
-                    }
                     if (sidePrototypeSuppressClickUntil > Date.now()
                         && clickedEventId
                         && clickedEventId === sidePrototypeSuppressClickEventId) {
-                        logSidePrototypeDrag('click-suppressed-after-pointer', { eventId: clickedEventId });
                         event.preventDefault();
                         event.stopPropagation();
                         sidePrototypeSuppressClickUntil = 0;
@@ -19678,14 +19471,11 @@
                         const eventApi = getSidePrototypeEvent(activeCalendar, id);
                         if (eventApi && typeof state.__tmShowPrototypeEventPopover === 'function') {
                             try {
-                                const result = state.__tmShowPrototypeEventPopover(eventApi, eventEl);
-                                logSidePrototypeDrag('click-popover-result', { eventId: id, result, popoverMounted: !!state.__tmPrototypeEventPopover?.el?.isConnected });
+                                state.__tmShowPrototypeEventPopover(eventApi, eventEl);
                             } catch (e) {
-                                logSidePrototypeDrag('click-popover-error', { eventId: id, message: String(e?.message || e || '') });
                             }
                             return;
                         }
-                        if (eventApi) logSidePrototypeDrag('click-popover-handler-missing', { eventId: id });
                         if (eventApi) {
                             const ext = eventApi.extendedProps || {};
                             const source = String(ext.__tmSource || '').trim();
@@ -19774,17 +19564,7 @@
                 };
                 surface.addEventListener('pointerdown', (event) => {
                     const target = event.target instanceof Element ? event.target : null;
-                    logSidePrototypeDrag('pointerdown', {
-                        pointerId: Number(event.pointerId),
-                        pointerType: String(event.pointerType || ''),
-                        button: typeof event.button === 'number' ? event.button : null,
-                        target: target?.tagName || '',
-                        targetClass: String(target?.className || '').slice(0, 160),
-                        eventId: String(target?.closest?.('[data-tm-proto-event]')?.getAttribute?.('data-tm-proto-event') || '').trim(),
-                        surfacePointerEvents: (() => { try { return getComputedStyle(surface).pointerEvents; } catch (e) { return ''; } })(),
-                    });
                     if (typeof event.button === 'number' && event.button !== 0) {
-                        logSidePrototypeDrag('pointerdown-ignored-button', { pointerId: Number(event.pointerId) });
                         return;
                     }
                     if (target?.closest?.('.tm-proto-event-check, .tm-cal-task-event-check')) return;
@@ -19794,13 +19574,6 @@
                         const activeCalendar = state.sideDay?.calendar || cal;
                         const eventApi = getSidePrototypeEvent(activeCalendar, id);
                         if (!eventApi || eventApi.editable === false) {
-                            logSidePrototypeDrag('pointerdown-rejected', {
-                                pointerId: Number(event.pointerId),
-                                eventId: id,
-                                hasEvent: !!eventApi,
-                                editable: eventApi?.editable,
-                                calendarResolved: !!activeCalendar,
-                            });
                             return;
                         }
                         beginSidePrototypeDragScrollSnapshot(surface, activeCalendar, event.pointerId);
@@ -19856,17 +19629,6 @@
                             originStart, originEnd,
                             previewMode: '', previewStart: null, previewEnd: null, previewKey: '',
                         };
-                        logSidePrototypeDrag('drag-start', {
-                            pointerId: Number(event.pointerId),
-                            eventId: id,
-                            edge,
-                            source: String(eventApi?.extendedProps?.__tmSource || '').trim(),
-                            allDay: eventApi.allDay === true,
-                            start: eventApi.start instanceof Date ? eventApi.start.toISOString() : String(eventApi.start || ''),
-                            end: eventApi.end instanceof Date ? eventApi.end.toISOString() : String(eventApi.end || ''),
-                            cardPointerEvents: (() => { try { return getComputedStyle(eventEl).pointerEvents; } catch (e) { return ''; } })(),
-                            scrollTop: Number(surface.querySelector('.tm-proto-time-scroll')?.scrollTop || 0),
-                        });
                         try { visualEl?.classList?.add?.('tm-proto-event--dragging'); } catch (e) {}
                         if (event.pointerType === 'touch' && !isTouchResize) {
                             sidePrototypeEventDrag.timer = setTimeout(() => {
@@ -19910,20 +19672,8 @@
                     if (sidePrototypeEventDrag && sidePrototypeEventDrag.pointerId === event.pointerId) {
                         const drag = sidePrototypeEventDrag;
                         const dy = (Number(event.clientY) || 0) - drag.startY;
-                        if (!drag.__tmLoggedFirstMove) {
-                            drag.__tmLoggedFirstMove = true;
-                            logSidePrototypeDrag('pointermove-first', {
-                                pointerId: Number(event.pointerId),
-                                eventId: drag.id,
-                                dy,
-                                started: drag.started,
-                                moved: drag.moved,
-                                edge: drag.edge,
-                            });
-                        }
                         if (!drag.started) {
                             if (Math.abs(dy) > 8) {
-                                logSidePrototypeDrag('pointermove-touch-cancelled', { pointerId: Number(event.pointerId), eventId: drag.id, dy });
                                 clearTimeout(drag.timer);
                                 restoreSidePrototypeDragPreview(drag);
                                 sidePrototypeEventDrag = null;
@@ -19934,13 +19684,11 @@
                         if (Math.abs(dy) > 4 && !drag.moved) {
                             drag.moved = true;
                             try { surface.setPointerCapture?.(event.pointerId); } catch (e) {}
-                            logSidePrototypeDrag('drag-threshold-crossed', { pointerId: Number(event.pointerId), eventId: drag.id, dy });
                         }
                         if (drag.moved) {
                             event.preventDefault();
                             const activeCalendar = state.sideDay?.calendar || cal;
                             const eventApi = getSidePrototypeEvent(activeCalendar, drag.id);
-                            if (!eventApi) logSidePrototypeDrag('pointermove-event-missing', { pointerId: Number(event.pointerId), eventId: drag.id });
                             if (eventApi && eventApi.allDay === true && !drag.edge) {
                                 const timedDrop = resolveSidePrototypeTimedDropAtPoint(event.clientX, event.clientY);
                                 if (timedDrop?.start) {
@@ -20056,14 +19804,6 @@
                 surface.addEventListener('pointerup', (event) => {
                     if (sidePrototypeEventDrag && sidePrototypeEventDrag.pointerId === event.pointerId) {
                         const drag = sidePrototypeEventDrag;
-                        logSidePrototypeDrag('pointerup', {
-                            pointerId: Number(event.pointerId),
-                            eventId: drag.id,
-                            started: drag.started,
-                            moved: drag.moved,
-                            edge: drag.edge,
-                            scrollTop: Number(surface.querySelector('.tm-proto-time-scroll')?.scrollTop || 0),
-                        });
                         clearTimeout(drag.timer);
                         sidePrototypeEventDrag = null;
                         if (!drag.started || !drag.moved) {
@@ -20076,13 +19816,9 @@
                                 sidePrototypeSuppressClickEventId = drag.id;
                                 if (typeof state.__tmShowPrototypeEventPopover === 'function') {
                                     try {
-                                        const result = state.__tmShowPrototypeEventPopover(eventApi, drag.eventEl);
-                                        logSidePrototypeDrag('pointerup-popover-result', { eventId: drag.id, result, popoverMounted: !!state.__tmPrototypeEventPopover?.el?.isConnected });
+                                        state.__tmShowPrototypeEventPopover(eventApi, drag.eventEl);
                                     } catch (e) {
-                                        logSidePrototypeDrag('pointerup-popover-error', { eventId: drag.id, message: String(e?.message || e || '') });
                                     }
-                                } else {
-                                    logSidePrototypeDrag('pointerup-popover-handler-missing', { eventId: drag.id });
                                 }
                             }
                             return;
@@ -20180,19 +19916,7 @@
                             dispatchResult = callCalendarAdapter(activeCalendar, dispatchMethod, drag.id, nextStart, nextEnd, { jsEvent: event, el: drag.eventEl, allDay: timedDrop ? false : eventApi.allDay === true });
                             accepted = dispatchResult === true;
                         } catch (e) {
-                            logSidePrototypeDrag('commit-error', { pointerId: Number(event.pointerId), eventId: drag.id, method: dispatchMethod, message: String(e?.message || e || '') });
                         }
-                        logSidePrototypeDrag('commit-result', {
-                            pointerId: Number(event.pointerId),
-                            eventId: drag.id,
-                            method: dispatchMethod,
-                            calendarResolved: !!activeCalendar,
-                            adapterResolved: !!getCalendarAdapter(activeCalendar),
-                            accepted,
-                            dispatchResult,
-                            nextStart: nextStart instanceof Date ? nextStart.toISOString() : String(nextStart || ''),
-                            nextEnd: nextEnd instanceof Date ? nextEnd.toISOString() : String(nextEnd || ''),
-                        });
                         if (!accepted) {
                             if (committedSnapshot) clearSidePrototypeCommittedDrag(committedSnapshot.id, committedSnapshot.token);
                             restoreSidePrototypeDragPreview(drag);
@@ -20226,7 +19950,6 @@
                 }, true);
                 surface.addEventListener('pointercancel', (event) => {
                     if (sidePrototypeEventDrag?.pointerId === event.pointerId) {
-                        logSidePrototypeDrag('pointercancel', { pointerId: Number(event.pointerId), eventId: sidePrototypeEventDrag.id });
                         restoreSidePrototypeDragPreview(sidePrototypeEventDrag);
                         clearTimeout(sidePrototypeEventDrag.timer);
                         sidePrototypeEventDrag = null;
@@ -20444,7 +20167,6 @@
                 {
                     id: EVENT_SOURCE_IDS.sideAux,
                     events: async (info, success, failure) => {
-                const sourceTrace = __tmCalendarPerfSourceCreate('side', EVENT_SOURCE_IDS.sideAux, info, 'timeGridDay');
                 try {
                         const curSettings = getSettings();
                         const years = getCnHolidayYearsForRange(info?.start, info?.end);
@@ -20473,20 +20195,10 @@
                     if (preservedAuxEvents?.length && !remindersLoadedWithData) {
                         success(normalizeCalendarEngineEventInputs(preservedAuxEvents));
                         holdCalendarSourceEventSnapshot(EVENT_SOURCE_IDS.sideAux, info.start, info.end);
-                        __tmCalendarPerfSourceFinish(sourceTrace, {
-                            calendar: 'side', sourceId: EVENT_SOURCE_IDS.sideAux,
-                            restoredSnapshot: true,
-                            eventCount: preservedAuxEvents.length,
-                        });
                         return;
                     }
                     if (reminderReadIncomplete
                         && hasCalendarSourceEventsInRange(cal, EVENT_SOURCE_IDS.sideAux, info.start, info.end)) {
-                        __tmCalendarPerfSourceFinish(sourceTrace, {
-                            calendar: 'side', sourceId: EVENT_SOURCE_IDS.sideAux,
-                            partial: true, preservedExisting: true,
-                            remindersNeedBackgroundRead,
-                        });
                         failure(new Error('calendar-aux-partial-result'));
                         return;
                     }
@@ -20545,15 +20257,8 @@
                     if (restoredHeldCategory) {
                         holdCalendarSourceEventSnapshot(EVENT_SOURCE_IDS.sideAux, info.start, info.end);
                     }
-                    __tmCalendarPerfSourceFinish(sourceTrace, {
-                        calendar: 'side', sourceId: EVENT_SOURCE_IDS.sideAux,
-                        holidayCount: Array.isArray(d) ? d.length : 0,
-                        reminderCount: Array.isArray(e) ? e.length : 0,
-                        eventCount: auxEvents.length,
-                    });
                     success(normalizeCalendarEngineEventInputs(auxEvents));
                 } catch (e) {
-                    __tmCalendarPerfSourceFinish(sourceTrace, { calendar: 'side', sourceId: EVENT_SOURCE_IDS.sideAux }, e);
                     failure(e);
                 }
                     },
@@ -20561,18 +20266,11 @@
                 {
                     id: EVENT_SOURCE_IDS.sideSchedule,
                     events: async (info, success, failure) => {
-                        const sourceTrace = __tmCalendarPerfSourceCreate('side', EVENT_SOURCE_IDS.sideSchedule, info, 'timeGridDay');
                         try {
                             const curSettings = getSettings();
                             const events = await __tmBuildScheduleSourceEvents(info.start, info.end, curSettings, 'timeGridDay');
-                            __tmCalendarPerfSourceFinish(sourceTrace, {
-                                calendar: 'side', sourceId: EVENT_SOURCE_IDS.sideSchedule,
-                                scheduleCount: Array.isArray(events) ? events.length : 0,
-                                eventCount: Array.isArray(events) ? events.length : 0,
-                            });
                             success(normalizeCalendarEngineEventInputs(events));
                         } catch (e) {
-                            __tmCalendarPerfSourceFinish(sourceTrace, { calendar: 'side', sourceId: EVENT_SOURCE_IDS.sideSchedule }, e);
                             failure(e);
                         }
                     },
@@ -20580,7 +20278,6 @@
                 {
                     id: EVENT_SOURCE_IDS.sideTaskDate,
                     events: async (info, success, failure) => {
-                        const sourceTrace = __tmCalendarPerfSourceCreate('side', EVENT_SOURCE_IDS.sideTaskDate, info, 'timeGridDay');
                         try {
                             const curSettings = getSettings();
                             const sideViewType = 'timeGridDay';
@@ -20593,22 +20290,11 @@
                             });
                             if (events?.__tmTaskDateQueryComplete === false
                                 && hasCalendarSourceEventsInRange(cal, EVENT_SOURCE_IDS.sideTaskDate, info.start, info.end)) {
-                                __tmCalendarPerfSourceFinish(sourceTrace, {
-                                    calendar: 'side', sourceId: EVENT_SOURCE_IDS.sideTaskDate,
-                                    partial: true, preservedExisting: true,
-                                    eventCount: Array.isArray(events) ? events.length : 0,
-                                });
                                 failure(new Error('calendar-task-date-partial-result'));
                                 return;
                             }
-                            __tmCalendarPerfSourceFinish(sourceTrace, {
-                                calendar: 'side', sourceId: EVENT_SOURCE_IDS.sideTaskDate,
-                                taskCount: Array.isArray(events) ? events.length : 0,
-                                eventCount: Array.isArray(events) ? events.length : 0,
-                            });
                             success(normalizeCalendarEngineEventInputs(applyPendingTaskDateEventPatches(events, 'side-task-date-source')));
                         } catch (e) {
-                            __tmCalendarPerfSourceFinish(sourceTrace, { calendar: 'side', sourceId: EVENT_SOURCE_IDS.sideTaskDate }, e);
                             failure(e);
                         }
                     },
@@ -20616,14 +20302,6 @@
             ],
             eventsSet: () => {
                 const viewSwitching = rootEl.classList.contains('tm-cal-view-switching');
-                try {
-                    const lifecycleTrace = __tmPerfCreate('calendarLifecycle', {
-                        calendar: 'side', instance: 'side', viewType: String(getCalendarView(cal)?.type || 'timeGridDay'),
-                        rangeStart: formatDateKey(getCalendarView(cal)?.activeStart), rangeEnd: formatDateKey(getCalendarView(cal)?.activeEnd),
-                    });
-                    __tmPerfMark(lifecycleTrace, 'eventsSet', { calendar: 'side', eventCount: getCalendarEvents(cal).length });
-                    __tmPerfFinish(lifecycleTrace, { calendar: 'side', eventCount: getCalendarEvents(cal).length });
-                } catch (e) {}
                 try { __tmDedupeTaskDateEventsInCalendar(cal, EVENT_SOURCE_IDS.sideTaskDate); } catch (e) {}
                 // Events can arrive after the initial layout pass. Re-run the
                 // prototype surface after the event store changes.
@@ -20880,36 +20558,23 @@
                 }
             },
             datesSet: () => {
-                const lifecycleTrace = __tmPerfCreate('calendarLifecycle', {
-                    calendar: 'side', instance: 'side', viewType: String(getCalendarView(cal)?.type || 'timeGridDay'),
-                    rangeStart: formatDateKey(getCalendarView(cal)?.activeStart), rangeEnd: formatDateKey(getCalendarView(cal)?.activeEnd),
-                });
-                __tmPerfMark(lifecycleTrace, 'datesSet', { calendar: 'side', viewType: String(getCalendarView(cal)?.type || 'timeGridDay') });
                 queueSidePrototypeRender();
-                __tmPerfFinish(lifecycleTrace, { calendar: 'side', viewType: String(getCalendarView(cal)?.type || 'timeGridDay'), success: true });
             },
             viewDidMount: () => {
                 queueSidePrototypeRender();
             },
             loading: (isLoading) => {
-                const lifecycleTrace = __tmPerfCreate('calendarLifecycle', {
-                    calendar: 'side', instance: 'side', viewType: String(getCalendarView(cal)?.type || 'timeGridDay'),
-                    rangeStart: formatDateKey(getCalendarView(cal)?.activeStart), rangeEnd: formatDateKey(getCalendarView(cal)?.activeEnd),
-                });
-                __tmPerfMark(lifecycleTrace, 'loading', { calendar: 'side', pending: !!isLoading });
                 const sourceOnlyRefresh = Number(state.calendarSourceRefetchInFlight?.side || 0) > 0;
                 if (!sourceOnlyRefresh) {
                     try { rootEl.classList.toggle('tm-cal-view-switching', !!isLoading); } catch (e) {}
                 }
                 if (isLoading) {
-                    __tmPerfFinish(lifecycleTrace, { calendar: 'side', pending: true, success: true });
                     return;
                 }
                 if (sourceOnlyRefresh) {
                     // CalendarEngine emits eventsSet after this callback. Keep the
                     // source-only marker alive until eventsSet can release it.
                     try { __tmScheduleCalendarSourceRefetchRelease('side'); } catch (e3) {}
-                    __tmPerfFinish(lifecycleTrace, { calendar: 'side', pending: false, reason: 'source-only-refresh', success: true });
                     return;
                 }
                 try {
@@ -20918,7 +20583,6 @@
                         queueSidePrototypeRender();
                     });
                 } catch (e) {}
-                __tmPerfFinish(lifecycleTrace, { calendar: 'side', pending: false, success: true });
             },
         });
         try {
@@ -20934,7 +20598,6 @@
         queueSidePrototypeRender();
         state.sideDay.calendar = cal;
         state.sideDay.adapter = sideCalendarAdapter;
-        __tmPerfMark(mountTrace, 'mounted', { calendar: 'side', reason: 'create', mode: 'create', success: true });
         scheduleClampSideDayPopover(rootEl);
         try {
             const runInitialAutoCenter = () => {
@@ -20957,11 +20620,6 @@
                 };
                 const prevBox = state.sideDay?.resizeBox || null;
                 if (prevBox && prevBox.width === nextBox.width && prevBox.height === nextBox.height) return;
-                const resizeTrace = __tmPerfCreate('calendarLayout', {
-                    calendar: 'side', instance: 'side',
-                    viewType: String(getCalendarView(cal)?.type || 'timeGridDay'),
-                });
-                __tmPerfMark(resizeTrace, 'side-resize', { calendar: 'side', width: nextBox.width, height: nextBox.height });
                 state.sideDay.resizeBox = nextBox;
                 try {
                     syncWrapBottomInset(rootEl, rootEl, {
@@ -20978,7 +20636,6 @@
                 } catch (e) {}
                 requestAnimationFrame(() => {
                     try { clampSideDayPopover(rootEl); } catch (e2) {}
-                    __tmPerfFinish(resizeTrace, { calendar: 'side', width: nextBox.width, height: nextBox.height, success: true });
                 });
             });
             sideDayResizeObserver.observe(rootEl);
@@ -21015,7 +20672,6 @@
             }
         }
 
-        __tmPerfFinish(mountTrace, { calendar: 'side', reason: 'create', mode: 'create', success: true });
         return true;
     }
 
@@ -21195,42 +20851,26 @@
         const endMs = toMs(rangeEnd);
         if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return [];
         const rangeKey = `${startMs}|${endMs}`;
-        const perfTrace = __tmPerfCreate('scheduleRange', {
-            source: 'schedule-range',
-            rangeStart: formatDateKey(rangeStart),
-            rangeEnd: formatDateKey(rangeEnd),
-        });
-        const perfFinish = (detail = {}) => __tmPerfFinish(perfTrace, {
-            source: 'schedule-range',
-            rangeStart: formatDateKey(rangeStart),
-            rangeEnd: formatDateKey(rangeEnd),
-            ...(detail || {}),
-        });
         const cached = state.scheduleRangeCache.get(rangeKey);
         if (cached
             && Array.isArray(cached.list)
             && Number(cached.scheduleLoadedAt || 0) === Number(state.scheduleCache.loadedAt || 0)
             && Date.now() - Number(cached.ts || 0) < 1200) {
-            perfFinish({ cachePath: 'range', cacheStatus: 'hit', cacheHit: true, scheduleCount: cached.list.length, success: true });
             return cached.list.slice();
         }
         if (cached
             && Array.isArray(cached.list)
             && Number(cached.scheduleLoadedAt || 0) === Number(state.scheduleCache.loadedAt || 0)
             && Date.now() - Number(cached.ts || 0) < SCHEDULE_RANGE_CACHE_TTL_MS) {
-            perfFinish({ cachePath: 'range', cacheStatus: 'stale-hit', cacheHit: true, scheduleCount: cached.list.length, success: true });
             return cached.list.slice();
         }
         const pending = state.scheduleRangeInflight.get(rangeKey);
         if (pending) {
-            __tmPerfMark(perfTrace, 'schedule-range-request-reuse', { source: 'schedule-range', cachePath: 'inflight', reused: true });
             const list = await pending;
-            perfFinish({ cachePath: 'inflight', cacheStatus: 'reuse', reused: true, scheduleCount: Array.isArray(list) ? list.length : 0, success: true });
             return list.slice();
         }
         const run = (async () => {
             const list = await loadScheduleAll();
-            __tmPerfMark(perfTrace, 'schedule-range-filter-start', { source: 'schedule-range', cachePath: 'filter', scheduleCount: list.length });
             const filtered = list.filter((it) => hasScheduleOccurrenceInRange(it, rangeStart, rangeEnd));
             state.scheduleRangeCache.set(rangeKey, {
                 ts: Date.now(),
@@ -21241,16 +20881,13 @@
                 const oldestKey = state.scheduleRangeCache.keys().next().value;
                 state.scheduleRangeCache.delete(oldestKey);
             }
-            __tmPerfMark(perfTrace, 'schedule-range-filter-ready', { source: 'schedule-range', cachePath: 'filter', scheduleCount: filtered.length });
             return filtered;
         })();
         state.scheduleRangeInflight.set(rangeKey, run);
         try {
             const list = await run;
-            perfFinish({ cachePath: 'filter', cacheStatus: 'ready', scheduleCount: Array.isArray(list) ? list.length : 0, success: true });
             return list.slice();
         } catch (e) {
-            perfFinish({ cachePath: 'filter', error: String(e?.message || e || ''), success: false });
             throw e;
         } finally {
             if (state.scheduleRangeInflight.get(rangeKey) === run) state.scheduleRangeInflight.delete(rangeKey);
@@ -21354,43 +20991,15 @@
         }
 
         if (needIds.length) {
-            const perfTrace = __tmPerfCreate('scheduleLinkedMetadataQuery', {
-                source: 'schedule-linked-metadata',
-                queryCount: needIds.length,
-            });
-            __tmPerfMark(perfTrace, 'schedule-linked-metadata-query-start', {
-                source: 'schedule-linked-metadata',
-                path: 'shared-document-query',
-                queryCount: needIds.length,
-            });
             try {
                 const metadata = await loadBlockLinkedMetadataMapShared(needIds);
-                __tmPerfMark(perfTrace, 'schedule-linked-metadata-query-ready', {
-                    source: 'schedule-linked-metadata',
-                    path: 'shared-document-query',
-                    queryCount: needIds.length,
-                    resultCount: metadata.size,
-                });
                 for (const id of needIds) {
                     const row = metadata.get(id);
                     if (!row) continue;
                     if (row.docId) setDoc(id, row.docId);
                     if (!titleMap.has(id)) setTitle(id, row.title);
                 }
-                __tmPerfFinish(perfTrace, {
-                    source: 'schedule-linked-metadata',
-                    queryCount: needIds.length,
-                    resultCount: metadata.size,
-                    success: true,
-                });
-            } catch (e) {
-                __tmPerfFinish(perfTrace, {
-                    source: 'schedule-linked-metadata',
-                    queryCount: needIds.length,
-                    error: String(e?.message || e || ''),
-                    success: false,
-                });
-            }
+            } catch (e) {}
         }
         return { titleMap, docMap };
     }
@@ -22390,27 +21999,18 @@
         const start = rangeStart instanceof Date ? rangeStart : null;
         const end = rangeEnd instanceof Date ? rangeEnd : null;
         if (!(start instanceof Date) || Number.isNaN(start.getTime()) || !(end instanceof Date) || Number.isNaN(end.getTime())) return [];
-        const perfTrace = __tmPerfCreate('scheduleProjection', {
-            source: 'schedule-events', viewType,
-            rangeStart: formatDateKey(start), rangeEnd: formatDateKey(end),
-        });
         const schedules = await loadScheduleForRange(start, end);
-        __tmPerfMark(perfTrace, 'schedule-range-ready', { source: 'schedule-events', scheduleCount: Array.isArray(schedules) ? schedules.length : 0 });
         if (!Array.isArray(schedules) || schedules.length === 0) {
-            __tmPerfFinish(perfTrace, { source: 'schedule-events', scheduleCount: 0, eventCount: 0, success: true });
             return [];
         }
-        __tmPerfMark(perfTrace, 'schedule-linked-lookups-start', { source: 'schedule-events', scheduleCount: schedules.length });
         const linkedMetadata = await __tmBuildScheduleLinkedMetadataMaps(schedules).catch(() => ({
             titleMap: new Map(),
             docMap: new Map(),
         }));
         const scheduleTaskTitleMap = linkedMetadata?.titleMap instanceof Map ? linkedMetadata.titleMap : new Map();
         const scheduleTaskDocIdMap = linkedMetadata?.docMap instanceof Map ? linkedMetadata.docMap : new Map();
-        __tmPerfMark(perfTrace, 'schedule-linked-lookups-ready', { source: 'schedule-events', resultCount: scheduleTaskTitleMap.size + scheduleTaskDocIdMap.size });
         const events = buildEventsFromSchedule(schedules, start, end, settings, scheduleTaskTitleMap, scheduleTaskDocIdMap, { viewType });
         const projected = isCalendarMonthViewType(viewType) ? dedupeMonthScheduleEvents(events) : events;
-        __tmPerfFinish(perfTrace, { source: 'schedule-events', scheduleCount: schedules.length, eventCount: Array.isArray(projected) ? projected.length : 0, success: true });
         return projected;
     }
 
@@ -22595,19 +22195,9 @@
         const id = String(sourceId || '').trim();
         if (!cal || !id) return false;
         const calendarKey = cal === state.calendar ? 'main' : (cal === state.sideDay?.calendar ? 'side' : '');
-        const refetchTrace = __tmPerfCreate('calendarRefetch', {
-            calendar: calendarKey,
-            instance: calendarKey,
-            sourceId: id,
-            source: id,
-            viewType: String(getCalendarView(cal)?.type || '').trim(),
-            rangeStart: formatDateKey(getCalendarView(cal)?.activeStart),
-            rangeEnd: formatDateKey(getCalendarView(cal)?.activeEnd),
-        });
         try {
             const source = getCalendarAdapter(cal)?.getEventSourceById?.(id) || null;
             if (!source || typeof source.refetch !== 'function') {
-                __tmPerfFinish(refetchTrace, { calendar: calendarKey, sourceId: id, error: 'source-missing', success: false });
                 return false;
             }
             if (calendarKey) {
@@ -22622,10 +22212,8 @@
             // cannot leave the host's source-refresh marker stuck forever;
             // eventsSet releases this timer immediately on success.
             if (calendarKey) __tmScheduleCalendarSourceRefetchRelease(calendarKey, 1500);
-            __tmPerfFinish(refetchTrace, { calendar: calendarKey, sourceId: id, pending: true, success: true });
             return true;
         } catch (e) {
-            __tmPerfFinish(refetchTrace, { calendar: calendarKey, sourceId: id, error: String(e?.message || e || ''), success: false });
             try {
                 const calendarKey = cal === state.calendar ? 'main' : (cal === state.sideDay?.calendar ? 'side' : '');
                 if (calendarKey && state.calendarSourceRefetchInFlight) {
@@ -29137,6 +28725,31 @@
                 const key = String(cell?.getAttribute?.('data-tm-proto-day') || '').trim();
                 return key ? protoDayStart(new Date(`${key}T00:00:00`)) : null;
             };
+            const resolvePrototypeAllDayCellAtPoint = (drag, clientX, clientY) => {
+                if (drag?.isMonthCell === true) return null;
+                const eventEl = drag?.eventEl instanceof Element ? drag.eventEl : null;
+                const allDay = eventEl?.closest?.('.tm-proto-allday')
+                    || prototypeSurface.querySelector('.tm-proto-allday');
+                if (!(allDay instanceof Element)) return null;
+                const x = Number(clientX);
+                const y = Number(clientY);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+                const allDayRect = allDay.getBoundingClientRect?.();
+                if (!allDayRect
+                    || x < allDayRect.left
+                    || x >= allDayRect.right
+                    || y < allDayRect.top
+                    || y >= allDayRect.bottom) return null;
+                const cells = Array.from(allDay.querySelectorAll('.tm-proto-allday-cell'));
+                return cells.find((cell) => {
+                    const rect = cell.getBoundingClientRect?.();
+                    return rect
+                        && x >= rect.left
+                        && x < rect.right
+                        && y >= rect.top
+                        && y < rect.bottom;
+                }) || null;
+            };
             const resolvePrototypeTimedDropAtPoint = (clientX, clientY) => {
                 const pointTarget = document.elementFromPoint?.(Number(clientX) || 0, Number(clientY) || 0);
                 const target = pointTarget instanceof Element ? pointTarget : null;
@@ -29253,13 +28866,20 @@
                         || candidatePool.find((node) => node.querySelector(edgeSelector)))
                     : null) || candidatePool[0];
                 if (!(next instanceof HTMLElement)) return;
+                const previousCell = drag.eventCell;
+                const nextCell = next.closest?.('.tm-proto-month-cell, .tm-proto-allday-cell') || null;
+                if (previousCell instanceof HTMLElement && previousCell !== nextCell) {
+                    try { previousCell.classList.remove('tm-proto-cell--dragging'); } catch (e) {}
+                }
                 drag.eventEl = next;
-                drag.eventCell = next.closest?.('.tm-proto-month-cell, .tm-proto-allday-cell') || drag.eventCell;
+                drag.eventCell = nextCell || drag.eventCell;
                 const nextTimeCanvas = next.closest?.('.tm-proto-time-canvas');
                 if (nextTimeCanvas instanceof HTMLElement) drag.timeCanvas = nextTimeCanvas;
                 drag.previewRendered = true;
                 try { next.classList.add('tm-proto-event--dragging'); } catch (e) {}
-                try { drag.eventCell?.classList?.add?.('tm-proto-cell--dragging'); } catch (e) {}
+                if (drag.resizeEdge) {
+                    try { drag.eventCell?.classList?.add?.('tm-proto-cell--dragging'); } catch (e) {}
+                }
             };
             syncPrototypeDayPanelDragGeometry = (drag) => {
                 if (!drag || !(prototypeSurface instanceof HTMLElement)) return;
@@ -29368,14 +28988,7 @@
                 prototypeEventDrag.columnWidth = getPrototypeDayColumnWidth(prototypeEventDrag);
                 prototypeEventDrag.eventCell = eventEl.closest?.('.tm-proto-month-cell, .tm-proto-allday-cell') || null;
                 try { eventEl.classList.add('tm-proto-event--dragging'); } catch (e) {}
-                // Month all-day events are rendered as row-local bars. Raise
-                // their source cell for the duration of a drag so the bar can
-                // travel across a week-row boundary without being painted
-                // under the following grid row. Timeline movement keeps the
-                // existing stacking behavior to avoid blanking neighboring
-                // cross-day strips.
-                if (prototypeEventDrag.resizeEdge
-                    || (eventApi.allDay === true && prototypeEventDrag.eventCell?.matches?.('.tm-proto-month-cell'))) {
+                if (prototypeEventDrag.resizeEdge) {
                     try { prototypeEventDrag.eventCell?.classList?.add?.('tm-proto-cell--dragging'); } catch (e) {}
                 }
                 if (eventApi.allDay === true) {
@@ -29510,10 +29123,35 @@
                                 }
                             } catch (e) {}
                         } else if (eventApi?.allDay === true && drag.originRect) {
-                            const targetCell = resolvePrototypeDayCellAtPoint(drag, event.clientX, event.clientY);
+                            const allDayCell = resolvePrototypeAllDayCellAtPoint(drag, event.clientX, event.clientY);
+                            const targetCell = allDayCell || resolvePrototypeDayCellAtPoint(drag, event.clientX, event.clientY);
                             const targetRect = targetCell?.getBoundingClientRect?.();
                             const isMonthCell = drag.isMonthCell === true;
-                            const timedDrop = !drag.resizeEdge
+                            if (allDayCell && drag.originStart instanceof Date && drag.originEnd instanceof Date) {
+                                const targetDayKey = String(allDayCell.getAttribute('data-tm-proto-day') || '').trim();
+                                const targetDay = targetDayKey
+                                    ? protoDayStart(new Date(`${targetDayKey}T00:00:00`))
+                                    : null;
+                                const preview = getPrototypeAllDayDragDates(drag, eventApi, targetDay);
+                                if (preview) {
+                                    const previewKey = `${drag.id}|allday|${preview.start.getTime()}|${preview.end.getTime()}`;
+                                    const previewDiffersFromOrigin = preview.start.getTime() !== drag.originStart.getTime()
+                                        || preview.end.getTime() !== drag.originEnd.getTime();
+                                    const hadRenderedPreview = drag.previewRendered === true;
+                                    drag.previewMode = 'allday';
+                                    drag.previewStart = preview.start;
+                                    drag.previewEnd = preview.end;
+                                    if (drag.previewKey !== previewKey) {
+                                        drag.previewKey = previewKey;
+                                        drag.previewRendered = false;
+                                        if (previewDiffersFromOrigin || hadRenderedPreview) {
+                                            try { renderPrototypeSurface(); } catch (e) { queuePrototypeSurfaceRender(); }
+                                        }
+                                    }
+                                }
+                                return;
+                            }
+                            const timedDrop = !drag.resizeEdge && !allDayCell
                                 ? resolvePrototypeTimedDropAtPoint(event.clientX, event.clientY)
                                 : null;
                             if (timedDrop?.start && !isMonthCell) {
@@ -29590,7 +29228,31 @@
                             try {
                                 drag.eventEl.style.setProperty('transform', `translate(${shift}px, ${shiftY}px)`, 'important');
                             } catch (e) {}
-                        } else if (eventApi && drag.isMonthCell && !drag.resizeEdge
+                        } else if (eventApi?.allDay === true && drag.isMonthCell && !drag.resizeEdge
+                            && drag.originStart instanceof Date && drag.originEnd instanceof Date) {
+                            const targetCell = resolvePrototypeDayCellAtPoint(drag, event.clientX, event.clientY);
+                            const targetDay = targetCell
+                                ? protoDayStart(new Date(`${String(targetCell.getAttribute('data-tm-proto-day') || '').trim()}T00:00:00`))
+                                : null;
+                            const preview = getPrototypeAllDayDragDates(drag, eventApi, targetDay);
+                            if (preview) {
+                                const previewKey = `${drag.id}|allday-month|${preview.start.getTime()}|${preview.end.getTime()}`;
+                                const previewDiffersFromOrigin = preview.start.getTime() !== drag.originStart.getTime()
+                                    || preview.end.getTime() !== drag.originEnd.getTime();
+                                const hadRenderedPreview = drag.previewRendered === true;
+                                drag.previewMode = 'allday';
+                                drag.previewStart = preview.start;
+                                drag.previewEnd = preview.end;
+                                if (drag.previewKey !== previewKey) {
+                                    drag.previewKey = previewKey;
+                                    drag.previewRendered = false;
+                                    if (previewDiffersFromOrigin || hadRenderedPreview) {
+                                        try { renderPrototypeSurface(); } catch (e) { queuePrototypeSurfaceRender(); }
+                                    }
+                                }
+                            }
+                            return;
+                        } else if (eventApi?.allDay !== true && drag.isMonthCell && !drag.resizeEdge
                             && drag.originStart instanceof Date && drag.originEnd instanceof Date) {
                             // Month cells show timed schedules as compact
                             // chips. They have no time-column geometry, so
@@ -29828,6 +29490,7 @@
                         return;
                     }
                     const timedDrop = eventApi.allDay === true && !drag.resizeEdge
+                        && !resolvePrototypeAllDayCellAtPoint(drag, event.clientX, event.clientY)
                         ? resolvePrototypeTimedDropAtPoint(event.clientX, event.clientY)
                         : null;
                     if (eventApi.allDay === true && !drag.resizeEdge && !timedDrop && drag.previewMode === 'timed') {
@@ -33995,7 +33658,9 @@
             // same span layout as the committed event. Mutating only the old
             // element's width leaves stale bars in the previous week row.
             const activeDragPreview = prototypeEventDrag
-                && (prototypeEventDrag.isMonthCell === true || prototypeEventDrag.previewMode === 'timed')
+                && (prototypeEventDrag.isMonthCell === true
+                    || prototypeEventDrag.previewMode === 'timed'
+                    || prototypeEventDrag.previewMode === 'allday')
                 && prototypeEventDrag.previewStart instanceof Date
                 && prototypeEventDrag.previewEnd instanceof Date
                 && prototypeEventDrag.previewEnd > prototypeEventDrag.previewStart
@@ -34254,9 +33919,6 @@
             }
             prototypeLastRenderedViewRangeKey = viewRangeKey;
         };
-        let mainCalendarEventsPerfTrace = null;
-        let mainCalendarEventsLoadSeq = 0;
-        let mainCalendarLastEventCount = 0;
         let mainCalendarLastEventSourceViewType = '';
         let mainCalendarViewTypeRefetchToken = 0;
         const mainCalendarEventSourceRequestSignatures = new Map();
@@ -34288,58 +33950,10 @@
             }
             return mainCalendarEventSourceRequestSignatures.get(sourceKey) === requestSignature;
         };
-        const dropStaleMainCalendarEventSourceResult = (sourceTrace, sourceId, viewType, info, success) => {
+        const dropStaleMainCalendarEventSourceResult = (sourceId, viewType, info, success) => {
             if (isMainCalendarEventSourceRequestCurrent(sourceId, viewType, info)) return false;
-            try {
-                __tmPerfMark(sourceTrace, 'stale-drop', {
-                    calendar: 'main',
-                    sourceId,
-                    sourceViewType: String(viewType || '').trim(),
-                    activeViewType: String(getCalendarView(calendar)?.type || '').trim(),
-                });
-            } catch (e) {}
             try { success([]); } catch (e) {}
             return true;
-        };
-        const ensureMainCalendarEventsPerfTrace = (info) => {
-            if (mainCalendarEventsPerfTrace && mainCalendarEventsPerfTrace.finished !== true) return mainCalendarEventsPerfTrace;
-            mainCalendarEventsLoadSeq += 1;
-            const trace = __tmPerfCreate('calendarEvents', {
-                calendar: 'main',
-                loadSeq: mainCalendarEventsLoadSeq,
-                viewType: String((getCalendarView(calendar)?.type) || state._lastViewType || preferredInitialView || 'timeGridWeek'),
-                rangeStart: formatDateKey(info?.start),
-                rangeEnd: formatDateKey(info?.end),
-            });
-            if (trace) {
-                __tmPerfMark(trace, 'calendar-events-start', {
-                    calendar: 'main',
-                    loadSeq: mainCalendarEventsLoadSeq,
-                    viewType: String((getCalendarView(calendar)?.type) || state._lastViewType || preferredInitialView || 'timeGridWeek'),
-                    rangeStart: formatDateKey(info?.start),
-                    rangeEnd: formatDateKey(info?.end),
-                });
-            }
-            mainCalendarEventsPerfTrace = trace;
-            mainCalendarLastEventCount = 0;
-            return trace;
-        };
-        const finishMainCalendarEventsPerfTrace = (detail = {}) => {
-            if (!mainCalendarEventsPerfTrace) return;
-            const trace = mainCalendarEventsPerfTrace;
-            mainCalendarEventsPerfTrace = null;
-            __tmPerfMark(trace, 'calendar-events-ready', {
-                calendar: 'main',
-                eventCount: Number(mainCalendarLastEventCount || 0),
-                viewType: String((getCalendarView(calendar)?.type) || state._lastViewType || preferredInitialView || 'timeGridWeek'),
-                ...(detail && typeof detail === 'object' ? detail : {}),
-            });
-            __tmPerfFinish(trace, {
-                calendar: 'main',
-                eventCount: Number(mainCalendarLastEventCount || 0),
-                viewType: String((getCalendarView(calendar)?.type) || state._lastViewType || preferredInitialView || 'timeGridWeek'),
-                ...(detail && typeof detail === 'object' ? detail : {}),
-            });
         };
         const hostDefaultMeta = getMainCalendarHostDefaultMeta(rootEl, { isMobileDevice, isDockHost });
         const previousHostSignature = String(state.mainCalendarHostSignature || '').trim();
@@ -34525,27 +34139,14 @@
                     id: EVENT_SOURCE_IDS.mainAux,
                     events: async (info, success, failure) => {
                 const sourceViewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
-                const sourceTrace = __tmCalendarPerfSourceCreate('main', EVENT_SOURCE_IDS.mainAux, info, sourceViewType, mainCalendarEventsLoadSeq);
                 if (isMainCalendarViewDataLoadDeferred(sourceViewType)) {
-                    __tmPerfMark(sourceTrace, 'view-switch-deferred', {
-                        calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainAux, viewType: sourceViewType,
-                    });
                     try {
                         if (info?.context?.sourceRefetch === true) failure(new Error('calendar-view-data-deferred'));
                         else success([]);
                     } catch (e) {}
-                    __tmCalendarPerfSourceFinish(sourceTrace, {
-                        calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainAux, deferred: true, eventCount: 0,
-                    });
                     return;
                 }
                 try {
-                    ensureMainCalendarEventsPerfTrace(info);
-                    const startMs = toMs(info?.start);
-                    const endMs = toMs(info?.end);
-                    const rangeSpanDays = (Number.isFinite(startMs) && Number.isFinite(endMs))
-                        ? Math.max(0, Math.round((endMs - startMs) / 86400000))
-                        : 0;
                     const viewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
                     rememberMainCalendarEventSourceRequest(EVENT_SOURCE_IDS.mainAux, viewType, info);
                     const settings = getSettings();
@@ -34589,7 +34190,6 @@
                     // while CalendarEngine is synchronously rendering another
                     // source, so Promise.race alone still allowed 700-1500ms
                     // waits in list/month switches.
-                    const recordsTimedOut = historyNeedsBackgroundRead;
                     const recordsForPaint = Promise.resolve(cachedRecords === null ? [] : cachedRecords);
                     const cachedHolidayParts = settings.showCnHoliday
                         ? years.map((y) => resolveCnHolidayYearDays(y))
@@ -34645,32 +34245,13 @@
                         && auxReadIncomplete
                         && !preservedAuxEvents?.length
                         && hasCalendarSourceEventsInRange(calendar, EVENT_SOURCE_IDS.mainAux, info.start, info.end)) {
-                        __tmCalendarPerfSourceFinish(sourceTrace, {
-                            calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainAux,
-                            partial: true, preservedExisting: true,
-                            historyNeedsBackgroundRead,
-                            remindersNeedBackgroundRead,
-                        });
                         failure(new Error('calendar-aux-partial-result'));
                         return;
                     }
-                    if (dropStaleMainCalendarEventSourceResult(sourceTrace, EVENT_SOURCE_IDS.mainAux, viewType, info, success)) {
-                        __tmCalendarPerfSourceFinish(sourceTrace, {
-                            calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainAux, staleDrop: true, eventCount: 0,
-                        });
+                    if (dropStaleMainCalendarEventSourceResult(EVENT_SOURCE_IDS.mainAux, viewType, info, success)) {
                         return;
                     }
                     if (optionalBackgroundPromise) {
-                        __tmPerfMark(sourceTrace, 'tomato-history-deferred', {
-                            calendar: 'main',
-                            sourceId: EVENT_SOURCE_IDS.mainAux,
-                            budgetMs: DOCK_HISTORY_PAINT_BUDGET_MS,
-                            deferMode: 'aux-cache-miss',
-                            holidayNeedsBackgroundRead,
-                            remindersNeedBackgroundRead,
-                            rangeStart: formatDateKey(info?.start),
-                            rangeEnd: formatDateKey(info?.end),
-                        });
                         if (holidayBackgroundPromise) {
                             // Do not wait for tomato/reminder caches before
                             // making the holiday events visible.
@@ -34686,11 +34267,6 @@
                     if (preservedAuxEvents?.length) {
                         success(normalizeCalendarEngineEventInputs(preservedAuxEvents));
                         holdCalendarSourceEventSnapshot(EVENT_SOURCE_IDS.mainAux, info.start, info.end);
-                        __tmCalendarPerfSourceFinish(sourceTrace, {
-                            calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainAux,
-                            restoredSnapshot: true,
-                            eventCount: preservedAuxEvents.length,
-                        });
                         return;
                     }
                     try {
@@ -34769,19 +34345,6 @@
                     if (restoredHeldCategory) {
                         holdCalendarSourceEventSnapshot(EVENT_SOURCE_IDS.mainAux, info.start, info.end);
                     }
-                    mainCalendarLastEventCount = (Array.isArray(events) ? events.length : 0) + taskDateCount + scheduleCount;
-                    __tmPerfMark(mainCalendarEventsPerfTrace, 'calendar-events-fetched', {
-                        calendar: 'main',
-                        eventCount: Number(mainCalendarLastEventCount || 0),
-                        tomatoCount: Array.isArray(a) ? a.length : 0,
-                        scheduleCount,
-                        taskDateCount,
-                        holidayCount: Array.isArray(d) ? d.length : 0,
-                        reminderCount: Array.isArray(e) ? e.length : 0,
-                        rangeStart: formatDateKey(info?.start),
-                        rangeEnd: formatDateKey(info?.end),
-                        spanDays: rangeSpanDays,
-                    });
                     const sum = summarizeRange(records);
                     const minTxt = sum.minMs ? formatDateKey(new Date(sum.minMs)) : '-';
                     const maxTxt = sum.maxMs ? formatDateKey(new Date(sum.maxMs)) : '-';
@@ -34797,21 +34360,7 @@
                         rangeEnd: formatDateKey(info?.end),
                     });
                     success(normalizeCalendarEngineEventInputs(events));
-                    __tmCalendarPerfSourceFinish(sourceTrace, {
-                        calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainAux,
-                        tomatoCount: Array.isArray(a) ? a.length : 0,
-                        holidayCount: Array.isArray(d) ? d.length : 0,
-                        reminderCount: Array.isArray(e) ? e.length : 0,
-                        eventCount: Array.isArray(events) ? events.length : 0,
-                    });
                 } catch (e) {
-                    __tmCalendarPerfSourceFinish(sourceTrace, { calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainAux }, e);
-                    __tmPerfFinish(mainCalendarEventsPerfTrace, {
-                        calendar: 'main',
-                        error: String(e?.message || e || '').trim() || 'calendar-events-failed',
-                        eventCount: Number(mainCalendarLastEventCount || 0),
-                    });
-                    mainCalendarEventsPerfTrace = null;
                     failure(e);
                 }
                     },
@@ -34820,28 +34369,18 @@
                     id: EVENT_SOURCE_IDS.mainSchedule,
                     events: async (info, success, failure) => {
                         const sourceViewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
-                        const sourceTrace = __tmCalendarPerfSourceCreate('main', EVENT_SOURCE_IDS.mainSchedule, info, sourceViewType, mainCalendarEventsLoadSeq);
                         if (isMainCalendarViewDataLoadDeferred(sourceViewType)) {
-                            __tmPerfMark(sourceTrace, 'view-switch-deferred', {
-                                calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainSchedule, viewType: sourceViewType,
-                            });
                             try {
                                 if (info?.context?.sourceRefetch === true) failure(new Error('calendar-view-data-deferred'));
                                 else success([]);
                             } catch (e) {}
-                            __tmCalendarPerfSourceFinish(sourceTrace, {
-                                calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainSchedule, deferred: true, eventCount: 0,
-                            });
                             return;
                         }
                         try {
                             const settings = getSettings();
                             rememberMainCalendarEventSourceRequest(EVENT_SOURCE_IDS.mainSchedule, sourceViewType, info);
                             const events = await __tmBuildScheduleSourceEvents(info.start, info.end, settings, sourceViewType);
-                            if (dropStaleMainCalendarEventSourceResult(sourceTrace, EVENT_SOURCE_IDS.mainSchedule, sourceViewType, info, success)) {
-                                __tmCalendarPerfSourceFinish(sourceTrace, {
-                                    calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainSchedule, staleDrop: true, eventCount: 0,
-                                });
+                            if (dropStaleMainCalendarEventSourceResult(EVENT_SOURCE_IDS.mainSchedule, sourceViewType, info, success)) {
                                 return;
                             }
                             __tmUpdateMainCalendarStatus({
@@ -34849,14 +34388,8 @@
                                 rangeStart: formatDateKey(info?.start),
                                 rangeEnd: formatDateKey(info?.end),
                             });
-                            __tmCalendarPerfSourceFinish(sourceTrace, {
-                                calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainSchedule,
-                                scheduleCount: Array.isArray(events) ? events.length : 0,
-                                eventCount: Array.isArray(events) ? events.length : 0,
-                            });
                             success(normalizeCalendarEngineEventInputs(events));
                         } catch (e) {
-                            __tmCalendarPerfSourceFinish(sourceTrace, { calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainSchedule }, e);
                             failure(e);
                         }
                     },
@@ -34865,18 +34398,11 @@
                     id: EVENT_SOURCE_IDS.mainTaskDate,
                     events: async (info, success, failure) => {
                         const sourceViewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
-                        const sourceTrace = __tmCalendarPerfSourceCreate('main', EVENT_SOURCE_IDS.mainTaskDate, info, sourceViewType, mainCalendarEventsLoadSeq);
                         if (isMainCalendarViewDataLoadDeferred(sourceViewType)) {
-                            __tmPerfMark(sourceTrace, 'view-switch-deferred', {
-                                calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainTaskDate, viewType: sourceViewType,
-                            });
                             try {
                                 if (info?.context?.sourceRefetch === true) failure(new Error('calendar-view-data-deferred'));
                                 else success([]);
                             } catch (e) {}
-                            __tmCalendarPerfSourceFinish(sourceTrace, {
-                                calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainTaskDate, deferred: true, eventCount: 0,
-                            });
                             return;
                         }
                         try {
@@ -34885,22 +34411,13 @@
                             const events = await __tmBuildTaskDateSourceEvents(info.start, info.end, settings, sourceViewType, {
                                 calendar: 'main',
                                 instance: 'main',
-                                requestSeq: mainCalendarEventsLoadSeq,
                             });
                             if (events?.__tmTaskDateQueryComplete === false
                                 && hasCalendarSourceEventsInRange(calendar, EVENT_SOURCE_IDS.mainTaskDate, info.start, info.end)) {
-                                __tmCalendarPerfSourceFinish(sourceTrace, {
-                                    calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainTaskDate,
-                                    partial: true, preservedExisting: true,
-                                    eventCount: Array.isArray(events) ? events.length : 0,
-                                });
                                 failure(new Error('calendar-task-date-partial-result'));
                                 return;
                             }
-                            if (dropStaleMainCalendarEventSourceResult(sourceTrace, EVENT_SOURCE_IDS.mainTaskDate, sourceViewType, info, success)) {
-                                __tmCalendarPerfSourceFinish(sourceTrace, {
-                                    calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainTaskDate, staleDrop: true, eventCount: 0,
-                                });
+                            if (dropStaleMainCalendarEventSourceResult(EVENT_SOURCE_IDS.mainTaskDate, sourceViewType, info, success)) {
                                 return;
                             }
                             __tmUpdateMainCalendarStatus({
@@ -34908,14 +34425,8 @@
                                 rangeStart: formatDateKey(info?.start),
                                 rangeEnd: formatDateKey(info?.end),
                             });
-                            __tmCalendarPerfSourceFinish(sourceTrace, {
-                                calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainTaskDate,
-                                taskCount: Array.isArray(events) ? events.length : 0,
-                                eventCount: Array.isArray(events) ? events.length : 0,
-                            });
                             success(normalizeCalendarEngineEventInputs(applyPendingTaskDateEventPatches(events, 'main-task-date-source')));
                         } catch (e) {
-                            __tmCalendarPerfSourceFinish(sourceTrace, { calendar: 'main', sourceId: EVENT_SOURCE_IDS.mainTaskDate }, e);
                             failure(e);
                         }
                     },
@@ -34934,12 +34445,6 @@
                 // the first repaint. The next stable geometry measurement will
                 // replace them once the refreshed event set has been painted.
                 try { invalidatePrototypeMonthMeasurement({ resetRenderKey: false, resetBudget: false }); } catch (e) {}
-                try {
-                    __tmPerfMark(mainCalendarEventsPerfTrace, 'eventsSet', {
-                        calendar: 'main',
-                        eventCount: getCalendarEvents(calendar).length,
-                    });
-                } catch (e) {}
                 try { __tmDedupeTaskDateEventsInCalendar(calendar, EVENT_SOURCE_IDS.mainTaskDate); } catch (e) {}
                 if (!viewSwitching) {
                     try { scheduleSyncTimeGridAllDayCollapseUi(host, calendar); } catch (e) {}
@@ -35254,11 +34759,6 @@
             },
             datesSet: () => {
                 const datesView = getCalendarView(calendar) || {};
-                const lifecycleTrace = __tmPerfCreate('calendarLifecycle', {
-                    calendar: 'main', instance: 'main', viewType: String(getCalendarView(calendar)?.type || state._lastViewType || preferredInitialView || 'timeGridWeek'),
-                    rangeStart: formatDateKey(getCalendarView(calendar)?.activeStart), rangeEnd: formatDateKey(getCalendarView(calendar)?.activeEnd),
-                });
-                __tmPerfMark(lifecycleTrace, 'datesSet', { calendar: 'main', viewType: String(getCalendarView(calendar)?.type || '') });
                 try {
                     const settledDate = normalizeDateOnly(getCalendarDate(calendar));
                     const swipeAnchor = normalizeDateOnly(prototypeMobileTimelineSwipeAnchorDate);
@@ -35273,7 +34773,6 @@
                 } catch (e) {}
                 try {
                     if (alignMainCalendar3DayTodayPosition(calendar, getSettings())) {
-                        __tmPerfFinish(lifecycleTrace, { calendar: 'main', reason: '3day-align-return', success: true });
                         return;
                     }
                 } catch (e) {
@@ -35384,15 +34883,10 @@
                     && isCompactDockLayout()) {
                     try { schedulePrototypeMonthAdaptiveMeasure(); } catch (e) {}
                 }
-                __tmPerfFinish(lifecycleTrace, { calendar: 'main', viewType: String(getCalendarView(calendar)?.type || ''), success: true });
             },
             loading: (isLoading) => {
                 const loadingViewType = String(getCalendarView(calendar)?.type || '').trim();
                 const loadingSourceOnly = Number(state.calendarSourceRefetchInFlight?.main || 0) > 0;
-                __tmPerfMark(mainCalendarEventsPerfTrace, 'loading', {
-                    calendar: 'main', pending: !!isLoading,
-                    viewType: loadingViewType,
-                });
                 try {
                     const sourceOnlyRefresh = loadingSourceOnly;
                     const hadViewSwitchingMarker = !!(
@@ -35407,12 +34901,6 @@
                             wrap.classList.toggle('tm-calendar-wrap--view-switching', !!isLoading);
                             host.classList.toggle('tm-cal-view-switching', !!isLoading);
                         } catch (e2) {}
-                    }
-                    if (isLoading) {
-                        ensureMainCalendarEventsPerfTrace({
-                            start: getCalendarView(calendar)?.activeStart,
-                            end: getCalendarView(calendar)?.activeEnd,
-                        });
                     }
                     if (!isLoading) {
                         if (sourceOnlyRefresh) {
@@ -35473,10 +34961,6 @@
                                 });
                             } catch (e3) { finishScrollRestore(); }
                         }
-                        finishMainCalendarEventsPerfTrace({
-                            rangeStart: formatDateKey(getCalendarView(calendar)?.activeStart),
-                            rangeEnd: formatDateKey(getCalendarView(calendar)?.activeEnd),
-                        });
                         if (!sourceOnlyRefresh) {
                             const loadingViewType = String(getCalendarView(calendar)?.type || '').trim();
                             if (isCalendarListViewType(loadingViewType)) {
@@ -37233,11 +36717,13 @@
         const dirForm = new FormData();
         dirForm.append('path', directory);
         dirForm.append('isDir', 'true');
+        globalThis.__tmHost?.appendStorageRequestApp?.(dirForm);
         await readKernelJsonResponse(await fetch('/api/file/putFile', { method: 'POST', body: dirForm }), '创建日历 ICS 目录');
         const form = new FormData();
         form.append('path', normalizedPath);
         form.append('isDir', 'false');
         form.append('file', new Blob([String(text ?? '')], { type: mime }));
+        globalThis.__tmHost?.appendStorageRequestApp?.(form);
         await readKernelJsonResponse(await fetch('/api/file/putFile', { method: 'POST', body: form }), '写入日历 ICS 文件');
         return true;
     }

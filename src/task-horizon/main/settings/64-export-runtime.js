@@ -774,12 +774,16 @@
             waiting: '#999999',
             pending: '#8e69c9',
         };
-        if (task?.done === true) {
+        const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+            ? __tmIsTaskDoneEffective(task)
+            : task?.done === true;
+        if (taskDone) {
             const completionRaw = typeof __tmResolveTaskCompletedAtRaw === 'function'
                 ? __tmResolveTaskCompletedAtRaw(task, { completedOnly: false })
                 : String(task?.taskCompleteAt || task?.task_complete_at || task?.completedAt || '').trim();
             const completionStartTs = parseToLocalDayBoundaryTs(completionRaw, 'start');
-            const dueStartTs = parseToLocalDayBoundaryTs(task?.completionTime, 'start');
+            const dueDate = task?.isRecurringInstance === true ? task.recurringSourceDue : task?.completionTime;
+            const dueStartTs = parseToLocalDayBoundaryTs(dueDate, 'start');
             if (completionStartTs > 0 && dueStartTs > 0) {
                 const completedDeltaDays = Math.round((dueStartTs - completionStartTs) / DAY_MS);
                 if (completedDeltaDays > 0) return makeInfo(`提前${completedDeltaDays}天`, colors.done, '9', true);

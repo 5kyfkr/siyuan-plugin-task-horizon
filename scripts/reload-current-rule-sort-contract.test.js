@@ -60,7 +60,7 @@ assert.doesNotMatch(snapshotFirstPaint, /if\s*\(\s*!viewSnapshotMeta\s*\)[\s\S]{
 
 const coldOpen = segment(
     shellRuntime,
-    'const quickbarDirty = __tmHasQuickbarModificationsSync();',
+    'if (!reusedExistingModal) {',
     'if (awaitInitialLoad) return await initialLoadPromise;',
 );
 assert.ok(coldOpen.indexOf('__tmApplyCurrentContextViewProfile({') >= 0,
@@ -70,7 +70,7 @@ assert.ok(coldOpen.indexOf('__tmApplyCurrentContextViewProfile({') < coldOpen.in
 
 const rowModel = segment(
     projectionRuntime,
-    'function __tmBuildTaskRowModel()',
+    'function __tmBuildTaskRowModel(',
     'function __tmResolveFirstVisibleTaskIdFromRowModel',
 );
 const applyRuleSort = segment(

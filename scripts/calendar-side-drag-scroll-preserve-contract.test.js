@@ -39,7 +39,7 @@ assert.match(
 );
 assert.match(
     source,
-    /event\.pointerType === 'touch' \|\| event\.pointerType === 'pen'[\s\S]*surface\.setPointerCapture\?\.\(event\.pointerId\)[\s\S]*drag-threshold-crossed/,
+    /event\.pointerType === 'touch' \|\| event\.pointerType === 'pen'[\s\S]*surface\.setPointerCapture\?\.\(event\.pointerId\)[\s\S]*if \(Math\.abs\(dy\) > 4 && !drag\.moved\)[\s\S]*drag\.moved = true[\s\S]*surface\.setPointerCapture\?\.\(event\.pointerId\)/,
     'mouse taps must keep their native click target until the drag threshold is crossed',
 );
 assert.match(

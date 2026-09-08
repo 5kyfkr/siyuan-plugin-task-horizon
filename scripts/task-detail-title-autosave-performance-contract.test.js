@@ -26,7 +26,7 @@ assert.match(autoHeight, /requestAnimationFrame\(flushPendingAutoHeights\)/, 'fa
 assert.ok(autoHeight.indexOf("textarea.style.height = 'auto'") < autoHeight.indexOf('textarea.scrollHeight'), 'fallback writes must happen before layout reads');
 assert.ok(autoHeight.indexOf('textarea.scrollHeight') < autoHeight.indexOf('heights[index]'), 'fallback layout reads must happen before final writes');
 
-const contentSave = sliceBetween("__tmPushDetailDebug('detail-save-content-patch'", 'const fieldPatch =', 'detail content save path');
+const contentSave = sliceBetween('if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {', 'const fieldPatch =', 'detail content save path');
 assert.match(contentSave, /onPending:\s*\(pendingPromise, op\)[\s\S]*trackDetailCommit\(pendingPromise, \['content'\], opId\)/, 'content saves must track the real queued operation');
 assert.doesNotMatch(source, /\[Task Horizon\]\[Detail\]\[ContentSave\]|logDetailContentSave|titleAutoSaveRequestedAt/, 'retired title-save diagnostics must stay deleted');
 

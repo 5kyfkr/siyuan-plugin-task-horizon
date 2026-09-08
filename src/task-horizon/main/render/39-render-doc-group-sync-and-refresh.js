@@ -902,10 +902,23 @@
     async function __tmReloadSyncedPluginData(options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
         const reason = String(opt.reason || 'siyuan-data-changed').trim() || 'siyuan-data-changed';
+        const suppressStorageWrites = opt.suppressStorageWrites === true;
         const preserveSessionState = SettingsStore?.data?.serverSyncSessionStateOnManualRefresh !== true;
         const sessionSnapshot = preserveSessionState ? __tmCaptureManualRefreshSessionState() : null;
+        const runWithStorageWritesSuppressed = async (callback) => {
+            if (!suppressStorageWrites) return await callback();
+            const previous = globalThis.__tmSuppressStorageWrites === true;
+            globalThis.__tmSuppressStorageWrites = true;
+            try {
+                return await callback();
+            } finally {
+                globalThis.__tmSuppressStorageWrites = previous;
+            }
+        };
 
-        try { await SettingsStore.saveNow?.(); } catch (e) {}
+        if (!suppressStorageWrites) {
+            try { await SettingsStore.saveNow?.(); } catch (e) {}
+        }
         __tmCancelSettingsStorePendingSave();
         __tmCancelSimpleStorePendingSave(MetaStore);
         __tmCancelSimpleStorePendingSave(WhiteboardStore);
@@ -927,13 +940,20 @@
         try { __tmInvalidateCustomFieldDefsRuntimeCache(); } catch (e) {}
         try { __tmInvalidateAllSqlCaches(); } catch (e) {}
 
-        await SettingsStore.load({ preferRemoteWhiteboardSameVersion: true });
+        if (suppressStorageWrites) {
+            await runWithStorageWritesSuppressed(() => SettingsStore.load({
+                preferRemoteWhiteboardSameVersion: true,
+                suppressStorageWrites,
+            }));
+        } else {
+            await SettingsStore.load({ preferRemoteWhiteboardSameVersion: true });
+        }
         if (preserveSessionState) __tmRestoreManualRefreshSessionState(sessionSnapshot, { restoreCollapse: false });
-        await Promise.all([
-            MetaStore.load(),
-            WhiteboardStore.load({ preferRemoteSameVersion: true }),
-            SemanticDateRecognizedStore.load(),
-        ]);
+        await runWithStorageWritesSuppressed(() => Promise.all([
+            MetaStore.load({ suppressStorageWrites }),
+            WhiteboardStore.load({ preferRemoteSameVersion: true, suppressStorageWrites }),
+            SemanticDateRecognizedStore.load({ suppressStorageWrites }),
+        ]));
 
         try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
@@ -944,7 +964,7 @@
         try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
-        try { await globalThis.__tmAI?.reloadData?.({ reason }); } catch (e) {
+        try { await runWithStorageWritesSuppressed(() => globalThis.__tmAI?.reloadData?.({ reason, suppressStorageWrites })); } catch (e) {
             try { console.warn('[task-horizon] synchronized AI data reload failed', e); } catch (e2) {}
         }
 
@@ -956,12 +976,13 @@
                 ?? (liveModal instanceof HTMLElement && document.body.contains(liveModal));
         } catch (e) {}
         if (hasLiveView) {
-            refreshedView = await __tmRefreshCore({
+            refreshedView = await runWithStorageWritesSuppressed(() => __tmRefreshCore({
                 silent: true,
                 reason,
                 preserveUi: true,
                 skipSharedStateReload: true,
-            });
+                suppressStorageWrites,
+            }));
         }
         try {
             if (state.settingsModal && document.body.contains(state.settingsModal)) showSettings();
@@ -980,6 +1001,7 @@
         const opt = (options && typeof options === 'object') ? options : {};
         const silent = opt.silent === true;
         const commitView = opt.commitView !== false;
+        const suppressStorageWrites = opt.suppressStorageWrites === true || globalThis.__tmSuppressStorageWrites === true;
         const reason = String(opt.reason || 'manual').trim() || 'manual';
         const preserveUi = opt.preserveUi !== false;
         const authoritativeDocumentOrder = reason === 'manual' || reason.startsWith('manual-');
@@ -1052,6 +1074,7 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                 forceSyncFlowRank: authoritativeDocumentOrder || !preserveExistingSiblingOrder,
                 preserveExistingSiblingOrder,
                 source: `refresh-core:${reason}`,
+                skipStorageWrites: suppressStorageWrites,
                 insertedBlockIds: Array.isArray(opt.insertedBlockIds) ? opt.insertedBlockIds.slice() : [],
                 deletedBlockIds: Array.isArray(opt.deletedBlockIds) ? opt.deletedBlockIds.slice() : [],
             });
@@ -1091,17 +1114,7 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                 const barrier = __tmGetBusyTaskDetailBarrier();
                 if (barrier) {
                     try {
-                        __tmPushDetailDebug('detail-host-refresh-core-deferred', {
-                            reason,
-                            silent,
-                            preserveUi,
-                            barrier: barrier.entries.map((entry) => ({
-                                scope: entry.scope,
-                                taskId: entry.taskId,
-                                reasons: entry.reasons.slice(),
-                                holdMsLeft: entry.holdMsLeft,
-                            })),
-                        });
+
                     } catch (e) {}
                     return false;
                 }
@@ -1129,14 +1142,16 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                 }
             }
             try { __tmClearAutoRefreshDirtyFlags(); } catch (e) {}
-            try {
-                globalThis.__tmTaskSnapshotService?.schedulePersist?.({
-                    docIds: state.__tmLoadedDocIdsForTasks,
-                    groupId: SettingsStore?.data?.currentGroupId || 'all',
-                    queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
-                    delayMs: 420,
-                });
-            } catch (e) {}
+            if (!suppressStorageWrites) {
+                try {
+                    globalThis.__tmTaskSnapshotService?.schedulePersist?.({
+                        docIds: state.__tmLoadedDocIdsForTasks,
+                        groupId: SettingsStore?.data?.currentGroupId || 'all',
+                        queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                        delayMs: 420,
+                    });
+                } catch (e) {}
+            }
 
             if (!silent) {
                 __tmRemoveHint(_refreshHint);

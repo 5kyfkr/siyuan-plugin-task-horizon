@@ -1317,34 +1317,48 @@
         return attrs;
     }
 
-    async function __tmReadJsonFile(path) {
+    async function __tmReadJsonFile(path, options = {}) {
         const targetPath = String(path || '').trim();
         if (!targetPath) return null;
+        const controller = Number(options.timeoutMs) > 0 && typeof AbortController === 'function' ? new AbortController() : null;
+        const timeout = controller ? setTimeout(() => controller.abort(), Number(options.timeoutMs)) : null;
         try {
             const res = await fetch('/api/file/getFile', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path: targetPath }),
+                ...(controller ? { signal: controller.signal } : {}),
             });
-            if (!res.ok) return null;
+            if (res.status === 404) return null;
+            if (!res.ok) throw new Error(`Read failed: ${targetPath} (${res.status})`);
             const text = await res.text();
-            if (!text || !text.trim()) return null;
-            const json = JSON.parse(text);
-            return (json && typeof json === 'object') ? json : null;
+            if (res.status === 202) {
+                const json = JSON.parse(text);
+                if (json?.code === 404) return null;
+                throw new Error(`Read failed: ${targetPath} (${json?.code})`);
+            }
+            let json;
+            try { json = JSON.parse(text); } catch (e) {}
+            if (!json || typeof json !== 'object' || Array.isArray(json)) {
+                const error = new Error(`Invalid JSON store: ${targetPath}`);
+                error.code = 'TM_INVALID_JSON_STORE';
+                error.rawText = text;
+                throw error;
+            }
+            return json;
         } catch (e) {
+            if (options.strict === true) throw e;
             return null;
+        } finally {
+            if (timeout !== null) clearTimeout(timeout);
         }
     }
 
     async function __tmWriteJsonFile(path, data) {
         const targetPath = String(path || '').trim();
         if (!targetPath) return false;
+        if (globalThis.__tmSuppressStorageWrites === true) return false;
         try {
-            const formDir = new FormData();
-            formDir.append('path', PLUGIN_STORAGE_DIR);
-            formDir.append('isDir', 'true');
-            await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
-
             const form = new FormData();
             form.append('path', targetPath);
             form.append('isDir', 'false');
@@ -1353,14 +1367,51 @@
                 || targetPath === DOC_SCOPE_CACHE_FILE_PATH;
             const jsonText = compactJson ? JSON.stringify(data) : JSON.stringify(data, null, 2);
             form.append('file', new Blob([jsonText], { type: 'application/json' }));
+            globalThis.__tmHost?.appendStorageRequestApp?.(form);
             const res = await fetch('/api/file/putFile', { method: 'POST', body: form });
-            const ok = !!(res && res.ok);
+            const responsePayload = await res.json();
+            const ok = res.ok && responsePayload?.code === 0;
             if (ok && targetPath === TASK_SNAPSHOT_FILE_PATH) {
                 try { __tmScheduleTaskSnapshotFileMetaCacheRefresh(450); } catch (e) {}
             }
             return ok;
         } catch (e) {
             return false;
+        }
+    }
+
+    const __tmDerivedCacheWriteTails = new Map();
+
+    function __tmWithDerivedCacheWriteLock(name, callback) {
+        if (typeof callback !== 'function') return Promise.resolve(false);
+        const run = () => {
+            const locks = globalThis.navigator?.locks;
+            return locks && typeof locks.request === 'function'
+                ? locks.request(name, { mode: 'exclusive' }, callback)
+                : callback();
+        };
+        const queued = (__tmDerivedCacheWriteTails.get(name) || Promise.resolve()).then(run, run);
+        __tmDerivedCacheWriteTails.set(name, queued.then(() => undefined, () => undefined));
+        return queued;
+    }
+
+    async function __tmReadDerivedCacheFile(path) {
+        const limits = {
+            [TASK_SNAPSHOT_FILE_PATH]: __TM_TASK_SNAPSHOT_MAX_BYTES,
+            [TASK_INDEX_FILE_PATH]: __TM_TASK_INDEX_MAX_BYTES,
+            [DOC_SCOPE_CACHE_FILE_PATH]: __TM_DOC_SCOPE_CACHE_MAX_BYTES,
+        };
+        try {
+            return await __tmReadJsonFile(path, { strict: true, timeoutMs: 15000 });
+        } catch (error) {
+            if (error?.code !== 'TM_INVALID_JSON_STORE' || !limits[path]
+                || typeof error.rawText !== 'string' || new Blob([error.rawText]).size > limits[path]) throw error;
+            const backedUp = await __tmWriteJsonFile(`${path}.corrupt.json`, {
+                path, recoveredAt: Date.now(), rawText: error.rawText,
+            });
+            if (!backedUp || !await __tmWriteJsonFile(path, {})) throw error;
+            try { console.warn('[Task Horizon] Rebuilding damaged derived cache; backup saved:', `${path}.corrupt.json`); } catch (e) {}
+            return null;
         }
     }
 
@@ -1914,7 +1965,7 @@
             '__tmLoadedCustomFieldIds',
         ]);
         Object.keys(source).sort().forEach((key) => {
-            if (!key || key === 'children' || dropKeys.has(key)) return;
+            if (!key || key === 'children' || (key === 'tasks' && Array.isArray(source.tasks)) || dropKeys.has(key)) return;
             const cloned = __tmCloneTaskSnapshotValue(source[key], 0);
             if (cloned !== undefined) out[key] = cloned;
         });
@@ -2190,7 +2241,7 @@
         return out;
     }
 
-    function __tmBuildTaskSnapshotRecordForStore(snapshot, pools = {}) {
+    function __tmBuildTaskSnapshotRecordForStore(snapshot, pools = {}, options = {}) {
         const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
         if (!snap) return null;
         const docsPool = (pools.docs && typeof pools.docs === 'object') ? pools.docs : {};
@@ -2200,7 +2251,7 @@
         let docDataKeys = [];
         if (taskTree) {
             taskTree.forEach((doc) => {
-                const cloned = __tmCloneTaskSnapshotValue(doc, 0);
+                const cloned = options.owned === true ? doc : __tmCloneTaskSnapshotValue(doc, 0);
                 const docId = String(cloned?.id || '').trim();
                 if (!cloned || !__tmIsLikelyBlockId(docId)) return;
                 const compacted = __tmCompactTaskSnapshotTaskForStore(cloned) || cloned;
@@ -2219,7 +2270,7 @@
         delete record.taskTree;
 
         if (Array.isArray(snap.otherBlocks) && snap.otherBlocks.length > 0) {
-            const clonedOtherBlocks = __tmCloneTaskSnapshotValue(snap.otherBlocks, 0) || [];
+            const clonedOtherBlocks = options.owned === true ? snap.otherBlocks : (__tmCloneTaskSnapshotValue(snap.otherBlocks, 0) || []);
             const otherKey = __tmBuildTaskSnapshotOtherBlockDataKey(clonedOtherBlocks);
             if (otherKey) {
                 otherBlockSets[otherKey] = clonedOtherBlocks;
@@ -2231,6 +2282,88 @@
         }
         delete record.otherBlocks;
         return record;
+    }
+
+    function __tmTaskSnapshotDocWatermark(doc) {
+        const queue = [doc];
+        let watermark = 0;
+        while (queue.length) {
+            const item = queue.pop();
+            if (!item || typeof item !== 'object') continue;
+            watermark = Math.max(watermark, __tmParseUpdatedAtNumber(item.updated), __tmParseUpdatedAtNumber(item.updatedAt), __tmParseUpdatedAtNumber(item.docUpdated));
+            if (Array.isArray(item.tasks)) queue.push(...item.tasks);
+            if (Array.isArray(item.children)) queue.push(...item.children);
+        }
+        return watermark;
+    }
+
+    function __tmPatchTaskSnapshotDocuments(rawStore, documents, options = {}) {
+        if (Number(rawStore?.version) !== __TM_TASK_SNAPSHOT_VERSION || !rawStore?.snapshots || !rawStore?.docs) return null;
+        const scopeKey = String(options.scopeKey || '');
+        const queryLimit = Math.max(0, Number(options.queryLimit) || 0);
+        const required = scopeKey ? rawStore.snapshots[scopeKey] : null;
+        if (scopeKey && (!__tmIsUsableTaskSnapshot(required) || Number(required.queryLimit || 0) !== queryLimit)) return null;
+        const changedDocs = new Map((Array.isArray(documents) ? documents : []).map((doc) => [String(doc?.id || ''), doc]));
+        if (!changedDocs.size || Array.from(changedDocs.keys()).some((id) => !__tmIsLikelyBlockId(id))) return null;
+        const incomingWatermarks = new Map(Array.from(changedDocs, ([id, doc]) => [id, __tmTaskSnapshotDocWatermark(doc)]));
+        const storedWatermarks = new Map();
+        const candidates = [];
+        for (const record of Object.values(rawStore.snapshots)) {
+            if (!__tmIsUsableTaskSnapshot(record) || Number(record?.queryLimit || 0) !== queryLimit || !Array.isArray(record.docDataKeys)) {
+                if (record === required) return null;
+                continue;
+            }
+            const scopedIds = new Set(record.docIds || []);
+            const affected = Array.from(changedDocs.keys()).filter((id) => scopedIds.has(id));
+            if (!affected.length) continue;
+            const byId = new Map();
+            for (const key of record.docDataKeys) {
+                const doc = rawStore.docs[key];
+                if (!doc?.id || byId.has(doc.id)) return null;
+                byId.set(doc.id, key);
+            }
+            if (affected.some((id) => !byId.has(id))) return null;
+            affected.forEach((id) => {
+                const key = byId.get(id);
+                if (!storedWatermarks.has(key)) storedWatermarks.set(key, __tmTaskSnapshotDocWatermark(rawStore.docs[key]));
+            });
+            if (Number(record.updatedAt) > Number(options.readStartedAt || Number.POSITIVE_INFINITY)
+                || affected.some((id) => storedWatermarks.get(byId.get(id)) > incomingWatermarks.get(id))) return { stale: true };
+            candidates.push({ record, byId, affected });
+        }
+        if (!candidates.length || (required && !candidates.some((entry) => entry.record === required))) return null;
+        const pools = { docs: {}, otherBlockSets: {} };
+        __tmBuildTaskSnapshotRecordForStore({ taskTree: Array.from(changedDocs.values()) }, pools);
+        const replacements = new Map(Object.entries(pools.docs).map(([key, doc]) => [doc.id, key]));
+        if (replacements.size !== changedDocs.size) return null;
+        const snapshots = { ...rawStore.snapshots };
+        const affectedScopes = [];
+        const changedKeys = new Map();
+        const now = Date.now();
+        for (const { record, byId, affected } of candidates) {
+            const changed = affected.filter((id) => {
+                const key = byId.get(id);
+                if (!changedKeys.has(key)) changedKeys.set(key,
+                    key !== replacements.get(id) || JSON.stringify(rawStore.docs[key]) !== JSON.stringify(pools.docs[replacements.get(id)]));
+                return changedKeys.get(key);
+            });
+            if (!changed.length) continue;
+            const changedIds = new Set(changed);
+            const next = { ...record, updatedAt: now, docDataKeys: record.docDataKeys.map((key) => {
+                const id = rawStore.docs[key].id;
+                return changedIds.has(id) ? replacements.get(id) : key;
+            }) };
+            delete next.viewState;
+            delete next.viewStates;
+            delete next.customTaskOrderView;
+            snapshots[record.scopeKey] = next;
+            affectedScopes.push(record.scopeKey);
+        }
+        return {
+            affectedScopes,
+            store: { ...rawStore, updatedAt: affectedScopes.length ? now : rawStore.updatedAt,
+                snapshots, docs: { ...rawStore.docs, ...pools.docs } },
+        };
     }
 
     function __tmMaterializeTaskSnapshotRecord(snapshot, store = null) {
@@ -2355,6 +2488,28 @@
                 if (oldestKey === undefined) break;
                 map.delete(oldestKey);
             }
+        } catch (e) {}
+        return value;
+    }
+
+    const __tmTimedCachePrunedAt = new WeakMap();
+
+    function __tmRememberTimedCache(map, key, value, limit = 400, maxAgeMs = 20 * 60 * 1000) {
+        if (!(map instanceof Map)) return value;
+        if (key === undefined || key === null) return value;
+        try {
+            const now = Date.now();
+            const age = Math.max(1, Number(maxAgeMs) || 1);
+            const prunedAt = __tmTimedCachePrunedAt.get(map);
+            if (prunedAt === undefined || now < prunedAt || now - prunedAt >= Math.min(age, 60000)) {
+                for (const [cachedKey, cached] of map.entries()) {
+                    if (!cached || !Number.isFinite(Number(cached.t)) || now - Number(cached.t) > age) {
+                        map.delete(cachedKey);
+                    }
+                }
+                __tmTimedCachePrunedAt.set(map, now);
+            }
+            __tmRememberSmallCache(map, key, value, limit);
         } catch (e) {}
         return value;
     }
@@ -2848,108 +3003,28 @@
         return __tmAttachTaskSnapshotViewState(payload, { groupId, activeDocId });
     }
 
-    function __tmBuildTaskSnapshotPersistSignature(payload) {
+    function __tmBuildTaskSnapshotPersistSignature(record, pools = {}) {
+        if (!record || !Array.isArray(record.docDataKeys)) return '';
         try {
-            const snap = (payload && typeof payload === 'object') ? payload : null;
-            if (!snap) return '';
-            const taskTree = Array.isArray(snap.taskTree) ? snap.taskTree : [];
-            const stableValueText = (value) => {
-                try {
-                    return JSON.stringify(typeof __tmStableSettingsJsonValue === 'function'
-                        ? __tmStableSettingsJsonValue(value)
-                        : value);
-                } catch (e) {
-                    try { return JSON.stringify(value); } catch (e2) {}
-                    return '';
-                }
+            const snapshot = { ...record };
+            delete snapshot.createdAt;
+            delete snapshot.updatedAt;
+            const withoutCreatedAt = (view) => {
+                if (!view || typeof view !== 'object') return view;
+                const out = { ...view };
+                delete out.createdAt;
+                return out;
             };
-            const taskSig = [];
-            const walk = (task) => {
-                if (!task || typeof task !== 'object') return;
-                const id = String(task.id || task.blockId || '').trim();
-                if (id) {
-                    const effectiveDone = (() => {
-                        try {
-                            return typeof __tmIsTaskDoneEffective === 'function'
-                                ? __tmIsTaskDoneEffective(task)
-                                : task.done === true;
-                        } catch (e) {
-                            return task.done === true;
-                        }
-                    })();
-                    const marker = (() => {
-                        try {
-                            return typeof __tmResolveTaskMarker === 'function'
-                                ? __tmResolveTaskMarker(task)
-                                : String(task.taskMarker || task.task_marker || '').trim();
-                        } catch (e) {
-                            return String(task.taskMarker || task.task_marker || '').trim();
-                        }
-                    })();
-                    taskSig.push([
-                        id,
-                        effectiveDone ? 1 : 0,
-                        String(marker || '').trim(),
-                        String(task.content || task.name || task.title || '').trim(),
-                        String(task.markdown || '').trim(),
-                        String(task.customStatus || task.custom_status || '').trim(),
-                        String(task.updated || task.updatedAt || '').trim(),
-                        String(task.startDate || task.start_date || '').trim(),
-                        String(task.completionTime || task.completion_time || task.taskCompleteAt || '').trim(),
-                        String(task.taskCompleteAt || task.task_complete_at || '').trim(),
-                        String(task.customTime || task.custom_time || '').trim(),
-                        String(task.priority || task.custom_priority || task.customPriority || '').trim(),
-                        String(task.duration || task.custom_duration || '').trim(),
-                        String(task.remark || task.custom_remark || '').trim(),
-                        String(task.tomatoMinutes || task.tomato_minutes || '').trim(),
-                        String(task.tomatoHours || task.tomato_hours || '').trim(),
-                        String(task.tomatoCount || task.tomato_count || '').trim(),
-                        String(task.tomatoEstimateCount || task.tomato_estimate_count || task.tomatoEstimate || '').trim(),
-                        task.pinned === true || task.custom_pinned === true || String(task.custom_pinned || '').trim() === '1' ? 1 : 0,
-                        task.allDayBottom === true || task.custom_all_day_bottom === true || String(task.custom_all_day_bottom || '').trim() === '1' ? 1 : 0,
-                        task.milestone === true || task.custom_milestone === true || String(task.custom_milestone || '').trim() === '1' ? 1 : 0,
-                        stableValueText(task.customFieldValues || task.__customFieldRawValues || {}),
-                        stableValueText(task.attachments || []),
-                        stableValueText(task.repeatRule || task.repeat_rule || null),
-                        stableValueText(task.repeatState || task.repeat_state || null),
-                        stableValueText(task.repeatHistory || task.repeat_history || []),
-                        String(task.parentTaskId || task.parent_task_id || '').trim(),
-                        Number.isFinite(Number(task.level)) ? Number(task.level) : '',
-                        Number.isFinite(Number(task.docSeq)) ? Number(task.docSeq) : '',
-                    ].join('\u0001'));
-                }
-                if (Array.isArray(task.children)) task.children.forEach(walk);
-            };
-            taskTree.forEach((doc) => {
-                const docId = String(doc?.id || '').trim();
-                taskSig.push(`doc:${docId}:${String(doc?.updated || doc?.docUpdated || '').trim()}`);
-                (Array.isArray(doc?.tasks) ? doc.tasks : []).forEach(walk);
-            });
-            const otherBlocks = Array.isArray(snap.otherBlocks) ? snap.otherBlocks : [];
-            otherBlocks.forEach(walk);
-            const viewKeys = Object.keys(snap.viewStates || {}).sort();
-            const viewSig = viewKeys.map((key) => {
-                const view = snap.viewStates?.[key];
-                const filteredTaskIds = Array.isArray(view?.filteredTaskIds) ? view.filteredTaskIds : [];
-                const filteredDocIdsForTabs = Array.isArray(view?.filteredDocIdsForTabs) ? view.filteredDocIdsForTabs : [];
-                return [
-                    key,
-                    filteredTaskIds.length,
-                    filteredTaskIds.join(','),
-                    filteredDocIdsForTabs.join(','),
-                    String(view?.listRenderSignature || '').trim(),
-                ].join(':');
-            });
-            return JSON.stringify({
-                version: Number(snap.version || 0) || 0,
-                groupId: String(snap.groupId || '').trim(),
-                scopeKey: String(snap.scopeKey || '').trim(),
-                docIds: Array.isArray(snap.docIds) ? snap.docIds.slice() : [],
-                queryLimit: Number(snap.queryLimit || 0) || 0,
-                tasks: taskSig,
-                otherBlockCount: otherBlocks.length,
-                views: viewSig,
-            });
+            if (snapshot.viewState) snapshot.viewState = withoutCreatedAt(snapshot.viewState);
+            if (snapshot.viewStates) {
+                snapshot.viewStates = Object.fromEntries(Object.keys(snapshot.viewStates).sort()
+                    .map((key) => [key, withoutCreatedAt(snapshot.viewStates[key])]));
+            }
+            const docs = record.docDataKeys.map((key) => pools.docs?.[key]);
+            if (docs.some((doc) => !doc)) return '';
+            const otherBlocks = record.otherBlockDataKey ? pools.otherBlockSets?.[record.otherBlockDataKey] : [];
+            if (!Array.isArray(otherBlocks)) return '';
+            return JSON.stringify({ snapshot, docs, otherBlocks });
         } catch (e) {
             return '';
         }
@@ -3148,12 +3223,15 @@
         const sourceUpdatedAt = __tmGetTaskSnapshotStoreUpdatedAt(raw) || Date.now();
         const push = (item) => {
             const snap = (item && typeof item === 'object') ? item : null;
-            const materialized = __tmMaterializeTaskSnapshotRecord(snap, {
-                docs: pooledDocs,
-                otherBlockSets: pooledOtherBlockSets,
-            });
-            if (!__tmIsUsableTaskSnapshot(materialized)) return;
-            snapshots[String(materialized.scopeKey || '').trim()] = materialized;
+            if (!__tmIsUsableTaskSnapshot(snap)) return;
+            if (!Array.isArray(snap.taskTree)) {
+                if (!snap.docDataKeys.length || snap.docDataKeys.some((key) =>
+                    !Object.prototype.hasOwnProperty.call(pooledDocs, String(key || '').trim()))) return;
+            }
+            const otherKey = String(snap.otherBlockDataKey || '').trim();
+            if (otherKey && !Array.isArray(snap.otherBlocks)
+                && !Object.prototype.hasOwnProperty.call(pooledOtherBlockSets, otherKey)) return;
+            snapshots[String(snap.scopeKey || '').trim()] = snap;
         };
         if (raw && typeof raw === 'object' && raw.snapshots && typeof raw.snapshots === 'object') {
             Object.values(raw.snapshots).forEach(push);
@@ -3167,24 +3245,53 @@
             .sort((a, b) => Math.max(Number(b?.updatedAt || 0), Number(b?.createdAt || 0)) - Math.max(Number(a?.updatedAt || 0), Number(a?.createdAt || 0)));
         const preservedCandidates = __tmSelectPreservedTaskSnapshotCandidates(candidates.filter((snap) => __tmIsPreservedTaskSnapshot(snap)));
         const normalCandidates = candidates.filter((snap) => !__tmIsPreservedTaskSnapshot(snap));
+        const docByteSizes = new WeakMap();
+        const otherByteSizes = new WeakMap();
+        const poolEntryBytes = (key, value, sizes) => {
+            if (!sizes.has(value)) sizes.set(value, __tmEstimateJsonByteSize(value));
+            return __tmEstimateJsonByteSize(key) + sizes.get(value) + 2;
+        };
+        let outBytes = __tmEstimateJsonByteSize(out);
         const addSnapshot = (snap, countTowardsLimit = true) => {
             const key = String(snap?.scopeKey || '').trim();
             if (!key) return false;
-            const record = __tmBuildTaskSnapshotRecordForStore(snap, {
-                docs: out.docs,
-                otherBlockSets: out.otherBlockSets,
-            });
-            if (!record) return false;
-            if (__tmEstimateJsonByteSize(record) > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) return false;
             if (countTowardsLimit && out.order.length >= __TM_TASK_SNAPSHOT_MAX_ENTRIES) return false;
+            const pools = { docs: {}, otherBlockSets: {} };
+            if (!Array.isArray(snap.taskTree)) {
+                for (const rawKey of snap.docDataKeys) {
+                    const docKey = String(rawKey || '').trim();
+                    pools.docs[docKey] = pooledDocs[docKey];
+                }
+            }
+            const otherKey = String(snap.otherBlockDataKey || '').trim();
+            if (otherKey && !Array.isArray(snap.otherBlocks)) {
+                pools.otherBlockSets[otherKey] = pooledOtherBlockSets[otherKey];
+            }
+            const record = __tmBuildTaskSnapshotRecordForStore(snap, pools);
+            if (!record) return false;
+            const recordBytes = __tmEstimateJsonByteSize(record);
+            let singleBytes = recordBytes;
+            let addedBytes = recordBytes + 2 * __tmEstimateJsonByteSize(key) + 3;
+            for (const docKey of new Set(record.docDataKeys)) {
+                const bytes = poolEntryBytes(docKey, pools.docs[docKey], docByteSizes);
+                singleBytes += bytes;
+                if (!Object.prototype.hasOwnProperty.call(out.docs, docKey)) addedBytes += bytes;
+            }
+            if (record.otherBlockDataKey) {
+                const blockKey = record.otherBlockDataKey;
+                const bytes = poolEntryBytes(blockKey, pools.otherBlockSets[blockKey], otherByteSizes);
+                singleBytes += bytes;
+                if (!Object.prototype.hasOwnProperty.call(out.otherBlockSets, blockKey)) addedBytes += bytes;
+            }
+            if (singleBytes > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES
+                || outBytes + addedBytes > __TM_TASK_SNAPSHOT_MAX_BYTES) return false;
             out.order.push(key);
             out.snapshots[key] = record;
-            if (__tmEstimateJsonByteSize(out) > __TM_TASK_SNAPSHOT_MAX_BYTES) {
-                out.order.pop();
-                delete out.snapshots[key];
-                __tmPruneTaskSnapshotStorePools(out);
-                return false;
+            for (const docKey of record.docDataKeys) out.docs[docKey] = pools.docs[docKey];
+            if (record.otherBlockDataKey) {
+                out.otherBlockSets[record.otherBlockDataKey] = pools.otherBlockSets[record.otherBlockDataKey];
             }
+            outBytes += addedBytes;
             return true;
         };
         preservedCandidates.forEach((snap) => {
@@ -3266,9 +3373,11 @@
         const opts = (options && typeof options === 'object') ? options : {};
         if (!opts.force && __tmTaskSnapshotStoreCache) return __tmTaskSnapshotStoreCache;
         if (!opts.force && __tmTaskSnapshotStoreLoadPromise) return await __tmTaskSnapshotStoreLoadPromise;
-        __tmTaskSnapshotStoreLoadPromise = Promise.resolve()
-            .then(async () => {
-                const raw = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
+        const loadGeneration = __tmTaskSnapshotSaveGeneration;
+        const pending = Promise.resolve()
+            .then(() => __tmWithTaskSnapshotWriteLock(async () => {
+                const raw = await __tmReadDerivedCacheFile(TASK_SNAPSHOT_FILE_PATH);
+                if (loadGeneration !== __tmTaskSnapshotSaveGeneration) return __tmTaskSnapshotStoreCache || __tmCreateEmptyTaskSnapshotStore();
                 const store = __tmBuildTaskSnapshotStore(raw);
                 __tmTaskSnapshotStoreCache = store;
                 __tmTaskSnapshotStoreLoadedAt = Date.now();
@@ -3278,26 +3387,38 @@
                         .catch(() => null);
                 } catch (e) {}
                 try {
-                    const rawBytes = raw ? __tmEstimateJsonByteSize(raw) : 0;
-                    const storeBytes = __tmEstimateJsonByteSize(store);
-                    if (rawBytes > (storeBytes + 1024)) {
+                    if (__tmTaskSnapshotStoreNeedsCompaction(raw, store)) {
+                        const generation = __tmTaskSnapshotSaveGeneration;
                         __tmScheduleIdleTask(async () => {
                             await __tmWithTaskSnapshotWriteLock(async () => {
-                                const latestMeta = await __tmPeekTaskSnapshotStoreVersionMeta({ cachedOnly: false });
-                                const latestSignature = String(latestMeta?.versionSignature || '').trim();
-                                const storeSignature = __tmGetTaskSnapshotStoreVersionSignature(store);
-                                if (latestSignature && storeSignature && latestSignature !== storeSignature) return false;
-                                return await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
+                                if (generation !== __tmTaskSnapshotSaveGeneration) return false;
+                                const latest = await __tmReadDerivedCacheFile(TASK_SNAPSHOT_FILE_PATH);
+                                if (!latest || generation !== __tmTaskSnapshotSaveGeneration) return false;
+                                const compacted = __tmBuildTaskSnapshotStore(latest);
+                                const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, compacted);
+                                if (saved && generation === __tmTaskSnapshotSaveGeneration) __tmTaskSnapshotStoreCache = compacted;
+                                return saved;
                             });
                         }, 2200);
                     }
                 } catch (e) {}
                 return store;
-            })
+            }))
+            .catch(() => __tmTaskSnapshotStoreCache || __tmCreateEmptyTaskSnapshotStore())
             .finally(() => {
-                __tmTaskSnapshotStoreLoadPromise = null;
+                if (__tmTaskSnapshotStoreLoadPromise === pending) __tmTaskSnapshotStoreLoadPromise = null;
             });
-        return await __tmTaskSnapshotStoreLoadPromise;
+        __tmTaskSnapshotStoreLoadPromise = pending;
+        return await pending;
+    }
+
+    function __tmTaskSnapshotStoreNeedsCompaction(raw, store) {
+        if (!raw) return false;
+        if (Number(raw.version) !== __TM_TASK_SNAPSHOT_VERSION || Array.isArray(raw.taskTree)) return true;
+        if (Object.keys(raw).some((key) => !Object.prototype.hasOwnProperty.call(store, key))) return true;
+        if (Object.values(raw.snapshots || {}).some((snapshot) => Array.isArray(snapshot?.taskTree))) return true;
+        return ['snapshots', 'docs', 'otherBlockSets'].some((key) =>
+            Object.keys(raw[key] || {}).length !== Object.keys(store[key] || {}).length);
     }
 
     function __tmScheduleTaskSnapshotAfterLocalStructurePatch(options = {}) {
@@ -3462,9 +3583,10 @@
     }
 
     function __tmInvalidateTaskSnapshotStoreCache() {
+        __tmTaskSnapshotSaveGeneration += 1;
+        __tmTaskSnapshotPendingDocSaves.clear();
         try { __tmTaskSnapshotStoreCache = null; } catch (e) {}
         try { __tmTaskSnapshotStoreLoadPromise = null; } catch (e) {}
-        try { __tmTaskSnapshotPersistSignatureCache.clear(); } catch (e) {}
     }
 
     function __tmRestoreTaskSnapshotIntoState(snapshot, options = {}) {
@@ -3909,38 +4031,6 @@
         return out;
     }
 
-    function __tmRememberTaskIndexEntriesInMemory(entries, options = {}) {
-        const list = (Array.isArray(entries) ? entries : [])
-            .filter((entry) => entry && __tmIsLikelyBlockId(entry.id));
-        if (!list.length) return null;
-        const opts = (options && typeof options === 'object') ? options : {};
-        const cachedStore = (__tmTaskIndexStoreCache
-            && __tmTaskIndexStoreCache.version === __TM_TASK_INDEX_VERSION
-            && __tmTaskIndexStoreCache.docs
-            && typeof __tmTaskIndexStoreCache.docs === 'object')
-            ? __tmTaskIndexStoreCache
-            : null;
-        const store = cachedStore || __tmNormalizeTaskIndexStore({
-            version: __TM_TASK_INDEX_VERSION,
-            updatedAt: Date.now(),
-            docs: {},
-        });
-        list.forEach((entry) => {
-            store.docs[entry.id] = entry;
-        });
-        store.version = __TM_TASK_INDEX_VERSION;
-        store.updatedAt = Date.now();
-        const docCount = Object.keys(store.docs || {}).length;
-        const shouldPrune = opts.pruneNow === true || docCount > __TM_TASK_INDEX_MAX_DOCS;
-        const nextStore = shouldPrune
-            ? __tmPruneTaskIndexStoreToLimits(store, {
-                keepDocIds: opts.keepDocIds || list.map((entry) => entry?.id),
-            })
-            : store;
-        __tmTaskIndexStoreCache = nextStore;
-        return nextStore;
-    }
-
     function __tmBuildTaskIndexDocEntry(doc, options = {}) {
         const source = (doc && typeof doc === 'object') ? doc : null;
         const docId = String(source?.id || '').trim();
@@ -4013,21 +4103,24 @@
             updatedAt: Number(source.updatedAt || 0) || Date.now(),
             scopes: {},
         };
+        let bytes = __tmEstimateJsonByteSize(out);
+        let count = 0;
         for (const entry of candidates) {
             const key = String(entry?.key || '').trim();
             if (!key || out.scopes[key]) continue;
-            if (Object.keys(out.scopes).length >= __TM_DOC_SCOPE_CACHE_MAX_SCOPES) break;
-            out.scopes[key] = {
+            if (count >= __TM_DOC_SCOPE_CACHE_MAX_SCOPES) break;
+            const normalized = {
                 key,
                 groupId: String(entry.groupId || '').trim(),
                 docIds: __tmNormalizeDocScopeDocIds(entry.docIds || []),
                 updatedAt: Number(entry.updatedAt || 0) || Date.now(),
                 docCount: Math.max(0, Math.round(Number(entry.docCount || entry.docIds?.length || 0) || 0)),
             };
-            if (__tmEstimateJsonByteSize(out) > __TM_DOC_SCOPE_CACHE_MAX_BYTES) {
-                delete out.scopes[key];
-                break;
-            }
+            const addedBytes = __tmEstimateJsonByteSize(key) + __tmEstimateJsonByteSize(normalized) + 2;
+            if (bytes + addedBytes > __TM_DOC_SCOPE_CACHE_MAX_BYTES) break;
+            out.scopes[key] = normalized;
+            bytes += addedBytes;
+            count += 1;
         }
         return out;
     }
@@ -4035,28 +4128,66 @@
     let __tmDocScopeCacheStore = null;
     let __tmDocScopeCacheLoadPromise = null;
     let __tmDocScopeCacheSaveTimer = null;
-    let __tmDocScopeCacheSaveInFlight = false;
+    let __tmDocScopeCacheSaveGeneration = 0;
+    const __tmDocScopeCachePending = new Map();
+
+    async function __tmPersistDocScopeCache(options = {}) {
+        const generation = options.generation ?? __tmDocScopeCacheSaveGeneration;
+        try {
+            return await __tmWithDerivedCacheWriteLock('task-horizon:doc-scope-write', async () => {
+                if (generation !== __tmDocScopeCacheSaveGeneration) return false;
+                const pending = new Map(__tmDocScopeCachePending);
+                if (!pending.size && options.compactOnly !== true) return false;
+                const raw = await __tmReadDerivedCacheFile(DOC_SCOPE_CACHE_FILE_PATH);
+                if (generation !== __tmDocScopeCacheSaveGeneration || (!raw && !pending.size)) return false;
+                const latest = __tmNormalizeDocScopeCache(raw);
+                pending.forEach((entry, key) => {
+                    if (Number(latest.scopes[key]?.updatedAt || 0) <= entry.updatedAt) latest.scopes[key] = entry;
+                });
+                latest.updatedAt = Date.now();
+                const pruned = __tmPruneDocScopeCacheToLimits(latest);
+                const saved = await __tmWriteJsonFile(DOC_SCOPE_CACHE_FILE_PATH, pruned);
+                if (!saved || generation !== __tmDocScopeCacheSaveGeneration) return false;
+                pending.forEach((entry, key) => {
+                    if (__tmDocScopeCachePending.get(key) === entry) __tmDocScopeCachePending.delete(key);
+                });
+                __tmDocScopeCachePending.forEach((entry, key) => { pruned.scopes[key] = entry; });
+                __tmDocScopeCacheStore = __tmDocScopeCachePending.size ? __tmPruneDocScopeCacheToLimits(pruned) : pruned;
+                return true;
+            });
+        } catch (e) {
+            return false;
+        }
+    }
 
     async function __tmLoadDocScopeCacheStore(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         if (!opts.force && __tmDocScopeCacheStore) return __tmDocScopeCacheStore;
         if (!opts.force && __tmDocScopeCacheLoadPromise) return await __tmDocScopeCacheLoadPromise;
-        __tmDocScopeCacheLoadPromise = Promise.resolve()
-            .then(async () => {
-                const raw = await __tmReadJsonFile(DOC_SCOPE_CACHE_FILE_PATH);
-                const store = __tmPruneDocScopeCacheToLimits(__tmNormalizeDocScopeCache(raw));
+        const generation = __tmDocScopeCacheSaveGeneration;
+        const pending = Promise.resolve()
+            .then(() => __tmWithDerivedCacheWriteLock('task-horizon:doc-scope-write', async () => {
+                const raw = await __tmReadDerivedCacheFile(DOC_SCOPE_CACHE_FILE_PATH);
+                if (generation !== __tmDocScopeCacheSaveGeneration) return __tmDocScopeCacheStore;
+                let store = __tmPruneDocScopeCacheToLimits(__tmNormalizeDocScopeCache(raw));
+                const needsCompaction = raw && (Number(raw.version) !== __TM_DOC_SCOPE_CACHE_VERSION
+                    || Object.keys(raw.scopes || {}).length !== Object.keys(store.scopes).length);
+                __tmDocScopeCachePending.forEach((entry, key) => { store.scopes[key] = entry; });
+                if (__tmDocScopeCachePending.size) store = __tmPruneDocScopeCacheToLimits(store);
                 __tmDocScopeCacheStore = store;
                 try {
-                    if (raw && __tmEstimateJsonByteSize(raw) > (__tmEstimateJsonByteSize(store) + 1024)) {
-                        __tmScheduleIdleTask(() => __tmWriteJsonFile(DOC_SCOPE_CACHE_FILE_PATH, store), 2600);
+                    if (needsCompaction) {
+                        __tmScheduleIdleTask(() => __tmPersistDocScopeCache({ compactOnly: true, generation }), 2600);
                     }
                 } catch (e) {}
                 return store;
-            })
+            }))
+            .catch(() => __tmDocScopeCacheStore || __tmNormalizeDocScopeCache())
             .finally(() => {
-                __tmDocScopeCacheLoadPromise = null;
+                if (__tmDocScopeCacheLoadPromise === pending) __tmDocScopeCacheLoadPromise = null;
             });
-        return await __tmDocScopeCacheLoadPromise;
+        __tmDocScopeCacheLoadPromise = pending;
+        return await pending;
     }
 
     function __tmGetCachedDocScope(scopeKey) {
@@ -4083,19 +4214,24 @@
         const ids = __tmNormalizeDocScopeDocIds(docIds || []);
         if (!key || !ids.length) return false;
         const opts = (options && typeof options === 'object') ? options : {};
-        const store = __tmPruneDocScopeCacheToLimits(__tmDocScopeCacheStore || {
+        const store = __tmDocScopeCacheStore || {
             version: __TM_DOC_SCOPE_CACHE_VERSION,
             updatedAt: Date.now(),
             scopes: {},
-        });
-        store.scopes[key] = {
+        };
+        const entry = {
             key,
             groupId: String(opts.groupId || '').trim(),
             docIds: ids,
-            updatedAt: Date.now(),
+            updatedAt: Math.max(Date.now(), Number(store.scopes[key]?.updatedAt || 0) + 1),
             docCount: ids.length,
         };
+        store.scopes[key] = entry;
+        __tmDocScopeCachePending.set(key, entry);
         const nextStore = __tmPruneDocScopeCacheToLimits(store);
+        __tmDocScopeCachePending.forEach((pending, pendingKey) => {
+            if (!nextStore.scopes[pendingKey]) __tmDocScopeCachePending.delete(pendingKey);
+        });
         nextStore.updatedAt = Date.now();
         __tmDocScopeCacheStore = nextStore;
         try {
@@ -4104,31 +4240,7 @@
         const delayMs = Math.max(300, Number(opts.delayMs || 1200) || 1200);
         __tmDocScopeCacheSaveTimer = setTimeout(() => {
             __tmDocScopeCacheSaveTimer = null;
-            if (__tmDocScopeCacheSaveInFlight) {
-                __tmRememberDocScope(key, ids, { ...opts, delayMs: 1800 });
-                return;
-            }
-            __tmDocScopeCacheSaveInFlight = true;
-            Promise.resolve()
-                .then(async () => {
-                    const raw = await __tmReadJsonFile(DOC_SCOPE_CACHE_FILE_PATH);
-                    const latest = __tmNormalizeDocScopeCache(raw || __tmDocScopeCacheStore);
-                    latest.scopes[key] = __tmDocScopeCacheStore?.scopes?.[key] || {
-                        key,
-                        groupId: String(opts.groupId || '').trim(),
-                        docIds: ids,
-                        updatedAt: Date.now(),
-                        docCount: ids.length,
-                    };
-                    latest.updatedAt = Date.now();
-                    const pruned = __tmPruneDocScopeCacheToLimits(latest);
-                    __tmDocScopeCacheStore = pruned;
-                    await __tmWriteJsonFile(DOC_SCOPE_CACHE_FILE_PATH, pruned);
-                })
-                .catch(() => null)
-                .finally(() => {
-                    __tmDocScopeCacheSaveInFlight = false;
-                });
+            __tmPersistDocScopeCache();
         }, delayMs);
         return true;
     }
@@ -4146,6 +4258,10 @@
     }
 
     function __tmInvalidateDocScopeCache() {
+        __tmDocScopeCacheSaveGeneration += 1;
+        __tmDocScopeCachePending.clear();
+        if (__tmDocScopeCacheSaveTimer) clearTimeout(__tmDocScopeCacheSaveTimer);
+        __tmDocScopeCacheSaveTimer = null;
         try { __tmDocScopeCacheStore = null; } catch (e) {}
         try { __tmDocScopeCacheLoadPromise = null; } catch (e) {}
         try { globalThis.__taskHorizonQuickbarInvalidateDocScope?.(); } catch (e) {}
@@ -4230,29 +4346,77 @@
     let __tmTaskIndexSaveInFlight = false;
     let __tmTaskIndexSaveGeneration = 0;
 
+    function __tmWithTaskIndexWriteLock(callback) {
+        return __tmWithDerivedCacheWriteLock('task-horizon:task-index-write', callback);
+    }
+
+    async function __tmPersistTaskIndexEntries(entries, options = {}) {
+        const list = (Array.isArray(entries) ? entries : []).filter((entry) => entry && __tmIsLikelyBlockId(entry.id));
+        if (!list.length && options.compactOnly !== true) return false;
+        const generation = options.generation ?? __tmTaskIndexSaveGeneration;
+        const readToken = options.readToken || (list.length ? globalThis.__tmTaskStore?.captureRead?.(list.map((entry) => entry.id)) : null);
+        const isReadCurrent = () => !readToken || globalThis.__tmTaskStore?.isReadCurrent?.(readToken) === true;
+        try {
+            return await __tmWithTaskIndexWriteLock(async () => {
+                if (generation !== __tmTaskIndexSaveGeneration || !isReadCurrent()) return false;
+                const raw = await __tmReadDerivedCacheFile(TASK_INDEX_FILE_PATH);
+                if (generation !== __tmTaskIndexSaveGeneration || !isReadCurrent() || (!raw && options.compactOnly === true)) return false;
+                const store = __tmNormalizeTaskIndexStore(raw);
+                list.forEach((entry) => {
+                    const previous = store.docs[entry.id];
+                    const previousUpdated = String(previous?.docUpdated || '');
+                    const entryUpdated = String(entry.docUpdated || '');
+                    if (previousUpdated && entryUpdated && previousUpdated > entryUpdated) return;
+                    if (previous && previousUpdated === entryUpdated
+                        && Number(previous.updatedAt || 0) > Number(entry.updatedAt || 0)) return;
+                    store.docs[entry.id] = entry;
+                });
+                if (list.length) store.updatedAt = Date.now();
+                const nextStore = __tmPruneTaskIndexStoreToLimits(store, {
+                    keepDocIds: list.map((entry) => entry.id),
+                });
+                const saved = await __tmWriteJsonFile(TASK_INDEX_FILE_PATH, nextStore);
+                if (!saved) return false;
+                if (generation === __tmTaskIndexSaveGeneration && isReadCurrent()) __tmTaskIndexStoreCache = nextStore;
+                return true;
+            });
+        } catch (e) {
+            return false;
+        }
+    }
+
     async function __tmLoadTaskIndexStore(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         if (!opts.force && __tmTaskIndexStoreCache) return __tmTaskIndexStoreCache;
         if (!opts.force && __tmTaskIndexStoreLoadPromise) return await __tmTaskIndexStoreLoadPromise;
-        __tmTaskIndexStoreLoadPromise = Promise.resolve()
-            .then(async () => {
-                const raw = await __tmReadJsonFile(TASK_INDEX_FILE_PATH);
+        const loadGeneration = __tmTaskIndexSaveGeneration;
+        const pending = Promise.resolve()
+            .then(() => __tmWithTaskIndexWriteLock(async () => {
+                const raw = await __tmReadDerivedCacheFile(TASK_INDEX_FILE_PATH);
+                if (loadGeneration !== __tmTaskIndexSaveGeneration) return __tmTaskIndexStoreCache || __tmNormalizeTaskIndexStore();
                 const normalizedStore = __tmNormalizeTaskIndexStore(raw);
                 const store = __tmPruneTaskIndexStoreToLimits(normalizedStore);
                 __tmTaskIndexStoreCache = store;
                 try {
                     const rawVersion = Math.max(0, Math.round(Number(raw?.version || 0) || 0));
                     if (raw && (rawVersion !== __TM_TASK_INDEX_VERSION
-                        || __tmEstimateJsonByteSize(raw) > (__tmEstimateJsonByteSize(store) + 1024))) {
-                        __tmScheduleIdleTask(() => __tmWriteJsonFile(TASK_INDEX_FILE_PATH, store), 2600);
+                        || Object.keys(raw).some((key) => !Object.prototype.hasOwnProperty.call(store, key))
+                        || Object.keys(raw.docs || {}).length !== Object.keys(store.docs).length)) {
+                        const generation = __tmTaskIndexSaveGeneration;
+                        __tmScheduleIdleTask(() => __tmPersistTaskIndexEntries([], {
+                            compactOnly: true,
+                            generation,
+                        }), 2600);
                     }
                 } catch (e) {}
                 return store;
-            })
+            }))
+            .catch(() => __tmTaskIndexStoreCache || __tmNormalizeTaskIndexStore())
             .finally(() => {
-                __tmTaskIndexStoreLoadPromise = null;
+                if (__tmTaskIndexStoreLoadPromise === pending) __tmTaskIndexStoreLoadPromise = null;
             });
-        return await __tmTaskIndexStoreLoadPromise;
+        __tmTaskIndexStoreLoadPromise = pending;
+        return await pending;
     }
 
     function __tmRestoreTaskIndexIntoState(store, options = {}) {
@@ -4369,6 +4533,7 @@
     }
 
     function __tmInvalidateTaskIndexStoreCache() {
+        __tmTaskIndexSaveGeneration += 1;
         try { __tmTaskIndexStoreCache = null; } catch (e) {}
         try { __tmTaskIndexStoreLoadPromise = null; } catch (e) {}
     }
@@ -4385,6 +4550,7 @@
     }
 
     function __tmSchedulePersistTaskIndex(options = {}) {
+        if (globalThis.__tmSuppressStorageWrites === true) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
         if (!docIds.length) return false;
@@ -4408,6 +4574,10 @@
                 } catch (e) {}
                 try { backgroundWaitMs = Math.max(backgroundWaitMs, __tmGetExternalTaskTxQuietWaitMs(120)); } catch (e) {}
                 try {
+                    if (globalThis.__tmTaskMutations?.hasPending?.({
+                        includeSettlingCreateOps: true,
+                        includeInteractionGateBypassOps: true,
+                    })) backgroundWaitMs = Math.max(backgroundWaitMs, 420);
                     if (typeof __tmMutationEngine !== 'undefined'
                         && __tmMutationEngine?.hasActiveWrites?.() === true) {
                         backgroundWaitMs = Math.max(backgroundWaitMs, 420);
@@ -4422,6 +4592,7 @@
                     return;
                 }
 
+                const readToken = globalThis.__tmTaskStore?.captureRead?.(docIds) || null;
                 const docsById = new Map((Array.isArray(state.taskTree) ? state.taskTree : [])
                     .map((doc) => [String(doc?.id || '').trim(), doc])
                     .filter(([docId]) => __tmIsLikelyBlockId(docId)));
@@ -4453,28 +4624,9 @@
                     if (entry) nextEntries.push(entry);
                 });
                 if (!nextEntries.length || saveGeneration !== __tmTaskIndexSaveGeneration) return;
-                try {
-                    __tmRememberTaskIndexEntriesInMemory(nextEntries, {
-                        keepDocIds: nextEntries.map((entry) => entry?.id),
-                    });
-                } catch (e) {}
                 __tmTaskIndexSaveInFlight = true;
                 Promise.resolve()
-                    .then(async () => {
-                        const raw = await __tmReadJsonFile(TASK_INDEX_FILE_PATH);
-                        if (saveGeneration !== __tmTaskIndexSaveGeneration) return;
-                        const store = __tmNormalizeTaskIndexStore(raw || __tmTaskIndexStoreCache);
-                        nextEntries.forEach((entry) => {
-                            store.docs[entry.id] = entry;
-                        });
-                        store.version = __TM_TASK_INDEX_VERSION;
-                        store.updatedAt = Date.now();
-                        const nextStore = __tmPruneTaskIndexStoreToLimits(store, {
-                            keepDocIds: nextEntries.map((entry) => entry?.id),
-                        });
-                        __tmTaskIndexStoreCache = nextStore;
-                        await __tmWriteJsonFile(TASK_INDEX_FILE_PATH, nextStore);
-                    })
+                    .then(() => __tmPersistTaskIndexEntries(nextEntries, { generation: saveGeneration, readToken }))
                     .catch(() => null)
                     .finally(() => {
                         __tmTaskIndexSaveInFlight = false;
@@ -6893,7 +7045,6 @@
             .filter(Boolean)));
         if (!requestedFieldIds.length || String(state?.viewMode || '').trim() !== 'list') {
             return {
-                durationMs: 0,
                 taskCount: 0,
                 fieldCount: requestedFieldIds.length,
                 cacheHitCount: 0,
@@ -6914,7 +7065,6 @@
             });
         if (!tasks.length) {
             return {
-                durationMs: 0,
                 taskCount: 0,
                 fieldCount: requestedFieldIds.length,
                 cacheHitCount: 0,
@@ -6925,7 +7075,6 @@
                 selfAssignedCount: 0,
             };
         }
-        const startTime = __tmPerfNow();
         let attachMeta = null;
         try {
             attachMeta = await __tmAttachCustomFieldAttrsToTasks(tasks, { fieldIds: requestedFieldIds });
@@ -6944,7 +7093,6 @@
             });
         });
         return {
-            durationMs: __tmRoundPerfMs(__tmPerfNow() - startTime),
             taskCount: tasks.length,
             fieldCount: requestedFieldIds.length,
             cacheHitCount: Number(attachMeta?.cacheHitCount || 0),
@@ -7070,6 +7218,7 @@
     const MetaStore = {
         data: __tmInitialMetaCache,
         loaded: false,
+        loadingPromise: null,
         saving: false,
         saveTimer: null,
         saveDirty: false,
@@ -7407,6 +7556,7 @@
         },
 
         scheduleSave() {
+            if (globalThis.__tmSuppressStorageWrites === true) return;
             this.saveDirty = true;
             this.mutationRevision += 1;
             this.scheduleOrphanCleanup();
@@ -7422,6 +7572,7 @@
         },
 
         async saveNow() {
+            if (globalThis.__tmSuppressStorageWrites === true) return;
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             this.saveTimer = null;
             if (this.saving) return this.savePromise || undefined;
@@ -7432,6 +7583,7 @@
         },
 
         async flushSave() {
+            if (globalThis.__tmSuppressStorageWrites === true) return;
             if (this.saving) return this.savePromise || undefined;
             if (!this.saveDirty) return this.savePromise || undefined;
             this.ensureSavePromise();
@@ -7459,12 +7611,14 @@
                 const formDir = new FormData();
                 formDir.append('path', PLUGIN_STORAGE_DIR);
                 formDir.append('isDir', 'true');
+                globalThis.__tmHost?.appendStorageRequestApp?.(formDir);
                 await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
 
                 const form = new FormData();
                 form.append('path', META_FILE_PATH);
                 form.append('isDir', 'false');
                 form.append('file', new Blob([serialized], { type: 'application/json' }));
+                globalThis.__tmHost?.appendStorageRequestApp?.(form);
                 const metaPutRes = await fetch('/api/file/putFile', { method: 'POST', body: form });
                 if (!metaPutRes?.ok) throw new Error('meta-save-failed');
                 this.lastSerialized = serialized;
@@ -8935,8 +9089,19 @@
         },
 
         async load(options = {}) {
+            const loadOptions = (options && typeof options === 'object') ? options : {};
+            if (loadOptions.__tmInternalLoad !== true) {
+                if (this.loaded) return;
+                if (this.loadingPromise) return this.loadingPromise;
+                const task = this.load({ ...loadOptions, __tmInternalLoad: true });
+                const wrapped = task.finally(() => {
+                    if (this.loadingPromise === wrapped) this.loadingPromise = null;
+                });
+                this.loadingPromise = wrapped;
+                return wrapped;
+            }
             if (this.loaded) return;
-            const opt = (options && typeof options === 'object') ? options : {};
+            const opt = loadOptions;
             const preferRemoteWhiteboardSameVersion = opt.preferRemoteWhiteboardSameVersion === true;
 
             // 先从本地缓存加载一份作为兜底（避免云端旧版本配置缺字段导致覆盖丢失）
@@ -10892,6 +11057,7 @@
         },
 
         async save(options = {}) {
+            if (globalThis.__tmSuppressStorageWrites === true) return;
             const opts = (options && typeof options === 'object') ? options : {};
             if (opts.suppressMobileCloseSyncDirty === true) this.suppressMobileCloseSyncDirty = true;
             this.saveDirty = true;
@@ -10910,6 +11076,7 @@
         },
 
         async saveNow() {
+            if (globalThis.__tmSuppressStorageWrites === true) return;
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             this.saveTimer = null;
             if (this.saving) return this.savePromise || undefined;
@@ -10918,6 +11085,7 @@
         },
 
         async flushSave() {
+            if (globalThis.__tmSuppressStorageWrites === true) return;
             if (this.saving) return this.savePromise || undefined;
             if (!this.saveDirty) return this.savePromise || undefined;
             this.saving = true;
@@ -11072,12 +11240,14 @@
                 const formDir = new FormData();
                 formDir.append('path', PLUGIN_STORAGE_DIR);
                 formDir.append('isDir', 'true');
+                globalThis.__tmHost?.appendStorageRequestApp?.(formDir);
                 await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
 
                 const formData = new FormData();
                 formData.append('path', SETTINGS_FILE_PATH);
                 formData.append('isDir', 'false');
                 formData.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+                globalThis.__tmHost?.appendStorageRequestApp?.(formData);
 
                 const settingsPutRes = await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
                 const settingsPutOk = !!(settingsPutRes && settingsPutRes.ok);
@@ -11380,6 +11550,7 @@
         },
 
         scheduleSave() {
+            if (globalThis.__tmSuppressStorageWrites === true) return;
             this.saveDirty = true;
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             this.saveTimer = setTimeout(() => {
@@ -11389,6 +11560,7 @@
         },
 
         async saveNow() {
+            if (globalThis.__tmSuppressStorageWrites === true) return;
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             this.saveTimer = null;
             if (!this.loaded) {
@@ -11434,12 +11606,14 @@
                 const formDir = new FormData();
                 formDir.append('path', PLUGIN_STORAGE_DIR);
                 formDir.append('isDir', 'true');
+                globalThis.__tmHost?.appendStorageRequestApp?.(formDir);
                 await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
 
                 const formData = new FormData();
                 formData.append('path', WHITEBOARD_DATA_FILE_PATH);
                 formData.append('isDir', 'false');
                 formData.append('file', new Blob([JSON.stringify(this.data || { version: 0, cards: {}, links: [] }, null, 2)], { type: 'application/json' }));
+                globalThis.__tmHost?.appendStorageRequestApp?.(formData);
                 const whiteboardPutRes = await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
                 if (fingerprintChangedLocal && whiteboardPutRes && whiteboardPutRes.ok) {
                     try { __tmMarkMobileCloseSyncDirty('whiteboard-save'); } catch (e) {}
@@ -12731,6 +12905,10 @@
     function __tmGetTaskQueryCache(key, ttlMs) {
         const entry = __tmTasksQueryCache.get(key);
         if (!entry) return null;
+        if (entry.readToken && !__tmIsTaskReadTokenCurrent(entry.readToken)) {
+            __tmTasksQueryCache.delete(key);
+            return null;
+        }
         const ttl = Math.max(1, Number(entry.ttl) || Number(ttlMs) || 1);
         if (!entry.t || (Date.now() - Number(entry.t)) >= ttl) {
             __tmTasksQueryCache.delete(key);
@@ -12741,8 +12919,10 @@
         return entry;
     }
 
-    function __tmRememberTaskQueryCache(key, value) {
+    function __tmRememberTaskQueryCache(key, value, readToken = null) {
+        if (readToken && !__tmIsTaskReadTokenCurrent(readToken)) return null;
         const entry = (value && typeof value === 'object') ? value : {};
+        if (readToken) entry.readToken = readToken;
         const taskCount = Array.isArray(entry?.v?.tasks) ? entry.v.tasks.length : 0;
         const docCount = entry.docIdSet instanceof Set ? entry.docIdSet.size : 0;
         entry.weight = Math.max(1, taskCount + docCount);
@@ -12782,6 +12962,8 @@
     const __tmDocFlowRankHoldUntil = new Map();
     const __tmDocEnhanceWarmQueue = { items: [], set: new Set(), running: 0, timer: null };
     const __tmSqlInFlight = new Map();
+    const __tmTaskReadInFlight = new Map();
+    let __tmTaskReadGeneration = 0;
     const __tmSqlQueue = { max: 3, active: 0, q: [] };
     const __tmAuxQueryCache = new Map();
     const __tmTaskIndexPrewarmState = {
@@ -12832,13 +13014,12 @@
     let __tmTaskSnapshotSaveTimer = null;
     let __tmTaskSnapshotSaveGeneration = 0;
     let __tmTaskSnapshotSaveInFlight = false;
-    let __tmTaskSnapshotWriteTail = Promise.resolve();
+    const __tmTaskSnapshotPendingDocSaves = new Map();
     let __tmTaskSnapshotStoreCache = null;
     let __tmTaskSnapshotStoreLoadPromise = null;
     let __tmTaskSnapshotStoreLoadedAt = 0;
     let __tmTaskSnapshotFileMetaSignatureCache = '';
     let __tmTaskSnapshotFileMetaCheckPromise = null;
-    const __tmTaskSnapshotPersistSignatureCache = new Map();
     const __tmPendingCreatedTaskSnapshotRefreshes = new Map();
     const __tmTxTaskRefreshDocIds = new Set();
     const __tmTxTaskRefreshBlockIds = new Set();
@@ -12851,17 +13032,7 @@
     const __tmRecentVisibleDateFallbackTasks = new Map();
 
     function __tmWithTaskSnapshotWriteLock(callback) {
-        if (typeof callback !== 'function') return Promise.resolve(false);
-        const run = async () => {
-            const locks = globalThis.navigator?.locks;
-            if (locks && typeof locks.request === 'function') {
-                return await locks.request('task-horizon:task-snapshot-write', { mode: 'exclusive' }, callback);
-            }
-            return await callback();
-        };
-        const queued = __tmTaskSnapshotWriteTail.then(run, run);
-        __tmTaskSnapshotWriteTail = queued.then(() => undefined, () => undefined);
-        return queued;
+        return __tmWithDerivedCacheWriteLock('task-horizon:task-snapshot-write', callback);
     }
 
     function __tmBuildTaskParentListHostShape(parentListId = '', source = null) {
@@ -13258,13 +13429,6 @@
             const attrKey = String(update?.key || '').trim();
             const attrValue = String(update?.value ?? '');
             if (!taskId || !attrKey) return;
-            if (__tmResolveTaskMetaFieldByAttrKey(attrKey) === 'customStatus' && __tmShouldLogStatusDebug([taskId], false)) {
-                __tmPushStatusDebug('tx-attr-update', {
-                    taskId,
-                    attrKey,
-                    attrValue,
-                }, [taskId], { force: false });
-            }
             if (__tmMutationEngine.isTaskSuppressed(taskId)) {
                 result.skippedCount += 1;
                 return;
@@ -14471,6 +14635,8 @@
     }
 
     function __tmInvalidateAllSqlCaches() {
+        __tmTaskReadGeneration += 1;
+        __tmTaskReadInFlight.clear();
         try { __tmTasksQueryCache.clear(); } catch (e) {}
         try { __tmInvalidateDocProgressCache(); } catch (e) {}
         try { __tmDocHasTaskQueryCache.clear(); } catch (e) {}
@@ -14536,7 +14702,7 @@
                 const hasIndexedTasks = Number(indexedDoc?.taskCount || 0) > 0
                     || (Array.isArray(indexedDoc?.blocks) && indexedDoc.blocks.length > 0)
                     || (Array.isArray(indexedDoc?.tasks) && indexedDoc.tasks.length > 0);
-                __tmDocHasTaskQueryCache.set(id, { t: now, hasTasks: hasIndexedTasks });
+                __tmRememberTimedCache(__tmDocHasTaskQueryCache, id, { t: now, hasTasks: hasIndexedTasks }, 4096, 5 * 60 * 1000);
                 if (hasIndexedTasks) tasksMap.set(id, true);
                 return;
             }
@@ -14564,7 +14730,7 @@
         }
         uncheckedIds.forEach((id) => {
             const hasTasks = found.has(id);
-            __tmDocHasTaskQueryCache.set(id, { t: Date.now(), hasTasks });
+            __tmRememberTimedCache(__tmDocHasTaskQueryCache, id, { t: Date.now(), hasTasks }, 4096, 5 * 60 * 1000);
         });
         return tasksMap;
     }
@@ -14601,13 +14767,13 @@
                         const did = String(row?.root_id || '').trim();
                         if (!tid) return;
                         foundSet.add(tid);
-                        __tmTaskDocMapCache.set(tid, { t: Date.now(), docId: did });
+                        __tmRememberTimedCache(__tmTaskDocMapCache, tid, { t: Date.now(), docId: did }, 4096, 15 * 60 * 1000);
                         if (did) out.set(tid, did);
                     });
                 }
             } catch (e) {}
             chunk.forEach((tid) => {
-                if (!foundSet.has(tid)) __tmTaskDocMapCache.set(tid, { t: Date.now(), docId: '' });
+                if (!foundSet.has(tid)) __tmRememberTimedCache(__tmTaskDocMapCache, tid, { t: Date.now(), docId: '' }, 4096, 15 * 60 * 1000);
             });
         }
         return out;
@@ -14625,496 +14791,16 @@
             const docId = String(task?.root_id || '').trim();
             if (!docId) return;
             taskDocMap.set(taskId, docId);
-            __tmTaskDocMapCache.set(taskId, { t: now, docId });
+            __tmRememberTimedCache(__tmTaskDocMapCache, taskId, { t: now, docId }, 4096, 15 * 60 * 1000);
         });
         return { taskIds, taskDocMap };
     }
 
-    const __tmDebugChannels = {
-        status: { enabled: false, log: [], limit: 400 },
-        detail: { enabled: false, log: [], limit: 400 },
-    };
-    const __TM_TASK_HORIZON_DEBUG_RELAY_STORAGE_KEY = '__tmTaskHorizonDebugRelay';
     const __TM_TASK_HORIZON_ATTR_RELAY_STORAGE_KEY = '__tmTaskHorizonAttrRelay';
-    function __tmGetDebugChannelPersistKey(channel) {
-        const key = String(channel || '').trim();
-        if (key === 'status') return 'tm_task_horizon_debug_status';
-        if (key === 'detail') return 'tm_task_horizon_debug_detail';
-        return '';
-    }
-
-    function __tmReadPersistedDebugChannelEnabled(channel) {
-        const storageKey = __tmGetDebugChannelPersistKey(channel);
-        if (!storageKey) return false;
-        try {
-            const raw = String(localStorage.getItem(storageKey) || '').trim().toLowerCase();
-            return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
-        } catch (e) {
-            return false;
-        }
-    }
-
-    function __tmPersistDebugChannelEnabled(channel, enabled = true) {
-        const storageKey = __tmGetDebugChannelPersistKey(channel);
-        if (!storageKey) return false;
-        try {
-            if (enabled === false) localStorage.removeItem(storageKey);
-            else localStorage.setItem(storageKey, '1');
-            return true;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    try {
-        Object.keys(__tmDebugChannels).forEach((channel) => {
-            __tmDebugChannels[channel].enabled = __tmReadPersistedDebugChannelEnabled(channel);
-        });
-    } catch (e) {}
-
-    function __tmCloneDebugValue(value, depth = 0) {
-        if (depth > 10) return '[MaxDepth]';
-        if (value == null) return value;
-        const type = typeof value;
-        if (type === 'string' || type === 'number' || type === 'boolean') return value;
-        if (type === 'bigint') return String(value);
-        if (type === 'function') return `[Function ${value.name || 'anonymous'}]`;
-        if (value instanceof Date) return value.toISOString();
-        if (value instanceof Error) {
-            return {
-                name: String(value.name || 'Error'),
-                message: String(value.message || ''),
-                stack: String(value.stack || '').split('\n').slice(0, 6),
-            };
-        }
-        if (value instanceof Element) return __tmDescribeDebugElement(value);
-        if (Array.isArray(value)) return value.slice(0, 24).map((item) => __tmCloneDebugValue(item, depth + 1));
-        if (type === 'object') {
-            const out = {};
-            Object.keys(value).slice(0, 40).forEach((key) => {
-                try {
-                    out[key] = __tmCloneDebugValue(value[key], depth + 1);
-                } catch (e) {
-                    out[key] = `[CloneError ${String(e?.message || e || '')}]`;
-                }
-            });
-            return out;
-        }
-        try {
-            return String(value);
-        } catch (e) {
-            return '[Unserializable]';
-        }
-    }
-
-    function __tmGetDocumentTaskDomSelector() {
-        return '[data-type="NodeListItem"][data-subtype="t"][data-node-id], .li[data-subtype="t"][data-node-id]';
-    }
-
-    function __tmReadTaskIdsFromEditorRoot(root) {
-        if (!root || typeof root.querySelectorAll !== 'function') return [];
-        const selector = __tmGetDocumentTaskDomSelector();
-        return Array.from(root.querySelectorAll(selector)).filter((item) => {
-            try {
-                return !item.closest?.('[data-type="NodeBlockQueryEmbed"], .protyle-wysiwyg__embed');
-            } catch (e) {
-                return true;
-            }
-        })
-            .map((item) => String(item?.getAttribute?.('data-node-id') || '').trim())
-            .filter(Boolean);
-    }
-
-    function __tmCaptureEditorDocumentTaskOrder(docIds) {
-        const ids = Array.from(new Set((Array.isArray(docIds) ? docIds : [docIds])
-            .map((id) => String(id || '').trim())
-            .filter(Boolean)))
-            .slice(0, 12);
-        if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return [];
-        const roots = Array.from(document.querySelectorAll('.protyle-wysiwyg'));
-        return ids.map((docId) => {
-            let matchedRoot = null;
-            let matchedBy = '';
-            for (const root of roots) {
-                const protyle = root.closest?.('.protyle') || root.parentElement;
-                let resolvedDocId = '';
-                try {
-                    resolvedDocId = typeof __tmGetDocIdFromProtyle === 'function'
-                        ? String(__tmGetDocIdFromProtyle(protyle) || '').trim()
-                        : '';
-                } catch (e) {}
-                const candidates = [
-                    resolvedDocId,
-                    root.getAttribute?.('data-node-id'),
-                    root.getAttribute?.('data-doc-id'),
-                    protyle?.getAttribute?.('data-node-id'),
-                    protyle?.getAttribute?.('data-doc-id'),
-                    protyle?.querySelector?.('.protyle-title[data-node-id]')?.getAttribute?.('data-node-id'),
-                ].map((value) => String(value || '').trim()).filter(Boolean);
-                if (candidates.includes(docId)) {
-                    matchedRoot = root;
-                    matchedBy = 'document-id';
-                    break;
-                }
-                if (!matchedRoot && root.querySelector?.(`[data-node-id="${docId}"]`)) {
-                    matchedRoot = root;
-                    matchedBy = 'contains-document-block';
-                }
-            }
-            return {
-                docId,
-                matched: !!matchedRoot,
-                taskIds: __tmReadTaskIdsFromEditorRoot(matchedRoot),
-            };
-        });
-    }
-
-    function __tmApplyEditorDocumentTaskOrderToFlowRankMap(flowRankMap, snapshots, taskIds = null) {
-        const target = flowRankMap instanceof Map ? flowRankMap : new Map();
-        const allowed = taskIds instanceof Set
-            ? taskIds
-            : (Array.isArray(taskIds) ? new Set(taskIds.map((id) => String(id || '').trim()).filter(Boolean)) : null);
-        let applied = 0;
-        (Array.isArray(snapshots) ? snapshots : []).forEach((snapshot) => {
-            if (snapshot?.matched !== true) return;
-            const orderedTaskIds = Array.isArray(snapshot?.taskIds) ? snapshot.taskIds : [];
-            orderedTaskIds.forEach((taskId0, index) => {
-                const taskId = String(taskId0 || '').trim();
-                if (!taskId || (allowed && !allowed.has(taskId))) return;
-                target.set(taskId, index + 1);
-                applied += 1;
-            });
-        });
-        return applied;
-    }
-
-    function __tmBuildEditorDocumentTaskIdMap(snapshots) {
-        const out = new Map();
-        (Array.isArray(snapshots) ? snapshots : []).forEach((snapshot) => {
-            const docId = String(snapshot?.docId || '').trim();
-            if (!docId || snapshot?.matched !== true) return;
-            const taskIds = Array.isArray(snapshot?.taskIds) ? snapshot.taskIds : [];
-            out.set(docId, new Set(taskIds
-                .map((taskId) => String(taskId || '').trim())
-                .filter(Boolean)));
-        });
-        return out;
-    }
-
-    function __tmCollectMissingEditorTaskIds(rows, editorTaskIdsByDoc) {
-        const map = editorTaskIdsByDoc instanceof Map ? editorTaskIdsByDoc : new Map();
-        if (map.size <= 0) return [];
-        const sqlTaskIdsByDoc = new Map();
-        (Array.isArray(rows) ? rows : []).forEach((row) => {
-            const docId = String(row?.root_id || row?.docId || '').trim();
-            const taskId = String(row?.id || '').trim();
-            if (!docId || !taskId || !map.has(docId)) return;
-            if (!sqlTaskIdsByDoc.has(docId)) sqlTaskIdsByDoc.set(docId, new Set());
-            sqlTaskIdsByDoc.get(docId).add(taskId);
-        });
-        const missing = [];
-        map.forEach((taskIds, docId) => {
-            const sqlTaskIds = sqlTaskIdsByDoc.get(docId) || new Set();
-            taskIds.forEach((taskId) => {
-                if (!sqlTaskIds.has(taskId)) missing.push(taskId);
-            });
-        });
-        return missing;
-    }
-
-    function __tmBuildLoadedDocumentTaskIdMap(docIds) {
-        const requested = new Set((Array.isArray(docIds) ? docIds : [docIds])
-            .map((id) => String(id || '').trim())
-            .filter(Boolean));
-        const out = new Map();
-        requested.forEach((docId) => out.set(docId, new Set()));
-        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
-            const docId = String(doc?.id || '').trim();
-            if (!docId || !requested.has(docId)) return;
-            const taskIds = out.get(docId) || new Set();
-            const stack = Array.isArray(doc?.tasks) ? doc.tasks.slice() : [];
-            while (stack.length > 0) {
-                const task = stack.pop();
-                const taskId = String(task?.id || '').trim();
-                if (task?.__tmPendingInserted !== true && __tmIsLikelyBlockId(taskId)) taskIds.add(taskId);
-                if (Array.isArray(task?.children) && task.children.length > 0) {
-                    task.children.forEach((child) => stack.push(child));
-                }
-            }
-            out.set(docId, taskIds);
-        });
-        return out;
-    }
-
-    function __tmBuildDocumentTaskIdMapFromRows(rows, docIds) {
-        const requested = new Set((Array.isArray(docIds) ? docIds : [docIds])
-            .map((id) => String(id || '').trim())
-            .filter(Boolean));
-        const out = new Map();
-        requested.forEach((docId) => out.set(docId, new Set()));
-        (Array.isArray(rows) ? rows : []).forEach((row) => {
-            const docId = String(row?.root_id || row?.docId || '').trim();
-            const taskId = String(row?.id || '').trim();
-            if (!requested.has(docId) || !__tmIsLikelyBlockId(taskId)) return;
-            out.get(docId).add(taskId);
-        });
-        return out;
-    }
-
-    function __tmDiffDocumentTaskIdMaps(previousTaskIdsByDoc, nextTaskIdsByDoc) {
-        const beforeMap = previousTaskIdsByDoc instanceof Map ? previousTaskIdsByDoc : new Map();
-        const afterMap = nextTaskIdsByDoc instanceof Map ? nextTaskIdsByDoc : new Map();
-        const docIds = new Set([...beforeMap.keys(), ...afterMap.keys()]);
-        const documents = [];
-        const addedTaskIds = [];
-        const removedTaskIds = [];
-        docIds.forEach((docId0) => {
-            const docId = String(docId0 || '').trim();
-            if (!docId) return;
-            const before = beforeMap.get(docId) instanceof Set ? beforeMap.get(docId) : new Set();
-            const after = afterMap.get(docId) instanceof Set ? afterMap.get(docId) : new Set();
-            const added = Array.from(after).filter((taskId) => !before.has(taskId));
-            const removed = Array.from(before).filter((taskId) => !after.has(taskId));
-            if (added.length <= 0 && removed.length <= 0) return;
-            addedTaskIds.push(...added);
-            removedTaskIds.push(...removed);
-            documents.push({
-                docId,
-                beforeCount: before.size,
-                afterCount: after.size,
-                addedTaskIds: added,
-                removedTaskIds: removed,
-            });
-        });
-        return {
-            changed: documents.length > 0,
-            documents,
-            addedTaskIds,
-            removedTaskIds,
-        };
-    }
-
-    function __tmFilterDeletedTaskRowsForDocumentRefresh(rows, deletedTaskIds = null) {
-        const deleted = deletedTaskIds instanceof Set ? deletedTaskIds : new Set();
-        return (Array.isArray(rows) ? rows : []).filter((row) => {
-            const taskId = String(row?.id || '').trim();
-            return !!taskId && !deleted.has(taskId);
-        });
-    }
-
-    function __tmBuildDebugEntry(channel, tag, payload) {
-        const now = Date.now();
-        return {
-            channel: String(channel || '').trim(),
-            tag: String(tag || '').trim() || 'unknown',
-            ts: now,
-            time: new Date(now).toISOString(),
-            viewMode: String(state.viewMode || '').trim(),
-            currentRule: String(state.currentRule || '').trim(),
-            detailTaskId: String(state.detailTaskId || '').trim(),
-            payload: __tmCloneDebugValue(payload),
-        };
-    }
-
-    function __tmSetDebugChannelEnabled(channel, enabled = true) {
-        const key = String(channel || '').trim();
-        const target = __tmDebugChannels[key];
-        if (!target) return { ok: false, channel: key, enabled: false };
-        target.enabled = enabled !== false;
-        try { __tmPersistDebugChannelEnabled(key, target.enabled === true); } catch (e) {}
-        return {
-            ok: true,
-            channel: key,
-            enabled: target.enabled === true,
-            size: Array.isArray(target.log) ? target.log.length : 0,
-        };
-    }
-
-    function __tmDumpDebugChannel(channel, limit = 120) {
-        const key = String(channel || '').trim();
-        const target = __tmDebugChannels[key];
-        if (!target) return [];
-        const count = Math.max(1, Math.min(Math.max(1, Number(target.limit) || 400), Number(limit) || 120));
-        const out = target.log.slice(-count);
-        try {
-            console.table(out.map((entry) => ({
-                time: entry?.time || '',
-                tag: entry?.tag || '',
-                viewMode: entry?.viewMode || '',
-                detailTaskId: entry?.detailTaskId || '',
-                payload: entry?.payload || null,
-            })));
-        } catch (e) {}
-        return out;
-    }
-
-    function __tmClearDebugChannel(channel) {
-        const key = String(channel || '').trim();
-        const target = __tmDebugChannels[key];
-        if (!target) return { ok: false, channel: key };
-        target.log.length = 0;
-        try {
-            if (key === 'status') {
-                globalThis.__tmTaskHorizonStatusDebugLog = target.log;
-                globalThis.__tmTaskHorizonStatusDebugLast = null;
-            } else if (key === 'detail') {
-                globalThis.__tmTaskHorizonDetailDebugLog = target.log;
-                globalThis.__tmTaskHorizonDetailDebugLast = null;
-            }
-        } catch (e) {}
-        return { ok: true, channel: key };
-    }
-
-    function __tmPushDebugChannel(channel, tag, payload = {}) {
-        const key = String(channel || '').trim();
-        const target = __tmDebugChannels[key];
-        if (!target || target.enabled !== true) return null;
-        const entry = __tmBuildDebugEntry(key, tag, payload);
-        target.log.push(entry);
-        if (target.log.length > target.limit) {
-            target.log.splice(0, target.log.length - target.limit);
-        }
-        try {
-            if (key === 'status') {
-                globalThis.__tmTaskHorizonStatusDebugLog = target.log;
-                globalThis.__tmTaskHorizonStatusDebugLast = entry;
-            } else if (key === 'detail') {
-                globalThis.__tmTaskHorizonDetailDebugLog = target.log;
-                globalThis.__tmTaskHorizonDetailDebugLast = entry;
-            }
-        } catch (e) {}
-        // Keep debug data in the in-memory ring buffer and expose it through
-        // the dump helpers. Real-time console echo creates massive log spam
-        // during refresh storms and can visibly hurt scrolling performance.
-        return entry;
-    }
-
-    function __tmShouldLogStatusDebug(taskIds = [], force = false) {
-        if (force === true) return true;
-        return __tmDebugChannels.status.enabled === true;
-    }
-
-    function __tmPushStatusDebug(tag, payload = {}) {
-        return __tmPushDebugChannel('status', tag, payload);
-    }
-
-    function __tmDescribeDebugElement(element) {
-        const el = element instanceof Element ? element : null;
-        if (!(el instanceof Element)) return '';
-        const tag = String(el.tagName || '').toLowerCase();
-        const id = String(el.id || '').trim();
-        const cls = Array.from(el.classList || []).slice(0, 4).join('.');
-        const taskId = String(el.getAttribute?.('data-id') || el.getAttribute?.('data-task-id') || '').trim();
-        const field = String(el.getAttribute?.('data-tm-field') || '').trim();
-        return `${tag}${id ? `#${id}` : ''}${cls ? `.${cls}` : ''}${taskId ? `[task=${taskId}]` : ''}${field ? `[field=${field}]` : ''}`;
-    }
-
-    function __tmPushDetailDebug(tag, payload = {}) {
-        const normalizedTag = String(tag || '').trim() || 'unknown';
-        return __tmPushDebugChannel('detail', normalizedTag, payload);
-    }
-
-    try {
-        try { delete globalThis.tmTaskHorizonDetailDebugDump; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonDetailDebugClear; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonDetailDebugEnable; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonDetailDebugLog; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonDetailDebugLast; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonJankLog; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonJankLast; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonJankDebugEnable; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonJankDebugDump; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonJankDebugJson; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonJankDebugClear; } catch (e) {}
-        try { delete window.tmTaskHorizonDetailDebug; } catch (e) {}
-        try { delete window.tmTaskHorizonJank; } catch (e) {}
-    } catch (e) {}
-
-    try {
-        try { delete globalThis.__tmTaskHorizonDebugPush; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonDebugMoveDump; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonDebugMoveLatest; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonStatusDebugEnable; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonStatusDebugDump; } catch (e) {}
-        try { delete globalThis.tmTaskHorizonStatusDebugClear; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonStatusDebugLog; } catch (e) {}
-        try { delete globalThis.__tmTaskHorizonStatusDebugLast; } catch (e) {}
-    } catch (e) {}
-
-    try {
-        globalThis.__tmTaskHorizonDebugPush = function(channel, tag, payload = {}) {
-            return __tmPushDebugChannel(channel, tag, payload);
-        };
-        globalThis.tmTaskHorizonStatusDebugEnable = function(enabled = true) {
-            return __tmSetDebugChannelEnabled('status', enabled);
-        };
-        globalThis.tmTaskHorizonStatusDebugDump = function(limit = 120) {
-            return __tmDumpDebugChannel('status', limit);
-        };
-        globalThis.tmTaskHorizonStatusDebugClear = function() {
-            return __tmClearDebugChannel('status');
-        };
-        globalThis.tmTaskHorizonDetailDebugEnable = function(enabled = true) {
-            return __tmSetDebugChannelEnabled('detail', enabled);
-        };
-        globalThis.tmTaskHorizonDetailDebugDump = function(limit = 120) {
-            return __tmDumpDebugChannel('detail', limit);
-        };
-        globalThis.tmTaskHorizonDetailDebugClear = function() {
-            return __tmClearDebugChannel('detail');
-        };
-        globalThis.tmTaskHorizonStats = function() {
-            return __tmGetStatsSnapshot();
-        };
-        if (!window.tmTaskHorizonPerf || typeof window.tmTaskHorizonPerf !== 'object') {
-            window.tmTaskHorizonPerf = {};
-        }
-        window.tmTaskHorizonDetailDebug = {
-            enable(enabled = true) {
-                return __tmSetDebugChannelEnabled('detail', enabled);
-            },
-            dump(limit = 120) {
-                return __tmDumpDebugChannel('detail', limit);
-            },
-            clear() {
-                return __tmClearDebugChannel('detail');
-            },
-        };
-    } catch (e) {}
-
-    function __tmRoundPerfMs(value) {
-        const num = Number(value);
-        return Number.isFinite(num) ? Math.round(num * 10) / 10 : 0;
-    }
-
-    function __tmPerfNow() {
-        try {
-            if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') {
-                return performance.now();
-            }
-        } catch (e) {}
-        return Date.now();
-    }
-
-    // Calendar trace hooks remain as no-op compatibility APIs. They must not
-    // allocate trace objects or write diagnostic output during normal use.
-    function __tmTaskHorizonPerfCreate(kind, meta = {}) { return null; }
-    function __tmTaskHorizonPerfMark(traceOrId, stage, detail = {}) { return traceOrId || null; }
-    function __tmTaskHorizonPerfFinish(traceOrId, detail = {}) { return traceOrId || null; }
-
-    try {
-        globalThis.__tmTaskHorizonPerfCreate = __tmTaskHorizonPerfCreate;
-        globalThis.__tmTaskHorizonPerfMark = __tmTaskHorizonPerfMark;
-        globalThis.__tmTaskHorizonPerfFinish = __tmTaskHorizonPerfFinish;
-        if (typeof window !== 'undefined') {
-            window.__tmTaskHorizonPerfCreate = __tmTaskHorizonPerfCreate;
-            window.__tmTaskHorizonPerfMark = __tmTaskHorizonPerfMark;
-            window.__tmTaskHorizonPerfFinish = __tmTaskHorizonPerfFinish;
-        }
-    } catch (e) {}
 
     function __tmGetStatsSnapshot() {
-        return __tmCloneDebugValue(state?.stats || {});
+        const stats = state?.stats;
+        return stats && typeof stats === 'object' && !Array.isArray(stats) ? { ...stats } : {};
     }
 
     function __tmMarkHighPriorityInteraction(reason = '', durationMs = 360) {
@@ -15200,6 +14886,9 @@
 
     function __tmMarkRuntimeCleanupRequested() {
         __tmRuntimeCleanupRequested = true;
+        __tmTaskReadGeneration += 1;
+        __tmTaskReadInFlight.clear();
+        __tmTaskSnapshotPendingDocSaves.clear();
         try {
             __tmIdleTaskTimeoutHandles.forEach((timer) => {
                 try { clearTimeout(timer); } catch (e) {}
@@ -15217,6 +14906,8 @@
     }
 
     function __tmCancelBackgroundStorageTimers() {
+        __tmDocScopeCacheSaveGeneration += 1;
+        __tmDocScopeCachePending.clear();
         try {
             if (__tmDocScopeCacheSaveTimer) {
                 clearTimeout(__tmDocScopeCacheSaveTimer);
@@ -15655,16 +15346,7 @@
     }
 
     async function __tmMergeTaskIndexEntries(entries) {
-        const list = (Array.isArray(entries) ? entries : []).filter((entry) => entry && __tmIsLikelyBlockId(entry.id));
-        if (!list.length) return false;
-        await __tmLoadTaskIndexStore();
-        const nextStore = __tmRememberTaskIndexEntriesInMemory(list, {
-            keepDocIds: list.map((entry) => entry?.id),
-            pruneNow: true,
-        });
-        if (!nextStore) return false;
-        await __tmWriteJsonFile(TASK_INDEX_FILE_PATH, nextStore);
-        return true;
+        return await __tmPersistTaskIndexEntries(entries);
     }
 
     function __tmScheduleTaskIndexPrewarmForDocIds(docIds, options = {}) {
@@ -15847,7 +15529,7 @@
     }
 
     function __tmSetAuxCache(key, value) {
-        __tmAuxQueryCache.set(key, { t: Date.now(), v: value });
+        __tmRememberTimedCache(__tmAuxQueryCache, key, { t: Date.now(), v: value }, 256, 5 * 60 * 1000);
     }
 
     function __tmIsLikelyBlockId(value) {
@@ -16602,6 +16284,201 @@
             target.task_marker = ' ';
         }
         return true;
+    }
+
+    function __tmGetDocumentTaskDomSelector() {
+        return '[data-type="NodeListItem"][data-subtype="t"][data-node-id], .li[data-subtype="t"][data-node-id]';
+    }
+
+    function __tmReadTaskIdsFromEditorRoot(root) {
+        if (!root || typeof root.querySelectorAll !== 'function') return [];
+        const selector = __tmGetDocumentTaskDomSelector();
+        return Array.from(root.querySelectorAll(selector)).filter((item) => {
+            try {
+                return !item.closest?.('[data-type="NodeBlockQueryEmbed"], .protyle-wysiwyg__embed');
+            } catch (e) {
+                return true;
+            }
+        })
+            .map((item) => String(item?.getAttribute?.('data-node-id') || '').trim())
+            .filter(Boolean);
+    }
+
+    function __tmCaptureEditorDocumentTaskOrder(docIds) {
+        const ids = Array.from(new Set((Array.isArray(docIds) ? docIds : [docIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)))
+            .slice(0, 12);
+        if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return [];
+        const roots = Array.from(document.querySelectorAll('.protyle-wysiwyg'));
+        return ids.map((docId) => {
+            let matchedRoot = null;
+            let matchedBy = '';
+            for (const root of roots) {
+                const protyle = root.closest?.('.protyle') || root.parentElement;
+                let resolvedDocId = '';
+                try {
+                    resolvedDocId = typeof __tmGetDocIdFromProtyle === 'function'
+                        ? String(__tmGetDocIdFromProtyle(protyle) || '').trim()
+                        : '';
+                } catch (e) {}
+                const candidates = [
+                    resolvedDocId,
+                    root.getAttribute?.('data-node-id'),
+                    root.getAttribute?.('data-doc-id'),
+                    protyle?.getAttribute?.('data-node-id'),
+                    protyle?.getAttribute?.('data-doc-id'),
+                    protyle?.querySelector?.('.protyle-title[data-node-id]')?.getAttribute?.('data-node-id'),
+                ].map((value) => String(value || '').trim()).filter(Boolean);
+                if (candidates.includes(docId)) {
+                    matchedRoot = root;
+                    matchedBy = 'document-id';
+                    break;
+                }
+                if (!matchedRoot && root.querySelector?.(`[data-node-id="${docId}"]`)) {
+                    matchedRoot = root;
+                    matchedBy = 'contains-document-block';
+                }
+            }
+            return {
+                docId,
+                matched: !!matchedRoot,
+                taskIds: __tmReadTaskIdsFromEditorRoot(matchedRoot),
+            };
+        });
+    }
+
+    function __tmApplyEditorDocumentTaskOrderToFlowRankMap(flowRankMap, snapshots, taskIds = null) {
+        const target = flowRankMap instanceof Map ? flowRankMap : new Map();
+        const allowed = taskIds instanceof Set
+            ? taskIds
+            : (Array.isArray(taskIds) ? new Set(taskIds.map((id) => String(id || '').trim()).filter(Boolean)) : null);
+        let applied = 0;
+        (Array.isArray(snapshots) ? snapshots : []).forEach((snapshot) => {
+            if (snapshot?.matched !== true) return;
+            const orderedTaskIds = Array.isArray(snapshot?.taskIds) ? snapshot.taskIds : [];
+            orderedTaskIds.forEach((taskId0, index) => {
+                const taskId = String(taskId0 || '').trim();
+                if (!taskId || (allowed && !allowed.has(taskId))) return;
+                target.set(taskId, index + 1);
+                applied += 1;
+            });
+        });
+        return applied;
+    }
+
+    function __tmBuildEditorDocumentTaskIdMap(snapshots) {
+        const out = new Map();
+        (Array.isArray(snapshots) ? snapshots : []).forEach((snapshot) => {
+            const docId = String(snapshot?.docId || '').trim();
+            if (!docId || snapshot?.matched !== true) return;
+            const taskIds = Array.isArray(snapshot?.taskIds) ? snapshot.taskIds : [];
+            out.set(docId, new Set(taskIds
+                .map((taskId) => String(taskId || '').trim())
+                .filter(Boolean)));
+        });
+        return out;
+    }
+
+    function __tmCollectMissingEditorTaskIds(rows, editorTaskIdsByDoc) {
+        const map = editorTaskIdsByDoc instanceof Map ? editorTaskIdsByDoc : new Map();
+        if (map.size <= 0) return [];
+        const sqlTaskIdsByDoc = new Map();
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+            const docId = String(row?.root_id || row?.docId || '').trim();
+            const taskId = String(row?.id || '').trim();
+            if (!docId || !taskId || !map.has(docId)) return;
+            if (!sqlTaskIdsByDoc.has(docId)) sqlTaskIdsByDoc.set(docId, new Set());
+            sqlTaskIdsByDoc.get(docId).add(taskId);
+        });
+        const missing = [];
+        map.forEach((taskIds, docId) => {
+            const sqlTaskIds = sqlTaskIdsByDoc.get(docId) || new Set();
+            taskIds.forEach((taskId) => {
+                if (!sqlTaskIds.has(taskId)) missing.push(taskId);
+            });
+        });
+        return missing;
+    }
+
+    function __tmBuildLoadedDocumentTaskIdMap(docIds) {
+        const requested = new Set((Array.isArray(docIds) ? docIds : [docIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        const out = new Map();
+        requested.forEach((docId) => out.set(docId, new Set()));
+        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
+            const docId = String(doc?.id || '').trim();
+            if (!docId || !requested.has(docId)) return;
+            const taskIds = out.get(docId) || new Set();
+            const stack = Array.isArray(doc?.tasks) ? doc.tasks.slice() : [];
+            while (stack.length > 0) {
+                const task = stack.pop();
+                const taskId = String(task?.id || '').trim();
+                if (task?.__tmPendingInserted !== true && __tmIsLikelyBlockId(taskId)) taskIds.add(taskId);
+                if (Array.isArray(task?.children) && task.children.length > 0) {
+                    task.children.forEach((child) => stack.push(child));
+                }
+            }
+            out.set(docId, taskIds);
+        });
+        return out;
+    }
+
+    function __tmBuildDocumentTaskIdMapFromRows(rows, docIds) {
+        const requested = new Set((Array.isArray(docIds) ? docIds : [docIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean));
+        const out = new Map();
+        requested.forEach((docId) => out.set(docId, new Set()));
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+            const docId = String(row?.root_id || row?.docId || '').trim();
+            const taskId = String(row?.id || '').trim();
+            if (!requested.has(docId) || !__tmIsLikelyBlockId(taskId)) return;
+            out.get(docId).add(taskId);
+        });
+        return out;
+    }
+
+    function __tmDiffDocumentTaskIdMaps(previousTaskIdsByDoc, nextTaskIdsByDoc) {
+        const beforeMap = previousTaskIdsByDoc instanceof Map ? previousTaskIdsByDoc : new Map();
+        const afterMap = nextTaskIdsByDoc instanceof Map ? nextTaskIdsByDoc : new Map();
+        const docIds = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+        const documents = [];
+        const addedTaskIds = [];
+        const removedTaskIds = [];
+        docIds.forEach((docId0) => {
+            const docId = String(docId0 || '').trim();
+            if (!docId) return;
+            const before = beforeMap.get(docId) instanceof Set ? beforeMap.get(docId) : new Set();
+            const after = afterMap.get(docId) instanceof Set ? afterMap.get(docId) : new Set();
+            const added = Array.from(after).filter((taskId) => !before.has(taskId));
+            const removed = Array.from(before).filter((taskId) => !after.has(taskId));
+            if (added.length <= 0 && removed.length <= 0) return;
+            addedTaskIds.push(...added);
+            removedTaskIds.push(...removed);
+            documents.push({
+                docId,
+                beforeCount: before.size,
+                afterCount: after.size,
+                addedTaskIds: added,
+                removedTaskIds: removed,
+            });
+        });
+        return {
+            changed: documents.length > 0,
+            documents,
+            addedTaskIds,
+            removedTaskIds,
+        };
+    }
+
+    function __tmFilterDeletedTaskRowsForDocumentRefresh(rows, deletedTaskIds = null) {
+        const deleted = deletedTaskIds instanceof Set ? deletedTaskIds : new Set();
+        return (Array.isArray(rows) ? rows : []).filter((row) => {
+            const taskId = String(row?.id || '').trim();
+            return !!taskId && !deleted.has(taskId);
+        });
     }
 
     function __tmBuildAuthoritativeTaskConfirmationCandidate(row, options = {}) {
@@ -17688,6 +17565,7 @@
             if (loadedDocIds.some((docId) => docIds.includes(docId))) {
                 __tmSchedulePersistTaskSnapshot({
                     docIds: loadedDocIds,
+                    changedDocIds: docIds,
                     groupId: SettingsStore?.data?.currentGroupId || 'all',
                     queryLimit,
                     delayMs: 420,
@@ -17836,11 +17714,28 @@
     }
 
     function __tmSchedulePersistTaskSnapshot(options = {}) {
+        if (globalThis.__tmSuppressStorageWrites === true) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const groupId = String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const activeDocId = String(opts.activeDocId || state?.activeDocId || 'all').trim() || 'all';
         const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
         if (!docIds.length) return false;
+        const scopeKey = __tmBuildTaskSnapshotScopeKey(docIds, groupId);
+        const pendingKey = `${scopeKey}|${activeDocId}`;
+        const previousPending = __tmTaskSnapshotPendingDocSaves.get(pendingKey);
+        const requestedDocs = Array.isArray(opts.changedDocIds) && opts.refreshViewStateBeforeSave !== true
+            ? __tmNormalizeTaskSnapshotDocIds(opts.changedDocIds).filter((id) => docIds.includes(id)) : [];
+        const mergedDocs = requestedDocs.length && previousPending?.changedDocIds !== null
+            ? Array.from(new Set([...(previousPending?.changedDocIds || []), ...requestedDocs])) : null;
+        const pending = { changedDocIds: mergedDocs && mergedDocs.length <= 32 ? mergedDocs : null };
+        __tmTaskSnapshotPendingDocSaves.delete(pendingKey);
+        __tmTaskSnapshotPendingDocSaves.set(pendingKey, pending);
+        while (__tmTaskSnapshotPendingDocSaves.size > __TM_TASK_SNAPSHOT_MAX_ENTRIES) {
+            __tmTaskSnapshotPendingDocSaves.delete(__tmTaskSnapshotPendingDocSaves.keys().next().value);
+        }
+        const clearPending = () => {
+            if (__tmTaskSnapshotPendingDocSaves.get(pendingKey) === pending) __tmTaskSnapshotPendingDocSaves.delete(pendingKey);
+        };
         try {
             if (__tmTaskSnapshotSaveTimer) clearTimeout(__tmTaskSnapshotSaveTimer);
         } catch (e) {}
@@ -17920,51 +17815,74 @@
                             }
                         } catch (e) {}
                     }
+                    const taskStoreReadToken = globalThis.__tmTaskStore?.captureRead?.(docIds) || null;
+                    const isProjectionCurrent = () => !taskStoreReadToken
+                        || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true;
+                    const readStartedAt = Date.now();
+                    const rawStore = await __tmReadDerivedCacheFile(TASK_SNAPSHOT_FILE_PATH);
+                    if (saveGeneration !== __tmTaskSnapshotSaveGeneration || !isProjectionCurrent()) return;
+                    if (pending.changedDocIds) {
+                        const changedDocs = (state.taskTree || []).filter((doc) => pending.changedDocIds.includes(String(doc?.id || '')));
+                        const patched = changedDocs.length === pending.changedDocIds.length
+                            ? __tmPatchTaskSnapshotDocuments(rawStore, changedDocs, {
+                                scopeKey, queryLimit: opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT, readStartedAt,
+                            }) : null;
+                        if (patched) {
+                            if (patched.stale) return;
+                            if (!patched.affectedScopes.length) { clearPending(); return; }
+                            const nextStore = __tmBuildTaskSnapshotStore(patched.store);
+                            if (!patched.affectedScopes.every((key) => nextStore.snapshots[key])) return;
+                            if (saveGeneration !== __tmTaskSnapshotSaveGeneration || !isProjectionCurrent()) return;
+                            const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
+                            if (saved) {
+                                clearPending();
+                                if (saveGeneration === __tmTaskSnapshotSaveGeneration && isProjectionCurrent()) __tmTaskSnapshotStoreCache = nextStore;
+                            }
+                            return;
+                        }
+                    }
                     let payload = __tmBuildTaskSnapshotPayload({
                         docIds,
                         groupId: scheduledGroupId,
                         activeDocId: scheduledActiveDocId,
                         queryLimit: opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT,
                     });
-                    const rawStore = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
-                    if (saveGeneration !== __tmTaskSnapshotSaveGeneration) return;
-                    const store = __tmBuildTaskSnapshotStore(rawStore);
                     payload = __tmAttachTaskSnapshotViewState(payload, {
                         groupId: payload?.groupId || scheduledGroupId,
                         activeDocId: payload?.activeDocId || scheduledActiveDocId,
-                        previousSnapshot: store?.snapshots?.[payload?.scopeKey],
+                        previousSnapshot: rawStore?.snapshots?.[payload?.scopeKey],
                     }) || payload;
                     const payloadFlatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(Array.isArray(payload?.taskTree) ? payload.taskTree : []);
                     if (!__tmCanPersistTaskSnapshotProjection(payload?.docIds || docIds, Object.keys(payloadFlatTasks).length, opts)) return;
-                    const persistSignature = __tmBuildTaskSnapshotPersistSignature(payload);
-                    const prevPersistSignature = String(__tmTaskSnapshotPersistSignatureCache.get(payload?.scopeKey) || '').trim();
-                    if (persistSignature && prevPersistSignature && persistSignature === prevPersistSignature) return;
-                    const pooledPayloadPreview = __tmBuildTaskSnapshotRecordForStore(payload, {
-                        docs: {},
-                        otherBlockSets: {},
-                    });
-                    const payloadBytes = __tmEstimateJsonByteSize(pooledPayloadPreview || payload);
-                    if (payloadBytes > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) {
-                        try {
-                            const prunedSaved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
-                            if (prunedSaved) __tmTaskSnapshotStoreCache = store;
-                        } catch (e) {}
-                        return;
-                    }
+                    const pools = { docs: {}, otherBlockSets: {} };
+                    const record = __tmBuildTaskSnapshotRecordForStore(payload, pools, { owned: true });
+                    if (!record) return;
+                    const previousRecord = rawStore?.snapshots?.[payload.scopeKey];
+                    const persistSignature = __tmBuildTaskSnapshotPersistSignature(record, pools);
+                    if (persistSignature && __tmIsUsableTaskSnapshot(previousRecord)
+                        && persistSignature === __tmBuildTaskSnapshotPersistSignature(previousRecord, rawStore)) { clearPending(); return; }
+                    if (saveGeneration !== __tmTaskSnapshotSaveGeneration) return;
                     const snapshotUpdatedAt = Date.now();
-                    payload.updatedAt = snapshotUpdatedAt;
-                    store.snapshots[payload.scopeKey] = payload;
-                    store.updatedAt = snapshotUpdatedAt;
+                    record.updatedAt = snapshotUpdatedAt;
+                    const store = {
+                        version: __TM_TASK_SNAPSHOT_VERSION,
+                        updatedAt: snapshotUpdatedAt,
+                        snapshots: { ...(rawStore?.snapshots || {}), [payload.scopeKey]: record },
+                        docs: { ...(rawStore?.docs || {}), ...pools.docs },
+                        otherBlockSets: { ...(rawStore?.otherBlockSets || {}), ...pools.otherBlockSets },
+                    };
+                    if (rawStore?.scopeKey && rawStore.scopeKey !== payload.scopeKey) {
+                        store.snapshots[rawStore.scopeKey] = rawStore;
+                    }
                     const nextStore = __tmBuildTaskSnapshotStore(store);
+                    if (!nextStore.snapshots[payload.scopeKey]) return;
                     if (saveGeneration !== __tmTaskSnapshotSaveGeneration) return;
                     const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
                     if (saved) {
+                        clearPending();
                         const cachedUpdatedAt = Number(__tmTaskSnapshotStoreCache?.updatedAt || 0) || 0;
-                        if (cachedUpdatedAt <= snapshotUpdatedAt) {
+                        if (cachedUpdatedAt <= snapshotUpdatedAt && saveGeneration === __tmTaskSnapshotSaveGeneration && isProjectionCurrent()) {
                             __tmTaskSnapshotStoreCache = nextStore;
-                        }
-                        if (persistSignature) {
-                            try { __tmTaskSnapshotPersistSignatureCache.set(payload.scopeKey, persistSignature); } catch (e) {}
                         }
                     }
                     }))
@@ -18171,6 +18089,8 @@
     async function __tmFetchTaskSnapshotDocEntryForCreatedTask(docId) {
         const did = String(docId || '').trim();
         if (!__tmIsLikelyBlockId(did) || !API || typeof API.getTasksByDocument !== 'function') return null;
+        const readToken = globalThis.__tmTaskStore?.captureRead?.([did]) || null;
+        const isCurrent = () => !readToken || globalThis.__tmTaskStore?.isReadCurrent?.(readToken) === true;
         let rows = [];
         try {
             const customFieldPlan = typeof __tmBuildRuntimeCustomFieldLoadPlan === 'function'
@@ -18196,9 +18116,10 @@
                     skipDocJoin: true,
                     customFieldIds,
                 });
-            rows = Array.isArray(res?.tasks) ? res.tasks : [];
+            if (!Array.isArray(res?.tasks) || res.limitReached || res.limitReachedDocIds?.length || !isCurrent()) return null;
+            rows = res.tasks;
         } catch (e) {
-            rows = [];
+            return null;
         }
         let entry = null;
         try {
@@ -18210,9 +18131,9 @@
         } catch (e) {
             entry = null;
         }
-        if (!entry) return null;
+        if (!entry || !isCurrent()) return null;
         let tasks = [];
-        try { tasks = __tmBuildTaskTreeFromTaskIndexBlocks(entry) || []; } catch (e) { tasks = []; }
+        try { tasks = __tmBuildTaskTreeFromTaskIndexBlocks(entry) || []; } catch (e) { return null; }
         return {
             id: did,
             name: String(entry.name || '').trim() || '未命名文档',
@@ -18229,53 +18150,29 @@
         const docId = String(doc?.id || '').trim();
         if (!doc || !__tmIsLikelyBlockId(docId)) return false;
         const opts = (options && typeof options === 'object') ? options : {};
+        const generation = __tmTaskSnapshotSaveGeneration;
+        const readToken = globalThis.__tmTaskStore?.captureRead?.([docId]) || null;
+        const isCurrent = () => generation === __tmTaskSnapshotSaveGeneration
+            && (!readToken || globalThis.__tmTaskStore?.isReadCurrent?.(readToken) === true)
+            && !globalThis.__tmTaskMutations?.hasPending?.();
         try {
             return await __tmWithTaskSnapshotWriteLock(async () => {
-                const rawStore = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
-                const store = __tmBuildTaskSnapshotStore(rawStore);
-                const snapshots = Object.values(store?.snapshots || {});
-                if (!snapshots.length) return false;
-                const now = Date.now();
-                let changed = false;
-                snapshots.forEach((snapshot) => {
-                    const materialized = __tmMaterializeTaskSnapshotRecord(snapshot, store);
-                    if (!__tmIsUsableTaskSnapshot(materialized)) return;
-                    const snapshotDocIds = __tmNormalizeTaskSnapshotDocIds(
-                        Array.isArray(materialized.docIds) && materialized.docIds.length
-                            ? materialized.docIds
-                            : (Array.isArray(materialized.taskTree) ? materialized.taskTree.map((item) => item?.id) : [])
-                    );
-                    if (!snapshotDocIds.includes(docId)) return;
-                    const nextDoc = __tmCloneTaskSnapshotValue(doc, 0);
-                    if (!nextDoc) return;
-                    let replaced = false;
-                    const nextTaskTree = (Array.isArray(materialized.taskTree) ? materialized.taskTree : [])
-                        .map((item) => {
-                            if (String(item?.id || '').trim() !== docId) return item;
-                            replaced = true;
-                            return nextDoc;
-                        });
-                    if (!replaced) nextTaskTree.push(nextDoc);
-                    const nextSnapshot = {
-                        ...materialized,
-                        taskTree: nextTaskTree,
-                        updatedAt: now,
-                    };
-                    if (opts.keepViewState !== true) {
-                        delete nextSnapshot.viewState;
-                        delete nextSnapshot.viewStates;
-                    }
-                    store.snapshots[nextSnapshot.scopeKey] = nextSnapshot;
-                    changed = true;
+                if (!isCurrent()) return false;
+                const readStartedAt = Date.now();
+                const rawStore = await __tmReadDerivedCacheFile(TASK_SNAPSHOT_FILE_PATH);
+                if (!isCurrent()) return false;
+                const store = Number(rawStore?.version) === __TM_TASK_SNAPSHOT_VERSION && rawStore?.docs
+                    ? rawStore : __tmBuildTaskSnapshotStore(rawStore);
+                const patched = __tmPatchTaskSnapshotDocuments(store, [doc], {
+                    queryLimit: opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT, readStartedAt,
                 });
-                if (!changed) return false;
-                store.updatedAt = now;
-                const nextStore = __tmBuildTaskSnapshotStore(store);
+                if (!patched || patched.stale) return false;
+                if (!patched.affectedScopes.length) return true;
+                const nextStore = __tmBuildTaskSnapshotStore(patched.store);
+                if (!patched.affectedScopes.every((key) => nextStore.snapshots[key]) || !isCurrent()) return false;
                 const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
-                if (!saved) {
-                    return false;
-                }
-                __tmTaskSnapshotStoreCache = nextStore;
+                if (!saved) return false;
+                if (isCurrent()) __tmTaskSnapshotStoreCache = nextStore;
                 return true;
             });
         } catch (e) {
@@ -18679,22 +18576,10 @@
     }
 
     function __tmScheduleCalendarRefetchFromTx(options = {}) {
-        const txTrace = (() => {
-            try {
-                return globalThis.__tmTaskHorizonPerfCreate?.('calendarRefresh', {
-                    calendar: 'tx',
-                    instance: 'tx',
-                    reason: String(options?.reason || 'task-tx-refresh').trim() || 'task-tx-refresh',
-                    refreshReason: String(options?.source || 'transaction').trim() || 'transaction',
-                    pending: true,
-                });
-            } catch (e) { return null; }
-        })();
         __tmCalendarTxRefreshPending = true;
         const calApi = globalThis.__tmCalendar;
         if (!calApi || (typeof calApi.requestRefresh !== 'function' && typeof calApi.refreshInPlace !== 'function')) {
             __tmCalendarTxRefreshPending = false;
-            try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'calendar-api-missing', success: true }); } catch (e) {}
             return;
         }
         try { if (__tmCalendarTxRefreshTimer) clearTimeout(__tmCalendarTxRefreshTimer); } catch (e) {}
@@ -18703,7 +18588,6 @@
                 __tmCalendarTxRefreshTimer = null;
                 const gateMeta = __tmGetBackgroundRefreshGateMeta('calendar-tx');
                 if (!gateMeta.allowRun) {
-                    try { globalThis.__tmTaskHorizonPerfMark?.(txTrace, 'deferred', { calendar: 'tx', reason: gateMeta.reason || reason || 'deferred', pending: true }); } catch (e) {}
                     if (gateMeta.parkUntilScrollIdle) {
                         try { __tmScheduleDeferredRefreshAfterScroll('calendar-tx'); } catch (e) {}
                         return;
@@ -18730,14 +18614,12 @@
                     if (isCalendarView && skipLocalDateRefresh) {
                         // The local date patch already updated the mounted event.
                         // The transaction echo must not issue a second range query.
-                        try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'skip-local-date-refresh', mode: 'skip', success: true }); } catch (e) {}
                         return;
                     }
                     if (isCalendarView && skipPendingLocalDateRefresh) {
                         // The mounted event already contains the pending local
                         // date patch; do not replace it with a duplicate source
                         // snapshot from the transaction echo.
-                        try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'skip-pending-local-date-refresh', mode: 'skip', success: true }); } catch (e) {}
                         return;
                     }
                     try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
@@ -18749,7 +18631,6 @@
                             side: false,
                             allowInactiveFullLoad: true,
                         });
-                        try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'task-date-source-refresh', main: true, side: false, success: true }); } catch (e) {}
                     } else if (isCalendarView) {
                         // Compatibility fallback for older calendar bundles that do not expose
                         // the task-date source API yet.
@@ -18760,9 +18641,6 @@
                             flushTaskPanel: false,
                             hard: false,
                         }, { hard: false });
-                        try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'calendar-refresh-fallback', main: true, side: false, success: true }); } catch (e) {}
-                    } else {
-                        try { globalThis.__tmTaskHorizonPerfFinish?.(txTrace, { calendar: 'tx', reason: 'skip-non-calendar-view', mode: 'skip', success: true }); } catch (e) {}
                     }
                 } catch (e) {}
             }, Math.max(120, Number(delayMs || 0) || 120));
@@ -18890,8 +18768,13 @@
                         __tmScheduleCalendarRefetchFromTx();
                     }
                     try {
+                        const changedDocIds = txAttrUpdates.map((update) => {
+                            const task = globalThis.__tmTaskStore?.getProjected?.(update?.taskId) || state.flatTasks?.[update?.taskId];
+                            return String(task?.root_id || '').trim();
+                        });
                         __tmSchedulePersistTaskSnapshot({
                             docIds: state.__tmLoadedDocIdsForTasks,
+                            changedDocIds: changedDocIds.length && changedDocIds.every(__tmIsLikelyBlockId) ? changedDocIds : null,
                             groupId: SettingsStore?.data?.currentGroupId || 'all',
                             queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
                             delayMs: 1800,

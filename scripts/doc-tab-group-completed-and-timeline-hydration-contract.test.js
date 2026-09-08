@@ -69,7 +69,7 @@ assert.match(settingsRuntime, /__tmSettingsSearchAttrs\('appearance', '页签栏
 assert.match(storeRuntime, /docTabsManualArchiveOnly: false[\s\S]*tm_doc_tabs_manual_archive_only[\s\S]*docTabsManualArchiveOnly = !!this\.data\.docTabsManualArchiveOnly/, 'manual archive control must have a backward-compatible default and normalized local persistence');
 assert.match(storeRuntime, /docTabsManualUnarchivedByGroup[\s\S]*tm_doc_tabs_manual_unarchived_by_group/, 'manual unarchive overrides must be persisted');
 assert.match(storeRuntime, /docTabsManualArchiveOnly: data\.docTabsManualArchiveOnly \? 1 : 0/, 'snapshot view signatures must separate automatic and manual archive policies');
-assert.match(dialogRuntime, /String\(archiveMode \? 1 : 0\),\s*String\(SettingsStore\?\.data\?\.docTabsManualArchiveOnly \? 1 : 0\)/, 'filter render signatures must change when the archive policy changes');
+assert.match(dialogRuntime, /function __tmBuildFilteredTaskRenderContextSignature\(\)[\s\S]*?String\(state\.docTabsArchiveMode === true \? 1 : 0\)[\s\S]*?String\(SettingsStore\?\.data\?\.docTabsManualArchiveOnly \? 1 : 0\)/, 'filter render signatures must change when the archive policy changes');
 assert.match(rowModelRuntime, /window\.updateDocTabsManualArchiveOnly[\s\S]*__tmResolveDocTabSwitchTarget\(activeDocId\)[\s\S]*__tmRecomputeTaskProjection\(/, 'changing archive policy must validate the active tab and refresh every aggregate scope');
 
 const customGroupRegionPolicySource = segment(

@@ -729,7 +729,10 @@ function createHarness(options = {}) {
 
 async function run() {
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugin.json'), 'utf8'));
-    assert.equal(manifest.version, '2.9.8');
+    assert.match(manifest.version, /^\d+\.\d+\.\d+$/, 'plugin.json must declare a valid release version');
+    const bootstrapSource = fs.readFileSync(path.join(__dirname, '..', 'src/task-horizon/main/00-bootstrap-and-styles.js'), 'utf8');
+    const bootstrapVersion = bootstrapSource.match(/^\/\/\s*@version\s+(\S+)/m)?.[1];
+    assert.equal(bootstrapVersion, manifest.version, 'the runtime version must follow plugin.json');
     assert.ok(Array.isArray(manifest.kernels) && manifest.kernels.includes('all'), 'plugin.json must enable the kernel plugin on supported backends');
     assert.equal(manifest.minAppVersion, '3.8.1', 'the release must require the SiYuan version whose plugin readOnly and startup RPC contracts were reviewed');
 

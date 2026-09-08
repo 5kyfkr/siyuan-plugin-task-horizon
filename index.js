@@ -647,6 +647,20 @@ const createTaskHorizonHostBridge = (pluginInstance) => ({
             return "";
         }
     },
+    getStorageRequestApp: () => String(pluginInstance?.app?.appId || '').trim(),
+    appendStorageRequestApp: (form) => {
+        const appId = String(pluginInstance?.app?.appId || '').trim();
+        if (!appId || !form || typeof form.append !== 'function') return form;
+        try {
+            if (typeof form.get !== 'function' || !form.get('app')) form.append('app', appId);
+        } catch (e) {}
+        return form;
+    },
+    withStorageRequestApp: (payload) => {
+        const source = payload && typeof payload === 'object' ? payload : {};
+        const appId = String(pluginInstance?.app?.appId || '').trim();
+        return appId ? { ...source, app: appId } : { ...source };
+    },
     loadData: (...args) => {
         try {
             return pluginInstance?.loadData?.(...args);
@@ -1341,6 +1355,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     : [];
                 this._taskDataChangedReasons?.clear?.();
                 const reloadReason = reasons.sort().join("+") || "siyuan-data-changed";
+                const suppressStorageWrites = reasons.includes("overwrite");
                 try {
                     if (this._taskMobileStartupOpenPromise) {
                         try { await this._taskMobileStartupOpenPromise; } catch (e) {}
@@ -1357,7 +1372,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                         console.warn("[task-horizon] synchronized data reload is unavailable");
                         continue;
                     }
-                    refreshed = await reloadSyncedData({ reason: reloadReason }) !== false || refreshed;
+                    refreshed = await reloadSyncedData({ reason: reloadReason, suppressStorageWrites }) !== false || refreshed;
                 } catch (e) {
                     console.warn("[task-horizon] synchronized data reload failed", e);
                 } finally {
@@ -1382,6 +1397,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     }
 
     async onDataChanged() {
+        const normalizedReason = String(arguments[0] || '').trim();
+        if (normalizedReason === 'overwrite') {
+            return await this.requestSyncedDataReload('overwrite', {
+                delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,
+            });
+        }
         return await this.requestSyncedDataReload("siyuan-data-changed", {
             delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,
         });
@@ -3162,7 +3183,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             await Promise.all(paths.map((path) => fetch("/api/file/removeFile", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ path }),
+                body: JSON.stringify(globalThis.__taskHorizonHostBridge?.withStorageRequestApp?.({ path }) || { path }),
             }).catch(() => null)));
         } catch (e) {}
     }

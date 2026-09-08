@@ -228,12 +228,49 @@
             };
         };
 
+        const taskProjectionIndexCache = new WeakMap();
+        const buildTaskProjectionIndex = (sourceInput = []) => {
+            const source = Array.isArray(sourceInput) ? sourceInput : [];
+            const revision = Number(globalThis.__tmTaskStore?.revision?.() || 0) || 0;
+            const cached = taskProjectionIndexCache.get(source);
+            if (cached && cached.revision === revision) return cached.value;
+            const flatTasks = [];
+            const flatTaskMap = Object.create(null);
+            const tasksByDoc = new Map();
+            const seen = new Set();
+            const addTask = (task, fallbackDocId = '') => {
+                if (!task || typeof task !== 'object') return;
+                const taskId = normalizeId(task.id);
+                if (!taskId || seen.has(taskId)) return;
+                seen.add(taskId);
+                const docId = normalizeId(task.root_id || task.docId || fallbackDocId);
+                flatTasks.push(task);
+                flatTaskMap[taskId] = task;
+                if (docId) {
+                    const list = tasksByDoc.get(docId) || [];
+                    list.push(task);
+                    tasksByDoc.set(docId, list);
+                }
+                const children = Array.isArray(task.children) ? task.children : [];
+                children.forEach((child) => addTask(child, docId));
+            };
+            source.forEach((entry) => {
+                const docId = normalizeId(entry?.id);
+                if (Array.isArray(entry?.tasks)) entry.tasks.forEach((task) => addTask(task, docId));
+                else addTask(entry, docId);
+            });
+            const value = { flatTasks, flatTaskMap, tasksByDoc };
+            taskProjectionIndexCache.set(source, { revision, value });
+            return value;
+        };
+
         const engine = {
             normalizeField,
             collectPatchFields: (patch, fields) => Array.from(collectPatchFields(patch, fields)),
             compileRuleDependencies,
             analyzePatch,
             mergeChangeSets,
+            buildTaskProjectionIndex,
             isTaskCompleted,
             isKanbanTaskVisibleByCompletion,
             setRuntimeHandler(handler) {

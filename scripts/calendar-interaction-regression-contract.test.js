@@ -34,6 +34,56 @@ assert.equal(getCalendarLongPressDelay({}, 'eventLongPressDelay', 600), 600);
 
 class FakeElement {}
 class FakeHTMLElement extends FakeElement {}
+const dropCanvas = new FakeHTMLElement();
+const dropColumns = ['2026-09-07', '2026-09-08'].map((dayKey, index) => {
+    const element = new FakeHTMLElement();
+    element.getAttribute = () => dayKey;
+    element.getBoundingClientRect = () => ({ left: index * 200, right: (index + 1) * 200, top: 50, bottom: 1000 });
+    element.closest = (selector) => selector === '.tm-proto-time-canvas' ? dropCanvas
+        : selector.includes('.tm-proto-time-col') ? element : null;
+    return element;
+});
+const dropAllDay = Object.assign(new FakeHTMLElement(), {
+    getAttribute: () => '2026-09-08',
+    getBoundingClientRect: () => ({ left: 200, right: 400, top: 0, bottom: 50 }),
+    closest: () => null,
+});
+const dropHost = Object.assign(new FakeHTMLElement(), {
+    querySelector: () => dropHost,
+    querySelectorAll: (selector) => selector === '.tm-proto-time-col' ? dropColumns
+        : selector === '.tm-proto-allday-cell' ? [dropAllDay] : [],
+    contains: () => true,
+});
+const dropDocument = {
+    elementFromPoint: () => dropColumns[0],
+    elementsFromPoint: () => [],
+};
+const resolveDropHit = readFunction(source, 'resolveMainCalendarDropHitFromPoint', {
+    Element: FakeElement,
+    HTMLElement: FakeHTMLElement,
+    state: {},
+    document: dropDocument,
+    getSettings: () => ({}),
+    prototypeTimelineMinutesAtPoint: () => 547,
+    getCalendarView: () => ({ type: 'timeGridWeek' }),
+    shouldIgnoreCalendarExternalDragHitElement: () => false,
+});
+const timedHit = resolveDropHit(dropHost, dropColumns[0], 100, 350);
+assert.ok(timedHit, 'a direct time-column hit must retain the element, not a boolean');
+assert.equal(timedHit.start.getDate(), 7);
+assert.equal(timedHit.start.getHours(), 9);
+assert.equal(timedHit.start.getMinutes(), 0, 'timed drops must retain 15-minute snapping');
+assert.equal(timedHit.allDay, false);
+const nestedDropTarget = Object.assign(new FakeHTMLElement(), { closest: (selector) => dropColumns[0].closest(selector) });
+assert.ok(resolveDropHit(dropHost, nestedDropTarget, 100, 350), 'nested event targets must resolve their time column');
+assert.ok(resolveDropHit(dropHost, null, 100, 350), 'touch drops must resolve the element under the pointer');
+const adjacentHit = resolveDropHit(dropHost, dropColumns[0], 200, 350);
+assert.equal(adjacentHit.start.getDate(), 8, 'a stale target at a column boundary must use pointer geometry');
+const allDayHit = resolveDropHit(dropHost, dropColumns[0], 250, 25);
+assert.equal(allDayHit.allDay, true, 'the all-day lane must take precedence over a stale timed target');
+assert.equal(allDayHit.start.getDate(), 8);
+assert.equal(resolveDropHit(dropHost, dropColumns[0], 500, 350), null, 'out-of-grid drops must not create a schedule');
+
 const canvas = Object.assign(new FakeHTMLElement(), {
     getBoundingClientRect: () => ({ top: 0, height: 1000 }),
 });
@@ -84,6 +134,51 @@ assert.equal(crossDayRange.end.getDate(), 25, 'cross-column selection must follo
 
 const checkboxGuard = "if (target?.closest?.('.tm-proto-event-check, .tm-cal-task-event-check')) return;";
 assert.equal(source.split(checkboxGuard).length - 1, 2, 'main and side event drags must ignore checkbox presses');
+assert.doesNotMatch(
+    source,
+    /eventApi\.allDay === true && prototypeEventDrag\.eventCell\?\.matches\?\.\('\.tm-proto-month-cell'\)/,
+    'dragging a single-day all-day card must not raise the whole month cell over neighboring cross-day bars',
+);
+assert.match(
+    source,
+    /eventApi\?\.allDay === true && drag\.isMonthCell && !drag\.resizeEdge[\s\S]*?getPrototypeAllDayDragDates\(drag, eventApi, targetDay\)[\s\S]*?drag\.previewMode = 'allday'/,
+    'month all-day movement must keep its preview in the all-day range renderer',
+);
+assert.match(
+    source,
+    /eventApi\?\.allDay !== true && drag\.isMonthCell && !drag\.resizeEdge/,
+    'month timed movement must not reuse the all-day preview branch',
+);
+assert.match(
+    source,
+    /const resolvePrototypeAllDayCellAtPoint = \(drag, clientX, clientY\) =>[\s\S]*?const allDayRect = allDay\.getBoundingClientRect\?\.[\s\S]*?return cells\.find\(\(cell\) =>/,
+    'week all-day dragging must resolve the all-day lane from pointer geometry',
+);
+assert.match(
+    source,
+    /const timedDrop = !drag\.resizeEdge && !allDayCell\s*\n\s*\? resolvePrototypeTimedDropAtPoint/,
+    'week all-day dragging must enter the time axis only after leaving the all-day lane',
+);
+assert.match(
+    source,
+    /if \(allDayCell && drag\.originStart instanceof Date && drag\.originEnd instanceof Date\)[\s\S]*?drag\.previewMode = 'allday';[\s\S]*?renderPrototypeSurface\(\);[\s\S]*?return;/,
+    'returning from the time axis must rerender the all-day preview instead of translating the stale timed card',
+);
+assert.match(
+    source,
+    /prototypeEventDrag\.previewMode === 'timed'[\s\S]*?prototypeEventDrag\.previewMode === 'allday'/,
+    'week all-day preview ranges must participate in prototype rerendering',
+);
+assert.match(
+    source,
+    /const timedDrop = eventApi\.allDay === true && !drag\.resizeEdge\s*\n\s*&& !resolvePrototypeAllDayCellAtPoint\(drag, event\.clientX, event\.clientY\)/,
+    'pointerup must use the same all-day lane boundary as pointermove',
+);
+assert.match(
+    source,
+    /const previousCell = drag\.eventCell[\s\S]*?previousCell\.classList\.remove\('tm-proto-cell--dragging'\)[\s\S]*?if \(drag\.resizeEdge\)[\s\S]*?drag\.eventCell\?\.classList\?\.add\?\.\('tm-proto-cell--dragging'\)/,
+    'drag preview rebinding must only raise the date cell for resize operations',
+);
 assert.match(
     source,
     /if \(source === 'tomato'\) \{\s*openRecordModal\(eventApi\);/,

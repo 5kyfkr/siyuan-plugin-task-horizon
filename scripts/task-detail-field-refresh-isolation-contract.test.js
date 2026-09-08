@@ -72,15 +72,10 @@ assert.match(fieldEditSource, /skipDetailPatch: opts\.skipDetailPatch === true,[
     'custom field persistence must forward mounted inactive projection permission');
 assert.doesNotMatch(storesSource, /__TM_DIRECT_DETAIL_ORDER_DEBUG_TAGS|\[Task Horizon\]\[detail-order-refresh\]/,
     'resolved detail-order diagnostics must not keep an unconditional console hot path');
-assert.match(
+assert.doesNotMatch(
     coordinatorSource,
-    /__tmPushDetailDebug\('detail-projection-change-set',[\s\S]*taskIds:[\s\S]*fields:[\s\S]*viewMode:/,
-    'projection change-set handling must print the affected detail task and fields',
-);
-assert.match(
-    coordinatorSource,
-    /__tmPushDetailDebug\('detail-projection-batch',[\s\S]*projectionRequired,[\s\S]*filtersApplied,[\s\S]*projected,[\s\S]*fallbackRequired:/,
-    'opt-in projection diagnostics must retain the in-place and fallback result without recalculating task scores',
+    /__tmPushDetailDebug|__tmPushStatusDebug/,
+    'detail projection must not retain temporary diagnostics in the refresh hot path',
 );
 
 const performViewRefreshStart = coordinatorSource.indexOf('function __tmPerformViewRefresh(');

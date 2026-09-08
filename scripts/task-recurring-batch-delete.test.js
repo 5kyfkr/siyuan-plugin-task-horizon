@@ -50,8 +50,8 @@ function createHarness(tasks, selectedIds) {
         __tmSetMultiSelectedTaskIds: (ids) => { state.multiSelectedTaskIds = ids.slice(); },
         __tmGetMultiSelectedTaskIds: () => state.multiSelectedTaskIds.slice(),
         __tmRefreshMultiSelectUiInPlace: () => true,
-        __tmDeleteTaskRepeatHistoryEntry: async (sourceTaskId, completedAt) => {
-            calls.recurring.push({ sourceTaskId, completedAt });
+        __tmDeleteTaskRepeatHistoryEntry: async (sourceTaskId, completedAt, options) => {
+            calls.recurring.push({ sourceTaskId, completedAt, options });
             return true;
         },
         __tmScheduleRender: () => {},
@@ -101,10 +101,17 @@ async function testMixedBatchRoutesRecurringRecords() {
 
     assert.deepEqual(harness.calls.normal, [normalTask.id], 'virtual recurring IDs must not reach the block delete mutation');
     assert.equal(harness.calls.normalOptions[0]?.wait, true, 'batch deletion must settle every permanent writer before reporting completion');
-    assert.deepEqual(harness.calls.recurring, [
+    assert.deepEqual(harness.calls.recurring.map((item) => ({
+        sourceTaskId: item.sourceTaskId,
+        completedAt: item.completedAt,
+    })), [
         { sourceTaskId: sourceTask.id, completedAt: latest },
         { sourceTaskId: sourceTask.id, completedAt: older },
     ], 'records from one series must be deleted newest first');
+    harness.calls.recurring.forEach((item) => {
+        assert.equal(item.options?.source, 'multi-select-batch-delete-recurring');
+        assert.equal(item.options?.resetNativeDone, true);
+    });
     assert.equal(result.successCount, 3);
     assert.equal(result.failureCount, 0);
     assert.deepEqual(harness.state.multiSelectedTaskIds, []);

@@ -117,8 +117,9 @@ const checklistGroupProjection = servicesSource.slice(
     servicesSource.indexOf('function __tmReconcileChecklistProjectionCard'),
     servicesSource.indexOf('function __tmRerenderChecklistInPlace'),
 );
-assert.match(checklistGroupProjection, /currentTaskNodes[\s\S]*currentBody\.insertBefore\(node, cursor\)/,
+assert.match(checklistGroupProjection, /__tmSelectChecklistProjectionNodes\(nextCardBody\.children, currentTaskNodes, refreshTaskIds\)[\s\S]*__tmReconcileChecklistProjectionNodeList\(currentBody, Array\.from\(currentBody\.children \|\| \[\]\), desiredNodes\)/,
     'compact checklist projection must move existing task nodes by id');
+assert.match(servicesSource, /function __tmReconcileChecklistProjectionNodeList[\s\S]*parent\.insertBefore\(node, cursor\)/);
 assert.doesNotMatch(checklistGroupProjection, /currentCard\.replaceWith\(nextCard\.cloneNode\(true\)\)/,
     'compact checklist projection must not replace the full affected group card');
 assert.match(checklistGroupProjection, /!currentCards\.length && !nextCards\.length[\s\S]*!currentCards\.length \|\| !nextCards\.length\) return false;/,

@@ -6297,6 +6297,8 @@
     display: flex !important;
     flex-direction: column !important;
     align-items: stretch !important;
+    /* Keep the block boundary equal to its actual start/end time span. */
+    min-height: 0 !important;
     gap: 1px !important;
     padding: 3px 6px !important;
     overflow: visible !important;

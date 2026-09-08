@@ -313,7 +313,10 @@
                     typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(child) : !!child?.done
                 )).length;
                 const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
-                const isDoneSubtask = (typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(task) : !!task.done)
+                const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+                    ? !!__tmIsTaskDoneEffective(task)
+                    : !!task.done;
+                const isDoneSubtask = taskDone
                     && (Math.max(0, Number(row.depth) || 0) > 0);
                 const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
                 const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
@@ -336,10 +339,10 @@
                         ${treeGuides}
                         <span class="${leadingClass}">
                             ${leadingRing}
-                            ${__tmRenderTaskCheckbox(task.id, task, { checked: task.done, extraClass: isGloballyLocked ? 'tm-operating' : '' })}
+                            ${__tmRenderTaskCheckbox(task.id, task, { checked: taskDone, extraClass: isGloballyLocked ? 'tm-operating' : '' })}
                             ${toggle}
                         </span>
-                        <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
+                        <span class="tm-task-text ${taskDone ? 'tm-task-done' : ''}" data-level="${row.depth}">
                             <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${task.id}', event, { surface: 'timeline' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, task.content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                         </span>
                     </div>`;
@@ -520,7 +523,16 @@
             });
 
             const filteredRaw = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
-            const kanbanProjectedTaskById = new Map();
+            const taskStoreRevision = Number(globalThis.__tmTaskStore?.revision?.() || 0) || 0;
+            const flatTaskMap = (state.flatTasks && typeof state.flatTasks === 'object') ? state.flatTasks : {};
+            const kanbanIndexCache = state.__tmKanbanRenderIndexCache;
+            const canReuseKanbanIndex = kanbanIndexCache
+                && kanbanIndexCache.filteredRaw === filteredRaw
+                && kanbanIndexCache.flatTaskMap === flatTaskMap
+                && kanbanIndexCache.revision === taskStoreRevision;
+            const kanbanProjectedTaskById = canReuseKanbanIndex
+                ? kanbanIndexCache.projectedById
+                : new Map();
             const resolveKanbanProjectedTask = (taskOrId) => {
                 const fallback = (taskOrId && typeof taskOrId === 'object') ? taskOrId : null;
                 const tid = String(fallback?.id || taskOrId || '').trim();
@@ -539,11 +551,15 @@
                 kanbanProjectedTaskById.set(tid, resolved || null);
                 return resolved;
             };
-            const filteredRawTaskById = new Map();
-            filteredRaw.forEach((task) => {
-                const id = String(task?.id || '').trim();
-                if (id) filteredRawTaskById.set(id, resolveKanbanProjectedTask(task) || task);
-            });
+            const filteredRawTaskById = canReuseKanbanIndex
+                ? kanbanIndexCache.filteredRawTaskById
+                : new Map();
+            if (!canReuseKanbanIndex) {
+                filteredRaw.forEach((task) => {
+                    const id = String(task?.id || '').trim();
+                    if (id) filteredRawTaskById.set(id, resolveKanbanProjectedTask(task) || task);
+                });
+            }
             const getKanbanParentTaskId = (task) => {
                 const id = String(task?.id || '').trim();
                 const pid = String(task?.parentTaskId || task?.parent_task_id || '').trim();
@@ -572,8 +588,12 @@
                 if (!tid) return null;
                 return resolveKanbanProjectedTask(filteredRawTaskById.get(tid) || tid) || null;
             };
-            const kanbanChildrenByParentId = new Map();
-            const kanbanChildrenSeenByParentId = new Map();
+            const kanbanChildrenByParentId = canReuseKanbanIndex
+                ? kanbanIndexCache.childrenByParentId
+                : new Map();
+            const kanbanChildrenSeenByParentId = canReuseKanbanIndex
+                ? kanbanIndexCache.childrenSeenByParentId
+                : new Map();
             const pushKanbanChildForParent = (parentId, child) => {
                 const pid = String(parentId || '').trim();
                 const projectedChild = resolveKanbanProjectedTask(child) || child;
@@ -600,9 +620,25 @@
                     pushKanbanChildForParent(id, child);
                 });
             };
-            Object.values((state.flatTasks && typeof state.flatTasks === 'object') ? state.flatTasks : {}).forEach(indexKanbanTaskChildren);
-            filteredRaw.forEach(indexKanbanTaskChildren);
-            const kanbanParentChildrenIndexedIds = new Set();
+            if (!canReuseKanbanIndex) {
+                Object.values(flatTaskMap).forEach(indexKanbanTaskChildren);
+                filteredRaw.forEach(indexKanbanTaskChildren);
+            }
+            const kanbanParentChildrenIndexedIds = canReuseKanbanIndex
+                ? kanbanIndexCache.parentChildrenIndexedIds
+                : new Set();
+            if (!canReuseKanbanIndex) {
+                state.__tmKanbanRenderIndexCache = {
+                    revision: taskStoreRevision,
+                    filteredRaw,
+                    flatTaskMap,
+                    projectedById: kanbanProjectedTaskById,
+                    filteredRawTaskById,
+                    childrenByParentId: kanbanChildrenByParentId,
+                    childrenSeenByParentId: kanbanChildrenSeenByParentId,
+                    parentChildrenIndexedIds: kanbanParentChildrenIndexedIds,
+                };
+            }
             const getKanbanChildTasksByParentId = (parentId) => {
                 const pid = String(parentId || '').trim();
                 if (!pid) return [];
@@ -1014,7 +1050,11 @@
                 if (!did || did === '__unknown__') return '#757575';
                 return __tmGetDocColorHex(did, isDark) || '#4f46e5';
             };
-            const kanbanColsCacheKey = __tmBuildKanbanColsCacheKey({
+            const kanbanProgressiveJob = state.__tmProgressiveViewRender;
+            const progressiveKanbanRender = !!kanbanProgressiveJob
+                && String(kanbanProgressiveJob.mode || '').trim() === 'kanban'
+                && kanbanProgressiveJob.tasksRef === state.filteredTasks;
+            const kanbanColsCacheKey = progressiveKanbanRender ? null : __tmBuildKanbanColsCacheKey({
                 isAllTabsView,
                 isCompact,
                 kanbanColW,
@@ -1041,13 +1081,10 @@
                 tomatoFocusTaskId,
                 tomatoFocusModeEnabled,
             });
-            const kanbanProgressiveJob = state.__tmProgressiveViewRender;
-            const progressiveKanbanRender = !!kanbanProgressiveJob
-                && String(kanbanProgressiveJob.mode || '').trim() === 'kanban'
-                && kanbanProgressiveJob.tasksRef === state.filteredTasks;
             if (progressiveKanbanRender) {
                 kanbanProgressiveJob.columns = [];
             }
+            const isInitialColumnVisible = __tmCreateKanbanInitialColumnWindow(kanbanColW, isCompact ? 50 : 56);
             const renderKanbanBoardNavHtml = (items) => {
                 const list = Array.isArray(items) ? items : [];
                 if (list.length <= 1) return '';
@@ -1268,6 +1305,7 @@
 
             const completedTodayKey = __tmNormalizeDateOnly(new Date());
             const renderCard = (task, depthInCol, isSub, isChildRoot, parentTxt, childrenHtml, toggleHtml, isParent, inCompletedRootGroup = false) => {
+                task = resolveKanbanProjectedTask(task) || task;
                 const id = String(task?.id || '').trim();
                 if (!id) return '';
                 const content = String(task?.content || '').trim();
@@ -1514,9 +1552,6 @@
                 const rootCompare = needDocFlowForKanban ? compareRootByDocFlow : sortByIdx;
                 const childCompare = needDocFlowForKanban ? compareChildByDocFlow : sortByIdx;
                 const completedRecentCompare = (a, b) => __tmCompareCompletedTasksRecentFirst(a, b, rootCompare);
-                roots.sort(isCompletedStatusCol ? completedRecentCompare : rootCompare);
-                completedRoots.sort(completedRecentCompare);
-                childrenByParent.forEach(arr => sortKanbanItemsByCurrentRule(arr, childCompare));
                 let columnCardRenderLimit = Number.POSITIVE_INFINITY;
                 let columnRenderedCardCount = 0;
                 let columnHasDeferredCards = false;
@@ -2011,6 +2046,14 @@
                                 : `heading:${String(c?.docId || '').trim()}:${String(c?.headingId || '__none__').trim() || '__none__'}`)
                             : `status:${String(c?.id || '').trim()}`));
                 const isColumnCollapsed = kanbanCollapsedColumnKeys.has(columnKey);
+                let columnOrderPrepared = false;
+                const prepareColumnOrder = () => {
+                    if (columnOrderPrepared) return;
+                    roots.sort(isCompletedStatusCol ? completedRecentCompare : rootCompare);
+                    completedRoots.sort(completedRecentCompare);
+                    childrenByParent.forEach(arr => sortKanbanItemsByCurrentRule(arr, childCompare));
+                    columnOrderPrepared = true;
+                };
                 const renderColumnListHtml = (limit = Number.POSITIVE_INFINITY) => {
                     const rawLimit = Number(limit);
                     if (Number.isFinite(rawLimit) && rawLimit <= 0) {
@@ -2021,6 +2064,7 @@
                             rendered: 0,
                         };
                     }
+                    prepareColumnOrder();
                     columnCardRenderLimit = Number.isFinite(rawLimit) ? Math.max(1, Math.round(rawLimit)) : Number.POSITIVE_INFINITY;
                     columnRenderedCardCount = 0;
                     columnHasDeferredCards = false;
@@ -2066,18 +2110,23 @@
                         rendered: columnRenderedCardCount,
                     };
                 };
+                const initialColumnVisible = isInitialColumnVisible(isColumnCollapsed);
                 let progressiveColumnLimit = progressiveKanbanRender
-                    ? Math.max(0, Math.round(Number(kanbanProgressiveJob.initialBatchSize ?? kanbanProgressiveJob.batchSize) || 0))
+                    ? (initialColumnVisible
+                        ? Math.max(1, Math.round(Number(kanbanProgressiveJob.initialBatchSize ?? kanbanProgressiveJob.batchSize) || 10))
+                        : 0)
                     : Number.POSITIVE_INFINITY;
                 const initialColumnRender = renderColumnListHtml(progressiveColumnLimit);
                 listHtml = initialColumnRender.html;
                 if (progressiveKanbanRender && initialColumnRender.hasMore) {
                     __tmRegisterKanbanProgressiveColumn(kanbanProgressiveJob, {
                         key: columnKey,
+                        loaded: initialColumnRender.rendered > 0,
                         loadNextBatch: (modalEl) => {
-                            if (state.__tmProgressiveViewRender !== kanbanProgressiveJob) return { done: true };
-                            progressiveColumnLimit += Math.max(1, Math.round(Number(kanbanProgressiveJob.batchSize) || 10));
-                            const nextColumnRender = renderColumnListHtml(progressiveColumnLimit);
+                            if (!__tmIsProgressiveViewRenderCurrent(kanbanProgressiveJob, 'kanban')) return { done: true };
+                            const nextLimit = progressiveColumnLimit + Math.max(1, Math.round(Number(kanbanProgressiveJob.batchSize) || 10));
+                            kanbanProjectedTaskById.clear();
+                            const nextColumnRender = renderColumnListHtml(nextLimit);
                             const modal = modalEl instanceof Element ? modalEl : state.modal;
                             const column = Array.from(modal?.querySelectorAll?.('.tm-kanban-col') || [])
                                 .find((item) => String(item?.getAttribute?.('data-col-key') || '').trim() === columnKey);
@@ -2090,6 +2139,7 @@
                                 nextColumnRender.html || `<div class="tm-kanban-empty">空</div>`
                             );
                             if (!patchResult?.ok) return { done: false, retry: true };
+                            progressiveColumnLimit = nextLimit;
                             try { __tmSyncKanbanBottomNavAvoidance(modal); } catch (e) {}
                             if (String(state.searchKeyword || '').trim()) {
                                 const highlightRoots = patchResult.replaced
@@ -2103,7 +2153,8 @@
                         },
                     });
                 }
-                if (headingMode && !isDoneCol && kind === 'doc' && !isColumnCollapsed && !String(listHtml || '').trim()) {
+                if (headingMode && !isDoneCol && kind === 'doc' && !isColumnCollapsed
+                    && !initialColumnRender.hasMore && !String(listHtml || '').trim()) {
                     return '';
                 }
                 const title = isDoneCol

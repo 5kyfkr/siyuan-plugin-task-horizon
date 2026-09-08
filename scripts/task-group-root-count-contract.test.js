@@ -45,7 +45,7 @@ assert.match(listGrouping, /normalRoots\.forEach\(task =>/, 'table time, quadran
 
 const rowModelGrouping = segment(
     rowModelRuntime,
-    'function __tmBuildTaskRowModel()',
+    'function __tmBuildTaskRowModel(',
     'function __tmResolveFirstVisibleTaskIdFromRowModel',
 );
 assert.match(rowModelGrouping, /const rootTasks = derived\.rootTasks;/, 'checklist and timeline groups must start from filtered root tasks');

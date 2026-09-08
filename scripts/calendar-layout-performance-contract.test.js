@@ -46,7 +46,7 @@ assert.match(
 );
 assert.match(
     source,
-    /view-switch-deferred[\s\S]*success\(\[\]\)[\s\S]*deferred: true/,
+    /calendar-view-data-deferred[\s\S]*success\(\[\]\)/,
     'event sources must return an empty shell while a view switch is being committed',
 );
 assert.match(

@@ -1721,7 +1721,7 @@
         globalThis.__tmRuntimeEvents?.onEventBus?.('click-blockicon', __tmBlockIconMenuHandler, eb);
     }
 
-    const __TM_NATIVE_DOC_CHECKBOX_SYNC_DELAY_MS = 260;
+    const __TM_NATIVE_DOC_CHECKBOX_SYNC_DELAY_MS = 32;
     const __TM_NATIVE_DOC_CHECKBOX_PREVIOUS_STATE_TTL_MS = 5000;
     const __TM_NATIVE_DOC_CHECKBOX_RECENT_SYNC_SKIP_MS = 8000;
     const __TM_NATIVE_DOC_CHECKBOX_STRUCTURAL_EMPTY_STATUS_GRACE_MS = 5000;
@@ -2266,22 +2266,8 @@
                     ? __tmReadTaskMetaAttrValue(attrs, 'taskCompleteAt')
                     : (attrs['custom-task-complete-at'] || '')),
             };
-            if (__tmShouldLogStatusDebug([rawId, attrTargetId], false)) {
-                __tmPushStatusDebug('checkbox-attrs-read', {
-                    blockId: rawId,
-                    attrTargetId,
-                    result,
-                }, [rawId, attrTargetId], { force: false });
-            }
             return result;
         } catch (e) {
-            if (__tmShouldLogStatusDebug([rawId, attrTargetId], false)) {
-                __tmPushStatusDebug('checkbox-attrs-read:error', {
-                    blockId: rawId,
-                    attrTargetId,
-                    error: String(e?.message || e || ''),
-                }, [rawId, attrTargetId], { force: false });
-            }
             return { status: '', taskCompleteAt: '' };
         }
     }
@@ -2559,11 +2545,7 @@
         if (__tmWasNativeDocCheckboxRecentlySynced(rawId, !!domDone)) {
             return true;
         }
-        __tmPushStatusDebug('checkbox-sync:start', {
-            blockId: rawId,
-            domDone: !!domDone,
-            syncVersion,
-        }, [rawId], { force: true });
+
 
         let taskId = '';
         try { taskId = await __tmResolveTaskIdFromAnyBlockId(rawId); } catch (e) { taskId = ''; }
@@ -2598,17 +2580,7 @@
         }
         __tmMarkNativeDocCheckboxSyncedState([rawId, tid, checkboxAttrTargetId], !!domDone);
         try { __tmMarkLocalDoneTxSuppressionForTask(task, [rawId, tid], 1800); } catch (e) {}
-        __tmPushStatusDebug('checkbox-sync:task-resolved', {
-            blockId: rawId,
-            taskId: tid,
-            attrHostId: checkboxAttrTargetId || __tmGetTaskAttrHostId(task),
-            checkboxAttrTargetId,
-            currentStatus: String(task.customStatus || '').trim(),
-            currentDone: !!task.done,
-            domDone: !!domDone,
-            syncVersion,
-            insertedSync,
-        }, [rawId, tid, __tmGetTaskAttrHostId(task)], { force: true });
+
 
         const statusOptions = Array.isArray(SettingsStore?.data?.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
         const expectedStatus = String(__tmResolveCheckboxLinkedStatusId(!!domDone, statusOptions) || '').trim();
@@ -2652,13 +2624,7 @@
             && !!expectedStatus
             && __tmHasRecentNativeDocCheckboxStructuralChange([rawId, tid, checkboxAttrTargetId]);
         if (recentStructuralEmptyStatus) {
-            __tmPushStatusDebug('checkbox-sync:skip-structural-empty-status', {
-                blockId: rawId,
-                taskId: tid,
-                attrTargetId: checkboxAttrTargetId,
-                expectedStatus,
-                insertedSync,
-            }, [rawId, tid, checkboxAttrTargetId], { force: true });
+
             try { globalThis.__taskHorizonQuickbarScheduleAttrHostMigration?.('native-checkbox-structural-empty-status'); } catch (e) {}
             try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
             __tmMarkNativeDocCheckboxSyncedState([rawId, tid, checkboxAttrTargetId], !!domDone);
@@ -2684,35 +2650,7 @@
         if (expectedStatus && (!targetStatus || !targetStatusMatchesDomDone)) {
             targetStatus = expectedStatus;
         }
-        __tmPushStatusDebug('checkbox-sync:decision', {
-            blockId: rawId,
-            taskId: tid,
-            domDone: !!domDone,
-            expectedStatus,
-            currentStatus,
-            persistedStatusBefore,
-            shouldApplyExpectedStatus,
-            targetStatusMatchesDomDone,
-            targetStatus,
-            taskDoneBefore,
-            currentStatusDoneBefore,
-            previousStatusDoneBefore,
-            persistedStatusDoneBefore,
-            persistedDoneBefore,
-            wasDoneBefore,
-            insertedSync,
-            previousState: previousState ? {
-                previousDone: previousState.previousDone === true,
-                status: previousStatus,
-                taskCompleteAt: previousTaskCompleteAt,
-                source: String(previousState.source || '').trim(),
-                userInitiated: previousState.userInitiated === true,
-            } : null,
-            userInitiatedCheckboxChange,
-            revertedPendingRecurringCompletion,
-            currentTaskCompleteAt,
-            persistedTaskCompleteAtBefore,
-        }, [rawId, tid, __tmGetTaskAttrHostId(task)], { force: true });
+
         const shouldPersistStatus = !!targetStatus && persistedStatusBefore !== targetStatus;
         const shouldSyncLocalStatus = !!targetStatus && currentStatus !== targetStatus;
         const statusPatch = shouldPersistStatus ? { customStatus: targetStatus } : (shouldSyncLocalStatus ? { customStatus: targetStatus } : null);
@@ -2805,13 +2743,7 @@
                     });
                 } catch (e) {}
             }
-            __tmPushStatusDebug('checkbox-sync:end-local-only', {
-                blockId: rawId,
-                taskId: tid,
-                viewPatch,
-                resolvedStatus,
-                resolvedTaskCompleteAt,
-            }, [rawId, tid, __tmGetTaskAttrHostId(task)], { force: true });
+
             __tmMarkNativeDocCheckboxSyncedState([rawId, tid, checkboxAttrTargetId], !!domDone);
             return true;
         }
@@ -2953,16 +2885,7 @@
                 });
             } catch (e) {}
         }
-        __tmPushStatusDebug('checkbox-sync:end', {
-            blockId: rawId,
-            taskId: tid,
-            attrTargetId: checkboxAttrTargetId,
-            attrPatch,
-            persistedStatus,
-            persistedTaskCompleteAt,
-            finalTaskCompleteAt,
-            targetStatus,
-        }, [rawId, tid, __tmGetTaskAttrHostId(task)], { force: true });
+
         if (!didQueueAttrPatch) {
             __tmScheduleNativeDocCheckboxStatusReconcile(rawId, tid, attrPatch, !!domDone, syncVersion, {
                 attrTargetId: checkboxAttrTargetId,

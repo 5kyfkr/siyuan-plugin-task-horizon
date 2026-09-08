@@ -107,7 +107,7 @@ assert.match(
     /function __tmGetCalendarTaskDateIndex\(tasks\)[\s\S]*globalThis\.__tmCalendarTaskDateIndex[\s\S]*function __tmGetCalendarTaskDateCandidates\(tasks, rangeStartTs, rangeEndTs\)/,
     'calendar date queries must use a lightweight shared interval index',
 );
-assert.match(support, /candidateCount: indexed\.tasks\.length[\s\S]*indexHit: indexed\.hit/, 'date index usage must be observable in performance diagnostics');
+assert.match(support, /return \{ tasks: out, hit: indexed\.hit, indexedCount: entries\.length \}/, 'date index usage must expose lightweight index metadata without diagnostics logging');
 assert.match(support, /__tmCalendarTaskLastStoreScope[\s\S]*expectedDocCount[\s\S]*loadedDocCount/, 'store scope misses must expose document counts without task content');
 assert.match(
     calendar,
@@ -145,7 +145,7 @@ assert.match(
 );
 assert.match(
     support,
-    /opts\.deferFullLoad === true[\s\S]*taskdate-side-deferred[\s\S]*cacheStatus: 'warming'/,
+    /opts\.deferFullLoad === true[\s\S]*scheduleTaskDateCacheWarm\('taskdate-side-deferred'\)[\s\S]*markTaskDateQueryResult\(\[\], false, 'side-deferred'\)/,
     'the shared task query must return the side lane without waiting for the full task index',
 );
 

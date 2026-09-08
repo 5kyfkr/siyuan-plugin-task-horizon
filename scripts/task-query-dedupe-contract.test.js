@@ -23,8 +23,8 @@ const deduped = dedupeRows(rows);
 assert.deepEqual(Array.from(deduped, (row) => row.id), ['task-a', 'task-b'], 'same IDs must collapse while same-title different IDs remain');
 assert.equal(deduped[0].updated, '20260102000000', 'the newest duplicate task row must win');
 
-assert.match(apiRuntime, /async getTasksByDocument\(docId,[\s\S]*?const tasks = __tmDedupeTaskQueryRowsById\(Array\.isArray\(res\.data\) \? res\.data : \[\]\);/, 'single-document task queries must dedupe before returning rows');
-assert.match(apiRuntime, /async getTasksByDocuments\(docIds,[\s\S]*?let tasks = __tmDedupeTaskQueryRowsById\(Array\.isArray\(res\.data\) \? res\.data : \[\]\);/, 'multi-document task queries must dedupe before returning rows');
+assert.match(apiRuntime, /async getTasksByDocument\(docId,[\s\S]*?const tasks = __tmDedupeTaskQueryRowsById\(Array\.isArray\(res\.data\) \? res\.data : \[\]\)\.map\(\(row\) => \(\{ \.\.\.row \}\)\);/, 'single-document task queries must dedupe and own rows before enrichment');
+assert.match(apiRuntime, /async getTasksByDocuments\(docIds,[\s\S]*?let tasks = __tmDedupeTaskQueryRowsById\(Array\.isArray\(res\.data\) \? res\.data : \[\]\)\.map\(\(row\) => \(\{ \.\.\.row \}\)\);/, 'multi-document task queries must dedupe and own rows before enrichment');
 assert.match(apiRuntime, /SELECT root_id, COUNT\(DISTINCT id\) AS task_count/, 'task count probes must count logical IDs');
 assert.match(apiRuntime, /COUNT\(DISTINCT task\.id\) AS parent_list_task_count/, 'parent-list shape queries must count logical IDs');
 assert.match(storesRuntime, /const __TM_TASK_SNAPSHOT_VERSION = 4;/, 'task snapshots must invalidate duplicate-bearing v3 data');

@@ -674,6 +674,7 @@
             stage.classList.add('tm-main-stage--view-switch-pending');
             stage.setAttribute('aria-busy', 'true');
         }
+        try { __tmSetInlineLoading(true, { owner: 'view-switch', styleKind: 'topbar', delayMs: 0 }); } catch (e) {}
         return modal;
     }
 
@@ -686,6 +687,10 @@
             stage.classList.remove('tm-main-stage--view-switch-pending');
             stage.removeAttribute('aria-busy');
         }
+        try {
+            if (state.modal === modal) __tmSetInlineLoading(false, { owner: 'view-switch' });
+            else modal.querySelector('.tm-inline-loading-overlay')?.remove();
+        } catch (e) {}
     }
 
     function __tmScheduleAfterNextPaint(callback) {
@@ -701,18 +706,22 @@
         return true;
     }
 
-    function __tmScheduleViewSwitchCommit(generation, nextMode, callback) {
+    function __tmScheduleViewSwitchCommit(generation, nextMode, callback, onSkipped) {
         const run = () => {
-            if (Number(state.__tmViewSwitchCommitGeneration || 0) !== generation) return;
-            if (String(state.viewMode || '').trim() !== nextMode) return;
+            if (Number(state.__tmViewSwitchCommitGeneration || 0) !== generation
+                || String(state.viewMode || '').trim() !== nextMode) {
+                try { onSkipped?.(); } catch (e) {}
+                return;
+            }
             callback();
         };
+        const scheduleAfterFeedbackPaint = () => {
+            try { setTimeout(run, 0); } catch (e) { run(); }
+        };
         try {
-            requestAnimationFrame(() => {
-                try { setTimeout(run, 0); } catch (e) { run(); }
-            });
+            requestAnimationFrame(scheduleAfterFeedbackPaint);
         } catch (e) {
-            try { setTimeout(run, 0); } catch (e2) { run(); }
+            try { setTimeout(scheduleAfterFeedbackPaint, 0); } catch (e2) { run(); }
         }
         return true;
     }
@@ -1093,6 +1102,7 @@
         try { __tmHideMobileMenu(); } catch (e) {}
         if (next === 'whiteboard') {
             try { __tmCalendarFloatingDragEnd(); } catch (e) {}
+            state.whiteboardBottomMoreOpen = false;
         }
         try { __tmCancelProgressiveViewRender(); } catch (e) {}
         const generation = Math.max(0, Math.round(Number(state.__tmViewSwitchCommitGeneration) || 0)) + 1;
@@ -1104,6 +1114,8 @@
                 return;
             }
             let progressiveJob = null;
+            let committed = false;
+            let inPlace = false;
             try {
                 const liveModal = state.modal instanceof HTMLElement ? state.modal : null;
                 const renderedMode = String(liveModal?.getAttribute('data-tm-render-mode') || prev || '').trim();
@@ -1114,11 +1126,15 @@
                     }
                     progressiveJob = __tmStartProgressiveViewRender(next);
                     try { __tmResetViewRenderWindow(next); } catch (e) {}
-                    if (forceFullRender || !__tmTrySwitchViewBodyInPlace(renderedMode, next)) {
+                    inPlace = !forceFullRender && __tmTrySwitchViewBodyInPlace(renderedMode, next);
+                    if (!inPlace) {
                         state.__tmPreserveShellDuringViewSwitchRender = true;
                         try { render(); } finally { state.__tmPreserveShellDuringViewSwitchRender = false; }
                     }
+                    committed = true;
                 }
+            } catch (e) {
+                return;
             } finally {
                 __tmClearViewSwitchPendingShell(pendingModal);
                 if (state.modal !== pendingModal) __tmClearViewSwitchPendingShell(state.modal);
@@ -1130,7 +1146,12 @@
             if (next === 'whiteboard') {
                 try {
                     requestAnimationFrame(() => {
-                        try { window.tmWhiteboardResetView?.(); } catch (e) {}
+                        try {
+                            if (typeof __tmFitWhiteboardToVisibleCards === 'function' && __tmFitWhiteboardToVisibleCards()) return;
+                            if (typeof __tmSetWhiteboardView === 'function') __tmSetWhiteboardView({ x: 64, y: 40, zoom: 1 }, { persist: false });
+                            if (typeof __tmApplyWhiteboardTransform === 'function') __tmApplyWhiteboardTransform();
+                            if (typeof __tmScheduleWhiteboardViewSave === 'function') __tmScheduleWhiteboardViewSave();
+                        } catch (e) {}
                     });
                 } catch (e) {}
             }

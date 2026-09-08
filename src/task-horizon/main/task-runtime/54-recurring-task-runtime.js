@@ -180,6 +180,8 @@
     async function __tmDeleteTaskRepeatHistoryEntry(taskId, completedAt, options = {}) {
         const task = await __tmResolveTaskForRepeat(taskId);
         if (!task?.id) throw new Error('未找到任务');
+        const opts = (options && typeof options === 'object') ? options : {};
+        const source = String(opts.source || 'task-repeat-history-delete').trim() || 'task-repeat-history-delete';
         const key = String(completedAt || '').trim();
         const currentHistory = __tmNormalizeTaskRepeatHistory(task?.repeatHistory || task?.repeat_history || '');
         const removedIndex = currentHistory.findIndex((item) => String(item?.completedAt || '').trim() === key);
@@ -195,27 +197,55 @@
             const rollbackPatch = __tmBuildRecurringTaskRollbackPatch(task, removedEntry, nextHistory);
             if (rollbackPatch) Object.assign(nextPatch, rollbackPatch);
         }
-        await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
-            source: String(options?.source || 'task-repeat-history-delete').trim() || 'task-repeat-history-delete',
-            label: '删除循环记录',
-            refresh: false,
-            refreshCalendar: false,
-            withFilters: true,
-            hard: false,
-            recordUndo: options?.recordUndo !== false,
-        });
+        if (removedIndex === 0) {
+            try { __tmClearRecurringTaskAdvanceTimer(task.id); } catch (e) {}
+        }
+        const shouldResetNativeDone = opts.resetNativeDone === true
+            && removedIndex === 0
+            && typeof __tmSetDoneKernel === 'function'
+            && typeof __tmIsRecurringNativeDoneHeld === 'function'
+            && __tmIsRecurringNativeDoneHeld(task);
+        if (shouldResetNativeDone) {
+            const resetResult = await __tmSetDoneKernel(task.id, false, null, {
+                force: true,
+                previousDone: true,
+                suppressHint: true,
+                source,
+                recordUndo: opts.recordUndo !== false,
+                skipAutoCompleteParent: true,
+                skipInteractionGate: true,
+                additionalPatch: nextPatch,
+                deferProjection: true,
+                refreshAncestorViews: false,
+                deferCompletionEffects: true,
+            });
+            if (resetResult === false) throw new Error('撤销循环记录时未能清除任务完成状态');
+        } else {
+            await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
+                source,
+                label: '删除循环记录',
+                refresh: false,
+                refreshCalendar: false,
+                withFilters: true,
+                hard: false,
+                recordUndo: opts.recordUndo !== false,
+            });
+        }
+        try { __tmApplyTaskFieldPatchToLocalMirrors(task.id, nextPatch); } catch (e) {}
         const removedVirtualTaskId = String(
             __tmBuildRecurringInstanceTask(task, removedEntry, Math.max(0, removedIndex))?.id || ''
         ).trim();
         __tmPurgeRecurringInstanceTasks(task.id, [key]);
         try {
             const docId = String(task.root_id || task.docId || '').trim();
-            globalThis.__tmTaskMutationBus?.publish?.({
+            globalThis.__tmTaskMutationBus?.apply?.({
                 type: 'taskLifecycle',
                 phase: 'local',
                 taskId: task.id,
+                task: { ...task },
                 docId,
-                source: String(options?.source || 'task-repeat-history-delete').trim() || 'task-repeat-history-delete',
+                source,
+                patch: { ...nextPatch },
                 changeSet: {
                     upsertedTaskIds: [task.id],
                     deletedTaskIds: removedVirtualTaskId ? [removedVirtualTaskId] : [],
@@ -373,23 +403,37 @@
         if (!timer) return false;
         try { clearTimeout(timer); } catch (e) {}
         __tmRecurringAdvanceTimers.delete(tid);
+
         return true;
     }
 
     async function __tmAdvanceRecurringTaskAfterCompletion(taskId, options = {}) {
         const requestedTaskId = String(taskId || '').trim();
         if (!requestedTaskId) return false;
+
+        const suppliedTask = (options && typeof options === 'object' && options.task && typeof options.task === 'object')
+            ? options.task
+            : null;
         let advanceTaskId = requestedTaskId;
         try {
             const resolvedId = await __tmResolveTaskIdFromAnyBlockId(requestedTaskId);
             if (resolvedId) advanceTaskId = String(resolvedId || '').trim() || advanceTaskId;
         } catch (e) {}
-        try {
-            const resolvedTask = await __tmResolveTaskForRepeat(advanceTaskId);
-            if (resolvedTask?.id) advanceTaskId = String(resolvedTask.id || '').trim() || advanceTaskId;
-        } catch (e) {}
-        if (!advanceTaskId || __tmRecurringAdvanceInFlightIds.has(advanceTaskId)) return false;
+        if (String(suppliedTask?.id || '').trim() !== advanceTaskId) {
+            try {
+                const resolvedTask = await __tmResolveTaskForRepeat(advanceTaskId);
+                if (resolvedTask?.id) advanceTaskId = String(resolvedTask.id || '').trim() || advanceTaskId;
+            } catch (e) {}
+        }
+        if (!advanceTaskId) {
+
+            return false;
+        }
+        if (__tmRecurringAdvanceInFlightIds.has(advanceTaskId)) {
+            return false;
+        }
         __tmRecurringAdvanceInFlightIds.add(advanceTaskId);
+
         try {
             return await __tmAdvanceRecurringTaskAfterCompletionInternal(advanceTaskId, options);
         } finally {
@@ -399,9 +443,13 @@
 
     async function __tmAdvanceRecurringTaskAfterCompletionInternal(taskId, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        if (String(opts.source || '').trim() === 'task-repeat-advance') return false;
+
+        if (String(opts.source || '').trim() === 'task-repeat-advance') {
+            return false;
+        }
         if (opts.fromMutationEffect !== true) {
             const waited = await __tmWaitForGlobalUnlock(12000);
+
             if (!waited) throw new Error('循环推进等待任务写入超时');
         }
         let task = (opts.task && typeof opts.task === 'object') ? opts.task : await __tmResolveTaskForRepeat(taskId);
@@ -412,9 +460,16 @@
                 if (latestTask?.id) task = latestTask;
             }
         } catch (e) {}
-        if (!task?.id || !__tmIsTaskNativeDone(task)) return false;
+        if (!task?.id) {
+            return false;
+        }
+        if (!__tmIsTaskNativeDone(task)) {
+            return false;
+        }
         const repeatRule = __tmGetTaskRepeatRule(task);
-        if (!repeatRule.enabled || repeatRule.type === 'none') return false;
+        if (!repeatRule.enabled || repeatRule.type === 'none') {
+            return false;
+        }
         const currentRepeatState = __tmNormalizeTaskRepeatState(task?.repeatState);
         const completedAt = __tmNormalizeTaskCompleteAtValue(
             opts.completedAt
@@ -422,10 +477,18 @@
             || task?.task_complete_at
             || '',
         );
-        if (!completedAt) return false;
+        if (!completedAt) {
+            return false;
+        }
+        const nativeDoneHeld = typeof __tmIsRecurringNativeDoneHeld === 'function'
+            && __tmIsRecurringNativeDoneHeld(task);
         const currentHistory = __tmNormalizeTaskRepeatHistory(task?.repeatHistory || task?.repeat_history || '');
         const matchingHistory = currentHistory.find((item) => String(item?.completedAt || '').trim() === completedAt) || null;
         const alreadyAdvanced = String(currentRepeatState.lastCompletedAt || '').trim() === completedAt || !!matchingHistory;
+
+        if (nativeDoneHeld && !alreadyAdvanced) {
+            return false;
+        }
         let keepNativeDone = alreadyAdvanced
             && currentRepeatState.pendingNativeDoneReset === true
             && String(currentRepeatState.lastCompletedAt || '').trim() === completedAt;
@@ -444,7 +507,10 @@
             const cumulativeFocus = __tmGetTaskTomatoCumulativeValues(task);
             if (repeatRule.type === 'fsrs') {
                 const fsrsRating = __tmNormalizeFsrsRating(opts.fsrsRating);
-                if (!fsrsRating || fsrsRating === 1) return false;
+                if (!fsrsRating || fsrsRating === 1) {
+
+                    return false;
+                }
                 const fsrsPatch = __tmBuildFsrsReviewPatch(task, fsrsRating, {
                     completedAt,
                     reviewedAt: completedAt,
@@ -458,7 +524,9 @@
             } else {
                 nextPatch = __tmBuildTaskRepeatAdvancePatch(task, repeatRule, { completedAt });
             }
-            if (!nextPatch) return false;
+            if (!nextPatch) {
+                return false;
+            }
             keepNativeDone = SettingsStore?.data?.recurringTaskKeepNativeDoneUntilNextOccurrence === true;
             nextPatch.repeatState = __tmNormalizeTaskRepeatState({
                 ...nextPatch.repeatState,
@@ -500,20 +568,27 @@
             historyHead = nextHistory[0] || null;
             delete nextPatch.__fsrsReview;
             nextPatch.repeatHistory = nextHistory;
-            await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
-                source: 'task-repeat-advance',
-                label: '循环推进',
-                refresh: false,
-                refreshCalendar: false,
-                withFilters: true,
-                hard: false,
-                recordUndo: false,
-                queued: true,
-                background: false,
-                wait: true,
-                inlineQueuedPersist: opts.fromMutationEffect === true,
-                deferProjection: true,
-            });
+
+            try {
+                await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
+                    source: 'task-repeat-advance',
+                    label: '循环推进',
+                    refresh: false,
+                    refreshCalendar: false,
+                    withFilters: true,
+                    hard: false,
+                    recordUndo: false,
+                    queued: true,
+                    background: false,
+                    wait: true,
+                    inlineQueuedPersist: opts.fromMutationEffect === true,
+                    deferProjection: true,
+                });
+
+            } catch (error) {
+
+                throw error;
+            }
             task = await __tmResolveTaskForRepeat(task.id) || task;
         }
         if (historyHead && String(opts?.scheduleId || '').trim()) {
@@ -528,6 +603,7 @@
         let latestTask = task;
         if (!keepNativeDone) {
             let resetResult;
+
             if (opts.fromMutationEffect === true) {
                 resetResult = await __tmSetDoneKernel(resetTaskId, false, null, {
                     force: true,
@@ -557,9 +633,11 @@
             if (resetResult === false) throw new Error('循环推进后未能重置任务完成状态');
             latestTask = await __tmResolveTaskForRepeat(resetTaskId);
             if (!latestTask || __tmIsTaskNativeDone(latestTask)) throw new Error('循环推进后任务仍处于完成状态');
+
         } else {
             latestTask = await __tmResolveTaskForRepeat(resetTaskId);
             if (!latestTask || !__tmIsTaskNativeDone(latestTask)) throw new Error('循环推进后任务完成状态未能保留');
+
         }
         task = latestTask;
         __tmSyncRecurringInstanceTasks(task);
@@ -576,14 +654,19 @@
             taskCompleteAt: keepNativeDone ? completedAt : '',
             customStatus: String(task.customStatus || task.custom_status || '').trim(),
         };
+        const finalLocalPatch = { ...finalPatch };
+        delete finalLocalPatch.done;
+        try { __tmApplyTaskFieldPatchToLocalMirrors(resetTaskId, finalLocalPatch); } catch (e) {}
         const persistedPatch = keepNativeDone
             ? { ...((nextPatch && typeof nextPatch === 'object') ? nextPatch : {}) }
             : finalPatch;
+
         try {
-            globalThis.__tmTaskMutationBus?.publish?.({
+            globalThis.__tmTaskMutationBus?.apply?.({
                 type: 'taskLifecycle',
                 phase: 'local',
                 taskId: resetTaskId,
+                task: { ...task },
                 docId: String(task.root_id || task.docId || '').trim(),
                 source: 'task-repeat-advance',
                 patch: finalPatch,
@@ -610,7 +693,27 @@
             });
         } catch (e) {}
         try {
+            // The list/checklist in-place rerender is short-circuited when the
+            // DOM render signature is unchanged. That signature only samples
+            // row ids/order, so a pure field change (dates moved to the next
+            // occurrence, inserted completion record, done flag held) can be
+            // skipped and the view stays stale until a manual refresh reloads
+            // the whole scope. Invalidate the signature so this refresh always
+            // rebuilds the rows that reflect the advanced state.
+            try { state.listDomRenderSignature = ''; } catch (e) {}
+            __tmScheduleViewRefresh?.({
+                mode: 'current',
+                withFilters: true,
+                reason: 'task-repeat-advance-final',
+                taskIds: [resetTaskId],
+                bypassDefer: true,
+            });
+        } catch (e) {
+
+        }
+        try {
             const nextDate = __tmNormalizeDateOnly(nextPatch?.completionTime || nextPatch?.startDate || task?.completionTime || task?.startDate || '');
+
             if (opts.suppressHint !== true) hint(`🔁 已推进到下一次${nextDate ? `：${nextDate}` : ''}`, 'success');
         } catch (e) {}
         return true;
@@ -621,10 +724,13 @@
         if (!tid) return;
         const opts = (options && typeof options === 'object') ? options : {};
         __tmClearRecurringTaskAdvanceTimer(tid);
+
         try {
             const timer = setTimeout(() => {
                 __tmRecurringAdvanceTimers.delete(tid);
+
                 __tmAdvanceRecurringTaskAfterCompletion(tid, opts).then((advanced) => {
+
                     if (advanced !== true && opts.expectAdvance === true) {
                         try {
                             __tmRefreshViewsAfterTaskMutation({
@@ -638,6 +744,7 @@
                         } catch (e) {}
                     }
                 }).catch((error) => {
+
                     try {
                         if (opts.suppressHint !== true) hint(`❌ 循环任务推进失败，已保留完成状态：${error?.message || String(error)}`, 'error');
                     } catch (e) {}
@@ -652,7 +759,7 @@
                         });
                     } catch (e) {}
                 });
-            }, Math.max(120, Number(opts.delayMs) || 280));
+            }, Math.max(32, Number(opts.delayMs) || 80));
             __tmRecurringAdvanceTimers.set(tid, timer);
         } catch (e) {}
     }
@@ -871,19 +978,21 @@
                     });
                     if (!reset) continue;
                     changed += 1;
-                    if (!shouldContinueAfterNativeReset) continue;
                     const refreshedTask = await __tmResolveTaskForRepeat(taskId);
+                    if (!shouldContinueAfterNativeReset && !__tmIsTaskNativeDone(refreshedTask || task)) continue;
                     const refreshedRepeatState = __tmNormalizeTaskRepeatState(
                         refreshedTask?.repeatState || refreshedTask?.repeat_state || repeatState,
                     );
                     task = {
                         ...task,
                         ...(refreshedTask?.id ? refreshedTask : {}),
-                        done: false,
-                        taskMarker: ' ',
-                        task_marker: ' ',
-                        taskCompleteAt: '',
-                        task_complete_at: '',
+                        ...(shouldContinueAfterNativeReset ? {
+                            done: false,
+                            taskMarker: ' ',
+                            task_marker: ' ',
+                            taskCompleteAt: '',
+                            task_complete_at: '',
+                        } : {}),
                         repeatState: __tmNormalizeTaskRepeatState({
                             ...refreshedRepeatState,
                             pendingNativeDoneReset: false,
@@ -894,9 +1003,19 @@
                 const rule = __tmGetTaskRepeatRule(task);
                 if (!rule.enabled || rule.type === 'none') continue;
                 if (__tmIsTaskNativeDone(task)) {
-                    const completedAt = __tmNormalizeTaskCompleteAtValue(task?.taskCompleteAt || task?.task_complete_at || '');
-                    if (!completedAt) continue;
+                    const kernelCompletedAt = __tmNormalizeTaskCompleteAtValue(task?.taskCompleteAt || task?.task_complete_at || '');
+                    if (!kernelCompletedAt) continue;
                     const repeatHistory = __tmNormalizeTaskRepeatHistory(task?.repeatHistory || task?.repeat_history || '');
+                    const storedCompletedAt = __tmNormalizeTaskCompleteAtValue(
+                        String(repeatState.lastCompletedAt || '').trim()
+                        || String(repeatHistory[0]?.completedAt || '').trim()
+                    );
+                    const completionTimeDrift = Date.parse(kernelCompletedAt) - Date.parse(storedCompletedAt);
+                    const completedAt = (storedCompletedAt && kernelCompletedAt
+                        && completionTimeDrift >= 0 && completionTimeDrift <= 1000)
+                        ? storedCompletedAt
+                        : kernelCompletedAt;
+                    if (!completedAt) continue;
                     const alreadyAdvanced = String(repeatState.lastCompletedAt || '').trim() === completedAt
                         || repeatHistory.some((item) => String(item?.completedAt || '').trim() === completedAt);
                     if (!alreadyAdvanced && !__tmBuildTaskRepeatAdvancePatch(task, rule, { completedAt })) continue;

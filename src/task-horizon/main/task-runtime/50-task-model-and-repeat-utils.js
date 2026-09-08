@@ -575,8 +575,12 @@
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         const repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
         if (repeatState.pendingNativeDoneReset !== true) return false;
-        const completedAt = String(__tmResolveTaskCompletedAtRaw(task, { completedOnly: false }) || '').trim();
-        return !!completedAt && completedAt === String(repeatState.lastCompletedAt || '').trim();
+        const completedAt = __tmNormalizeTaskCompleteAtValue(
+            task.taskCompleteAt
+            ?? task.task_complete_at
+            ?? __tmResolveTaskCompletedAtRaw(task, { completedOnly: false })
+        );
+        return !!completedAt && completedAt === __tmNormalizeTaskCompleteAtValue(repeatState.lastCompletedAt);
     }
 
     function __tmGetRecurringNativeDoneResetDateKey(taskLike) {

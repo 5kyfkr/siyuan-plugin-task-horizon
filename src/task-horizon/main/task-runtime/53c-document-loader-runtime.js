@@ -309,7 +309,7 @@
             }, 900);
             return true;
         } catch (e) {
-            return false;
+            if (retryEmptyDocScope || waitForDocScopeResolve) return false;
         }
     }
 
@@ -398,7 +398,7 @@
             }, delayMs);
             return true;
         } catch (e) {
-            return false;
+            if (retryEmptyDocScope || waitForDocScopeResolve) return false;
         }
     }
 
@@ -574,6 +574,8 @@
         const getActiveModal = () => runtimeState?.getModal?.() || state.modal;
         const getCurrentViewMode = (fallback = '') => runtimeState?.getViewMode?.(fallback) || String(state.viewMode || '').trim() || String(fallback || '').trim();
         const skipRender = !!(options && options.skipRender);
+        const skipStorageWrites = !!(options && options.skipStorageWrites === true)
+            || globalThis.__tmSuppressStorageWrites === true;
         const deferProjection = !!(options && options.deferProjection === true);
         const showInlineLoading = !skipRender && !(options && options.showInlineLoading === false);
         const preferFastFirstPaint = !!(options && options.preferFastFirstPaint);
@@ -616,7 +618,20 @@
             || sourceLabel === 'legacy-switch-doc-group'
             || sourceLabel.startsWith('switch-doc-group:')
             || sourceLabel.startsWith('legacy-switch-doc-group:');
+        let progressiveRenderPrepared = false;
+        const prepareProgressiveRenderForCurrentView = () => {
+            if (progressiveRenderPrepared) return state.__tmProgressiveViewRender || null;
+            progressiveRenderPrepared = true;
+            const mode = getCurrentViewMode('');
+            if (typeof __tmStartProgressiveViewRender !== 'function') return null;
+            const currentJob = state.__tmProgressiveViewRender;
+            if (currentJob?.mode === mode
+                && currentJob.tasksRef === state.filteredTasks
+                && currentJob.status === 'active') return currentJob;
+            return __tmStartProgressiveViewRender(mode);
+        };
         const renderLoadedState = () => {
+            prepareProgressiveRenderForCurrentView();
             if (isSwitchDocGroupLoad) {
                 __tmRenderPreservingCalendarSideDock();
                 return;
@@ -2263,17 +2278,13 @@
                     ? bulkCustomFieldPlan.deferredListFieldIds.slice()
                     : [];
                 const deferredListCustomFieldFieldCount = state.deferredListCustomFieldIds.length;
-                let stableListCustomFieldHydrateMeta = null;
                 if (deferredListCustomFieldFieldCount > 0 && stabilizeSwitchGroupView) {
-                    const listFieldStartedAt = Date.now();
                     try {
-                        stableListCustomFieldHydrateMeta = await __tmHydrateVisibleListCustomFields(state.deferredListCustomFieldIds, {
+                        await __tmHydrateVisibleListCustomFields(state.deferredListCustomFieldIds, {
                             limit: Number(state.listRenderLimit) || switchGroupRenderCap,
                             customFieldDefs: normalizeCustomFieldDefs,
                         });
-                    } catch (e) {
-                        stableListCustomFieldHydrateMeta = null;
-                    }
+                    } catch (e) {}
                 }
                 const deferredListCustomFieldDeferred = deferredListCustomFieldFieldCount > 0 && !stabilizeSwitchGroupView
                     ? (() => {
@@ -2288,8 +2299,6 @@
                         }
                     })()
                     : 0;
-                if (deferredListCustomFieldFieldCount > 0 && stabilizeSwitchGroupView) {
-                }
                 if (deferredListCustomFieldDeferred === 0 && deferredListCustomFieldFieldCount > 0) {
                     try {
                         await __tmHydrateVisibleListCustomFields(state.deferredListCustomFieldIds, {
@@ -2411,7 +2420,7 @@
                     state.__tmCacheFirstPaintVerifyGroupId = '';
                     state.__tmLastCacheVerifyAt = Date.now();
                 }
-                if (!loadBudget.enabled && (!skipRender || (forceFreshTasks && !filterRemapped && !filterSkippedForVerifyContextChange))) {
+                if (!skipStorageWrites && !loadBudget.enabled && (!skipRender || (forceFreshTasks && !filterRemapped && !filterSkippedForVerifyContextChange))) {
                     try {
                         globalThis.__tmTaskSnapshotService?.schedulePersist?.({
                             docIds: allDocIds,
@@ -2432,32 +2441,32 @@
                             source: sourceLabel,
                         });
                     } catch (e) {}
-                    try {
-                        __tmSchedulePersistTaskIndex({
-                            docIds: allDocIds,
-                            queryLimit: effectiveQueryLimit,
-                            taskCountMap: taskCountMapMeta?.map,
-                            delayMs: 500,
-                        });
-                    } catch (e) {}
+                    if (!skipStorageWrites) {
+                        try {
+                            __tmSchedulePersistTaskIndex({
+                                docIds: allDocIds,
+                                queryLimit: effectiveQueryLimit,
+                                taskCountMap: taskCountMapMeta?.map,
+                                delayMs: 500,
+                            });
+                        } catch (e) {}
+                    }
                 }
 
             }
         } catch (e) {
-
             console.error('[加载] 获取任务失败:', e);
             hint('❌ 加载任务失败', 'error');
-            if (retryEmptyDocScope || waitForDocScopeResolve) return false;
+            return false;
         } finally {
             if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) {
                 try { __tmSetInlineLoading(false); } catch (e) {}
             }
         }
         } catch (e) {
-
             try { console.error('[加载] 获取任务失败:', e); } catch (e2) {}
             try { hint('❌ 加载任务失败', 'error'); } catch (e3) {}
-            if (retryEmptyDocScope || waitForDocScopeResolve) return false;
+            return false;
         } finally {
             clearInlineLoadingWatchdog();
             clearInlineLoadingForCurrentToken();

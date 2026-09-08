@@ -2975,7 +2975,7 @@
                 if (notebookDocIds.length > recursiveDocLimit) notebookDocIds = notebookDocIds.slice(0, recursiveDocLimit);
                 notebookDocIds.forEach((docId) => pushLocal(docId));
             } catch (e) {}
-            __tmDocExpandCache.set(cacheKey, { t: Date.now(), ids: nextIds });
+            __tmRememberTimedCache(__tmDocExpandCache, cacheKey, { t: Date.now(), ids: nextIds }, 128, cacheTtlMs);
             return;
         }
         if (!excludedDocIdSet.has(id)) pushLocal(id);
@@ -2997,7 +2997,7 @@
                 subIds.forEach((sid) => pushLocal(sid));
             } catch (e) {}
         }
-        __tmDocExpandCache.set(cacheKey, { t: Date.now(), ids: nextIds });
+        __tmRememberTimedCache(__tmDocExpandCache, cacheKey, { t: Date.now(), ids: nextIds }, 128, cacheTtlMs);
     }
 
     function __tmRenderChecklistPreserveScroll(options = {}) {
@@ -3016,14 +3016,7 @@
             || null;
 if (detailTaskId) {
             try {
-                __tmPushDetailDebug('detail-host-rerender-request', {
-                    scope: 'checklist',
-                    source: 'render-checklist-preserve-scroll',
-                    taskId: detailTaskId,
-                    pendingSave: detailPanel?.__tmTaskDetailPendingSave === true,
-                    hasActivePopover: !!detailPanel?.__tmTaskDetailActiveInlinePopover,
-                    refreshHoldMsLeft: Math.max(0, Number(detailPanel?.__tmTaskDetailRefreshHoldUntil || 0) - Date.now()),
-                });
+
             } catch (e) {}
         }
         try {
@@ -3045,8 +3038,6 @@ if (detailTaskId) {
             };
             restore();
             requestAnimationFrame(restore);
-            setTimeout(restore, 30);
-            setTimeout(restore, 90);
         } catch (e) {}
         return false;
     }
@@ -3077,6 +3068,7 @@ if (detailTaskId) {
             state.viewScroll.list = {
                 top: Number(state.pendingChecklistRenderRestore.top || 0),
                 left: Number(state.pendingChecklistRenderRestore.left || 0),
+                anchor: state.pendingChecklistRenderRestore.anchor || null,
             };
         } catch (e) {}
         return state.pendingChecklistRenderRestore;
@@ -3101,8 +3093,6 @@ if (detailTaskId) {
         };
         try { restore(); } catch (e) {}
         try { requestAnimationFrame(restore); } catch (e) {}
-        try { setTimeout(restore, 30); } catch (e) {}
-        try { setTimeout(restore, 90); } catch (e) {}
         return true;
     }
 
@@ -3113,26 +3103,28 @@ if (detailTaskId) {
         const pane = modal?.querySelector?.('.tm-checklist-scroll');
         const top = Number(pane?.scrollTop || 0);
         const left = Number(pane?.scrollLeft || 0);
+        const anchor = pane instanceof HTMLElement
+            ? (globalThis.__tmCaptureViewScrollAnchor?.(pane, '.tm-checklist-item[data-id]') || null)
+            : null;
         const nextOptions = { ...(options && typeof options === 'object' ? options : {}), skipRender: true };
         await loadSelectedDocuments(nextOptions);
         try {
             if (!state.viewScroll || typeof state.viewScroll !== 'object') state.viewScroll = {};
-            state.viewScroll.list = { top, left };
+            state.viewScroll.list = { top, left, anchor };
         } catch (e) {}
         __tmRenderChecklistPreserveScroll();
         const restore = () => {
             try {
                 const nextPane = state.modal?.querySelector?.('.tm-checklist-scroll');
                 if (!(nextPane instanceof HTMLElement)) return;
-                nextPane.scrollTop = top;
+                globalThis.__tmRestoreViewScrollAnchor?.(nextPane, anchor);
+                if (!anchor?.id) nextPane.scrollTop = top;
                 nextPane.scrollLeft = left;
                 try { nextPane.__tmChecklistScrollUpdateThumb?.(); } catch (e2) {}
             } catch (e) {}
         };
         try { restore(); } catch (e) {}
         try { requestAnimationFrame(restore); } catch (e) {}
-        try { setTimeout(restore, 30); } catch (e) {}
-        try { setTimeout(restore, 90); } catch (e) {}
     }
 
     function __tmGetCalendarSidebarChecklistHost(modalEl) {
@@ -3628,6 +3620,59 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
     }
 
+    function __tmBuildFilteredTaskRenderContextSignature() {
+        let ruleSignature = '';
+        try {
+            const rule = __tmGetCurrentRule();
+            ruleSignature = rule ? JSON.stringify(rule) : '';
+        } catch (e) {}
+        return [
+            String(state.viewMode || '').trim(),
+            String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
+            String(state.activeDocId || 'all').trim() || 'all',
+            String(state.currentRule || '').trim(),
+            ruleSignature,
+            String(state.searchKeyword || '').trim(),
+            String(state.docTabsArchiveMode === true ? 1 : 0),
+            String(SettingsStore?.data?.docTabsManualArchiveOnly ? 1 : 0),
+            String(state.groupByDocName ? 1 : 0),
+            String(state.groupByTaskName ? 1 : 0),
+            String(state.groupByTime ? 1 : 0),
+            String(state.quadrantEnabled ? 1 : 0),
+            String(state.showCompletedTasks ? 1 : 0),
+            String(SettingsStore?.data?.completedTasksTodayOnly ? 1 : 0),
+            String(SettingsStore?.data?.completedTasksInlineInGroups ? 1 : 0),
+        ].join('|');
+    }
+
+    function __tmUpdateFilteredTaskRenderWindowState(finalOrdered) {
+        try {
+            const tasks = Array.isArray(finalOrdered) ? finalOrdered : [];
+            const total = tasks.length;
+            const step = __tmGetRenderStepForFilteredScope(total);
+            const firstId = total > 0 ? String(tasks[0]?.id || '').trim() : '';
+            const lastId = total > 0 ? String(tasks[total - 1]?.id || '').trim() : '';
+            const contextSignature = __tmBuildFilteredTaskRenderContextSignature();
+            const previousContextSignature = String(state.listRenderContextSignature || '');
+            const previousLimit = Math.max(0, Math.round(Number(state.listRenderLimit) || 0));
+            const contentSignature = __tmBuildVisibleTaskWindowContentSignature(
+                tasks,
+                Math.max(step, previousLimit || step),
+            );
+            state.listRenderContextSignature = contextSignature;
+            state.listRenderSignature = [
+                contextSignature,
+                String(total),
+                firstId,
+                lastId,
+                contentSignature,
+            ].join('|');
+            state.listRenderLimit = previousContextSignature === contextSignature
+                ? Math.max(step, previousLimit || step)
+                : (total > 0 ? Math.min(total, step) : step);
+        } catch (e) {}
+    }
+
     function __tmGetVisibleTaskFingerprint() {
         try {
             const ids = [];
@@ -4084,25 +4129,43 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (meta.remaining <= 0) return false;
         state.listAutoLoadMoreInFlight = true;
         state.listAutoLoadMoreLastTs = now;
+        const viewWindowJob = typeof __tmEnsureViewWindowJob === 'function'
+            ? __tmEnsureViewWindowJob(mode)
+            : null;
+        if (viewWindowJob && typeof __tmIsViewWindowJobCurrent === 'function'
+            && !__tmIsViewWindowJobCurrent(viewWindowJob, { mode, requireRevision: true })) {
+            state.listAutoLoadMoreInFlight = false;
+            return false;
+        }
         try {
-            if (mode === 'timeline') {
-                const loaded = window.tmTimelineLoadMoreRows?.();
-                if (loaded) __tmScheduleAutoLoadMoreRecheck(mode);
-                return !!loaded;
-            }
-            const grown = __tmGrowViewRenderWindow(mode, meta.total);
-            if (!grown || grown.limit <= grown.previousLimit) return false;
-            if (mode === 'checklist') {
-                __tmRenderChecklistPreserveScroll({
-                    appendOnly: true,
-                    previousLimit: grown.previousLimit,
-                });
-            } else if (!__tmRerenderListInPlace(state.modal, {
-                appendOnly: true,
-                previousLimit: grown.previousLimit,
-            })) {
-                render();
-            }
+            const runBatch = typeof __tmRunViewWindowBatch === 'function'
+                ? (callback) => __tmRunViewWindowBatch(viewWindowJob, callback, { mode })
+                : null;
+            const batchResult = runBatch
+                ? runBatch(() => {
+                    if (mode === 'timeline') {
+                        const loaded = window.tmTimelineLoadMoreRows?.();
+                        if (loaded) __tmScheduleAutoLoadMoreRecheck(mode);
+                        return !!loaded;
+                    }
+                    const grown = __tmGrowViewRenderWindow(mode, meta.total);
+                    if (!grown || grown.limit <= grown.previousLimit) return false;
+                    if (mode === 'checklist') {
+                        __tmRenderChecklistPreserveScroll({
+                            appendOnly: true,
+                            previousLimit: grown.previousLimit,
+                        });
+                    } else if (!__tmRerenderListInPlace(state.modal, {
+                        appendOnly: true,
+                        previousLimit: grown.previousLimit,
+                    })) {
+                        render();
+                    }
+                    viewWindowJob.cursor = grown.limit;
+                    return true;
+                })
+                : { ok: true, value: false };
+            if (!batchResult.ok || batchResult.value !== true) return false;
             try {
                 __tmScheduleListAutoLoadMoreHydration({
                     mode,
@@ -4165,7 +4228,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!(pane instanceof HTMLElement) || pane.__tmAutoLoadMoreScrollBound) return;
         const checkNearBottom = () => {
             const progressiveJob = state.__tmProgressiveViewRender;
-            if (progressiveJob
+            if (mode === 'kanban'
+                && progressiveJob
                 && String(progressiveJob.mode || '').trim() === mode
                 && progressiveJob.tasksRef === state.filteredTasks) return;
             const meta = __tmGetListAutoLoadMoreState();
@@ -6702,6 +6766,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             try {
                 const removed = await __tmDeleteTaskRepeatHistoryEntry(job.sourceTaskId, job.completedAt, {
                     source: 'multi-select-batch-delete-recurring',
+                    resetNativeDone: true,
                 });
                 if (removed !== true) throw new Error('循环记录已不存在');
                 recurringSuccessCount += 1;
@@ -9955,14 +10020,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         const isDocTabCustomGroupActive = activeDocTabCustomGroupDocIds instanceof Set && activeDocTabCustomGroupDocIds.size > 0;
         const isAggregateTaskScope = activeDocId === 'all' || isDocTabCustomGroupActive;
 
-        const collect = (list, target) => {
-            (list || []).forEach((t) => {
-                target.push(t);
-                if (t.children && t.children.length > 0) {
-                    collect(t.children, target);
-                }
-            });
-        };
+        const buildProjectionIndex = typeof globalThis.__tmTaskProjectionEngine?.buildTaskProjectionIndex === 'function'
+            ? globalThis.__tmTaskProjectionEngine.buildTaskProjectionIndex
+            : null;
+        const taskProjectionIndex = buildProjectionIndex
+            ? buildProjectionIndex(taskTreeForFilter)
+            : null;
 
         const allTaskDocIdsForTabs = new Set();
         const scopedTaskDocIds = new Set();
@@ -9975,8 +10038,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                 groupId: currentGroupId,
             })) return;
             if (docId) allTaskDocIdsForTabs.add(docId);
-            const docTasks = [];
-            collect(doc.tasks, docTasks);
+            const docTasks = taskProjectionIndex?.tasksByDoc?.get(docId)
+                || (Array.isArray(doc.tasks) ? doc.tasks : []);
             allTasksForTabs.push(...docTasks);
             if (isOtherBlocksActive) return;
             if (isDocTabCustomGroupActive && !activeDocTabCustomGroupDocIds.has(docId)) return;
@@ -9985,8 +10048,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             tasks.push(...docTasks);
         });
         if (hasOtherBlocks) {
-            const otherTasks = [];
-            collect(state.otherBlocks, otherTasks);
+            const otherTasks = buildProjectionIndex
+                ? buildProjectionIndex(state.otherBlocks).flatTasks
+                : (Array.isArray(state.otherBlocks) ? state.otherBlocks : []);
             allTasksForTabs.push(...otherTasks);
             if (activeDocId === 'all' || isOtherBlocksActive) {
                 tasks.push(...otherTasks);
@@ -10191,35 +10255,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             const finalOrdered = __tmApplyWhiteboardSequenceFilter(sortedVisibleTasks);
             state.filteredTasks = finalOrdered;
             state.filteredDocIdsForTabs = Array.from(filteredDocIdsForTabs);
-            try {
-                const total = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
-                const step = __tmGetRenderStepForFilteredScope(total);
-                const firstId = total > 0 ? String(finalOrdered[0]?.id || '').trim() : '';
-                const lastId = total > 0 ? String(finalOrdered[total - 1]?.id || '').trim() : '';
-                const signature = [
-                    String(state.activeDocId || 'all').trim() || 'all',
-                    String(state.currentRule || '').trim(),
-                    String(state.searchKeyword || '').trim(),
-                    String(archiveMode ? 1 : 0),
-                    String(SettingsStore?.data?.docTabsManualArchiveOnly ? 1 : 0),
-                    String(state.groupByDocName ? 1 : 0),
-                    String(state.groupByTaskName ? 1 : 0),
-                    String(state.groupByTime ? 1 : 0),
-                    String(state.quadrantEnabled ? 1 : 0),
-                    String(SettingsStore?.data?.completedTasksTodayOnly ? 1 : 0),
-                    String(SettingsStore?.data?.completedTasksInlineInGroups ? 1 : 0),
-                    String(total),
-                    firstId,
-                    lastId,
-                    __tmBuildVisibleTaskWindowContentSignature(finalOrdered, Math.max(step, Number(state.listRenderLimit) || step)),
-                ].join('|');
-                if (String(state.listRenderSignature || '') !== signature) {
-                    state.listRenderSignature = signature;
-                    state.listRenderLimit = step;
-                } else {
-                    state.listRenderLimit = Math.max(step, Number(state.listRenderLimit) || step);
-                }
-            } catch (e) {}
+            __tmUpdateFilteredTaskRenderWindowState(finalOrdered);
             try { window.dispatchEvent(new CustomEvent('tm:filtered-tasks-updated')); } catch (e) {}
             return;
         }
@@ -10291,35 +10327,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             const finalOrdered = __tmApplyWhiteboardSequenceFilter(orderedOtherBlocks);
             state.filteredTasks = finalOrdered;
             state.filteredDocIdsForTabs = Array.from(filteredDocIdsForTabs);
-            try {
-                const total = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
-                const step = __tmGetRenderStepForFilteredScope(total);
-                const firstId = total > 0 ? String(finalOrdered[0]?.id || '').trim() : '';
-                const lastId = total > 0 ? String(finalOrdered[total - 1]?.id || '').trim() : '';
-                const signature = [
-                    String(state.activeDocId || 'all').trim() || 'all',
-                    String(state.currentRule || '').trim(),
-                    String(state.searchKeyword || '').trim(),
-                    String(archiveMode ? 1 : 0),
-                    String(SettingsStore?.data?.docTabsManualArchiveOnly ? 1 : 0),
-                    String(state.groupByDocName ? 1 : 0),
-                    String(state.groupByTaskName ? 1 : 0),
-                    String(state.groupByTime ? 1 : 0),
-                    String(state.quadrantEnabled ? 1 : 0),
-                    String(SettingsStore?.data?.completedTasksTodayOnly ? 1 : 0),
-                    String(SettingsStore?.data?.completedTasksInlineInGroups ? 1 : 0),
-                    String(total),
-                    firstId,
-                    lastId,
-                    __tmBuildVisibleTaskWindowContentSignature(finalOrdered, Math.max(step, Number(state.listRenderLimit) || step)),
-                ].join('|');
-                if (String(state.listRenderSignature || '') !== signature) {
-                    state.listRenderSignature = signature;
-                    state.listRenderLimit = step;
-                } else {
-                    state.listRenderLimit = Math.max(step, Number(state.listRenderLimit) || step);
-                }
-            } catch (e) {}
+            __tmUpdateFilteredTaskRenderWindowState(finalOrdered);
             try { window.dispatchEvent(new CustomEvent('tm:filtered-tasks-updated')); } catch (e) {}
             return;
         }
@@ -10356,35 +10364,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const finalOrdered = __tmApplyWhiteboardSequenceFilter(ordered);
         state.filteredTasks = finalOrdered;
         state.filteredDocIdsForTabs = Array.from(filteredDocIdsForTabs);
-        try {
-            const total = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
-            const step = __tmGetRenderStepForFilteredScope(total);
-            const firstId = total > 0 ? String(finalOrdered[0]?.id || '').trim() : '';
-            const lastId = total > 0 ? String(finalOrdered[total - 1]?.id || '').trim() : '';
-            const signature = [
-                String(state.activeDocId || 'all').trim() || 'all',
-                String(state.currentRule || '').trim(),
-                String(state.searchKeyword || '').trim(),
-                String(archiveMode ? 1 : 0),
-                String(SettingsStore?.data?.docTabsManualArchiveOnly ? 1 : 0),
-                String(state.groupByDocName ? 1 : 0),
-                String(state.groupByTaskName ? 1 : 0),
-                String(state.groupByTime ? 1 : 0),
-                String(state.quadrantEnabled ? 1 : 0),
-                String(SettingsStore?.data?.completedTasksTodayOnly ? 1 : 0),
-                String(SettingsStore?.data?.completedTasksInlineInGroups ? 1 : 0),
-                String(total),
-                firstId,
-                lastId,
-                __tmBuildVisibleTaskWindowContentSignature(finalOrdered, Math.max(step, Number(state.listRenderLimit) || step)),
-            ].join('|');
-            if (String(state.listRenderSignature || '') !== signature) {
-                state.listRenderSignature = signature;
-                state.listRenderLimit = step;
-            } else {
-                state.listRenderLimit = Math.max(step, Number(state.listRenderLimit) || step);
-            }
-        } catch (e) {}
+        __tmUpdateFilteredTaskRenderWindowState(finalOrdered);
         try { window.dispatchEvent(new CustomEvent('tm:filtered-tasks-updated')); } catch (e) {}
     }
 
@@ -13697,6 +13677,18 @@ return Number(state.contextInteractionQuietUntil || 0);
     }
     try { window.__tmRemoveInlineSearchBarPortal = __tmRemoveInlineSearchBarPortal; } catch (e) {}
 
+    function __tmGetInlineSearchBarPortalHost() {
+        try {
+            const tabRoot = state.modal?.closest?.('.tm-tab-root');
+            if (tabRoot instanceof HTMLElement) return tabRoot;
+        } catch (e) {}
+        try {
+            const mountRoot = typeof __tmGetMountRoot === 'function' ? __tmGetMountRoot() : null;
+            if (mountRoot instanceof HTMLElement && mountRoot !== document.body) return mountRoot;
+        } catch (e) {}
+        return document.body;
+    }
+
     window.__tmSyncInlineSearchBarPortal = function(options = {}) {
         if (!state.searchBarOpen) {
             __tmRemoveInlineSearchBarPortal();
@@ -13713,8 +13705,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             bar.className = 'tm-inline-searchbar tm-inline-searchbar--portal';
             bar.setAttribute('role', 'search');
             bar.innerHTML = __tmBuildInlineSearchBarPortalHtml(state.searchKeyword);
-            document.body.appendChild(bar);
         }
+        const portalHost = __tmGetInlineSearchBarPortalHost();
+        if (portalHost instanceof HTMLElement && bar.parentElement !== portalHost) portalHost.appendChild(bar);
         const input = bar.querySelector('#tmInlineSearchInput');
         if (input instanceof HTMLInputElement && document.activeElement !== input && options?.syncValue !== false) {
             try { input.value = String(state.searchKeyword || ''); } catch (e) {}

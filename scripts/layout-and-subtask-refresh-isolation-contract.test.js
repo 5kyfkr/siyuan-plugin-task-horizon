@@ -96,7 +96,7 @@ const optimisticMove = segment(taskCreateRuntime, 'function __tmApplyMoveOptimis
 const runtimeMove = segment(runtimeState, 'const moveTaskLocal =', 'const deleteTaskLocal =');
 const queuedMove = segment(taskLoader, 'function __tmQueueMoveTask', 'function __tmGetTaskForDetachSubtask');
 const structuralProjection = segment(runtimeServices, 'function __tmRefreshQueuedStructuralProjection', 'function __tmCommitQueuedOp');
-const checklistProjectionReconcile = segment(runtimeServices, 'function __tmReconcileChecklistProjectionCard', 'function __tmRerenderChecklistInPlace');
+const checklistProjectionReconcile = segment(runtimeServices, 'function __tmSelectChecklistProjectionNodes', 'function __tmRerenderChecklistInPlace');
 const checklistRerender = segment(runtimeServices, 'function __tmRerenderChecklistInPlace', 'function __tmGetKanbanColScrollKey');
 const kanbanRerender = segment(runtimeServices, 'function __tmRerenderKanbanInPlace', 'function __tmRerenderWhiteboardInPlace');
 const incrementalRefresh = segment(stores, 'async function __tmRefreshAffectedDocsIncrementally', 'async function __tmFlushSqlTransactionsSafe');
@@ -126,7 +126,7 @@ assert.match(taskProjectionRuntime, /function __tmRunTaskProjectionBatch[\s\S]*_
     'ProjectionEngine must remain the only move filter and render coordinator');
 assert.doesNotMatch(checklistRerender, /setTimeout\(restore/,
     'checklist redraw must not repeat layout restoration through delayed timers');
-assert.match(checklistProjectionReconcile, /refreshTaskIds instanceof Set[\s\S]*hierarchyChanged[\s\S]*!affectedIds\.has\(taskId\) && !hierarchyChanged[\s\S]*nextNode\.cloneNode\(true\)/,
+assert.match(checklistProjectionReconcile, /refreshTaskIds instanceof Set[\s\S]*hierarchyChanged[\s\S]*!hierarchyChanged[\s\S]*!affectedIds\.has\(taskId\) \|\| currentNode\.isEqualNode\(nextNode\)[\s\S]*nextNode\.cloneNode\(true\)/,
     'group projection must replace affected or re-indented rows instead of reusing stale hierarchy markup');
 assert.doesNotMatch(kanbanRerender, /setTimeout\(restore/,
     'kanban redraw must not repeat layout restoration through delayed timers');

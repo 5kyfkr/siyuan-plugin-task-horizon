@@ -428,6 +428,72 @@ function testSetDoneQueueMergePreservesRollbackState() {
         'the final completion intent must replace the existing optimistic overlay immediately');
 }
 
+async function testHeldNativeCompletionUsesLogicalBaselineForNextAdvance() {
+    const prepareSource = extractFunction(apiSource, '__tmPrepareSetDoneMutationData');
+    const completedAt = '2026-09-07T15:38:20.238+08:00';
+    const nextCompletedAt = '2026-09-07T15:39:00.000+08:00';
+    const task = {
+        id: 'task-held',
+        done: true,
+        taskMarker: 'X',
+        taskCompleteAt: completedAt,
+        repeatState: { lastCompletedAt: completedAt, pendingNativeDoneReset: true },
+    };
+    const op = {
+        type: 'setDone',
+        data: {
+            taskId: task.id,
+            done: true,
+            patch: { done: true, taskCompleteAt: nextCompletedAt },
+            taskCompleteAtDerived: true,
+        },
+        inversePatch: {},
+    };
+    const localTask = { ...task, ...op.data.patch };
+    const context = vm.createContext({
+        Promise,
+        SettingsStore: { data: { enablePointsRewardIntegration: false } },
+        __tmReadTaskMutationBaseline: async () => ({ ...task }),
+        __tmTaskBoundary: { getTask: () => localTask },
+        __tmIsRecurringNativeDoneHeld: (value) => value?.repeatState?.pendingNativeDoneReset === true
+            && value?.taskCompleteAt === value?.repeatState?.lastCompletedAt,
+        __tmIsTaskDoneEffective: (value) => !(value?.repeatState?.pendingNativeDoneReset === true
+            && value?.taskCompleteAt === value?.repeatState?.lastCompletedAt) && value?.done === true,
+        __tmResolveTaskMarker: (value) => value?.taskMarker || ' ',
+        __tmReadQueuedVerificationField: (value, key) => value?.[key],
+        __tmApplyTaskFieldPatchToLocalMirrors: () => true,
+        __tmLogRecurringAdvance: () => {},
+        __tmUndoState: { applying: false },
+    });
+    vm.runInContext(`${prepareSource}\nthis.prepare = __tmPrepareSetDoneMutationData;`, context);
+
+    await context.prepare(op);
+    assert.equal(op.data.previousDone, false,
+        'an optimistic completion timestamp must not hide the held native baseline and skip the next advance');
+    assert.equal(op.data.previousStatePrepared, true);
+    assert.equal(op.data.patch.taskCompleteAt, nextCompletedAt);
+    vm.runInContext(extractFunction(apiSource, '__tmBuildSetDoneEffectsOp'), context);
+    assert.equal(context.__tmBuildSetDoneEffectsOp(op).data.completedAt, nextCompletedAt,
+        'completing a held occurrence must enqueue its advance without waiting for a reload');
+
+    task.taskCompleteAt = nextCompletedAt;
+    Object.assign(localTask, { taskCompleteAt: completedAt });
+    const duplicate = {
+        type: 'setDone',
+        data: {
+            taskId: task.id, done: true, taskCompleteAtDerived: true,
+            patch: { done: true, taskCompleteAt: '2026-09-07T15:40:00.000+08:00' },
+        },
+        inversePatch: {},
+    };
+    await context.prepare(duplicate);
+    assert.equal(duplicate.data.previousDone, true,
+        'a stale held local snapshot must not override a newer completion from another window');
+    assert.equal(Object.hasOwn(duplicate.data.patch, 'taskCompleteAt'), false);
+    assert.equal(context.__tmBuildSetDoneEffectsOp(duplicate), null,
+        'an already completed occurrence must not advance twice');
+}
+
 async function testSetDoneIngressSerialization() {
     const context = vm.createContext({
         Map,
@@ -720,6 +786,7 @@ async function run() {
     await testMarkerReadbackAndFallback();
     testLocalMirrorPatch();
     testSetDoneQueueMergePreservesRollbackState();
+    await testHeldNativeCompletionUsesLogicalBaselineForNextAdvance();
     await testSetDoneIngressSerialization();
     testDoneOverrideSurvivesStaleReload();
     testTaskCheckboxRenderUsesLiveDoneState();
@@ -759,6 +826,15 @@ async function run() {
         'native checkbox synchronization must still reconcile against persisted task attributes');
     assert.match(nativeCheckboxSyncSource, /!domDone && userInitiatedCheckboxChange[\s\S]*__tmIsRecurringNativeDoneHeld\(task\)[\s\S]*__tmDeleteTaskRepeatHistoryEntry/,
         'only a user-originated native uncheck may roll back a held recurring completion');
+    const setDoneFromUiSource = extractFunction(listRuntimeSource, '__tmSetDoneFromUi');
+    assert.match(setDoneFromUiSource, /!targetDone[\s\S]*__tmIsRecurringNativeDoneHeld\(task\)[\s\S]*__tmDeleteTaskRepeatHistoryEntry[\s\S]*resetNativeDone: true/,
+        'unchecking a held recurring task inside the plugin must use the history rollback transaction');
+    assert.match(apiSource, /kernelPreviousDone[\s\S]*nativeDoneHeld[\s\S]*effectivePreviousDone[\s\S]*const previousDone = kernelPreviousDone[\s\S]*effectivePreviousDone === false/,
+        'a held native completion must use the plugin effective state as the next occurrence baseline');
+    assert.match(listRuntimeSource, /__tmDeleteTaskRepeatHistoryEntry\(recurringSourceTaskId, recurringCompletedAt, \{[\s\S]*resetNativeDone: true/,
+        'deleting the latest visible recurring record must not leave its native completion marker behind');
+    assert.match(listRuntimeSource, /__tmIsRecurringNativeDoneHeld\(task\)[\s\S]*循环完成记录已丢失/,
+        'a held task without a matching history record must fail visibly instead of becoming a no-op');
     assert.doesNotMatch(nativeCheckboxLocalStateSource, /doneOverrides/,
         'native document checkbox state must not create a compatibility override');
     assert.match(nativeDocHooksSource, /globalThis\.__tmTaskStore\?\.applyMutation\?\./,

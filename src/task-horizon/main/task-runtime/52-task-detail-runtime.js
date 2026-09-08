@@ -282,10 +282,7 @@
             try { root.dataset.tmDetailTaskId = tid; } catch (e) {}
         }
         try {
-            __tmPushDetailDebug('detail-note-view-refresh-keep', {
-                taskId: tid,
-                rootTag: __tmDescribeDebugElement(root),
-            });
+
         } catch (e) {}
         return true;
     }
@@ -338,11 +335,7 @@
         const noteState = __tmGetTaskDetailNoteViewState(scope, taskId);
         if (!noteState) return false;
         try {
-            __tmPushDetailDebug('detail-note-view-state-clear', {
-                scope: String(scope || noteState.scope || '').trim(),
-                taskId: String(taskId || noteState.taskId || '').trim(),
-                reason: String(reason || '').trim() || 'manual',
-            });
+
         } catch (e) {}
         try { delete state.taskDetailNoteView; } catch (e) { state.taskDetailNoteView = null; }
         return true;
@@ -3494,10 +3487,7 @@
             try { root.removeAttribute('data-tm-detail-view'); } catch (e) {}
             try { __tmClearTaskDetailNoteViewState(taskDetailNoteScope, '', reason); } catch (e) {}
             try {
-                __tmPushDetailDebug('detail-note-view-destroy', {
-                    taskId: String(taskId || '').trim(),
-                    reason: String(reason || '').trim() || 'manual',
-                });
+
             } catch (e) {}
         };
         const close = async () => {
@@ -3614,24 +3604,14 @@
             try { root.__tmTaskDetailPendingSave = !!active; } catch (e) {}
             bumpDetailRefreshHold(active ? (holdMs ?? 1800) : (holdMs ?? 420));
             try {
-                __tmPushDetailDebug('detail-pending-save', {
-                    taskId: String(taskId || '').trim(),
-                    active: !!active,
-                    holdMs: active ? (holdMs ?? 1800) : (holdMs ?? 420),
-                    embedded: embedded === true,
-                });
+
             } catch (e) {}
         };
         const setTaskDetailActivePopover = (popover = null, holdMs = null) => {
             try { root.__tmTaskDetailActiveInlinePopover = popover instanceof Element ? popover : null; } catch (e) {}
             bumpDetailRefreshHold(holdMs ?? 900);
             try {
-                __tmPushDetailDebug('detail-active-popover', {
-                    taskId: String(taskId || '').trim(),
-                    active: popover instanceof Element,
-                    holdMs: holdMs ?? 900,
-                    popoverClass: String(popover?.className || '').trim(),
-                });
+
             } catch (e) {}
         };
         try {
@@ -3639,18 +3619,7 @@
             root.__tmTaskDetailActiveInlinePopover = null;
         } catch (e) {}
         try {
-            __tmPushDetailDebug('detail-bind-editor', {
-                taskId: String(taskId || '').trim(),
-                embedded: embedded === true,
-                source: bindSource,
-                sessionId,
-                rootTag: __tmDescribeDebugElement(root),
-                initialTaskId: String(initialTask?.id || '').trim(),
-                currentTaskId: String(root.__tmTaskDetailTask?.id || root.dataset?.tmDetailTaskId || '').trim(),
-                pendingSave: root.__tmTaskDetailPendingSave === true,
-                hasActivePopover: !!root.__tmTaskDetailActiveInlinePopover,
-                refreshHoldMsLeft: Math.max(0, Number(root.__tmTaskDetailRefreshHoldUntil || 0) - Date.now()),
-            });
+
         } catch (e) {}
         const getBoundTask = () => {
             const tid = String(taskId || '').trim();
@@ -4145,15 +4114,7 @@
                 try { root.__tmTaskDetailTaskId = effectiveNextId; } catch (e) {}
                 try { __tmCloseTaskDetailMoreMenu(); } catch (e) {}
                 try {
-                    __tmPushDetailDebug('detail-rebuild-html', {
-                        taskId: String(effectiveNextId || '').trim(),
-                        embedded: embedded === true,
-                        source: `${bindSource}:open-child`,
-                        rootTag: __tmDescribeDebugElement(root),
-                        pendingSave: root.__tmTaskDetailPendingSave === true,
-                        hasActivePopover: !!root.__tmTaskDetailActiveInlinePopover,
-                        refreshHoldMsLeft: Math.max(0, Number(root.__tmTaskDetailRefreshHoldUntil || 0) - Date.now()),
-                    });
+
                 } catch (e) {}
                 try { __tmDestroyTaskDetailNoteViewForRoot(root, `${bindSource}:open-child`); } catch (e) {}
                 root.innerHTML = __tmBuildTaskDetailInnerHtml(nextTask, opts);
@@ -4839,12 +4800,7 @@
                 : captureFormStateSnapshot();
             if (!isFormStateForBoundTask(formState)) {
                 try {
-                    __tmPushDetailDebug('detail-save-skip', {
-                        taskId: String(taskId || '').trim(),
-                        capturedTaskId: String(formState?.task?.id || '').trim(),
-                        reason: 'task-id-mismatch',
-                        showHint,
-                    });
+
                 } catch (e) {}
                 if (showHint) hint('⚠️ 任务已切换，未保存不匹配的数据', 'warning');
                 return false;
@@ -4862,39 +4818,22 @@
                 nextRemark,
                 nextCustomFieldTextValues
             } = formState;
-            try {
-                if (nextStart !== String(task?.startDate || '').trim() || nextEnd !== String(task?.completionTime || '').trim()) {
-                    
-                }
-            } catch (e) {}
             if (!task) {
                 try {
-                    __tmPushDetailDebug('detail-save-skip', {
-                        taskId: String(taskId || '').trim(),
-                        reason: 'task-missing',
-                        showHint,
-                    });
+
                 } catch (e) {}
                 if (showHint) hint('⚠️ 未找到任务数据，无法保存', 'warning');
                 return false;
             }
             if (formState.hasContentEditor === false) {
                 try {
-                    __tmPushDetailDebug('detail-save-skip', {
-                        taskId: String(task?.id || taskId || '').trim(),
-                        reason: 'content-editor-absent',
-                        showHint,
-                    });
+
                 } catch (e) {}
                 return true;
             }
             if (!nextContent) {
                 try {
-                    __tmPushDetailDebug('detail-save-skip', {
-                        taskId: String(task?.id || taskId || '').trim(),
-                        reason: 'content-empty',
-                        showHint,
-                    });
+
                 } catch (e) {}
                 if (showHint) hint('⚠️ 任务内容不能为空', 'warning');
                 return false;
@@ -4902,21 +4841,13 @@
             const serialized = serializeFormState(formState);
             if (serialized === lastSerialized && !showHint) {
                 try {
-                    __tmPushDetailDebug('detail-save-skip', {
-                        taskId: String(task?.id || taskId || '').trim(),
-                        reason: 'serialized-same',
-                        showHint,
-                    });
+
                 } catch (e) {}
                 return true;
             }
             if (saving) {
                 try {
-                    __tmPushDetailDebug('detail-save-skip', {
-                        taskId: String(task?.id || taskId || '').trim(),
-                        reason: 'already-saving',
-                        activeSaveSerialized,
-                    });
+
                 } catch (e) {}
                 return false;
             }
@@ -4941,23 +4872,11 @@
                     });
                 }
                 try {
-                    __tmPushDetailDebug('detail-save-start', {
-                        taskId: String(task.id || '').trim(),
-                        embedded: embedded === true,
-                        showHint,
-                        closeAfterSave,
-                        preserveFocus,
-                        skipRerender,
-                        changedKeys: diff.changedKeys.slice(),
-                        pureTimeOnly: diff.pureTimeOnly,
-                    });
+
                 } catch (e) {}
                 if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     try {
-                        __tmPushDetailDebug('detail-save-content-patch', {
-                            taskId: String(task.id || '').trim(),
-                            mode: 'background-queue',
-                        });
+
                     } catch (e) {}
                     const patchContent = globalThis.__tmRequireTaskMutation?.('patchContent');
                     if (typeof patchContent !== 'function') throw new Error('任务写入队列未就绪: patchContent');
@@ -4977,10 +4896,7 @@
                     } else {
                         Promise.resolve(contentSavePromise).catch((e) => {
                             try {
-                                __tmPushDetailDebug('detail-save-content-patch-error', {
-                                    taskId: String(task.id || '').trim(),
-                                    error: String(e?.message || e || ''),
-                                });
+
                             } catch (e2) {}
                             if (showHint) {
                                 try { hint(`❌ 内容保存失败: ${e.message}`, 'error'); } catch (e2) {}
@@ -4995,11 +4911,7 @@
                 };
                 if (Object.keys(fieldPatch).length > 0) {
                     try {
-                        __tmPushDetailDebug('detail-save-field-patch', {
-                            taskId: String(task.id || '').trim(),
-                            fieldKeys: Object.keys(fieldPatch),
-                            fieldPatch: { ...fieldPatch },
-                        });
+
                     } catch (e) {}
                     const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                     if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
@@ -5031,18 +4943,11 @@
                         Promise.resolve(fieldSavePromise).then((result) => {
                             if (result !== false) return;
                             try {
-                                __tmPushDetailDebug('detail-save-field-patch-returned-false', {
-                                    taskId: String(task.id || '').trim(),
-                                    fieldKeys: Object.keys(fieldPatch),
-                                });
+
                             } catch (e) {}
                         }).catch((e) => {
                             try {
-                                __tmPushDetailDebug('detail-save-field-patch-error', {
-                                    taskId: String(task.id || '').trim(),
-                                    fieldKeys: Object.keys(fieldPatch),
-                                    error: String(e?.message || e || ''),
-                                });
+
                             } catch (e2) {}
                             if (showHint) {
                                 try { hint(`❌ 任务字段保存失败: ${e.message}`, 'error'); } catch (e2) {}
@@ -5065,22 +4970,14 @@
                 try { __tmInvalidateTasksQueryCacheByDocId(task.root_id || task.docId); } catch (e) {}
                 lastSerialized = serialized;
                 try {
-                    __tmPushDetailDebug('detail-save-success', {
-                        taskId: String(task.id || '').trim(),
-                        changedKeys: diff.changedKeys.slice(),
-                        closeAfterSave,
-                        queuedSaveRequested: !!queuedSaveRequested,
-                    });
+
                 } catch (e) {}
                 if (showHint) hint('✅ 已保存', 'success');
                 if (!embedded && closeAfterSave) close();
                 return true;
             } catch (e) {
                 try {
-                    __tmPushDetailDebug('detail-save-error', {
-                        taskId: String(task?.id || taskId || '').trim(),
-                        error: String(e?.message || e || ''),
-                    });
+
                 } catch (e2) {}
                 if (showHint) hint(`❌ 保存失败: ${e.message}`, 'error');
                 return false;
@@ -5110,13 +5007,7 @@
                 })();
                 const needsFollowUpSave = !!currentSerialized && currentSerialized !== activeSaveSerialized;
                 try {
-                    __tmPushDetailDebug('detail-save-join-existing', {
-                        taskId: String(taskId || '').trim(),
-                        needsFollowUpSave,
-                        currentSerialized,
-                        activeSaveSerialized,
-                        requestOptions: { ...requestOptions },
-                    });
+
                 } catch (e) {}
                 if (needsFollowUpSave) {
                     queueSaveRequest(requestOptions, requestFormState);
@@ -5145,10 +5036,7 @@
             }
             setTaskDetailPendingSave(true);
             try {
-                __tmPushDetailDebug('detail-save-create-promise', {
-                    taskId: String(taskId || '').trim(),
-                    initialOptions: { ...initialOptions },
-                });
+
             } catch (e) {}
             savePromise = (async () => {
                 let nextOptions = initialOptions;
@@ -5156,11 +5044,7 @@
                 let result = true;
                 while (nextOptions) {
                     try {
-                        __tmPushDetailDebug('detail-save-loop', {
-                            taskId: String(taskId || '').trim(),
-                            loopOptions: { ...nextOptions },
-                            queuedSaveRequested: !!queuedSaveRequested,
-                        });
+
                     } catch (e) {}
                     result = await runSaveOnce(nextOptions, nextFormState);
                     if (result === false) return false;
@@ -5227,10 +5111,7 @@
                 return true;
             } catch (error) {
                 try {
-                    __tmPushDetailDebug('detail-close-commit-wait-error', {
-                        taskId: String(taskId || '').trim(),
-                        error: String(error?.message || error || ''),
-                    });
+
                 } catch (e) {}
                 return false;
             }
@@ -5425,12 +5306,7 @@
                 try { installTaskDetailNoteTxBridge(taskForNote, bid); } catch (e) {}
                 try { __tmBindFloatingTooltips(root); } catch (e) {}
                 try {
-                    __tmPushDetailDebug('detail-note-view-open', {
-                        taskId: noteTaskId,
-                        blockId: bid,
-                        rootId,
-                        reason: String(reason || '').trim() || 'note-view-open',
-                    });
+
                 } catch (e) {}
                 return true;
             } catch (e) {
@@ -5549,11 +5425,7 @@
             const tid = __tmResolveTaskDetailEffectiveId(rawId) || rawId;
             if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
             try {
-                __tmPushDetailDebug('detail-field-mutation-dispatch', {
-                    taskId: tid,
-                    fields: Object.keys(nextPatch),
-                    source: String(opts.source || opts.reason || 'detail-field').trim(),
-                });
+
             } catch (e) {}
             let patchTask = null;
             try {
@@ -5607,11 +5479,7 @@
                 }
             }).catch((error) => {
                 try {
-                    __tmPushDetailDebug('detail-field-mutation-error', {
-                        taskId: tid,
-                        fields: Object.keys(nextPatch),
-                        error: String(error?.message || error || ''),
-                    });
+
                 } catch (e) {}
                 if (typeof opts.onFailure === 'function') {
                     try { opts.onFailure(error); } catch (e) {}
@@ -5707,14 +5575,7 @@
             const popover = activeInlinePopover;
             const trigger = activeInlinePopoverTrigger;
             try {
-                __tmPushDetailDebug('detail-inline-popover-close', {
-                    taskId: String(taskId || '').trim(),
-                    reason: String(reason || '').trim() || 'manual',
-                    force: !!force,
-                    committing: !!inlinePopoverCommitting,
-                    trigger: __tmDescribeDebugElement(trigger),
-                    popoverClass: String(popover?.className || '').trim(),
-                });
+
             } catch (e) {}
             setInlinePopoverBusyState(false, popover);
             activeInlinePopover = null;
@@ -5845,13 +5706,7 @@
             activeInlinePopoverTrigger = trigger;
             setTaskDetailActivePopover(popover);
             try {
-                __tmPushDetailDebug('detail-inline-popover-open', {
-                    taskId: String(taskId || '').trim(),
-                    mode,
-                    title,
-                    value,
-                    trigger: __tmDescribeDebugElement(trigger),
-                });
+
             } catch (e) {}
             try { trigger.classList.add('is-open'); } catch (e) {}
             positionInlinePopover();
@@ -5931,13 +5786,7 @@
                         : String(inputValue || '').trim());
                 try {
                     try {
-                        __tmPushDetailDebug('detail-inline-popover-commit', {
-                            taskId: String(taskId || '').trim(),
-                            mode,
-                            title,
-                            nextValue,
-                            trigger: __tmDescribeDebugElement(trigger),
-                        });
+
                     } catch (e) {}
                     setInlinePopoverBusyState(true, popover);
                     const commitResultPromise = typeof config.onCommit === 'function'
@@ -6429,12 +6278,7 @@
             activeInlinePopoverTrigger = trigger;
             setTaskDetailActivePopover(popover);
             try {
-                __tmPushDetailDebug('detail-date-sheet-open', {
-                    taskId: String(taskId || '').trim(),
-                    field,
-                    currentValue,
-                    trigger: __tmDescribeDebugElement(trigger),
-                });
+
             } catch (e) {}
             try { trigger.classList.add('is-open'); } catch (e) {}
             positionInlinePopover();
@@ -6460,12 +6304,7 @@
                 const nextValue = inputValue ? __tmNormalizeDateOnly(inputValue) : '';
                 try {
                     try {
-                        __tmPushDetailDebug('detail-date-sheet-commit', {
-                            taskId: String(taskId || '').trim(),
-                            field,
-                            nextValue,
-                            trigger: __tmDescribeDebugElement(trigger),
-                        });
+
                     } catch (e) {}
                     setInlinePopoverBusyState(true, popover);
                     const prevValue = readHiddenInputValue(field);
@@ -8241,11 +8080,7 @@
 
             const closeMenu = (reason = '') => {
                 try {
-                    __tmPushDetailDebug('detail-status-menu-close', {
-                        taskId: String(taskId || '').trim(),
-                        reason: String(reason || '').trim() || 'manual',
-                        expanded: trigger.getAttribute('aria-expanded') === 'true',
-                    });
+
                 } catch (e) {}
                 menu.hidden = true;
                 menu.style.display = 'none';
@@ -8253,10 +8088,7 @@
             };
             const openMenu = () => {
                 try {
-                    __tmPushDetailDebug('detail-status-menu-open', {
-                        taskId: String(taskId || '').trim(),
-                        currentValue: String(hiddenInput.value || '').trim(),
-                    });
+
                 } catch (e) {}
                 menu.hidden = false;
                 menu.style.display = 'flex';
@@ -8315,11 +8147,7 @@
                     try { trigger.focus(); } catch (e) {}
                     if (nextValue === prevValue) return;
                     try {
-                        __tmPushDetailDebug('detail-status-menu-commit', {
-                            taskId: String(taskId || '').trim(),
-                            prevValue,
-                            nextValue,
-                        });
+
                     } catch (e) {}
                     commitDetailFieldPatch({ customStatus: nextValue }, {
                         source: 'detail-status',
@@ -8349,11 +8177,7 @@
 
             const closeMenu = (reason = '') => {
                 try {
-                    __tmPushDetailDebug('detail-priority-menu-close', {
-                        taskId: String(taskId || '').trim(),
-                        reason: String(reason || '').trim() || 'manual',
-                        expanded: trigger.getAttribute('aria-expanded') === 'true',
-                    });
+
                 } catch (e) {}
                 menu.hidden = true;
                 menu.style.display = 'none';
@@ -8361,10 +8185,7 @@
             };
             const openMenu = () => {
                 try {
-                    __tmPushDetailDebug('detail-priority-menu-open', {
-                        taskId: String(taskId || '').trim(),
-                        currentValue: String(hiddenInput.value || '').trim(),
-                    });
+
                 } catch (e) {}
                 menu.hidden = false;
                 menu.style.display = 'flex';
@@ -8420,11 +8241,7 @@
                     closeMenu('select-option');
                     if (nextValue === prevValue) return;
                     try {
-                        __tmPushDetailDebug('detail-priority-menu-commit', {
-                            taskId: String(taskId || '').trim(),
-                            prevValue,
-                            nextValue,
-                        });
+
                     } catch (e) {}
                     commitDetailFieldPatch({ priority: nextValue }, {
                         source: 'detail-priority',
@@ -9327,12 +9144,7 @@
             if (!currentId) return;
             if (__tmMutationEngine.isTaskSuppressed(currentId)) {
                 try {
-                    __tmPushDetailDebug('detail-window-attr-updated:skip-suppressed', {
-                        taskId: currentId,
-                        rawTaskId,
-                        attrKey: String(ev?.detail?.attrKey || '').trim(),
-                        source: String(ev?.detail?.source || '').trim(),
-                    });
+
                 } catch (e) {}
                 return;
             }
@@ -9345,14 +9157,7 @@
             }
             if (!__tmAreTaskDetailIdsEquivalent(resolvedId, currentId)) return;
             try {
-                __tmPushDetailDebug('detail-window-attr-updated', {
-                    taskId: currentId,
-                    rawTaskId,
-                    resolvedId,
-                    attrKey: String(ev?.detail?.attrKey || '').trim(),
-                    source: String(ev?.detail?.source || '').trim(),
-                    value: String(ev?.detail?.value ?? ''),
-                });
+
             } catch (e) {}
             applyQuickbarAttrUpdateToDetail(ev?.detail?.attrKey, ev?.detail?.value);
         });
@@ -9600,15 +9405,7 @@ return true;
             const detailDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(panel, selectedId);
             const remarkDraftSnapshot = __tmCaptureTaskDetailRemarkDraftSnapshot(panel, selectedId);
             try {
-                __tmPushDetailDebug('detail-rebuild-html', {
-                    taskId: String(selectedId || '').trim(),
-                    embedded: true,
-                    source: `checklist-selection-rebuild:${String(source || '').trim() || 'unknown'}`,
-                    rootTag: __tmDescribeDebugElement(panel),
-                    pendingSave: panel.__tmTaskDetailPendingSave === true,
-                    hasActivePopover: !!panel.__tmTaskDetailActiveInlinePopover,
-                    refreshHoldMsLeft: Math.max(0, Number(panel.__tmTaskDetailRefreshHoldUntil || 0) - Date.now()),
-                });
+
             } catch (e) {}
             const renderNoteView = !!(task && __tmShouldRenderTaskDetailNoteView('sheet', task));
             if (!renderNoteView) {
@@ -9820,15 +9617,7 @@ return true;
             const detailDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(panel, selectedId);
             const remarkDraftSnapshot = __tmCaptureTaskDetailRemarkDraftSnapshot(panel, selectedId);
             try {
-                __tmPushDetailDebug('detail-rebuild-html', {
-                    taskId: String(selectedId || '').trim(),
-                    embedded: true,
-                    source: `task-detail-sheet-rebuild:${String(source || '').trim() || 'unknown'}`,
-                    rootTag: __tmDescribeDebugElement(panel),
-                    pendingSave: panel.__tmTaskDetailPendingSave === true,
-                    hasActivePopover: !!panel.__tmTaskDetailActiveInlinePopover,
-                    refreshHoldMsLeft: Math.max(0, Number(panel.__tmTaskDetailRefreshHoldUntil || 0) - Date.now()),
-                });
+
             } catch (e) {}
             const renderNoteView = !!(task && __tmShouldRenderTaskDetailNoteView('sheet', task));
             if (!renderNoteView) {
@@ -10242,12 +10031,7 @@ return true;
         });
         try { root.__tmTaskDetailForceRebuildRetryQueued = true; } catch (e) {}
         try {
-            __tmPushDetailDebug('detail-force-rebuild-deferred', {
-                taskId: tid,
-                source: String(source || '').trim(),
-                reasons,
-                waitMs,
-            });
+
         } catch (e) {}
         try {
             setTimeout(() => {
@@ -10293,15 +10077,7 @@ return true;
         if (targetedPatch && patchKeys.every((key) => __TM_TASK_DETAIL_NON_VISUAL_PATCH_KEYS.has(key))) return false;
         const refreshSource = String(opts.source || '').trim() || (forceRebuild ? 'visible-task-detail-force-rebuild' : 'visible-task-detail-refresh');
         try {
-            __tmPushDetailDebug('detail-refresh-enter', {
-                taskId: tid,
-                forceRebuild,
-                source: refreshSource,
-                viewMode: String(state.viewMode || '').trim(),
-                checklistDetailTaskId: String(state.detailTaskId || '').trim(),
-                kanbanDetailTaskId: String(state.kanbanDetailTaskId || '').trim(),
-                hasOverlay: !!document.getElementById('tm-task-detail-overlay'),
-            });
+
         } catch (e) {}
         let refreshed = false;
         const defaultDetailPatch = {
@@ -10359,20 +10135,12 @@ refreshed = detailPatched || refreshed;
                             try { if (panel instanceof HTMLElement && task) panel.__tmTaskDetailTask = task; } catch (e) {}
                             try { if (panel instanceof HTMLElement) panel.dataset.tmDetailTaskId = tid; } catch (e) {}
                             try {
-                                __tmPushDetailDebug('detail-refresh-deferred-fallback', {
-                                    taskId: tid,
-                                    scope: 'checklist',
-                                    reasons: __tmCollectTaskDetailFallbackDeferReasons(panel),
-                                });
+
                             } catch (e) {}
 refreshed = !!task || refreshed;
                         } else {
                             try {
-                                __tmPushDetailDebug('detail-refresh-fallback-rebuild', {
-                                    taskId: tid,
-                                    scope: 'checklist',
-                                    reasons: [],
-                                });
+
                             } catch (e) {}
 refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-detail-fallback') || refreshed;
                         }
@@ -10413,11 +10181,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                                 try { if (task) panel.__tmTaskDetailTask = task; } catch (e) {}
                                 try { panel.dataset.tmDetailTaskId = tid; } catch (e) {}
                                 try {
-                                    __tmPushDetailDebug('detail-refresh-deferred-fallback', {
-                                        taskId: tid,
-                                        scope: 'task-sheet',
-                                        reasons: __tmCollectTaskDetailFallbackDeferReasons(panel),
-                                    });
+
                                 } catch (e) {}
                                 refreshed = !!task || refreshed;
                             } else {
@@ -10456,11 +10220,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                         try { if (task) panel.__tmTaskDetailTask = task; } catch (e) {}
                         try { panel.dataset.tmDetailTaskId = tid; } catch (e) {}
                         try {
-                            __tmPushDetailDebug('detail-refresh-deferred-fallback', {
-                                taskId: tid,
-                                scope: 'kanban',
-                                reasons: __tmCollectTaskDetailFallbackDeferReasons(panel),
-                            });
+
                         } catch (e) {}
                         refreshed = !!task || refreshed;
                     } else {
@@ -10486,24 +10246,12 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                         refreshed = __tmScheduleTaskDetailForceRebuildRetry(overlay, tid, `${refreshSource}:overlay`) || refreshed;
                     } else if (task) {
                         try {
-                            __tmPushDetailDebug('detail-refresh-fallback-rebuild', {
-                                taskId: tid,
-                                scope: 'overlay',
-                                reasons: [],
-                            });
+
                         } catch (e) {}
                         const overlayDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(overlay, tid);
                         const overlayRemarkDraftSnapshot = __tmCaptureTaskDetailRemarkDraftSnapshot(overlay, tid);
                         try {
-                            __tmPushDetailDebug('detail-rebuild-html', {
-                                taskId: tid,
-                                embedded: false,
-                                source: `${refreshSource}:overlay`,
-                                rootTag: __tmDescribeDebugElement(overlay),
-                                pendingSave: overlay.__tmTaskDetailPendingSave === true,
-                                hasActivePopover: !!overlay.__tmTaskDetailActiveInlinePopover,
-                                refreshHoldMsLeft: Math.max(0, Number(overlay.__tmTaskDetailRefreshHoldUntil || 0) - Date.now()),
-                            });
+
                         } catch (e) {}
                         try { __tmDestroyTaskDetailNoteViewForRoot(overlay, `${refreshSource}:overlay`); } catch (e) {}
                         overlay.innerHTML = __tmBuildTaskDetailInnerHtml(task, { embedded: false });
@@ -10535,33 +10283,17 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                             try { overlay.__tmTaskDetailTask = task; } catch (e) {}
                             try { overlay.dataset.tmDetailTaskId = tid; } catch (e) {}
                             try {
-                                __tmPushDetailDebug('detail-refresh-deferred-fallback', {
-                                    taskId: tid,
-                                    scope: 'overlay',
-                                    reasons: __tmCollectTaskDetailFallbackDeferReasons(overlay),
-                                });
+
                             } catch (e) {}
                             refreshed = true;
                         } else if (task) {
                             try {
-                                __tmPushDetailDebug('detail-refresh-fallback-rebuild', {
-                                    taskId: tid,
-                                    scope: 'overlay',
-                                    reasons: [],
-                                });
+
                             } catch (e) {}
                             const overlayDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(overlay, tid);
                             const overlayRemarkDraftSnapshot = __tmCaptureTaskDetailRemarkDraftSnapshot(overlay, tid);
                             try {
-                                __tmPushDetailDebug('detail-rebuild-html', {
-                                    taskId: tid,
-                                    embedded: false,
-                                    source: 'visible-task-detail-fallback:overlay',
-                                    rootTag: __tmDescribeDebugElement(overlay),
-                                    pendingSave: overlay.__tmTaskDetailPendingSave === true,
-                                    hasActivePopover: !!overlay.__tmTaskDetailActiveInlinePopover,
-                                    refreshHoldMsLeft: Math.max(0, Number(overlay.__tmTaskDetailRefreshHoldUntil || 0) - Date.now()),
-                                });
+
                             } catch (e) {}
                             try { __tmDestroyTaskDetailNoteViewForRoot(overlay, 'visible-task-detail-fallback:overlay'); } catch (e) {}
                             overlay.innerHTML = __tmBuildTaskDetailInnerHtml(task, { embedded: false });
@@ -10586,10 +10318,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
             } catch (e) {}
         }
         try {
-            __tmPushDetailDebug('detail-refresh-exit', {
-                taskId: tid,
-                refreshed: !!refreshed,
-            });
+
         } catch (e) {}
         return refreshed;
     }
@@ -10992,15 +10721,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         const detailDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(panel, selectedId);
         const remarkDraftSnapshot = __tmCaptureTaskDetailRemarkDraftSnapshot(panel, selectedId);
         try {
-            __tmPushDetailDebug('detail-rebuild-html', {
-                taskId: String(selectedId || '').trim(),
-                embedded: true,
-                source: `kanban-detail-refresh:${refreshSource}`,
-                rootTag: __tmDescribeDebugElement(panel),
-                pendingSave: panel.__tmTaskDetailPendingSave === true,
-                hasActivePopover: !!panel.__tmTaskDetailActiveInlinePopover,
-                refreshHoldMsLeft: Math.max(0, Number(panel.__tmTaskDetailRefreshHoldUntil || 0) - Date.now()),
-            });
+
         } catch (e) {}
         const renderNoteView = !!__tmShouldRenderTaskDetailNoteView('kanban', task);
         if (!renderNoteView) {

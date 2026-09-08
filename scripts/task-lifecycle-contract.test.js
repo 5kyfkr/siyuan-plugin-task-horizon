@@ -676,6 +676,8 @@ function testStaticContracts() {
         'only a user-initiated native document checkbox change may enqueue lifecycle work');
     assert.equal((nativeSource.match(/userInitiatedCheckboxChange && wasDoneBefore !== !!domDone/g) || []).length, 2,
         'both native checkbox persistence branches must suppress programmatic completion echoes');
+    assert.match(nativeSource, /const __TM_NATIVE_DOC_CHECKBOX_SYNC_DELAY_MS = 32;/,
+        'native checkbox synchronization should react after the DOM settles without a perceptible debounce');
     assert.match(listSource, /const useRecycle[\s\S]*lifecycle\.archiveDeleted[\s\S]*__tmShowActionHint/);
     assert.match(dialogsSource, /multi-select-batch-recycle[\s\S]*撤销回收/);
     assert.match(listSource, /\{ id: 'new-task', label: '新建\/归档' \}/);

@@ -109,7 +109,6 @@ const forceRetryContext = {
     __tmShouldDeferTaskDetailFallback() {
         return forceRetryContext.stillBusy;
     },
-    __tmPushDetailDebug() {},
     __tmRefreshVisibleTaskDetailForTask(taskId, options) {
         assert.equal(taskId, 'task-1');
         forceRetryContext.refreshOptions = options;

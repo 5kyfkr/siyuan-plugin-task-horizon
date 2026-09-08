@@ -46,6 +46,11 @@ const advanceFunction = extractBetween(
     'async function __tmAdvanceRecurringTaskAfterCompletionInternal(',
     'function __tmScheduleRecurringTaskAdvanceAfterCompletion(',
 );
+const deleteHistoryFunction = extractBetween(
+    recurringSource,
+    'async function __tmDeleteTaskRepeatHistoryEntry(',
+    'async function __tmSetDetachedTaskRepeatHistoryEntry(',
+);
 const scheduleAdvanceFunction = extractBetween(
     recurringSource,
     'function __tmScheduleRecurringTaskAdvanceAfterCompletion(',
@@ -227,7 +232,7 @@ function testRecurringInstanceSyncOnlyTouchesLoadedDocuments() {
 }
 
 function createAdvanceHarness(task, buildPatch, options = {}) {
-    const calls = { persist: [], reset: 0, sync: 0, refresh: 0, reminderSettle: 0, projections: [], broadcasts: [], snapshots: [] };
+    const calls = { persist: [], reset: 0, sync: 0, refresh: 0, viewRefreshes: [], reminderSettle: 0, projections: [], broadcasts: [], snapshots: [], localPatches: [] };
     const context = vm.createContext({
         state: { viewMode: 'list' },
         SettingsStore: {
@@ -237,6 +242,7 @@ function createAdvanceHarness(task, buildPatch, options = {}) {
         },
         window: {},
         __tmWaitForGlobalUnlock: async () => true,
+        __tmLogRecurringAdvance: () => {},
         __tmResolveTaskForRepeat: async () => task,
         __tmResolveTaskIdFromAnyBlockId: async (id) => id,
         __tmGetTaskRepeatRule: (value) => value.repeatRule,
@@ -267,6 +273,8 @@ function createAdvanceHarness(task, buildPatch, options = {}) {
         __tmBuildFsrsReviewPatch: options.buildFsrsReviewPatch || (() => { throw new Error('unexpected FSRS review'); }),
         __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
         __tmGetTaskAttrHostId: () => task.id,
+        __tmIsRecurringNativeDoneHeld: (value) => value?.repeatState?.pendingNativeDoneReset === true
+            && String(value?.taskCompleteAt || '') === String(value?.repeatState?.lastCompletedAt || ''),
         __tmSettleTomatoAfterTaskDone: async () => {
             calls.reminderSettle += 1;
             return true;
@@ -274,17 +282,19 @@ function createAdvanceHarness(task, buildPatch, options = {}) {
         __tmApplyTaskMetaPatchWithUndo: async (_taskId, patch, persistOptions) => {
             calls.persist.push({ patch, options: persistOptions });
             if (options.persistError) throw options.persistError;
-            task.startDate = patch.startDate;
-            task.completionTime = patch.completionTime;
-            task.repeatState = patch.repeatState;
-            task.repeatHistory = patch.repeatHistory;
+            Object.assign(task, patch);
         },
         __tmReassignCompletedScheduleToRecurringInstance: async () => true,
         __tmSyncRecurringInstanceTasks: () => { calls.sync += 1; },
         __tmBuildRecurringInstanceTask: () => ({ id: 'repeatinst:task-1:20260723100000' }),
         __tmRefreshViewsAfterTaskMutation: () => { calls.refresh += 1; },
+        __tmScheduleViewRefresh: (detail) => { calls.viewRefreshes.push(detail); },
         __tmTaskMutationBus: {
-            publish: (mutation) => calls.projections.push(mutation),
+            apply: (mutation) => calls.projections.push(mutation),
+        },
+        __tmApplyTaskFieldPatchToLocalMirrors: (taskId, patch) => {
+            calls.localPatches.push({ taskId, patch });
+            return true;
         },
         __tmDispatchTaskAttrPatchUpdated: (_taskId, patch) => calls.broadcasts.push(patch),
         __tmScheduleTaskSnapshotAfterLocalPatch: (_taskId, patch) => calls.snapshots.push(patch),
@@ -299,7 +309,181 @@ function createAdvanceHarness(task, buildPatch, options = {}) {
         return true;
     };
     vm.runInContext(`${advanceFunction}\nthis.advance = __tmAdvanceRecurringTaskAfterCompletionInternal;`, context);
-    return { advance: context.advance, calls };
+    return { advance: context.advance, calls, context };
+}
+
+async function testQueuedCompletionPreservesTimestamp() {
+    const completedAt = '2026-09-08T00:23:06.395+08:00';
+    const task = { id: 'task-1', done: false, taskCompleteAt: '' };
+    let writtenOptions = null;
+    const context = vm.createContext({
+        __tmIsMutationTaskPendingDeleted: () => false,
+        __tmTaskBoundary: { getTask: () => task },
+        __tmSetDoneKernel: async (_taskId, done, _event, options) => {
+            writtenOptions = options;
+            task.done = done;
+            task.taskCompleteAt = Object.prototype.hasOwnProperty.call(options, 'taskCompleteAt')
+                ? options.taskCompleteAt
+                : (done ? '2026-09-08T00:23:06.429+08:00' : '');
+            return true;
+        },
+    });
+    vm.runInContext([
+        extractBetween(apiSource, 'async function __tmExecuteQueuedOp(', 'function __tmGetQueuedTaskPatchForVerification('),
+        extractBetween(apiSource, 'function __tmBuildSetDoneEffectsOp(', 'function __tmEnqueueMutationFollowUpOps('),
+    ].join('\n'), context);
+    const operation = {
+        id: 'done-1', type: 'setDone', data: {
+            taskId: task.id, done: true, previousDone: false,
+            taskCompleteAtDerived: true, patch: { done: true, taskCompleteAt: completedAt },
+        },
+    };
+    const result = await context.__tmExecuteQueuedOp(operation);
+    const effects = context.__tmBuildSetDoneEffectsOp(operation);
+    assert.equal(result.task.taskCompleteAt, effects.data.completedAt,
+        'the kernel write and recurrence history must share the same completion timestamp, not regenerate it 34ms later');
+    assert.equal(writtenOptions.taskCompleteAt, completedAt);
+
+    await context.__tmExecuteQueuedOp({ type: 'setDone', data: {
+        taskId: task.id, done: false, previousDone: true, patch: { done: false, taskCompleteAt: '' },
+    } });
+    assert.equal(writtenOptions.taskCompleteAt, '', 'explicit timestamp clearing must survive queue execution');
+    await context.__tmExecuteQueuedOp({ type: 'setDone', data: {
+        taskId: task.id, done: true, previousDone: true, patch: { done: true },
+    } });
+    assert.equal(Object.prototype.hasOwnProperty.call(writtenOptions, 'taskCompleteAt'), false,
+        'a completion timestamp discarded during baseline reconciliation must not be injected again');
+}
+
+async function testRecurringAdvanceLiveProjection() {
+    const completedAt = '2026-09-07T10:00:00.000+08:00';
+    for (const keepNativeDone of [false, true]) {
+        for (const rawCompletedAt of ['2026-09-06T10:00:00.000+08:00', '2026-09-07T02:00:00.000Z', '']) {
+            const task = {
+                id: 'task-1', root_id: 'doc-1', content: 'Daily task', children: [],
+                done: true, taskMarker: 'X', task_marker: 'X',
+                taskCompleteAt: completedAt, task_complete_at: completedAt,
+                'custom-task-complete-at': rawCompletedAt,
+                startDate: '2026-09-07', completionTime: '2026-09-07',
+                repeatRule: { enabled: true, type: 'daily', maxOccurrences: 0 },
+                repeatState: { occurrenceCount: 1, lastCompletedAt: '' }, repeatHistory: [],
+            };
+            const harness = createAdvanceHarness(task, () => ({
+                startDate: '2026-09-08', completionTime: '2026-09-08',
+                repeatState: { occurrenceCount: 2, lastCompletedAt: completedAt },
+            }), { keepNativeDone });
+            const { context, calls } = harness;
+            Object.assign(context.state, {
+                flatTasks: { [task.id]: task }, pendingInsertedTasks: {}, pendingDeletedTasks: {},
+                doneOverrides: {}, taskTree: [{ id: 'doc-1', tasks: [{ ...task }] }],
+                filteredTasks: [], otherBlocks: [], collapsedTaskIds: new Set(),
+            });
+            Object.assign(context, {
+                MetaStore: { set() {} },
+                setTimeout, clearTimeout, queueMicrotask,
+                __TM_CHINA_TZ_OFFSET_MINUTES: 480,
+                __TM_CHINA_TZ_SUFFIX: '+08:00',
+                __tmParseTimeToTs: (value) => Date.parse(value),
+                __tmNormalizeQueueTaskValue: (_key, value) => value,
+                __tmIsTaskNativeDone: (value) => value?.taskMarker === 'X',
+                __tmInvalidateFilteredTaskDerivedStateCache: () => {},
+                __tmIsCollectedOtherBlockTask: () => false,
+                __tmBuildTaskCheckboxStyle: () => '',
+                esc: (value) => String(value || ''),
+            });
+            vm.runInContext(read('src/task-horizon/main/32-runtime-state-and-events.js'), context);
+            context.__tmTaskStore.acceptAuthoritative([task], { docIds: ['doc-1'] });
+            vm.runInContext([
+                extractBetween(apiSource, 'function __tmFormatTsToChinaTimezoneIso(', 'function __tmBuildTaskCompleteAtPatch('),
+                extractBetween(apiSource, 'function __tmApplyQueuedTaskFieldPatchToTask(', 'function __tmApplyTaskFieldPatchToLocalMirrors('),
+                extractBetween(apiSource, 'function __tmApplyTaskFieldPatchToLocalMirrors(', 'function __tmClearInlineLoadingTimer('),
+                extractBetween(modelSource, 'function __tmResolveTaskCompletedAtRaw(', 'function __tmFormatTaskCompletedAtTime('),
+                extractBetween(modelSource, 'function __tmIsRecurringNativeDoneHeld(', 'function __tmGetRecurringNativeDoneResetDateKey('),
+                extractBetween(apiSource, 'function __tmIsTaskDoneEffective(', 'function __tmNormalizeCheckboxStatusBindingValue('),
+                extractBetween(modelSource, 'function __tmRenderTaskCheckbox(', 'function __tmRenderTaskCheckboxWrap('),
+            ].join('\n'), context);
+            context.__tmResolveTaskForRepeat = async () => context.__tmTaskStore.get(task.id);
+            const persist = context.__tmApplyTaskMetaPatchWithUndo;
+            context.__tmApplyTaskMetaPatchWithUndo = async (taskId, patch, options) => {
+                await persist(taskId, patch, options);
+                context.__tmApplyTaskFieldPatchToLocalMirrors(taskId, patch);
+            };
+            context.window.tmSetDone = async (_taskId, _done, _event, options = {}) => {
+                calls.reset += 1;
+                context.__tmTaskStore.mutateLocal(task.id, (value) => Object.assign(value, {
+                    done: false, taskMarker: ' ', task_marker: ' ', taskCompleteAt: '', task_complete_at: '',
+                    ...options.additionalPatch,
+                }), { includeLists: true });
+                return true;
+            };
+            const rendered = [];
+            context.__tmScheduleViewRefresh = (detail) => {
+                rendered.push({
+                    detail,
+                    checkbox: context.__tmRenderTaskCheckbox(task.id, context.__tmTaskStore.get(task.id), { checked: false }),
+                    tasks: context.state.taskTree[0].tasks
+                        .filter((value) => !context.__tmIsTaskDoneEffective(value))
+                        .map((value) => ({ id: value.id, date: value.completionTime })),
+                });
+            };
+
+            assert.equal(await harness.advance(task.id, { completedAt, suppressHint: true }), true);
+            assert.equal(rendered.length, 1);
+            assert.doesNotMatch(rendered[0].checkbox, / checked/,
+                'the first rendered checkbox must use the next occurrence, not the old confirmed completion');
+            assert.equal(context.__tmTaskStore.getProjected(task.id).completionTime, '2026-09-08',
+                'the confirmed projection must advance with the local task mirrors');
+            assert.deepEqual(rendered[0].tasks, [{ id: task.id, date: '2026-09-08' }],
+                'the first refresh must show the unfinished next occurrence: ' + JSON.stringify({ keepNativeDone, rawCompletedAt }));
+            assert.equal(context.__tmIsTaskNativeDone(context.__tmTaskStore.get(task.id)), keepNativeDone,
+                'the rendered state must not overwrite the native checkbox');
+            assert.equal(context.__tmTaskStore.getConfirmed(task.id).done, keepNativeDone,
+                'the final projection must preserve native completion in its authoritative task snapshot');
+            const confirmedTask = context.__tmTaskStore.getConfirmed(task.id);
+            context.__tmTaskStore.acceptAuthoritative([{
+                ...confirmedTask,
+                'custom-task-complete-at': confirmedTask.taskCompleteAt,
+            }], { docIds: ['doc-1'] });
+            assert.equal(context.__tmIsTaskDoneEffective(context.__tmTaskStore.getProjected(task.id)), false,
+                'an authoritative reload must not turn the next occurrence back into a completed task');
+            const advancedTask = context.__tmTaskStore.get(task.id);
+            context.__tmTaskMutationBus.apply({
+                type: 'taskPatch', phase: 'local', taskId: task.id, patch: { remark: 'Updated after completion' },
+            });
+            assert.equal(context.__tmIsTaskDoneEffective(advancedTask), false,
+                'a subsequent local projection must not restore the old completed state');
+            if (keepNativeDone) {
+                assert.equal(context.__tmIsRecurringNativeDoneHeld({
+                    ...advancedTask, taskCompleteAt: '2026-09-07T02:00:00.000Z',
+                }), true, 'equivalent completion timestamps must match across time zones');
+                assert.equal(context.__tmIsRecurringNativeDoneHeld({
+                    ...advancedTask, taskCompleteAt: undefined, task_complete_at: undefined,
+                    'custom-task-complete-at': '2026-09-07T02:00:00.000Z',
+                }), true, 'raw-only task records must still recognize the held occurrence');
+                assert.equal(context.__tmIsRecurringNativeDoneHeld({ ...advancedTask, taskCompleteAt: '' }), false,
+                    'an explicitly cleared completion must not fall back to stale native attributes');
+                assert.equal(context.__tmIsRecurringNativeDoneHeld({
+                    ...advancedTask, taskCompleteAt: '2026-09-08T10:00:00.000+08:00',
+                }), false, 'a new completion must not be mistaken for the previous held occurrence');
+            }
+            context.__tmClearRecurringTaskAdvanceTimer = () => {};
+            context.__tmPurgeRecurringInstanceTasks = () => {};
+            context.__tmSetDoneKernel = context.window.tmSetDone;
+            vm.runInContext([
+                extractBetween(recurringSource, 'function __tmBuildRecurringTaskRollbackPatch(', 'function __tmGetTaskRepeatScheduleSignature('),
+                deleteHistoryFunction,
+            ].join('\n'), context);
+            assert.equal(await context.__tmDeleteTaskRepeatHistoryEntry(task.id, completedAt, {
+                resetNativeDone: true, recordUndo: false,
+            }), true);
+            const rolledBackTask = context.__tmTaskStore.getProjected(task.id);
+            assert.equal(rolledBackTask.completionTime, '2026-09-07', 'undo must restore the prior occurrence in the confirmed projection');
+            assert.equal(rolledBackTask.repeatState.occurrenceCount, 1);
+            assert.equal(rolledBackTask.repeatHistory.length, 0);
+            assert.equal(context.__tmIsTaskNativeDone(rolledBackTask), false);
+            assert.doesNotMatch(context.__tmRenderTaskCheckbox(task.id, rolledBackTask), / checked/);
+        }
+    }
 }
 
 async function testRecurringAdvanceStateMachine() {
@@ -342,6 +526,13 @@ async function testRecurringAdvanceStateMachine() {
     assert.equal(first.calls.projections[0].type, 'taskLifecycle');
     assert.equal(first.calls.projections[0].patch.done, false);
     assert.equal(first.calls.projections[0].patch.completionTime, '2026-07-24');
+    assert.equal(first.calls.localPatches.length, 1, 'the next occurrence must enter local mirrors before projection is published');
+    assert.equal(first.calls.localPatches[0].patch.done, undefined,
+        'local mirrors must preserve the native done marker when the keep-native setting is enabled');
+    assert.equal(first.calls.localPatches[0].patch.completionTime, '2026-07-24');
+    assert.equal(first.calls.viewRefreshes.length, 1);
+    assert.equal(first.calls.viewRefreshes[0].reason, 'task-repeat-advance-final');
+    assert.equal(first.calls.viewRefreshes[0].bypassDefer, true);
     assert.equal(first.calls.projections[0].changeSet.structural, true);
     assert.deepEqual(Array.from(first.calls.projections[0].changeSet.upsertedTaskIds), [
         'task-1',
@@ -373,9 +564,32 @@ async function testRecurringAdvanceStateMachine() {
     assert.equal(held.calls.projections[0].patch.done, false,
         'the plugin must project the advanced occurrence as unfinished');
     assert.equal(held.calls.projections[0].patch.completionTime, '2026-07-24');
+    assert.equal(held.calls.localPatches.length, 1);
+    assert.equal(held.calls.localPatches[0].patch.done, undefined);
+    assert.equal(held.calls.localPatches[0].patch.completionTime, '2026-07-24');
+    assert.equal(held.calls.viewRefreshes.length, 1);
     assert.equal(held.calls.broadcasts[0].done, undefined,
         'the projected unfinished state must not be broadcast as a persisted native attribute');
     assert.equal(held.calls.broadcasts[0].taskCompleteAt, undefined);
+
+    const mismatchedDuplicateTask = {
+        ...newTask,
+        done: true,
+        taskCompleteAt: completedAt,
+        startDate: '2026-07-24',
+        completionTime: '2026-07-24',
+        repeatState: { occurrenceCount: 2, lastCompletedAt: completedAt, pendingNativeDoneReset: true },
+        repeatHistory: [{ completedAt, nextStart: '2026-07-24', nextDue: '2026-07-24' }],
+    };
+    const mismatchedDuplicate = createAdvanceHarness(mismatchedDuplicateTask, () => {
+        throw new Error('a held duplicate must not advance again');
+    }, { keepNativeDone: true });
+    assert.equal(await mismatchedDuplicate.advance('task-1', {
+        completedAt: '2026-07-23T10:00:01.000+08:00',
+        suppressHint: true,
+    }), false);
+    assert.equal(mismatchedDuplicate.calls.persist.length, 0,
+        'a held recurring completion must reject a duplicate callback with a different timestamp');
 
     const resetOnlyTask = {
         ...newTask,
@@ -436,6 +650,71 @@ async function testRecurringAdvanceStateMachine() {
     assert.equal(recovery.calls.persist.length, 0);
     assert.equal(recovery.calls.reset, 1);
     assert.equal(resetFailureTask.repeatHistory.length, 1);
+}
+
+async function testRecurringHistoryUndoResetsHeldNativeCompletionInOneTransaction() {
+    const completedAt = '2026-07-23T10:00:00.000+08:00';
+    const previousCompletedAt = '2026-07-22T10:00:00.000+08:00';
+    const task = {
+        id: 'task-undo',
+        done: true,
+        taskCompleteAt: completedAt,
+        repeatState: { occurrenceCount: 2, lastCompletedAt: completedAt, pendingNativeDoneReset: true },
+        repeatHistory: [
+            { completedAt, sourceStart: '2026-07-23', sourceDue: '2026-07-23' },
+            { completedAt: previousCompletedAt, sourceStart: '2026-07-22', sourceDue: '2026-07-22' },
+        ],
+    };
+    const calls = { meta: [], reset: [], local: [], purge: [], lifecycle: [], clear: 0 };
+    const context = vm.createContext({
+        __tmResolveTaskForRepeat: async () => task,
+        __tmNormalizeTaskRepeatHistory: (value) => Array.isArray(value) ? value : [],
+        __tmBuildRecurringTaskRollbackPatch: () => ({
+            startDate: '2026-07-22',
+            completionTime: '2026-07-22',
+            repeatState: { occurrenceCount: 1, lastCompletedAt: previousCompletedAt, pendingNativeDoneReset: false },
+        }),
+        __tmClearRecurringTaskAdvanceTimer: () => { calls.clear += 1; },
+        __tmIsRecurringNativeDoneHeld: (value) => value?.repeatState?.pendingNativeDoneReset === true
+            && value.taskCompleteAt === value.repeatState.lastCompletedAt,
+        __tmSetDoneKernel: async (_taskId, done, _event, options) => {
+            calls.reset.push(options);
+            task.done = done;
+            task.taskCompleteAt = done ? (options.additionalPatch.taskCompleteAt || task.taskCompleteAt) : '';
+            task.repeatHistory = options.additionalPatch.repeatHistory;
+            task.repeatState = options.additionalPatch.repeatState;
+            return true;
+        },
+        __tmApplyTaskMetaPatchWithUndo: async (_taskId, patch, options) => {
+            calls.meta.push({ patch, options });
+        },
+        __tmApplyTaskFieldPatchToLocalMirrors: (_taskId, patch) => {
+            calls.local.push(patch);
+            return true;
+        },
+        __tmBuildRecurringInstanceTask: (_task, entry) => ({ id: `repeatinst:task-undo:${entry.completedAt}` }),
+        __tmPurgeRecurringInstanceTasks: (_taskId, ids) => { calls.purge.push(ids); },
+        __tmTaskMutationBus: { apply: (mutation) => calls.lifecycle.push(mutation) },
+    });
+    vm.runInContext(`${deleteHistoryFunction}\nthis.deleteHistory = __tmDeleteTaskRepeatHistoryEntry;`, context);
+
+    assert.equal(await context.deleteHistory(task.id, completedAt, {
+        source: 'test-recurring-undo',
+        recordUndo: true,
+        resetNativeDone: true,
+    }), true);
+    assert.equal(calls.clear, 1, 'undoing the active occurrence must cancel any queued advance');
+    assert.equal(calls.meta.length, 0, 'native reset and history rollback must share one set-done transaction');
+    assert.equal(calls.reset.length, 1);
+    assert.equal(calls.reset[0].previousDone, true);
+    assert.equal(calls.reset[0].recordUndo, true);
+    assert.equal(calls.reset[0].additionalPatch.repeatHistory.length, 1);
+    assert.equal(task.done, false);
+    assert.equal(task.taskCompleteAt, '');
+    assert.equal(calls.local.length, 1);
+    assert.equal(calls.lifecycle.length, 1);
+    assert.deepEqual(calls.lifecycle[0].patch.repeatHistory, task.repeatHistory);
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.purge)), [['2026-07-23T10:00:00.000+08:00']]);
 }
 
 async function testRecurringNativeDoneResetIsDateBoundAndIdempotent() {
@@ -534,9 +813,85 @@ this.reconcile = __tmReconcileRecurringTasksOnLoad;`, context);
     assert.equal(changed, 2, 'reset and due catch-up must both settle in one load pass');
     assert.equal(calls.length, 1, 'due catch-up must persist the latest occurrence after reset');
     nativeDoneHeld = false;
+    task.done = false;
+    task.taskMarker = ' ';
     const reconciledOnly = await context.reconcile(['task-catch-up'], { todayKey: '2026-07-26' });
     assert.equal(reconciledOnly, 1, 'an inconsistent pending flag must be reconciled without advancing the occurrence');
     assert.equal(calls.length, 1, 'state-only reconciliation must not persist a due catch-up patch');
+}
+
+async function testRecurringLoadAdvancesNewCompletionAfterClearingStaleHold() {
+    const previousCompletedAt = '2026-09-08T00:55:14.293+08:00';
+    const completedAt = '2026-09-08T00:55:56.378+08:00';
+    for (const keepNativeDone of [false, true]) {
+        const task = {
+            id: 'task-recovered', done: true, taskMarker: 'X', taskCompleteAt: completedAt,
+            startDate: '', completionTime: '2026-09-11',
+            repeatRule: { enabled: true, type: 'daily', trigger: 'complete' },
+            repeatState: { occurrenceCount: 4, lastCompletedAt: previousCompletedAt, pendingNativeDoneReset: true },
+            repeatHistory: [{ completedAt: previousCompletedAt }],
+        };
+        const harness = createAdvanceHarness(task, () => ({
+            startDate: '', completionTime: '2026-09-12',
+            repeatState: { occurrenceCount: 5, lastCompletedAt: completedAt },
+        }), { keepNativeDone });
+        Object.assign(harness.context, {
+            __tmAdvanceRecurringTaskAfterCompletion: harness.advance,
+            __tmGetRecurringNativeDoneResetDateKey: () => '2026-09-12',
+        });
+        vm.runInContext([
+            resetNativeDoneFunction,
+            extractBetween(recurringSource, 'let __tmRecurringDueReconcilePromise = null;', 'window.tmGetTaskRepeatRule = async function'),
+        ].join('\n'), harness.context);
+        const changed = await harness.context.__tmReconcileRecurringTasksOnLoad([task.id], { todayKey: '2026-09-08' });
+        assert.equal(changed, 2, 'one reload must both clear the stale hold and advance the newly completed occurrence');
+        assert.equal(task.completionTime, '2026-09-12');
+        assert.equal(task.repeatState.occurrenceCount, 5);
+        assert.equal(task.repeatHistory.length, 2);
+        assert.equal(task.repeatHistory[0].completedAt, completedAt);
+        assert.equal(task.repeatHistory[0].sourceDue, '2026-09-11');
+        assert.equal(task.done, keepNativeDone);
+        assert.equal(task.repeatState.pendingNativeDoneReset, keepNativeDone);
+        assert.equal(harness.calls.projections.length, 1);
+        assert.equal(harness.calls.projections[0].patch.done, false);
+    }
+}
+
+async function testRecurringLoadDistinguishesCompletionTimestampDrift() {
+    const completedAt = '2026-09-07T09:00:00.000+08:00';
+    const cases = [
+        { timestamp: completedAt, duplicate: true },
+        { timestamp: '2026-09-07T09:00:00.034+08:00', duplicate: true },
+        { timestamp: '2026-09-07T01:00:00.034Z', duplicate: true },
+        { timestamp: '2026-09-07T09:00:01.001+08:00', duplicate: false },
+        { timestamp: '2026-09-07T08:59:59.999+08:00', duplicate: false },
+        { timestamp: '2026-09-07T18:00:00.000+08:00', duplicate: false },
+        { timestamp: '2026-09-08T09:00:00.000+08:00', duplicate: false },
+    ];
+    const reconcileRuntime = extractBetween(recurringSource,
+        'let __tmRecurringDueReconcilePromise = null;', 'window.tmGetTaskRepeatRule = async function');
+    for (const entry of cases) {
+        const task = {
+            id: 'task-recovered', done: true, taskCompleteAt: entry.timestamp,
+            startDate: '2026-09-08', completionTime: '2026-09-08',
+            repeatRule: { enabled: true, type: 'daily', trigger: 'complete', maxOccurrences: 0 },
+            repeatState: { occurrenceCount: 2, lastCompletedAt: completedAt, pendingNativeDoneReset: false },
+            repeatHistory: [{ completedAt }],
+        };
+        const harness = createAdvanceHarness(task, () => ({
+            startDate: '2026-09-09', completionTime: '2026-09-09',
+            repeatState: { occurrenceCount: 3, lastCompletedAt: entry.timestamp },
+        }));
+        harness.context.__tmAdvanceRecurringTaskAfterCompletion = harness.advance;
+        vm.runInContext(reconcileRuntime, harness.context);
+        await harness.context.__tmReconcileRecurringTasksOnLoad([task.id], { todayKey: '2026-09-08' });
+        assert.equal(harness.calls.persist.length, entry.duplicate ? 0 : 1, entry.timestamp);
+        assert.equal(task.repeatHistory.length, entry.duplicate ? 1 : 2, entry.timestamp);
+        assert.equal(task.repeatState.occurrenceCount, entry.duplicate ? 2 : 3, entry.timestamp);
+        assert.equal(task.completionTime, entry.duplicate ? '2026-09-08' : '2026-09-09', entry.timestamp);
+        assert.equal(task.done, false, 'completion reset must not discard a distinct occurrence');
+        assert.equal(task.repeatHistory[0].completedAt, entry.duplicate ? completedAt : entry.timestamp);
+    }
 }
 
 async function testRecurringNativeDoneResetSweepRunsOncePerLocalDay() {
@@ -574,13 +929,16 @@ async function testRecurringNativeDoneResetSweepRunsOncePerLocalDay() {
 async function testRecurringFailureSchedulesOneFallbackRefresh() {
     let refreshCount = 0;
     let hintCount = 0;
+    let scheduledDelay = null;
     const context = vm.createContext({
         __tmRecurringAdvanceTimers: new Map(),
+        __tmLogRecurringAdvance: () => {},
         __tmClearRecurringTaskAdvanceTimer: () => true,
         __tmAdvanceRecurringTaskAfterCompletion: async () => { throw new Error('advance failed'); },
         __tmRefreshViewsAfterTaskMutation: () => { refreshCount += 1; },
         hint: () => { hintCount += 1; },
-        setTimeout: (callback) => {
+        setTimeout: (callback, delay) => {
+            scheduledDelay = delay;
             Promise.resolve().then(callback);
             return 1;
         },
@@ -588,6 +946,7 @@ async function testRecurringFailureSchedulesOneFallbackRefresh() {
     vm.runInContext(`${scheduleAdvanceFunction}\nthis.scheduleAdvance = __tmScheduleRecurringTaskAdvanceAfterCompletion;`, context);
     context.scheduleAdvance('task-1', { completedAt: '2026-07-23T10:00:00.000+08:00' });
     await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(scheduledDelay, 80, 'completion-driven recurring advancement should not wait 280ms by default');
     assert.equal(refreshCount, 1);
     assert.equal(hintCount, 1);
 }
@@ -673,12 +1032,17 @@ async function testFsrsCompletionUsesTheSameRecoverableTransaction() {
 }
 
 async function run() {
+    await testQueuedCompletionPreservesTimestamp();
+    await testRecurringAdvanceLiveProjection();
     testPostCommitDefersRecurringReminderSettlementToAdvance();
     await testCommittedEffectsRewardDoesNotWaitForStaleSqlOrTomato();
     testRecurringInstanceSyncOnlyTouchesLoadedDocuments();
     await testRecurringAdvanceStateMachine();
+    await testRecurringHistoryUndoResetsHeldNativeCompletionInOneTransaction();
     await testRecurringNativeDoneResetIsDateBoundAndIdempotent();
     await testRecurringNativeDoneResetFallsThroughToDueCatchUp();
+    await testRecurringLoadAdvancesNewCompletionAfterClearingStaleHold();
+    await testRecurringLoadDistinguishesCompletionTimestampDrift();
     await testRecurringNativeDoneResetSweepRunsOncePerLocalDay();
     await testFsrsCompletionUsesTheSameRecoverableTransaction();
     await testRecurringFailureSchedulesOneFallbackRefresh();
@@ -703,6 +1067,10 @@ async function run() {
         'status changes must not keep a second marker-then-attrs writer');
     assert.match(apiSource, /__tmCommitQueuedOp\(op, result\)[\s\S]*__tmBuildSetDoneEffectsOp\(op\)[\s\S]*await __tmRunInTaskWriterContext\([\s\S]*mutation:setDoneEffects/,
         'recurring and reward effects must run only after the core set-done command commits');
+    assert.match(apiSource, /advanceHintSuppressed: data\.advanceHintSuppressed === true/,
+        'the queued completion must preserve whether the user explicitly requested silent follow-up effects');
+    assert.match(committedEffects, /suppressHint: opts\.advanceHintSuppressed === true/,
+        'a normal recurring completion must show the advance hint after the committed transaction');
     assert.doesNotMatch(recurringSource, /wait:\s*false[\s\S]*task-repeat-advance/);
     assert.doesNotMatch(dueAdvanceFunction, /__advancedCount/,
         'due-trigger reconciliation must pass only writable task fields to the mutation service');
