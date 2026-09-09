@@ -201,7 +201,11 @@ assert.match(runtime, /value === 'kanban' && tasks\.length <= __TM_KANBAN_PROGRE
 assert.match(runtime, /Table, checklist, and timeline already share the near-bottom append-only loader/, 'list-like views must not retain a frame-driven fill loop');
 assert.doesNotMatch(runtime, /job\.frameId = requestAnimationFrame\(run\)/, 'progressive view rendering must not continuously refill table or timeline rows');
 assert.match(viewSwitch, /__tmScheduleProgressiveViewRender\(next, progressiveJob\)/, 'view switches must retain the shared kanban continuation hook');
-assert.match(dialogs, /const grown = __tmGrowViewRenderWindow\(mode, meta\.total\);[\s\S]*?appendOnly: true,[\s\S]*?previousLimit: grown\.previousLimit/, 'scroll auto-load must grow the window and request an incremental table patch');
+assert.match(dialogs, /__tmGetPreparedListBatch[\s\S]*?__tmGrowViewRenderWindow\(mode, meta\.total\)/, 'scroll auto-load must prefer a validated prepared list batch and retain the normal growth fallback');
+assert.match(dialogs, /function __tmScheduleChecklistEntryWarmup[\s\S]*?const batchSize = 25[\s\S]*?const batchCount = 3/, 'checklist entry warmup must use three 25-row batches');
+assert.match(dialogs, /function __tmScheduleChecklistEntryWarmup[\s\S]*?completedBatches \+= 1[\s\S]*?if \(!warmup\.done\) schedule\(\)/, 'checklist entry warmup must continue in separate idle batches');
+assert.match(dialogs, /__tmPrepareListAutoLoadBatch[\s\S]*?limitOverride: nextLimit[\s\S]*?preparedBatch/, 'list scrolling must prepare the next batch without changing the committed window');
+assert.match(dialogs, /preloadThresholdPx[\s\S]*?__tmPrepareListAutoLoadBatch/, 'list scrolling must trigger preload before the hard near-bottom commit threshold');
 assert.match(services, /renderTaskList\(null, opts\.appendOnly === true[\s\S]*?startTaskRow: currentTaskRowCount/, 'incremental table rendering must generate only rows after the current DOM task count');
 assert.match(services, /function __tmReconcileListRowsForAppend[\s\S]*?stagingTable\.innerHTML[\s\S]*?currentKeys[\s\S]*?tbody\.appendChild/, 'incremental table patches must parse and append only the new batch');
 assert.doesNotMatch(services, /commonDesiredOrder|currentOrder\.some/, 'incremental table patches must not reconcile a regenerated full prefix');
@@ -223,10 +227,10 @@ assert.match(dialogs, /mode !== 'list' && mode !== 'checklist' && mode !== 'time
 assert.match(dialogs, /function __tmScheduleAutoLoadMoreRecheck[\s\S]*?__tmAutoLoadMoreScrollHandler/, 'successful batches must recheck the live scroll host without another user gesture');
 assert.match(dialogs, /if \(state\.__tmAutoLoadMoreRecheckTimer\) clearTimeout[\s\S]*?state\.__tmAutoLoadMoreRecheckTimer = setTimeout/, 'automatic continuation rechecks must stay deduplicated');
 assert.match(dialogs, /if \(mode === 'kanban'[\s\S]*?progressiveJob\.tasksRef === state\.filteredTasks\) return;/, 'kanban continuation must not compete with an active view-switch progressive job');
-assert.match(dialogs, /const onScroll = \(\) => \{[\s\S]*?__tmAutoLoadMoreCheckPending[\s\S]*?__tmScheduleIdleTask\(run, 240\)/, 'raw scroll events must coalesce auto-load work into an idle task');
+assert.match(dialogs, /const onScroll = \(\) => \{[\s\S]*?__tmAutoLoadMoreCheckPending[\s\S]*?requestAnimationFrame\(run\)/, 'raw scroll events must coalesce auto-load work into the next frame');
 const autoLoadBinder = segment(dialogs, 'function __tmBindAutoLoadMoreOnScroll', 'window.__tmBindAutoLoadMoreOnScroll');
-const autoLoadScrollHandler = segment(autoLoadBinder, 'const onScroll = () => {', "pane.addEventListener('scroll', onScroll");
-assert.match(autoLoadScrollHandler, /const run = \(\) => \{[\s\S]*?checkNearBottom\(\);[\s\S]*?__tmScheduleIdleTask\(run, 240\)/, 'raw scroll listeners must keep measuring and rendering inside scheduled idle work');
+const autoLoadScrollHandler = segment(autoLoadBinder, 'const scheduleCheck = () => {', "pane.addEventListener('scroll', onScroll");
+assert.match(autoLoadScrollHandler, /const run = \(\) => \{[\s\S]*?checkNearBottom\(\);[\s\S]*?requestAnimationFrame\(run\)/, 'raw scroll listeners must measure near-bottom state in the next frame');
 assert.doesNotMatch(dialogs, /if \(maxScrollTop <= 0\) return;/, 'short initial batches must continue loading until the viewport can scroll');
 assert.match(services, /function __tmBindTimelineStageInteractions[\s\S]*?__tmBindAutoLoadMoreOnScroll\?\.\(modal, 'timeline'\)/, 'full and in-place timeline mounts must bind near-bottom auto loading');
 

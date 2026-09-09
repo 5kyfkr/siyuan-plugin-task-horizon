@@ -54,7 +54,7 @@ const deleteHistoryFunction = extractBetween(
 const scheduleAdvanceFunction = extractBetween(
     recurringSource,
     'function __tmScheduleRecurringTaskAdvanceAfterCompletion(',
-    'function __tmBuildTaskRepeatDueAdvancePatch(',
+    'let __tmRecurringNativeDoneResetSweepPromise = null;',
 );
 const resetNativeDoneFunction = extractBetween(
     recurringSource,
@@ -66,10 +66,10 @@ const resetNativeDoneSweepRuntime = extractBetween(
     'let __tmRecurringNativeDoneResetSweepPromise = null;',
     'let __tmRecurringDueReconcilePromise = null;',
 );
-const dueAdvanceFunction = extractBetween(
+const reconcileRuntime = extractBetween(
     recurringSource,
-    'function __tmBuildTaskRepeatDueAdvancePatch(',
     'let __tmRecurringDueReconcilePromise = null;',
+    'window.tmGetTaskRepeatRule = async function',
 );
 
 function testPostCommitDefersRecurringReminderSettlementToAdvance() {
@@ -779,7 +779,7 @@ async function testRecurringNativeDoneResetIsDateBoundAndIdempotent() {
     assert.equal(calls.reconcile, 1);
 }
 
-async function testRecurringNativeDoneResetFallsThroughToDueCatchUp() {
+async function testRecurringNativeDoneResetStaysAtUncompletedOccurrence() {
     const task = {
         id: 'task-catch-up',
         done: true,
@@ -802,22 +802,21 @@ async function testRecurringNativeDoneResetFallsThroughToDueCatchUp() {
         __tmIsTaskNativeDone: (value) => value?.taskMarker !== ' ',
         __tmIsRecurringNativeDoneHeld: () => nativeDoneHeld,
         __tmGetRecurringNativeDoneResetDateKey: () => '2026-07-24',
-        __tmBuildTaskRepeatDueAdvancePatch: () => ({ startDate: '2026-07-26', completionTime: '2026-07-26', repeatState: {} }),
-        __tmBuildRecurringDueReconcileMemoKey: () => 'catch-up',
-        __tmRecurringDueReconcileMemo: new Map(),
         __tmApplyTaskMetaPatchWithUndo: async (_id, patch) => { calls.push(patch); return { changed: true }; },
     });
     vm.runInContext(`${resetNativeDoneSweepRuntime.replace(/let __tmRecurringDueReconcilePromise = null;[\s\S]*$/, '')}\n${extractBetween(recurringSource, 'let __tmRecurringDueReconcilePromise = null;', 'window.tmGetTaskRepeatRule = async function')}
 this.reconcile = __tmReconcileRecurringTasksOnLoad;`, context);
     const changed = await context.reconcile(['task-catch-up'], { todayKey: '2026-07-26' });
-    assert.equal(changed, 2, 'reset and due catch-up must both settle in one load pass');
-    assert.equal(calls.length, 1, 'due catch-up must persist the latest occurrence after reset');
+    assert.equal(changed, 1, 'resetting a held completion must not advance an uncompleted next occurrence');
+    assert.equal(calls.length, 0, 'an overdue incomplete occurrence must not persist a due catch-up patch');
     nativeDoneHeld = false;
     task.done = false;
     task.taskMarker = ' ';
     const reconciledOnly = await context.reconcile(['task-catch-up'], { todayKey: '2026-07-26' });
     assert.equal(reconciledOnly, 1, 'an inconsistent pending flag must be reconciled without advancing the occurrence');
-    assert.equal(calls.length, 1, 'state-only reconciliation must not persist a due catch-up patch');
+    assert.equal(calls.length, 0, 'state-only reconciliation must not persist a due catch-up patch');
+    assert.equal(task.startDate, '2026-07-24');
+    assert.equal(task.completionTime, '2026-07-24');
 }
 
 async function testRecurringLoadAdvancesNewCompletionAfterClearingStaleHold() {
@@ -951,40 +950,62 @@ async function testRecurringFailureSchedulesOneFallbackRefresh() {
     assert.equal(hintCount, 1);
 }
 
-function testDueAdvanceResetsTomatoBaseline() {
-    const context = vm.createContext({
-        Date,
-        __tmNormalizeTaskRepeatRule: (value) => value,
-        __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
-        __tmGetTaskRepeatLocalDayOrdinal: (value) => {
-            const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-            return match ? Math.floor(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / 86400000) : Number.NaN;
-        },
-        __tmNormalizeTaskRepeatState: (value) => ({ occurrenceCount: 1, ...(value || {}) }),
-        __tmBuildTaskRepeatAdvancePatch: (task) => ({
-            startDate: '2026-08-13',
-            completionTime: '2026-08-13',
-            repeatState: { ...task.repeatState, occurrenceCount: task.repeatState.occurrenceCount + 1 },
-        }),
-        __tmBuildTaskTomatoBaselinePatch: (task) => ({
-            tomatoBaselineMinutes: Number(task.tomatoMinutes) || 0,
-            tomatoBaselineHours: Number(task.tomatoHours) || 0,
-            tomatoBaselineCount: Number(task.tomatoCount) || 0,
-            tomatoBaselineSet: true,
-        }),
-    });
-    vm.runInContext(`${dueAdvanceFunction}\nthis.buildDueAdvance = __tmBuildTaskRepeatDueAdvancePatch;`, context);
-    const patch = context.buildDueAdvance({
-        startDate: '2026-08-11',
-        completionTime: '2026-08-11',
-        tomatoMinutes: 80,
-        tomatoHours: 1.33,
-        tomatoCount: 4,
-        repeatState: { occurrenceCount: 1, tomatoBaselineMinutes: 55, tomatoBaselineHours: 0.92, tomatoBaselineCount: 3 },
-    }, { enabled: true, trigger: 'due', type: 'daily' }, { todayKey: '2026-08-13' });
-    assert.equal(patch.repeatState.tomatoBaselineMinutes, 80);
-    assert.equal(patch.repeatState.tomatoBaselineHours, 1.33);
-    assert.equal(patch.repeatState.tomatoBaselineCount, 4);
+async function testOverdueRecurringTasksWaitForCompletion() {
+    const modelHelpers = extractBetween(modelSource,
+        'function __tmParseTaskRepeatJson', 'function __tmGetTaskRepeatWeekdayLabel');
+    for (const trigger of ['due', 'complete']) {
+        for (const dates of [
+            { startDate: '2026-06-08', completionTime: '2026-06-08' },
+            { startDate: '', completionTime: '2026-06-08' },
+            { startDate: '2026-06-08', completionTime: '' },
+        ]) {
+            const task = {
+                id: 'task-overdue-monthly', done: false, taskCompleteAt: '',
+                ...dates,
+                repeatRule: { enabled: true, trigger, type: 'monthly', every: 1, anchorDate: '2026-06-08', maxOccurrences: 3 },
+                repeatState: { occurrenceCount: 1, lastCompletedAt: '', tomatoBaselineMinutes: 55, tomatoBaselineHours: 0.92, tomatoBaselineCount: 3, tomatoBaselineSet: true },
+                repeatHistory: [], tomatoMinutes: 80, tomatoHours: 1.33, tomatoCount: 4,
+            };
+            const harness = createAdvanceHarness(task, () => { throw new Error('must use real repeat date helpers'); });
+            vm.runInContext(modelHelpers, harness.context);
+            harness.context.__tmAdvanceRecurringTaskAfterCompletion = harness.advance;
+            vm.runInContext(reconcileRuntime, harness.context);
+            const beforeLoad = JSON.stringify(task);
+            for (const todayKey of ['2026-06-08', '2026-06-09', '2026-09-09', '2026-09-09']) {
+                assert.equal(await harness.context.__tmReconcileRecurringTasksOnLoad([task.id], { todayKey }), 0);
+                assert.equal(JSON.stringify(task), beforeLoad, 'reloads must preserve the incomplete occurrence, history, count and focus baseline');
+            }
+            const completedAt = '2026-09-09T09:00:00.000+08:00';
+            assert.equal(await harness.advance(task.id, { completedAt }), false, 'a completion timestamp alone must not advance an unchecked task');
+            assert.equal(harness.calls.persist.length, 0);
+            assert.equal(harness.calls.reset, 0);
+            assert.equal(harness.calls.reminderSettle, 0);
+            task.done = true;
+            task.taskCompleteAt = completedAt;
+            assert.equal(await harness.context.__tmReconcileRecurringTasksOnLoad([task.id], { todayKey: '2026-09-09' }), 1,
+                'a committed completion must advance both due and complete rules');
+            assert.equal(task.startDate, dates.startDate ? '2026-07-08' : '');
+            assert.equal(task.completionTime, dates.completionTime ? '2026-07-08' : '');
+            assert.equal(task.repeatRule.trigger, trigger, 'completion must preserve the configured repeat rule');
+            assert.equal(task.repeatState.occurrenceCount, 2, 'one completion must advance only one occurrence even when several months overdue');
+            assert.equal(task.repeatHistory.length, 1);
+            assert.equal(task.repeatHistory[0].sourceDue, dates.completionTime);
+            assert.equal(task.repeatHistory[0].sourceStart, dates.startDate);
+            assert.equal(task.repeatHistory[0].completedAt, completedAt);
+            assert.equal(task.repeatState.tomatoBaselineMinutes, 80);
+            assert.equal(task.repeatState.tomatoBaselineHours, 1.33);
+            assert.equal(task.repeatState.tomatoBaselineCount, 4);
+            assert.equal(task.done, false);
+            assert.equal(harness.calls.persist.length, 1);
+            assert.equal(harness.calls.reset, 1);
+            const afterCompletion = JSON.stringify(task);
+            for (const todayKey of ['2026-09-09', '2026-09-10']) {
+                assert.equal(await harness.context.__tmReconcileRecurringTasksOnLoad([task.id], { todayKey }), 0);
+                assert.equal(JSON.stringify(task), afterCompletion, 'the next overdue occurrence must wait for its own completion');
+            }
+            assert.equal(harness.calls.persist.length, 1, 'reloads must not consume the remaining occurrence count');
+        }
+    }
 }
 
 async function testFsrsCompletionUsesTheSameRecoverableTransaction() {
@@ -1040,13 +1061,13 @@ async function run() {
     await testRecurringAdvanceStateMachine();
     await testRecurringHistoryUndoResetsHeldNativeCompletionInOneTransaction();
     await testRecurringNativeDoneResetIsDateBoundAndIdempotent();
-    await testRecurringNativeDoneResetFallsThroughToDueCatchUp();
+    await testRecurringNativeDoneResetStaysAtUncompletedOccurrence();
     await testRecurringLoadAdvancesNewCompletionAfterClearingStaleHold();
     await testRecurringLoadDistinguishesCompletionTimestampDrift();
     await testRecurringNativeDoneResetSweepRunsOncePerLocalDay();
     await testFsrsCompletionUsesTheSameRecoverableTransaction();
     await testRecurringFailureSchedulesOneFallbackRefresh();
-    testDueAdvanceResetsTomatoBaseline();
+    await testOverdueRecurringTasksWaitForCompletion();
 
     const kernel = extractBetween(listSource, 'async function __tmSetDoneKernel(', 'function __tmAutoCompleteGetTaskById(');
     const committedEffects = extractBetween(listSource, 'async function __tmRunCommittedSetDoneEffects(', 'try { globalThis.__tmRunCommittedSetDoneEffects');
@@ -1072,8 +1093,8 @@ async function run() {
     assert.match(committedEffects, /suppressHint: opts\.advanceHintSuppressed === true/,
         'a normal recurring completion must show the advance hint after the committed transaction');
     assert.doesNotMatch(recurringSource, /wait:\s*false[\s\S]*task-repeat-advance/);
-    assert.doesNotMatch(dueAdvanceFunction, /__advancedCount/,
-        'due-trigger reconciliation must pass only writable task fields to the mutation service');
+    assert.doesNotMatch(recurringSource, /__tmBuildTaskRepeatDueAdvancePatch|__tmRecurringDueReconcileMemo|task-repeat-due/,
+        'recurring tasks must not retain an automatic due-advance path');
     console.log('task recurring completion transaction tests passed');
 }
 

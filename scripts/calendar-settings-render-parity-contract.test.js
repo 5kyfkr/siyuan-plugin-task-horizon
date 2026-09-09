@@ -45,6 +45,7 @@ const renderKeyContext = {
     normalizeCalendarVisibleTime: (value, fallback) => String(value || fallback),
     normalizeCalendarHourSlotHeightMode: (value) => String(value || 'normal'),
     normalizeCalendarMonthMinVisibleEvents: (value) => Number(value) || 3,
+    normalizeCalendarWeekAllDayVisibleRows: (value) => Number(value) || 5,
 };
 const buildRenderSettingsKey = readFunction(source, 'buildPrototypeRenderSettingsKey', renderKeyContext);
 const baseSettings = {
@@ -55,6 +56,7 @@ const baseSettings = {
     showLunar: false,
     showCnHoliday: true,
     monthMinVisibleEvents: 3,
+    weekAllDayVisibleRows: 5,
     showOtherBlockCheckbox: false,
     taskCheckboxCircleStyleEnabled: false,
 };
@@ -67,6 +69,7 @@ for (const [field, value] of [
     ['showLunar', true],
     ['showCnHoliday', false],
     ['monthMinVisibleEvents', 5],
+    ['weekAllDayVisibleRows', 15],
     ['showOtherBlockCheckbox', true],
     ['taskCheckboxCircleStyleEnabled', true],
 ]) {

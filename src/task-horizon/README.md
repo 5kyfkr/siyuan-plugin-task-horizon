@@ -7,6 +7,13 @@
 - Release mode: [build.ps1](/abs/path/d:/AI/trae/siyuan-plugin-task-horizon/build.ps1:1) concatenates those scripts into the root `task.js` inside the temporary packaging directory.
 - Root `task.js` remains the published/fallback entry and should not be treated as the long-term source of truth.
 
+## Recurring task lifecycle
+
+- Both `due` and `complete` task rules require a committed completion before advancing. Keep the configured rule and existing next-date calculation unchanged.
+- Loading, refreshing, switching groups, or crossing a date boundary must not advance an incomplete occurrence or consume its remaining occurrence count.
+- Each completion advances one occurrence. If the next occurrence is already overdue, it remains incomplete until separately completed.
+- Native checkbox hold/reset and recovery of a previously committed completion remain supported; resetting the held checkbox must not advance dates again. Calendar date previews remain read-only.
+
 Current active layout:
 
 - `main/00-bootstrap-and-styles.js`

@@ -2122,8 +2122,20 @@
                     __tmRegisterKanbanProgressiveColumn(kanbanProgressiveJob, {
                         key: columnKey,
                         loaded: initialColumnRender.rendered > 0,
-                        loadNextBatch: (modalEl) => {
+                        loadNextBatch: (modalEl, loadOptions = {}) => {
                             if (!__tmIsProgressiveViewRenderCurrent(kanbanProgressiveJob, 'kanban')) return { done: true };
+                            if (loadOptions.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.('kanban')) {
+                                globalThis.__tmQueueViewDomCommit?.('kanban', () => {
+                                    const queuedResult = kanbanProgressiveJob.columns
+                                        ?.find((entry) => String(entry?.key || '').trim() === columnKey)
+                                        ?.loadNextBatch?.(modalEl, { __tmQueuedCommit: true });
+                                    if (queuedResult?.retry) {
+                                        try { __tmScheduleKanbanProgressiveViewportCheck(kanbanProgressiveJob, 0); } catch (e) {}
+                                    }
+                                    return true;
+                                }, { reason: 'kanban-scroll-progressive' });
+                                return { done: false, retry: true };
+                            }
                             const nextLimit = progressiveColumnLimit + Math.max(1, Math.round(Number(kanbanProgressiveJob.batchSize) || 10));
                             kanbanProjectedTaskById.clear();
                             const nextColumnRender = renderColumnListHtml(nextLimit);

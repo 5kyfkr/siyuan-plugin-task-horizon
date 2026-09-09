@@ -15859,9 +15859,6 @@ if (opts.refresh === false) return;
         if (!context?.persistId) {
             throw new Error('未找到任务');
         }
-        if (String(opts.source || '').trim() !== 'task-repeat-due') {
-            try { globalThis.__tmClearRecurringDueReconcileMemo?.(context.persistId); } catch (e) {}
-        }
         const inversePatch = __tmCaptureTaskPatchInverse(context.persistId, nextPatch);
         let effectiveAttrTargetId = explicitAttrTargetId || context.attrHostId;
         if (effectiveAttrTargetId && effectiveAttrTargetId !== context.persistId) {
@@ -15913,6 +15910,7 @@ if (opts.refresh === false) return;
                 source: String(opts.source || '').trim(),
                 attrTargetId: effectiveAttrTargetId,
                 skipSnapshotPersist: opts.skipSnapshotPersist === true,
+                persistSnapshot: opts.persistSnapshot === true,
                 skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
                 inlineQueuedPersist: opts.inlineQueuedPersist === true,
@@ -15940,6 +15938,7 @@ if (opts.refresh === false) return;
                     docId: context.docId,
                     attrTargetId: effectiveAttrTargetId,
                     skipSnapshotPersist: opts.skipSnapshotPersist === true,
+                    persistSnapshot: opts.persistSnapshot === true,
                     skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
                     broadcast: opts.broadcast !== false,
                     optimistic: opts.renderOptimistic !== false,
@@ -15995,6 +15994,7 @@ if (opts.refresh === false) return;
             __tmApplyAttrPatchLocally(context.persistId, nextPatch, {
                 render: false,
                 skipSnapshotPersist: opts.skipSnapshotPersist === true,
+                persistSnapshot: opts.persistSnapshot === true,
                 skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
                 source: String(opts.source || 'attr-patch').trim() || 'attr-patch',
             });
@@ -24917,13 +24917,21 @@ if (!state.homepageOpen) return;
             const id0 = Number(state.__tmCollapseRafId) || 0;
             if (id0) cancelAnimationFrame(id0);
         } catch (e) {}
+        const commitCollapse = () => {
+            if (!__tmRerenderCollapseInPlace()) render();
+            return true;
+        };
+        if (globalThis.__tmIsViewDomCommitBlocked?.('list')) {
+            globalThis.__tmQueueViewDomCommit?.('list', commitCollapse, { reason: 'list-collapse-rerender' });
+            return;
+        }
         try {
             state.__tmCollapseRafId = requestAnimationFrame(() => {
                 state.__tmCollapseRafId = 0;
-                if (!__tmRerenderCollapseInPlace()) render();
+                commitCollapse();
             });
         } catch (e) {
-            if (!__tmRerenderCollapseInPlace()) render();
+            commitCollapse();
         }
     }
 
@@ -25072,14 +25080,34 @@ if (!state.homepageOpen) return;
         const anchors = [];
         try {
             const hostRect = host.getBoundingClientRect();
-            if (hostRect.height > 0) {
-                for (const node of host.querySelectorAll(selector)) {
-                    if (!(node instanceof HTMLElement) || !node.getAttribute('data-id')) continue;
+            const nodes = Array.from(host.querySelectorAll(selector))
+                .filter((node) => node instanceof HTMLElement && node.getAttribute('data-id'));
+            if (hostRect.height > 0 && nodes.length) {
+                const firstVisibleIndex = nodes.findIndex((node) => {
                     const rect = node.getBoundingClientRect();
-                    if (rect.bottom <= hostRect.top + 1 || rect.top >= hostRect.bottom) continue;
-                    anchors.push({ id: String(node.getAttribute('data-id')), offsetTop: rect.top - hostRect.top });
-                    if (anchors.length >= 4) break;
+                    return rect.bottom > hostRect.top + 1 && rect.top < hostRect.bottom;
+                });
+                const pivot = firstVisibleIndex >= 0 ? firstVisibleIndex : 0;
+                const orderedIndexes = [];
+                for (let distance = 0; orderedIndexes.length < 6 && (pivot - distance >= 0 || pivot + distance < nodes.length); distance += 1) {
+                    const before = pivot - distance;
+                    const after = pivot + distance;
+                    if (distance === 0) orderedIndexes.push(pivot);
+                    else {
+                        if (after < nodes.length) orderedIndexes.push(after);
+                        if (before >= 0) orderedIndexes.push(before);
+                    }
                 }
+                const seen = new Set();
+                orderedIndexes.forEach((index) => {
+                    if (seen.has(index)) return;
+                    seen.add(index);
+                    const node = nodes[index];
+                    const rect = node.getBoundingClientRect();
+                    if (rect.bottom <= hostRect.top + 1 && index > pivot + 2) return;
+                    if (rect.top >= hostRect.bottom && index < pivot - 2) return;
+                    anchors.push({ id: String(node.getAttribute('data-id')), offsetTop: rect.top - hostRect.top });
+                });
             }
         } catch (e) {}
         return { scrollTop, id: anchors[0]?.id || '', offsetTop: anchors[0]?.offsetTop || 0, selector, anchors };
@@ -25089,12 +25117,14 @@ if (!state.homepageOpen) return;
         const host = hostEl instanceof HTMLElement ? hostEl : null;
         const saved = snapshot && typeof snapshot === 'object' ? snapshot : null;
         if (!host || !saved) return false;
+        const mode = host.closest?.('.tm-body--checklist') ? 'checklist' : (host.closest?.('.tm-body--kanban') ? 'kanban' : 'list');
+        if (globalThis.__tmIsViewDomCommitBlocked?.(mode)) return false;
         const candidates = Array.isArray(saved.anchors) && saved.anchors.length ? saved.anchors : [saved];
         for (const candidate of candidates) {
             if (!candidate.id) continue;
             try {
                 const selector = String(saved.selector || '[data-id]').trim();
-                const anchor = host.querySelector(`${selector}[data-id=${CSS.escape(candidate.id)}]`);
+                const anchor = host.querySelector(selector + '[data-id=' + CSS.escape(candidate.id) + ']');
                 if (!(anchor instanceof HTMLElement) || anchor.hidden) continue;
                 const hostRect = host.getBoundingClientRect();
                 const nextOffset = Number(anchor.getBoundingClientRect().top - hostRect.top) || 0;
@@ -25124,18 +25154,25 @@ if (!state.homepageOpen) return;
         const previousLimit = Math.max(0, Math.round(Number(opts.previousLimit) || 0));
         const nextLimit = Math.max(0, Math.round(Number(state.listRenderLimit) || 0));
         if (!tbody || !previousLimit || nextLimit <= previousLimit) return false;
-        const stagingTable = document.createElement('table');
-        stagingTable.innerHTML = `<tbody>${String(nextRowsHtml || '')}</tbody>`;
-        const stagingBody = stagingTable.tBodies?.[0];
-        if (!(stagingBody instanceof HTMLElement)) return false;
-        const desiredRows = Array.from(stagingBody.children).filter((row) => row instanceof HTMLElement);
+        let desiredRows = Array.isArray(opts.preparedRows)
+            ? opts.preparedRows.filter((row) => row instanceof HTMLElement)
+            : null;
+        if (!desiredRows) {
+            const stagingTable = document.createElement('table');
+            stagingTable.innerHTML = `<tbody>${String(nextRowsHtml || '')}</tbody>`;
+            const stagingBody = stagingTable.tBodies?.[0];
+            if (!(stagingBody instanceof HTMLElement)) return false;
+            desiredRows = Array.from(stagingBody.children).filter((row) => row instanceof HTMLElement);
+        }
         const currentRows = Array.from(tbody.children).filter((row) => row instanceof HTMLElement);
         const currentKeys = new Set();
         const currentByKey = new Map();
+        let liveLoadMoreRow = null;
         for (const row of currentRows) {
             const key = __tmGetListRowStableKey(row);
             if (!key) return false;
             if (key === 'control:load-more') {
+                liveLoadMoreRow = row;
                 continue;
             }
             if (currentKeys.has(key)) return false;
@@ -25156,15 +25193,21 @@ if (!state.homepageOpen) return;
             desiredKeys.add(key);
             desiredEntries.push({ key, row });
         }
+        if (opts.tailOnlyRequired === true) {
+            for (let index = 0; index < desiredEntries.length; index += 1) {
+                const entry = desiredEntries[index];
+                if (currentByKey.has(entry.key)) continue;
+                for (let nextIndex = index + 1; nextIndex < desiredEntries.length; nextIndex += 1) {
+                    const candidate = currentByKey.get(desiredEntries[nextIndex].key);
+                    if (candidate instanceof HTMLElement && candidate.parentElement === tbody) return false;
+                }
+            }
+        }
 
-        // Validate before mutating the live table. A failed append must leave
-        // the existing load-more control and row order untouched so callers
-        // can safely fall back to a full render.
-        currentRows.forEach((row) => {
-            if (__tmGetListRowStableKey(row) === 'control:load-more') row.remove();
-        });
-
+        // Keep the live load-more row mounted while inserting the next batch.
+        // Removing it first changes scrollHeight and can trigger browser scroll anchoring.
         let insertedCount = 0;
+        let tailOnly = true;
         desiredEntries.forEach((entry, index) => {
             if (currentByKey.has(entry.key)) return;
 
@@ -25179,13 +25222,22 @@ if (!state.homepageOpen) return;
                     break;
                 }
             }
-            if (anchor) tbody.insertBefore(entry.row, anchor);
-            else tbody.appendChild(entry.row);
+            if (!anchor && liveLoadMoreRow instanceof HTMLElement && liveLoadMoreRow.parentElement === tbody) {
+                anchor = liveLoadMoreRow;
+            }
+            if (anchor) {
+                if (anchor !== liveLoadMoreRow) tailOnly = false;
+                tbody.insertBefore(entry.row, anchor);
+            } else {
+                tbody.appendChild(entry.row);
+            }
             currentByKey.set(entry.key, entry.row);
             insertedCount += 1;
         });
-        if (loadMoreRow) tbody.appendChild(loadMoreRow);
+        if (!(liveLoadMoreRow instanceof HTMLElement) && loadMoreRow) tbody.appendChild(loadMoreRow);
+        if (!loadMoreRow && liveLoadMoreRow instanceof HTMLElement) liveLoadMoreRow.remove();
         tbody.dataset.tmLastIncrementalAppendCount = String(Math.max(0, insertedCount));
+        tbody.dataset.tmLastIncrementalAppendTailOnly = tailOnly ? '1' : '0';
         return true;
     }
 
@@ -25193,6 +25245,20 @@ if (!state.homepageOpen) return;
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const opts = (options && typeof options === 'object') ? options : {};
         if (!modal) return false;
+        const listMode = String(state.viewMode || '').trim() || 'list';
+        const allowDuringScroll = opts.allowDuringScroll === true
+            && opts.appendOnly === true
+            && opts.preparedOnly === true
+            && typeof opts.preparedRowsHtml === 'string';
+        if (opts.__tmQueuedCommit !== true
+            && globalThis.__tmIsViewDomCommitBlocked?.(listMode)
+            && !allowDuringScroll) {
+            globalThis.__tmQueueViewDomCommit?.(listMode, () => __tmRerenderListInPlace(modal, {
+                ...opts,
+                __tmQueuedCommit: true,
+            }), { reason: String(opts.reason || 'list-rerender').trim() || 'list-rerender' });
+            return true;
+        }
         const body = modal.querySelector('.tm-body');
         const table = modal.querySelector('#tmTaskTable');
         const tbody = modal.querySelector('#tmTaskTable tbody');
@@ -25228,9 +25294,16 @@ if (!state.homepageOpen) return;
             : 0;
         let nextRowsHtml = '';
         try {
-            nextRowsHtml = renderTaskList(null, opts.appendOnly === true
-                ? { startTaskRow: currentTaskRowCount }
-                : {});
+            if (opts.appendOnly === true && typeof opts.preparedRowsHtml === 'string') {
+                nextRowsHtml = opts.preparedRowsHtml;
+            } else {
+                nextRowsHtml = renderTaskList(null, opts.appendOnly === true
+                    ? {
+                        startTaskRow: currentTaskRowCount,
+                        limitOverride: opts.limitOverride,
+                    }
+                    : {});
+            }
         } catch (e) {
             return false;
         } finally {
@@ -25256,14 +25329,18 @@ if (!state.homepageOpen) return;
             if (opts.appendOnly === true && !isCalendarTaskTable) {
                 incrementallyPatched = __tmReconcileListRowsForAppend(tbody, nextRowsHtml, opts);
             }
+            if (opts.allowDuringScroll === true && opts.appendOnly === true && !incrementallyPatched) return false;
             if (!incrementallyPatched) {
                 tbody.innerHTML = opts.appendOnly === true ? renderTaskList() : nextRowsHtml;
             }
         } catch (e) {
             return false;
         }
+        const tailOnlyAppend = opts.appendOnly === true
+            && incrementallyPatched
+            && tbody.dataset.tmLastIncrementalAppendTailOnly === '1';
         try {
-            if (body) __tmRestoreViewScrollAnchor(body, scrollAnchor);
+            if (body && !tailOnlyAppend) __tmRestoreViewScrollAnchor(body, scrollAnchor);
         } catch (e) {}
         try { if (body) body.scrollLeft = left; } catch (e) {}
         try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
@@ -26946,6 +27023,13 @@ return true;
         const opts = (options && typeof options === 'object') ? options : {};
         if (!(modal instanceof Element)) return false;
         if (String(state.viewMode || '').trim() !== 'checklist') return false;
+        if (opts.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.('checklist')) {
+            globalThis.__tmQueueViewDomCommit?.('checklist', () => __tmRerenderChecklistInPlace(modal, {
+                ...opts,
+                __tmQueuedCommit: true,
+            }), { reason: String(opts.reason || 'checklist-rerender').trim() || 'checklist-rerender' });
+            return true;
+        }
 const renderBodyHtml = state.renderChecklistBodyHtml;
         if (typeof renderBodyHtml !== 'function') return false;
         const body = modal.querySelector('.tm-body.tm-body--checklist');
@@ -26955,6 +27039,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             ? __tmBuildCurrentViewDomRenderSignature('checklist')
             : '';
         const checklistProjectionTaskIds = __tmGetChecklistProjectionGroupRefreshTaskIds();
+        if (opts.requireAppend === true && checklistProjectionTaskIds.length > 0) return false;
         if (checklistProjectionTaskIds.length === 0
             && renderSignature
             && String(state.listDomRenderSignature || '') === renderSignature) {
@@ -27084,6 +27169,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             state.pendingChecklistRenderRestore = null;
             return true;
         }
+        if (opts.requireAppend === true) return false;
         __tmPreserveActiveDetailNotePanelDuringBodySwap(body, nextBody);
         __tmCleanupChecklistScrollFxForEl(pane);
         try { body.replaceWith(nextBody); } catch (e) {
@@ -27265,8 +27351,16 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
 
     try { globalThis.__tmTryReconcileKanbanParentCards = __tmTryReconcileKanbanParentCards; } catch (e) {}
 
-    function __tmRerenderKanbanInPlace(modalEl) {
+    function __tmRerenderKanbanInPlace(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.('kanban')) {
+            globalThis.__tmQueueViewDomCommit?.('kanban', () => __tmRerenderKanbanInPlace(modal, {
+                ...opts,
+                __tmQueuedCommit: true,
+            }), { reason: String(opts.reason || 'kanban-rerender').trim() || 'kanban-rerender' });
+            return true;
+        }
         if (!(modal instanceof Element)) return false;
         if (String(state.viewMode || '').trim() !== 'kanban') return false;
         const renderBodyHtml = state.renderKanbanBodyHtml;

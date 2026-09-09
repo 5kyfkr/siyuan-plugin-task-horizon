@@ -30,6 +30,9 @@ const listAppend = segment(services, 'function __tmReconcileListRowsForAppend', 
 assert.match(listAppend, /currentByKey = new Map/);
 assert.match(listAppend, /before the next already-mounted stable row/);
 assert.match(listAppend, /tbody\.insertBefore\(entry\.row, anchor\)/);
+assert.match(listAppend, /liveLoadMoreRow/, 'append reconciliation must keep the live tail control mounted while loading');
+assert.match(listAppend, /tmLastIncrementalAppendTailOnly/, 'append reconciliation must record whether insertion stayed at the tail');
+assert.doesNotMatch(listAppend, /currentRows\.forEach\(\(row\) => \{[\\s\\S]*?row\.remove\(\)/, 'append reconciliation must not remove the tail control before inserting new rows');
 
 const checklistRerender = segment(services, 'function __tmRerenderChecklistInPlace', 'function __tmGetKanbanColScrollKey');
 assert.match(checklistRerender, /const scrollAnchor = __tmCaptureViewScrollAnchor\(pane, '\.tm-checklist-item\[data-id\]'\)/);

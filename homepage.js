@@ -1320,6 +1320,11 @@
     fill: var(--tm-home-accent);
 }
 
+.tm-homepage-trend-dot--point {
+    fill: var(--tm-home-accent);
+    opacity: 0.92;
+}
+
 .tm-homepage-trend-dot--peak {
     fill: color-mix(in srgb, var(--tm-home-accent) 86%, white 14%);
 }
@@ -1339,10 +1344,14 @@
 }
 
 .tm-homepage-trend-label {
-    fill: var(--tm-home-text-muted);
+    fill: var(--tm-home-text);
     font-size: 10px;
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: 0;
+    paint-order: stroke;
+    stroke: var(--tm-home-surface-alt);
+    stroke-width: 3px;
+    stroke-linejoin: round;
     text-rendering: geometricPrecision;
 }
 
@@ -4303,7 +4312,6 @@
                     const showDate = ((lastIndex - index) % step === 0) || index === 0 || index === lastIndex;
                     return `
                     <div class="tm-homepage-trend-axis-item" aria-label="${esc(`${point.label} 完成 ${Number(point.value) || 0} 项`)}">
-                        <span class="tm-homepage-trend-axis-value ${(Number(point.value) || 0) > 0 ? "" : "is-empty"}">${(Number(point.value) || 0) > 0 ? Number(point.value) || 0 : ""}</span>
                         <span class="tm-homepage-trend-axis-date ${showDate ? "" : "is-empty"}">${showDate ? esc(point.label || "") : ""}</span>
                     </div>
                 `;
@@ -4422,7 +4430,7 @@
         const isNarrow = String(layout || "").trim() === "narrow";
         const width = Math.max(isNarrow ? 320 : 360, Math.round(isNarrow ? metrics.trendNarrowWidth : metrics.trendWidth));
         const height = profile === "mobile" ? 142 : (profile === "dock" ? 156 : 170);
-        const padding = { top: 14, right: 12, bottom: 8, left: 12 };
+        const padding = { top: 20, right: 12, bottom: 1, left: 12 };
         const innerW = width - padding.left - padding.right;
         const innerH = height - padding.top - padding.bottom;
         const maxValue = Math.max(1, ...points.map((point) => Number(point?.value) || 0));
@@ -4449,13 +4457,25 @@
             if (point.value > best.value) return point;
             return best;
         }, null);
+        const pointMarkers = chartPoints.map((point) => {
+            if (point === peakPoint || point === lastPoint || (Number(point.value) || 0) <= 0) return "";
+            return `<circle cx="${point.x}" cy="${point.y}" r="2.5" class="tm-homepage-trend-dot tm-homepage-trend-dot--point"><title>${esc(`${point.label}：${point.value}`)}</title></circle>`;
+        }).join("");
+        const pointLabels = chartPoints.map((point) => {
+            const value = Number(point.value) || 0;
+            if (value <= 0) return "";
+            const labelY = Math.max(11, point.y - 7);
+            return `<text x="${point.x}" y="${labelY}" text-anchor="middle" class="tm-homepage-trend-label">${esc(value)}</text>`;
+        }).join("");
         const markers = [
+            pointMarkers,
             peakPoint ? `<circle cx="${peakPoint.x}" cy="${peakPoint.y}" r="3.5" class="tm-homepage-trend-dot tm-homepage-trend-dot--peak"><title>${esc(`峰值 ${peakPoint.label}：${peakPoint.value}`)}</title></circle>` : "",
             lastPoint ? `<circle cx="${lastPoint.x}" cy="${lastPoint.y}" r="5.5" class="tm-homepage-trend-dot tm-homepage-trend-dot--last"><title>${esc(`最新 ${lastPoint.label}：${lastPoint.value}`)}</title></circle>` : "",
             lastPoint ? `<circle cx="${lastPoint.x}" cy="${lastPoint.y}" r="9" class="tm-homepage-trend-dot tm-homepage-trend-dot--last-ring"></circle>` : "",
+            pointLabels,
         ].join("");
         return `
-            <svg class="tm-homepage-trend-svg" viewBox="0 0 ${width} ${height}" aria-label="完成趋势">
+            <svg class="tm-homepage-trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMax meet" aria-label="完成趋势">
                 <defs>
                     <linearGradient id="tmHomepageTrendStroke" x1="0" y1="0" x2="1" y2="0">
                         <stop offset="0%" style="stop-color:color-mix(in srgb, var(--tm-home-accent) 68%, var(--tm-home-accent-soft-2));"></stop>

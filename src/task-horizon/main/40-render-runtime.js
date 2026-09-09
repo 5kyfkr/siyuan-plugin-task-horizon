@@ -2441,6 +2441,7 @@
                                     wait: true,
                                     background: false,
                                     skipInteractionGate: true,
+                                    persistSnapshot: true,
                                     timelineMutation: true,
                                 });
                                 return result;
@@ -6099,6 +6100,7 @@
                         background: true,
                         wait: false,
                         skipInteractionGate: true,
+                        persistSnapshot: true,
                         showErrorHint: false,
                     }).catch((error) => {
                         failureCount += 1;
@@ -6114,6 +6116,7 @@
                     background: true,
                     wait: false,
                     skipInteractionGate: true,
+                    persistSnapshot: true,
                     showErrorHint: false,
                 }).catch((error) => {
                     failureCount += 1;
@@ -6327,6 +6330,7 @@
                     background: true,
                     wait: false,
                     skipInteractionGate: true,
+                    persistSnapshot: true,
                     defer: false,
                     showErrorHint: false,
                 });
@@ -6498,6 +6502,7 @@
                     label: '看板日期',
                     wait: false,
                     background: true,
+                    persistSnapshot: true,
                 }).catch((error) => {
                     try { globalThis.__tmReportTaskMutationFailure?.(error, { action: '更新看板日期' }); } catch (e2) {}
                 });

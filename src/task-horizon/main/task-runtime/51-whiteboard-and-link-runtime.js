@@ -8712,6 +8712,7 @@ return false;
                 deferProjection: opts.deferProjection === true,
                 background: opts.background === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
+                persistSnapshot: opts.persistSnapshot === true,
                 showErrorHint: opts.showErrorHint !== false,
                 suppressHint: opts.suppressHint === true,
                 refreshAncestorViews: opts.refreshAncestorViews !== false,

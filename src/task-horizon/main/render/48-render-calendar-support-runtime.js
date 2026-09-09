@@ -2020,6 +2020,7 @@
                 mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 deferProjection: opts.deferProjection === true,
+                persistSnapshot: opts.persistSnapshot === true,
                 recordUndo: recordBackgroundUndo ? false : opts.recordUndo !== false,
                 renderOptimistic: true,
                 showErrorHint: opts.showErrorHint !== false,

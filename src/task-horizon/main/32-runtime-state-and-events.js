@@ -2333,6 +2333,7 @@
                     source: policy.reason || m.source || `mutation-${normalizeId(m.type) || 'unknown'}`,
                     snapshotDelayMs: 360,
                     snapshotIdleDelayMs: 80,
+                    persistSnapshot: m.data?.persistSnapshot === true,
                 });
                 return true;
             }

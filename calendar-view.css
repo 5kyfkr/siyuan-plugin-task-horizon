@@ -1850,6 +1850,7 @@
     border-bottom: 1px solid var(--tm-cal-border);
     background: var(--tm-cal-panel);
     box-shadow: 0 1px 0 color-mix(in srgb, var(--tm-cal-border) 36%, transparent);
+    container: tm-proto-toolbar / inline-size;
 }.tm-proto-icon-btn,
 .tm-proto-today,
 .tm-proto-add,
@@ -1953,7 +1954,8 @@
     transform: translateY(-70%) rotate(45deg);
     pointer-events: none;
     opacity: .72;
-}.tm-proto-toolbar-month{
+}
+.tm-proto-toolbar-month{
     display: none;
     align-items: center;
     flex: 0 0 auto;
@@ -1965,11 +1967,36 @@
     line-height: 1;
     white-space: nowrap;
     text-overflow: ellipsis;
-}.tm-proto-segmented{
+}
+@container tm-proto-toolbar (max-width: 820px){
+    .tm-proto-toolbar > .tm-proto-segmented{
+        display: none;
+    }
+    .tm-proto-toolbar > .tm-proto-view-select-wrap{
+        display: flex;
+        order: 2;
+        flex: 0 0 auto;
+        margin-left: auto;
+    }
+    .tm-proto-toolbar .tm-proto-view-select{
+        min-width: 76px;
+    }
+}
+.tm-proto-segmented{
     padding: 3px;
     border: 1px solid var(--tm-cal-border);
     border-radius: var(--tm-calendar-control-radius);
     background: var(--tm-cal-panel-2);
+}
+.tm-proto-toolbar > .tm-proto-tool-wrap{
+    order: 2;
+}
+.tm-proto-toolbar > .tm-proto-day-btn{
+    order: 3;
+}
+.tm-proto-toolbar > .tm-proto-segmented,
+.tm-proto-toolbar > .tm-proto-view-select-wrap{
+    order: 4;
 }.tm-proto-view-btn{
     min-height: 28px;
     min-width: 42px;
@@ -2361,7 +2388,7 @@
 }.tm-proto-month-day-head{
     position: relative;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: flex-start;
     height: 24px;
     min-height: 24px;
@@ -2381,15 +2408,66 @@
 /* The 1st of a month renders as a pill-shaped "9月1日" cue instead of a
    bare number, matching the TickTick month-start style. */
 .tm-proto-day-number--month-start{
-    width: auto;
+    width: auto !important;
     min-width: 24px;
     padding: 0 6px;
     border-radius: 999px;
     font-weight: 700;
+    white-space: nowrap;
 }
 /* A wider month-start pill needs the holiday label to clear it. */
 .tm-proto-month-cell--month-start .tm-proto-holiday{
     left: 62px;
+}.tm-proto-holiday-status{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    min-width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+    box-sizing: border-box;
+    margin-left: 3px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 9px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: 14px;
+    vertical-align: middle;
+}.tm-proto-holiday-status--rest{
+    background: rgba(52, 168, 83, 0.92);
+}.tm-proto-holiday-status--work{
+    background: rgba(234, 67, 53, 0.92);
+}.tm-proto-day-number-wrap{
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    min-width: 0;
+}.tm-proto-day-number-wrap > .tm-proto-holiday-status{
+    align-self: center;
+}.tm-proto-day-number-wrap > .tm-proto-day-number{
+    flex-shrink: 0;
+}.tm-proto-date-meta{
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    z-index: 1;
+    width: auto;
+    max-width: calc(100% - 30px);
+    margin: 0;
+    transform: translateY(-50%);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--tm-cal-faint);
+    text-align: right;
+    font-size: 9px;
+}.tm-proto-date-meta.is-holiday{
+    color: var(--tm-cal-primary);
+    font-weight: 600;
+}.tm-proto-month-cell--month-start .tm-proto-date-meta{
+    max-width: calc(100% - 64px);
 }.tm-proto-month-cell.is-today .tm-proto-day-number{
     background: var(--tm-cal-primary);
     color: var(--tm-cal-on-primary);
@@ -4284,6 +4362,7 @@
     font-size: 11px;
     font-weight: 700;
 }.tm-proto-timeline-day b{
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -4293,6 +4372,11 @@
     color: var(--tm-cal-text);
     font-size: 17px;
     line-height: 30px;
+}.tm-proto-timeline-day b .tm-proto-holiday-status{
+    position: absolute;
+    right: -7px;
+    top: -2px;
+    margin: 0;
 }.tm-proto-timeline-day.is-today{
     background: var(--tm-cal-today-bg);
 }.tm-proto-timeline-day.is-today b{
@@ -4314,7 +4398,7 @@
 }.tm-proto-allday{
     position: relative;
     flex: 0 0 auto;
-    max-height: 140px;
+    max-height: var(--tm-proto-allday-max-height, 140px);
     overflow: visible;
     scrollbar-width: none;
     border-bottom: 1px solid var(--tm-cal-border);
@@ -6356,7 +6440,7 @@
     gap: 4px !important;
     /* Keep a bounded fallback for the full-width timeline. Narrow day-panel
        overlays opt into intrinsic sizing in the scoped rule below. */
-    max-height: 140px !important;
+    max-height: var(--tm-proto-allday-max-height, 140px) !important;
     overflow: visible !important;
     padding: 3px 4px 3px 0 !important;
 }

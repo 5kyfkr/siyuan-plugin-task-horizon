@@ -3121,7 +3121,7 @@
                 font-size: 13px;
                 line-height: 1.45;
                 resize: none;
-                overflow-y: hidden;
+                overflow-y: auto;
                 white-space: pre-wrap;
                 overflow-wrap: anywhere;
                 font-family: inherit;
@@ -3550,6 +3550,7 @@
         let currentFloatBarLoadToken = 0;
         let activePropConfig = null;  // 当前编辑的属性配置
         let inputResolve = null;  // 输入框Promise解析器
+        let quickbarTextEditorAutoSave = null;
         const QUICKBAR_AUTO_HIDE_DELAY = 5000;
         let quickbarAutoHideTimer = null;
         let quickbarAutoHidePointerEnterHandler = null;
@@ -3593,6 +3594,7 @@
             try { textarea.style.height = 'auto'; } catch (e) {}
             const nextHeight = Math.max(baseHeight, Math.min(420, textarea.scrollHeight || 0));
             textarea.style.height = `${nextHeight}px`;
+            try { textarea.style.overflowY = (textarea.scrollHeight > nextHeight) ? 'auto' : 'hidden'; } catch (e) {}
         }
 
         function positionPopupNearAnchor(popupEl, anchorEl, options = {}) {
@@ -7044,8 +7046,10 @@
                 if (result.success) {
                     const dispatchTaskId = String(result?.taskId || result?.id || blockIdAtOpen).trim() || blockIdAtOpen;
                     const dispatchRequestedTaskId = String(result?.requestedTaskId || blockIdAtOpen).trim() || blockIdAtOpen;
-                    currentProps[config.attrKey] = newValue;
-                    renderFloatBar();
+                    if (String(currentBlockId || '').trim() === blockIdAtOpen) {
+                        currentProps[config.attrKey] = newValue;
+                        renderFloatBar();
+                    }
                     patchInlineMetaCache(blockIdAtOpen, { [config.attrKey]: newValue });
                     refreshInlineMetaByTaskId(blockIdAtOpen, false);
                     if (newValue) showMessage(`已更新${config.name}`, false, 1500);
@@ -7116,6 +7120,9 @@
 
             // 绑定事件
             const saveText = async () => {
+                if (isRemark && textarea instanceof HTMLTextAreaElement && textarea.dataset.saving === 'true') {
+                    return;
+                }
                 const newValue = isRemark
                     ? normalizeRemarkMarkdown(valueSource.value || '')
                     : isTomatoCount
@@ -7147,9 +7154,18 @@
                 if (isRemark && textarea instanceof HTMLTextAreaElement) {
                     try { textarea.dataset.savedValue = newValue; } catch (e) {}
                     try { delete textarea.dataset.dirty; } catch (e) {}
-                    clearQuickbarRemarkDraftState('saved');
+                    if (quickbarTextEditorAutoSave === autoSaveRemarkOnClose) quickbarTextEditorAutoSave = null;
                 }
             };
+
+            const autoSaveRemarkOnClose = () => {
+                if (!isRemark || !(textarea instanceof HTMLTextAreaElement)) return;
+                const draftValue = normalizeRemarkMarkdown(textarea.value || '');
+                const savedValue = normalizeRemarkMarkdown(textarea.dataset.savedValue || '');
+                if (draftValue === savedValue && textarea.dataset.dirty !== 'true') return;
+                void saveText();
+            };
+            quickbarTextEditorAutoSave = autoSaveRemarkOnClose;
 
             if (textarea instanceof HTMLTextAreaElement) {
                 textarea.oninput = () => {
@@ -7284,6 +7300,9 @@
 
         // 隐藏所有弹出层
         function hideAllPopups() {
+            const autoSave = quickbarTextEditorAutoSave;
+            quickbarTextEditorAutoSave = null;
+            try { autoSave?.(); } catch (e) {}
             selectMenu.classList.remove('is-visible');
             inputEditor.classList.remove('is-visible');
             inputEditor.classList.remove('is-focus-summary');

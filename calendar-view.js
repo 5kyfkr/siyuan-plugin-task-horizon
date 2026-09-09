@@ -58,6 +58,7 @@
     const CALENDAR_SUBSCRIPTION_EVENT_LIMIT = 20000;
     const CALENDAR_SUBSCRIPTION_FILE_LIMIT = 9 * 1024 * 1024;
     const CALENDAR_SUBSCRIPTION_DEBOUNCE_MS = 30000;
+    const CN_HOLIDAY_CACHE_VERSION = 2;
     // View changes should reuse the same schedule/history snapshot. Mutations
     // invalidate these caches explicitly, so a longer read TTL does not delay
     // edits while it prevents every month/week/list switch from hitting the
@@ -594,7 +595,26 @@
                 if (!settings?.linkDockTomato || settings?.showTomatoMaster === false) return false;
                 return !(settings?.monthAggregate && String(viewType || '').trim() === 'dayGridMonth');
             }
-            if (source === 'cnHoliday') return !!settings?.showCnHoliday;
+            if (source === 'cnHoliday') {
+                if (!settings?.showCnHoliday) return false;
+                if (event?.display === 'background') return true;
+                const ext = event?.extendedProps || {};
+                if (typeof ext.__tmCnHolidayShowEvent === 'boolean') return ext.__tmCnHolidayShowEvent;
+                const dateKey = event?.start instanceof Date ? formatDateKey(event.start) : String(event?.start || '').slice(0, 10);
+                const holidayName = String(ext.__tmCnHolidayName || '').trim();
+                const legacyCustomName = ext.__tmCnHolidayCustom === true
+                    && holidayName
+                    && holidayName !== '个人休息日'
+                    && holidayName !== '个人调休工作日';
+                return getCnHolidayDisplayInfo({
+                    type: Number(ext.__tmCnHolidayType),
+                    name: holidayName,
+                    custom: ext.__tmCnHolidayCustom === true,
+                    customName: typeof ext.__tmCnHolidayCustomName === 'boolean' ? ext.__tmCnHolidayCustomName : !!legacyCustomName,
+                    officialName: String(ext.__tmCnHolidayOfficialName || '').trim(),
+                    predicted: ext.__tmCnHolidayPredicted === true,
+                }, dateKey).showEvent;
+            }
             return true;
         });
     }
@@ -6084,7 +6104,7 @@
         const visibleEnd = overnight
             ? rawEnd
             : Math.max(visibleStart + 30, rawEnd);
-        const hourHeight = Math.max(1, Number(options.hourHeight) || getPrototypeHourHeight(settings, options.isMobile === true));
+        const baseHourHeight = Math.max(1, Number(options.hourHeight) || getPrototypeHourHeight(settings, options.isMobile === true));
         const expanded = options.timeRangeExpanded === true;
         const bandHeight = Math.max(24, Number(options.bandHeight) || PROTOTYPE_TIME_COLLAPSE_BAND_HEIGHT);
         const visibleRanges = overnight
@@ -6100,6 +6120,12 @@
                 ...(visibleEnd < 1440 ? [{ key: 'after', start: visibleEnd, end: 1440 }] : []),
             ];
         const visibleMinutes = visibleRanges.reduce((sum, range) => sum + Math.max(0, range.end - range.start), 0);
+        const layoutMinutes = expanded ? 1440 : visibleMinutes;
+        const availableHeight = Number(options.availableHeight);
+        const fitHourHeight = Number.isFinite(availableHeight) && availableHeight > 0 && layoutMinutes > 0
+            ? (availableHeight - ranges.length * bandHeight) / (layoutMinutes / 60)
+            : baseHourHeight;
+        const hourHeight = Math.max(baseHourHeight, fitHourHeight);
         const canvasHeight = expanded
             // Expanded timelines still need a dedicated separator slot for
             // every fold control. Without these slots the controls sit on top
@@ -6119,6 +6145,7 @@
             canvasHeight,
             totalMinutes: 1440,
             visibleMinutes,
+            availableHeight: Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 0,
         };
     }
 
@@ -6337,6 +6364,12 @@
         return Math.max(1, Math.min(8, num));
     }
 
+    function normalizeCalendarWeekAllDayVisibleRows(value) {
+        const num = Math.round(Number(value));
+        if (!Number.isFinite(num)) return 5;
+        return Math.max(1, Math.min(15, num));
+    }
+
     function buildPrototypeRenderSettingsKey(settings) {
         const source = (settings && typeof settings === 'object') ? settings : {};
         return [
@@ -6347,6 +6380,7 @@
             source.showLunar === true ? 1 : 0,
             source.showCnHoliday === true ? 1 : 0,
             normalizeCalendarMonthMinVisibleEvents(source.monthMinVisibleEvents),
+            normalizeCalendarWeekAllDayVisibleRows(source.weekAllDayVisibleRows),
             source.showOtherBlockCheckbox === true ? 1 : 0,
             source.taskCheckboxCircleStyleEnabled === true ? 1 : 0,
         ].join('|');
@@ -6598,6 +6632,8 @@
     function buildSharedPrototypeLunarText(key, settings, holidayMap = null) {
         if (settings?.showLunar !== true || !key) return '';
         const item = holidayMap?.get?.(key);
+        const solarTerm = typeof getCnSolarTermName === 'function' ? getCnSolarTermName(key) : '';
+        if (solarTerm) return solarTerm;
         const raw = (typeof formatCnLunarDateKey === 'function' ? String(formatCnLunarDateKey(key) || '').trim() : '')
             || String(item?.lunar || '').trim();
         const monthIndex = raw.lastIndexOf('月');
@@ -6801,8 +6837,9 @@
             ? (segment.continuesBefore === true || segmentStartIndex > eventStartIndex)
             : continuation;
         const continuesAfter = segment
-            ? segmentEndIndex < (Number(segment.eventEndIndex) || segmentEndIndex)
+            ? (segment.continuesAfter === true || segmentEndIndex < (Number(segment.eventEndIndex) || segmentEndIndex))
             : !visualEnd;
+        const canResizeRange = ext.__tmTaskDateScheduleSplit !== true && !continuesBefore && !continuesAfter;
         const showCheck = !continuation && shouldShowCalendarEventCheckbox(ext, {
             viewType: String(viewType || '').trim(),
             compactMonth: compactMonth === true,
@@ -6828,7 +6865,7 @@
             ? `top:${Math.max(0, Number(segment.lane) || 0) * 23}px;--tm-proto-span-top:${3 + Math.max(0, Number(segment.lane) || 0) * 23}px;--tm-proto-span-days:${Math.max(1, Number(segment.days) || 1)};--tm-proto-span-inset-start:${segmentStart ? 3 : 0}px;--tm-proto-span-inset-end:${visualEnd ? 3 : 0}px;`
             : '';
         return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="${layoutStyle}--tm-proto-event-color:${color}">`
-            + `${segmentStart ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
+            + `${canResizeRange && segmentStart ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
             + `${continuesBefore ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--start" aria-hidden="true">&lt;</span>' : ''}`
             + `${showCheck && segmentStart ? `<input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务">` : ''}`
             // The day panel has one card for the selected day, not the
@@ -6836,11 +6873,14 @@
             // when the event continues in from the previous day.
             + `<span class="tm-proto-span-title">${title}</span>${recurringIcon}`
             + `${continuesAfter ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--end" aria-hidden="true">&gt;</span>' : ''}`
-            + `${visualEnd && (!segment || segmentEndIndex >= (Number(segment.eventEndIndex) || segmentEndIndex)) ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
+            + `${canResizeRange && visualEnd && (!segment || segmentEndIndex >= (Number(segment.eventEndIndex) || segmentEndIndex)) ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
     }
 
     function buildSharedPrototypeTimelineMarkup(options = {}) {
         const settings = options.settings || getSettings();
+        const allDayCapacity = normalizeCalendarWeekAllDayVisibleRows(
+            settings.weekAllDayVisibleRows ?? settings.calendarWeekAllDayVisibleRows
+        );
         const safeDate = (value) => {
             const date = value instanceof Date ? new Date(value.getTime()) : new Date(value || '');
             return Number.isNaN(date.getTime()) ? null : date;
@@ -6902,9 +6942,10 @@
             ? options.spanMarkup
             : (eventApi, date, segment) => buildSharedPrototypeSpanMarkup(eventApi, date, settings, segment, options.showSpanContinuationTitle === true, options.viewType, options.compactMonth === true);
         const spanEvents = rangeEvents(firstDay, lastDay).filter(isSpanEvent).sort(compareEvents);
-        const fallbackSpanLayout = () => {
+        const fallbackSpanLayout = (laneLimit) => {
             const byDay = new Map();
             const reserves = new Map();
+            const hiddenByDay = new Map();
             spanEvents.forEach((eventApi) => {
                 const start = dayStart(eventApi?.start);
                 const end = dayStart(eventEnd(eventApi));
@@ -6917,6 +6958,12 @@
                 for (let index = startIndex; index < endIndex; index += 1) {
                     const list = byDay.get(index) || [];
                     const lane = list.length;
+                    if (lane >= laneLimit) {
+                        const hidden = hiddenByDay.get(index) || new Set();
+                        hidden.add(eventApi);
+                        hiddenByDay.set(index, hidden);
+                        continue;
+                    }
                     const segment = {
                         eventApi,
                         // The first visible segment is the visual start of the
@@ -6939,11 +6986,19 @@
                     reserves.set(index, Math.max(Number(reserves.get(index) || 0), lane + 1));
                 }
             });
-            return { byDay, reserves, hiddenByDay: new Map() };
+            return { byDay, reserves, hiddenByDay };
         };
-        const suppliedSpanLayout = typeof options.spanLayout === 'function'
-            ? options.spanLayout(days, spanEvents)
-            : fallbackSpanLayout();
+        const buildSpanLayout = (laneLimit) => typeof options.spanLayout === 'function'
+            ? options.spanLayout(days, spanEvents, laneLimit)
+            : fallbackSpanLayout(laneLimit);
+        let suppliedSpanLayout = buildSpanLayout(allDayCapacity);
+        const needsMoreRow = days.some((date, index) => {
+            const regularCount = rangeEvents(date, addDays(date, 1))
+                .filter((eventApi) => eventApi?.allDay === true && !isSpanEvent(eventApi)).length;
+            return (suppliedSpanLayout?.hiddenByDay?.get(index)?.size || 0) > 0
+                || Number(suppliedSpanLayout?.reserves?.get(index) || 0) + regularCount > allDayCapacity;
+        });
+        if (needsMoreRow) suppliedSpanLayout = buildSpanLayout(allDayCapacity - 1);
         const spanByDay = suppliedSpanLayout?.byDay instanceof Map ? suppliedSpanLayout.byDay : new Map();
         const spanReserves = suppliedSpanLayout?.reserves instanceof Map ? suppliedSpanLayout.reserves : new Map();
         const spanHidden = suppliedSpanLayout?.hiddenByDay instanceof Map ? suppliedSpanLayout.hiddenByDay : new Map();
@@ -6956,6 +7011,7 @@
             : getPrototypeHourHeight(settings, mobile);
         const timeMetrics = getPrototypeTimelineMetrics(settings, {
             hourHeight,
+            availableHeight: options.availableHeight,
             isMobile: mobile,
             timeRangeExpanded: options.timeRangeExpanded === true,
         });
@@ -6977,7 +7033,13 @@
             const key = dateKey(date);
             const today = key === dateKey(new Date());
             const lunar = typeof options.lunarText === 'function' ? options.lunarText(key, settings) : '';
-            return `<div class="tm-proto-timeline-day ${today ? 'is-today' : ''}" data-tm-proto-day="${key}" data-tm-proto-all-day="1"><span>${['日', '一', '二', '三', '四', '五', '六'][date.getDay()]}</span><b>${date.getDate()}</b><small>${esc(lunar)}</small></div>`;
+            const headerInfo = typeof options.dateHeaderInfo === 'function' ? options.dateHeaderInfo(key, settings) || {} : {};
+            const status = String(headerInfo.status || '').trim();
+            const headerLabel = String(headerInfo.label || '').trim() || lunar;
+            const statusMarkup = status
+                ? `<i class="tm-proto-holiday-status tm-proto-holiday-status--${esc(status)}" title="${status === 'work' ? '调休工作日' : '休息日'}">${status === 'work' ? '班' : '休'}</i>`
+                : '';
+            return `<div class="tm-proto-timeline-day ${today ? 'is-today' : ''}" data-tm-proto-day="${key}" data-tm-proto-all-day="1"><span>${['日', '一', '二', '三', '四', '五', '六'][date.getDay()]}</span><b>${date.getDate()}${statusMarkup}</b><small>${esc(headerLabel)}</small></div>`;
         }).join('');
         const allDay = days.map((date, index) => {
             const key = dateKey(date);
@@ -6991,7 +7053,6 @@
             const hiddenSpanCount = spanHidden.get(index)?.size || 0;
             const spanLaneCount = Number(spanReserves.get(index) || 0);
             const regularEvents = dayEvents.filter((eventApi) => !isSpanEvent(eventApi)).sort(compareEvents);
-            const allDayCapacity = 5;
             const regularCapacity = Math.max(0, allDayCapacity - spanLaneCount);
             const hasAllDayOverflow = hiddenSpanCount > 0 || regularEvents.length > regularCapacity;
             const visibleAllDayEvents = allDayCollapsed ? [] : regularEvents.slice(0, Math.max(0, regularCapacity - (hasAllDayOverflow ? 1 : 0)));
@@ -7155,11 +7216,12 @@
         const allDayContent = legacyAliases
             ? `<div class="tm-proto-day-panel-allday-events">${allDay}</div>`
             : allDay;
+        const allDayMaxHeight = Math.max(30, allDayCapacity * 25 + 8);
         // Each collapsed range owns its own expand/collapse band. A global
         // axis button is intentionally omitted because it duplicated the
         // same action without identifying which range would change.
         const axisMarkup = labelsMarkup + currentNowLabelMarkup;
-        return `<section class="${timelineClass}" style="--tm-proto-cols:${cols}">${headerMarkup}<div class="${allDayClass}">${allDayToggle}${allDayContent}</div><div class="tm-proto-time-scroll tm-proto-day-panel-scroll"><div class="tm-proto-time-canvas tm-proto-day-panel-canvas" data-tm-proto-time-expanded="${timeMetrics.expanded ? '1' : '0'}" data-tm-proto-visible-start="${startMin}" data-tm-proto-visible-end="${endMin}" data-tm-proto-hour-height="${hourHeight}" data-tm-proto-band-height="${timeMetrics.bandHeight}" data-tm-proto-canvas-height="${canvasHeight}" style="height:${canvasHeight}px;min-height:${canvasHeight}px"><div class="tm-proto-time-axis tm-proto-day-panel-axis">${axisMarkup}</div><div class="tm-proto-time-lines tm-proto-day-panel-lines">${lines.join('')}</div><div class="tm-proto-time-columns"><span class="tm-proto-time-axis-spacer"></span>${columns}</div>${collapseBandMarkup}</div></div></section>`;
+        return `<section class="${timelineClass}" style="--tm-proto-cols:${cols};--tm-proto-allday-max-height:${allDayMaxHeight}px">${headerMarkup}<div class="${allDayClass}">${allDayToggle}${allDayContent}</div><div class="tm-proto-time-scroll tm-proto-day-panel-scroll"><div class="tm-proto-time-canvas tm-proto-day-panel-canvas" data-tm-proto-time-expanded="${timeMetrics.expanded ? '1' : '0'}" data-tm-proto-visible-start="${startMin}" data-tm-proto-visible-end="${endMin}" data-tm-proto-hour-height="${hourHeight}" data-tm-proto-band-height="${timeMetrics.bandHeight}" data-tm-proto-canvas-height="${canvasHeight}" style="height:${canvasHeight}px;min-height:${canvasHeight}px"><div class="tm-proto-time-axis tm-proto-day-panel-axis">${axisMarkup}</div><div class="tm-proto-time-lines tm-proto-day-panel-lines">${lines.join('')}</div><div class="tm-proto-time-columns"><span class="tm-proto-time-axis-spacer"></span>${columns}</div>${collapseBandMarkup}</div></div></section>`;
     }
 
     function resolvePrototypeSelectionRange(surface, selection, clientX, clientY, settings = {}) {
@@ -7294,8 +7356,14 @@
         const actions = options.actions || { prev: 'dayPanelPrev', today: 'dayPanelToday', next: 'dayPanelNext', close: 'closeDayPanel', toggleAllDay: 'toggleAllDay' };
         const actionButton = (action, className, label, ariaLabel) => `<button type="button" class="${className} tm-btn tm-btn-info bc-btn bc-btn--sm" ${actionAttr}="${esc(action)}" aria-label="${esc(ariaLabel)}" title="${esc(ariaLabel)}">${label}</button>`;
         const lunar = typeof options.lunarText === 'function' ? options.lunarText(dateKey, settings) : '';
+        const headerInfo = typeof options.dateHeaderInfo === 'function' ? options.dateHeaderInfo(dateKey, settings) || {} : {};
+        const headerLabel = String(headerInfo.label || '').trim() || lunar;
+        const status = String(headerInfo.status || '').trim();
+        const statusMarkup = status
+            ? `<i class="tm-proto-holiday-status tm-proto-holiday-status--${esc(status)}" title="${status === 'work' ? '调休工作日' : '休息日'}">${status === 'work' ? '班' : '休'}</i>`
+            : '';
         const panelClass = ['tm-proto-day-panel', options.panelClass || ''].filter(Boolean).join(' ');
-        const header = `<header><div><b>${safeDate.getMonth() + 1}月${safeDate.getDate()}日</b><span>周${['日', '一', '二', '三', '四', '五', '六'][safeDate.getDay()]}</span><small>${esc(lunar)}</small></div><div class="tm-proto-day-panel-actions">${actionButton(actions.prev, 'tm-proto-icon-btn', '‹', '前一天')}${actionButton(actions.today, 'tm-proto-today', '今天', '今天')}${actionButton(actions.next, 'tm-proto-icon-btn', '›', '后一天')}${actionButton(actions.close, 'tm-proto-icon-btn', '×', '关闭')}</div></header>`;
+        const header = `<header><div><b>${safeDate.getMonth() + 1}月${safeDate.getDate()}日${statusMarkup}</b><span>周${['日', '一', '二', '三', '四', '五', '六'][safeDate.getDay()]}</span><small>${esc(headerLabel)}</small></div><div class="tm-proto-day-panel-actions">${actionButton(actions.prev, 'tm-proto-icon-btn', '‹', '前一天')}${actionButton(actions.today, 'tm-proto-today', '今天', '今天')}${actionButton(actions.next, 'tm-proto-icon-btn', '›', '后一天')}${actionButton(actions.close, 'tm-proto-icon-btn', '×', '关闭')}</div></header>`;
         const timeline = buildSharedPrototypeTimelineMarkup({
             ...options,
             days: [safeDate],
@@ -8329,6 +8397,7 @@
         const hourSlotHeightMode0 = normalizeCalendarHourSlotHeightMode(readStoredString('tm_calendar_hour_slot_height_mode', s.calendarHourSlotHeightMode).trim() || 'normal');
         const eventFontSize0 = normalizeCalendarEventFontSize(readStoredString('tm_calendar_event_font_size', s.calendarEventFontSize).trim() || '11');
         const monthMinVisibleEvents0 = normalizeCalendarMonthMinVisibleEvents(readStoredString('tm_calendar_month_min_visible_events', s.calendarMonthMinVisibleEvents).trim() || '3');
+        const weekAllDayVisibleRows0 = normalizeCalendarWeekAllDayVisibleRows(readStoredString('tm_calendar_week_all_day_visible_rows', s.calendarWeekAllDayVisibleRows).trim() || '5');
         const visibleStartTime0 = normalizeCalendarVisibleTime(readStoredString('tm_calendar_visible_start_time', s.calendarVisibleStartTime).trim() || '00:00', '00:00', false);
         const visibleEndTime0 = normalizeCalendarVisibleTime(readStoredString('tm_calendar_visible_end_time', s.calendarVisibleEndTime).trim() || '24:00', '24:00', true);
         const quickAddScheduleTimeMode0 = normalizeQuickAddScheduleTimeMode(readStoredString('tm_calendar_quick_add_schedule_time_mode', s.calendarQuickAddScheduleTimeMode).trim() || 'current');
@@ -8384,6 +8453,7 @@
             hourSlotHeightMode: hourSlotHeightMode0,
             eventFontSize: eventFontSize0,
             monthMinVisibleEvents: monthMinVisibleEvents0,
+            weekAllDayVisibleRows: weekAllDayVisibleRows0,
             taskDateAllDayReminderEnabled: readStoredBool('tm_calendar_taskdate_all_day_reminder_enabled', typeof s.calendarTaskDateAllDayReminderEnabled === 'boolean' ? !!s.calendarTaskDateAllDayReminderEnabled : undefined),
             allDaySummaryIncludeExtras: s.calendarAllDaySummaryIncludeExtras !== false,
             taskDateColorMode: String(s.calendarTaskDateColorMode || 'group').trim() || 'group',
@@ -17520,8 +17590,7 @@
 
     function shouldHideCompletedAllDayCalendarEvent(eventLike, settings, options = {}) {
         if (!eventLike || !settings || settings.showCompletedAllDaySchedules !== false) return false;
-        const viewType = String(options?.viewType || '').trim();
-        if (eventLike.allDay !== true && !viewType.startsWith('dayGrid')) return false;
+        if (eventLike.allDay !== true) return false;
         return resolveCalendarEventDoneState(eventLike.extendedProps || {}, options) === true;
     }
 
@@ -19219,6 +19288,7 @@
         let sidePrototypeSuppressClickUntil = 0;
         let sidePrototypeSuppressClickEventId = '';
         let sidePrototypeTimeRangeExpanded = false;
+        let sidePrototypeSuppressSelectionClickUntil = 0;
         let sidePrototypeDragScrollSnapshot = null;
         const beginSidePrototypeDragScrollSnapshot = (surface, activeCalendar, pointerId) => {
             const scroller = surface?.querySelector?.('.tm-proto-time-scroll');
@@ -19466,6 +19536,13 @@
                 };
                 surface.addEventListener('click', (event) => {
                     const target = event.target instanceof Element ? event.target : null;
+                    const selectionClickAction = target?.closest?.('[data-tm-side-day-action]');
+                    if (!selectionClickAction && sidePrototypeSuppressSelectionClickUntil > Date.now()) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        sidePrototypeSuppressSelectionClickUntil = 0;
+                        return;
+                    }
                     const pointTarget = document.elementFromPoint?.(Number(event.clientX) || 0, Number(event.clientY) || 0);
                     const geometryTarget = pointTarget instanceof Element ? pointTarget : target;
                     const resolveEventAtPoint = () => {
@@ -20057,6 +20134,9 @@
                     }
                     const activeCalendar = state.sideDay?.calendar || cal;
                     try {
+                        sidePrototypeSuppressSelectionClickUntil = Date.now() + 900;
+                        event.__tmPrototypeSelectionAnchor = surface.querySelector('[data-tm-proto-selection-preview]');
+                        event.__tmPrototypeSelectionRange = { start: new Date(range.start.getTime()), end: new Date(range.end.getTime()), canvas: range.canvas, metrics: getPrototypeTimelineMetricsFromCanvas(range.canvas, getSettings()) };
                         state.__tmPrototypeEventPopoverSuppressOutsideClickUntil = Date.now() + 900;
                         callCalendarAdapter(activeCalendar, 'dispatchSelect', range.start, range.end, false, event, range.canvas);
                     } catch (e) {
@@ -20123,6 +20203,9 @@
             const previousTimeScrollTop = previousTimeScroller instanceof HTMLElement
                 ? Number(previousTimeScroller.scrollTop || 0)
                 : null;
+            const previousTimeScrollerHeight = previousTimeScroller instanceof HTMLElement
+                ? Number(previousTimeScroller.clientHeight || 0)
+                : 0;
             const dragScrollTop = state.sideDay?.autoCenterSuppressed === true
                 && Number.isFinite(Number(sidePrototypeDragScrollSnapshot?.scrollTop))
                 ? Number(sidePrototypeDragScrollSnapshot.scrollTop)
@@ -20133,8 +20216,10 @@
                 events: renderedEvents,
                 settings: liveSettings,
                 hourHeight,
+                availableHeight: previousTimeScrollerHeight,
                 isMobile: state.isMobileDevice === true,
                 lunarText: (key, settings) => buildSharedPrototypeLunarText(key, settings, state.cnHolidayMap),
+                dateHeaderInfo: (key, settings) => getCalendarDateHeaderInfo(key, settings, state.cnHolidayMap),
                 allDayCollapsed: state.sideDay.allDayCollapsed === true,
                 panelClass: 'tm-proto-side-panel',
                 actionAttr: 'data-tm-side-day-action',
@@ -20674,8 +20759,13 @@
                     try { ensurePrototypePopoverFactory(); } catch (e0) {}
                 }
                 const newCard = state.openPrototypeNewScheduleCard;
+                const selectionEvent = info?.jsEvent;
+                const selectionAnchor = selectionEvent?.__tmPrototypeSelectionAnchor instanceof Element
+                    ? selectionEvent.__tmPrototypeSelectionAnchor
+                    : (sidePrototypeSurface?.querySelector?.('[data-tm-proto-selection-preview]') || info?.el || selectionEvent?.target);
+                const selectionRange = selectionEvent?.__tmPrototypeSelectionRange || null;
                 const opened = typeof newCard === 'function'
-                    ? newCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()) }, sidePrototypeSurface?.querySelector?.('[data-tm-proto-selection-preview]') || info?.el || info?.jsEvent?.target)
+                    ? newCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: sidePrototypeSurface, __tmPreviewRange: selectionRange }, selectionAnchor)
                     : false;
                 if (!opened) {
                     renderPrototypeSelectionPreview(sidePrototypeSurface, null, null);
@@ -21291,14 +21381,14 @@
         const out = [];
         for (const event of list) {
             const ext = event?.extendedProps || {};
-            const taskLikeId = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
-            const start = event?.start instanceof Date ? event.start : new Date(event?.start);
-            const dayKey = formatDateKey(start);
-            if (!taskLikeId || !dayKey) {
+            const scheduleId = String(ext.__tmScheduleId || event?.id || '').trim();
+            const startMs = Number(toMs(event?.start));
+            const endMs = Number(toMs(event?.end));
+            if (!scheduleId || !Number.isFinite(startMs) || !Number.isFinite(endMs)) {
                 out.push(event);
                 continue;
             }
-            const key = `${taskLikeId}|${dayKey}`;
+            const key = `${scheduleId}|${Math.trunc(startMs)}|${Math.trunc(endMs)}`;
             if (seen.has(key)) continue;
             seen.add(key);
             out.push(event);
@@ -24062,10 +24152,69 @@
                 type,
                 name: value.name || getCalendarCustomHolidayFallbackName(value.type),
                 custom: true,
+                customName: !!value.name,
+                officialName: previous.officialName || (!previous.custom ? previous.name : ''),
+                officialType: previous.officialType || (!previous.custom ? previous.type : 0),
                 customType: value.type,
             });
         }
         return Array.from(dayMap.values()).sort((left, right) => String(left?.date || '').localeCompare(String(right?.date || '')));
+    }
+
+    function buildPredictedCnHolidayDays(year) {
+        const y = Number(year);
+        if (!Number.isFinite(y) || y < 1900 || y > 2100) return [];
+        const out = [];
+        const add = (date, name) => {
+            const key = formatDateKey(date);
+            if (!key || date.getFullYear() !== y || out.some((item) => item.date === key)) return;
+            out.push({ date: key, type: 2, name, lunar: formatCnLunarDateKey(key), predicted: true });
+        };
+        const day = new Date(y, 0, 1);
+        const end = new Date(y + 1, 0, 1);
+        while (day < end) {
+            const key = formatDateKey(day);
+            const lunar = formatCnLunarDateKey(key);
+            if (day.getMonth() === 0 && day.getDate() === 1) add(day, '元旦');
+            if (day.getMonth() === 4 && day.getDate() === 1) add(day, '劳动节');
+            if (day.getMonth() === 9 && day.getDate() === 1) add(day, '国庆节');
+            if (getCnSolarTermName(key) === '清明') add(day, '清明节');
+            if (lunar === '正月初一') add(day, '春节');
+            if (lunar === '五月初五') add(day, '端午节');
+            if (lunar === '八月十五') add(day, '中秋节');
+            const next = new Date(day.getTime());
+            next.setDate(next.getDate() + 1);
+            if (next < end && formatCnLunarDateKey(formatDateKey(next)) === '正月初一') add(day, '除夕');
+            day.setDate(day.getDate() + 1);
+        }
+        return out.sort((left, right) => left.date.localeCompare(right.date));
+    }
+
+    function mergeCnHolidayFestivalFallback(days, year) {
+        const y = Number(year);
+        const map = new Map();
+        (Array.isArray(days) ? days : []).forEach((item) => {
+            const date = String(item?.date || '').trim();
+            if (date && date.slice(0, 4) === String(Math.round(y))) map.set(date, item);
+        });
+        buildPredictedCnHolidayDays(y).forEach((item) => {
+            const existing = map.get(item.date);
+            if (!existing) {
+                map.set(item.date, item);
+                return;
+            }
+            if (Number(existing.type) !== 4 && !getCnHolidayDisplayInfo(existing, item.date).festivalName) {
+                map.set(item.date, {
+                    ...item,
+                    ...existing,
+                    name: String(existing.name || '').trim() || item.name,
+                    lunar: String(existing.lunar || '').trim() || item.lunar,
+                    type: Number(existing.type) || 2,
+                    predicted: existing.predicted === true,
+                });
+            }
+        });
+        return Array.from(map.values()).sort((left, right) => String(left?.date || '').localeCompare(String(right?.date || '')));
     }
 
     async function loadCnHolidayYearUncached(year, options = {}) {
@@ -24077,15 +24226,23 @@
             mark('missing');
             return [];
         }
+        const futureYear = y > new Date().getFullYear();
+        const todayKey = formatDateKey(new Date());
         if (!state.cnHolidayCache) state.cnHolidayCache = new Map();
         const cached = state.cnHolidayCache.get(y);
-        if (!opts.forceRefresh && cached && Array.isArray(cached.data) && (Date.now() - (cached.ts || 0) < 12 * 3600 * 1000)) {
+        const cachedVersionCurrent = cached?.cacheVersion === CN_HOLIDAY_CACHE_VERSION;
+        const cachedUsable = !futureYear || cachedVersionCurrent;
+        if (!opts.forceRefresh && cachedUsable && cached && Array.isArray(cached.data)
+            && String(cached.checkedDay || '') === todayKey) {
             mark('cached');
-            return cached.data;
+            return futureYear && cached.predicted !== false ? buildPredictedCnHolidayDays(y) : cached.data;
         }
         const lsKey = `tm_cn_holiday_${y}`;
         let localData = [];
         let localTs = 0;
+        let localPredicted = false;
+        let localCheckedDay = '';
+        let localCacheUsable = !futureYear;
         try {
             const raw = String(localStorage.getItem(lsKey) || '');
             if (raw) {
@@ -24096,15 +24253,18 @@
                     localData = data;
                     localTs = ts;
                 }
-                if (!opts.forceRefresh && data.length && ts && (Date.now() - ts < 72 * 3600 * 1000)) {
+                localPredicted = obj?.predicted === true;
+                localCheckedDay = String(obj?.checkedDay || '').trim();
+                localCacheUsable = !futureYear || Number(obj?.cacheVersion) === CN_HOLIDAY_CACHE_VERSION;
+                if (!opts.forceRefresh && localCacheUsable && data.length && ts && localCheckedDay === todayKey) {
                     // Stamp the read time, not the snapshot time. peek() treats
                     // the in-memory cache as stale after 12h, so keeping the
                     // original snapshot ts made every aux load re-spawn a
                     // background read (and a deferred refetch) for data that
                     // was already in hand.
-                    state.cnHolidayCache.set(y, { ts: Date.now(), data });
+                    state.cnHolidayCache.set(y, { ts: Date.now(), data, predicted: localPredicted, checkedDay: localCheckedDay, cacheVersion: CN_HOLIDAY_CACHE_VERSION });
                     mark('cached');
-                    return data;
+                    return futureYear && localPredicted ? buildPredictedCnHolidayDays(y) : data;
                 }
             }
         } catch (e) {}
@@ -24177,21 +24337,50 @@
         }
         if (Array.isArray(data) && data.length) {
             const ts = Date.now();
-            state.cnHolidayCache.set(y, { ts, data });
-            try { localStorage.setItem(lsKey, JSON.stringify({ ts, data })); } catch (e2) {}
+            const completed = futureYear ? mergeCnHolidayFestivalFallback(data, y) : data;
+            const predicted = completed.length > 0 && completed.every((item) => item?.predicted === true);
+            state.cnHolidayCache.set(y, { ts, data: completed, predicted, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION });
+            try { localStorage.setItem(lsKey, JSON.stringify({ ts, data: completed, predicted, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION })); } catch (e2) {}
             mark('refreshed');
-            return data;
+            return completed;
         }
 
-        // Network/API failure fallback: keep previous non-empty data instead of caching empty.
-        const fallback = (Array.isArray(cached?.data) && cached.data.length)
+        // Network/API failure fallback: keep current-version data instead of
+        // allowing an old future-year snapshot to masquerade as official.
+        const cachedFallback = (cachedUsable && Array.isArray(cached?.data) && cached.data.length)
             ? cached.data
-            : (Array.isArray(localData) && localData.length ? localData : []);
+            : (localCacheUsable && Array.isArray(localData) && localData.length ? localData : []);
+        if (futureYear && cachedFallback.length === 0) {
+            const predicted = buildPredictedCnHolidayDays(y);
+            if (predicted.length) {
+                const ts = Date.now();
+                state.cnHolidayCache.set(y, { ts, data: predicted, predicted: true, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION });
+                try { localStorage.setItem(lsKey, JSON.stringify({ ts, data: predicted, predicted: true, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION })); } catch (e2) {}
+                mark('predicted');
+                return predicted;
+            }
+        }
+        const fallback = futureYear ? mergeCnHolidayFestivalFallback(cachedFallback, y) : cachedFallback;
         if (fallback.length) {
+            const predicted = futureYear && fallback.length !== cachedFallback.length;
             const ts = localTs || Number(cached?.ts) || Date.now();
-            state.cnHolidayCache.set(y, { ts, data: fallback });
+            const fallbackPredicted = futureYear
+                ? fallback.length > 0 && fallback.every((item) => item?.predicted === true)
+                : predicted;
+            state.cnHolidayCache.set(y, { ts, data: fallback, predicted: fallbackPredicted, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION });
+            try { localStorage.setItem(lsKey, JSON.stringify({ ts, data: fallback, predicted: fallbackPredicted, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION })); } catch (e2) {}
             mark('cached');
             return fallback;
+        }
+        if (futureYear) {
+            const predicted = buildPredictedCnHolidayDays(y);
+            if (predicted.length) {
+                const ts = Date.now();
+                state.cnHolidayCache.set(y, { ts, data: predicted, predicted: true, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION });
+                try { localStorage.setItem(lsKey, JSON.stringify({ ts, data: predicted, predicted: true, checkedDay: todayKey, cacheVersion: CN_HOLIDAY_CACHE_VERSION })); } catch (e2) {}
+                mark('predicted');
+                return predicted;
+            }
         }
         mark('missing');
         return [];
@@ -24226,7 +24415,9 @@
         }
         const cached = state.cnHolidayCache instanceof Map ? state.cnHolidayCache.get(y) : null;
         if (!cached || !Array.isArray(cached.data)) return null;
-        if (Date.now() - Number(cached.ts || 0) >= 12 * 3600 * 1000) return null;
+        const futureYear = y > new Date().getFullYear();
+        if (futureYear && cached.cacheVersion !== CN_HOLIDAY_CACHE_VERSION) return null;
+        if (String(cached.checkedDay || '') !== formatDateKey(new Date())) return null;
         return cached.data;
     }
 
@@ -24256,7 +24447,16 @@
             if (!all && (type !== 2 && type !== 3 && type !== 4)) continue;
             const name = String(it?.name || '').trim();
             const lunar = String(it?.lunar || it?.cnLunar || '').trim();
-            map.set(dateKey, { type, name, lunar, custom: it?.custom === true });
+            map.set(dateKey, {
+                type,
+                name,
+                lunar,
+                custom: it?.custom === true,
+                customName: it?.customName === true,
+                predicted: it?.predicted === true,
+                officialName: String(it?.officialName || (!it?.custom ? name : '')).trim(),
+                officialType: Number(it?.officialType || (!it?.custom ? type : 0)) || 0,
+            });
         }
         return map;
     }
@@ -24333,6 +24533,7 @@
             if (!it) return;
             const type = Number(it.type);
             if (type !== 2 && type !== 3 && type !== 4) return;
+            if (it.predicted === true) return;
             const dot = document.createElement('span');
             const isWork = type === 4;
             dot.className = `tm-cn-holiday-dot ${isWork ? 'tm-cn-holiday-dot--work' : 'tm-cn-holiday-dot--rest'}`;
@@ -24585,6 +24786,7 @@
         let n = normalizeCnHolidayName(String(rawName || '').trim());
         if (!n) return '';
         if (n.endsWith('假期')) n = n.slice(0, -2);
+        if (n === '清明') return '清明节';
         if (set.has(n)) return n;
         if (n.endsWith('节')) {
             const n2 = n.slice(0, -1);
@@ -24601,16 +24803,100 @@
         if (n === '元旦' && k.endsWith('-01-01')) return 200;
         if (n === '劳动节' && k.endsWith('-05-01')) return 200;
         if (n === '国庆节' && k.endsWith('-10-01')) return 200;
-        if (n === '春节' && l.includes('正月初一')) return 200;
-        if (n === '元宵节' && l.includes('正月十五')) return 200;
-        if (n === '端午节' && l.includes('五月初五')) return 200;
-        if (n === '中秋节' && l.includes('八月十五')) return 200;
-        if (n === '除夕' && l.includes('腊月') && (l.includes('廿九') || l.includes('二十九') || l.includes('三十') || l.includes('三十'))) return 200;
-        if (n === '清明节') {
-            if (l.includes('清明')) return 200;
-            if (k.endsWith('-04-04') || k.endsWith('-04-05') || k.endsWith('-04-06')) return 50;
+        if (n === '春节' && l === '正月初一') return 200;
+        if (n === '元宵节' && l === '正月十五') return 200;
+        if (n === '端午节' && l === '五月初五') return 200;
+        if (n === '中秋节' && l === '八月十五') return 200;
+        if (n === '除夕' && /^腊月(?:廿九|二十九|三十)$/.test(l)) {
+            const nextDate = parseDateOnly(k);
+            if (nextDate) {
+                nextDate.setDate(nextDate.getDate() + 1);
+                if (formatCnLunarDateKey(formatDateKey(nextDate)) === '正月初一') return 200;
+            }
         }
+        if (n === '清明节' && getCnSolarTermName(k) === '清明') return 200;
         return 0;
+    }
+
+    const CN_SOLAR_TERM_NAMES = [
+        '小寒', '大寒', '立春', '雨水', '惊蛰', '春分', '清明', '谷雨',
+        '立夏', '小满', '芒种', '夏至', '小暑', '大暑', '立秋', '处暑',
+        '白露', '秋分', '寒露', '霜降', '立冬', '小雪', '大雪', '冬至',
+    ];
+    const cnSolarTermCache = new Map();
+
+    function getCnSolarTermName(dateKey) {
+        const date = parseDateOnly(dateKey);
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+        const year = date.getFullYear();
+        if (year < 1900 || year > 2100) return '';
+        if (!cnSolarTermCache.has(year)) {
+            const terms = new Map();
+            const radians = Math.PI / 180;
+            const solarLongitude = (timestamp) => {
+                const centuries = (timestamp / 86400000 + 2440587.5 - 2451545) / 36525;
+                const meanLongitude = 280.46646 + centuries * (36000.76983 + centuries * 0.0003032);
+                const anomaly = (357.52911 + centuries * (35999.05029 - 0.0001537 * centuries)) * radians;
+                const center = Math.sin(anomaly) * (1.914602 - centuries * (0.004817 + 0.000014 * centuries))
+                    + Math.sin(2 * anomaly) * (0.019993 - 0.000101 * centuries)
+                    + Math.sin(3 * anomaly) * 0.000289;
+                const apparent = meanLongitude + center - 0.00569 - 0.00478 * Math.sin((125.04 - 1934.136 * centuries) * radians);
+                return ((apparent % 360) + 360) % 360;
+            };
+            CN_SOLAR_TERM_NAMES.forEach((name, index) => {
+                const target = (285 + index * 15) % 360;
+                let timestamp = Date.UTC(year, Math.floor(index / 2), index % 2 ? 20 : 5, 12);
+                for (let iteration = 0; iteration < 6; iteration += 1) {
+                    const delta = ((solarLongitude(timestamp) - target + 540) % 360) - 180;
+                    timestamp -= delta / 0.98564736 * 86400000;
+                }
+                const chinaDate = new Date(timestamp + 8 * 3600000);
+                terms.set(`${year}-${pad2(chinaDate.getUTCMonth() + 1)}-${pad2(chinaDate.getUTCDate())}`, name);
+            });
+            cnSolarTermCache.set(year, terms);
+            if (cnSolarTermCache.size > 16) cnSolarTermCache.delete(cnSolarTermCache.keys().next().value);
+        }
+        return cnSolarTermCache.get(year).get(formatDateKey(date)) || '';
+    }
+
+    function getCnHolidayDisplayInfo(item, dateKey) {
+        const source = item && typeof item === 'object' ? item : {};
+        const type = Number(source.type);
+        const status = source.predicted === true ? '' : (type === 4 ? 'work' : (type === 2 || type === 3 ? 'rest' : ''));
+        const name = String(source.name || '').trim();
+        const officialName = String(source.officialName || (!source.custom ? name : '')).trim();
+        const lunar = formatCnLunarDateKey(dateKey) || String(source.lunar || '').trim();
+        const solarTerm = getCnSolarTermName(dateKey);
+        const festivalNames = ['元旦', '除夕', '春节', '元宵节', '清明节', '劳动节', '端午节', '中秋节', '国庆节']
+            .filter((festival) => (officialName.includes(festival) || canonicalCnFestivalName(officialName) === festival
+                || (festival === '除夕' && officialName.includes('春节')))
+                && cnFestivalBonus(festival, dateKey, lunar) >= 200);
+        const festivalName = festivalNames.join('·');
+        const actualFestival = !!festivalName;
+        const customNamedRest = source.custom === true
+            && source.customName === true
+            && status === 'rest'
+            && !!name;
+        const label = actualFestival ? festivalName : (customNamedRest ? name : '');
+        return {
+            status,
+            festivalName,
+            label,
+            lunar,
+            solarTerm,
+            showEvent: actualFestival || customNamedRest,
+            custom: source.custom === true,
+        };
+    }
+
+    function getCalendarDateHeaderInfo(dateKey, settings, holidayMap = null) {
+        const key = String(dateKey || '').trim();
+        const item = holidayMap?.get?.(key) || null;
+        const info = settings?.showCnHoliday === true
+            ? getCnHolidayDisplayInfo(item, key)
+            : { status: '', label: '', lunar: '', solarTerm: '' };
+        const lunar = buildSharedPrototypeLunarText(key, settings, holidayMap);
+        return { ...info, lunar };
     }
 
     function buildCnHolidayEvents(days, rangeStart, rangeEnd, viewType, settings) {
@@ -24620,7 +24906,8 @@
         const nextDay = (k) => {
             const d = parseDateOnly(k);
             if (!d) return '';
-            const d2 = new Date(d.getTime() + 86400000);
+            const d2 = new Date(d.getTime());
+            d2.setDate(d2.getDate() + 1);
             return formatDateKey(d2);
         };
         const vt = String(viewType || '').trim();
@@ -24633,7 +24920,15 @@
             const rawName = String(it?.name || '').trim();
             const name = it?.custom === true ? rawName : normalizeCnHolidayName(rawName);
             if (!name) continue;
-            dayMap.set(dateKey, { type, name, custom: it?.custom === true });
+            dayMap.set(dateKey, {
+                type,
+                name,
+                predicted: it?.predicted === true,
+                custom: it?.custom === true,
+                customName: it?.customName === true,
+                officialName: String(it?.officialName || (!it?.custom ? name : '')).trim(),
+                lunar: String(it?.lunar || it?.cnLunar || '').trim(),
+            });
         }
         const chosen = Array.from(dayMap, ([dateKey, value]) => ({ dateKey, ...value }))
             .sort((a, b) => String(a.dateKey || '').localeCompare(String(b.dateKey || '')));
@@ -24641,13 +24936,16 @@
         const color = String(settings?.cnHolidayColor || '#ff3333').trim() || '#ff3333';
         for (const it of chosen) {
             const dateKey = String(it?.dateKey || '').trim();
-            const name = String(it?.name || '').trim();
+            const info = getCnHolidayDisplayInfo(it, dateKey);
+            const name = String(info.label || '').trim();
             const type = Number(it?.type);
-            if (!dateKey || !name) continue;
-            const ds = toMs(dateKey);
+            if (!dateKey) continue;
+            const day = parseDateOnly(dateKey);
+            if (day) day.setHours(0, 0, 0, 0);
+            const ds = day?.getTime();
             if (!Number.isFinite(ds) || ds < startMs || ds >= endMs) continue;
 
-            if (vt === 'timeGridDay' && type !== 4) {
+            if (vt === 'timeGridDay' && type !== 4 && it?.predicted !== true) {
                 out.push({
                     id: `cn-holiday-bg:${dateKey}`,
                     title: '',
@@ -24658,9 +24956,10 @@
                     display: 'background',
                     backgroundColor: 'rgba(234, 67, 53, 0.22)',
                     __tmRank: 9,
-                    extendedProps: { __tmSource: 'cnHoliday', __tmCnHolidayName: name, __tmCnHolidayType: type, __tmCnHolidayCustom: it?.custom === true, __tmRank: 9 },
+                    extendedProps: { __tmSource: 'cnHoliday', __tmCnHolidayName: String(it?.name || ''), __tmCnHolidayOfficialName: String(it?.officialName || ''), __tmCnHolidayType: type, __tmCnHolidayCustom: it?.custom === true, __tmCnHolidayCustomName: it?.customName === true, __tmCnHolidayPredicted: it?.predicted === true, __tmCnHolidayShowEvent: false, __tmRank: 9 },
                 });
             }
+            if (!info.showEvent || !name) continue;
             out.push({
                 id: `cn-holiday:${dateKey}`,
                 title: name,
@@ -24673,7 +24972,7 @@
                 textColor: '#fff',
                 classNames: ['tm-cn-holiday-event', 'tm-cn-holiday-event--festival'],
                 __tmRank: 0,
-                extendedProps: { __tmSource: 'cnHoliday', __tmCnHolidayName: name, __tmCnHolidayType: type, __tmCnHolidayCustom: it?.custom === true, __tmRank: 0 },
+                extendedProps: { __tmSource: 'cnHoliday', __tmCnHolidayName: String(it?.name || ''), __tmCnHolidayOfficialName: String(it?.officialName || ''), __tmCnHolidayType: type, __tmCnHolidayCustom: it?.custom === true, __tmCnHolidayCustomName: it?.customName === true, __tmCnHolidayPredicted: it?.predicted === true, __tmCnHolidayShowEvent: true, __tmRank: 0 },
             });
         }
         return out;
@@ -27247,6 +27546,7 @@
             return true;
         };
         let prototypeRenderRaf = 0;
+        let prototypeTimelineFitRaf = 0;
         let prototypeLastRenderKey = '';
         let prototypeLastEventSnapshot = new Map();
         let prototypePendingPartialRefresh = null;
@@ -27255,6 +27555,7 @@
         let prototypeSelectedEventId = '';
         let prototypeSuppressClickUntil = 0;
         let prototypeSuppressClickEventId = '';
+        let prototypeSuppressSelectionClickUntil = 0;
         let prototypeOpenMenu = '';
         let prototypeShowDayPanel = false;
         let prototypePanelDate = null;
@@ -28402,6 +28703,12 @@
                 const geometryTarget = pointTarget instanceof Element ? pointTarget : target;
                 const actionEl = target?.closest?.('[data-tm-proto-action]');
                 const action = String(actionEl?.getAttribute?.('data-tm-proto-action') || '').trim();
+                if (!action && prototypeSuppressSelectionClickUntil > Date.now()) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    prototypeSuppressSelectionClickUntil = 0;
+                    return;
+                }
                 // A swipe can synthesize a follow-up click on the surface.
                 // Suppress that synthetic click, but never swallow toolbar
                 // actions such as Today or the view selector.
@@ -29723,6 +30030,9 @@
                 }
                 event.preventDefault();
                 try {
+                    prototypeSuppressSelectionClickUntil = Date.now() + 900;
+                     event.__tmPrototypeSelectionAnchor = prototypeSurface.querySelector('[data-tm-proto-selection-preview]');
+                     event.__tmPrototypeSelectionRange = { start: new Date(range.start.getTime()), end: new Date(range.end.getTime()), canvas: range.canvas, metrics: getPrototypeTimelineMetricsFromCanvas(range.canvas, getSettings()) };
                     state.__tmPrototypeEventPopoverSuppressOutsideClickUntil = Date.now() + 900;
                     callCalendarAdapter(state.calendar || calendar, 'dispatchSelect', range.start, range.end, false, event, range.canvas);
                 } catch (e) {
@@ -29882,10 +30192,8 @@
         const protoLunarText = (key, settings) => {
             return buildSharedPrototypeLunarText(key, settings, state.cnHolidayMap);
         };
-        const protoHolidayText = (key, settings) => {
-            if (settings?.showCnHoliday !== true || !key) return '';
-            const item = state.cnHolidayMap?.get?.(key);
-            return String(item?.name || '').trim();
+        const protoHolidayInfo = (key, settings) => {
+            return getCalendarDateHeaderInfo(key, settings, state.cnHolidayMap);
         };
         const protoRangeEvents = (events, start, end) => {
             const from = protoSafeDate(start);
@@ -29971,14 +30279,15 @@
             const isEventEnd = segment
                 ? segment.segmentEndIndex >= segment.eventEndIndex
                 : isVisualEnd;
-            const continuesBefore = !!(segment && (
+            const continuesBefore = segment ? !!((
                 segment.continuesBefore
                 || Number(segment.segmentStartIndex) > Number(segment.eventStartIndex)
-            ) && isSegmentStart);
-            const continuesAfter = !!(segment && isVisualEnd && (
+            ) && isSegmentStart) : continuation;
+            const continuesAfter = segment ? !!(isVisualEnd && (
                 segment.continuesAfter
                 || Number(segment.segmentEndIndex) < Number(segment.eventEndIndex)
-            ));
+            )) : !isVisualEnd;
+            const canResizeRange = !isScheduleSplit && !continuesBefore && !continuesAfter;
             const isWrappedSegmentEnd = continuesAfter;
             const isRowEnd = !!(segment
                 && Number(segment.segmentEndIndex) > 0
@@ -30009,12 +30318,12 @@
                 ? `top:${(Number(segment.lane) || 0) * 23}px;--tm-proto-span-lane:${Math.max(0, Number(segment.lane) || 0)};--tm-proto-span-days:${Math.max(1, Number(segment.days) || 1)};--tm-proto-span-inset-start:${isSegmentStart ? 3 : 0}px;--tm-proto-span-inset-end:${isVisualEnd ? 3 : 0}px;--tm-proto-span-month-inset-start:${isSegmentStart ? 4 : 0}px;--tm-proto-span-month-inset-end:${isVisualEnd ? 4 : 0}px;--tm-proto-span-top:${3 + Math.max(0, Number(segment.lane) || 0) * 23}px;`
                 : '';
             return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="${layoutStyle}--tm-proto-event-color:${protoEventColor(eventApi)}">`
-                + `${!isScheduleSplit && !continuation ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
+                + `${canResizeRange && !continuation ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
                 + `${continuesBefore ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--start" aria-hidden="true">&lt;</span>' : ''}`
                 + `${showCheck ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>` : ''}`
                 + `<span class="tm-proto-span-title">${title}</span>${recurringIcon}`
                 + `${continuesAfter ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--end" aria-hidden="true">&gt;</span>' : ''}`
-                + `${!isScheduleSplit && isEventEnd ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
+                + `${canResizeRange && isEventEnd ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
         };
         const protoEventMarkup = (eventApi, mode = 'chip', includeTime = false, extraClass = '', viewType = '') => {
             const activeViewType = String(viewType || getCalendarView(calendar)?.type || state._lastViewType || '').trim();
@@ -30031,16 +30340,19 @@
         // Mobile and dock month cells stay narrow: month-start days use the
         // same bare number as every other day. Desktop keeps the boundary cue.
         const compactMonthCell = () => isCompactDockLayout();
-        const protoDayNumberMarkup = (date) => {
+        const protoDayNumberMarkup = (date, holidayInfo = null) => {
             const isMonthStart = date.getDate() === 1;
             const showMonthCue = isMonthStart && !compactMonthCell();
             const label = showMonthCue ? `${date.getMonth() + 1}月1日` : String(date.getDate());
-            return `<span class="tm-proto-day-number ${showMonthCue ? 'tm-proto-day-number--month-start' : ''}">${label}</span>`;
+            const status = String(holidayInfo?.status || '').trim();
+            const statusMarkup = status
+                ? `<i class="tm-proto-holiday-status tm-proto-holiday-status--${esc(status)}" title="${status === 'work' ? '调休工作日' : '休息日'}">${status === 'work' ? '班' : '休'}</i>`
+                : '';
+            return `<span class="tm-proto-day-number-wrap"><span class="tm-proto-day-number ${showMonthCue ? 'tm-proto-day-number--month-start' : ''}">${label}</span>${statusMarkup}</span>`;
         };
         const protoMonthHolidayMarkup = (holiday) => {
-            if (compactMonthCell()) return '';
             const text = String(holiday || '').trim();
-            return text ? `<span class="tm-proto-holiday">${esc(text)}</span>` : '';
+            return text ? `<span class="tm-proto-date-meta is-holiday" title="${esc(text)}">${esc(text)}</span>` : '';
         };
         const protoVisibleDays = (view, viewType) => {
             const from = protoDayStart(view?.activeStart || view?.currentStart || getCalendarDate(calendar));
@@ -30077,15 +30389,20 @@
             const hiddenRows = laneLimitValue && laneLimitValue.hiddenRows instanceof Set
                 ? laneLimitValue.hiddenRows
                 : null;
-            const hiddenSegments = laneLimitValue && laneLimitValue.hiddenSegments instanceof Set
-                ? laneLimitValue.hiddenSegments
+            const hiddenEventsByDay = laneLimitValue && laneLimitValue.hiddenEventsByDay instanceof Map
+                ? laneLimitValue.hiddenEventsByDay
                 : null;
-            const segmentKey = (eventApi, startIndex, endIndex) => `${String(eventApi?.id || '')}|${Number(startIndex) || 0}|${Number(endIndex) || 0}`;
             const resolveLaneLimit = (row) => hiddenRows?.has?.(row)
                 ? 0
                 : (typeof laneLimitValue?.limitForRow === 'function'
                     ? Math.max(0, Math.floor(Number(laneLimitValue.limitForRow(row)) || 0))
                     : laneLimitDefault);
+            const resolveDayLaneLimit = (index) => Math.min(
+                resolveLaneLimit(Math.floor(index / 7)),
+                typeof laneLimitValue?.limitForDay === 'function'
+                    ? Math.max(0, Math.floor(Number(laneLimitValue.limitForDay(index)) || 0))
+                    : Infinity,
+            );
             const visibleStart = days[0] ? protoDayStart(days[0]) : null;
             const visibleEnd = days.length ? protoAddDays(days[days.length - 1], 1) : null;
             const firstDayAtOrAfter = (value) => {
@@ -30185,37 +30502,41 @@
                         cursor = rowEnd;
                         continue;
                     }
+                    if (hiddenEventsByDay?.get(segmentStart)?.has(eventApi)) {
+                        const hidden = hiddenByDay.get(segmentStart) || new Set();
+                        hidden.add(eventApi);
+                        hiddenByDay.set(segmentStart, hidden);
+                        cursor = segmentStart + 1;
+                        continue;
+                    }
                     let runEnd = segmentStart;
-                    while (runEnd < rowEnd && !isScheduledDay(runEnd)) runEnd += 1;
-                    const currentSegmentKey = segmentKey(eventApi, segmentStart, runEnd);
-                    if (hiddenSegments?.has?.(currentSegmentKey)) {
-                        for (let dayIndex = segmentStart; dayIndex < runEnd; dayIndex += 1) {
-                            const hidden = hiddenByDay.get(dayIndex) || new Set();
-                            hidden.add(eventApi);
-                            hiddenByDay.set(dayIndex, hidden);
-                        }
-                        cursor = runEnd;
-                        continue;
-                    }
-                    const laneLimit = resolveLaneLimit(row);
+                    while (runEnd < rowEnd && !isScheduledDay(runEnd)
+                        && !hiddenEventsByDay?.get(runEnd)?.has(eventApi)) runEnd += 1;
                     const rowItems = rowSegments.get(row) || [];
-                    let lane = 0;
-                    while (rowItems.some((item) => item.lane === lane && item.start < runEnd && item.end > segmentStart)) lane += 1;
-                    if (lane >= laneLimit) {
-                        // A cross-week event is one segment per calendar row.
-                        // Fold the entire overflowing week segment into each
-                        // covered day's +N, while keeping other week segments
-                        // visible so the logical event remains complete where
-                        // the shared row budget allows it.
-                        const segmentEnd = rowEnd;
-                        for (let dayIndex = segmentStart; dayIndex < segmentEnd; dayIndex += 1) {
-                            const hidden = hiddenByDay.get(dayIndex) || new Set();
-                            hidden.add(eventApi);
-                            hiddenByDay.set(dayIndex, hidden);
+                    const laneLimit = Math.min(resolveDayLaneLimit(segmentStart), rowItems.length + 1);
+                    let lane = -1;
+                    let visibleEndIndex = segmentStart;
+                    for (let candidateLane = 0; candidateLane < laneLimit; candidateLane += 1) {
+                        let candidateEnd = segmentStart;
+                        while (candidateEnd < runEnd
+                            && candidateLane < resolveDayLaneLimit(candidateEnd)
+                            && !rowItems.some((item) => item.lane === candidateLane && item.start <= candidateEnd && item.end > candidateEnd)) {
+                            candidateEnd += 1;
                         }
-                        cursor = segmentEnd;
+                        if (candidateEnd > visibleEndIndex) {
+                            lane = candidateLane;
+                            visibleEndIndex = candidateEnd;
+                        }
+                        if (visibleEndIndex === runEnd) break;
+                    }
+                    if (lane < 0) {
+                        const hidden = hiddenByDay.get(segmentStart) || new Set();
+                        hidden.add(eventApi);
+                        hiddenByDay.set(segmentStart, hidden);
+                        cursor = segmentStart + 1;
                         continue;
                     }
+                    runEnd = visibleEndIndex;
                     const segment = {
                         eventApi,
                         segmentStartIndex: segmentStart,
@@ -30256,10 +30577,11 @@
             const defaultCapacity = Math.max(0, Math.floor(Number(options.defaultCapacity) || 0));
             const hiddenRows = options.hiddenRows instanceof Set ? options.hiddenRows : new Set();
             const maxSpanLanes = Math.max(0, Math.floor(Number(options.spanLimit) || 0));
-            const allRegularByDay = new Map();
-            const hiddenRegularByDay = new Map();
-            const hiddenSegments = new Set();
-            const segmentKey = (segment) => `${String(segment?.eventApi?.id || '')}|${Number(segment?.segmentStartIndex) || 0}|${Number(segment?.segmentEndIndex) || 0}`;
+            const allSpansByDay = protoMonthSpanLayout(days, events, 0).hiddenByDay;
+            const hiddenEventsByDay = new Map();
+            const spanLimitByDay = new Map();
+            const visibleRegularByDay = new Map();
+            const moreByDay = new Map();
             const getCapacity = (index) => {
                 const key = protoDateKey(days[index]);
                 const measured = capacityByDay?.get?.(key);
@@ -30268,141 +30590,35 @@
                     : defaultCapacity;
             };
             days.forEach((date, index) => {
+                const dayKey = protoDateKey(date);
                 const regularEvents = protoRangeEvents(events, date, protoAddDays(date, 1))
                     .filter((eventApi) => !protoIsSpanEvent(eventApi))
+                    .filter((eventApi) => {
+                        const ext = eventApi?.extendedProps || {};
+                        if (String(ext.__tmSource || '').trim() !== 'taskdate') return true;
+                        const blockedDays = ext.__tmScheduledTaskDayKeys;
+                        return !(Array.isArray(blockedDays) && blockedDays.includes(dayKey));
+                    })
                     .sort(protoCompareMonthEvents);
-                allRegularByDay.set(index, regularEvents);
-                hiddenRegularByDay.set(index, new Set());
-            });
-            // Timed events spanning several days render as one chip per
-            // covered day. If one of those chips cannot fit, the whole week
-            // row must fold together, otherwise hiding a middle day would
-            // break the logical cross-day event.
-            const crossDayTimedIndexes = (() => {
-                const byId = new Map();
-                days.forEach((date, index) => {
-                    protoRangeEvents(events, date, protoAddDays(date, 1))
-                        .filter((eventApi) => !protoIsSpanEvent(eventApi) && eventApi?.allDay !== true)
-                        .forEach((eventApi) => {
-                            const id = String(eventApi?.id || '').trim();
-                            if (!id) return;
-                            const list = byId.get(id) || [];
-                            if (!list.includes(index)) list.push(index);
-                            byId.set(id, list);
-                        });
-                });
-                const out = new Map();
-                byId.forEach((indexes, id) => {
-                    if (indexes.length > 1) out.set(id, indexes);
-                });
-                return out;
-            })();
-            const uniqueSegmentsForDay = (spanLayout, index) => {
-                const seen = new Set();
-                return (spanLayout?.byDay?.get?.(index) || []).filter((segment) => {
-                    const key = segmentKey(segment);
-                    if (seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
-                });
-            };
-            const spanRowsForDay = (segments) => segments.reduce((max, segment) => Math.max(max, (Number(segment?.lane) || 0) + 1), 0);
-            const hiddenRegularCountForDay = (index) => hiddenRegularByDay.get(index)?.size || 0;
-            const regularVisibleForDay = (index) => {
-                const hidden = hiddenRegularByDay.get(index) || new Set();
-                return (allRegularByDay.get(index) || []).filter((eventApi) => !hidden.has(eventApi));
-            };
-            let spanLayout = null;
-            const buildSpanLayout = () => protoMonthSpanLayout(days, events, {
-                limit: maxSpanLanes,
-                hiddenRows,
-                hiddenSegments,
-            });
-            const markSpanHidden = (segment) => {
-                const key = segmentKey(segment);
-                if (!key || hiddenSegments.has(key)) return false;
-                hiddenSegments.add(key);
-                return true;
-            };
-            const hideRegularForWeekRow = (eventApi, index) => {
-                const target = hiddenRegularByDay.get(index) || new Set();
-                target.add(eventApi);
-                hiddenRegularByDay.set(index, target);
-                const covered = crossDayTimedIndexes.get(String(eventApi?.id || '').trim());
-                if (!Array.isArray(covered) || covered.length <= 1) return;
-                const rowStart = Math.floor(index / 7) * 7;
-                const rowEnd = Math.min(days.length, rowStart + 7);
-                covered.forEach((coveredIndex) => {
-                    if (coveredIndex === index || coveredIndex < rowStart || coveredIndex >= rowEnd) return;
-                    const set = hiddenRegularByDay.get(coveredIndex) || new Set();
-                    set.add(eventApi);
-                    hiddenRegularByDay.set(coveredIndex, set);
-                });
-            };
-            // Remove one tail item per pass. Rebuilding span lanes after every
-            // segment removal keeps the remaining bars contiguous and lets a
-            // single hidden cross-week segment count on every covered day.
-            // Regular tails can be removed without rebuilding span lanes, so
-            // compact all regular stacks in one pass. Only span removals need
-            // another layout pass, and there can be no more visible span
-            // lanes than the measured cell budget (capped at eight).
-            const maxPasses = 12;
-            for (let pass = 0; pass < maxPasses; pass += 1) {
-                spanLayout = buildSpanLayout();
-                let changed = false;
-                for (let index = 0; index < days.length; index += 1) {
-                    const segments = uniqueSegmentsForDay(spanLayout, index);
-                    const hiddenSpanCount = spanLayout.hiddenByDay?.get?.(index)?.size || 0;
-                    let visibleRegular = regularVisibleForDay(index);
-                    // Regular events are emitted after spans, so fold all
-                    // regular tails that cannot fit before touching a span.
-                    while (visibleRegular.length) {
-                        const hiddenRegularCount = hiddenRegularCountForDay(index);
-                        const hasHidden = hiddenSpanCount > 0 || hiddenRegularCount > 0;
-                        const requiredRows = spanRowsForDay(segments)
-                            + visibleRegular.length
-                            + (hasHidden ? 1 : 0);
-                        if (requiredRows <= getCapacity(index)) break;
-                        hideRegularForWeekRow(visibleRegular[visibleRegular.length - 1], index);
-                        visibleRegular = regularVisibleForDay(index);
-                        changed = true;
-                    }
-                    const hiddenRegularCount = hiddenRegularCountForDay(index);
-                    const hasHidden = hiddenSpanCount > 0 || hiddenRegularCount > 0;
-                    const requiredRows = spanRowsForDay(segments)
-                        + visibleRegular.length
-                        + (hasHidden ? 1 : 0);
-                    if (requiredRows <= getCapacity(index)) continue;
-
-                    // If no regular item remains, fold the latest span
-                    // segment as one whole weekly unit. Rebuild lanes on the
-                    // next pass so the remaining bars stay contiguous.
-                    const tailSegment = segments
-                        .slice()
-                        .sort((a, b) => {
-                            const laneDelta = (Number(b?.lane) || 0) - (Number(a?.lane) || 0);
-                            if (laneDelta) return laneDelta;
-                            const startDelta = (Number(b?.segmentStartIndex) || 0) - (Number(a?.segmentStartIndex) || 0);
-                            if (startDelta) return startDelta;
-                            return protoCompareMonthEvents(a?.eventApi, b?.eventApi);
-                        })[0];
-                    if (tailSegment && markSpanHidden(tailSegment)) {
-                        changed = true;
-                        break;
-                    }
-                }
-                if (!changed) break;
-            }
-            spanLayout = buildSpanLayout();
-            const visibleRegularByDay = new Map();
-            const moreByDay = new Map();
-            for (let index = 0; index < days.length; index += 1) {
-                const visibleRegular = regularVisibleForDay(index);
-                const hiddenSpanCount = spanLayout.hiddenByDay?.get?.(index)?.size || 0;
-                const hiddenRegularCount = hiddenRegularCountForDay(index);
+                const spanEvents = Array.from(allSpansByDay.get(index) || []);
+                const capacity = getCapacity(index);
+                const spanLimit = hiddenRows.has(Math.floor(index / 7)) ? 0 : maxSpanLanes;
+                const hasHidden = spanEvents.length + regularEvents.length > capacity
+                    || spanEvents.length > spanLimit;
+                const availableRows = Math.max(0, capacity - (hasHidden ? 1 : 0));
+                const visibleSpanCount = Math.min(spanEvents.length, spanLimit, availableRows);
+                const visibleRegular = regularEvents.slice(0, Math.max(0, availableRows - visibleSpanCount));
+                hiddenEventsByDay.set(index, new Set(spanEvents.slice(visibleSpanCount)));
+                spanLimitByDay.set(index, Math.min(spanLimit, Math.max(0, availableRows - visibleRegular.length)));
                 visibleRegularByDay.set(index, visibleRegular);
-                moreByDay.set(index, hiddenSpanCount + hiddenRegularCount);
-            }
+                moreByDay.set(index, spanEvents.length - visibleSpanCount + regularEvents.length - visibleRegular.length);
+            });
+            const spanLayout = protoMonthSpanLayout(days, events, {
+                limit: maxSpanLanes,
+                limitForDay: (index) => spanLimitByDay.get(index),
+                hiddenRows,
+                hiddenEventsByDay,
+            });
             return { spanLayout, visibleRegularByDay, moreByDay };
         };
         const protoRenderMonthSection = (view, events, settings, options = {}) => {
@@ -30557,16 +30773,11 @@
             const cells = days.map((date, index) => {
                 const key = protoDateKey(date);
                 const today = key === protoDateKey(new Date());
-                const holiday = protoHolidayText(key, settings);
-                const lunar = protoLunarText(key, settings);
+                const holidayInfo = protoHolidayInfo(key, settings);
+                const holiday = String(holidayInfo.label || '').trim();
+                const lunar = String(holidayInfo.lunar || '').trim();
                 const daySpanSegments = spanLayout.byDay.get(index) || [];
-                const visibleEvents = (compactedMonthLayout.visibleRegularByDay.get(index) || [])
-                    .filter((eventApi) => {
-                        const ext = eventApi?.extendedProps || {};
-                        if (String(ext.__tmSource || '').trim() !== 'taskdate') return true;
-                        const blockedDays = ext.__tmScheduledTaskDayKeys;
-                        return !(Array.isArray(blockedDays) && blockedDays.includes(key));
-                    });
+                const visibleEvents = compactedMonthLayout.visibleRegularByDay.get(index) || [];
                 const more = Number(compactedMonthLayout.moreByDay.get(index) || 0);
                 const isOther = options.continuousMonth === true
                     ? false
@@ -30611,7 +30822,7 @@
                 const regularStack = `<div class="tm-proto-month-regular-stack">${visibleEvents.map((eventApi) => protoEventMarkup(eventApi, 'chip', eventApi?.allDay !== true, eventApi?.allDay === true ? 'tm-proto-month-event' : '', 'dayGridMonth')).join('')}${more ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">+${more} 项</button>` : ''}</div>`;
                 return `<div class="tm-proto-month-cell ${today ? 'is-today' : ''} ${isOther ? 'is-other' : ''} ${boundaryClasses}" data-tm-proto-day="${key}" data-tm-proto-all-day="1"${monthStartAttr}>`
                     + monthBoundaryLabel
-                    + `<div class="tm-proto-month-day-head">${protoDayNumberMarkup(date)}${protoMonthHolidayMarkup(holiday)}<span class="tm-proto-lunar">${esc(lunar)}</span></div>`
+                    + `<div class="tm-proto-month-day-head">${protoDayNumberMarkup(date, holidayInfo)}${holiday ? protoMonthHolidayMarkup(holiday) : `<span class="tm-proto-date-meta">${esc(lunar)}</span>`}</div>`
                     + `<div class="tm-proto-month-events">${spanMarkup}${spanReserve}${regularStack}</div></div>`;
             });
             // Keep one stable element per calendar week. The desktop month
@@ -31071,16 +31282,11 @@
             const cells = weekDays.map((date, column) => {
                 const key = protoDateKey(date);
                 const today = key === todayKey;
-                const holiday = protoHolidayText(key, settings);
-                const lunar = protoLunarText(key, settings);
+                const holidayInfo = protoHolidayInfo(key, settings);
+                const holiday = String(holidayInfo.label || '').trim();
+                const lunar = String(holidayInfo.lunar || '').trim();
                 const daySpanSegments = spanLayout.byDay.get(column) || [];
-                const visibleEvents = (compacted.visibleRegularByDay.get(column) || [])
-                    .filter((eventApi) => {
-                        const ext = eventApi?.extendedProps || {};
-                        if (String(ext.__tmSource || '').trim() !== 'taskdate') return true;
-                        const blockedDays = ext.__tmScheduledTaskDayKeys;
-                        return !(Array.isArray(blockedDays) && blockedDays.includes(key));
-                    });
+                const visibleEvents = compacted.visibleRegularByDay.get(column) || [];
                 const more = Number(compacted.moreByDay.get(column) || 0);
                 const isMonthStart = date.getDate() === 1;
                 const boundaryBefore = turnColumn >= 0 && column < turnColumn;
@@ -31113,7 +31319,7 @@
                     : '';
                 const regularStack = `<div class="tm-proto-month-regular-stack">${visibleEvents.map((eventApi) => protoEventMarkup(eventApi, 'chip', eventApi?.allDay !== true, eventApi?.allDay === true ? 'tm-proto-month-event' : '', 'dayGridMonth')).join('')}${more ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">+${more} 项</button>` : ''}</div>`;
                 return `<div class="tm-proto-month-cell ${today ? 'is-today' : ''} ${boundaryClasses}" data-tm-proto-day="${key}" data-tm-proto-all-day="1"${monthStartAttr}>`
-                    + `<div class="tm-proto-month-day-head">${protoDayNumberMarkup(date)}${protoMonthHolidayMarkup(holiday)}<span class="tm-proto-lunar">${esc(lunar)}</span></div>`
+                    + `<div class="tm-proto-month-day-head">${protoDayNumberMarkup(date, holidayInfo)}${holiday ? protoMonthHolidayMarkup(holiday) : `<span class="tm-proto-date-meta">${esc(lunar)}</span>`}</div>`
                     + `<div class="tm-proto-month-events">${spanMarkup}${spanReserve}${regularStack}</div></div>`;
             });
             return `<div class="tm-proto-month-week-row" data-tm-proto-week-index="${weekIndex}" style="top:${weekIndex * geometry.rowHeight}px">${cells.join('')}${monthBoundaryLabel}</div>`;
@@ -31556,20 +31762,23 @@
             const visibleEvents = visibleRangeStart && visibleRangeEnd
                 ? protoRangeEvents(events, visibleRangeStart, visibleRangeEnd)
                 : [];
+            const existingScroller = prototypeSurface?.querySelector?.('.tm-proto-main-view > .tm-proto-timeline > .tm-proto-time-scroll');
             return buildSharedPrototypeTimelineMarkup({
                 days,
                 events: visibleEvents,
                 settings,
                 isMobile: isMobileDevice === true,
                 hourHeight: getPrototypeHourHeight(settings, isMobileDevice === true),
+                availableHeight: existingScroller instanceof HTMLElement ? Number(existingScroller.clientHeight || 0) : 0,
                 allDayCollapsed: state.allDayCollapsed === true,
                 eventEnd: protoEventEnd,
                 isSpanEvent: protoIsSpanEvent,
                 compareEvents: protoCompareMonthEvents,
                 eventMarkup: protoEventMarkup,
                 spanMarkup: protoSpanMarkup,
-                spanLayout: (visibleDays, spanEvents) => protoMonthSpanLayout(visibleDays, spanEvents, 3),
+                spanLayout: (visibleDays, spanEvents, laneLimit) => protoMonthSpanLayout(visibleDays, spanEvents, laneLimit),
                 lunarText: protoLunarText,
+                dateHeaderInfo: (key, headerSettings) => getCalendarDateHeaderInfo(key, headerSettings, state.cnHolidayMap),
                 showHeader: true,
                 legacyAliases: false,
                 actionAttr: 'data-tm-proto-action',
@@ -31596,6 +31805,7 @@
             if (!prototypeShowDayPanel) return '';
             const date = protoDayStart(prototypePanelDate) || protoDayStart(getCalendarDate(calendar)) || new Date();
             const panelViewType = String(getCalendarView(calendar)?.type || state._lastViewType || '').trim();
+            const existingScroller = prototypeSurface?.querySelector?.('.tm-proto-day-panel > .tm-proto-timeline > .tm-proto-time-scroll');
             return buildSharedPrototypeDayPanelMarkup({
                 date,
                 events,
@@ -31603,8 +31813,10 @@
                 viewType: panelViewType,
                 compactMonth: panelViewType === 'dayGridMonth' && isCompactDockLayout(),
                 hourHeight: getPrototypeHourHeight(settings, isMobileDevice === true),
+                availableHeight: existingScroller instanceof HTMLElement ? Number(existingScroller.clientHeight || 0) : 0,
                 isMobile: isMobileDevice === true,
                 lunarText: protoLunarText,
+                dateHeaderInfo: (key, headerSettings) => getCalendarDateHeaderInfo(key, headerSettings, state.cnHolidayMap),
                 allDayCollapsed: state.allDayCollapsed === true,
                 timeRangeExpanded: prototypeTimeRangeExpanded,
             });
@@ -34036,6 +34248,19 @@
             if (viewType === 'dayGridMonth' && !monthVirtualActive) {
                 try { schedulePrototypeMonthAdaptiveMeasure(); } catch (e) {}
             }
+            const timelineNeedsHeightFit = Array.from(prototypeSurface.querySelectorAll('.tm-proto-time-scroll')).some((scroller) => {
+                if (!(scroller instanceof HTMLElement)) return false;
+                const canvas = scroller.querySelector('.tm-proto-time-canvas');
+                if (!(canvas instanceof HTMLElement)) return false;
+                return Number(scroller.clientHeight || 0) > Number(canvas.clientHeight || 0) + 1;
+            });
+            if (timelineNeedsHeightFit && !prototypeTimelineFitRaf) {
+                const fit = () => {
+                    prototypeTimelineFitRaf = 0;
+                    if (prototypeSurface.isConnected) queuePrototypeSurfaceRender();
+                };
+                try { prototypeTimelineFitRaf = requestAnimationFrame(fit); } catch (e) { fit(); }
+            }
             try { scheduleCurrentTimeAutoCenter(prototypeSurface, calendar, settings, { scope: 'main', reason: 'prototype-render' }); } catch (e) {}
             try { schedulePrototypeDayPanelCurrentTimeAutoCenter(settings); } catch (e) {}
             applyPrototypeSelectedEventState();
@@ -34296,13 +34521,19 @@
                     // follow-up aux commit repainted the strip without the
                     // holiday events that the previous commit had shown.
                     if (!(state.cnHolidayDaysByYear instanceof Map)) state.cnHolidayDaysByYear = new Map();
+                    if (!(state.cnHolidayDaysByYearCacheVersion instanceof Map)) state.cnHolidayDaysByYearCacheVersion = new Map();
                     const resolveCnHolidayYearDays = (y) => {
+                        const yearNumber = Number(y);
+                        const futureYear = yearNumber > new Date().getFullYear();
                         const peeked = peekCnHolidayYear(y);
                         if (Array.isArray(peeked) && peeked.length) {
-                            state.cnHolidayDaysByYear.set(Number(y), peeked);
+                            state.cnHolidayDaysByYear.set(yearNumber, peeked);
+                            state.cnHolidayDaysByYearCacheVersion.set(yearNumber, CN_HOLIDAY_CACHE_VERSION);
                             return peeked;
                         }
-                        const accumulated = state.cnHolidayDaysByYear.get(Number(y));
+                        const accumulated = state.cnHolidayDaysByYear.get(yearNumber);
+                        const accumulatedVersion = state.cnHolidayDaysByYearCacheVersion.get(yearNumber);
+                        if (futureYear && accumulatedVersion !== CN_HOLIDAY_CACHE_VERSION) return null;
                         if (Array.isArray(accumulated) && accumulated.length) return accumulated;
                         return peeked;
                     };
@@ -34340,6 +34571,7 @@
                                     try { state.cnHolidayMissUntil.set(Number(y), Date.now() + 60000); } catch (e) {}
                                 } else if (state.cnHolidayDaysByYear instanceof Map) {
                                     state.cnHolidayDaysByYear.set(Number(y), days);
+                                    state.cnHolidayDaysByYearCacheVersion.set(Number(y), CN_HOLIDAY_CACHE_VERSION);
                                 }
                                 return Array.isArray(days) ? days : [];
                             }).catch(() => {
@@ -34888,7 +35120,12 @@
                 const start = info?.start instanceof Date ? info.start : null;
                 const end = info?.end instanceof Date ? info.end : null;
                 if (!start || !end) return;
-                const opened = openPrototypeNewScheduleCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()) }, prototypeSurface?.querySelector?.('[data-tm-proto-selection-preview]') || info?.el || info?.jsEvent?.target);
+                const selectionEvent = info?.jsEvent;
+                const selectionAnchor = selectionEvent?.__tmPrototypeSelectionAnchor instanceof Element
+                    ? selectionEvent.__tmPrototypeSelectionAnchor
+                    : (prototypeSurface?.querySelector?.('[data-tm-proto-selection-preview]') || info?.el || selectionEvent?.target);
+                const selectionRange = selectionEvent?.__tmPrototypeSelectionRange || null;
+                const opened = openPrototypeNewScheduleCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: prototypeSurface, __tmPreviewRange: selectionRange }, selectionAnchor);
                 if (!opened) renderPrototypeSelectionPreview(prototypeSurface, null, null);
             },
             datesSet: () => {
@@ -37787,6 +38024,15 @@
                             <option value="8" ${Number(s.monthMinVisibleEvents) === 8 ? 'selected' : ''}>8 条</option>
                         </select>
                     </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
+                            周视图全天显示行数
+                            <div class="tm-calendar-settings-label-desc">设置全天区域最多显示 1–15 行（含 +N 行），默认 5 行；同步用于 3 日、日视图和单日侧边栏，不影响月视图日期格。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" aria-label="周视图全天显示行数" data-tm-cal-setting="calendarWeekAllDayVisibleRows">
+                            ${Array.from({ length: 15 }, (_, index) => index + 1).map((rows) => `<option value="${rows}" ${Number(s.weekAllDayVisibleRows) === rows ? 'selected' : ''}>${rows} 行</option>`).join('')}
+                        </select>
+                    </div>
                 </section>
 
                 <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-content">
@@ -38191,6 +38437,8 @@
                 el.value = String(store.data[key]);
             } else if (key === 'calendarMonthMinVisibleEvents') {
                 store.data[key] = normalizeCalendarMonthMinVisibleEvents(el.value);
+            } else if (key === 'calendarWeekAllDayVisibleRows') {
+                store.data[key] = normalizeCalendarWeekAllDayVisibleRows(el.value);
             } else if (key === 'calendarSidebarDefaultPage') {
                 store.data[key] = normalizeCalendarSidebarDefaultPage(el.value);
             } else if (key === 'calendarIcsProvider') {
@@ -38285,6 +38533,10 @@
                     try { state.__tmMonthFoldBudget = null; } catch (e2) {}
                     try { state.invalidatePrototypeMonthMeasurement?.({ resetBudget: true }); } catch (e2) {}
                     try { syncMainCalendarMonthViewLayout(state.wrapEl, state.calendarEl, state.calendar, settings); } catch (e2) {}
+                    try { scheduleMainCalendarLayoutRefresh(state.wrapEl, state.calendarEl, state.calendar, { updateSize: true }); } catch (e2) {}
+                } else if (key === 'calendarWeekAllDayVisibleRows') {
+                    try { state.queuePrototypeSurfaceRender?.(); } catch (e2) {}
+                    try { state.sideDay?.prototypeRender?.(); } catch (e2) {}
                     try { scheduleMainCalendarLayoutRefresh(state.wrapEl, state.calendarEl, state.calendar, { updateSize: true }); } catch (e2) {}
                 } else if (key === 'calendarScheduleReminderEnabled' || key === 'calendarScheduleReminderSystemEnabled' || key === 'calendarScheduleReminderWechatEnabled' || key === 'calendarScheduleReminderDefaultMode' || key === 'calendarAllDayReminderEnabled' || key === 'calendarAllDayReminderTime' || key === 'calendarTaskDateAllDayReminderEnabled' || key === 'calendarAllDaySummaryIncludeExtras') {
                     try { renderSettings(containerEl, store); } catch (e2) {}
@@ -38958,7 +39210,15 @@
             const parsed = JSON.parse(raw);
             const data = Array.isArray(parsed?.data) ? parsed.data : [];
             if (!data.length) return null;
-            return { year: Math.round(y), key, ts: Number(parsed?.ts) || 0, data };
+            return {
+                year: Math.round(y),
+                key,
+                ts: Number(parsed?.ts) || 0,
+                data,
+                predicted: parsed?.predicted === true,
+                checkedDay: String(parsed?.checkedDay || '').trim(),
+                cacheVersion: Number(parsed?.cacheVersion) || 0,
+            };
         } catch (e) {
             return null;
         }
@@ -38988,6 +39248,7 @@
             for (const year of years) {
                 const before = getCnHolidayLocalCache(year);
                 let refreshed = false;
+                let cacheRecord = before;
                 let data = before?.data || [];
                 let ts = Number(before?.ts) || 0;
                 if (opts.refreshCurrentYear === true && year === new Date().getFullYear()) {
@@ -38996,6 +39257,7 @@
                         const next = await loadCnHolidayYear(year, { forceRefresh: true, result: refreshResult });
                         if (Array.isArray(next) && next.length) {
                             const after = getCnHolidayLocalCache(year);
+                            cacheRecord = after || before;
                             refreshed = refreshResult.status === 'refreshed';
                             data = next;
                             ts = Number(after?.ts) || Number(before?.ts) || Date.now();
@@ -39003,7 +39265,13 @@
                     } catch (e) {}
                 }
                 if (Array.isArray(data) && data.length) {
-                    out.cnHolidays[String(year)] = { ts, data };
+                    out.cnHolidays[String(year)] = {
+                        ts,
+                        data,
+                        predicted: cacheRecord?.predicted === true,
+                        checkedDay: cacheRecord?.checkedDay || '',
+                        cacheVersion: cacheRecord?.cacheVersion || 0,
+                    };
                     out.holidayStatuses.push({ year, status: refreshed ? 'refreshed' : 'cached', count: data.length });
                 } else {
                     out.holidayStatuses.push({ year, status: 'missing', count: 0 });
@@ -39046,10 +39314,15 @@
             const data = Array.isArray(value?.data) ? value.data : [];
             if (!Number.isFinite(year) || y < 1900 || y > 2100 || !data.length) return;
             const ts = Number(value?.ts) || Date.now();
+            const cacheVersion = Number(value?.cacheVersion) === CN_HOLIDAY_CACHE_VERSION
+                ? CN_HOLIDAY_CACHE_VERSION
+                : 1;
+            const predicted = value?.predicted === true;
+            const checkedDay = String(value?.checkedDay || '').trim();
             try {
-                localStorage.setItem(`tm_cn_holiday_${y}`, JSON.stringify({ ts, data }));
+                localStorage.setItem(`tm_cn_holiday_${y}`, JSON.stringify({ ts, data, predicted, checkedDay, cacheVersion }));
                 if (!state.cnHolidayCache) state.cnHolidayCache = new Map();
-                state.cnHolidayCache.set(y, { ts, data });
+                state.cnHolidayCache.set(y, { ts, data, predicted, checkedDay, cacheVersion });
                 result.holidayYears += 1;
             } catch (e) {}
         });
@@ -39098,6 +39371,7 @@
         addTaskSchedule,
         upsertTaskScheduleTime,
         setScheduleOccurrenceDone,
+        buildPredictedCnHolidayDays,
         listTaskSchedulesByDay,
         listTaskSchedulesByTaskId,
         deleteTaskSchedulesByTaskIds,
@@ -39139,6 +39413,9 @@
         applyCalendarCustomHolidayOverrides,
         buildCnHolidayMap,
         buildCnHolidayEvents,
+        getCnSolarTermName,
+        getCnHolidayDisplayInfo,
+        getCalendarDateHeaderInfo,
         buildCustomHolidaySubscriptionEvents,
         openCalendarCustomHolidayEditor,
     };

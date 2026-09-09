@@ -1941,8 +1941,6 @@
                     const pendingNativeDoneReset = task?.repeatState?.pendingNativeDoneReset === true;
                     if (pendingNativeDoneReset) {
                         recurringReconcileCandidateIds.push(String(task.id || '').trim());
-                    } else if (!nativeTaskDone && repeatRule?.enabled && repeatRule.trigger === 'due' && repeatRule.type !== 'none') {
-                        recurringReconcileCandidateIds.push(String(task.id || '').trim());
                     } else if (nativeTaskDone && repeatRule?.enabled && repeatRule.type !== 'none'
                         && !(queuedTaskFieldPatch && Object.prototype.hasOwnProperty.call(queuedTaskFieldPatch, 'done'))
                         && __tmNormalizeTaskCompleteAtValue(task?.taskCompleteAt || task?.task_complete_at || '')) {

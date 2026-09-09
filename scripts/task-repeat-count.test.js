@@ -18,10 +18,6 @@ const loaderSource = fs.readFileSync(
     path.join(root, 'src', 'task-horizon', 'main', 'task-runtime', '53c-document-loader-runtime.js'),
     'utf8',
 );
-const apiRuntimeSource = fs.readFileSync(
-    path.join(root, 'src', 'task-horizon', 'main', '20-api-and-runtime-services.js'),
-    'utf8',
-);
 const dialogSource = fs.readFileSync(
     path.join(root, 'src', 'task-horizon', 'main', '30-dialogs-and-ui-foundation.js'),
     'utf8',
@@ -164,15 +160,15 @@ assert.match(
     /__tmMergeVisibleDateFieldsFromPrevTask\(task, prevTask\);[\s\S]*__tmMergeLocalTaskPatchIntoTask\(task\);[\s\S]*recurringReconcileCandidateIds\.push/,
     'full document loads must preserve locally committed repeat fields before collecting reconcile candidates',
 );
-assert.match(
-    runtimeSource,
-    /__tmRecurringDueReconcileMemo\.get\(task\.id\) === memoKey[\s\S]*__tmApplyTaskMetaPatchWithUndo[\s\S]*__tmRecurringDueReconcileMemo\.set\(task\.id, memoKey\)/,
-    'due reconciliation must submit the same source snapshot at most once',
+assert.doesNotMatch(
+    loaderSource,
+    /!nativeTaskDone && repeatRule\?\.enabled && repeatRule\.trigger === 'due'/,
+    'overdue incomplete tasks must not enter the load-time recurrence reconciliation queue',
 );
-assert.match(
-    apiRuntimeSource,
-    /String\(opts\.source \|\| ''\)\.trim\(\) !== 'task-repeat-due'[\s\S]*__tmClearRecurringDueReconcileMemo/,
-    'ordinary task edits must release the due-reconcile memo',
+assert.doesNotMatch(
+    runtimeSource,
+    /__tmBuildTaskRepeatDueAdvancePatch\(task, rule/,
+    'load-time reconciliation must not persist a due-triggered advance',
 );
 assert.match(modelSource, /循环记录\$\{progressText\}/, 'recurring record badges must show their occurrence number');
 assert.match(dialogSource, /data-tm-repeat-field="maxOccurrences"[^>]*max="200"/, 'repeat dialog must cap the count input at 200');

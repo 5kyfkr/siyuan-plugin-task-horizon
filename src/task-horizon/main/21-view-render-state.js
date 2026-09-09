@@ -6,6 +6,122 @@
     const __TM_KANBAN_PROGRESSIVE_BATCH_SIZE = 10;
     const __TM_VIEW_WINDOW_ADAPTERS = new Map();
 
+    function __tmGetViewScrollGate(modeInput = '') {
+        const mode = String(modeInput || state?.viewMode || '').trim();
+        if (!mode) return null;
+        const current = state.__tmViewScrollGate;
+        if (current && current.mode === mode) return current;
+        const gate = {
+            mode,
+            host: null,
+            scrolling: false,
+            lastTop: 0,
+            lastLeft: 0,
+            direction: 0,
+            endTimer: 0,
+            pendingCommit: null,
+            pendingCommitReason: '',
+            pendingCommitPriority: 0,
+            dragRetryTimer: 0,
+        };
+        state.__tmViewScrollGate = gate;
+        return gate;
+    }
+
+    function __tmIsViewDragActive() {
+        try {
+            if (String(state?.draggingTaskId || '').trim()) return true;
+            if (Array.isArray(state?.draggingTaskIds) && state.draggingTaskIds.length) return true;
+            if (String(state?.__tmKanbanDragId || '').trim()) return true;
+            if (String(state?.__tmExternalKanbanDragId || '').trim()) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmIsViewDomCommitBlocked(modeInput = '') {
+        const gate = __tmGetViewScrollGate(modeInput);
+        return !!(gate?.scrolling || __tmIsViewDragActive());
+    }
+
+    function __tmFlushViewDomCommit(modeInput = '') {
+        const gate = __tmGetViewScrollGate(modeInput);
+        if (!gate) return false;
+        if (gate.scrolling || __tmIsViewDragActive()) {
+            if (__tmIsViewDragActive() && gate.pendingCommit && !gate.dragRetryTimer) {
+                gate.dragRetryTimer = setTimeout(() => {
+                    gate.dragRetryTimer = 0;
+                    if (gate.pendingCommit) __tmFlushViewDomCommit(modeInput);
+                }, 160);
+            }
+            return false;
+        }
+        const pending = gate.pendingCommit;
+        gate.pendingCommit = null;
+        gate.pendingCommitReason = '';
+        gate.pendingCommitPriority = 0;
+        if (typeof pending !== 'function') return false;
+        try { return pending() !== false; } catch (e) { return false; }
+    }
+
+    function __tmQueueViewDomCommit(modeInput = '', callback, options = {}) {
+        const mode = String(modeInput || state?.viewMode || '').trim();
+        if (typeof callback !== 'function') return false;
+        const gate = __tmGetViewScrollGate(mode);
+        if (!gate) return false;
+        const allowDuringScroll = options?.allowDuringScroll === true
+            && options?.appendOnly === true
+            && options?.preparedOnly === true;
+        if ((gate.scrolling && !allowDuringScroll) || __tmIsViewDragActive()) {
+            const priority = Math.max(0, Number(options?.priority) || 0);
+            if (!gate.pendingCommit || priority >= gate.pendingCommitPriority) {
+                gate.pendingCommit = callback;
+                gate.pendingCommitReason = String(options?.reason || '').trim();
+                gate.pendingCommitPriority = priority;
+            }
+            if (__tmIsViewDragActive() && !gate.dragRetryTimer) {
+                gate.dragRetryTimer = setTimeout(() => {
+                    gate.dragRetryTimer = 0;
+                    if (__tmIsViewDragActive()) {
+                        __tmQueueViewDomCommit(mode, gate.pendingCommit, {
+                            reason: gate.pendingCommitReason,
+                            priority: gate.pendingCommitPriority,
+                        });
+                    } else {
+                        __tmFlushViewDomCommit(mode);
+                    }
+                }, 160);
+            }
+            return true;
+        }
+        try { return callback() !== false; } catch (e) { return false; }
+    }
+
+    function __tmTrackViewScroll(hostInput, modeInput = '') {
+        const mode = String(modeInput || state?.viewMode || '').trim();
+        const host = hostInput instanceof HTMLElement ? hostInput : null;
+        const gate = __tmGetViewScrollGate(mode);
+        if (!gate || !host) return false;
+        const nextTop = Math.max(0, Number(host.scrollTop) || 0);
+        const nextLeft = Math.max(0, Number(host.scrollLeft) || 0);
+        gate.host = host;
+        gate.direction = nextTop === gate.lastTop ? 0 : (nextTop > gate.lastTop ? 1 : -1);
+        gate.lastTop = nextTop;
+        gate.lastLeft = nextLeft;
+        gate.scrolling = true;
+        try {
+            if (gate.endTimer) clearTimeout(gate.endTimer);
+            gate.endTimer = setTimeout(() => {
+                gate.endTimer = 0;
+                gate.scrolling = false;
+                __tmFlushViewDomCommit(mode);
+            }, 140);
+        } catch (e) {
+            gate.scrolling = false;
+            __tmFlushViewDomCommit(mode);
+        }
+        return true;
+    }
+
     function __tmRegisterViewWindowAdapter(modeInput, adapterInput = {}) {
         const mode = String(modeInput || '').trim();
         if (!mode) return false;
@@ -38,6 +154,26 @@
         const job = jobInput || state?.__tmProgressiveViewRender;
         if (!job || typeof job !== 'object') return false;
         job.status = 'cancelled';
+        const gate = state?.__tmViewScrollGate;
+        if (gate && gate.mode === String(job.mode || '').trim()) {
+            try { if (gate.endTimer) clearTimeout(gate.endTimer); } catch (e) {}
+            try { if (gate.dragRetryTimer) clearTimeout(gate.dragRetryTimer); } catch (e) {}
+            gate.endTimer = 0;
+            gate.dragRetryTimer = 0;
+            gate.pendingCommit = null;
+            gate.pendingCommitReason = '';
+            gate.pendingCommitPriority = 0;
+        }
+        job.prepareInFlight = false;
+        job.preparedBatch = null;
+        if (job.checklistEntryWarmup) {
+            const warmup = job.checklistEntryWarmup;
+            warmup.done = true;
+            try { if (warmup.timer) clearTimeout(warmup.timer); } catch (e) {}
+            try { if (warmup.idleId) window.cancelIdleCallback?.(warmup.idleId); } catch (e) {}
+            warmup.timer = 0;
+            warmup.idleId = 0;
+        }
         try { job.unsubscribeTaskStore?.(); } catch (e) {}
         job.unsubscribeTaskStore = null;
         if (state?.__tmProgressiveViewRender === job) state.__tmProgressiveViewRender = null;
@@ -77,6 +213,8 @@
             initialBatchSize: policy.initial,
             batchSize: policy.grow,
             cursor: Math.max(0, Math.round(Number(options?.cursor) || 0)),
+            prepareInFlight: false,
+            preparedBatch: null,
             status: 'active',
         };
         state.__tmViewWindowSequence = sequence;
@@ -136,6 +274,12 @@
         globalThis.__tmCancelViewWindowJob = __tmCancelViewWindowJob;
         globalThis.__tmIsViewWindowJobCurrent = __tmIsViewWindowJobCurrent;
         globalThis.__tmRunViewWindowBatch = __tmRunViewWindowBatch;
+        globalThis.__tmGetViewScrollGate = __tmGetViewScrollGate;
+        globalThis.__tmIsViewDragActive = __tmIsViewDragActive;
+        globalThis.__tmIsViewDomCommitBlocked = __tmIsViewDomCommitBlocked;
+        globalThis.__tmFlushViewDomCommit = __tmFlushViewDomCommit;
+        globalThis.__tmQueueViewDomCommit = __tmQueueViewDomCommit;
+        globalThis.__tmTrackViewScroll = __tmTrackViewScroll;
     } catch (e) {}
 
     function __tmUnbindKanbanProgressiveViewport(job) {

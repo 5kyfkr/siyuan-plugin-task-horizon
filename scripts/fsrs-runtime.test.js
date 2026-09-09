@@ -11,7 +11,6 @@ const vendorSource = read('src/task-horizon/vendor/ts-fsrs-5.4.1.umd.js');
 const adapterSource = read('src/task-horizon/main/task-runtime/50a-fsrs-runtime.js');
 assert.match(vendorSource, /Copyright \(c\) 2026 Open Spaced Repetition[\s\S]*?Permission is hereby granted/, 'vendored FSRS source must retain its MIT notice without a separate license file');
 const modelSource = read('src/task-horizon/main/task-runtime/50-task-model-and-repeat-utils.js');
-const recurringSource = read('src/task-horizon/main/task-runtime/54-recurring-task-runtime.js');
 const manifest = JSON.parse(read('src/task-horizon/manifest.main.json'));
 
 const normalizeDateOnly = (value) => {
@@ -126,7 +125,7 @@ for (let index = 0; index < 12; index += 1) {
 }
 
 assert.ok(modelSource.includes("rule.type === 'fsrs') return []"), 'fixed future preview must exclude FSRS');
-assert.ok(recurringSource.includes("rule.type === 'fsrs') return null"), 'due-trigger advance must exclude FSRS');
+assert.ok(modelSource.includes("rule.type === 'none' || rule.type === 'fsrs') return null"), 'fixed-date advance must exclude FSRS');
 assert.ok(manifest.scripts.indexOf('vendor/ts-fsrs-5.4.1.umd.js') < manifest.scripts.indexOf('main/task-runtime/50a-fsrs-runtime.js'));
 
 console.log('FSRS runtime tests passed');

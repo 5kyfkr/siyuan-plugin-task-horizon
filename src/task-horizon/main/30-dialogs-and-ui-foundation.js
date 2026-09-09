@@ -3002,6 +3002,13 @@
 
     function __tmRenderChecklistPreserveScroll(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.('checklist')) {
+            globalThis.__tmQueueViewDomCommit?.('checklist', () => __tmRenderChecklistPreserveScroll({
+                ...opts,
+                __tmQueuedCommit: true,
+            }), { reason: String(opts.reason || 'checklist-render').trim() || 'checklist-render' });
+            return true;
+        }
         const modal = state.modal instanceof Element ? state.modal : null;
         const staged = (state.pendingChecklistRenderRestore && typeof state.pendingChecklistRenderRestore === 'object')
             ? state.pendingChecklistRenderRestore
@@ -3025,6 +3032,14 @@ if (detailTaskId) {
                 return true;
             }
         } catch (e) {}
+        if (opts.appendOnly === true) {
+            __tmQueueViewDomCommit('checklist', () => {
+                try { render(); } catch (e) {}
+                return true;
+            }, { reason: 'checklist-render-fallback', priority: 100 });
+            state.pendingChecklistRenderRestore = null;
+            return true;
+        }
         render();
         state.pendingChecklistRenderRestore = null;
         try {
@@ -4118,6 +4133,98 @@ return Number(state.contextInteractionQuietUntil || 0);
         });
     }
 
+    function __tmGetPreparedListBatch(job, currentLimit, contextKey) {
+        const batch = job?.preparedBatch;
+        const tbody = state.modal?.querySelector?.('#tmTaskTable tbody');
+        const liveTaskRowCount = tbody instanceof HTMLElement
+            ? tbody.querySelectorAll('tr[data-id]').length
+            : null;
+        if (!batch
+            || Number(batch.previousLimit) !== Number(currentLimit)
+            || (liveTaskRowCount !== null && Number(batch.startTaskRow) !== liveTaskRowCount)
+            || String(batch.contextKey || '') !== String(contextKey || '')
+            || Number(batch.taskStoreRevision || 0) !== Number(job.taskStoreRevision || 0)
+            || Number(batch.projectionGeneration || 0) !== Number(job.projectionGeneration || 0)
+            || typeof batch.html !== 'string') {
+            if (job) job.preparedBatch = null;
+            return null;
+        }
+        return batch;
+    }
+
+    function __tmPrepareListAutoLoadBatch(options = {}) {
+        const mode = String(options.mode || state.viewMode || '').trim();
+        if (mode !== 'list') return false;
+        const modal = state.modal instanceof Element ? state.modal : null;
+        const tbody = modal?.querySelector?.('#tmTaskTable tbody');
+        if (!(modal instanceof Element) || !(tbody instanceof HTMLElement)) return false;
+        const meta = __tmGetListAutoLoadMoreState();
+        if (meta.remaining <= 0) return false;
+        const job = typeof __tmEnsureViewWindowJob === 'function'
+            ? __tmEnsureViewWindowJob('list')
+            : null;
+        if (!job || typeof renderTaskList !== 'function') return false;
+        const currentLimit = Math.max(0, Math.round(Number(state.listRenderLimit) || 0));
+        const contextKey = String(job.contextKey || '');
+        if (__tmGetPreparedListBatch(job, currentLimit, contextKey)) return true;
+        if (job.prepareInFlight) return true;
+        const step = Math.max(1, Math.round(Number(job.batchSize) || 20));
+        const nextLimit = Math.min(Math.max(0, Math.round(Number(meta.total) || 0)), currentLimit + step);
+        if (nextLimit <= currentLimit) return false;
+        const startTaskRow = tbody.querySelectorAll('tr[data-id]').length;
+        job.prepareInFlight = true;
+        const prepare = () => {
+            try {
+                if (!__tmIsViewWindowJobCurrent(job, { mode: 'list', requireRevision: true })) return;
+                const html = renderTaskList(null, { startTaskRow, limitOverride: nextLimit });
+                if (typeof html !== 'string') return;
+                const stagingTable = document.createElement('table');
+                stagingTable.innerHTML = `<tbody>${html}</tbody>`;
+                const stagingBody = stagingTable.tBodies?.[0];
+                const preparedRows = stagingBody instanceof HTMLElement
+                    ? Array.from(stagingBody.children).filter((row) => row instanceof HTMLElement)
+                    : [];
+                job.preparedBatch = {
+                    previousLimit: currentLimit,
+                    nextLimit,
+                    startTaskRow,
+                    contextKey,
+                    taskStoreRevision: job.taskStoreRevision,
+                    projectionGeneration: job.projectionGeneration,
+                    html,
+                    preparedRows,
+                };
+                const pane = __tmGetAutoLoadMoreScrollHost(state.modal, 'list');
+                const viewport = Math.max(0, Number(pane?.clientHeight || 0));
+                const maxScrollTop = Math.max(0, Number(pane?.scrollHeight || 0) - viewport);
+                const remainingPx = Math.max(0, maxScrollTop - (Number(pane?.scrollTop || 0)));
+                const preloadThresholdPx = Math.max(640, Math.min(1600, Math.round(viewport * 2) || 0));
+                if (pane instanceof HTMLElement && remainingPx <= preloadThresholdPx) {
+                    __tmAutoLoadMoreVisibleRows({
+                        mode: 'list',
+                        source: 'prepared-scroll-commit',
+                        allowDuringScroll: true,
+                        preparedOnly: true,
+                    }).catch(() => null);
+                }
+            } catch (e) {
+                job.preparedBatch = null;
+            } finally {
+                job.prepareInFlight = false;
+            }
+        };
+        try {
+            if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+                window.requestIdleCallback(prepare, { timeout: 120 });
+            } else {
+                setTimeout(prepare, 16);
+            }
+        } catch (e) {
+            try { prepare(); } catch (e2) {}
+        }
+        return true;
+    }
+
     async function __tmAutoLoadMoreVisibleRows(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const mode = String(opts.mode || state.viewMode || '').trim();
@@ -4141,39 +4248,90 @@ return Number(state.contextInteractionQuietUntil || 0);
             const runBatch = typeof __tmRunViewWindowBatch === 'function'
                 ? (callback) => __tmRunViewWindowBatch(viewWindowJob, callback, { mode })
                 : null;
+            const commitViewBatch = (job) => {
+                const currentLimit = Math.max(0, Math.round(Number(state.listRenderLimit) || 0));
+                const prepared = mode === 'list'
+                    ? __tmGetPreparedListBatch(job, currentLimit, job?.contextKey)
+                    : null;
+                const grown = prepared
+                    ? {
+                        previousLimit: prepared.previousLimit,
+                        limit: prepared.nextLimit,
+                        remaining: Math.max(0, Number(meta.total || 0) - prepared.nextLimit),
+                    }
+                    : __tmGrowViewRenderWindow(mode, meta.total);
+                if (!grown || grown.limit <= grown.previousLimit) return false;
+                if (prepared) state.listRenderLimit = grown.limit;
+                let committed = false;
+                if (mode === 'checklist') {
+                    committed = __tmRenderChecklistPreserveScroll({
+                        appendOnly: true,
+                        previousLimit: grown.previousLimit,
+                    });
+                    if (!committed) {
+                        __tmQueueViewDomCommit(mode, () => {
+                            try { render(); } catch (e) {}
+                            return true;
+                        }, { reason: 'checklist-append-fallback', priority: 100 });
+                        committed = true;
+                    }
+                } else {
+                    committed = __tmRerenderListInPlace(state.modal, {
+                        appendOnly: true,
+                        previousLimit: grown.previousLimit,
+                        limitOverride: grown.limit,
+                        preparedRowsHtml: prepared?.html,
+                        preparedRows: prepared?.preparedRows,
+                        allowDuringScroll: opts.allowDuringScroll === true,
+                        preparedOnly: opts.preparedOnly === true,
+                        tailOnlyRequired: opts.allowDuringScroll === true,
+                    });
+                    if (!committed) {
+                        __tmQueueViewDomCommit(mode, () => {
+                            try { render(); } catch (e) {}
+                            return true;
+                        }, { reason: 'list-append-fallback', priority: 100 });
+                        committed = true;
+                    }
+                }
+                if (job) {
+                    job.cursor = grown.limit;
+                    if (prepared) job.preparedBatch = null;
+                }
+                try {
+                    __tmScheduleListAutoLoadMoreHydration({
+                        mode,
+                        delayMs: 240,
+                        reason: 'list-auto-load-more-hydrate',
+                    });
+                } catch (e) {}
+                __tmScheduleAutoLoadMoreRecheck(mode);
+                return committed;
+            };
             const batchResult = runBatch
-                ? runBatch(() => {
+                ? runBatch((job) => {
                     if (mode === 'timeline') {
                         const loaded = window.tmTimelineLoadMoreRows?.();
                         if (loaded) __tmScheduleAutoLoadMoreRecheck(mode);
                         return !!loaded;
                     }
-                    const grown = __tmGrowViewRenderWindow(mode, meta.total);
-                    if (!grown || grown.limit <= grown.previousLimit) return false;
-                    if (mode === 'checklist') {
-                        __tmRenderChecklistPreserveScroll({
-                            appendOnly: true,
-                            previousLimit: grown.previousLimit,
-                        });
-                    } else if (!__tmRerenderListInPlace(state.modal, {
-                        appendOnly: true,
-                        previousLimit: grown.previousLimit,
-                    })) {
-                        render();
-                    }
-                    viewWindowJob.cursor = grown.limit;
-                    return true;
+                    return __tmQueueViewDomCommit(mode, () => {
+                        if (opts.preparedOnly === true
+                            && !__tmGetPreparedListBatch(
+                                job,
+                                Math.max(0, Math.round(Number(state.listRenderLimit) || 0)),
+                                job?.contextKey,
+                            )) return false;
+                        return commitViewBatch(job);
+                    }, {
+                        reason: String(opts.source || 'scroll-near-bottom').trim() || 'scroll-near-bottom',
+                        allowDuringScroll: opts.allowDuringScroll === true,
+                        appendOnly: mode === 'list',
+                        preparedOnly: opts.preparedOnly === true,
+                    });
                 })
                 : { ok: true, value: false };
             if (!batchResult.ok || batchResult.value !== true) return false;
-            try {
-                __tmScheduleListAutoLoadMoreHydration({
-                    mode,
-                    delayMs: 240,
-                    reason: 'list-auto-load-more-hydrate',
-                });
-            } catch (e) {}
-            __tmScheduleAutoLoadMoreRecheck(mode);
             return true;
         } catch (e) {
             throw e;
@@ -4219,14 +4377,104 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
     };
 
+    function __tmScheduleChecklistEntryWarmup(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (state.viewMode !== 'checklist' || state.modal !== modal) return false;
+        const pane = modal?.querySelector?.('.tm-checklist-scroll');
+        if (!(pane instanceof HTMLElement) || !pane.isConnected) return false;
+        const job = __tmEnsureViewWindowJob('checklist');
+        if (!job) return false;
+        if (job.checklistEntryWarmup) {
+            job.checklistEntryWarmup.pane = pane;
+            return true;
+        }
+        const batchSize = 25;
+        const batchCount = 3;
+        const warmup = {
+            pane,
+            targetLimit: (Number(state.listRenderLimit) || 0) + batchSize * batchCount,
+            completedBatches: 0,
+            timer: 0,
+            idleId: 0,
+            done: false,
+        };
+        job.checklistEntryWarmup = warmup;
+        const schedule = (delayMs = 140) => {
+            warmup.timer = setTimeout(() => {
+                warmup.timer = 0;
+                if (warmup.done) return;
+                if (typeof window.requestIdleCallback === 'function') {
+                    warmup.idleId = window.requestIdleCallback(run, { timeout: 160 });
+                } else {
+                    run();
+                }
+            }, delayMs);
+        };
+        const run = () => {
+            warmup.idleId = 0;
+            const currentPane = warmup.pane;
+            if (warmup.done) return;
+            if (state.modal !== modal || state.viewMode !== 'checklist'
+                || !currentPane.isConnected
+                || modal.querySelector('.tm-checklist-scroll') !== currentPane
+                || !__tmIsViewWindowJobCurrent(job, { mode: 'checklist', requireRevision: true })) {
+                warmup.done = true;
+                return;
+            }
+            if (warmup.completedBatches >= batchCount
+                || Number(state.listRenderLimit) >= warmup.targetLimit
+                || !currentPane.querySelector('.tm-checklist-load-more')) {
+                warmup.done = true;
+                return;
+            }
+            if (__tmIsViewDomCommitBlocked('checklist')
+                || state.dockTouchTaskDragState
+                || state.listAutoLoadMoreInFlight
+                || __tmGetViewScrollGate('checklist')?.pendingCommit) {
+                schedule();
+                return;
+            }
+            const previousLimit = Number(state.listRenderLimit) || 0;
+            const nextLimit = Math.min(state.filteredTasks.length, warmup.targetLimit, previousLimit + batchSize);
+            if (nextLimit <= previousLimit) {
+                warmup.done = true;
+                return;
+            }
+            let committed = false;
+            state.listRenderLimit = nextLimit;
+            try {
+                committed = __tmRerenderChecklistInPlace(modal, {
+                    appendOnly: true,
+                    requireAppend: true,
+                    previousLimit,
+                    reason: 'checklist-entry-warmup',
+                }) === true;
+            } catch (e) {} finally {
+                if (!committed) state.listRenderLimit = previousLimit;
+            }
+            if (!committed) {
+                warmup.done = true;
+                return;
+            }
+            job.cursor = nextLimit;
+            warmup.completedBatches += 1;
+            warmup.done = warmup.completedBatches >= batchCount || nextLimit >= warmup.targetLimit;
+            if (!warmup.done) schedule();
+        };
+        schedule(32);
+        return true;
+    }
+
     function __tmBindAutoLoadMoreOnScroll(modalEl, modeHint = '') {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
         const mode = String(modeHint || state.viewMode || '').trim();
         if (mode !== 'list' && mode !== 'checklist' && mode !== 'timeline') return;
         const pane = __tmGetAutoLoadMoreScrollHost(modal, mode);
+        if (mode === 'checklist') __tmScheduleChecklistEntryWarmup(modal);
         if (!(pane instanceof HTMLElement) || pane.__tmAutoLoadMoreScrollBound) return;
         const checkNearBottom = () => {
+            if (mode === 'checklist' && !pane.__tmAutoLoadMoreUserScrolled) return;
             const progressiveJob = state.__tmProgressiveViewRender;
             if (mode === 'kanban'
                 && progressiveJob
@@ -4238,6 +4486,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (viewport <= 0) return;
             const maxScrollTop = Math.max(0, Number(pane.scrollHeight || 0) - viewport);
             const remainingPx = Math.max(0, maxScrollTop - (Number(pane.scrollTop || 0)));
+            const preloadThresholdPx = Math.max(640, Math.min(1600, Math.round(viewport * 2) || 0));
+            if (mode === 'list' && remainingPx <= preloadThresholdPx) {
+                try { __tmPrepareListAutoLoadBatch({ mode, source: 'scroll-preload' }); } catch (e) {}
+            }
             const thresholdPx = Math.max(96, Math.min(320, Math.round(viewport * 0.35) || 0));
             if (remainingPx > thresholdPx) return;
             __tmAutoLoadMoreVisibleRows({
@@ -4245,7 +4497,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 source: 'scroll-near-bottom',
             }).catch(() => null);
         };
-        const onScroll = () => {
+        const scheduleCheck = () => {
             if (pane.__tmAutoLoadMoreCheckPending) return;
             pane.__tmAutoLoadMoreCheckPending = true;
             const run = () => {
@@ -4255,17 +4507,22 @@ return Number(state.contextInteractionQuietUntil || 0);
                 checkNearBottom();
             };
             try {
-                if (typeof __tmScheduleIdleTask === 'function') {
-                    __tmScheduleIdleTask(run, 240);
+                if (typeof requestAnimationFrame === 'function') {
+                    requestAnimationFrame(run);
                     return;
                 }
             } catch (e) {}
-            try { setTimeout(run, Math.max(80, __tmGetHighPriorityInteractionWaitMs?.(40) || 0)); } catch (e) { run(); }
+            try { setTimeout(run, 32); } catch (e) { run(); }
+        };
+        const onScroll = () => {
+            pane.__tmAutoLoadMoreUserScrolled = true;
+            try { __tmTrackViewScroll?.(pane, mode); } catch (e) {}
+            scheduleCheck();
         };
         pane.addEventListener('scroll', onScroll, { passive: true });
         pane.__tmAutoLoadMoreScrollBound = true;
-        pane.__tmAutoLoadMoreScrollHandler = onScroll;
-        try { requestAnimationFrame(onScroll); } catch (e) {}
+        pane.__tmAutoLoadMoreScrollHandler = scheduleCheck;
+        scheduleCheck();
     }
 
     window.__tmBindAutoLoadMoreOnScroll = __tmBindAutoLoadMoreOnScroll;

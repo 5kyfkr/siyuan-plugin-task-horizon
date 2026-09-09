@@ -86,13 +86,13 @@ assert.match(
 );
 assert.match(
     source,
-    /const protoBuildMonthCompactedLayout = \(days, events, options = \{\}\) =>[\s\S]*requiredRows = spanRowsForDay\(segments\)[\s\S]*\+ \(hasHidden \? 1 : 0\)/,
+    /const protoBuildMonthCompactedLayout = \(days, events, options = \{\}\) =>[\s\S]*const availableRows = Math\.max\(0, capacity - \(hasHidden \? 1 : 0\)\)/,
     'month rendering must reserve one shared +N row for span or regular overflow',
 );
 assert.match(
     source,
-    /const protoBuildMonthCompactedLayout = \(days, events, options = \{\}\) =>[\s\S]*const hiddenSegments = new Set\(\)[\s\S]*markSpanHidden = \(segment\)/,
-    'month overflow must fold a colliding span segment before markup is emitted',
+    /const protoBuildMonthCompactedLayout = \(days, events, options = \{\}\) =>[\s\S]*hiddenEventsByDay\.set\(index, new Set\(spanEvents\.slice\(visibleSpanCount\)\)\)[\s\S]*limitForDay: \(index\) => spanLimitByDay\.get\(index\)/,
+    'month overflow must fold only the unavailable dates and retain a local lane budget',
 );
 assert.doesNotMatch(
     source,
@@ -273,8 +273,8 @@ assert.match(
 );
 assert.match(
     source,
-    /if \(lane >= laneLimit\) \{[\s\S]*const segmentEnd = rowEnd[\s\S]*dayIndex < segmentEnd[\s\S]*cursor = segmentEnd/,
-    'month span overflow must fold the entire overflowing week segment into that day\'s +N summary',
+    /if \(lane < 0\) \{[\s\S]*hiddenByDay\.set\(segmentStart, hidden\)[\s\S]*cursor = segmentStart \+ 1/,
+    'month span overflow must hide only the unavailable date and continue on later dates',
 );
 assert.match(
     source,
@@ -283,7 +283,7 @@ assert.match(
 );
 assert.match(
     source,
-    /const scheduledDayKeys = new Set\([\s\S]*while \(segmentStart < rowEnd && isScheduledDay\(segmentStart\)\)[\s\S]*while \(runEnd < rowEnd && !isScheduledDay\(runEnd\)\)/,
+    /const scheduledDayKeys = new Set\([\s\S]*while \(segmentStart < rowEnd && isScheduledDay\(segmentStart\)\)[\s\S]*while \(runEnd < rowEnd && !isScheduledDay\(runEnd\)/,
     'month task-date spans must split around scheduled days while retaining unscheduled runs',
 );
 assert.match(
@@ -293,8 +293,8 @@ assert.match(
 );
 assert.match(
     source,
-    /const isScheduleSplit = ext\.__tmTaskDateScheduleSplit === true[\s\S]*!isScheduleSplit && !continuation[\s\S]*!isScheduleSplit && isEventEnd/,
-    'schedule-split task-date spans must not render date resize handles',
+    /const canResizeRange = !isScheduleSplit && !continuesBefore && !continuesAfter[\s\S]*canResizeRange && !continuation[\s\S]*canResizeRange && isEventEnd/,
+    'clipped and schedule-split spans must not render date resize handles',
 );
 assert.match(
     source,

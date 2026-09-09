@@ -8671,6 +8671,7 @@
             calendarFirstDay: 1,
             calendarMonthAggregate: true,
             calendarMonthMinVisibleEvents: 3,
+            calendarWeekAllDayVisibleRows: 5,
             calendarShowSchedule: true,
             calendarScheduleReminderEnabled: true,
             calendarScheduleReminderSystemEnabled: true,
@@ -9374,6 +9375,7 @@
                                 if (typeof cloudData.calendarFirstDay === 'number') this.data.calendarFirstDay = cloudData.calendarFirstDay;
                                 if (typeof cloudData.calendarMonthAggregate === 'boolean') this.data.calendarMonthAggregate = cloudData.calendarMonthAggregate;
                                 if (typeof cloudData.calendarMonthMinVisibleEvents === 'number') this.data.calendarMonthMinVisibleEvents = cloudData.calendarMonthMinVisibleEvents;
+                                if (typeof cloudData.calendarWeekAllDayVisibleRows === 'number') this.data.calendarWeekAllDayVisibleRows = cloudData.calendarWeekAllDayVisibleRows;
                                 if (typeof cloudData.calendarShowSchedule === 'boolean') this.data.calendarShowSchedule = cloudData.calendarShowSchedule;
                                 if (typeof cloudData.calendarScheduleReminderEnabled === 'boolean') this.data.calendarScheduleReminderEnabled = cloudData.calendarScheduleReminderEnabled;
                                 if (typeof cloudData.calendarScheduleReminderSystemEnabled === 'boolean') this.data.calendarScheduleReminderSystemEnabled = cloudData.calendarScheduleReminderSystemEnabled;
@@ -9928,6 +9930,7 @@
             this.data.calendarFirstDay = Number(Storage.get('tm_calendar_first_day', this.data.calendarFirstDay));
             this.data.calendarMonthAggregate = Storage.get('tm_calendar_month_aggregate', this.data.calendarMonthAggregate);
             this.data.calendarMonthMinVisibleEvents = Number(Storage.get('tm_calendar_month_min_visible_events', this.data.calendarMonthMinVisibleEvents));
+            this.data.calendarWeekAllDayVisibleRows = Number(Storage.get('tm_calendar_week_all_day_visible_rows', this.data.calendarWeekAllDayVisibleRows));
             this.data.calendarShowSchedule = Storage.get('tm_calendar_show_schedule', this.data.calendarShowSchedule);
             this.data.calendarScheduleReminderEnabled = !!Storage.get('tm_calendar_schedule_reminder_enabled', this.data.calendarScheduleReminderEnabled);
             this.data.calendarScheduleReminderSystemEnabled = !!Storage.get('tm_calendar_schedule_reminder_system_enabled', this.data.calendarScheduleReminderSystemEnabled);
@@ -10492,6 +10495,7 @@
             Storage.set('tm_calendar_first_day', Number(this.data.calendarFirstDay) === 0 ? 0 : 1);
             Storage.set('tm_calendar_month_aggregate', !!this.data.calendarMonthAggregate);
             Storage.set('tm_calendar_month_min_visible_events', Number(this.data.calendarMonthMinVisibleEvents) || 3);
+            Storage.set('tm_calendar_week_all_day_visible_rows', Number(this.data.calendarWeekAllDayVisibleRows) || 5);
             Storage.set('tm_calendar_show_schedule', !!this.data.calendarShowSchedule);
             Storage.set('tm_calendar_schedule_reminder_enabled', !!this.data.calendarScheduleReminderEnabled);
             Storage.set('tm_calendar_schedule_reminder_system_enabled', !!this.data.calendarScheduleReminderSystemEnabled);
@@ -10864,6 +10868,12 @@
                 this.data.calendarMonthMinVisibleEvents = Number.isFinite(monthMinVisibleEvents)
                     ? Math.max(1, Math.min(8, Math.round(monthMinVisibleEvents)))
                     : 3;
+            }
+            {
+                const weekAllDayVisibleRows = Number(this.data.calendarWeekAllDayVisibleRows);
+                this.data.calendarWeekAllDayVisibleRows = Number.isFinite(weekAllDayVisibleRows)
+                    ? Math.max(1, Math.min(15, Math.round(weekAllDayVisibleRows)))
+                    : 5;
             }
             this.data.calendarScheduleDatesFollowSchedule = this.data.calendarScheduleDatesFollowSchedule !== false;
             this.data.calendarCreateTaskForIndependentSchedule = this.data.calendarCreateTaskForIndependentSchedule === true;

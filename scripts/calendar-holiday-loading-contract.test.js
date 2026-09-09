@@ -32,9 +32,34 @@ const toMs = (value) => {
 const normalizeCnHolidayName = readFunction('normalizeCnHolidayName');
 const canonicalCnFestivalName = readFunction('canonicalCnFestivalName', { normalizeCnHolidayName, Set });
 const cnFestivalBonus = readFunction('cnFestivalBonus');
+const getCnSolarTermName = readFunction('getCnSolarTermName', {
+    Date,
+    Map,
+    formatDateKey,
+    parseDateOnly,
+    pad2: (value) => String(value).padStart(2, '0'),
+    cnSolarTermCache: new Map(),
+    CN_SOLAR_TERM_NAMES: [
+        '小寒', '大寒', '立春', '雨水', '惊蛰', '春分', '清明', '谷雨',
+        '立夏', '小满', '芒种', '夏至', '小暑', '大暑', '立秋', '处暑',
+        '白露', '秋分', '寒露', '霜降', '立冬', '小雪', '大雪', '冬至',
+    ],
+    CN_SOLAR_TERM_MINUTES: [
+        0, 21208, 42467, 63836, 85337, 107014, 128867, 150921,
+        173149, 195551, 218072, 240693, 263343, 285989, 308563, 331033,
+        353350, 375494, 397447, 419210, 441758, 463504, 485718, 504758,
+    ],
+});
+const getCnHolidayDisplayInfo = readFunction('getCnHolidayDisplayInfo', {
+    canonicalCnFestivalName,
+    cnFestivalBonus,
+    formatCnLunarDateKey: () => '',
+    getCnSolarTermName,
+});
 const buildCnHolidayEvents = readFunction('buildCnHolidayEvents', {
     canonicalCnFestivalName,
     cnFestivalBonus,
+    getCnHolidayDisplayInfo,
     formatDateKey,
     normalizeCnHolidayName,
     parseDateOnly,
@@ -44,7 +69,7 @@ const buildCnHolidayEvents = readFunction('buildCnHolidayEvents', {
 
 const days = [
     { date: '2026-09-20', type: 4, name: '中秋节前补班' },
-    { date: '2026-09-25', type: 2, name: '中秋节' },
+    { date: '2026-09-25', type: 2, name: '中秋节', lunar: '八月十五' },
     { date: '2026-09-26', type: 2, name: '中秋节' },
     { date: '2026-09-27', type: 2, name: '中秋节' },
     { date: '2026-10-01', type: 2, name: '国庆节' },
@@ -64,26 +89,26 @@ const monthEvents = buildCnHolidayEvents(
     { cnHolidayColor: '#e5484d' },
 );
 
-const expectedDates = ['2026-09-20', '2026-09-25', '2026-09-26', '2026-09-27'];
+const expectedDates = ['2026-09-25'];
 assert.deepEqual(
     Array.from(events, (event) => event.start),
     expectedDates,
-    'list view must retain every in-range holiday and adjusted workday',
+    'list view must retain only the actual festival card',
 );
 assert.deepEqual(
     Array.from(monthEvents, (event) => event.start),
     expectedDates,
-    'month view must retain every in-range holiday and adjusted workday',
+    'month view must retain only the actual festival card',
 );
 assert.deepEqual(
     Array.from(monthEvents, (event) => event.extendedProps.__tmCnHolidayType),
-    [4, 2, 2, 2],
-    'month holiday events must preserve rest/work types for rendering',
+    [2],
+    'month holiday events must preserve the actual festival type',
 );
 assert.deepEqual(
     Array.from(events, (event) => event.extendedProps.__tmCnHolidayType),
-    [4, 2, 2, 2],
-    'holiday events must preserve rest/work types for rendering',
+    [2],
+    'holiday events must preserve the actual festival type',
 );
 assert.equal(new Set(events.map((event) => event.id)).size, events.length, 'holiday event ids must remain unique per date');
 

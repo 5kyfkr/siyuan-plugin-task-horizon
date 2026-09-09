@@ -6,6 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.resolve(__dirname, '..', 'calendar-view.js'), 'utf8');
+const styles = fs.readFileSync(path.resolve(__dirname, '..', 'calendar-view.css'), 'utf8');
 const start = source.indexOf('function formatCnLunarDateKey(');
 const bodyStart = source.indexOf('{', start);
 assert.ok(start >= 0 && bodyStart > start, 'calendar lunar formatter must remain extractable');
@@ -66,5 +67,25 @@ assert.equal(
     '初一',
     'cached holiday lunar text must not override the authoritative conversion',
 );
+context.formatCnLunarDateKey = () => '八月十五';
+assert.equal(
+    buildSharedPrototypeLunarText('2027-09-25', { showLunar: true }, new Map([['2027-09-25', { lunar: '八月十五' }]])),
+    '十五',
+    'month view lunar labels must omit the lunar month',
+);
+context.formatCnLunarDateKey = () => '正月廿九';
+assert.equal(
+    buildSharedPrototypeLunarText('2027-02-05', { showLunar: true }, new Map([['2027-02-05', { lunar: '正月廿九' }]])),
+    '廿九',
+    'month view lunar labels must keep only the lunar day name',
+);
+
+assert.match(
+    source,
+    /return `<span class="tm-proto-day-number-wrap"><span class="tm-proto-day-number /,
+    'month date badges must share a non-overlapping layout wrapper',
+);
+assert.match(styles, /\.tm-proto-date-meta\{[\s\S]*position:\s*absolute;[\s\S]*top:\s*50%;[\s\S]*right:\s*4px;[\s\S]*transform:\s*translateY\(-50%\);[\s\S]*text-align:\s*right;/, 'month date metadata must sit at the right side of the date header');
+assert.match(styles, /\.tm-proto-month-cell--month-start \.tm-proto-date-meta\{[\s\S]*max-width:\s*calc\(100% - 64px\);/, 'month-start metadata must reserve the wide date pill');
 
 console.log('calendar lunar date tests passed');

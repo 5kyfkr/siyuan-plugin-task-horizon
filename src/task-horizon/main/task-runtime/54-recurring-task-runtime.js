@@ -766,92 +766,6 @@
 
     try { globalThis.__tmAdvanceRecurringTaskAfterCompletion = __tmAdvanceRecurringTaskAfterCompletion; } catch (e) {}
 
-    function __tmBuildTaskRepeatDueAdvancePatch(taskLike, ruleInput, options = {}) {
-        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
-        const rule = __tmNormalizeTaskRepeatRule(ruleInput, {
-            startDate: task?.startDate,
-            completionTime: task?.completionTime,
-        });
-        if (!rule.enabled || rule.trigger !== 'due' || rule.type === 'none' || rule.type === 'fsrs') return null;
-        const todayKey = __tmNormalizeDateOnly(options.todayKey || new Date());
-        if (!todayKey) return null;
-        let nextTask = {
-            ...task,
-            startDate: __tmNormalizeDateOnly(task?.startDate || ''),
-            completionTime: __tmNormalizeDateOnly(task?.completionTime || ''),
-            repeatState: __tmNormalizeTaskRepeatState(task?.repeatState),
-        };
-        let compareKey = __tmNormalizeDateOnly(nextTask?.completionTime || nextTask?.startDate || '');
-        if (!compareKey || compareKey >= todayKey) return null;
-        let advancedCount = 0;
-        let guard = 0;
-        const compareOrdinal = __tmGetTaskRepeatLocalDayOrdinal(compareKey);
-        const todayOrdinal = __tmGetTaskRepeatLocalDayOrdinal(todayKey);
-        // Bound catch-up by the actual date gap; keep a ceiling for corrupt legacy dates.
-        const catchUpLimit = Number.isFinite(compareOrdinal) && Number.isFinite(todayOrdinal)
-            ? Math.min(100000, Math.max(1, todayOrdinal - compareOrdinal + 1))
-            : 400;
-        while (compareKey && compareKey < todayKey && guard < catchUpLimit) {
-            const previousCompareKey = compareKey;
-            const previousTask = nextTask;
-            const patch = __tmBuildTaskRepeatAdvancePatch(nextTask, rule, {
-                advancedAt: String(options.advancedAt || new Date().toISOString()).trim() || new Date().toISOString(),
-                completedAt: String(nextTask?.repeatState?.lastCompletedAt || '').trim(),
-            });
-            if (!patch) break;
-            nextTask = {
-                ...nextTask,
-                startDate: __tmNormalizeDateOnly(patch.startDate || ''),
-                completionTime: __tmNormalizeDateOnly(patch.completionTime || ''),
-                repeatState: __tmNormalizeTaskRepeatState(patch.repeatState),
-            };
-            compareKey = __tmNormalizeDateOnly(nextTask?.completionTime || nextTask?.startDate || '');
-            if (!compareKey || compareKey <= previousCompareKey) {
-                nextTask = previousTask;
-                break;
-            }
-            advancedCount += 1;
-            guard += 1;
-        }
-        if (!advancedCount) return null;
-        nextTask.repeatState = __tmNormalizeTaskRepeatState({
-            ...nextTask.repeatState,
-            ...__tmBuildTaskTomatoBaselinePatch(task),
-        });
-        return {
-            startDate: nextTask.startDate,
-            completionTime: nextTask.completionTime,
-            repeatState: nextTask.repeatState,
-        };
-    }
-
-    const __tmRecurringDueReconcileMemo = new Map();
-
-    function __tmBuildRecurringDueReconcileMemoKey(taskLike, patchLike) {
-        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
-        const patch = (patchLike && typeof patchLike === 'object') ? patchLike : {};
-        const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
-        const nextState = __tmNormalizeTaskRepeatState(patch?.repeatState);
-        return JSON.stringify([
-            __tmNormalizeDateOnly(task?.startDate || ''),
-            __tmNormalizeDateOnly(task?.completionTime || ''),
-            currentState.occurrenceCount,
-            String(currentState.lastAdvancedAt || '').trim(),
-            __tmNormalizeDateOnly(patch?.startDate || ''),
-            __tmNormalizeDateOnly(patch?.completionTime || ''),
-            nextState.occurrenceCount,
-        ]);
-    }
-
-    function __tmClearRecurringDueReconcileMemo(taskId = '') {
-        const tid = String(taskId || '').trim();
-        if (tid) return __tmRecurringDueReconcileMemo.delete(tid);
-        __tmRecurringDueReconcileMemo.clear();
-        return true;
-    }
-
-    try { globalThis.__tmClearRecurringDueReconcileMemo = __tmClearRecurringDueReconcileMemo; } catch (e) {}
-
     let __tmRecurringNativeDoneResetSweepPromise = null;
     let __tmRecurringNativeDoneResetSweepTimer = null;
     let __tmRecurringNativeDoneResetLastDateKey = '';
@@ -1027,24 +941,6 @@
                     if (advanced) changed += 1;
                     continue;
                 }
-                if (rule.trigger !== 'due') continue;
-                const patch = __tmBuildTaskRepeatDueAdvancePatch(task, rule, { todayKey });
-                if (!patch) continue;
-                const memoKey = __tmBuildRecurringDueReconcileMemoKey(task, patch);
-                if (__tmRecurringDueReconcileMemo.get(task.id) === memoKey) continue;
-                const result = await __tmApplyTaskMetaPatchWithUndo(task.id, patch, {
-                    source: 'task-repeat-due',
-                    label: '循环推进',
-                    refresh: false,
-                    refreshCalendar: false,
-                    withFilters: true,
-                    hard: false,
-                    recordUndo: false,
-                    broadcast: true,
-                });
-                if (result?.changed === false) continue;
-                __tmRecurringDueReconcileMemo.set(task.id, memoKey);
-                changed += 1;
             }
             return changed;
         })();

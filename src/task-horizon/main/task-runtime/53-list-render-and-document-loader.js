@@ -22,8 +22,12 @@
         const startTaskRow = Math.max(0, Math.round(Number(options.startTaskRow) || 0));
         const virtualEnabled = isListView && (startTaskRow > 0 || state.filteredTasks.length > virtualThreshold);
         const listStep = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
+        const requestedLimit = Number(options.limitOverride);
+        const effectiveLimit = Number.isFinite(requestedLimit) && requestedLimit > 0
+            ? Math.round(requestedLimit)
+            : Number(state.listRenderLimit) || listStep;
         const taskRowLimit = virtualEnabled
-            ? Math.max(listStep, Math.min(state.filteredTasks.length, Number(state.listRenderLimit) || listStep))
+            ? Math.max(listStep, Math.min(state.filteredTasks.length, effectiveLimit))
             : Number.POSITIVE_INFINITY;
         let visitedTaskRows = 0;
         const hasTaskRowBudget = () => visitedTaskRows < taskRowLimit;
@@ -487,6 +491,26 @@
             return rows;
         };
 
+        const getVisibleTaskTotal = () => {
+            let total = 0;
+            const visited = new Set();
+            const countTree = (task, inheritedHideCompleted = false) => {
+                const taskId = String(task?.id || '').trim();
+                if (!taskId || visited.has(taskId) || !filteredIdSet.has(taskId)) return;
+                visited.add(taskId);
+                total += 1;
+                const hideCompletedDescendants = __tmResolveHideCompletedDescendantsFlag(task, inheritedHideCompleted);
+                if (state.collapsedTaskIds.has(taskId)) return;
+                const children = (task.children || [])
+                    .filter((child) => filteredIdSet.has(child.id) && __tmShouldKeepChildTaskVisible(task, child, inheritedHideCompleted))
+                    .sort((left, right) => getTaskOrder(left.id) - getTaskOrder(right.id));
+                children.forEach((child) => countTree(child, hideCompletedDescendants));
+            };
+            [...completedRoots, ...pinnedRoots, ...normalRoots].forEach((task) => countTree(task, false));
+            return Math.max(total, visited.size);
+        };
+        const logicalTaskTotal = getVisibleTaskTotal();
+
         const allRows = [];
         const appendCompletedRootGroup = () => {
             if (!completedRoots.length) return;
@@ -884,7 +908,7 @@
 
         if (virtualEnabled) {
             const remain = visitedTaskRows >= taskRowLimit
-                ? Math.max(0, state.filteredTasks.length - visitedTaskRows)
+                ? Math.max(0, logicalTaskTotal - visitedTaskRows)
                 : 0;
             if (remain > 0) {
                 allRows.push(`<tr class="tm-load-more-row"><td colspan="${colCount}" style="text-align:center;padding:10px;background:var(--tm-header-bg);"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmListLoadMoreRows(event)">继续加载</button></td></tr>`);
@@ -897,22 +921,32 @@
     window.tmListLoadMoreRows = async function(ev) {
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
-        const grown = __tmGrowViewRenderWindow('list', state.filteredTasks.length);
-        if (!grown || grown.limit <= grown.previousLimit) return;
-        try {
-            __tmScheduleDeferredVisibleListCustomFieldHydration({
-                delayMs: 180,
+        const commit = () => {
+            const grown = __tmGrowViewRenderWindow('list', state.filteredTasks.length);
+            if (!grown || grown.limit <= grown.previousLimit) return false;
+            try {
+                __tmScheduleDeferredVisibleListCustomFieldHydration({
+                    delayMs: 180,
+                    reason: 'list-load-more-button',
+                });
+            } catch (e) {}
+            if (__tmHasCalendarSidebarChecklist(state.modal)) {
+                __tmRefreshCalendarSidebarChecklistPreserveScroll();
+                return true;
+            }
+            if (!__tmRerenderListInPlace(state.modal, {
+                appendOnly: true,
+                previousLimit: grown.previousLimit,
                 reason: 'list-load-more-button',
-            });
-        } catch (e) {}
-        if (__tmHasCalendarSidebarChecklist(state.modal)) {
-            __tmRefreshCalendarSidebarChecklistPreserveScroll();
-            return;
-        }
-        if (!__tmRerenderListInPlace(state.modal, {
-            appendOnly: true,
-            previousLimit: grown.previousLimit,
-        })) render();
+            })) {
+                __tmQueueViewDomCommit('list', () => {
+                    try { render(); } catch (e) {}
+                    return true;
+                }, { reason: 'list-load-more-fallback', priority: 100 });
+            }
+            return true;
+        };
+        return __tmQueueViewDomCommit('list', commit, { reason: 'list-load-more-button' });
     };
 
     // 切换任务状态

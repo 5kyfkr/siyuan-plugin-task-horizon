@@ -113,6 +113,7 @@
         'calendarFirstDay',
         'calendarMonthAggregate',
         'calendarMonthMinVisibleEvents',
+        'calendarWeekAllDayVisibleRows',
         'calendarShowSchedule',
         'calendarScheduleReminderEnabled',
         'calendarScheduleReminderSystemEnabled',
