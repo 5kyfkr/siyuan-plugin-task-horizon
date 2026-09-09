@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
-const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
+const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n/g, '\n');
 const schemaSource = read('src/task-horizon/main/09-task-field-schema.js');
 const engineSource = read('src/task-horizon/main/34-task-projection-engine.js');
 const stateSource = read('src/task-horizon/main/32-runtime-state-and-events.js');

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
+const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n/g, '\n');
 const gantt = read('src/task-horizon/main/shell/82-gantt-runtime.js');
 const render = read('src/task-horizon/main/40-render-runtime.js');
 const viewHostPolicies = read('src/task-horizon/main/31-view-host-policies.js');

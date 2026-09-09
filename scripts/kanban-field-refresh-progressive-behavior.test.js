@@ -153,7 +153,7 @@ orderedByRemark.context.__tmCancelProgressiveViewRender();
 
 assert.match(renderer, /const renderCard = \(task,[\s\S]*?task = resolveKanbanProjectedTask\(task\) \|\| task;/,
     'deferred cards must read current task fields instead of the captured projection');
-assert.match(renderer, /loadNextBatch: \(modalEl\) =>[\s\S]*?kanbanProjectedTaskById\.clear\(\);[\s\S]*?renderColumnListHtml\(nextLimit\)/,
+assert.match(renderer, /loadNextBatch: \(modalEl(?:, loadOptions = \{\})?\) =>[\s\S]*?kanbanProjectedTaskById\.clear\(\);[\s\S]*?renderColumnListHtml\(nextLimit\)/,
     'each resumed batch must invalidate its captured field cache before rendering');
 
 console.log('kanban field-refresh progressive behavior tests passed');

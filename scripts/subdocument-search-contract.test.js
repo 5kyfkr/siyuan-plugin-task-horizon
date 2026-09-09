@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(
     path.join(root, 'src/task-horizon/main/20-api-and-runtime-services.js'),
     'utf8',
-);
+).replace(/\r\n/g, '\n');
 const methodStart = source.indexOf('        async getSubDocIds(');
 const methodEnd = source.indexOf('\n\n        async readDir(', methodStart);
 assert.ok(methodStart >= 0 && methodEnd > methodStart, 'getSubDocIds must be discoverable');
