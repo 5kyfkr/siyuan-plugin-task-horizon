@@ -232,7 +232,7 @@ function testRecurringInstanceSyncOnlyTouchesLoadedDocuments() {
 }
 
 function createAdvanceHarness(task, buildPatch, options = {}) {
-    const calls = { persist: [], reset: 0, sync: 0, refresh: 0, viewRefreshes: [], reminderSettle: 0, projections: [], broadcasts: [], snapshots: [], localPatches: [] };
+    const calls = { persist: [], reset: 0, sync: 0, refresh: 0, viewRefreshes: [], reminderSettle: 0, projections: [], broadcasts: [], snapshots: [], snapshotOptions: [], localPatches: [] };
     const context = vm.createContext({
         state: { viewMode: 'list' },
         SettingsStore: {
@@ -297,7 +297,10 @@ function createAdvanceHarness(task, buildPatch, options = {}) {
             return true;
         },
         __tmDispatchTaskAttrPatchUpdated: (_taskId, patch) => calls.broadcasts.push(patch),
-        __tmScheduleTaskSnapshotAfterLocalPatch: (_taskId, patch) => calls.snapshots.push(patch),
+        __tmScheduleTaskSnapshotAfterLocalPatch: (_taskId, patch, snapshotOptions) => {
+            calls.snapshots.push(patch);
+            calls.snapshotOptions.push(snapshotOptions);
+        },
         hint: () => {},
         console,
     });
@@ -626,6 +629,7 @@ async function testRecurringAdvanceStateMachine() {
     ]);
     assert.equal(first.calls.broadcasts.length, 1, 'external field consumers must receive one final patch');
     assert.equal(first.calls.snapshots.length, 1, 'the transaction must persist only its final snapshot');
+    assert.equal(first.calls.snapshotOptions[0].persistSnapshot, true, 'the final snapshot must request actual persistence');
     assert.equal(first.calls.reminderSettle, 1, 'the current reminder must settle before its task date advances');
     assert.equal(first.calls.persist[0].options.deferProjection, true,
         'intermediate recurring metadata must remain hidden until completion reset succeeds');
@@ -751,7 +755,7 @@ async function testRecurringHistoryUndoResetsHeldNativeCompletionInOneTransactio
             { completedAt: previousCompletedAt, sourceStart: '2026-07-22', sourceDue: '2026-07-22' },
         ],
     };
-    const calls = { meta: [], reset: [], local: [], purge: [], lifecycle: [], clear: 0 };
+    const calls = { meta: [], reset: [], local: [], purge: [], lifecycle: [], snapshots: [], clear: 0 };
     const context = vm.createContext({
         __tmResolveTaskForRepeat: async () => task,
         __tmNormalizeTaskRepeatHistory: (value) => Array.isArray(value) ? value : [],
@@ -781,6 +785,7 @@ async function testRecurringHistoryUndoResetsHeldNativeCompletionInOneTransactio
         __tmBuildRecurringInstanceTask: (_task, entry) => ({ id: `repeatinst:task-undo:${entry.completedAt}` }),
         __tmPurgeRecurringInstanceTasks: (_taskId, ids) => { calls.purge.push(ids); },
         __tmTaskMutationBus: { apply: (mutation) => calls.lifecycle.push(mutation) },
+        __tmTaskSnapshotService: { scheduleAfterLocalPatch: (taskId, patch, options) => calls.snapshots.push({ taskId, patch, options }) },
     });
     vm.runInContext(`${deleteHistoryFunction}\nthis.deleteHistory = __tmDeleteTaskRepeatHistoryEntry;`, context);
 
@@ -801,6 +806,12 @@ async function testRecurringHistoryUndoResetsHeldNativeCompletionInOneTransactio
     assert.equal(calls.lifecycle.length, 1);
     assert.deepEqual(calls.lifecycle[0].patch.repeatHistory, task.repeatHistory);
     assert.deepEqual(JSON.parse(JSON.stringify(calls.purge)), [['2026-07-23T10:00:00.000+08:00']]);
+    assert.equal(calls.snapshots.length, 1);
+    assert.equal(calls.snapshots[0].options.persistSnapshot, true);
+    assert.equal(calls.snapshots[0].patch.repeatHistory.length, 1);
+    context.__tmApplyTaskMetaPatchWithUndo = async () => { throw new Error('write failed'); };
+    await assert.rejects(context.deleteHistory(task.id, previousCompletedAt), /write failed/);
+    assert.equal(calls.snapshots.length, 1, 'failed history writes must not persist a new snapshot');
 }
 
 async function testRecurringNativeDoneResetIsDateBoundAndIdempotent() {
@@ -815,7 +826,7 @@ async function testRecurringNativeDoneResetIsDateBoundAndIdempotent() {
         repeatRule: { enabled: true, type: 'daily' },
         repeatState: { lastCompletedAt: completedAt, pendingNativeDoneReset: true },
     };
-    const calls = { reset: 0, reconcile: 0 };
+    const calls = { reset: 0, reconcile: 0, snapshots: [] };
     const context = vm.createContext({
         window: {},
         __tmResolveTaskForRepeat: async () => task,
@@ -825,6 +836,7 @@ async function testRecurringNativeDoneResetIsDateBoundAndIdempotent() {
         __tmIsRecurringNativeDoneHeld: (value) => value?.repeatState?.pendingNativeDoneReset === true
             && value.repeatState.lastCompletedAt === value.taskCompleteAt,
         __tmGetRecurringNativeDoneResetDateKey: () => '2026-07-24',
+        __tmTaskSnapshotService: { scheduleAfterLocalPatch: (taskId, patch, options) => calls.snapshots.push({ taskId, patch, options }) },
         __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
         __tmApplyTaskMetaPatchWithUndo: async (_taskId, patch) => {
             calls.reconcile += 1;
@@ -851,6 +863,9 @@ async function testRecurringNativeDoneResetIsDateBoundAndIdempotent() {
     assert.equal(task.repeatState.pendingNativeDoneReset, false);
     assert.equal(await context.resetNativeDone(task, { todayKey: '2026-07-24' }), false);
     assert.equal(calls.reset, 1, 'a second client-side check must not write the same reset twice');
+    assert.equal(calls.snapshots.length, 1);
+    assert.equal(calls.snapshots[0].options.persistSnapshot, true);
+    assert.equal(calls.snapshots[0].patch.done, false);
 
     const closedTask = {
         ...task,

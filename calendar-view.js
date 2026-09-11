@@ -23620,6 +23620,7 @@
             // mounted event so the generic projection pass cannot set it again.
             renderOptimistic: true,
             deferProjection: true,
+            deferSnapshot: false,
             ...(backgroundWrite ? {
                 wait: false,
                 onError: (error) => {

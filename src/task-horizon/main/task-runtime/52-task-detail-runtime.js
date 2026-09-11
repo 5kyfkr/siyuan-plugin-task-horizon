@@ -6357,7 +6357,6 @@
                             source: 'detail-date-sheet',
                             background: true,
                             skipInteractionGate: true,
-                            skipSnapshotPersist: true,
                             skipTaskIndexPersist: true,
                             renderOptimistic: true,
                             skipDetailPatch: true,
@@ -6882,7 +6881,6 @@
                         skipDetailPatch: true,
                         allowMountedInactive: true,
                         skipNoopCheck: true,
-                        skipSnapshotPersist: true,
                         skipTaskIndexPersist: true,
                     });
                     Promise.resolve(commitPromise)
@@ -6916,7 +6914,6 @@
                         skipDetailPatch: true,
                         allowMountedInactive: true,
                         skipNoopCheck: true,
-                        skipSnapshotPersist: true,
                         skipTaskIndexPersist: true,
                     });
                     Promise.resolve(commitPromise)

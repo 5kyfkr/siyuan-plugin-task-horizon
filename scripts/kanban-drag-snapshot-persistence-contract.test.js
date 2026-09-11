@@ -35,19 +35,19 @@ const kanbanDrop = segment(
 assert.match(kanbanDrop, /kind === 'time'[\s\S]*?persistSnapshot: true/,
     'time kanban drops must request snapshot persistence');
 
-assert.match(mutationRuntime, /persistSnapshot: opts\.persistSnapshot === true/,
-    'queued task patches must carry the snapshot persistence intent');
-assert.match(mutationEvents, /snapshotIdleDelayMs: 80,[\s\S]*persistSnapshot: m\.data\?\.persistSnapshot === true/,
-    'committed task patches must forward the snapshot persistence intent');
+assert.match(mutationRuntime, /persistSnapshot: opts\.persistSnapshot !== false && opts\.skipSnapshotPersist !== true/,
+    'queued task patches must persist confirmed fields by default and retain explicit opt-outs');
+assert.match(mutationEvents, /snapshotIdleDelayMs: 80,[\s\S]*persistSnapshot: m\.data\?\.persistSnapshot !== false/,
+    'committed task patches must persist without requiring an individual UI entry flag');
 
 const updateTaskDates = segment(
     calendarRuntime,
     'window.tmUpdateTaskDates = async function(taskId, patch = {}, options = {})',
     'const __tmUpdateTaskDatesCore = window.tmUpdateTaskDates',
 );
-assert.match(updateTaskDates, /persistSnapshot: opts\.persistSnapshot === true/,
+assert.match(updateTaskDates, /persistSnapshot: opts\.persistSnapshot,/,
     'timeline date updates must preserve the snapshot persistence intent');
-assert.match(apiRuntime, /skipSnapshotPersist: opts\.skipSnapshotPersist === true,[\s\S]*persistSnapshot: opts\.persistSnapshot === true/,
+assert.match(apiRuntime, /skipSnapshotPersist: opts\.skipSnapshotPersist === true,\s*persistSnapshot: opts\.persistSnapshot,/,
     'metadata patch writes must pass snapshot persistence to the mutation queue');
 
 console.log('kanban drag snapshot persistence contract tests passed');

@@ -3702,6 +3702,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 revs.push([
                     id,
                     String(task?.updated || task?.updatedAt || '').trim(),
+                    buildVerifyTaskFieldSignature(task),
                     taskDone ? 1 : 0,
                     String(task?.startDate || task?.start_date || '').trim(),
                     String(task?.completionTime || task?.completion_time || task?.taskCompleteAt || '').trim(),

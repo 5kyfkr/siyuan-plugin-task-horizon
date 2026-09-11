@@ -409,6 +409,29 @@
         return true;
     }
 
+    function buildVerifyTaskFieldSignature(task, options = {}) {
+        const schema = globalThis.__tmTaskFieldSchema;
+        const structuredFields = schema.getGroup('structured');
+        const values = schema.getFields().map((field) => {
+            const keys = options.raw === true ? [...schema.getAliases(field), field] : schema.getReadKeys(field);
+            if (options.raw === true) {
+                const rawKey = __tmGetTaskMetaAttrFieldDef(field)?.sqlAlias
+                    || (field === 'customFieldValues' ? '__customFieldRawValues' : '');
+                if (rawKey) keys.unshift(rawKey);
+            }
+            const key = keys.find((candidate) => task?.[candidate] !== undefined
+                && (options.raw === true || task[candidate] !== null));
+            let value = key ? task[key] : '';
+            if (structuredFields.includes(field) && typeof value === 'string' && /^[\[{]/.test(value.trim())) {
+                try { value = JSON.parse(value); } catch (e) {}
+            }
+            if (value && typeof value === 'object') return __tmStableSettingsJsonValue(value);
+            if (typeof value === 'boolean') return value ? '1' : '';
+            return String(value ?? '');
+        });
+        return JSON.stringify(values);
+    }
+
     function buildVerifyRawTaskSignatureFromTasks(tasks) {
         try {
             const list = Array.isArray(tasks) ? tasks : [];
@@ -423,6 +446,7 @@
                     String(task.markdown || task.content || task.text || '').trim(),
                     String(task.updated || task.updatedAt || '').trim(),
                     String(task.root_id || task.docId || '').trim(),
+                    buildVerifyTaskFieldSignature(task, { raw: true }),
                 ].join('\u0001'));
             });
             rows.sort();
@@ -509,6 +533,7 @@
                     String(task.priority || '').trim(),
                     String(task.customStatus || task.status || '').trim(),
                     String(task.customFields ? JSON.stringify(task.customFields) : '').trim(),
+                    buildVerifyTaskFieldSignature(task),
                     Number.isFinite(Number(task.level)) ? Number(task.level) : '',
                     Number.isFinite(Number(task.docSeq)) ? Number(task.docSeq) : '',
                     childIds,

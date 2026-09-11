@@ -2987,6 +2987,8 @@ return finish(false, 'noop');
                     withFilters: opts.withFilters === true,
                     skipInteractionGate: opts.skipInteractionGate === true,
                     deferProjection: opts.deferProjection === true || deferRecurringProjectionRefresh,
+                    deferSnapshot: opts.deferSnapshot,
+                    persistSnapshot: opts.persistSnapshot !== false && opts.skipSnapshotPersist !== true,
                     refreshAncestorViews: opts.refreshAncestorViews !== false,
                     skipAutoCompleteParent: opts.skipAutoCompleteParent === true,
                 },
@@ -3301,6 +3303,9 @@ if (ev) {
                 skipAutoCompleteParent: opts.skipAutoCompleteParent === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
                 deferProjection: opts.deferProjection === true,
+                deferSnapshot: opts.deferSnapshot,
+                persistSnapshot: opts.persistSnapshot,
+                skipSnapshotPersist: opts.skipSnapshotPersist,
                 refreshAncestorViews: opts.refreshAncestorViews !== false,
                 fsrsRating,
             });

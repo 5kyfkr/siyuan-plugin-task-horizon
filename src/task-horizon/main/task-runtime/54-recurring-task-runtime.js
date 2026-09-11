@@ -251,6 +251,12 @@
         ).trim();
         __tmPurgeRecurringInstanceTasks(task.id, [key]);
         try {
+            globalThis.__tmTaskSnapshotService?.scheduleAfterLocalPatch?.(task.id, nextPatch, {
+                source,
+                persistSnapshot: true,
+            });
+        } catch (e) {}
+        try {
             const docId = String(task.root_id || task.docId || '').trim();
             globalThis.__tmTaskMutationBus?.apply?.({
                 type: 'taskLifecycle',
@@ -395,6 +401,13 @@
                 },
             });
             if (resetResult === false) throw new Error('循环任务未能恢复为未完成状态');
+            try {
+                globalThis.__tmTaskSnapshotService?.scheduleAfterLocalPatch?.(taskId, {
+                    done: false,
+                    repeatState: clearedState,
+                    taskCompleteAt: '',
+                }, { source: 'task-repeat-native-reset', persistSnapshot: true });
+            } catch (e) {}
             return true;
         })();
         __tmRecurringNativeDoneResetInFlight.set(taskId, job);
@@ -730,6 +743,7 @@
         try {
             __tmScheduleTaskSnapshotAfterLocalPatch?.(resetTaskId, persistedPatch, {
                 source: 'task-repeat-advance',
+                persistSnapshot: true,
             });
         } catch (e) {}
         try {

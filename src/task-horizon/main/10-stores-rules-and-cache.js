@@ -6621,6 +6621,7 @@
     function __tmMaybeBackfillTaskCustomFieldAttrs(task, metaSource = null, options = {}) {
         const tid = String(task?.id || '').trim();
         if (!tid || __tmCustomFieldAttrBackfillInFlight.has(tid)) return;
+        if (task.__tmLoadedAllCustomFields === true || Array.isArray(task.__tmLoadedCustomFieldIds)) return;
         const opts = (options && typeof options === 'object') ? options : {};
         const customFieldDefMap = opts.customFieldDefMap instanceof Map ? opts.customFieldDefMap : __tmGetCustomFieldDefMap();
         if (!(customFieldDefMap instanceof Map) || customFieldDefMap.size === 0) return;
@@ -6629,13 +6630,12 @@
             ? meta.customFieldValues
             : null;
         if (!metaValues || !Object.keys(metaValues).length) return;
-        const rawValues = (task?.__customFieldRawValues && typeof task.__customFieldRawValues === 'object' && !Array.isArray(task.__customFieldRawValues))
-            ? task.__customFieldRawValues
-            : {};
+        const rawValues = __tmGetTaskCustomFieldRawValues(task);
         const patch = {};
         Object.entries(metaValues).forEach(([fieldId, fieldValue]) => {
             const fid = String(fieldId || '').trim();
             if (!fid) return;
+            if (Object.prototype.hasOwnProperty.call(rawValues, fid)) return;
             const field = customFieldDefMap.get(fid);
             if (!field) return;
             const normalized = __tmNormalizeCustomFieldValue(field, fieldValue);
@@ -6891,6 +6891,21 @@
         return String(option?.name || token).trim();
     }
 
+    function __tmGetTaskCustomFieldRawValues(task) {
+        const raw = task?.__customFieldRawValues;
+        const current = task?.customFieldValues;
+        const values = { ...((raw && typeof raw === 'object' && !Array.isArray(raw))
+            ? raw
+            : ((current && typeof current === 'object' && !Array.isArray(current)) ? current : {})) };
+        const loadedIds = task?.__tmLoadedAllCustomFields === true
+            ? __tmGetCustomFieldDefs().map((field) => field.id)
+            : (Array.isArray(task?.__tmLoadedCustomFieldIds) ? task.__tmLoadedCustomFieldIds : []);
+        loadedIds.forEach((fieldId) => {
+            if (!Object.prototype.hasOwnProperty.call(values, fieldId)) values[fieldId] = '';
+        });
+        return values;
+    }
+
     function __tmNormalizeTaskCustomFieldValues(rawValues, metaValues = null, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const hasSourceObject = !!rawValues && typeof rawValues === 'object' && !Array.isArray(rawValues);
@@ -7088,7 +7103,7 @@
             const metaCustomFieldValues = (meta?.customFieldValues && typeof meta.customFieldValues === 'object' && !Array.isArray(meta.customFieldValues))
                 ? meta.customFieldValues
                 : null;
-            task.customFieldValues = __tmNormalizeTaskCustomFieldValues(task?.__customFieldRawValues, metaCustomFieldValues, {
+            task.customFieldValues = __tmNormalizeTaskCustomFieldValues(__tmGetTaskCustomFieldRawValues(task), metaCustomFieldValues, {
                 customFieldDefs,
             });
         });
@@ -7309,20 +7324,20 @@
             const dbHasAllDayBottom = hasLoadedMetaAttrField('allDayBottom') || isValidValue(task.allDayBottom) || isValidValue(task.custom_all_day_bottom);
             const dbHasMilestone = hasLoadedMetaAttrField('milestone') || isValidValue(task.milestone);
             const dbHasDuration = hasLoadedMetaAttrField('duration') || isValidValue(task.duration);
-            const dbHasTomatoEstimateCount = isValidValue(task.tomatoEstimateCount) || isValidValue(task.tomato_estimate_count);
-            const dbHasTomatoCount = isValidValue(task.tomatoCount) || isValidValue(task.tomato_count);
+            const dbHasTomatoEstimateCount = hasLoadedMetaAttrField('tomatoEstimateCount') || isValidValue(task.tomatoEstimateCount) || isValidValue(task.tomato_estimate_count);
+            const dbHasTomatoCount = hasLoadedMetaAttrField('tomatoCount') || isValidValue(task.tomatoCount) || isValidValue(task.tomato_count);
             const dbHasRemark = hasLoadedMetaAttrField('remark') || isValidValue(task.remark);
             const dbHasCompletionTime = hasLoadedMetaAttrField('completionTime') || isValidValue(task.completionTime) || isValidValue(task.completion_time);
             const dbHasTaskCompleteAt = hasLoadedMetaAttrField('taskCompleteAt') || isValidValue(task.taskCompleteAt) || isValidValue(task.task_complete_at);
             const dbHasCustomTime = hasLoadedMetaAttrField('customTime') || isValidValue(task.customTime) || isValidValue(task.custom_time);
             const dbHasCustomStatus = hasLoadedMetaAttrField('customStatus') || isValidValue(task.customStatus) || isValidValue(task.custom_status);
-            const dbHasRepeatRule = isValidValue(task.repeat_rule)
+            const dbHasRepeatRule = hasLoadedMetaAttrField('repeatRule') || isValidValue(task.repeat_rule)
                 || isValidValue(task?.[__TM_TASK_REPEAT_RULE_ATTR])
                 || (typeof task.repeatRule === 'string' && isValidValue(task.repeatRule));
-            const dbHasRepeatState = isValidValue(task.repeat_state)
+            const dbHasRepeatState = hasLoadedMetaAttrField('repeatState') || isValidValue(task.repeat_state)
                 || isValidValue(task?.[__TM_TASK_REPEAT_STATE_ATTR])
                 || (typeof task.repeatState === 'string' && isValidValue(task.repeatState));
-            const dbHasRepeatHistory = isValidValue(task.repeat_history)
+            const dbHasRepeatHistory = hasLoadedMetaAttrField('repeatHistory') || isValidValue(task.repeat_history)
                 || isValidValue(task?.[__TM_TASK_REPEAT_HISTORY_ATTR])
                 || (typeof task.repeatHistory === 'string' && isValidValue(task.repeatHistory));
             const dbHasAttachments = __tmGetTaskAttachmentPaths(task).length > 0;
@@ -7371,9 +7386,7 @@
                 __tmApplyTaskAttachmentPathsToTask(task, dbAttachmentPaths, { meta: v.attachmentMeta });
             }
             if (v.customFieldValues && typeof v.customFieldValues === 'object' && !Array.isArray(v.customFieldValues)) {
-                const current = (task.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues))
-                    ? task.customFieldValues
-                    : {};
+                const current = __tmGetTaskCustomFieldRawValues(task);
                 task.customFieldValues = __tmNormalizeTaskCustomFieldValues(current, v.customFieldValues);
             }
         },
@@ -13942,15 +13955,27 @@
                 enabled: true,
                 taskMetaField: def.field,
             })),
-            { name: __TM_TASK_REPEAT_RULE_ATTR, alias: 'repeat_rule', enabled: repeatInlineEnabled },
-            { name: __TM_TASK_REPEAT_STATE_ATTR, alias: 'repeat_state', enabled: repeatInlineEnabled },
-            { name: __TM_TASK_REPEAT_HISTORY_ATTR, alias: 'repeat_history', enabled: repeatInlineEnabled },
+            { name: __TM_TASK_REPEAT_RULE_ATTR, alias: 'repeat_rule', enabled: repeatInlineEnabled, taskMetaField: 'repeatRule' },
+            { name: __TM_TASK_REPEAT_STATE_ATTR, alias: 'repeat_state', enabled: repeatInlineEnabled, taskMetaField: 'repeatState' },
+            { name: __TM_TASK_REPEAT_HISTORY_ATTR, alias: 'repeat_history', enabled: repeatInlineEnabled, taskMetaField: 'repeatHistory' },
             { name: __TM_TASK_ATTACHMENT_META_ATTR, alias: 'attachment_meta', enabled: true },
-            { name: tomatoMinutesKey, alias: 'tomato_minutes', enabled: tomatoEnabled },
-            { name: tomatoHoursKey, alias: 'tomato_hours', enabled: tomatoEnabled },
-            { name: tomatoCountKey, alias: 'tomato_count', enabled: tomatoEnabled },
-            { name: tomatoEstimateKey, alias: 'tomato_estimate_count', enabled: tomatoEnabled },
+            { name: tomatoMinutesKey, alias: 'tomato_minutes', enabled: tomatoEnabled, taskMetaField: 'tomatoMinutes' },
+            { name: tomatoHoursKey, alias: 'tomato_hours', enabled: tomatoEnabled, taskMetaField: 'tomatoHours' },
+            { name: tomatoCountKey, alias: 'tomato_count', enabled: tomatoEnabled, taskMetaField: 'tomatoCount' },
+            { name: tomatoEstimateKey, alias: 'tomato_estimate_count', enabled: tomatoEnabled, taskMetaField: 'tomatoEstimateCount' },
         ];
+    }
+
+    function __tmMarkTaskInlineAttrsLoaded(tasks) {
+        const specs = __tmGetTaskInlineAttrSpecs().filter((spec) => spec.enabled && spec.taskMetaField);
+        (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+            const loaded = { ...(task.__tmTaskMetaAttrFieldsLoaded || task.taskMetaAttrFieldsLoaded || {}) };
+            specs.forEach((spec) => {
+                if (Object.prototype.hasOwnProperty.call(task, spec.alias)) loaded[spec.taskMetaField] = true;
+            });
+            task.__tmTaskMetaAttrFieldsLoaded = loaded;
+            task.taskMetaAttrFieldsLoaded = loaded;
+        });
     }
 
     function __tmBuildTaskInlineAttrNamesSql(indent = '                        ') {
@@ -14117,11 +14142,8 @@
             markMetaAttrFieldLoaded(def.field);
             __tmApplyTaskMetaAttrValueToTask(target, def.field, entry.value, opts);
         });
-        if (loadedMetaAttrFields) {
-            target.__tmTaskMetaAttrFieldsLoaded = loadedMetaAttrFields;
-            target.taskMetaAttrFieldsLoaded = loadedMetaAttrFields;
-        }
         if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_REPEAT_RULE_ATTR)) {
+            markMetaAttrFieldLoaded('repeatRule');
             const value = String(row[__TM_TASK_REPEAT_RULE_ATTR] ?? '');
             if (shouldApply(target.repeatRule, target.repeat_rule, target[__TM_TASK_REPEAT_RULE_ATTR])) {
                 target[__TM_TASK_REPEAT_RULE_ATTR] = value;
@@ -14130,6 +14152,7 @@
             }
         }
         if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_REPEAT_STATE_ATTR)) {
+            markMetaAttrFieldLoaded('repeatState');
             const value = String(row[__TM_TASK_REPEAT_STATE_ATTR] ?? '');
             if (shouldApply(target.repeatState, target.repeat_state, target[__TM_TASK_REPEAT_STATE_ATTR])) {
                 target[__TM_TASK_REPEAT_STATE_ATTR] = value;
@@ -14138,6 +14161,7 @@
             }
         }
         if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_REPEAT_HISTORY_ATTR)) {
+            markMetaAttrFieldLoaded('repeatHistory');
             const value = String(row[__TM_TASK_REPEAT_HISTORY_ATTR] ?? '');
             if (shouldApply(target.repeatHistory, target.repeat_history, target[__TM_TASK_REPEAT_HISTORY_ATTR])) {
                 target[__TM_TASK_REPEAT_HISTORY_ATTR] = value;
@@ -14146,6 +14170,7 @@
             }
         }
         if (Object.prototype.hasOwnProperty.call(row, String(__tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes')))) {
+            markMetaAttrFieldLoaded('tomatoMinutes');
             const value = String(row[__tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes')] ?? '');
             if (shouldApply(target.tomatoMinutes, target.tomato_minutes)) {
                 target.tomato_minutes = value;
@@ -14153,6 +14178,7 @@
             }
         }
         if (Object.prototype.hasOwnProperty.call(row, String(__tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyHours, 'custom-tomato-time')))) {
+            markMetaAttrFieldLoaded('tomatoHours');
             const value = String(row[__tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyHours, 'custom-tomato-time')] ?? '');
             if (shouldApply(target.tomatoHours, target.tomato_hours)) {
                 target.tomato_hours = value;
@@ -14160,6 +14186,7 @@
             }
         }
         if (Object.prototype.hasOwnProperty.call(row, String(__tmSafeAttrName(SettingsStore.data.tomatoCountAttrKey, 'custom-tomato-count')))) {
+            markMetaAttrFieldLoaded('tomatoCount');
             const value = __tmNormalizeTomatoCountValue(row[__tmSafeAttrName(SettingsStore.data.tomatoCountAttrKey, 'custom-tomato-count')] ?? '');
             if (shouldApply(target.tomatoCount, target.tomato_count)) {
                 target.tomato_count = value;
@@ -14167,11 +14194,16 @@
             }
         }
         if (Object.prototype.hasOwnProperty.call(row, String(__tmSafeAttrName(SettingsStore.data.tomatoEstimateAttrKey, 'custom-tomato-estimate-count')))) {
+            markMetaAttrFieldLoaded('tomatoEstimateCount');
             const value = __tmNormalizeTomatoCountValue(row[__tmSafeAttrName(SettingsStore.data.tomatoEstimateAttrKey, 'custom-tomato-estimate-count')] ?? '');
             if (shouldApply(target.tomatoEstimateCount, target.tomato_estimate_count)) {
                 target.tomato_estimate_count = value;
                 target.tomatoEstimateCount = value;
             }
+        }
+        if (loadedMetaAttrFields) {
+            target.__tmTaskMetaAttrFieldsLoaded = loadedMetaAttrFields;
+            target.taskMetaAttrFieldsLoaded = loadedMetaAttrFields;
         }
         if (Object.keys(row).some((key) => __tmIsTaskAttachmentAttrKey(key))) {
             __tmApplyTaskAttachmentPathsToTask(target, __tmExtractTaskAttachmentsFromAttrRow(row), {
@@ -14190,6 +14222,7 @@
     async function __tmApplyTaskAttrHostOverrides(tasks, options = {}) {
         const list = Array.isArray(tasks) ? tasks.filter((task) => task && typeof task === 'object') : [];
         if (!list.length) return list;
+        __tmMarkTaskInlineAttrsLoaded(list);
         const opts = (options && typeof options === 'object') ? options : {};
         await __tmPopulateTaskAttrHostIds(list);
         const taskIds = [];

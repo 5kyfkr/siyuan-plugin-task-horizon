@@ -2333,7 +2333,8 @@
                     source: policy.reason || m.source || `mutation-${normalizeId(m.type) || 'unknown'}`,
                     snapshotDelayMs: 360,
                     snapshotIdleDelayMs: 80,
-                    persistSnapshot: m.data?.persistSnapshot === true,
+                    persistSnapshot: m.data?.persistSnapshot !== false && m.data?.skipSnapshotPersist !== true,
+                    docId: m.docId || m.data?.docId,
                 });
                 return true;
             }
@@ -2415,7 +2416,7 @@
             const normalized = normalizeTaskMutation(mutation);
             const changeSet = normalizeTaskChangeSet(normalized);
             normalized.changeSet = changeSet;
-            if (normalized.data?.deferProjection === true) return changeSet;
+            if (normalized.data?.deferProjection === true && normalized.data?.deferSnapshot !== false) return changeSet;
             if (normalized.phase === 'commit') {
                 try {
                     scheduleMutationSnapshotRefresh(normalized, {
@@ -2428,6 +2429,7 @@
                     });
                 } catch (e) {}
             }
+            if (normalized.data?.deferProjection === true) return changeSet;
             if (normalized.phase === 'optimistic'
                 || normalized.phase === 'local'
                 || normalized.phase === 'rollback'

@@ -7020,6 +7020,8 @@
         const visibleDateFallbackTaskIds = opts.visibleDateFallbackTaskIds instanceof Set ? opts.visibleDateFallbackTaskIds : null;
         const customStatusFallbackTaskIds = opts.customStatusFallbackTaskIds instanceof Set ? opts.customStatusFallbackTaskIds : null;
         const todayDateKey = String(opts.todayDateKey || '').trim();
+        const loadedMetaAttrFields = task.__tmTaskMetaAttrFieldsLoaded || task.taskMetaAttrFieldsLoaded || {};
+        const hasLoadedMetaAttrField = (field) => loadedMetaAttrFields[field] === true;
 
         const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
         const taskId = String(task.id || '').trim();
@@ -7030,13 +7032,13 @@
         const allowCustomStatusFallback = customStatusFallbackTaskIds
             ? customStatusFallbackTaskIds.has(taskId)
             : __tmHasPendingTaskFieldPersistence(taskId, ['customStatus']);
-        const dbHasRepeatRule = isValidValue(task.repeat_rule)
+        const dbHasRepeatRule = hasLoadedMetaAttrField('repeatRule') || isValidValue(task.repeat_rule)
             || isValidValue(task?.[__TM_TASK_REPEAT_RULE_ATTR])
             || (typeof task.repeatRule === 'string' && isValidValue(task.repeatRule));
-        const dbHasRepeatState = isValidValue(task.repeat_state)
+        const dbHasRepeatState = hasLoadedMetaAttrField('repeatState') || isValidValue(task.repeat_state)
             || isValidValue(task?.[__TM_TASK_REPEAT_STATE_ATTR])
             || (typeof task.repeatState === 'string' && isValidValue(task.repeatState));
-        const dbHasRepeatHistory = isValidValue(task.repeat_history)
+        const dbHasRepeatHistory = hasLoadedMetaAttrField('repeatHistory') || isValidValue(task.repeat_history)
             || isValidValue(task?.[__TM_TASK_REPEAT_HISTORY_ATTR])
             || (typeof task.repeatHistory === 'string' && isValidValue(task.repeatHistory));
         const p0 = task.custom_priority ?? task.customPriority ?? task.priority ?? '';
@@ -7099,11 +7101,7 @@
         task.tomato_count = task.tomatoCount;
         task.tomatoEstimateCount = __tmNormalizeTomatoCountValue(isValidValue(task.tomatoEstimateCount) ? task.tomatoEstimateCount : (isValidValue(task.tomato_estimate_count) ? task.tomato_estimate_count : ''));
         task.tomato_estimate_count = task.tomatoEstimateCount;
-        const rawCustomFieldValues = (task.__customFieldRawValues && typeof task.__customFieldRawValues === 'object' && !Array.isArray(task.__customFieldRawValues))
-            ? task.__customFieldRawValues
-            : ((task.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues))
-                ? task.customFieldValues
-                : {});
+        const rawCustomFieldValues = __tmGetTaskCustomFieldRawValues(task);
         const pin0 = task.custom_pinned ?? task.customPinned ?? task.pinned ?? '';
         task.pinned = __tmParseTaskLooseBoolean(pin0);
         const allDayBottom0 = task.custom_all_day_bottom ?? task.customAllDayBottom ?? task.allDayBottom ?? '';
@@ -7112,32 +7110,32 @@
 
         const meta = taskId ? MetaStore.get(taskId) : null;
         if (meta) {
-            if ('pinned' in meta) {
+            if (!hasLoadedMetaAttrField('pinned') && 'pinned' in meta) {
                 const ms = meta.pinned;
                 if (typeof ms === 'boolean' || String(ms || '').trim() === '') task.pinned = __tmParseTaskLooseBoolean(ms);
             }
-            if ('milestone' in meta) {
+            if (!hasLoadedMetaAttrField('milestone') && 'milestone' in meta) {
                 const ms = meta.milestone;
                 if (typeof ms === 'boolean' || String(ms || '').trim() === '') task.milestone = __tmParseTaskLooseBoolean(ms);
             }
-            if ('allDayBottom' in meta) {
+            if (!hasLoadedMetaAttrField('allDayBottom') && 'allDayBottom' in meta) {
                 const ms = meta.allDayBottom;
                 if (typeof ms === 'boolean' || String(ms || '').trim() === '') task.allDayBottom = __tmParseTaskLooseBoolean(ms);
                 task.custom_all_day_bottom = task.allDayBottom ? '1' : '';
             }
-            if (!isValidValue(task.priority) && isValidValue(meta.priority)) task.priority = __tmNormalizeTaskPriorityValue(meta.priority);
-            if (!isValidValue(task.duration) && isValidValue(meta.duration)) task.duration = meta.duration;
-            if (!isValidValue(task.remark) && isValidValue(meta.remark)) task.remark = meta.remark;
-            if (!isValidValue(task.completionTime) && allowVisibleDateFallback && isValidValue(meta.completionTime)) task.completionTime = meta.completionTime;
-            if (!isValidValue(task.taskDateColor) && isValidValue(meta.taskDateColor)) {
+            if (!hasLoadedMetaAttrField('priority') && !isValidValue(task.priority) && isValidValue(meta.priority)) task.priority = __tmNormalizeTaskPriorityValue(meta.priority);
+            if (!hasLoadedMetaAttrField('duration') && !isValidValue(task.duration) && isValidValue(meta.duration)) task.duration = meta.duration;
+            if (!hasLoadedMetaAttrField('remark') && !isValidValue(task.remark) && isValidValue(meta.remark)) task.remark = meta.remark;
+            if (!hasLoadedMetaAttrField('completionTime') && !isValidValue(task.completionTime) && allowVisibleDateFallback && isValidValue(meta.completionTime)) task.completionTime = meta.completionTime;
+            if (!hasLoadedMetaAttrField('taskDateColor') && !isValidValue(task.taskDateColor) && isValidValue(meta.taskDateColor)) {
                 task.taskDateColor = String(meta.taskDateColor || '').trim();
                 task.task_date_color = task.taskDateColor;
                 task.custom_task_date_color = task.taskDateColor;
             }
-            if (!isValidValue(task.taskCompleteAt) && isValidValue(meta.taskCompleteAt)) task.taskCompleteAt = meta.taskCompleteAt;
-            if (!isValidValue(task.startDate) && allowVisibleDateFallback && isValidValue(meta.startDate)) task.startDate = meta.startDate;
-            if (!isValidValue(task.customTime) && allowVisibleDateFallback && isValidValue(meta.customTime)) task.customTime = meta.customTime;
-            if (!isValidValue(task.customStatus) && allowCustomStatusFallback && isValidValue(meta.customStatus)) task.customStatus = meta.customStatus;
+            if (!hasLoadedMetaAttrField('taskCompleteAt') && !isValidValue(task.taskCompleteAt) && isValidValue(meta.taskCompleteAt)) task.taskCompleteAt = meta.taskCompleteAt;
+            if (!hasLoadedMetaAttrField('startDate') && !isValidValue(task.startDate) && allowVisibleDateFallback && isValidValue(meta.startDate)) task.startDate = meta.startDate;
+            if (!hasLoadedMetaAttrField('customTime') && !isValidValue(task.customTime) && allowVisibleDateFallback && isValidValue(meta.customTime)) task.customTime = meta.customTime;
+            if (!hasLoadedMetaAttrField('customStatus') && !isValidValue(task.customStatus) && allowCustomStatusFallback && isValidValue(meta.customStatus)) task.customStatus = meta.customStatus;
             if (!dbHasRepeatRule && Object.prototype.hasOwnProperty.call(meta, 'repeatRule')) {
                 task.repeatRule = __tmNormalizeTaskRepeatRule(meta.repeatRule, {
                     anchorDate: todayDateKey,

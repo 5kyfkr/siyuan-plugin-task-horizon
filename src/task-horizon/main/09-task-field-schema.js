@@ -12,6 +12,8 @@
             { field: 'taskCompleteAt', aliases: ['task_complete_at', 'task-complete-at', 'custom-task-complete-at'], groups: ['completion', 'scoreSource', 'calendar'] },
             { field: 'duration', aliases: ['custom_duration', 'custom-duration'], groups: ['scoreSource'] },
             { field: 'remark', aliases: ['custom_remark', 'custom-remark'], groups: ['search'] },
+            { field: 'attachments', aliases: ['__attachmentPaths'], groups: ['structured'] },
+            { field: 'attachmentMeta', aliases: ['__attachmentMeta', 'attachment_meta'], groups: ['structured'] },
             { field: 'milestone', aliases: ['custom_milestone', 'custom-milestone-event'] },
             { field: 'pinned', aliases: ['custom_pinned', 'custom-pinned'] },
             { field: 'allDayBottom', aliases: ['all_day_bottom', 'custom_all_day_bottom', 'custom-all-day-bottom'], groups: ['calendar'] },
@@ -19,10 +21,10 @@
             { field: 'tomatoHours', aliases: ['tomato_hours'] },
             { field: 'tomatoCount', aliases: ['tomato_count'] },
             { field: 'tomatoEstimateCount', aliases: ['tomato_estimate_count'] },
-            { field: 'repeatRule', aliases: ['repeat_rule'], groups: ['calendar'] },
-            { field: 'repeatState', aliases: ['repeat_state'], groups: ['calendar'] },
-            { field: 'repeatHistory', aliases: ['repeat_history'], groups: ['calendar'] },
-            { field: 'customFieldValues', groups: ['scoreSource'] },
+            { field: 'repeatRule', aliases: ['repeat_rule'], groups: ['calendar', 'structured'] },
+            { field: 'repeatState', aliases: ['repeat_state'], groups: ['calendar', 'structured'] },
+            { field: 'repeatHistory', aliases: ['repeat_history'], groups: ['calendar', 'structured'] },
+            { field: 'customFieldValues', aliases: ['__customFieldRawValues'], groups: ['scoreSource', 'structured'] },
             { field: 'parentTaskId', aliases: ['parent_task_id', 'parentTaskID'] },
             { field: 'taskMarker', aliases: ['task_marker'] },
             { field: 'root_id', aliases: ['rootId'], groups: ['document', 'scoreSource'] },
@@ -66,6 +68,9 @@
 
         globalThis.__tmTaskFieldSchema = Object.freeze({
             normalizeField,
+            getFields() {
+                return definitions.map((definition) => definition.field);
+            },
             getAliases(fieldInput) {
                 const field = normalizeField(fieldInput);
                 return Array.from(readAliases.get(field) || []);

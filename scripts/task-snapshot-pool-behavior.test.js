@@ -41,6 +41,27 @@ const functions = ['__tmEstimateJsonByteSize', '__tmParseUpdatedAtNumber', '__tm
 vm.runInContext(helpers + functions.map(extract).join('\n'), context);
 
 async function main() {
+    const fieldValues = {
+        content: '任务正文', markdown: '* [X] 任务正文', done: true, priority: 'high', customStatus: 'doing',
+        startDate: '2026-09-11', completionTime: '2026-09-12', customTime: '2026-09-13',
+        taskCompleteAt: '2026-09-11 10:00:00', taskDateColor: '#00ff00', duration: '45', remark: '备注',
+        pinned: true, milestone: true, allDayBottom: true,
+        tomatoMinutes: '30', tomatoHours: '0.5', tomatoCount: '2', tomatoEstimateCount: '4',
+        repeatRule: { enabled: true, type: 'daily' }, repeatState: { nextDate: '2026-09-12' },
+        repeatHistory: [{ completedAt: '2026-09-11' }], customFieldValues: { project: 'alpha' },
+        attachments: ['assets/test.png'], attachmentMeta: [{ path: 'assets/test.png', name: 'Test' }],
+        parentTaskId: '20260905000000-0000099', taskMarker: 'X', root_id: '20260905000000-0000001',
+        docId: '20260905000000-0000001', h2: 'Heading', h2Id: 'heading-1', h2Path: 'Heading',
+        h2Sort: '1', h2Created: '20260911090000', h2Rank: 1, docSeq: 2, blockPath: '0001', blockSort: '001',
+    };
+    const fieldTask = { id: '20260905000000-0000002', ...fieldValues };
+    const fieldTaskBefore = clone(fieldTask);
+    const fieldRoundTrip = context.__tmHydrateTaskSnapshotTaskForRuntime(
+        context.__tmCompactTaskSnapshotTaskForStore(fieldTask));
+    for (const [field, value] of Object.entries(fieldValues)) {
+        assert.deepEqual(clone(fieldRoundTrip[field]), value, 'snapshot round-trip must preserve ' + field);
+    }
+    assert.deepEqual(fieldTask, fieldTaskBefore, 'snapshot packing must not mutate live fields');
     const now = Date.now();
     const document = {
         id: '20260905000000-0000001', name: '任务文档', tasks: [{

@@ -5481,9 +5481,12 @@
         if (opts.persistSnapshot !== true || opts.skipSnapshotPersist === true) return false;
         try {
             if (!Array.isArray(state.__tmLoadedDocIdsForTasks) || state.__tmLoadedDocIdsForTasks.length <= 0) return false;
+            const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
+            const docId = String(opts.docId || task?.root_id || task?.docId || '').trim();
             const source = String(opts.snapshotSource || opts.source || opts.reason || 'task-field-patch').trim() || 'task-field-patch';
             __tmSchedulePersistTaskSnapshot?.({
                 docIds: state.__tmLoadedDocIdsForTasks,
+                changedDocIds: docId ? [docId] : undefined,
                 groupId: SettingsStore?.data?.currentGroupId || 'all',
                 activeDocId: state?.activeDocId || 'all',
                 queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
@@ -15980,11 +15983,12 @@ if (opts.refresh === false) return;
                 source: String(opts.source || '').trim(),
                 attrTargetId: effectiveAttrTargetId,
                 skipSnapshotPersist: opts.skipSnapshotPersist === true,
-                persistSnapshot: opts.persistSnapshot === true,
+                persistSnapshot: opts.persistSnapshot,
                 skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
                 inlineQueuedPersist: opts.inlineQueuedPersist === true,
                 deferProjection: opts.deferProjection === true,
+                deferSnapshot: opts.deferSnapshot,
                 mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
                 syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 previousAttachmentPaths: opts.previousAttachmentPaths,
@@ -16008,12 +16012,13 @@ if (opts.refresh === false) return;
                     docId: context.docId,
                     attrTargetId: effectiveAttrTargetId,
                     skipSnapshotPersist: opts.skipSnapshotPersist === true,
-                    persistSnapshot: opts.persistSnapshot === true,
+                    persistSnapshot: opts.persistSnapshot,
                     skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
                     broadcast: opts.broadcast !== false,
                     optimistic: opts.renderOptimistic !== false,
                     showErrorHint: opts.showErrorHint !== false,
                     deferProjection: opts.deferProjection === true,
+                    deferSnapshot: opts.deferSnapshot,
                     skipDetailPatch: opts.skipDetailPatch === true,
                     allowMountedInactive: opts.allowMountedInactive === true,
                     mirrorTaskAttrs: opts.mirrorTaskAttrs === true,
