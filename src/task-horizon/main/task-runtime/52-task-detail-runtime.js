@@ -108,7 +108,7 @@
         if (rule.calendarMode === 'lunar' && (rule.type === 'monthly' || rule.type === 'yearly')) {
             return `lunar-${rule.type}`;
         }
-        if (rule.type === 'monthly' && rule.monthlyMode === 'weekday') return 'custom';
+        if (rule.type === 'monthly' && (rule.monthlyMode === 'weekday' || Array.isArray(rule.monthDays))) return 'custom';
         return rule.type;
     }
 

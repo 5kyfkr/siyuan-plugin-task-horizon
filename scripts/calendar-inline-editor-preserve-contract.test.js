@@ -45,4 +45,12 @@ assert.equal(
     'task-date and schedule save branches must both preserve the first-level card',
 );
 
+const editorStart = source.indexOf('const showPrototypeScheduleEditorCard =');
+const editorEnd = source.indexOf('const openPrototypeNewScheduleCard =', editorStart);
+const editor = source.slice(editorStart, editorEnd);
+const popCreated = editor.indexOf("const pop = document.createElement('div')");
+const monthListener = editor.indexOf("pop.addEventListener('click', onInlineMonthDayClick)");
+assert.ok(popCreated >= 0 && monthListener > popCreated, 'month-day events must bind after the popover element exists');
+assert.doesNotMatch(editor.slice(0, popCreated), /pop\.addEventListener/, 'popover initialization must not access a DOM binding in its temporal dead zone');
+assert.match(editor, /weekdayPickerHTML\(inlineMonthWeek/);
 console.log('calendar inline editor preserve contract tests passed');

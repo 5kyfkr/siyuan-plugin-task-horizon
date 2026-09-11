@@ -4,7 +4,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
-const styles = read('task-horizon.css');
+const styles = read('task-horizon.css').replace(/\r\n/g, '\n');
 const services = read('src/task-horizon/main/20-api-and-runtime-services.js');
 const renderRuntime = read('src/task-horizon/main/40-render-runtime.js');
 const contentRuntime = read('src/task-horizon/main/task-runtime/51-whiteboard-and-link-runtime.js');
@@ -41,20 +41,37 @@ assert.doesNotMatch(
 );
 assert.match(contentRuntime, /__tmSyncKanbanSubtaskWrappedTitleClasses\?\.\(root\)/);
 
-assert.match(
-    styles,
-    /\.tm-modal\.tm-modal--task-wrap \.tm-kanban-subtask-row-main\s*\{[\s\S]*?align-items:\s*flex-start;/,
-    'wrapping mode must align every kanban subtask against its first title line without waiting for runtime measurement',
+const firstLineRowSelector = '.tm-kanban-subtask-row-main:is(.tm-kanban-subtask-row-main--title-wrapped, :has(> .tm-kanban-subtask-text > .tm-kanban-subtask-meta))';
+const firstLineCheckboxSelectors = ['.tm-kanban.tm-kanban--clean', '.tm-whiteboard.tm-kanban--clean']
+    .map(surface => '.tm-modal.tm-modal--task-wrap ' + surface + ' ' + firstLineRowSelector + ' > .tm-task-checkbox-wrap')
+    .join(',\n');
+assert.ok(
+    styles.includes('.tm-modal.tm-modal--task-wrap ' + firstLineRowSelector + ' {\n    align-items: flex-start;'),
+    'only actually wrapped titles or rows with metadata must use first-line alignment',
+);
+assert.ok(
+    styles.includes(firstLineCheckboxSelectors + ' {\n    margin-top: var(--tm-card-circle-checkbox-offset, max(0px, calc(((var(--tm-font-size) - 1px) * 1.35 - var(--tm-checkbox-size, 14px)) / 2)));'),
+    'only first-line rows must use the actual circle or square checkbox offset',
 );
 assert.match(
     styles,
-    /\.tm-modal\.tm-modal--task-wrap \.tm-kanban\.tm-kanban--clean \.tm-kanban-subtask-row-main > \.tm-task-checkbox-wrap,\s*\.tm-modal\.tm-modal--task-wrap \.tm-whiteboard\.tm-kanban--clean \.tm-kanban-subtask-row-main > \.tm-task-checkbox-wrap\s*\{[\s\S]*?margin-top:\s*max\(0px,\s*calc\(0\.675em - 8px\)\);/,
-    'wrapping mode must give clean kanban and whiteboard subtasks the parent first-line checkbox offset',
+    /\.tm-kanban--clean \.tm-kanban-subtask-title\s*\{[^}]*font-size:\s*calc\(var\(--tm-font-size\) - 1px\);\s*line-height:\s*1\.35;/,
+    'first-line checkbox alignment must use the same font size and line height as the title',
+);
+assert.match(
+    styles,
+    /\.tm-task-detail--task-checkbox-circle \.tm-whiteboard-card-head\s*\{[^}]*--tm-card-circle-checkbox-title-font-size:\s*calc\(var\(--tm-font-size\) - 1px\);[^}]*--tm-card-circle-checkbox-offset:\s*max\(0px,\s*calc\(\(var\(--tm-card-circle-checkbox-title-font-size\) \* var\(--tm-card-circle-checkbox-title-line-height\) - var\(--tm-circle-checkbox-size, 16px\)\) \/ 2\)\);/,
+    'circle checkbox offsets must follow the actual circle size instead of the square checkbox size',
+);
+assert.match(
+    styles,
+    /\.tm-modal--task-checkbox-circle \.tm-kanban--clean \.tm-kanban-subtask-row-main,[^{]*\{\s*--tm-card-circle-checkbox-title-line-height:\s*1\.35;/,
+    'clean kanban and whiteboard circle offsets must use the subtask title line height',
 );
 assert.doesNotMatch(
     styles,
-    /\.tm-kanban-subtask-row-main\.tm-kanban-subtask-row-main--title-wrapped/,
-    'first-line alignment must not depend on the runtime wrap-measurement class',
+    /\.tm-modal\.tm-modal--task-wrap \.tm-kanban-subtask-row-main\s*\{[^}]*align-items:\s*flex-start;/,
+    'enabling title wrapping must not force single-line subtask contents to the top of the card',
 );
 assert.match(
     styles,

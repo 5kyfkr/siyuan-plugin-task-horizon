@@ -481,6 +481,161 @@
         return (typeof value === 'object' && !Array.isArray(value)) ? value : null;
     }
 
+    function __createMonthRepeatCore() {
+        const normalizeDays = (value) => Array.from(new Set((Array.isArray(value) ? value : [])
+            .map(Number).filter((day) => Number.isInteger(day) && (day === -1 || (day >= 1 && day <= 31)))))
+            .sort((left, right) => (left === -1 ? 32 : left) - (right === -1 ? 32 : right));
+        const monthLength = (year, month) => month === 2
+            ? (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28)
+            : ([4, 6, 9, 11].includes(month) ? 30 : 31);
+        const dateKey = (year, month, day) => [String(year).padStart(4, '0'), String(month).padStart(2, '0'), String(day).padStart(2, '0')].join('-');
+        const parseKey = (value) => {
+            const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+            if (!match) return null;
+            const [year, month, day] = match.slice(1).map(Number);
+            if (year < 1 || month < 1 || month > 12 || day < 1 || day > monthLength(year, month)) return null;
+            return { year, month, day, index: year * 12 + month - 1, key: dateKey(year, month, day) };
+        };
+        const weekdayRule = (value, anchorKey = '') => {
+            const anchor = parseKey(anchorKey);
+            const date = anchor ? new Date(anchor.key + 'T12:00:00') : new Date();
+            const ordinal = Number(value?.ordinal);
+            const weekday = Number(value?.weekday);
+            return {
+                ordinal: Number.isInteger(ordinal) && (ordinal === -1 || (ordinal >= 1 && ordinal <= 5)) ? ordinal : Math.ceil(date.getDate() / 7),
+                weekday: Number.isInteger(weekday) && weekday >= 0 && weekday <= 6 ? weekday : date.getDay(),
+            };
+        };
+        const isExplicit = (rule) => rule?.type === 'monthly' && rule.enabled !== false && rule.trigger !== 'complete' && rule.calendarMode !== 'lunar'
+            && (rule.monthlyMode === 'weekday' ? !!rule.monthWeek && typeof rule.monthWeek === 'object' : Array.isArray(rule.monthDays));
+        const interval = (rule) => Math.max(1, Math.min(3650, Math.trunc(Number(rule?.every) || 1)));
+        const candidates = (rule, monthIndex) => {
+            const anchor = parseKey(rule?.anchorDate);
+            if (!isExplicit(rule) || !anchor || monthIndex < anchor.index || (monthIndex - anchor.index) % interval(rule) !== 0) return [];
+            const year = Math.floor(monthIndex / 12);
+            const month = monthIndex % 12 + 1;
+            if (year < 1 || year > 9999) return [];
+            const last = monthLength(year, month);
+            if (rule.monthlyMode === 'weekday') {
+                const pattern = weekdayRule(rule.monthWeek, anchor.key);
+                const firstWeekday = new Date(dateKey(year, month, 1) + 'T12:00:00').getDay();
+                const lastWeekday = (firstWeekday + last - 1) % 7;
+                const day = pattern.ordinal === -1 ? last - (lastWeekday - pattern.weekday + 7) % 7
+                    : 1 + (pattern.weekday - firstWeekday + 7) % 7 + (pattern.ordinal - 1) * 7;
+                const key = dateKey(year, month, day);
+                return day <= last && key >= anchor.key && (!rule.until || key <= rule.until) ? [key] : [];
+            }
+            return Array.from(new Set(normalizeDays(rule.monthDays).map((day) => day === -1 ? last : day)
+                .filter((day) => day <= last))).sort((left, right) => left - right)
+                .map((day) => dateKey(year, month, day))
+                .filter((key) => key >= anchor.key && (!rule.until || key <= rule.until));
+        };
+        const seek = (rule, cursorKey, direction, inclusive = false) => {
+            const anchor = parseKey(rule?.anchorDate);
+            let cursor = parseKey(cursorKey);
+            if (!isExplicit(rule) || !anchor || !cursor || (rule.monthlyMode !== 'weekday' && normalizeDays(rule.monthDays).length === 0)) return '';
+            if (direction > 0 && cursor.key < anchor.key) { cursor = anchor; inclusive = true; }
+            if (direction < 0 && rule.until && cursor.key > rule.until) { cursor = parseKey(rule.until); inclusive = true; }
+            if (!cursor || (direction > 0 && rule.until && cursor.key > rule.until) || (direction < 0 && cursor.key < anchor.key)) return '';
+            const every = interval(rule);
+            const delta = (cursor.index - anchor.index) / every;
+            let monthIndex = anchor.index + (direction > 0 ? Math.ceil(delta) : Math.floor(delta)) * every;
+            for (let guard = 0; guard <= 4800; guard += 1, monthIndex += direction * every) {
+                if (monthIndex < anchor.index || monthIndex > 119999) return '';
+                if (direction > 0 && rule.until && monthIndex > (parseKey(rule.until)?.index ?? 119999)) return '';
+                const keys = candidates(rule, monthIndex);
+                if (direction < 0) keys.reverse();
+                const found = keys.find((key) => direction > 0
+                    ? (inclusive ? key >= cursor.key : key > cursor.key)
+                    : (inclusive ? key <= cursor.key : key < cursor.key));
+                if (found) return found;
+            }
+            return '';
+        };
+        const nextDateKey = (rule, cursor, inclusive = false) => seek(rule, cursor, 1, inclusive);
+        const previousDateKey = (rule, cursor, inclusive = false) => seek(rule, cursor, -1, inclusive);
+        const ordinal = (rule, key) => {
+            const target = parseKey(key);
+            const anchor = parseKey(rule?.anchorDate);
+            if (!target || !anchor || !candidates(rule, target.index).includes(key)) return 0;
+            let count = 0;
+            for (let monthIndex = anchor.index; monthIndex <= target.index; monthIndex += interval(rule)) {
+                count += candidates(rule, monthIndex).filter((candidate) => candidate <= key).length;
+            }
+            return count;
+        };
+        const iterate = (rule, options = {}) => {
+            const from = String(options.fromDateKey || rule?.anchorDate || '');
+            const to = String(options.toDateKey || from);
+            if (!parseKey(from) || !parseKey(to) || to < from) return [];
+            const limit = Math.max(1, Math.min(2400, Math.trunc(Number(options.limit) || 2400)));
+            let current = nextDateKey(rule, from, true);
+            let number = current ? ordinal(rule, current) : 0;
+            const result = [];
+            while (current && current <= to && result.length < limit && (!rule.maxOccurrences || number <= rule.maxOccurrences)) {
+                result.push({ dateKey: current, ordinal: number });
+                current = nextDateKey(rule, current);
+                number += 1;
+            }
+            return result;
+        };
+        const afterCompletion = (rule, completedKey) => {
+            const completed = parseKey(completedKey);
+            if (!completed || rule?.enabled === false) return '';
+            const every = interval(rule);
+            let nextKey = '';
+            if (rule.type === 'monthly' || rule.type === 'yearly') {
+                const monthIndex = completed.index + every * (rule.type === 'yearly' ? 12 : 1);
+                const year = Math.floor(monthIndex / 12);
+                const month = monthIndex % 12 + 1;
+                if (year > 9999) return '';
+                nextKey = dateKey(year, month, Math.min(completed.day, monthLength(year, month)));
+            } else if (['daily', 'weekly', 'workday'].includes(rule.type)) {
+                const next = new Date(completed.key + 'T12:00:00');
+                if (rule.type === 'workday') {
+                    let remaining = every;
+                    while (remaining > 0) {
+                        next.setDate(next.getDate() + 1);
+                        if (next.getDay() !== 0 && next.getDay() !== 6) remaining -= 1;
+                    }
+                } else {
+                    next.setDate(next.getDate() + every * (rule.type === 'weekly' ? 7 : 1));
+                }
+                nextKey = dateKey(next.getFullYear(), next.getMonth() + 1, next.getDate());
+            }
+            return parseKey(nextKey) && nextKey > completed.key && (!rule.until || nextKey <= rule.until) ? nextKey : '';
+        };
+        const label = (value) => {
+            const days = normalizeDays(value);
+            const dates = days.filter((day) => day > 0);
+            return [dates.length ? dates.join('、') + '日' : '', days.includes(-1) ? '最后一天' : ''].filter(Boolean).join('、');
+        };
+        const weekdayLabel = (value, anchorKey = '') => {
+            const pattern = weekdayRule(value, anchorKey);
+            return (pattern.ordinal === -1 ? '最后一个' : ['第一个', '第二个', '第三个', '第四个', '第五个'][pattern.ordinal - 1])
+                + ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][pattern.weekday];
+        };
+        const weekdayPickerHTML = (value, anchorKey = '') => {
+            const pattern = weekdayRule(value, anchorKey);
+            const ordinals = [[1, '第一个'], [2, '第二个'], [3, '第三个'], [4, '第四个'], [5, '第五个'], [-1, '最后一个']];
+            const weekdays = [[0, '周日'], [1, '周一'], [2, '周二'], [3, '周三'], [4, '周四'], [5, '周五'], [6, '周六']];
+            const select = (field, label, values, selected) => '<select data-tm-month-week="' + field + '" aria-label="' + label + '" style="flex:1;min-width:0;height:36px;padding:0 10px;border:1px solid var(--tm-border-color,var(--b3-theme-surface-light));border-radius:6px;background:var(--tm-bg-color,var(--b3-theme-background));color:var(--tm-text-color,var(--b3-theme-on-background));font:inherit;">'
+                + values.map(([key, text]) => '<option value="' + key + '"' + (key === selected ? ' selected' : '') + '>' + text + '</option>').join('') + '</select>';
+            return '<div style="display:flex;gap:8px;width:100%;min-width:0;">' + select('ordinal', '每月第几个星期', ordinals, pattern.ordinal) + select('weekday', '星期几', weekdays, pattern.weekday) + '</div>';
+        };
+        const pickerHTML = (value, anchorKey = '') => {
+            const days = value === undefined ? [parseKey(anchorKey)?.day || 1] : normalizeDays(value);
+            const buttons = Array.from({ length: 32 }, (_, index) => index < 31 ? index + 1 : -1).map((day) => {
+                const selected = days.includes(day);
+                const title = day === -1 ? '最后一天' : String(day);
+                return '<button type="button" class="tm-repeat-month-day' + (selected ? ' is-selected' : '') + '" data-tm-month-day="' + day + '" aria-pressed="' + selected + '" aria-label="每月' + (day === -1 ? title : title + '日') + '">' + title + '</button>';
+            }).join('');
+            return '<style>.tm-repeat-month-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;width:100%;min-width:0}.tm-repeat-month-day{position:relative;z-index:0;min-width:0;height:36px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--tm-text-color,var(--b3-theme-on-background));font:inherit;font-size:12px;font-weight:750;cursor:pointer}.tm-repeat-month-day::after{content:"";position:absolute;z-index:-1;pointer-events:none;width:28px;height:28px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:999px}.tm-repeat-month-day:hover::after{background:var(--tm-hover-bg,var(--b3-theme-surface-light))}.tm-repeat-month-day.is-selected{color:var(--tm-primary-color,var(--b3-theme-primary))}.tm-repeat-month-day.is-selected::after{background:color-mix(in srgb,var(--tm-primary-color,var(--b3-theme-primary)) 20%,var(--tm-card-bg,var(--b3-theme-background)) 80%)}.tm-repeat-month-day:focus-visible{outline:2px solid var(--tm-primary-color,var(--b3-theme-primary));outline-offset:1px}.tm-repeat-month-day[data-tm-month-day="-1"]{grid-column:span 2;font-weight:500}.tm-repeat-month-day[data-tm-month-day="-1"]::after{width:calc(100% - 8px);border-radius:6px}.tm-repeat-month-days-note{margin:6px 0 0;color:var(--tm-secondary-text,var(--b3-theme-on-surface-light));font-size:12px;line-height:1.5}@media(pointer:coarse){.tm-repeat-month-day{height:44px}.tm-repeat-month-day::after{width:32px;height:32px}}</style><div class="tm-repeat-month-days" role="group" aria-label="每月日期，可多选">' + buttons + '</div><p class="tm-repeat-month-days-note">' + (value === undefined ? '可多选；未修改时保留原有月末规则。' : '当月不存在的日期跳过；最后一天随月份变化。') + '</p>';
+        };
+        return Object.freeze({ version: 1, normalizeDays, weekdayRule, weekdayLabel, weekdayPickerHTML, isExplicit, candidates, nextDateKey, previousDateKey, ordinal, iterate, afterCompletion, label, pickerHTML });
+    }
+    const __tmMonthRepeatCore = __createMonthRepeatCore();
+
     function __tmNormalizeTaskRepeatTrigger(value) {
         return String(value || '').trim().toLowerCase() === 'complete' ? 'complete' : 'due';
     }
@@ -824,17 +979,24 @@
             || new Date()
         );
         const maxOccurrences = enabled && type !== 'fsrs' ? __tmNormalizeTaskRepeatMaxOccurrences(raw.maxOccurrences) : 0;
+        const trigger = type === 'fsrs' ? 'complete' : __tmNormalizeTaskRepeatTrigger(raw.trigger || opts.trigger || '');
+        const completionBased = trigger === 'complete';
         return {
             version: 1,
             enabled: enabled && type !== 'none',
-            trigger: type === 'fsrs' ? 'complete' : __tmNormalizeTaskRepeatTrigger(raw.trigger || opts.trigger || ''),
+            trigger,
             type: enabled ? type : 'none',
             every: __tmNormalizeTaskRepeatEvery(raw.every, type),
-            weekdays: enabled && type === 'weekly'
+            weekdays: enabled && !completionBased && type === 'weekly'
                 ? __tmNormalizeTaskRepeatWeekdays(raw.weekdays ?? raw.weekDays ?? raw.weekday, fallbackAnchor)
                 : [],
-            monthlyMode: __tmNormalizeTaskRepeatMonthlyMode(raw.monthlyMode, type),
-            calendarMode: __tmNormalizeTaskRepeatCalendarMode(raw.calendarMode || raw.repeatCalendarMode, type),
+            monthlyMode: completionBased ? 'date' : __tmNormalizeTaskRepeatMonthlyMode(raw.monthlyMode, type),
+            ...(!completionBased && type === 'monthly' && __tmNormalizeTaskRepeatMonthlyMode(raw.monthlyMode, type) === 'date'
+                && __tmNormalizeTaskRepeatCalendarMode(raw.calendarMode || raw.repeatCalendarMode, type) !== 'lunar'
+                && raw.monthDays !== undefined ? { monthDays: __tmMonthRepeatCore.normalizeDays(raw.monthDays) } : {}),
+            ...(!completionBased && type === 'monthly' && raw.monthlyMode === 'weekday' && raw.monthWeek && raw.calendarMode !== 'lunar'
+                ? { monthWeek: __tmMonthRepeatCore.weekdayRule(raw.monthWeek, fallbackAnchor) } : {}),
+            calendarMode: completionBased ? 'solar' : __tmNormalizeTaskRepeatCalendarMode(raw.calendarMode || raw.repeatCalendarMode, type),
             until: enabled && type !== 'fsrs' && maxOccurrences === 0 ? __tmNormalizeTaskRepeatUntil(raw.until || raw.repeatUntil || '') : '',
             maxOccurrences,
             anchorDate: fallbackAnchor,
@@ -1171,6 +1333,7 @@
             completionTime: key,
         });
         if (!rule.enabled || rule.type === 'none') return key;
+        if (rule.trigger === 'complete') return __tmMonthRepeatCore.afterCompletion(rule, key);
         const base = __tmBuildLocalNoonDateFromKey(key);
         if (!(base instanceof Date) || Number.isNaN(base.getTime())) return key;
         let next = null;
@@ -1188,6 +1351,7 @@
         } else if (rule.type === 'weekly') {
             next = __tmFindTaskRepeatNextWeeklyDate(base, rule);
         } else if (rule.type === 'monthly') {
+            if (__tmMonthRepeatCore?.isExplicit(rule)) return __tmMonthRepeatCore.nextDateKey(rule, key);
             next = rule.calendarMode === 'lunar'
                 ? __tmFindTaskRepeatNextLunarMonthlyDate(base, rule)
                 : rule.monthlyMode === 'weekday'
@@ -1227,9 +1391,13 @@
         });
         const dateKey = __tmNormalizeDateOnly(cursor.dateKey || rule.anchorDate);
         if (!dateKey || !rule.enabled || rule.type === 'none' || rule.type === 'fsrs') return null;
-        const nextDateKey = __tmAdvanceTaskRepeatDateKey(dateKey, rule);
-        if (!nextDateKey || nextDateKey === dateKey) return null;
-        const ordinal = Math.max(1, Math.trunc(Number(cursor.ordinal) || 1)) + 1;
+        const completionKey = rule.trigger === 'complete' ? __tmNormalizeDateOnly(__tmNormalizeTaskCompleteAtValue(cursor.completedAt || '')) : '';
+        if (rule.trigger === 'complete' && !completionKey) return null;
+        const nextDateKey = __tmAdvanceTaskRepeatDateKey(completionKey || dateKey, rule);
+        if (!nextDateKey || (rule.trigger !== 'complete' && nextDateKey === dateKey)) return null;
+        const ordinal = __tmMonthRepeatCore?.isExplicit(rule)
+            ? __tmMonthRepeatCore.ordinal(rule, nextDateKey)
+            : Math.max(1, Math.trunc(Number(cursor.ordinal) || 1)) + 1;
         if (rule.maxOccurrences > 0 && ordinal > rule.maxOccurrences) return null;
         return { dateKey: nextDateKey, ordinal };
     }
@@ -1240,13 +1408,16 @@
             anchorDate: opts.anchorDate,
             startDate: opts.anchorDate || opts.fromDateKey,
         });
-        if (!rule.enabled || rule.type === 'none' || rule.type === 'fsrs') return [];
+        if (!rule.enabled || rule.type === 'none' || rule.type === 'fsrs' || rule.trigger === 'complete') return [];
         const anchorDate = __tmNormalizeDateOnly(opts.anchorDate || rule.anchorDate);
         if (!anchorDate) return [];
         if (rule.until && anchorDate > rule.until) return [];
         const fromDateKey = __tmNormalizeDateOnly(opts.fromDateKey || opts.from || anchorDate) || anchorDate;
         const toDateKey = __tmNormalizeDateOnly(opts.toDateKey || opts.to || fromDateKey) || fromDateKey;
         if (toDateKey < anchorDate || toDateKey < fromDateKey) return [];
+        if (__tmMonthRepeatCore?.isExplicit(rule)) {
+            return __tmMonthRepeatCore.iterate(rule, { fromDateKey, toDateKey, limit: opts.limit });
+        }
         const limit = Math.max(1, Math.min(2400, Math.trunc(Number(opts.limit) || 2400)));
         let current = { dateKey: anchorDate, ordinal: 1 };
         const out = [];
@@ -1260,6 +1431,31 @@
             current = next;
         }
         return out;
+    }
+
+    function __tmRepeatCoreOrdinal(ruleInput, dateInput) {
+        const rule = __tmNormalizeTaskRepeatRule(ruleInput);
+        const target = __tmNormalizeDateOnly(dateInput);
+        if (!rule.enabled || rule.trigger === 'complete' || rule.type === 'none' || rule.type === 'fsrs' || !target || target < rule.anchorDate) return 0;
+        if (rule.until && target > rule.until) return 0;
+        if (__tmMonthRepeatCore?.isExplicit(rule)) {
+            const number = __tmMonthRepeatCore.ordinal(rule, target);
+            return rule.maxOccurrences > 0 && number > rule.maxOccurrences ? 0 : number;
+        }
+        if (rule.type === 'daily') {
+            const delta = __tmGetTaskRepeatLocalDayOrdinal(target) - __tmGetTaskRepeatLocalDayOrdinal(rule.anchorDate);
+            const number = delta / rule.every + 1;
+            return Number.isInteger(number) && (rule.maxOccurrences <= 0 || number <= rule.maxOccurrences) ? number : 0;
+        }
+        let current = rule.anchorDate;
+        let number = 1;
+        while (current && current < target && (rule.maxOccurrences <= 0 || number < rule.maxOccurrences)) {
+            const next = __tmAdvanceTaskRepeatDateKey(current, rule);
+            if (!next || next <= current) return 0;
+            current = next;
+            number += 1;
+        }
+        return current === target ? number : 0;
     }
 
     function __tmRepeatCoreIsWorkday(dateLike) {
@@ -1281,6 +1477,7 @@
         if (host) {
             host.tmRepeatCore = Object.freeze({
                 version: 1,
+                monthDates: __tmMonthRepeatCore,
                 normalizeRule: __tmRepeatCoreNormalizeRule,
                 next: __tmRepeatCoreNext,
                 nextDateKey: __tmAdvanceTaskRepeatDateKey,
@@ -1289,6 +1486,7 @@
                 monthlyWeekday: __tmBuildTaskRepeatMonthlyWeekdayDate,
                 yearlyDate: __tmBuildTaskRepeatYearlyDate,
                 iterate: __tmRepeatCoreIterate,
+                ordinal: __tmRepeatCoreOrdinal,
                 isWorkday: __tmRepeatCoreIsWorkday,
                 lunarInfo: __tmRepeatCoreLunarInfo,
             });
@@ -1309,9 +1507,13 @@
         const fallbackBase = prevDue || prevStart || rule.anchorDate || __tmNormalizeDateOnly(new Date());
         let nextStart = '';
         let nextDue = '';
-        if (rule.type === 'weekly') {
+        if (rule.trigger === 'complete' || rule.type === 'weekly' || (rule.type === 'monthly' && rule.calendarMode !== 'lunar')) {
             const previousAnchor = prevDue || prevStart || fallbackBase;
-            const nextAnchor = __tmAdvanceTaskRepeatDateKey(previousAnchor, rule);
+            const completionKey = rule.trigger === 'complete'
+                ? __tmNormalizeDateOnly(__tmNormalizeTaskCompleteAtValue(options.completedAt || task.taskCompleteAt || task.task_complete_at || ''))
+                : '';
+            if (rule.trigger === 'complete' && !completionKey) return null;
+            const nextAnchor = __tmAdvanceTaskRepeatDateKey(completionKey || previousAnchor, rule);
             if (nextAnchor) {
                 const deltaDays = __tmGetTaskRepeatLocalDayOrdinal(nextAnchor) - __tmGetTaskRepeatLocalDayOrdinal(previousAnchor);
                 if (Number.isFinite(deltaDays)) {
@@ -1324,16 +1526,17 @@
             nextStart = prevStart ? __tmAdvanceTaskRepeatDateKey(prevStart, rule) : '';
             nextDue = prevDue ? __tmAdvanceTaskRepeatDateKey(prevDue, rule) : '';
         }
-        if (!nextDue && !prevStart && !prevDue && fallbackBase) {
+        if (rule.trigger !== 'complete' && !nextDue && !prevStart && !prevDue && fallbackBase) {
             nextDue = __tmAdvanceTaskRepeatDateKey(fallbackBase, rule);
         }
+        if (!nextStart && !nextDue) return null;
         if (prevStart && !nextStart) return null;
         if (prevDue && !nextDue) return null;
         const nowIso = String(options.advancedAt || new Date().toISOString()).trim();
         const repeatState = __tmNormalizeTaskRepeatState({
             ...currentState,
             occurrenceCount: currentState.occurrenceCount + 1,
-            lastCompletedAt: String(options.completedAt || '').trim() || String(task?.repeatState?.lastCompletedAt || '').trim(),
+            lastCompletedAt: String(options.completedAt || task.taskCompleteAt || task.task_complete_at || '').trim() || String(task?.repeatState?.lastCompletedAt || '').trim(),
             lastAdvancedAt: nowIso,
             lastInstanceStart: nextStart,
             lastInstanceDue: nextDue,
@@ -1378,7 +1581,9 @@
         const weekdayText = rule.type === 'weekly' && rule.weekdays.length > 0
             ? `（${[1, 2, 3, 4, 5, 6, 0].filter((weekday) => rule.weekdays.includes(weekday)).map((weekday) => ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][weekday]).join('、')}）`
             : '';
-        return `${triggerText}${unitText}${weekdayText}${untilText}${countText}`;
+        const monthDayText = __tmMonthRepeatCore?.isExplicit(rule)
+            ? `（${rule.monthlyMode === 'weekday' ? __tmMonthRepeatCore.weekdayLabel(rule.monthWeek, rule.anchorDate) : __tmMonthRepeatCore.label(rule.monthDays)}）` : '';
+        return `${triggerText}${unitText}${weekdayText}${monthDayText}${untilText}${countText}`;
     }
 
     function __tmGetTaskRepeatWeekdayLabel(dateLike) {
@@ -1704,7 +1909,7 @@
             completionTime: task?.completionTime,
         });
         if (!rule.enabled || rule.type === 'none') return [];
-        if (rule.type === 'fsrs') return [];
+        if (rule.type === 'fsrs' || rule.trigger === 'complete') return [];
         const limit = Math.max(1, Math.min(4096, Number(opts.limit) || 5));
         const untilDate = __tmNormalizeDateOnly(opts.until || '');
         // Keep the original recurrence anchor, but skip historical instances

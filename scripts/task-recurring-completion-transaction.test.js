@@ -403,6 +403,23 @@ async function testRecurringAdvanceLiveProjection() {
                 extractBetween(modelSource, 'function __tmRenderTaskCheckbox(', 'function __tmRenderTaskCheckboxWrap('),
             ].join('\n'), context);
             context.__tmResolveTaskForRepeat = async () => context.__tmTaskStore.get(task.id);
+            if (keepNativeDone) {
+                const nativeTask = { ...task };
+                context.API = {
+                    getBlockKramdown: async () => '- [X] Daily task',
+                    parseTaskStatus: () => ({ done: true, marker: 'X' }),
+                };
+                context.__tmReadDocCheckboxBlockAttrs = async () => ({ taskCompleteAt: nativeTask.taskCompleteAt });
+                context.__tmResolveTaskMarker = (value) => value.taskMarker;
+                context.__tmSettleTomatoAfterTaskDone = async () => {
+                    calls.reminderSettle += 1;
+                    context.__tmTaskStore.acceptAuthoritative([{
+                        ...nativeTask, done: false, taskMarker: ' ', task_marker: ' ',
+                        taskCompleteAt: '', task_complete_at: '', 'custom-task-complete-at': '',
+                    }], { docIds: ['doc-1'] });
+                    return true;
+                };
+            }
             const persist = context.__tmApplyTaskMetaPatchWithUndo;
             context.__tmApplyTaskMetaPatchWithUndo = async (taskId, patch, options) => {
                 await persist(taskId, patch, options);
@@ -483,6 +500,75 @@ async function testRecurringAdvanceLiveProjection() {
             assert.equal(context.__tmIsTaskNativeDone(rolledBackTask), false);
             assert.doesNotMatch(context.__tmRenderTaskCheckbox(task.id, rolledBackTask), / checked/);
         }
+    }
+}
+
+async function testRecurringFollowReminderRefreshPreservesCommittedNativeDone() {
+    const completedAt = '2026-09-10T10:00:00.000+08:00';
+    for (const nativeState of ['completed', 'restored', 'unavailable', 'newer-completion']) {
+        const task = {
+            id: 'task-follow-reminder', done: true, taskMarker: 'X', task_marker: 'X',
+            taskCompleteAt: completedAt, task_complete_at: completedAt,
+            startDate: '2026-09-10', completionTime: '2026-09-10',
+            repeatRule: { enabled: true, type: 'monthly', monthDays: [10, 11, 17] },
+            repeatState: { occurrenceCount: 1 }, repeatHistory: [],
+        };
+        const nativeTask = nativeState === 'unavailable' ? null : {
+            ...task,
+            done: nativeState !== 'restored',
+            taskMarker: nativeState === 'restored' ? ' ' : 'X',
+            taskCompleteAt: nativeState === 'restored' ? ''
+                : (nativeState === 'newer-completion' ? '2026-09-10T11:00:00.000+08:00' : completedAt),
+        };
+        const harness = createAdvanceHarness(task, () => ({
+            startDate: '2026-09-11', completionTime: '2026-09-11',
+            repeatState: { occurrenceCount: 2, lastCompletedAt: completedAt },
+        }), { keepNativeDone: true });
+        const { context, calls } = harness;
+        let readbacks = 0;
+        context.API = {
+            getBlockKramdown: async () => {
+                readbacks += 1;
+                return nativeTask ? '- [' + nativeTask.taskMarker + '] Monthly task' : '';
+            },
+            parseTaskStatus: (markdown) => {
+                const marker = String(markdown || '').match(/^[-] \[(.)\]/)?.[1] || ' ';
+                return { done: marker !== ' ', marker };
+            },
+        };
+        context.__tmReadDocCheckboxBlockAttrs = async () => ({ taskCompleteAt: nativeTask?.taskCompleteAt || '' });
+        context.__tmResolveTaskMarker = (value) => value.taskMarker || (value.done ? 'X' : ' ');
+        context.__tmSettleTomatoAfterTaskDone = async () => {
+            calls.reminderSettle += 1;
+            Object.assign(task, { done: false, taskMarker: ' ', task_marker: ' ', taskCompleteAt: '', task_complete_at: '' });
+            return true;
+        };
+        const beforeAdvance = { ...task };
+        const persist = context.__tmApplyTaskMetaPatchWithUndo;
+        context.__tmApplyTaskMetaPatchWithUndo = async (...args) => {
+            await persist(...args);
+            Object.assign(task, beforeAdvance, { done: false, taskMarker: ' ', task_marker: ' ', taskCompleteAt: '', task_complete_at: '' });
+        };
+        context.__tmTaskMutationBus.apply = (mutation) => {
+            calls.projections.push(mutation);
+            Object.assign(task, mutation.task);
+        };
+        if (nativeState === 'completed') {
+            assert.equal(await harness.advance(task.id, { completedAt, source: 'calendar', fromMutationEffect: true, suppressHint: true }), true);
+            assert.equal(task.done, true);
+            assert.equal(task.taskMarker, 'X');
+            assert.equal(task.taskCompleteAt, completedAt);
+            assert.equal(task.completionTime, '2026-09-11', 'native readback must not restore old recurrence dates');
+            assert.equal(calls.projections[0].patch.done, false, 'the next occurrence must still render unfinished');
+            assert.equal(await harness.advance(task.id, { completedAt, suppressHint: true }), true);
+            assert.equal(calls.reminderSettle, 1, 'retry must not complete the next reminder');
+            assert.equal(task.repeatHistory.length, 1);
+        } else {
+            await assert.rejects(() => harness.advance(task.id, { completedAt, fromMutationEffect: true }), /循环推进后任务完成状态未能保留/);
+        }
+        assert.equal(readbacks, 1);
+        assert.equal(calls.persist.length, 1, 'the recurrence must advance exactly once');
+        assert.equal(calls.reset, 0, 'readback must never rewrite the native checkbox');
     }
 }
 
@@ -984,8 +1070,9 @@ async function testOverdueRecurringTasksWaitForCompletion() {
             task.taskCompleteAt = completedAt;
             assert.equal(await harness.context.__tmReconcileRecurringTasksOnLoad([task.id], { todayKey: '2026-09-09' }), 1,
                 'a committed completion must advance both due and complete rules');
-            assert.equal(task.startDate, dates.startDate ? '2026-07-08' : '');
-            assert.equal(task.completionTime, dates.completionTime ? '2026-07-08' : '');
+            const nextKey = trigger === 'complete' ? '2026-10-09' : '2026-07-08';
+            assert.equal(task.startDate, dates.startDate ? nextKey : '');
+            assert.equal(task.completionTime, dates.completionTime ? nextKey : '');
             assert.equal(task.repeatRule.trigger, trigger, 'completion must preserve the configured repeat rule');
             assert.equal(task.repeatState.occurrenceCount, 2, 'one completion must advance only one occurrence even when several months overdue');
             assert.equal(task.repeatHistory.length, 1);
@@ -1055,6 +1142,7 @@ async function testFsrsCompletionUsesTheSameRecoverableTransaction() {
 async function run() {
     await testQueuedCompletionPreservesTimestamp();
     await testRecurringAdvanceLiveProjection();
+    await testRecurringFollowReminderRefreshPreservesCommittedNativeDone();
     testPostCommitDefersRecurringReminderSettlementToAdvance();
     await testCommittedEffectsRewardDoesNotWaitForStaleSqlOrTomato();
     testRecurringInstanceSyncOnlyTouchesLoadedDocuments();

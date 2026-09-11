@@ -89,10 +89,13 @@
         const rule = __tmNormalizeTaskRepeatRule(ruleInput);
         return JSON.stringify([
             rule.enabled,
+            rule.trigger,
             rule.type,
             rule.every,
             rule.weekdays,
             rule.monthlyMode,
+            rule.monthDays,
+            rule.monthWeek,
             rule.calendarMode,
             rule.anchorDate,
         ]);
@@ -134,6 +137,17 @@
             repeatRule: nextRule,
             repeatState: nextState,
         };
+        if (scheduleChanged && __tmMonthRepeatCore?.isExplicit(nextRule)) {
+            const currentKey = __tmNormalizeDateOnly(task.completionTime || task.startDate || nextRule.anchorDate);
+            const firstKey = __tmMonthRepeatCore.nextDateKey(nextRule, currentKey, true);
+            if (!firstKey) throw new Error('月循环没有有效日期，请检查日期和结束条件');
+            const deltaDays = __tmGetTaskRepeatLocalDayOrdinal(firstKey) - __tmGetTaskRepeatLocalDayOrdinal(currentKey);
+            nextRule.anchorDate = firstKey;
+            if (task.startDate) patch.startDate = __tmShiftTaskRepeatDateKey(task.startDate, deltaDays);
+            if (task.completionTime || !task.startDate) patch.completionTime = firstKey;
+            nextState.lastInstanceStart = patch.startDate || '';
+            nextState.lastInstanceDue = patch.completionTime || '';
+        }
         if (nextRule.type === 'fsrs') {
             const dueKey = __tmNormalizeDateOnly(task?.completionTime || task?.startDate || new Date());
             const fsrsTask = {
@@ -636,7 +650,33 @@
 
         } else {
             latestTask = await __tmResolveTaskForRepeat(resetTaskId);
-            if (!latestTask || !__tmIsTaskNativeDone(latestTask)) throw new Error('循环推进后任务完成状态未能保留');
+            if (!latestTask || !__tmIsTaskNativeDone(latestTask)) {
+                const [nativeMarkdown, nativeAttrs] = await Promise.all([
+                    API.getBlockKramdown(resetTaskId),
+                    __tmReadDocCheckboxBlockAttrs(resetTaskId),
+                ]);
+                const nativeStatus = API.parseTaskStatus(nativeMarkdown);
+                const nativeTask = {
+                    done: nativeStatus?.done === true,
+                    taskMarker: nativeStatus?.marker,
+                    markdown: String(nativeMarkdown || ''),
+                };
+                const nativeCompletedAt = __tmNormalizeTaskCompleteAtValue(nativeAttrs?.taskCompleteAt || '');
+                if (!__tmIsTaskNativeDone(nativeTask) || nativeCompletedAt !== completedAt) {
+                    throw new Error('循环推进后任务完成状态未能保留');
+                }
+                const nativeMarker = __tmResolveTaskMarker(nativeTask);
+                latestTask = {
+                    ...(latestTask || task),
+                    ...((nextPatch && typeof nextPatch === 'object') ? nextPatch : {}),
+                    done: true,
+                    taskMarker: nativeMarker,
+                    task_marker: nativeMarker,
+                    taskCompleteAt: nativeCompletedAt,
+                    task_complete_at: nativeCompletedAt,
+                    ...(typeof nativeTask.markdown === 'string' ? { markdown: nativeTask.markdown } : {}),
+                };
+            }
 
         }
         task = latestTask;

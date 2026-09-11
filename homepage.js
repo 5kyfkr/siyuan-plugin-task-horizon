@@ -9,6 +9,7 @@
         clickHandler: null,
         documentClickHandler: null,
         resizeObserver: null,
+        trendResizeObserver: null,
         resizeHost: null,
         resizeRaf: 0,
         heatmapLayoutRaf: 0,
@@ -4422,15 +4423,15 @@
         return true;
     }
 
-    function buildTrendSvg(trend, ctx, profile, layout = "wide") {
+    function buildTrendSvg(trend, ctx, profile, layout = "wide", viewport = null) {
         const rawPoints = Array.isArray(trend?.points) ? trend.points : [];
         if (!rawPoints.length) return `<div class="tm-homepage-chart-empty">暂无趋势数据</div>`;
         const points = rawPoints.slice();
         const metrics = getLayoutMetrics(ctx, profile);
         const isNarrow = String(layout || "").trim() === "narrow";
-        const width = Math.max(isNarrow ? 320 : 360, Math.round(isNarrow ? metrics.trendNarrowWidth : metrics.trendWidth));
-        const height = profile === "mobile" ? 142 : (profile === "dock" ? 156 : 170);
-        const padding = { top: 20, right: 12, bottom: 1, left: 12 };
+        const width = toNumber(viewport?.width, 0) || Math.max(isNarrow ? 320 : 360, Math.round(isNarrow ? metrics.trendNarrowWidth : metrics.trendWidth));
+        const height = toNumber(viewport?.height, 0) || (profile === "mobile" ? 142 : (profile === "dock" ? 156 : 170));
+        const padding = { top: Math.max(20, height / 4), right: 12, bottom: 10, left: 12 };
         const innerW = width - padding.left - padding.right;
         const innerH = height - padding.top - padding.bottom;
         const maxValue = Math.max(1, ...points.map((point) => Number(point?.value) || 0));
@@ -4475,7 +4476,7 @@
             pointLabels,
         ].join("");
         return `
-            <svg class="tm-homepage-trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMax meet" aria-label="完成趋势">
+            <svg class="tm-homepage-trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMax meet" role="img" aria-label="完成趋势">
                 <defs>
                     <linearGradient id="tmHomepageTrendStroke" x1="0" y1="0" x2="1" y2="0">
                         <stop offset="0%" style="stop-color:color-mix(in srgb, var(--tm-home-accent) 68%, var(--tm-home-accent-soft-2));"></stop>
@@ -4493,6 +4494,25 @@
                 ${markers}
             </svg>
         `;
+    }
+
+    function bindTrendResizeObserver(trend) {
+        try { runtime.trendResizeObserver?.disconnect?.(); } catch (e) {}
+        runtime.trendResizeObserver = null;
+        if (!(runtime.root instanceof HTMLElement) || typeof ResizeObserver !== "function") return;
+        const wrap = runtime.root.querySelector(".tm-homepage-trend-wrap");
+        if (!(wrap instanceof HTMLElement)) return;
+        let previousWidth = 0;
+        let previousHeight = 0;
+        runtime.trendResizeObserver = new ResizeObserver((entries) => {
+            if (!runtime.root?.contains(wrap)) return;
+            const { width = 0, height = 0 } = entries[0]?.contentRect || {};
+            if (width <= 0 || height <= 0 || (width === previousWidth && height === previousHeight)) return;
+            previousWidth = width;
+            previousHeight = height;
+            wrap.innerHTML = buildTrendSvg(trend, runtime.ctx, runtime.profile, getHomepageTrendLayout(), { width, height });
+        });
+        runtime.trendResizeObserver.observe(wrap);
     }
 
     function renderHeatmap(heatmap) {
@@ -5254,7 +5274,9 @@
         const ctx = runtime.ctx && typeof runtime.ctx === "object" ? runtime.ctx : {};
         runtime.profile = resolveProfile(ctx);
         runtime.root.dataset.tmHomepageProfile = runtime.profile;
-        runtime.root.innerHTML = renderShell(ctx, runtime.profile, buildOverview(ctx));
+        const overview = buildOverview(ctx);
+        runtime.root.innerHTML = renderShell(ctx, runtime.profile, overview);
+        bindTrendResizeObserver(overview.trend);
         scheduleHomepageHeatmapLayoutSync();
         ensureFocusStatsLoaded(ctx);
         return true;
@@ -5271,6 +5293,7 @@
         const trendSlot = runtime.root.querySelector("[data-tm-home-trend-slot]");
         if (trendSlot instanceof HTMLElement) {
             trendSlot.innerHTML = renderTrendCard(ctx, runtime.profile, overview, getHomepageTrendLayout());
+            bindTrendResizeObserver(overview.trend);
             updateFocusSlot();
             ensureFocusStatsLoaded(ctx);
             return true;
@@ -5548,6 +5571,8 @@
         }
         try { runtime.resizeObserver?.disconnect?.(); } catch (e) {}
         runtime.resizeObserver = null;
+        try { runtime.trendResizeObserver?.disconnect?.(); } catch (e) {}
+        runtime.trendResizeObserver = null;
         runtime.resizeHost = null;
         runtime.settleUntil = 0;
         runtime.focusLoadSeq += 1;

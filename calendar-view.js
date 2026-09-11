@@ -6672,10 +6672,62 @@
     function closeTrackedPrototypeMorePopover() {
         const current = state.__tmPrototypeMorePopover;
         if (!current) return false;
+        try { current.cleanupDrag?.(); } catch (e) {}
         try { document.removeEventListener('click', current.onDocumentClick, true); } catch (e) {}
         try { current.el?.remove?.(); } catch (e) {}
         state.__tmPrototypeMorePopover = null;
         return true;
+    }
+
+    function bindPrototypeSurfacePointerHandler(surface, type, handler, capture = true) {
+        if (!surface.__tmPrototypePointerHandlers) surface.__tmPrototypePointerHandlers = Object.create(null);
+        surface.__tmPrototypePointerHandlers[type] = handler;
+        surface.addEventListener(type, handler, capture);
+    }
+
+    function bindPrototypeMorePopoverDrag(pop, anchorEl, activeCalendar) {
+        const surface = anchorEl.closest('[data-tm-side-proto-surface], [data-tm-cal-surface]');
+        const handlers = surface?.__tmPrototypePointerHandlers;
+        if (!handlers || !String(getCalendarView(activeCalendar)?.type || '').startsWith('timeGrid')) return null;
+        pop.classList.add('tm-proto-more-popover--draggable');
+        let pointerId = null;
+        const onPointerDown = (event) => {
+            if (pointerId !== null || (typeof event.button === 'number' && event.button !== 0)) return;
+            const target = event.target instanceof Element ? event.target : null;
+            if (target?.closest('.tm-proto-event-check, .tm-cal-task-event-check')) return;
+            const eventEl = target?.closest('[data-tm-proto-event]');
+            if (!eventEl || !pop.contains(eventEl)) return;
+            const eventId = getCalendarEventIdFromElement(eventEl);
+            const eventApi = getCalendarEventById(activeCalendar, eventId)
+                || getCalendarEvents(activeCalendar).find((item) => String(item?.id || '').trim() === eventId);
+            if (!eventApi || eventApi.editable === false || eventApi.allDay !== true) return;
+            pointerId = event.pointerId;
+            handlers.pointerdown(event);
+        };
+        const forwardPointer = (event) => {
+            if (pointerId === null || event.pointerId !== pointerId) return;
+            if (event.type === 'pointermove') {
+                if (!surface.contains(event.target)) handlers.pointermove(event);
+                return;
+            }
+            pointerId = null;
+            const moved = pop.classList.contains('is-dragging');
+            if (!moved || event.type === 'pointercancel') handlers.pointercancel(event);
+            else if (!surface.contains(event.target)) handlers.pointerup(event);
+            if (moved) closeTrackedPrototypeMorePopover();
+        };
+        pop.addEventListener('pointerdown', onPointerDown, true);
+        ['pointermove', 'pointerup', 'pointercancel'].forEach((type) => {
+            document.addEventListener(type, forwardPointer, true);
+        });
+        return () => {
+            pop.removeEventListener('pointerdown', onPointerDown, true);
+            ['pointermove', 'pointerup', 'pointercancel'].forEach((type) => {
+                document.removeEventListener(type, forwardPointer, true);
+            });
+            if (pointerId !== null) handlers.pointercancel({ pointerId });
+            pointerId = null;
+        };
     }
 
     function closeTrackedPrototypeEventPopover() {
@@ -6798,11 +6850,9 @@
         const onDocumentClick = (event) => {
             const target = event.target instanceof Node ? event.target : null;
             if (target && (pop.contains(target) || anchorEl.contains(target))) return;
-            try { document.removeEventListener('click', onDocumentClick, true); } catch (e) {}
-            try { pop.remove(); } catch (e) {}
-            if (state.__tmPrototypeMorePopover?.el === pop) state.__tmPrototypeMorePopover = null;
+            closeTrackedPrototypeMorePopover();
         };
-        state.__tmPrototypeMorePopover = { el: pop, onDocumentClick };
+        state.__tmPrototypeMorePopover = { el: pop, onDocumentClick, cleanupDrag: bindPrototypeMorePopoverDrag(pop, anchorEl, activeCalendar) };
         document.addEventListener('click', onDocumentClick, true);
         return true;
     }
@@ -12284,6 +12334,8 @@
                         : [];
                 })(),
                 monthlyMode: getScheduleRepeatMonthlyMode(source),
+                monthDays: source.repeatMonthDays ?? source.monthDays,
+                monthWeek: source.repeatMonthWeek ?? source.monthWeek,
                 calendarMode: getScheduleRepeatCalendarMode(source),
                 until: getScheduleRepeatUntil(source),
                 maxOccurrences: source.repeatMaxOccurrences ?? source.repeat_max_occurrences ?? source.maxOccurrences ?? 0,
@@ -12314,6 +12366,8 @@
                 every: normalizeScheduleRepeatEvery(canonical.every ?? base.repeatEvery ?? base.repeat_every, type),
                 weekdays: Array.isArray(canonical.weekdays) ? canonical.weekdays : (Array.isArray(base.repeatWeekdays || base.repeat_weekdays) ? (base.repeatWeekdays || base.repeat_weekdays) : []),
                 monthlyMode: normalizeScheduleRepeatMonthlyMode(canonical.monthlyMode ?? base.repeatMonthlyMode ?? base.repeat_monthly_mode, type),
+                monthDays: canonical.monthDays ?? base.repeatMonthDays ?? base.monthDays,
+                monthWeek: canonical.monthWeek ?? base.repeatMonthWeek ?? base.monthWeek,
                 calendarMode: normalizeScheduleRepeatCalendarMode(canonical.calendarMode ?? base.repeatCalendarMode ?? base.repeat_calendar_mode, type),
                 until: normalizeScheduleRepeatUntil(canonical.until ?? base.repeatUntil ?? base.repeat_until),
                 maxOccurrences: Math.max(0, Number(canonical.maxOccurrences ?? base.repeatMaxOccurrences ?? base.repeat_max_occurrences ?? base.maxOccurrences) || 0),
@@ -12387,6 +12441,8 @@
                 repeatEvery: repeatEvery0,
                 repeatUntil: repeatUntil0,
                 repeatMonthlyMode: repeatMonthlyMode0,
+                repeatMonthDays: repeatRule0.monthDays,
+                repeatMonthWeek: repeatRule0.monthWeek,
                 repeatCalendarMode: repeatCalendarMode0,
                 notificationSchedules: notificationSchedules0,
                 completedOccurrences: completedOccurrences0,
@@ -12397,7 +12453,7 @@
     }
 
     const SCHEDULE_LEGACY_REPEAT_FIELDS = [
-        'repeatType', 'repeatEvery', 'repeatUntil', 'repeatMonthlyMode', 'repeatCalendarMode',
+        'repeatType', 'repeatEvery', 'repeatUntil', 'repeatMonthlyMode', 'repeatMonthDays', 'monthDays', 'repeatMonthWeek', 'monthWeek', 'repeatCalendarMode',
         'repeat_type', 'repeat_every', 'repeat_until', 'repeat_monthly_mode', 'repeat_calendar_mode',
         'recurrenceType', 'recurrenceEvery', 'recurrenceUntil', 'recurrenceMonthlyMode',
         'recurrenceCalendarMode', 'recurrence_type', 'recurrence_every', 'recurrence_until',
@@ -16527,13 +16583,7 @@
         if (!key) return 0;
         const rule = getScheduleRepeatRule(item);
         if (!rule.enabled || rule.type === 'none') return 1;
-        const occurrences = getScheduleRepeatCore().iterate(rule, {
-            fromDateKey: rule.anchorDate,
-            toDateKey: key,
-            limit: 2400,
-        });
-        const found = Array.from(occurrences).find((entry) => String(entry?.dateKey || '') === key);
-        return Math.max(0, Math.trunc(Number(found?.ordinal) || 0));
+        return getScheduleRepeatCore().ordinal(rule, key);
     }
 
     function buildScheduleFutureSplit(prevItem, draftItem, occurrenceStartMs) {
@@ -17542,7 +17592,7 @@
         return false;
     }
 
-    async function setCalendarReminderOccurrenceDone(blockId, dateKey, timeKeys, done) {
+    async function setCalendarReminderOccurrenceDone(blockId, dateKey, timeKeys, done, options = {}) {
         const id = String(blockId || '').trim();
         const day = String(dateKey || '').trim();
         const times = (Array.isArray(timeKeys) ? timeKeys : [timeKeys])
@@ -17552,20 +17602,17 @@
         const api = globalThis.__tomatoReminder || null;
         if (times.length && typeof api?.setOccurrenceDone === 'function') {
             for (const timeKey of times) {
-                const result = api.setOccurrenceDone(id, day, timeKey, done !== false);
-                if (result && typeof result.then === 'function') await result;
+                const result = await api.setOccurrenceDone(id, day, timeKey, done !== false, options);
                 if (result === false) throw new Error('提醒完成接口返回失败');
             }
         } else if (times.length && done !== false && typeof api?.completeOccurrence === 'function') {
             for (const timeKey of times) {
-                const result = api.completeOccurrence(id, day, timeKey);
-                if (result && typeof result.then === 'function') await result;
+                const result = await api.completeOccurrence(id, day, timeKey, options);
                 if (result === false) throw new Error('提醒完成接口返回失败');
             }
         } else if (times.length && done === false && typeof api?.uncompleteOccurrence === 'function') {
             for (const timeKey of times) {
-                const result = api.uncompleteOccurrence(id, day, timeKey);
-                if (result && typeof result.then === 'function') await result;
+                const result = await api.uncompleteOccurrence(id, day, timeKey, options);
                 if (result === false) throw new Error('提醒撤销接口返回失败');
             }
         } else {
@@ -17591,6 +17638,7 @@
     function shouldHideCompletedAllDayCalendarEvent(eventLike, settings, options = {}) {
         if (!eventLike || !settings || settings.showCompletedAllDaySchedules !== false) return false;
         if (eventLike.allDay !== true) return false;
+        if (String(eventLike.extendedProps?.__tmSource || '').trim() === 'reminder') return false;
         return resolveCalendarEventDoneState(eventLike.extendedProps || {}, options) === true;
     }
 
@@ -17607,7 +17655,7 @@
                 const reminderId = String(ext?.__tmReminderBlockId || tid || '').trim();
                 const dateKey = String(ext?.__tmReminderDate || '').trim();
                 const timeKeys = Array.isArray(ext?.__tmReminderTimes) ? ext.__tmReminderTimes : [ext?.__tmReminderTime];
-                await setCalendarReminderOccurrenceDone(reminderId, dateKey, timeKeys, nextDone);
+                await setCalendarReminderOccurrenceDone(reminderId, dateKey, timeKeys, nextDone, { occurrenceNumber: ext?.__tmReminderOccurrenceNumber });
                 try { ext.__tmReminderDone = nextDone; } catch (e) {}
                 applied = true;
                 return true;
@@ -19686,6 +19734,11 @@
                                             every: Number(ext.__tmRepeatEvery) || 1,
                                             weekdays: Array.isArray(ext.__tmRepeatWeekdays) ? ext.__tmRepeatWeekdays : [],
                                             monthlyMode: String(ext.__tmRepeatMonthlyMode || 'date'),
+                                monthDays: ext.__tmRepeatMonthDays,
+                                monthWeek: ext.__tmRepeatMonthWeek,
+                                            monthDays: ext.__tmRepeatMonthDays,
+                                            monthWeek: ext.__tmRepeatMonthWeek,
+                                monthWeek: ext.__tmRepeatMonthWeek,
                                             calendarMode: String(ext.__tmRepeatCalendarMode || 'solar'),
                                             until: String(ext.__tmRepeatUntil || ''),
                                             maxOccurrences: Number(ext.__tmRepeatMaxOccurrences) || 0,
@@ -19747,7 +19800,7 @@
                     } catch (e) {}
                     try { visualEl.classList.remove('tm-proto-event--dragging'); } catch (e) {}
                 };
-                surface.addEventListener('pointerdown', (event) => {
+                bindPrototypeSurfacePointerHandler(surface, 'pointerdown', (event) => {
                     const target = event.target instanceof Element ? event.target : null;
                     if (typeof event.button === 'number' && event.button !== 0) {
                         return;
@@ -19791,6 +19844,8 @@
                             && (edge === 'start' || edge === 'end');
                         sidePrototypeEventDrag = {
                             id, eventEl, visualEl, pointerId: event.pointerId,
+                            fromMorePopover: !!eventEl.closest('.tm-proto-more-popover'),
+                            startX: Number(event.clientX) || 0,
                             startY: Number(event.clientY) || 0,
                             // Keep taps available for the detail popover, but
                             // enter an edge resize immediately on touch.
@@ -19828,7 +19883,7 @@
                         // the synthetic click can open its popover. Touch and
                         // pen need immediate capture to survive scrolling;
                         // mouse capture starts only after the drag threshold.
-                        if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+                        if (!sidePrototypeEventDrag.fromMorePopover && (event.pointerType === 'touch' || event.pointerType === 'pen')) {
                             try { surface.setPointerCapture?.(event.pointerId); } catch (e) {}
                         }
                         return;
@@ -19854,12 +19909,15 @@
                         try { surface.setPointerCapture?.(event.pointerId); } catch (e) {}
                     }
                 }, true);
-                surface.addEventListener('pointermove', (event) => {
+                bindPrototypeSurfacePointerHandler(surface, 'pointermove', (event) => {
                     if (sidePrototypeEventDrag && sidePrototypeEventDrag.pointerId === event.pointerId) {
                         const drag = sidePrototypeEventDrag;
                         const dy = (Number(event.clientY) || 0) - drag.startY;
+                        const distance = drag.fromMorePopover
+                            ? Math.hypot((Number(event.clientX) || 0) - drag.startX, dy)
+                            : Math.abs(dy);
                         if (!drag.started) {
-                            if (Math.abs(dy) > 8) {
+                            if (distance > 8) {
                                 clearTimeout(drag.timer);
                                 restoreSidePrototypeDragPreview(drag);
                                 sidePrototypeEventDrag = null;
@@ -19867,9 +19925,10 @@
                             }
                             return;
                         }
-                        if (Math.abs(dy) > 4 && !drag.moved) {
+                        if (distance > 4 && !drag.moved) {
                             drag.moved = true;
                             try { surface.setPointerCapture?.(event.pointerId); } catch (e) {}
+                            drag.eventEl.closest('.tm-proto-more-popover')?.classList.add('is-dragging');
                         }
                         if (drag.moved) {
                             event.preventDefault();
@@ -19992,7 +20051,7 @@
                 surface.addEventListener('touchmove', (event) => {
                     if (sidePrototypeEventDrag?.started || sidePrototypePointerSelection?.started) event.preventDefault();
                 }, { capture: true, passive: false });
-                surface.addEventListener('pointerup', (event) => {
+                bindPrototypeSurfacePointerHandler(surface, 'pointerup', (event) => {
                     if (sidePrototypeEventDrag && sidePrototypeEventDrag.pointerId === event.pointerId) {
                         const drag = sidePrototypeEventDrag;
                         clearTimeout(drag.timer);
@@ -20142,7 +20201,7 @@
                     } catch (e) {
                     }
                 }, true);
-                surface.addEventListener('pointercancel', (event) => {
+                bindPrototypeSurfacePointerHandler(surface, 'pointercancel', (event) => {
                     if (sidePrototypeEventDrag?.pointerId === event.pointerId) {
                         restoreSidePrototypeDragPreview(sidePrototypeEventDrag);
                         clearTimeout(sidePrototypeEventDrag.timer);
@@ -20622,6 +20681,8 @@
                                 every: Number(ext.__tmRepeatEvery) || 1,
                                 weekdays: Array.isArray(ext.__tmRepeatWeekdays) ? ext.__tmRepeatWeekdays : [],
                                 monthlyMode: String(ext.__tmRepeatMonthlyMode || 'date'),
+                                monthDays: ext.__tmRepeatMonthDays,
+                                monthWeek: ext.__tmRepeatMonthWeek,
                                 calendarMode: String(ext.__tmRepeatCalendarMode || 'solar'),
                                 until: String(ext.__tmRepeatUntil || ''),
                                 maxOccurrences: Number(ext.__tmRepeatMaxOccurrences) || 0,
@@ -20631,6 +20692,8 @@
                             repeatEvery: Number(ext.__tmRepeatEvery),
                             repeatUntil: String(ext.__tmRepeatUntil || ''),
                             repeatMonthlyMode: String(ext.__tmRepeatMonthlyMode || ''),
+                            repeatMonthDays: ext.__tmRepeatMonthDays,
+                            repeatMonthWeek: ext.__tmRepeatMonthWeek,
                             repeatCalendarMode: String(ext.__tmRepeatCalendarMode || ''),
                             notificationSchedules: sanitizeScheduleNotificationSchedules(ext.__tmNotificationSchedules),
                         });
@@ -21341,6 +21404,8 @@
                         __tmRepeatEvery: repeatEvery,
                         __tmRepeatUntil: repeatUntil,
                         __tmRepeatMonthlyMode: repeatMonthlyMode,
+                        __tmRepeatMonthDays: getScheduleRepeatRule(it).monthDays,
+                        __tmRepeatMonthWeek: getScheduleRepeatRule(it).monthWeek,
                         __tmRepeatCalendarMode: repeatCalendarMode,
                         __tmRepeatWeekdays: getScheduleRepeatRule(it).weekdays,
                         __tmRepeatMaxOccurrences: getScheduleRepeatRule(it).maxOccurrences,
@@ -23726,6 +23791,8 @@
                 if (k) set.add(k);
                 continue;
             }
+            if (reminder?.trigger === 'complete' && it.occurrenceNumber && it.date === (reminder.repeatState?.lastInstanceDue || getReminderStartDateKey(reminder))
+                && Number(it.occurrenceNumber) !== Math.max(1, Number(reminder.repeatState?.occurrenceCount) || 1)) continue;
             const k = reminderOccurrenceKey(it.date || it.dateKey || it.day, it.time || it.timeKey);
             if (k) set.add(k);
         }
@@ -23830,6 +23897,14 @@
         if (!/^\d{4}-\d{2}-\d{2}$/.test(dk)) return false;
         if (reminder?.enabled === false) return false;
         const startKey = getReminderStartDateKey(reminder);
+        if (reminder?.trigger === 'complete' && reminder.interval !== 'once') {
+            const repeatState = reminder.repeatState || {};
+            const count = Math.max(1, Number(repeatState.occurrenceCount) || 1);
+            if (Number(reminder.maxOccurrences) > 0 && count > Number(reminder.maxOccurrences)) return false;
+            if (repeatState.lastCompletedAt && !repeatState.lastInstanceDue) return false;
+            const currentKey = String(repeatState.lastInstanceDue || startKey || '');
+            return dk === currentKey && (!reminder.endDate || dk <= reminder.endDate);
+        }
         if (!startKey || dk < startKey) return false;
         const endDateKey = String(reminder?.endDate || '').trim();
         if (endDateKey && /^\d{4}-\d{2}-\d{2}$/.test(endDateKey) && dk > endDateKey) return false;
@@ -23855,6 +23930,8 @@
             return diffWeeks >= 0 && diffWeeks % every === 0;
         }
         if (interval === 'monthly') {
+            const rule = { type: 'monthly', monthDays: reminder.monthDays ?? reminder.taskRepeatRule?.monthDays, monthWeek: reminder.monthWeek ?? reminder.taskRepeatRule?.monthWeek, every, anchorDate: startKey, until: endDateKey, monthlyMode: getReminderMonthlyMode(reminder), calendarMode: reminder.calendarMode || reminder.taskRepeatRule?.calendarMode };
+            if ((Array.isArray(rule.monthDays) || rule.monthWeek) && getScheduleRepeatCore().monthDates.isExplicit(rule)) return getScheduleRepeatCore().monthDates.candidates(rule, target.getFullYear() * 12 + target.getMonth()).includes(dk);
             const diffMonths = (target.getFullYear() - created.getFullYear()) * 12 + (target.getMonth() - created.getMonth());
             if (diffMonths < 0 || diffMonths % every !== 0) return false;
             const candidate = getReminderMonthlyMode(reminder) === 'weekday'
@@ -24093,6 +24170,7 @@
                         __tmReminderBlockId: blockId,
                         __tmReminderDone: done,
                         __tmReminderDate: dateKey,
+                        __tmReminderOccurrenceNumber: r.trigger === 'complete' ? Math.max(1, Number(r.repeatState?.occurrenceCount) || 1) : null,
                         __tmReminderTimes: times,
                         __tmRank: 3,
                     },
@@ -25866,6 +25944,8 @@
             return String(reminderOffset0);
         })();
         const repeatRule0 = getScheduleRepeatRule(init);
+        let repeatMonthDaysDraft = Array.isArray(repeatRule0.monthDays) ? repeatRule0.monthDays.slice() : undefined;
+        let repeatMonthWeekDraft = repeatRule0.monthWeek ? { ...repeatRule0.monthWeek } : undefined;
         const repeatType0 = repeatRule0.type;
         const repeatEvery0 = repeatRule0.every;
         const repeatUntil0 = repeatRule0.until;
@@ -26033,6 +26113,10 @@
                     <div class="tm-calendar-edit-label">间隔</div>
                     <input class="tm-calendar-edit-input tm-calendar-edit-input--repeat-every" type="number" min="1" step="1" value="${esc(String(repeatEvery0 || 1))}" data-tm-cal-field="repeatEvery" ${taskDateEditor ? 'disabled' : ''}>
                     <div class="tm-calendar-edit-value" data-tm-cal-field="repeatEveryUnit" style="opacity:.85;">${esc(getScheduleRepeatUnitLabel(repeatType0, repeatEvery0))}</div>
+                </div>
+                <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatMonthDays" style="display:none;align-items:start;">
+                    <div class="tm-calendar-edit-label">日期</div>
+                    <div data-tm-cal-month-days style="flex:1;min-width:0;"></div>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatMonthlyMode"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">月规则</div>
@@ -26217,6 +26301,11 @@
             const showMonthlyMode = isMonthly && calendarMode !== 'lunar';
             setFieldRowHidden('repeatCalendarMode', !showCalendarMode);
             setFieldRowHidden('repeatMonthlyMode', !showMonthlyMode);
+            setFieldRowHidden('repeatMonthDays', !showMonthlyMode);
+            const monthDaysEl = modal.querySelector('[data-tm-cal-month-days]');
+            if (monthDaysEl) monthDaysEl.innerHTML = monthlyModeEl.value === 'weekday'
+                ? getScheduleRepeatCore().monthDates.weekdayPickerHTML(repeatMonthWeekDraft, startDraft ? formatDateKey(startDraft) : repeatRule0.anchorDate)
+                : getScheduleRepeatCore().monthDates.pickerHTML(repeatMonthDaysDraft, startDraft ? formatDateKey(startDraft) : repeatRule0.anchorDate);
             monthlyModeEl.disabled = !showMonthlyMode;
             monthlyModeEl.style.opacity = showMonthlyMode ? '1' : '0.55';
             if (calendarModeEl instanceof HTMLSelectElement) {
@@ -26230,8 +26319,8 @@
                     monthlySummaryEl.textContent = '根据开始时间确定每月日期';
                 } else {
                     monthlySummaryEl.textContent = normalizeScheduleRepeatMonthlyMode(monthlyModeEl.value || repeatMonthlyMode0, repeatType) === 'weekday'
-                        ? `每月${getScheduleMonthlyWeekPatternLabel(startDraft)}`
-                        : `每月${startDraft.getDate()}日`;
+                        ? `每月${getScheduleRepeatCore().monthDates.weekdayLabel(repeatMonthWeekDraft, formatDateKey(startDraft))}`
+                        : `每月${repeatMonthDaysDraft === undefined ? startDraft.getDate() + '日' : getScheduleRepeatCore().monthDates.label(repeatMonthDaysDraft)}`;
                 }
             }
             if (calendarSummaryEl) {
@@ -26328,6 +26417,21 @@
             }, { signal: abort.signal });
         }
         syncRepeatRuleState();
+        modal.querySelector('[data-tm-cal-month-days]')?.addEventListener('change', (event) => {
+            const field = event.target.dataset.tmMonthWeek;
+            if (taskDateEditor || !['ordinal', 'weekday'].includes(field)) return;
+            repeatMonthWeekDraft = { ...getScheduleRepeatCore().monthDates.weekdayRule(repeatMonthWeekDraft, formatDateKey(getStartDraft() || new Date())), [field]: Number(event.target.value) };
+            syncMonthlyModeSummary();
+        }, { signal: abort.signal });
+        modal.querySelector('[data-tm-cal-month-days]')?.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-tm-month-day]');
+            if (!button || taskDateEditor) return;
+            const day = Number(button.dataset.tmMonthDay);
+            const current = repeatMonthDaysDraft ?? [(getStartDraft() || new Date()).getDate()];
+            repeatMonthDaysDraft = getScheduleRepeatCore().monthDates.normalizeDays(current.includes(day) ? current.filter((value) => value !== day) : [...current, day]);
+            syncMonthlyModeSummary();
+            modal.querySelector('[data-tm-cal-month-days] [data-tm-month-day="' + day + '"]')?.focus();
+        }, { signal: abort.signal });
         const readRepeatRuleFromModal = (nextStart) => {
             const repeatType = normalizeScheduleRepeatType(getInputValue('repeatType') || repeatType0);
             const repeatEvery = normalizeScheduleRepeatEvery(getInputValue('repeatEvery') || repeatEvery0, repeatType);
@@ -26351,17 +26455,24 @@
                 every: repeatEvery,
                 weekdays,
                 monthlyMode: repeatMonthlyMode,
+                monthDays: repeatMonthDaysDraft,
+                monthWeek: repeatMonthWeekDraft,
                 calendarMode: repeatCalendarMode,
                 until: repeatUntil,
                 maxOccurrences,
                 anchorDate: startKey || getScheduleStartDateKey(init),
             }, { anchorDate: startKey || getScheduleStartDateKey(init), startDate: startKey || getScheduleStartDateKey(init), trigger: 'due' });
+            if (getScheduleRepeatCore().monthDates.isExplicit(repeatRule) && !getScheduleRepeatCore().monthDates.nextDateKey(repeatRule, repeatRule.anchorDate, true)) {
+                throw new Error('请选择有效的月日期，并检查截止日期');
+            }
             return {
                 repeatRule,
                 repeatType: repeatRule.type,
                 repeatEvery: repeatRule.every,
                 repeatUntil: repeatRule.until,
                 repeatMonthlyMode: repeatRule.monthlyMode,
+                repeatMonthDays: repeatRule.monthDays,
+                repeatMonthWeek: repeatRule.monthWeek,
                 repeatCalendarMode: repeatRule.calendarMode,
                 repeatWeekdays: repeatRule.weekdays,
                 repeatMaxOccurrences: repeatRule.maxOccurrences,
@@ -26525,6 +26636,8 @@
                     repeatEvery: repeatDraft.repeatEvery,
                     repeatUntil: repeatDraft.repeatUntil,
                     repeatMonthlyMode: repeatDraft.repeatMonthlyMode,
+                    repeatMonthDays: repeatDraft.repeatMonthDays,
+                    repeatMonthWeek: repeatDraft.repeatMonthWeek,
                     repeatCalendarMode: repeatDraft.repeatCalendarMode,
                     notificationSchedules: sanitizeScheduleNotificationSchedules(
                         init?.notificationSchedules
@@ -26587,6 +26700,8 @@
                                 repeatEvery: repeatDraft2.repeatEvery,
                                 repeatUntil: repeatDraft2.repeatUntil,
                                 repeatMonthlyMode: repeatDraft2.repeatMonthlyMode,
+                                repeatMonthDays: repeatDraft2.repeatMonthDays,
+                                repeatMonthWeek: repeatDraft2.repeatMonthWeek,
                                 repeatCalendarMode: repeatDraft2.repeatCalendarMode,
                                 notificationSchedules: sanitizeScheduleNotificationSchedules(prevItem?.notificationSchedules),
                                 ...(taskIdKeep || blockIdKeep ? {} : { note: noteNow }),
@@ -26806,6 +26921,8 @@
                     repeatEvery: repeatDraft.repeatEvery,
                     repeatUntil: repeatDraft.repeatUntil,
                     repeatMonthlyMode: repeatDraft.repeatMonthlyMode,
+                    repeatMonthDays: repeatDraft.repeatMonthDays,
+                    repeatMonthWeek: repeatDraft.repeatMonthWeek,
                     repeatCalendarMode: repeatDraft.repeatCalendarMode,
                     ...(taskIdKeep || blockIdKeep ? {} : { note }),
                 };
@@ -28215,7 +28332,7 @@
                 if (target && (pop.contains(target) || anchorEl.contains(target))) return;
                 closePrototypeMorePopover();
             };
-            state.__tmPrototypeMorePopover = { el: pop, onDocumentClick };
+            state.__tmPrototypeMorePopover = { el: pop, onDocumentClick, cleanupDrag: bindPrototypeMorePopoverDrag(pop, anchorEl, activeCalendar) };
             document.addEventListener('click', onDocumentClick, true);
         };
         // The docked day panel is rendered by a separate surface listener,
@@ -29329,7 +29446,7 @@
                 panelEvent.style.setProperty('transform', 'none', 'important');
                 panelEvent.classList.add('tm-proto-event--dragging');
             };
-            prototypeSurface.addEventListener('pointerdown', (event) => {
+            bindPrototypeSurfacePointerHandler(prototypeSurface, 'pointerdown', (event) => {
                 if (typeof event.button === 'number' && event.button !== 0) return;
                 const target = event.target instanceof Element ? event.target : null;
                 if (target?.closest?.('.tm-proto-event-check, .tm-cal-task-event-check')) return;
@@ -29375,6 +29492,7 @@
                 prototypeEventDrag = {
                     id: eventId,
                     eventEl,
+                    fromMorePopover: !!eventEl.closest('.tm-proto-more-popover'),
                     pointerId: event.pointerId,
                     startX: Number(event.clientX) || 0,
                     startY: Number(event.clientY) || 0,
@@ -29451,13 +29569,13 @@
                 // the native/document click delegates can resolve the card.
                 // Capture touch/pen immediately; mouse capture is acquired once
                 // a real drag threshold is crossed.
-                if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+                if (!prototypeEventDrag.fromMorePopover && (event.pointerType === 'touch' || event.pointerType === 'pen')) {
                     try { prototypeSurface.setPointerCapture?.(event.pointerId); } catch (e) {}
                 }
                 // Keep the native click for a simple pointer press. Dragging
                 // is cancelled on pointermove once the pointer actually moves.
             }, true);
-            prototypeSurface.addEventListener('pointermove', (event) => {
+            bindPrototypeSurfacePointerHandler(prototypeSurface, 'pointermove', (event) => {
                 if (prototypeEventDrag && prototypeEventDrag.pointerId === event.pointerId) {
                     const drag = prototypeEventDrag;
                     const dx = (Number(event.clientX) || 0) - drag.startX;
@@ -29475,6 +29593,7 @@
                     if (Math.hypot(dx, dy) > 8) {
                         if (!drag.moved) {
                             try { prototypeSurface.setPointerCapture?.(event.pointerId); } catch (e) {}
+                            drag.eventEl.closest('.tm-proto-more-popover')?.classList.add('is-dragging');
                         }
                         drag.moved = true;
                     }
@@ -29855,7 +29974,7 @@
             prototypeSurface.addEventListener('touchmove', (event) => {
                 if (prototypeEventDrag?.started || prototypePointerSelection?.started) event.preventDefault();
             }, { capture: true, passive: false });
-            prototypeSurface.addEventListener('pointerup', (event) => {
+            bindPrototypeSurfacePointerHandler(prototypeSurface, 'pointerup', (event) => {
                 if (typeof event.button === 'number' && event.button !== 0) {
                     if (prototypeEventDrag && prototypeEventDrag.pointerId === event.pointerId) {
                         restorePrototypeDragPreview(prototypeEventDrag);
@@ -30038,7 +30157,7 @@
                 } catch (e) {
                 }
             }, true);
-            prototypeSurface.addEventListener('pointercancel', (event) => {
+            bindPrototypeSurfacePointerHandler(prototypeSurface, 'pointercancel', (event) => {
                 if (prototypeEventDrag && prototypeEventDrag.pointerId === event.pointerId) {
                     restorePrototypeDragPreview(prototypeEventDrag);
                     clearTimeout(prototypeEventDrag.timer);
@@ -32544,6 +32663,17 @@
                 if (Number.isFinite(correctedLeft)) pop.style.left = `${Math.round(correctedLeft)}px`;
                 if (Number.isFinite(correctedTop)) pop.style.top = `${Math.round(correctedTop)}px`;
             };
+            let inlineMonthDays = Array.isArray(ext.__tmRepeatMonthDays) ? ext.__tmRepeatMonthDays.slice() : undefined;
+            let inlineMonthWeek = ext.__tmRepeatMonthWeek ? { ...ext.__tmRepeatMonthWeek } : undefined;
+            const onInlineMonthDayClick = (event) => {
+                const button = event.target.closest('[data-tm-proto-month-days] [data-tm-month-day]');
+                if (!button || isTaskDateEditor) return;
+                const day = Number(button.dataset.tmMonthDay);
+                const current = inlineMonthDays ?? [new Date(readValue('start')).getDate()];
+                inlineMonthDays = getScheduleRepeatCore().monthDates.normalizeDays(current.includes(day) ? current.filter((value) => value !== day) : [...current, day]);
+                syncInlineRepeatControls();
+                pop.querySelector('[data-tm-proto-month-days] [data-tm-month-day="' + day + '"]')?.focus();
+            };
             const ensureInlineRepeatControls = () => {
                 if (isTaskDateEditor) return;
                 const advanced = pop.querySelector('[data-tm-proto-inline-more]');
@@ -32567,6 +32697,7 @@
                     .map(([value, label]) => `<label><input type="checkbox" value="${value}" data-tm-proto-repeat-weekday ${repeatWeekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`)
                     .join('');
                 advanced.insertAdjacentHTML('beforeend', `<div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="every"><b class="quick-setting-label">间隔</b><div class="tm-proto-inline-repeat-every-control"><span class="quick-setting-value tm-proto-inline-repeat-prefix" aria-hidden="true">每</span><input class="quick-setting-control tm-calendar-edit-input--repeat-every" type="number" min="1" step="1" value="${esc(String(repeatEvery))}" data-tm-proto-edit-field="repeatEvery"><span class="quick-setting-value" data-tm-proto-repeat-unit></span></div></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="weekdays"><b class="quick-setting-label">星期</b><div class="tm-calendar-repeat-weekdays tm-proto-inline-repeat-weekdays">${weekdays}</div></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="monthlyMode"><b class="quick-setting-label">月规则</b><select class="quick-setting-control" data-tm-proto-edit-field="repeatMonthlyMode"><option value="date" ${repeatMonthlyMode !== 'weekday' ? 'selected' : ''}>按日期</option><option value="weekday" ${repeatMonthlyMode === 'weekday' ? 'selected' : ''}>按星期</option></select></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="calendarMode"><b class="quick-setting-label">历法</b><select class="quick-setting-control" data-tm-proto-edit-field="repeatCalendarMode"><option value="solar" ${repeatCalendarMode !== 'lunar' ? 'selected' : ''}>公历</option><option value="lunar" ${repeatCalendarMode === 'lunar' ? 'selected' : ''}>农历</option></select></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="endMode"><b class="quick-setting-label">循环截止</b><select class="quick-setting-control" data-tm-proto-edit-field="repeatEndMode"><option value="never" ${repeatEndMode === 'never' ? 'selected' : ''}>永不</option><option value="date" ${repeatEndMode === 'date' ? 'selected' : ''}>按日期</option><option value="count" ${repeatEndMode === 'count' ? 'selected' : ''}>按次数</option></select></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="until"><b class="quick-setting-label">截止日期</b><input class="quick-setting-control" type="date" value="${esc(repeatUntil)}" data-tm-proto-edit-field="repeatUntil"></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="maxOccurrences"><b class="quick-setting-label">循环次数</b><input class="quick-setting-control" type="number" min="1" max="200" step="1" value="${repeatMaxOccurrences > 0 ? esc(String(repeatMaxOccurrences)) : '1'}" data-tm-proto-edit-field="repeatMaxOccurrences"></div>`);
+                advanced.querySelector('[data-tm-proto-repeat-row="monthlyMode"]')?.insertAdjacentHTML('afterend', '<div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="monthDays" style="align-items:start;"><b class="quick-setting-label">日期</b><div data-tm-proto-month-days style="flex:1;min-width:0;"></div></div>');
                 const repeatRow = repeatSelect.closest?.('.quick-setting-row') || repeatSelect.parentElement;
                 if (repeatRow instanceof HTMLElement) {
                     let insertAfter = repeatRow;
@@ -32587,6 +32718,8 @@
                     every: show,
                     weekdays: show && type === 'weekly',
                     monthlyMode: show && type === 'monthly' && calendarMode !== 'lunar',
+                    monthDays: show && type === 'monthly' && calendarMode !== 'lunar',
+                    monthWeek: show && type === 'monthly' && calendarMode !== 'lunar' && readValue('repeatMonthlyMode') !== 'weekday',
                     calendarMode: show && (type === 'monthly' || type === 'yearly'),
                     endMode: show,
                     until: show && endMode === 'date',
@@ -32605,6 +32738,10 @@
                 pop.querySelectorAll('[data-tm-proto-repeat-weekday]').forEach((el) => { if (el instanceof HTMLInputElement) el.disabled = !show || type !== 'weekly'; });
                 const monthly = pop.querySelector('[data-tm-proto-edit-field="repeatMonthlyMode"]');
                 if (monthly instanceof HTMLSelectElement) monthly.disabled = !rows.monthlyMode;
+                const monthDaysEl = pop.querySelector('[data-tm-proto-month-days]');
+                if (monthDaysEl && rows.monthDays) monthDaysEl.innerHTML = readValue('repeatMonthlyMode') === 'weekday'
+                    ? getScheduleRepeatCore().monthDates.weekdayPickerHTML(inlineMonthWeek, readValue('start').slice(0, 10))
+                    : getScheduleRepeatCore().monthDates.pickerHTML(inlineMonthDays, readValue('start').slice(0, 10));
                 const calendar = pop.querySelector('[data-tm-proto-edit-field="repeatCalendarMode"]');
                 if (calendar instanceof HTMLSelectElement) calendar.disabled = !rows.calendarMode;
                 const until = pop.querySelector('[data-tm-proto-edit-field="repeatUntil"]');
@@ -33065,7 +33202,11 @@
                     const repeatWeekdaysValue = nextRepeatType === 'weekly'
                         ? Array.from(pop.querySelectorAll('[data-tm-proto-repeat-weekday]:checked'), (el) => Number(el.value)).filter((value) => Number.isInteger(value))
                         : [];
-                    const repeatRule = getScheduleRepeatCore().normalizeRule({ enabled: nextRepeatType !== 'none', trigger: 'due', type: nextRepeatType, every: repeatEveryValue, weekdays: repeatWeekdaysValue, monthlyMode: repeatMonthlyModeValue, calendarMode: repeatCalendarModeValue, until: repeatUntilValue, maxOccurrences: repeatMaxValue, anchorDate: formatDateKey(startValue) }, { anchorDate: formatDateKey(startValue), startDate: formatDateKey(startValue), trigger: 'due' });
+                    const repeatRule = getScheduleRepeatCore().normalizeRule({ enabled: nextRepeatType !== 'none', trigger: 'due', type: nextRepeatType, every: repeatEveryValue, weekdays: repeatWeekdaysValue, monthlyMode: repeatMonthlyModeValue, monthDays: inlineMonthDays, monthWeek: inlineMonthWeek, calendarMode: repeatCalendarModeValue, until: repeatUntilValue, maxOccurrences: repeatMaxValue, anchorDate: formatDateKey(startValue) }, { anchorDate: formatDateKey(startValue), startDate: formatDateKey(startValue), trigger: 'due' });
+                    if (getScheduleRepeatCore().monthDates.isExplicit(repeatRule) && !getScheduleRepeatCore().monthDates.nextDateKey(repeatRule, repeatRule.anchorDate, true)) {
+                        toast('请选择有效的月日期，并检查截止日期', 'warning');
+                        return;
+                    }
                     const noteValue = readValue('note');
                     let createdCalendarTask = null;
                     let scheduleSaved = false;
@@ -33174,6 +33315,13 @@
             };
             const close = () => { closeTimeHub(); closePrototypeEventPopover(); };
             const pop = document.createElement('div');
+            pop.addEventListener('click', onInlineMonthDayClick);
+            pop.addEventListener('change', (event) => {
+                const field = event.target.dataset.tmMonthWeek;
+                if (isTaskDateEditor || !['ordinal', 'weekday'].includes(field)) return;
+                inlineMonthWeek = { ...getScheduleRepeatCore().monthDates.weekdayRule(inlineMonthWeek, readValue('start').slice(0, 10)), [field]: Number(event.target.value) };
+                syncInlineRepeatControls();
+            });
             pop.style.setProperty('--tm-proto-event-color', protoEventColor(eventApi));
             try {
                 const computed = getComputedStyle(anchorEl);
@@ -33539,6 +33687,8 @@
                                 every: Number(ext.__tmRepeatEvery) || 1,
                                 weekdays: Array.isArray(ext.__tmRepeatWeekdays) ? ext.__tmRepeatWeekdays : [],
                                 monthlyMode: String(ext.__tmRepeatMonthlyMode || 'date'),
+                                monthDays: ext.__tmRepeatMonthDays,
+                                monthWeek: ext.__tmRepeatMonthWeek,
                                 calendarMode: String(ext.__tmRepeatCalendarMode || 'solar'),
                                 until: String(ext.__tmRepeatUntil || ''),
                                 maxOccurrences: Number(ext.__tmRepeatMaxOccurrences) || 0,
@@ -34951,6 +35101,8 @@
                             repeatEvery: Number(ext.__tmRepeatEvery),
                             repeatUntil: String(ext.__tmRepeatUntil || ''),
                             repeatMonthlyMode: String(ext.__tmRepeatMonthlyMode || ''),
+                            repeatMonthDays: ext.__tmRepeatMonthDays,
+                            repeatMonthWeek: ext.__tmRepeatMonthWeek,
                             repeatCalendarMode: String(ext.__tmRepeatCalendarMode || ''),
                             repeatWeekdays: Array.isArray(ext.__tmRepeatWeekdays) ? ext.__tmRepeatWeekdays : [],
                             repeatMaxOccurrences: Number(ext.__tmRepeatMaxOccurrences) || 0,
@@ -38752,6 +38904,8 @@
                 repeatEvery: getScheduleRepeatEvery(item),
                 repeatUntil: getScheduleRepeatUntil(item),
                 repeatMonthlyMode: getScheduleRepeatMonthlyMode(item),
+                repeatMonthDays: getScheduleRepeatRule(item).monthDays,
+                repeatMonthWeek: getScheduleRepeatRule(item).monthWeek,
                 notificationSchedules: buildScheduleNotificationSchedulesView(item),
                 note: String(item.note || item.remark || '').trim(),
             });
@@ -38811,6 +38965,11 @@
                         repeatEvery: normalizeScheduleRepeatEvery(extra.repeatEvery || 1, extra.repeatType || 'none'),
                         repeatUntil: normalizeScheduleRepeatUntil(extra.repeatUntil || ''),
                         repeatMonthlyMode: normalizeScheduleRepeatMonthlyMode(extra.repeatMonthlyMode || 'date', extra.repeatType || 'monthly'),
+            repeatMonthDays: extra.repeatMonthDays,
+            repeatMonthWeek: extra.repeatMonthWeek,
+                        repeatMonthDays: extra.repeatMonthDays,
+                        repeatMonthWeek: extra.repeatMonthWeek,
+            repeatMonthWeek: extra.repeatMonthWeek,
                         repeatCalendarMode: normalizeScheduleRepeatCalendarMode(extra.repeatCalendarMode || 'solar', extra.repeatType || 'monthly'),
                     };
                 }
@@ -38861,6 +39020,8 @@
             repeatEvery: normalizeScheduleRepeatEvery(extra.repeatEvery || 1, extra.repeatType || 'none'),
             repeatUntil: normalizeScheduleRepeatUntil(extra.repeatUntil || ''),
             repeatMonthlyMode: normalizeScheduleRepeatMonthlyMode(extra.repeatMonthlyMode || 'date', extra.repeatType || 'monthly'),
+            repeatMonthDays: extra.repeatMonthDays,
+            repeatMonthWeek: extra.repeatMonthWeek,
             repeatCalendarMode: normalizeScheduleRepeatCalendarMode(extra.repeatCalendarMode || 'solar', extra.repeatType || 'monthly'),
             note: String(extra.note || extra.remark || '').trim(),
         };

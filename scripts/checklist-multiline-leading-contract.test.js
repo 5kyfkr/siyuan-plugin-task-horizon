@@ -13,6 +13,11 @@ const contentRuntime = read('src/task-horizon/main/task-runtime/51-whiteboard-an
 assert.doesNotMatch(styles, /--tm-checklist-compact-leading-height|tm-checklist-compact-single-line-padding/);
 assert.match(
     styles,
+    /\.tm-checklist-pane--compact \.tm-checklist-title\s*\{[^}]*position:\s*relative;[^}]*top:\s*1px;/,
+    'compact checklist titles must receive a small optical correction without moving checkboxes or changing row geometry',
+);
+assert.match(
+    styles,
     /\.tm-checklist-pane--compact \.tm-checklist-item\s*\{[\s\S]*?--tm-checklist-compact-single-line-row-height:\s*max\(0px,\s*calc\(var\(--tm-checklist-compact-row-height, 34px\) - 4px\)\);[\s\S]*?min-height:\s*var\(--tm-checklist-compact-single-line-row-height\);/,
     'single-line checklist rows must use the uniformly reduced vertical spacing',
 );

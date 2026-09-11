@@ -9563,20 +9563,17 @@ select.tm-btn-secondary {
     align-items: center;
 }
 
-/* In wrapping mode, anchor subtask controls to the first title line. This
-   remains correct before runtime wrap measurements finish and when metadata
-   makes the row taller than the title itself. */
-.tm-modal.tm-modal--task-wrap .tm-kanban-subtask-row-main {
+.tm-modal.tm-modal--task-wrap .tm-kanban-subtask-row-main:is(.tm-kanban-subtask-row-main--title-wrapped, :has(> .tm-kanban-subtask-text > .tm-kanban-subtask-meta)) {
     align-items: flex-start;
 }
 
-.tm-modal.tm-modal--task-wrap .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap {
+.tm-modal.tm-modal--task-wrap .tm-kanban-subtask-row-main:is(.tm-kanban-subtask-row-main--title-wrapped, :has(> .tm-kanban-subtask-text > .tm-kanban-subtask-meta)) > .tm-task-checkbox-wrap {
     margin-top: 1px;
 }
 
-.tm-modal.tm-modal--task-wrap .tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap,
-.tm-modal.tm-modal--task-wrap .tm-whiteboard.tm-kanban--clean .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap {
-    margin-top: max(0px, calc(0.675em - 8px));
+.tm-modal.tm-modal--task-wrap .tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main:is(.tm-kanban-subtask-row-main--title-wrapped, :has(> .tm-kanban-subtask-text > .tm-kanban-subtask-meta)) > .tm-task-checkbox-wrap,
+.tm-modal.tm-modal--task-wrap .tm-whiteboard.tm-kanban--clean .tm-kanban-subtask-row-main:is(.tm-kanban-subtask-row-main--title-wrapped, :has(> .tm-kanban-subtask-text > .tm-kanban-subtask-meta)) > .tm-task-checkbox-wrap {
+    margin-top: var(--tm-card-circle-checkbox-offset, max(0px, calc(((var(--tm-font-size) - 1px) * 1.35 - var(--tm-checkbox-size, 14px)) / 2)));
 }
 
 .tm-kanban.tm-kanban--clean .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap,
@@ -14824,6 +14821,8 @@ select.tm-btn-secondary {
 }
 
 .tm-checklist-pane--compact .tm-checklist-title {
+    position: relative;
+    top: 1px;
     display: flex;
     align-items: center;
     gap: 0;

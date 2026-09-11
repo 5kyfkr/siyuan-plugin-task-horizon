@@ -124,7 +124,15 @@ for (let index = 0; index < 12; index += 1) {
     task = { ...task, startDate: patch.startDate, completionTime: patch.completionTime, repeatState: patch.repeatState };
 }
 
-assert.ok(modelSource.includes("rule.type === 'fsrs') return []"), 'fixed future preview must exclude FSRS');
+const previewSource = modelSource.match(/    function __tmCollectTaskRepeatPreviewDates\([\s\S]*?\n    \}/);
+assert.ok(previewSource, 'repeat preview function must remain extractable');
+for (const rule of [{ enabled: true, type: 'fsrs' }, { enabled: true, type: 'monthly', trigger: 'complete' }]) {
+    const preview = vm.runInNewContext(previewSource[0] + '\n__tmCollectTaskRepeatPreviewDates({ repeatRule: rule });', {
+        rule,
+        __tmGetTaskRepeatRule: (task) => task.repeatRule,
+    });
+    assert.deepEqual(Array.from(preview), [], 'fixed future preview must exclude FSRS and completion-based repeats');
+}
 assert.ok(modelSource.includes("rule.type === 'none' || rule.type === 'fsrs') return null"), 'fixed-date advance must exclude FSRS');
 assert.ok(manifest.scripts.indexOf('vendor/ts-fsrs-5.4.1.umd.js') < manifest.scripts.indexOf('main/task-runtime/50a-fsrs-runtime.js'));
 

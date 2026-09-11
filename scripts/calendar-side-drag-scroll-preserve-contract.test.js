@@ -34,12 +34,12 @@ assert.match(
 );
 assert.match(
     source,
-    /surface\.addEventListener\('pointerdown', \(event\) => \{[\s\S]*\}, true\);[\s\S]*surface\.addEventListener\('pointermove', \(event\) => \{[\s\S]*\}, true\);[\s\S]*surface\.addEventListener\('pointerup', \(event\) => \{/,
+    /bindPrototypeSurfacePointerHandler\(surface, 'pointerdown', \(event\) => \{[\s\S]*\}, true\);[\s\S]*bindPrototypeSurfacePointerHandler\(surface, 'pointermove', \(event\) => \{[\s\S]*\}, true\);[\s\S]*bindPrototypeSurfacePointerHandler\(surface, 'pointerup', \(event\) => \{/,
     'side event gesture handlers must run before host gesture delegation',
 );
 assert.match(
     source,
-    /event\.pointerType === 'touch' \|\| event\.pointerType === 'pen'[\s\S]*surface\.setPointerCapture\?\.\(event\.pointerId\)[\s\S]*if \(Math\.abs\(dy\) > 4 && !drag\.moved\)[\s\S]*drag\.moved = true[\s\S]*surface\.setPointerCapture\?\.\(event\.pointerId\)/,
+    /event\.pointerType === 'touch' \|\| event\.pointerType === 'pen'[\s\S]*surface\.setPointerCapture\?\.\(event\.pointerId\)[\s\S]*if \(distance > 4 && !drag\.moved\)[\s\S]*drag\.moved = true[\s\S]*surface\.setPointerCapture\?\.\(event\.pointerId\)/,
     'mouse taps must keep their native click target until the drag threshold is crossed',
 );
 assert.match(

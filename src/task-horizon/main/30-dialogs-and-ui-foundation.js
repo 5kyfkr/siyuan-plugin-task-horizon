@@ -5224,10 +5224,11 @@ return Number(state.contextInteractionQuietUntil || 0);
                         <div class="tm-repeat-field" data-tm-repeat-monthly-wrap style="display:${currentRule.type === 'monthly' ? 'flex' : 'none'};flex-direction:column;gap:8px;">
                             <div class="tm-repeat-label">每月规则</div>
                             <div class="tm-repeat-segments">
-                                <button type="button" class="tm-repeat-segment ${currentRule.monthlyMode !== 'weekday' ? 'is-active' : ''}" data-tm-repeat-monthly="date">${esc(__tmGetTaskRepeatMonthlyModeCaption('date', anchorDate))}</button>
-                                <button type="button" class="tm-repeat-segment ${currentRule.monthlyMode === 'weekday' ? 'is-active' : ''}" data-tm-repeat-monthly="weekday">${esc(__tmGetTaskRepeatMonthlyModeCaption('weekday', anchorDate))}</button>
+                                <button type="button" class="tm-repeat-segment ${currentRule.monthlyMode !== 'weekday' ? 'is-active' : ''}" data-tm-repeat-monthly="date">按日期</button>
+                                <button type="button" class="tm-repeat-segment ${currentRule.monthlyMode === 'weekday' ? 'is-active' : ''}" data-tm-repeat-monthly="weekday">按星期</button>
                             </div>
                         </div>
+                        <div class="tm-repeat-field" data-tm-repeat-month-days-wrap style="display:none;flex-direction:column;"></div>
                         <div class="tm-repeat-field" data-tm-repeat-end-wrap>
                             <div class="tm-repeat-label">循环截止</div>
                             <select class="tm-repeat-select" data-tm-repeat-field="endMode">
@@ -5274,6 +5275,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             const weekdayButtons = Array.from(modal.querySelectorAll('[data-tm-repeat-weekday]')).filter((el) => el instanceof HTMLButtonElement);
             let calendarMode = currentRule.calendarMode || 'solar';
             let monthlyMode = currentRule.monthlyMode || 'date';
+            let monthDays = Array.isArray(currentRule.monthDays) ? currentRule.monthDays.slice() : undefined;
+            let monthWeek = currentRule.monthWeek ? { ...currentRule.monthWeek } : undefined;
+            const monthDaysWrap = modal.querySelector('[data-tm-repeat-month-days-wrap]');
             let weekdays = Array.isArray(currentRule.weekdays) ? currentRule.weekdays.slice() : [];
             let settled = false;
 
@@ -5320,6 +5324,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                     every,
                     weekdays,
                     monthlyMode,
+                    monthDays,
+                    monthWeek,
                     calendarMode,
                     until,
                     maxOccurrences,
@@ -5354,6 +5360,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 const triggerType = String(triggerTypeEl?.value || 'none').trim();
                 const type = __tmNormalizeTaskRepeatType(typeEl?.value || currentRule.type || 'daily');
                 const fsrs = triggerType === 'fsrs';
+                const completionBased = triggerType === 'complete';
                 const disabled = triggerType === 'none' || fsrs;
                 const endMode = String(endModeEl?.value || 'never').trim();
                 if (frequencyWrap instanceof HTMLElement) frequencyWrap.style.display = fsrs ? 'none' : '';
@@ -5367,12 +5374,18 @@ return Number(state.contextInteractionQuietUntil || 0);
                 }
                 if (maxOccurrencesEl instanceof HTMLInputElement) maxOccurrencesEl.disabled = disabled || endMode !== 'count';
                 if (countWrap instanceof HTMLElement) countWrap.style.display = !fsrs && endMode === 'count' ? 'flex' : 'none';
-                if (weekdaysWrap instanceof HTMLElement) weekdaysWrap.style.display = (!disabled && type === 'weekly') ? 'flex' : 'none';
-                if (calendarWrap instanceof HTMLElement) calendarWrap.style.display = (!disabled && (type === 'monthly' || type === 'yearly')) ? 'flex' : 'none';
-                if (monthlyWrap instanceof HTMLElement) monthlyWrap.style.display = (!disabled && type === 'monthly' && calendarMode !== 'lunar') ? 'flex' : 'none';
+                if (weekdaysWrap instanceof HTMLElement) weekdaysWrap.style.display = (!disabled && !completionBased && type === 'weekly') ? 'flex' : 'none';
+                if (calendarWrap instanceof HTMLElement) calendarWrap.style.display = (!disabled && !completionBased && (type === 'monthly' || type === 'yearly')) ? 'flex' : 'none';
+                if (monthlyWrap instanceof HTMLElement) monthlyWrap.style.display = (!disabled && !completionBased && type === 'monthly' && calendarMode !== 'lunar') ? 'flex' : 'none';
                 syncCalendarButtons();
                 syncMonthlyButtons();
                 syncWeekdayButtons();
+                if (monthDaysWrap instanceof HTMLElement) {
+                    monthDaysWrap.style.display = !disabled && !completionBased && type === 'monthly' && calendarMode !== 'lunar' ? 'flex' : 'none';
+                    monthDaysWrap.innerHTML = monthlyMode === 'weekday'
+                        ? __tmMonthRepeatCore.weekdayPickerHTML(monthWeek, anchorDate)
+                        : __tmMonthRepeatCore.pickerHTML(monthDays, anchorDate);
+                }
                 const draft = readDraft();
                 if (summaryEl instanceof HTMLElement) {
                     summaryEl.textContent = draft.enabled
@@ -5380,6 +5393,13 @@ return Number(state.contextInteractionQuietUntil || 0);
                             ? '勾选任务表示“良好”；也可从任务菜单选择重来、困难、良好或简单。'
                             : `${__tmGetTaskRepeatSummary(draft, { startDate: task?.startDate, completionTime: task?.completionTime })}。`)
                         : '当前任务不会自动循环。';
+                    if (draft.enabled && draft.trigger === 'complete' && draft.type !== 'fsrs') {
+                        summaryEl.textContent += ' 从实际完成日期计算下一期；未完成前不预排后续日期。';
+                    }
+                    if (__tmMonthRepeatCore.isExplicit(draft)) {
+                        const dates = __tmMonthRepeatCore.iterate(draft, { fromDateKey: __tmNormalizeDateOnly(new Date()), toDateKey: '9999-12-31', limit: 3 });
+                        summaryEl.textContent += dates.length ? ' 接下来：' + dates.map((entry) => entry.dateKey).join('、') : ' 没有下一次，请检查日期和结束条件。';
+                    }
                 }
             };
 
@@ -5407,6 +5427,22 @@ return Number(state.contextInteractionQuietUntil || 0);
                     syncUi();
                 };
             });
+            monthDaysWrap?.addEventListener('change', (event) => {
+                const field = event.target.dataset.tmMonthWeek;
+                if (!['ordinal', 'weekday'].includes(field)) return;
+                monthWeek = { ...__tmMonthRepeatCore.weekdayRule(monthWeek, anchorDate), [field]: Number(event.target.value) };
+                syncUi();
+                monthDaysWrap.querySelector('[data-tm-month-week="' + field + '"]')?.focus();
+            });
+            monthDaysWrap?.addEventListener('click', (event) => {
+                const button = event.target.closest('[data-tm-month-day]');
+                if (!button) return;
+                const day = Number(button.dataset.tmMonthDay);
+                const current = monthDays ?? [__tmBuildLocalNoonDateFromKey(anchorDate).getDate()];
+                monthDays = __tmMonthRepeatCore.normalizeDays(current.includes(day) ? current.filter((value) => value !== day) : [...current, day]);
+                syncUi();
+                monthDaysWrap.querySelector('[data-tm-month-day="' + day + '"]')?.focus();
+            });
             triggerTypeEl?.addEventListener('change', syncUi);
             typeEl?.addEventListener('change', syncUi);
             everyEl?.addEventListener('input', syncUi);
@@ -5415,12 +5451,18 @@ return Number(state.contextInteractionQuietUntil || 0);
             maxOccurrencesEl?.addEventListener('input', syncUi);
             confirmBtn?.addEventListener('click', () => {
                 const draft = readDraft();
+                if (__tmMonthRepeatCore.isExplicit(draft) && !__tmMonthRepeatCore.nextDateKey(draft, draft.anchorDate, true)) {
+                    hint('请选择有效的月日期，并检查截止日期', 'warning');
+                    return;
+                }
                 const scheduleFields = (rule) => JSON.stringify([
                     rule.enabled,
                     rule.type,
                     rule.every,
                     rule.weekdays,
                     rule.monthlyMode,
+                    rule.monthDays,
+                    rule.monthWeek,
                     rule.calendarMode,
                     rule.anchorDate,
                 ]);

@@ -81,10 +81,10 @@ assert.equal(isNativeDoneHeld({ ...heldNativeTask, taskCompleteAt: '2026-07-24T0
 
 const rule = normalizeRule({ enabled: true, trigger: 'complete', type: 'daily', every: 1, maxOccurrences: 3, anchorDate: '2026-07-18' });
 const firstTask = { startDate: '2026-07-18', completionTime: '2026-07-18', repeatState: { occurrenceCount: 1 } };
-const second = buildPatch(firstTask, rule, { advancedAt: '2026-07-18T10:00:00.000Z' });
+const second = buildPatch(firstTask, rule, { completedAt: '2026-07-18T10:00:00.000Z', advancedAt: '2026-07-18T10:00:00.000Z' });
 assert.equal(second.startDate, '2026-07-19');
 assert.equal(second.repeatState.occurrenceCount, 2);
-const third = buildPatch({ ...firstTask, ...second }, rule, { advancedAt: '2026-07-19T10:00:00.000Z' });
+const third = buildPatch({ ...firstTask, ...second }, rule, { completedAt: '2026-07-19T10:00:00.000Z', advancedAt: '2026-07-19T10:00:00.000Z' });
 assert.equal(third.startDate, '2026-07-20');
 assert.equal(third.repeatState.occurrenceCount, 3);
 assert.equal(buildPatch({ ...firstTask, ...third }, rule), null, 'the series must not generate occurrence N+1');

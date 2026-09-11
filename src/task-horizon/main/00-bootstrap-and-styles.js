@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      3.0.1
+// @version      3.0.2
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 

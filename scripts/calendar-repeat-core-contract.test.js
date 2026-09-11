@@ -46,7 +46,7 @@ const calendarContext = vm.createContext({
     isAllDayRange: (start, end) => start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0,
 });
 calendarContext.globalThis = calendarContext;
-vm.runInContext(`${calendar.slice(calendarStart, calendarEnd)}\nthis.__test = { normalizeScheduleList, serializeScheduleForSave, collectScheduleOccurrencesInRange, applyScheduleRecurringScopeMutation };`, calendarContext);
+vm.runInContext(`${calendar.slice(calendarStart, calendarEnd)}\nthis.__test = { normalizeScheduleList, serializeScheduleForSave, collectScheduleOccurrencesInRange, applyScheduleRecurringScopeMutation, applyScheduleRecurringDeleteScopeMutation, getScheduleOccurrenceOrdinal };`, calendarContext);
 const calendarApi = calendarContext.__test;
 
 assert.match(taskModel, /tmRepeatCore\s*=\s*Object\.freeze\([\s\S]*normalizeRule:[\s\S]*next:[\s\S]*iterate:/,
@@ -184,4 +184,28 @@ assert.deepEqual(Array.from(allDayOccurrences, (item) => [localDateKey(item.star
     ['2026-08-26', '2026-08-27'],
 ], 'all-day recurrence must preserve local day spans');
 
+const monthlyItem = calendarApi.normalizeScheduleList([{ id: 'monthly-series', title: 'Monthly', start: new Date(2026, 8, 10, 9), end: new Date(2026, 8, 10, 10), repeatRule: { enabled: true, type: 'monthly', every: 2, monthDays: [10, 11], anchorDate: '2026-09-10', maxOccurrences: 5 } }]).out[0];
+const monthOccurrences = calendarApi.collectScheduleOccurrencesInRange(monthlyItem, new Date(2026, 8, 1), new Date(2027, 2, 1), { limit: 20 });
+assert.deepEqual(Array.from(monthOccurrences, (item) => localDateKey(item.start)), ['2026-09-10', '2026-09-11', '2026-11-10', '2026-11-11', '2027-01-10']);
+assert.ok(monthOccurrences.every((item) => item.end.getTime() - item.start.getTime() === 3600000));
+const monthSaved = calendarApi.serializeScheduleForSave(monthlyItem);
+assert.deepEqual(Array.from(monthSaved.repeatRule.monthDays), [10, 11]);
+const reloaded = calendarApi.normalizeScheduleList([JSON.parse(JSON.stringify(monthSaved))]).out[0];
+assert.deepEqual(Array.from(reloaded.repeatRule.monthDays), [10, 11], 'saving and reopening must preserve selected month dates');
+const monthList = [monthlyItem];
+calendarApi.applyScheduleRecurringScopeMutation(monthList, 0, { ...monthlyItem, title: 'Future', start: new Date(2026, 10, 10, 9), end: new Date(2026, 10, 10, 10) }, 'future', { occurrenceStartMs: new Date(2026, 10, 10, 9).getTime() });
+assert.equal(monthList.length, 2);
+assert.equal(monthList[0].repeatRule.maxOccurrences, 2);
+assert.equal(monthList[1].repeatRule.maxOccurrences, 3);
+assert.deepEqual(Array.from(monthList[1].repeatRule.monthDays), [10, 11]);
+const denseMonth = { ...monthlyItem, start: new Date(2020, 0, 1, 9), end: new Date(2020, 0, 1, 10), repeatRule: { enabled: true, type: 'monthly', every: 1, monthDays: Array.from({ length: 31 }, (_, index) => index + 1), anchorDate: '2020-01-01' } };
+assert.equal(calendarApi.getScheduleOccurrenceOrdinal(denseMonth, new Date(2027, 0, 1, 9).getTime()), 2558, 'series edits must not inherit the display cap');
+const monthlyWeekItem = calendarApi.normalizeScheduleList([{ ...monthlyItem, id: 'monthly-week-series', repeatRule: { enabled: true, type: 'monthly', monthlyMode: 'weekday', monthWeek: { ordinal: -1, weekday: 5 }, every: 1, anchorDate: '2026-09-10', maxOccurrences: 3 } }]).out[0];
+const monthlyWeekSaved = calendarApi.serializeScheduleForSave(monthlyWeekItem);
+const monthlyWeekReloaded = calendarApi.normalizeScheduleList([JSON.parse(JSON.stringify(monthlyWeekSaved))]).out[0];
+assert.equal(monthlyWeekReloaded.repeatRule.monthWeek.ordinal, -1);
+assert.equal(monthlyWeekReloaded.repeatRule.monthWeek.weekday, 5);
+assert.deepEqual(Array.from(calendarApi.collectScheduleOccurrencesInRange(monthlyWeekReloaded, new Date(2026, 8, 1), new Date(2027, 0, 1), { limit: 20 }), (item) => localDateKey(item.start)), ['2026-09-25', '2026-10-30', '2026-11-27']);
+assert.match(calendar, /data-tm-cal-month-days/);
+assert.match(calendar, /data-tm-proto-month-days/);
 console.log('calendar repeat core contract tests passed');

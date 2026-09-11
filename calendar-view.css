@@ -4286,6 +4286,15 @@
     box-shadow: 0 14px 30px color-mix(in srgb, var(--tm-cal-text) 18%, transparent), 0 2px 8px color-mix(in srgb, var(--tm-cal-border) 42%, transparent);
     animation: tm-proto-pop-in .16s ease-out;
 }
+.tm-proto-more-popover.is-dragging{
+    visibility: hidden;
+    pointer-events: none;
+}
+.tm-proto-more-popover--draggable [data-tm-proto-event]{
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
 .tm-proto-more-popover-head{
     padding: 6px 8px;
     color: var(--tm-cal-text);

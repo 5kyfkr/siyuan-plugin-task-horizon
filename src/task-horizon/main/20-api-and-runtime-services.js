@@ -7970,6 +7970,8 @@
             Math.max(1, Number(source.every) || 1),
             Array.isArray(source.weekdays) ? source.weekdays : [],
             String(source.monthlyMode || 'date').trim(),
+            source.monthDays,
+            source.monthWeek,
             String(source.calendarMode || 'solar').trim(),
             String(source.until || '').trim(),
             Math.max(0, Number(source.maxOccurrences) || 0),
@@ -11398,16 +11400,19 @@
             ? Math.max(0, Math.min(200, parseInt(raw.maxOccurrences, 10) || 0))
             : 0;
         const anchorDate = __tmNormalizeReminderDateKey(raw.anchorDate || '');
+        const completionBased = String(raw.trigger || '').trim().toLowerCase() === 'complete';
         return {
             enabled: enabled && type !== 'none',
             trigger: String(raw.trigger || '').trim().toLowerCase() === 'complete' ? 'complete' : 'due',
             type,
             every: Math.max(1, Math.min(3650, parseInt(raw.every, 10) || 1)),
-            weekdays: enabled && type === 'weekly'
+            weekdays: enabled && !completionBased && type === 'weekly'
                 ? __tmNormalizeReminderWeekdays(raw.weekdays ?? raw.weekDays ?? raw.weekday, anchorDate)
                 : [],
-            monthlyMode: __tmNormalizeReminderMonthlyMode(raw.monthlyMode || ''),
-            calendarMode: __tmNormalizeReminderCalendarMode(raw.calendarMode || raw.repeatCalendarMode || '', type),
+            monthlyMode: completionBased ? 'date' : __tmNormalizeReminderMonthlyMode(raw.monthlyMode || ''),
+            monthDays: completionBased || raw.monthDays === undefined ? undefined : __tmMonthRepeatCore.normalizeDays(raw.monthDays),
+            monthWeek: !completionBased && raw.monthWeek ? __tmMonthRepeatCore.weekdayRule(raw.monthWeek, raw.anchorDate || raw.startDate) : undefined,
+            calendarMode: completionBased ? 'solar' : __tmNormalizeReminderCalendarMode(raw.calendarMode || raw.repeatCalendarMode || '', type),
             until: maxOccurrences > 0 ? '' : __tmNormalizeReminderDateKey(raw.until || raw.repeatUntil || ''),
             maxOccurrences,
             anchorDate,
@@ -11441,6 +11446,8 @@
             if (!Array.isArray(arr)) return set;
             arr.forEach((item) => {
                 if (!item) return;
+                if (reminder?.trigger === 'complete' && item.occurrenceNumber && item.date === __tmGetReminderCompletionDateKey(reminder)
+                    && Number(item.occurrenceNumber) !== Math.max(1, Number(reminder.repeatState?.occurrenceCount) || 1)) return;
                 if (typeof item === 'string') {
                     const key = item.trim();
                     if (key) set.add(key);
@@ -11470,7 +11477,9 @@
                     if (key) set.add(key);
                     return;
                 }
-                const key = __tmReminderOccurrenceKey(item.date || item.dateKey, item.time || item.timeKey);
+                if (reminder?.trigger === 'complete' && item.occurrenceNumber && item.date === __tmGetReminderCompletionDateKey(reminder)
+                && Number(item.occurrenceNumber) !== Math.max(1, Number(reminder.repeatState?.occurrenceCount) || 1)) return;
+            const key = __tmReminderOccurrenceKey(item.date || item.dateKey, item.time || item.timeKey);
                 if (key) set.add(key);
             });
         } catch (e) {}
@@ -11636,6 +11645,8 @@
     function __tmNormalizeReminderRecord(reminder, taskId = '') {
         const raw = (reminder && typeof reminder === 'object' && !Array.isArray(reminder)) ? reminder : {};
         const times = __tmCollectReminderTimes(raw);
+        const trigger = String(raw.trigger || '').trim().toLowerCase() === 'complete' ? 'complete' : 'due';
+        const completionBased = trigger === 'complete';
         const explicitEnabled = raw.enabled;
         const enabled = explicitEnabled === undefined
             ? !!(times.length
@@ -11654,10 +11665,14 @@
             ...raw,
             blockId: String(raw.blockId || taskId || '').trim(),
             enabled,
+            trigger,
+            weekdays: completionBased ? [] : __tmNormalizeReminderWeekdays(raw.weekdays ?? raw.weekDays ?? raw.weekday, raw.startDate || raw.date || raw.createdAt || ''),
             interval: __tmNormalizeReminderInterval(raw),
             every: __tmGetReminderEvery(raw),
-            monthlyMode: __tmNormalizeReminderMonthlyMode(raw.monthlyMode || raw.repeatMonthlyMode || raw.monthly_mode || ''),
-            calendarMode: __tmNormalizeReminderCalendarMode(raw.calendarMode || raw.repeatCalendarMode || raw.repeat_calendar_mode || '', __tmNormalizeReminderInterval(raw)),
+            monthlyMode: completionBased ? 'date' : __tmNormalizeReminderMonthlyMode(raw.monthlyMode || raw.repeatMonthlyMode || raw.monthly_mode || ''),
+            monthDays: completionBased || (raw.monthDays ?? raw.repeatMonthDays) === undefined ? undefined : __tmMonthRepeatCore.normalizeDays(raw.monthDays ?? raw.repeatMonthDays),
+            monthWeek: !completionBased && raw.monthWeek ? __tmMonthRepeatCore.weekdayRule(raw.monthWeek, raw.anchorDate || raw.startDate) : undefined,
+            calendarMode: completionBased ? 'solar' : __tmNormalizeReminderCalendarMode(raw.calendarMode || raw.repeatCalendarMode || raw.repeat_calendar_mode || '', __tmNormalizeReminderInterval(raw)),
             times,
             startDate: __tmNormalizeReminderDateKey(
                 raw.startDate
@@ -11667,7 +11682,7 @@
                 || raw.day
                 || ''
             ),
-            endDate: __tmNormalizeReminderDateKey(raw.endDate || raw.until || raw.repeatUntil || ''),
+            endDate: completionBased && Number(raw.maxOccurrences) > 0 ? '' : __tmNormalizeReminderDateKey(raw.endDate || raw.until || raw.repeatUntil || ''),
             repeatMode: __tmGetReminderRepeatMode(raw),
             taskStartDate: __tmNormalizeReminderDateKey(raw.taskStartDate || ''),
             taskCompletionTime: __tmNormalizeReminderDateKey(raw.taskCompletionTime || ''),
@@ -11684,6 +11699,15 @@
         const v = __tmNormalizeReminderDateKey(reminder?.startDate || '');
         if (v) return v;
         return __tmNormalizeReminderDateKey(reminder?.createdAt || new Date());
+    }
+
+    function __tmGetReminderCompletionDateKey(reminder) {
+        const repeatState = reminder?.repeatState || {};
+        const count = Math.max(1, Number(repeatState.occurrenceCount) || 1);
+        if (Number(reminder?.maxOccurrences) > 0 && count > Number(reminder.maxOccurrences)) return '';
+        if (repeatState.lastCompletedAt && !repeatState.lastInstanceDue) return '';
+        const dateKey = __tmNormalizeReminderDateKey(repeatState.lastInstanceDue || __tmGetReminderStartDateKey(reminder));
+        return reminder.endDate && dateKey > reminder.endDate ? '' : dateKey;
     }
 
     function __tmGetReminderMondayStart(dateLike) {
@@ -11721,7 +11745,7 @@
         );
         const every = interval === 'once' ? 1 : __tmGetReminderEvery(reminder);
         const endDate = reminder?.endDate ? __tmNormalizeReminderDateKey(reminder.endDate) : '';
-        const isBeforeStartDate = (dateKey) => dateKey < startKey;
+        const isBeforeStartDate = (dateKey) => reminder?.trigger !== 'complete' && dateKey < startKey;
         const isBeyondEndDate = (dateKey) => !!endDate && dateKey > endDate;
 
         const pickOnDate = (dateKey, requireFutureTime) => {
@@ -11761,6 +11785,11 @@
             const afterCurrentDay = new Date(`${followKey}T23:59:59.999`);
             const previewFrom = afterCurrentDay.getTime() > from.getTime() ? afterCurrentDay : from;
             return __tmGetNextFollowTaskReminderPreviewDateTime(reminder, previewFrom);
+        }
+
+        if (reminder?.trigger === 'complete' && interval !== 'once') {
+            const currentKey = __tmGetReminderCompletionDateKey(reminder);
+            return currentKey && currentKey >= nowKey ? pickOnDate(currentKey, currentKey === nowKey) : null;
         }
 
         if (interval === 'once') {
@@ -11861,6 +11890,20 @@
         }
 
         if (interval === 'monthly') {
+            const monthDays = reminder.monthDays ?? repeatRule?.monthDays;
+            const monthWeek = reminder.monthWeek ?? repeatRule?.monthWeek;
+            const monthlyRule = { type: 'monthly', monthDays, monthWeek, monthlyMode: __tmGetReminderMonthlyMode(reminder), calendarMode, every, anchorDate: startKey, until: endDate };
+            if (__tmMonthRepeatCore.isExplicit(monthlyRule)) {
+                const rule = monthlyRule;
+                let key = __tmMonthRepeatCore.nextDateKey(rule, nowKey, true);
+                const attempts = (reminder.completedOccurrences?.length || 0) + (reminder.excludedOccurrences?.length || 0) + 2;
+                for (let index = 0; key && index < attempts; index += 1) {
+                    const at = pickOnDate(key, key === nowKey);
+                    if (at) return at;
+                    key = __tmMonthRepeatCore.nextDateKey(rule, key);
+                }
+                return null;
+            }
             const anchor = new Date(`${startKey}T00:00:00`);
             if (Number.isNaN(anchor.getTime())) return null;
             if (calendarMode === 'lunar') {
@@ -11983,22 +12026,24 @@
 
     function __tmGetNextFollowTaskReminderPreviewDateTime(reminder, fromDate) {
         const rule = __tmNormalizeReminderTaskRepeatRule(reminder?.taskRepeatRule);
-        if (__tmGetReminderRepeatMode(reminder) !== __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK || !rule?.enabled || rule.type === 'none') return null;
+        if (__tmGetReminderRepeatMode(reminder) !== __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK || !rule?.enabled || rule.type === 'none' || rule.trigger === 'complete') return null;
         if (rule.maxOccurrences > 0 && __tmGetReminderTaskRepeatOccurrenceCount(reminder) >= rule.maxOccurrences) return null;
         const followKey = __tmGetReminderFollowTaskAnchorKey(reminder);
         if (!followKey) return null;
         const monthlyAnchor = rule.type === 'monthly'
             && rule.calendarMode !== 'lunar'
-            && rule.monthlyMode !== 'weekday'
+            && (rule.monthlyMode !== 'weekday' || !!rule.monthWeek)
             ? __tmNormalizeReminderDateKey(rule.anchorDate || '')
             : '';
-        return __tmGetNextReminderDateTime({
+        const nextAt = __tmGetNextReminderDateTime({
             ...reminder,
             repeatMode: 'manual',
             interval: rule.type,
             every: rule.every,
             weekdays: rule.weekdays,
             monthlyMode: rule.monthlyMode,
+            monthDays: rule.monthDays,
+            monthWeek: rule.monthWeek,
             calendarMode: rule.calendarMode,
             startDate: monthlyAnchor || followKey,
             endDate: rule.until || '',
@@ -12009,6 +12054,12 @@
             excludedOccurrences: Array.isArray(reminder?.excludedOccurrences) ? reminder.excludedOccurrences : [],
             syncTaskDone: false,
         }, fromDate);
+        if (nextAt && rule.maxOccurrences > 0 && __tmMonthRepeatCore.isExplicit(rule)) {
+            const currentOrdinal = __tmMonthRepeatCore.ordinal(rule, followKey);
+            const nextOrdinal = __tmMonthRepeatCore.ordinal(rule, __tmNormalizeReminderDateKey(nextAt));
+            if (__tmGetReminderTaskRepeatOccurrenceCount(reminder) + nextOrdinal - currentOrdinal > rule.maxOccurrences) return null;
+        }
+        return nextAt;
     }
 
     function __tmGetLastDueReminderDateTime(reminder, toDate) {
@@ -12054,6 +12105,11 @@
                 const followKey = __tmGetReminderFollowTaskAnchorKey(reminder);
                 if (!followKey || followKey > nowKey) return null;
                 return pickLatestOnDate(followKey, followKey === nowKey);
+            }
+
+            if (reminder?.trigger === 'complete' && interval !== 'once') {
+                const currentKey = __tmGetReminderCompletionDateKey(reminder);
+                return currentKey && currentKey <= nowKey ? pickLatestOnDate(currentKey, currentKey === nowKey) : null;
             }
 
             if (interval === 'once') {
@@ -12139,6 +12195,20 @@
             }
 
             if (interval === 'monthly') {
+                const monthDays = reminder.monthDays ?? repeatRule?.monthDays;
+                const monthWeek = reminder.monthWeek ?? repeatRule?.monthWeek;
+                const monthlyRule = { type: 'monthly', monthDays, monthWeek, monthlyMode: __tmGetReminderMonthlyMode(reminder), calendarMode, every, anchorDate: startKey, until: endKey };
+                if (__tmMonthRepeatCore.isExplicit(monthlyRule)) {
+                    const rule = monthlyRule;
+                    let key = __tmMonthRepeatCore.previousDateKey(rule, nowKey, true);
+                    const attempts = (reminder.completedOccurrences?.length || 0) + (reminder.excludedOccurrences?.length || 0) + 2;
+                    for (let index = 0; key && index < attempts; index += 1) {
+                        const at = pickLatestOnDate(key, key === nowKey);
+                        if (at) return at;
+                        key = __tmMonthRepeatCore.previousDateKey(rule, key);
+                    }
+                    return null;
+                }
                 const anchor = new Date(`${startKey}T00:00:00`);
                 if (Number.isNaN(anchor.getTime())) return null;
                 if (endKey && nowKey > endKey) return null;
@@ -12499,7 +12569,7 @@
         const taskName = String(opts.blockName || taskObj?.content || taskObj?.raw_content || taskObj?.rawContent || taskObj?.markdown || '任务').trim() || '任务';
         const rootId = String(taskObj?.root_id || taskObj?.docId || taskObj?.rootId || opts.docId || '').trim();
         const taskStartDate = __tmNormalizeReminderDateKey(opts.startDate || taskObj?.startDate || taskObj?.start_date || '');
-        const taskCompletionTime = __tmNormalizeReminderDateKey(opts.completionTime || taskObj?.completionTime || taskObj?.completion_time || dateKey);
+        const taskCompletionTime = dateKey;
         let repeatRule = null;
         try {
             repeatRule = typeof __tmGetTaskRepeatRule === 'function'
