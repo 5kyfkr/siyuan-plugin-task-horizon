@@ -759,6 +759,25 @@
             if (!Number.isFinite(targetDayStartTs) || targetDayStartTs <= 0) return Infinity;
             return Math.round((targetDayStartTs - todayStartTs) / DAY_MS);
         };
+        const calcWorkdayDiff = (targetDayStartTs) => {
+            const calendarDiff = calcDayDiff(targetDayStartTs);
+            if (!Number.isFinite(calendarDiff) || calendarDiff === 0) return calendarDiff;
+            const direction = calendarDiff > 0 ? 1 : -1;
+            const absoluteDays = Math.abs(calendarDiff);
+            const fullWeeks = Math.floor(absoluteDays / 7);
+            const remainder = absoluteDays % 7;
+            let workdays = fullWeeks * 5;
+            const cursor = new Date(todayStartTs);
+            for (let index = 1; index <= remainder; index += 1) {
+                cursor.setDate(cursor.getDate() + direction);
+                const weekday = cursor.getDay();
+                if (weekday !== 0 && weekday !== 6) workdays += 1;
+            }
+            return direction * workdays;
+        };
+        const getRemainingDayDiff = (targetDayStartTs) => SettingsStore.data.remainingTimeUseWorkdays
+            ? calcWorkdayDiff(targetDayStartTs)
+            : calcDayDiff(targetDayStartTs);
         const makeInfo = (label, color, sortPrefix, emphasis = false) => ({
             label: String(label || '').trim() || '待定',
             color: String(color || 'var(--tm-secondary-text)').trim() || 'var(--tm-secondary-text)',
@@ -802,14 +821,14 @@
 
         if (hasEnd) {
             if (hasStart && nowTs < startStartTs) {
-                const daysUntilStart = calcDayDiff(startStartTs);
+                const daysUntilStart = getRemainingDayDiff(startStartTs);
                 if (daysUntilStart <= 0) return makeInfo('开始', colors.active, '2', true);
                 if (daysUntilStart === 1) return makeInfo('明天→', colors.waiting, '4');
                 if (daysUntilStart === 2) return makeInfo('后天→', colors.waiting, '5');
                 if (daysUntilStart <= 7) return makeInfo(`${daysUntilStart}天后→`, colors.waiting, '6');
                 return makeInfo(`${daysUntilStart}天后→`, colors.waiting, '7');
             }
-            const remainingDays = calcDayDiff(endStartTs);
+            const remainingDays = getRemainingDayDiff(endStartTs);
             if (remainingDays < 0 || nowTs > endEndTs) return makeInfo('过期', colors.overdue, '1', true);
             if (remainingDays === 0) return makeInfo('今天', colors.activeStrong, '1', true);
             if (remainingDays <= 7) return makeInfo(`余${remainingDays}天`, colors.active, '1', true);
@@ -818,7 +837,7 @@
 
         if (hasStart) {
             if (nowTs > startEndTs) return makeInfo('开始', colors.active, '2', true);
-            const daysUntilStart = calcDayDiff(startStartTs);
+            const daysUntilStart = getRemainingDayDiff(startStartTs);
             if (daysUntilStart <= 0) return makeInfo('今天', colors.activeStrong, '1', true);
             if (daysUntilStart === 1) return makeInfo('明天→', colors.waiting, '4');
             if (daysUntilStart === 2) return makeInfo('后天→', colors.waiting, '5');

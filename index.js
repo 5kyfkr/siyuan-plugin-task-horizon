@@ -1298,7 +1298,15 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this.publishSiyuanSyncStatus("synced");
         this._taskSiyuanSyncHandlers = {
             "sync-start": () => this.publishSiyuanSyncStatus("syncing"),
-            "sync-end": () => this.publishSiyuanSyncStatus("synced"),
+            "sync-end": () => {
+                this.publishSiyuanSyncStatus("synced");
+                Promise.resolve(this.requestSyncedDataReload("sync-end", {
+                    delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,
+                    suppressStorageWrites: true,
+                })).catch((e) => {
+                    console.warn("[task-horizon] post-sync task reload failed", e);
+                });
+            },
             "sync-fail": () => this.publishSiyuanSyncStatus("failed"),
         };
         Object.entries(this._taskSiyuanSyncHandlers).forEach(([eventName, handler]) => {
@@ -1355,7 +1363,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     : [];
                 this._taskDataChangedReasons?.clear?.();
                 const reloadReason = reasons.sort().join("+") || "siyuan-data-changed";
-                const suppressStorageWrites = reasons.includes("overwrite");
+                const suppressStorageWrites = reasons.includes("overwrite") || reasons.includes("sync-end");
                 try {
                     if (this._taskMobileStartupOpenPromise) {
                         try { await this._taskMobileStartupOpenPromise; } catch (e) {}

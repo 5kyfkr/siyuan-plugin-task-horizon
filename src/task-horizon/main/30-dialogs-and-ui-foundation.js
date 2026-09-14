@@ -8191,6 +8191,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 const operatorLabel = (RuleManager.getOperators(field?.type || 'text').find(op => op.value === c.operator)?.label || c.operator);
                 const noValueDatetimeOperators = new Set([
                     'range_today',
+                    'range_overlap_today',
                     'range_week',
                     'range_month',
                     'range_year',
@@ -8404,6 +8405,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         const noValueDatetimeOperators = new Set([
             'range_today',
+            'range_overlap_today',
             'range_week',
             'range_month',
             'range_year',
@@ -9908,6 +9910,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
             else if (fieldInfo?.type === 'datetime' && [
                 'range_today',
+                'range_overlap_today',
                 'range_week',
                 'range_month',
                 'range_year',
@@ -16455,7 +16458,9 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function __tmStartTouchTaskDrag(ev, taskId) {
         if (!__tmShouldUseCustomTouchTaskDrag()) return false;
-        if (__tmIsMultiSelectActive()) {
+        const requestedTaskId = String(taskId || '').trim();
+        if (!requestedTaskId) return false;
+        if (__tmIsMultiSelectActive() && !__tmIsTaskMultiSelected(requestedTaskId)) {
             return false;
         }
         if (!__tmIsTouchLikeChecklistPointer(ev)) return false;
@@ -17171,13 +17176,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             const collapsedRect = sheet.getBoundingClientRect();
             sheet.classList.add('tm-checklist-sheet--fullscreen');
             const fullRect = sheet.getBoundingClientRect();
-            const viewportHeight = Math.max(
-                Number(window.innerHeight || 0) || 0,
-                Number(document.documentElement?.clientHeight || 0) || 0,
-                Number(fullRect.bottom || 0) || 0
-            );
             const collapsedOffset = Math.max(0, Number(collapsedRect.top || 0) - Number(fullRect.top || 0));
-            const fullHeight = Math.max(1, viewportHeight - Number(fullRect.top || 0));
+            const fullHeight = Math.max(1, Number(fullRect.height || 0));
             return {
                 collapsedOffset,
                 closeOffset: Math.max(collapsedOffset + 96, fullHeight + 24),

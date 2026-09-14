@@ -2560,6 +2560,17 @@
         }
     };
 
+    window.updateRemainingTimeUseWorkdays = async function(enabled) {
+        SettingsStore.data.remainingTimeUseWorkdays = !!enabled;
+        state.listRenderSignature = '';
+        state.listDomRenderSignature = '';
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+        }
+    };
+
     window.updatePinNewTasksByDefault = async function(enabled) {
         SettingsStore.data.pinNewTasksByDefault = !!enabled;
         await SettingsStore.save();

@@ -248,14 +248,12 @@
                 if (window.tmGetLicenseState?.()?.loaded !== true) await window.tmLicenseLoad?.(false);
             } catch (e) {}
             const allowed = __tmAgentMcpHasFullFeature();
-            const initialized = SettingsStore.data.agentMcpEnabledInitialized === true;
-            const desired = allowed && (initialized ? SettingsStore.data.agentMcpEnabled === true : true);
             let lastError = null;
             for (let index = 0; index < __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS.length; index += 1) {
                 const delayMs = __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS[index];
                 if (delayMs > 0 && !await __tmWaitForAgentMcpStartupRetry(delayMs)) return false;
                 try {
-                    const capabilities = await __tmSyncAgentMcpAuthorization(allowed, desired);
+                    const capabilities = await __tmSyncAgentMcpAuthorization(allowed);
                     if (!capabilities) throw new Error('任务 MCP 工具服务尚未启动');
                     if (__tmAgentMcpStartupDisposed) return false;
                     const nextEnabled = allowed && capabilities.mcpEnabled === true;

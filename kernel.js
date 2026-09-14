@@ -7671,13 +7671,14 @@
         return `${state.mcpAuthorized === true ? 1 : 0}|${mcpPersistedConfigSignature()}`;
     }
 
-    async function applyMcpConfigChange(change) {
+    async function applyMcpConfigChange(change, options = {}) {
         const previousEnabled = state.mcpEnabled;
         const previousAuthorized = state.mcpAuthorized;
         const previousDesiredEnabled = state.mcpDesiredEnabled;
         const previousTools = { ...state.mcpTools };
         const previousPersistedSignature = mcpPersistedConfigSignature();
         const previousRuntimeSignature = mcpRuntimeConfigSignature();
+        const persist = options.persist !== false;
         let persistedChanged = false;
         let runtimeChanged = false;
         try {
@@ -7685,7 +7686,7 @@
             persistedChanged = mcpPersistedConfigSignature() !== previousPersistedSignature;
             runtimeChanged = mcpRuntimeConfigSignature() !== previousRuntimeSignature;
             if (runtimeChanged) await reconcileTools();
-            if (persistedChanged) await persistMcpConfig();
+            if (persist && persistedChanged) await persistMcpConfig();
             return getCapabilities();
         } catch (error) {
             state.mcpEnabled = previousEnabled;
@@ -7695,7 +7696,7 @@
             if (runtimeChanged) {
                 try { await reconcileTools(); } catch (rollbackError) {}
             }
-            if (persistedChanged) {
+            if (persist && persistedChanged) {
                 try { await persistMcpConfig(); } catch (rollbackError) {}
             }
             throw error;
@@ -7720,9 +7721,8 @@
         }
         return await applyMcpConfigChange(() => {
             state.mcpAuthorized = value.allowed === true;
-            if (typeof value.enabled === 'boolean') state.mcpDesiredEnabled = value.enabled === true;
             state.mcpEnabled = state.mcpAuthorized && state.mcpDesiredEnabled;
-        });
+        }, { persist: false });
     }
 
     async function setMcpToolConfig(input) {

@@ -540,6 +540,9 @@
     max-height: none;
 }.tm-calendar-task-page-list.tm-calendar-task-page-list--checklist .tm-checklist-layout{
     height: 100%;
+}.tm-calendar-task-page-list.tm-calendar-task-page-list--checklist .tm-checklist-sheet:not(.tm-checklist-sheet--fullscreen){
+    box-sizing: border-box;
+    max-height: min(76vh, 680px, calc(100% - 8px));
 }.tm-calendar-task-page-list.tm-calendar-task-page-list--checklist .tm-checklist-pane{
     min-width: 220px;
     --tm-checklist-pane-pad-right: 6px;
@@ -1099,7 +1102,7 @@
     flex: none;
     border-right: 1.5px solid var(--tm-secondary-text);
     border-bottom: 1.5px solid var(--tm-secondary-text);
-    transform: rotate(45deg);
+    transform: translateY(2px) rotate(45deg);
     opacity: 0.75;
 }.tm-calendar-nav-section--collapsed .tm-calendar-nav-chevron{
     transform: rotate(-45deg);
@@ -3471,7 +3474,10 @@
     z-index: 200130 !important;
     width: 280px;
     box-sizing: border-box;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     border: 1px solid var(--tm-cal-border);
     border-radius: 10px;
     background: var(--tm-cal-panel, var(--b3-theme-background));
@@ -4384,7 +4390,7 @@
 }.tm-proto-timeline-day b .tm-proto-holiday-status{
     position: absolute;
     right: -7px;
-    top: -2px;
+    top: -3px;
     margin: 0;
 }.tm-proto-timeline-day.is-today{
     background: var(--tm-cal-today-bg);
@@ -4732,6 +4738,8 @@
     background: var(--tm-cal-panel);
 }.tm-proto-list-day > header{
     display: flex;
+    container-type: inline-size;
+    container-name: tm-proto-list;
     align-items: baseline;
     gap: 8px;
     padding: 11px 14px;
@@ -6367,7 +6375,7 @@
     box-sizing: border-box;
     border-inline-end: 1.5px solid currentColor;
     border-block-end: 1.5px solid currentColor;
-    transform: rotate(45deg);
+    transform: translateY(2px) rotate(45deg);
     transform-origin: center;
 }
 .tm-proto-day-panel-allday-toggle[aria-expanded="false"] .tm-proto-day-panel-allday-chevron::before{
@@ -7287,6 +7295,12 @@
     user-select: none;
     -webkit-user-select: none;
 }
+.tm-calendar-wrap--mobile .tm-proto-list [data-tm-proto-event],
+.tm-calendar-root--dock .tm-proto-list [data-tm-proto-event]{
+    touch-action: pan-y !important;
+    user-select: auto;
+    -webkit-user-select: auto;
+}
 .tm-calendar-wrap--mobile .tm-proto-time-col > .tm-proto-event--block > .tm-proto-resize-handle,
 .tm-calendar-root--dock .tm-proto-time-col > .tm-proto-event--block > .tm-proto-resize-handle,
 #tmCalendarSideDockTimeline .tm-proto-time-col > .tm-proto-event--block > .tm-proto-resize-handle{
@@ -7378,6 +7392,9 @@
     width: auto;
     min-width: 0;
     justify-content: flex-start;
+}
+.tm-calendar-root--month-view .tm-proto-day-number--month-start{
+    padding-left: 0;
 }
 .tm-proto-surface--compact-month .tm-proto-event--chip:not(.tm-proto-month-event),
 .tm-proto-surface--compact-month .tm-proto-event--chip.tm-proto-month-event{
@@ -7807,4 +7824,946 @@
     .tm-calendar-holiday-editor__panel{width:100%;max-height:none;border:0;border-radius:0;padding:14px 12px}
     .tm-calendar-holiday-editor__day{min-height:54px}
     .tm-calendar-holiday-editor__toolbar button{min-width:44px}
+}
+
+/* Compact list-month agenda. The list view owns one date picker and one
+   responsive card rail; all colors stay on the calendar theme tokens. */
+.tm-proto-list{
+    --tm-proto-list-gap: 10px;
+    --tm-proto-list-content-inset: 6px;
+    --tm-proto-list-control: 34px;
+    container-type: inline-size;
+    container-name: tm-proto-list;
+    display: flex;
+    flex-direction: column;
+    gap: var(--tm-proto-list-gap);
+    flex: 1 1 auto;
+    overflow: auto;
+    min-height: 0;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+    padding: 10px 12px 14px;
+    background: var(--tm-cal-surface);
+}
+.tm-proto-list-picker{
+    position: relative;
+    flex: 0 0 auto;
+    overflow: visible;
+    padding: 7px 8px 13px;
+    border: 1px solid color-mix(in srgb, var(--tm-cal-border) 72%, transparent);
+    border-radius: var(--tm-calendar-surface-radius, 12px);
+    background: var(--tm-cal-panel);
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--tm-cal-border) 26%, transparent);
+}
+.tm-proto-list-week-picker{
+    display: grid;
+    grid-template-columns: var(--tm-proto-list-control) minmax(0, 1fr) var(--tm-proto-list-control);
+    gap: 7px;
+    align-items: stretch;
+    max-height: 78px;
+    opacity: 1;
+    transform: translateY(0);
+    transition: max-height .28s ease, opacity .2s ease, transform .28s ease;
+    touch-action: pan-y;
+}
+.tm-proto-list-week-grid,
+.tm-proto-list-month-grid{
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 3px;
+    touch-action: pan-y;
+}
+.tm-proto-list-week-nav,
+.tm-proto-list-calendar-toggle,
+.tm-proto-list-month-head button{
+    appearance: none;
+    border: 1px solid var(--tm-cal-border);
+    color: var(--tm-cal-muted);
+    background: var(--tm-cal-panel-2);
+    cursor: pointer;
+}
+.tm-proto-list-week-nav{
+    min-height: 58px;
+    border-radius: var(--tm-calendar-control-radius, 8px);
+    font-size: 20px;
+    line-height: 1;
+}
+.tm-proto-list-week-nav:hover,
+.tm-proto-list-month-head button:hover{
+    border-color: color-mix(in srgb, var(--tm-cal-primary) 35%, var(--tm-cal-border));
+    color: var(--tm-cal-primary);
+    background: var(--tm-cal-primary-soft);
+}
+.tm-proto-list-date-cell{
+    position: relative;
+    display: grid;
+    min-width: 0;
+    min-height: 58px;
+    place-items: center;
+    align-content: center;
+    gap: 2px;
+    padding: 4px 2px;
+    border: 1px solid transparent;
+    border-radius: var(--tm-calendar-control-radius, 8px);
+    color: var(--tm-cal-text);
+    background: transparent;
+    cursor: pointer;
+    transition: color .18s ease, border-color .18s ease;
+}
+.tm-proto-list-date-cell:hover{ background: var(--tm-cal-primary-soft); }
+.tm-proto-list-date-cell:active{ transform: none !important; }
+.tm-proto-list-date-cell:focus-visible,
+.tm-proto-list-week-nav:focus-visible,
+.tm-proto-list-calendar-toggle:focus-visible,
+.tm-proto-list-month-head button:focus-visible,
+.tm-proto-list-group-toggle:focus-visible{
+    outline: 2px solid color-mix(in srgb, var(--tm-cal-primary) 45%, transparent);
+    outline-offset: 1px;
+}
+.tm-proto-list-date-cell.is-visible:not(.is-selected){
+    border-color: color-mix(in srgb, var(--tm-cal-primary) 18%, transparent);
+    background: var(--tm-cal-primary-soft-strong);
+}
+.tm-proto-list-date-cell.is-selected{
+    color: var(--tm-cal-on-primary);
+    background: var(--tm-cal-primary);
+}
+
+.tm-proto-list-date-weekday{ color: var(--tm-cal-muted); font-size: 9px; font-weight: 700; letter-spacing: .01em; }
+.tm-proto-list-date-cell.is-selected .tm-proto-list-date-weekday{ color: color-mix(in srgb, var(--tm-cal-on-primary) 76%, transparent); }
+.tm-proto-list-date-cell strong{ font-size: 14px; font-weight: 750; line-height: 1; font-variant-numeric: tabular-nums; }
+.tm-proto-list-date-cell i{
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--tm-cal-primary);
+}
+.tm-proto-list-date-cell.is-selected i{ background: var(--tm-cal-on-primary); }
+.tm-proto-list-date-cell.is-today:not(.is-selected) strong{ color: var(--tm-cal-primary); }
+.tm-proto-list-week-picker .tm-proto-list-date-cell{
+    grid-template-rows: 12px 18px 4px;
+}
+.tm-proto-list-month-picker{
+    max-height: 0;
+    overflow: hidden;
+    padding: 0 10px;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: max-height .3s ease, opacity .2s ease, transform .3s ease, padding .3s ease;
+}
+.tm-proto-list.is-calendar-expanded .tm-proto-list-week-picker{
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+}
+.tm-proto-list.is-calendar-expanded .tm-proto-list-month-picker{
+    max-height: 420px;
+    padding: 3px 10px 5px;
+    opacity: 1;
+    transform: translateY(0);
+}
+@keyframes tm-proto-list-week-collapse{
+    from{ max-height: 78px; opacity: 1; transform: translateY(0); }
+    to{ max-height: 0; opacity: 0; transform: translateY(-8px); }
+}
+@keyframes tm-proto-list-month-expand{
+    from{ max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; transform: translateY(-8px); }
+    to{ max-height: 420px; opacity: 1; padding-top: 3px; padding-bottom: 5px; transform: translateY(0); }
+}
+@keyframes tm-proto-list-week-expand{
+    from{ max-height: 0; opacity: 0; transform: translateY(-8px); }
+    to{ max-height: 78px; opacity: 1; transform: translateY(0); }
+}
+@keyframes tm-proto-list-month-collapse{
+    from{ max-height: 420px; opacity: 1; padding-top: 3px; padding-bottom: 5px; transform: translateY(0); }
+    to{ max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; transform: translateY(-8px); }
+}
+.tm-proto-list.is-calendar-transition-expand .tm-proto-list-week-picker{ animation: tm-proto-list-week-collapse .3s ease both; }
+.tm-proto-list.is-calendar-transition-expand .tm-proto-list-month-picker{ animation: tm-proto-list-month-expand .32s ease both; }
+.tm-proto-list.is-calendar-transition-collapse .tm-proto-list-week-picker{ animation: tm-proto-list-week-expand .32s ease both; }
+.tm-proto-list.is-calendar-transition-collapse .tm-proto-list-month-picker{ animation: tm-proto-list-month-collapse .3s ease both; }
+.tm-proto-list-month-head{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 31px;
+    margin-bottom: 5px;
+    color: var(--tm-cal-text);
+    font-size: 13px;
+}
+.tm-proto-list-month-head span{ display: inline-flex; gap: 4px; }
+.tm-proto-list-month-head button{ width: 28px; height: 27px; border-radius: 7px; font-size: 17px; line-height: 1; }
+.tm-proto-list-month-grid .weekday{
+    display: grid;
+    min-height: 23px;
+    place-items: center;
+    color: var(--tm-cal-faint);
+    font-size: 10px;
+    font-weight: 700;
+}
+.tm-proto-list-month-grid .tm-proto-list-date-cell{
+    grid-template-rows: 18px 4px;
+    min-height: 36px;
+    font-size: 12px;
+}
+.tm-proto-list-month-cell.is-outside{ color: var(--tm-cal-faint); opacity: .58; }
+.tm-proto-list-month-cell .tm-proto-list-date-weekday{ display: none; }
+.tm-proto-list-calendar-toggle{
+    position: absolute;
+    left: 50%;
+    bottom: -12px;
+    z-index: 2;
+    display: grid;
+    width: 58px;
+    height: 25px;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--tm-cal-panel);
+    box-shadow: 0 2px 7px color-mix(in srgb, var(--tm-cal-border) 24%, transparent);
+    transform: translateX(-50%);
+}
+.tm-proto-list-calendar-toggle span{
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform .28s ease;
+}
+.tm-proto-list.is-calendar-expanded .tm-proto-list-calendar-toggle span{ transform: translateY(2px) rotate(225deg); }
+.tm-proto-list-days{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--tm-proto-list-gap); align-items: start; }
+.tm-proto-list-day{
+    min-width: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--card-foreground, var(--tm-cal-text));
+    box-shadow: none;
+    touch-action: pan-y;
+}
+.tm-proto-list-day > header{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 40px;
+    padding: 4px var(--tm-proto-list-content-inset)
+        4px var(--tm-proto-list-content-inset);
+    border-bottom: 0;
+    background: transparent;
+}
+.tm-proto-list-day > header > div{ min-width: 0; display: flex; align-items: baseline; gap: 6px; }
+.tm-proto-list-day > header b{ color: var(--tm-cal-text); font-size: 18px; font-weight: 750; }
+.tm-proto-list-day > header span{ color: var(--tm-cal-muted); font-size: 13px; }
+.tm-proto-list-day > header em{ color: var(--tm-cal-primary); font-size: 12px; font-style: normal; font-weight: 750; }
+.tm-proto-list-day > header small{ flex: none; color: var(--tm-cal-muted); font-size: 12px; }
+.tm-calendar-wrap--mobile .tm-proto-list-day > header,
+.tm-calendar-root--dock .tm-proto-list-day > header{
+    display: none;
+}
+.tm-proto-list-group{ border: 0; background: transparent; touch-action: pan-y; }
+.tm-proto-list-group--expired{
+    --tm-proto-list-danger: var(--b3-theme-error, #d84a4a);
+    border: 0;
+    background: transparent;
+}
+.tm-proto-list-group-toggle{
+    display: flex;
+    width: 100%;
+    min-height: 36px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    box-sizing: border-box;
+    padding: 0 var(--tm-proto-list-content-inset);
+    border: 0;
+    color: var(--tm-cal-text);
+    background: transparent;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 750;
+    text-align: left;
+    border-radius: 8px;
+}
+.tm-proto-list-group-toggle:hover{
+    background: color-mix(in srgb, var(--tm-cal-primary) 7%, transparent);
+}
+.tm-proto-list-group-toggle:hover .tm-proto-list-group-chevron{
+    background: color-mix(in srgb, var(--tm-cal-primary) 10%, transparent);
+    border-color: color-mix(in srgb, currentColor 48%, transparent);
+}
+.tm-proto-list-group-toggle:focus-visible{
+    outline: 2px solid color-mix(in srgb, var(--tm-cal-primary) 62%, transparent);
+    outline-offset: -2px;
+}
+.tm-proto-list-group-toggle > span:first-child{
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tm-proto-list-group--expired .tm-proto-list-group-toggle{
+    color: var(--tm-proto-list-danger);
+    background: transparent;
+}
+.tm-proto-list-group--expired .tm-proto-list-group-toggle:hover{
+    background: color-mix(in srgb, var(--tm-proto-list-danger) 10%, transparent);
+}
+.tm-proto-list-group--expired .tm-proto-list-group-toggle:hover .tm-proto-list-group-chevron{
+    background: color-mix(in srgb, var(--tm-proto-list-danger) 14%, transparent);
+    border-color: color-mix(in srgb, var(--tm-proto-list-danger) 52%, transparent);
+}
+.tm-proto-list-group--expired .tm-proto-list-group-body{
+    background: transparent;
+}
+.tm-proto-list-group-chevron{
+    display: grid;
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+    border-radius: 50%;
+    color: inherit;
+    transition: background .2s ease, border-color .2s ease;
+}
+.tm-proto-list-group-chevron::after{
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-right: 1.8px solid currentColor;
+    border-bottom: 1.8px solid currentColor;
+    transform: translateY(-1px) rotate(45deg);
+    transition: transform .2s ease;
+}
+.tm-proto-list-group.is-collapsed .tm-proto-list-group-chevron::after{ transform: translate(-1px, 0.5px) rotate(-45deg); }
+.tm-proto-list-group-body{
+    max-height: 100000px;
+    overflow: hidden;
+    opacity: 1;
+    transition: max-height .25s ease, opacity .18s ease;
+}
+.tm-proto-list-group.is-collapsed .tm-proto-list-group-body{ max-height: 0; opacity: 0; }
+.tm-proto-list-row{
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    column-gap: 0;
+    min-height: 44px;
+    padding: 3px var(--tm-proto-list-content-inset);
+    border-bottom: 0;
+    background: transparent;
+}
+.tm-proto-list-row:last-child{ border-bottom: 0; }
+.tm-proto-list-row:hover{ background: transparent; }
+.tm-proto-list-group--expired .tm-proto-list-row{
+    border-bottom: 0;
+    background: transparent !important;
+}
+.tm-proto-list-group--expired .tm-proto-list-row:hover{
+    background: transparent !important;
+}
+.tm-proto-list-time{ box-sizing: border-box; display: block; grid-column: 1; align-self: center; width: 40px; min-width: 0; max-width: 40px; overflow-wrap: normal; padding: 0; color: var(--tm-cal-muted); font-size: 10px; font-variant-numeric: tabular-nums; line-height: 1.25; white-space: normal; }
+.tm-proto-list-row.tm-proto-list-row--all-day{ grid-template-columns: minmax(0, 1fr); }
+.tm-proto-list-row.tm-proto-list-row--all-day > .tm-proto-list-event,
+.tm-proto-list-row.tm-proto-list-row--all-day > .tm-proto-event{ grid-column: 1; }
+.tm-proto-list-row > .tm-proto-event{
+    grid-column: 2;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    margin: 0;
+    overflow: hidden;
+}
+.tm-proto-list-row > .tm-proto-list-event{
+    grid-column: 2;
+    box-sizing: border-box;
+    gap: 8px;
+    margin: 0;
+    padding: 6px 8px 6px 10px;
+    border: 1px solid color-mix(in srgb, var(--tm-border-color, var(--tm-cal-border)) 88%, var(--tm-secondary-text, var(--tm-cal-muted)) 12%);
+    border-radius: 8px;
+    background: var(--card, var(--tm-cal-panel));
+    box-shadow: 0 1px 2px rgba(9,30,66,.08), 0 .5px 0 rgba(9,30,66,.18);
+    color: var(--card-foreground, var(--tm-cal-text));
+}
+.tm-proto-list-row > .tm-proto-list-event:hover{
+    border-color: var(--tm-primary-color, var(--tm-cal-primary));
+    background: var(--card, var(--tm-cal-panel));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--tm-primary-color, var(--tm-cal-primary)) 18%, transparent);
+}
+.tm-proto-list-event{ min-width: 0; }
+.tm-proto-list-event .tm-proto-event-copy{ min-width: 0; }
+.tm-proto-list-event .tm-proto-event-title{
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: calc(var(--tm-font-size, 13px) - 1px);
+    font-weight: 400;
+    line-height: 1.25;
+}
+.tm-proto-list-task-card{
+    display: block;
+    text-align: left;
+    cursor: pointer;
+}
+.tm-proto-list-task-card .tm-kanban-card-top{
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 0;
+    min-width: 0;
+}
+.tm-proto-list-task-card .tm-kanban-card-head{
+    align-items: flex-start;
+    gap: 7px;
+    min-width: 0;
+}
+.tm-proto-list-task-card .tm-task-checkbox-wrap,
+.tm-proto-list-task-card .tm-task-checkbox{
+    --tm-checkbox-size: 13px;
+    flex: 0 0 auto;
+    margin-top: 2px;
+}
+.tm-proto-list-task-card .tm-kanban-card-text,
+.tm-proto-list-task-card .tm-kanban-subtask-text{
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: stretch;
+}
+.tm-proto-list-task-card .tm-kanban-card-title-inline,
+.tm-proto-list-task-card .tm-kanban-subtask-title{
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: calc(var(--tm-font-size, 13px) - 1px);
+    line-height: 1.35;
+}
+.tm-proto-list-task-card .tm-kanban-card-meta,
+.tm-proto-list-task-card .tm-kanban-subtask-meta{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px 7px;
+    margin: 3px 0 0;
+    color: var(--tm-secondary-text, var(--tm-cal-muted));
+    font-size: 11px;
+    line-height: 18px;
+}
+.tm-proto-list-task-card .tm-kanban-card-meta .tm-status-tag,
+.tm-proto-list-task-card .tm-kanban-card-meta .tm-kanban-priority-chip,
+.tm-proto-list-task-card .tm-kanban-card-meta .tm-kanban-chip,
+.tm-proto-list-task-card .tm-kanban-subtask-meta .tm-status-tag,
+.tm-proto-list-task-card .tm-kanban-subtask-meta .tm-kanban-priority-chip,
+.tm-proto-list-task-card .tm-kanban-subtask-meta .tm-kanban-chip{
+    min-height: 19px;
+    max-width: 100%;
+    box-sizing: border-box;
+    border-radius: 3px;
+    line-height: 18px;
+}
+.tm-proto-list-task-card .tm-kanban-card-meta .tm-status-tag,
+.tm-proto-list-task-card .tm-kanban-subtask-meta .tm-status-tag{
+    border-color: transparent !important;
+    border-radius: 5px;
+    box-shadow: none;
+    background: var(--tm-status-bg, color-mix(in srgb, currentColor 10%, transparent)) !important;
+    color: color-mix(in srgb, var(--tm-status-fg, #5f6368) 90%, transparent) !important;
+}
+.tm-proto-list-task-card .tm-kanban-card-meta .tm-kanban-priority-chip,
+.tm-proto-list-task-card .tm-kanban-subtask-meta .tm-kanban-priority-chip,
+.tm-proto-list-task-card .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted,
+.tm-proto-list-task-card .tm-kanban-subtask-meta .tm-kanban-chip.tm-kanban-chip--muted{
+    border-color: transparent !important;
+    box-shadow: none;
+    background: transparent !important;
+}
+.tm-proto-list-task-card .tm-kanban-card-meta .tm-kanban-chip--date,
+.tm-proto-list-task-card .tm-kanban-card-meta [data-tm-task-time-field=date],
+.tm-proto-list-task-card .tm-kanban-subtask-meta .tm-kanban-chip--date,
+.tm-proto-list-task-card .tm-kanban-subtask-meta [data-tm-task-time-field=date]{
+    color: color-mix(in srgb, var(--tm-secondary-text, var(--tm-cal-muted)) 80%, transparent) !important;
+}
+.tm-proto-list-task-card .tm-kanban-card-meta .tm-kanban-chip--date-overdue,
+.tm-proto-list-task-card .tm-kanban-subtask-meta .tm-kanban-chip--date-overdue{
+    color: var(--tm-time-group-overdue-color, var(--tm-danger-color, var(--b3-theme-error, #d93025))) !important;
+}
+.tm-proto-list-task-card .tm-kanban-chip--doc,
+.tm-proto-list-task-card .tm-kanban-chip--doc .tm-icon-label{
+    min-width: 0;
+    max-width: 100%;
+}
+.tm-proto-list-task-card .tm-kanban-chip--doc .tm-icon-label{
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.tm-proto-list-task-card .tm-kanban-chip--doc .tm-icon-label > span:last-child{
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tm-proto-list-subtasks{
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid color-mix(in srgb, var(--border, var(--tm-cal-border)) 58%, transparent);
+    gap: 0;
+}
+
+
+.tm-proto-list-subtasks .tm-badge--count{
+    min-width: 0;
+    padding: 1px 5px;
+    font-size: 10px;
+}
+.tm-proto-list-subtasks .tm-kanban-subtasks-list{
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-top: 3px;
+}
+.tm-proto-list-subtask{
+    min-width: 0;
+    padding: 5px 0 5px 8px;
+    border-left: 2px solid color-mix(in srgb, var(--tm-cal-primary) 26%, transparent);
+}
+.tm-proto-list-subtask .tm-kanban-subtask-row-main{
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    gap: 7px;
+}
+.tm-proto-list-subtask .tm-task-checkbox-wrap,
+.tm-proto-list-subtask .tm-task-checkbox{
+    --tm-checkbox-size: 12px;
+    margin-top: 2px;
+}
+.tm-proto-list-subtask .tm-kanban-subtask-title{
+    font-size: 11px;
+    font-weight: 400;
+}
+.tm-proto-list-subtasks{
+    --tm-kanban-subtask-indent: 14px;
+    margin-top: 4px;
+    padding-top: 0;
+    border-top: 0;
+    gap: 0;
+}
+.tm-proto-list-subtasks.tm-kanban--clean{
+    align-items: stretch;
+}
+.tm-proto-list-subtasks.tm-kanban--clean > .tm-kanban-subtasks-progress{
+    width: 100%;
+    align-self: stretch;
+}
+.tm-proto-list-subtasks .tm-kanban-subtasks-list{
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 0;
+    padding: 5px 0 0;
+}
+
+
+.tm-proto-list-subtasks .tm-kanban-subtasks-chevron{
+    display: grid;
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    place-items: center;
+    color: var(--tm-secondary-text, var(--tm-cal-muted));
+    transition: color .18s ease, transform .22s ease;
+}
+.tm-proto-list-subtasks .tm-kanban-subtasks-chevron::after{
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-right: 1.7px solid currentColor;
+    border-bottom: 1.7px solid currentColor;
+    transform: translateY(-1px) rotate(45deg);
+    transition: transform .22s ease;
+}
+.tm-proto-list-subtasks.is-collapsed .tm-kanban-subtasks-chevron::after{
+    transform: translateY(-1px) rotate(-45deg);
+}
+.tm-proto-list-subtasks .tm-kanban-subtasks-progress{
+    height: 3px;
+    margin-top: 3px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--tm-secondary-text, var(--tm-cal-muted)) 16%, transparent);
+}
+.tm-proto-list-subtasks .tm-kanban-subtasks-progress > span{
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--tm-primary-color, var(--tm-cal-primary)) 72%, var(--tm-secondary-text, var(--tm-cal-muted)) 28%);
+}
+.tm-proto-list-subtasks .tm-kanban-subtasks-list{
+    margin: 0;
+    padding-top: 5px;
+    max-height: 100000px;
+    overflow: hidden;
+    opacity: 1;
+    transition: max-height .25s ease, opacity .18s ease, margin-top .25s ease;
+}
+.tm-proto-list-subtasks.is-collapsed .tm-kanban-subtasks-list{
+    max-height: 0;
+    padding-top: 0;
+    opacity: 0;
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-row.tm-kanban-card{
+    min-height: 34px;
+    margin: 0;
+    padding: 5px 2px 5px var(--tm-kanban-subtask-indent, 14px);
+    border-radius: 8px;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-row.tm-kanban-card:not(.tm-kanban-card--pinned){
+    border: 0;
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-row.tm-kanban-card:hover{
+    background: color-mix(in srgb, var(--tm-primary-color, var(--tm-cal-primary)) 7%, transparent);
+    box-shadow: none;
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-row-main{
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 24px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-row-main:has(.tm-kanban-subtask-meta){
+    align-items: flex-start;
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap,
+.tm-proto-list-subtasks .tm-kanban-subtask-row-main > .tm-task-checkbox-wrap .tm-task-checkbox{
+    margin-top: 0;
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-title{
+    flex: 0 1 auto;
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: calc(var(--tm-font-size, 13px) - 1px);
+    line-height: 1.35;
+    color: var(--card-foreground, var(--tm-cal-text));
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-meta{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 7px;
+    row-gap: 2px;
+    margin: 2px 0 0;
+    color: var(--tm-secondary-text, var(--tm-cal-muted));
+    line-height: 18px;
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-actions{
+    display: inline-flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 3px;
+    margin-top: 0;
+    margin-left: auto;
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-more{
+    height: 22px;
+    min-width: 24px;
+    margin-top: 0;
+    padding: 0 5px;
+    border-color: transparent;
+    border-radius: 7px;
+    opacity: .68;
+}
+.tm-proto-list-subtasks .tm-kanban-subtask-row:hover .tm-kanban-subtask-more,
+.tm-proto-list-subtasks .tm-kanban-subtask-more:hover,
+.tm-proto-list-subtasks .tm-kanban-subtask-more:focus-visible{
+    opacity: 1;
+    background: color-mix(in srgb, var(--tm-header-bg, var(--tm-cal-surface)) 74%, transparent);
+    color: var(--tm-text-color, var(--tm-cal-text));
+}
+.tm-proto-list-task-card.tm-kanban-card--done .tm-kanban-card-title-inline,
+.tm-proto-list-task-card.tm-kanban-card--done .tm-kanban-subtask-title{
+    color: var(--tm-task-done-color, var(--tm-cal-muted));
+}
+.tm-proto-list-group--expired .tm-proto-list-task-card{
+    color: var(--tm-proto-list-danger, var(--b3-theme-error, #d84a4a));
+}
+.tm-proto-list-group--expired .tm-proto-list-task-card .tm-kanban-card-meta,
+.tm-proto-list-group--expired .tm-proto-list-subtasks{
+    color: var(--tm-proto-list-danger, var(--b3-theme-error, #d84a4a));
+}
+.tm-proto-list-empty{ padding: 18px 11px; color: var(--tm-cal-faint); font-size: 11px; text-align: center; }
+.tm-proto-list-day.is-today{ border-color: color-mix(in srgb, var(--tm-primary-color, var(--tm-cal-primary)) 78%, var(--border, var(--tm-cal-border))); }
+/* Dock width is independent from the desktop viewport width. Apply the
+   compact two-column rail directly to the dock host so its date headers do
+   not collapse into vertical text when the host is narrow. */
+.tm-calendar-root--dock .tm-proto-list-days{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+}
+.tm-calendar-root--dock .tm-proto-list-day > header > div{
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+}
+.tm-calendar-root--dock .tm-proto-list-day > header b{
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+@media (max-width: 1099px){
+    .tm-proto-list-days{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container tm-proto-list (min-width: 900px){
+    .tm-proto-list-days,
+    .tm-calendar-root--dock .tm-proto-list-days{ grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+    .tm-proto-list-day:nth-child(1){ grid-column: auto; }
+}
+@media (max-width: 759px){
+    .tm-proto-list{ padding: 8px; }
+    .tm-proto-list-days{ grid-template-columns: minmax(0, 1fr); }
+    .tm-proto-list-week-picker{ grid-template-columns: 30px minmax(0, 1fr) 30px; gap: 4px; }
+    .tm-proto-list-week-nav{ min-height: 54px; }
+    .tm-proto-list-date-cell{ min-height: 54px; }
+    .tm-proto-list-row{ column-gap: 0; grid-template-columns: 40px minmax(0, 1fr); }
+}
+.tm-proto-list.is-day-count-1 .tm-proto-list-days{
+    grid-template-columns: minmax(0, 1fr) !important;
+}
+.tm-proto-list.is-day-count-2 .tm-proto-list-days{
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+.tm-proto-list.is-day-count-3 .tm-proto-list-days{
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+.tm-calendar-wrap--mobile .tm-proto-list,
+.tm-calendar-root--dock .tm-proto-list{
+    padding-bottom: calc(14px + var(--tm-view-bottom-inset, 0px));
+    scroll-padding-bottom: calc(14px + var(--tm-view-bottom-inset, 0px));
+}
+.tm-proto-list-picker{
+    padding: 0 0 8px;
+    border: 0;
+    border-bottom: 1px solid var(--tm-cal-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+.tm-proto-list:not(.is-calendar-expanded) .tm-proto-list-picker{
+    border-bottom-color: transparent;
+}
+.tm-proto-list:not(.is-calendar-expanded) .tm-proto-list-picker::after{
+    position: absolute;
+    right: 0;
+    bottom: 2px;
+    left: 0;
+    height: 1px;
+    background: var(--tm-cal-border);
+    content: "";
+}
+.tm-proto-list.is-calendar-expanded .tm-proto-list-picker{
+    padding-top: 0;
+    padding-bottom: 6px;
+}
+.tm-proto-list-week-picker{
+    grid-template-columns: 28px minmax(0, 1fr) 28px;
+    gap: 2px;
+    max-height: 58px;
+}
+.tm-proto-list-week-grid{
+    gap: 2px;
+}
+.tm-proto-list-week-nav,
+.tm-proto-list-month-head button{
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+}
+.tm-proto-list-week-nav{ min-height: 53px; }
+.tm-proto-list-week-picker .tm-proto-list-date-cell{
+    min-height: 53px;
+    padding: 1px 2px;
+    align-content: start;
+    grid-template-rows: 11px 30px 4px;
+}
+.tm-proto-list-month-grid .tm-proto-list-date-cell{
+    min-height: 40px;
+    padding: 1px 2px;
+    align-content: start;
+    grid-template-rows: 30px 4px;
+}
+.tm-proto-list-date-cell:hover,
+.tm-proto-list-date-cell.is-selected,
+.tm-proto-list-date-cell.is-visible:not(.is-selected){
+    color: var(--tm-cal-text);
+    border-color: transparent;
+    background: transparent;
+}
+.tm-proto-list-date-cell.is-selected .tm-proto-list-date-weekday{
+    color: var(--tm-cal-muted);
+}
+.tm-proto-list-date-cell > i,
+.tm-proto-list-date-cell.is-selected > i{
+    align-self: start;
+    background: var(--tm-cal-primary);
+}
+.tm-proto-list-date-cell.is-visibility-fade-out:not(.is-selected) .tm-proto-list-date-number::before{
+    animation: tm-proto-list-visible-circle-fade-out .28s ease-out both;
+}
+.tm-proto-list-date-cell.is-visibility-fade-in:not(.is-selected) .tm-proto-list-date-number::before{
+    animation: tm-proto-list-visible-circle-fade-in .36s cubic-bezier(.25,1,.5,1) both;
+}
+@keyframes tm-proto-list-visible-circle-fade-out{
+    from{ background: var(--tm-cal-primary-soft-strong); }
+    to{ background: transparent; }
+}
+@keyframes tm-proto-list-visible-circle-fade-in{
+    from{ background: transparent; }
+    to{ background: var(--tm-cal-primary-soft-strong); }
+}
+.tm-proto-list-date-number{
+    position: relative;
+    display: inline-grid;
+    grid-template-rows: 16px 10px;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    isolation: isolate;
+    background: transparent;
+    color: var(--tm-cal-text);
+}
+.tm-proto-list-date-number::before{
+    content: "";
+    position: absolute;
+    z-index: -1;
+    top: -2px;
+    left: 50%;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: transparent;
+    transform: translateX(-50%);
+    transition: box-shadow .18s ease;
+}
+.tm-proto-list-date-number > strong{
+    display: block;
+    color: inherit;
+    font-size: 14px;
+    line-height: 16px;
+}
+.tm-proto-list-date-cell:not(.has-date-meta) .tm-proto-list-date-number > strong{
+    grid-row: 1 / -1;
+    align-self: center;
+}
+.tm-proto-list-date-subtext{
+    display: block;
+    overflow: hidden;
+    max-width: 28px;
+    color: currentColor;
+    font-size: 7px;
+    font-weight: 600;
+    line-height: 10px;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tm-proto-list-date-cell.is-selected .tm-proto-list-date-number{
+    color: var(--tm-cal-on-primary);
+}
+.tm-proto-list-date-cell.is-selected .tm-proto-list-date-number::before{
+    background: var(--tm-cal-primary);
+    transition: none;
+    animation: none;
+}
+.tm-proto-list-date-cell.is-visible:not(.is-selected) .tm-proto-list-date-number{
+    color: var(--tm-cal-primary);
+}
+.tm-proto-list-date-cell.is-visible:not(.is-selected) .tm-proto-list-date-number::before{
+    background: var(--tm-cal-primary-soft-strong);
+}
+.tm-proto-list-date-cell:hover .tm-proto-list-date-number{
+    color: var(--tm-cal-primary);
+}
+.tm-proto-list-date-cell:hover .tm-proto-list-date-number::before{
+    background: var(--tm-cal-primary-soft-strong);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--tm-cal-primary) 9%, transparent);
+}
+.tm-proto-list-date-cell.is-selected:hover .tm-proto-list-date-number{
+    color: var(--tm-cal-on-primary);
+}
+.tm-proto-list-date-cell.is-selected:hover .tm-proto-list-date-number::before{
+    background: var(--tm-cal-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--tm-cal-primary) 18%, transparent);
+}
+.tm-proto-list-date-cell.is-selected .tm-proto-list-date-subtext{
+    color: color-mix(in srgb, var(--tm-cal-on-primary) 78%, transparent);
+}
+.tm-proto-list-date-status{
+    position: absolute;
+    top: -3px;
+    right: -7px;
+    display: inline-flex;
+    width: 13px;
+    height: 13px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 8px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: 13px;
+}
+.tm-proto-list-date-status--rest{ background: color-mix(in srgb, #34a853 88%, var(--tm-cal-primary)); }
+.tm-proto-list-date-status--work{ background: color-mix(in srgb, #ea4335 88%, var(--tm-cal-primary)); }
+.tm-proto-list-week-picker .tm-proto-list-date-weekday{ transform: translateY(-4px); }
+.tm-proto-list-week-nav:hover,
+.tm-proto-list-month-head button:hover{
+    background: var(--tm-cal-primary-soft);
+}
+.tm-proto-list-calendar-toggle{
+    width: 48px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    background: var(--tm-cal-surface);
+    box-shadow: none;
+}
+.tm-proto-list-calendar-toggle:hover{
+    color: var(--tm-cal-primary);
+}
+@media (prefers-reduced-motion: reduce){
+    .tm-proto-list-week-picker,
+    .tm-proto-list-month-picker,
+    .tm-proto-list-calendar-toggle span,
+    .tm-proto-list-group-body,
+    .tm-proto-list-group-chevron{ transition: none !important; }
+    .tm-proto-list.is-calendar-transition-expand .tm-proto-list-week-picker,
+    .tm-proto-list.is-calendar-transition-expand .tm-proto-list-month-picker,
+    .tm-proto-list.is-calendar-transition-collapse .tm-proto-list-week-picker,
+    .tm-proto-list.is-calendar-transition-collapse .tm-proto-list-month-picker{ animation: none !important; }
+    .tm-proto-list-date-cell .tm-proto-list-date-number::before{ animation: none !important; transition: none !important; }
 }

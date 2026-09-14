@@ -698,7 +698,7 @@
                 // Calendar projection does not need parent aggregates or
                 // custom-field hydration. Keep the canonical task query, but
                 // use its lightweight options to avoid work for the list UI.
-                skipParentTaskJoin: true,
+                skipParentTaskJoin: false,
                 customFieldIds: [],
                 // The calendar already resolves the complete document scope;
                 // one SQL query is materially cheaper than the API's default

@@ -323,6 +323,10 @@
             task = (Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
                 .find((item) => String(item?.id || '').trim() === id) || null;
         });
+        aliases.forEach((id) => {
+            if (task) return;
+            task = globalThis.__tmResolveTaskForCardEdit?.(id) || null;
+        });
         const id = String((resolvedId && resolvedId !== rawId) ? resolvedId : (task?.id || resolvedId || rawId || '')).trim();
         return { id, task, rawId, resolvedId, aliases: Array.from(aliases) };
     }
@@ -2635,7 +2639,18 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     async function __tmCreateSubtaskForTaskKernel(parentTaskId, content, options = {}) {
         const parentInfo = __tmResolveOptimisticTaskForLocalUse(parentTaskId);
         const pid = String(parentInfo.id || parentInfo.resolvedId || parentInfo.rawId || '').trim();
-        const parentTask = parentInfo.task;
+        let parentTask = parentInfo.task;
+        if (pid && !parentTask) {
+            try {
+                const rows = await API.getBlocksByIds([pid]);
+                const row = Array.isArray(rows) ? rows[0] : null;
+                if (String(row?.id || '').trim() === pid
+                    && String(row?.type || '').trim().toLowerCase() === 'i'
+                    && String(row?.subtype || '').trim().toLowerCase() === 't') {
+                    parentTask = row;
+                }
+            } catch (e) {}
+        }
         if (!pid || !parentTask) throw new Error('未找到父任务');
         const text = String(content || '').trim();
         if (!text) throw new Error('请输入子任务内容');
@@ -2802,7 +2817,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             : __tmResolveOptimisticTaskForLocalUse(rawSourceTaskId);
         const sourceTaskId = String(sourceInfo.id || sourceInfo.resolvedId || sourceInfo.rawId || rawSourceTaskId).trim();
         const currentTask = sourceInfo.task
-            || globalThis.__tmTaskBoundary?.getTask?.(sourceTaskId)
+            || __tmResolveOptimisticTaskForLocalUse(sourceTaskId).task
             || authoritativeSourceTask
             || null;
         if (!sourceTaskId || !currentTask) throw new Error('未找到当前任务');
@@ -3054,12 +3069,13 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     }
 
     function __tmApplyOptimisticSiblingTask(sourceTaskId, siblingTaskId, content, options = {}) {
-        const sid = String(sourceTaskId || '').trim();
+        const sourceInfo = __tmResolveOptimisticTaskForLocalUse(sourceTaskId);
+        const sid = sourceInfo.id;
         const tid = String(siblingTaskId || '').trim();
         const text = String(content || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
         const clientId = String(opts.clientId || '').trim();
-        const sourceTask = globalThis.__tmTaskBoundary?.getTask?.(sid);
+        const sourceTask = sourceInfo.task;
         if (!sid || !tid || !text || !sourceTask) return false;
         if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(sid)) return false;
 
@@ -3074,7 +3090,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             });
         } catch (e) {}
         const parentTask = parentTaskId
-            ? globalThis.__tmTaskBoundary?.getTask?.(parentTaskId)
+            ? __tmResolveOptimisticTaskForLocalUse(parentTaskId).task
             : null;
         const nextTask = {
             id: tid,
@@ -3217,10 +3233,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     }
 
     function __tmQueueCreateSiblingTask(taskId, content, options = {}) {
-        const tid = String(taskId || '').trim();
+        const sourceInfo = __tmResolveOptimisticTaskForLocalUse(taskId);
+        const tid = sourceInfo.id;
         const text = String(content || '').trim();
         const hooks = (options && typeof options === 'object') ? options : {};
-        const currentTask = globalThis.__tmTaskBoundary?.getTask?.(tid);
+        const currentTask = sourceInfo.task;
         if (!tid || !currentTask) throw new Error('未找到当前任务');
         if (!text) throw new Error('请输入任务内容');
         if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) {
@@ -3286,8 +3303,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             ev?.preventDefault?.();
         } catch (e) {}
 
-        const pid = String(parentTaskId || '').trim();
-        const parentTask = globalThis.__tmTaskBoundary?.getTask?.(pid);
+        const parentInfo = __tmResolveOptimisticTaskForLocalUse(parentTaskId);
+        const pid = parentInfo.id;
+        const parentTask = parentInfo.task;
         if (!pid || !parentTask) {
             hint('❌ 未找到父任务', 'error');
             return;
@@ -3337,8 +3355,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             ev?.preventDefault?.();
         } catch (e) {}
 
-        const tid = String(taskId || '').trim();
-        const currentTask = globalThis.__tmTaskBoundary?.getTask?.(tid);
+        const sourceInfo = __tmResolveOptimisticTaskForLocalUse(taskId);
+        const tid = sourceInfo.id;
+        const currentTask = sourceInfo.task;
         if (!tid || !currentTask) {
             hint('❌ 未找到当前任务', 'error');
             return;

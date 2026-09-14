@@ -1300,8 +1300,15 @@
         if (opts.anchorEl instanceof HTMLElement) return opts.anchorEl;
         if (anchorOrEvent instanceof HTMLElement) return anchorOrEvent;
         const ev = anchorOrEvent && typeof anchorOrEvent === 'object' ? anchorOrEvent : null;
+        const anchorSelector = 'button,[data-tm-task-time-field],.tm-cell-editable,.tm-kanban-chip,.sy-custom-props-inline-chip,.sy-custom-props-floatbar__prop';
+        const eventPath = typeof ev?.composedPath === 'function' ? ev.composedPath() : [];
+        const pathAnchor = eventPath.find((node) => node instanceof Element && node.matches(anchorSelector));
+        const targetAnchor = pathAnchor instanceof HTMLElement
+            ? pathAnchor
+            : (ev?.target instanceof Element ? ev.target.closest(anchorSelector) : null);
+        if (targetAnchor instanceof HTMLElement) return targetAnchor;
         if (ev?.currentTarget instanceof HTMLElement) return ev.currentTarget;
-        if (ev?.target instanceof Element) return ev.target.closest('button,[data-tm-task-time-field],.tm-cell-editable,.tm-kanban-chip,.sy-custom-props-inline-chip,.sy-custom-props-floatbar__prop') || ev.target;
+        if (ev?.target instanceof Element) return ev.target;
         return null;
     }
 
@@ -2396,18 +2403,25 @@
                 card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
             }
         });
-        on(document, 'pointerdown', (ev) => {
-            const target = ev.target;
-            if (target instanceof Node) {
-                if (popover.contains(target)) return;
-                if (trigger.contains(target)) return;
-            }
+        const isTimeHubInside = (ev) => {
+            const path = typeof ev?.composedPath === 'function' ? ev.composedPath() : [];
+            if (path.includes(popover) || path.includes(trigger)) return true;
+            const target = ev?.target;
+            const targetIsNode = target instanceof Node;
+            return (targetIsNode && popover.contains(target)) || (targetIsNode && trigger.contains(target));
+        };
+        const closeTimeHubFromOutside = (ev, reason) => {
+            if (isTimeHubInside(ev)) return;
             if (busy) {
-                try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (e) {}
+                if (reason === 'outside') {
+                    try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (e) {}
+                }
                 return;
             }
-            __tmCloseStandaloneTaskTimeHub('outside');
-        }, { capture: true });
+            __tmCloseStandaloneTaskTimeHub(reason);
+        };
+        on(window, 'pointerdown', (ev) => closeTimeHubFromOutside(ev, 'outside'), { capture: true });
+        on(window, 'click', (ev) => closeTimeHubFromOutside(ev, 'outside-click'), { capture: true });
         on(document, 'keydown', (ev) => {
             if (ev.key === 'Escape') __tmCloseStandaloneTaskTimeHub('escape');
         });
@@ -10893,8 +10907,8 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                 const modal = modalEl instanceof Element ? modalEl : state.modal;
                 const modalWidth = Number(modal?.clientWidth || 0);
                 if (__tmIsMobileDevice()) return true;
-                if (modalWidth > 0) return modalWidth <= 960;
-                return (Number(window.innerWidth || 0) > 0) ? window.innerWidth <= 960 : false;
+                if (modalWidth > 0) return modalWidth <= 768;
+                return (Number(window.innerWidth || 0) > 0) ? window.innerWidth <= 768 : false;
             })();
     }
 

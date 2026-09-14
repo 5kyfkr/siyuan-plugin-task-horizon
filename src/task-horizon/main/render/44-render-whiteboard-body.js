@@ -1187,6 +1187,9 @@
             const poolCollapsedSectionKeys = new Set((Array.isArray(state.whiteboardPoolCollapsedSectionKeys) ? state.whiteboardPoolCollapsedSectionKeys : []).map((x) => String(x || '').trim()).filter(Boolean));
             const poolGroupMode = __tmGetCurrentGroupModeValue();
             const poolPinWithinGroups = !!SettingsStore.data.pinTasksWithinGroups && poolGroupMode !== 'none';
+            const separateCompletedPoolRootGroup = typeof __tmShouldSeparateCompletedRootGroup === 'function'
+                ? __tmShouldSeparateCompletedRootGroup()
+                : SettingsStore.data.completedTasksInlineInGroups !== true;
             const poolSortContext = (() => {
                 try {
                     return typeof __tmBuildRuleSortContext === 'function'
@@ -1372,7 +1375,9 @@
                 const addToList = (task, locked = false) => {
                     const id = String(task?.id || '').trim();
                     if (!id) return;
-                    if (!showDoneTasks && isWhiteboardTaskDone(task)) return;
+                    const taskDone = isWhiteboardTaskDone(task);
+                    if (!showDoneTasks && taskDone) return;
+                    if (separateCompletedPoolRootGroup && taskDone && typeof __tmShouldShowTaskInCompletedRootGroup === 'function' && !__tmShouldShowTaskInCompletedRootGroup(task)) return;
                     if (hasDoneAncestor(id)) return;
                     const prev = listMap.get(id);
                     if (prev) {
@@ -1656,12 +1661,19 @@
                 })))
                 .filter((entry) => !!entry?.task && !!String(entry?.rootId || '').trim())
                 .sort(comparePoolRootEntries);
+            const completedPoolRootEntries = separateCompletedPoolRootGroup
+                ? poolRootEntries.filter((entry) => isWhiteboardTaskDone(entry?.task))
+                : [];
+            const groupedPoolRootEntries = separateCompletedPoolRootGroup
+                ? poolRootEntries.filter((entry) => !isWhiteboardTaskDone(entry?.task))
+                : poolRootEntries;
             const pinnedPoolRootEntries = poolPinWithinGroups
                 ? []
-                : poolRootEntries.filter((entry) => isPoolActivePinnedTask(entry?.task));
+                : groupedPoolRootEntries.filter((entry) => isPoolActivePinnedTask(entry?.task));
             const regularPoolRootEntries = poolPinWithinGroups
-                ? poolRootEntries.slice()
-                : poolRootEntries.filter((entry) => !isPoolActivePinnedTask(entry?.task));
+                ? groupedPoolRootEntries.slice()
+                : groupedPoolRootEntries.filter((entry) => !isPoolActivePinnedTask(entry?.task));
+            const completedPoolTaskIds = new Set(completedPoolRootEntries.map((entry) => String(entry?.rootId || '').trim()).filter(Boolean));
             const pinnedPoolTaskIds = new Set();
             pinnedPoolRootEntries.forEach((entry) => {
                 const visit = (taskId) => {
@@ -1685,6 +1697,9 @@
                         style: labelColor ? `color:${labelColor};` : '',
                     });
                 }
+                if (section?.kind === 'completed') {
+                    return `<span style='color:var(--tm-secondary-text);'>${esc(label || '已完成任务')}</span>`;
+                }
                 if (section?.kind === 'none') {
                     return `<span>${esc(label || '全部任务')}</span>`;
                 }
@@ -1700,17 +1715,23 @@
                 const entryByTaskId = new Map(section.rootEntries.map((entry) => [String(entry?.rootId || '').trim(), entry]));
                 const preferTimeGroupSort = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant
                     && (section?.kind === 'time' || section?.kind === 'quadrant');
+                const sectionTasks = section.rootEntries.map((entry) => entry?.task).filter(Boolean);
                 const sortedTasks = sortPoolTasksLikeChecklist(
-                    section.rootEntries.map((entry) => entry?.task).filter(Boolean),
+                    sectionTasks,
                     preferTimeGroupSort ? comparePoolByTimePriority : null
                 );
+                if (section?.kind === 'completed') {
+                    sortedTasks.sort((left, right) => __tmCompareCompletedTasksRecentFirst(left, right, (a, b) => getOrder(a?.id) - getOrder(b?.id)));
+                }
                 const rootEntries = sortedTasks
                     .map((task) => entryByTaskId.get(String(task?.id || '').trim()))
                     .filter(Boolean);
-                const taskCount = rootEntries.reduce((sum, entry) => {
-                    const count = Number(entry?.docData?.countTreeNodes?.(entry?.rootId)) || 0;
-                    return sum + count;
-                }, 0);
+                const taskCount = section?.kind === 'completed'
+                    ? rootEntries.length
+                    : rootEntries.reduce((sum, entry) => {
+                        const count = Number(entry?.docData?.countTreeNodes?.(entry?.rootId)) || 0;
+                        return sum + count;
+                    }, 0);
                 const showDocBadge = typeof options?.showDocBadge === 'boolean'
                     ? options.showDocBadge
                     : showPoolRootDocBadge;
@@ -1881,10 +1902,18 @@
                     rootEntries: pinnedPoolRootEntries,
                 }, { showDocBadge: poolDocDataList.length > 1 })
                 : '';
+            const completedPoolHtml = !sidebarCollapsed && completedPoolRootEntries.length
+                ? renderWhiteboardPoolGroupedSection({
+                    kind: 'completed',
+                    key: 'whiteboard-pool',
+                    label: '已完成任务',
+                    rootEntries: completedPoolRootEntries,
+                }, { showDocBadge: poolDocDataList.length > 1 })
+                : '';
             let poolHtml = '';
             if (!sidebarCollapsed && poolGroupMode === 'doc') {
                 poolHtml = poolDocDataList
-                    .map((docData) => renderWhiteboardPoolDocSection(docData, { excludedTaskIds: pinnedPoolTaskIds }))
+                    .map((docData) => renderWhiteboardPoolDocSection(docData, { excludedTaskIds: new Set([...pinnedPoolTaskIds, ...completedPoolTaskIds]) }))
                     .join('');
             } else if (!sidebarCollapsed && poolGroupMode === 'time') {
                 const groups = new Map();
@@ -1961,6 +1990,7 @@
                     : '';
             }
             poolHtml = `${pinnedPoolHtml}${poolHtml}`;
+            poolHtml = poolHtml + completedPoolHtml;
             const poolContentHtml = sidebarCollapsed
                 ? '<div class="tm-whiteboard-pool-deferred" data-tm-whiteboard-pool-deferred="1" aria-hidden="true"></div>'
                 : (whiteboardPoolSearchOpen

@@ -7355,10 +7355,18 @@
             ? `${formatTime(range.start)} - ${formatTime(range.end)}`
             : `${range.start.getMonth() + 1}月${range.start.getDate()}日 ${formatTime(range.start)} - ${range.end.getMonth() + 1}月${range.end.getDate()}日 ${formatTime(range.end)}`;
         let rendered = false;
-        const canvas = range.canvas instanceof HTMLElement
-            ? range.canvas
-            : surface.querySelector('.tm-proto-time-canvas');
-        const metrics = range.metrics || getPrototypeTimelineMetricsFromCanvas(canvas, getSettings());
+        // Opening the schedule editor can change the available timeline
+        // height. Never reuse the canvas or metrics captured before that
+        // reflow: the preview is rendered into the current surface and must
+        // use the current canvas' coordinate system.
+        const currentCanvas = surface.querySelector('.tm-proto-time-canvas');
+        const canvas = currentCanvas instanceof HTMLElement
+            ? currentCanvas
+            : (range.canvas instanceof HTMLElement ? range.canvas : null);
+        const metrics = canvas instanceof HTMLElement
+            ? getPrototypeTimelineMetricsFromCanvas(canvas, getSettings())
+            : (range.metrics || null);
+        if (!(canvas instanceof HTMLElement) || !metrics) return false;
         const dayMinutes = (date) => Math.max(0, Math.min(1440, (date.getTime() - new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()) / 60000));
         surface.querySelectorAll('.tm-proto-time-col').forEach((column) => {
             const dayKey = String(column.getAttribute('data-tm-proto-day') || '').trim();
@@ -8656,24 +8664,54 @@
     function getCalendarTaskSnapshotById(id) {
         const tid = String(id || '').trim();
         if (!tid) return null;
+        let live = null;
+        let cachedHit = null;
         try {
-            const live = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true })
+            live = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true })
                 || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
                 || globalThis.__tmRuntimeState?.getPendingTaskById?.(tid)
                 || globalThis.__tmTaskStore?.getProjected?.(tid)
                 || globalThis.__tmTaskStore?.get?.(tid)
-                || globalThis.__tmTaskBoundary?.getTask?.(tid);
-            if (live && typeof live === 'object') return live;
+                || globalThis.__tmTaskBoundary?.getTask?.(tid)
+                || state.flatTasks?.[tid]
+                || state.pendingInsertedTasks?.[tid];
         } catch (e) {}
         try {
             const cached = window.__tmCalendarAllTasksCache?.tasks;
             if (Array.isArray(cached)) {
-                const hit = cached.find((task) => String(task?.id || '').trim() === tid);
-                if (hit) return hit;
+                cachedHit = cached.find((task) => String(task?.id || '').trim() === tid) || null;
             }
         } catch (e) {}
+        const cachedRelationChildren = [];
+        try {
+            const cached = window.__tmCalendarAllTasksCache?.tasks;
+            if (Array.isArray(cached)) cached.forEach((task) => {
+                if (!task || typeof task !== 'object') return;
+                const parentId = String(task.parentTaskId || task.parent_task_id || '').trim();
+                if (parentId === tid) cachedRelationChildren.push(task);
+            });
+        } catch (e) {}
+        if ((live && typeof live === 'object') || (cachedHit && typeof cachedHit === 'object')) {
+            const liveChildren = Array.isArray(live?.children) ? live.children : [];
+            const cachedChildren = [
+                ...(Array.isArray(cachedHit?.children) ? cachedHit.children : []),
+                ...cachedRelationChildren,
+            ];
+            const childMap = new Map();
+            [...cachedChildren, ...liveChildren].forEach((child) => {
+                if (!child || typeof child !== 'object') return;
+                const childId = String(child?.id || child?.blockId || '').trim();
+                if (childId) childMap.set(childId, child);
+            });
+            const merged = { ...(cachedHit || {}), ...(live || {}) };
+            return childMap.size > 0 ? { ...merged, children: Array.from(childMap.values()) } : merged;
+        }
+        if (live && typeof live === 'object') return live;
+        if (cachedHit && typeof cachedHit === 'object') return cachedHit;
         return null;
     }
+
+    globalThis.__tmCalendarGetTaskSnapshot = getCalendarTaskSnapshotById;
 
     function shouldEnableCalendarEventContextMenu() {
         // DOCK keeps desktop pointer/context-menu semantics even when its
@@ -22314,6 +22352,8 @@
         const taskDateSourceName = String(opts.source || 'calendar-task-date-events').trim() || 'calendar-task-date-events';
         const taskDateCalendarName = opts.calendar || (taskDateSourceName.includes('side') ? 'side' : 'main');
         const taskDateInstanceName = opts.instance || (taskDateSourceName.includes('side') ? 'side' : 'main');
+        const listHistoryStart = view === 'listMonth' ? new Date(1970, 0, 1) : start;
+        const listHistoryComplete = view === 'listMonth';
         const queryTaskDates = async () => {
             if (typeof window.tmQueryCalendarTaskDateEvents !== 'function') return [];
             const queryOptions = {
@@ -22322,6 +22362,7 @@
                 // background, but it should still paint from any task
                 // store/cache snapshot that is already available.
                 fastFirst: opts.fastFirst,
+                requireCompleteCache: listHistoryComplete || opts.requireCompleteCache === true,
                 allowInactiveFullLoad: opts.allowInactiveFullLoad === true,
                 allowInactiveView: opts.allowInactiveView === true,
                 deferFullLoad: taskDateCalendarName === 'side'
@@ -22334,7 +22375,7 @@
                 source: taskDateSourceName,
             };
             let initial = await Promise.resolve()
-                .then(() => window.tmQueryCalendarTaskDateEvents(start, end, queryOptions))
+                .then(() => window.tmQueryCalendarTaskDateEvents(listHistoryStart, end, queryOptions))
                 .catch(() => []);
 
             // Side dock startup may only have the task-list projection (a
@@ -23102,6 +23143,11 @@
             const patch = (m.patch && typeof m.patch === 'object') ? m.patch : {};
             const patchKeys = Object.keys(patch);
             if (!patchKeys.length && type !== 'setDone') return;
+            if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
+                ids.forEach((id) => {
+                    try { syncTaskPriorityInPlace(id); } catch (e) {}
+                });
+            }
             if (type === 'setDone' || (patchKeys.length > 0 && patchKeys.every((key) => key === 'done'))) {
                 const done = Object.prototype.hasOwnProperty.call(patch, 'done') ? patch.done : data.done;
                 ids.forEach((id) => {
@@ -27315,6 +27361,26 @@
         return true;
     }
 
+    function syncTaskPriorityInPlace(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        const updateCheckboxPriority = globalThis.__tmCalendarKanbanCardHelpers?.updateCheckboxPriority;
+        if (!tid || typeof updateCheckboxPriority !== 'function') return false;
+        const task = globalThis.__tmTaskStore?.getProjected?.(tid) || getCalendarTaskSnapshotById(tid);
+        if (!task) return false;
+        const roots = new Set();
+        if (options.main !== false) roots.add(state.wrapEl || state.rootEl);
+        if (options.side !== false) roots.add(state.sideDay?.rootEl);
+        let touched = false;
+        roots.forEach((root) => {
+            if (!(root instanceof HTMLElement)) return;
+            root.querySelectorAll(`.tm-proto-list .tm-task-checkbox[data-task-id="${CSS.escape(tid)}"]`).forEach((checkbox) => {
+                if (!(checkbox instanceof HTMLInputElement)) return;
+                touched = updateCheckboxPriority(checkbox.parentElement, task) === true || touched;
+            });
+        });
+        return touched;
+    }
+
     function syncTaskDoneInPlace(taskId, done, options = {}) {
         const tid = String(taskId || '').trim();
         if (!tid) return false;
@@ -27682,6 +27748,57 @@
         let prototypeDayPanelAutoCenterScheduledToken = 0;
         let prototypeDayPanelAutoCenterScheduledPanel = null;
         let prototypeTimeRangeExpanded = false;
+        const prototypeListState = {
+            focusDate: null,
+            monthCursor: null,
+            calendarExpanded: false,
+            collapsedGroups: new Set(),
+            collapsedSubtasks: new Set(),
+            listScrollRestore: null,
+            calendarTransition: '',
+            selectionTransition: '',
+            selectionTransitionFrom: '',
+            selectionTransitionPhase: '',
+            selectionTransitionToken: 0,
+            selectionVisibleFrom: [],
+            selectionVisibleTo: [],
+        };
+        const prototypeListStateStorageKey = 'task-horizon.calendar-list-state.v1';
+        const restorePrototypeListState = () => {
+            try {
+                if (typeof localStorage === 'undefined') return;
+                const raw = localStorage.getItem(prototypeListStateStorageKey);
+                if (!raw) return;
+                const saved = JSON.parse(raw);
+                if (!saved || typeof saved !== 'object') return;
+                prototypeListState.calendarExpanded = saved.calendarExpanded === true;
+                prototypeListState.collapsedGroups = new Set(
+                    Array.isArray(saved.collapsedGroups)
+                        ? saved.collapsedGroups
+                            .map((value) => String(value || '').trim())
+                            .filter(Boolean)
+                        : [],
+                );
+                prototypeListState.collapsedSubtasks = new Set(
+                    Array.isArray(saved.collapsedSubtasks)
+                        ? saved.collapsedSubtasks
+                            .map((value) => String(value || '').trim())
+                            .filter(Boolean)
+                        : [],
+                );
+            } catch (e) {}
+        };
+        const persistPrototypeListState = () => {
+            try {
+                if (typeof localStorage === 'undefined') return;
+                localStorage.setItem(prototypeListStateStorageKey, JSON.stringify({
+                    calendarExpanded: prototypeListState.calendarExpanded === true,
+                    collapsedGroups: Array.from(prototypeListState.collapsedGroups).slice(-200),
+                    collapsedSubtasks: Array.from(prototypeListState.collapsedSubtasks).slice(-200),
+                }));
+            } catch (e) {}
+        };
+        restorePrototypeListState();
         let prototypeMonthScrollRaf = 0;
         let prototypeMonthScrollEndTimer = 0;
         let prototypeMonthScrollAnchorDate = null;
@@ -28018,7 +28135,18 @@
             if (prototypeRenderRaf) return;
             const run = () => {
                 prototypeRenderRaf = 0;
+                const scrollRestore = prototypeListState.listScrollRestore;
+                prototypeListState.listScrollRestore = null;
                 try { renderPrototypeSurface(); } catch (e) { console.warn('[task-horizon] prototype calendar render failed', e); }
+                if (scrollRestore && typeof scrollRestore === 'object') {
+                    const restore = () => {
+                        const list = prototypeSurface.querySelector?.('.tm-proto-list');
+                        if (!(list instanceof HTMLElement)) return;
+                        try { list.scrollTop = Number(scrollRestore.top) || 0; } catch (e) {}
+                        try { list.scrollLeft = Number(scrollRestore.left) || 0; } catch (e) {}
+                    };
+                    try { requestAnimationFrame(restore); } catch (e) { restore(); }
+                }
             };
             try { prototypeRenderRaf = requestAnimationFrame(run); } catch (e) { run(); }
         };
@@ -28448,6 +28576,14 @@
             const mobileMonthSwipeTarget = (target) => {
                 if (!(target instanceof Element)) return null;
                 const viewType = String(getCalendarView(calendar)?.type || '').trim();
+                if (isCalendarListViewType(viewType)) {
+                    const picker = target.closest(prototypeListState.calendarExpanded
+                        ? '.tm-proto-list-month-grid'
+                        : '.tm-proto-list-week-picker');
+                    if (!(picker instanceof HTMLElement)) return null;
+                    if (target.closest('.tm-proto-list-week-nav, .tm-proto-list-calendar-toggle, input, select, textarea, a')) return null;
+                    return picker;
+                }
                 if (viewType === 'dayGridMonth') {
                     const cell = target.closest('.tm-proto-month-cell[data-tm-proto-day]');
                     if (!(cell instanceof HTMLElement)) return null;
@@ -28477,7 +28613,8 @@
             };
             const beginMobileMonthSwipe = (event, source) => {
                 const viewType = String(getCalendarView(calendar)?.type || '').trim();
-                if (!(isMobileDevice || isDockHost) || (viewType !== 'dayGridMonth' && !isTimeGridViewType(viewType))) return;
+                if (!(isMobileDevice || isDockHost)
+                    || (viewType !== 'dayGridMonth' && !isTimeGridViewType(viewType) && !isCalendarListViewType(viewType))) return;
                 if (source === 'pointer' && event?.pointerType !== 'touch') return;
                 const target = mobileMonthSwipeTarget(event?.target instanceof Element ? event.target : null);
                 if (!target) return;
@@ -28581,7 +28718,21 @@
                 const direction = dx < 0 ? 1 : -1;
                 const activeCalendar = calendar || state.calendar;
                 let shifted = false;
-                if (viewType === 'dayGridMonth') {
+                if (isCalendarListViewType(viewType)) {
+                    const period = gesture.target.matches('.tm-proto-list-month-grid') ? 'month' : 'week';
+                    if (period === 'month') {
+                        const month = protoSafeDate(prototypeListState.monthCursor) || new Date();
+                        month.setMonth(month.getMonth() + direction, 1);
+                        prototypeListState.monthCursor = month;
+                        shifted = true;
+                        try { queuePrototypeSurfaceRender(); } catch (e) {}
+                    } else {
+                        const action = `${direction < 0 ? 'prev' : 'next'}-${period}`;
+                        const actionEl = gesture.target.closest('.tm-proto-list-picker')
+                            ?.querySelector(`[data-tm-proto-list-action="${action}"]`);
+                        if (actionEl) shifted = performPrototypeListAction(event, actionEl);
+                    }
+                } else if (viewType === 'dayGridMonth') {
                     shifted = shiftPrototypeMonthScroll(direction, { animate: true }) === true;
                 } else if (isTimeGridViewType(viewType)) {
                     prototypeMobileMonthSwipeDirection = direction;
@@ -28815,12 +28966,179 @@
                 const button = prototypeSurface.querySelector(`[data-tm-proto-action="view"][data-tm-proto-view="${viewType}"]`);
                 try { button?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); } catch (e) { try { button?.click?.(); } catch (e2) {} }
             }, true);
+            const performPrototypeListAction = (event, listActionEl) => {
+                if (event.__tmPrototypeListActionHandled === true) return false;
+                try { event.__tmPrototypeListActionHandled = true; } catch (e) {}
+                const listAction = String(listActionEl?.getAttribute?.('data-tm-proto-list-action') || '').trim();
+                if (!listAction) return false;
+                event.preventDefault();
+                event.stopPropagation();
+                if (listAction === 'select-date' && prototypeMobileMonthSuppressClickUntil > Date.now()) return true;
+                const activeCalendar = state.calendar || calendar;
+                const currentFocus = protoListFocusDate(getCalendarView(activeCalendar) || {});
+                const captureListScroll = () => {
+                    const list = prototypeSurface.querySelector?.('.tm-proto-list');
+                    if (!(list instanceof HTMLElement)) return;
+                    prototypeListState.listScrollRestore = {
+                        top: Number(list.scrollTop) || 0,
+                        left: Number(list.scrollLeft) || 0,
+                    };
+                };
+                 if (listAction === 'toggle-calendar') {
+                     prototypeListState.calendarExpanded = !prototypeListState.calendarExpanded;
+                     persistPrototypeListState();
+                     const transition = prototypeListState.calendarExpanded ? 'expand' : 'collapse';
+                     prototypeListState.calendarTransition = transition;
+                     setTimeout(() => {
+                         if (prototypeListState.calendarTransition === transition) prototypeListState.calendarTransition = '';
+                     }, 360);
+                 } else if (listAction === 'toggle-group') {
+                    captureListScroll();
+                    const groupKey = String(listActionEl.getAttribute('data-tm-proto-list-group') || '').trim();
+                    if (groupKey) {
+                        if (prototypeListState.collapsedGroups.has(groupKey)) prototypeListState.collapsedGroups.delete(groupKey);
+                        else prototypeListState.collapsedGroups.add(groupKey);
+                        persistPrototypeListState();
+                    }
+                } else if (listAction === 'toggle-subtasks') {
+                    const taskId = String(listActionEl.getAttribute('data-tm-proto-list-task-id') || '').trim();
+                    if (!taskId) return true;
+                    const collapsed = !prototypeListState.collapsedSubtasks.has(taskId);
+                    if (collapsed) prototypeListState.collapsedSubtasks.add(taskId);
+                    else prototypeListState.collapsedSubtasks.delete(taskId);
+                    persistPrototypeListState();
+                    let updated = false;
+                    prototypeSurface.querySelectorAll('[data-tm-proto-list-subtasks-owner]').forEach((section) => {
+                        if (section.getAttribute('data-tm-proto-list-subtasks-owner') !== taskId) return;
+                        section.classList.toggle('is-collapsed', collapsed);
+                        const toggle = section.querySelector('[data-tm-proto-list-action="toggle-subtasks"]');
+                        toggle?.setAttribute('aria-expanded', String(!collapsed));
+                        toggle?.setAttribute('title', collapsed ? '展开子任务' : '折叠子任务');
+                        section.querySelector('[data-tm-kanban-subtasks-list]')?.setAttribute('aria-hidden', String(collapsed));
+                        updated = true;
+                    });
+                    if (updated) return true;
+                } else if (listAction === 'prev-month' || listAction === 'next-month') {
+                    const month = protoSafeDate(prototypeListState.monthCursor) || new Date(currentFocus.getFullYear(), currentFocus.getMonth(), 1);
+                    month.setMonth(month.getMonth() + (listAction === 'prev-month' ? -1 : 1), 1);
+                    prototypeListState.monthCursor = month;
+                } else if (listAction === 'prev-week' || listAction === 'next-week') {
+                    const nextFocus = protoAddDays(currentFocus, listAction === 'prev-week' ? -7 : 7);
+                    prototypeListState.focusDate = nextFocus;
+                    prototypeListState.monthCursor = new Date(nextFocus.getFullYear(), nextFocus.getMonth(), 1);
+                    try { callCalendarAdapter(activeCalendar, 'gotoDate', nextFocus); } catch (e) {}
+                } else if (listAction === 'select-date') {
+                    const rawDate = String(listActionEl.getAttribute('data-tm-proto-list-date') || '').trim();
+                    const nextFocus = rawDate ? protoDayStart(new Date(rawDate + 'T12:00:00')) : null;
+                    if (nextFocus) {
+                        const currentKey = protoDateKey(prototypeListState.focusDate);
+                        const nextKey = protoDateKey(nextFocus);
+                        if (nextKey !== currentKey) {
+                            const transitionToken = prototypeListState.selectionTransitionToken + 1;
+                            prototypeListState.selectionTransitionToken = transitionToken;
+                            prototypeListState.selectionTransition = nextKey;
+                            prototypeListState.selectionTransitionFrom = currentKey;
+                            prototypeListState.selectionTransitionPhase = 'fade-out';
+                            prototypeListState.selectionVisibleFrom = protoListVisibleDays(prototypeListState.focusDate)
+                                .map(protoDateKey);
+                            prototypeListState.selectionVisibleTo = protoListVisibleDays(nextFocus)
+                                .map(protoDateKey);
+                            setTimeout(() => {
+                                if (prototypeListState.selectionTransitionToken !== transitionToken) return;
+                                prototypeListState.focusDate = nextFocus;
+                                prototypeListState.monthCursor = new Date(nextFocus.getFullYear(), nextFocus.getMonth(), 1);
+                                prototypeListState.selectionTransitionPhase = 'fade-in';
+                                try { callCalendarAdapter(activeCalendar, 'gotoDate', nextFocus); } catch (e) {}
+                                queuePrototypeSurfaceRender();
+                            }, 280);
+                            setTimeout(() => {
+                                if (prototypeListState.selectionTransitionToken !== transitionToken) return;
+                                prototypeListState.selectionTransition = '';
+                                prototypeListState.selectionTransitionFrom = '';
+                                prototypeListState.selectionTransitionPhase = '';
+                                prototypeListState.selectionVisibleFrom = [];
+                                prototypeListState.selectionVisibleTo = [];
+                                queuePrototypeSurfaceRender();
+                            }, 700);
+                        } else {
+                            return true;
+                        }
+                    }
+                }
+                queuePrototypeSurfaceRender();
+                return true;
+            };
+            const openPrototypeListTaskDetail = (event, eventApi, eventEl) => {
+                if (!(eventEl instanceof Element)) return false;
+                const taskCard = eventEl.classList.contains('tm-proto-list-task-card')
+                    ? eventEl
+                    : eventEl.closest?.('.tm-proto-list-task-card') || eventEl.querySelector?.('.tm-proto-list-task-card');
+                if (!(taskCard instanceof Element)) return false;
+                const eventProps = eventApi?.extendedProps || {};
+                const isConcreteSchedule = eventApi?.allDay !== true
+                    && (String(eventProps.__tmSource || '').trim() === 'schedule' || !!String(eventProps.__tmScheduleId || '').trim());
+                if (isConcreteSchedule) return false;
+                const childTarget = event?.target instanceof Element
+                    ? event.target.closest?.('[data-tm-proto-list-task-id]')
+                    : null;
+                const ext = eventApi?.extendedProps || {};
+                const taskId = String(
+                    childTarget?.getAttribute?.('data-tm-proto-list-task-id')
+                    || taskCard.getAttribute?.('data-tm-proto-list-task-id')
+                    || eventEl.getAttribute?.('data-tm-proto-list-task-id')
+                    || ext.__tmTaskId
+                    || ext.__tmBlockId
+                    || ext.__tmReminderBlockId
+                    || ext.__tmTaskDateEventTaskId
+                    || '',
+                ).trim();
+                if (!taskId || typeof window.tmOpenTaskDetail !== 'function') return false;
+                if (event.__tmPrototypeTaskDetailHandled === true) return true;
+                try {
+                    event.__tmPrototypeTaskDetailHandled = true;
+                    event.__tmPrototypePopoverHandled = true;
+                } catch (e) {}
+                try {
+                    event.preventDefault();
+                    event.stopPropagation();
+                } catch (e) {}
+                Promise.resolve(window.tmOpenTaskDetail(taskId, event, {
+                    source: 'calendar-list-card-click',
+                })).catch(() => {});
+                return true;
+            };
             prototypeSurface.addEventListener('click', (event) => {
                 const target = event.target instanceof Element ? event.target : null;
+                if (target?.closest?.('.tm-proto-list-task-card .tm-task-checkbox')) {
+                    event.stopPropagation();
+                    return;
+                }
                 const pointTarget = document.elementFromPoint?.(Number(event.clientX) || 0, Number(event.clientY) || 0);
                 const geometryTarget = pointTarget instanceof Element ? pointTarget : target;
                 const actionEl = target?.closest?.('[data-tm-proto-action]');
                 const action = String(actionEl?.getAttribute?.('data-tm-proto-action') || '').trim();
+                const listActionEl = target?.closest?.('[data-tm-proto-list-action]');
+                const listAction = String(listActionEl?.getAttribute?.('data-tm-proto-list-action') || '').trim();
+                const listFieldEl = target?.closest?.('.tm-proto-list-task-card [data-tm-task-time-field],.tm-proto-list-task-card .tm-status-tag,.tm-proto-list-task-card .tm-kanban-priority-chip');
+                if (listFieldEl) {
+                    const listCard = listFieldEl.closest?.('.tm-proto-list-task-card');
+                    const listTaskId = String(listCard?.getAttribute?.('data-tm-proto-list-task-id') || '').trim();
+                    const fieldName = String(listFieldEl.getAttribute?.('data-tm-task-time-field') || '').trim();
+                    const isDoneListCard = listCard?.classList?.contains?.('tm-kanban-card--done') === true;
+                    if (listTaskId && !(fieldName === '' && listFieldEl.classList.contains('tm-status-tag') && isDoneListCard)) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (listFieldEl.classList.contains('tm-kanban-priority-chip')) window.tmPickPriority?.(listTaskId, listFieldEl, event);
+                        else if (listFieldEl.classList.contains('tm-status-tag')) window.tmKanbanOpenStatusSelect?.(listTaskId, listFieldEl, event);
+                        else if (fieldName === 'date') window.tmKanbanPickDate?.(listTaskId, event);
+                        else if (fieldName === 'tomatoSummary') window.tmEditFocusSummaryInline?.(listTaskId, listFieldEl);
+                        return;
+                    }
+                }
+                if (listAction) {
+                    performPrototypeListAction(event, listActionEl);
+                    return;
+                }
                 if (!action && prototypeSuppressSelectionClickUntil > Date.now()) {
                     event.preventDefault();
                     event.stopPropagation();
@@ -28885,6 +29203,13 @@
                                 // visible at a month boundary.
                                 try { queuePrototypeSurfaceRender(); } catch (e) {}
                             }
+                            if (handled && isCalendarListViewType(viewTypeBefore)) {
+                                const anchor = protoListFocusDate(viewBefore || {});
+                                const nextAnchor = new Date(anchor.getTime());
+                                nextAnchor.setMonth(nextAnchor.getMonth() + direction, 1);
+                                prototypeListState.focusDate = nextAnchor;
+                                prototypeListState.monthCursor = new Date(nextAnchor.getFullYear(), nextAnchor.getMonth(), 1);
+                            }
                         }
                         else if (action === 'today') {
                             prototypeMobileTimelineSwipeAnchorDate = null;
@@ -28918,6 +29243,10 @@
                                 prototypeMonthAutoSyncedMonthKey = monthKeyLabel(today);
                             }
                             const todayResult = callCalendarAdapter(activeCalendar, 'gotoDate', today);
+                            if (todayResult !== false && isCalendarListViewType(String(getCalendarView(activeCalendar)?.type || '').trim())) {
+                                prototypeListState.focusDate = protoDayStart(today);
+                                prototypeListState.monthCursor = new Date(today.getFullYear(), today.getMonth(), 1);
+                            }
                         } else if (action === 'view') {
                             prototypeMobileTimelineSwipeAnchorDate = null;
                             const viewType = String(actionEl.getAttribute('data-tm-proto-view') || '').trim();
@@ -28935,6 +29264,11 @@
                                         changeViewResult = targetDate instanceof Date
                                             ? callCalendarAdapter(activeCalendar, 'changeView', viewType, targetDate)
                                             : callCalendarAdapter(activeCalendar, 'changeView', viewType);
+                                        if (changeViewResult !== false && isCalendarListViewType(viewType)) {
+                                            const listDate = protoDayStart(targetDate || getCalendarDate(activeCalendar)) || new Date();
+                                            prototypeListState.focusDate = listDate;
+                                            prototypeListState.monthCursor = new Date(listDate.getFullYear(), listDate.getMonth(), 1);
+                                        }
                                         state._lastViewType = viewType;
                                         queuePrototypeSurfaceRender();
                                         const store = state.settingsStore;
@@ -29110,6 +29444,7 @@
                     const activeCalendar = state.calendar || calendar;
                     const eventId = getCalendarEventIdFromElement(eventEl);
                     const eventApi = getCalendarEventById(activeCalendar, eventId);
+                    if (openPrototypeListTaskDetail(event, eventApi, eventEl)) return;
                     if (eventApi) {
                         if (event.__tmPrototypePopoverHandled === true) return;
                         try { event.__tmPrototypePopoverHandled = true; } catch (e) {}
@@ -29130,9 +29465,33 @@
                 state.prototypeEventDocumentClick?.();
             } catch (e) {}
             const onPrototypeEventDocumentClick = (event) => {
+                if (event?.__tmPrototypeTaskDetailHandled === true
+                    || event?.__tmPrototypePopoverHandled === true) return;
                 const target = event.target instanceof Element ? event.target : null;
                 if (!target) {
                     return;
+                }
+                if (target.closest?.('[data-tm-proto-list-action]')) return;
+                if (target.closest?.('.tm-proto-list-task-card .tm-task-checkbox')) return;
+                const listFieldEl = target.closest?.('.tm-proto-list-task-card [data-tm-task-time-field],.tm-proto-list-task-card .tm-status-tag,.tm-proto-list-task-card .tm-kanban-priority-chip');
+                if (listFieldEl) {
+                    const listCard = listFieldEl.closest?.('.tm-proto-list-task-card');
+                    const fieldName = String(listFieldEl.getAttribute?.('data-tm-task-time-field') || '').trim();
+                    const isDoneListCard = listCard?.classList?.contains?.('tm-kanban-card--done') === true;
+                    const isReadOnlyDoneStatus = fieldName === ''
+                        && listFieldEl.classList.contains('tm-status-tag')
+                        && isDoneListCard;
+                    if (!isReadOnlyDoneStatus) return;
+                }
+                const listTaskCard = target.closest?.('.tm-proto-list-task-card');
+                if (listTaskCard) {
+                    const activeCalendar = state.calendar || calendar;
+                    const eventEl = listTaskCard.closest?.('[data-tm-proto-event]') || listTaskCard;
+                    const eventId = getCalendarEventIdFromElement(eventEl);
+                    const eventApi = getCalendarEventById(activeCalendar, eventId)
+                        || getCalendarEvents(activeCalendar).find((item) => String(item?.id || '') === eventId)
+                        || null;
+                    if (openPrototypeListTaskDetail(event, eventApi, listTaskCard)) return;
                 }
                 const clickedEventEl = target.closest('[data-tm-proto-event]');
                 const clickedEventId = getCalendarEventIdFromElement(clickedEventEl);
@@ -29175,6 +29534,7 @@
                 const eventApi = getCalendarEventById(activeCalendar, eventId)
                     || getCalendarEvents(activeCalendar).find((item) => String(item?.id || '') === eventId)
                     || null;
+                if (openPrototypeListTaskDetail(event, eventApi, eventEl)) return;
                 if (!eventApi) return;
                 const compactMonthEvent = String(getCalendarView(activeCalendar)?.type || '').trim() === 'dayGridMonth'
                     && isCompactDockLayout()
@@ -29450,6 +29810,11 @@
             bindPrototypeSurfacePointerHandler(prototypeSurface, 'pointerdown', (event) => {
                 if (typeof event.button === 'number' && event.button !== 0) return;
                 const target = event.target instanceof Element ? event.target : null;
+                if (target?.closest?.('.tm-proto-list-task-card .tm-task-checkbox, .tm-proto-list-task-card [data-tm-proto-list-action], .tm-proto-list-task-card [data-tm-task-time-field], .tm-proto-list-task-card .tm-status-tag, .tm-proto-list-task-card .tm-kanban-priority-chip, .tm-proto-list-task-card button, .tm-proto-list-task-card input, .tm-proto-list-task-card select, .tm-proto-list-task-card textarea')) return;
+                // List cards are not draggable calendar events. Let their native
+                // click reach the task-detail delegate instead of allowing touch
+                // pointer capture to retarget the follow-up click to the surface.
+                if (target?.closest?.('.tm-proto-list-task-card')) return;
                 if (target?.closest?.('.tm-proto-event-check, .tm-cal-task-event-check')) return;
                     const eventEl = target?.closest?.('[data-tm-proto-event]');
                     if (!eventEl) {
@@ -30012,9 +30377,22 @@
                                 prototypeSuppressClickEventId = drag.id;
                             }
                         } else if (eventApi && !drag.resizeEdge && event.pointerType !== 'mouse') {
-                            prototypeSuppressClickUntil = Date.now() + 650;
-                            prototypeSuppressClickEventId = drag.id;
-                            try { showPrototypeEventPopover(eventApi, drag.eventEl); } catch (e) {}
+                            const listTaskCard = drag.eventEl?.closest?.('.tm-proto-list-task-card') || null;
+                            if (listTaskCard && openPrototypeListTaskDetail(event, eventApi, listTaskCard)) {
+                                prototypeSuppressClickUntil = Date.now() + 650;
+                                prototypeSuppressClickEventId = drag.id;
+                            } else {
+                                prototypeSuppressClickUntil = Date.now() + 650;
+                                prototypeSuppressClickEventId = drag.id;
+                                try { showPrototypeEventPopover(eventApi, drag.eventEl); } catch (e) {}
+                            }
+                        } else if (!drag.resizeEdge
+                            && event.pointerType !== 'mouse'
+                            && drag.eventEl?.closest?.('.tm-proto-list-task-card')) {
+                            if (openPrototypeListTaskDetail(event, eventApi, drag.eventEl)) {
+                                prototypeSuppressClickUntil = Date.now() + 650;
+                                prototypeSuppressClickEventId = drag.id;
+                            }
                         }
                         return;
                     }
@@ -31906,20 +32284,631 @@
                 timeRangeExpanded: prototypeTimeRangeExpanded,
             });
         };
+        const protoListDateLabel = (date) => {
+            const value = protoSafeDate(date);
+            return value ? `${value.getMonth() + 1}月${value.getDate()}日` : '';
+        };
+        const protoListMonthLabel = (date) => {
+            const value = protoSafeDate(date);
+            return value ? `${value.getFullYear()}年${value.getMonth() + 1}月` : '';
+        };
+        const protoListFirstDay = (settings) => Number(settings?.firstDay) === 0 ? 0 : 1;
+        const protoListStartOfWeek = (date, firstDay) => {
+            const value = protoDayStart(date);
+            if (!value) return null;
+            const offset = (value.getDay() - (Number(firstDay) === 0 ? 0 : 1) + 7) % 7;
+            value.setDate(value.getDate() - offset);
+            return value;
+        };
+        const protoListFocusDate = (view) => {
+            const existing = protoDayStart(prototypeListState.focusDate);
+            if (existing) return existing;
+            const initial = protoDayStart(getCalendarDate(calendar) || view?.currentStart || new Date()) || new Date();
+            prototypeListState.focusDate = initial;
+            prototypeListState.monthCursor = new Date(initial.getFullYear(), initial.getMonth(), 1);
+            return initial;
+        };
+        const protoListVisibleDays = (focusDate) => {
+            const listWidth = Number(prototypeSurface?.querySelector?.('.tm-proto-list')?.clientWidth || 0);
+            const width = listWidth || Number(prototypeSurface?.clientWidth || wrap?.clientWidth || window.innerWidth || 0);
+            const count = width >= 900 ? 3 : (width >= 560 ? 2 : 1);
+            const startOffset = count === 3 ? -1 : 0;
+            return Array.from({ length: count }, (_, index) => protoAddDays(focusDate, startOffset + index));
+        };
+        const protoListWeekDates = (focusDate, settings) => {
+            const start = protoListStartOfWeek(focusDate, protoListFirstDay(settings));
+            return Array.from({ length: 7 }, (_, index) => protoAddDays(start, index));
+        };
+        const protoListMonthDates = (monthCursor, settings) => {
+            const month = protoSafeDate(monthCursor) || new Date();
+            const first = new Date(month.getFullYear(), month.getMonth(), 1);
+            const start = protoListStartOfWeek(first, protoListFirstDay(settings));
+            const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+            const end = protoAddDays(protoListStartOfWeek(last, protoListFirstDay(settings)), 7);
+            const dates = [];
+            for (let date = start; date && end && date < end; date = protoAddDays(date, 1)) dates.push(date);
+            return dates;
+        };
+        const protoListWeekdayLabels = (settings) => {
+            const labels = ['日', '一', '二', '三', '四', '五', '六'];
+            const firstDay = protoListFirstDay(settings);
+            return Array.from({ length: 7 }, (_, index) => labels[(firstDay + index) % 7]);
+        };
+        const protoListEventOverlapsDay = (eventApi, date) => {
+            const day = protoDayStart(date);
+            return !!day && protoRangeEvents([eventApi], day, protoAddDays(day, 1)).length > 0;
+        };
+        const protoListEventDone = (eventApi) => resolveCalendarEventDoneState(eventApi?.extendedProps || {});
+        const protoListIsTaskEvent = (eventApi) => {
+            const ext = eventApi?.extendedProps || {};
+            const source = String(ext.__tmSource || '').trim();
+                return source === 'taskdate'
+                    || source === 'reminder'
+                    || !!String(ext.__tmTaskId || ext.__tmTaskDateEventTaskId || ext.__tmSourceTaskId || '').trim();
+        };
+            const protoListEventExpired = (eventApi, today) => {
+                const end = protoEventEnd(eventApi);
+                return !!end && end.getTime() <= today.getTime();
+            };
+            const protoListTaskId = (eventApi) => {
+                const ext = eventApi?.extendedProps || {};
+                return String(ext.__tmTaskId || ext.__tmTaskDateEventTaskId || ext.__tmSourceTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
+            };
+            const protoListIsTaskDateEvent = (eventApi) => {
+                const ext = eventApi?.extendedProps || {};
+                return eventApi?.allDay === true
+                    && (String(ext.__tmSource || '').trim() === 'taskdate' || !!String(ext.__tmTaskDateEventTaskId || '').trim());
+            };
+            const protoListIsConcreteScheduleEvent = (eventApi) => {
+                const ext = eventApi?.extendedProps || {};
+                return eventApi?.allDay !== true
+                    && (String(ext.__tmSource || '').trim() === 'schedule' || !!String(ext.__tmScheduleId || '').trim());
+            };
+            const protoListTaskSnapshot = (eventApi) => {
+                const taskId = protoListTaskId(eventApi);
+                if (!taskId) return null;
+                try { return getCalendarTaskSnapshotById(taskId); } catch (e) { return null; }
+            };
+            const protoListTaskParentId = (task) => String(task?.parentTaskId || task?.parent_task_id || task?.parentId || task?.parent_id || '').trim();
+            const protoListTaskDone = (task) => {
+                if (!task || typeof task !== 'object') return false;
+                try {
+                    const bridge = globalThis.__tmCalendarKanbanCardHelpers;
+                    if (bridge && typeof bridge.isDone === 'function') return bridge.isDone(task) === true;
+                } catch (e) {}
+                try { if (typeof __tmIsTaskDoneEffective === 'function') return !!__tmIsTaskDoneEffective(task); } catch (e) {}
+                return task.done === true || task.done === 1 || task.done === '1' || task.done === 'true';
+            };
+            const protoListStatusLabel = (status, fallback = '') => {
+                return String(status?.name || status?.label || status?.title || fallback || '').trim();
+            };
+            const protoListTaskTitleHtml = (task, fallbackText = '') => {
+                const content = String(task?.content || task?.raw_content || task?.rawContent || '').trim();
+                const markdown = String(task?.markdown || '').trim();
+                const fallback = content || markdown || String(fallbackText || '').trim() || '未命名任务';
+                try {
+                    if (typeof API !== 'undefined' && API && typeof API.renderTaskContentHtml === 'function') {
+                        const rendered = API.renderTaskContentHtml(markdown || fallback, fallback);
+                        if (String(rendered || '').trim()) return rendered;
+                    }
+                } catch (e) {}
+                return esc(fallback);
+            };
+            const protoListTaskTitleStyle = (task) => {
+                try {
+                    return typeof __tmBuildTaskTitleOpacityStyle === 'function'
+                        ? __tmBuildTaskTitleOpacityStyle(task)
+                        : '';
+                } catch (e) {
+                    return '';
+                }
+            };
+            const protoListTaskChildren = (task) => {
+                const parentId = String(task?.id || '').trim();
+                if (!parentId) return [];
+                const children = Array.isArray(task?.children) ? [...task.children] : [];
+                let projectedCount = 0;
+                let cacheRelationCount = 0;
+                let runtimeRelationCount = 0;
+                try {
+                    const projected = globalThis.__tmCalendarKanbanCardHelpers?.getChildren?.(parentId);
+                    if (Array.isArray(projected)) {
+                        projectedCount = projected.length;
+                        children.push(...projected);
+                    }
+                } catch (e) {}
+                try {
+                    const cached = window.__tmCalendarAllTasksCache?.tasks;
+                    if (Array.isArray(cached)) cached.forEach((candidate) => {
+                        if (protoListTaskParentId(candidate) === parentId) {
+                            cacheRelationCount += 1;
+                            children.push(candidate);
+                        }
+                    });
+                } catch (e) {}
+                try {
+                    const runtimeTasks = globalThis.__tmRuntimeState?.getFlatTasks?.();
+                    if (runtimeTasks && typeof runtimeTasks === 'object') Object.values(runtimeTasks).forEach((candidate) => {
+                        if (protoListTaskParentId(candidate) === parentId) {
+                            runtimeRelationCount += 1;
+                            children.push(candidate);
+                        }
+                    });
+                    if (state.flatTasks && typeof state.flatTasks === 'object') Object.values(state.flatTasks).forEach((candidate) => {
+                        if (protoListTaskParentId(candidate) === parentId) {
+                            runtimeRelationCount += 1;
+                            children.push(candidate);
+                        }
+                    });
+                } catch (e) {}
+                const byId = new Map();
+                children.forEach((child) => {
+                    if (!child || typeof child !== 'object') return;
+                    const childId = String(child.id || child.blockId || '').trim();
+                    if (childId && childId !== parentId && !byId.has(childId)) byId.set(childId, child);
+                });
+                const result = Array.from(byId.values());
+                return result;
+            };
+            const protoListTaskHasChildren = (task) => {
+                if (!task || typeof task !== 'object') return false;
+                if (Array.isArray(task.children) && task.children.length > 0) return true;
+                const taskId = String(task.id || task.blockId || '').trim();
+                if (!taskId) return false;
+                try {
+                    const projected = globalThis.__tmCalendarKanbanCardHelpers?.getChildren?.(taskId);
+                    if (Array.isArray(projected) && projected.length > 0) return true;
+                } catch (e) {}
+                try {
+                    const cached = window.__tmCalendarAllTasksCache?.tasks;
+                    if (Array.isArray(cached) && cached.some((candidate) => protoListTaskParentId(candidate) === taskId)) return true;
+                } catch (e) {}
+                return false;
+            };
+            const protoListTaskFieldEnabled = (field) => {
+                try {
+                    const bridge = globalThis.__tmCalendarKanbanCardHelpers;
+                    if (bridge && typeof bridge.isFieldEnabled === 'function') return bridge.isFieldEnabled(field) === true;
+                    if (typeof __tmGetTaskCardFieldList === 'function') return __tmGetTaskCardFieldList('kanban').includes(String(field || '').trim());
+                    const fields = SettingsStore?.data?.kanbanCardFields;
+                    if (Array.isArray(fields) && fields.length) return fields.includes(field);
+                } catch (e) {}
+                return ['priority', 'status', 'date'].includes(String(field || '').trim());
+            };
+            const protoListTaskDocumentName = (task, eventApi) => {
+                const ext = eventApi?.extendedProps || {};
+                const direct = getCalendarTaskRelationMeta(task) || getCalendarTaskRelationMeta(ext);
+                if (direct) return direct;
+                const docId = getCalendarTaskDocumentId(task) || String(ext.__tmDocId || '').trim();
+                if (!docId) return '';
+                try {
+                    const groups = state.settingsStore?.data?.docGroups || state.sideDay?.settingsStore?.data?.docGroups;
+                    for (const group of (Array.isArray(groups) ? groups : [])) {
+                        for (const doc of (Array.isArray(group?.docs) ? group.docs : [])) {
+                            const id = String((typeof doc === 'object' ? doc?.id : doc) || '').trim();
+                            if (id === docId) return String(typeof doc === 'object' ? doc?.name || doc?.title || '' : '').trim();
+                        }
+                    }
+                } catch (e) {}
+                return '';
+            };
+            const protoListTaskMetaHtml = (task, showDocument, eventApi = null) => {
+                if (!task || typeof task !== 'object') return '';
+                const parts = [];
+                const bridge = globalThis.__tmCalendarKanbanCardHelpers || {};
+                const inlineTaskId = esc(String(task.id || task.blockId || '').trim());
+                try {
+                    const hasPriority = typeof bridge.shouldRenderPriority === 'function'
+                        ? bridge.shouldRenderPriority(task) === true
+                        : (typeof __tmShouldRenderTaskCardPriority === 'function' && __tmShouldRenderTaskCardPriority(task));
+                    if (protoListTaskFieldEnabled('priority') && hasPriority) {
+                        const style = typeof bridge.buildPriorityStyle === 'function'
+                            ? bridge.buildPriorityStyle(task.priority)
+                            : (typeof __tmBuildPriorityChipStyle === 'function' ? __tmBuildPriorityChipStyle(task.priority) : '');
+                        const value = typeof bridge.renderPriority === 'function'
+                            ? bridge.renderPriority(task.priority, false)
+                            : (typeof __tmRenderPriorityJira === 'function' ? __tmRenderPriorityJira(task.priority, false) : esc(String(task.priority || '')));
+                        if (value) parts.push(`<span class="tm-kanban-priority-chip" style="${style}">${value}</span>`);
+                    }
+                    const done = protoListTaskDone(task);
+                    const status = typeof bridge.resolveStatus === 'function'
+                        ? bridge.resolveStatus(task, { fallbackColor: done ? '#9e9e9e' : '#757575', fallbackName: done ? '完成' : '待办' })
+                        : null;
+                    const shouldRenderStatus = typeof bridge.shouldRenderStatus === 'function'
+                        ? bridge.shouldRenderStatus(task) === true
+                        : true;
+                    const keepCompletedStatus = typeof bridge.keepCompletedStatus === 'function'
+                        ? bridge.keepCompletedStatus() === true
+                        : false;
+                    if (protoListTaskFieldEnabled('status') && shouldRenderStatus && status
+                        && (!done || keepCompletedStatus)) {
+                        const statusStyle = typeof bridge.buildStatusStyle === 'function'
+                            ? bridge.buildStatusStyle(status.color || '#757575')
+                            : (typeof __tmBuildStatusChipStyle === 'function' ? __tmBuildStatusChipStyle(status.color || '#757575') : '');
+                        const statusName = protoListStatusLabel(status, done ? '完成' : '待办');
+                        if (statusName) parts.push(`<span class="tm-status-tag" style="${statusStyle};cursor:default;">${esc(statusName)}</span>`);
+                    }
+                    const dateValue = typeof bridge.getDateValue === 'function'
+                        ? bridge.getDateValue(task)
+                        : (typeof __tmGetTaskCardDateValue === 'function' ? __tmGetTaskCardDateValue(task) : '');
+                    const hasDate = typeof bridge.shouldRenderDate === 'function'
+                        ? bridge.shouldRenderDate(task) === true
+                        : (typeof __tmShouldRenderTaskCardDate === 'function' && __tmShouldRenderTaskCardDate(task));
+                    if (protoListTaskFieldEnabled('date') && dateValue && hasDate) {
+                        const dateText = typeof bridge.formatDate === 'function'
+                            ? bridge.formatDate(task)
+                            : (typeof __tmFormatTaskCardDateValue === 'function' ? __tmFormatTaskCardDateValue(task) : dateValue);
+                        parts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date" data-tm-task-time-field="date">${esc(dateText || '日期')}</span>`);
+                    }
+                    const hasRemainingTime = typeof bridge.shouldRenderRemainingTime === 'function'
+                        ? bridge.shouldRenderRemainingTime(task) === true
+                        : (typeof __tmShouldRenderTaskCardRemainingTime === 'function' && __tmShouldRenderTaskCardRemainingTime(task));
+                    if (protoListTaskFieldEnabled('remainingTime') && hasRemainingTime && typeof bridge.getRemainingTime === 'function') {
+                        const info = bridge.getRemainingTime(task);
+                        const text = String(info?.label || '').trim();
+                        if (text) parts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="remainingTime">${typeof bridge.renderRemainingTime === 'function' ? bridge.renderRemainingTime(info) : esc(text)}</span>`);
+                    }
+                    if (protoListTaskFieldEnabled('tomatoSummary') && typeof __tmGetTaskTomatoSummaryText === 'function' && __tmGetTaskTomatoSummaryText(task)) {
+                        parts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary">${typeof __tmGetTaskTomatoSummaryHtml === 'function' ? __tmGetTaskTomatoSummaryHtml(task) : esc(__tmGetTaskTomatoSummaryText(task))}</span>`);
+                    }
+                    if (protoListTaskFieldEnabled('tomatoEstimateCount') && typeof __tmGetTomatoCountDisplay === 'function' && typeof __tmGetTomatoEstimateCount === 'function') {
+                        const text = __tmGetTomatoCountDisplay(__tmGetTomatoEstimateCount(task));
+                        if (text) parts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted">${esc(text)}</span>`);
+                    }
+                    if (protoListTaskFieldEnabled('tomatoCount') && typeof __tmGetTomatoCountDisplay === 'function' && typeof __tmGetTaskTomatoCount === 'function') {
+                        const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));
+                        if (text) parts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted">${esc(text)}</span>`);
+                    }
+                    if (protoListTaskFieldEnabled('h2') && task.h2) parts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted">${esc(String(task.h2))}</span>`);
+                    if (protoListTaskFieldEnabled('remark') && typeof bridge.renderRemark === 'function') {
+                        const remark = bridge.renderRemark(task);
+                        if (remark) parts.push(remark);
+                    }
+                } catch (e) {}
+                if (showDocument) {
+                    const docName = protoListTaskDocumentName(task, eventApi);
+                    const docId = getCalendarTaskDocumentId(task) || String(eventApi?.extendedProps?.__tmDocId || '').trim();
+                    if (docName) {
+                        const icon = typeof bridge.renderDocIcon === 'function' ? bridge.renderDocIcon(docId, { fallbackText: '📄', size: 13 }) : '📄';
+                        parts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--doc" title="${esc(docName)}"><span class="tm-icon-label">${icon}<span>${esc(docName)}</span></span></span>`);
+                    }
+                }
+                if (inlineTaskId) {
+                    const addInlineAction = (html, marker, attribute) => String(html || '').includes(marker)
+                        ? String(html).replace('>', `${attribute}>`)
+                        : html;
+                    const priorityAction = ` onclick='tmPickPriority(&quot;${inlineTaskId}&quot;, this, event)'`;
+                    const statusAction = ` onclick='tmKanbanOpenStatusSelect(&quot;${inlineTaskId}&quot;, this, event)'`;
+                    const dateAction = ` onclick='tmKanbanPickDate(&quot;${inlineTaskId}&quot;, event)'`;
+                    const tomatoAction = ` onclick='tmEditFocusSummaryInline(&quot;${inlineTaskId}&quot;, this)'`;
+                    parts.splice(0, parts.length, ...parts.map((part) => {
+                        let next = part;
+                        if (String(next).includes('tm-kanban-priority-chip')) next = addInlineAction(next, 'tm-kanban-priority-chip', priorityAction);
+                        if (statusAction && String(next).includes('tm-status-tag')) next = addInlineAction(next, 'tm-status-tag', statusAction);
+                        if (String(next).includes('tm-kanban-chip--date')) next = addInlineAction(next, 'tm-kanban-chip--date', dateAction);
+                        if (String(next).includes('tomatoSummary')) next = addInlineAction(next, 'tomatoSummary', tomatoAction);
+                        return next;
+                    }));
+                }
+                if (protoListTaskFieldEnabled('priority') && !parts.some((part) => String(part).includes('tm-kanban-priority-chip'))) {
+                    const priority = String(task.priority || task.custom_priority || task.customPriority || '').trim();
+                    if (priority) parts.unshift(`<span class="tm-kanban-priority-chip">${esc(priority)}</span>`);
+                }
+                if (protoListTaskFieldEnabled('date') && !parts.some((part) => String(part).includes('tm-kanban-chip--date'))) {
+                    const rawDate = task.completionTime || task.completion_time || task.custom_completion_time || task.dueDate || task.due_date || '';
+                    const dateText = String(rawDate || '').trim();
+                    if (dateText) parts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date">${esc(dateText.slice(0, 10))}</span>`);
+                }
+                return parts.length ? `<div class="tm-kanban-card-meta">${parts.join('')}</div>` : '';
+            };
+            const protoListTaskCard = (eventApi, task, options = {}) => {
+                if (!task || typeof task !== 'object') return '';
+                const id = String(task.id || task.blockId || '').trim();
+                const eventId = String(eventApi?.id || '').trim();
+                if (!id || !eventId) return '';
+                const isParent = options.isParent === true;
+                const done = protoListTaskDone(task);
+                const children = isParent ? protoListTaskChildren(task) : [];
+                const eventProps = eventApi?.extendedProps || {};
+                const isConcreteSchedule = eventApi?.allDay !== true
+                    && (String(eventProps.__tmSource || '').trim() === 'schedule' || !!String(eventProps.__tmScheduleId || '').trim());
+                const useTaskDetailClick = !isConcreteSchedule;
+                const taskDetailClick = useTaskDetailClick ? ` onclick="tmOpenTaskDetail('${esc(id)}', event)"` : '';
+                const bridge = globalThis.__tmCalendarKanbanCardHelpers || {};
+                const checkbox = typeof bridge.renderCheckboxWrap === 'function'
+                    ? bridge.renderCheckboxWrap(id, task, { checked: done, stopMouseDown: true, stopPointerDown: true, stopClick: true })
+                    : typeof __tmRenderTaskCheckboxWrap === 'function'
+                        ? __tmRenderTaskCheckboxWrap(id, task, { checked: done, stopMouseDown: true, stopPointerDown: true, stopClick: true })
+                    : `<input class="tm-task-checkbox" type="checkbox" data-task-id="${esc(id)}" ${done ? 'checked' : ''} onchange="tmSetDone('${esc(id)}', this.checked, event)" onclick="event.stopPropagation()">`;
+                const childRows = children.map((child) => {
+                    const childId = String(child?.id || child?.blockId || '').trim();
+                    if (!childId) return '';
+                    const childDone = protoListTaskDone(child);
+                    const childCheckbox = typeof bridge.renderCheckboxWrap === 'function'
+                        ? bridge.renderCheckboxWrap(childId, child, { checked: childDone, stopMouseDown: true, stopPointerDown: true, stopClick: true })
+                        : typeof __tmRenderTaskCheckboxWrap === 'function'
+                            ? __tmRenderTaskCheckboxWrap(childId, child, { checked: childDone, stopMouseDown: true, stopPointerDown: true, stopClick: true })
+                        : `<input class="tm-task-checkbox" type="checkbox" data-task-id="${esc(childId)}" ${childDone ? 'checked' : ''} onchange="tmSetDone('${esc(childId)}', this.checked, event)" onclick="event.stopPropagation()">`;
+                    const childContent = String(child?.content || child?.raw_content || child?.rawContent || '').trim() || '(无内容)';
+                    const childMarkdown = String(child?.markdown || childContent).trim();
+                    const childTitle = protoListTaskTitleHtml(child, childContent);
+                    const childTitleAttrs = (() => {
+                        try {
+                            const titleText = typeof API?.getTaskTitlePresentation === 'function'
+                                ? API.getTaskTitlePresentation(childMarkdown, childContent).text
+                                : childContent;
+                            const tooltip = typeof __tmBuildTooltipAttrs === 'function'
+                                ? __tmBuildTooltipAttrs(titleText, { side: 'bottom', ariaLabel: false })
+                                : '';
+                            const opacity = typeof __tmBuildTaskTitleOpacityStyle === 'function'
+                                ? __tmBuildTaskTitleOpacityStyle(child)
+                                : '';
+                            return `${useTaskDetailClick ? `onclick="tmOpenTaskDetail('${esc(childId)}', event)"` : `onclick="tmTaskTitleClick('${esc(childId)}', event, { surface: 'kanban' })"`}${tooltip} style="${opacity}"`;
+                        } catch (e) {
+                            return useTaskDetailClick
+                                ? `onclick="tmOpenTaskDetail('${esc(childId)}', event)"`
+                                : `onclick="tmTaskTitleClick('${esc(childId)}', event, { surface: 'kanban' })"`;
+                        }
+                    })();
+                    const childPinned = (() => {
+                        try {
+                            return typeof __tmIsTaskPinned === 'function'
+                                ? __tmIsTaskPinned(child) === true
+                                : child?.pinned === true || child?.pinned === 1 || child?.pinned === '1' || child?.pinned === 'true';
+                        } catch (e) { return false; }
+                    })();
+                    const childClass = `tm-kanban-card tm-kanban-card--sub tm-kanban-subtask-row${childDone ? ' tm-kanban-card--done' : ''}${childPinned ? ' tm-kanban-card--pinned' : ''}`;
+                    const childAttrs = `data-id="${esc(childId)}" draggable="true" ondragstart="tmKanbanDragStart(event, '${esc(childId)}')" ondragend="tmKanbanDragEnd(event, '${esc(childId)}')" onpointerdown="tmKanbanCardPointerDown(event, '${esc(childId)}')"${useTaskDetailClick ? ` onclick="tmOpenTaskDetail('${esc(childId)}', event)"` : ` onclick="tmKanbanCardClick('${esc(childId)}', event)"`} oncontextmenu="tmShowTaskContextMenu(event, '${esc(childId)}')" ondblclick="tmKanbanCardDblClick('${esc(childId)}', event)"`;
+                    const childTitleInner = `${childTitle}${typeof __tmRenderRecurringTaskInlineIcon === 'function' ? __tmRenderRecurringTaskInlineIcon(child) : ''}`;
+                    const childMeta = String(protoListTaskMetaHtml(child, false, eventApi) || '').replace('tm-kanban-card-meta', 'tm-kanban-subtask-meta');
+                    return `<div class="${childClass}" ${childAttrs}><div class="tm-kanban-subtask-row-main">${childCheckbox}<div class="tm-kanban-subtask-text"><span class="tm-kanban-subtask-title tm-task-content-clickable" ${childTitleAttrs}>${childTitleInner}</span>${childMeta}</div><div class="tm-kanban-subtask-actions"><button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${esc(childId)}', event)" title="任务详情">${typeof __tmRenderLucideIcon === 'function' ? __tmRenderLucideIcon('dots-three') : '⋯'}</button></div></div></div>`;
+                }).join('');
+                const subtaskHtml = children.length
+                    ? (() => {
+                        const collapsed = prototypeListState.collapsedSubtasks.has(id);
+                        const completed = children.filter(protoListTaskDone).length;
+                        const progress = children.length ? Math.round((completed / children.length) * 100) : 0;
+                        const subtaskIcon = typeof bridge.renderBadgeIcon === 'function'
+                            ? bridge.renderBadgeIcon('clipboard-list', 14)
+                            : typeof __tmRenderBadgeIcon === 'function' ? __tmRenderBadgeIcon('clipboard-list', 14) : '';
+                        return `<section class="tm-kanban-subtasks tm-proto-list-subtasks tm-kanban--clean${collapsed ? ' is-collapsed' : ''}" data-tm-proto-list-subtasks-owner="${esc(id)}" aria-label="子任务"><button class="tm-kanban-subtasks-head" type="button" data-tm-proto-list-action="toggle-subtasks" data-tm-proto-list-task-id="${esc(id)}" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? '展开子任务' : '折叠子任务'}"><span class="tm-kanban-subtasks-label">${subtaskIcon}<span>子任务</span></span><span class="tm-badge tm-badge--count">${completed}/${children.length}</span><span class="tm-kanban-subtasks-chevron" aria-hidden="true"></span></button><div class="tm-kanban-subtasks-progress" role="presentation"><span style="width:${progress}%"></span></div><div class="tm-kanban-subtasks-list" data-tm-kanban-subtasks-list aria-hidden="${collapsed ? 'true' : 'false'}">${childRows}</div></section>`;
+                    })()
+                    : '';
+                const overdueClass = options.kind === 'expired' ? ' tm-kanban-card--overdue' : '';
+                return `<div class="tm-proto-list-event tm-proto-list-task-card tm-kanban-card${done ? ' tm-kanban-card--done' : ''}${overdueClass}" data-tm-proto-event="${esc(eventId)}" data-tm-proto-list-task-id="${esc(id)}"${taskDetailClick} style="--tm-proto-event-color:${protoEventColor(eventApi)}"><div class="tm-kanban-card-top tm-kanban-card-main"><div class="tm-kanban-card-head">${checkbox}<div class="tm-kanban-card-text"><span class="tm-kanban-card-title-inline" style="${protoListTaskTitleStyle(task)}">${protoListTaskTitleHtml(task, eventApi?.title)}</span>${protoListTaskMetaHtml(task, true, eventApi)}</div></div></div>${subtaskHtml}</div>`;
+            };
+            const protoListEventRow = (eventApi, kind = 'regular') => {
+                const id = String(eventApi?.id || '').trim();
+                const isTimedEvent = eventApi?.allDay !== true;
+                const time = isTimedEvent ? protoEventTime(eventApi) : '';
+                const taskId = protoListTaskId(eventApi);
+                const task = protoListTaskSnapshot(eventApi) || (protoListIsTaskEvent(eventApi) && taskId
+                    ? { id: taskId, content: String(eventApi?.title || '').trim(), markdown: String(eventApi?.title || '').trim(), ...(eventApi?.extendedProps || {}) }
+                    : null);
+                const taskCard = protoListIsTaskEvent(eventApi) && task
+                    ? protoListTaskCard(eventApi, task, { isParent: protoListTaskHasChildren(task), kind })
+                    : '';
+                const card = taskCard || protoEventMarkup(eventApi, 'list', false, 'tm-proto-list-event');
+                const timeMarkup = isTimedEvent ? `<span class="tm-proto-list-time">${esc(time)}</span>` : '';
+                return `<div class="tm-proto-list-row tm-proto-list-row--${esc(kind)}${isTimedEvent ? '' : ' tm-proto-list-row--all-day'}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${protoEventColor(eventApi)}">${timeMarkup}${card}</div>`;
+            };
+            const protoListSortEvents = (eventApis) => {
+                const source = Array.isArray(eventApis) ? eventApis.slice() : [];
+                if (source.length <= 1) return source;
+                const timed = source.filter((eventApi) => eventApi?.allDay !== true);
+                const allDay = source.filter((eventApi) => eventApi?.allDay === true);
+                const compareTimed = (left, right) => {
+                    const startDiff = (Number(left?.start?.getTime?.()) || 0) - (Number(right?.start?.getTime?.()) || 0);
+                    if (startDiff !== 0) return startDiff;
+                    const endDiff = (Number(left?.end?.getTime?.()) || 0) - (Number(right?.end?.getTime?.()) || 0);
+                    if (endDiff !== 0) return endDiff;
+                    return String(left?.id || '').localeCompare(String(right?.id || ''));
+                };
+                timed.sort(compareTimed);
+                const taskEntries = allDay.filter((eventApi) => protoListIsTaskEvent(eventApi)).map((eventApi, index) => {
+                    const taskId = protoListTaskId(eventApi);
+                    const task = protoListTaskSnapshot(eventApi) || {
+                        id: taskId || String(eventApi?.id || ''),
+                        content: String(eventApi?.title || '').trim(),
+                        ...(eventApi?.extendedProps || {}),
+                    };
+                    return { eventApi, task, index };
+                });
+                if (taskEntries.length <= 1 || typeof globalThis.__tmApplyCalendarRuleSort !== 'function') return timed.concat(allDay);
+                const sortedTasks = globalThis.__tmApplyCalendarRuleSort(taskEntries.map((entry) => entry.task));
+                const byId = new Map(taskEntries.map((entry) => [String(entry.task?.id || '').trim(), entry.eventApi]));
+                const used = new Set();
+                const sortedTaskEvents = [];
+                sortedTasks.forEach((task) => {
+                    const id = String(task?.id || '').trim();
+                    const eventApi = byId.get(id);
+                    if (eventApi && !used.has(eventApi)) {
+                        used.add(eventApi);
+                        sortedTaskEvents.push(eventApi);
+                    }
+                });
+                taskEntries.forEach((entry) => {
+                    if (!used.has(entry.eventApi)) sortedTaskEvents.push(entry.eventApi);
+                });
+                let taskIndex = 0;
+                const sortedAllDay = allDay.map((eventApi) => {
+                    if (!protoListIsTaskEvent(eventApi)) return eventApi;
+                    return sortedTaskEvents[taskIndex++] || eventApi;
+                });
+                return timed.concat(sortedAllDay);
+            };
+        const protoListGroup = (key, kind, label, eventApis) => {
+            if (!eventApis.length) return '';
+            const groupKey = `${key}:${kind}`;
+            const collapsed = prototypeListState.collapsedGroups.has(groupKey);
+            const rows = protoListSortEvents(eventApis).map((eventApi) => protoListEventRow(eventApi, kind)).join('');
+            return `<section class="tm-proto-list-group tm-proto-list-group--${esc(kind)}${collapsed ? ' is-collapsed' : ''}"><button type="button" class="tm-proto-list-group-toggle" data-tm-proto-list-action="toggle-group" data-tm-proto-list-group="${esc(groupKey)}" aria-expanded="${collapsed ? 'false' : 'true'}"><span>${esc(label)} · ${eventApis.length}</span><span class="tm-proto-list-group-chevron" aria-hidden="true"></span></button><div class="tm-proto-list-group-body">${rows}</div></section>`;
+        };
+        const protoListDateCell = (date, focusDate, visibleKeys, events, settings) => {
+            const key = protoDateKey(date);
+            const focusKey = protoDateKey(focusDate);
+            const todayKey = protoDateKey(protoDayStart(new Date()));
+            const dateInfo = getCalendarDateHeaderInfo(key, settings, state.cnHolidayMap);
+            const lunarText = settings?.showLunar === true ? String(dateInfo?.lunar || '').trim() : '';
+            const holidayLabel = settings?.showCnHoliday === true ? String(dateInfo?.label || '').trim() : '';
+            const holidayStatus = settings?.showCnHoliday === true ? String(dateInfo?.status || '').trim() : '';
+            const holidayShortText = Array.from(holidayLabel).slice(0, 3).join('');
+            const dateSubtext = holidayShortText || (!holidayLabel && !holidayStatus ? lunarText : '');
+            const dateSubtextMarkup = dateSubtext ? `<small class="tm-proto-list-date-subtext" title="${esc(holidayLabel || lunarText)}">${esc(dateSubtext)}</small>` : '';
+            const metaText = holidayShortText || (!holidayLabel && !holidayStatus ? lunarText : '');
+            const statusMarkup = holidayStatus ? `<span class="tm-proto-list-date-status tm-proto-list-date-status--${esc(holidayStatus)}" title="${holidayStatus === 'work' ? '调休工作日' : '休息日'}">${holidayStatus === 'work' ? '班' : '休'}</span>` : '';
+            const hasEvents = protoRangeEvents(events, date, protoAddDays(date, 1)).length > 0;
+            const classes = [
+                'tm-proto-list-date-cell',
+                key === focusKey ? 'is-selected' : '',
+                prototypeListState.selectionTransitionPhase === 'fade-out'
+                    && key !== focusKey
+                    && key !== prototypeListState.selectionTransition
+                    && prototypeListState.selectionVisibleFrom.includes(key)
+                    && !prototypeListState.selectionVisibleTo.includes(key)
+                    ? 'is-visibility-fade-out'
+                    : '',
+                prototypeListState.selectionTransitionPhase === 'fade-in'
+                    && key !== focusKey
+                    && prototypeListState.selectionVisibleTo.includes(key)
+                    && !prototypeListState.selectionVisibleFrom.includes(key)
+                    ? 'is-visibility-fade-in'
+                    : '',
+                key === todayKey ? 'is-today' : '',
+                visibleKeys.has(key) ? 'is-visible' : '',
+                hasEvents ? 'has-events' : '',
+                metaText ? 'has-date-meta' : '',
+                holidayStatus ? `has-holiday-status has-holiday-status--${holidayStatus}` : '',
+            ].filter(Boolean).join(' ');
+            const ariaMeta = holidayLabel || lunarText;
+            const ariaLabel = [protoListDateLabel(date), ariaMeta, holidayStatus === 'work' ? '调休工作日' : holidayStatus === 'rest' ? '休息日' : ''].filter(Boolean).join('，');
+            return `<button type="button" class="${classes}" data-tm-proto-list-action="select-date" data-tm-proto-list-date="${esc(key)}" aria-label="${esc(ariaLabel)}" aria-pressed="${key === protoDateKey(focusDate) ? 'true' : 'false'}"><span class="tm-proto-list-date-weekday">${protoWeekLabels[date.getDay()]}</span><span class="tm-proto-list-date-number"><strong>${date.getDate()}</strong>${dateSubtextMarkup}${statusMarkup}</span>${hasEvents ? '<i aria-hidden="true"></i>' : ''}</button>`;
+        };
+        const syncPrototypeListControl = (current, next) => {
+            if (current.isEqualNode(next)) return;
+            if (current.nodeType !== next.nodeType || current.nodeName !== next.nodeName) {
+                current.replaceWith(next.cloneNode(true));
+                return;
+            }
+            if (current.nodeType !== 1) {
+                current.nodeValue = next.nodeValue;
+                return;
+            }
+            Array.from(current.attributes).forEach((attribute) => {
+                if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
+            });
+            Array.from(next.attributes).forEach((attribute) => {
+                if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value);
+            });
+            const currentChildren = Array.from(current.childNodes);
+            Array.from(next.childNodes).forEach((child, index) => {
+                if (currentChildren[index]) syncPrototypeListControl(currentChildren[index], child);
+                else current.appendChild(child.cloneNode(true));
+            });
+            currentChildren.slice(next.childNodes.length).forEach((child) => child.remove());
+        };
+        const patchPrototypeListSurface = (markup) => {
+            const currentList = prototypeSurface.querySelector('.tm-proto-list');
+            if (!currentList) return false;
+            const host = document.createElement('div');
+            host.innerHTML = markup;
+            const nextList = host.querySelector('.tm-proto-list');
+            const currentPicker = currentList.querySelector('.tm-proto-list-picker');
+            const nextPicker = nextList?.querySelector('.tm-proto-list-picker');
+            const currentDays = currentList.querySelector('.tm-proto-list-days');
+            const nextDays = nextList?.querySelector('.tm-proto-list-days');
+            const currentToolbar = prototypeSurface.querySelector('.tm-proto-toolbar');
+            const nextToolbar = host.querySelector('.tm-proto-toolbar');
+            const currentApp = prototypeSurface.querySelector('.tm-proto-app');
+            if (!currentPicker || !nextPicker || !currentDays || !nextDays || !currentToolbar || !nextToolbar || !currentApp) return false;
+            currentList.className = nextList.className;
+            syncPrototypeListControl(currentPicker, nextPicker);
+            syncPrototypeListControl(currentToolbar, nextToolbar);
+            if (!currentDays.isEqualNode(nextDays)) currentDays.replaceChildren(...nextDays.childNodes);
+            currentApp.setAttribute('style', host.querySelector('.tm-proto-app').getAttribute('style') || '');
+            const currentPanel = prototypeSurface.querySelector('.tm-proto-day-panel');
+            const nextPanel = host.querySelector('.tm-proto-day-panel');
+            if (currentPanel && nextPanel) {
+                if (!currentPanel.isEqualNode(nextPanel)) currentPanel.replaceWith(nextPanel);
+            } else if (currentPanel) currentPanel.remove();
+            else if (nextPanel) currentApp.querySelector('.tm-proto-main').appendChild(nextPanel);
+            return true;
+        };
         const protoRenderList = (view, events, settings) => {
-            const days = protoVisibleDays(view, 'listMonth');
-            const today = protoDayStart(new Date());
-            const todayKey = today ? protoDateKey(today) : '';
-            const groups = days.map((date) => {
+            if (window.__tmCalendarAllTasksCache?.complete !== true && typeof window.tmWarmCalendarTaskCacheIfStale === 'function') {
+                try {
+                    const warmStarted = window.tmWarmCalendarTaskCacheIfStale({
+                        source: 'calendar-list-subtasks',
+                        refresh: true,
+                        requireCompleteCache: true,
+                        allowInactiveView: true,
+                    });
+                    if (warmStarted && typeof window.tmEnsureCalendarTaskCache === 'function') {
+                        setTimeout(() => {
+                            try {
+                                Promise.resolve(window.tmEnsureCalendarTaskCache({
+                                    source: 'calendar-list-subtasks',
+                                    refresh: true,
+                                    requireCompleteCache: true,
+                                    allowInactiveView: true,
+                                })).then(() => {
+                                    if (!prototypeSurface?.isConnected) return;
+                                    if (!isCalendarListViewType(String(getCalendarView(calendar)?.type || '').trim())) return;
+                                    state.queuePrototypeSurfaceRender?.();
+                                }).catch(() => {});
+                            } catch (e) {}
+                        }, 0);
+                    }
+                } catch (e) {}
+            }
+            const focusDate = protoListFocusDate(view);
+            const monthCursor = protoSafeDate(prototypeListState.monthCursor) || new Date(focusDate.getFullYear(), focusDate.getMonth(), 1);
+            const visibleDays = protoListVisibleDays(focusDate);
+            const visibleKeys = new Set(visibleDays.map(protoDateKey));
+            const weekDates = protoListWeekDates(focusDate, settings);
+            const monthDates = protoListMonthDates(monthCursor, settings);
+            const today = protoDayStart(new Date()) || new Date();
+            const todayKey = protoDateKey(today);
+            const cards = visibleDays.map((date) => {
                 const key = protoDateKey(date);
-                const dayEvents = protoRangeEvents(events, date, protoAddDays(date, 1));
-                const isToday = !!todayKey && key === todayKey;
-                if (!dayEvents.length && !isToday) return '';
-                const rows = dayEvents.map((eventApi) => `<div class="tm-proto-list-row" data-tm-proto-event="${esc(String(eventApi.id || ''))}" style="--tm-proto-event-color:${protoEventColor(eventApi)}"><span class="tm-proto-list-time">${esc(protoEventTime(eventApi))}</span>${protoEventMarkup(eventApi, 'list', false)}</div>`).join('');
-                const emptyState = dayEvents.length ? '' : '<div class="tm-proto-list-empty">暂无安排</div>';
-                return `<section class="tm-proto-list-day" data-date="${esc(key)}" data-tm-proto-list-day="${esc(key)}"${isToday ? ' data-tm-proto-list-today="1"' : ''}><header><b>${date.getMonth() + 1}月${date.getDate()}日</b><span>周${protoWeekLabels[date.getDay()]}</span></header>${rows}${emptyState}</section>`;
+                const isToday = key === todayKey;
+                let dayEvents = events.filter((eventApi) => protoListEventOverlapsDay(eventApi, date));
+                const scheduledTaskIds = new Set(
+                    dayEvents
+                        .filter(protoListIsConcreteScheduleEvent)
+                        .map(protoListTaskId)
+                        .filter(Boolean),
+                );
+                const isDuplicateTaskDate = (eventApi) => protoListIsTaskDateEvent(eventApi)
+                    && scheduledTaskIds.has(protoListTaskId(eventApi));
+                const visibleDayEvents = dayEvents.filter((eventApi) => !isDuplicateTaskDate(eventApi));
+                dayEvents = visibleDayEvents;
+                const spanEvents = visibleDayEvents.filter(protoIsSpanEvent);
+                const expiredEvents = isToday
+                    ? events.filter((eventApi) => eventApi?.allDay === true
+                        && protoListIsTaskEvent(eventApi)
+                        && !protoListEventDone(eventApi)
+                        && !isDuplicateTaskDate(eventApi)
+                        && protoListEventExpired(eventApi, today))
+                    : [];
+                const expiredIds = new Set(expiredEvents.map((eventApi) => String(eventApi?.id || '')));
+                const regularEvents = visibleDayEvents.filter((eventApi) => !protoIsSpanEvent(eventApi) && !expiredIds.has(String(eventApi?.id || '')));
+                const specialGroups = `${protoListGroup(key, 'expired', '已过期', expiredEvents)}${protoListGroup(key, 'span', '跨天任务', spanEvents)}`;
+                const regularRows = protoListSortEvents(regularEvents).map((eventApi) => protoListEventRow(eventApi)).join('');
+                const regularGroup = protoListGroup(key, 'regular', '今日任务', regularEvents);
+                const groups = specialGroups ? `${specialGroups}${regularGroup}` : '';
+                const rows = specialGroups ? '' : regularRows;
+                const content = groups || rows ? `${groups}${rows}` : '<div class="tm-proto-list-empty">暂无安排</div>';
+                return `<section class="tm-proto-list-day${isToday ? ' is-today' : ''}" data-tm-proto-list-day="${esc(key)}"><header><div><b>${esc(protoListDateLabel(date))}</b><span>周${protoWeekLabels[date.getDay()]}</span>${isToday ? '<em>今天</em>' : ''}</div><small>${dayEvents.length ? `${dayEvents.length} 项安排` : '暂无安排'}</small></header>${content}</section>`;
             }).join('');
-            return `<section class="tm-proto-view tm-proto-list">${groups || '<div class="tm-proto-empty">当前范围没有安排</div>'}</section>`;
+            const weekCells = weekDates.map((date) => protoListDateCell(date, focusDate, visibleKeys, events, settings)).join('');
+            const weekdayCells = protoListWeekdayLabels(settings).map((label) => `<span class="weekday">${label}</span>`).join('');
+            const monthCells = monthDates.map((date) => {
+                const cell = protoListDateCell(date, focusDate, visibleKeys, events, settings);
+                return cell.replace('tm-proto-list-date-cell', `tm-proto-list-date-cell tm-proto-list-month-cell${date.getMonth() === monthCursor.getMonth() ? '' : ' is-outside'}`);
+            }).join('');
+            const calendarClasses = ['tm-proto-view', 'tm-proto-list', `is-day-count-${visibleDays.length}`, prototypeListState.calendarExpanded ? 'is-calendar-expanded' : '', prototypeListState.calendarTransition ? `is-calendar-transition-${prototypeListState.calendarTransition}` : ''].filter(Boolean).join(' ');
+             return `<section class="${calendarClasses}"><section class="tm-proto-list-picker" aria-label="日期选择器"><div class="tm-proto-list-week-picker"><button type="button" class="tm-proto-list-week-nav" data-tm-proto-list-action="prev-week" aria-label="上一周">‹</button><div class="tm-proto-list-week-grid">${weekCells}</div><button type="button" class="tm-proto-list-week-nav" data-tm-proto-list-action="next-week" aria-label="下一周">›</button></div><div class="tm-proto-list-month-picker"><div class="tm-proto-list-month-grid">${weekdayCells}${monthCells}</div></div><button type="button" class="tm-proto-list-calendar-toggle" data-tm-proto-list-action="toggle-calendar" aria-expanded="${prototypeListState.calendarExpanded ? 'true' : 'false'}" aria-label="${prototypeListState.calendarExpanded ? '收起月历' : '展开月历'}"><span aria-hidden="true"></span></button></section><div class="tm-proto-list-days">${cards}</div></section>`;
         };
         const protoRenderDayPanel = (events, settings) => {
             if (!prototypeShowDayPanel) return '';
@@ -31989,7 +32978,8 @@
         // laid out into the host's hidden area. The host is not always
         // rootEl: SiYuan can wrap the plugin in a narrower overflow-hidden
         // pane, which was the source of right-edge clipping on mobile.
-        const getPrototypePopoverViewport = (anchorEl) => {
+        const getPrototypePopoverViewport = (anchorEl, options = {}) => {
+            const ignoreListVerticalClip = options?.ignoreListVerticalClip === true;
             const vv = window.visualViewport;
             // Chromium/WebView can report a visualViewport wider than the
             // actual layout viewport while the host is scaled or embedded in
@@ -32070,13 +33060,20 @@
                     && Number(anchorRect.left) <= Number(rootRect.right)
                     && Number(anchorRect.bottom) >= Number(rootRect.top)
                     && Number(anchorRect.top) <= Number(rootRect.bottom);
-                if (rootContainsAnchor && rootIntersectsAnchor) intersectRect(rootEl, true);
+                const rootIsListClip = rootEl instanceof Element
+                    && rootEl.matches?.('.tm-proto-list, .tm-proto-list-picker, .tm-proto-list-days, .tm-proto-list-day, .tm-proto-list-group-body');
+                if (rootContainsAnchor && rootIntersectsAnchor && !(ignoreListVerticalClip && rootIsListClip)) intersectRect(rootEl, true);
                 let node = anchorEl instanceof Element ? anchorEl.parentElement : null;
                 while (node && node !== document.body && node !== document.documentElement) {
                     // The +N list is a body-level portal. It is an anchor
                     // container, not the viewport for another body-level
                     // detail card, so do not inherit its narrow width.
                     if (!(morePopover instanceof Element && morePopover.contains(node))) {
+                        const isListClip = node.matches?.('.tm-proto-list, .tm-proto-list-picker, .tm-proto-list-days, .tm-proto-list-day, .tm-proto-list-group-body');
+                        if (ignoreListVerticalClip && isListClip) {
+                            node = node.parentElement;
+                            continue;
+                        }
                         const knownHost = !!node.matches?.(knownHostSelector);
                         intersectRect(node, knownHost);
                     }
@@ -32386,7 +33383,7 @@
                 const anchor = pop.querySelector(`${anchorSelector}[data-tm-proto-edit-${timeHubMode === 'time' ? 'time' : 'date'}-card="${timeHubEndpoint}"]`);
                 if (!(anchor instanceof HTMLElement)) return;
                 const rect = anchor.getBoundingClientRect();
-                const viewport = getPrototypePopoverViewport(anchorEl);
+                const viewport = getPrototypePopoverViewport(anchorEl, { ignoreListVerticalClip: true });
                 const margin = Math.min(8, Math.max(4, viewport.width / 2));
                 const width = Math.min(timeHub.offsetWidth || 286, Math.max(0, viewport.width - margin * 2));
                 let left = Math.min(Math.max(viewport.left + margin, rect.left), Math.max(viewport.left + margin, viewport.right - width - margin));
@@ -32557,13 +33554,14 @@
             };
             const position = () => {
                 if (!pop.isConnected) return;
-                const viewport = getPrototypePopoverViewport(anchorEl);
+                const viewport = getPrototypePopoverViewport(anchorEl, { ignoreListVerticalClip: true });
                 const margin = Math.min(10, Math.max(4, viewport.width / 2));
                 const width = Math.min(isNew ? 326 : 312, Math.max(0, viewport.width - margin * 2));
                 pop.style.setProperty('width', `${width}px`, 'important');
                 pop.style.setProperty('max-width', `${width}px`, 'important');
-                const mobileBottom = isNew && (isMobileDevice === true || isLikelyMobileRuntime() || viewport.width <= 480);
-                const bottomInset = mobileBottom ? Math.min(72, Math.max(56, viewport.height * 0.12)) : 0;
+                const isMobileViewport = isMobileDevice === true || isLikelyMobileRuntime() || viewport.width <= 480;
+                const mobileBottom = isNew && isMobileViewport;
+                const bottomInset = isMobileViewport ? Math.min(72, Math.max(56, viewport.height * 0.12)) : 0;
                 const availableHeight = Math.max(120, viewport.height - margin * 2 - bottomInset);
                 // The popover can live inside a dock or an overflow-clipped
                 // mobile host whose visible height is smaller than 100vh.
@@ -33615,7 +34613,7 @@
             const position = () => {
                 if (!pop.isConnected) return;
                 const rect = anchorEl.getBoundingClientRect();
-                const viewport = getPrototypePopoverViewport(anchorEl);
+                const viewport = getPrototypePopoverViewport(anchorEl, { ignoreListVerticalClip: true });
                 const margin = Math.min(10, Math.max(4, viewport.width / 2));
                 const width = Math.min(280, Math.max(0, viewport.width - margin * 2));
                 pop.style.setProperty('width', `${width}px`, 'important');
@@ -33760,8 +34758,9 @@
         const protoToolbarMarkup = (view, viewType, settings, title) => {
             const activeView = MAIN_CALENDAR_ALLOWED_VIEWS.has(viewType) ? viewType : 'timeGridWeek';
             const compactToolbar = isCompactDockLayout();
-            const toolbarDate = protoSafeDate(view?.currentStart || getCalendarDate(calendar));
-            const toolbarMonth = toolbarDate ? `${toolbarDate.getMonth() + 1}月` : '';
+            const listView = isCalendarListViewType(viewType);
+            const toolbarDate = listView ? protoListFocusDate(view) : protoSafeDate(view?.currentStart || getCalendarDate(calendar));
+            const toolbarMonth = toolbarDate ? `${toolbarDate.getMonth() + 1}月${listView ? toolbarDate.getDate() + '日' : ''}` : '';
             const viewButtons = MAIN_CALENDAR_VIEW_OPTIONS.map((item) => {
                 const active = item.value === activeView;
                 return `<button type="button" class="tm-proto-view-btn tm-view-seg-item bc-tabs-trigger ${active ? 'is-active' : ''}" data-state="${active ? 'active' : 'inactive'}" data-tm-proto-action="view" data-tm-proto-view="${item.value}" role="tab" aria-selected="${active ? 'true' : 'false'}">${item.label}</button>`;
@@ -33771,7 +34770,9 @@
                 ? `<span class="tm-proto-toolbar-month" data-tm-proto-toolbar-month="1">${esc(toolbarMonth)}</span>`
                 : '';
             const opacityMenu = prototypeOpenMenu === 'opacity' ? `<div class="tm-proto-pop tm-proto-opacity-pop"><h4>任务上色不透明度</h4><label><span>浅色模式</span><input type="range" min="${PROTOTYPE_OPACITY_MIN}" max="${PROTOTYPE_OPACITY_MAX}" step="0.05" value="${prototypeOpacityByTheme.light}" data-tm-proto-opacity="light"><b data-tm-proto-opacity-value="light">${Math.round(prototypeOpacityByTheme.light * 100)}%</b></label><label><span>深色模式</span><input type="range" min="${PROTOTYPE_OPACITY_MIN}" max="${PROTOTYPE_OPACITY_MAX}" step="0.05" value="${prototypeOpacityByTheme.dark}" data-tm-proto-opacity="dark"><b data-tm-proto-opacity-value="dark">${Math.round(prototypeOpacityByTheme.dark * 100)}%</b></label></div>` : '';
-            const titleText = esc(String(title || '').trim());
+            const titleText = esc(listView && toolbarDate
+                ? `${toolbarDate.getFullYear()}年${toolbarDate.getMonth() + 1}月${toolbarDate.getDate()}日`
+                : String(title || '').trim());
             const toolbarClass = ['tm-proto-toolbar', compactToolbar ? 'tm-proto-toolbar--dock' : ''].filter(Boolean).join(' ');
             // Mobile/Dock hosts expose a trigger in their surrounding shell;
             // a narrow desktop tab still needs the in-calendar sidebar button.
@@ -34214,8 +35215,27 @@
                 prototypeOpenMenu,
                 prototypeShowDayPanel ? 'day-panel-open' : 'day-panel-closed',
                 prototypeShowDayPanel && prototypePanelDate instanceof Date ? protoDateKey(prototypePanelDate) : '',
-                prototypeTimeRangeExpanded ? 'time-range-expanded' : 'time-range-collapsed',
+                        prototypeTimeRangeExpanded ? 'time-range-expanded' : 'time-range-collapsed',
+                        prototypeListState.selectionTransition,
                 String(state.cnHolidaySignature || ''),
+                isCalendarListViewType(viewType)
+                    ? [
+                        protoDateKey(prototypeListState.focusDate),
+                        protoDateKey(prototypeListState.monthCursor),
+                        prototypeListState.calendarExpanded ? 'list-calendar-expanded' : 'list-calendar-collapsed',
+                         Array.from(prototypeListState.collapsedGroups).sort().join(','),
+                         Array.from(prototypeListState.collapsedSubtasks).sort().join(','),
+                         prototypeListState.selectionTransition,
+                        prototypeListState.selectionTransitionFrom,
+                        prototypeListState.selectionTransitionPhase,
+                        prototypeListState.selectionTransitionToken,
+                        prototypeListState.selectionVisibleFrom.join(','),
+                        prototypeListState.selectionVisibleTo.join(','),
+                        typeof globalThis.__tmGetCalendarRuleSortSignature === 'function'
+                            ? globalThis.__tmGetCalendarRuleSortSignature()
+                            : '',
+                    ].join('|')
+                    : '',
             ].join('||');
             const renderContextKey = [
                 partialContextKey,
@@ -34294,7 +35314,8 @@
             else if (isCalendarListViewType(viewType)) content = protoRenderList(view, events, settings);
             else content = protoRenderTimeline(view, viewType, events, settings);
             if (!monthVirtualInPlace) {
-                prototypeSurface.innerHTML = `<div class="tm-proto-app" style="--tm-cal-event-opacity:${Math.round(prototypeOpacity * 100)}%">${protoToolbarMarkup(view, viewType, settings, title)}<main class="tm-proto-main"><div class="tm-proto-main-view">${content}</div>${protoRenderDayPanel(events, settings)}</main></div>`;
+                const markup = `<div class="tm-proto-app" style="--tm-cal-event-opacity:${Math.round(prototypeOpacity * 100)}%">${protoToolbarMarkup(view, viewType, settings, title)}<main class="tm-proto-main"><div class="tm-proto-main-view">${content}</div>${protoRenderDayPanel(events, settings)}</main></div>`;
+                if (!isCalendarListViewType(viewType) || !patchPrototypeListSurface(markup)) prototypeSurface.innerHTML = markup;
                 if ((isMobileDevice || isDockHost) && prototypeMobileMonthSwipeDirection
                     && (viewType === 'dayGridMonth' || isTimeGridViewType(viewType))) {
                     const swipeDirection = prototypeMobileMonthSwipeDirection < 0 ? 'previous' : 'next';
@@ -36404,6 +37425,7 @@
             try { if (state.onFilterChange) state.wrapEl.removeEventListener('change', state.onFilterChange); } catch (e) {}
             try { if (state.mainPopoverClickCapture) state.wrapEl.removeEventListener('click', state.mainPopoverClickCapture, true); } catch (e) {}
             try { state.prototypeEventDocumentClick?.(); } catch (e) {}
+            try { state.prototypeListTaskWindowClick?.(); } catch (e) {}
             try { state.prototypeMonthOverflowCancel?.(); } catch (e) {}
             try { state.prototypeMonthScrollCleanup?.(); } catch (e) {}
         }
@@ -36437,6 +37459,7 @@
         state.onFilterChange = null;
         state.mainPopoverClickCapture = null;
         state.prototypeEventDocumentClick = null;
+        state.prototypeListTaskWindowClick = null;
         if (state.calendarOpacityThemeListener) {
             try { window.removeEventListener('tm:appearance-theme-updated', state.calendarOpacityThemeListener); } catch (e) {}
             state.calendarOpacityThemeListener = null;
@@ -39566,6 +40589,7 @@
         syncTaskDatePatchInPlace,
         syncTaskDateInPlace,
         syncTaskDoneInPlace,
+        syncTaskPriorityInPlace,
         refreshSideDayLayout,
         exportMigrationData,
         importMigrationData,

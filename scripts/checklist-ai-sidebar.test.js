@@ -13,6 +13,7 @@ const viewPolicySource = fs.readFileSync(
 );
 
 const task = { id: 'task-1', content: 'Task' };
+const projectedDetailTask = { ...task, content: 'Projected task', remark: 'Persistent remark' };
 const state = {
     viewMode: 'checklist',
     flatTasks: { [task.id]: task },
@@ -48,6 +49,7 @@ const context = vm.createContext({
     __tmTaskBoundary: {
         getTask: (taskId) => state.pendingInsertedTasks[taskId] || state.flatTasks[taskId] || null,
     },
+    __tmGetTaskDetailTaskById: (taskId) => taskId === projectedDetailTask.id ? projectedDetailTask : null,
     __tmNormalizeDateOnly: () => '',
     __tmIsDarkMode: () => false,
     __tmGetChecklistCompactRightFontSize: () => 12,
@@ -58,7 +60,7 @@ const context = vm.createContext({
     __tmResolveFirstVisibleTaskIdFromRowModel: () => '',
     __tmShouldRenderTaskDetailNoteView: () => false,
     __tmBuildTaskDetailNoteViewInnerHtml: () => '<div data-detail>detail</div>',
-    __tmBuildTaskDetailInnerHtml: () => '<div data-detail>detail</div>',
+    __tmBuildTaskDetailInnerHtml: (detailTask) => `<div data-detail>${detailTask.content}|${detailTask.remark}</div>`,
     __tmHasCalendarSidebarChecklist: () => false,
     __tmShouldShowCalendarSideDock: () => false,
     __tmShouldShowAiSidebar: () => true,
@@ -69,6 +71,8 @@ vm.runInContext(viewPolicySource, context, { filename: '31-view-host-policies.js
 vm.runInContext(checklistSource, context, { filename: '42-render-list-and-checklist-body.js' });
 
 const regularHtml = context.__tmBuildRenderSceneChecklistBodyHtml();
+assert.match(regularHtml, /Projected task\|Persistent remark/,
+    'checklist detail rendering must prefer the latest projected task fields over the raw task boundary');
 assert.match(regularHtml, /class="tm-checklist-resizer"/);
 assert.match(regularHtml, /class="tm-checklist-side"/);
 assert.equal(context.__tmViewPolicy.shouldUseChecklistSheetMode(), false);

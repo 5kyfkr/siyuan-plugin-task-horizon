@@ -77,8 +77,10 @@
 
         if (key === 'dayGridMonth' || type === 'dayGridMonth' || key === 'listMonth' || type === 'listMonth') {
             if (key === 'listMonth' || type === 'listMonth') {
-                start = new Date(date.getFullYear(), date.getMonth(), 1);
-                end = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+                const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+                const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+                start = startOfWeek(monthStart, firstDay);
+                end = addDays(startOfWeek(addDays(monthEnd, -1), firstDay), 7);
             } else if (options.monthScroll === true) {
                 // The desktop virtual strip expands this browsing window as
                 // the user scrolls; past and future grow independently, so a

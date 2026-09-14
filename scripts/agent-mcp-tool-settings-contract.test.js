@@ -5,6 +5,8 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const settingsScreen = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/60-settings-screen.js'), 'utf8');
 const settingsActions = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/71-ai-settings-and-save.js'), 'utf8');
+const settingsStore = fs.readFileSync(path.join(root, 'src/task-horizon/main/10-stores-rules-and-cache.js'), 'utf8');
+const licenseRuntime = fs.readFileSync(path.join(root, 'src/task-horizon/main/08-license-runtime.js'), 'utf8');
 const pluginEntry = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
 const styles = fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8');
 
@@ -21,16 +23,22 @@ assert.match(settingsScreen, /<details class="tm-agent-tool-group[\s\S]*<summary
 assert.match(settingsScreen, /onclick="event\.stopPropagation\(\)" onchange="tmUpdateAgentMcpGroup/, 'using a group switch must not accidentally toggle its collapsed state');
 assert.match(settingsActions, /taskHorizonSetMcpToolConfig/, 'tool switches must use the kernel configuration RPC');
 assert.match(settingsActions, /taskHorizonSyncMcpEntitlement/, 'the frontend must synchronize the verified entitlement before enabling kernel tools');
+assert.match(licenseRuntime, /async function __tmLicenseWaitForSiyuanIdentity\(timeoutMs = 5000\)[\s\S]*__tmLicenseGetAuthInfo\(\)[\s\S]*setTimeout/, 'license loading must wait for SiYuan account initialization');
+assert.match(licenseRuntime, /__tmLicenseLoadRecord\(force = false\)[\s\S]*await __tmLicenseWaitForSiyuanIdentity\(\)/, 'license loading must wait before resolving the account subject');
 assert.match(settingsActions, /function __tmLoadAgentMcpCapabilities[\s\S]*taskHorizonGetCapabilities/, 'the settings mirror must read the authoritative kernel capability state');
 assert.match(settingsActions, /任务 MCP 工具服务未启动，请重启思源笔记后再试/, 'missing kernel RPC must tell the user to restart SiYuan');
 assert.match(settingsActions, /catch \(e\) \{[\s\S]*__tmLoadAgentMcpCapabilities\(\)[\s\S]*current\?\.mcpEnabled/, 'failed MCP updates must restore the settings mirror from the kernel');
-assert.match(settingsActions, /const desired = allowed && \(initialized \? SettingsStore\.data\.agentMcpEnabled === true : true\)/, 'initialized MCP startup must restore the saved frontend switch instead of reading the reset runtime state');
-assert.match(settingsActions, /__TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS = \[0, 500, 1000, 2000, 3000\][\s\S]*for \(let index = 0; index < __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS\.length; index \+= 1\)[\s\S]*__tmSyncAgentMcpAuthorization\(allowed, desired\)/, 'startup entitlement sync must retry until the kernel RPC is ready and restore the desired enabled state atomically');
+assert.doesNotMatch(settingsActions, /const desired = allowed && \(initialized \? SettingsStore\.data\.agentMcpEnabled === true : true\)/, 'startup sync must not keep the unused local desired switch');
+assert.match(settingsActions, /__TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS = \[0, 500, 1000, 2000, 3000\][\s\S]*for \(let index = 0; index < __TM_AGENT_MCP_STARTUP_RETRY_DELAYS_MS\.length; index \+= 1\)[\s\S]*__tmSyncAgentMcpAuthorization\(allowed\)/, 'startup entitlement sync must retry until the kernel RPC is ready and restore the kernel persisted enabled state');
+assert.doesNotMatch(settingsActions, /const capabilities = await __tmSyncAgentMcpAuthorization\(allowed, desired\)/, 'startup entitlement sync must not apply another client\'s local enabled switch to the shared kernel');
+assert.match(settingsStore, /buildCloudPayload\(\)[\s\S]*delete payload\.agentMcpEnabled;[\s\S]*delete payload\.agentMcpEnabledInitialized;/, 'MCP runtime state must not be written to shared cloud settings');
+assert.match(settingsStore, /__tmApplySettingsFieldUpdatesByMap\(this\.data, cloudData, \{[\s\S]*skipKeys: new Set\(\[\'agentMcpEnabled\', \'agentMcpEnabledInitialized\'\]\)/, 'legacy cloud MCP fields must not overwrite the local runtime mirror');
+assert.match(settingsStore, /remoteSettingSkipKeys\.add\(\'agentMcpEnabled\'\)[\s\S]*remoteSettingSkipKeys\.add\(\'agentMcpEnabledInitialized\'\)/, 'remote save reconciliation must ignore legacy MCP cloud fields');
 assert.match(settingsActions, /Number\(kernelState\?\.code\) !== 2[\s\S]*__tmRequestAgentMcpEntitlementSync\(\)[\s\S]*kernel-plugin-state-change/, 'the frontend must restore MCP entitlement whenever its Kernel plugin reaches running');
 assert.match(settingsActions, /function __tmRequestAgentMcpEntitlementSync\(\)[\s\S]*if \(activeSync\) return activeSync;[\s\S]*__tmSyncAgentMcpEntitlementDefault/, 'duplicate startup triggers must share the active entitlement synchronization');
 assert.match(settingsActions, /const settingsChanged =[\s\S]*if \(settingsChanged\) await SettingsStore\.save\(\)/, 'an unchanged startup entitlement state must not rewrite task settings');
 const kernelSource = fs.readFileSync(path.join(root, 'kernel.js'), 'utf8');
-assert.match(kernelSource, /mcpPersistedConfigSignature[\s\S]*persistedChanged = mcpPersistedConfigSignature\(\) !== previousPersistedSignature[\s\S]*if \(persistedChanged\) await persistMcpConfig\(\)/,
+assert.match(kernelSource, /mcpPersistedConfigSignature[\s\S]*persistedChanged = mcpPersistedConfigSignature\(\) !== previousPersistedSignature[\s\S]*if \(persist\s*&&\s*persistedChanged\) await persistMcpConfig\(\)/,
     'the Kernel must not rewrite MCP config or updatedAt when the effective persisted state is unchanged');
 const activateStart = pluginEntry.indexOf('    async activateTaskMainRuntime(');
 const activateEnd = pluginEntry.indexOf('\n    scheduleTaskMainRuntimeRecovery(', activateStart);

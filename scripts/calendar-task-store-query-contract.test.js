@@ -64,8 +64,8 @@ assert.match(
 );
 assert.match(
     support,
-    /API\.getTasksByDocuments\(allDocIds, limit, \{[\s\S]*skipParentTaskJoin: true[\s\S]*customFieldIds: \[\],[\s\S]*\}\)/,
-    'calendar task reads must reuse the canonical query with parent/custom-field work disabled',
+    /API\.getTasksByDocuments\(allDocIds, limit, \{[\s\S]*skipParentTaskJoin: false[\s\S]*customFieldIds: \[\],[\s\S]*\}\)/,
+    'calendar task reads must reuse the canonical query with parent joins enabled and custom-field hydration disabled',
 );
 assert.match(
     support,

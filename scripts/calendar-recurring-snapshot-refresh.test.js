@@ -127,7 +127,7 @@ async function run() {
     await failed.context.load();
     assert.equal(failed.calls.query.length, 2, 'failed reads must release the shared load for recovery');
 
-    assert.ok(harness.calls.query.every((call) => call.options.skipParentTaskJoin === true
+    assert.ok(harness.calls.query.every((call) => call.options.skipParentTaskJoin === false
         && call.options.customFieldIds.length === 0 && call.options.disableChunkedQuery === true));
     console.log('calendar recurring snapshot refresh tests passed');
 }

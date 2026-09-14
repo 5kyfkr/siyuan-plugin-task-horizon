@@ -2279,11 +2279,19 @@
 }
 
 .tm-summary-group-trigger__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     flex: 0 0 auto;
     color: var(--tm-secondary-text);
-    font-size: 14px;
     line-height: 1;
     transform: translateY(-1px);
+}
+
+.tm-summary-group-trigger__icon svg {
+    display: block;
+    width: 14px;
+    height: 14px;
 }
 
 .tm-summary-group-picker[open] .tm-summary-group-trigger__icon {
@@ -9267,12 +9275,12 @@ select.tm-btn-secondary {
     border-color: color-mix(in srgb, var(--tm-secondary-text) 22%, var(--tm-border-color));
 }
 
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-status-tag,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-priority-chip,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-status-tag,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-priority-chip,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-chip.tm-kanban-chip--muted {
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-status-tag,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-priority-chip,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-status-tag,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-priority-chip,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-chip.tm-kanban-chip--muted {
     border-color: transparent !important;
     box-shadow: none;
     transition:
@@ -9337,59 +9345,60 @@ select.tm-btn-secondary {
     color: var(--tm-time-group-overdue-color, var(--tm-danger-color)) !important;
 }
 
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-status-tag:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-status-tag:focus-visible,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-status-tag:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-status-tag:focus-visible {
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-status-tag:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-status-tag:focus-visible,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-status-tag:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-status-tag:focus-visible {
     background: var(--tm-status-bg, color-mix(in srgb, currentColor 10%, transparent)) !important;
     filter: saturate(1.08);
     opacity: 1;
 }
 
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-priority-chip:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-priority-chip:focus-visible,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-priority-chip:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-priority-chip:focus-visible {
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-priority-chip:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-priority-chip:focus-visible,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-priority-chip:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-priority-chip:focus-visible {
     background: var(--tm-priority-bg, color-mix(in srgb, currentColor 10%, transparent)) !important;
     filter: saturate(1.08);
     opacity: 1;
 }
 
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted:focus-visible,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-chip.tm-kanban-chip--muted:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-chip.tm-kanban-chip--muted:focus-visible {
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted:focus-visible,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-chip.tm-kanban-chip--muted:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-chip.tm-kanban-chip--muted:focus-visible {
     background: color-mix(in srgb, var(--tm-secondary-text) 10%, transparent) !important;
     filter: saturate(1.04);
     opacity: 1;
 }
 
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-chip--date:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-chip--date:focus-visible,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta [data-tm-task-time-field="date"]:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta [data-tm-task-time-field="date"]:focus-visible,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-chip--date:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-chip--date:focus-visible,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta [data-tm-task-time-field="date"]:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta [data-tm-task-time-field="date"]:focus-visible {
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-chip--date:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-chip--date:focus-visible,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta [data-tm-task-time-field="date"]:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta [data-tm-task-time-field="date"]:focus-visible,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-chip--date:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-chip--date:focus-visible,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta [data-tm-task-time-field="date"]:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta [data-tm-task-time-field="date"]:focus-visible {
     background: color-mix(in srgb, var(--tm-primary-color) 10%, transparent) !important;
 }
 
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-chip--date-empty:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-chip--date-empty:focus-visible,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-chip--date-empty:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-chip--date-empty:focus-visible {
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-chip--date-empty:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-chip--date-empty:focus-visible,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-chip--date-empty:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-chip--date-empty:focus-visible {
     background: color-mix(in srgb, var(--tm-secondary-text) 10%, transparent) !important;
 }
 
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-chip--date-overdue:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-card-meta .tm-kanban-chip--date-overdue:focus-visible,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-chip--date-overdue:hover,
-:is(.tm-kanban, .tm-whiteboard).tm-kanban--clean .tm-kanban-subtask-meta .tm-kanban-chip--date-overdue:focus-visible {
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-chip--date-overdue:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-card-meta .tm-kanban-chip--date-overdue:focus-visible,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-chip--date-overdue:hover,
+:is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list) .tm-kanban-subtask-meta .tm-kanban-chip--date-overdue:focus-visible {
     background: color-mix(in srgb, var(--tm-time-group-overdue-color, var(--tm-danger-color)) 10%, transparent) !important;
 }
 
-.tm-kanban--clean .tm-kanban-chip--doc {
+.tm-kanban--clean .tm-kanban-chip--doc,
+.tm-proto-list .tm-kanban-chip--doc {
     max-width: 100%;
     min-width: 0;
     cursor: default;
@@ -15321,7 +15330,7 @@ select.tm-btn-secondary {
     max-width: 340px;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 768px) {
     .tm-checklist-sheet .tm-task-detail-row {
         justify-content: flex-start;
         gap: 0;

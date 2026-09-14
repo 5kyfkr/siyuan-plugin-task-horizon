@@ -8283,11 +8283,15 @@ return false;
         const directTaskDateKeys = new Set(['content', 'startDate', 'completionTime', 'taskDateColor']);
         const hasDirectTaskDatePatch = keys.some((key) => directTaskDateKeys.has(String(key || '').trim()));
         const hasDonePatch = Object.prototype.hasOwnProperty.call(nextPatch, 'done');
+        const priorityPatchedInPlace = Object.prototype.hasOwnProperty.call(nextPatch, 'priority')
+            && typeof calApi.syncTaskPriorityInPlace === 'function'
+            && calApi.syncTaskPriorityInPlace(tid, { main, side }) === true;
         const needsVisibleReadback = !hasDirectTaskDatePatch && keys.some((key) => {
             const normalized = String(key || '').trim();
+            if (normalized === 'priority' && priorityPatchedInPlace) return false;
             return !directTaskDateKeys.has(normalized) && normalized !== 'done';
         });
-        let handled = false;
+        let handled = priorityPatchedInPlace;
         const requestFallback = (summary) => {
             const needsMainRefresh = main && summary?.needsMainRefresh === true;
             const needsSideRefresh = side && summary?.needsSideRefresh === true;

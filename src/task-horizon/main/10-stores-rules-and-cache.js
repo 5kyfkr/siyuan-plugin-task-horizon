@@ -8446,6 +8446,7 @@
         'timeGridWorkdays',
         'timeGridWeek',
         'dayGridMonth',
+        'listMonth',
     ]);
 
     function __tmNormalizeCalendarInitialView(value, fallback = 'timeGridWeek') {
@@ -8826,6 +8827,7 @@
             timelineForceSortByCompletionNearToday: false,
             timelineDependencyScope: 'global',
             groupSortByBestSubtaskTimeInTimeQuadrant: false,
+            remainingTimeUseWorkdays: false,
             pinTasksWithinGroups: false,
             // 白板视图
             whiteboardLinks: [],
@@ -9099,6 +9101,8 @@
                 payload.kanbanHeadingGroupMode = mode === 'heading';
             } catch (e) {}
             __tmMigrateLegacyTaskTitleClickSettings(payload, payload);
+            delete payload.agentMcpEnabled;
+            delete payload.agentMcpEnabledInitialized;
             return payload;
         },
 
@@ -9178,7 +9182,9 @@
                                             syncOverallUpdatedAt: false,
                                         });
                                     }
-                                    __tmApplySettingsFieldUpdatesByMap(this.data, cloudData);
+                                    __tmApplySettingsFieldUpdatesByMap(this.data, cloudData, {
+                                        skipKeys: new Set(['agentMcpEnabled', 'agentMcpEnabledInitialized']),
+                                    });
                                     if (shouldApplyCloudWhiteboardState) {
                                         __tmAssignWhiteboardSettingsState(this.data, cloudData);
                                     }
@@ -9260,6 +9266,7 @@
                                 else if (typeof cloudData.keepCompletedDocHeadingGroupsVisible === 'boolean') this.data.alwaysShowTaskDocHeadingGroups = cloudData.keepCompletedDocHeadingGroupsVisible;
                                 if (typeof cloudData.groupByTaskName === 'boolean') this.data.groupByTaskName = cloudData.groupByTaskName;
                                 if (typeof cloudData.groupMode === 'string') this.data.groupMode = cloudData.groupMode;
+                                if (typeof cloudData.remainingTimeUseWorkdays === 'boolean') this.data.remainingTimeUseWorkdays = cloudData.remainingTimeUseWorkdays;
                                 if (typeof cloudData.pinTasksWithinGroups === 'boolean') this.data.pinTasksWithinGroups = cloudData.pinTasksWithinGroups;
                                 if (typeof cloudData.completedTasksTodayOnly === 'boolean') this.data.completedTasksTodayOnly = cloudData.completedTasksTodayOnly;
                                 if (typeof cloudData.completedTasksInlineInGroups === 'boolean') this.data.completedTasksInlineInGroups = cloudData.completedTasksInlineInGroups;
@@ -9559,6 +9566,7 @@
                                 if (typeof cloudData.timelineForceSortByCompletionNearToday === 'boolean') this.data.timelineForceSortByCompletionNearToday = cloudData.timelineForceSortByCompletionNearToday;
                                 if (typeof cloudData.timelineDependencyScope === 'string') this.data.timelineDependencyScope = __tmNormalizeTimelineDependencyScope(cloudData.timelineDependencyScope);
                                 if (typeof cloudData.groupSortByBestSubtaskTimeInTimeQuadrant === 'boolean') this.data.groupSortByBestSubtaskTimeInTimeQuadrant = cloudData.groupSortByBestSubtaskTimeInTimeQuadrant;
+                                if (typeof cloudData.remainingTimeUseWorkdays === 'boolean') this.data.remainingTimeUseWorkdays = cloudData.remainingTimeUseWorkdays;
                                 if (typeof cloudData.pinTasksWithinGroups === 'boolean') this.data.pinTasksWithinGroups = cloudData.pinTasksWithinGroups;
                                 if (typeof cloudData.completedTasksTodayOnly === 'boolean') this.data.completedTasksTodayOnly = cloudData.completedTasksTodayOnly;
                                 if (typeof cloudData.completedTasksInlineInGroups === 'boolean') this.data.completedTasksInlineInGroups = cloudData.completedTasksInlineInGroups;
@@ -9590,8 +9598,6 @@
                                 if (Array.isArray(cloudData.scheduledEvents)) this.data.scheduledEvents = cloudData.scheduledEvents;
                                 if (cloudData.aiExperienceMode === 'agent' || cloudData.aiExperienceMode === 'legacy') this.data.aiExperienceMode = cloudData.aiExperienceMode;
                                 if (typeof cloudData.aiExperienceModeInitialized === 'boolean') this.data.aiExperienceModeInitialized = cloudData.aiExperienceModeInitialized;
-                                if (typeof cloudData.agentMcpEnabled === 'boolean') this.data.agentMcpEnabled = cloudData.agentMcpEnabled;
-                                if (typeof cloudData.agentMcpEnabledInitialized === 'boolean') this.data.agentMcpEnabledInitialized = cloudData.agentMcpEnabledInitialized;
                                 if (typeof cloudData.aiProvider === 'string') this.data.aiProvider = cloudData.aiProvider;
                                 if (typeof cloudData.aiMiniMaxApiKey === 'string') this.data.aiMiniMaxApiKey = cloudData.aiMiniMaxApiKey;
                                 if (typeof cloudData.aiMiniMaxBaseUrl === 'string') this.data.aiMiniMaxBaseUrl = cloudData.aiMiniMaxBaseUrl;
@@ -10071,6 +10077,7 @@
             this.data.timelineForceSortByCompletionNearToday = Storage.get('tm_timeline_force_sort_completion_near_today', this.data.timelineForceSortByCompletionNearToday);
             this.data.timelineDependencyScope = __tmNormalizeTimelineDependencyScope(Storage.get('tm_timeline_dependency_scope', this.data.timelineDependencyScope));
             this.data.groupSortByBestSubtaskTimeInTimeQuadrant = Storage.get('tm_group_sort_best_subtask_time_time_quadrant', this.data.groupSortByBestSubtaskTimeInTimeQuadrant);
+            this.data.remainingTimeUseWorkdays = !!Storage.get('tm_remaining_time_use_workdays', this.data.remainingTimeUseWorkdays);
             this.data.pinTasksWithinGroups = !!Storage.get('tm_pin_tasks_within_groups', this.data.pinTasksWithinGroups);
             this.data.completedTasksTodayOnly = !!Storage.get('tm_completed_tasks_today_only', this.data.completedTasksTodayOnly);
             this.data.completedTasksInlineInGroups = !!Storage.get('tm_completed_tasks_inline_in_groups', this.data.completedTasksInlineInGroups);
@@ -10628,6 +10635,7 @@
             this.data.timelineDependencyScope = __tmNormalizeTimelineDependencyScope(this.data.timelineDependencyScope);
             Storage.set('tm_timeline_dependency_scope', this.data.timelineDependencyScope);
             Storage.set('tm_group_sort_best_subtask_time_time_quadrant', !!this.data.groupSortByBestSubtaskTimeInTimeQuadrant);
+            Storage.set('tm_remaining_time_use_workdays', !!this.data.remainingTimeUseWorkdays);
             Storage.set('tm_pin_tasks_within_groups', !!this.data.pinTasksWithinGroups);
             Storage.set('tm_completed_tasks_today_only', !!this.data.completedTasksTodayOnly);
             Storage.set('tm_completed_tasks_inline_in_groups', !!this.data.completedTasksInlineInGroups);
@@ -11002,6 +11010,7 @@
             this.data.serverSyncSessionStateOnManualRefresh = !!this.data.serverSyncSessionStateOnManualRefresh;
             this.data.timelineForceSortByCompletionNearToday = !!this.data.timelineForceSortByCompletionNearToday;
             this.data.groupSortByBestSubtaskTimeInTimeQuadrant = !!this.data.groupSortByBestSubtaskTimeInTimeQuadrant;
+            this.data.remainingTimeUseWorkdays = !!this.data.remainingTimeUseWorkdays;
             this.data.pinTasksWithinGroups = !!this.data.pinTasksWithinGroups;
             this.data.completedTasksTodayOnly = !!this.data.completedTasksTodayOnly;
             this.data.completedTasksInlineInGroups = !!this.data.completedTasksInlineInGroups;
@@ -11138,8 +11147,11 @@
                 const remoteCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(remoteSettings);
                 const remoteWhiteboardStateVersion = __tmParseVersionNumber(remoteSettings?.whiteboardStateVersion);
                 const settingsFieldChange = __tmMarkChangedSettingsFields(this.data, this.loadedSettingsFieldSnapshot, Date.now());
+                const remoteSettingSkipKeys = new Set(settingsFieldChange.changedKeys);
+                remoteSettingSkipKeys.add('agentMcpEnabled');
+                remoteSettingSkipKeys.add('agentMcpEnabledInitialized');
                 const appliedRemoteSettingFields = __tmApplySettingsFieldUpdatesByMap(this.data, remoteSettings, {
-                    skipKeys: settingsFieldChange.changedKeys,
+                    skipKeys: remoteSettingSkipKeys,
                 });
                 if (appliedRemoteSettingFields.length) {
                     this.normalizeColumns();
@@ -11810,8 +11822,8 @@
                         { field: 'done', operator: '=', value: false },
                         {
                             field: 'completionTime',
-                            operator: 'range_today',
-                            value: { from: '', to: '' }
+                            operator: 'range_overlap_today',
+                            value: ''
                         }
                     ],
                     sort: [
@@ -11843,7 +11855,27 @@
                 await this.saveRules(defaultRules);
                 return defaultRules;
             }
-            return rules;
+            const migratedRules = rules.map((rule) => {
+                if (String(rule?.id || '').trim() !== 'default_today' || !Array.isArray(rule?.conditions)) return rule;
+                const hasLegacyTodayCondition = rule.conditions.some((condition) => (
+                    String(condition?.field || '').trim() === 'completionTime'
+                    && String(condition?.operator || '').trim() === 'range_today'
+                ));
+                if (!hasLegacyTodayCondition) return rule;
+                return {
+                    ...rule,
+                    conditions: rule.conditions.map((condition) => (
+                        String(condition?.field || '').trim() === 'completionTime'
+                            && String(condition?.operator || '').trim() === 'range_today'
+                            ? { ...condition, operator: 'range_overlap_today', value: '' }
+                            : condition
+                    )),
+                };
+            });
+            if (migratedRules.some((rule, index) => rule !== rules[index])) {
+                await this.saveRules(migratedRules);
+            }
+            return migratedRules;
         },
 
         // 创建新规则
@@ -12088,6 +12120,11 @@
                         const startTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
                         return { startTs, endTs: startTs + 24 * 60 * 60 * 1000 };
                     }
+                    case 'range_overlap_today': {
+                        const todayStartTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
+                        const tomorrowStartTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 1).getTime();
+                        return { todayStartTs, tomorrowStartTs };
+                    }
                     case 'before_today':
                     case 'after_today':
                     case 'on_or_before_today':
@@ -12261,6 +12298,7 @@
 
             const datetimeOperators = [
                 { value: 'range_today', label: '今天' },
+                { value: 'range_overlap_today', label: '覆盖今天' },
                 { value: 'range_week', label: '本周' },
                 { value: 'range_month', label: '本月' },
                 { value: 'range_recent_days', label: '今天至N天前' },
@@ -12513,9 +12551,21 @@
             const opts = (options && typeof options === 'object') ? options : {};
             const operator = String(runtime?.operator || '').trim();
             const taskTs = this.getTaskTimeValue(task, runtime.fieldInfo || runtime.field, opts);
+            const timeRuntime = runtime?.timeRuntime || null;
+            if (operator === 'range_overlap_today') {
+                const startTs = this.getTaskTimeValue(task, 'startDate', opts);
+                const completionTs = this.getTaskTimeValue(task, 'completionTime', opts);
+                const todayStartTs = Number(timeRuntime?.todayStartTs || 0);
+                const tomorrowStartTs = Number(timeRuntime?.tomorrowStartTs || 0);
+                if (!startTs && !completionTs) return false;
+                const startIsToday = startTs >= todayStartTs && startTs < tomorrowStartTs;
+                const completionIsToday = completionTs >= todayStartTs && completionTs < tomorrowStartTs;
+                if (!startTs) return completionIsToday;
+                if (!completionTs) return startIsToday;
+                return startTs < tomorrowStartTs && completionTs >= todayStartTs;
+            }
             if (!taskTs) return operator === '!='; // 空时间处理
 
-            const timeRuntime = runtime?.timeRuntime || null;
             switch(operator) {
                 case 'range_today': {
                     return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
@@ -12919,6 +12969,35 @@
             if (a === b) return 0;
             return a < b ? -1 : 1;
         }
+    };
+
+    globalThis.__tmApplyCalendarRuleSort = (tasks, options = {}) => {
+        const source = Array.isArray(tasks) ? tasks : [];
+        if (source.length <= 1) return source.slice();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const ruleId = String(state?.currentRule || SettingsStore?.data?.currentRule || '').trim();
+        const rule = (Array.isArray(state?.filterRules) ? state.filterRules : [])
+            .find((item) => String(item?.id || '').trim() === ruleId) || null;
+        const hasExplicitSort = typeof __tmRuleHasExplicitSort === 'function'
+            ? __tmRuleHasExplicitSort(rule)
+            : Array.isArray(rule?.sort) && rule.sort.length > 0;
+        if (!hasExplicitSort) return source.slice();
+        try {
+            return RuleManager.applyRuleSort(source, rule, {
+                fieldInfoCache: opts.fieldInfoCache instanceof Map ? opts.fieldInfoCache : new Map(),
+                valueMemo: opts.valueMemo instanceof WeakMap ? opts.valueMemo : new WeakMap(),
+                timeSortMemo: opts.timeSortMemo instanceof Map ? opts.timeSortMemo : new Map(),
+            });
+        } catch (e) {
+            return source.slice();
+        }
+    };
+
+    globalThis.__tmGetCalendarRuleSortSignature = () => {
+        const ruleId = String(state?.currentRule || SettingsStore?.data?.currentRule || '').trim();
+        const rule = (Array.isArray(state?.filterRules) ? state.filterRules : [])
+            .find((item) => String(item?.id || '').trim() === ruleId) || null;
+        return JSON.stringify({ id: ruleId, sort: Array.isArray(rule?.sort) ? rule.sort : [] });
     };
 
     const __TM_TASK_QUERY_CACHE_MAX_ENTRIES = 18;

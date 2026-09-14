@@ -234,6 +234,8 @@ assert.match(icons, /function __tmOpenTimelineGroupRangeEditorFromTrigger[\s\S]*
 const touchTaskDrag = segment(icons, 'function __tmResolveTouchTaskDragSource', 'window.tmTaskTouchDragStart');
 assert.match(touchTaskDrag, /#tmTimelineLeftTable tbody tr\[data-id\]/, 'mobile timeline sidebar rows must use the shared touch drag source adapter');
 assert.match(touchTaskDrag, /const longPressMs = 500/, 'mobile table drags must use a 500ms long press');
+assert.match(touchTaskDrag, /const requestedTaskId = String\(taskId \|\| ''\)\.trim\(\);[\s\S]*__tmIsMultiSelectActive\(\) && !__tmIsTaskMultiSelected\(requestedTaskId\)/, 'mobile multi-select drags must be gated to selected task rows instead of disabling the gesture');
+assert.match(touchTaskDrag, /state\.draggingTaskIds = __tmBuildTaskDragSelectionIds\(id\)/, 'mobile multi-select drags must preserve the complete selected task set');
 assert.match(calendarView, /CALENDAR_EXTERNAL_DRAG_CUSTOM_TOUCH_SOURCE_SELECTOR[^;]*#tmTimelineLeftTable tbody tr\[data-id\]/, 'mobile timeline sidebar rows must bypass FullCalendar and use the shared 500ms touch drag');
 const calendarMobileDragSelector = segment(calendarView, 'const CALENDAR_EXTERNAL_DRAG_MOBILE_ITEM_SELECTOR', 'const CALENDAR_EXTERNAL_DRAG_MIRROR_SOURCE_CLASS');
 assert.doesNotMatch(calendarMobileDragSelector, /#tmTimelineLeftTable/, 'FullCalendar mobile dragging must not capture timeline sidebar rows before native panning or the 500ms hold');

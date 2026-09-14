@@ -900,7 +900,7 @@
                     <input class="tm-input" type="date" data-tm-summary="end" style="width:140px;">
                     <details class="tm-summary-group-picker" data-tm-summary-group-picker>
                         <summary class="tm-rule-select tm-summary-group-trigger" data-tm-summary-group-trigger aria-label="选择摘要文档分组范围">
-                            <span data-tm-summary-group-label>全部分组</span><span class="tm-summary-group-trigger__icon" aria-hidden="true">⌄</span>
+                            <span data-tm-summary-group-label>全部分组</span><span class="tm-summary-group-trigger__icon" aria-hidden="true">${__tmLucideIconSvg('caret-down', { size: 14, className: 'tm-inline-icon__svg' })}</span>
                         </summary>
                         <div class="tm-summary-group-menu" data-tm-summary-group-menu role="listbox" aria-label="摘要文档分组范围" aria-multiselectable="true">
                             ${groupOptions.map((g) => `<label class="tm-summary-group-option"><input type="checkbox" data-tm-summary-group-option value="${esc(g.id)}"${g.id === '__all__' ? ' checked' : ''}><span>${esc(g.name)}</span></label>`).join('')}

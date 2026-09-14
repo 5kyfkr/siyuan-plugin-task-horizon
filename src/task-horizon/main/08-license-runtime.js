@@ -18,6 +18,7 @@
     let __tmLicenseLoaded = false;
     let __tmLicenseLoadPromise = null;
     let __tmLicensePublicKeyPromise = null;
+    let __tmLicenseLoginHandler = null;
 
     const __tmLicenseEsc = (value) => String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -121,6 +122,18 @@
             displayName: systemId ? '未登录，使用本机设备ID' : '未读取到思源账号或设备ID',
             loggedIn: false,
         };
+    }
+
+    async function __tmLicenseWaitForSiyuanIdentity(timeoutMs = 5000) {
+        const timeout = Math.max(0, Number(timeoutMs) || 0);
+        const startedAt = Date.now();
+        while (true) {
+            const auth = __tmLicenseGetAuthInfo();
+            if (auth.kind === 'account') return auth;
+            const elapsed = Date.now() - startedAt;
+            if (elapsed >= timeout) return auth;
+            await new Promise((resolve) => setTimeout(resolve, Math.min(100, timeout - elapsed)));
+        }
     }
 
     function __tmLicenseGetCrypto() {
@@ -317,6 +330,7 @@
     async function __tmLicenseLoadRecord(force = false) {
         if (__tmLicenseLoadPromise && !force) return await __tmLicenseLoadPromise;
         __tmLicenseLoadPromise = (async () => {
+            await __tmLicenseWaitForSiyuanIdentity();
             let stored = null;
             try {
                 if (globalThis.__tmHost?.loadData) {
@@ -698,7 +712,12 @@
         return ok;
     };
 
+    __tmLicenseLoginHandler = () => { void __tmLicenseLoadRecord(true); };
+    try { window.addEventListener('siyuan-login-success', __tmLicenseLoginHandler); } catch (e) {}
+
     globalThis.__tmLicenseCleanup = function() {
+        try { window.removeEventListener('siyuan-login-success', __tmLicenseLoginHandler); } catch (e) {}
+        __tmLicenseLoginHandler = null;
         try { delete window.tmGetLicenseAuthInfo; } catch (e) {}
         try { delete window.tmGetLicenseState; } catch (e) {}
         try { delete window.tmLicenseIsPro; } catch (e) {}

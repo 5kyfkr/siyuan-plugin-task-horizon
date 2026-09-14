@@ -152,6 +152,26 @@ assert.deepEqual(filterFieldIds([
     { id: 'dated', startDate: '2026-08-01' },
 ], 'startDate', 'is_not_empty'), ['dated']);
 
+const today = new Date(2026, 8, 13, 12, 0, 0, 0);
+const dateTasks = [
+    { id: 'spanning', startDate: '2026-09-01', completionTime: '2026-09-20' },
+    { id: 'start-only', startDate: '2026-09-13', completionTime: '' },
+    { id: 'due-only', startDate: '', completionTime: '2026-09-13' },
+    { id: 'past-start-only', startDate: '2026-09-12', completionTime: '' },
+    { id: 'future-due-only', startDate: '', completionTime: '2026-09-14' },
+    { id: 'future', startDate: '2026-09-14', completionTime: '2026-09-20' },
+    { id: 'past', startDate: '2026-09-01', completionTime: '2026-09-12' },
+    { id: 'undated', startDate: '', completionTime: '' },
+];
+assert.deepEqual(
+    Array.from(RuleManager.applyRuleFilter(dateTasks, {
+        id: 'date-overlap-filter',
+        conditions: [{ field: 'completionTime', operator: 'range_overlap_today', value: '' }],
+    }, { nowDate: today }), (task) => task.id),
+    ['spanning', 'start-only', 'due-only'],
+    'today overlap must include spanning and open-ended tasks but exclude undated tasks',
+);
+
 const sortIds = (sourceTasks, field, order) => Array.from(
     RuleManager.applyRuleSort(sourceTasks, {
         id: 'custom-field-sort',

@@ -2953,12 +2953,23 @@ async function run() {
     assert.equal(downgraded.data.mcpAuthorized, false);
     assert.equal(downgraded.data.mcpEnabled, false);
     assert.equal(downgraded.data.registeredToolCount, 0, 'losing Pro entitlement must unregister every MCP tool immediately');
+    assert.equal(JSON.parse(harness.storage.get('agent-mcp-config.json')).enabled, true,
+        'losing entitlement must not overwrite the shared enabled preference used by another client');
     const enableAfterDowngrade = await harness.call('taskHorizonSetMcpEnabled', true);
     assert.equal(enableAfterDowngrade.ok, false);
     assert.equal(enableAfterDowngrade.error.code, 'UNSUPPORTED');
     const enableToolAfterDowngrade = await harness.call('taskHorizonSetMcpToolConfig', { toolName: 'create_task', enabled: true });
     assert.equal(enableToolAfterDowngrade.ok, false);
     assert.equal(enableToolAfterDowngrade.error.code, 'UNSUPPORTED');
+    const otherEntitledClientPreference = await harness.call('taskHorizonSyncMcpEntitlement', { allowed: true, enabled: false });
+    assert.equal(otherEntitledClientPreference.ok, true);
+    assert.equal(otherEntitledClientPreference.data.mcpEnabled, true);
+    assert.equal(JSON.parse(harness.storage.get('agent-mcp-config.json')).enabled, true,
+        'a second entitled client must not overwrite the shared enabled preference during startup sync');
+    const restoredAfterReauthorization = await harness.call('taskHorizonSyncMcpEntitlement', { allowed: true, enabled: true });
+    assert.equal(restoredAfterReauthorization.ok, true);
+    assert.equal(restoredAfterReauthorization.data.mcpEnabled, true,
+        'reauthorization must restore the preserved preference without another manual enable');
 }
 
 run().then(() => {

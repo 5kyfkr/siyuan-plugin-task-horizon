@@ -58,8 +58,8 @@
         try {
             if (__tmIsMobileDevice()) return true;
         } catch (e) {}
-        if (modalWidth > 0) return modalWidth <= 960;
-        return (Number(window.innerWidth || 0) > 0) ? window.innerWidth <= 960 : false;
+        if (modalWidth > 0) return modalWidth <= 768;
+        return (Number(window.innerWidth || 0) > 0) ? window.innerWidth <= 768 : false;
     };
 
     const taskDetailSheetViewModes = new Set(['list', 'kanban', 'whiteboard', 'calendar', 'timeline']);

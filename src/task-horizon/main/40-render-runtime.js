@@ -3445,7 +3445,9 @@
         if (!tid) return;
         const target = ev?.target;
         if (target?.closest?.('button,input,select,textarea,a,.tm-task-content-clickable,.tm-task-checkbox,.tm-task-checkbox-wrap,.tm-kanban-toggle,.tm-kanban-more,.tm-status-tag,.tm-kanban-chip,.tm-priority-jira,.tm-kanban-priority-chip')) return;
-        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
+        const task = globalThis.__tmResolveTaskForCardEdit?.(tid)
+            || globalThis.__tmCalendarGetTaskSnapshot?.(tid)
+            || globalThis.__tmTaskBoundary?.getTask?.(tid);
         const hasChildren = Array.isArray(task?.children) && task.children.length > 0;
         if (!hasChildren) return;
         window.tmKanbanToggleCollapse(tid, ev);
@@ -6484,11 +6486,17 @@
         const tid = String(id || '').trim();
         if (!tid) return;
         try { __tmMarkHighPriorityInteraction('kanban-pick-date-open', 680); } catch (e) {}
-        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
+        const task = globalThis.__tmResolveTaskForCardEdit?.(tid)
+            || globalThis.__tmCalendarGetTaskSnapshot?.(tid)
+            || globalThis.__tmTaskBoundary?.getTask?.(tid);
         if (!task) return;
-        const anchorEl = (ev?.currentTarget instanceof Element)
-            ? ev.currentTarget
-            : (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-chip') : null);
+        const dateAnchorSelector = '.tm-kanban-chip,[data-tm-task-time-field],.tm-cell-editable';
+        const eventPath = typeof ev?.composedPath === 'function' ? ev.composedPath() : [];
+        const pathAnchor = eventPath.find((node) => node instanceof Element && node.matches(dateAnchorSelector));
+        const anchorEl = (pathAnchor instanceof Element
+            ? pathAnchor
+            : (ev?.target instanceof Element ? ev.target.closest(dateAnchorSelector) : null))
+            || (ev?.currentTarget instanceof Element ? ev.currentTarget : null);
         const current = String(task.completionTime || '').trim() || String(task.startDate || '').trim();
         const commitKanbanDatePatch = (nextValue, reason = 'kanban-card-date-fallback') => {
             const next = String(nextValue || '').trim();

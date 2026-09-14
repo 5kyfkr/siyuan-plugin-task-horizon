@@ -2282,3 +2282,28 @@
     let __tmWhiteboardCardSnapshotCache = null;
     let __tmWhiteboardCardSnapshotCacheTime = 0;
     const __tmWhiteboardCardSnapshotCacheTTL = 5000; // 缓存5秒
+
+    globalThis.__tmCalendarKanbanCardHelpers = {
+        getFields: () => __tmGetTaskCardFieldList('kanban'),
+        isFieldEnabled: (field) => __tmTaskCardFieldEnabled('kanban', field),
+        isDone: (task) => __tmIsTaskDoneEffective(task),
+        renderCheckboxWrap: (taskId, task, options = {}) => __tmRenderTaskCheckboxWrap(taskId, task, options),
+        updateCheckboxPriority: (container, task) => __tmUpdateTaskCheckboxPriorityInDOM(container, task),
+        getChildren: (taskId) => globalThis.__tmRuntimeState?.listProjectedDirectChildren?.(taskId, { scanFlat: true }) || [],
+        renderPriority: (value, withLabel = false) => __tmRenderPriorityJira(value, withLabel),
+        buildPriorityStyle: (value) => __tmBuildPriorityChipStyle(value),
+        resolveStatus: (task, options = {}) => __tmResolveTaskStatusDisplayOption(task, SettingsStore.data?.customStatusOptions || [], options),
+        buildStatusStyle: (color) => __tmBuildStatusChipStyle(color),
+        getDateValue: (task) => __tmGetTaskCardDateValue(task),
+        formatDate: (task) => __tmFormatTaskCardDateValue(task),
+        shouldRenderDate: (task) => __tmShouldRenderTaskCardDate(task),
+        shouldRenderPriority: (task) => __tmShouldRenderTaskCardPriority(task),
+         shouldRenderStatus: (task) => __tmShouldRenderTaskCardStatus(task),
+         keepCompletedStatus: () => __tmTaskCardAlwaysShowFieldEnabled('status'),
+        shouldRenderRemainingTime: (task) => __tmShouldRenderTaskCardRemainingTime(task),
+        getRemainingTime: (task) => __tmGetTaskRemainingTimeInfo(task),
+        renderRemainingTime: (info) => __tmRenderTaskRemainingTimeInfoHtml(info),
+        renderRemark: (task) => __tmRenderTaskCardRemark(task),
+        renderDocIcon: (docId, options = {}) => __tmRenderDocIcon(docId, options),
+        renderBadgeIcon: (name, size) => __tmRenderBadgeIcon(name, size),
+    };

@@ -115,10 +115,19 @@
             const selectedId = String(state.detailTaskId || '').trim();
             const fallbackId = __tmResolveFirstVisibleTaskIdFromRowModel(rowModel);
             const dismissed = !!state.checklistDetailDismissed;
+            const resolveChecklistDetailTask = (taskId) => {
+                const tid = String(taskId || '').trim();
+                if (!tid) return null;
+                try {
+                    const projectedTask = typeof __tmGetTaskDetailTaskById === 'function'
+                        ? __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
+                        : null;
+                    if (projectedTask) return projectedTask;
+                } catch (e) {}
+                return globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
+            };
             const selectedTask = selectedId
-                ? (
-                    globalThis.__tmTaskBoundary?.getTask?.(selectedId) || null
-                )
+                ? resolveChecklistDetailTask(selectedId)
                 : null;
             const activeId = selectedTask
                 ? selectedId
@@ -601,9 +610,7 @@
                 ? `<div class="tm-checklist-load-more" style="padding:10px 0;text-align:center;"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmChecklistLoadMoreRows(event)">继续加载</button></div>`
                 : '';
             const detailTask = activeId
-                ? (
-                    globalThis.__tmTaskBoundary?.getTask?.(activeId) || null
-                )
+                ? resolveChecklistDetailTask(activeId)
                 : null;
             const detailHtml = detailTask
                 ? (typeof __tmShouldRenderTaskDetailNoteView === 'function' && __tmShouldRenderTaskDetailNoteView('sheet', detailTask)

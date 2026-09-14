@@ -2142,6 +2142,11 @@
                              <span class="tm-setting-field-unit">(0=跟随)</span>`
                         )}
                         ${renderSingleSwitchSetting(
+                            '剩余时间按工作日计算',
+                            '开启后，剩余时间显示会跳过周六和周日；显示文案保持不变。时间分组、四象限和排序不受影响。',
+                            '<input class="b3-switch fn__flex-center" type="checkbox" ' + (SettingsStore.data.remainingTimeUseWorkdays ? 'checked' : '') + ' onchange="updateRemainingTimeUseWorkdays(this.checked)">'
+                        )}
+                        ${renderSingleSwitchSetting(
                             '父任务名称加粗',
                             '开启后父任务名称保持加粗显示；关闭后任务名称使用普通字重。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.parentTaskNameBoldEnabled !== false ? 'checked' : ''} onchange="updateParentTaskNameBoldEnabled(this.checked)">`

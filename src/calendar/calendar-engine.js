@@ -47,7 +47,7 @@
             // needed to paint a complete calendar grid. Keep that contract in
             // every month view; otherwise mobile month rendering treats the
             // grid's first visible day as the selected month.
-            const titleRange = viewType === 'dayGridMonth'
+            const titleRange = viewType === 'dayGridMonth' || viewType === 'listMonth'
                 ? {
                     start: new Date(currentDate.getFullYear(), currentDate.getMonth(), 1),
                     end: new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1),

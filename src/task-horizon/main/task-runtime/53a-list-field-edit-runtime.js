@@ -1,3 +1,33 @@
+    function __tmResolveTaskForCardEdit(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+
+        const candidates = [
+            () => globalThis.__tmTaskBoundary?.getTask?.(tid, { includePending: true, preferPending: true }),
+            () => globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true }),
+            () => globalThis.__tmRuntimeState?.getFlatTaskById?.(tid),
+            () => globalThis.__tmRuntimeState?.getPendingTaskById?.(tid),
+            () => globalThis.__tmTaskStore?.getProjected?.(tid),
+            () => globalThis.__tmTaskStore?.get?.(tid, { includePending: true, preferPending: true }),
+            () => globalThis.__tmCalendarGetTaskSnapshot?.(tid),
+            () => {
+                const tasks = globalThis.__tmCalendarAllTasksCache?.tasks;
+                return Array.isArray(tasks)
+                    ? tasks.find((task) => String(task?.id || '').trim() === tid) || null
+                    : null;
+            },
+        ];
+        for (const resolve of candidates) {
+            try {
+                const task = resolve();
+                if (task && typeof task === 'object') return task;
+            } catch (e) {}
+        }
+        return null;
+    }
+
+    globalThis.__tmResolveTaskForCardEdit = __tmResolveTaskForCardEdit;
+
     window.tmSetTaskPriority = async function(id, value, opts = {}) {
         const tid = String(id || '').trim();
         if (!tid) return false;
@@ -139,7 +169,7 @@
             ev?.preventDefault?.();
         } catch (e) {}
         const tid = String(id || '').trim();
-        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
+        const task = __tmResolveTaskForCardEdit(tid);
         if (!task) return;
         let patchTask = null;
         try { patchTask = globalThis.__tmRequireTaskMutation?.('patchTask'); } catch (e) { patchTask = null; }
@@ -162,7 +192,7 @@
         } catch (e) {}
         const el = ev.target.closest('td');
         const tid = String(id || '').trim();
-        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
+        const task = __tmResolveTaskForCardEdit(tid);
         if (!task || !el) return;
         __tmOpenInlineEditor(el, ({ editor, close }) => {
             const options = SettingsStore.data.customStatusOptions || [];
@@ -236,7 +266,7 @@
     async function __tmPersistTaskCustomFieldValue(taskId, fieldId, nextValue, options = {}) {
         const tid = String(taskId || '').trim();
         const fid = String(fieldId || '').trim();
-        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
+        const task = __tmResolveTaskForCardEdit(tid);
         const field = __tmGetCustomFieldDefMap().get(fid);
         if (!tid || !task || !field || !__tmIsCustomFieldApplicableToTask(field, task)) return false;
         const normalized = __tmNormalizeCustomFieldValue(field, nextValue);
@@ -408,7 +438,7 @@
         const tid = String(taskId || '').trim();
         const fid = String(fieldId || '').trim();
         const field = __tmGetCustomFieldDefMap().get(fid);
-        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
+        const task = __tmResolveTaskForCardEdit(tid);
         if (!(anchorEl instanceof Element) || !field || !task || !__tmIsCustomFieldApplicableToTask(field, task)) return;
         const selected = __tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task, fid));
         const isMulti = String(field.type || '').trim() === 'multi';
@@ -572,7 +602,7 @@
             ev?.preventDefault?.();
         } catch (e) {}
         const tid = String(id || '').trim();
-        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
+        const task = __tmResolveTaskForCardEdit(tid);
         if (!task || !(el instanceof Element)) return;
 
         __tmOpenInlineEditor(el, ({ editor, close }) => {

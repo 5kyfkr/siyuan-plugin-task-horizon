@@ -90,6 +90,11 @@ for (const [, selector, declarations] of prototypeTitleRules) {
     const hidesContinuationTitle = fontSize === '0' && selector.includes('.is-span-continuation');
     const isCompactMonthTitle = selector.includes('.tm-calendar-root--month-view .tm-proto-event--chip.tm-proto-month-event .tm-proto-event-title')
         || selector.includes('.tm-proto-surface--compact-month .tm-proto-event--chip:not(.tm-proto-month-event) .tm-proto-event-title');
+    const isListTitle = selector.includes('.tm-proto-list-event .tm-proto-event-title');
+    if (isListTitle) {
+        assert.equal(fontSize, 'calc(var(--tm-font-size, 13px) - 1px)', 'list event titles must follow the list typography scale');
+        continue;
+    }
     if (isCompactMonthTitle) {
         assert.match(
             declarations,
