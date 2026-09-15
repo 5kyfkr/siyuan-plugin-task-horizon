@@ -45,7 +45,7 @@ const bottomNavAvoidance = renderRuntime.slice(
 assert.doesNotMatch(bottomNavAvoidance, /colBody\.scrollTop\s*=/, 'bottom-nav avoidance refreshes must not overwrite an active mobile column scroll');
 
 assert.match(dialogs, /mode !== 'list' && mode !== 'checklist' && mode !== 'timeline'/, 'table, checklist, and timeline must share one near-bottom loader');
-assert.match(dialogs, /remainingPx > thresholdPx/, 'list-like views must wait until the shared scrollport is near its tail');
+assert.match(dialogs, /remainingPx <= preloadThresholdPx/, 'list-like views must wait until the shared scrollport is near its tail');
 assert.match(dialogs, /appendOnly: true/, 'list-like continuation must preserve mounted rows');
 assert.match(renderRuntime, /return Math\.max\(0, Math\.ceil\(\(Number\(colBody\.scrollHeight\)/, 'mobile bottom-nav measurement must avoid per-card layout reads');
 assert.match(styles, /\.tm-kanban-deferred\s*\{[\s\S]*min-height: 48px;/, 'deferred columns must reserve a stable visible loading area');
