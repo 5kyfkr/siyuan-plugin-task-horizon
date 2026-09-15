@@ -10552,9 +10552,10 @@
         }
     }
 
-    function __tmApplyTodayScheduledTaskNameMarks(modalEl) {
+    function __tmApplyTodayScheduledTaskNameMarks(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
+        const root = options?.rootEl instanceof Element ? options.rootEl : modal;
         const selectors = [
             '#tmTaskTable tbody tr[data-id] .tm-task-content-clickable',
             '#tmTimelineLeftTable tbody tr[data-id] .tm-task-content-clickable',
@@ -10562,7 +10563,7 @@
             '.tm-checklist-item[data-id] .tm-checklist-title-button > span',
             '.tm-body--kanban .tm-kanban-card[data-id] .tm-task-content-clickable',
         ].join(',');
-        const items = modal.querySelectorAll(selectors);
+        const items = root.matches?.(selectors) ? [root] : root.querySelectorAll(selectors);
         items.forEach((el) => {
             if (!(el instanceof HTMLElement)) return;
             const owner = el.closest('tr[data-id], .tm-kanban-card[data-id], .tm-checklist-item[data-id]');
@@ -10794,17 +10795,19 @@
         if (!root) return 0;
         const panes = [];
         if (root.matches?.('.tm-checklist-pane--compact')) panes.push(root);
-        else if (root.matches?.('.tm-checklist-item[data-id]')) {
-            const pane = root.closest?.('.tm-checklist-pane--compact');
-            if (pane instanceof HTMLElement) panes.push(pane);
+        else {
+            const closestPane = root.closest?.('.tm-checklist-pane--compact');
+            if (closestPane instanceof HTMLElement) panes.push(closestPane);
+            else root.querySelectorAll?.('.tm-checklist-pane--compact').forEach((pane) => panes.push(pane));
         }
-        else root.querySelectorAll?.('.tm-checklist-pane--compact').forEach((pane) => panes.push(pane));
         let changed = 0;
         panes.forEach((pane) => {
             if (!(pane instanceof HTMLElement)) return;
             const items = root.matches?.('.tm-checklist-item[data-id]')
                 ? [root]
-                : Array.from(pane.querySelectorAll('.tm-checklist-item[data-id]'));
+                : (root === pane
+                    ? Array.from(pane.querySelectorAll('.tm-checklist-item[data-id]'))
+                    : Array.from(root.querySelectorAll?.('.tm-checklist-item[data-id]') || []));
             items.forEach((item) => {
                 if (!(item instanceof HTMLElement)) return;
                 const title = item.querySelector('.tm-checklist-title-button > span');
@@ -12926,10 +12929,12 @@
         },
     };
 
-    function __tmApplyReminderTaskNameMarks(modalEl) {
+    function __tmApplyReminderTaskNameMarks(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
-        const rows = modal.querySelectorAll('#tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id], .tm-checklist-item[data-id]');
+        const root = options?.rootEl instanceof Element ? options.rootEl : modal;
+        const rowSelector = '#tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id], .tm-checklist-item[data-id]';
+        const rows = root.matches?.(rowSelector) ? [root] : root.querySelectorAll(rowSelector);
         rows.forEach((row) => {
             if (!(row instanceof HTMLElement)) return;
             const tid = String(row.getAttribute('data-id') || '').trim();
@@ -12991,12 +12996,15 @@
         return out;
     }
 
-    function __tmScheduleReminderTaskNameMarksRefresh(modalEl, force = false) {
+    function __tmScheduleReminderTaskNameMarksRefresh(modalEl, force = false, rootEl = null) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
-        __tmApplyReminderTaskNameMarks(modal);
+        const root = rootEl instanceof Element ? rootEl : modal;
+        __tmApplyReminderTaskNameMarks(modal, { rootEl: root });
         Promise.resolve().then(async () => {
-            const rows = Array.from(modal.querySelectorAll('#tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id], .tm-checklist-item[data-id]'));
+            if (!modal.isConnected || (root !== modal && !root.isConnected)) return;
+            const rowSelector = '#tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id], .tm-checklist-item[data-id]';
+            const rows = Array.from(root.matches?.(rowSelector) ? [root] : root.querySelectorAll(rowSelector));
             const ids = Array.from(new Set(rows
                 .map((row) => String(row?.getAttribute?.('data-id') || '').trim())
                 .filter(Boolean)));
@@ -13022,19 +13030,21 @@
                 queryIds.forEach((tid) => __tmReminderMarkLoading.delete(tid));
             }
             if (!modal.isConnected) return;
-            __tmApplyReminderTaskNameMarks(modal);
+            __tmApplyReminderTaskNameMarks(modal, { rootEl: root });
         }).catch(() => null);
     }
 
-    function __tmScheduleTodayScheduledTaskNameMarksRefresh(modalEl, force = false) {
+    function __tmScheduleTodayScheduledTaskNameMarksRefresh(modalEl, force = false, rootEl = null) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
+        const root = rootEl instanceof Element ? rootEl : modal;
         Promise.resolve().then(async () => {
             try {
                 await __tmLoadTodayScheduledTaskIds(force);
             } catch (e) {}
             if (!modal.isConnected) return;
-            __tmApplyTodayScheduledTaskNameMarks(modal);
+            if (!modal.isConnected || (root !== modal && !root.isConnected)) return;
+            __tmApplyTodayScheduledTaskNameMarks(modal, { rootEl: root });
         }).catch(() => null);
     }
 
@@ -21942,8 +21952,12 @@ if (!state.homepageOpen) return;
         });
     }
 
-    function __tmBindFloatingTooltipsAfterLocalRerender(modalEl) {
-        try { __tmBindFloatingTooltips(modalEl instanceof Element ? modalEl : state.modal); } catch (e) {}
+    function __tmBindFloatingTooltipsAfterLocalRerender(modalEl, rootEl = null) {
+        try {
+            const modal = modalEl instanceof Element ? modalEl : state.modal;
+            const root = rootEl instanceof Element ? rootEl : modal;
+            __tmBindFloatingTooltips(root);
+        } catch (e) {}
     }
 
     window.tmBindFloatingTooltipsForTaskModal = function(modalEl) {
@@ -26380,6 +26394,109 @@ return true;
         }, 0);
     }
 
+    function __tmAppendChecklistRenderWindowFragment(modalEl, bodyEl, fragmentBodyEl) {
+        const modal = modalEl instanceof Element ? modalEl : null;
+        const body = bodyEl instanceof HTMLElement ? bodyEl : null;
+        const fragmentBody = fragmentBodyEl instanceof HTMLElement ? fragmentBodyEl : null;
+        if (!modal || !body || !fragmentBody) return false;
+        const currentItems = body.querySelector('.tm-checklist-items');
+        const fragmentItems = fragmentBody.matches('.tm-checklist-items[data-tm-checklist-window-fragment]')
+            ? fragmentBody
+            : null;
+        if (!(currentItems instanceof HTMLElement) || !(fragmentItems instanceof HTMLElement)) return false;
+        const fragmentNodes = __tmGetDirectChecklistContentNodes(fragmentItems);
+        if (!fragmentNodes.length) return false;
+        const currentLoadMore = Array.from(currentItems.children || []).find((child) => (
+            child instanceof HTMLElement && child.classList.contains('tm-checklist-load-more')
+        )) || null;
+        const currentTaskIds = new Set(Array.from(currentItems.querySelectorAll('.tm-checklist-item[data-id]'))
+            .map((item) => String(item.getAttribute('data-id') || '').trim())
+            .filter(Boolean));
+        const fragmentHasCards = fragmentNodes.some((node) => node.classList.contains('tm-checklist-group-card'));
+        const appendedNodes = [];
+        let insertedTaskCount = 0;
+        try {
+            if (fragmentHasCards) {
+                const currentCards = __tmBuildChecklistCardMap(currentItems);
+                fragmentNodes.forEach((node) => {
+                    if (!node.classList.contains('tm-checklist-group-card')) return;
+                    const key = __tmGetChecklistGroupKeyFromCard(node);
+                    const currentCard = key ? currentCards.get(key) : null;
+                    if (!(currentCard instanceof HTMLElement)) {
+                        const clone = node.cloneNode(true);
+                        clone.querySelectorAll('.tm-checklist-item[data-id]').forEach((item) => {
+                            const taskId = String(item.getAttribute('data-id') || '').trim();
+                            if (!taskId || currentTaskIds.has(taskId)) item.remove();
+                            else currentTaskIds.add(taskId);
+                        });
+                        if (!clone.querySelector('.tm-checklist-item[data-id]')) return;
+                        if (currentLoadMore instanceof HTMLElement) currentItems.insertBefore(clone, currentLoadMore);
+                        else currentItems.appendChild(clone);
+                        appendedNodes.push(clone);
+                        insertedTaskCount += __tmCountChecklistTasksInNodes([node]);
+                        return;
+                    }
+                    const nextContainer = __tmGetChecklistCardItemsContainer(node);
+                    if (!(nextContainer instanceof HTMLElement)) return;
+                    let currentContainer = __tmGetChecklistCardItemsContainer(currentCard);
+                    if (!(currentContainer instanceof HTMLElement)) {
+                        currentContainer = nextContainer.cloneNode(false);
+                        currentCard.appendChild(currentContainer);
+                    }
+                    const currentKeys = new Set(Array.from(currentContainer.children || [])
+                        .map((child) => __tmGetChecklistAppendNodeKey(child))
+                        .filter(Boolean));
+                    Array.from(nextContainer.children || []).forEach((child) => {
+                        const taskId = child.classList.contains('tm-checklist-item')
+                            ? String(child.getAttribute('data-id') || '').trim()
+                            : '';
+                        if (taskId && currentTaskIds.has(taskId)) return;
+                        const keyValue = __tmGetChecklistAppendNodeKey(child);
+                        if (keyValue && currentKeys.has(keyValue)) return;
+                        const clone = child.cloneNode(true);
+                        currentContainer.appendChild(clone);
+                        appendedNodes.push(clone);
+                        if (keyValue) currentKeys.add(keyValue);
+                        if (taskId) currentTaskIds.add(taskId);
+                        insertedTaskCount += __tmCountChecklistTasksInNodes([child]);
+                    });
+                    currentCard.classList.toggle('tm-checklist-group-card--collapsed', currentContainer.children.length === 0);
+                });
+            } else {
+                const currentKeys = new Set(Array.from(currentItems.children || [])
+                    .map((child) => __tmGetChecklistAppendNodeKey(child))
+                    .filter(Boolean));
+                currentItems.querySelectorAll('.tm-checklist-item[data-id]').forEach((item) => {
+                    const keyValue = __tmGetChecklistAppendNodeKey(item);
+                    if (keyValue) currentKeys.add(keyValue);
+                });
+                fragmentNodes.forEach((node) => {
+                    const taskId = node.classList.contains('tm-checklist-item')
+                        ? String(node.getAttribute('data-id') || '').trim()
+                        : '';
+                    if (taskId && currentTaskIds.has(taskId)) return;
+                    const keyValue = __tmGetChecklistAppendNodeKey(node);
+                    if (keyValue && currentKeys.has(keyValue)) return;
+                    const clone = node.cloneNode(true);
+                    if (currentLoadMore instanceof HTMLElement) currentItems.insertBefore(clone, currentLoadMore);
+                    else currentItems.appendChild(clone);
+                    appendedNodes.push(clone);
+                    if (keyValue) currentKeys.add(keyValue);
+                    if (taskId) currentTaskIds.add(taskId);
+                    insertedTaskCount += __tmCountChecklistTasksInNodes([node]);
+                });
+            }
+            if (fragmentItems.getAttribute('data-tm-checklist-window-fragment-complete') === '1') {
+                currentLoadMore?.remove?.();
+            }
+        } catch (e) {
+            return false;
+        }
+        currentItems.dataset.tmLastIncrementalAppendCount = String(Math.max(0, insertedTaskCount));
+        currentItems.__tmLastIncrementalAppendNodes = appendedNodes;
+        return insertedTaskCount > 0;
+    }
+
     function __tmTryAppendChecklistRenderWindow(modalEl, bodyEl, nextBodyEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : null;
         const body = bodyEl instanceof HTMLElement ? bodyEl : null;
@@ -26430,6 +26547,7 @@ return true;
             child instanceof HTMLElement && child.classList.contains('tm-checklist-load-more')
         )) || null;
         const topLevelNodes = nextNodes.slice(currentNodes.length);
+        const appendedNodes = [];
         let insertedTaskCount = 0;
         try {
             cardPlans.forEach((plan) => {
@@ -26438,7 +26556,11 @@ return true;
                     container = plan.nextContainer.cloneNode(false);
                     plan.card.appendChild(container);
                 }
-                plan.nodes.forEach((node) => container.appendChild(node.cloneNode(true)));
+                plan.nodes.forEach((node) => {
+                    const clone = node.cloneNode(true);
+                    container.appendChild(clone);
+                    appendedNodes.push(clone);
+                });
                 plan.card.classList.toggle('tm-checklist-group-card--collapsed', !!plan.collapsed);
                 insertedTaskCount += __tmCountChecklistTasksInNodes(plan.nodes);
             });
@@ -26446,6 +26568,7 @@ return true;
                 const clone = node.cloneNode(true);
                 if (currentLoadMore instanceof HTMLElement) currentItems.insertBefore(clone, currentLoadMore);
                 else currentItems.appendChild(clone);
+                appendedNodes.push(clone);
             });
             insertedTaskCount += __tmCountChecklistTasksInNodes(topLevelNodes);
             if (!(nextLoadMore instanceof HTMLElement)) {
@@ -26457,7 +26580,49 @@ return true;
             return false;
         }
         currentItems.dataset.tmLastIncrementalAppendCount = String(Math.max(0, insertedTaskCount));
+        currentItems.__tmLastIncrementalAppendNodes = appendedNodes;
         return true;
+    }
+
+    function __tmGetChecklistIncrementalAppendNodes(itemsEl) {
+        const items = itemsEl instanceof HTMLElement ? itemsEl : null;
+        if (!items || !Array.isArray(items.__tmLastIncrementalAppendNodes)) return [];
+        return items.__tmLastIncrementalAppendNodes.filter((node) => node instanceof Element && node.isConnected);
+    }
+
+    function __tmFinishChecklistIncrementalAppend(modalEl, paneEl, itemsEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const pane = paneEl instanceof HTMLElement ? paneEl : null;
+        const items = itemsEl instanceof HTMLElement ? itemsEl : null;
+        if (!(modal instanceof Element) || !items) return;
+        const roots = __tmGetChecklistIncrementalAppendNodes(items);
+        roots.forEach((root) => {
+            try {
+                __tmRefreshChecklistSelectionInPlace(modal, 'checklist-window-append', {
+                    itemsRoot: root,
+                    onlyItems: true,
+                });
+            } catch (e) {}
+        });
+        try { pane?.__tmChecklistScrollUpdateThumb?.(); } catch (e) {}
+        try { requestAnimationFrame(() => pane?.__tmChecklistScrollUpdateThumb?.()); } catch (e) {}
+        const decorate = () => {
+            if (!modal.isConnected || !items.isConnected) return;
+            roots.filter((root) => root.isConnected).forEach((root) => {
+                try { __tmApplyReminderTaskNameMarks(modal, { rootEl: root }); } catch (e) {}
+                try { __tmScheduleReminderTaskNameMarksRefresh(modal, false, root); } catch (e) {}
+                try { __tmApplyTodayScheduledTaskNameMarks(modal, { rootEl: root }); } catch (e) {}
+                try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal, false, root); } catch (e) {}
+                try { __tmBindFloatingTooltipsAfterLocalRerender(modal, root); } catch (e) {}
+                try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(root); } catch (e) {}
+            });
+        };
+        try {
+            if (typeof __tmScheduleIdleTask === 'function') __tmScheduleIdleTask(decorate, 120);
+            else setTimeout(decorate, 0);
+        } catch (e) {
+            try { setTimeout(decorate, 0); } catch (e2) {}
+        }
     }
 
     function __tmInsertChecklistCardByNextOrder(currentItems, nextCards, nextCard) {
@@ -27096,8 +27261,12 @@ return true;
     function __tmRerenderChecklistInPlace(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const opts = (options && typeof options === 'object') ? options : {};
-        if (!(modal instanceof Element)) return false;
-        if (String(state.viewMode || '').trim() !== 'checklist') return false;
+        if (!(modal instanceof Element)) {
+            return false;
+        }
+        if (String(state.viewMode || '').trim() !== 'checklist') {
+            return false;
+        }
         if (opts.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.('checklist')) {
             globalThis.__tmQueueViewDomCommit?.('checklist', () => __tmRerenderChecklistInPlace(modal, {
                 ...opts,
@@ -27105,16 +27274,22 @@ return true;
             }), { reason: String(opts.reason || 'checklist-rerender').trim() || 'checklist-rerender' });
             return true;
         }
-const renderBodyHtml = state.renderChecklistBodyHtml;
-        if (typeof renderBodyHtml !== 'function') return false;
+        const renderBodyHtml = state.renderChecklistBodyHtml;
+        if (typeof renderBodyHtml !== 'function') {
+            return false;
+        }
         const body = modal.querySelector('.tm-body.tm-body--checklist');
         const pane = modal.querySelector('.tm-checklist-scroll');
-        if (!(body instanceof HTMLElement) || !(pane instanceof HTMLElement)) return false;
+        if (!(body instanceof HTMLElement) || !(pane instanceof HTMLElement)) {
+            return false;
+        }
         const renderSignature = typeof __tmBuildCurrentViewDomRenderSignature === 'function'
             ? __tmBuildCurrentViewDomRenderSignature('checklist')
             : '';
         const checklistProjectionTaskIds = __tmGetChecklistProjectionGroupRefreshTaskIds();
-        if (opts.requireAppend === true && checklistProjectionTaskIds.length > 0) return false;
+        if (opts.requireAppend === true && checklistProjectionTaskIds.length > 0) {
+            return false;
+        }
         if (checklistProjectionTaskIds.length === 0
             && renderSignature
             && String(state.listDomRenderSignature || '') === renderSignature) {
@@ -27147,18 +27322,41 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             } catch (e) {}
         }
         let nextBody = null;
+        let renderedBodyHtml = '';
         try {
             const taskBranchId = opts.listOnly === true
                 && String(opts.collapseKind || '').trim() === 'task'
                 && !state.collapsedTaskIds?.has?.(String(opts.collapseKey || '').trim())
                 ? String(opts.collapseKey || '').trim()
                 : '';
-            nextBody = __tmBuildElementFromHtml(renderBodyHtml({ taskBranchId }));
+            const previousLimit = Math.max(0, Math.round(Number(opts.previousLimit) || 0));
+            const nextLimit = Math.max(0, Math.round(Number(state.listRenderLimit) || 0));
+            const fragmentOnly = opts.appendOnly === true
+                && !opts.listOnly
+                && !taskBranchId
+                && nextLimit > previousLimit;
+            renderedBodyHtml = renderBodyHtml({
+                taskBranchId,
+                fragmentOnly,
+                fragmentStartTaskCount: fragmentOnly ? previousLimit : null,
+                fragmentEndTaskCount: fragmentOnly ? nextLimit : null,
+            });
+            nextBody = __tmBuildElementFromHtml(renderedBodyHtml);
         } catch (e) {
             return false;
         }
         if (!(nextBody instanceof HTMLElement)) {
             return false;
+        }
+        if (opts.appendOnly === true && nextBody.matches('.tm-checklist-items[data-tm-checklist-window-fragment]')) {
+            const fragmentAppended = __tmAppendChecklistRenderWindowFragment(modal, body, nextBody);
+            if (!fragmentAppended) return false;
+            __tmFinishChecklistIncrementalAppend(modal, pane, body.querySelector('.tm-checklist-items'));
+            if (renderSignature) {
+                try { state.listDomRenderSignature = renderSignature; } catch (e) {}
+            }
+            state.pendingChecklistRenderRestore = null;
+            return true;
         }
         if (opts.listOnly === true) {
             const currentItems = body.querySelector('.tm-checklist-items');
@@ -27229,15 +27427,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         }
         __tmClearChecklistProjectionGroupRefresh();
         if (opts.appendOnly === true && __tmTryAppendChecklistRenderWindow(modal, body, nextBody, opts)) {
-            try { __tmRefreshChecklistSelectionInPlace(modal, 'checklist-window-append'); } catch (e) {}
-            try { pane.__tmChecklistScrollUpdateThumb?.(); } catch (e) {}
-            try { requestAnimationFrame(() => pane.__tmChecklistScrollUpdateThumb?.()); } catch (e) {}
-            try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
-            try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
-            try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
-            try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
-            __tmBindFloatingTooltipsAfterLocalRerender(modal);
-            try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(modal); } catch (e) {}
+            __tmFinishChecklistIncrementalAppend(modal, pane, body.querySelector('.tm-checklist-items'));
             if (renderSignature) {
                 try { state.listDomRenderSignature = renderSignature; } catch (e) {}
             }

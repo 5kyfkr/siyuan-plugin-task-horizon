@@ -22,6 +22,7 @@
             pendingCommit: null,
             pendingCommitReason: '',
             pendingCommitPriority: 0,
+            pendingCommitDedupeKey: '',
             dragRetryTimer: 0,
         };
         state.__tmViewScrollGate = gate;
@@ -59,8 +60,13 @@
         gate.pendingCommit = null;
         gate.pendingCommitReason = '';
         gate.pendingCommitPriority = 0;
+        gate.pendingCommitDedupeKey = '';
         if (typeof pending !== 'function') return false;
-        try { return pending() !== false; } catch (e) { return false; }
+        let result = false;
+        try {
+            result = pending() !== false;
+        } catch (e) {}
+        return result;
     }
 
     function __tmQueueViewDomCommit(modeInput = '', callback, options = {}) {
@@ -73,10 +79,17 @@
             && options?.preparedOnly === true;
         if ((gate.scrolling && !allowDuringScroll) || __tmIsViewDragActive()) {
             const priority = Math.max(0, Number(options?.priority) || 0);
-            if (!gate.pendingCommit || priority >= gate.pendingCommitPriority) {
+            const reason = String(options?.reason || '').trim();
+            const dedupeKey = String(options?.dedupeKey || '').trim();
+            if (dedupeKey && gate.pendingCommit && gate.pendingCommitDedupeKey === dedupeKey) {
+                return true;
+            }
+            const shouldReplace = !gate.pendingCommit || priority >= gate.pendingCommitPriority;
+            if (shouldReplace) {
                 gate.pendingCommit = callback;
-                gate.pendingCommitReason = String(options?.reason || '').trim();
+                gate.pendingCommitReason = reason;
                 gate.pendingCommitPriority = priority;
+                gate.pendingCommitDedupeKey = dedupeKey;
             }
             if (__tmIsViewDragActive() && !gate.dragRetryTimer) {
                 gate.dragRetryTimer = setTimeout(() => {
@@ -85,6 +98,7 @@
                         __tmQueueViewDomCommit(mode, gate.pendingCommit, {
                             reason: gate.pendingCommitReason,
                             priority: gate.pendingCommitPriority,
+                            dedupeKey: gate.pendingCommitDedupeKey,
                         });
                     } else {
                         __tmFlushViewDomCommit(mode);
@@ -93,7 +107,11 @@
             }
             return true;
         }
-        try { return callback() !== false; } catch (e) { return false; }
+        let result = false;
+        try {
+            result = callback() !== false;
+        } catch (e) {}
+        return result;
     }
 
     function __tmTrackViewScroll(hostInput, modeInput = '') {
@@ -163,6 +181,7 @@
             gate.pendingCommit = null;
             gate.pendingCommitReason = '';
             gate.pendingCommitPriority = 0;
+            gate.pendingCommitDedupeKey = '';
         }
         job.prepareInFlight = false;
         job.preparedBatch = null;

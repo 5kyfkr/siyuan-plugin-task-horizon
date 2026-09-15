@@ -915,7 +915,8 @@
             }
         }
 
-        return allRows.join('');
+        const html = allRows.join('');
+        return html;
     }
 
     window.tmListLoadMoreRows = async function(ev) {

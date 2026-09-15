@@ -14449,6 +14449,7 @@
         const cacheTtlMs = 20000;
         const valueMapByTaskId = new Map();
         const uncachedTaskIds = [];
+        let queryComplete = true;
         let cacheHitCount = 0;
         safeTaskIds.forEach((taskId) => {
             const cached = __tmCustomFieldAttrValueCache.get(taskId);
@@ -14506,8 +14507,17 @@
                 WHERE block_id IN (${idList})
                   AND name IN (${nameList})
             `;
-            const res = await API.call('/api/query/sql', { stmt: sql });
-            if (res.code !== 0 || !Array.isArray(res.data)) continue;
+            let res = null;
+            try {
+                res = await API.call('/api/query/sql', { stmt: sql });
+            } catch (e) {
+                queryComplete = false;
+                continue;
+            }
+            if (res?.code !== 0 || !Array.isArray(res?.data)) {
+                queryComplete = false;
+                continue;
+            }
             res.data.forEach((row) => {
                 const blockId = String(row?.block_id || '').trim();
                 const attrName = String(row?.name || '').trim();
@@ -14546,6 +14556,10 @@
                 if (Object.prototype.hasOwnProperty.call(normalizedValues, fieldId)) acc[fieldId] = normalizedValues[fieldId];
                 return acc;
             }, {}));
+            if (!queryComplete) {
+                valueMapByTaskId.set(taskId, null);
+                return;
+            }
             try {
                 __tmCustomFieldAttrValueCache.set(taskId, {
                     t: nowTs,
@@ -14567,6 +14581,7 @@
             cacheHitCount,
             cacheMissCount: uncachedTaskIds.length,
             requestedFieldCount: defs.length,
+            queryComplete,
         };
     }
 
@@ -14595,6 +14610,17 @@
             candidateIds.add(taskId);
         });
         const queryResult = await __tmQueryCustomFieldAttrRowsByTaskIds(Array.from(candidateIds), opts);
+        if (queryResult?.queryComplete === false) {
+            return {
+                cacheHitCount: Number(queryResult?.cacheHitCount || 0),
+                cacheMissCount: Number(queryResult?.cacheMissCount || 0),
+                hostQueryCount: candidateIds.size,
+                selfFallbackCount: 0,
+                hostAssignedCount: 0,
+                selfAssignedCount: 0,
+                requestedFieldCount: Number(queryResult?.requestedFieldCount || 0),
+            };
+        }
         const valueMap = queryResult?.valueMapByTaskId instanceof Map ? queryResult.valueMapByTaskId : new Map();
         const applyResolvedRawValues = (task, resolvedValues) => {
             const nextResolvedValues = (resolvedValues && typeof resolvedValues === 'object' && !Array.isArray(resolvedValues))

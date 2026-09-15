@@ -843,6 +843,13 @@
             }
         } catch (e) {}
         try {
+            if (typeof __tmAttachCustomFieldAttrsToTasks === 'function'
+                && typeof __tmGetCustomFieldDefs === 'function'
+                && __tmGetCustomFieldDefs().length > 0) {
+                await __tmAttachCustomFieldAttrsToTasks([task]);
+            }
+        } catch (e) {}
+        try {
             const recentCustomFields = tid && typeof __tmGetLocalTaskPatchWatermarkValue === 'function'
                 ? __tmGetLocalTaskPatchWatermarkValue(tid, 'customFieldValues')
                 : null;
@@ -9341,16 +9348,19 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const forceRebuild = opts.forceRebuild === true;
         const selectedId = String(state.detailTaskId || '').trim();
-const multiSelectedSet = __tmGetMultiSelectedTaskIdSet();
-        const panelState = __tmResolveChecklistDetailPanel(modal, { preferSheetMode: __tmChecklistUseSheetMode(modal) });
-        const sheetMode = !!panelState.sheetMode;
-        const items = modal.querySelectorAll('.tm-checklist-item[data-id]');
+        const multiSelectedSet = __tmGetMultiSelectedTaskIdSet();
+        const itemsRoot = opts.itemsRoot instanceof Element ? opts.itemsRoot : modal;
+        const itemSelector = '.tm-checklist-item[data-id]';
+        const items = itemsRoot.matches?.(itemSelector) ? [itemsRoot] : itemsRoot.querySelectorAll(itemSelector);
         items.forEach((item) => {
             if (!(item instanceof HTMLElement)) return;
             const id = String(item.getAttribute('data-id') || '').trim();
             item.classList.toggle('tm-checklist-item--active', !!selectedId && __tmAreTaskDetailIdsEquivalent(id, selectedId));
             item.classList.toggle('tm-task-row--multi-selected', !!id && multiSelectedSet.has(id));
         });
+        if (opts.onlyItems === true) return true;
+        const panelState = __tmResolveChecklistDetailPanel(modal, { preferSheetMode: __tmChecklistUseSheetMode(modal) });
+        const sheetMode = !!panelState.sheetMode;
         const panel = panelState.panel;
         if (!(panel instanceof HTMLElement)) {
             return false;

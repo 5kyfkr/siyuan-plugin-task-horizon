@@ -130,6 +130,8 @@ assert.match(
 );
 assert.match(detailSource, /function __tmSyncTaskDetailLocationInPlace\(/,
     'task detail location rendering must have a reusable in-place sync path');
+assert.match(detailSource, /__tmAttachCustomFieldAttrsToTasks\(\[task\]\)/,
+    'task detail hydration must load custom text fields before the detail is refreshed');
 assert.match(detailSource, /__tmShouldPreserveTaskDetailEditorDuringRefresh\(panel, selectedId\)[\s\S]*__tmSyncTaskDetailLocationInPlace\(panel, task\)/,
     'checklist detail refreshes must update location chips while preserving active edits');
 const sheetRefresh = detailSource.slice(
@@ -138,6 +140,15 @@ const sheetRefresh = detailSource.slice(
 );
 assert.match(sheetRefresh, /__tmShouldPreserveTaskDetailEditorDuringRefresh\(panel, selectedId\)[\s\S]*__tmSyncTaskDetailLocationInPlace\(panel, task\)/,
     'task detail sheet refreshes must update location chips while preserving active edits');
+assert.match(
+    read('src', 'task-horizon', 'main', '40-render-runtime.js'),
+    /renderMode === 'checklist'[\s\S]*__tmGetTaskDetailTaskById\(selectedId, \{ includePending: true, preferPending: true, includeWhiteboard: true \}\)/,
+    'checklist detail post-bind must keep using the projected task instead of replacing it with the raw boundary task',
+);
+assert.match(storesSource, /let queryComplete = true;[\s\S]*queryComplete = false[\s\S]*queryComplete,/,
+    'custom field reads must expose transient query failures to their caller');
+assert.match(storesSource, /if \(queryResult\?\.queryComplete === false\) \{[\s\S]*return \{[\s\S]*requestedFieldCount:/,
+    'custom field query failures must preserve existing task values instead of treating them as empty fields');
 
 assert.match(
     timeRefreshSource,

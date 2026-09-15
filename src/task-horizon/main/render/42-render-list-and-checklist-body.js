@@ -36,10 +36,20 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const bodyAnimClass = String(opts.bodyAnimClass || '');
         const taskBranchId = String(opts.taskBranchId || '').trim();
+        const fragmentStartTaskCount = Number.isFinite(Number(opts.fragmentStartTaskCount))
+            ? Math.max(0, Math.round(Number(opts.fragmentStartTaskCount)))
+            : 0;
+        const fragmentEndTaskCount = Number.isFinite(Number(opts.fragmentEndTaskCount))
+            ? Math.max(fragmentStartTaskCount, Math.round(Number(opts.fragmentEndTaskCount)))
+            : 0;
+        const renderWindowFragment = opts.fragmentOnly === true
+            && !taskBranchId
+            && fragmentEndTaskCount > fragmentStartTaskCount;
 
         function __tmRenderChecklistBodyHtml() {
             const initialChecklistTaskLimit = (() => {
                 if (taskBranchId) return Number.POSITIVE_INFINITY;
+                if (renderWindowFragment) return fragmentEndTaskCount;
                 const total = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
                 const threshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 50;
                 if (total <= threshold) return Number.POSITIVE_INFINITY;
@@ -78,6 +88,8 @@
             const checklistStep = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
             const checklistTaskLimit = taskBranchRows
                 ? Number.POSITIVE_INFINITY
+                : renderWindowFragment
+                ? fragmentEndTaskCount
                 : checklistVirtualEnabled
                 ? Math.max(checklistStep, Math.min(state.filteredTasks.length, Number(state.listRenderLimit) || checklistStep))
                 : Number.POSITIVE_INFINITY;
@@ -546,8 +558,13 @@
 
             const items = [];
             let compactGroupCard = null;
+            const pendingFragmentGroups = [];
             const flushCompactGroupCard = () => {
                 if (!compactGroupCard) return;
+                if (renderWindowFragment && !compactGroupCard.hasFragmentTask) {
+                    compactGroupCard = null;
+                    return;
+                }
                 const cardClasses = [
                     'tm-checklist-group-card',
                     `tm-checklist-group-card--${compactGroupCard.kind || 'default'}`,
@@ -572,6 +589,7 @@
                             accent: String(currentGroupAccent || '').trim(),
                             header: groupHtml,
                             children: [],
+                            hasFragmentTask: false,
                         };
                         continue;
                     }
@@ -579,11 +597,16 @@
                         compactGroupCard.children.push(groupHtml);
                         continue;
                     }
+                    if (renderWindowFragment) {
+                        pendingFragmentGroups.push(groupHtml);
+                        continue;
+                    }
                     flushCompactGroupCard();
                     items.push(groupHtml);
                     continue;
                 }
                 if (row?.type === 'drop-gap') {
+                    if (renderWindowFragment && renderedChecklistTaskCount < fragmentStartTaskCount) continue;
                     const gapHtml = renderDropGap(row);
                     if (!gapHtml) continue;
                     if (checklistCompact && compactGroupCard) compactGroupCard.children.push(gapHtml);
@@ -591,12 +614,28 @@
                     continue;
                 }
                 if (renderedChecklistTaskCount >= checklistTaskLimit) break;
+                if (renderWindowFragment && renderedChecklistTaskCount < fragmentStartTaskCount) {
+                    renderedChecklistTaskCount += 1;
+                    continue;
+                }
+                if (renderWindowFragment && !checklistCompact && pendingFragmentGroups.length) {
+                    items.push(...pendingFragmentGroups.splice(0));
+                }
                 const html = renderTask(row);
                 if (!html) continue;
-                if (checklistCompact && compactGroupCard) compactGroupCard.children.push(html);
+                if (checklistCompact && compactGroupCard) {
+                    compactGroupCard.hasFragmentTask = compactGroupCard.hasFragmentTask || renderWindowFragment;
+                    compactGroupCard.children.push(html);
+                }
                 else items.push(html);
             }
             flushCompactGroupCard();
+            if (renderWindowFragment) {
+                const totalFragmentTaskCount = Number(rowModel.__tmTotalTaskCount)
+                    || rowModel.reduce((acc, row) => (row?.type === 'task' ? acc + 1 : acc), 0);
+                const fragmentComplete = fragmentEndTaskCount >= totalFragmentTaskCount;
+                return `<div class="tm-checklist-items" data-tm-checklist-window-fragment="1" data-tm-checklist-window-fragment-complete="${fragmentComplete ? '1' : '0'}">${items.join('')}</div>`;
+            }
             const itemsHtml = items.join('');
             if (taskBranchRows) {
                 return `<div class="tm-checklist-items" data-tm-checklist-branch-fragment="${esc(taskBranchId)}">${itemsHtml}</div>`;

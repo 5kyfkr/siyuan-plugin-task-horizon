@@ -3026,8 +3026,10 @@ if (detailTaskId) {
 
             } catch (e) {}
         }
+        let inPlaceRerenderResult = false;
         try {
-            if (modal && __tmRerenderChecklistInPlace(modal, opts)) {
+            if (modal) inPlaceRerenderResult = __tmRerenderChecklistInPlace(modal, opts) === true;
+            if (inPlaceRerenderResult) {
                 state.pendingChecklistRenderRestore = null;
                 return true;
             }
@@ -4237,14 +4239,21 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (meta.remaining <= 0) return false;
         state.listAutoLoadMoreInFlight = true;
         state.listAutoLoadMoreLastTs = now;
-        const viewWindowJob = typeof __tmEnsureViewWindowJob === 'function'
-            ? __tmEnsureViewWindowJob(mode)
-            : null;
+            const viewWindowJob = typeof __tmEnsureViewWindowJob === 'function'
+                ? __tmEnsureViewWindowJob(mode)
+                : null;
         if (viewWindowJob && typeof __tmIsViewWindowJobCurrent === 'function'
             && !__tmIsViewWindowJobCurrent(viewWindowJob, { mode, requireRevision: true })) {
             state.listAutoLoadMoreInFlight = false;
             return false;
         }
+        const autoLoadDedupeKey = [
+            'auto-load',
+            mode,
+            meta.currentLimit,
+            meta.total,
+            viewWindowJob?.contextKey || '',
+        ].join(':');
         try {
             const runBatch = typeof __tmRunViewWindowBatch === 'function'
                 ? (callback) => __tmRunViewWindowBatch(viewWindowJob, callback, { mode })
@@ -4329,6 +4338,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                         allowDuringScroll: opts.allowDuringScroll === true,
                         appendOnly: mode === 'list',
                         preparedOnly: opts.preparedOnly === true,
+                        dedupeKey: autoLoadDedupeKey,
                     });
                 })
                 : { ok: true, value: false };
@@ -4488,11 +4498,11 @@ return Number(state.contextInteractionQuietUntil || 0);
             const maxScrollTop = Math.max(0, Number(pane.scrollHeight || 0) - viewport);
             const remainingPx = Math.max(0, maxScrollTop - (Number(pane.scrollTop || 0)));
             const preloadThresholdPx = Math.max(640, Math.min(1600, Math.round(viewport * 2) || 0));
+            const nearBottomThresholdPx = Math.max(96, Math.min(320, Math.round(viewport * 0.35) || 0));
             if (mode === 'list' && remainingPx <= preloadThresholdPx) {
                 try { __tmPrepareListAutoLoadBatch({ mode, source: 'scroll-preload' }); } catch (e) {}
             }
-            const thresholdPx = Math.max(96, Math.min(320, Math.round(viewport * 0.35) || 0));
-            if (remainingPx > thresholdPx) return;
+            if (remainingPx > nearBottomThresholdPx) return;
             __tmAutoLoadMoreVisibleRows({
                 mode,
                 source: 'scroll-near-bottom',

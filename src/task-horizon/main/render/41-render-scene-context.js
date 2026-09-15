@@ -26,6 +26,9 @@
             return __tmBuildRenderSceneChecklistBodyHtml({
                 bodyAnimClass: __tmGetBodyAnimClassForRender(renderOptions),
                 taskBranchId: String(renderOptions?.taskBranchId || '').trim(),
+                fragmentOnly: renderOptions?.fragmentOnly === true,
+                fragmentStartTaskCount: renderOptions?.fragmentStartTaskCount,
+                fragmentEndTaskCount: renderOptions?.fragmentEndTaskCount,
             });
         }
 
