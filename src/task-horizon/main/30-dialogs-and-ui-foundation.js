@@ -4495,6 +4495,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (meta.remaining <= 0) return;
             const viewport = Math.max(0, Number(pane.clientHeight || 0));
             if (viewport <= 0) return;
+            const scrollGate = typeof __tmGetViewScrollGate === 'function'
+                ? __tmGetViewScrollGate(mode)
+                : null;
+            if (scrollGate?.host === pane && Number(scrollGate.direction || 0) < 0) return;
             const maxScrollTop = Math.max(0, Number(pane.scrollHeight || 0) - viewport);
             const remainingPx = Math.max(0, maxScrollTop - (Number(pane.scrollTop || 0)));
             const preloadThresholdPx = Math.max(640, Math.min(1600, Math.round(viewport * 2) || 0));

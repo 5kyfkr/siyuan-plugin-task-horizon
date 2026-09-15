@@ -125,6 +125,12 @@
         gate.direction = nextTop === gate.lastTop ? 0 : (nextTop > gate.lastTop ? 1 : -1);
         gate.lastTop = nextTop;
         gate.lastLeft = nextLeft;
+        if (gate.direction < 0 && String(gate.pendingCommitDedupeKey || '').startsWith('auto-load:')) {
+            gate.pendingCommit = null;
+            gate.pendingCommitReason = '';
+            gate.pendingCommitPriority = 0;
+            gate.pendingCommitDedupeKey = '';
+        }
         gate.scrolling = true;
         try {
             if (gate.endTimer) clearTimeout(gate.endTimer);
